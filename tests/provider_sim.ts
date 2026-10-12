@@ -227,6 +227,8 @@ export class CodexObserver {
   states: Record<string, string> = {};
   turns: Record<string, [string, string]> = {};
   items: Record<string, any[]> = {};
+  history_items: Record<string, any[]> = {};
+  cwds: Record<string, string> = {};
   paths: Record<string, string> = {};
   names: Record<string, string> = {};
   children: any[] = [];
@@ -365,6 +367,7 @@ export class CodexObserver {
           id: s,
           name: this.names[s] || "",
           path: this.paths[s] || "",
+          cwd: this.cwds[s] || "",
           status: {
             type: this.states[s],
             activeFlags: w ? ["waitingOnUserInput"] : [],
@@ -375,7 +378,13 @@ export class CodexObserver {
       const s = p.threadId,
         [turn, status] = this.turns[s];
       result = {
-        data: [{ id: turn, status, items: this.items[s] || [] }],
+        data: [
+          {
+            id: turn,
+            status,
+            items: (this.items[s] || []).filter(item => item.type === "userMessage" || item.type === "agentMessage"),
+          },
+        ],
         nextCursor: null,
       };
     } else if (method === "thread/backgroundTerminals/list")
@@ -398,10 +407,16 @@ export class CodexObserver {
       };
     } else if (method === "thread/items/list") {
       if (p.sortDirection !== "desc") throw new Error("observer must request items newest first");
-      const offset = Number(p.cursor || 0);
+      const offset = Number(p.cursor || 0),
+        items = p.turnId
+          ? this.wait_items
+          : [
+              ...(this.items[p.threadId] || []).toReversed().map(item => ({ turnId: this.turns[p.threadId][0], item })),
+              ...(this.history_items[p.threadId] || []),
+            ];
       result = {
-        data: this.wait_items.slice(offset, offset + 2),
-        nextCursor: offset + 2 < this.wait_items.length ? String(offset + 2) : null,
+        data: items.slice(offset, offset + 2),
+        nextCursor: offset + 2 < items.length ? String(offset + 2) : null,
       };
     } else throw new Error("mutating or unexpected RPC " + method);
     return { id: request.id, result };

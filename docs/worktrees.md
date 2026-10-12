@@ -70,9 +70,12 @@ from Git status. The underlying snapshot retains separate staged, unstaged,
 untracked and conflicted counts.
 
 Agent membership resolves checkout roots from observed working directories and
-successful structured edits. Reads do not change membership. Claude edit hooks
-and Codex completed file-change items supply edit evidence; arbitrary shell
-commands do not. The most recent successful edit determines membership. A single
+successful structured edits. Claude edit hooks and Codex completed file-change
+items supply edit evidence. Codex uses paginated tool items across turns: the
+newest turn with location evidence supplies its most recent successful edit,
+or its latest command's structured working directory when it has no edits.
+Shell command text and paths merely read are not interpreted as locations.
+The most recent successful edit determines membership within that turn. A single
 edit operation spanning checkouts can associate one agent with more than one row;
 a later edit in one checkout moves membership there. Missing metadata retains
 the last association as uncertain.

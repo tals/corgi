@@ -7,6 +7,7 @@ import { Snapshot, Child } from "./codex_observer";
 import { View } from "./activity/tools";
 import { Inventory, Ended } from "./activity/background_tasks";
 import { Hooks } from "./providers/common";
+import * as worktrees from "./worktrees";
 test("child links cannot cross providers reparent or form cycles", () => {
   const r = new Registry(),
     root = r.get("codex", "root"),
@@ -236,6 +237,26 @@ test("protocol authority ages on the daemon clock, not the observer's stamp", ()
   actor.observeSnapshot(observation, true, applied);
   expect(actor.authoritative(applied + 5000000)).toBe(true);
   expect(actor.authoritative(applied + 5000001)).toBe(false);
+});
+test("Codex location evidence survives unavailable scans and can move from edits to a newer command", () => {
+  const actor = new Actor({ id: 1 }),
+    observation = snapshot("working");
+  observation.worktree_cwd = "/repo";
+  observation.writes = ["/repo/.worktrees/one/file"];
+  actor.observeSnapshot(observation, true, 0);
+  expect(worktrees.writtenPaths(actor.state)).toEqual(observation.writes);
+  observation.observed_at++;
+  observation.worktree_cwd = null;
+  observation.writes = [];
+  actor.observeSnapshot(observation, true, 0);
+  expect(worktrees.writtenPaths(actor.state)).toEqual(["/repo/.worktrees/one/file"]);
+  observation.observed_at++;
+  observation.worktree_cwd = "/repo/.worktrees/two";
+  actor.observeSnapshot(observation, true, 0);
+  expect(worktrees.writtenPaths(actor.state)).toEqual([]);
+  expect(worktrees.observedDirectory(actor.state)).toBe(observation.worktree_cwd);
+  actor.state.reset();
+  expect(worktrees.observedDirectory(actor.state)).toBe("");
 });
 test("snapshot baseline and completion receipts are idempotent", () => {
   const actor = new Actor({ id: 1 }),

@@ -38,3 +38,21 @@ test("file-change evidence uses only completed edits and the latest edit locatio
     "/repo/main-file",
   ]);
 });
+test("command locations come from structured absolute cwd, not command text", () => {
+  const item = {
+    type: "commandExecution",
+    status: "completed",
+    cwd: "/repo/.worktrees/search",
+    command: "cat /repo/.worktrees/other/file",
+  };
+  expect(Codex.commandDirectory(item)).toBe(item.cwd);
+  expect(Codex.commandDirectory({ ...item, status: "inProgress" })).toBe(item.cwd);
+  for (const changed of [
+    { status: "failed" },
+    { status: "declined" },
+    { cwd: "relative" },
+    { cwd: "" },
+    { type: "fileChange" },
+  ])
+    expect(Codex.commandDirectory({ ...item, ...changed })).toBeNull();
+});

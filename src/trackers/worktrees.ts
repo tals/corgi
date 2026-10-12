@@ -307,14 +307,14 @@ export class Tracker {
           .filter(p => runtime.workspaces.owner(p.id) === workspace && p.agent().provider)
           .map(p => ({
             target: { pane: p.id },
-            cwd: p.agent().directory() || p.cwd,
+            cwd: worktrees.observedDirectory(p.agent()) || p.agent().directory() || p.cwd,
             writes: worktrees.writtenPaths(p.agent()),
           })),
         ...runtime.sessions
           .filter(s => s.workspace_id === workspace.id)
           .map(s => ({
             target: { native: s.id },
-            cwd: s.attachment.agent().directory() || s.cwd,
+            cwd: worktrees.observedDirectory(s.attachment.agent()) || s.attachment.agent().directory() || s.cwd,
             writes: worktrees.writtenPaths(s.attachment.agent()),
           })),
       ],

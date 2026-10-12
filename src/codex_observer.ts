@@ -46,6 +46,7 @@ export class Snapshot {
   transcript = new Path();
   turn = new Turn();
   cwd = new Path();
+  worktree_cwd: string | null = null;
   writes: string[] = [];
   outcome: "completed" | "interrupted" | "failed" | null = null;
   observed_at = Date.now() * 1000;
@@ -84,7 +85,7 @@ export function childName(thread: any) {
   return str(thread, "name") || task || str(thread, "agentNickname");
 }
 async function pages(
-  client: Client,
+  client: Pick<Client, "call">,
   method: string,
   params: any,
   visit: (entry: any) => boolean | void,
@@ -116,6 +117,38 @@ export function isActiveWait(entry: any, turn: string, session: string) {
     str(item, "senderThreadId") === session
   );
 }
+/** The newest turn with location evidence: edits first, then command cwd. */
+export async function location(
+  client: Pick<Client, "call">,
+  session: string,
+  cwd: string,
+): Promise<{ cwd: string; writes: string[] } | null> {
+  let found: { cwd: string; writes: string[] } | null = null,
+    turn = "";
+  await pages(
+    client,
+    "thread/items/list",
+    { threadId: session, limit: 100, sortDirection: "desc" },
+    entry => {
+      const id = str(entry, "turnId"),
+        item = field(entry, "item");
+      if (!id) return;
+      if (turn && id !== turn) return true;
+      const writes = Codex.writes([item], cwd);
+      if (writes.length) {
+        found = { cwd: found?.cwd ?? cwd, writes };
+        return true;
+      }
+      const directory = Codex.commandDirectory(item);
+      if (!found && directory) {
+        found = { cwd: directory, writes: [] };
+        turn = id;
+      }
+    },
+    "TooManyItems",
+  );
+  return found;
+}
 export async function snapshot(client: Client, req: Request, session: string) {
   const meta = await client.call("thread/read", {
       threadId: session,
@@ -139,7 +172,6 @@ export async function snapshot(client: Client, req: Request, session: string) {
     }),
     data = field(field(turns, "result"), "data");
   if (Array.isArray(data) && data.length) {
-    out.writes = Codex.writes(field(data[0], "items"), out.cwd.text());
     out.evidence = codex(data[0]);
     const id = str(data[0], "id");
     if (id && Buffer.byteLength(id) <= 128) {
@@ -148,6 +180,13 @@ export async function snapshot(client: Client, req: Request, session: string) {
       if (status === "completed" || status === "interrupted" || status === "failed") out.outcome = status;
     }
   }
+  try {
+    const observed = await location(client, session, out.cwd.text());
+    if (observed) {
+      out.worktree_cwd = observed.cwd;
+      out.writes = observed.writes;
+    }
+  } catch {}
   try {
     const reply = await client.call("thread/backgroundTerminals/list", {
         threadId: session,

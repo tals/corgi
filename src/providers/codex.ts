@@ -55,6 +55,15 @@ export class Rollout {
   }
 }
 export class Codex {
+  static commandDirectory(item: unknown): string | null {
+    const cwd = str(item, "cwd"),
+      status = str(item, "status");
+    return str(item, "type") === "commandExecution" &&
+      (status === "completed" || status === "inProgress") &&
+      path.isAbsolute(cwd)
+      ? cwd
+      : null;
+  }
   static writes(items: unknown, cwd: string): string[] {
     if (!Array.isArray(items)) return [];
     let paths: string[] = [];

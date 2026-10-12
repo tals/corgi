@@ -1,8 +1,9 @@
 /** PTY titles bind sessions; a read-only WebSocket observer supplies state. */
 import { join } from "node:path";
+import { realpathSync } from "node:fs";
 import { Runtime, screen_text } from "./runtime";
 import { Viewer } from "./viewer_client";
-import { sleep, shellJoin } from "./support";
+import { sleep, shellJoin, run } from "./support";
 import { CodexObserver, TerminalAttachment, write_codex_terminal } from "./provider_sim";
 
 export const A = "01901234-1234-1234-1234-123456789abc";
@@ -232,9 +233,11 @@ export class Titles extends Runtime {
       this.children = [];
       await this.until(async () => (await this.state()).subagents.running === 0);
       await this.settle();
-      const before = this.methods.filter((m: string) => m === "thread/items/list").length;
+      const waitRequests = () =>
+        this.sim.requests.filter(r => r.method === "thread/items/list" && r.params.turnId).length;
+      const before = waitRequests();
       await this.settle();
-      this.assertEqual(this.methods.filter((m: string) => m === "thread/items/list").length, before);
+      this.assertEqual(waitRequests(), before);
     } finally {
       await viewer.close();
     }
@@ -260,6 +263,66 @@ export class Titles extends Runtime {
       const s = await this.state();
       return s.session === B && s.subagents.running === 0;
     });
+    this.assertEqual(this.errors, []);
+  }
+  async test_worktree_location_follows_full_items_across_turns_and_command_directories() {
+    const repo = realpathSync(this.temp.name),
+      one = join(repo, "one"),
+      two = join(repo, "two");
+    const git = (...args: string[]) => run(["git", "-C", repo, ...args], { env: this.env });
+    await git("init", "-b", "main");
+    await git("config", "user.name", "Test");
+    await git("config", "user.email", "test@example.invalid");
+    await git("config", "commit.gpgsign", "false");
+    await git("commit", "--allow-empty", "-m", "base");
+    await git("worktree", "add", "-b", "one", one);
+    await git("worktree", "add", "-b", "two", two);
+    const fake = write_codex_terminal(join(repo, "worktree-agent", "codex"), A),
+      opened = await this.command("workspace.create", { cwd: repo }),
+      pane = await this.command("pane.create", { workspace: opened.workspace, cwd: repo, command: shellJoin([fake]) });
+    this.pane = pane.pane;
+    this.attachment = new TerminalAttachment(this, this.pane);
+    this.attachments.push(this.attachment);
+    this.sim.cwds[A] = repo;
+    this.sim.cwds[B] = repo;
+    this.states[A] = "active";
+    this.turns[A] = ["new", "inProgress"];
+    this.items[A] = [{ type: "userMessage", content: [{ type: "text", text: "continue" }] }];
+    const edit = { type: "fileChange", status: "completed", changes: [{ path: join(one, "file") }] };
+    this.sim.history_items[A] = [
+      { turnId: "old", item: { type: "agentMessage", text: "done" } },
+      { turnId: "old", item: edit },
+    ];
+    const association = async () =>
+      (await this.session()).workspaces
+        .find((w: any) => w.id === opened.workspace)
+        .worktrees?.agents.find((a: any) => a.target.pane === this.pane);
+    await this.untilAdvancing(4, async () => (await association())?.path === one);
+    this.assertEqual((await association()).source, "write");
+    this.items[A].push({ type: "commandExecution", status: "completed", cwd: two, command: "pwd" });
+    await this.untilAdvancing(4, async () => (await association())?.path === two);
+    this.assertEqual((await association()).source, "cwd");
+    this.assertEqual((await this.state()).cwd, repo);
+    this.items[A].push(edit, {
+      type: "commandExecution",
+      status: "completed",
+      cwd: repo,
+      command: "cat " + join(two, "file"),
+    });
+    await this.untilAdvancing(4, async () => (await association())?.path === one);
+    this.assertEqual((await association()).source, "write");
+    this.sim.history_items[A] = this.items[A].toReversed().map(item => ({ turnId: "new", item }));
+    this.turns[A] = ["next", "inProgress"];
+    this.items[A] = [{ type: "userMessage", content: [{ type: "text", text: "continue again" }] }];
+    await this.sim.wait_for_request("thread/items/list", { session: A, after: this.sim.requests.length });
+    await this.advance(4);
+    this.assertEqual((await association()).path, one);
+    await this.title(B.slice(0, 29) + "...");
+    await this.untilAdvancing(
+      4,
+      async () => (await this.state()).session === B && (await association())?.path === repo,
+    );
+    this.assertEqual((await association()).source, "cwd");
     this.assertEqual(this.errors, []);
   }
 }

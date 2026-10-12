@@ -74,15 +74,21 @@ export function label(checkout: Checkout): string {
 
 // Successful structured edits are stronger evidence than a launch directory.
 // This is current location evidence, not a persisted work history.
-const writes = new WeakMap<object, string[]>();
+const locations = new WeakMap<object, { cwd: string; writes: string[] }>();
+export function recordLocation(agent: object, cwd: string, writes: string[]): void {
+  locations.set(agent, { cwd, writes: writes.slice(0, 32) });
+}
 export function recordWrites(agent: object, paths: string[]): void {
-  if (paths.length) writes.set(agent, paths.slice(0, 32));
+  if (paths.length) recordLocation(agent, observedDirectory(agent), paths);
+}
+export function observedDirectory(agent: object): string {
+  return locations.get(agent)?.cwd ?? "";
 }
 export function writtenPaths(agent: object): string[] {
-  return writes.get(agent) ?? [];
+  return locations.get(agent)?.writes ?? [];
 }
 export function clearWrites(agent: object): void {
-  writes.delete(agent);
+  locations.delete(agent);
 }
 /** A worktree being removed, as the daemon reports it: Git deleting it,
  * then done, stopped by the user, or failed with an error name. */

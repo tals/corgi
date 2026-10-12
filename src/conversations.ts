@@ -92,7 +92,9 @@ export class Actor {
     }
     if (snapshot.transcript.len) a.transcript = snapshot.transcript;
     if (snapshot.cwd?.len) a.cwd = snapshot.cwd;
-    if (snapshot.writes) worktrees.recordWrites(a, snapshot.writes);
+    if (typeof snapshot.worktree_cwd === "string")
+      worktrees.recordLocation(a, snapshot.worktree_cwd, snapshot.writes ?? []);
+    else if (snapshot.writes) worktrees.recordWrites(a, snapshot.writes);
     this.observed_at = Math.max(this.observed_at, snapshot.observed_at);
     this.background_tasks = snapshot.background_tasks;
     a.updated_at = snapshot.updated_at;
