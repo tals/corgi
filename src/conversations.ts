@@ -50,6 +50,8 @@ export class Actor {
   }
   compactionChanged(was: boolean, now: number) {
     if (this.state.compacting === was) return;
+    // A restored compaction keeps its start.
+    this.state.compacting_since = this.state.compacting ? this.state.compacting_since || now : 0;
     const ms = Math.floor(now / 1000);
     if (!this.state.compacting) this.activity_timeline.finish(this.usageView(ms));
     const text = this.state.compacting ? "Compacting context" : this.state.activity.text();

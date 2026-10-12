@@ -150,6 +150,8 @@ export interface Entry {
   cwd: string;
   tool_active: boolean;
   compacting: boolean;
+  /** When its current compaction began, in µs. */
+  compacting_since: number;
   /** Idle until its background shells or a wakeup it scheduled wake it. */
   paused: boolean;
   unread: boolean;
@@ -174,6 +176,7 @@ export function entry(fields: Partial<Entry> & { target: Target }): Entry {
     cwd: "",
     tool_active: false,
     compacting: false,
+    compacting_since: 0,
     paused: false,
     unread: false,
     activity: "",
@@ -1091,6 +1094,15 @@ export class View {
         );
       } else writeEllipsis(w, text, detail_room);
     }
+    // Once the corgi has curled up, the compaction's time so far sits at the right.
+    const took = herding && e.compacting_since > 0 ? elapsed(now_ms - e.compacting_since / 1000) : "";
+    const took_width = displayWidth(took);
+    if (
+      took_width > 0 &&
+      displayWidth(detail) + 1 + took_width <= detail_room &&
+      presentation!.herded(detail_room, now_ms)
+    )
+      w.write(`\x1b[${y + 2};${x + 5 + detail_room - took_width}H${selected ? fg("muted") : fg("faint")}${took}`);
     if (badge_width > 0) {
       const color = e.subagents.blocked > 0 ? fg("warm") : fg("accent");
       w.write(`\x1b[${y + 2};${x + v.width - 1 - badge_width}H${color}${badge}`);
@@ -1847,6 +1859,13 @@ export function drawGitTooltip(
     writeEllipsis(w, footer, width - 4);
   }
   w.write("\x1b[0m\x1b8");
+}
+/** Time taken to the second, as "45s", "1m 32s" or "1h 5m". */
+export function elapsed(ms: number): string {
+  const seconds = Math.floor(Math.max(0, ms) / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  return `${Math.floor(seconds / 3600)}h ${Math.floor(seconds / 60) % 60}m`;
 }
 export function relativeTime(timestamp: number, now: number): string {
   if (timestamp === 0) return "";

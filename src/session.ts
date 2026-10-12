@@ -450,6 +450,7 @@ function agentView(a: any, conversation: number) {
     cwd: a.directory(),
     tool_active: a.tool_active,
     compacting: a.compacting,
+    compacting_since: a.compacting_since,
     paused: a.paused,
   };
 }

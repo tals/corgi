@@ -420,6 +420,7 @@ $.snapshot.conversations[].agent.activity: string
 $.snapshot.conversations[].agent.cwd: string
 $.snapshot.conversations[].agent.tool_active: bool
 $.snapshot.conversations[].agent.compacting: bool
+$.snapshot.conversations[].agent.compacting_since: i64
 $.snapshot.conversations[].agent.paused: bool
 $.snapshot.ports.processes_available: bool
 $.snapshot.ports.ports_available: bool
@@ -599,6 +600,7 @@ $.snapshot.panes[].agent.activity: string
 $.snapshot.panes[].agent.cwd: string
 $.snapshot.panes[].agent.tool_active: bool
 $.snapshot.panes[].agent.compacting: bool
+$.snapshot.panes[].agent.compacting_since: i64
 $.snapshot.panes[].agent.paused: bool
 $.snapshot.panes[].restoring: string
 $.snapshot.panes[].forking: bool
@@ -627,6 +629,7 @@ $.snapshot.native_sessions[].agent?.activity: string
 $.snapshot.native_sessions[].agent?.cwd: string
 $.snapshot.native_sessions[].agent?.tool_active: bool
 $.snapshot.native_sessions[].agent?.compacting: bool
+$.snapshot.native_sessions[].agent?.compacting_since: i64
 $.snapshot.native_sessions[].agent?.paused: bool
 $.snapshot.native_sessions[].observation.source: enum unknown screen hook transcript protocol
 $.snapshot.native_sessions[].observation.pending_stop: bool

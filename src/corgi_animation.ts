@@ -607,7 +607,15 @@ export class Presentation {
     return Math.min(room, Math.floor(this.revealPosition(room, now)));
   }
   writeHerding(room: number, now: number) {
-    return writeHerd(room, Math.floor(Math.max(0, now - this.herd_started_ms) / 110));
+    return writeHerd(room, this.herdStep(now));
+  }
+  /** Whether the corgi has curled into the ellipsis, leaving the row past it free. */
+  herded(room: number, now: number) {
+    // Rounding up takes room - 9 steps, sitting 10, then the curl.
+    return this.herdStep(now) >= room - 9 + 10 + curl.length - 1;
+  }
+  private herdStep(now: number) {
+    return Math.floor(Math.max(0, now - this.herd_started_ms) / 110);
   }
   writeCorgi(room: number, working: boolean, sleep: Sleep) {
     const pose = this.last_corgi;

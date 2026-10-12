@@ -163,8 +163,10 @@ columns, show only `context 74%`.
 
 While an agent compacts, the corgi on its activity line herds the letters of
 “Compacting” into the word, sits, and curls up into the ellipsis after it,
-where it stays. Beside it, a pile of dots fills up and squashes flat. A row too
-narrow for the corgi shows “Compacting…” from the start.
+where it stays. Then the time the compaction has taken so far, such as
+`1m 32s`, shows at the right of the line. Beside the word, a pile of dots fills
+up and squashes flat. A row too narrow for the corgi shows “Compacting…” from
+the start, without the time.
 
 The figure is the number Claude's statusline and Codex's footer show, taken
 from the latest model call in the transcript. For Claude that is the last

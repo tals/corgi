@@ -68,6 +68,7 @@ $.conversations[].agent.tool_active: bool
 $.conversations[].agent.permission_review: optional
 $.conversations[].agent.permission_review?: u8
 $.conversations[].agent.compacting: bool
+$.conversations[].agent.compacting_since: i64
 $.conversations[].agent.paused: bool
 $.conversations[].agent.cwd: custom bounded_text.BoundedText(10240)
 $.conversations[].agent.last_seq: i64
@@ -140,6 +141,7 @@ $.panes[].binding.provisional.tool_active: bool
 $.panes[].binding.provisional.permission_review: optional
 $.panes[].binding.provisional.permission_review?: u8
 $.panes[].binding.provisional.compacting: bool
+$.panes[].binding.provisional.compacting_since: i64
 $.panes[].binding.provisional.paused: bool
 $.panes[].binding.provisional.cwd: custom bounded_text.BoundedText(10240)
 $.panes[].binding.provisional.last_seq: i64
@@ -244,6 +246,7 @@ $.sessions[].binding.provisional.tool_active: bool
 $.sessions[].binding.provisional.permission_review: optional
 $.sessions[].binding.provisional.permission_review?: u8
 $.sessions[].binding.provisional.compacting: bool
+$.sessions[].binding.provisional.compacting_since: i64
 $.sessions[].binding.provisional.paused: bool
 $.sessions[].binding.provisional.cwd: custom bounded_text.BoundedText(10240)
 $.sessions[].binding.provisional.last_seq: i64

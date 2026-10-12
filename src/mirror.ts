@@ -226,6 +226,8 @@ export interface Agent {
   cwd: string;
   tool_active: boolean;
   compacting: boolean;
+  /** When its current compaction began, in µs; 0 when not compacting. */
+  compacting_since: number;
   paused: boolean;
 }
 export function agent(value: any = {}): Agent {
@@ -250,6 +252,7 @@ export function agent(value: any = {}): Agent {
     cwd: value.cwd ?? "",
     tool_active: value.tool_active === true,
     compacting: value.compacting === true,
+    compacting_since: Number(value.compacting_since ?? 0),
     paused: value.paused === true,
   };
 }

@@ -738,6 +738,7 @@ export class Controller {
               cwd: p.agent.cwd.length > 0 ? p.agent.cwd : p.cwd,
               tool_active: p.agent.tool_active,
               compacting: p.agent.compacting,
+              compacting_since: p.agent.compacting_since,
               paused: p.agent.paused,
               subagents: { ...p.agent.subagents },
               unread: unread(p.agent.observation),

@@ -384,16 +384,19 @@ test("compaction hooks partition usage and preserve the summary through repeated
     tokens: new Tokens({ input: 100n }),
   });
   actor.observeHook(compactHook("compact_start"), 1n, true, 2000);
+  expect(actor.state.compacting_since).toBe(2000);
   expect(actor.state.activity.text()).toBe("Reading source");
   expect(actor.activity_timeline.points[1].label.text()).toBe("Compacting context");
   expect(actor.activity_timeline.points[0].usage.tokens.input).toBe(100n);
   actor.observeHook(compactHook("compact_start"), 2n, true, 3000);
   actor.observeHook(compactHook("compact_end"), 1n, true, 4000);
   expect(actor.state.compacting).toBe(true);
+  expect(actor.state.compacting_since).toBe(2000);
   expect(actor.activity_timeline.len).toBe(2);
   expect(actor.activity_timeline.points[1].at).toBe(2);
   actor.live_usage.tokens.input = 160n;
   actor.observeHook(compactHook("compact_end"), 3n, true, 5000);
+  expect(actor.state.compacting_since).toBe(0);
   expect(actor.activity_timeline.points[2].label.text()).toBe("Reading source");
   expect(actor.activity_timeline.points[1].usage.tokens.input).toBe(60n);
   expect(actor.activity_timeline.pending(actor.live_usage).tokens.input).toBe(0n);
@@ -425,6 +428,20 @@ test("terminal compaction supplements protocol state without clearing hook compa
   expect(actor.state.compacting).toBe(true);
   actor.observeHook(compactHook("tool_start"), 102n, true, 6000);
   expect(actor.state.compacting).toBe(false);
+});
+
+test("a restored compaction keeps its start, and one that ends with the turn clears it", () => {
+  const actor = new Actor({
+    id: 1,
+    state: new Agent({ provider: "codex", state: "working", compacting: true, compacting_since: 1000 }),
+  });
+  actor.restoreCompaction(false, 9000);
+  expect(actor.state.compacting_since).toBe(1000);
+  actor.state.abandonTurn(9500);
+  expect(actor.state.compacting_since).toBe(0);
+  actor.state.state = "working";
+  actor.observeCompactionScreen(true, 10_000);
+  expect(actor.state.compacting_since).toBe(10_000);
 });
 
 test("selection preserves conversation receipts and shared acknowledgement", () => {

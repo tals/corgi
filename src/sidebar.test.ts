@@ -29,6 +29,7 @@ import {
   ScopeMenu,
   gitWorkspace,
   relativeTime,
+  elapsed,
   panel,
   active_name,
   active_meta,
@@ -440,6 +441,7 @@ test("compaction herds on the second agent row ahead of waiting and summaries", 
     provider: "codex",
     state: "working",
     compacting: true,
+    compacting_since: 500_000,
     activity: "Old summary",
     subagents: { running: 0, blocked: 0, waiting: true },
   });
@@ -447,16 +449,17 @@ test("compaction herds on the second agent row ahead of waiting and summaries", 
   const view = View.init(100, 30, true, 0, 1).withWidth(28 + lists_x);
   draw(view, [], [], 0); // Forget herds from earlier draws.
   // The herd starts scattered beside the pile; the corgi pushes it together
-  // and curls into the ellipsis, which stays.
+  // and curls into the ellipsis, which stays. Then the time taken shows.
   const cases: [number, string][] = [
-    [1000, "⣿  C o  mp  a ct  i n  g"],
-    [1000 + 12 * 110, "Compacting‹o[/\\]~"],
-    [1000 + 29 * 110, "Compacting… "],
-    [60_000, "Compacting… "],
+    [1000, "⣿  C o  mp  a ct  i n  g "],
+    [1000 + 12 * 110, "Compacting‹o[/\\]~     "],
+    [1000 + 28 * 110, "Compacting...         "],
+    [1000 + 29 * 110, "Compacting…         3s"],
+    [92_500, "Compacting…     1m 32s"],
   ];
   for (const [now, row] of cases) {
     const text = hostText(draw(view, [e], [], now));
-    expect(text).toContain(row);
+    expect(text).toContain(row + " │");
     expect(text).not.toContain("Old summary");
     expect(text).not.toContain("Waiting on agents");
   }
@@ -464,6 +467,7 @@ test("compaction herds on the second agent row ahead of waiting and summaries", 
   const out = draw(view.withWidth(23), [e], [], 1000);
   expect(has(out, "\x1b[18;6H" + fg("text") + "Compacting…")).toBe(true);
   expect(has(out, "⣿")).toBe(true);
+  expect(hostText(draw(view.withWidth(23), [e], [], 92_500))).not.toContain("1m 32s");
 });
 
 const endpoint = (fields: Record<string, unknown>) => ({
@@ -899,6 +903,14 @@ test("git badge hit area follows sidebar width and workspace scroll", () => {
   expect(gitWorkspace(view, entries, 32, 3)).toBeNull();
   expect(gitWorkspace(view, entries, 32, 5)).toBeNull();
   expect(gitWorkspace(View.init(100, 20, false, 0, 0), entries, 32, 2)).toBeNull();
+});
+
+test("compaction time reads to the second, then to the minute past an hour", () => {
+  expect(elapsed(-5)).toBe("0s");
+  expect(elapsed(59_999)).toBe("59s");
+  expect(elapsed(60_000)).toBe("1m 0s");
+  expect(elapsed(92_400)).toBe("1m 32s");
+  expect(elapsed(3_900_000)).toBe("1h 5m");
 });
 
 test("commit relative time humanizes elapsed and future timestamps", () => {

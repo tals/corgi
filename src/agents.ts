@@ -32,6 +32,8 @@ export class Agent {
   tool_active = false;
   permission_review: number | null = null;
   compacting = false;
+  /** When its current compaction began, in µs; 0 when not compacting. */
+  compacting_since = 0;
   paused = false;
   cwd = new Path();
   last_seq = 0n;
@@ -147,6 +149,7 @@ export class Agent {
     this.observation.pending_stop = false;
     this.state = "idle";
     this.compacting = false;
+    this.compacting_since = 0;
     this.activity = new Text();
     this.tool = new Text();
     this.tool_active = false;
@@ -162,6 +165,7 @@ export class Agent {
   }
   clearWork(now: number) {
     this.compacting = false;
+    this.compacting_since = 0;
     this.activity = new Text();
     this.tool = new Text();
     this.tool_active = false;
@@ -180,6 +184,7 @@ export class Agent {
     this.paused = false;
     this.state = "idle";
     this.compacting = false;
+    this.compacting_since = 0;
     this.tool = new Text();
     this.tool_active = false;
     this.changed_at = now;

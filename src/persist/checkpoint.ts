@@ -115,6 +115,7 @@ export function historicalAgent(value: Agent): Agent {
   result.last_seq = 0n;
   result.metadata_protocol_at = result.metadata_at = result.working_since = 0;
   result.tool_active = result.compacting = false;
+  result.compacting_since = 0;
   result.permission_review = null;
   result.subagents = { running: 0, blocked: 0, waiting: false };
   result.observation.pending_stop = false;
