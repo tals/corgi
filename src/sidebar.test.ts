@@ -724,12 +724,12 @@ test("grouped list draws one-row headers with a margin guide and measures rows p
   const rows = lines.slice(top, top + 6).map(line => line.slice(0, 80).trimEnd());
   // The focused agent's rail turns heavy but stays continuous.
   expect(rows).toEqual([
-    " ▾ corgi ━━━━━━━━━━━━ 1▶ 2 │",
+    " ▾ corgi ━━━━━━━━━━━━━━━ ▶ │",
     " ┣●  api refactor          │",
     " ┃   Needs input           │",
     " ╰○  release notes         │",
     "     Session ended         │",
-    " ▸ blog ━━━━━━━━━━━━━ 1● 1 │",
+    " ▸ blog ━━━━━━━━━━━━━━━━ ● │",
   ]);
   expect(has(out, new Style({ fg: "accent" }).sgr() + selected_bg + "┣")).toBe(true);
   // Without Kitty graphics there is no separator; with it, a dotted one under the text.
@@ -802,15 +802,15 @@ test("worktree groups branch off the workspace rail and pin their headers above 
   const whole = View.init(100, 30, true, 0, entries.length).withEntries(entries);
   expect(whole.pinned(0)).toEqual([]);
   expect(rows(whole, 9)).toEqual([
-    " ▾ corgi ━━━━━━━━━━━━━━━ 3 │",
+    " ▾ corgi ━━━━━━━━━━━━━━━━━ │",
     " ├○  direct                │",
     " │   Session ended         │",
-    " ├▾ ⌥ one ────────────── 2 │",
+    " ├▾ ⌥ one ──────────────── │",
     " ├○  first                 │",
     " │   Session ended         │",
     " ╰○  second                │",
     "     Session ended         │",
-    " ▸ blog ━━━━━━━━━━━━━━━━ 1 │",
+    " ▸ blog ━━━━━━━━━━━━━━━━━━ │",
   ]);
   // Scrolled to "second", corgi's and the worktree's headers stay on top;
   // the lower one underlines its row, and both hit as themselves.
@@ -819,11 +819,11 @@ test("worktree groups branch off the workspace rail and pin their headers above 
   expect(scrolled.pinned(4)).toEqual([0, 2]);
   expect(scrolled.pinned(2)).toEqual([0]);
   expect(rows(scrolled, 5)).toEqual([
-    " ▾ corgi ━━━━━━━━━━━━━━━ 3 │",
-    " ├▾ ⌥ one ────────────── 2 │",
+    " ▾ corgi ━━━━━━━━━━━━━━━━━ │",
+    " ├▾ ⌥ one ──────────────── │",
     " ╰○  second                ┃",
     "     Session ended         ┃",
-    " ▸ blog ━━━━━━━━━━━━━━━━ 1 ┃",
+    " ▸ blog ━━━━━━━━━━━━━━━━━━ ┃",
   ]);
   const top = scrolled.middle() + 2;
   expect([0, 1, 2, 4].map(row => scrolled.hit(5, top + row))).toEqual([

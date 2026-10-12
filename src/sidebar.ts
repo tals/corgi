@@ -1113,15 +1113,12 @@ export class View {
     if (lead.length > 0) w.write(`\x1b[${y + 1};1H` + fg("line") + lead);
     const arrow_x = lead.length;
     w.write(`\x1b[${y + 1};${arrow_x + 1}H` + fg("muted") + (g.folded ? "▸" : "▾"));
-    // Right side: working and attention counts, then the agent count.
-    const count = compactCount(g.agents);
-    const count_x = sat(sat(v.width, 2), displayWidth(count));
-    const working = g.working > 0 ? `${compactCount(g.working)}▶` : "";
-    const attention = g.attention > 0 ? `${compactCount(g.attention)}●` : "";
+    // Only activity and attention; a single agent needs no count.
+    const working = g.working > 0 ? `▶${g.working > 1 ? compactCount(g.working) : ""}` : "";
+    const attention = g.attention > 0 ? `●${g.attention > 1 ? compactCount(g.attention) : ""}` : "";
     const both = working.length > 0 && attention.length > 0;
     const status_width = displayWidth(working) + displayWidth(attention) + (both ? 1 : 0);
-    const status_x = sat(count_x, status_width + (status_width > 0 ? 1 : 0));
-    w.write(`\x1b[${y + 1};${count_x + 1}H${count}`);
+    const status_x = sat(v.width, status_width > 0 ? status_width + 2 : 1);
     if (status_width > 0)
       w.write(
         `\x1b[${y + 1};${status_x + 1}H\x1b[1m` +
