@@ -32,3 +32,11 @@ test("half of a wide glyph drawn over shows as a space", () => {
   g.put(2, 0, "-", palette.colors.faint);
   expect(shown(g).split("\n")[0].trimEnd()).toBe(" ·- x");
 });
+test("a fill sits under what is drawn, and the background returns after it", () => {
+  const g = new Grid(6, 1, palette.colors.text);
+  g.fill(1, 0, 3, palette.colors.selected);
+  g.text(0, 0, "abcde", palette.colors.text, true);
+  const w = new Writer();
+  g.write(w, 0, 0, "\x1b[0m");
+  expect(w.buffered()).toContain(`a${palette.bgRgb(palette.colors.selected)}bcd\x1b[0m\x1b[22m\x1b[1m`);
+});

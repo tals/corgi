@@ -44,8 +44,6 @@ export interface Brief {
   label: string | null;
   /** Writing while one is asked for or amended; failed when the last try failed. */
   phase: "ready" | "writing" | "failed";
-  /** Whether the worktree is still as the label found it. */
-  current: boolean;
 }
 export interface Association {
   target: Target;

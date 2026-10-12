@@ -99,26 +99,24 @@ test("a trimmed diff shows small files whole and shares the rest", () => {
   expect(Buffer.byteLength(text)).toBeLessThan(4096 + 400);
 });
 
-test("opening the overview writes a brief once; later changes only mark it out of date", async () => {
+test("opening the overview writes a brief once; later changes wait for r", async () => {
   const f = await fixture();
   const ai = model(['{"action":"new","label":"Search queries"}', '{"action":"replace","label":"Search and filters"}']);
   const briefs = new Briefs(undefined, ai.infer);
   try {
     const opened = 1000;
     briefs.tick(f.runtime, new Set([1]), f.config, opened);
-    expect(briefs.view(f.ws.worktrees)).toEqual([{ path: f.topic, label: null, phase: "writing", current: true }]);
+    expect(briefs.view(f.ws.worktrees)).toEqual([{ path: f.topic, label: null, phase: "writing" }]);
     await settle(briefs, f, opened + 10);
-    expect(briefs.view(f.ws.worktrees)).toEqual([
-      { path: f.topic, label: "Search queries", phase: "ready", current: true },
-    ]);
+    expect(briefs.view(f.ws.worktrees)).toEqual([{ path: f.topic, label: "Search queries", phase: "ready" }]);
     expect(ai.asked[0].content).toContain("- search: match queries");
     expect(ai.asked[0].conversation).toBe(`worktree:${f.topic}`);
-    // The worktree changes while the overview stays open: no new request, just out of date.
+    // The worktree changes while the overview stays open: no new request.
     await writeFile(join(f.topic, "filters.ts"), "export const filters = [];\n");
     await f.rescan();
     const later = opened + 60000;
     briefs.tick(f.runtime, new Set([1]), f.config, later);
-    expect(briefs.view(f.ws.worktrees)[0]).toMatchObject({ label: "Search queries", current: false });
+    expect(briefs.view(f.ws.worktrees)[0]).toMatchObject({ label: "Search queries", phase: "ready" });
     expect(ai.asked).toHaveLength(1);
     // r amends in the same conversation, with the fresh content to fall back on.
     briefs.refresh(f.runtime, 1);
@@ -128,7 +126,7 @@ test("opening the overview writes a brief once; later changes only mark it out o
     expect(ai.asked[1].content).toContain("The worktree has changed since your label.");
     expect(ai.asked[1].content).toContain("filters.ts  +1 −0  (new, untracked)");
     expect(ai.asked[1].fresh_content).toStartWith("Previous label: Search queries\n");
-    expect(briefs.view(f.ws.worktrees)[0]).toMatchObject({ label: "Search and filters", current: true });
+    expect(briefs.view(f.ws.worktrees)[0]).toMatchObject({ label: "Search and filters", phase: "ready" });
     // Saved beside settings.json, and read back by the next daemon.
     const saved = JSON.parse(await readFile(join(f.root, "worktree-briefs.json"), "utf8"));
     expect(saved.briefs[f.topic].label).toBe("Search and filters");

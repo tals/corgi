@@ -6,7 +6,11 @@ export interface Cell {
   ch: string;
   fg: palette.Rgb;
   bold: boolean;
+  /** A fill behind the cell; null shows the background `write` is given. */
+  bg: palette.Rgb | null;
 }
+const same = (a: palette.Rgb | null, b: palette.Rgb | null) =>
+  a === b || (a !== null && b !== null && a.every((v, i) => v === b[i]));
 const wide = (ch: string) => ch !== "" && codepointWidth(ch.codePointAt(0)!) === 2;
 /** A box of cells drawn in one pass, for drawings that read back what is
  * already there, such as an effect that moves only through empty cells. */
@@ -17,7 +21,9 @@ export class Grid {
     readonly h: number,
     fg: palette.Rgb,
   ) {
-    this.rows = Array.from({ length: h }, () => Array.from({ length: w }, () => ({ ch: " ", fg, bold: false })));
+    this.rows = Array.from({ length: h }, () =>
+      Array.from({ length: w }, () => ({ ch: " ", fg, bold: false, bg: null })),
+    );
   }
   at(x: number, y: number): Cell | null {
     return this.rows[y]?.[x] ?? null;
@@ -28,6 +34,13 @@ export class Grid {
     cell.ch = ch;
     cell.fg = fg;
     cell.bold = bold;
+  }
+  /** Fills `w` cells of row `y` from `x` with `bg`, under what is drawn there. */
+  fill(x: number, y: number, w: number, bg: palette.Rgb): void {
+    for (let col = x; col < x + w; col++) {
+      const cell = this.at(col, y);
+      if (cell) cell.bg = bg;
+    }
   }
   /** Writes `text` from `x`, wide glyphs taking two cells, stopping at the edge. */
   text(x: number, y: number, text: string, fg: palette.Rgb, bold = false): void {
@@ -50,6 +63,7 @@ export class Grid {
       w.write(`\x1b[${y + 1};${x + 1}H${background}`);
       y++;
       let fg: palette.Rgb | null = null,
+        bg: palette.Rgb | null = null,
         bold = false,
         covered = false;
       for (let col = 0; col < this.w; col++) {
@@ -58,11 +72,21 @@ export class Grid {
           covered = false;
           continue;
         }
+        if (!same(bg, cell.bg)) {
+          bg = cell.bg;
+          if (bg) w.write(palette.bgRgb(bg));
+          else {
+            // The background may reset the style too.
+            w.write(background + "\x1b[22m");
+            fg = null;
+            bold = false;
+          }
+        }
         if (bold !== cell.bold) {
           bold = cell.bold;
           w.write(bold ? "\x1b[1m" : "\x1b[22m");
         }
-        if (fg === null || fg.some((v, i) => v !== cell.fg[i])) {
+        if (!same(fg, cell.fg)) {
           fg = cell.fg;
           w.write(palette.fgRgb(fg));
         }

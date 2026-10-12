@@ -323,7 +323,6 @@ export function worktreeBriefs(value: unknown): Brief[] {
             path: b.path,
             label: typeof b.label === "string" ? b.label : null,
             phase: b.phase === "writing" || b.phase === "failed" ? b.phase : "ready",
-            current: b.current !== false,
           } satisfies Brief,
         ]
       : [],

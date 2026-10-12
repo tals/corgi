@@ -561,7 +561,6 @@ $.snapshot.workspaces[].worktree_briefs[].path: string
 $.snapshot.workspaces[].worktree_briefs[].label: optional
 $.snapshot.workspaces[].worktree_briefs[].label?: string
 $.snapshot.workspaces[].worktree_briefs[].phase: enum ready writing failed
-$.snapshot.workspaces[].worktree_briefs[].current: bool
 $.snapshot.workspaces[].stats.tools: u64
 $.snapshot.workspaces[].stats.input: u64
 $.snapshot.workspaces[].stats.cached_input: u64

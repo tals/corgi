@@ -404,7 +404,7 @@ export class Briefs {
     this.changed = false;
     return changed;
   }
-  /** Writes again the briefs in `workspace` that are out of date or failed. */
+  /** Writes again the briefs in `workspace` whose worktrees changed or that failed. */
   refresh(runtime: Runtime, workspace: number): void {
     const snapshot = runtime.workspaces.get(workspace)?.worktrees;
     if (!snapshot?.base || !this.config?.enabled) return;
@@ -430,7 +430,6 @@ export class Briefs {
           path: checkout.path,
           label: entry.label,
           phase: entry.writing ? "writing" : entry.failed ? "failed" : "ready",
-          current: entry.fingerprint === fingerprint(checkout),
         } satisfies worktrees.Brief,
       ];
     });

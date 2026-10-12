@@ -155,9 +155,9 @@ branch's commits, the files that differ from main and a diff trimmed to 8 KB;
 files that look like secrets show by name only. A brief is amended in the
 same conversation, given what changed since and where the worktree stands now;
 when that conversation is gone, a fresh one gets the old brief, what changed and
-the full input. While the overview stays open, a worktree that changes shows
-"· out of date", and `r` writes those again. Briefs are kept in
-`worktree-briefs.json` beside `settings.json`.
+the full input. A worktree that changes while the overview stays open keeps
+its brief until the next opening or until `r` writes it again. Briefs are
+kept in `worktree-briefs.json` beside `settings.json`.
 
 Without a saved choice, `CORGI_INFERENCE_PROVIDER` (`auto`, `codex`, `claude`,
 or `off`) sets the starting choice. Unknown values disable inference rather than

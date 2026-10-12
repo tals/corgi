@@ -5,7 +5,7 @@ import { worktreeSnapshot } from "./mirror";
 import { State, between, columnsFor, displayPath, draw, geometry, listing } from "./worktree_tooltip";
 import * as worktreeRemoval from "./worktree_removal";
 import { View, workspaceEntry, worktreeAt, worktreeLabel, worktreeBadge, writeExit, spotlight_dim } from "./sidebar";
-import { colors, fg, fgRgb } from "./palette";
+import { bgRgb, colors, fg, fgRgb } from "./palette";
 import * as launcherResume from "./launcher_resume";
 import { Writer } from "./text";
 import { Terminal } from "./pane/terminal";
@@ -95,10 +95,12 @@ test("rows show agents at work, the comparison, age, last edit and line counts",
     const text = terminal.text();
     for (const header of ["AGENTS", "VS MAIN", "AGE", "EDITED", "UNCOMMITTED CHANGES"]) expect(text).toContain(header);
     const row = (label: string) => text.split("\n").find(l => l.includes(label));
-    expect(row("topic-0")).toMatch(/1▶ 2 +↑6 ↓12 +3d +12m ago +3 files {2}\+142 −38/);
+    expect(row("topic-0")).toMatch(/1▶ 1○ +↑6 ↓12 +3d +12m ago +3 files {2}\+142 −38/);
     expect(row("topic-1")).toMatch(/0 +↑0 ↓5 +— +— +Clean/);
     // Working agents as the sidebar marks them; lines added and removed as a diff colors them.
     expect(w.buffered()).toContain(`\x1b[1m${fgRgb(colors.accent)}1▶`);
+    // The selected worktree is filled.
+    expect(w.buffered()).toContain(bgRgb(colors.selected));
     expect(w.buffered()).toContain(`${fgRgb(colors.accent)}+142`);
     expect(w.buffered()).toContain(`${fgRgb(colors.hot)}−38`);
   } finally {
@@ -148,8 +150,8 @@ test("the overview counts each worktree's agents, and those working, as the side
       terminal.destroy();
     }
   };
-  expect(row("idle")).toMatch(/\.\/\.worktrees\/1 +1 +—/);
-  expect(row("working")).toMatch(/\.\/\.worktrees\/1 +1▶ 1 +—/);
+  expect(row("idle")).toMatch(/\.\/\.worktrees\/1 +1○ +—/);
+  expect(row("working")).toMatch(/\.\/\.worktrees\/1 +1▶ +—/);
 });
 test("with briefs on, each worktree's second line holds its brief in the state it's in", () => {
   const data = snapshot(5),
@@ -164,10 +166,10 @@ test("with briefs on, each worktree's second line holds its brief in the state i
   const state = new State();
   state.briefs = new Map(
     [
-      { path: linked[0].path, label: "Search queries", phase: "ready", current: true },
-      { path: linked[1].path, label: "Fuzzy search", phase: "ready", current: false },
-      { path: linked[2].path, label: null, phase: "writing", current: true },
-      { path: linked[3].path, label: null, phase: "failed", current: true },
+      { path: linked[0].path, label: "Search queries", phase: "ready" },
+      { path: linked[1].path, label: "Fuzzy search", phase: "ready" },
+      { path: linked[2].path, label: null, phase: "writing" },
+      { path: linked[3].path, label: null, phase: "failed" },
     ].map(b => [b.path, b as Brief]),
   );
   const w = new Writer(),
@@ -179,8 +181,8 @@ test("with briefs on, each worktree's second line holds its brief in the state i
     terminal.feed(w.buffered());
     const lines = terminal.text().split("\n");
     const under = (label: string) => lines[lines.findIndex(l => l.includes(label)) + 1];
-    expect(under("topic-0")).toContain("Search queries");
-    expect(under("topic-1")).toContain("Fuzzy search  · out of date");
+    expect(under("topic-0")).toContain("╰ Search queries");
+    expect(under("topic-1")).toMatch(/╰ Fuzzy search +│/);
     expect(under("topic-2")).toContain("...");
     expect(under("topic-3")).toContain("Brief failed");
     expect(under("topic-4")).toContain("Nothing beyond main");

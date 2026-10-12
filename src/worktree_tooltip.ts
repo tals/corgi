@@ -160,6 +160,8 @@ const columns: { name: Column; header: string; width: number }[] = [
 /** On a narrow card, these go first, until the worktree has room. */
 const dropped: Column[] = ["age", "main", "edited"];
 const name_room = 24;
+/** Where a brief starts: two cells in from its worktree's name, under a hook. */
+const brief_x = 5;
 /** Where each shown column starts, and the room left for the worktree. */
 export function columnsFor(width: number): { x: Partial<Record<Column, number>>; room: number } {
   let shown = columns;
@@ -226,35 +228,38 @@ export function draw(
       width -= displayWidth(text);
     }
   };
-  /** A worktree's brief: a few words, a glimmer while written, faded when
-   * the last try failed, marked when the worktree has changed since. */
-  const brief = (row: number, entry: worktrees.Checkout) => {
+  /** A worktree's brief, hung under its name: a few words, a glimmer while
+   * written, faded when the last try failed. */
+  const brief = (row: number, entry: worktrees.Checkout, tone: (token: palette.Token) => palette.Token) => {
     const b = state.briefs?.get(entry.path),
-      width = rect.w - 6;
-    if (entry.comparison?.ahead === 0n && entry.changes?.total === 0)
-      return line(row, 3, "Nothing beyond main", width, "faint");
+      width = rect.w - brief_x - 3,
+      hook = () => grid.put(3, row, "╰", c.line);
+    if (entry.comparison?.ahead === 0n && entry.changes?.total === 0) {
+      hook();
+      return line(row, brief_x, "Nothing beyond main", width, tone("faint"));
+    }
     if (!b) return;
     if (b.phase === "writing") {
       const since = state.writingFor(entry.path, now),
         text = b.label ?? "...";
+      hook();
       // Over the old words while amended; dots while the first is written.
-      [...ellipsis(clean(text), width)].forEach((ch, i) => grid.put(3 + i, row, ch, pulse(b.label ? i / 4 : i, since)));
+      [...ellipsis(clean(text), width)].forEach((ch, i) =>
+        grid.put(brief_x + i, row, ch, pulse(b.label ? i / 4 : i, since)),
+      );
       return;
     }
     state.writingFor(entry.path, now);
-    if (b.phase === "failed") return line(row, 3, b.label ?? "Brief failed", width, "faint");
-    if (b.label === null) return;
-    runs(row, 3, width, [
-      [b.label, "muted"],
-      ...(b.current ? [] : ([["  · out of date", "faint"]] as [string, palette.Token][])),
-    ]);
+    if (b.label === null && b.phase !== "failed") return;
+    hook();
+    line(row, brief_x, b.label ?? "Brief failed", width, tone("faint"));
   };
   const layout = columnsFor(rect.w),
     x = layout.x,
     main = snapshot?.entries.find(e => e.primary)?.path ?? cwd;
-  line(4, 2, "WORKTREE", layout.room, "muted");
+  line(4, 2, "WORKTREE", layout.room, "faint");
   for (const column of columns)
-    if (x[column.name] !== undefined) line(4, x[column.name]!, column.header, column.width, "muted");
+    if (x[column.name] !== undefined) line(4, x[column.name]!, column.header, column.width, "faint");
   // Until a removed row has closed, the cursor is its own: it goes with the
   // row, then waits on that line while the rows below move up to it, or
   // climbs to the row above when that is next.
@@ -275,27 +280,37 @@ export function draw(
     }
     if (hold.covers(entry.path)) removing = y;
     const chosen = entry.path === selected?.path && (shown.removing === null || ending);
+    // The chosen worktree's lines are filled, and faint text on the fill steps up to muted.
+    const tone = (token: palette.Token): palette.Token => (chosen && token === "faint" ? "muted" : token);
+    if (chosen) for (let row = y; row < y + state.lines(); row++) grid.fill(1, row, rect.w - 2, c.selected);
     const label = (chosen ? "› " : "  ") + worktrees.label(entry);
-    line(y, 1, label, layout.room + 1, chosen ? "strong" : "text", chosen);
+    line(y, 1, label, layout.room + 1, chosen ? "strong" : "text", true);
     // The path, if it fits with its last directory whole; the name says the rest.
     const path = displayPath(entry.path, main),
       short = shortPath(path, layout.room - displayWidth(label) - 1);
     if (short && short.endsWith(path.slice(path.lastIndexOf("/") + 1)))
-      line(y, displayWidth(label) + 3, short, displayWidth(short), "faint");
+      line(y, displayWidth(label) + 3, short, displayWidth(short), tone("faint"));
     if (x.agents !== undefined) {
       const associations = snapshot?.agents.filter(a => a.path === entry.path) ?? [],
         counted = state.agents?.get(entry.path) ?? { agents: associations.length, working: 0 },
-        total = `${counted.agents}${associations.some(a => a.stale) ? "*" : ""}`;
-      if (counted.working)
-        runs(y, x.agents, 6, [
-          [`${counted.working}▶`, "accent", true],
-          [` ${total}`, "text"],
-        ]);
-      else line(y, x.agents, total, 6, counted.agents ? "text" : "faint");
+        idle = counted.agents - counted.working,
+        segments: [string, palette.Token, boolean?][] = [];
+      // Working and idle, each marked as the sidebar marks its agents.
+      if (counted.working) segments.push([`${counted.working}▶`, "accent", true]);
+      if (idle) segments.push([`${counted.working ? " " : ""}${idle}○`, "muted"]);
+      if (!counted.agents) segments.push(["0", tone("faint")]);
+      if (associations.some(a => a.stale)) segments.push(["*", "text"]);
+      runs(y, x.agents, 7, segments);
     }
     if (x.main !== undefined) {
       const vs = entry.comparison;
-      line(y, x.main, vs ? `↑${compactCount(vs.ahead)} ↓${compactCount(vs.behind)}` : "—", 8, vs ? "text" : "faint");
+      line(
+        y,
+        x.main,
+        vs ? `↑${compactCount(vs.ahead)} ↓${compactCount(vs.behind)}` : "—",
+        8,
+        vs ? "text" : tone("faint"),
+      );
     }
     if (x.age !== undefined)
       line(
@@ -303,7 +318,7 @@ export function draw(
         x.age,
         entry.created === null ? "—" : ageLabel((now - entry.created) / 1000),
         4,
-        entry.created === null ? "faint" : "muted",
+        entry.created === null ? tone("faint") : "muted",
       );
     if (x.edited !== undefined) {
       const since = entry.edited === null ? null : now - entry.edited;
@@ -313,15 +328,15 @@ export function draw(
         x.edited,
         since === null ? "—" : `${ageLabel(since / 1000)} ago`,
         8,
-        since === null ? "faint" : since < 3600000 ? "text" : "muted",
+        since === null ? tone("faint") : since < 3600000 ? "text" : "muted",
       );
     }
     if (x.changes !== undefined) {
       const changes = entry.changes,
         star = entry.stale ? "*" : "";
       if (!entry.available) line(y, x.changes, "Missing", 19, "muted");
-      else if (!changes) line(y, x.changes, "…", 19, "faint");
-      else if (!changes.total) line(y, x.changes, `Clean${star}`, 19, "faint");
+      else if (!changes) line(y, x.changes, "…", 19, tone("faint"));
+      else if (!changes.total) line(y, x.changes, `Clean${star}`, 19, tone("faint"));
       else
         runs(y, x.changes, 19, [
           [`${changes.total} file${changes.total === 1 ? "" : "s"}${star}`, "text"],
@@ -335,14 +350,12 @@ export function draw(
             : []),
         ]);
     }
-    if (state.briefs) brief(y + 1, entry);
+    if (state.briefs) brief(y + 1, entry, tone);
     y += state.lines();
   }
   if (!selected) line(5, 2, snapshot ? "No linked worktrees" : "Discovering worktrees…", undefined, "muted");
   const status = worktreeRemoval.footer(state.removal),
-    stale = [...(state.briefs?.values() ?? [])].some(
-      b => b.phase !== "writing" && (!b.current || b.phase === "failed"),
-    );
+    failed = [...(state.briefs?.values() ?? [])].some(b => b.phase === "failed");
   if (status) {
     let x = 2;
     for (const segment of status) {
@@ -362,7 +375,7 @@ export function draw(
       rect.h - 2,
       2,
       selected
-        ? `↑↓ browse · Enter ${enter} · hold ⌫ remove${stale ? " · r refresh" : ""} · Esc close`
+        ? `↑↓ browse · Enter ${enter} · hold ⌫ remove${failed ? " · r refresh" : ""} · Esc close`
         : "↑↓ browse · Esc close",
       undefined,
       "faint",
