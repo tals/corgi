@@ -226,7 +226,9 @@ test("the corgi herds the word together, sits, and curls into the ellipsis", () 
   ];
   for (const [tick, text] of cases) expect(plain(a.writeHerd(22, tick))).toBe(text);
   expect(
-    a.writeHerd(22, 7).startsWith(p.fg("text") + "C " + p.fg("faint") + "o  mp  a" + p.fg("text") + "cting‹o"),
+    a
+      .writeHerd(22, 7)
+      .startsWith(p.fg("text") + "C " + p.fg("faint") + "o  mp  a" + p.fg("text") + "cting" + p.fg("faint") + "‹o"),
   ).toBe(true);
   expect(a.writeHerd(22, 29)).toBe(p.fg("text") + "Compacting…" + " ".repeat(11));
 });
@@ -277,15 +279,15 @@ test("a puff starts lit, fades as it rises, and seen sleepers are dim", () => {
   expect(a.idle(22, new a.Sleep({ puff_ms: 2700 }))).toContain(p.fgRgb(blend(0.4)) + "z");
   expect(a.idle(22)).toBe(p.fgRgb(blend(0.42)) + "~ᐯ◡ᴥ◡ᐯ" + " ".repeat(16));
 });
-test("the corgi is gray: text awake, faint asleep, muted asleep on a selected row", () => {
+test("the corgi is gray: faint awake or asleep, muted asleep on a selected row", () => {
   const x = new a.Presentation();
   x.update("awake", 0);
-  expect(x.writeCorgi(20, true, new a.Sleep()).startsWith(p.fg("text"))).toBe(true);
+  expect(x.writeCorgi(20, true, new a.Sleep()).startsWith(p.fg("faint"))).toBe(true);
   expect(a.idle(6, new a.Sleep({ bright: true }))).toBe(p.fg("faint") + "~ᐯ◡ᴥ◡ᐯ");
   expect(a.idle(6, new a.Sleep({ background: p.colors.selected, selected: true }))).toBe(p.fg("muted") + "~ᐯ◡ᴥ◡ᐯ");
   const out = a.writeUnearth(a.Dig.width("restoring"), 3000, "restoring");
   expect(out).toContain(p.fg("accent") + "Restoring…");
-  expect(out).toContain(p.fg("text") + "ᐯ•ᴥ•ᐯ~");
+  expect(out).toContain(p.fg("faint") + "ᐯ•ᴥ•ᐯ~");
 });
 test("one sleeper dreams per period, holds through its puff, and rarely repeats", () => {
   expect(a.dreamer([], 0)).toBeNull();

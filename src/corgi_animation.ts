@@ -273,6 +273,8 @@ export class Playback {
   static minimum_idle_ms = 10000;
   static retry_ms = 2000;
   static activity_probability_percent = 35;
+  static fetch_probability_percent = 20;
+  static initial_fetch_probability_percent = 7.5;
   static max_activity_ms = 9600;
   active = false;
   routine: Routine = "idle";
@@ -293,12 +295,21 @@ export class Playback {
     this.active = active;
     if (!active) return;
     if (!before) {
-      this.enter((["idle", "sniff", "fetch"] as Routine[])[this.random.int(3)], now);
+      const choice = this.random.float() * 100;
+      this.enter(
+        choice < Playback.initial_fetch_probability_percent
+          ? "fetch"
+          : choice < Playback.activity_probability_percent
+            ? "sniff"
+            : "idle",
+        now,
+      );
       return;
     }
     if (now < this.deadline_ms) return;
     if (this.routine !== "idle") this.enter("idle", now);
-    else if (this.random.int(100) < 35) this.enter(this.random.boolean() ? "sniff" : "fetch", now);
+    else if (this.random.int(100) < Playback.activity_probability_percent)
+      this.enter(this.random.int(100) < Playback.fetch_probability_percent ? "fetch" : "sniff", now);
     else this.deadline_ms = now + 2000;
   }
   write(room: number, now: number): string {
@@ -332,7 +343,7 @@ export class Fetch {
   write(room: number, now: number) {
     const at = this.tick(room, now);
     return (
-      palette.fg("text") +
+      palette.fg(at !== null ? "text" : "faint") +
       (at !== null
         ? writeFetch(room, this.throw, at)
         : frame(room, frames.wag[Math.floor(Math.max(0, now) / 200) % frames.wag.length]))
@@ -370,6 +381,7 @@ export function herdScene(width: number, step: number) {
       lit: letters.map((at, i) => at === i || at < spread[i]),
       dog: walk_left[step % 4],
       x: nose,
+      finished: false,
     };
   }
   const p = step - roundup,
@@ -379,6 +391,7 @@ export function herdScene(width: number, step: number) {
     lit: Array(10).fill(true),
     dog: pose?.pose ?? (p === 6 ? "~ᐯ◡ᴥ◡ᐯ" : "~ᐯ•ᴥ•ᐯ"),
     x: pose ? 10 + pose.after : 11,
+    finished: p >= 10 + curl.length - 1,
   };
 }
 export function writeHerd(width: number, step: number) {
@@ -396,7 +409,7 @@ export function writeHerd(width: number, step: number) {
   for (let col = 0; col < width; col++) {
     if (col >= scene.x && at < dog.length) {
       const glyph = dog[at++];
-      out += tint("text") + (glyph === "~" ? wagTail(Math.floor(step / 2)) : glyph);
+      out += tint(scene.finished ? "text" : "faint") + (glyph === "~" ? wagTail(Math.floor(step / 2)) : glyph);
     } else if (letter < 10 && scene.letters[letter] === col) {
       out += tint(scene.lit[letter] ? "text" : "faint") + herd_word[letter++];
     } else out += " ";
@@ -464,12 +477,12 @@ export function writeUnearth(width: number, shown_ms: number, dig: Dig): string 
     col++;
     cells[15] = {
       glyph: wagTail(Math.floor(step / 2)),
-      color: palette.colors.text,
+      color: palette.colors.faint,
       bold: false,
     };
     dog = step - dug < 5 ? "ᐱ•ᴥ•ᐱ" : "ᐯ•ᴥ•ᐯ";
   }
-  for (const glyph of dog) cells[col++] = { glyph, color: palette.colors.text, bold: false };
+  for (const glyph of dog) cells[col++] = { glyph, color: palette.colors.faint, bold: false };
   let bold: boolean | null = null;
   let color: palette.Rgb | null = null;
   let out = "";
@@ -600,7 +613,8 @@ export class Presentation {
     const pose = this.last_corgi;
     if (!pose) return "";
     if (pose.mode === "asleep" && !working) return idle(room, sleep);
-    return palette.fg("text") + (pose.mode === "asleep" ? new Playback() : this.playback).write(room, pose.at_ms);
+    const playback = pose.mode === "asleep" ? new Playback() : this.playback;
+    return palette.fg(playback.routine === "fetch" ? "text" : "faint") + playback.write(room, pose.at_ms);
   }
   hide() {
     this.playback.active = false;

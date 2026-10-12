@@ -11,7 +11,8 @@ Source: `src/palette.zig`. termhtml has a copy: the `corgi` theme in
 4. Show importance with gray steps and bold, not with color.
 5. Show status with shape and color.
 6. Keep the layout when you restyle. Propose layout changes separately.
-7. The corgi is gray: `text` awake, `faint` asleep. It never takes a status color.
+7. The corgi is gray: `faint` awake or asleep, `text` fetching
+   (`muted` when asleep on a selected row). It never takes a status color.
 
 ## Tokens
 
