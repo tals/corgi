@@ -1519,6 +1519,16 @@ export class Controller {
         if (selection) await this.enterWorktree(selection);
         break;
       }
+      case "worktree-refresh": {
+        const id = this.worktreeDetail();
+        if (id === null) break;
+        try {
+          await call(this.connection, "worktree.brief", { workspace: id });
+        } catch {
+          this.notice(" Worktree briefs: the runtime did not accept the refresh");
+        }
+        break;
+      }
       case "worktree-remove": {
         // Each press or key repeat comes here; the hold decides when it's done.
         if (this.worktreeDetail() === null) break;
@@ -2672,7 +2682,7 @@ export class Controller {
       this.notice(" Corgi setup: the runtime did not accept the change");
       return;
     }
-    const label = { activity: "Activity summaries" }[use];
+    const label = { activity: "Activity summaries", worktrees: "Worktree briefs" }[use];
     this.notice(` ${label}: ${on ? "on" : "off"}${response.saved === true ? "" : " (not saved for next start)"}`);
   }
   private async configureSmartLinks(enabled: boolean): Promise<void> {
@@ -2808,6 +2818,7 @@ export class Controller {
         else if (byte === 106 || byte === 14 || byte === 9) await this.perform({ name: "worktree-next" });
         else if (byte === 107 || byte === 16) await this.perform({ name: "worktree-prev" });
         else if (byte === 127 || byte === 8) await this.perform({ name: "worktree-remove" });
+        else if (byte === 114) await this.perform({ name: "worktree-refresh" });
         return;
       }
     }
@@ -4691,6 +4702,12 @@ export class Controller {
       removal.advance(milliTimestamp());
       this.dirty = true;
     }
+    // A brief being written glimmers.
+    if (
+      this.worktreeDetail() !== null &&
+      [...(this.worktree_card.briefs?.values() ?? [])].some(b => b.phase === "writing")
+    )
+      this.dirty = true;
     const cl = this.input_state;
     if (
       cl.attached &&
@@ -4721,12 +4738,16 @@ export class Controller {
       ? id
       : null;
   }
-  /** The open overview, with its worktrees' agents counted for this frame. */
+  /** The open overview, with its worktrees' agents counted and briefs
+   * looked up for this frame. */
   private worktreeCard(): worktreeTooltip.State | null {
     const id = this.worktreeDetail();
     if (id === null) return null;
-    const snapshot = this.runtime.workspaces.items.find(ws => ws.id === id)?.worktrees;
+    const ws = this.runtime.workspaces.items.find(ws => ws.id === id),
+      snapshot = ws?.worktrees;
     this.worktree_card.agents = snapshot ? worktreeAgents.counts(snapshot, this.agentEntries(id)) : null;
+    this.worktree_card.briefs =
+      ws && this.runtime.inference.uses.worktrees ? new Map(ws.worktree_briefs.map(b => [b.path, b])) : null;
     return this.worktree_card;
   }
   private pinWorktreeInput(input: string): void {
@@ -4734,7 +4755,7 @@ export class Controller {
     const key = keys.parse(input),
       event = keyboard.decode(input);
     if (
-      ["j", "k", "\r", "\t", "\x0e", "\x10", "\x1b", "\x7f", "\x08"].includes(input) ||
+      ["j", "k", "r", "\r", "\t", "\x0e", "\x10", "\x1b", "\x7f", "\x08"].includes(input) ||
       key === "up" ||
       key === "down" ||
       key === "delete" ||
@@ -4748,6 +4769,7 @@ export class Controller {
           27,
           106,
           107,
+          114,
           127,
           keyboard.arrow_up,
           keyboard.arrow_down,
@@ -4839,6 +4861,7 @@ export class Controller {
       badge?.y ?? this.worktree_card.anchor,
       shown.entries.length,
       shown.closed,
+      this.worktree_card.lines(),
     );
   }
   private worktreeHoverContains(x: number, y: number): boolean {

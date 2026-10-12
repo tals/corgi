@@ -10,11 +10,10 @@ import * as worktreeRemoval from "./worktree_removal";
 import { clean } from "./trackers/git_status";
 import { milliTimestamp } from "./clock";
 import { ageLabel } from "./launcher_resume";
+import { pulse } from "./sidebar";
 
-/** Lines per worktree in the table. */
-const row_lines = 1;
-
-/** The card for `count` worktrees, `closed` lines shorter while a removed row closes. */
+/** The card for `count` worktrees of `lines` each, `closed` lines shorter
+ * while a removed row closes. */
 export function geometry(
   cols: number,
   rows: number,
@@ -22,10 +21,11 @@ export function geometry(
   anchor: number,
   count: number,
   closed = 0,
+  lines = 1,
 ): Rect | null {
   const w = Math.min(100, cols - side - 3);
   if (w < 52 || rows < 12) return null;
-  const h = Math.min(rows - 2, 8 + Math.max(1, count) * row_lines - closed);
+  const h = Math.min(rows - 2, 8 + Math.max(1, count) * lines - closed);
   return new Rect(side + 2, Math.max(1, Math.min(anchor - 1, rows - h - 1)), w, h);
 }
 /** The triangle from the badge to the card's left edge, which the pointer
@@ -50,6 +50,10 @@ export class State {
   /** Each worktree's live agents and how many are working, counted as the
    * sidebar's worktree groups count them. */
   agents: Map<string, { agents: number; working: number }> | null = null;
+  /** The worktrees' briefs by path, or null while worktree briefs are off. */
+  briefs: Map<string, worktrees.Brief> | null = null;
+  /** When this viewer first saw each brief being written, for its glimmer. */
+  private writing = new Map<string, number>();
   removal = new worktreeRemoval.Hold();
   /** The removal effect for this opening of the overview, drawn when first needed. */
   private effect: worktreeRemoval.Effect | null = null;
@@ -59,9 +63,24 @@ export class State {
     this.pinned = false;
     this.selected = null;
     this.agents = null;
+    this.briefs = null;
+    this.writing.clear();
     this.effect = null;
     // A removal under way finishes, and says so, even with the overview closed.
     if (!this.removal.committed()) this.removal.reset();
+  }
+  /** Lines per worktree: a second for its brief while briefs are on. */
+  lines() {
+    return this.briefs ? 2 : 1;
+  }
+  /** How long `path`'s brief has been written, as far as this viewer knows. */
+  writingFor(path: string, now: number): number {
+    if (this.briefs?.get(path)?.phase !== "writing") {
+      this.writing.delete(path);
+      return 0;
+    }
+    if (!this.writing.has(path)) this.writing.set(path, now);
+    return now - this.writing.get(path)!;
   }
   removalEffect(): worktreeRemoval.Effect {
     if (this.effect === null) this.effect = this.last_effect = worktreeRemoval.pick(this.last_effect);
@@ -72,7 +91,7 @@ export class State {
     return Math.max(0, index);
   }
   capacity(rect: Rect, closed = 0) {
-    return Math.max(1, Math.floor((rect.h - 8 + closed) / row_lines));
+    return Math.max(1, Math.floor((rect.h - 8 + closed) / this.lines()));
   }
   offset(entries: worktrees.Checkout[], rect: Rect, closed = 0) {
     const capacity = this.capacity(rect, closed);
@@ -88,7 +107,7 @@ export class State {
   }
   hit(snapshot: worktrees.Snapshot | null, rect: Rect, x: number, y: number) {
     const { entries, closed } = listing(snapshot, this),
-      row = Math.floor((y - rect.y - 5) / row_lines);
+      row = Math.floor((y - rect.y - 5) / this.lines());
     if (x <= rect.x || x >= rect.x + rect.w - 1 || row < 0 || row >= this.capacity(rect, closed)) return null;
     return entries[this.offset(entries, rect, closed) + row]?.path ?? null;
   }
@@ -96,7 +115,7 @@ export class State {
 /** The worktrees the overview lists: the linked ones, and one just removed
  * until its row has closed. */
 export function listing(snapshot: worktrees.Snapshot | null, state: State, now = milliTimestamp()) {
-  return state.removal.shown(worktrees.linked(snapshot), now, row_lines);
+  return state.removal.shown(worktrees.linked(snapshot), now, state.lines());
 }
 /** Temporary directories by how they read, real paths included since Git
  * lists worktrees by theirs: on macOS `/tmp` is `/private/tmp`. */
@@ -207,6 +226,29 @@ export function draw(
       width -= displayWidth(text);
     }
   };
+  /** A worktree's brief: a few words, a glimmer while written, faded when
+   * the last try failed, marked when the worktree has changed since. */
+  const brief = (row: number, entry: worktrees.Checkout) => {
+    const b = state.briefs?.get(entry.path),
+      width = rect.w - 6;
+    if (entry.comparison?.ahead === 0n && entry.changes?.total === 0)
+      return line(row, 3, "Nothing beyond main", width, "faint");
+    if (!b) return;
+    if (b.phase === "writing") {
+      const since = state.writingFor(entry.path, now),
+        text = b.label ?? "...";
+      // Over the old words while amended; dots while the first is written.
+      [...ellipsis(clean(text), width)].forEach((ch, i) => grid.put(3 + i, row, ch, pulse(b.label ? i / 4 : i, since)));
+      return;
+    }
+    state.writingFor(entry.path, now);
+    if (b.phase === "failed") return line(row, 3, b.label ?? "Brief failed", width, "faint");
+    if (b.label === null) return;
+    runs(row, 3, width, [
+      [b.label, "muted"],
+      ...(b.current ? [] : ([["  · out of date", "faint"]] as [string, palette.Token][])),
+    ]);
+  };
   const layout = columnsFor(rect.w),
     x = layout.x,
     main = snapshot?.entries.find(e => e.primary)?.path ?? cwd;
@@ -228,7 +270,7 @@ export function draw(
       else if (hold.phase === "removing") cursor = y;
     }
     if (ending && shown.closed > 0) {
-      y += row_lines - shown.closed;
+      y += state.lines() - shown.closed;
       continue;
     }
     if (hold.covers(entry.path)) removing = y;
@@ -293,10 +335,14 @@ export function draw(
             : []),
         ]);
     }
-    y += row_lines;
+    if (state.briefs) brief(y + 1, entry);
+    y += state.lines();
   }
   if (!selected) line(5, 2, snapshot ? "No linked worktrees" : "Discovering worktrees…", undefined, "muted");
-  const status = worktreeRemoval.footer(state.removal);
+  const status = worktreeRemoval.footer(state.removal),
+    stale = [...(state.briefs?.values() ?? [])].some(
+      b => b.phase !== "writing" && (!b.current || b.phase === "failed"),
+    );
   if (status) {
     let x = 2;
     for (const segment of status) {
@@ -315,13 +361,15 @@ export function draw(
     line(
       rect.h - 2,
       2,
-      selected ? `↑↓ browse · Enter ${enter} · hold ⌫ remove · Esc close` : "↑↓ browse · Esc close",
+      selected
+        ? `↑↓ browse · Enter ${enter} · hold ⌫ remove${stale ? " · r refresh" : ""} · Esc close`
+        : "↑↓ browse · Esc close",
       undefined,
       "faint",
     );
   }
   if (removing !== null) {
-    const area = { y: removing, lines: row_lines, left: 1, right: rect.w - 2, top: 1, bottom: rect.h - 3 },
+    const area = { y: removing, lines: state.lines(), left: 1, right: rect.w - 2, top: 1, bottom: rect.h - 3 },
       report = hold.report;
     worktreeRemoval.paint(grid, area, hold.effect, hold.progress, hold.finale(now), now);
     // A big worktree is still being deleted once the ending has played.

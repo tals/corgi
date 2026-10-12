@@ -39,13 +39,13 @@ test("uses save apart from the model choice; an old saved off turns them all off
   const root = mkdtempSync(join(tmpdir(), "corgi-setup-"));
   try {
     const file = join(root, "settings.json");
-    expect([loadUses(file), off(file)]).toEqual([{ activity: true }, false]);
+    expect([loadUses(file), off(file)]).toEqual([{ activity: true, worktrees: true }, false]);
     save(file, "off");
-    expect([loadUses(file), off(file)]).toEqual([{ activity: false }, true]);
-    saveUses(file, { activity: true });
+    expect([loadUses(file), off(file)]).toEqual([{ activity: false, worktrees: false }, true]);
+    saveUses(file, { activity: false, worktrees: true });
     save(file, "claude");
     expect(load(file)).toBe("claude");
-    expect([loadUses(file), off(file)]).toEqual([{ activity: true }, false]);
+    expect([loadUses(file), off(file)]).toEqual([{ activity: false, worktrees: true }, false]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

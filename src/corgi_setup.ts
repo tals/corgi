@@ -59,6 +59,7 @@ export function status(value: any = {}): Status {
     models: { codex: value?.models?.codex ?? "", claude: value?.models?.claude ?? "" },
     uses: {
       activity: use(value?.uses?.activity),
+      worktrees: use(value?.uses?.worktrees),
     },
   };
 }
@@ -1433,6 +1434,7 @@ export class Menu {
     });
     return [
       use("activity", "Activity summaries", "What each agent is doing, under its name."),
+      use("worktrees", "Worktree briefs", "What each worktree holds, in a few words."),
       {
         label: "Smart Links",
         brief: "Digs up likely HTTP links ↗",

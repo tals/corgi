@@ -165,6 +165,8 @@ $.requests|inference.configure.choice: optional
 $.requests|inference.configure.choice?: enum auto codex claude off
 $.requests|inference.configure.activity: optional
 $.requests|inference.configure.activity?: bool
+$.requests|inference.configure.worktrees: optional
+$.requests|inference.configure.worktrees?: bool
 $.requests|shell.configure.shell: string
 $.requests|smart_links.configure.enabled: bool
 $.requests|git.push.workspace: u32
@@ -176,6 +178,7 @@ $.requests|git.push.ref.destination: string
 $.requests|worktree.remove.workspace: u32
 $.requests|worktree.remove.path: string
 $.requests|worktree.stop.workspace: u32
+$.requests|worktree.brief.workspace: u32
 $.requests|worktree.add.workspace: u32
 $.requests|worktree.add.path: string
 $.requests|worktree.add.branch: string
@@ -310,6 +313,7 @@ $.snapshot.inference.launches.claude: u32
 $.snapshot.inference.models.codex: string
 $.snapshot.inference.models.claude: string
 $.snapshot.inference.uses.activity: bool
+$.snapshot.inference.uses.worktrees: bool
 $.snapshot.shell.setting: string
 $.snapshot.shell.path: string
 $.snapshot.shell.source: enum setting env account fallback
@@ -553,6 +557,11 @@ $.snapshot.workspaces[].worktree_removal?.id: u32
 $.snapshot.workspaces[].worktree_removal?.path: string
 $.snapshot.workspaces[].worktree_removal?.phase: enum deleting done stopped failed
 $.snapshot.workspaces[].worktree_removal?.error: string
+$.snapshot.workspaces[].worktree_briefs[].path: string
+$.snapshot.workspaces[].worktree_briefs[].label: optional
+$.snapshot.workspaces[].worktree_briefs[].label?: string
+$.snapshot.workspaces[].worktree_briefs[].phase: enum ready writing failed
+$.snapshot.workspaces[].worktree_briefs[].current: bool
 $.snapshot.workspaces[].stats.tools: u64
 $.snapshot.workspaces[].stats.input: u64
 $.snapshot.workspaces[].stats.cached_input: u64
@@ -678,6 +687,7 @@ $.replies.inference.configure.inference.launches.claude: u32
 $.replies.inference.configure.inference.models.codex: string
 $.replies.inference.configure.inference.models.claude: string
 $.replies.inference.configure.inference.uses.activity: bool
+$.replies.inference.configure.inference.uses.worktrees: bool
 $.replies.onboarding.status.progress.phase: enum idle connecting receiving preparing committing copying complete failed
 $.replies.onboarding.status.progress.completed: usize
 $.replies.onboarding.status.progress.total: usize

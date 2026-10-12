@@ -20,6 +20,7 @@ import { Status as InferenceStatus } from "./inference/setup";
 import { label as paneLabel } from "./pane/label";
 import { capacity as order_capacity } from "./agent_order";
 import type { Target } from "./agent_order";
+import { Briefs } from "./worktree_briefs";
 export type Create = {
   workspace: number;
   split?: { pane: number; axis: Axis; before?: boolean } | null;
@@ -322,6 +323,7 @@ export class Runtime {
   git_push = new trackers.git_push.Manager();
   git_status = new trackers.git_status.Tracker();
   worktree_tracker = new trackers.worktrees.Tracker();
+  worktree_briefs = new Briefs();
   ports = new trackers.ports.Tracker();
   resources = new trackers.resources.Tracker();
   link_labels = new trackers.link_labels.Cache();
@@ -351,6 +353,7 @@ export class Runtime {
     this.git_push.close();
     this.git_status.close();
     this.worktree_tracker.close();
+    this.worktree_briefs.close();
     for (const p of this.panes) {
       p.dropGhost();
       p.terminal.destroy();

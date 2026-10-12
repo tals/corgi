@@ -99,6 +99,9 @@
   "worktree.stop": {
     "workspace": 1
   },
+  "worktree.brief": {
+    "workspace": 1
+  },
   "worktree.add": {
     "workspace": 1,
     "path": "/repo-topic",

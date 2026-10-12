@@ -349,11 +349,18 @@ export class Server {
     const portsChanged = this.runtime.ports.tick(this.runtime);
     let tracked = gitStatusChanged || gitPushChanged || portsChanged;
     const viewers = this.clients.filter(c => c.viewer && !c.dead);
+    const overviews = new Set(
+      viewers.filter(c => c.watched && c.worktree_detail !== null).map(c => c.worktree_detail!),
+    );
+    tracked = this.runtime.worktree_tracker.tick(this.runtime, overviews) || tracked;
+    const inference = this.summaries?.status();
     tracked =
-      this.runtime.worktree_tracker.tick(
-        this.runtime,
-        new Set(viewers.filter(c => c.watched && c.worktree_detail !== null).map(c => c.worktree_detail!)),
-      ) || tracked;
+      this.runtime.worktree_briefs.tick(this.runtime, overviews, {
+        enabled: this.summaries?.uses.worktrees ?? false,
+        provider: inference?.provider ?? null,
+        model: inference?.model ?? "",
+        file: settings.path(this.socket),
+      }) || tracked;
     if (viewers.length) this.resource_readings = viewers.some(c => c.resources);
     if (this.resource_readings)
       tracked =
@@ -585,6 +592,11 @@ export class Server {
       }
       case "worktree.stop":
         this.runtime.worktree_tracker.stopRemoval(request.payload.workspace);
+        cl.queue({ ok: true });
+        return;
+      case "worktree.brief":
+        this.runtime.worktree_briefs.refresh(this.runtime, request.payload.workspace);
+        this.runtime.refreshed();
         cl.queue({ ok: true });
         return;
       case "git.branches":

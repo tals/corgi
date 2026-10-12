@@ -23,6 +23,7 @@ export const specs: Record<string, string> = {
   "worktree-enter": "void",
   "worktree-remove": "void",
   "worktree-stop": "void",
+  "worktree-refresh": "void",
   "goto-workspace": "usize",
   "close-workspace": "void",
   open: "[]const u8",

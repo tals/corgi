@@ -26,13 +26,14 @@ export class Launches {
 }
 /** What Corgi asks the model for. Each turns off on its own; the model
  * choice says only who answers. Smart Links' names go with Smart Links. */
-export type Use = "activity";
-export const uses: Use[] = ["activity"];
+export type Use = "activity" | "worktrees";
+export const uses: Use[] = ["activity", "worktrees"];
 export type Uses = Record<Use, boolean>;
 const use_keys: Record<Use, string> = {
   activity: "activity_summaries",
+  worktrees: "worktree_briefs",
 };
-export const allUses = (on: boolean): Uses => ({ activity: on });
+export const allUses = (on: boolean): Uses => ({ activity: on, worktrees: on });
 export class Status {
   choice: Choice = "auto";
   provider: Provider | null = null;

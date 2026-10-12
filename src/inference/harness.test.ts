@@ -214,32 +214,21 @@ test("live inference checkpoint continues the same process and conversation", as
 });
 
 test("harnesses from every pool share one cap", async () => {
-  const first = pool("codex");
-  const second = pool("codex");
+  const pools = [pool("codex"), pool("codex"), pool("codex")];
+  const open = (p: Pool, name: string) =>
+    p.infer({ instructions: "Return JSON", content: "snapshot", conversation: name });
   try {
-    for (let i = 0; i < 4; i++)
-      await first.infer({
-        instructions: "Return JSON",
-        content: "snapshot",
-        conversation: `first-${i}`,
-      });
-    for (let i = 0; i < 2; i++)
-      await second.infer({
-        instructions: "Return JSON",
-        content: "snapshot",
-        conversation: `second-${i}`,
-      });
-    await expect(
-      second.infer({
-        instructions: "Return JSON",
-        content: "snapshot",
-        conversation: "second-2",
-      }),
-    ).rejects.toThrow("TooManyHarnesses");
-    expect(first.slots.filter(Boolean).length + second.slots.filter(Boolean).length).toBe(6);
+    // The summaries' four, worktree briefs' four, and two more.
+    for (const [p, count] of [
+      [pools[0], 4],
+      [pools[1], 4],
+      [pools[2], 2],
+    ] as const)
+      for (let i = 0; i < count; i++) await open(p, `${pools.indexOf(p)}-${i}`);
+    await expect(open(pools[2], "2-2")).rejects.toThrow("TooManyHarnesses");
+    expect(pools.reduce((n, p) => n + p.slots.filter(Boolean).length, 0)).toBe(10);
   } finally {
-    first.close();
-    second.close();
+    for (const p of pools) p.close();
   }
 });
 

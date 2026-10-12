@@ -11,7 +11,7 @@ import { Writer } from "./text";
 import { Terminal } from "./pane/terminal";
 import { parseInventory } from "./trackers/worktrees";
 import * as clock from "./clock";
-import type { Snapshot } from "./worktrees";
+import type { Brief, Snapshot } from "./worktrees";
 import { realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -150,6 +150,69 @@ test("the overview counts each worktree's agents, and those working, as the side
   };
   expect(row("idle")).toMatch(/\.\/\.worktrees\/1 +1 +—/);
   expect(row("working")).toMatch(/\.\/\.worktrees\/1 +1▶ 1 +—/);
+});
+test("with briefs on, each worktree's second line holds its brief in the state it's in", () => {
+  const data = snapshot(5),
+    now = Date.UTC(2026, 9, 11),
+    linked = data.entries.slice(1);
+  for (const [i, e] of linked.entries())
+    Object.assign(e, {
+      available: true,
+      comparison: { ahead: i === 4 ? 0n : 1n, behind: 0n },
+      changes: { total: 0, staged: 0, modified: 0, untracked: 0, conflicted: 0, added: 0, removed: 0 },
+    });
+  const state = new State();
+  state.briefs = new Map(
+    [
+      { path: linked[0].path, label: "Search queries", phase: "ready", current: true },
+      { path: linked[1].path, label: "Fuzzy search", phase: "ready", current: false },
+      { path: linked[2].path, label: null, phase: "writing", current: true },
+      { path: linked[3].path, label: null, phase: "failed", current: true },
+    ].map(b => [b.path, b as Brief]),
+  );
+  const w = new Writer(),
+    terminal = new Terminal(140, 30),
+    rect = geometry(140, 30, 28, 3, 5, 0, state.lines())!;
+  expect(rect.h).toBe(8 + 5 * 2);
+  try {
+    draw(w, rect, "repo", "/repo", data, state, null, now);
+    terminal.feed(w.buffered());
+    const lines = terminal.text().split("\n");
+    const under = (label: string) => lines[lines.findIndex(l => l.includes(label)) + 1];
+    expect(under("topic-0")).toContain("Search queries");
+    expect(under("topic-1")).toContain("Fuzzy search  · out of date");
+    expect(under("topic-2")).toContain("...");
+    expect(under("topic-3")).toContain("Brief failed");
+    expect(under("topic-4")).toContain("Nothing beyond main");
+    expect(lines.join("\n")).toContain("hold ⌫ remove · r refresh · Esc close");
+    // The selected row's hit area covers both its lines.
+    state.select(linked[0].path);
+    expect(state.hit(data, rect, rect.x + 4, rect.y + 6)).toBe(linked[0].path);
+    expect(state.hit(data, rect, rect.x + 4, rect.y + 7)).toBe(linked[1].path);
+  } finally {
+    terminal.destroy();
+  }
+});
+test("r asks the daemon to brief the overview's worktrees again", async () => {
+  const requests: any[] = [];
+  const view = new Controller({
+    request: (async (op: string, fields: any) => {
+      requests.push({ op, ...Object(fields) });
+      return { ok: true };
+    }) as any,
+  });
+  view.receiveSnapshot({
+    workspaces: [
+      { id: 1, name: "repo", cwd: "/repo", worktrees: snapshot(2), model: { nodes: [], tabs: [], revision: 0 } },
+    ],
+    panes: [],
+    native_sessions: [],
+  });
+  view.input_state.attached = true;
+  view.worktree_card.workspace = 1;
+  view.worktree_card.pinned = true;
+  await view.input(Buffer.from("r"));
+  expect(requests.filter(r => r.op === "worktree.brief")).toEqual([{ op: "worktree.brief", workspace: 1 }]);
 });
 test("a narrow card drops age, then the comparison, then the last edit", () => {
   const names = (width: number) => Object.keys(columnsFor(width).x).sort();

@@ -7,16 +7,16 @@ import { clone } from "../json";
 test("each use turns off on its own, and an old off choice turns them all off", () => {
   const worker = new Worker("off");
   expect(worker.choice).toBe("auto");
-  expect(worker.status().uses).toEqual({ activity: false });
+  expect(worker.status().uses).toEqual({ activity: false, worktrees: false });
   expect(worker.naming()).toBe(false);
-  worker.configure(null, { activity: true });
-  expect([worker.summarizing(), worker.naming()]).toEqual([true, false]);
+  worker.configure(null, { worktrees: true });
+  expect([worker.summarizing(), worker.naming(), worker.uses.worktrees]).toEqual([false, false, true]);
   // Choosing a model turns link names back on; the uses stay as they were.
   worker.configure("claude");
-  expect([worker.choice, worker.summarizing(), worker.naming()]).toEqual(["claude", true, true]);
+  expect([worker.choice, worker.summarizing(), worker.naming()]).toEqual(["claude", false, true]);
   // An older viewer's "off" keeps the model and turns every use off.
   worker.configure("off");
-  expect([worker.choice, worker.naming(), worker.summarizing()]).toEqual(["claude", false, false]);
+  expect([worker.choice, worker.naming(), worker.uses.worktrees]).toEqual(["claude", false, false]);
 });
 test("worker live checkpoint preserves queued link evidence and unconsumed results", () => {
   const worker = new Worker("off");

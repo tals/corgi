@@ -37,6 +37,16 @@ export interface Checkout {
   edited: number | null;
   stale: boolean;
 }
+/** A few words on what a worktree holds that main doesn't. */
+export interface Brief {
+  path: string;
+  /** Null until the first is written. */
+  label: string | null;
+  /** Writing while one is asked for or amended; failed when the last try failed. */
+  phase: "ready" | "writing" | "failed";
+  /** Whether the worktree is still as the label found it. */
+  current: boolean;
+}
 export interface Association {
   target: Target;
   path: string;

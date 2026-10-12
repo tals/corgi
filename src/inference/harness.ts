@@ -55,6 +55,9 @@ function cancelled(stopping?: Stopping) {
 }
 let harnesses = 0;
 const capacity = 4;
+/** Every pool's connections together: the summaries' four, worktree
+ * briefs' four, and two still opening. */
+const max_harnesses = 10;
 export class Connection {
   process: ReturnType<typeof Bun.spawn> | null = null;
   pid = -1;
@@ -83,7 +86,7 @@ export class Connection {
     request: Request,
     public system: System,
   ) {
-    if (harnesses >= capacity + 2) throw Error("TooManyHarnesses");
+    if (harnesses >= max_harnesses) throw Error("TooManyHarnesses");
     this.key = request.conversation ?? null;
     this.instructions = request.instructions;
     this.schema = request.schema ?? null;
@@ -221,7 +224,7 @@ export class Connection {
 }
 export class Pool {
   config: Config;
-  slots: Array<Connection | null> = Array(capacity).fill(null);
+  slots: Array<Connection | null>;
   clock = 0n;
   started = false;
   working = false;
@@ -229,7 +232,9 @@ export class Pool {
   private opening = new Set<Connection>();
   private generation = 0;
   private metadataOpening: Promise<Connection> | null = null;
-  constructor(options: { config?: Partial<Config> } = {}) {
+  /** `size` is how many conversations the pool keeps open at once. */
+  constructor(options: { config?: Partial<Config>; size?: number } = {}) {
+    this.slots = Array(options.size ?? capacity).fill(null);
     this.config = {
       provider: "codex",
       model: null,
@@ -298,7 +303,7 @@ export class Pool {
         entry.cursor >= entry.next_seq
       )
         throw Error("InvalidCheckpoint");
-      if (harnesses >= capacity + 2) throw Error("TooManyHarnesses");
+      if (harnesses >= max_harnesses) throw Error("TooManyHarnesses");
       const connection = Object.create(Connection.prototype) as Connection;
       Object.assign(connection, {
         config: this.config,
@@ -372,7 +377,7 @@ export class Pool {
     const vacant = this.slots.findIndex(s => s === null);
     if (vacant >= 0) return vacant;
     let oldest = 0;
-    for (let i = 1; i < capacity; i++) if (this.slots[i]!.used < this.slots[oldest]!.used) oldest = i;
+    for (let i = 1; i < this.slots.length; i++) if (this.slots[i]!.used < this.slots[oldest]!.used) oldest = i;
     return oldest;
   }
   async open(request: Request, stopping?: Stopping, deadline = Date.now() + this.config.timeout_ms) {

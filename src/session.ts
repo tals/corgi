@@ -540,6 +540,7 @@ function build(r: Runtime, viewer: boolean) {
       git_ref: w.git_ref.view?.() ?? w.git_ref,
       git_push: w.git_push.view?.() ?? w.git_push,
       worktree_removal: r.worktree_tracker.removal(w.id),
+      worktree_briefs: r.worktree_briefs.view(w.worktrees),
       stats: w.away.counts ?? {},
       model: w.model,
     })),

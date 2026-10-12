@@ -131,15 +131,33 @@ so a Claude Code user gets Claude-backed summaries and link names without
 installing or signing in to Codex.
 
 Click the corgi badge at the top of the sidebar, or press **Ctrl-B i**, to open
-**Corgi setup → Clever Corgi**. **Summaries** opens a dropdown of Auto, Codex,
-Claude, and Off (arrow keys and Enter, or click a row; Escape closes it). Under
-the setting, setup shows what Auto picked and the launch counts behind it.
-Changes apply immediately, stop the previous harness, and are
-saved in `settings.json` beside `workspaces.json`. A saved choice wins over the
-environment. Clients can do the same with
-`corgi rpc '{"op":"inference.configure","protocol":1,"choice":"claude"}'`; the
-session snapshot's `inference` field reports the choice, provider, model,
-whether Auto has settled, and launch counts.
+**Corgi setup → Clever Corgi**. **Model** opens a dropdown of Auto, Codex and
+Claude (arrow keys and Enter, or click a row; Escape closes it). Under the
+setting, setup shows what Auto picked and the launch counts behind it. Below it,
+each use of the model has its own switch: **Activity summaries** and **Worktree
+briefs** (a few words on what each worktree holds that main doesn't, in the
+worktree overview). **Smart Links** names the links it finds, so link names come
+and go with it. Changes apply immediately, stop the previous harness, and are
+saved in `settings.json` beside `workspaces.json`, as `inference` and the
+`activity_summaries` and `worktree_briefs` switches; an `"inference": "off"`
+saved by an older Corgi, or `CORGI_INFERENCE_PROVIDER=off`, turns both off and
+stops link names until a model is chosen.
+A saved choice wins over the environment. Clients can do the same with
+`corgi rpc '{"op":"inference.configure","protocol":1,"choice":"claude","worktrees":false}'`;
+each field is optional. The session snapshot's `inference` field reports the
+choice, provider, model, whether Auto has settled, launch counts and the
+switches.
+
+Worktree briefs are written only while someone has a worktree overview open:
+for a few seconds after it opens, each worktree that holds something main
+doesn't and has no current brief gets one, two at a time. The model gets the
+branch's commits, the files that differ from main and a diff trimmed to 8 KB;
+files that look like secrets show by name only. A brief is amended in the
+same conversation, given what changed since and where the worktree stands now;
+when that conversation is gone, a fresh one gets the old brief, what changed and
+the full input. While the overview stays open, a worktree that changes shows
+"· out of date", and `r` writes those again. Briefs are kept in
+`worktree-briefs.json` beside `settings.json`.
 
 Without a saved choice, `CORGI_INFERENCE_PROVIDER` (`auto`, `codex`, `claude`,
 or `off`) sets the starting choice. Unknown values disable inference rather than

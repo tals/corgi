@@ -149,7 +149,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
       locked: false,
       launches: { codex: 0, claude: 0 },
       models: { codex: "", claude: "" },
-      uses: { activity: true },
+      uses: { activity: true, worktrees: true },
     },
     copy_feedback: false,
     prefix: false,
@@ -664,6 +664,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
         badge?.y ?? u.worktree_card.anchor,
         shown.entries.length,
         shown.closed,
+        u.worktree_card.lines(),
       );
       if (rect) worktreeTooltip.draw(w, rect, ws.name, ws.cwd, ws.worktrees, u.worktree_card, badge, now);
       else writeChip(w, "Worktrees: enlarge terminal · Esc to close", width, height, u.pointer);

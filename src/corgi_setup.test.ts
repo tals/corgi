@@ -53,13 +53,14 @@ test("setup lists every setting beside the selected one's options", () => {
   expect(rows[top].indexOf("╭")).toBe(8);
   expect(rows[top + 2]).toMatch(/Clever Corgi\s+│\s+Clever Corgi/);
   expect(rows.join("\n")).toMatch(/Model +● Claude ▾/);
-  for (const use of ["Activity summaries", "Smart Links"]) expect(rows.join("\n")).toMatch(new RegExp(`${use} +● On`));
+  for (const use of ["Activity summaries", "Worktree briefs", "Smart Links"])
+    expect(rows.join("\n")).toMatch(new RegExp(`${use} +● On`));
   expect(rows.join("\n")).toContain("↑↓ move   enter choose   esc close");
   // List rows and options are clickable, in order.
   const s = status({ choice: "claude" });
   const found = hits(menu, 100, 30, s);
   expect(found.filter(hit => "item" in hit)).toEqual(items.map(item => ({ item })));
-  expect(found.filter(hit => "option" in hit)).toEqual([0, 1, 2].map(option => ({ option })));
+  expect(found.filter(hit => "option" in hit)).toEqual([0, 1, 2, 3].map(option => ({ option })));
   expect(menu.hit(100, 30, 0, 0, s, new Preferences())).toBeNull();
   expect(menu.contains(100, 30, 50, top + 1)).toBe(true);
   // Too small for the frame: nothing draws.
@@ -103,11 +104,11 @@ test("Model opens a dropdown on the choice in use, and Esc closes it", () => {
   expect(menu.back()).toBe(true);
   expect(menu.focus).toBe("options");
   expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).not.toContain("✓");
-  // The options wrap too: the model, a use and Smart Links.
+  // The options wrap too: the model, two uses and Smart Links.
   menu.move(true, s, prefs);
   expect(menu.cursor).toBe(1);
   for (let i = 0; i < 6; i++) menu.move(true, s, prefs, false);
-  expect(menu.cursor).toBe(2);
+  expect(menu.cursor).toBe(3);
   menu.move(true, s, prefs);
   expect(menu.cursor).toBe(0);
   expect(menu.back()).toBe(true);
