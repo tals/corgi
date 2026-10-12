@@ -58,3 +58,29 @@ test("only completed structured edits carry file-write evidence", () => {
   ])
     expect(hooks.decode({ ...event, ...changed })?.writes).toEqual([]);
 });
+test("Claude's worktree tools report where they moved the session", () => {
+  const hooks = new Hooks(),
+    enter = {
+      hook_event_name: "PostToolUse",
+      tool_name: "EnterWorktree",
+      cwd: "/repo/.claude/worktrees/review",
+      tool_input: { name: "review" },
+      tool_response: { worktreePath: "/repo/.claude/worktrees/review", worktreeBranch: "worktree-review" },
+    },
+    exit = {
+      hook_event_name: "PostToolUse",
+      tool_name: "ExitWorktree",
+      cwd: "/repo",
+      tool_input: { action: "keep" },
+      tool_response: { action: "keep", worktreePath: "/repo/.claude/worktrees/review", restoredCwd: "/repo" },
+    };
+  expect(hooks.decode(enter)?.location).toBe("/repo/.claude/worktrees/review");
+  expect(hooks.decode(exit)?.location).toBe("/repo");
+  for (const changed of [
+    { hook_event_name: "PreToolUse" },
+    { hook_event_name: "PostToolUseFailure" },
+    { tool_name: "Bash" },
+    { tool_response: { worktreePath: "review" } },
+  ])
+    expect(hooks.decode({ ...enter, ...changed })?.location).toBe("");
+});

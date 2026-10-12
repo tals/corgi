@@ -118,6 +118,8 @@ export const HookEvent = [
   "Notification",
 ] as const;
 export type Hook = ReturnType<Hooks["decode"]>;
+/** Where Claude's EnterWorktree and ExitWorktree report moving the session. */
+const moves: Record<string, string> = { EnterWorktree: "worktreePath", ExitWorktree: "restoredCwd" };
 export class Hooks {
   decode(v: any) {
     if (!v || typeof v !== "object" || Array.isArray(v) || str(v, "agent_id")) return null;
@@ -142,7 +144,8 @@ export class Hooks {
     const tool = str(v, "tool_name"),
       input = field(v, "tool_input"),
       response = field(v, "tool_response"),
-      launched = kind === "tool_finish" && str(response, "status") === "async_launched";
+      launched = kind === "tool_finish" && str(response, "status") === "async_launched",
+      moved = kind === "tool_finish" && moves[tool] ? str(response, moves[tool]) : "";
     return {
       kind,
       session: str(v, "session_id"),
@@ -160,6 +163,7 @@ export class Hooks {
               .filter(p => p.length > 0 && (path.isAbsolute(p) || path.isAbsolute(str(v, "cwd"))))
               .map(p => path.resolve(str(v, "cwd"), p))
           : [],
+      location: path.isAbsolute(moved) ? moved : "",
       description: str(input, "description"),
       background_tasks: field(v, "background_tasks"),
       session_crons: field(v, "session_crons"),

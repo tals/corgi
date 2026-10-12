@@ -175,7 +175,7 @@ test("inventory follows removal, main movement and packed refs; failures preserv
     await f.close();
   }
 }, 20000);
-test("associations resolve symlinks and successful writes without claiming a nested independent repository", async () => {
+test("associations resolve symlinks and successful writes, without claiming a nested independent repository or a write outside the checkouts", async () => {
   const f = await fixture(),
     tracker = new Tracker();
   try {
@@ -193,6 +193,7 @@ test("associations resolve symlinks and successful writes without claiming a nes
         { target: { pane: 1 }, cwd: alias, writes: [] },
         { target: { pane: 2 }, cwd: f.repo, writes: [join(child, "new-file")] },
         { target: { pane: 3 }, cwd: nested, writes: [] },
+        { target: { pane: 4 }, cwd: child, writes: [join(f.root, "scratch", "page.html")] },
       ],
       1000,
       null,
@@ -200,6 +201,7 @@ test("associations resolve symlinks and successful writes without claiming a nes
     expect(associations).toEqual([
       { target: { pane: 1 }, path: child, source: "cwd", stale: false },
       { target: { pane: 2 }, path: child, source: "write", stale: false },
+      { target: { pane: 4 }, path: child, source: "cwd", stale: false },
     ]);
   } finally {
     tracker.close();

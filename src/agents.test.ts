@@ -3,6 +3,7 @@ import { Agent, Text, toolActivity } from "./agents";
 import { State } from "./observation";
 import { Hooks } from "./providers/common";
 import { Tail, completion } from "./transcript";
+import * as worktrees from "./worktrees";
 test("late receipts cannot read newer completions", () => {
   const s = new State();
   s.finish("completed", "transcript");
@@ -370,6 +371,32 @@ test("Claude tool hooks label activity from descriptions or main arguments", () 
   expect(agent.activity.text()).toBe("First line [2J");
 });
 
+test("Claude's worktree tools move its location past earlier writes", () => {
+  const hooks = new Hooks(),
+    agent = new Agent(),
+    finish = (tool: string, cwd: string, tool_input: object, tool_response: object) =>
+      hooks.decode({
+        hook_event_name: "PostToolUse",
+        session_id: "s",
+        tool_name: tool,
+        cwd,
+        tool_input,
+        tool_response,
+      });
+  observe(agent, "claude", { kind: "prompt", session: "s", cwd: "/repo" }, 1n, false, 1);
+  observe(agent, "claude", finish("Write", "/repo", { file_path: "/tmp/scratch/page.html" }, {}), 2n, false, 2);
+  expect(worktrees.writtenPaths(agent)).toEqual(["/tmp/scratch/page.html"]);
+  const review = "/repo/.claude/worktrees/review";
+  observe(agent, "claude", finish("EnterWorktree", review, { name: "review" }, { worktreePath: review }), 3n, false, 3);
+  expect(worktrees.observedDirectory(agent)).toBe(review);
+  expect(worktrees.writtenPaths(agent)).toEqual([]);
+  observe(agent, "claude", finish("Edit", review, { file_path: "src/a.ts" }, {}), 4n, false, 4);
+  expect(worktrees.observedDirectory(agent)).toBe(review);
+  expect(worktrees.writtenPaths(agent)).toEqual([`${review}/src/a.ts`]);
+  observe(agent, "claude", finish("ExitWorktree", "/repo", { action: "keep" }, { restoredCwd: "/repo" }), 5n, false, 5);
+  expect(worktrees.observedDirectory(agent)).toBe("/repo");
+  expect(worktrees.writtenPaths(agent)).toEqual([]);
+});
 test("hook sequences preserve distinct integers beyond number precision", () => {
   const agent = new Agent();
   const seq = 9007199254740992n;

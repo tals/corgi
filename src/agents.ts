@@ -244,6 +244,7 @@ export class Agent {
       worktrees.clearWrites(this);
     }
     if (path.isAbsolute(hook.cwd)) this.cwd = new Path(hook.cwd);
+    if (hook.location) worktrees.recordLocation(this, hook.location, []);
     if (event === "tool_finish" && hook.writes) worktrees.recordWrites(this, hook.writes);
     if (event === "tool_start" || event === "permission") {
       this.tool_active = true;

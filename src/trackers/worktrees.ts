@@ -145,6 +145,15 @@ export function parseBase(raw: string): worktrees.Base | null {
 function stale(snapshot: worktrees.Snapshot): worktrees.Snapshot {
   return { ...snapshot, stale: true, agents: snapshot.agents.map(a => ({ ...a, stale: true })) };
 }
+/** Whether a path lies in one of the repository's checkouts. A write
+ * anywhere else, such as a scratch directory, says nothing of where an
+ * agent works. */
+async function within(snapshot: worktrees.Snapshot, path: string): Promise<boolean> {
+  const inside = (p: string) => snapshot.entries.some(e => p === e.path || p.startsWith(e.path + "/"));
+  if (inside(path)) return true;
+  const resolved = await directory(path);
+  return resolved !== null && inside(resolved);
+}
 async function directory(path: string): Promise<string | null> {
   if (!isAbsolute(path)) return null;
   for (;;) {
@@ -576,7 +585,9 @@ export class Tracker {
     const out: worktrees.Association[] = [];
     if (!worktrees.linked(snapshot).length) return out;
     for (const input of inputs) {
-      const paths = input.writes.length ? input.writes : [input.cwd];
+      const writes: string[] = [];
+      for (const path of input.writes) if (await within(snapshot, path)) writes.push(path);
+      const paths = writes.length ? writes : [input.cwd];
       const found = new Set<string>();
       let uncertain = snapshot.stale;
       for (const path of paths) {
@@ -591,7 +602,7 @@ export class Tracker {
         if (root && snapshot.entries.some(e => e.path === root)) found.add(root);
       }
       for (const path of found)
-        out.push({ target: input.target, path, source: input.writes.length ? "write" : "cwd", stale: uncertain });
+        out.push({ target: input.target, path, source: writes.length ? "write" : "cwd", stale: uncertain });
       if (!found.size && uncertain)
         for (const old of previous?.agents ?? []) {
           if (JSON.stringify(old.target) === JSON.stringify(input.target)) out.push({ ...old, stale: true });
