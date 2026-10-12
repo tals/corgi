@@ -149,6 +149,10 @@ export class Worker {
   implementation = new Backend();
   system_meter = new Meter();
   choice: setup.Choice = "auto";
+  /** What the model is asked for; the choice says only who answers. */
+  uses: setup.Uses = setup.allUses(true);
+  /** Smart Links' links are named unless the model is off. */
+  link_names = true;
   launches = new setup.Launches();
   remembered: Provider = "codex";
   active: Provider | null = null;
@@ -163,12 +167,15 @@ export class Worker {
   paused = false;
   running = false;
   timer: ReturnType<typeof setInterval> | null = null;
-  constructor(choice: setup.Choice = "auto") {
-    this.choice = choice;
+  /** A choice of "off", from before uses were separate, turns them all off. */
+  constructor(choice: setup.Choice = "auto", uses: setup.Uses = setup.allUses(choice !== "off")) {
+    this.choice = choice === "off" ? "auto" : choice;
+    this.uses = choice === "off" ? setup.allUses(false) : { ...uses };
+    this.link_names = choice !== "off";
     this.system_meter.value.known = true;
   }
-  static start(choice: setup.Choice = "auto") {
-    const w = new Worker(choice);
+  static start(choice: setup.Choice = "auto", uses?: setup.Uses) {
+    const w = new Worker(choice, uses);
     w.activate();
     return w;
   }
@@ -179,13 +186,19 @@ export class Worker {
   observe(now: number) {
     this.observed_at = now;
   }
-  off() {
-    return this.choice === "off";
+  /** Whether agents' activity is summarized. */
+  summarizing() {
+    return this.uses.activity;
+  }
+  /** Whether links are named after what they open. */
+  naming() {
+    return this.link_names;
   }
   status() {
     const provider = this.applied ? this.active : setup.resolve(this.choice, this.launches, this.remembered),
       s = new setup.Status();
     s.choice = this.choice;
+    s.uses = { ...this.uses };
     s.provider = provider;
     s.model = setup.model(provider);
     s.locked = this.locked;
@@ -195,8 +208,15 @@ export class Worker {
     }
     return s;
   }
-  configure(choice: setup.Choice) {
-    this.choice = choice;
+  configure(choice: setup.Choice | null, uses: Partial<setup.Uses> = {}) {
+    if (choice === "off") {
+      this.uses = setup.allUses(false);
+      this.link_names = false;
+    } else if (choice !== null) {
+      this.choice = choice;
+      this.link_names = true;
+    }
+    Object.assign(this.uses, uses);
     this.applied = false;
     this.locked = false;
     for (const s of this.slots) if (s?.retry) s.next = 0;
@@ -345,7 +365,7 @@ export class Worker {
   }
   submit(owner: Actor, evidence: Text, progress: ToolView | null, panes: any[]) {
     const agent = owner.state;
-    if (!["working", "blocked"].includes(agent.state) || !agent.turn.len || this.off()) return;
+    if (!["working", "blocked"].includes(agent.state) || !agent.turn.len || !this.summarizing()) return;
     const req = Object.assign(new Request(), {
       actor: owner.id,
       provider: owner.provider(),
@@ -416,7 +436,7 @@ export class Worker {
       this.locked ||= this.implementation.pool.started;
       this.system_meter = this.implementation.pool.system_usage.meter;
       this.passes++;
-      if (this.off()) {
+      if (!this.naming())
         for (let i = 0; i < links.capacity; i++) {
           const request = this.link_requests[i];
           if (request) {
@@ -429,12 +449,11 @@ export class Worker {
             this.link_requests[i] = null;
           }
         }
-        return;
-      }
+      if (!this.naming() && !this.summarizing()) return;
       const now = clock.milliTimestamp();
       if (now < this.next_global) return;
       let index = -1;
-      for (let n = 0; n < max_actors; n++) {
+      for (let n = 0; n < max_actors && this.summarizing(); n++) {
         const i = (this.cursor + n) % max_actors;
         if (this.slots[i]?.ready(now, now - this.observed_at >= away_after_ms)) {
           index = i;

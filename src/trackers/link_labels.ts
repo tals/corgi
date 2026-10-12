@@ -151,7 +151,7 @@ export class Cache {
     runtime: Runtime,
     worker: {
       cancelLink(slot: number, generation: bigint): void;
-      off(): boolean;
+      naming(): boolean;
       submitLink(r: Request): void;
     },
     _now: number,
@@ -186,7 +186,7 @@ export class Cache {
           name: new Text(),
         };
         const e = this.entries[index]!;
-        if (e.attempted || worker.off()) continue;
+        if (e.attempted || !worker.naming()) continue;
         e.attempted = true;
         try {
           const request: Request = {

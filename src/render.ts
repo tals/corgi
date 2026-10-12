@@ -149,6 +149,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
       locked: false,
       launches: { codex: 0, claude: 0 },
       models: { codex: "", claude: "" },
+      uses: { activity: true },
     },
     copy_feedback: false,
     prefix: false,

@@ -255,16 +255,10 @@ class SummaryCases extends Summaries {
     this.assertEqual(lines(this.log + ".processes").length, 2);
     // A new harness starts a new conversation, so the agent's history comes along.
     this.assertIn("Tracing pane focus", JSON.parse(this.calls().at(-1)!).history[0]);
-    this.assertEqual(
-      (
-        await this.rpc({
-          op: "inference.configure",
-          protocol: 1,
-          choice: "off",
-        })
-      ).inference.provider,
-      null,
-    );
+    // An older client's "off" turns every use off and keeps the model.
+    const off = (await this.rpc({ op: "inference.configure", protocol: 1, choice: "off" })).inference;
+    this.assertEqual(off.provider, "claude");
+    this.assertTrue(Object.values(off.uses).every(on => on === false));
     status = (await this.rpc({ op: "inference.configure", protocol: 1, choice: "auto" })).inference;
     this.assertEqual([status.choice, status.provider], ["auto", "codex"]);
     this.assertGreaterEqual(status.launches.codex, 1);

@@ -11,6 +11,7 @@ import * as migrations from "./migrations";
 import * as json from "../json";
 import { Worker as SummaryWorker } from "../activity/worker";
 import * as build_id from "../build_id";
+import * as setup from "../inference/setup";
 
 export const terminal_abi = 0xa826bd22ebcdbe60n;
 export const update_abi = `1-${terminal_abi.toString(16)}`;
@@ -289,7 +290,12 @@ export async function importAndRun(
     fdNative.fd_cloexec(m.listener);
     server.theme = Object.assign(new Theme(), m.theme);
     await checkpoint.restore(server.runtime, m.runtime, true, socket, executable);
-    if (m.summaries) server.summaries = SummaryWorker.restore(m.summaries);
+    if (m.summaries) {
+      server.summaries = SummaryWorker.restore(m.summaries);
+      // Handoffs carry the model choice; what it is used for lives in settings.
+      server.summaries.uses = setup.loadUses(setup.path(server.socket));
+      server.summaries.link_names = !setup.off(setup.path(server.socket));
+    }
     for (const pane of server.runtime.panes) if (pane.terminal.fd >= 0) fdNative.fd_cloexec(pane.terminal.fd);
     for (const saved of m.clients) {
       if (saved.interests.length > 64) throw Error("InvalidCheckpoint");

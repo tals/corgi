@@ -85,7 +85,7 @@ test("endpoint naming survives failed probes and missing scans without spending 
     requests: Request[] = [],
     worker = {
       cancelLink: () => {},
-      off: () => false,
+      naming: () => true,
       submitLink: (r: Request) => requests.push(r),
     };
   expect(cache.reconcile(runtime, worker, 0)).toBe(true);

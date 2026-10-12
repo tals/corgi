@@ -34,6 +34,7 @@ import * as settingRow from "./setting_row";
 import * as dropdown from "./dropdown";
 import type { ShellStatus } from "./launch/command";
 import type { Connection } from "./rpc";
+import type { Use, Uses } from "./inference/setup";
 
 /** The inference setup status the daemon publishes, as inference.zig's `Status`. */
 export interface Status {
@@ -43,8 +44,12 @@ export interface Status {
   locked: boolean;
   launches: { codex: number; claude: number };
   models: { codex: string; claude: string };
+  uses: Uses;
 }
 export function status(value: any = {}): Status {
+  // A daemon from before uses were separate says "off" for all of them.
+  const on = value?.choice !== "off",
+    use = (v: unknown) => (typeof v === "boolean" ? v : on);
   return {
     choice: value?.choice ?? "auto",
     provider: value?.provider ?? null,
@@ -52,11 +57,14 @@ export function status(value: any = {}): Status {
     locked: value?.locked === true,
     launches: { codex: Number(value?.launches?.codex ?? 0), claude: Number(value?.launches?.claude ?? 0) },
     models: { codex: value?.models?.codex ?? "", claude: value?.models?.claude ?? "" },
+    uses: {
+      activity: use(value?.uses?.activity),
+    },
   };
 }
-/** Who writes activity summaries and link names. */
+/** Who answers what Corgi asks the model; "off" only from an older daemon. */
 export type Summarizer = "auto" | "codex" | "claude" | "off";
-const summarizers: Summarizer[] = ["auto", "codex", "claude", "off"];
+const summarizers: Summarizer[] = ["auto", "codex", "claude"];
 export const Summarizer = {
   provider(choice: Summarizer): Provider | null {
     return choice === "codex" || choice === "claude" ? choice : null;
@@ -132,6 +140,7 @@ function importSource(item: Item): catalog.Source | null {
 /** What Enter or a click asks the controller to do. */
 export type Apply =
   | { kind: "summaries"; choice: Summarizer }
+  | { kind: "inference_use"; use: Use; on: boolean }
   | { kind: "readings" | "sleeping_corgis" | "smart_links" | "ghostty"; on: boolean }
   | { kind: "theme"; theme: palette.Theme }
   | { kind: "shell"; entry: shellPicker.Entry }
@@ -1199,7 +1208,7 @@ export class Menu {
           title("Clever Corgi"),
           blank,
           option({
-            label: "Summaries",
+            label: "Model",
             detail: "",
             mark: "none",
             apply: null,
@@ -1218,12 +1227,12 @@ export class Menu {
           { tag: "brief", text: summary(s.choice, s), tone: "muted" },
           ...(second === null ? [] : [{ tag: "brief", text: second } as Line]),
           blank,
-          ...this.clever().flatMap((c): Line[] => [
+          ...this.clever(s).flatMap((c): Line[] => [
             option({
               label: c.label,
               detail: "",
               mark: "none",
-              apply: { kind: c.kind, on: !c.on },
+              apply: c.apply(!c.on),
               action: c.on ? "turn off" : "turn on",
               toggle: c.on,
             }),
@@ -1414,13 +1423,21 @@ export class Menu {
     ];
   }
   /** Clever Corgi's settings, each turned on or off in the group's pane. */
-  private clever(): { kind: "smart_links"; label: string; brief: string; on: boolean }[] {
+  /** What Corgi does with the model, and Smart Links, each with its own switch. */
+  private clever(s: Status): { label: string; brief: string; on: boolean; apply: (on: boolean) => Apply }[] {
+    const use = (use: Use, label: string, brief: string) => ({
+      label,
+      brief,
+      on: s.uses[use],
+      apply: (on: boolean): Apply => ({ kind: "inference_use", use, on }),
+    });
     return [
+      use("activity", "Activity summaries", "What each agent is doing, under its name."),
       {
-        kind: "smart_links",
         label: "Smart Links",
-        brief: "Digs up likely HTTP links for an Open ↗ button.",
+        brief: "Digs up likely HTTP links ↗",
         on: this.smart_links,
+        apply: (on: boolean): Apply => ({ kind: "smart_links", on }),
       },
     ];
   }

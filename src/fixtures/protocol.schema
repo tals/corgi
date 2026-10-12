@@ -161,7 +161,10 @@ $.requests|conversation.acknowledge.attention_at?: i64
 $.requests|pane.surface.pane: u32
 $.requests|server.reload.executable: string
 $.requests|recovery.save: {}
-$.requests|inference.configure.choice: enum auto codex claude off
+$.requests|inference.configure.choice: optional
+$.requests|inference.configure.choice?: enum auto codex claude off
+$.requests|inference.configure.activity: optional
+$.requests|inference.configure.activity?: bool
 $.requests|shell.configure.shell: string
 $.requests|smart_links.configure.enabled: bool
 $.requests|git.push.workspace: u32
@@ -306,6 +309,7 @@ $.snapshot.inference.launches.codex: u32
 $.snapshot.inference.launches.claude: u32
 $.snapshot.inference.models.codex: string
 $.snapshot.inference.models.claude: string
+$.snapshot.inference.uses.activity: bool
 $.snapshot.shell.setting: string
 $.snapshot.shell.path: string
 $.snapshot.shell.source: enum setting env account fallback
@@ -673,6 +677,7 @@ $.replies.inference.configure.inference.launches.codex: u32
 $.replies.inference.configure.inference.launches.claude: u32
 $.replies.inference.configure.inference.models.codex: string
 $.replies.inference.configure.inference.models.claude: string
+$.replies.inference.configure.inference.uses.activity: bool
 $.replies.onboarding.status.progress.phase: enum idle connecting receiving preparing committing copying complete failed
 $.replies.onboarding.status.progress.completed: usize
 $.replies.onboarding.status.progress.total: usize

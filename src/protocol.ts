@@ -487,7 +487,10 @@ const requests = {
   "conversation.acknowledge": { conversation: "u32", through: "u64", attention_at: ["?i64", null] },
   "pane.surface": { pane: "u32" },
   "server.reload": { executable: ["string", ""] },
-  "inference.configure": { choice: "auto|codex|claude|off" },
+  "inference.configure": {
+    choice: ["?auto|codex|claude|off", null],
+    activity: ["?bool", null],
+  },
   "shell.configure": { shell: "string" },
   "smart_links.configure": { enabled: "bool" },
   "git.push": { workspace: "u32", ref: "ref" },

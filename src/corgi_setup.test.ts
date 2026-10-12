@@ -52,20 +52,21 @@ test("setup lists every setting beside the selected one's options", () => {
   const top = rows.findIndex(row => row.includes("Corgi setup"));
   expect(rows[top].indexOf("╭")).toBe(8);
   expect(rows[top + 2]).toMatch(/Clever Corgi\s+│\s+Clever Corgi/);
-  expect(rows.join("\n")).toMatch(/Summaries +● Claude ▾/);
+  expect(rows.join("\n")).toMatch(/Model +● Claude ▾/);
+  for (const use of ["Activity summaries", "Smart Links"]) expect(rows.join("\n")).toMatch(new RegExp(`${use} +● On`));
   expect(rows.join("\n")).toContain("↑↓ move   enter choose   esc close");
   // List rows and options are clickable, in order.
   const s = status({ choice: "claude" });
   const found = hits(menu, 100, 30, s);
   expect(found.filter(hit => "item" in hit)).toEqual(items.map(item => ({ item })));
-  expect(found.filter(hit => "option" in hit)).toEqual([0, 1].map(option => ({ option })));
+  expect(found.filter(hit => "option" in hit)).toEqual([0, 1, 2].map(option => ({ option })));
   expect(menu.hit(100, 30, 0, 0, s, new Preferences())).toBeNull();
   expect(menu.contains(100, 30, 50, top + 1)).toBe(true);
   // Too small for the frame: nothing draws.
   expect(draw(menu, 20, 8).join("").trim()).toBe("");
 });
 
-test("Summaries opens a dropdown on the choice in use, and Esc closes it", () => {
+test("Model opens a dropdown on the choice in use, and Esc closes it", () => {
   const menu = Menu.open(),
     prefs = new Preferences(),
     s = status({ choice: "claude" });
@@ -76,22 +77,22 @@ test("Summaries opens a dropdown on the choice in use, and Esc closes it", () =>
   expect(menu.enter(s, prefs)).toBeNull();
   let text = draw(menu, 100, 30, 0, s, prefs).join("\n");
   expect(text).toMatch(/│ ✓ Claude /);
-  expect(text).toContain("No summaries, plain links");
+  // Turning things off is up to each use's own switch.
+  expect(text).not.toContain("No summaries");
   expect(text).toContain("enter use");
   // The choice in use has nothing to apply.
   expect(menu.enter(s, prefs)).toBeNull();
-  menu.enter(s, prefs);
-  menu.move(true, s, prefs);
-  expect(menu.enter(s, prefs)).toEqual({ kind: "summaries", choice: "off" });
   // Keys wrap past either end; the wheel stops there.
   menu.enter(s, prefs);
   menu.move(true, s, prefs);
+  expect(menu.enter(s, prefs)).toEqual({ kind: "summaries", choice: "auto" });
+  menu.enter(s, prefs);
   menu.move(true, s, prefs, false);
-  expect(menu.enter(s, prefs)).toEqual({ kind: "summaries", choice: "off" });
+  expect(menu.enter(s, prefs)).toBeNull();
   menu.enter(s, prefs);
   menu.move(true, s, prefs);
   menu.move(true, s, prefs);
-  expect(menu.enter(s, prefs)).toEqual({ kind: "summaries", choice: "auto" });
+  expect(menu.enter(s, prefs)).toEqual({ kind: "summaries", choice: "codex" });
   // Clicks open it and choose.
   const row = hits(menu, 100, 30, s, prefs).find(hit => "option" in hit && hit.option === 0)!;
   expect(menu.click(row, s, prefs)).toBeNull();
@@ -102,11 +103,11 @@ test("Summaries opens a dropdown on the choice in use, and Esc closes it", () =>
   expect(menu.back()).toBe(true);
   expect(menu.focus).toBe("options");
   expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).not.toContain("✓");
-  // The options wrap too.
+  // The options wrap too: the model, a use and Smart Links.
   menu.move(true, s, prefs);
   expect(menu.cursor).toBe(1);
-  menu.move(true, s, prefs, false);
-  expect(menu.cursor).toBe(1);
+  for (let i = 0; i < 6; i++) menu.move(true, s, prefs, false);
+  expect(menu.cursor).toBe(2);
   menu.move(true, s, prefs);
   expect(menu.cursor).toBe(0);
   expect(menu.back()).toBe(true);

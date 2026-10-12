@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Launches, resolve, load, save, initial } from "./setup";
+import { Launches, resolve, load, save, initial, loadUses, saveUses, off } from "./setup";
 
 test("auto follows launched agents, then the remembered agent", () => {
   const launches = new Launches();
@@ -30,6 +30,22 @@ test("setup choice round-trips beside workspace state", () => {
     save(file, "off");
     expect(load(file)).toBe("off");
     expect(initial("claude")).toBe("claude");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("uses save apart from the model choice; an old saved off turns them all off", () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-setup-"));
+  try {
+    const file = join(root, "settings.json");
+    expect([loadUses(file), off(file)]).toEqual([{ activity: true }, false]);
+    save(file, "off");
+    expect([loadUses(file), off(file)]).toEqual([{ activity: false }, true]);
+    saveUses(file, { activity: true });
+    save(file, "claude");
+    expect(load(file)).toBe("claude");
+    expect([loadUses(file), off(file)]).toEqual([{ activity: true }, false]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -32,7 +32,12 @@ export function start(server: Server) {
     transcripts: TranscriptWorker.start(),
     codex: CodexWorker.start(),
     usage: UsageWorker.start(),
-    summaries: server.summaries ?? SummaryWorker.start(setup.initial(setup.load(setup.path(server.socket)))),
+    summaries:
+      server.summaries ??
+      SummaryWorker.start(
+        setup.initial(setup.load(setup.path(server.socket))),
+        setup.loadUses(setup.path(server.socket)),
+      ),
     detected: 0,
     settling: 0,
   };

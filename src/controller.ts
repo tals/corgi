@@ -53,6 +53,7 @@ import { Menu as LauncherMenu, Row, keyAgent, type Row as LauncherRow } from "./
 import { Stream as LaunchPreviewStream } from "./launch_preview_stream";
 import * as launcherResume from "./launcher_resume";
 import { Menu as SetupMenu, Summarizer, type Apply as SetupApply } from "./corgi_setup";
+import type { Use } from "./inference/setup";
 import * as shellPicker from "./shell_picker";
 import { installedShells } from "./launch/command";
 import { State as LinkTooltip, type Target as TooltipTarget } from "./link_tooltip";
@@ -2613,6 +2614,8 @@ export class Controller {
         return this.configureSmartLinks(apply.on);
       case "summaries":
         return this.configureSummaries(apply.choice);
+      case "inference_use":
+        return this.configureUse(apply.use, apply.on);
     }
   }
   private async toggleGhostty(): Promise<void> {
@@ -2660,6 +2663,17 @@ export class Controller {
           ? "Off"
           : Provider.info(Summarizer.provider(choice)!).label;
     this.notice(` Summaries and link names: ${label}${saved ? "" : " (not saved for next start)"}`);
+  }
+  private async configureUse(use: Use, on: boolean): Promise<void> {
+    let response: any;
+    try {
+      response = await call(this.connection, "inference.configure", { [use]: on });
+    } catch {
+      this.notice(" Corgi setup: the runtime did not accept the change");
+      return;
+    }
+    const label = { activity: "Activity summaries" }[use];
+    this.notice(` ${label}: ${on ? "on" : "off"}${response.saved === true ? "" : " (not saved for next start)"}`);
   }
   private async configureSmartLinks(enabled: boolean): Promise<void> {
     try {
