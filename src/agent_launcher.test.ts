@@ -259,6 +259,8 @@ test("the title names the worktree once, on a button that drops the checkouts an
     available: true,
     comparison: null,
     changes: null,
+    created: null,
+    edited: null,
     stale: false,
   });
   const m = menu({ cwd: "/src/app-topic" });

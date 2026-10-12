@@ -4707,6 +4707,14 @@ export class Controller {
       ? id
       : null;
   }
+  /** The open overview, with its worktrees' agents counted for this frame. */
+  private worktreeCard(): worktreeTooltip.State | null {
+    const id = this.worktreeDetail();
+    if (id === null) return null;
+    const snapshot = this.runtime.workspaces.items.find(ws => ws.id === id)?.worktrees;
+    this.worktree_card.agents = snapshot ? worktreeAgents.counts(snapshot, this.agentEntries(id)) : null;
+    return this.worktree_card;
+  }
   private pinWorktreeInput(input: string): void {
     if (this.worktreeDetail() === null) return;
     const key = keys.parse(input),
@@ -5004,7 +5012,7 @@ export class Controller {
         resource_hover: this.link_tooltip.target?.resource ?? null,
         resource_card: tooltip_ready && detail !== null ? this.resource_card : null,
         git_hover: this.hoverIdle() ? this.git_hover : null,
-        worktree_card: this.worktreeDetail() !== null ? this.worktree_card : null,
+        worktree_card: this.worktreeCard(),
         worktree_spotlight: this.browsingWorktree(),
         message:
           this.agent_picker && (this.width < 40 || this.height < 13)

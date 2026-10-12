@@ -48,6 +48,19 @@ export function belongs(snapshot: worktrees.Snapshot, path: string, entry: sideb
   const associations = snapshot.agents.filter(a => sidebar.sameTarget(a.target, entry.target));
   return associations.length ? associations.some(a => a.path === path) : checkoutAt(snapshot, entry.cwd) === path;
 }
+/** Each linked worktree's live agents and how many are working, counted
+ * as its group header counts them. */
+export function counts(
+  snapshot: worktrees.Snapshot,
+  agents: sidebar.Entry[],
+): Map<string, { agents: number; working: number }> {
+  const out = new Map<string, { agents: number; working: number }>();
+  for (const checkout of worktrees.linked(snapshot)) {
+    const live = agents.filter(e => belongs(snapshot, checkout.path, e));
+    out.set(checkout.path, { agents: live.length, working: live.filter(e => e.state === "working").length });
+  }
+  return out;
+}
 /** The conversations entering the checkout at `path` brings back asleep:
  * its newest that no pane has open. */
 export function conversations(

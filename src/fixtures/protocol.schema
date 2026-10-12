@@ -525,6 +525,12 @@ $.snapshot.workspaces[].worktrees?.entries[].changes?.staged: usize
 $.snapshot.workspaces[].worktrees?.entries[].changes?.modified: usize
 $.snapshot.workspaces[].worktrees?.entries[].changes?.untracked: usize
 $.snapshot.workspaces[].worktrees?.entries[].changes?.conflicted: usize
+$.snapshot.workspaces[].worktrees?.entries[].changes?.added: usize
+$.snapshot.workspaces[].worktrees?.entries[].changes?.removed: usize
+$.snapshot.workspaces[].worktrees?.entries[].created: optional
+$.snapshot.workspaces[].worktrees?.entries[].created?: i64
+$.snapshot.workspaces[].worktrees?.entries[].edited: optional
+$.snapshot.workspaces[].worktrees?.entries[].edited?: i64
 $.snapshot.workspaces[].worktrees?.agents[].target: one of
 $.snapshot.workspaces[].worktrees?.agents[].target|pane: u32
 $.snapshot.workspaces[].worktrees?.agents[].target|native: u32

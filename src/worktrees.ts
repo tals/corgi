@@ -15,6 +15,9 @@ export interface Changes {
   modified: number;
   untracked: number;
   conflicted: number;
+  /** Lines added and removed against HEAD, untracked text files included. */
+  added: number;
+  removed: number;
 }
 export interface Checkout {
   path: string;
@@ -28,6 +31,10 @@ export interface Checkout {
   available: boolean;
   comparison: Comparison | null;
   changes: Changes | null;
+  /** When `git worktree add` made it, in ms; null when Git kept no record. */
+  created: number | null;
+  /** The later of HEAD's commit and the newest save to an uncommitted file, in ms. */
+  edited: number | null;
   stale: boolean;
 }
 export interface Association {

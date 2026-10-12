@@ -2,16 +2,19 @@ import { transport } from "./fixtures/transport";
 import { expect, test } from "bun:test";
 import { Controller } from "./controller";
 import { worktreeSnapshot } from "./mirror";
-import { State, between, draw, geometry, listing } from "./worktree_tooltip";
+import { State, between, columnsFor, displayPath, draw, geometry, listing } from "./worktree_tooltip";
 import * as worktreeRemoval from "./worktree_removal";
 import { View, workspaceEntry, worktreeAt, worktreeLabel, worktreeBadge, writeExit, spotlight_dim } from "./sidebar";
-import { fg } from "./palette";
+import { colors, fg, fgRgb } from "./palette";
 import * as launcherResume from "./launcher_resume";
 import { Writer } from "./text";
 import { Terminal } from "./pane/terminal";
 import { parseInventory } from "./trackers/worktrees";
 import * as clock from "./clock";
 import type { Snapshot } from "./worktrees";
+import { realpathSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 
 function snapshot(count = 4): Snapshot {
   return {
@@ -66,20 +69,127 @@ test("the count and table hide dead worktrees but retain locked and temporarily 
     terminal.destroy();
   }
 });
+test("rows show agents at work, the comparison, age, last edit and line counts", () => {
+  const data = snapshot(2),
+    now = Date.UTC(2026, 9, 11),
+    [topic, quiet] = data.entries.slice(1);
+  Object.assign(topic, {
+    available: true,
+    comparison: { ahead: 6n, behind: 12n },
+    changes: { total: 3, staged: 0, modified: 2, untracked: 1, conflicted: 0, added: 142, removed: 38 },
+    created: now - 3 * 86400000,
+    edited: now - 12 * 60000,
+  });
+  Object.assign(quiet, {
+    available: true,
+    comparison: { ahead: 0n, behind: 5n },
+    changes: { total: 0, staged: 0, modified: 0, untracked: 0, conflicted: 0, added: 0, removed: 0 },
+  });
+  const state = new State();
+  state.agents = new Map([[topic.path, { agents: 2, working: 1 }]]);
+  const w = new Writer(),
+    terminal = new Terminal(140, 30);
+  try {
+    draw(w, geometry(140, 30, 28, 3, 2)!, "repo", "/repo", data, state, null, now);
+    terminal.feed(w.buffered());
+    const text = terminal.text();
+    for (const header of ["AGENTS", "VS MAIN", "AGE", "EDITED", "UNCOMMITTED CHANGES"]) expect(text).toContain(header);
+    const row = (label: string) => text.split("\n").find(l => l.includes(label));
+    expect(row("topic-0")).toMatch(/1▶ 2 +↑6 ↓12 +3d +12m ago +3 files {2}\+142 −38/);
+    expect(row("topic-1")).toMatch(/0 +↑0 ↓5 +— +— +Clean/);
+    // Working agents as the sidebar marks them; lines added and removed as a diff colors them.
+    expect(w.buffered()).toContain(`\x1b[1m${fgRgb(colors.accent)}1▶`);
+    expect(w.buffered()).toContain(`${fgRgb(colors.accent)}+142`);
+    expect(w.buffered()).toContain(`${fgRgb(colors.hot)}−38`);
+  } finally {
+    terminal.destroy();
+  }
+});
+test("the overview counts each worktree's agents, and those working, as the sidebar does", () => {
+  const data = snapshot(2);
+  data.agents = [{ target: { native: 7 }, path: data.entries[2].path, source: "write", stale: false }];
+  const row = (state: string) => {
+    const view = new Controller({ request: (async () => ({})) as any });
+    view.width = 140;
+    view.height = 30;
+    view.receiveSnapshot({
+      workspaces: [
+        {
+          id: 1,
+          name: "repo",
+          cwd: "/repo",
+          worktrees: data,
+          model: { nodes: [{ pane: 1 }], tabs: [{ id: 1, root: 0 }], revision: 0 },
+        },
+      ],
+      panes: [{ id: 1, workspace: 1, tab: 1, cols: 80, rows: 24, cwd: "/repo" }],
+      native_sessions: [
+        {
+          id: 7,
+          workspace: 1,
+          provider: "codex",
+          cwd: "/repo",
+          state,
+          agent: { provider: "codex", session: "s", cwd: "/repo", state },
+        },
+      ],
+    });
+    view.input_state.attached = true;
+    view.worktree_card.workspace = 1;
+    view.worktree_card.pinned = true;
+    const terminal = new Terminal(140, 30);
+    try {
+      terminal.feed(view.frame());
+      return terminal
+        .text()
+        .split("\n")
+        .find(l => l.includes("topic-1"))!;
+    } finally {
+      terminal.destroy();
+    }
+  };
+  expect(row("idle")).toMatch(/\.\/\.worktrees\/1 +1 +—/);
+  expect(row("working")).toMatch(/\.\/\.worktrees\/1 +1▶ 1 +—/);
+});
+test("a narrow card drops age, then the comparison, then the last edit", () => {
+  const names = (width: number) => Object.keys(columnsFor(width).x).sort();
+  expect(names(100)).toEqual(["age", "agents", "changes", "edited", "main"]);
+  expect(names(88)).toEqual(["age", "agents", "changes", "edited", "main"]);
+  expect(names(80)).toEqual(["agents", "changes", "edited", "main"]);
+  expect(names(70)).toEqual(["agents", "changes", "edited"]);
+  expect(names(60)).toEqual(["agents", "changes"]);
+  for (const width of [100, 88, 80, 70, 60]) expect(columnsFor(width).room).toBeGreaterThanOrEqual(24);
+});
+test("paths read from the main checkout, a temporary directory or home", () => {
+  expect(displayPath("/repo/.claude/worktrees/a", "/repo")).toBe("./.claude/worktrees/a");
+  expect(displayPath("/dev/repo-topic", "/dev/repo")).toBe("../repo-topic");
+  const tmp = tmpdir().replace(/\/+$/, "");
+  expect(displayPath(join(realpathSync(tmp), "wt", "a"), "/repo")).toBe(`${tmp === "/tmp" ? "/tmp" : "$TMPDIR"}/wt/a`);
+  expect(displayPath(join(realpathSync("/tmp"), "x", "a"), "/repo")).toBe("/tmp/x/a");
+  expect(displayPath(join(homedir(), "src", "a"), "/repo")).toBe("~/src/a");
+});
 test("the table renders unknown values distinctly and retains selection by checkout path", () => {
   const data = snapshot(20),
     state = new State(),
     rect = geometry(100, 30, 28, 3, 20)!;
   data.entries[1].available = true;
   data.entries[1].comparison = { ahead: 0n, behind: 2n };
-  data.entries[1].changes = { total: 0, staged: 0, modified: 0, untracked: 0, conflicted: 0 };
+  data.entries[1].changes = { total: 0, staged: 0, modified: 0, untracked: 0, conflicted: 0, added: 0, removed: 0 };
   const w = new Writer();
   draw(w, rect, "repo", "/repo", data, state);
   const terminal = new Terminal(100, 30);
   try {
     terminal.feed(w.buffered());
     const text = terminal.text();
-    for (const label of ["20 worktrees", "AGENTS", "AHEAD", "BEHIND", "FILES", "Clean", "Missing", "./.worktrees/0"])
+    for (const label of [
+      "20 worktrees",
+      "AGENTS",
+      "EDITED",
+      "UNCOMMITTED CHANGES",
+      "Clean",
+      "Missing",
+      "./.worktrees/0",
+    ])
       expect(text).toContain(label);
     expect(text).not.toContain("merged");
     expect(text).not.toContain("Summary");
@@ -224,7 +334,7 @@ test("a big worktree shows Git still deleting it once the ending has played, and
     clock.reset();
   }
 });
-test("after a removal the cursor stays on its line while the rows below move up to it", () => {
+test("after a removal the cursor stays on its line while the row below moves up to it", () => {
   const before = snapshot(3),
     after = { ...before, entries: before.entries.filter(e => e.path !== "/repo/.worktrees/1") },
     state = new State(),
@@ -246,7 +356,7 @@ test("after a removal the cursor stays on its line while the rows below move up 
     try {
       draw(w, rect, "repo", "/repo", after, state, null, at);
       terminal.feed(w.buffered());
-      return { lines: terminal.text().split("\n"), row: rect.y + 7, h: rect.h };
+      return { lines: terminal.text().split("\n"), row: rect.y + 6, h: rect.h };
     } finally {
       terminal.destroy();
     }
@@ -254,15 +364,11 @@ test("after a removal the cursor stays on its line while the rows below move up 
   // While the ending plays, no row has the cursor; the row before has its own.
   const playing = frame(end - 10);
   expect(playing.lines.some(l => l.includes("›"))).toBe(false);
-  expect(playing.lines[playing.row - 2]).toContain("topic-0");
-  // Then the cursor shows on the removed row's line, and topic-2 moves up to it.
-  const closing = frame(end);
-  expect(closing.lines[closing.row]).toMatch(/│› +│/);
-  expect(closing.lines[closing.row + 1]).toContain("topic-2");
-  expect(closing.h).toBe(playing.h - 1);
-  const closed = frame(end + worktreeRemoval.close_step_ms);
+  expect(playing.lines[playing.row - 1]).toContain("topic-0");
+  // Then the one-line row closes, and topic-2 moves up to the cursor on its line.
+  const closed = frame(end);
   expect(closed.lines[closed.row]).toContain("› topic-2");
-  expect(closed.h).toBe(playing.h - 2);
+  expect(closed.h).toBe(playing.h - 1);
 });
 
 function browsing() {
@@ -602,5 +708,5 @@ test("callout geometry keeps the agent pane and source badge uncovered", () => {
     rect = geometry(120, 38, side.width, badge.y, 2)!;
   expect(rect.x).toBeGreaterThan(side.width);
   expect(rect.contains(badge.x, badge.y)).toBe(false);
-  expect(rect.h).toBe(12);
+  expect(rect.h).toBe(10);
 });

@@ -14,7 +14,9 @@ const checkout = (path: string, branch: string, primary = false, total = 0): wor
   prunable: null,
   available: true,
   comparison: null,
-  changes: { total, staged: 0, modified: total, untracked: 0, conflicted: 0 },
+  changes: { total, staged: 0, modified: total, untracked: 0, conflicted: 0, added: 0, removed: 0 },
+  created: null,
+  edited: null,
   stale: false,
 });
 const snapshot: worktrees.Snapshot = {

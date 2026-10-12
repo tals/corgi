@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Tracker, parseInventory, parseChanges, parseBase } from "./worktrees";
+import { Tracker, changedPaths, parseBase, parseChanges, parseInventory, parseNumstat, reflogStart } from "./worktrees";
 import * as worktrees from "../worktrees";
 import { Store, Workspace } from "../workspace";
 import type { Runtime } from "../runtime";
@@ -30,6 +30,20 @@ async function fixture() {
   await git(repo, "commit", "-m", "base");
   return { root, repo, close: () => rm(root, { recursive: true, force: true }) };
 }
+test("line counts, changed paths and reflog times parse from Git's records", () => {
+  expect(parseNumstat("12\t3\tsrc/a.ts\0-\t-\tlogo.png\0" + "4\t1\t\0old.ts\0new.ts\0")).toEqual({
+    added: 16,
+    removed: 4,
+  });
+  expect(changedPaths(" M src/a.ts\0R  new.ts\0old.ts\0?? notes.md\0!! ignored\0")).toEqual([
+    { path: "src/a.ts", untracked: false },
+    { path: "new.ts", untracked: false },
+    { path: "notes.md", untracked: true },
+  ]);
+  const reflog = "0000 2b2f Test <test@example.com> 1791744624 -0400\treset: moving to HEAD\nmore";
+  expect(reflogStart(reflog)).toBe(1791744624);
+  expect(reflogStart("")).toBeNull();
+});
 test("NUL worktree and status records retain odd paths, flags and rename counts", () => {
   const entries = parseInventory(
     'worktree /project\0HEAD abc\0branch refs/heads/main\0\0worktree /odd "path"\n\0HEAD def\0detached\0locked keep\0prunable gone\0\0',
@@ -48,6 +62,8 @@ test("NUL worktree and status records retain odd paths, flags and rename counts"
     modified: 2,
     untracked: 1,
     conflicted: 1,
+    added: 0,
+    removed: 0,
   });
   expect(parseBase("refs/heads/topic\0" + "a".repeat(40) + "\0\n")).toBeNull();
   expect(
@@ -57,7 +73,8 @@ test("NUL worktree and status records retain odd paths, flags and rename counts"
   ).toBe("develop");
 });
 test("inventory is cheap; details compare local main and count local changes without an upstream", async () => {
-  const f = await fixture();
+  const f = await fixture(),
+    started = Date.now();
   const calls: string[][] = [];
   const tracker = new Tracker(async (cwd, args) => {
     calls.push(args);
@@ -84,8 +101,12 @@ test("inventory is cheap; details compare local main and count local changes wit
     expect(details?.base?.name).toBe("main");
     expect(details?.entries.find(e => e.path === nested)).toMatchObject({
       comparison: { ahead: 1n, behind: 1n },
-      changes: { total: 2, staged: 1, untracked: 1 },
+      // A staged line replaced, and an untracked file's line.
+      changes: { total: 2, staged: 1, untracked: 1, added: 2, removed: 1 },
     });
+    const search = details!.entries.find(e => e.path === nested)!;
+    expect(search.created).toBeGreaterThanOrEqual(Math.floor(started / 1000) * 1000);
+    expect(search.edited).toBeGreaterThanOrEqual(search.created!);
     expect(details?.entries.find(e => e.path === external)).toMatchObject({
       detached: true,
       comparison: { ahead: 0n, behind: 1n },
@@ -97,11 +118,11 @@ test("inventory is cheap; details compare local main and count local changes wit
     const again = await tracker.refresh(nested, true, 1002);
     expect(again).toBe(details);
     expect(calls.slice(before).map(a => a[0])).toEqual(["rev-parse"]);
-    // Changes refresh independently; unchanged commits do not rescan history.
+    // Changes and their line counts refresh independently; unchanged commits
+    // do not rescan history.
     calls.length = 0;
     await tracker.refresh(f.repo, true, 4002);
-    expect(calls).toHaveLength(2);
-    expect(calls.every(a => a[0] === "status")).toBe(true);
+    expect(calls.map(a => a[0]).sort()).toEqual(["diff", "diff", "status", "status"]);
     expect((await git(f.repo, "status", "--porcelain")).includes(".worktrees/")).toBe(true);
   } finally {
     tracker.close();

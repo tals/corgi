@@ -172,7 +172,7 @@ function card() {
   g.text(3, 5, "other-row", palette.colors.text);
   return g;
 }
-const area = { y: 2, left: 1, right: 38, top: 1, bottom: 6 };
+const area = { y: 2, lines: 2, left: 1, right: 38, top: 1, bottom: 6 };
 const row = (g: Grid, y: number) => g.rows[y].map(c => c.ch || "").join("");
 test("every effect runs right to left and ends with the row gone", () => {
   for (const effect of removal.effects) {
@@ -232,6 +232,19 @@ test("a removed row stays until its ending has played, then closes a line at a t
   const open = new Hold();
   open.press(0, target(), "bury");
   expect(open.shown([next], 100)).toEqual({ entries: [next], removing: null, closed: 0 });
+});
+test("a one-line row closes in one step, and its deleting bar follows the words", () => {
+  const h = new Hold();
+  const done = hold(h, 0, 5000)!;
+  h.effect = "dust";
+  h.settle(done + 100, null);
+  const end = done + finale_ms.dust;
+  expect(h.shown([next], end - 10, 1).closed).toBe(0);
+  expect(h.shown([next], end, 1)).toEqual({ entries: [next], removing: null, closed: 0 });
+  const g = card();
+  removal.progress(g, { ...area, lines: 1 }, 0);
+  expect(row(g, 2)).toMatch(/Deleting\.\.\. +[━─]+ *$/);
+  expect(row(g, 3)).toContain("~/repo/.worktrees/topic");
 });
 test("a removal Git finishes after the ending still closes its row a line at a time", () => {
   const h = new Hold();

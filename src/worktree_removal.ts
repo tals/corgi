@@ -185,8 +185,8 @@ export class Hold {
   }
   /** The overview's rows: `entries`, with the removed worktree kept in its
    * place after Git is done with it, until its ending has played and its
-   * row has closed, a line at a time. */
-  shown(entries: worktrees.Checkout[], now: number): Shown {
+   * row, `lines` tall, has closed, a line at a time. */
+  shown(entries: worktrees.Checkout[], now: number, lines = 2): Shown {
     const t = this.target;
     if (!t || !this.committed()) return { entries, removing: null, closed: 0 };
     if (entries.some(e => e.path === t.path)) {
@@ -196,12 +196,12 @@ export class Hold {
     this.gone_at ??= now;
     const from = Math.max(this.committed_at + finale_ms[this.effect], this.gone_at),
       closed = now < from ? 0 : 1 + Math.floor((now - from) / close_step_ms);
-    if (closed >= 2) return { entries, removing: null, closed: 0 };
+    if (closed >= lines) return { entries, removing: null, closed: 0 };
     return { entries: [...entries.slice(0, t.index), t.checkout, ...entries.slice(t.index)], removing: t.path, closed };
   }
 }
 /** The overview's rows while a removal holds the cursor: the removed row
- * (`removing`) and how many of its two lines have closed. */
+ * (`removing`) and how many of its lines have closed. */
 export interface Shown {
   entries: worktrees.Checkout[];
   removing: string | null;
@@ -248,8 +248,9 @@ export function footer(hold: Hold): Segment[] | null {
 
 /** Where a row comes apart, in the grid's cells. */
 export interface Area {
-  /** The row's first line; its second line is just below. */
+  /** The row's first line, and how many lines it has. */
   y: number;
+  lines: number;
   /** The card's inside columns, inclusive. */
   left: number;
   right: number;
@@ -268,6 +269,7 @@ function hash(a: number, b: number, c: number): number {
 const clamp = (v: number) => Math.max(0, Math.min(1, v));
 const braille = (bits: number) => String.fromCharCode(0x2800 + bits);
 const isBraille = (ch: string) => ch >= "⠀" && ch <= "⣿";
+const lines = (area: Area) => Array.from({ length: Math.max(1, area.lines) }, (_, i) => area.y + i);
 /** Braille dot bits by [column][row] inside a cell. */
 const dots = [
   [0x01, 0x02, 0x04, 0x40],
@@ -278,7 +280,7 @@ const dots = [
  * then `finale` from 0 to 1 once it's gone. Every effect runs right to left. */
 export function paint(grid: Grid, area: Area, effect: Effect, progress: number, finale: number, now: number): void {
   const letters: Letter[] = [];
-  for (const y of [area.y, area.y + 1])
+  for (const y of lines(area))
     for (let x = area.left; x <= area.right; x++) {
       const c = grid.at(x, y);
       if (c && c.ch !== " " && c.ch !== "") letters.push({ x, y, ...c });
@@ -339,7 +341,7 @@ function burn(grid: Grid, area: Area, along: (x: number) => number, v: number, t
   if (v <= 0) return;
   const c = palette.colors,
     ember = palette.mix(c.hot, c.surface, 45);
-  for (const y of [area.y, area.y + 1])
+  for (const y of lines(area))
     for (let x = area.left; x <= area.right; x++) {
       const cell = grid.at(x, y);
       if (!cell) continue;
@@ -390,7 +392,7 @@ function bury(grid: Grid, area: Area, progress: number, finale: number, tick: nu
         : Math.round(right - 6 - ((progress - enter) / (1 - enter)) * span);
   const kick = clamp(finale / ending.kicked) * 8,
     sink = clamp((finale - ending.sinks) / (ending.sunk - ending.sinks));
-  for (const y of [area.y, area.y + 1])
+  for (const y of lines(area))
     for (let x = left; x <= right; x++) {
       const cell = grid.at(x, y);
       if (!cell) continue;
@@ -429,17 +431,19 @@ function bury(grid: Grid, area: Area, progress: number, finale: number, tick: nu
 export function progress(grid: Grid, area: Area, now: number): void {
   const c = palette.colors,
     { y } = area,
-    left = area.left + 2,
-    width = area.right - 1 - left + 1;
-  for (const row of [y, y + 1]) for (let x = left; x <= area.right; x++) grid.put(x, row, " ", c.text);
+    left = area.left + 2;
+  for (const row of lines(area)) for (let x = left; x <= area.right; x++) grid.put(x, row, " ", c.text);
   grid.text(left, y, "Deleting", c.text);
   for (let i = 0; i < 3; i++) grid.put(left + 8 + i, y, ".", sidebar.pulse(i, now));
-  const span = Math.min(8, width),
-    travel = Math.max(1, width - span),
+  // The bar has a line of its own, or follows the words on a one-line row.
+  const bar = area.lines > 1 ? { y: y + 1, x: left } : { y, x: left + 13 },
+    room = area.right - 1 - bar.x + 1,
+    span = Math.min(8, room),
+    travel = Math.max(1, room - span),
     step = Math.floor(now / tick_ms) % (2 * travel),
     from = step < travel ? step : 2 * travel - step;
-  for (let i = 0; i < width; i++) {
+  for (let i = 0; i < room; i++) {
     const lit = i >= from && i < from + span;
-    grid.put(left + i, y + 1, lit ? "━" : "─", lit ? c.accent : c.line);
+    grid.put(bar.x + i, bar.y, lit ? "━" : "─", lit ? c.accent : c.line);
   }
 }

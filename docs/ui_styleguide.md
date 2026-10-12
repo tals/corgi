@@ -25,9 +25,9 @@ Source: `src/palette.zig`. termhtml has a copy: the `corgi` theme in
 | `muted` | Secondary text: model, subtitle |
 | `text` | Body text |
 | `strong` | Titles, buttons, key names. The number a table ranks by. Use with bold |
-| `accent` | Live: working, current step, graphs, usage below 80% (short limit-spark bars fade toward `faint`). Current focus: bar, input border; the focus outline, and a focused list's scroll thumb, take `mix(accent, line, 50)` |
+| `accent` | Live: working, current step, graphs, usage below 80% (short limit-spark bars fade toward `faint`). Current focus: bar, input border; the focus outline, and a focused list's scroll thumb, take `mix(accent, line, 50)`. Lines added in a diff count |
 | `warm` | Needs the user: input wait, unpushed commits, limit at 80% or more, context near full |
-| `hot` | Limit at 100%. Failure |
+| `hot` | Limit at 100%. Failure. Lines removed in a diff count |
 
 Contrast: text tokens on `bg` or `surface` are 4.5:1 or more. On `selected`,
 use `muted` or brighter. Tests check this.

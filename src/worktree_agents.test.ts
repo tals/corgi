@@ -31,6 +31,15 @@ test("primary agents stay direct; confirmed writes take precedence over cwd and 
   expect(rows[2].target).toEqual({ pane: 2 });
   expect(agents.grouped(null, 1, [main], state)).toEqual([main]);
 });
+test("each worktree counts its live agents and those working, as its header does", () => {
+  const data = snapshot(),
+    working = sidebar.entry({ target: { pane: 1 }, cwd: "/repo/.worktrees/one", provider: "claude", state: "working" }),
+    idle = sidebar.entry({ target: { pane: 2 }, cwd: "/repo/.worktrees/one/src", provider: "codex", state: "idle" }),
+    done = sidebar.entry({ target: { pane: 3 }, cwd: "/repo/.worktrees/two", provider: "codex", state: "done" });
+  const counts = agents.counts(data, [working, idle, done]);
+  expect(counts.get("/repo/.worktrees/one")).toEqual({ agents: 2, working: 1 });
+  expect(counts.get("/repo/.worktrees/two")).toEqual({ agents: 0, working: 0 });
+});
 test("a ghost with no agents shows the newest conversations no pane has open, as agents", () => {
   const data = snapshot(),
     state = new agents.State(),

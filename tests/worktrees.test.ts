@@ -61,12 +61,13 @@ class Worktrees extends Runtime {
         (await this.session()).workspaces[0].worktrees.entries.find((e: any) => e.branch === "refs/heads/feat/search")
           ?.changes?.untracked === 1,
     );
-    const frame = (await a.poll()).data;
-    this.assertIn("AGENTS", frame);
-    this.assertIn("AHEAD", frame);
-    this.assertIn("BEHIND", frame);
+    const frame = (await a.poll()).data,
+      screen = screen_text(frame, 120, 38).join("\n");
+    for (const header of ["AGENTS", "VS MAIN", "AGE", "EDITED", "UNCOMMITTED CHANGES"]) this.assertIn(header, screen);
+    // The untracked file's one line.
+    this.assertIn("1 file  +1 −0", screen);
     this.assertNotIn("Summary", frame);
-    writeFileSync("/tmp/corgi-worktree-table-screen.txt", screen_text(frame, 120, 38).join("\n"));
+    writeFileSync("/tmp/corgi-worktree-table-screen.txt", screen);
     await a.input("\x1b[27u");
     this.assertNotIn("Compared with local main", (await a.poll()).data);
     this.assertIn("2 worktrees", a.state.data);

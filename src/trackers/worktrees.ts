@@ -1,4 +1,4 @@
-import { access, realpath, stat } from "node:fs/promises";
+import { access, readFile, realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import * as clock from "../clock";
 import * as subprocess from "../subprocess";
@@ -8,6 +8,11 @@ import type { Workspace } from "../workspace";
 import type { Target } from "../agent_order";
 
 const inventory_ms = 10000;
+/** Git's tree with nothing in it, to diff a worktree that has no commits. */
+const empty_tree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+/** Changed files a detail pass looks at for times and line counts. */
+const max_measured = 1000;
+const max_counted_bytes = 1 << 20;
 const detail_ms = 3000;
 type Query = (cwd: string, args: string[]) => Promise<string | null>;
 type Input = { target: Target; cwd: string; writes: string[] };
@@ -50,6 +55,8 @@ export function parseInventory(raw: string): worktrees.Checkout[] {
         available: false,
         comparison: null,
         changes: null,
+        created: null,
+        edited: null,
         stale: false,
       };
       if (!isAbsolute(entry.path)) throw Error("InvalidWorktree");
@@ -67,7 +74,7 @@ export function parseInventory(raw: string): worktrees.Checkout[] {
   return entries;
 }
 export function parseChanges(raw: string): worktrees.Changes {
-  const out = { total: 0, staged: 0, modified: 0, untracked: 0, conflicted: 0 };
+  const out = { total: 0, staged: 0, modified: 0, untracked: 0, conflicted: 0, added: 0, removed: 0 };
   const fields = raw.split("\0");
   for (let i = 0; i < fields.length; i++) {
     const field = fields[i];
@@ -85,6 +92,36 @@ export function parseChanges(raw: string): worktrees.Changes {
     if (xy.includes("R") || xy.includes("C")) i++;
   }
   return out;
+}
+/** The paths `git status --porcelain=v1 -z` lists, and whether each is untracked. */
+export function changedPaths(raw: string): { path: string; untracked: boolean }[] {
+  const out: { path: string; untracked: boolean }[] = [];
+  const fields = raw.split("\0");
+  for (let i = 0; i < fields.length; i++) {
+    const field = fields[i];
+    if (!field || field.length < 4) continue;
+    const xy = field.slice(0, 2);
+    if (xy !== "!!") out.push({ path: field.slice(3), untracked: xy === "??" });
+    if (xy.includes("R") || xy.includes("C")) i++;
+  }
+  return out;
+}
+/** Lines added and removed in `git diff --numstat -z`; binary files count none. */
+export function parseNumstat(raw: string): { added: number; removed: number } {
+  let added = 0,
+    removed = 0;
+  for (const field of raw.split("\0")) {
+    const match = field.match(/^(\d+|-)\t(\d+|-)\t/);
+    if (!match) continue;
+    added += Number(match[1]) || 0;
+    removed += Number(match[2]) || 0;
+  }
+  return { added, removed };
+}
+/** The Unix time on a reflog's first entry, in seconds. */
+export function reflogStart(raw: string): number | null {
+  const match = raw.slice(0, raw.indexOf("\n") >>> 0).match(/> (\d+) [+-]\d{4}(\t|$)/);
+  return match ? Number(match[1]) : null;
 }
 export function parseBase(raw: string): worktrees.Base | null {
   const refs = new Map(
@@ -138,6 +175,12 @@ export class Tracker {
   private next_removal = 1;
   /** The removals as viewers last heard of them. */
   private reported = "";
+  /** When each worktree was made, by admin directory and its inode. */
+  private created = new Map<string, number | null>();
+  /** Commit times by commit, in ms. */
+  private committed = new Map<string, number | null>();
+  /** Untracked files' line counts, by path, modification time and size. */
+  private lines = new Map<string, number>();
   private quit = new subprocess.Quit();
   constructor(
     private query: Query = async (cwd, args) => {
@@ -160,6 +203,9 @@ export class Tracker {
     this.cache.clear();
     this.locations.clear();
     this.repositories.clear();
+    this.created.clear();
+    this.committed.clear();
+    this.lines.clear();
     this.jobs = [];
   }
   busy() {
@@ -348,6 +394,80 @@ export class Tracker {
       this.pending.delete(key);
     }
   }
+  /** Fills in `checkout`'s line counts and when it was last edited. */
+  private async measure(checkout: worktrees.Checkout, paths: { path: string; untracked: boolean }[]) {
+    const changes = checkout.changes!;
+    const born = /^[0-9a-f]{40,64}$/.test(checkout.head) && !/^0+$/.test(checkout.head);
+    const diff = await this.query(checkout.path, ["diff", "--numstat", "-z", born ? "HEAD" : empty_tree, "--"]);
+    if (diff !== null) Object.assign(changes, parseNumstat(diff));
+    let edited = born ? await this.commitTime(checkout.path, checkout.head) : null;
+    for (const { path, untracked } of paths.slice(0, max_measured)) {
+      if (this.stopping) return;
+      const full = join(checkout.path, path);
+      let info;
+      try {
+        info = await stat(full);
+      } catch {
+        continue;
+      }
+      if (!info.isFile()) continue;
+      edited = Math.max(edited ?? 0, info.mtimeMs);
+      if (untracked) changes.added += await this.countLines(full, info.mtimeMs, info.size);
+    }
+    checkout.edited = edited === null ? null : Math.floor(edited);
+  }
+  private async commitTime(cwd: string, head: string): Promise<number | null> {
+    if (!this.committed.has(head)) {
+      const raw = await this.query(cwd, ["log", "-1", "--format=%ct", head, "--"]);
+      const seconds = raw === null ? NaN : Number(raw.trim());
+      if (this.committed.size > 1024) this.committed.clear();
+      this.committed.set(head, Number.isFinite(seconds) && raw!.trim() ? seconds * 1000 : null);
+    }
+    return this.committed.get(head) ?? null;
+  }
+  /** A text file's lines; binary files and files over 1 MB count none. */
+  private async countLines(path: string, mtime: number, size: number): Promise<number> {
+    if (size === 0 || size > max_counted_bytes) return 0;
+    const key = `${path}\0${mtime}\0${size}`;
+    let lines = this.lines.get(key);
+    if (lines === undefined) {
+      lines = 0;
+      try {
+        const data = await readFile(path);
+        if (!data.subarray(0, 8000).includes(0)) {
+          for (const byte of data) if (byte === 10) lines++;
+          if (data[data.length - 1] !== 10) lines++;
+        }
+      } catch {}
+      if (this.lines.size > 8192) this.lines.clear();
+      this.lines.set(key, lines);
+    }
+    return lines;
+  }
+  /** When `git worktree add` made the worktree: its HEAD reflog's first
+   * entry, or when its admin directory was made. A worktree made again at
+   * the same path has a new admin directory. */
+  private async createdAt(path: string): Promise<number | null> {
+    try {
+      const pointer = (await readFile(join(path, ".git"), "utf8")).match(/^gitdir: (.*)$/m)?.[1]?.trim();
+      if (!pointer) return null;
+      const admin = isAbsolute(pointer) ? pointer : join(path, pointer),
+        info = await stat(admin),
+        key = `${admin}\0${info.ino}`;
+      if (this.created.has(key)) return this.created.get(key)!;
+      let created: number | null = null;
+      try {
+        const seconds = reflogStart(await readFile(join(admin, "logs", "HEAD"), "utf8"));
+        if (seconds !== null) created = seconds * 1000;
+      } catch {}
+      if (created === null && info.birthtimeMs > 0) created = Math.floor(info.birthtimeMs);
+      if (this.created.size > 1024) this.created.clear();
+      this.created.set(key, created);
+      return created;
+    } catch {
+      return null;
+    }
+  }
   private async scan(
     cwd: string,
     key: string,
@@ -380,6 +500,8 @@ export class Tracker {
           }
           const old = snapshot?.entries.find(old => old.path === e.path);
           e.changes = old?.changes ?? null;
+          e.created = old?.created ?? null;
+          e.edited = old?.edited ?? null;
           if (base) e.comparison = comparisons.get(`${base.head}...${e.head}`) ?? null;
           e.stale = old?.changes !== null && old?.changes !== undefined;
         }
@@ -408,8 +530,10 @@ export class Tracker {
             const status = await this.query(e.path, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
             if (status !== null) {
               e.changes = parseChanges(status);
+              await this.measure(e, changedPaths(status));
               e.stale = false;
             } else e.stale = true;
+            e.created = await this.createdAt(e.path);
           }
         }
       }
