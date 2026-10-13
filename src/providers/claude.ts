@@ -34,6 +34,7 @@ export class Line {
   agentId = "";
   timestamp = "";
   isSidechain = false;
+  isCompactSummary = false;
   message: any = null;
   static parse(v: any) {
     return Object.assign(new Line(), {
@@ -43,8 +44,29 @@ export class Line {
       agentId: str(v, "agentId"),
       timestamp: str(v, "timestamp"),
       isSidechain: field(v, "isSidechain") === true,
+      isCompactSummary: field(v, "isCompactSummary") === true,
       message: field(v, "message"),
     });
+  }
+  /** A prompt or tool result opens a turn; `turn_duration`, or the notice
+   * written in its place on an interrupt, closes it. Compaction summaries and
+   * local slash commands leave it as it was. */
+  turn(): "open" | "closed" | null {
+    if (this.type === "system") return this.subtype === "turn_duration" ? "closed" : null;
+    if (this.type !== "user" || this.isCompactSummary) return null;
+    const content = field(this.message, "content");
+    const text =
+      typeof content === "string"
+        ? content
+        : Array.isArray(content)
+          ? str(
+              content.find(b => str(b, "type") === "text"),
+              "text",
+            )
+          : "";
+    if (text.startsWith("[Request interrupted")) return "closed";
+    if (text.startsWith("<command-name>") || text.startsWith("<local-command-")) return null;
+    return "open";
   }
   static decode(v: any) {
     const l = this.parse(v);

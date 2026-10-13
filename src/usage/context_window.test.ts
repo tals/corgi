@@ -58,6 +58,11 @@ test("claude compactions reset the level and only automatic ones teach the compa
   expect(reading.used).toBe(6070n);
   expect(reading.auto_compaction).toBe(0n);
   reading.claude({
+    type: "user",
+    timestamp: "2026-09-27T19:00:40.000Z",
+    message: { role: "user", content: [{ type: "tool_result", content: "ok" }] },
+  });
+  reading.claude({
     type: "system",
     subtype: "compact_boundary",
     timestamp: "2026-09-27T19:02:00.000Z",
@@ -65,6 +70,42 @@ test("claude compactions reset the level and only automatic ones teach the compa
   });
   expect(reading.used).toBe(9100n);
   expect(reading.auto_compaction).toBe(412000n);
+});
+test("claude compactions of an idle session don't teach the compaction point", () => {
+  const reading = new Reading(),
+    prompt = (content: any) =>
+      reading.claude({ type: "user", timestamp: "2026-10-13T02:22:56.300Z", message: { content } });
+  const compact = (preTokens: number) =>
+    reading.claude({
+      type: "system",
+      subtype: "compact_boundary",
+      timestamp: "2026-10-13T03:20:02.405Z",
+      compactMetadata: { trigger: "auto", preTokens, postTokens: 9720 },
+    });
+  prompt("what about controller.ts being mega");
+  reading.claude({ type: "system", subtype: "turn_duration", timestamp: "2026-10-13T02:25:38.500Z" });
+  compact(218561);
+  expect(reading.used).toBe(9720n);
+  expect(reading.auto_compaction).toBe(0n);
+  reading.claude({
+    type: "user",
+    isCompactSummary: true,
+    timestamp: "2026-10-13T03:20:02.401Z",
+    message: { content: "This session is being continued from a previous conversation" },
+  });
+  compact(9800);
+  expect(reading.auto_compaction).toBe(0n);
+  prompt("go on");
+  prompt([{ type: "text", text: "[Request interrupted by user]" }]);
+  compact(341002);
+  expect(reading.auto_compaction).toBe(0n);
+  prompt("<command-name>/model</command-name>");
+  prompt("<local-command-stdout>Set model to Opus</local-command-stdout>");
+  compact(396151);
+  expect(reading.auto_compaction).toBe(0n);
+  prompt("go on");
+  compact(967717);
+  expect(reading.auto_compaction).toBe(967717n);
 });
 test("codex reads the last call and the reported window, ignoring null info", () => {
   const reading = new Reading(),

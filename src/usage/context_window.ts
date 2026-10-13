@@ -52,9 +52,12 @@ export class Reading {
   at = 0;
   model = new Model();
   auto_compaction = 0n;
+  in_turn = false;
   claude(value: any) {
     const line = Claude.Line.decode(value);
     if (!line) return;
+    const turn = line.turn();
+    if (turn) this.in_turn = turn === "open";
     const stamp = timestampMs(line.timestamp);
     if (stamp === null) return;
     if (line.type === "assistant") {
@@ -72,7 +75,10 @@ export class Reading {
       this.model = model;
     } else if (line.type === "system" && line.subtype === "compact_boundary") {
       const meta = field(value, "compactMetadata");
-      if (str(meta, "trigger") === "auto") this.auto_compaction = number(meta, "preTokens") ?? this.auto_compaction;
+      // Claude also compacts an idle session, at any size, before its prompt
+      // cache expires; only a compaction inside a turn marks a full window.
+      if (str(meta, "trigger") === "auto" && this.in_turn)
+        this.auto_compaction = number(meta, "preTokens") ?? this.auto_compaction;
       this.used = number(meta, "postTokens") ?? 0n;
       this.at = stamp;
     }

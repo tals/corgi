@@ -80,6 +80,11 @@ test("context readings include input caches and provider windows", () => {
   expect(r.used).toBe(60n);
   expect(r.window).toBe(200000n);
   r.claude({
+    type: "user",
+    timestamp: "2026-09-24T10:00:00.500Z",
+    message: { content: [{ type: "tool_result", content: "ok" }] },
+  });
+  r.claude({
     type: "system",
     subtype: "compact_boundary",
     timestamp: "2026-09-24T10:00:01.000Z",
