@@ -10,6 +10,7 @@ import { Inventory, capacity } from "./activity/background_tasks";
 import { codex, Text as SummaryText } from "./activity/summary";
 import type { State } from "./agents";
 import type { Runtime } from "./runtime";
+import type { Location } from "./worktrees";
 function transcriptPath(value: string) {
   try {
     return Path.init(value);
@@ -46,8 +47,7 @@ export class Snapshot {
   transcript = new Path();
   turn = new Turn();
   cwd = new Path();
-  worktree_cwd: string | null = null;
-  writes: string[] = [];
+  location: Location | null = null;
   outcome: "completed" | "interrupted" | "failed" | null = null;
   observed_at = Date.now() * 1000;
   updated_at = 0;
@@ -117,14 +117,14 @@ export function isActiveWait(entry: any, turn: string, session: string) {
     str(item, "senderThreadId") === session
   );
 }
-/** The newest turn with location evidence: edits first, then command cwd. */
-export async function location(
-  client: Pick<Client, "call">,
-  session: string,
-  cwd: string,
-): Promise<{ cwd: string; writes: string[] } | null> {
-  let found: { cwd: string; writes: string[] } | null = null,
-    turn = "";
+/** The newest turn with location evidence: its newest edit, else the
+ * newest directory a command chose, else the thread's own folder. */
+export async function location(client: Pick<Client, "call">, session: string, cwd: string): Promise<Location | null> {
+  let turn = "",
+    writes: string[] = [],
+    named = "";
+  const ran = new Set<string>(),
+    own = (directory: string) => !!cwd && path.resolve(directory) === path.resolve(cwd);
   await pages(
     client,
     "thread/items/list",
@@ -134,20 +134,20 @@ export async function location(
         item = field(entry, "item");
       if (!id) return;
       if (turn && id !== turn) return true;
-      const writes = Codex.writes([item], cwd);
-      if (writes.length) {
-        found = { cwd: found?.cwd ?? cwd, writes };
+      const written = Codex.writes([item], cwd);
+      if (written.length) {
+        [turn, writes] = [id, written];
         return true;
       }
       const directory = Codex.commandDirectory(item);
-      if (!found && directory) {
-        found = { cwd: directory, writes: [] };
-        turn = id;
-      }
+      if (!directory) return;
+      turn = id;
+      ran.add(directory);
+      if (!named && !own(directory)) named = directory;
     },
     "TooManyItems",
   );
-  return found;
+  return turn ? { cwd: named || cwd, writes, ran: [...ran], basis: named ? "named" : "default" } : null;
 }
 export async function snapshot(client: Client, req: Request, session: string) {
   const meta = await client.call("thread/read", {
@@ -181,11 +181,7 @@ export async function snapshot(client: Client, req: Request, session: string) {
     }
   }
   try {
-    const observed = await location(client, session, out.cwd.text());
-    if (observed) {
-      out.worktree_cwd = observed.cwd;
-      out.writes = observed.writes;
-    }
+    out.location = await location(client, session, out.cwd.text());
   } catch {}
   try {
     const reply = await client.call("thread/backgroundTerminals/list", {

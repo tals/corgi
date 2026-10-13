@@ -3,6 +3,8 @@ import { dirname, isAbsolute, join } from "node:path";
 import * as clock from "../clock";
 import * as subprocess from "../subprocess";
 import * as worktrees from "../worktrees";
+import { Provider } from "../providers";
+import type { Agent } from "../agents";
 import type { Runtime } from "../runtime";
 import type { Workspace } from "../workspace";
 import type { Target } from "../agent_order";
@@ -15,7 +17,16 @@ const max_measured = 1000;
 const max_counted_bytes = 1 << 20;
 const detail_ms = 3000;
 type Query = (cwd: string, args: string[]) => Promise<string | null>;
-type Input = { target: Target; cwd: string; writes: string[] };
+type Input = {
+  target: Target;
+  session: string;
+  cwd: string;
+  writes: string[];
+  ran: string[];
+  basis: worktrees.Basis;
+  /** Its turn is over. */
+  settled: boolean;
+};
 type Cached = {
   snapshot: worktrees.Snapshot;
   inventory_at: number;
@@ -154,6 +165,21 @@ async function within(snapshot: worktrees.Snapshot, path: string): Promise<boole
   const resolved = await directory(path);
   return resolved !== null && inside(resolved);
 }
+/** What places an agent: what its provider observed, else the folder it
+ * reports, which names a directory only when it follows `cd`. */
+function evidence(target: Target, agent: Agent, folder: string): Input {
+  const seen = worktrees.observed(agent),
+    cwd = seen?.cwd || agent.directory() || folder;
+  return {
+    target,
+    session: agent.sessionId(),
+    cwd,
+    writes: seen?.writes ?? [],
+    ran: seen?.cwd ? seen.ran : [cwd],
+    basis: seen?.cwd ? seen.basis : agent.provider && Provider.info(agent.provider).follows_cd ? "named" : "default",
+    settled: agent.state !== "working" && agent.state !== "blocked",
+  };
+}
 async function directory(path: string): Promise<string | null> {
   if (!isAbsolute(path)) return null;
   for (;;) {
@@ -178,6 +204,8 @@ export class Tracker {
   private cache = new Map<string, Cached>();
   private pending = new Map<string, Promise<worktrees.Snapshot>>();
   private locations = new Map<string, { root: string | null; at: number }>();
+  /** The linked worktrees each agent was last placed in, by target, and for which session. */
+  private placed = new Map<string, { session: string; agents: worktrees.Association[] }>();
   private repositories = new Map<string, { common: string | null; at: number }>();
   /** Each workspace's removal under way, or its last, by workspace id. */
   private removals = new Map<number, Removing>();
@@ -211,6 +239,7 @@ export class Tracker {
     for (const job of this.removals.values()) job.quit.signal();
     this.cache.clear();
     this.locations.clear();
+    this.placed.clear();
     this.repositories.clear();
     this.created.clear();
     this.committed.clear();
@@ -314,18 +343,10 @@ export class Tracker {
       inputs: [
         ...runtime.panes
           .filter(p => runtime.workspaces.owner(p.id) === workspace && p.agent().provider)
-          .map(p => ({
-            target: { pane: p.id },
-            cwd: worktrees.observedDirectory(p.agent()) || p.agent().directory() || p.cwd,
-            writes: worktrees.writtenPaths(p.agent()),
-          })),
+          .map(p => evidence({ pane: p.id }, p.agent(), p.cwd)),
         ...runtime.sessions
           .filter(s => s.workspace_id === workspace.id)
-          .map(s => ({
-            target: { native: s.id },
-            cwd: worktrees.observedDirectory(s.attachment.agent()) || s.attachment.agent().directory() || s.cwd,
-            writes: worktrees.writtenPaths(s.attachment.agent()),
-          })),
+          .map(s => evidence({ native: s.id }, s.attachment.agent(), s.cwd)),
       ],
     }));
     this.done = false;
@@ -361,6 +382,8 @@ export class Tracker {
     }
     for (const [key, cached] of this.cache) if (now - cached.seen > 60000) this.cache.delete(key);
     for (const [key, cached] of this.locations) if (now - cached.at > 60000) this.locations.delete(key);
+    const targets = new Set(this.jobs.flatMap(job => job.inputs.map(input => JSON.stringify(input.target))));
+    for (const key of this.placed.keys()) if (!targets.has(key)) this.placed.delete(key);
     for (const [key, cached] of this.repositories) if (now - cached.at > 60000) this.repositories.delete(key);
   }
   async refresh(
@@ -583,11 +606,9 @@ export class Tracker {
     previous: worktrees.Snapshot | null,
   ) {
     const out: worktrees.Association[] = [];
-    if (!worktrees.linked(snapshot).length) return out;
-    for (const input of inputs) {
-      const writes: string[] = [];
-      for (const path of input.writes) if (await within(snapshot, path)) writes.push(path);
-      const paths = writes.length ? writes : [input.cwd];
+    const linked = worktrees.linked(snapshot);
+    if (!linked.length) return out;
+    const roots = async (paths: string[]) => {
       const found = new Set<string>();
       let uncertain = snapshot.stale;
       for (const path of paths) {
@@ -601,12 +622,40 @@ export class Tracker {
         if (root === null) uncertain = true;
         if (root && snapshot.entries.some(e => e.path === root)) found.add(root);
       }
-      for (const path of found)
-        out.push({ target: input.target, path, source: writes.length ? "write" : "cwd", stale: uncertain });
-      if (!found.size && uncertain)
-        for (const old of previous?.agents ?? []) {
-          if (JSON.stringify(old.target) === JSON.stringify(input.target)) out.push({ ...old, stale: true });
+      return { found, uncertain };
+    };
+    for (const input of inputs) {
+      const key = JSON.stringify(input.target),
+        held = this.placed.get(key);
+      const kept = held?.session === input.session ? held.agents.filter(a => linked.some(e => e.path === a.path)) : [];
+      const writes: string[] = [];
+      for (const path of input.writes) if (await within(snapshot, path)) writes.push(path);
+      const { found, uncertain } = await roots(writes.length ? writes : [input.cwd]),
+        source = writes.length ? "write" : "cwd";
+      let agents: worktrees.Association[] = [...found].map(path => ({
+        target: input.target,
+        path,
+        source,
+        stale: uncertain,
+      }));
+      // Commands bring an agent into a worktree at once but take it out only
+      // after a turn spent elsewhere, in a directory the agent chose.
+      if (kept.length && !kept.some(a => found.has(a.path))) {
+        let leaves = writes.length > 0 || input.basis === "moved";
+        if (!leaves && input.basis === "named" && input.settled) {
+          const ran = (await roots(input.ran)).found;
+          leaves = !kept.some(a => ran.has(a.path));
         }
+        if (!leaves) agents = kept.map(a => ({ ...a, stale: snapshot.stale }));
+      }
+      if (!agents.length && uncertain)
+        agents = (previous?.agents ?? [])
+          .filter(old => JSON.stringify(old.target) === key)
+          .map(old => ({ ...old, stale: true }));
+      out.push(...agents);
+      const inside = agents.filter(a => linked.some(e => e.path === a.path));
+      if (inside.length) this.placed.set(key, { session: input.session, agents: inside });
+      else this.placed.delete(key);
     }
     return out;
   }

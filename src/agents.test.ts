@@ -391,8 +391,12 @@ test("Claude's worktree tools move its location past earlier writes", () => {
   expect(worktrees.observedDirectory(agent)).toBe(review);
   expect(worktrees.writtenPaths(agent)).toEqual([]);
   observe(agent, "claude", finish("Edit", review, { file_path: "src/a.ts" }, {}), 4n, false, 4);
-  expect(worktrees.observedDirectory(agent)).toBe(review);
-  expect(worktrees.writtenPaths(agent)).toEqual([`${review}/src/a.ts`]);
+  expect(worktrees.observed(agent)).toEqual({
+    cwd: review,
+    writes: [`${review}/src/a.ts`],
+    ran: [review],
+    basis: "moved",
+  });
   observe(agent, "claude", finish("ExitWorktree", "/repo", { action: "keep" }, { restoredCwd: "/repo" }), 5n, false, 5);
   expect(worktrees.observedDirectory(agent)).toBe("/repo");
   expect(worktrees.writtenPaths(agent)).toEqual([]);

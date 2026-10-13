@@ -27,6 +27,8 @@ export class Info {
         model_env: null,
         prompt_turns: false,
         children_at_stop: false,
+        // Whether the cwd its hooks report follows the shell's `cd`.
+        follows_cd: false,
         screen: {},
       },
       fields,

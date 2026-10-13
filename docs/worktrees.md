@@ -75,12 +75,21 @@ items supply edit evidence. Claude's EnterWorktree and ExitWorktree move an
 agent at once, setting aside its earlier edits. Edits outside every checkout,
 such as to a scratch directory, are not evidence. Codex uses paginated tool
 items across turns: the newest turn with location evidence supplies its most
-recent successful edit, or its latest command's structured working directory
-when it has no edits. Shell command text and paths merely read are not
-interpreted as locations. The most recent successful edit determines membership
-within that turn. A single edit operation spanning checkouts can associate one
-agent with more than one row; a later edit in one checkout moves membership
-there. Missing metadata retains the last association as uncertain.
+recent successful edit, or, when it has no edits, the latest structured working
+directory a command chose. Commands that ran in the thread's own folder count
+only when the turn ran nowhere else. Shell command text and paths merely read
+are not interpreted as locations. The most recent successful edit determines
+membership within that turn. A single edit operation spanning checkouts can
+associate one agent with more than one row; a later edit in one checkout moves
+membership there. Missing metadata retains the last association as uncertain.
+
+An agent joins a linked worktree on its first edit or command there, but
+leaves only for an edit elsewhere, an EnterWorktree or ExitWorktree, or a
+finished turn that ran elsewhere, in a directory the agent chose, and never in
+the worktree. Commands mid-turn and Codex commands in its own folder, such as
+reading its memory from the main checkout, keep it where it is. Claude's
+working directory follows `cd`, so a Claude turn that ends in another checkout
+counts as chosen. A new conversation in the same pane starts afresh.
 
 ## Cost and lifetime
 

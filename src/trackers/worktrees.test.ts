@@ -194,7 +194,7 @@ test("associations resolve symlinks and successful writes, without claiming a ne
         { target: { pane: 2 }, cwd: f.repo, writes: [join(child, "new-file")] },
         { target: { pane: 3 }, cwd: nested, writes: [] },
         { target: { pane: 4 }, cwd: child, writes: [join(f.root, "scratch", "page.html")] },
-      ],
+      ].map(input => ({ ...input, session: "", ran: [input.cwd], basis: "named", settled: true })),
       1000,
       null,
     );
@@ -203,6 +203,40 @@ test("associations resolve symlinks and successful writes, without claiming a ne
       { target: { pane: 2 }, path: child, source: "write", stale: false },
       { target: { pane: 4 }, path: child, source: "cwd", stale: false },
     ]);
+  } finally {
+    tracker.close();
+    await f.close();
+  }
+}, 20000);
+test("an agent leaves a worktree only for an edit, a move, or a finished turn spent where it chose", async () => {
+  const f = await fixture(),
+    tracker = new Tracker();
+  try {
+    const child = join(f.repo, ".worktrees", "remote"),
+      other = join(f.repo, ".worktrees", "other");
+    await git(f.repo, "worktree", "add", "-b", "remote", child);
+    await git(f.repo, "worktree", "add", "-b", "other", other);
+    const snapshot = await tracker.refresh(f.repo, false, 1000);
+    const place = async (input: object) => {
+      const base = { target: { pane: 1 }, session: "s", cwd: f.repo, writes: [], ran: [f.repo], basis: "default" };
+      const out = await (tracker as any).associate(snapshot, [{ ...base, settled: false, ...input }], 1000, null);
+      return out.map((a: worktrees.Association) => a.path);
+    };
+    expect(await place({ cwd: child, ran: [f.repo, child], basis: "named" })).toEqual([child]);
+    // Codex's own folder, and a directory it chose while the turn runs.
+    expect(await place({ settled: true })).toEqual([child]);
+    expect(await place({ basis: "named" })).toEqual([child]);
+    expect(await place({ cwd: other, ran: [other], basis: "named" })).toEqual([child]);
+    // A finished turn that also ran in the worktree.
+    expect(await place({ basis: "named", settled: true, ran: [f.repo, child] })).toEqual([child]);
+    expect(await place({ basis: "named", settled: true })).toEqual([f.repo]);
+    expect(await place({ cwd: child, basis: "named" })).toEqual([child]);
+    expect(await place({ writes: [join(f.repo, "base")] })).toEqual([f.repo]);
+    expect(await place({ cwd: child, basis: "named" })).toEqual([child]);
+    expect(await place({ basis: "moved" })).toEqual([f.repo]);
+    expect(await place({ cwd: child, basis: "named" })).toEqual([child]);
+    // Another conversation in the same pane starts afresh.
+    expect(await place({ session: "t" })).toEqual([f.repo]);
   } finally {
     tracker.close();
     await f.close();

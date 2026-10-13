@@ -70,14 +70,31 @@ export function label(checkout: Checkout): string {
   );
 }
 
+/** How an agent's directory is known: it announced moving there (Claude's
+ * EnterWorktree), it chose that directory for a command, or its commands
+ * ran in its own folder, as they do when it names none. */
+export type Basis = "moved" | "named" | "default";
+/** Where an agent's latest turn worked. */
+export interface Location {
+  cwd: string;
+  writes: string[];
+  /** Every directory the turn's commands ran in. */
+  ran: string[];
+  basis: Basis;
+}
+
 // Successful structured edits are stronger evidence than a launch directory.
 // This is current location evidence, not a persisted work history.
-const locations = new WeakMap<object, { cwd: string; writes: string[] }>();
-export function recordLocation(agent: object, cwd: string, writes: string[]): void {
-  locations.set(agent, { cwd, writes: writes.slice(0, 32) });
+const locations = new WeakMap<object, Location>();
+export function recordLocation(agent: object, location: Location): void {
+  locations.set(agent, { ...location, writes: location.writes.slice(0, 32), ran: location.ran.slice(0, 16) });
 }
 export function recordWrites(agent: object, paths: string[]): void {
-  if (paths.length) recordLocation(agent, observedDirectory(agent), paths);
+  const old = locations.get(agent) ?? { cwd: "", writes: [], ran: [], basis: "default" };
+  if (paths.length) recordLocation(agent, { ...old, writes: paths });
+}
+export function observed(agent: object): Location | null {
+  return locations.get(agent) ?? null;
 }
 export function observedDirectory(agent: object): string {
   return locations.get(agent)?.cwd ?? "";

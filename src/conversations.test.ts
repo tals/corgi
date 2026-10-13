@@ -241,20 +241,19 @@ test("protocol authority ages on the daemon clock, not the observer's stamp", ()
 test("Codex location evidence survives unavailable scans and can move from edits to a newer command", () => {
   const actor = new Actor({ id: 1 }),
     observation = snapshot("working");
-  observation.worktree_cwd = "/repo";
-  observation.writes = ["/repo/.worktrees/one/file"];
+  observation.location = { cwd: "/repo", writes: ["/repo/.worktrees/one/file"], ran: [], basis: "default" };
   actor.observeSnapshot(observation, true, 0);
-  expect(worktrees.writtenPaths(actor.state)).toEqual(observation.writes);
+  expect(worktrees.writtenPaths(actor.state)).toEqual(observation.location.writes);
   observation.observed_at++;
-  observation.worktree_cwd = null;
-  observation.writes = [];
+  observation.location = null;
   actor.observeSnapshot(observation, true, 0);
   expect(worktrees.writtenPaths(actor.state)).toEqual(["/repo/.worktrees/one/file"]);
   observation.observed_at++;
-  observation.worktree_cwd = "/repo/.worktrees/two";
+  const two = "/repo/.worktrees/two";
+  observation.location = { cwd: two, writes: [], ran: [two], basis: "named" };
   actor.observeSnapshot(observation, true, 0);
   expect(worktrees.writtenPaths(actor.state)).toEqual([]);
-  expect(worktrees.observedDirectory(actor.state)).toBe(observation.worktree_cwd);
+  expect(worktrees.observed(actor.state)).toEqual(observation.location);
   actor.state.reset();
   expect(worktrees.observedDirectory(actor.state)).toBe("");
 });

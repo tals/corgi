@@ -57,6 +57,7 @@ export const info = new Info({
   minutes: [300, 10080],
   prompt_turns: true,
   children_at_stop: true,
+  follows_cd: true,
   screen: { idle_title: "✳ " },
   limits: {
     windows: ["five_hour", "seven_day"],

@@ -66,6 +66,8 @@ test("location recovers edits across item pages and turns, newest successful edi
   expect(await location(client, "session", "/repo")).toEqual({
     cwd: "/repo",
     writes: ["/repo/.worktrees/one/a", "/repo/.worktrees/two/b"],
+    ran: [],
+    basis: "default",
   });
   expect(client.calls.map(c => c.params.cursor)).toEqual([null, "1"]);
   for (const call of client.calls) {
@@ -82,6 +84,8 @@ test("edits take precedence over later read commands in the same turn", async ()
   expect(await location(client, "session", "/repo")).toEqual({
     cwd: "/repo",
     writes: ["/repo/.worktrees/one/file"],
+    ran: ["/repo"],
+    basis: "default",
   });
 });
 test("a newer turn's latest command moves location before an edit", async () => {
@@ -89,11 +93,43 @@ test("a newer turn's latest command moves location before an edit", async () => 
     [command("new", "/repo/.worktrees/two"), command("new", "/repo")],
     [change("old", "/repo/.worktrees/one/file")],
   );
-  expect(await location(client, "session", "/repo")).toEqual({ cwd: "/repo/.worktrees/two", writes: [] });
+  expect(await location(client, "session", "/repo")).toEqual({
+    cwd: "/repo/.worktrees/two",
+    writes: [],
+    ran: ["/repo/.worktrees/two", "/repo"],
+    basis: "named",
+  });
+});
+test("commands in the thread's own folder don't move location off a directory the turn chose", async () => {
+  const client = itemPages([
+    command("new", "/repo"),
+    command("new", "/repo/.worktrees/one"),
+    command("new", "/repo/"),
+    command("old", "/repo/.worktrees/two"),
+  ]);
+  expect(await location(client, "session", "/repo")).toEqual({
+    cwd: "/repo/.worktrees/one",
+    writes: [],
+    ran: ["/repo", "/repo/.worktrees/one", "/repo/"],
+    basis: "named",
+  });
+  expect(
+    await location(itemPages([command("new", "/repo"), command("old", "/repo/.worktrees/two")]), "session", "/repo"),
+  ).toEqual({
+    cwd: "/repo",
+    writes: [],
+    ran: ["/repo"],
+    basis: "default",
+  });
 });
 test("a turn without location evidence retains the previous command directory", async () => {
   const client = itemPages([{ turnId: "new", item: { type: "userMessage" } }, command("old", "/repo/.worktrees/one")]);
-  expect(await location(client, "session", "/repo")).toEqual({ cwd: "/repo/.worktrees/one", writes: [] });
+  expect(await location(client, "session", "/repo")).toEqual({
+    cwd: "/repo/.worktrees/one",
+    writes: [],
+    ran: ["/repo/.worktrees/one"],
+    basis: "named",
+  });
   expect(await location(itemPages([]), "session", "/repo")).toBeNull();
 });
 test("a partial location scan fails instead of publishing an unverified command fallback", async () => {
