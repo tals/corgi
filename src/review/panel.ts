@@ -6,7 +6,7 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import * as dropdown from "../dropdown";
-import { Rect } from "../layout";
+import { Rect, type Direction } from "../layout";
 import * as palette from "../palette";
 import { codepointWidth, compactCount, Writer } from "../text";
 import * as diff from "./diff";
@@ -245,7 +245,6 @@ function plural(n: number, word: string): string {
 
 export class Panel {
   open = false;
-  focused = false;
   /** Kept on its pane's checkout while focus moves on; notes then go to `dest`. */
   pinned = false;
   /** The focused pane, where a pinned panel's notes go. */
@@ -310,7 +309,6 @@ export class Panel {
   }
   hide(): void {
     this.open = false;
-    this.focused = false;
     this.pinned = false;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
@@ -685,9 +683,7 @@ export class Panel {
     switch (named ?? text) {
       case "tab":
       case "shift_tab":
-        r.part = r.part === "tree" || r.tree_hidden ? "diff" : "tree";
-        if (r.part === "tree" && r.path) r.tree_sel = "f:" + r.path;
-        r.tree_free = false;
+        this.focusPart(r, r.part === "tree" || r.tree_hidden ? "diff" : "tree");
         break;
       case "down":
       case "j":
@@ -1016,6 +1012,24 @@ export class Panel {
     r.notes = [...sent, ...r.notes];
     r.status = { text: why, warm: true };
   }
+  /** One step up to the file list or down to the diff under it, as Tab
+   * moves between them; false past either. */
+  move(to: Direction): boolean {
+    const t = this.target;
+    if (!t) return false;
+    const r = this.review(t.pane),
+      in_tree = r.part === "tree" && !r.tree_hidden;
+    if (to === "up" && !in_tree && !r.tree_hidden) this.focusPart(r, "tree");
+    else if (to === "down" && in_tree) this.focusPart(r, "diff");
+    else return false;
+    return true;
+  }
+  /** Gives keys to the file list, on the file shown, or to the diff. */
+  private focusPart(r: Review, part: Part): void {
+    r.part = part;
+    if (part === "tree" && r.path) r.tree_sel = "f:" + r.path;
+    r.tree_free = false;
+  }
   /** What the last click asked of the viewer, once. */
   takeEffect(): Effect {
     const effect = this.pending;
@@ -1054,7 +1068,6 @@ export class Panel {
         r.picker = null;
         if (!on_chip) hit?.act?.();
       }
-      if (kind === "press") this.focused = true;
       return;
     }
     if (kind === "move") return;
@@ -1077,7 +1090,6 @@ export class Panel {
       }
       return;
     }
-    this.focused = true;
     if (!hit) return;
     if (hit.unit !== undefined) {
       r.part = "diff";
@@ -1091,10 +1103,10 @@ export class Panel {
 
   // ---------- drawing ----------
 
-  draw(w: Writer, x: number, y: number, width: number, height: number): void {
+  /** Draws the panel; `focused` while it has the keyboard. */
+  draw(w: Writer, x: number, y: number, width: number, height: number, focused: boolean): void {
     const c = new Canvas(x, y, width, height),
       colors = palette.colors;
-    const focused = this.focused;
     // A pinned panel stands apart from the panes it no longer follows.
     for (let row = 0; row < height; row++)
       c.put(0, row, this.pinned ? "┃" : "│", focused ? palette.outline : colors.line, null);

@@ -106,6 +106,13 @@ interface TabDrag {
 /** A paste goes to the text field that owned the keyboard when it began, or
  * to the focused pane when none did. */
 type Paste = { pane: number } | "launcher" | "setup" | "picker" | "name" | "discard";
+/** Where keys go when no menu or dialog takes them: the focused pane, the
+ * sidebar's cursor, or the review panel. */
+type Keyboard = "pane" | "review" | { sidebar: sidebarFocus.State };
+/** The places that hold the keyboard, left to right. A focus move past one's
+ * edge goes on to the next. */
+type Region = "sidebar" | "panes" | "review";
+const regions: Region[] = ["sidebar", "panes", "review"];
 interface PasteCard {
   pane: number;
   notice: hostClipboard.Notice;
@@ -215,8 +222,11 @@ export class Controller {
   prefix = false;
   /** Until when a repeatable prefixed key, pressed again, runs without the prefix. */
   repeat_until = 0;
-  /** The sidebar's keyboard cursor, while the sidebar has focus instead of a pane. */
-  sidebar_focus: sidebarFocus.State | null = null;
+  keyboard: Keyboard = "pane";
+  /** The sidebar's keyboard cursor, while the sidebar has the keyboard. */
+  get sidebar_focus(): sidebarFocus.State | null {
+    return typeof this.keyboard === "object" ? this.keyboard.sidebar : null;
+  }
   /** Saved preferences as this viewer last loaded or set them. The sidebar
    * width is live while dragging and saved on release. */
   prefs = new Preferences();
@@ -393,17 +403,50 @@ export class Controller {
     if (index < this.workspace_offset) this.workspace_offset = index;
     else if (index >= this.workspace_offset + capacity) this.workspace_offset = index + 1 - capacity;
   }
-  /** Moves focus between panes, and from the leftmost one into the sidebar. */
+  /** Moves focus one step within the region that has the keyboard, and past
+   * its edge on to the region beside it. */
   private async moveFocus(to: Direction): Promise<void> {
-    if (this.sidebar_focus) return this.steerSidebar(to, true);
-    const intent =
-      this.model().count > 0
-        ? this.navigation.command(this.runtime.workspaces, { name: "focus", value: to }, this.area())
-        : { edit: null, focus: null };
-    if (intent.focus !== null) {
-      this.focusPane(intent.focus);
-      this.copy_mode = false;
-    } else if (to === "left") this.enterSidebar();
+    if (this.moveWithin(to)) return;
+    const at = regions.indexOf(this.region());
+    switch (to === "left" ? regions[at - 1] : to === "right" ? regions[at + 1] : undefined) {
+      case "sidebar":
+        return this.enterSidebar();
+      case "panes":
+        // Out of the sidebar, focus lands on the agent under its cursor.
+        return this.sidebar_focus ? this.openSidebarRow(true) : this.giveKeyboard("pane");
+      case "review":
+        return this.enterReview();
+    }
+  }
+  private region(): Region {
+    return this.sidebar_focus ? "sidebar" : this.reviewKeys() ? "review" : "panes";
+  }
+  /** One step between the sidebar's lists, the panes, or the review panel's
+   * parts; false at the region's edge. */
+  private moveWithin(to: Direction): boolean {
+    const focus = this.sidebar_focus;
+    if (focus) {
+      if (to !== "up" && to !== "down") return false;
+      const entries = this.sidebarEntries();
+      if (!focus.cross(this.current().id, entries, to === "up")) return false;
+      this.revealCursor(entries);
+      return true;
+    }
+    if (this.reviewKeys()) return this.review.move(to);
+    if (this.model().count === 0) return false;
+    const other = this.navigation.command(this.runtime.workspaces, { name: "focus", value: to }, this.area()).focus;
+    if (other === null) return false;
+    this.focusPane(other);
+    this.copy_mode = false;
+    return true;
+  }
+  /** Hands the keyboard to `to`. A drawer the sidebar had goes away with it. */
+  private giveKeyboard(to: Keyboard): void {
+    const from = this.keyboard;
+    if (from === to) return;
+    this.keyboard = to;
+    if (typeof from === "object" && from.sidebar.drawer) this.sidebar_open = false;
+    this.dirty = true;
   }
   /** Gives the sidebar focus, its cursor in `list`, else on the agent list or the
    * current workspace. A folded sidebar opens only for a list, as its drawer. */
@@ -423,30 +466,24 @@ export class Controller {
     const entries = this.sidebarEntries(),
       current = this.current().id;
     const cursor = list === "workspaces" ? { workspace: current } : sidebarFocus.initial(current, entries);
-    this.sidebar_focus = new sidebarFocus.State(cursor, folded ? list : null);
+    this.giveKeyboard({ sidebar: new sidebarFocus.State(cursor, folded ? list : null) });
     this.revealCursor(entries);
-    this.dirty = true;
   }
   /** Gives the keyboard back to the focused pane, putting a drawer away. */
   private leaveSidebar(): void {
-    const focus = this.sidebar_focus;
-    if (!focus) return;
-    this.sidebar_focus = null;
-    if (focus.drawer) this.sidebar_open = false;
-    this.dirty = true;
+    if (this.sidebar_focus) this.giveKeyboard("pane");
   }
   /** Focuses `list` in the sidebar; its key again puts its drawer away. */
   private chooseIn(list: sidebar.Section): void {
     if (this.sidebar_focus?.drawer === list) this.leaveSidebar();
     else this.enterSidebar(list);
   }
-  /** A plain arrow moves within the focused list; a prefixed one, `across`, between the lists. */
-  private async steerSidebar(to: Direction, across: boolean): Promise<void> {
+  /** A plain arrow moves within the focused list; Right opens its row. */
+  private async steerSidebar(to: Direction): Promise<void> {
     if (to === "right") return this.openSidebarRow(true);
     if (to === "left") return;
     const entries = this.sidebarEntries();
-    if (across) this.sidebar_focus!.cross(this.current().id, entries, to === "up");
-    else this.sidebar_focus!.move(this.workspaceIds(), entries, to === "down");
+    this.sidebar_focus!.move(this.workspaceIds(), entries, to === "down");
     this.revealCursor(entries);
     this.dirty = true;
   }
@@ -511,25 +548,24 @@ export class Controller {
     this.sidebar_focus!.reconcile(this.workspaceIds(), entries);
     return this.sidebar_focus!.mark(entries);
   }
-  /** Runs a prefixed binding. Any but a focus move or a drawer's own key
-   * takes the keyboard back from the sidebar; a repeatable one opens its
+  /** Runs a prefixed binding. Prefixed commands act on panes, so any but one
+   * that moves the keyboard gives it back to them; a repeatable one opens its
    * repeat window. */
   private async runPrefixed(act: Action, repeats: boolean): Promise<void> {
     this.prefix = false;
     this.repeat_until = repeats ? Date.now() + bindings.repeat_ms : 0;
-    // Prefixed commands act on panes, so they take the keyboard back from the review panel.
-    if (act.name !== "review") this.review.focused = false;
-    if (act.name !== "focus" && act.name !== "choose-workspace" && act.name !== "choose-agent") this.leaveSidebar();
+    if (!["focus", "choose-workspace", "choose-agent", "review"].includes(act.name)) this.giveKeyboard("pane");
     await this.perform(act);
   }
   /** Whether a repeatable key came again inside its window, which it
-   * extends, or else closes. The focused sidebar takes plain arrows itself,
-   * but they keep the window open, so focus can leave it the same way. */
+   * extends, or else closes. The sidebar and the review panel take plain
+   * arrows themselves, but they keep the window open, so focus can leave
+   * the sidebar the same way. */
   private repeats(act: Action | null): act is Action {
     if (act === null) return false;
     const again = !this.prefix && Date.now() < this.repeat_until;
     this.repeat_until = again ? Date.now() + bindings.repeat_ms : 0;
-    return again && !this.sidebar_focus;
+    return again && !this.sidebar_focus && !this.reviewKeys();
   }
   focusPane(id: number): void {
     const owner = this.runtime.workspaces.owner(id);
@@ -1185,7 +1221,7 @@ export class Controller {
           this.focusPane(pane_id);
           if (this.review.open) {
             this.review.follow(this.reviewTarget());
-            this.review.focused = true;
+            this.giveKeyboard("review");
           } else this.openReview();
           this.dirty = true;
           break;
@@ -1284,11 +1320,11 @@ export class Controller {
     this.dirty = true;
   }
   private beginPrefix(): void {
-    // A prefixed arrow moves within the sidebar, so the prefix keeps its focus.
-    const focus = this.sidebar_focus;
-    this.sidebar_focus = null;
+    // A prefixed arrow moves the keyboard on from where it is, so the prefix keeps it there.
+    const keyboard = this.keyboard;
+    this.keyboard = "pane";
     this.closeMenu();
-    this.sidebar_focus = focus;
+    this.keyboard = keyboard;
     this.cancelDividers();
     this.selection = null;
     this.prefix = true;
@@ -3665,7 +3701,7 @@ export class Controller {
         this.dirty = true;
       } else if (this.sidebar_focus) {
         if (parsed_key === "up" || parsed_key === "down" || parsed_key === "left" || parsed_key === "right")
-          await this.steerSidebar(parsed_key, false);
+          await this.steerSidebar(parsed_key);
       } else if (this.agent_picker) {
         if (parsed_key === "up" || parsed_key === "shift_tab") this.moveAgentPicker(false);
         else if (parsed_key === "down") this.moveAgentPicker(true);
@@ -3871,8 +3907,8 @@ export class Controller {
       }
       return this.openSidebarRow(false);
     }
-    // A click gives the keyboard back.
-    if (this.sidebar_focus && !release && (button & 0xe0) === 0) this.leaveSidebar();
+    // A press gives the keyboard back to the panes, or to the review panel below when it lands there.
+    if (!release && (button & 0xe0) === 0) this.giveKeyboard("pane");
     // The prefix bar has no mouse targets. A click resumes normal UI input.
     if (this.prefix && !release && (button & 0xe0) === 0) this.closeMenu();
     const moved = this.pointer === null || this.pointer.x !== x || this.pointer.y !== y;
@@ -4127,6 +4163,7 @@ export class Controller {
       this.name_dialog === null
     ) {
       this.pointer = { x, y };
+      if (!release && (button & 0xe0) === 0) this.giveKeyboard("review");
       if (!release && button === 0) {
         this.ui_mouse_down = true;
         if (x === review_rect.x) this.review_drag = true;
@@ -4147,8 +4184,6 @@ export class Controller {
       this.dirty = true;
       return;
     }
-    // A press anywhere else gives the keyboard back to the panes.
-    if (this.review.focused && !release && (button & 0xe0) === 0) this.review.focused = false;
     // Finish the captured selection before hit testing the release location.
     if (release && (button & 3) === 0 && this.selection) {
       const sel = this.selection;
@@ -4991,7 +5026,7 @@ export class Controller {
     if (!this.review.open) this.openReview();
     else {
       this.review.follow(this.reviewTarget());
-      this.review.focused = true;
+      this.giveKeyboard("review");
     }
     this.review.pinned = this.review.open;
     this.dirty = true;
@@ -5210,7 +5245,8 @@ export class Controller {
       this.review.follow(this.reviewTarget(held ?? this.focused()));
       this.review.dest = this.reviewTarget();
     }
-    const review_width = this.sidebarView([]).panel;
+    const review_width = this.sidebarView([]).panel,
+      review_focused = this.keyboard === "review" && review_width > 0;
     return render.frame(
       this.layoutView(),
       this.runtime.panes,
@@ -5289,10 +5325,11 @@ export class Controller {
           : this.workspaceEntries(),
         workspace_offset: this.workspace_offset,
         review_width,
-        review_focused: this.review.focused && review_width > 0,
+        review_focused,
         review_draw:
           review_width > 0
-            ? (w: Writer) => this.review.draw(w, this.width - review_width, 0, review_width, this.height)
+            ? (w: Writer) =>
+                this.review.draw(w, this.width - review_width, 0, review_width, this.height, review_focused)
             : null,
       }),
     );
@@ -5305,9 +5342,13 @@ export class Controller {
     const width = this.sidebarView([]).panel;
     return width > 0 ? new Rect(this.width - width, 0, width, this.height) : null;
   }
-  /** Whether keys go to the review panel: open, focused, and wide enough to show. */
+  /** Whether keys go to the review panel: it has the keyboard and room to show. */
   private reviewKeys(): boolean {
-    return this.review.open && this.review.focused && this.sidebarView([]).panel > 0;
+    return this.keyboard === "review" && this.sidebarView([]).panel > 0;
+  }
+  /** Gives the keyboard to the review panel, when it is open and has room to show. */
+  private enterReview(): void {
+    if (this.sidebarView([]).panel > 0) this.giveKeyboard("review");
   }
   /** A pane, the focused one unless named, as the review panel shows it. */
   /** Reads the agent menu's diff line ahead of the menu: for the focused agent,
@@ -5377,11 +5418,7 @@ export class Controller {
   /** Opens the panel, gives it the keyboard, and then closes it. */
   private toggleReview(): void {
     if (!this.review.open) return this.openReview();
-    if (!this.review.focused) {
-      this.review.focused = true;
-      this.dirty = true;
-      return;
-    }
+    if (this.keyboard !== "review") return this.giveKeyboard("review");
     this.closeReview();
   }
   private openReview(): void {
@@ -5392,13 +5429,14 @@ export class Controller {
       this.notice(" Review needs a wider window");
       return;
     }
-    this.review.focused = true;
+    this.giveKeyboard("review");
     this.selection = null;
     this.cancelDividers();
     this.dirty = true;
   }
   private closeReview(): void {
     this.review.hide();
+    if (this.keyboard === "review") this.giveKeyboard("pane");
     this.review_drag = false;
     this.review_pressed = false;
     this.cancelDividers();
@@ -5443,7 +5481,7 @@ export class Controller {
           break;
         }
         this.pasteText({ pane: p.id }, effect.text);
-        this.review.focused = false;
+        this.giveKeyboard("pane");
         this.focusPane(p.id);
         break;
       }
@@ -5454,7 +5492,7 @@ export class Controller {
         this.closeReview();
         break;
       case "leave":
-        this.review.focused = false;
+        this.giveKeyboard("pane");
         break;
       case "none":
         break;

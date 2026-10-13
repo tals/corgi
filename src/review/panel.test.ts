@@ -49,7 +49,7 @@ function screen(p: panel.Panel, width = 70, height = 34): string[] {
   const w = new Writer(),
     terminal = new Terminal(width, height);
   try {
-    p.draw(w, 0, 0, width, height);
+    p.draw(w, 0, 0, width, height, true);
     terminal.feed(w.buffered());
     return terminal.text().split("\n");
   } finally {
@@ -69,7 +69,6 @@ test("opens on all: commits and working copy together", async () => {
   const p = new panel.Panel();
   p.follow({ pane: 1, cwd: root, name: "Fix app" });
   p.show();
-  p.focused = true;
   await settle(p);
   const rows = screen(p);
   expect(rows[0]).toContain("Review");
@@ -105,7 +104,6 @@ test("walks hunks across files and writes a note that sends", async () => {
   const p = new panel.Panel();
   p.follow({ pane: 7, cwd: root, name: "Fix app" });
   p.show();
-  p.focused = true;
   await settle(p);
   key(p, "tab");
   key(p, "]");
@@ -139,7 +137,6 @@ test("a generated file waits for Enter, and scopes and commits switch", async ()
   const p = new panel.Panel();
   p.follow({ pane: 2, cwd: root, name: "Fix app" });
   p.show();
-  p.focused = true;
   await settle(p);
   key(p, "j");
   await settle(p);
@@ -171,7 +168,6 @@ test("find opens the fold its match is in", async () => {
   const p = new panel.Panel();
   p.follow({ pane: 3, cwd: root, name: "Fix app" });
   p.show();
-  p.focused = true;
   await settle(p);
   key(p, "tab");
   expect(screen(p).join("\n")).not.toContain("export const v18 = 18;");
@@ -204,7 +200,6 @@ test("files sort by last edit, newest first, with how long ago", async () => {
   const p = new panel.Panel();
   p.follow({ pane: 9, cwd: root, name: "Fix app" });
   p.show();
-  p.focused = true;
   await settle(p);
   let rows = screen(p);
   expect(rows[2]).toContain("sort: name ↑ · last edit");
@@ -231,7 +226,6 @@ test("pinned, the review stays put and its notes go to the focused pane", async 
   const p = new panel.Panel();
   p.follow({ pane: 11, cwd: root, name: "Fix app" });
   p.show();
-  p.focused = true;
   await settle(p);
   expect(screen(p)[0]).not.toContain("→");
   key(p, "p");
@@ -260,6 +254,27 @@ test("pinned, the review stays put and its notes go to the focused pane", async 
   expect(p.pinned).toBe(false);
 });
 
+test("up and down move between the file list and the diff under it, and stop past either", async () => {
+  const p = new panel.Panel();
+  p.follow({ pane: 15, cwd: root, name: "Fix app" });
+  p.show();
+  await settle(p);
+  const inList = () => screen(p).at(-2)!.includes("j/k file");
+  expect(inList()).toBe(true);
+  expect(p.move("up")).toBe(false);
+  expect(p.move("right")).toBe(false);
+  expect(p.move("down")).toBe(true);
+  expect(inList()).toBe(false);
+  expect(p.move("down")).toBe(false);
+  expect(p.move("up")).toBe(true);
+  expect(inList()).toBe(true);
+  // With the list hidden, the diff is all there is.
+  key(p, "z");
+  expect(p.move("up")).toBe(false);
+  expect(p.move("down")).toBe(false);
+  p.hide();
+});
+
 test("the wheel scrolls the file list under the pointer", async () => {
   const extra = Array.from({ length: 6 }, (_, i) => `z${i}.txt`);
   for (const name of extra) write(name, "new\n");
@@ -267,7 +282,6 @@ test("the wheel scrolls the file list under the pointer", async () => {
     const p = new panel.Panel();
     p.follow({ pane: 13, cwd: root, name: "Fix app" });
     p.show();
-    p.focused = true;
     await settle(p);
     const list = () => screen(p, 70, 20).slice(3, 9).join("\n");
     expect(list()).toContain("app.ts");

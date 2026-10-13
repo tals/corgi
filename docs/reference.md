@@ -152,6 +152,11 @@ of one, the next arrow needs no prefix, and arrows that move within the
 sidebar keep the repeat going. Any other key ends the repeat and goes to the
 pane. Corgi's `h/j/k/l` also move focus, once per prefix.
 
+The sidebar, the panes and the review panel sit left to right. Focus moves
+within the one that has it first: between the sidebar's lists, between panes,
+or between the review panel's file list and diff. Past its edge, focus goes on
+to the one beside it.
+
 `prefix ←` from the leftmost pane moves focus into the agent list while the
 sidebar is open. Up and Down move through the list and wrap at its ends;
 `prefix ↑` moves to the workspace list and `prefix ↓` back, as between panes.
@@ -300,7 +305,10 @@ resize it. It shows the checkout of the focused pane, or the worktree the
 agent list puts its agent under, so it follows you from agent to agent, and
 each pane keeps its own place and notes. A second
 `prefix e` gives it the keyboard, a third closes it; Esc hands the keyboard
-back to the pane, and a click anywhere else does too.
+back to the pane, and a click anywhere else does too. `prefix →` from the
+rightmost pane moves into it as well, and `prefix ←` back to the focused
+pane; `prefix ↑` and `prefix ↓` move between the file list and the diff, as
+`Tab` does. Inside, plain arrows are the panel's own.
 
 It opens on **all**: the working tree against where the branch left `main`,
 so commits and uncommitted changes show together. `main` is the default branch

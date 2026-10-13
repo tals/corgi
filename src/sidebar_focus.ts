@@ -61,18 +61,21 @@ export class State {
     this.index = (this.index + (down ? 1 : list.length - 1)) % list.length;
     this.cursor = list[this.index];
   }
-  /** Up from the agents to the current workspace, or down back to the agent row it left. */
-  cross(current: number, entries: Entry[], up: boolean): void {
-    if (this.drawer) return;
+  /** Up from the agents to the current workspace, or down back to the agent
+   * row it left; false when there is no list that way. */
+  cross(current: number, entries: Entry[], up: boolean): boolean {
+    if (this.drawer) return false;
     const cursor = this.cursor;
     if (up && "entry" in cursor) {
       this.left = cursor.entry;
       this.cursor = { workspace: current };
-    } else if (!up && "workspace" in cursor) {
-      const left = this.left;
-      const back = left && entries.some(e => stops(e) && sameTarget(e.target, left)) ? { entry: left } : null;
-      this.cursor = back ?? agentRow(entries) ?? cursor;
+      return true;
     }
+    if (up || !("workspace" in cursor)) return false;
+    const left = this.left;
+    const back = left && entries.some(e => stops(e) && sameTarget(e.target, left)) ? { entry: left } : null;
+    this.cursor = back ?? agentRow(entries) ?? cursor;
+    return this.cursor !== cursor;
   }
   /** Workspace rows as drawn: on a workspace, the cursor's row takes the current one's tint. */
   markWorkspaces<T extends { id: number; active: boolean }>(workspaces: T[]): T[] {

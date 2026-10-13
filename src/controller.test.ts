@@ -573,6 +573,82 @@ test("the sidebar's cursor ghosts an agent no pane shows, where entering it puts
   }
 });
 
+test("prefixed arrows walk past the last pane into the review panel, and left goes back to the focused pane", async () => {
+  const { s, sent } = steering();
+  try {
+    s.focusPane(1);
+    await s.input(bytes("\x02e"));
+    expect(s.keyboard).toBe("review");
+    await s.input(bytes("\x02\x1b[D"));
+    expect(s.keyboard).toBe("pane");
+    expect(s.focused().id).toBe(1);
+    await s.input(bytes("\x02\x1b[C\x02\x1b[C"));
+    expect(s.focused().id).toBe(2);
+    expect(s.keyboard).toBe("review");
+    // Inside the repeat window, the panel takes plain arrows itself.
+    await s.input(bytes("\x1b[D\x1b[B"));
+    expect(s.keyboard).toBe("review");
+    // Prefixed, up and down move between its file list and the diff under it,
+    // as between the sidebar's lists; past either, and right, focus stays.
+    s.frame();
+    expect(s.review.pane).toBe(2);
+    await s.input(bytes("\x02\x1b[B"));
+    expect(s.review.review(2).part).toBe("diff");
+    await s.input(bytes("\x02\x1b[B\x02\x1b[C"));
+    expect(s.keyboard).toBe("review");
+    expect(s.review.review(2).part).toBe("diff");
+    await s.input(bytes("\x02\x1b[A"));
+    expect(s.review.review(2).part).toBe("tree");
+    await s.input(bytes("\x02\x1b[A"));
+    expect(s.keyboard).toBe("review");
+    await s.input(bytes("\x02\x1b[D"));
+    expect(s.keyboard).toBe("pane");
+    expect(s.focused().id).toBe(2);
+    // A closed panel takes nothing.
+    await s.input(bytes("\x02\x1b[C\x02e\x02\x1b[C"));
+    expect(s.review.open).toBe(false);
+    expect(s.keyboard).toBe("pane");
+    expect(sent).toEqual([]);
+  } finally {
+    s.review.hide();
+    viewer.close(s);
+  }
+});
+
+test("the keyboard has one holder: the sidebar, the review panel and a press hand it between them", async () => {
+  const update = spyOn(preferences, "update").mockImplementation(() => {});
+  const { s } = steering();
+  try {
+    s.focusPane(2);
+    await s.input(bytes("\x02e\x02w"));
+    expect(s.sidebar_focus.cursor).toEqual({ workspace: 1 });
+    expect(s.reviewKeys()).toBe(false);
+    await s.input(bytes("\x02e"));
+    expect(s.keyboard).toBe("review");
+    expect(s.sidebar_focus).toBeNull();
+    // Moving to the review panel puts a drawer away.
+    s.sidebar_open = false;
+    await s.input(bytes("\x02a\x02e"));
+    expect(s.keyboard).toBe("review");
+    expect(s.sidebar_open).toBe(false);
+    // A press on a pane gives the keyboard back; one in the panel takes it.
+    await s.mouse("\x1b[<0;5;5M");
+    await s.mouse("\x1b[<0;5;5m");
+    expect(s.keyboard).toBe("pane");
+    await s.mouse(`\x1b[<0;${s.width - 5};5M`);
+    await s.mouse(`\x1b[<0;${s.width - 5};5m`);
+    expect(s.keyboard).toBe("review");
+    // Closing the panel gives the keyboard back too.
+    await s.input(bytes("\x02e"));
+    expect(s.review.open).toBe(false);
+    expect(s.keyboard).toBe("pane");
+  } finally {
+    s.review.hide();
+    update.mockRestore();
+    viewer.close(s);
+  }
+});
+
 test("the launcher names a new worktree, then adds it before starting the agent there", async () => {
   const checkout = (path: string, branch: string, primary: boolean) => ({
     path,

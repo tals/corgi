@@ -34,11 +34,12 @@ test("plain arrows wrap within the cursor's list", () => {
 test("prefixed arrows cross to the current workspace and back to the agent left", () => {
   const list = agents();
   const s = new State({ entry: { pane: 3 } });
-  s.cross(5, list, false);
+  // Past either list, nothing moves, and focus may go on from the sidebar.
+  expect(s.cross(5, list, false)).toBe(false);
   expect(s.cursor).toEqual({ entry: { pane: 3 } });
-  s.cross(5, list, true);
+  expect(s.cross(5, list, true)).toBe(true);
   expect(s.cursor).toEqual({ workspace: 5 });
-  s.cross(5, list, true);
+  expect(s.cross(5, list, true)).toBe(false);
   expect(s.cursor).toEqual({ workspace: 5 });
   s.move([4, 5], list, false);
   s.cross(5, list, false);
@@ -77,7 +78,7 @@ test("a drawer keeps the cursor in its own list", () => {
   const s = new State({ workspace: 5 }, "agents");
   s.move([4, 5], list, true);
   expect(s.cursor).toEqual({ entry: { pane: 2 } });
-  s.cross(5, list, true);
+  expect(s.cross(5, list, true)).toBe(false);
   expect(s.cursor).toEqual({ entry: { pane: 2 } });
   const workspaces = new State({ workspace: 5 }, "workspaces");
   workspaces.cross(5, list, false);
