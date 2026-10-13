@@ -34,6 +34,8 @@ export class Preferences {
   theme: palette.Theme = "corgi";
   /** Where the launcher puts a new worktree, as `worktree_folder.ts` reads it. */
   worktree_folder = worktreeFolder.default_template;
+  /** The review panel's width, as last dragged. */
+  review_width = 80;
 }
 export function path(): string {
   if (process.env.XDG_STATE_HOME) return join(process.env.XDG_STATE_HOME, "corgi", "viewer.json");
@@ -118,6 +120,10 @@ export function readExisting(file: string): Preferences | null {
     if ("sidebar_width" in d) {
       if (!Number.isInteger(d.sidebar_width) || d.sidebar_width < 0 || d.sidebar_width > 65535) return null;
       v.sidebar_width = d.sidebar_width;
+    }
+    if ("review_width" in d) {
+      if (!Number.isInteger(d.review_width) || d.review_width < 0 || d.review_width > 65535) return null;
+      v.review_width = d.review_width;
     }
     if ("sidebar_split" in d && d.sidebar_split !== null) {
       if (!Number.isInteger(d.sidebar_split) || d.sidebar_split < 0 || d.sidebar_split > 65535) return null;

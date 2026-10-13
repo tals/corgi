@@ -59,7 +59,8 @@ set `ZIG`).
 `go.ts` builds Corgi, then starts its runtime or attaches to the running one.
 When the build changed, it live-reloads the runtime; running panes survive. Run
 from inside a Corgi pane, it reattaches that viewer to the new build.
-`./go.ts --help` lists the options.
+`./go.ts --sandbox review` opens a seeded world of its own, with fake agents,
+for trying a feature by hand. `./go.ts --help` lists the options.
 
 ## Acknowledgements
 

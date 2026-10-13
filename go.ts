@@ -6,13 +6,17 @@ import { constants } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { isatty } from "node:tty";
 import { stopOtherDaemons } from "./scripts/stop-other-daemons.ts";
+import type { Sandbox } from "./tools/sandbox.ts";
 
-const usage = `Usage: bun run go.ts [--temp | --env NAME] [--reload | --restart] [COMMAND ...]
+const usage = `Usage: bun run go.ts [--temp | --env NAME | --sandbox NAME] [--reload | --restart] [COMMAND ...]
 
-  --temp       Fresh isolated Corgi environment on every launch
-  --env NAME   Reuse a named environment with its own setup and saved state
-  --reload     Rebuild and reload the selected runtime without stopping panes
-  --restart    Confirm before stopping and restarting the selected runtime
+  --temp          Fresh isolated Corgi environment on every launch
+  --env NAME      Reuse a named environment with its own setup and saved state
+  --sandbox NAME  Try a feature in a seeded world with fake agents, apart from
+                  your own Corgi and settings (tools/sandboxes/NAME.ts)
+  --reload        Rebuild and reload the selected runtime without stopping panes
+  --restart       Confirm before stopping and restarting the selected runtime;
+                  a sandbox starts over from its seed without asking
 
 With no command, start or attach. Use "onboard" to reopen onboarding.
 Launching the main environment stops all other Corgi daemons owned by you.
@@ -21,7 +25,7 @@ Temporary runtimes keep running after detach; shutdown still asks for confirmati
 const root = import.meta.dir;
 const binary = join(root, "dist/corgi");
 const uid = process.getuid!();
-const env = process.env;
+let env: Record<string, string | undefined> = process.env;
 
 function fail(message: string): never {
   console.error(`corgi: ${message}`);
@@ -61,25 +65,25 @@ function confirmShutdown() {
 }
 
 let args = process.argv.slice(2);
-let environment: "temp" | "named" | undefined;
+let environment: "temp" | "named" | "sandbox" | undefined;
 let environmentName = "";
 let action: "--reload" | "--restart" | undefined;
 while (args.length) {
   const [arg] = args;
-  if (arg === "--temp" || arg === "--env") {
-    if (environment) fail("choose either --temp or --env NAME, once");
+  if (arg === "--temp" || arg === "--env" || arg === "--sandbox") {
+    if (environment) fail("choose one of --temp, --env NAME or --sandbox NAME, once");
     if (arg === "--temp") {
       environment = "temp";
       args = args.slice(1);
       continue;
     }
-    if (args.length < 2) fail("--env requires a name");
-    environment = "named";
+    if (args.length < 2) fail(`${arg} requires a name`);
+    environment = arg === "--env" ? "named" : "sandbox";
     environmentName = args[1];
     if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(environmentName)) {
-      fail("environment names must start with a letter or digit and contain only letters, digits, _ or -");
+      fail("names must start with a letter or digit and contain only letters, digits, _ or -");
     }
-    if (environmentName.length > 32) fail("environment names must be at most 32 characters");
+    if (environmentName.length > 32) fail("names must be at most 32 characters");
     args = args.slice(2);
   } else if (arg === "--reload" || arg === "--restart") {
     if (action) fail("choose either --reload or --restart, once");
@@ -94,7 +98,7 @@ while (args.length) {
   }
 }
 
-if (environment) {
+if (environment === "temp" || environment === "named") {
   // Retain the original state root in child shells so selecting another named
   // environment never nests it inside the current environment's XDG root.
   const base = resolve(
@@ -134,6 +138,17 @@ if (environment) {
 }
 
 must([process.execPath, join(root, "build.ts")]);
+// A sandbox has its own HOME, so it switches over after the build, which needs yours.
+let sandbox: Sandbox | undefined;
+if (environment === "sandbox") {
+  const { open } = await import("./tools/sandbox.ts");
+  try {
+    sandbox = await open(environmentName, root, binary, action === "--restart");
+  } catch (error) {
+    fail((error as Error).message);
+  }
+  env = sandbox.env;
+}
 const mainSocket = `/tmp/corgi-${uid}/control.sock`;
 if (!environment && (env.CORGI_SOCKET || mainSocket) === mainSocket) await stopOtherDaemons(mainSocket);
 
@@ -141,7 +156,7 @@ if (action === "--reload") {
   must([binary, "reload"]);
   if (!args.length) process.exit(0);
 }
-if (action === "--restart" && run([binary, "ping"], "all") === 0) {
+if (action === "--restart" && !sandbox && run([binary, "ping"], "all") === 0) {
   confirmShutdown();
   must([binary, "shutdown"], "stdout");
   // Shutdown acknowledges before cleanup finishes. Wait for the old socket to
@@ -155,10 +170,11 @@ if (action === "--restart" && run([binary, "ping"], "all") === 0) {
 }
 if (args[0] === "shutdown") confirmShutdown();
 if (!args.length) args = ["dev"];
+if (sandbox && args[0] === "dev") console.error(sandbox.intro());
 
 // Bun cannot exec, so the client runs as a child that owns the terminal: keystroke
 // signals reach it directly, and signals sent to the launcher are passed on.
-const client = Bun.spawn([binary, ...args], { env, stdio: ["inherit", "inherit", "inherit"] });
+const client = Bun.spawn([binary, ...args], { env, cwd: sandbox?.dir, stdio: ["inherit", "inherit", "inherit"] });
 for (const signal of ["SIGINT", "SIGQUIT"] as const) process.on(signal, () => {});
 for (const signal of ["SIGTERM", "SIGHUP"] as const) process.on(signal, () => client.kill(signal));
 const status = await client.exited;

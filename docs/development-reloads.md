@@ -12,8 +12,8 @@ remain separate from saved-state schema versions.
 A main-environment `./go.ts` launch stops all other Corgi daemons owned by the
 current user, including temporary and named environments, while preserving the
 main daemon and its viewer. Other environments lose their running panes. Shutdown
-is attempted first; unresponsive daemons are terminated. `--temp`, `--env`, and
-an inherited non-main `CORGI_SOCKET` leave other daemons alone.
+is attempted first; unresponsive daemons are terminated. `--temp`, `--env`,
+`--sandbox`, and an inherited non-main `CORGI_SOCKET` leave other daemons alone.
 
 ## Protocol 1
 

@@ -371,7 +371,7 @@ export function draw(
       rect.h - 2,
       2,
       selected
-        ? `↑↓ browse · Enter ${enter} · hold ⌫ remove${failed ? " · r refresh" : ""} · Esc close`
+        ? `↑↓ browse · Enter ${enter} · e review · hold ⌫ remove${failed ? " · r refresh" : ""} · Esc close`
         : "↑↓ browse · Esc close",
       undefined,
       "faint",

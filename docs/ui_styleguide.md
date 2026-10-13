@@ -58,6 +58,19 @@ tokens once builds them in `palette.derived(...)`, which runs again after
 every theme change. `tools/theme_browser.ts` records Corgi's screens under
 each of Ghostty's bundled themes for review.
 
+## Code
+
+The review panel colors code with `palette.syntax`, a family kept apart from
+the tokens above, so green, warm and coral still mean added, needs you and
+removed. Corgi has its own keyword (violet), string (blue), number (pink),
+type (teal) and property colors; function is `strong`, comment `faint`,
+punctuation `muted`. Animal Style takes them from the terminal's magenta, blue
+and cyan. Each is lifted toward `text` until it reads at 4.6:1 on `bg`.
+
+Diff rows tint `bg` toward `accent` (added) or `hot` (removed) by 10%, and the
+words that changed inside a line by 27%. The cursor row is
+`mix(selected, line, 30)`, a find hit `mix(bg, warm, 40)`.
+
 ## Status
 
 | State | Glyph | Token |

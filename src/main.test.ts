@@ -79,6 +79,7 @@ test("the daemon and the viewer never import each other", () => {
       "launch_preview_stream",
       "launcher_resume",
       "launcher_usage",
+      "review/panel",
       "link_tooltip",
       "mirror",
       "name_dialog",

@@ -258,6 +258,7 @@ export function panes(c: Column) {
   c.space();
   c.heading("CORGI");
   c.action("Toggle sidebar", act("sidebar"), 2);
+  c.action("Review changes", act("review"), 2);
   c.action("Setup", act("setup"), 2);
 }
 const command_footer = "Press a shortcut or click a key";

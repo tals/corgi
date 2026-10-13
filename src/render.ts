@@ -125,6 +125,12 @@ export interface Ui {
   accounts: subagentTooltip.Accounts;
   workspaces: WorkspaceEntry[];
   workspace_offset: number;
+  /** Columns the review panel takes at the right edge; 0 while it is closed. */
+  review_width: number;
+  /** The review panel has the keyboard, so no pane shows its cursor. */
+  review_focused: boolean;
+  /** Draws the review panel over its columns. */
+  review_draw: ((w: Writer) => void) | null;
 }
 export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }): Ui {
   return {
@@ -181,6 +187,9 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     accounts: new subagentTooltip.Accounts(),
     workspaces: [],
     workspace_offset: 0,
+    review_width: 0,
+    review_focused: false,
+    review_draw: null,
     ...fields,
   };
 }
@@ -411,7 +420,8 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   const dragging = u.dragged_agent !== null || u.dragged_workspace !== null;
   let side = SidebarView.init(width, height, u.sidebar_open, u.sidebar_offset, entries.length, u.prefs.sidebar_split)
     .withSearch(u.agent_search)
-    .withWidth(u.prefs.sidebar_width);
+    .withWidth(u.prefs.sidebar_width)
+    .withPanel(u.review_width);
   side.resources = u.prefs.resources;
   side.drawer = u.sidebar_drawer;
   side.focus = u.sidebar_focus;
@@ -431,11 +441,11 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   w.write("\x1b[?2026h\x1b[?25l\x1b[0m\x1b[H\x1b[J");
   w.write(`\x1b[1;${side.tabX() + 1}H`);
   let x = 0;
-  const tab_space = sat(width - side.tabX(), 3);
+  const tab_space = sat(width - side.tabX() - side.panel, 3);
   const start = tabStart(view, tab_space);
   // The scrollbar shows while the pointer is where the wheel scrolls the tabs.
   const over_tabs = u.pointer !== null && u.pointer.y === 0 && u.pointer.x >= side.tabX() && noOverlay(u);
-  const thumb = over_tabs ? tabThumb(view, width - side.tabX()) : null;
+  const thumb = over_tabs ? tabThumb(view, width - side.tabX() - side.panel) : null;
   for (let i = start; i < model.count; i++) {
     const tab = model.tabs[i];
     const len = tabExtent(tab, i, start, tab_space - x);
@@ -525,12 +535,13 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
         const git = sidebar.gitActionWorkspace(side, u.workspaces, u.git_hover, pointer.x, pointer.y);
         if (git) link_pointer = link_pointer || git.git_push.phase === "idle" || git.git_push.phase === "failed";
         if (pointer.y === 0 && pointer.x >= side.tabX()) {
-          const add_x = side.tabX() + addTabX(view, width - side.tabX());
+          const add_x = side.tabX() + addTabX(view, width - side.tabX() - side.panel);
           link_pointer = link_pointer || (pointer.x >= add_x && pointer.x < add_x + 3);
         }
         hovered_uri = sidebar.portLink(side, u.workspaces, pointer.x, pointer.y);
         // The sidebar's last column drags its width, ahead of any control there.
         if (side.width > 0 && pointer.x === side.width - 1) resize_hover = "horizontal";
+        else if (u.review_width > 0 && pointer.x === width - u.review_width) resize_hover = "horizontal";
         else if (side.splitHandle(pointer.x, pointer.y)) resize_hover = "vertical";
         else {
           const hit = view.dividerAt(area, pointer.x, pointer.y);
@@ -615,6 +626,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   side.spotlight = u.worktree_spotlight;
   side.draw(w, entries, workspaces);
   if (u.git_hover !== null) sidebar.drawGitAction(w, side, u.workspaces, u.git_hover);
+  if (u.review_draw) u.review_draw(w);
   if (u.corgi_badge === "image") {
     w.write(corgiBadge.hide);
     if (side.width > 0 && !badgeCovered(u, side, width, height)) w.write(corgiBadge.place());
@@ -640,7 +652,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   }
   // The prefix bar covers the area's last row.
   const cursor_rows = area.y + area.h - (u.prefix && area.h > 0 ? 1 : 0);
-  if (model.count > 0 && !u.copy_mode && !u.link_tooltip && noOverlay(u)) {
+  if (model.count > 0 && !u.copy_mode && !u.link_tooltip && !u.review_focused && noOverlay(u)) {
     for (const place of view.placements(area)) {
       if (place.id !== view.selection.tabs[view.selection.active].focus || place.rect.h === 0) continue;
       const p = panes.find(pane => pane.id === place.id && pane.restoring.length === 0);

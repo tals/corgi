@@ -11,6 +11,7 @@ Requires **Zig 0.16.0**, pinned to the Ghostty revision in `build.zig.zon`. `scr
 ./go.ts --temp                 # fresh isolated runtime, setup and state
 ./go.ts --env demo             # reuse an isolated named environment
 ./go.ts --env demo onboard     # reopen its onboarding
+./go.ts --sandbox review       # try a feature on a seeded world with fake agents
 ./go.ts --reload               # rebuild and replace daemon; panes/viewers stay alive
 ./go.ts --restart              # stop processes, then recover in new shells
 ./scripts/zig build test
@@ -37,6 +38,16 @@ command to return, or append `shutdown` to it to stop the runtime with confirmat
 After shutdown, the printed directory can be removed. Source projects, agent accounts
 and external import sources remain shared. These flags isolate Corgi state, not the
 programs running inside it.
+
+`--sandbox NAME` goes further, for trying a feature by hand: it runs Corgi
+with its own HOME, Claude and Codex config dirs, state and socket under
+`/tmp/corgi-sandbox-<uid>/NAME`, so your agents' settings are never touched.
+`tools/sandboxes/NAME.ts` seeds the world once (for `review`, a repository
+with worktrees and changes of every kind) and opens its tabs; `claude` and
+`codex` there are fakes that take `work`, `stop`, `block` and `exit`. It works
+inside a Corgi pane, taking the prefix the outer Corgi doesn't use. Run it
+again to come back; `--restart` throws the world away and seeds it again
+without asking. `tools/sandbox.ts` says what a new one needs.
 
 Live handoff transfers compact VT snapshots of retained screens, history, cursor, and input modes instead of accumulated terminal event journals. After the new daemon owns the PTYs, it briefly changes each PTY width and restores it 250 ms later, asking applications to repaint through ordinary resize notifications. Processes and PTYs stay alive; parser fragments and some saved terminal state may be lost, and applications that do not repaint can retain display artifacts.
 
@@ -221,6 +232,7 @@ prefix, `prefix Ctrl+A` types Ctrl+A instead of opening New agent.
 | Paste copied text |  | `prefix ]` |  |  |
 | Detach | `prefix q`, `prefix d` | `prefix d` | `prefix q` | `prefix q`, `prefix d` |
 | Toggle sidebar | `prefix b` | `prefix b` | `prefix b` | `Cmd+B`, `prefix b` |
+| Review changes | `prefix e` | `prefix e` | `prefix e` | `prefix e` |
 | Setup | `prefix i`, `prefix C` | `prefix C` | `prefix s` | `Cmd+,`, `prefix i`, `prefix C` |
 | All shortcuts | `prefix ?` | `prefix ?` | `prefix ?` | `prefix ?` |
 
@@ -273,6 +285,55 @@ and a background too mid-toned for that gets a deeper panel of its own hue.
 When the terminal reports a theme change (mode 2031, as Ghostty does on a
 config reload), Corgi asks for its colors again and repaints. The theme under
 the cursor previews across the screen; Enter keeps it in `viewer.json`.
+
+### Review changes
+
+`prefix e`, or **Review changes** in an agent's right-click menu, opens the
+review panel at the window's right edge. The menu row says what it would show:
+the files and lines changed since the agent's branch left `main`. Corgi reads
+that ahead for the focused agent, the agents beside it and one you hover, so
+it's usually there when the menu opens. A turn starting or ending in the
+checkout, or 15 seconds passing, makes it read again the next time; opening
+the menu always checks, and fades in any change. Until the first read, faint
+bars hold its place. The panes make room for the panel; drag its left edge to
+resize it. It shows the checkout of the focused pane, so it follows you from
+agent to agent, and each pane keeps its own place and notes. A second
+`prefix e` gives it the keyboard, a third closes it; Esc hands the keyboard
+back to the pane, and a click anywhere else does too.
+
+It opens on **all**: the working tree against where the branch left `main`,
+so commits and uncommitted changes show together. `main` is the default branch
+`origin/HEAD` names, else `main` or `master`; of the local branch and origin's,
+the one the branch forked from latest counts, and on `main` itself origin's
+does, so what isn't pushed yet is what there is to review. `u` narrows to the
+working copy against HEAD; `g` opens a menu of the branch's commits, with what
+each touched, and reviews one alone. Changed files sit in a tree above the
+diff, each with how long ago it was last written: `j`/`k` move and the diff
+follows, `Tab` moves into the diff, and `o` (or the sort on the rule above
+them) lists them newest edit first instead; `O`, or clicking the sort in use,
+turns it around, and its arrow says which way it runs.
+
+`p` (or the `⚲` beside the title) pins the panel to the checkout it shows: it
+stays when you focus another pane, its edge turns heavy, and its notes go to
+the focused pane instead, whose name the title shows after an arrow.
+**Review changes** in a worktree heading's menu, or `e` in the worktrees
+overview, starts an agent named Reviewer in that worktree, focuses it, and pins
+the panel there, so any worktree can be reviewed whether an agent works in it
+or not.
+
+The diff holds the whole file, with long unchanged runs folded (`→` opens
+one), the words that changed inside an edited line marked, and syntax colors. `]`/`[` walk hunks across files, `w` toggles
+wrapping, `/` finds in the file. `v` selects lines and `c` writes a note on
+them; `s` pastes every note, with the lines it was written on, into the pane's
+prompt without pressing Enter, and `y` copies them instead. A pane that hasn't
+asked for bracketed paste, such as a bare shell, would run them, so its notes
+are copied. Until they're sent, the pane's sidebar row shows how many notes
+wait. `?` lists every key.
+
+Lockfiles and minified files start collapsed until Enter; binary files and
+files over 2 MB or 50,000 lines show a notice instead of a diff. The panel
+rereads git every two seconds while open and never writes to the repository.
+Notes live in the viewer and are lost when it exits.
 
 ## Agent integration
 

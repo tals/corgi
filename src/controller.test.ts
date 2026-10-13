@@ -1,6 +1,6 @@
 import * as protocol from "./protocol";
 import { transport } from "./fixtures/transport";
-import { expect, spyOn, test } from "bun:test";
+import { expect, setSystemTime, spyOn, test } from "bun:test";
 import { Controller, cardEffect, pasteKey, forkName, breadcrumbs } from "./controller";
 import * as preferences from "./preferences";
 import { TabMenu } from "./commands";
@@ -11,6 +11,8 @@ import * as hostClipboard from "./host_clipboard";
 import * as keyboard from "./keyboard";
 import * as viewer from "./viewer";
 import { agent, type Pane } from "./mirror";
+import * as summaries from "./review/summaries";
+import * as sidebar from "./sidebar";
 
 /** A controller with no daemon: these tests send no requests. */
 function controller(): any {
@@ -669,4 +671,88 @@ test("the launcher names a new worktree, then adds it before starting the agent 
     cwd: "/src/app/.worktrees/log-in",
     provider: "claude",
   });
+});
+
+test("the agent menu's diff line is read ahead for the focused agent, its neighbours and a hovered row", async () => {
+  const panes = [1, 2, 3, 4, 5],
+    state = (completed: number) => ({
+      workspaces: [
+        {
+          id: 1,
+          name: "/w",
+          cwd: "/w",
+          model: {
+            nodes: panes.map(pane => ({ pane })),
+            tabs: panes.map(id => ({ id, root: id - 1, title: "" })),
+            revision: 0,
+          },
+        },
+      ],
+      panes: panes.map(id => ({
+        id,
+        workspace: 1,
+        tab: id,
+        cols: 40,
+        rows: 24,
+        cwd: "/w",
+        agent: {
+          provider: "claude",
+          name: `agent ${id}`,
+          cwd: `/w/${id}`,
+          state: "idle",
+          attention: "none",
+          observation: { completed: id === 2 ? completed : 0, read: 0 },
+        },
+      })),
+      conversations: [],
+      native_sessions: [],
+    });
+  const s = controller(),
+    reads: string[] = [];
+  s.review_summaries = new summaries.Summaries(
+    async root => {
+      reads.push(root);
+      return [[root, "faint"]];
+    },
+    async cwd => cwd,
+  );
+  s.width = 120;
+  s.height = 40;
+  s.input_state.attached = true;
+  s.receiveSnapshot(state(0));
+  const settle = () => new Promise(resolve => setTimeout(resolve, 10));
+  try {
+    setSystemTime(new Date(1_000_000));
+    s.focusPane(2);
+    s.frame();
+    await settle();
+    // One at a time: the focused agent first, then those beside it.
+    expect(reads).toEqual(["/w/2", "/w/1", "/w/3"]);
+    // A hovered row waits a moment first, so a sweep down the list reads nothing.
+    const entries = s.sidebarEntries(),
+      view = s.sidebarView(entries);
+    const y = Array.from({ length: 40 }, (_, y) => y).find(y => {
+      const target = sidebar.agentAt(view, entries, 5, y)?.target;
+      return target !== undefined && "pane" in target && target.pane === 5;
+    });
+    expect(y).toBeDefined();
+    s.pointer = { x: 5, y };
+    s.frame();
+    setSystemTime(new Date(1_000_050));
+    s.frame();
+    await settle();
+    expect(reads).toHaveLength(3);
+    setSystemTime(new Date(1_000_150));
+    s.frame();
+    await settle();
+    expect(reads.slice(3)).toEqual(["/w/5"]);
+    // Nothing is read again while nothing changes; a turn ending reads its checkout.
+    s.frame();
+    s.receiveSnapshot(state(1));
+    s.frame();
+    await settle();
+    expect(reads.slice(4)).toEqual(["/w/2"]);
+  } finally {
+    setSystemTime();
+  }
 });

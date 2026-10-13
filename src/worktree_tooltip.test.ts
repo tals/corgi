@@ -460,6 +460,17 @@ function browsing() {
     request: transport(async (op, fields: any) => {
       requests.push({ op, ...Object(fields) });
       if (op === "session.snapshot") return state;
+      // A new agent opens awake in a new tab; renames are taken as asked.
+      const create = fields?.command?.["agent.create"];
+      if (create) {
+        const id = state.panes.length + 1;
+        model.nodes.push({ pane: id });
+        model.tabs.push({ id, root: model.nodes.length - 1 });
+        model.revision += 1;
+        state.panes.push({ id, workspace: 1, tab: id, cols: 80, rows: 24, cwd: create.cwd });
+        return { result: { pane: id, workspace: 1 } };
+      }
+      if (fields?.command?.["pane.rename"]) return { result: {} };
       const resume = fields?.command?.["agent.resume"];
       if (!resume?.asleep) throw Error("TestResume");
       const id = state.panes.length + 1,
@@ -717,10 +728,28 @@ function paneWorktrees() {
   const heading = (e: any) => e.target.worktree === data.entries[1].path;
   return { view, data, closed, rows, row, heading };
 }
+test("e in the overview starts a reviewer in the browsed worktree and pins the review to it", async () => {
+  const { view, requests } = browsing();
+  view.width = 200;
+  await view.input(Buffer.from("e"));
+  expect(view.worktreeDetail()).toBeNull();
+  const commands = requests.filter(r => r.op === "session.command").map(r => r.command);
+  expect(commands[0]).toEqual({ "agent.create": { workspace: 1, cwd: "/repo/.worktrees/0", provider: null } });
+  expect(commands[1]).toEqual({ "pane.rename": { target: 2, name: "Reviewer" } });
+  expect(view.focused()?.id).toBe(2);
+  expect(view.review.open).toBe(true);
+  expect(view.review.pinned).toBe(true);
+  expect(view.review.pane).toBe(2);
+  view.review.hide();
+});
 test("a worktree heading's right-click menu closes only the agents listed under it", async () => {
   const { view, closed, row, heading } = paneWorktrees();
   await view.input(Buffer.from(`\x1b[<2;6;${row(heading)}M`));
-  expect(view.tab_menu!.entries().map(e => e.label)).toEqual(["Fold", "Close all agents for topic-0"]);
+  expect(view.tab_menu!.entries().map(e => e.label)).toEqual([
+    "Fold",
+    "Review changes",
+    "Close all agents for topic-0",
+  ]);
   await view.input(Buffer.from("x"));
   expect(view.tab_menu).toBeNull();
   expect(closed).toEqual([1, 2]);

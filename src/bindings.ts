@@ -118,6 +118,7 @@ const tables: Record<Preset, Binding[]> = {
     { key: 115, mods: {}, prefixed: true, action: { name: "copy-mode" } },
     { key: 113, mods: {}, prefixed: true, action: { name: "detach" } },
     { key: 98, mods: {}, prefixed: true, action: { name: "sidebar" } },
+    { key: 101, mods: {}, prefixed: true, action: { name: "review" } },
     { key: 105, mods: {}, prefixed: true, action: { name: "setup" } },
     { key: 63, mods: {}, prefixed: true, action: { name: "help" } },
     {
@@ -259,6 +260,7 @@ const tables: Record<Preset, Binding[]> = {
     { key: 93, mods: {}, prefixed: true, action: { name: "paste" } },
     { key: 100, mods: {}, prefixed: true, action: { name: "detach" } },
     { key: 98, mods: {}, prefixed: true, action: { name: "sidebar" } },
+    { key: 101, mods: {}, prefixed: true, action: { name: "review" } },
     { key: 67, mods: {}, prefixed: true, action: { name: "setup" } },
     { key: 63, mods: {}, prefixed: true, action: { name: "help" } },
   ],
@@ -373,6 +375,7 @@ const tables: Record<Preset, Binding[]> = {
     { key: 91, mods: {}, prefixed: true, action: { name: "copy-mode" } },
     { key: 113, mods: {}, prefixed: true, action: { name: "detach" } },
     { key: 98, mods: {}, prefixed: true, action: { name: "sidebar" } },
+    { key: 101, mods: {}, prefixed: true, action: { name: "review" } },
     { key: 115, mods: {}, prefixed: true, action: { name: "setup" } },
     { key: 63, mods: {}, prefixed: true, action: { name: "help" } },
   ],
@@ -743,6 +746,7 @@ const tables: Record<Preset, Binding[]> = {
     { key: 115, mods: {}, prefixed: true, action: { name: "copy-mode" } },
     { key: 113, mods: {}, prefixed: true, action: { name: "detach" } },
     { key: 98, mods: {}, prefixed: true, action: { name: "sidebar" } },
+    { key: 101, mods: {}, prefixed: true, action: { name: "review" } },
     { key: 105, mods: {}, prefixed: true, action: { name: "setup" } },
     { key: 63, mods: {}, prefixed: true, action: { name: "help" } },
     {

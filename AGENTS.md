@@ -15,6 +15,9 @@
   Parallel runs are flaky under load; rerun a failing suite with `--jobs 1`
   before investigating.
 - **Run it:** `./go.ts` (`--temp`, `--env NAME`, `--reload`; see README).
+- **Try a feature by hand:** `./go.ts --sandbox NAME` opens a seeded world
+  with fake agents, apart from your own Corgi (`tools/sandboxes/`). Add one
+  when a feature needs a particular world to poke at.
 - **UI probe:** `bun tools/probe.ts run bun -e 'key ctrl+b c; snap'` drives a
   viewer in a PTY and records its screens. See `tools/probe.ts`.
 

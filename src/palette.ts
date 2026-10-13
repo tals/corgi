@@ -122,6 +122,44 @@ derived(() => {
   outline = mix(colors.accent, colors.line, 50);
 });
 
+/** Code colors, a family apart from the UI tokens: in code, green, warm and
+ * coral still mean added, needs you and removed. Corgi has its own; Animal
+ * Style takes the terminal's magenta, blue and cyan. Each is lifted toward
+ * `text` until it reads on `bg`. */
+export type Syntax = "keyword" | "string" | "number" | "type" | "function" | "property" | "comment" | "punctuation";
+const corgi_syntax = {
+  keyword: [196, 167, 242],
+  string: [167, 201, 234],
+  number: [230, 177, 214],
+  type: [134, 207, 208],
+  property: [180, 196, 221],
+} satisfies Record<string, Rgb>;
+/** ANSI slots, normal then bright, each syntax hue takes in Animal Style. */
+const syntax_slots: Record<keyof typeof corgi_syntax, number[]> = {
+  keyword: [5, 13],
+  string: [4, 12],
+  number: [13, 5],
+  type: [6, 14],
+  property: [12, 4],
+};
+export const syntax = {} as Record<Syntax, Rgb>;
+function readableOnBg(rgb: Rgb): Rgb {
+  let out = rgb;
+  for (let step = 10; step <= 100 && terminalPalette.contrast(out, colors.bg) < 4.6; step += 10)
+    out = mix(rgb, colors.text, step);
+  return out;
+}
+derived(() => {
+  const host = current === "animal_style" ? terminal : null;
+  for (const name of Object.keys(corgi_syntax) as (keyof typeof corgi_syntax)[]) {
+    const own = syntax_slots[name].map(slot => host?.ansi[slot] ?? null).find(c => c !== null);
+    syntax[name] = readableOnBg(own ?? corgi_syntax[name]);
+  }
+  syntax.function = colors.strong;
+  syntax.comment = colors.faint;
+  syntax.punctuation = colors.muted;
+});
+
 export function underline(token: Token) {
   return `\x1b[58:2::${colors[token].join(":")}m`;
 }

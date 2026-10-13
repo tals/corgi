@@ -159,6 +159,8 @@ export interface Entry {
   group: Group;
   subagents: Subagents;
   context: ContextView;
+  /** Review notes written on its pane and not sent yet. */
+  notes: number;
 }
 export function entry(fields: Partial<Entry> & { target: Target }): Entry {
   return {
@@ -183,6 +185,7 @@ export function entry(fields: Partial<Entry> & { target: Target }): Entry {
     group: { agents: 0, working: 0, attention: 0, folded: false, current: false },
     subagents: { running: 0, blocked: 0, waiting: false },
     context: new ContextView(),
+    notes: 0,
     ...fields,
   };
 }
@@ -389,6 +392,8 @@ export class View {
   focus: Section | null = null;
   /** The lists' own view, from `lists()`. */
   inner = false;
+  /** Columns the review panel takes at the right edge. */
+  panel = 0;
 
   clone(): View {
     return Object.assign(Object.create(View.prototype), this) as View;
@@ -608,9 +613,14 @@ export class View {
     const x = lists_x + 4 + search.cursor - this.lists().searchOffset();
     w.write(`\x1b[0m\x1b[${this.middle() + 2};${x}H\x1b[?25h`);
   }
+  withPanel(width: number): View {
+    const result = this.clone();
+    result.panel = width;
+    return result;
+  }
   area(): Rect {
     const x = this.drawer !== null ? 0 : this.width;
-    return new Rect(x, 1, this.cols - x, sat(this.rows, 1));
+    return new Rect(x, 1, sat(this.cols - x, this.panel), sat(this.rows, 1));
   }
   tabX(): number {
     return this.width > 0 && this.drawer === null ? this.width : this.cols >= 64 ? 3 : 0;
@@ -1039,11 +1049,16 @@ export class View {
     const provider = e.name.length > 0 ? directoryLabel(e.name, null, 160) : (e.provider ?? "");
     const figure = contextFigure(e, compacting, background);
     const figure_width = figure ? displayWidth(figure.text) : 0;
+    const notes = e.notes > 0 ? `${e.notes} note${e.notes === 1 ? "" : "s"}` : "";
+    const right = figure_width + (figure_width > 0 ? 1 : 0) + (notes.length > 0 ? notes.length + 1 : 0);
     w.write(
       `\x1b[${y + 1};${x + 5}H${dot.unread || (grouped && e.focused) ? "\x1b[1m" + fg("strong") : "\x1b[22m" + fg("text")}`,
     );
-    writeEllipsis(w, provider, sat(room, figure_width + (figure_width > 0 ? 1 : 0)));
+    writeEllipsis(w, provider, sat(room, right));
     w.write("\x1b[22m");
+    // Unsent review notes wait for the user, so they take warm.
+    if (notes.length > 0 && room > right + 4)
+      w.write(`\x1b[${y + 1};${x + v.width - right}H\x1b[1m${fg("warm")}${notes}\x1b[22m`);
     if (figure) {
       w.write(`\x1b[${y + 1};${x + v.width - 1 - figure_width}H`);
       w.write(fgRgb(figure.color));

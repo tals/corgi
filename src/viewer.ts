@@ -269,6 +269,7 @@ export async function run(
     let active_at = Date.now();
     let scroll_saved = 0;
     const poll = new Poll();
+    view.wake = () => poll.notify("host");
     stdin.listen(bytes => {
       for (const byte of probe.feed(bytes, Date.now())) input.push(byte);
       poll.notify(framePacing.onlyAnswers(bytes) ? "host" : "stdin");

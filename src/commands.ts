@@ -1,9 +1,10 @@
 //! The resize menu, and the context menus on tabs, workspaces, panes,
 //! agents and worktree groups. Mirrors commands.zig.
+import * as dropdown from "./dropdown";
 import * as palette from "./palette";
 import { Style, keycap } from "./palette";
 import type { Direction } from "./layout";
-import { Writer, sat } from "./text";
+import { Writer, displayWidth, sat } from "./text";
 
 /** A resize menu row: the key it shows and the resize a click performs. */
 export interface Entry {
@@ -32,6 +33,7 @@ export type Item =
   | "fork"
   | "copy-id"
   | "mark-unread"
+  | "review"
   | "close"
   | "fold"
   | "close-all";
@@ -64,12 +66,33 @@ const agent_actions = [
   row("fork", "f", "Fork"),
   row("copy-id", "c", "Copy ID"),
   row("mark-unread", "u", "Mark as unread"),
+  row("review", "e", "Review changes"),
   row("close", "x", "Close", { rule: true }),
 ];
 let border: string;
 palette.derived(() => {
   border = new Style({ fg: "line", bg: "surface" }).sgr();
 });
+
+/** A row's second line: colored runs, or placeholder bars until they arrive. */
+export interface Detail {
+  runs: dropdown.Run[] | null;
+  /** When the runs arrived, so they fade in; 0 shows them at once. */
+  since: number;
+  /** The runs replaced the placeholder, whose bars fade out under them. */
+  placeholder: boolean;
+}
+export const fade_ms = 160;
+/** The placeholder's bars and the gaps between them, shaped like "N files  +a −d". */
+const bars = [6, 2, 2, 1, 2];
+const bars_width = bars.reduce((s, n) => s + n, 0);
+function inBar(col: number): boolean {
+  for (let i = 0, at = 0; i < bars.length; at += bars[i], i++) if (col < at + bars[i]) return i % 2 === 0;
+  return false;
+}
+function detailWidth(d: Detail): number {
+  return d.runs ? d.runs.reduce((s, [part]) => s + displayWidth(part), 0) : bars_width;
+}
 
 // Herdr's tab context menu: these actions apply to the clicked tab, not the
 // currently focused tab. Keep its identity even while tabs move or disappear.
@@ -90,14 +113,25 @@ export class TabMenu {
   highlighted = 0;
   /** Rows shown crossed out, which neither keys nor clicks run. */
   off = new Set<Item>();
+  /** A second line under a row, such as what Review changes would show. */
+  details = new Map<Item, Detail>();
   constructor(fields: Partial<TabMenu> & { tab: number; anchor_x: number }) {
     Object.assign(this, fields);
+  }
+  /** Shows `runs` as `item`'s second line, or placeholder bars while they're null.
+   * Runs that replace the bars, or different runs, fade in from `now`. */
+  setDetail(item: Item, runs: dropdown.Run[] | null, now = Date.now()): void {
+    const old = this.details.get(item);
+    if (!old) this.details.set(item, { runs, since: 0, placeholder: false });
+    else if (runs !== null && !(old.runs && dropdown.sameRuns(old.runs, runs)))
+      this.details.set(item, { runs, since: now, placeholder: old.runs === null });
   }
   entries(): Row[] {
     if (this.agent) return agent_actions;
     if (this.worktree !== null)
       return [
         row("fold", "f", this.folded ? "Unfold" : "Fold"),
+        row("review", "e", "Review changes"),
         row("close-all", "x", `Close all agents for ${this.title}`, { rule: true }),
       ];
     if (this.pane) return this.source !== null ? pane_actions : pane_actions.slice(1);
@@ -126,13 +160,18 @@ export class TabMenu {
       return false;
     });
   }
-  /** Screen lines the rows take: one each, and one per rule. */
+  /** Screen lines the rows take: one each, one per rule, and one per detail. */
   lines(): number {
-    return this.entries().length + this.entries().filter(entry => entry.rule).length;
+    const entries = this.entries();
+    return entries.length + entries.filter(entry => entry.rule || this.details.has(entry.item)).length;
   }
   labelWidth(): number {
     let widest = 0;
-    for (const entry of this.entries()) widest = Math.max(widest, Buffer.byteLength(entry.label));
+    for (const entry of this.entries()) {
+      widest = Math.max(widest, Buffer.byteLength(entry.label));
+      const detail = this.details.get(entry.item);
+      if (detail) widest = Math.max(widest, detailWidth(detail));
+    }
     return widest;
   }
   bounds(width: number, height: number): { x: number; y: number; width: number; padding: number } {
@@ -153,8 +192,9 @@ export class TabMenu {
     const entries = this.entries();
     for (let index = 0; index < entries.length; index++) {
       if (entries[index].rule) line += 1;
-      if (y === line) return index;
-      line += 1;
+      const tall = this.details.has(entries[index].item) ? 2 : 1;
+      if (y >= line && y < line + tall) return index;
+      line += tall;
     }
     return null;
   }
@@ -168,7 +208,7 @@ export class TabMenu {
   }
   /** Drawn like the launcher: a rounded box on `surface`, `›` on the
    * highlighted row, and each row's key as a cap before its label. */
-  draw(w: Writer, width: number, height: number): void {
+  draw(w: Writer, width: number, height: number, now = Date.now()): void {
     const b = this.bounds(width, height);
     if (b.width < 4) return;
     const inner = b.width - 2;
@@ -212,8 +252,40 @@ export class TabMenu {
       const len = Math.min(entry.label.length, sat(inner, used));
       if (off) w.write(new Style({ fg: "faint", bg: "surface", strike: true }).sgr());
       w.write(entry.label.slice(0, len));
+      const detail = this.details.get(entry.item);
+      if (detail) {
+        // The second line sits under the label, on the row's own background.
+        w.write(`\x1b[${line};${b.x + 1}H${border}│${row_style}`);
+        w.splat(" ", inner);
+        w.write(`\x1b[${line};${b.x + b.width}H${border}│\x1b[${line};${b.x + 2 + used}H${row_style}`);
+        drawDetail(w, detail, sat(inner, used + 1), highlighted ? "selected" : "surface", off, now);
+        line += 1;
+      }
     });
     w.write("\x1b[0m\x1b[?25l");
+  }
+}
+/** A detail line, `room` cells at most, on the row's background: its runs
+ * fading in, with the placeholder's bars fading out under them, or the bars alone. */
+function drawDetail(w: Writer, d: Detail, room: number, row: "selected" | "surface", off: boolean, now: number) {
+  const bg = palette.colors[row];
+  const t = d.since === 0 ? 1 : Math.min(1, Math.max(0, (now - d.since) / fade_ms));
+  const shown = 100 * (1 - (1 - t) * (1 - t));
+  const barred = d.runs === null || (d.placeholder && t < 1);
+  const bar = palette.mix(bg, palette.colors.faint, d.runs === null ? 30 : 30 - (30 * shown) / 100);
+  const cells: { ch: string; fg: palette.Rgb }[] = [];
+  for (const [part, token] of d.runs ?? []) {
+    // Faint is too dim on the highlighted row's background.
+    const color = palette.colors[off ? "faint" : token === "faint" && row === "selected" ? "muted" : token];
+    for (const ch of part) cells.push({ ch, fg: palette.mix(bg, color, shown) });
+  }
+  for (let i = 0, col = 0; col < room && (i < cells.length || (barred && col < bars_width)); i++) {
+    const cell = cells[i];
+    const ch = cell?.ch ?? " ";
+    const width = displayWidth(ch);
+    if (col + width > room) break;
+    w.write(palette.bgRgb(barred && inBar(col) ? bar : bg) + (cell ? palette.fgRgb(cell.fg) : "") + ch);
+    col += width;
   }
 }
 /** Key and label styles for a resize-menu row: a keycap when the row can run,

@@ -74,11 +74,13 @@ import * as ghosttyIntegration from "./ghostty_integration";
 import * as hostClipboard from "./host_clipboard";
 import type { Pacer } from "./frame_pacing";
 import * as pasteCard from "./paste_card";
+import * as panel from "./review/panel";
+import * as summaries from "./review/summaries";
 import * as subagentTooltip from "./subagent_tooltip";
 import * as viewerNative from "./viewer_native";
 import { Provider } from "./providers";
 import { rank } from "./agent_order";
-import { sat, byteLength } from "./text";
+import { sat, byteLength, type Writer } from "./text";
 import * as errors from "./errors";
 
 /** A conversation a pane stopped running, and when, in seconds. */
@@ -293,9 +295,40 @@ export class Controller {
   search_text: number[] = [];
   search_skip = 0;
   last_bell_kind = "none";
+  /** The review panel at the right edge; it follows the focused pane. */
+  review = new panel.Panel();
+  /** The review panel's edge while it is dragged. */
+  private review_drag = false;
+  /** A press in the review panel holds the pointer until it is released. */
+  private review_pressed = false;
+  /** UTF-8 bytes of a character typed into the review panel, until it completes. */
+  private review_bytes: number[] = [];
+  /** Wakes the viewer's loop when something changes without input, such as git answering. */
+  wake: () => void = () => {};
+  /** The agent menu's diff line for each checkout, read ahead of the menu. */
+  review_summaries = new summaries.Summaries();
+  /** Each pane's turn as last seen, so one starting or ending marks its checkout. */
+  private summary_turns = new Map<number, string>();
+  /** The directories last read ahead; they're asked for again only when this changes. */
+  private summary_wanted = "";
+  /** The agent row under the pointer, and since when. */
+  private summary_hover: { pane: number; since: number } | null = null;
 
   constructor(connection: Transport) {
     this.connection = connection;
+    this.review.changed = () => {
+      this.dirty = true;
+      this.wake();
+    };
+    this.review.summarized = (root, runs) => this.review_summaries.put(root, runs);
+    this.review_summaries.changed = () => {
+      const menu = this.tab_menu,
+        p = menu?.agent ? this.pane(menu.tab) : undefined;
+      if (!menu || !p) return;
+      menu.setDetail("review", this.review_summaries.get(this.reviewCwd(p)));
+      this.dirty = true;
+      this.wake();
+    };
   }
   private model(): Model {
     return this.current().model;
@@ -484,6 +517,8 @@ export class Controller {
   private async runPrefixed(act: Action, repeats: boolean): Promise<void> {
     this.prefix = false;
     this.repeat_until = repeats ? Date.now() + bindings.repeat_ms : 0;
+    // Prefixed commands act on panes, so they take the keyboard back from the review panel.
+    if (act.name !== "review") this.review.focused = false;
     if (act.name !== "focus" && act.name !== "choose-workspace" && act.name !== "choose-agent") this.leaveSidebar();
     await this.perform(act);
   }
@@ -520,6 +555,7 @@ export class Controller {
     )
       .withSearch(this.agentSearch())
       .withWidth(this.prefs.sidebar_width);
+    view = view.withPanel(this.reviewWidth(view.width));
     // Workspace rows, and so paging, depend on whether readings are shown.
     view.resources = this.prefs.resources;
     view.drawer = this.sidebar_focus?.drawer ?? null;
@@ -778,6 +814,7 @@ export class Controller {
       subagentTooltip.presentChildren(entry, this.runtime.conversations, now);
       const conversation = this.runtime.conversations.find(c => c.id === entry.conversation);
       if (conversation) entry.context = contextView(conversation.context);
+      if ("pane" in entry.target) entry.notes = this.review.noteCount(entry.target.pane);
     }
     return entries;
   }
@@ -1010,6 +1047,9 @@ export class Controller {
     const p = this.pane(id);
     if (!p) return;
     const opened = new TabMenu({ tab: id, agent: true, anchor_x: x, anchor_y: y });
+    // Review changes says what it would show: the line read ahead, checked
+    // again now, or placeholder bars until git answers.
+    this.review_summaries.ask(this.reviewCwd(p));
     if (p.agent.session.length === 0) opened.off.add("copy-id");
     if (p.agent.observation.completed === 0n || unread(p.agent.observation)) opened.off.add("mark-unread");
     try {
@@ -1022,6 +1062,7 @@ export class Controller {
     } catch {
       opened.off.add("fork");
     }
+    opened.setDetail("review", this.review_summaries.get(this.reviewCwd(p)));
     opened.highlightFirst();
     this.tab_menu = opened;
     this.dirty = true;
@@ -1099,6 +1140,9 @@ export class Controller {
         case "close-all":
           for (const id of this.worktreePanes(selection)) await this.close(id);
           break;
+        case "review":
+          await this.reviewWorktree(selection);
+          break;
         default:
           break;
       }
@@ -1135,6 +1179,14 @@ export class Controller {
           } catch {
             this.notice(" Couldn't mark as unread");
           }
+          break;
+        case "review":
+          this.focusPane(pane_id);
+          if (this.review.open) {
+            this.review.follow(this.reviewTarget());
+            this.review.focused = true;
+          } else this.openReview();
+          this.dirty = true;
           break;
         case "close":
           await this.close(pane_id);
@@ -1516,6 +1568,11 @@ export class Controller {
         if (selection) await this.enterWorktree(selection);
         break;
       }
+      case "worktree-review": {
+        const selection = this.browsingWorktree();
+        if (selection) await this.reviewWorktree(selection);
+        break;
+      }
       case "worktree-refresh": {
         const id = this.worktreeDetail();
         if (id === null) break;
@@ -1613,6 +1670,9 @@ export class Controller {
         this.selection = null;
         this.cancelDividers();
         this.dirty = true;
+        break;
+      case "review":
+        this.toggleReview();
         break;
       case "mute":
         this.muted = !this.muted;
@@ -2817,6 +2877,7 @@ export class Controller {
         else if (byte === 107 || byte === 16) await this.perform({ name: "worktree-prev" });
         else if (byte === 127 || byte === 8) await this.perform({ name: "worktree-remove" });
         else if (byte === 114) await this.perform({ name: "worktree-refresh" });
+        else if (byte === 101) await this.perform({ name: "worktree-review" });
         return;
       }
     }
@@ -3177,6 +3238,11 @@ export class Controller {
       const act = bindings.lookup(this.prefs.preset, false, byte, {});
       if (act) return this.perform(act);
     }
+    if (this.reviewKeys() && !this.copy_mode) {
+      const k = this.reviewByte(byte);
+      if (k) await this.reviewKey(k);
+      return;
+    }
     if (this.copy_mode) {
       const p = this.focused();
       switch (byte) {
@@ -3260,7 +3326,7 @@ export class Controller {
     if (this.corgi_setup?.editing) return "setup";
     if (this.agent_picker) return "picker";
     if (this.name_dialog) return "name";
-    if (this.hasMenu()) return "discard";
+    if (this.hasMenu() || this.reviewKeys()) return "discard";
     const p = this.focused();
     return p ? { pane: p.id } : "discard";
   }
@@ -3520,7 +3586,8 @@ export class Controller {
           // Resolve Corgi shortcuts before encoding for the child. A
           // Kitty Ctrl-B/Ctrl-T are otherwise invisible to the byte handlers.
           const legacy = Array.from(Buffer.from(viewerNative.encodeKey(null, key_event.codepoint, key_event.mods)));
-          const owned = this.hasMenu() || this.name_dialog !== null || this.copy_mode || this.search_mode;
+          const owned =
+            this.hasMenu() || this.name_dialog !== null || this.copy_mode || this.search_mode || this.reviewKeys();
           if (
             owned ||
             (legacy.length === 1 &&
@@ -3661,6 +3728,9 @@ export class Controller {
       } else if (this.name_dialog) {
         this.name_dialog.sequence(text);
         this.dirty = true;
+      } else if (this.reviewKeys()) {
+        const named = parsed_key === null ? null : reviewNamed(parsed_key);
+        if (named) await this.reviewKey({ named });
       } else if (this.copy_mode && parsed_key === "page_up") this.scroll(-20);
       else if (this.copy_mode && parsed_key === "page_down") this.scroll(20);
       else {
@@ -3682,7 +3752,8 @@ export class Controller {
   }
   /** Columns the tab bar's tabs may take, left of its "+" button. */
   private tabSpace(): number {
-    return sat(this.width - this.sidebarView([]).tabX(), 3);
+    const side = this.sidebarView([]);
+    return sat(this.width - side.tabX() - side.panel, 3);
   }
   private scrollTabs(forward: boolean): void {
     const view = this.layoutView();
@@ -4024,6 +4095,49 @@ export class Controller {
       this.dirty = true;
       return;
     }
+    if (this.review_drag) {
+      if (release) {
+        this.review_drag = false;
+        this.ui_mouse_down = false;
+        try {
+          preferences.update({ review_width: this.prefs.review_width });
+        } catch (error) {
+          this.notice((error as Error).message);
+        }
+      } else if (button === 32) this.prefs.review_width = Math.max(40, this.width - x);
+      this.dirty = true;
+      return;
+    }
+    const review_rect = this.reviewRect();
+    if (
+      review_rect !== null &&
+      (review_rect.contains(x, y) || this.review_pressed) &&
+      !this.hasMenu() &&
+      this.name_dialog === null
+    ) {
+      this.pointer = { x, y };
+      if (!release && button === 0) {
+        this.ui_mouse_down = true;
+        if (x === review_rect.x) this.review_drag = true;
+        else {
+          this.review_pressed = true;
+          this.review.mouse("press", x, y);
+          await this.reviewEffect(this.review.takeEffect());
+        }
+      } else if (!release && button === 32) this.review.mouse("drag", x, y);
+      else if (!release && button === 35) this.review.mouse("move", x, y);
+      else if (!release && (button === 64 || button === 65))
+        this.review.mouse(button === 64 ? "wheel_up" : "wheel_down", x, y);
+      else if (release) {
+        this.review_pressed = false;
+        this.ui_mouse_down = false;
+        this.review.mouse("release", x, y);
+      }
+      this.dirty = true;
+      return;
+    }
+    // A press anywhere else gives the keyboard back to the panes.
+    if (this.review.focused && !release && (button & 0xe0) === 0) this.review.focused = false;
     // Finish the captured selection before hit testing the release location.
     if (release && (button & 3) === 0 && this.selection) {
       const sel = this.selection;
@@ -4762,7 +4876,7 @@ export class Controller {
     const key = keys.parse(input),
       event = keyboard.decode(input);
     if (
-      ["j", "k", "r", "\r", "\t", "\x0e", "\x10", "\x1b", "\x7f", "\x08"].includes(input) ||
+      ["j", "k", "r", "e", "\r", "\t", "\x0e", "\x10", "\x1b", "\x7f", "\x08"].includes(input) ||
       key === "up" ||
       key === "down" ||
       key === "delete" ||
@@ -4774,6 +4888,7 @@ export class Controller {
           14,
           16,
           27,
+          101,
           106,
           107,
           114,
@@ -4835,6 +4950,35 @@ export class Controller {
       }
     }
     this.revealWorktree(selection, live);
+  }
+  /** Reviews a worktree from the overview or its heading: starts an agent
+   * there to take the notes, focuses it, and pins the panel to its checkout. */
+  private async reviewWorktree(selection: worktreeAgents.Selection): Promise<void> {
+    this.worktree_card.clear();
+    this.worktree_agents.previewed = null;
+    this.closeMenu();
+    let created: { pane: number };
+    try {
+      created = await this.execute({
+        "agent.create": { workspace: selection.workspace, cwd: selection.path, provider: null },
+      });
+    } catch (error) {
+      this.notice((error as Error).message);
+      return;
+    }
+    try {
+      await this.execute({ "pane.rename": { target: created.pane, name: "Reviewer" } });
+    } catch {}
+    this.focusPane(created.pane);
+    this.launched = created.pane;
+    this.revealWorktree(selection, false);
+    if (!this.review.open) this.openReview();
+    else {
+      this.review.follow(this.reviewTarget());
+      this.review.focused = true;
+    }
+    this.review.pinned = this.review.open;
+    this.dirty = true;
   }
   /** Unfolds a worktree's group and scrolls to it, focusing its first agent if `focus`. */
   private revealWorktree(selection: worktreeAgents.Selection, focus: boolean): void {
@@ -5020,6 +5164,7 @@ export class Controller {
         ? this.focusEntries()
         : this.sidebarEntries();
     if (!this.agent_picker) this.revealLaunched(entries);
+    this.readAhead(entries);
     this.revealTab();
     if (this.pointer) {
       const hit = sidebar.gitActionWorkspace(
@@ -5042,6 +5187,14 @@ export class Controller {
     }
     const card = this.paste_card;
     const focused = this.focused();
+    if (this.review.open) {
+      this.review.keep(new Set(this.runtime.panes.map(p => p.id)));
+      const held = this.review.pinned && this.review.pane !== null ? this.pane(this.review.pane) : null;
+      if (!held) this.review.pinned = false;
+      this.review.follow(this.reviewTarget(held ?? this.focused()));
+      this.review.dest = this.reviewTarget();
+    }
+    const review_width = this.sidebarView([]).panel;
     return render.frame(
       this.layoutView(),
       this.runtime.panes,
@@ -5119,8 +5272,203 @@ export class Controller {
           ? this.sidebar_focus.markWorkspaces(this.workspaceEntries())
           : this.workspaceEntries(),
         workspace_offset: this.workspace_offset,
+        review_width,
+        review_focused: this.review.focused && review_width > 0,
+        review_draw:
+          review_width > 0
+            ? (w: Writer) => this.review.draw(w, this.width - review_width, 0, review_width, this.height)
+            : null,
       }),
     );
+  }
+  /** The review panel's columns, or 0 while it is closed or can't fit beside panes. */
+  private reviewWidth(sidebar_width: number): number {
+    return this.review.open ? panel.Panel.fit(this.prefs.review_width, this.width - sidebar_width) : 0;
+  }
+  private reviewRect(): Rect | null {
+    const width = this.sidebarView([]).panel;
+    return width > 0 ? new Rect(this.width - width, 0, width, this.height) : null;
+  }
+  /** Whether keys go to the review panel: open, focused, and wide enough to show. */
+  private reviewKeys(): boolean {
+    return this.review.open && this.review.focused && this.sidebarView([]).panel > 0;
+  }
+  /** A pane, the focused one unless named, as the review panel shows it. */
+  /** Reads the agent menu's diff line ahead of the menu: for the focused agent,
+   * the agents beside it in the sidebar, and one under the pointer for a moment.
+   * A turn starting or ending marks its checkout to be read again. */
+  private readAhead(entries: sidebar.Entry[]): void {
+    const now = Date.now();
+    let turned = false;
+    for (const p of this.runtime.panes) {
+      const turn = `${p.agent.state === "working"}:${p.agent.observation.completed}`;
+      const seen = this.summary_turns.get(p.id);
+      if (seen !== undefined && seen !== turn) {
+        this.review_summaries.invalidate(this.reviewCwd(p));
+        turned = true;
+      }
+      this.summary_turns.set(p.id, turn);
+    }
+    if (this.summary_turns.size > this.runtime.panes.length)
+      for (const id of this.summary_turns.keys()) if (!this.pane(id)) this.summary_turns.delete(id);
+    const panes = new Set<number>();
+    const focused = this.focused();
+    const at = focused ? entries.findIndex(e => "pane" in e.target && e.target.pane === focused.id) : -1;
+    if (at >= 0)
+      for (const i of [at, at - 1, at + 1]) {
+        const target = entries[i]?.target;
+        if (target && "pane" in target) panes.add(target.pane);
+      }
+    const pointer = this.pointer;
+    const hovered =
+      pointer && pointer.x > 0 ? sidebar.agentAt(this.sidebarView(entries), entries, pointer.x, pointer.y) : null;
+    const hover = hovered && "pane" in hovered.target ? hovered.target.pane : null;
+    if (hover !== (this.summary_hover?.pane ?? null))
+      this.summary_hover = hover === null ? null : { pane: hover, since: now };
+    // A pause first, so sweeping down the list doesn't read every row it passes.
+    if (this.summary_hover && now - this.summary_hover.since >= 100) panes.add(this.summary_hover.pane);
+    const cwds = [...panes].flatMap(id => {
+      const p = this.pane(id);
+      return p ? [this.reviewCwd(p)] : [];
+    });
+    const wanted = cwds.join("\n");
+    if (wanted === this.summary_wanted && !turned) return;
+    this.summary_wanted = wanted;
+    for (const cwd of cwds) this.review_summaries.want(cwd);
+  }
+  /** The directory a pane's review reads: its agent's, else the pane's own. */
+  private reviewCwd(p: Pane): string {
+    return p.agent.cwd.length > 0 ? p.agent.cwd : p.cwd;
+  }
+  private reviewTarget(p = this.focused()): panel.Target | null {
+    if (!p) return null;
+    const agent = p.agent;
+    return {
+      pane: p.id,
+      cwd: this.reviewCwd(p),
+      name:
+        p.label.length > 0
+          ? p.label
+          : agent.name.length > 0
+            ? agent.name
+            : agent.provider !== null
+              ? providerName(agent)
+              : basename(p.cwd) || "terminal",
+    };
+  }
+  /** Opens the panel, gives it the keyboard, and then closes it. */
+  private toggleReview(): void {
+    if (!this.review.open) return this.openReview();
+    if (!this.review.focused) {
+      this.review.focused = true;
+      this.dirty = true;
+      return;
+    }
+    this.closeReview();
+  }
+  private openReview(): void {
+    this.review.follow(this.reviewTarget());
+    this.review.show();
+    if (this.sidebarView([]).panel === 0) {
+      this.review.hide();
+      this.notice(" Review needs a wider window");
+      return;
+    }
+    this.review.focused = true;
+    this.selection = null;
+    this.cancelDividers();
+    this.dirty = true;
+  }
+  private closeReview(): void {
+    this.review.hide();
+    this.review_drag = false;
+    this.review_pressed = false;
+    this.cancelDividers();
+    this.dirty = true;
+  }
+  /** A byte typed while the panel has the keyboard, as the panel reads keys. */
+  private reviewByte(byte: number): panel.Key | null {
+    if (byte >= 0x80) {
+      this.review_bytes.push(byte);
+      const text = Buffer.from(this.review_bytes).toString("utf8");
+      if (text.includes("\ufffd") && this.review_bytes.length < 4) return null;
+      this.review_bytes = [];
+      return text.includes("\ufffd") ? null : { text };
+    }
+    this.review_bytes = [];
+    const named = byte_keys[byte];
+    if (named) return { named };
+    return byte >= 32 && byte < 127 ? { text: String.fromCharCode(byte) } : null;
+  }
+  private async reviewKey(k: panel.Key): Promise<void> {
+    await this.reviewEffect(this.review.key(k));
+    this.dirty = true;
+  }
+  /** Carries out what the panel asked for: paste notes into a pane, copy them, or let go. */
+  private async reviewEffect(effect: panel.Effect): Promise<void> {
+    switch (effect.kind) {
+      case "send": {
+        const p = this.pane(effect.pane);
+        if (!p) {
+          this.review.restore(effect.from, effect.notes, "That pane closed; the notes are kept.");
+          break;
+        }
+        // A program that didn't ask for bracketed paste, like a bare shell,
+        // would run each line; those notes go to the clipboard instead.
+        if (!p.terminal.bracketedPaste()) {
+          this.copyText(effect.text);
+          this.review.restore(effect.from, [], "That pane would run the notes as commands; copied them instead.");
+          break;
+        }
+        if (!viewerNative.isSafePaste(effect.text)) {
+          this.review.restore(effect.from, effect.notes, "The notes hold an end-of-paste marker; they're kept.");
+          break;
+        }
+        this.pasteText({ pane: p.id }, effect.text);
+        this.review.focused = false;
+        this.focusPane(p.id);
+        break;
+      }
+      case "copy":
+        this.copyText(effect.text);
+        break;
+      case "hide":
+        this.closeReview();
+        break;
+      case "leave":
+        this.review.focused = false;
+        break;
+      case "none":
+        break;
+    }
+    this.dirty = true;
+  }
+}
+/** Control bytes the review panel reads as keys. */
+const byte_keys: Record<number, panel.Named> = {
+  4: "half_down",
+  8: "backspace",
+  9: "tab",
+  10: "newline",
+  13: "enter",
+  21: "half_up",
+  27: "escape",
+  127: "backspace",
+};
+function reviewNamed(key: keys.Key): panel.Named | null {
+  switch (key) {
+    case "up":
+    case "down":
+    case "left":
+    case "right":
+    case "page_up":
+    case "page_down":
+    case "home":
+    case "end":
+    case "shift_tab":
+      return key;
+    default:
+      return null;
   }
 }
 function direction(key: number): Direction | null {
