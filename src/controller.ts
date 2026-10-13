@@ -821,7 +821,8 @@ export class Controller {
   private sidebarEntries(): Entry[] {
     const list = this.prefs.agents === "workspace" ? this.current().id : 0xffffffff;
     let entries = this.sidebar_rows.update(list, this.agentEntries(), [], milliTimestamp());
-    const selected = this.browsingWorktree();
+    const spot = this.spotlight(),
+      selected = spot?.path != null ? { workspace: spot.workspace, path: spot.path } : null;
     if (!selected) {
       this.worktree_agents.previewed = null;
       this.worktree_agents.appearing = null;
@@ -2211,7 +2212,15 @@ export class Controller {
     this.rememberLauncherSelection();
     this.agent_launcher = null;
   }
-  private openLauncher(pinned: boolean, cwd = this.currentCwd()): void {
+  /** Where the launcher starts: the focused agent's folder, or the
+   * checkout the agent list puts it under when that differs. */
+  private launcherCwd(): string {
+    const p = this.focused();
+    if (!p) return this.currentCwd();
+    const cwd = p.agent.provider !== null && p.agent.cwd.length > 0 ? p.agent.cwd : p.cwd;
+    return worktreeAgents.folder(this.current().worktrees ?? null, { pane: p.id }, cwd);
+  }
+  private openLauncher(pinned: boolean, cwd = this.launcherCwd()): void {
     this.closeMenu();
     if (byteLength(cwd) > 10 * 1024) return;
     const launch = new LauncherMenu({
@@ -4920,6 +4929,11 @@ export class Controller {
     this.worktree_card.select(checkout.path);
     return { workspace: id, path: checkout.path };
   }
+  /** The checkout the agent list lights: the worktree browsed in the
+   * overview, else where the launcher starts agents. */
+  private spotlight(): sidebar.Spotlight | null {
+    return this.browsingWorktree() ?? this.agent_launcher?.spotlight() ?? null;
+  }
   private worktreeAgentContains(x: number, y: number): boolean {
     const side = this.sidebarView([]);
     return side.width > 0 && x >= 0 && x < side.width - 1 && y >= side.middle() + 2 && y < side.rows;
@@ -5210,7 +5224,7 @@ export class Controller {
         resource_card: tooltip_ready && detail !== null ? this.resource_card : null,
         git_hover: this.hoverIdle() ? this.git_hover : null,
         worktree_card: this.worktreeCard(),
-        worktree_spotlight: this.browsingWorktree(),
+        worktree_spotlight: this.spotlight(),
         message:
           this.agent_picker && (this.width < 40 || this.height < 13)
             ? " Agent search: enlarge terminal or Esc"

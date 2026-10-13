@@ -173,12 +173,19 @@ export function containing(snapshot: worktrees.Snapshot | null, cwd: string): wo
     if (within(e.path, cwd) && (found === null || e.path.length > found.path.length)) found = e;
   return found;
 }
-/** How the title names where agents start, and whether that is a checkout
- * the button can swap for another. */
-export function place(snapshot: worktrees.Snapshot | null, cwd: string, planned: Planned | null) {
-  if (planned) return { label: planned.branch, worktree: true };
+/** Where agents start, as the title names it. */
+export interface Place {
+  label: string;
+  /** A checkout the button can swap for another. */
+  worktree: boolean;
+  /** Off the comparison branch, which the title marks. */
+  aside: boolean;
+}
+export function place(snapshot: worktrees.Snapshot | null, cwd: string, planned: Planned | null): Place {
+  if (planned) return { label: planned.branch, worktree: true, aside: true };
   const at = containing(snapshot, cwd);
-  return at ? { label: label(at), worktree: true } : { label: basename(cwd) || cwd, worktree: false };
+  if (!at) return { label: basename(cwd) || cwd, worktree: false, aside: false };
+  return { label: label(at), worktree: true, aside: snapshot?.base != null && at.branch !== snapshot.base.ref };
 }
 /** A checkout's agents and uncommitted files, for the list's right edge. */
 function note(snapshot: worktrees.Snapshot, e: worktrees.Checkout): string {
@@ -262,7 +269,7 @@ const lead = " New agent ";
 const joiner = " in  ";
 /** The title's button around the place's name, in 0-based cells, with the
  * room its name has; null when the title can't fit it before `right`. */
-export function button(b: Rect, p: { label: string; worktree: boolean }, right: number) {
+export function button(b: Rect, p: Place, right: number) {
   const x = b.x + 2 + lead.length + joiner.length;
   // " ", the keycap, " ⌥ ", then " ▾ " after the name.
   const chrome = p.worktree ? 10 : 0;
@@ -270,15 +277,9 @@ export function button(b: Rect, p: { label: string; worktree: boolean }, right: 
   if (room < 3) return null;
   return { x, w: chrome + Math.min(displayWidth(p.label), room), room };
 }
-/** " New agent  in " and the button, in the launcher's top border. */
-export function drawTitle(
-  w: Writer,
-  b: Rect,
-  p: { label: string; worktree: boolean },
-  right: number,
-  open: boolean,
-  panel: string,
-): void {
+/** " New agent  in " and the button, in the launcher's top border; warm
+ * off the comparison branch. */
+export function drawTitle(w: Writer, b: Rect, p: Place, right: number, open: boolean, panel: string): void {
   w.write(`\x1b[${b.y + 1};${b.x + 3}H\x1b[1m` + palette.fg("strong") + lead + panel);
   const span = button(b, p, right);
   if (!span) return;
@@ -290,7 +291,8 @@ export function drawTitle(
     return;
   }
   const raised = new Style({ fg: "strong", bg: "selected" }).sgr();
-  w.write(`${raised} ${keycap} w ${raised} ` + palette.fg("muted") + "⌥ \x1b[1m" + palette.fg("strong"));
+  w.write(`${raised} ${keycap} w ${raised} ` + palette.fg(p.aside ? "warm" : "muted") + "⌥ \x1b[1m");
+  w.write(palette.fg(p.aside ? "warm" : "strong"));
   writeEllipsis(w, p.label, span.room);
   w.write("\x1b[22m" + palette.fg("muted") + (open ? " ▴ " : " ▾ ") + panel + " ");
 }

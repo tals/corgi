@@ -100,9 +100,10 @@ The agent sidebar keeps its regular list. Live agents in linked worktrees appear
 under checkout headings; primary-checkout agents stay direct rows. In "All",
 checkout headings branch off their workspace's rail. Clicking a heading folds
 its group; right-clicking it offers Fold and "Close all agents for", which
-closes the group's agents that run in panes. Browsing a worktree in the overview
-dims the rest of the agent list; a folded group peeks open in its place, in the
-dashed outline, until browsing moves on. While the list is scrolled into a
+closes the group's agents that run in panes. Browsing a worktree in the
+overview, or opening the launcher in one, dims the rest of the agent list; a
+folded group peeks open in its place, in the dashed outline, until browsing
+moves on. While the list is scrolled into a
 group, its workspace and checkout headings stay pinned above it. Browsing an
 existing group scrolls it into view. A worktree absent from the list appears as
 a temporary group at the top, fading in inside a dashed outline with normal

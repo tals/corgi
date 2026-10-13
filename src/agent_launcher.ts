@@ -15,7 +15,7 @@ import * as launcherWorktree from "./launcher_worktree";
 import * as worktreeFolder from "./worktree_folder";
 import * as dropdown from "./dropdown";
 import type * as worktrees from "./worktrees";
-import type { View as SidebarView } from "./sidebar";
+import type { View as SidebarView, Spotlight } from "./sidebar";
 import { Writer, displayWidth, writeEllipsis, sat } from "./text";
 
 export type PerProvider<T> = { codex: T; claude: T };
@@ -423,6 +423,16 @@ export class Menu {
   }
   place() {
     return launcherWorktree.place(this.worktrees, this.cwd, this.worktree.planned);
+  }
+  /** Where agents start, which the agent list lights as the overview lights
+   * a browsed worktree: a linked worktree's group, a new one's (none yet),
+   * or with no path, the workspace's own rows. */
+  spotlight(): Spotlight | null {
+    if (this.managing) return null;
+    const planned = this.worktree.planned;
+    if (planned) return { workspace: this.workspace, path: planned.path };
+    const at = launcherWorktree.containing(this.worktrees, this.cwd);
+    return { workspace: this.workspace, path: at && !at.primary ? at.path : null };
   }
   /** The title's worktree button, in 0-based cells; null when it has none. */
   worktreeButton(cols: number, rowsCount: number, side: SidebarView): Rect | null {

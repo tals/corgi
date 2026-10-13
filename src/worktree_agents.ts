@@ -42,11 +42,31 @@ function checkoutAt(snapshot: worktrees.Snapshot, path: string): string | null {
   }
   return found;
 }
+/** The checkouts an agent counts under: those the daemon associates it
+ * with, else the one holding its folder. */
+function checkoutsOf(snapshot: worktrees.Snapshot, target: sidebar.Target, cwd: string): string[] {
+  const associations = snapshot.agents.filter(a => sidebar.sameTarget(a.target, target));
+  if (associations.length) return associations.map(a => a.path);
+  const at = checkoutAt(snapshot, cwd);
+  return at === null ? [] : [at];
+}
 /** Whether a live agent is listed under the checkout at `path`. */
 export function belongs(snapshot: worktrees.Snapshot, path: string, entry: sidebar.Entry): boolean {
   if (!sidebar.isAgent(entry.target) || entry.state === "done") return false;
-  const associations = snapshot.agents.filter(a => sidebar.sameTarget(a.target, entry.target));
-  return associations.length ? associations.some(a => a.path === path) : checkoutAt(snapshot, entry.cwd) === path;
+  return checkoutsOf(snapshot, entry.target, entry.cwd).includes(path);
+}
+/** Where a new agent beside `target` starts: its folder `cwd`, unless the
+ * agent list puts it under another checkout, then that checkout. Linked
+ * worktrees come first, as `grouped` lists an agent under them. */
+export function folder(snapshot: worktrees.Snapshot | null, target: sidebar.Target, cwd: string): string {
+  if (!snapshot) return cwd;
+  const listed = checkoutsOf(snapshot, target, cwd),
+    here = checkoutAt(snapshot, cwd);
+  const groups = worktrees.linked(snapshot).filter(e => listed.includes(e.path));
+  if (groups.length) return groups.some(e => e.path === here) ? cwd : groups[0].path;
+  // A direct row: in the main checkout when the daemon puts it there.
+  const primary = snapshot.entries.find(e => e.primary);
+  return primary && listed.includes(primary.path) && here !== primary.path ? primary.path : cwd;
 }
 /** Each linked worktree's live agents by state, counted as its group
  * header counts them. */

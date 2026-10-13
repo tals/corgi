@@ -91,7 +91,15 @@ the agent. Reads are bounded and run on the preview worker.
 The title says where agents start: “New agent in ⌥ topic”, naming the Git
 checkout by its branch (without a leading `worktree-` or `worktree/`), or
 “New agent in finance” for a folder outside a repository. Nothing else in the
-launcher repeats it; the conversations' heading says “3 here”.
+launcher repeats it; the conversations' heading says “3 here”. Off the
+comparison branch (usually `main`), the ⌥ and the branch turn warm. It starts
+where the agent list puts the focused agent: one started on main that works
+in a worktree, and is listed under it, opens the launcher in that worktree.
+
+The panes behind the launcher dim, and the agent list keeps lit only where
+the agent will go, as browsing a worktree in the overview does: in a linked
+worktree, its group; in the main checkout, the workspace's own rows, its
+worktree groups fading; for a new worktree, nothing yet.
 
 In a checkout the name sits on a button with a `w` keycap. Press w, or click
 it, for one box: the workspace's checkouts, the primary one first, with ✓ on

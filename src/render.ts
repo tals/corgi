@@ -79,9 +79,9 @@ export interface Ui {
   resource_card: resourceTooltip.State | null;
   git_hover: number | null;
   worktree_card: worktreeTooltip.State | null;
-  /** The worktree browsed in the overview, whose group stays lit while the
-   * rest of the agent list dims. */
-  worktree_spotlight: { workspace: number; path: string } | null;
+  /** The worktree browsed in the overview, or the checkout the launcher
+   * starts agents in, whose rows stay lit while the rest of the agent list dims. */
+  worktree_spotlight: sidebar.Spotlight | null;
   agent_launcher: LauncherMenu | null;
   corgi_setup: SetupMenu | null;
   /** Why a paste brought no image, for the focused pane, and whether a
@@ -599,8 +599,8 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
         }
       }
     }
-    // Dialogs, Corgi setup and the workspace drawer dim the panes behind them.
-    const dim = u.dialog !== null || u.corgi_setup !== null || u.sidebar_drawer !== null;
+    // Dialogs, the launcher, Corgi setup and the workspace drawer dim the panes behind them.
+    const dim = u.dialog !== null || u.agent_launcher !== null || u.corgi_setup !== null || u.sidebar_drawer !== null;
     w.write(p.terminal.rows(p.id, r.x, r.y, r.w, r.h, dim, hovered));
     w.write("\x1b[0m");
     if (p.restoring.length > 0) {

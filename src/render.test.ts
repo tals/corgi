@@ -547,6 +547,28 @@ test("the prefix bar spans the pane area's bottom row and drops hints that do no
   }
 });
 
+test("the launcher dims the panes behind it", () => {
+  const m = new Model();
+  const selection = new Selection();
+  const id = m.newTab("");
+  selection.reconcile(m);
+  const pane: any = {
+    id,
+    restoring: "",
+    terminal: {
+      updateRender() {},
+      hyperlinks: () => [],
+      cursor: () => null,
+      rows: (_id: number, x: number, y: number, _w: number, _h: number, dimmed: boolean) =>
+        `\x1b[${y + 1};${x + 1}H${dimmed ? "dimmed" : "plain"}`,
+    },
+  };
+  const u = ui({ pointer: null, message: "", copy_mode: false });
+  expect(frame(new View(m, selection), [pane], 100, 30, u)).toContain("plain");
+  u.agent_launcher = new LauncherMenu({ workspace: 1, selected: "codex", last: "codex", pinned: true });
+  expect(frame(new View(m, selection), [pane], 100, 30, u)).toContain("dimmed");
+});
+
 test("a ghost dims the bottom half of the pane area, each row where entering leaves it", () => {
   const area = new Rect(28, 1, 72, 20),
     rect = new Rect(29, 2, 70, 18);

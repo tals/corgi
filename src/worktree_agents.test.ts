@@ -31,6 +31,29 @@ test("primary agents stay direct; confirmed writes take precedence over cwd and 
   expect(rows[2].target).toEqual({ pane: 2 });
   expect(agents.grouped(null, 1, [main], state)).toEqual([main]);
 });
+test("a new agent starts where the list puts the one beside it, its own folder when that's inside", () => {
+  const data = snapshot(),
+    one = data.entries[1].path,
+    two = data.entries[2].path;
+  // Started on main, writing in one: one's root.
+  data.agents = [{ target: { pane: 1 }, path: one, source: "write", stale: false }];
+  expect(agents.folder(data, { pane: 1 }, "/repo/src")).toBe(one);
+  // Its own folder when that's in the worktree the list puts it under.
+  expect(agents.folder(data, { pane: 1 }, `${one}/src`)).toBe(`${one}/src`);
+  // A worktree comes before main, as the list shows it under the worktree.
+  data.agents = [
+    { target: { pane: 1 }, path: "/repo", source: "write", stale: false },
+    { target: { pane: 1 }, path: two, source: "write", stale: false },
+  ];
+  expect(agents.folder(data, { pane: 1 }, "/repo")).toBe(two);
+  // A direct row on main, though its folder is a worktree's.
+  data.agents = [{ target: { pane: 1 }, path: "/repo", source: "write", stale: false }];
+  expect(agents.folder(data, { pane: 1 }, `${one}/src`)).toBe("/repo");
+  // With no association, its folder, in a repository or not.
+  expect(agents.folder(data, { pane: 2 }, `${two}/docs`)).toBe(`${two}/docs`);
+  expect(agents.folder(data, { pane: 2 }, "/tmp")).toBe("/tmp");
+  expect(agents.folder(null, { pane: 2 }, "/repo/src")).toBe("/repo/src");
+});
 test("each worktree counts its live agents by state, as its header does", () => {
   const data = snapshot(),
     working = sidebar.entry({ target: { pane: 1 }, cwd: "/repo/.worktrees/one", provider: "claude", state: "working" }),

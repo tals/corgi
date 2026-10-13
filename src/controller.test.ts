@@ -673,6 +673,58 @@ test("the launcher names a new worktree, then adds it before starting the agent 
   });
 });
 
+test("the launcher lights the checkout it starts agents in, as the overview lights a worktree", () => {
+  const checkout = (path: string, branch: string, primary: boolean) => ({
+    path,
+    head: "4f1c2a9e0b",
+    branch: `refs/heads/${branch}`,
+    primary,
+    bare: false,
+    detached: false,
+    locked: null,
+    prunable: null,
+    available: true,
+    comparison: null,
+    changes: null,
+    stale: false,
+  });
+  const snapshot = folders("/src/app");
+  Object.assign(snapshot.workspaces[0], {
+    worktrees: {
+      common_dir: "/src/app/.git",
+      base: { ref: "refs/heads/main", name: "main", head: "4f1c2a9e0b" },
+      entries: [checkout("/src/app", "main", true), checkout("/src/app-topic", "topic", false)],
+      agents: [],
+      stale: false,
+    },
+  });
+  const s: any = new Controller({ socket: "", request: transport(async () => snapshot).request });
+  s.receiveSnapshot(snapshot);
+  s.openLauncher(true, "/src/app-topic");
+  expect(s.spotlight()).toEqual({ workspace: 1, path: "/src/app-topic" });
+  expect(s.agent_launcher.place().aside).toBe(true);
+  s.closeLauncher();
+  expect(s.spotlight()).toBeNull();
+  // The main checkout lights the workspace's own rows; a worktree yet to be
+  // added has no rows, so everything fades.
+  s.openLauncher(true, "/src/app");
+  expect(s.spotlight()).toEqual({ workspace: 1, path: null });
+  expect(s.agent_launcher.place().aside).toBe(false);
+  s.agent_launcher.worktree.planned = { branch: "next", base: "refs/heads/main", base_name: "main", path: "/src/n" };
+  expect(s.spotlight()).toEqual({ workspace: 1, path: "/src/n" });
+  s.closeLauncher();
+  // An agent started on main that writes in topic is listed under topic,
+  // so the launcher opened beside it starts there.
+  Object.assign(snapshot.panes[0], { cwd: "/src/app", agent: { ...snapshot.panes[0].agent, provider: "codex" } });
+  (snapshot.workspaces[0] as any).worktrees.agents = [
+    { target: { pane: 1 }, path: "/src/app-topic", source: "write", stale: false },
+  ];
+  s.receiveSnapshot(snapshot);
+  s.openLauncher(true);
+  expect([s.agent_launcher.cwd, s.agent_launcher.place().label]).toEqual(["/src/app-topic", "topic"]);
+  expect(s.spotlight()).toEqual({ workspace: 1, path: "/src/app-topic" });
+});
+
 test("the agent menu's diff line is read ahead for the focused agent, its neighbours and a hovered row", async () => {
   const panes = [1, 2, 3, 4, 5],
     state = (completed: number) => ({

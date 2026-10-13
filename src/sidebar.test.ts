@@ -40,6 +40,7 @@ import {
   dotted_underline,
   lists_x,
   spotlight_dim,
+  unlit,
   nap_fg,
   hover_rgb,
   hover_bg,
@@ -868,6 +869,26 @@ test("a lit worktree keeps its colors while the rest of the agent list fades", (
   expect(has(lit, "\x1b[22m" + fg("text") + "inside")).toBe(true);
   expect(has(lit, faded(fg("text")) + "one")).toBe(false);
   expect(hostText(lit)).toBe(hostText(plain));
+  // With no path, the workspace's own rows stay lit and its worktrees fade.
+  view.spotlight = { workspace: 1, path: null };
+  const main = draw(view, entries, []);
+  expect(has(main, "\x1b[22m" + fg("text") + "direct")).toBe(true);
+  expect(has(main, "\x1b[22m" + faded(fg("text")) + "inside")).toBe(true);
+});
+
+test("in All, a lit main checkout keeps its workspace's header and direct rows", () => {
+  const worktree = { workspace: 1, path: "/repo/.worktrees/one", ghost: false };
+  const entries = [
+    entry({ target: { group: 1 }, name: "repo" }),
+    entry({ target: { pane: 1 }, name: "direct" }),
+    entry({ target: { worktree: worktree.path, workspace: 1 }, name: "one", worktree }),
+    entry({ target: { pane: 2 }, name: "inside", worktree }),
+    entry({ target: { group: 2 }, name: "other" }),
+    entry({ target: { pane: 3 }, name: "elsewhere" }),
+  ];
+  expect(unlit(entries, null)).toEqual([false, false, false, false, false, false]);
+  expect(unlit(entries, { workspace: 1, path: null })).toEqual([false, false, true, true, true, true]);
+  expect(unlit(entries, { workspace: 1, path: worktree.path })).toEqual([true, true, false, false, true, true]);
 });
 
 test("agent list shows a scrollbar on the border only when it overflows", () => {

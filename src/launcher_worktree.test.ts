@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
 import * as launcherWorktree from "./launcher_worktree";
+import * as palette from "./palette";
+import { Rect } from "./layout";
+import { Writer } from "./text";
 import { default_template } from "./worktree_folder";
 import type * as worktrees from "./worktrees";
 
@@ -38,14 +41,33 @@ test("the title names the innermost checkout by branch, or the folder outside a 
   expect(launcherWorktree.place(snapshot, "/src/app/.claude/worktrees/fix/src", null)).toEqual({
     label: "fix",
     worktree: true,
+    aside: true,
   });
-  expect(launcherWorktree.place(snapshot, "/src/app/docs", null)).toEqual({ label: "main", worktree: true });
+  expect(launcherWorktree.place(snapshot, "/src/app/docs", null)).toEqual({
+    label: "main",
+    worktree: true,
+    aside: false,
+  });
   expect(launcherWorktree.place(snapshot, "/src/application", null)).toEqual({
     label: "application",
     worktree: false,
+    aside: false,
   });
   const planned = { branch: "next", base: "refs/heads/main", base_name: "main", path: "/src/app-next" };
-  expect(launcherWorktree.place(snapshot, "/src/app", planned)).toEqual({ label: "next", worktree: true });
+  expect(launcherWorktree.place(snapshot, "/src/app", planned)).toEqual({ label: "next", worktree: true, aside: true });
+  // With no comparison branch, nothing is off it.
+  expect(launcherWorktree.place({ ...snapshot, base: null }, "/src/app-topic", null).aside).toBe(false);
+});
+
+test("the title's button turns warm off the comparison branch", () => {
+  const b = new Rect(0, 0, 80, 20);
+  const title = (cwd: string) => {
+    const w = new Writer();
+    launcherWorktree.drawTitle(w, b, launcherWorktree.place(snapshot, cwd, null), 70, false, "");
+    return w.buffered();
+  };
+  expect(title("/src/app")).not.toContain(palette.fg("warm"));
+  expect(title("/src/app-topic")).toContain(palette.fg("warm") + "⌥ \x1b[1m" + palette.fg("warm") + "topic");
 });
 
 test("the box opens in Branch over the checkouts, the primary first, the current one ticked", () => {
