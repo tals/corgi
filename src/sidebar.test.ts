@@ -993,6 +993,44 @@ test("closing card keeps its glyphs and geometry while all colors fade into the 
   );
 });
 
+test("a moved row rides a Kitty tint from where it was and shows as it lands; elsewhere its background tints", () => {
+  const worktree = { workspace: 1, path: "/repo/.worktrees/one", ghost: false };
+  const moved = (ms: number): Entry[] => [
+    entry({ target: { pane: 2 }, name: "stays", provider: "codex" }),
+    entry({
+      target: { worktree: worktree.path, workspace: 1 },
+      name: "one",
+      worktree,
+      group: { agents: 1, working: 0, attention: 0, folded: false, current: false },
+    }),
+    { ...entry({ target: { pane: 1 }, name: "moves", provider: "codex", worktree }), moved: { from: 0, ms } },
+  ];
+  const kitty = View.init(100, 30, true, 0, 3).withEntries(moved(0));
+  kitty.supports_kitty_graphics = true;
+  kitty.cell = { width: 10, height: 20 };
+  const top = kitty.middle() + 2;
+  // Halfway there, the tint is between the row it left and the one it lands
+  // on, and the row's text is still hidden.
+  let out = draw(kitty, moved(150), [], 0);
+  const at = (row: number) => `\x1b[${row};${lists_x + 1}H\x1b_Ga=T`;
+  expect(has(out, `${at(top + 2)},f=32,o=z,s=${(kitty.width - lists_x - 1) * 10},v=40,i=730120,p=1,Y=10,`)).toBe(true);
+  expect(has(out, fgRgb(colors.bg) + "moves")).toBe(true);
+  // Landed, the row shows and the tint fades on it.
+  out = draw(kitty, moved(400), [], 0);
+  expect(has(out, at(top + 4))).toBe(true);
+  expect(has(out, ",Y=0,")).toBe(true);
+  expect(has(out, fg("text") + "moves")).toBe(true);
+  expect(has(draw(kitty, moved(2000), [], 0), "_G")).toBe(false);
+  // Without Kitty graphics, the row shows at once on a tinted background.
+  const plain = View.init(100, 30, true, 0, 3).withEntries(moved(0));
+  out = draw(plain, moved(0), [], 0);
+  expect(has(out, "_G")).toBe(false);
+  expect(has(out, fg("text") + "moves")).toBe(true);
+  expect(has(out, bgRgb(colors.bg.map((v, n) => Math.round(v + (colors.accent[n] - v) * 0.2)) as palette.Rgb))).toBe(
+    true,
+  );
+});
+
 test("only one sleeping corgi puffs at a time, and turning them off leaves a faint Z", () => {
   const entries = Array.from({ length: 4 }, (_, i) =>
     entry({ target: { pane: i + 1 }, name: "Agent", provider: "claude", state: "idle" }),

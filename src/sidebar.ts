@@ -6,6 +6,8 @@ import * as corgiBadge from "./corgi_badge";
 import * as resourceTooltip from "./resource_tooltip";
 import * as dropdown from "./dropdown";
 import * as worktrees from "./worktrees";
+import * as rowGlide from "./row_glide";
+import type { Cell } from "./fork_motion";
 import { url as portUrl } from "./trackers/ports";
 import { cpuText, memoryText } from "./trackers/resources";
 import { View as ContextView } from "./usage/context_window";
@@ -155,8 +157,12 @@ export interface Entry {
   exit: { frame_ms: number; progress: number } | null;
   /** A reopened agent's row, which fades in as a closing one fades out. */
   reopened: boolean;
-  /** How far a reopened row has faded in, until it has. */
+  /** How far a reopened row, or one a move pushed aside, has faded in,
+   * until it has. */
   enter: number | null;
+  /** A row that just moved to another group: the rows above it in the list
+   * it left, and how long ago it moved. */
+  moved: { from: number; ms: number } | null;
   name: string;
   target: Target;
   /** Null for workspace group headers. */
@@ -187,6 +193,7 @@ export function entry(fields: Partial<Entry> & { target: Target }): Entry {
     exit: null,
     reopened: false,
     enter: null,
+    moved: null,
     name: "",
     provider: null,
     state: "idle",
@@ -380,6 +387,8 @@ export class View {
   scope_label = "";
   corgi_badge: corgiBadge.Mode = "none";
   supports_kitty_graphics = false;
+  /** The host's cell in pixels, for images placed by the pixel. */
+  cell: Cell | null = null;
   cols = 0;
   rows = 0;
   width = 0;
@@ -940,6 +949,8 @@ export class View {
       if (out !== w) writeExit(w, out.buffered(), spotlight_dim);
       next_y += 1;
     });
+    const list_top = next_y;
+    let glide = "";
     const visible = entries.slice(v.offset, Math.min(entries.length, v.offset + v.capacity));
     const sleepers: bigint[] = [];
     for (const e of visible) {
@@ -950,17 +961,45 @@ export class View {
     visible.forEach((e, index) => {
       const absolute = v.offset + index;
       const exit_writer = new Writer();
-      const fading = e.exit ? e.exit.progress : e.enter !== null ? 1 - e.enter : null;
+      // A row that moved to another group rides a tint from where it was
+      // and shows as the tint lands. Without Kitty graphics, the tint stays
+      // where it lands.
+      const moved = e.moved,
+        gliding = moved !== null && v.supports_kitty_graphics && v.cell !== null;
+      const fading = e.exit
+        ? e.exit.progress
+        : e.enter !== null
+          ? 1 - e.enter
+          : gliding
+            ? rowGlide.fade(moved.ms)
+            : null;
       const fade = dimmed[absolute] ? Math.max(fading ?? 0, spotlight_dim) : fading;
-      const row_writer = fade !== null ? exit_writer : w;
+      const tint = moved !== null && !gliding && fade === null ? rowGlide.tint(moved.ms) : 0;
+      const row_writer = fade !== null || tint > 0 ? exit_writer : w;
+      const finish = () => {
+        if (fade !== null) writeExit(w, exit_writer.buffered(), fade);
+        else if (tint > 0) writeTint(w, exit_writer.buffered(), tint);
+      };
       const frame_ms = e.exit ? e.exit.frame_ms : now_ms;
       const top = next_y;
       const y = top + Number(e.worktree?.ghost === true && "worktree" in e.target);
       next_y += View.height(e);
+      if (gliding) {
+        const from = list_top + moved.from - v.rowsBefore(v.offset);
+        glide = rowGlide.place(
+          0,
+          rowGlide.position(from, top, moved.ms),
+          v.width - 1,
+          View.height(e),
+          { top: list_top, bottom: v.listEnd() },
+          rowGlide.opacity(moved.ms),
+          v.cell!,
+        );
+      }
       if (isHeading(e.target)) {
         heading(row_writer, absolute, y, false);
         v.drawGhost(row_writer, e, top);
-        if (fade !== null) writeExit(w, exit_writer.buffered(), fade);
+        finish();
         return;
       }
       const in_group = grouped || e.worktree !== null;
@@ -968,7 +1007,8 @@ export class View {
       const divider = !in_group && index + 1 < Math.min(entries.length - v.offset, v.capacity);
       v.drawAgent(
         row_writer,
-        e,
+        // Emoji keep their colors, so a mostly faded row shows the spinner.
+        fading !== null && fading > 0.5 && e.tool_active ? { ...e, tool_active: false } : e,
         0,
         y,
         in_group,
@@ -980,8 +1020,9 @@ export class View {
         dream,
       );
       v.drawGhost(row_writer, e, top);
-      if (fade !== null) writeExit(w, exit_writer.buffered(), fade);
+      finish();
     });
+    if (glide.length > 0) w.write(glide);
     if (v.search !== null) v.line(w, v.rows - 1, "↑↓  ↵ jump  Esc back", panel);
     const t = v.thumb();
     if (t)
@@ -1381,6 +1422,18 @@ export function agentIndexAt(v: View, entries: Entry[], x: number, y: number): n
 export function writeExit(w: Writer, frame: string, progress: number): void {
   const t = clamp(progress, 0, 1);
   const opacity = 1 - t * t * (3 - 2 * t);
+  w.write(recolor(frame, (_, value, n) => Math.round(colors.bg[n] + (value - colors.bg[n]) * opacity)));
+}
+/** Tints the backgrounds in `frame` toward accent, as far as `amount`. */
+export function writeTint(w: Writer, frame: string, amount: number): void {
+  w.write(
+    recolor(frame, (prefix, value, n) =>
+      prefix === "48;2;" ? Math.round(value + (colors.accent[n] - value) * amount) : value,
+    ),
+  );
+}
+/** `frame` with each truecolor channel replaced by `channel`'s answer. */
+function recolor(frame: string, channel: (prefix: string, value: number, n: number) => number): string {
   let i = 0;
   let out = "";
   while (i < frame.length) {
@@ -1407,8 +1460,7 @@ export function writeExit(w: Writer, frame: string, progress: number): void {
                 valid = false;
                 break;
               }
-              const background = colors.bg[n];
-              color[n] = Math.round(background + (value - background) * opacity);
+              color[n] = channel(prefix, value, n);
               if (n < 2) {
                 if (cursor >= end || frame[cursor] !== separator) {
                   valid = false;
@@ -1434,7 +1486,7 @@ export function writeExit(w: Writer, frame: string, progress: number): void {
     out += frame[i];
     i++;
   }
-  w.write(out);
+  return out;
 }
 function statusPart(w: Writer, text: string, style: string, room: { value: number }): void {
   w.write("\x1b[22m");

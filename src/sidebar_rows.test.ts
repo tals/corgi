@@ -1,10 +1,15 @@
 import { test, expect } from "bun:test";
 import { State } from "./sidebar_rows";
 import { entry as sidebarEntry, type Entry } from "./sidebar";
+import * as rowGlide from "./row_glide";
 import type { Provider } from "./providers";
 const entry = (pane: number, provider: Provider = "codex", state = "idle"): Entry =>
   sidebarEntry({ name: "", target: { pane }, provider, state, attention: "none" });
 const paneOf = (e: Entry) => ("pane" in e.target ? e.target.pane : null);
+const checkout = (path: string) => ({ workspace: 1, path, ghost: false });
+const header = (path: string) =>
+  sidebarEntry({ name: path, target: { worktree: path, workspace: 1 }, worktree: checkout(path) });
+const under = (e: Entry, path: string): Entry => ({ ...e, worktree: checkout(path) });
 test("end hook and disappearance share one frozen exit without changing adjacent rows", () => {
   const rows = new State(),
     out: Entry[] = [],
@@ -81,4 +86,53 @@ test("pane removal fades once while ended natives stay visible and same-workspac
   shown = rows.update(1, [native], out, 260);
   expect(shown).toHaveLength(1);
   expect(shown[0].state).toBe("done");
+});
+test("an agent moving into a worktree keeps its row, and rows it passes come back from 60%", () => {
+  const rows = new State(),
+    out: Entry[] = [],
+    [a, b, c] = [entry(1), entry(2), entry(3)];
+  rows.update(1, [a, b, c], out, 0);
+  const inside = [b, c, header("/wt"), under(a, "/wt")];
+  let shown = rows.update(1, inside, out, 10);
+  expect(shown.map(paneOf)).toEqual([2, 3, null, 1]);
+  expect(shown[3].exit).toBeNull();
+  expect(shown[3].moved).toEqual({ from: 0, ms: 0 });
+  expect(shown[0].enter).toBe(State.shift_enter);
+  expect(shown[1].enter).toBe(State.shift_enter);
+  expect(shown[2].enter).toBe(0);
+  shown = rows.update(1, inside, out, 110);
+  expect(shown[3].moved).toEqual({ from: 0, ms: 100 });
+  expect(shown[0].enter).toBeCloseTo(State.shift_enter + (1 - State.shift_enter) / 2);
+  expect(rows.moving(110)).toBe(true);
+  shown = rows.update(1, inside, out, 10 + rowGlide.total_ms);
+  expect(shown[3].moved).toBeNull();
+  expect(shown.map(e => e.enter)).toEqual([null, null, null, null]);
+  expect(rows.moving(10 + rowGlide.total_ms)).toBe(false);
+});
+test("an agent leaving its worktree takes the emptied header with it at once", () => {
+  const rows = new State(),
+    out: Entry[] = [],
+    [a, b] = [entry(1), entry(2)];
+  rows.update(1, [b, header("/wt"), under(a, "/wt")], out, 0);
+  const shown = rows.update(1, [a, b], out, 10);
+  expect(shown.map(paneOf)).toEqual([1, 2]);
+  expect(shown.map(e => e.exit)).toEqual([null, null]);
+  expect(shown[0].moved).toEqual({ from: 3, ms: 0 });
+  expect(shown[1].enter).toBe(State.shift_enter);
+});
+test("an agent listed under two checkouts keeps a row under each", () => {
+  const rows = new State(),
+    out: Entry[] = [],
+    a = entry(1);
+  const both = [header("/one"), under(a, "/one"), header("/two"), under(a, "/two")];
+  rows.update(1, both, out, 0);
+  let shown = rows.update(1, both, out, 10);
+  expect(shown.map(e => e.worktree?.path)).toEqual(["/one", "/one", "/two", "/two"]);
+  expect(shown.map(e => e.moved)).toEqual([null, null, null, null]);
+  // Out of one of them, that row closes where it was and the other stays.
+  shown = rows.update(1, [header("/two"), under(a, "/two")], out, 20);
+  expect(shown.map(e => e.worktree?.path)).toEqual(["/one", "/one", "/two", "/two"]);
+  expect(shown[1].exit).not.toBeNull();
+  expect(shown[3].exit).toBeNull();
+  expect(shown[3].moved).toBeNull();
 });

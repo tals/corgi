@@ -1420,11 +1420,11 @@ export class Controller {
     d.hero.motion = { start: milliTimestamp() + forkMotion.lead_ms, cell };
   }
   /** How long the viewer waits between frames: a display frame while the
-   * fork card's hero moves. */
+   * fork card's hero moves or a sidebar row glides to another group. */
   frameDelay(): number {
-    const d = this.name_dialog;
-    if (!d) return 30;
-    return forkMotion.moving(d.hero, milliTimestamp()) ? 16 : 30;
+    const now = milliTimestamp(),
+      d = this.name_dialog;
+    return (d && forkMotion.moving(d.hero, now)) || this.sidebar_rows.moving(now) ? 16 : 30;
   }
   private async renamePane(id: number, name: string): Promise<void> {
     await this.edit({ "pane.rename": { target: id, name } });
@@ -5289,6 +5289,7 @@ export class Controller {
         sidebar_drawer: this.sidebar_focus?.drawer ?? null,
         corgi_badge: this.corgi_badge,
         supports_kitty_graphics: this.supports_kitty_graphics,
+        cell_pixels: this.cell_pixels,
         dragged_workspace:
           this.workspace_drag && this.workspace_drag.preview !== null
             ? new sidebar.Preview(this.workspace_drag.source, this.workspace_drag.preview)

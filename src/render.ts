@@ -20,6 +20,8 @@ import { Dialog, View as NameView } from "./name_dialog";
 import type { Menu as LauncherMenu } from "./agent_launcher";
 import { Menu as SetupMenu, type Status as SetupStatus } from "./corgi_setup";
 import * as corgiBadge from "./corgi_badge";
+import * as rowGlide from "./row_glide";
+import type { Cell } from "./fork_motion";
 import * as pasteCard from "./paste_card";
 import * as resourceTooltip from "./resource_tooltip";
 import * as worktreeTooltip from "./worktree_tooltip";
@@ -110,6 +112,8 @@ export interface Ui {
   sidebar_drawer: Section | null;
   corgi_badge: corgiBadge.Mode;
   supports_kitty_graphics: boolean;
+  /** The host's cell in pixels, when it reports it. */
+  cell_pixels: Cell | null;
   dragged_workspace: Preview | null;
   dragged_agent: Preview | null;
   /** The axis of a divider or sidebar edge being dragged. */
@@ -173,6 +177,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     sidebar_drawer: null,
     corgi_badge: "none",
     supports_kitty_graphics: false,
+    cell_pixels: null,
     dragged_workspace: null,
     dragged_agent: null,
     resizing: null,
@@ -428,6 +433,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   side = side.withWorkspaces(u.workspaces.length, u.workspace_offset).withEntries(entries);
   side.corgi_badge = u.corgi_badge;
   side.supports_kitty_graphics = u.supports_kitty_graphics;
+  side.cell = u.cell_pixels;
   side.scope_label = u.scope_label;
   side.resource_hover = u.resource_hover;
   side.corgi_intensity = u.corgi_setup?.previewIntensity(u.prefs) ?? u.prefs.corgi_intensity;
@@ -624,6 +630,8 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   if (u.pointer && u.pointer.x > 0 && !dragging && !on_card && noOverlay(u))
     side.hovered = sidebar.agentIndexAt(side, entries, u.pointer.x, u.pointer.y);
   side.spotlight = u.worktree_spotlight;
+  // A moving row's tint is placed again by each frame that shows it.
+  if (u.supports_kitty_graphics) w.write(rowGlide.hide);
   side.draw(w, entries, workspaces);
   if (u.git_hover !== null) sidebar.drawGitAction(w, side, u.workspaces, u.git_hover);
   if (u.review_draw) u.review_draw(w);
