@@ -8,13 +8,14 @@ import * as corgiAnimation from "./corgi_animation";
 import * as km from "./keymap";
 import { Worker, pane, workspace } from "./import/catalog";
 import { Writer } from "./text";
+import * as releaseLabel from "./release_label";
 
 /** The screen's text after replaying the cursor moves in `ansi`. */
 function screen(ansi: string, cols: number, rows: number): string[] {
   const grid = Array.from({ length: rows }, () => Array(cols).fill(" "));
   let x = 0,
     y = 0;
-  for (const m of ansi.matchAll(/\x1b\[([\d;?]*)([A-Za-z])|([\s\S])/gu)) {
+  for (const m of ansi.matchAll(/\x1b\[([\d;?]*)([A-Za-z])|\x1b\][^\x1b]*\x1b\\|([\s\S])/gu)) {
     if (m[2] === "H") {
       const [r, c] = (m[1] || "1;1").split(";").map(Number);
       y = r - 1;
@@ -65,6 +66,37 @@ test("setup lists every setting beside the selected one's options", () => {
   expect(menu.contains(100, 30, 50, top + 1)).toBe(true);
   // Too small for the frame: nothing draws.
   expect(draw(menu, 20, 8).join("").trim()).toBe("");
+});
+
+test("the top border says when the build was made and links its commit", () => {
+  const menu = Menu.open(),
+    s = status(),
+    prefs = new Preferences(),
+    commit = "be82c7b9090a" + "0".repeat(28);
+  menu.release = releaseLabel.of("0.1.0-dev", commit, new Date(2026, 8, 25, 18, 30).toISOString());
+  let rows = draw(menu, 100, 30, 0, s, prefs);
+  const top = rows.findIndex(row => row.includes("Corgi setup"));
+  expect(rows[top]).toMatch(/Corgi setup ─+┬─+ Build: 2026-09-25 18:30 · be82c7b ─╮/);
+  const w = new Writer();
+  menu.drawAt(w, s, prefs, 100, 30, 0);
+  expect(w.s).toContain(`\x1b]8;;https://github.com/tals/corgi/commit/${commit}\x1b\\\x1b[4mbe82c7b`);
+  // Only the commit takes a click, which opens it.
+  const x = rows[top].indexOf("be82c7b"),
+    url = `https://github.com/tals/corgi/commit/${commit}`;
+  expect(menu.hit(100, 30, x - 2, top, s, prefs)).toBeNull();
+  expect(menu.hit(100, 30, x + 6, top, s, prefs)).toEqual({ url });
+  expect(menu.hit(100, 30, x + 7, top, s, prefs)).toBeNull();
+  expect(menu.click({ url }, s, prefs)).toEqual({ kind: "open", url });
+  // A development build's dirty mark sits outside the link.
+  menu.release = releaseLabel.of("0.1.0-dev", "0123abcdef45-dirty", new Date(2026, 9, 12, 14, 3).toISOString());
+  rows = draw(menu, 100, 30, 0, s, prefs);
+  expect(rows[top]).toContain("─ Build: 2026-10-12 14:03 · 0123abc-dirty ─╮");
+  // A narrow frame keeps the crumb and drops the release.
+  menu.release = releaseLabel.of("20260925T183012Z-be82c7b9090a", commit);
+  menu.openOptions(s, prefs);
+  rows = draw(menu, 50, 30, 0, s, prefs);
+  expect(rows.join("\n")).toContain("Corgi setup › Clever Corgi");
+  expect(rows.join("\n")).not.toContain("be82c7b");
 });
 
 test("Model opens a dropdown on the choice in use, and Esc closes it", () => {

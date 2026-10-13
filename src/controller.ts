@@ -2630,6 +2630,8 @@ export class Controller {
       case "detach":
         this.closeMenu();
         return this.perform({ name: "detach" });
+      case "open":
+        return this.queueEffect({ open_url: apply.url });
       case "imported":
         this.closeMenu();
         if (apply.workspace === null) return;

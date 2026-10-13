@@ -734,11 +734,13 @@ test("overview footer shows the running release and a staged update", () => {
       30,
     ),
   );
-  expect(current).toContain("Corgi 2026-09-25 · be82c7b");
+  // Release times read in local time.
+  expect(current).toMatch(/Corgi \d{4}-\d\d-\d\d \d\d:\d\d · be82c7b/);
   expect(current).not.toContain("Update");
   const release = { running: "20260925T183012Z-be82c7b9090a", staged: "20260926T090000Z-a1b2c3d4e5f6" };
   const ready = render(w => drawOverview(w, all, new UsageView(), false, "", "", release, new Accounts(), 100, 30));
-  expect(ready).toContain(Tone.ansi("title") + "↑ Update 2026-09-26 · a1b2c3d ready · relaunch Corgi");
+  expect(ready).toMatch(/\[38;[\d;]+m↑ Update \d{4}-\d\d-\d\d \d\d:\d\d · a1b2c3d ready · relaunch Corgi/);
+  expect(ready).toContain(Tone.ansi("title") + "↑ Update ");
   const narrow = render(w => drawOverview(w, all, new UsageView(), false, "", "", release, new Accounts(), 40, 13));
   expect(narrow).toContain("↑ Update ready · relaunch Corgi");
 });
@@ -759,7 +761,7 @@ test("overview footer names a development build's commit", () => {
       30,
     ),
   );
-  expect(output).toContain("Corgi 0.1.0-dev · 0123abc-dirty");
+  expect(output).toContain("Corgi 0123abc-dirty");
 });
 
 function screenLines(all: Conversation[], e: sidebar.Entry, cols: number): string[] {

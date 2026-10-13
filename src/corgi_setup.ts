@@ -5,6 +5,7 @@
 //! the frame to fit onboarding's preset detail beside the presets; an import
 //! source shows onboarding's import picker in place of options. Source
 //! control edits the worktree folder template in place, with a preview.
+//! The top border names the running build and links its commit.
 import { homedir } from "node:os";
 import { join } from "node:path";
 import * as palette from "./palette";
@@ -25,6 +26,8 @@ import * as ghosttyIntegration from "./ghostty_integration";
 import type { State as IntegrationState } from "./ghostty_integration";
 import type { State as ClipboardState } from "./host_clipboard";
 import * as framePacing from "./frame_pacing";
+import * as config from "./build_config";
+import * as releaseLabel from "./release_label";
 import { Writer, clamp, directoryLabel, displayWidth, writeEllipsis, sat } from "./text";
 import { Dialog } from "./name_dialog";
 import * as keys from "./keys";
@@ -157,11 +160,18 @@ export type Apply =
   /** Close setup on the workspace an import made. */
   | { kind: "imported"; workspace: number | null }
   /** Leave Corgi running and close this viewer. */
-  | { kind: "detach" };
-/** A list row, an option, a choice in the open dropdown, or the import
- * picker under the pointer. */
+  | { kind: "detach" }
+  /** A link the user clicked. */
+  | { kind: "open"; url: string };
+/** A list row, an option, a choice in the open dropdown, the import picker
+ * or the release's commit link under the pointer. */
 export type Hit =
-  { item: Item } | { option: number } | { choice: number } | { picker: importPicker.Hit } | { intensity: number };
+  | { item: Item }
+  | { option: number }
+  | { choice: number }
+  | { picker: importPicker.Hit }
+  | { intensity: number }
+  | { url: string };
 
 interface Option {
   label: string;
@@ -281,6 +291,9 @@ function duration(ms: number, sd?: number): string {
 }
 
 const list_w = 26;
+/** The source of a commit the top border names. */
+const commit_url = "https://github.com/tals/corgi/commit/";
+const build_prefix = "Build: ";
 /** The frame's height on a tall terminal. */
 const height_max = 40;
 /** The options column beside onboarding's preset detail. */
@@ -404,6 +417,8 @@ export class Menu {
   editing: Dialog | null = null;
   /** A project the worktree folder's preview places a branch in; an example when null. */
   project: { name: string; root: string } | null = null;
+  /** The running build, which the top border names. */
+  release = releaseLabel.of(config.releaseVersion, config.releaseCommit, config.builtAt);
   /** Where the field's caret was drawn, for the terminal's cursor. */
   private caret: { x: number; y: number } | null = null;
   /** Sessions from the import source under the list's cursor. */
@@ -691,6 +706,7 @@ export class Menu {
       return choice;
     }
     if ("choice" in hit) return null;
+    if ("url" in hit) return { kind: "open", url: hit.url };
     if ("picker" in hit) {
       const picker = this.importing();
       if (picker) {
@@ -749,6 +765,12 @@ export class Menu {
   hit(cols: number, rows: number, x: number, y: number, s: Status, prefs: Preferences): Hit | null {
     const l = this.rest(cols, rows);
     if (!l) return null;
+    if (y === l.b.y) {
+      const spot = this.releaseAt(l);
+      if (spot === null || x < spot.link || x >= spot.link + displayWidth(releaseLabel.short(this.release)))
+        return null;
+      return { url: commit_url + this.release.commit };
+    }
     const row = y - l.b.y - 2;
     if (row < 0 || row >= l.body) return null;
     const list_shown = l.single ? this.focus === "list" : l.list > 0;
@@ -792,13 +814,15 @@ export class Menu {
     this.caret = null;
     frame(w, b, l.dividers);
     w.write(`${at(b.x + 2, b.y)}${text} ᐯ•ᴥ•ᐯ ${bright}Corgi setup `);
-    const list_shown = l.single ? this.focus === "list" : l.list === list_w;
-    if (!list_shown && (l.single || l.list < list_w / 2)) {
+    const crumb = this.crumb(l);
+    if (crumb !== null) {
       // The crumb stops short of a divider's corner.
       const room = Math.min(b.w - 23, ...l.dividers.filter(x => x > b.x + 21).map(x => x - b.x - 22));
       w.write(at(b.x + 21, b.y) + hint_key);
-      writeEllipsis(w, `› ${fullLabel(this.item)} `, room);
+      writeEllipsis(w, crumb, room);
     }
+    this.drawRelease(w, l);
+    const list_shown = l.single ? this.focus === "list" : l.list === list_w;
     if (list_shown) this.drawList(w, b.x + 1, top, l.single ? b.w - 2 : list_w, l.body, s, prefs);
     if (!(l.single && this.focus === "list")) this.drawOptions(w, l, s, prefs, now_ms);
     const open = this.dropdownBox(l, s, prefs);
@@ -827,6 +851,31 @@ export class Menu {
     // drawField sets it, after the reset above.
     const caret = this.caret as { x: number; y: number } | null;
     if (caret) w.write(at(caret.x, caret.y) + "\x1b[?25h");
+  }
+  /** The setting the options belong to, on the top border while the list is hidden. */
+  private crumb(l: Layout): string | null {
+    return (l.single ? this.focus !== "list" : l.list < list_w / 2) ? `› ${fullLabel(this.item)} ` : null;
+  }
+  /** Where the release sits at the right of the top border, and where its
+   * commit starts; null when the title, the crumb or a divider is in the way. */
+  private releaseAt(l: Layout): { x: number; link: number } | null {
+    const label = releaseLabel.text(this.release),
+      crumb = this.crumb(l),
+      width = displayWidth(build_prefix + label) + 2,
+      x = l.b.x + l.b.w - 2 - width;
+    if (label.length === 0) return null;
+    if (x < l.b.x + 22 + (crumb === null ? 0 : displayWidth(crumb))) return null;
+    if (l.dividers.some(d => d >= x && d < x + width)) return null;
+    return { x, link: x + 1 + displayWidth(build_prefix + releaseLabel.parts(this.release)[0]) };
+  }
+  private drawRelease(w: Writer, l: Layout): void {
+    const spot = this.releaseAt(l);
+    if (spot === null) return;
+    const [built, commit, mark] = releaseLabel.parts(this.release);
+    w.write(at(spot.x, l.b.y) + panel + " " + build_prefix + built);
+    if (commit.length > 0)
+      w.write(`${hint_key}\x1b]8;;${commit_url}${this.release.commit}\x1b\\\x1b[4m${commit}\x1b[24m\x1b]8;;\x1b\\`);
+    w.write(panel + mark + " ");
   }
   private drawList(w: Writer, x: number, y: number, width: number, body: number, s: Status, prefs: Preferences) {
     this.listRows(body).forEach((row, i) => {

@@ -12,6 +12,15 @@ function option(name: string, fallback = ""): string {
   if (!args[index + 1] || args[index + 1].startsWith("--")) throw Error(`Missing --${name} value`);
   return args[index + 1];
 }
+/** Development builds identify their checkout, marking uncommitted changes. */
+function gitCommit(): string {
+  const git = (...args: string[]) => Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "ignore" });
+  const head = git("rev-parse", "HEAD");
+  if (head.exitCode !== 0) return "development";
+  const commit = head.stdout.toString().trim(),
+    status = git("status", "--porcelain");
+  return status.exitCode === 0 && status.stdout.toString().trim().length > 0 ? `${commit}-dirty` : commit;
+}
 const buildTarget = option("target", `${process.platform}-${process.arch}`),
   [platform, arch] = buildTarget.split("-");
 if (!["linux-x64", "darwin-arm64", "darwin-x64"].includes(buildTarget))
@@ -69,18 +78,33 @@ const nativeHash = hash.digest("hex");
 const assets = `${imports}\nexport const nativeFiles={${files.map((file, i) => `${JSON.stringify(file)}:asset${i}`).join(",")}};export const nativeHash=${JSON.stringify(nativeHash)};export const testBuild=${process.argv.includes("--test")};`;
 const config = {
   releaseVersion: option("release-version", "0.1.0-dev"),
-  releaseCommit: option("release-commit", "bun-port"),
+  releaseCommit: option("release-commit") || gitCommit(),
   updateURL: option("update-url"),
   updatePublicKey: option("update-public-key"),
   sentryDSN: option("sentry-dsn"),
 };
-const configSource = Object.entries(config)
-  .map(([key, value]) => `export const ${key}=${JSON.stringify(value)};`)
-  .join("\n");
 const outfile = option(
   "outfile",
   `${root}/dist/${buildTarget === `${process.platform}-${process.arch}` ? "corgi" : `corgi-${buildTarget}`}${process.argv.includes("--test") ? "-test" : ""}`,
 );
+const sourceHash = createHash("sha256");
+for (const path of [...new Bun.Glob("{src,assets}/**/*").scanSync({ cwd: root, onlyFiles: true })].sort())
+  sourceHash.update(path).update(new Uint8Array(await Bun.file(`${root}/${path}`).arrayBuffer()));
+const sourceSHA256 = sourceHash.digest("hex");
+// The same inputs keep their first build's time, so the binary and the daemon's build id stay put.
+const inputsSHA256 = createHash("sha256")
+  .update(JSON.stringify([buildTarget, Bun.version, process.argv.includes("--test"), sourceSHA256, nativeHash, config]))
+  .digest("hex");
+const previous = await Bun.file(`${outfile}.build.json`)
+  .json()
+  .catch(() => null);
+const builtAt =
+  previous?.inputsSHA256 === inputsSHA256 && typeof previous.builtAt === "string"
+    ? previous.builtAt
+    : new Date().toISOString();
+const configSource = Object.entries({ ...config, builtAt })
+  .map(([key, value]) => `export const ${key}=${JSON.stringify(value)};`)
+  .join("\n");
 const result = await Bun.build({
   entrypoints: [`${root}/src/main.ts`, `${root}/src/codex_files_worker.ts`, `${root}/src/trackers/resources_worker.ts`],
   target: "bun",
@@ -100,22 +124,20 @@ const binaryHash = createHash("sha256")
   .update(new Uint8Array(await Bun.file(outfile).arrayBuffer()))
   .digest("hex");
 await Bun.write(`${outfile}.sha256`, `${binaryHash}  ${basename(outfile)}\n`);
-const sourceHash = createHash("sha256");
-for (const path of [...new Bun.Glob("{src,assets}/**/*").scanSync({ cwd: root, onlyFiles: true })].sort())
-  sourceHash.update(path).update(new Uint8Array(await Bun.file(`${root}/${path}`).arrayBuffer()));
 await Bun.write(
   `${outfile}.build.json`,
   JSON.stringify(
     {
-      builtAt: new Date().toISOString(),
+      builtAt,
       target: buildTarget,
       bunVersion: Bun.version,
       testBuild: process.argv.includes("--test"),
       releaseVersion: config.releaseVersion,
       releaseCommit: config.releaseCommit,
       sha256: binaryHash,
-      sourceSHA256: sourceHash.digest("hex"),
+      sourceSHA256,
       nativeSHA256: nativeHash,
+      inputsSHA256,
     },
     null,
     2,

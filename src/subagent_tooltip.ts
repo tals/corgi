@@ -12,6 +12,7 @@ import { max_actors as max } from "./conversations";
 import { stamp_bucket } from "./protocol";
 import { type Option, option } from "./agent_launcher";
 import * as palette from "./palette";
+import * as releaseLabel from "./release_label";
 import { type Agent, agent as agentValue, providerName } from "./mirror";
 import { type Entry, type Subagents, contextColor } from "./sidebar";
 import { Writer, byteSlice, directoryLabel, displayWidth, writeEllipsis, sat } from "./text";
@@ -743,8 +744,8 @@ function overviewAgent(
 }
 function overviewFooter(card: Card, row: number, hidden: number, release: Release) {
   const more = hidden > 0 ? `... ${hidden} more agents` : "";
-  const running = versionLabel(release.running ?? "", release.commit ?? "");
-  const staged = versionLabel(release.staged ?? "", "");
+  const running = releaseLabel.text(releaseLabel.of(release.running ?? "", release.commit ?? ""));
+  const staged = releaseLabel.text(releaseLabel.of(release.staged ?? "", ""));
   // Prefer the most complete version text that still leaves room for the agent count.
   const room = sat(card.width - 6, more.length > 0 ? displayWidth(more) + 2 : 0);
   const candidates =
@@ -753,18 +754,6 @@ function overviewFooter(card: Card, row: number, hidden: number, release: Releas
       : [running.length > 0 ? `Corgi ${running}` : "", running, ""];
   const version_line = candidates.find(candidate => displayWidth(candidate) <= room) ?? "";
   card.line(row, more, version_line, "faint", staged.length > 0 ? "title" : "faint");
-}
-/** "20260925T183012Z-be82c7b9090a" reads as "2026-09-25 · be82c7b". A known
- * commit replaces the version's hash, so development builds show theirs too. */
-export function versionLabel(ver: string, commit: string): string {
-  const release = ver.length >= 24 && ver[8] === "T" && ver[16] === "-";
-  const dirty = commit.endsWith("-dirty");
-  const hex = commit.length >= 7 && /^[0-9a-fA-F]{7}/.test(commit);
-  const short = hex ? commit.slice(0, 7) : release ? ver.slice(17, 24) : "";
-  const suffix = hex && dirty ? "-dirty" : "";
-  if (release) return `${ver.slice(0, 4)}-${ver.slice(4, 6)}-${ver.slice(6, 8)} · ${short}${suffix}`;
-  if (short.length > 0) return `${ver} · ${short}${suffix}`;
-  return ver;
 }
 export function drawOverview(
   w: Writer,
