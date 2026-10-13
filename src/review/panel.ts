@@ -83,6 +83,8 @@ class Review {
   part: Part = "tree";
   tree_sel: string | null = null;
   tree_top = 0;
+  /** The wheel scrolled the tree; it follows the selection again when that moves. */
+  tree_free = false;
   tree_rows = 9;
   tree_hidden = false;
   toggled = new Set<string>();
@@ -512,6 +514,7 @@ export class Panel {
     r.top = 0;
     r.shift = 0;
     r.free = false;
+    r.tree_free = false;
     r.cur = 0;
     if (path) {
       r.toggled = tree.reveal(paths, r.toggled, path);
@@ -641,6 +644,7 @@ export class Panel {
       r.free = false;
     };
     if (r.part === "tree" && !r.tree_hidden) {
+      r.tree_free = false;
       const rows = this.fileRows(r, paths, now.edited),
         i = Math.max(
           0,
@@ -683,6 +687,7 @@ export class Panel {
       case "shift_tab":
         r.part = r.part === "tree" || r.tree_hidden ? "diff" : "tree";
         if (r.part === "tree" && r.path) r.tree_sel = "f:" + r.path;
+        r.tree_free = false;
         break;
       case "down":
       case "j":
@@ -896,6 +901,7 @@ export class Panel {
     r.path = n.path;
     r.part = "diff";
     r.free = false;
+    r.tree_free = false;
     const co = this.checkout();
     const listed = co && this.listing(co, r);
     if (listed)
@@ -1023,7 +1029,8 @@ export class Panel {
       this.selecting = null;
       return;
     }
-    const hit = [...this.hits].reverse().find(h => x >= h.x && x < h.x + h.w && y >= h.y && y < h.y + h.h);
+    const under = [...this.hits].reverse().filter(h => x >= h.x && x < h.x + h.w && y >= h.y && y < h.y + h.h),
+      hit = under[0];
     const t = this.target;
     if (!t) return;
     const r = this.review(t.pane);
@@ -1053,8 +1060,11 @@ export class Panel {
     if (kind === "move") return;
     if (kind === "wheel_up" || kind === "wheel_down") {
       const step = kind === "wheel_down" ? 3 : -3;
-      if (hit?.wheel === "tree") r.tree_top = Math.max(0, r.tree_top + step);
-      else {
+      // The area under the pointer scrolls, past the rows that click inside it.
+      if (under.find(h => h.wheel)?.wheel === "tree") {
+        r.tree_top = Math.max(0, r.tree_top + step);
+        r.tree_free = true;
+      } else {
         r.top = Math.max(0, r.top + step);
         r.free = true;
       }
@@ -1146,10 +1156,11 @@ export class Panel {
     if (focused) c.put(0, 0, "▌", colors.accent);
     let col = c.text(1, 0, "Review", colors.strong, null, true) + 1;
     if (t) {
-      // A pushpin: lit while pinned, faint as the button that pins.
-      c.text(col, 0, "⚲", this.pinned ? colors.accent : colors.faint, null, this.pinned);
-      c.hit(col - 1, 0, 3, 1, { act: () => (this.pinned = !this.pinned) });
-      col += 2;
+      // p's keycap, as in the footer, and "pin", lit while pinned.
+      const start = col;
+      col = c.text(col, 0, "p", colors.strong, colors.line, true);
+      col = c.text(col + 1, 0, "pin", this.pinned ? colors.accent : colors.muted, null, this.pinned) + 1;
+      c.hit(start, 0, col - 1 - start, 1, { act: () => (this.pinned = !this.pinned) });
     }
     if (!t) {
       c.text(1, 2, "Focus a pane to review its checkout.", colors.muted);
@@ -1383,7 +1394,7 @@ export class Panel {
       height = Math.max(1, Math.min(r.tree_rows, rows.length, Math.max(3, Math.floor((c.h - 8) / 2))));
     let sel = rows.findIndex(row => row.id === r.tree_sel);
     if (sel < 0 && r.path) sel = rows.findIndex(row => row.id === "f:" + r.path);
-    if (sel >= 0) {
+    if (sel >= 0 && !r.tree_free) {
       if (sel < r.tree_top) r.tree_top = sel;
       if (sel >= r.tree_top + height) r.tree_top = sel - height + 1;
     }

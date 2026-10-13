@@ -75,7 +75,7 @@ test("opens on all: commits and working copy together", async () => {
   expect(rows[0]).toContain("Review");
   // The title is the panel's own; the pane it follows isn't named.
   expect(rows[0]).not.toContain("Fix app");
-  expect(rows[0]).toContain("Review ⚲");
+  expect(rows[0]).toContain("Review p pin");
   expect(rows.slice(0, 34).every(row => row.startsWith("│"))).toBe(true);
   // The scope tabs sit beside the title, and what the scope compares under it.
   expect(rows[0]).toContain(" all │ uncommitted │ commits ▾ 1 ");
@@ -237,7 +237,7 @@ test("pinned, the review stays put and its notes go to the focused pane", async 
   key(p, "p");
   p.dest = { pane: 12, cwd: "/elsewhere", name: "Reviewer" };
   const top = screen(p, 90)[0];
-  expect(top).toContain("Review ⚲ → Reviewer");
+  expect(top).toContain("Review p pin → Reviewer");
   // Pinned, the panel's edge turns heavy.
   expect(
     screen(p)
@@ -258,4 +258,29 @@ test("pinned, the review stays put and its notes go to the focused pane", async 
   expect(p.noteCount(11)).toBe(1);
   p.hide();
   expect(p.pinned).toBe(false);
+});
+
+test("the wheel scrolls the file list under the pointer", async () => {
+  const extra = Array.from({ length: 6 }, (_, i) => `z${i}.txt`);
+  for (const name of extra) write(name, "new\n");
+  try {
+    const p = new panel.Panel();
+    p.follow({ pane: 13, cwd: root, name: "Fix app" });
+    p.show();
+    p.focused = true;
+    await settle(p);
+    const list = () => screen(p, 70, 20).slice(3, 9).join("\n");
+    expect(list()).toContain("app.ts");
+    expect(list()).not.toContain("z5.txt");
+    // Over a file's row, the list scrolls, and stays off the selected file.
+    p.mouse("wheel_down", 5, 4);
+    expect(list()).not.toContain("app.ts");
+    expect(list()).toContain("z5.txt");
+    // Moving the selection brings it back into view.
+    key(p, "j");
+    expect(list()).toContain("bun.lock");
+    p.hide();
+  } finally {
+    for (const name of extra) rmSync(join(root, name));
+  }
 });
