@@ -862,7 +862,7 @@ export class Presentation {
   static reveal_feather = 3;
   playback = new Playback();
   mode: Mode = "content";
-  last_corgi: { mode: Mode; at_ms: number } | null = null;
+  last_corgi: Mode | null = null;
   reveal_started_ms: number | null = null;
   herd_started_ms = 0;
   update(mode: Mode, now: number) {
@@ -872,7 +872,7 @@ export class Presentation {
       this.last_corgi = null;
       this.reveal_started_ms = null;
     } else if (mode !== "content") {
-      this.last_corgi = { mode, at_ms: now };
+      this.last_corgi = mode;
       this.reveal_started_ms = null;
     } else if (this.mode === "asleep") {
       this.last_corgi = null;
@@ -909,14 +909,15 @@ export class Presentation {
   private herdStep(now: number) {
     return Math.floor(Math.max(0, now - this.herd_started_ms) / 110);
   }
-  writeCorgi(room: number, working: boolean, sleep: Sleep) {
+  /** A reveal paints over the corgi while it keeps playing. */
+  writeCorgi(room: number, now: number, working: boolean, sleep: Sleep) {
     const pose = this.last_corgi;
     if (!pose || sleep.intensity === 0) return "";
-    if (pose.mode === "asleep" && !working) return idle(room, sleep);
-    const playback = pose.mode === "asleep" ? new Playback() : this.playback;
+    if (pose === "asleep" && !working) return idle(room, sleep);
+    const playback = pose === "asleep" ? new Playback() : this.playback;
     const playful = playback.routine === "fetch" || playback.routine === "bone";
     const color = playful ? palette.colors.text : intensityColor(sleep.background, sleep.intensity);
-    return palette.fgRgb(color) + playback.write(room, pose.at_ms, sleep.background);
+    return palette.fgRgb(color) + playback.write(room, now, sleep.background);
   }
   hide() {
     this.playback.active = false;

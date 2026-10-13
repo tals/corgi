@@ -1127,7 +1127,7 @@ export class View {
     if (mode === "herding") {
       w.write(presentation!.writeHerding(detail_room, now_ms));
     } else if (mode !== "content") {
-      w.write(presentation!.writeCorgi(detail_room, e.state === "working", sleep));
+      w.write(presentation!.writeCorgi(detail_room, now_ms, e.state === "working", sleep));
     } else {
       // Lifecycle signals (blocked/ended/etc.) must be immediate.
       // Interrupts already switch straight to the sleeping mode.
@@ -1135,7 +1135,7 @@ export class View {
       // No detail stays blank; directoryLabel would print "?" for it.
       const text = detail.length === 0 ? "" : directoryLabel(detail, null, 512);
       if (presentation !== null && presentation.reveal_started_ms !== null) {
-        w.write(presentation.writeCorgi(detail_room, e.state === "working", sleep));
+        w.write(presentation.writeCorgi(detail_room, now_ms, e.state === "working", sleep));
         w.write(`\x1b[${y + 2};${x + 5}H` + fg("text"));
         writeRevealedDetail(
           w,

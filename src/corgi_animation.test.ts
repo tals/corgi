@@ -337,7 +337,7 @@ test("a puff starts lit, fades as it rises, and seen sleepers are dim", () => {
 test("the corgi is gray: faint awake or asleep, muted asleep on a selected row", () => {
   const x = new a.Presentation();
   x.update("awake", 0);
-  expect(x.writeCorgi(20, true, new a.Sleep()).startsWith(p.fg("faint"))).toBe(true);
+  expect(x.writeCorgi(20, 0, true, new a.Sleep()).startsWith(p.fg("faint"))).toBe(true);
   expect(a.idle(6, new a.Sleep({ bright: true }))).toBe(p.fg("faint") + "~ᐯ◡ᴥ◡ᐯ");
   expect(a.idle(6, new a.Sleep({ background: p.colors.selected, selected: true }))).toBe(p.fg("muted") + "~ᐯ◡ᴥ◡ᐯ");
   const out = a.writeUnearth(a.Dig.width("restoring"), 3000, "restoring");
@@ -385,21 +385,21 @@ test("sidebar intensity dims non-fetch corgis on the row background and zero hid
     expect(a.intensityColor(background, 50)).toEqual(p.colors.faint);
     expect(a.intensityColor(background, 100)).toEqual(p.colors.text);
     sleep.intensity = 25;
-    expect(x.writeCorgi(20, true, sleep)).toStartWith(p.fgRgb(a.intensityColor(background, 25)));
+    expect(x.writeCorgi(20, 0, true, sleep)).toStartWith(p.fgRgb(a.intensityColor(background, 25)));
     sleep.intensity = 100;
-    expect(x.writeCorgi(20, true, sleep)).toStartWith(p.fg("text"));
+    expect(x.writeCorgi(20, 0, true, sleep)).toStartWith(p.fg("text"));
     sleep.intensity = 0;
-    expect(x.writeCorgi(20, true, sleep)).toBe("");
+    expect(x.writeCorgi(20, 0, true, sleep)).toBe("");
     expect(a.idle(20, sleep)).not.toContain("ᐯ");
   }
   x.playback.enter("bone", 0);
-  expect(x.writeCorgi(20, true, new a.Sleep({ intensity: 5 }))).toStartWith(p.fg("text"));
+  expect(x.writeCorgi(20, 0, true, new a.Sleep({ intensity: 5 }))).toStartWith(p.fg("text"));
   x.playback.enter("fetch", 0);
-  expect(x.writeCorgi(20, true, new a.Sleep({ intensity: 5 }))).toStartWith(p.fg("text"));
-  expect(x.writeCorgi(20, true, new a.Sleep({ intensity: 100 }))).toStartWith(p.fg("text"));
-  expect(x.writeCorgi(20, true, new a.Sleep({ intensity: 0 }))).toBe("");
+  expect(x.writeCorgi(20, 0, true, new a.Sleep({ intensity: 5 }))).toStartWith(p.fg("text"));
+  expect(x.writeCorgi(20, 0, true, new a.Sleep({ intensity: 100 }))).toStartWith(p.fg("text"));
+  expect(x.writeCorgi(20, 0, true, new a.Sleep({ intensity: 0 }))).toBe("");
 });
-test("content reveal preserves the old pose and cancels when a corgi returns", () => {
+test("content reveal paints over a corgi that keeps playing and cancels when a corgi returns", () => {
   const x = new a.Presentation();
   x.update("asleep", 0);
   x.update("content", 50);
@@ -407,15 +407,18 @@ test("content reveal preserves the old pose and cancels when a corgi returns", (
   expect(x.reveal_started_ms).toBeNull();
   expect(x.revealedColumns(20, 50)).toBe(20);
   x.update("awake", 100);
+  x.playback.enter("idle", 100);
   x.update("content", 200);
-  expect(x.last_corgi!.at_ms).toBe(100);
+  expect(x.last_corgi).toBe("awake");
   expect(x.revealedColumns(20, 200)).toBe(0);
+  expect(x.writeCorgi(20, 200, true, new a.Sleep())).toEndWith(frames.wag[0]);
+  expect(x.writeCorgi(20, 300, true, new a.Sleep())).toEndWith(frames.wag[1]);
   x.update("content", 425);
   expect(x.revealedColumns(20, 425)).toBe(11);
   expect(x.revealedColumns(40, 425)).toBe(21);
   x.update("awake", 430);
   expect(x.reveal_started_ms).toBeNull();
-  expect(x.last_corgi!.mode).toBe("awake");
+  expect(x.last_corgi).toBe("awake");
   x.update("content", 500);
   x.update("content", 950);
   expect(x.last_corgi).toBeNull();
@@ -429,7 +432,7 @@ test("content reveal preserves the old pose and cancels when a corgi returns", (
   x.update("content", 1030);
   x.update("asleep", 1040);
   expect(x.reveal_started_ms).toBeNull();
-  expect(x.last_corgi!.mode).toBe("asleep");
+  expect(x.last_corgi).toBe("asleep");
   x.hide();
   x.update("content", 1100);
   expect(x.reveal_started_ms).toBeNull();
