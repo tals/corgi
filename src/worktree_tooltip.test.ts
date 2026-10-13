@@ -86,7 +86,7 @@ test("rows show agents at work, the comparison, age, last edit and line counts",
     changes: { total: 0, staged: 0, modified: 0, untracked: 0, conflicted: 0, added: 0, removed: 0 },
   });
   const state = new State();
-  state.agents = new Map([[topic.path, { agents: 2, working: 1 }]]);
+  state.agents = new Map([[topic.path, { agents: 4, working: 1, attention: 1 }]]);
   const w = new Writer(),
     terminal = new Terminal(140, 30);
   try {
@@ -95,7 +95,7 @@ test("rows show agents at work, the comparison, age, last edit and line counts",
     const text = terminal.text();
     for (const header of ["AGENTS", "VS MAIN", "AGE", "EDITED", "UNCOMMITTED CHANGES"]) expect(text).toContain(header);
     const row = (label: string) => text.split("\n").find(l => l.includes(label));
-    expect(row("topic-0")).toMatch(/1▶ 1○ +↑6 ↓12 +3d +12m ago +3 files {2}\+142 −38/);
+    expect(row("topic-0")).toMatch(/1▶ 1● 2○ +↑6 ↓12 +3d +12m ago +3 files {2}\+142 −38/);
     expect(row("topic-1")).toMatch(/0 +↑0 ↓5 +— +— +Clean/);
     // Working agents as the sidebar marks them; lines added and removed as a diff colors them.
     expect(w.buffered()).toContain(`\x1b[1m${fgRgb(colors.accent)}1▶`);

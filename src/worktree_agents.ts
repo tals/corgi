@@ -48,16 +48,14 @@ export function belongs(snapshot: worktrees.Snapshot, path: string, entry: sideb
   const associations = snapshot.agents.filter(a => sidebar.sameTarget(a.target, entry.target));
   return associations.length ? associations.some(a => a.path === path) : checkoutAt(snapshot, entry.cwd) === path;
 }
-/** Each linked worktree's live agents and how many are working, counted
- * as its group header counts them. */
-export function counts(
-  snapshot: worktrees.Snapshot,
-  agents: sidebar.Entry[],
-): Map<string, { agents: number; working: number }> {
-  const out = new Map<string, { agents: number; working: number }>();
+/** Each linked worktree's live agents by state, counted as its group
+ * header counts them. */
+export function counts(snapshot: worktrees.Snapshot, agents: sidebar.Entry[]): Map<string, sidebar.Tally> {
+  const out = new Map<string, sidebar.Tally>();
   for (const checkout of worktrees.linked(snapshot)) {
-    const live = agents.filter(e => belongs(snapshot, checkout.path, e));
-    out.set(checkout.path, { agents: live.length, working: live.filter(e => e.state === "working").length });
+    const t = { agents: 0, working: 0, attention: 0 };
+    for (const e of agents) if (belongs(snapshot, checkout.path, e)) sidebar.tally(t, e.state, e.attention);
+    out.set(checkout.path, t);
   }
   return out;
 }
@@ -93,20 +91,18 @@ export function group(
   const live = agents.filter(e => belongs(snapshot, selection.path, e));
   if (!live.length && !asleep.length) return [];
   const info = { ...selection, ghost },
-    folded = !ghost && state.folded.has(key(selection));
+    folded = !ghost && state.folded.has(key(selection)),
+    t = { agents: 0, working: 0, attention: 0 };
+  for (const e of live) sidebar.tally(t, e.state, e.attention);
+  // With no live agents, its asleep conversations count as idle.
+  if (!live.length) t.agents = asleep.length;
   const header = sidebar.entry({
     target: { worktree: selection.path, workspace: selection.workspace },
     name: label(checkout),
     worktree: info,
     // A folded header stands in for the focused agent it hides.
     focused: folded && live.some(e => e.focused),
-    group: {
-      agents: live.length || asleep.length,
-      working: live.filter(e => e.state === "working").length,
-      attention: live.filter(e => e.attention === "needs_input").length,
-      folded,
-      current: false,
-    },
+    group: { ...t, folded, current: false },
   });
   if (folded) return [header];
   if (live.length) return [header, ...live.map(e => ({ ...e, worktree: info }))];

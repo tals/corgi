@@ -212,6 +212,26 @@ export function indicator(e: Entry, selected: boolean): { icon: string; color: s
   if (e.state === "idle") return { icon: "○", color: fg("muted"), unread: false };
   return { icon: "·", color: quiet, unread: false };
 }
+/** A group's agents: how many work, how many need input; the rest idle. */
+export type Tally = Pick<Group, "agents" | "working" | "attention">;
+/** Counts an agent under the glyph its row shows. */
+export function tally(into: Tally, state: State, attention: Attention): void {
+  into.agents += 1;
+  if (state === "done") return;
+  if (state === "blocked" || attention === "needs_input") into.attention += 1;
+  else if (state === "working") into.working += 1;
+}
+/** A tally as its rows' glyphs, each after its count: "1▶ 1● 2○". */
+export function histogram(t: Tally): [string, palette.Token, boolean][] {
+  const bars: [number, string, palette.Token, boolean][] = [
+    [t.working, "▶", "accent", true],
+    [t.attention, "●", "warm", true],
+    [t.agents - t.working - t.attention, "○", "muted", false],
+  ];
+  return bars
+    .filter(([n]) => n > 0)
+    .map(([n, glyph, token, bold], i) => [`${i > 0 ? " " : ""}${compactCount(n)}${glyph}`, token, bold]);
+}
 
 export interface GitPush {
   phase: "idle" | "pushing" | "succeeded" | "failed";
@@ -1127,20 +1147,15 @@ export class View {
     if (lead.length > 0) w.write(`\x1b[${y + 1};1H` + fg("line") + lead);
     const arrow_x = lead.length;
     w.write(`\x1b[${y + 1};${arrow_x + 1}H` + fg("muted") + (g.folded ? "▸" : "▾"));
-    // Only activity and attention; a single agent needs no count.
-    const working = g.working > 0 ? `▶${g.working > 1 ? compactCount(g.working) : ""}` : "";
-    const attention = g.attention > 0 ? `●${g.attention > 1 ? compactCount(g.attention) : ""}` : "";
-    const both = working.length > 0 && attention.length > 0;
-    const status_width = displayWidth(working) + displayWidth(attention) + (both ? 1 : 0);
+    // Its agents by state, as the worktree overview counts them.
+    const bars = histogram(g);
+    const status_width = bars.reduce((n, [text]) => n + displayWidth(text), 0);
     const status_x = sat(v.width, status_width > 0 ? status_width + 2 : 1);
-    if (status_width > 0)
-      w.write(
-        `\x1b[${y + 1};${status_x + 1}H\x1b[1m` +
-          fg("accent") +
-          `${working}${both ? " " : ""}` +
-          fg("warm") +
-          `${attention}\x1b[22m`,
-      );
+    if (status_width > 0) {
+      w.write(`\x1b[${y + 1};${status_x + 1}H`);
+      for (const [text, token, bold] of bars) w.write((bold ? "\x1b[1m" : "\x1b[22m") + fg(token) + text);
+      w.write("\x1b[22m");
+    }
     let name_x = arrow_x + 2;
     if ("worktree" in e.target) {
       w.write(`\x1b[${y + 1};${name_x + 1}H` + fg("faint") + "⌥");

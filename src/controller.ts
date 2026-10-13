@@ -675,16 +675,12 @@ export class Controller {
       entry.remote_links = this.remote_links;
       for (const p of this.runtime.panes) {
         if (p.agent.provider === null || ws.model.tabForPane(p.id) === null) continue;
-        entry.agents += 1;
-        if (p.agent.state === "working") entry.working += 1;
-        if (p.agent.state === "blocked" || p.agent.attention === "needs_input") entry.attention += 1;
+        sidebar.tally(entry, p.agent.state, p.agent.attention);
         if (unread(p.agent.observation)) entry.unread += 1;
       }
       for (const session of this.runtime.sessions) {
         if (session.workspace !== ws.id) continue;
-        entry.agents += 1;
-        if (session.state === "working") entry.working += 1;
-        if (session.state === "blocked" || session.attention === "needs_input") entry.attention += 1;
+        sidebar.tally(entry, session.state, session.attention);
         if (unread(session.observation)) entry.unread += 1;
       }
       return entry;

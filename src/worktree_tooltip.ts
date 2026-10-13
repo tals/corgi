@@ -10,7 +10,7 @@ import * as worktreeRemoval from "./worktree_removal";
 import { clean } from "./trackers/git_status";
 import { milliTimestamp } from "./clock";
 import { ageLabel } from "./launcher_resume";
-import { pulse } from "./sidebar";
+import { pulse, histogram, type Tally } from "./sidebar";
 
 /** The card for `count` worktrees of `lines` each, `closed` lines shorter
  * while a removed row closes. */
@@ -47,9 +47,9 @@ export class State {
   selected: string | null = null;
   /** How many conversations Enter would bring back for the browsed worktree. */
   asleep: { path: string; count: number } | null = null;
-  /** Each worktree's live agents and how many are working, counted as the
-   * sidebar's worktree groups count them. */
-  agents: Map<string, { agents: number; working: number }> | null = null;
+  /** Each worktree's live agents by state, counted as the sidebar's
+   * worktree groups count them. */
+  agents: Map<string, Tally> | null = null;
   /** The worktrees' briefs by path, or null while worktree briefs are off. */
   briefs: Map<string, worktrees.Brief> | null = null;
   /** When this viewer first saw each brief being written, for its glimmer. */
@@ -151,7 +151,7 @@ type Column = "agents" | "main" | "age" | "edited" | "changes";
 /** The columns right of the worktree, each with the gap after it; the last
  * ends two cells from the card's edge. */
 const columns: { name: Column; header: string; width: number }[] = [
-  { name: "agents", header: "AGENTS", width: 8 },
+  { name: "agents", header: "AGENTS", width: 9 },
   { name: "main", header: "VS MAIN", width: 10 },
   { name: "age", header: "AGE", width: 6 },
   { name: "edited", header: "EDITED", width: 11 },
@@ -292,15 +292,11 @@ export function draw(
       line(y, displayWidth(label) + 3, short, displayWidth(short), tone("faint"));
     if (x.agents !== undefined) {
       const associations = snapshot?.agents.filter(a => a.path === entry.path) ?? [],
-        counted = state.agents?.get(entry.path) ?? { agents: associations.length, working: 0 },
-        idle = counted.agents - counted.working,
-        segments: [string, palette.Token, boolean?][] = [];
-      // Working and idle, each marked as the sidebar marks its agents.
-      if (counted.working) segments.push([`${counted.working}▶`, "accent", true]);
-      if (idle) segments.push([`${counted.working ? " " : ""}${idle}○`, "muted"]);
+        counted = state.agents?.get(entry.path) ?? { agents: associations.length, working: 0, attention: 0 },
+        segments: [string, palette.Token, boolean?][] = histogram(counted);
       if (!counted.agents) segments.push(["0", tone("faint")]);
       if (associations.some(a => a.stale)) segments.push(["*", "text"]);
-      runs(y, x.agents, 7, segments);
+      runs(y, x.agents, 8, segments);
     }
     if (x.main !== undefined) {
       const vs = entry.comparison;
