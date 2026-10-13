@@ -5352,9 +5352,11 @@ export class Controller {
     this.summary_wanted = wanted;
     for (const cwd of cwds) this.review_summaries.want(cwd);
   }
-  /** The directory a pane's review reads: its agent's, else the pane's own. */
+  /** The directory a pane's review reads: its agent's, else the pane's own,
+   * or the checkout the agent list puts it under when that differs. */
   private reviewCwd(p: Pane): string {
-    return p.agent.cwd.length > 0 ? p.agent.cwd : p.cwd;
+    const cwd = p.agent.cwd.length > 0 ? p.agent.cwd : p.cwd;
+    return worktreeAgents.folder(this.current().worktrees ?? null, { pane: p.id }, cwd);
   }
   private reviewTarget(p = this.focused()): panel.Target | null {
     if (!p) return null;

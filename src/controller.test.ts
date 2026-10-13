@@ -725,6 +725,46 @@ test("the launcher lights the checkout it starts agents in, as the overview ligh
   expect(s.spotlight()).toEqual({ workspace: 1, path: "/src/app-topic" });
 });
 
+test("an agent's review reads the checkout the list puts it under", () => {
+  const checkout = (path: string, branch: string, primary: boolean) => ({
+    path,
+    head: "4f1c2a9e0b",
+    branch: `refs/heads/${branch}`,
+    primary,
+    bare: false,
+    detached: false,
+    locked: null,
+    prunable: null,
+    available: true,
+    comparison: null,
+    changes: null,
+    stale: false,
+  });
+  const snapshot = folders("/src/app");
+  Object.assign(snapshot.panes[0], {
+    cwd: "/src/app",
+    agent: { ...snapshot.panes[0].agent, provider: "codex", cwd: "/src/app" },
+  });
+  Object.assign(snapshot.workspaces[0], {
+    worktrees: {
+      common_dir: "/src/app/.git",
+      base: { ref: "refs/heads/main", name: "main", head: "4f1c2a9e0b" },
+      entries: [checkout("/src/app", "main", true), checkout("/src/app-topic", "topic", false)],
+      agents: [],
+      stale: false,
+    },
+  });
+  const s: any = new Controller({ socket: "", request: transport(async () => snapshot).request });
+  s.receiveSnapshot(snapshot);
+  expect(s.reviewTarget().cwd).toBe("/src/app");
+  // Started on main but writing in topic, it's listed under topic.
+  (snapshot.workspaces[0] as any).worktrees.agents = [
+    { target: { pane: 1 }, path: "/src/app-topic", source: "write", stale: false },
+  ];
+  s.receiveSnapshot(snapshot);
+  expect(s.reviewTarget().cwd).toBe("/src/app-topic");
+});
+
 test("the agent menu's diff line is read ahead for the focused agent, its neighbours and a hovered row", async () => {
   const panes = [1, 2, 3, 4, 5],
     state = (completed: number) => ({

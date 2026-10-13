@@ -296,8 +296,9 @@ it's usually there when the menu opens. A turn starting or ending in the
 checkout, or 15 seconds passing, makes it read again the next time; opening
 the menu always checks, and fades in any change. Until the first read, faint
 bars hold its place. The panes make room for the panel; drag its left edge to
-resize it. It shows the checkout of the focused pane, so it follows you from
-agent to agent, and each pane keeps its own place and notes. A second
+resize it. It shows the checkout of the focused pane, or the worktree the
+agent list puts its agent under, so it follows you from agent to agent, and
+each pane keeps its own place and notes. A second
 `prefix e` gives it the keyboard, a third closes it; Esc hands the keyboard
 back to the pane, and a click anywhere else does too.
 
