@@ -1,0 +1,45 @@
+{
+  "version": 1, "createdAt": 1791865995.7,
+  "windows": [{
+    "windowId": "window-1",
+    "sidebar": {"isVisible": true, "width": 220},
+    "tabManager": {
+      "selectedWorkspaceIndex": 0,
+      "workspaces": [{
+        "workspaceId": "workspace-1", "customTitle": "cmux project", "processTitle": "vim", "currentDirectory": "/tmp",
+        "isPinned": false, "layoutMode": "splits", "focusedPanelId": "B", "statusEntries": [], "logEntries": [],
+        "layout": {"type": "split", "split": {"orientation": "horizontal", "dividerPosition": 0.6,
+          "first": {"type": "pane", "pane": {"panelIds": ["A", "B"], "selectedPanelId": "B"}},
+          "second": {"type": "split", "split": {"orientation": "vertical", "dividerPosition": 0.3,
+            "first": {"type": "pane", "pane": {"panelIds": ["C"], "selectedPanelId": "C"}},
+            "second": {"type": "pane", "pane": {"panelIds": ["D"]}}
+          }}
+        }},
+        "panels": [
+          {"id": "A", "type": "terminal", "title": "Editor", "directory": "/tmp", "isPinned": false, "isManuallyUnread": false, "listeningPorts": [],
+           "terminal": {"workingDirectory": "/tmp", "resumeBinding": {"command": "never run this"}}},
+          {"id": "B", "type": "terminal", "title": "zsh", "customTitle": "Build", "isPinned": false, "isManuallyUnread": false, "listeningPorts": [],
+           "terminal": {"workingDirectory": "/var/tmp"}},
+          {"id": "C", "type": "browser", "title": "Docs", "isPinned": false, "isManuallyUnread": false, "listeningPorts": [],
+           "browser": {"urlString": "https://example.test/docs", "shouldRenderWebView": true, "pageZoom": 1, "developerToolsVisible": false, "isMuted": false}},
+          {"id": "D", "type": "terminal", "title": "Logs", "directory": "/tmp", "isPinned": false, "isManuallyUnread": false, "listeningPorts": []}
+        ]
+      }, {
+        "workspaceId": "workspace-2", "processTitle": "notes", "currentDirectory": "/tmp",
+        "isPinned": false, "statusEntries": [], "logEntries": [],
+        "layout": {"type": "pane", "pane": {"panelIds": ["E", "closed-panel"], "selectedPanelId": "E"}},
+        "panels": [{"id": "E", "type": "terminal", "title": "Scratch", "directory": "/tmp", "isPinned": false, "isManuallyUnread": false, "listeningPorts": []}]
+      }]
+    }
+  }, {
+    "windowId": "window-2",
+    "tabManager": {
+      "workspaces": [{
+        "workspaceId": "workspace-3", "customTitle": "research", "processTitle": "zsh", "currentDirectory": "/does-not-exist/corgi-import",
+        "isPinned": false, "statusEntries": [], "logEntries": [],
+        "layout": {"type": "grid", "grid": {"cells": ["F"]}},
+        "panels": [{"id": "F", "type": "terminal", "title": "Paper", "isPinned": false, "isManuallyUnread": false, "listeningPorts": []}]
+      }]
+    }
+  }]
+}

@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { State } from "./onboarding";
-import { Worker, workspace, pane } from "./import/catalog";
+import { Worker, workspace, pane, available_sources } from "./import/catalog";
 const conn: any = {
   call: () => {
     throw Error("UnexpectedRpc");
@@ -24,7 +24,7 @@ test("onboarding offers only platform-supported presets and import sources", asy
   await state.key("4", conn);
   expect(state.preset).toBe(process.platform === "darwin" ? "cmux" : "corgi");
   state.step = "import";
-  expect(state.frame(100, 34).includes("cmux")).toBe(process.platform === "darwin");
+  expect(state.frame(100, 34).includes("cmux")).toBe(available_sources.includes("cmux"));
   if (process.platform !== "darwin") {
     await state.key("3", conn);
     expect(state.picker.source).toBe("tmux");

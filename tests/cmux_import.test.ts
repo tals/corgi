@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { registerCase, TestCase, writeExecutable, ROOT } from "./support";
 import { screen_text } from "./runtime";
@@ -11,6 +11,7 @@ appendFileSync(process.env.CMUX_TEST_LOG, JSON.stringify(args) + '\\n');
 const mode = process.env.CMUX_TEST_MODE;
 if (mode === 'hang') { process.stdout.end?.(); await Bun.sleep(60000); process.exit(0); }
 if (mode === 'unreadable') { console.log('{new-format: ???'); process.exit(0); }
+if (mode === 'refused') { console.error('Error: ERROR: Access denied - only processes started inside cmux can connect'); process.exit(1); }
 if (mode === 'old') {
   if (args.includes('--id-format') || args[0] === 'tree') process.exit(1);
   if (args[0] === 'list-windows') console.log(JSON.stringify({windows:[{id:'w1'},{id:'w2'}]}));
@@ -88,6 +89,30 @@ class CmuxImport extends TestCase {
       .split("\n")
       .map(line => JSON.parse(line)[0]);
     this.assertTrue(commands.every(command => ["tree", "list-panes"].includes(command)));
+  }
+  async test_saved_session_imports_when_the_socket_refuses() {
+    const saved = join(this.fixture.root, "home/Library/Application Support/cmux");
+    mkdirSync(saved, { recursive: true });
+    copyFileSync(join(ROOT, "src/testdata/cmux-session.json"), join(saved, "session-com.cmuxterm.app.json"));
+    const v = await this.wizard("refused");
+    await this.fixture.until(async () => (await this.text(v)).includes("Workspace only"));
+    await v.input(" j j \r");
+    await this.fixture.until(async () => (await this.text(v)).includes("You're ready to go"));
+    const snapshot = await this.fixture.rpc({ op: "session.snapshot" });
+    const project = snapshot.workspaces.find((w: any) => w.name === "cmux project");
+    this.assertEqual(
+      project.model.tabs.map((t: any) => this.shape(project, t, snapshot)),
+      [["horizontal", 600, "Build", ["vertical", 300, "Docs", "Logs"]], "Editor"],
+    );
+    this.assertIn(
+      "notes",
+      snapshot.workspaces.map((w: any) => w.name),
+    );
+    this.assertIn(
+      "research",
+      snapshot.workspaces.map((w: any) => w.name),
+    );
+    this.assertFalse(existsSync(this.fixture.env.CMUX_TEST_LOG));
   }
   async test_old_cli_recovers_workspaces_across_windows() {
     const v = await this.wizard("old");

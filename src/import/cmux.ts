@@ -128,6 +128,51 @@ function project(out: Node[], source: Node[], index: number, mapping: (number | 
   if (right === null) return left;
   return append(out, { split: { ...node.split, first: left, second: right } });
 }
+/** cmux's saved session (`session-<bundle id>.json`) as the workspaces `cmux tree` prints, or null when it
+ * holds no workspace list. */
+export function saved(session: any): any[] | null {
+  const managers = list(session, "windows")
+    .map(w => w?.tabManager)
+    .filter(m => Array.isArray(m?.workspaces));
+  return managers.length ? managers.flatMap(m => m.workspaces.map(savedWorkspace)) : null;
+}
+function savedWorkspace(ws: any): any {
+  const panels = new Map(list(ws, "panels").map(p => [text(p, "id"), p])),
+    panes: any[] = [];
+  const surface = (panel: any) =>
+    panel && {
+      id: text(panel, "id"),
+      title: first(panel, ["customTitle", "title"]),
+      cwd: text(panel, "directory") || text(panel?.terminal, "workingDirectory"),
+      url: text(panel?.browser, "urlString"),
+    };
+  const layout = (node: any, depth: number): any => {
+    if (depth >= max_panes) return null;
+    if (node?.type === "pane") {
+      const id = `pane:${panes.length}`;
+      panes.push({
+        id,
+        selected_surface_id: text(node.pane, "selectedPanelId"),
+        surfaces: list(node.pane, "panelIds").map(panel => surface(panels.get(panel))),
+      });
+      return { pane: { id } };
+    }
+    if (node?.type !== "split") return null;
+    const s = node.split;
+    return {
+      direction: text(s, "orientation"),
+      split: number(s?.dividerPosition),
+      children: [layout(s?.first, depth + 1), layout(s?.second, depth + 1)],
+    };
+  };
+  return {
+    id: first(ws, ["workspaceId", "stableId"]),
+    title: first(ws, ["customTitle", "processTitle"]),
+    cwd: text(ws, "currentDirectory"),
+    layout: layout(ws?.layout, 0),
+    panes,
+  };
+}
 export function workspaceOnly(ws: any, reason: string): Workspace | null {
   if (!recognizableWorkspace(ws)) return null;
   return {

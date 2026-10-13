@@ -1,6 +1,6 @@
 //! Read-only discovery runs asynchronously away from PTY collection.
 import { Quit, run as subprocessRun } from "../subprocess";
-import { readdirSync, statSync, accessSync, constants } from "node:fs";
+import { readdirSync, readFileSync, statSync, accessSync, constants } from "node:fs";
 import { join } from "node:path";
 import type { Node } from "./layout";
 import * as tmux_layout from "./tmux_layout";
@@ -9,8 +9,11 @@ import * as cmux_import from "./cmux";
 import * as herdr from "./herdr";
 import * as errors from "../errors";
 export type Source = "tmux" | "herdr" | "cmux";
-export const available_sources: Source[] =
-  process.platform === "darwin" ? ["tmux", "herdr", "cmux"] : ["tmux", "herdr"];
+export const available_sources: Source[] = [
+  "tmux",
+  "herdr",
+  ...(cmuxDetected(process.env.HOME) ? ["cmux" as const] : []),
+];
 export type Pane = {
   id: string;
   name: string;
@@ -312,19 +315,37 @@ export class Worker {
         shallow && !Array.isArray(ws?.panes) && !Array.isArray(ws?.surfaces)
           ? cmux_import.workspaceOnly(ws, "Couldn't read its panes or tabs")
           : cmux_import.convert(ws, details);
-      if (!converted) {
-        this.catalog.confused = true;
-        continue;
-      }
-      if (converted.recovery !== "full") this.catalog.confused = true;
-      const identified = ["id", "ref", "workspace_id"].some(k => typeof ws?.[k] === "string" && ws[k]);
-      if (!identified || !out.some(w => w.id === converted.id)) out.push(converted);
+      this.cmuxKeep(ws, converted, out);
     }
   }
+  cmuxKeep(ws: any, converted: Workspace | null, out: Workspace[]) {
+    if (!converted) {
+      this.catalog.confused = true;
+      return;
+    }
+    if (converted.recovery !== "full") this.catalog.confused = true;
+    const identified = ["id", "ref", "workspace_id"].some(k => typeof ws?.[k] === "string" && ws[k]);
+    if (!identified || !out.some(w => w.id === converted.id)) out.push(converted);
+  }
+  /** cmux's saved session first: it needs no socket access and outlives the app. */
   async cmux() {
+    const out: Workspace[] = [],
+      home = process.env.HOME,
+      saved = home ? cmux_import.saved(cmuxSession(cmuxSupport(home))) : null;
+    for (const ws of saved ?? []) this.cmuxKeep(ws, cmux_import.convert(ws), out);
+    if (!out.length) {
+      this.catalog.confused = false;
+      await this.cmuxLive(out);
+    }
+    this.catalog.workspaces = out;
+    this.catalog.message =
+      this.catalog.confused && !out.length
+        ? "Couldn't read the workspace list. R refreshes."
+        : "Visible splits first; remaining surfaces become additional tabs.";
+  }
+  async cmuxLive(out: Workspace[]) {
     const exe = cmuxExecutable(),
       deadline = Date.now() + 15000,
-      out: Workspace[] = [],
       snapshot = await this.cmuxJson(exe, ["tree", "--all"], deadline);
     let known = false;
     if (Array.isArray(snapshot?.windows)) {
@@ -366,11 +387,40 @@ export class Worker {
         if (Array.isArray(listed?.workspaces)) await this.cmuxEntries(exe, listed.workspaces, true, out, deadline);
       }
     }
-    this.catalog.workspaces = out;
-    this.catalog.message =
-      this.catalog.confused && !out.length
-        ? "Couldn't read the workspace list. R refreshes."
-        : "Visible splits first; remaining surfaces become additional tabs.";
+  }
+}
+/** cmux is offered where Corgi can read a session it saved or ask its CLI. */
+export function cmuxDetected(home: string | undefined): boolean {
+  if (process.platform !== "darwin") return false;
+  if (home && cmuxSessionFile(cmuxSupport(home))) return true;
+  try {
+    cmuxExecutable();
+    return true;
+  } catch {
+    return false;
+  }
+}
+function cmuxSupport(home: string): string {
+  return join(home, "Library/Application Support/cmux");
+}
+/** The newest session cmux saved in `dir` (`session-<bundle id>.json`), or null. */
+function cmuxSessionFile(dir: string): string | null {
+  try {
+    const newest = readdirSync(dir)
+      .filter(name => /^session-.+\.json$/.test(name) && !name.endsWith("-previous.json"))
+      .map(name => ({ path: join(dir, name), modified: statSync(join(dir, name)).mtimeMs }))
+      .sort((a, b) => b.modified - a.modified)[0];
+    return newest?.path ?? null;
+  } catch {
+    return null;
+  }
+}
+export function cmuxSession(dir: string): any {
+  const file = cmuxSessionFile(dir);
+  try {
+    return file ? JSON.parse(readFileSync(file, "utf8")) : null;
+  } catch {
+    return null;
   }
 }
 function cmuxExecutable(): string {

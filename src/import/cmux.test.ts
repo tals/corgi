@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
-import { convert } from "./cmux";
+import { convert, saved } from "./cmux";
 import { validate } from "./layout";
 import type { Tab } from "./catalog";
 function shape(tab: Tab, index = tab.nodes.length - 1): string {
@@ -133,4 +133,20 @@ test("cmux projection retains each surface once across uneven stack sizes and se
         for (const [pi, p] of ws.tabs[0].panes.entries())
           expect(p.id).toBe(panes[pi].surfaces[(left + middle + right + pi) % counts[pi]].id);
       }
+});
+test("cmux saved sessions import like the tree, splits and selections intact", () => {
+  const session = JSON.parse(readFileSync(new URL("../testdata/cmux-session.json", import.meta.url), "utf8"));
+  const [project, notes, research] = saved(session)!.map(ws => convert(ws)!);
+  expect(project.name).toBe("cmux project");
+  expect(project.recovery).toBe("full");
+  expect(project.tabs.map(t => shape(t))).toEqual(["h600(B,v300(C,D))", "A"]);
+  const [build, docs] = project.tabs[0].panes;
+  expect([build.name, build.cwd, build.restart_command]).toEqual(["Build", "/var/tmp", ""]);
+  expect(docs.url).toBe("https://example.test/docs");
+  expect(project.tabs[1].panes[0].restart_command).toBe("");
+  expect([notes.name, notes.recovery]).toEqual(["notes", "partial"]);
+  expect(notes.tabs.map(t => shape(t))).toEqual(["E"]);
+  expect([research.name, research.recovery]).toEqual(["research", "workspace"]);
+  expect(saved({ windows: [{ tabManager: {} }] })).toBe(null);
+  expect(saved(null)).toBe(null);
 });

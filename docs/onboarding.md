@@ -49,8 +49,9 @@ screen.
 The prefix is already active, so j/k focus panes and q detaches in the Corgi
 preset. PgUp/PgDn and the wheel scroll; arrows also scroll except in tmux, where
 they focus panes. It uses the current preset and prefix in both places.
-The cmux shortcut preset and import source appear only in macOS builds. Preferences
-copied from a Mac use the Corgi preset on other platforms.
+The cmux shortcut preset and import source appear only in macOS builds, and the
+import source only once cmux has saved a session or its CLI is installed.
+Preferences copied from a Mac use the Corgi preset on other platforms.
 For cmux, P marks portable prefix alternatives alongside Command shortcuts.
 
 ## Keys
@@ -113,8 +114,11 @@ untouched empty starter workspace is removed. Existing workspaces are retained.
   waits for confirmation while retaining the descriptors. Launch Corgi outside
   the Herdr session being moved; source-pane and foreground-process-group checks
   prevent moving the console that is displaying the wizard.
-- **cmux (macOS builds only):** discover windows, workspaces and surfaces with `cmux tree --all --json`.
-  Each workspace becomes a Corgi workspace. Its first tab reconstructs the visible
+- **cmux (macOS builds only):** discover windows, workspaces and surfaces from
+  the session cmux saves in `~/Library/Application Support/cmux/session-*.json`,
+  which needs no socket access and outlives the app. Without one, ask
+  `cmux tree --all --json`; cmux's default socket mode answers only processes
+  started inside cmux. Each workspace becomes a Corgi workspace. Its first tab reconstructs the visible
   splits using the selected surface in each cmux pane. Additional tabs take one
   remaining surface per source pane, in source order; empty branches collapse.
   Every readable surface appears once. There are no model calls during import.
