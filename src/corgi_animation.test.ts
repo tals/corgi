@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import * as a from "./corgi_animation";
 import * as p from "./palette";
 import * as frames from "./corgi_frames";
+import { displayWidth } from "./text";
 const plain = (s: string) => s.replace(/\x1b\[[^m]*m/g, "");
 const len = (s: string) => [...s].length;
 const windup = 16,
@@ -113,7 +114,7 @@ test("sleeping corgi keeps a still face and fits its width while puffing", () =>
 });
 test("activities finish whole loops within budget and rest for at least ten seconds", () => {
   for (let seed = 0; seed < 100; seed++)
-    for (const routine of ["sniff", "fetch"] as const) {
+    for (const routine of ["sniff", "fetch", "bone"] as const) {
       const x = playback(seed);
       x.active = true;
       x.enter(routine, 100);
@@ -148,8 +149,62 @@ test("random starts cover all routines and redraws do not reroll decisions", () 
     sparse.update(true, 11999);
     expect(x).toEqual(sparse);
   }
-  expect([...seen].sort()).toEqual(["fetch", "idle", "sniff"]);
+  expect([...seen].sort()).toEqual(["bone", "fetch", "idle"]);
   expect(resumed && stayed).toBe(true);
+});
+test("each chance to play fetches or digs up a bone five times in a hundred", () => {
+  const counts = new Map<string, number>();
+  for (let roll = 0; roll < 100; roll++) {
+    const routine = a.Playback.choose(roll);
+    counts.set(routine, (counts.get(routine) ?? 0) + 1);
+  }
+  expect(Object.fromEntries(counts)).toEqual({ fetch: 5, bone: 5, idle: 90 });
+});
+const digging = (room: number, value: a.Bone) =>
+  Array.from({ length: a.boneTicks(value.tries) + 1 }, (_, tick) => plain(a.writeBone(room, value, tick)));
+test("the corgi digs up a bone, steps back to sniff it, chews it, and trots home", () => {
+  const value = new a.Bone({ tries: 1, seed: 5n }),
+    scenes = digging(22, value),
+    at = (pattern: RegExp) => scenes.findIndex(scene => pattern.test(scene));
+  for (const scene of scenes) expect(displayWidth(scene)).toBe(22);
+  expect(scenes[0]).toStartWith("~ᐯ•ᴥ•ᐯ");
+  expect(scenes.at(-1)!.slice(1)).toBe("ᐯ•ᴥ•ᐯ" + " ".repeat(16));
+  const dug = at(/~\[(\\\/|\/\\)\]o›/),
+    out = at(/ε=з/),
+    sniffed = at(/ᐯ•ˑ•ᐯ  ε=з/),
+    chewed = at(/ᐯ◡ᴥ◡ᐯ  =з/);
+  expect(dug).toBeGreaterThan(0);
+  expect(out).toBeGreaterThan(dug);
+  expect(sniffed).toBeGreaterThan(out);
+  expect(chewed).toBeGreaterThan(sniffed);
+  expect(scenes.some(scene => scene.includes("∘"))).toBe(false);
+  // The bone comes out the color of the pile behind the corgi, and the pile settles by the end.
+  expect(a.writeBone(22, value, at(/ε/))).toContain(p.fgRgb(a.dirt) + "ε");
+  expect(a.writeBone(22, value, out).split(p.fgRgb(a.dirt))[1]).toMatch(/^[\u2801-\u28ff]/);
+  expect(a.writeBone(22, value, a.boneTicks(1))).not.toContain(p.fgRgb(a.dirt));
+});
+test("a second try digs past a pebble when the row has room, and every dig fits its budget", () => {
+  const value = new a.Bone({ tries: 2, seed: 9n }),
+    scenes = digging(22, value),
+    pebble = scenes.findIndex(scene => scene.includes("∘")),
+    bone = scenes.findIndex(scene => scene.includes("ε=з"));
+  expect(pebble).toBeGreaterThan(0);
+  expect(bone).toBeGreaterThan(pebble);
+  expect(scenes.at(-1)!.slice(1, 6)).toBe("ᐯ•ᴥ•ᐯ");
+  expect(a.boneTicks(2) * a.bone_tick_ms).toBeLessThanOrEqual(a.Playback.max_activity_ms);
+  for (const room of [a.bone_width, a.bone_two_tries_width - 1]) {
+    const narrow = digging(room, value);
+    expect(narrow.some(scene => scene.includes("∘"))).toBe(false);
+    expect(narrow.some(scene => scene.includes("ε=з"))).toBe(true);
+    for (const scene of narrow) expect(displayWidth(scene)).toBe(room);
+  }
+  for (const room of [0, 1, 6, a.bone_width - 1])
+    for (let tick = 0; tick < a.boneTicks(1); tick += 7)
+      expect(displayWidth(plain(a.writeBone(room, value, tick)))).toBeLessThanOrEqual(room);
+  const tries = new Set<number>(),
+    r = new a.Random(3n);
+  for (let n = 0; n < 20; n++) tries.add(a.Bone.random(r).tries);
+  expect([...tries].sort()).toEqual([1, 2]);
 });
 test("delayed activity transition still gets a full idle rest", () => {
   const x = playback(0);
@@ -337,6 +392,8 @@ test("sidebar intensity dims non-fetch corgis on the row background and zero hid
     expect(x.writeCorgi(20, true, sleep)).toBe("");
     expect(a.idle(20, sleep)).not.toContain("ᐯ");
   }
+  x.playback.enter("bone", 0);
+  expect(x.writeCorgi(20, true, new a.Sleep({ intensity: 5 }))).toStartWith(p.fg("text"));
   x.playback.enter("fetch", 0);
   expect(x.writeCorgi(20, true, new a.Sleep({ intensity: 5 }))).toStartWith(p.fg("text"));
   expect(x.writeCorgi(20, true, new a.Sleep({ intensity: 100 }))).toStartWith(p.fg("text"));

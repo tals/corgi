@@ -268,13 +268,275 @@ export function writeFetch(width: number, value: Throw, tick: number): string {
   return out;
 }
 const frame = (room: number, value: string) => [...value].slice(0, Math.max(0, room)).join("");
-export type Routine = "idle" | "sniff" | "fetch";
+/** Digging up a bone: a mound fades in ahead, and the corgi trots over and
+ * digs it away a dot at a time, throwing each clod onto a pile behind it. The
+ * bone comes out dirt-colored; the corgi steps back, sniffs it, chews it
+ * down, and trots home while the pile settles. On a second try the first
+ * mound holds only a pebble, and another fades in further along. */
+export const bone_tick_ms = 40,
+  bone_width = 16,
+  bone_two_tries_width = 22;
+export class Bone {
+  tries: 1 | 2 = 1;
+  seed = 0n;
+  constructor(fields: Partial<Bone> = {}) {
+    Object.assign(this, fields);
+  }
+  static random(r: Random) {
+    return new Bone({ tries: r.boolean() ? 2 : 1, seed: r.next() });
+  }
+}
+type Find = { x: number; bone: boolean; glyphs: string[]; revealed: (number | null)[]; eaten: number; shown: boolean };
+type Mound = { dot: number; heights: number[]; born: number; find: Find };
+type Beat = [ticks: number, pose: string, wag?: number];
+/** The row as dot columns: the settled pile, mounds, clods in flight, and the corgi. */
+class Ground {
+  pile: number[];
+  mounds: Mound[] = [];
+  clods: { x: number; y: number; vx: number; vy: number }[] = [];
+  dog = { x: 0, pose: "~ᐯ•ᴥ•ᐯ", wag: 0 };
+  tick = 0;
+  dust = 0;
+  constructor(
+    room: number,
+    readonly random: Random,
+  ) {
+    this.pile = Array(room * 2).fill(0);
+  }
+  pose(x: number, pose: string, wag = 0) {
+    this.dog = { x, pose, wag };
+  }
+  bury(x: number, bone: boolean): Mound {
+    const find: Find = {
+      x,
+      bone,
+      glyphs: bone ? ["ε", "=", "з"] : [" ", "∘", " "],
+      revealed: [null, null, null],
+      eaten: 0,
+      shown: true,
+    };
+    const mound = { dot: 2 * x, heights: [1, 2, 3, 3, 2, 1], born: this.tick, find };
+    this.mounds.push(mound);
+    return mound;
+  }
+  /** One stroke: the dot nearest the nose flies off behind the corgi. */
+  dig(mound: Mound, from: number): boolean {
+    const i = mound.heights.findIndex(h => h > 0);
+    if (i < 0) return false;
+    mound.heights[i]--;
+    const r = this.random;
+    this.clods.push({ x: from, y: 0.6, vx: -(0.45 + r.float() * 0.5), vy: 0.8 + r.float() * 0.5 });
+    const cell = i >> 1;
+    if (mound.heights[2 * cell] + mound.heights[2 * cell + 1] === 0) mound.find.revealed[cell] ??= this.tick;
+    return true;
+  }
+  step() {
+    for (const clod of this.clods) {
+      clod.x += clod.vx;
+      clod.y += clod.vy;
+      clod.vy -= 0.3;
+    }
+    this.clods = this.clods.filter(clod => {
+      if (clod.y > 0) return clod.x > -2;
+      const at = Math.round(clod.x);
+      if (at >= 0 && at < this.pile.length) this.settle(at);
+      return false;
+    });
+  }
+  /** A landed clod rolls downhill until the slope holds it. */
+  settle(at: number) {
+    const p = this.pile;
+    for (;;) {
+      const height = p[at] + 1,
+        left = at > 0 ? p[at - 1] : Infinity,
+        right = at < p.length - 1 ? p[at + 1] : Infinity,
+        low = Math.min(left, right);
+      if (height <= 4 && height - low <= 1) {
+        p[at] = height;
+        return;
+      }
+      if (low >= p[at]) return;
+      at = left < right ? at - 1 : right < left ? at + 1 : this.random.boolean() ? at - 1 : at + 1;
+    }
+  }
+}
+function* beats(ground: Ground, x: number, list: Beat[]) {
+  for (const [ticks, pose, wag] of list)
+    for (let i = 0; i < ticks; i++) {
+      ground.pose(x, pose, wag);
+      yield;
+    }
+}
+function* trot(ground: Ground, from: number, to: number) {
+  for (let x = from; x <= to; x++) yield* beats(ground, x, [[2, gait_right[x % 4], 1]]);
+}
+/** Nose against the mound, paws flickering, until the mound is gone. */
+function* digOut(ground: Ground, mound: Mound, x: number) {
+  for (let k = 0; k % 2 !== 0 || ground.dig(mound, 2 * x - 1); k++) {
+    ground.pose(x, k % 4 < 2 ? "~[\\/]o›" : "~[/\\]o›");
+    yield;
+  }
+  yield* beats(ground, x, [[2, "~[||]o›"]]);
+}
+/** Two cells back from the bone: perks up, sniffs it, chews it down, and trots home. */
+function* eat(ground: Ground, find: Find) {
+  const x = find.x - 8;
+  yield* beats(ground, x, [
+    [6, "~ᐱ•ᴥ•ᐱ", 2],
+    [3, "~ᐯ•ω•ᐯ"],
+    [2, "~ᐯ•ˑ•ᐯ"],
+    [3, "~ᐯ•ω•ᐯ"],
+    [3, "~ᐯ•ˑ•ᐯ"],
+    [4, "~ᐯ◡ᴥ◡ᐯ", 2],
+  ]);
+  for (let k = 0; k < 24; k++) {
+    ground.pose(x, k % 6 < 3 ? "~ᐯ◡ω◡ᐯ" : "~ᐯ◡ᴥ◡ᐯ", 1);
+    find.eaten = Math.min(3, Math.floor((k + 2) / 6));
+    ground.dust = Math.min(1, k / 40);
+    yield;
+  }
+  find.shown = false;
+  for (let at = x; at >= 0; at--)
+    for (let i = 0; i < 2; i++) {
+      ground.pose(at, walk_left[at % 4], 1);
+      ground.dust = Math.min(1, ground.dust + 0.04);
+      yield;
+    }
+  ground.dust = 1;
+  yield* beats(ground, 0, [
+    [3, "~ᐯ◡ᴥ◡ᐯ", 1],
+    [3, "~ᐯ•ᴥ•ᐯ", 1],
+  ]);
+}
+function* digUp(ground: Ground, tries: 1 | 2) {
+  const first = ground.bury(13, tries === 1);
+  yield* beats(ground, 0, [
+    [3, "~ᐯ•ᴥ•ᐯ"],
+    [3, "~ᐯ•ω•ᐯ"],
+    [2, "~ᐯ•ˑ•ᐯ"],
+    [2, "~ᐯ•ω•ᐯ"],
+    [4, "~ᐱ•ᴥ•ᐱ", 2],
+  ]);
+  yield* trot(ground, 0, 6);
+  yield* digOut(ground, first, 6);
+  if (tries === 1) return yield* eat(ground, first.find);
+  yield* beats(ground, 6, [
+    [9, "~ᐯ•ᴥ•ᐱ"],
+    [3, "~ᐯ•ω•ᐯ"],
+    [2, "~ᐯ•ˑ•ᐯ"],
+  ]);
+  const second = ground.bury(19, true);
+  yield* beats(ground, 6, [
+    [3, "~ᐯ•ω•ᐯ"],
+    [4, "~ᐱ•ᴥ•ᐱ", 2],
+  ]);
+  yield* trot(ground, 6, 12);
+  yield* digOut(ground, second, 12);
+  yield* eat(ground, second.find);
+}
+const bone_runs = new Map<number, number>();
+/** Ticks until the corgi is back home; it then sits and wags. */
+export function boneTicks(tries: 1 | 2): number {
+  let ticks = bone_runs.get(tries);
+  if (ticks === undefined) {
+    const ground = new Ground(bone_two_tries_width, new Random()),
+      run = digUp(ground, tries);
+    for (ticks = 0; !run.next().done; ticks++) {
+      ground.tick = ticks + 1;
+      ground.step();
+    }
+    bone_runs.set(tries, ticks);
+  }
+  return ticks;
+}
+/** A dig `tick` ticks in. Rows too narrow for a second mound dig once. */
+export function boneScene(room: number, value: Bone, tick: number): Ground {
+  const ground = new Ground(room, new Random(value.seed)),
+    run = digUp(ground, room >= bone_two_tries_width ? value.tries : 1);
+  for (let t = 0; t <= tick; t++) {
+    ground.tick = t;
+    run.next();
+    ground.step();
+  }
+  return ground;
+}
+export function writeBone(room: number, value: Bone, tick: number, background = palette.colors.bg): string {
+  if (room < bone_width) {
+    const run = boneTicks(1),
+      phase = Math.floor((Math.min(tick, run - 1) * 4) / run);
+    return (
+      (room > 0 ? wagTail(Math.floor(tick / 4)) : "") + frame(room - 1, ["ᐯ•ω•ᐯ", "ᐯ•ᴥ•ᐱ", "ᐯ◡ω◡ᐯ", "ᐯ•ᴥ•ᐯ"][phase])
+    );
+  }
+  const ground = boneScene(room, value, tick),
+    text = palette.colors.text,
+    cells = Array.from({ length: room }, () => ({ glyph: " ", color: text })),
+    pile: number[] = Array(room).fill(0),
+    mound: number[] = Array(room).fill(0),
+    clods: number[] = Array(room).fill(0),
+    risen: number[] = Array(room).fill(1);
+  const unearthed = (age: number) => (age < 2 ? dirt : age < 4 ? blend(dirt, text, 0.5) : text);
+  const raise = (into: number[], dot: number, height: number) => {
+    for (let row = 0; row < Math.min(4, height); row++) into[dot >> 1] |= dots[dot & 1][row];
+  };
+  ground.pile.forEach((height, dot) => raise(pile, dot, height));
+  for (const m of ground.mounds)
+    m.heights.forEach((height, i) => {
+      if (height === 0) return;
+      raise(mound, m.dot + i, height);
+      risen[(m.dot + i) >> 1] = Math.min(1, (ground.tick - m.born + 1) / 8);
+    });
+  for (const clod of ground.clods) {
+    const dot = Math.round(clod.x);
+    if (dot >= 0 && dot < 2 * room) clods[dot >> 1] |= dots[dot & 1][Math.max(0, Math.min(3, Math.round(clod.y)))];
+  }
+  const settled = 1 - ground.dust;
+  for (let i = 0; i < room; i++) {
+    const bits = pile[i] | mound[i] | clods[i];
+    if (bits === 0) continue;
+    const amount = mound[i] ? risen[i] * settled : pile[i] ? settled : 1;
+    cells[i] = { glyph: String.fromCodePoint(0x2800 + bits), color: blend(background, dirt, amount) };
+  }
+  for (const { find } of ground.mounds) {
+    if (!find.shown) continue;
+    find.glyphs.slice(find.eaten).forEach((glyph, k) => {
+      const at = find.revealed[find.eaten + k];
+      if (glyph === " " || at === null) return;
+      const age = ground.tick - at;
+      cells[find.x + k] = {
+        glyph,
+        color: find.bone ? unearthed(age) : blend(background, age < 2 ? dirt : palette.colors.faint, settled),
+      };
+    });
+  }
+  const { x, pose, wag } = ground.dog;
+  [...pose].forEach((glyph, j) => {
+    if (x + j < 0 || x + j >= room) return;
+    cells[x + j] = {
+      glyph: glyph === "~" && wag ? wagTail(Math.floor(ground.tick / (wag === 2 ? 2 : 4))) : glyph,
+      color: text,
+    };
+  });
+  let color: palette.Rgb | null = null;
+  let out = "";
+  for (const cell of cells) {
+    if (cell.glyph !== " " && (color === null || cell.color.some((v, i) => v !== color![i]))) {
+      color = cell.color;
+      out += palette.fgRgb(color);
+    }
+    out += cell.glyph;
+  }
+  return out;
+}
+export type Routine = "idle" | "sniff" | "fetch" | "bone";
 export class Playback {
   static minimum_idle_ms = 10000;
   static retry_ms = 2000;
-  static activity_probability_percent = 35;
-  static fetch_probability_percent = 20;
-  static initial_fetch_probability_percent = 7.5;
+  /** Out of 100 at each chance to play; the rest stay idle. Sniff is out of the rotation for now. */
+  static odds: [Routine, number][] = [
+    ["fetch", 5],
+    ["bone", 5],
+  ];
   static max_activity_ms = 9600;
   active = false;
   routine: Routine = "idle";
@@ -282,40 +544,54 @@ export class Playback {
   deadline_ms = 0;
   random = new Random();
   throw = new Throw();
+  bone = new Bone();
+  static choose(roll: number): Routine {
+    for (const [routine, percent] of Playback.odds) {
+      if (roll < percent) return routine;
+      roll -= percent;
+    }
+    return "idle";
+  }
   enter(routine: Routine, now: number) {
     this.routine = routine;
     this.started_ms = now;
     if (routine === "fetch") this.throw = Throw.random(this.random);
-    this.deadline_ms =
-      now +
-      (routine === "idle" ? 10000 : routine === "sniff" ? (1 + this.random.int(2)) * frames.sniff.length * 200 : 9600);
+    if (routine === "bone") this.bone = Bone.random(this.random);
+    this.deadline_ms = now + this.duration(routine);
+  }
+  private duration(routine: Routine): number {
+    switch (routine) {
+      case "idle":
+        return Playback.minimum_idle_ms;
+      case "sniff":
+        return (1 + this.random.int(2)) * frames.sniff.length * 200;
+      case "fetch":
+        return Playback.max_activity_ms;
+      case "bone":
+        return boneTicks(this.bone.tries) * bone_tick_ms;
+    }
   }
   update(active: boolean, now: number) {
     const before = this.active;
     this.active = active;
     if (!active) return;
     if (!before) {
-      const choice = this.random.float() * 100;
-      this.enter(
-        choice < Playback.initial_fetch_probability_percent
-          ? "fetch"
-          : choice < Playback.activity_probability_percent
-            ? "sniff"
-            : "idle",
-        now,
-      );
+      this.enter(Playback.choose(this.random.float() * 100), now);
       return;
     }
     if (now < this.deadline_ms) return;
     if (this.routine !== "idle") this.enter("idle", now);
-    else if (this.random.int(100) < Playback.activity_probability_percent)
-      this.enter(this.random.int(100) < Playback.fetch_probability_percent ? "fetch" : "sniff", now);
-    else this.deadline_ms = now + 2000;
+    else {
+      const routine = Playback.choose(this.random.int(100));
+      if (routine === "idle") this.deadline_ms = now + Playback.retry_ms;
+      else this.enter(routine, now);
+    }
   }
-  write(room: number, now: number): string {
+  write(room: number, now: number, background = palette.colors.bg): string {
     const elapsed = Math.max(0, now - this.started_ms);
     if (this.routine === "idle") return frame(room, frames.wag[Math.floor(elapsed / 200) % frames.wag.length]);
     if (this.routine === "sniff") return frame(room, frames.sniff[Math.floor(elapsed / 200) % frames.sniff.length]);
+    if (this.routine === "bone") return writeBone(room, this.bone, Math.floor(elapsed / bone_tick_ms), background);
     if (room >= 18)
       return writeFetch(room, this.throw, Math.floor((Math.min(elapsed, 9599) * fetchPace(room, this.throw)) / 9600));
     const phase = Math.floor((Math.min(elapsed, 9599) * 4) / 9600);
@@ -638,9 +914,9 @@ export class Presentation {
     if (!pose || sleep.intensity === 0) return "";
     if (pose.mode === "asleep" && !working) return idle(room, sleep);
     const playback = pose.mode === "asleep" ? new Playback() : this.playback;
-    const color =
-      playback.routine === "fetch" ? palette.colors.text : intensityColor(sleep.background, sleep.intensity);
-    return palette.fgRgb(color) + playback.write(room, pose.at_ms);
+    const playful = playback.routine === "fetch" || playback.routine === "bone";
+    const color = playful ? palette.colors.text : intensityColor(sleep.background, sleep.intensity);
+    return palette.fgRgb(color) + playback.write(room, pose.at_ms, sleep.background);
   }
   hide() {
     this.playback.active = false;
