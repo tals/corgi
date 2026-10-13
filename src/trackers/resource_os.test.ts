@@ -22,3 +22,6 @@ test("native counters can sample this process", () => {
   expect(inventory().items.some(p => p.pid === process.pid)).toBe(true);
   expect(host().cores).toBeGreaterThan(0);
 });
+test("the inventory names each process", () => {
+  expect(inventory().items.find(p => p.pid === process.pid)?.name).toBe("bun");
+});

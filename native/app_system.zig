@@ -25,7 +25,7 @@ pub export fn app_system_json(op: u32, pid: i32, out: [*]u8, cap: usize) i64 {
             const inventory = resource_os.inventory(alloc) catch return -1;
             const Identity = struct { pid: i32, parent: i32, start: u64, name: []const u8 };
             const items = alloc.alloc(Identity, inventory.items.len) catch return -1;
-            for (inventory.items, items) |item, *result| result.* = .{ .pid = item.pid, .parent = item.parent, .start = item.start, .name = std.mem.sliceTo(&item.name, 0) };
+            for (inventory.items, items) |*item, *result| result.* = .{ .pid = item.pid, .parent = item.parent, .start = item.start, .name = std.mem.sliceTo(&item.name, 0) };
             break :blk std.json.Stringify.valueAlloc(alloc, .{ .items = items, .truncated = inventory.truncated }, .{}) catch return -1;
         },
         1 => std.json.Stringify.valueAlloc(alloc, resource_os.counters(pid), .{}) catch return -1,
