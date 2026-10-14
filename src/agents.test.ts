@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { Agent, Text, toolActivity } from "./agents";
+import { Agent, Text, toolActivity, type Presence } from "./agents";
 import { State } from "./observation";
 import { Hooks } from "./providers/common";
 import { Tail, completion } from "./transcript";
@@ -87,7 +87,15 @@ test("Claude Stop hooks cancelled by Esc end the turn as interrupted", () => {
   expect(completion(a, JSON.stringify(v))).toBeNull();
 });
 
-function observe(agent: Agent, provider: "codex" | "claude", hook: any, seq: bigint, watched: boolean, now: number) {
+function observe(
+  agent: Agent,
+  provider: "codex" | "claude",
+  hook: any,
+  seq: bigint,
+  watched: boolean,
+  now: number,
+  presence: Presence = "detached",
+) {
   return agent.observeHook(
     provider,
     {
@@ -106,6 +114,7 @@ function observe(agent: Agent, provider: "codex" | "claude", hook: any, seq: big
     seq,
     watched,
     now,
+    presence,
   );
 }
 test("an answered Claude prompt ends its block without a hook", () => {
@@ -400,6 +409,29 @@ test("Claude's worktree tools move its location past earlier writes", () => {
   observe(agent, "claude", finish("ExitWorktree", "/repo", { action: "keep" }, { restoredCwd: "/repo" }), 5n, false, 5);
   expect(worktrees.observedDirectory(agent)).toBe("/repo");
   expect(worktrees.writtenPaths(agent)).toEqual([]);
+});
+test("a session ends only where nothing shows it; a shown one that starts again keeps its place", () => {
+  const one = "/repo/.worktrees/one",
+    where: worktrees.Location = { cwd: one, writes: [], ran: [one], basis: "named" },
+    agent = new Agent();
+  observe(agent, "codex", { kind: "prompt", session: "s", cwd: "/repo" }, 1n, false, 1, "attached");
+  worktrees.recordLocation(agent, where);
+  // Codex reverts a turn by ending the session and starting it again.
+  observe(agent, "codex", { kind: "interrupt", session: "s" }, 2n, false, 2, "attached");
+  observe(agent, "codex", { kind: "session_end", session: "s" }, 3n, false, 3, "attached");
+  expect(agent.state).toBe("idle");
+  observe(agent, "codex", { kind: "session_start", session: "s", cwd: "/repo" }, 4n, false, 4, "attached");
+  expect([agent.state, worktrees.observed(agent)]).toEqual(["idle", where]);
+  // Resumed in a pane that wasn't showing it, it starts afresh there.
+  observe(agent, "codex", { kind: "session_start", session: "s", cwd: "/other" }, 5n, false, 5, "attaching");
+  expect([agent.state, agent.cwd.text(), worktrees.observed(agent)]).toEqual(["idle", "/other", null]);
+  // A background session is shown nowhere: its end is the only sign it ended.
+  const background = new Agent();
+  observe(background, "claude", { kind: "prompt", session: "b" }, 1n, false, 1);
+  observe(background, "claude", { kind: "session_end", session: "b" }, 2n, false, 2);
+  expect(background.state).toBe("done");
+  observe(background, "claude", { kind: "session_start", session: "b" }, 3n, false, 3);
+  expect(background.state).toBe("idle");
 });
 test("hook sequences preserve distinct integers beyond number precision", () => {
   const agent = new Agent();

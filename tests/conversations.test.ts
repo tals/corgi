@@ -326,23 +326,6 @@ class ClaudeConversations extends Runtime {
     this.assertEqual(selected.state, "working");
     this.assertFalse((await this.session()).conversations.some((a: any) => a.agent.session === "unrelated"));
   }
-  async test_known_conversation_reclaims_pane_after_its_selection_ended() {
-    await this.hook("parent", "SessionStart");
-    await this.hook("parent", "UserPromptSubmit");
-    // A nested run that older hook clients let claim the pane.
-    await this.hook("child", "SessionStart");
-    await this.hook("child", "UserPromptSubmit");
-    await this.finish("child");
-    await this.hook("child", "SessionEnd");
-    let selected = (await this.pane_snapshot(this.pane)).agent;
-    this.assertEqual(selected.session, "child");
-    this.assertEqual(selected.state, "done");
-    await this.hook("parent", "UserPromptSubmit");
-    selected = (await this.pane_snapshot(this.pane)).agent;
-    this.assertEqual(selected.session, "parent");
-    this.assertEqual(selected.state, "working");
-    this.assertEqual((await this.actor("child")).attachments, 0);
-  }
   async test_backgrounded_conversation_follows_its_continuation() {
     await this.hook("original", "SessionStart");
     await this.hook("original", "UserPromptSubmit");

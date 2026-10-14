@@ -54,7 +54,7 @@ test("a new agent starts where the list puts the one beside it, its own folder w
   expect(agents.folder(data, { pane: 2 }, "/tmp")).toBe("/tmp");
   expect(agents.folder(null, { pane: 2 }, "/repo/src")).toBe("/repo/src");
 });
-test("each worktree counts its live agents by state, as its header does", () => {
+test("each worktree counts its agents by state, as its header does, ended ones as quiet", () => {
   const data = snapshot(),
     working = sidebar.entry({ target: { pane: 1 }, cwd: "/repo/.worktrees/one", provider: "claude", state: "working" }),
     idle = sidebar.entry({ target: { pane: 2 }, cwd: "/repo/.worktrees/one/src", provider: "codex", state: "idle" }),
@@ -68,9 +68,11 @@ test("each worktree counts its live agents by state, as its header does", () => 
     done = sidebar.entry({ target: { pane: 3 }, cwd: "/repo/.worktrees/two", provider: "codex", state: "done" });
   const counts = agents.counts(data, [working, idle, asking, done]);
   expect(counts.get("/repo/.worktrees/one")).toEqual({ agents: 3, working: 1, attention: 1 });
-  expect(counts.get("/repo/.worktrees/two")).toEqual({ agents: 0, working: 0, attention: 0 });
+  expect(counts.get("/repo/.worktrees/two")).toEqual({ agents: 1, working: 0, attention: 0 });
   const rows = agents.grouped(data, 1, [working, idle, asking, done], new agents.State());
   expect(rows.find(e => "worktree" in e.target)!.group).toMatchObject(counts.get("/repo/.worktrees/one")!);
+  // An agent whose session ended stays under its checkout until its pane goes.
+  expect(rows.at(-1)).toMatchObject({ target: { pane: 3 }, worktree: { path: "/repo/.worktrees/two" } });
 });
 test("a ghost with no agents shows the newest conversations no pane has open, as agents", () => {
   const data = snapshot(),

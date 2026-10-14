@@ -482,40 +482,6 @@ test("known background hooks route to their actor and process replacement revoke
   expect(registry.routeHook(binding, "claude", hook)).toBeNull();
 });
 
-test("a known conversation's live hook replaces an ended selection", () => {
-  const registry = new Registry();
-  const binding = new Attachment();
-  const hooks = new Hooks();
-  const start = hooks.decode({
-    hook_event_name: "SessionStart",
-    session_id: "child",
-  })!;
-  const end = hooks.decode({
-    hook_event_name: "SessionEnd",
-    session_id: "child",
-  })!;
-  const prompt = hooks.decode({
-    hook_event_name: "UserPromptSubmit",
-    session_id: "parent",
-  })!;
-  const other = hooks.decode({
-    hook_event_name: "UserPromptSubmit",
-    session_id: "other",
-  })!;
-  const parent = registry.get("claude", "parent");
-  binding.select(parent);
-  const child = registry.routeHook(binding, "claude", start)!;
-  child.observeHook(end, 1n, false, 100);
-  expect(child.state.state).toBe("done");
-  registry.routeHook(binding, "claude", end);
-  expect(binding.actor).toBe(child);
-  registry.get("claude", "other");
-  expect(registry.routeHook(binding, "claude", other)).toBeNull();
-  expect(binding.actor).toBe(child);
-  expect(registry.routeHook(binding, "claude", prompt)).toBe(parent);
-  expect(binding.actor).toBe(parent);
-});
-
 test("a second attachment does not erase a stop awaiting transcript confirmation", () => {
   const registry = new Registry();
   const actor = registry.get("claude", "shared");
@@ -528,7 +494,7 @@ test("a second attachment does not erase a stop awaiting transcript confirmation
   })!;
   const binding = new Attachment();
   expect(registry.routeHook(binding, "claude", start)).toBe(actor);
-  actor.observeHook(start, 11n, false, 101);
+  actor.observeHook(start, 11n, false, 101, "attached");
   expect(actor.state.observation.pending_stop).toBe(true);
   expect(actor.confirmStop(10n, "completed", 102)).toBe(true);
   expect(actor.state.observation.completed).toBe(1n);

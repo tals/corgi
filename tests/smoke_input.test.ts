@@ -182,11 +182,13 @@ class SmokeInput extends Runtime {
     await this.agent_frame("codex", "▶", "thinking", PALETTE.accent);
     await hook("Stop");
     await this.agent_frame("codex", "○", "", PALETTE.muted);
+    // The pane shows the session, so its end waits for the pane: Codex also
+    // ends a session to revert a turn, and goes on.
     await hook("SessionEnd");
     await this.agent_frame("codex", "○", "", PALETTE.muted);
     this.assertEqual(
       (await this.session()).conversations.find((c: any) => c.agent.session === session).agent.state,
-      "done",
+      "idle",
     );
     await this.command("pane.close", { target: one });
     screen = await this.frame_with("No agents yet");

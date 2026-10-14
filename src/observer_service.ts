@@ -4,7 +4,7 @@ import { Worker as CodexWorker } from "./codex_observer";
 import { Worker as UsageWorker } from "./usage/worker";
 import { Worker as SummaryWorker } from "./activity/worker";
 import { Backend } from "./providers";
-import { Path } from "./agents";
+import { Path, type Presence } from "./agents";
 import { Counts } from "./usage/tokens";
 import * as setup from "./inference/setup";
 import * as detection from "./detection";
@@ -216,8 +216,11 @@ export function hook(server: Server, query: Request<"hook">) {
   if (!event) return;
   const now = clock.microTimestamp(),
     seq = query.seq ?? BigInt(now);
+  const known = runtime.conversations.find(query.provider, event.session),
+    presence: Presence =
+      known && runtime.attachments(known) > 0 ? "attached" : query.background ? "detached" : "attaching";
   let actor;
-  if (query.background) actor = runtime.conversations.find(query.provider, event.session);
+  if (query.background) actor = known;
   else {
     const pane = hookPane(runtime, query, event.session);
     if (!pane) throw Error("NoPane");
@@ -234,7 +237,7 @@ export function hook(server: Server, query: Request<"hook">) {
   if (query.pid > 0) actor.pid = query.pid;
   attention(
     server,
-    runtime.conversations.observeHook(actor, event, seq, actorWatched(server, actor.id), now),
+    runtime.conversations.observeHook(actor, event, seq, actorWatched(server, actor.id), now, presence),
     actor.state.state,
   );
   workers.summaries.reconcile(runtime.conversations.items);

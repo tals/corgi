@@ -10,7 +10,6 @@ interface Stored {
   opening_ms: number | null;
   closing_ms: number | null;
   unbound_ms: number | null;
-  ended: boolean;
   occupied: boolean;
   seen: boolean;
   /** Rows above it in the list as last shown. */
@@ -37,7 +36,6 @@ export class State {
     slot.at_ms = now;
     slot.closing_ms = null;
     slot.unbound_ms = null;
-    slot.ended = false;
     slot.occupied = true;
   }
   view(slot: Stored, now: number): Entry {
@@ -99,7 +97,6 @@ export class State {
           opening_ms: null,
           closing_ms: null,
           unbound_ms: null,
-          ended: false,
           occupied: false,
           seen: false,
           top: 0,
@@ -119,21 +116,7 @@ export class State {
           ["initializing", "unknown"].includes(entry.state);
       if (lost && slot.unbound_ms === null) slot.unbound_ms = now;
       const hold = lost && now - slot.unbound_ms! < 650;
-      if (!hold) {
-        const same =
-          slot.occupied && slot.entry.conversation === entry.conversation && slot.entry.provider === entry.provider;
-        if (
-          same &&
-          "pane" in entry.target &&
-          entry.state === "done" &&
-          slot.entry.state !== "done" &&
-          slot.closing_ms === null
-        ) {
-          slot.closing_ms = now;
-          slot.ended = true;
-        }
-        if (!same || slot.closing_ms === null || !slot.ended) this.capture(slot, entry, now);
-      }
+      if (!hold) this.capture(slot, entry, now);
       if (arrived) {
         slot.opening_ms = entry.reopened ? now : null;
         slot.moved = null;

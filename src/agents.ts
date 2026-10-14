@@ -7,6 +7,10 @@ export { observation, Provider, str, Path };
 export class Text extends BoundedText(160) {}
 export type State = "unknown" | "initializing" | "idle" | "working" | "blocked" | "done";
 export type Attention = "none" | "finished" | "needs_input";
+/** Whether anything showed a conversation when one of its hooks arrived: a
+ * pane or session already did, the hook's pane is about to, or nothing does,
+ * as with a session in Claude's background daemon. */
+export type Presence = "attached" | "attaching" | "detached";
 export class Agent {
   subagents = { running: 0, blocked: 0, waiting: false };
   name = new Text();
@@ -195,7 +199,14 @@ export class Agent {
       ? this.endTurn(this.turnId(), outcome, "transcript", now)
       : false;
   }
-  observeHook(provider: Provider, hook: any, seq: bigint, watched: boolean, now: number): boolean | null {
+  observeHook(
+    provider: Provider,
+    hook: any,
+    seq: bigint,
+    watched: boolean,
+    now: number,
+    presence: Presence = "detached",
+  ): boolean | null {
     if (seq <= this.last_seq) return null;
     const event = hook.kind,
       session = hook.session,
@@ -210,7 +221,9 @@ export class Agent {
       return null;
     if (path.isAbsolute(hook.transcript)) this.transcript = new Path(hook.transcript);
     this.paused = false;
-    if (start && this.state !== "unknown" && this.state !== "done") return false;
+    // A live conversation that is already shown is only announcing itself
+    // again: after compaction, a Codex revert, or from a second pane.
+    if (start && presence !== "attaching" && this.state !== "unknown" && this.state !== "done") return false;
     const next: State = (
       {
         session_start: "idle",
@@ -224,7 +237,9 @@ export class Agent {
         compact_end: "working",
         permission: provider === "codex" ? "working" : "blocked",
         notification: "blocked",
-        session_end: "done",
+        // A shown conversation ends when its process exits or its pane moves
+        // on. Codex also ends one to revert a turn, and goes on.
+        session_end: presence === "attached" ? "idle" : "done",
       } as Record<string, State>
     )[event];
     if (start || next === "working" || next === "blocked") this.finished_since_activity = false;

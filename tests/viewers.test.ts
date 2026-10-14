@@ -1183,7 +1183,7 @@ process.stdin.resume();
     }
   }
 
-  async test_agent_exit_freezes_row_then_fades_without_stale_clicks() {
+  async test_ended_agent_keeps_row_until_pane_closes_then_fades_without_stale_clicks() {
     await this.new();
     const first = await this.new(),
       second = await this.new();
@@ -1207,17 +1207,20 @@ process.stdin.resume();
       seq: 3,
       event: { hook_event_name: "SessionEnd", session_id: String(first) },
     });
-    const closing = screen_text((await viewer.poll()).data, 100, 30);
-    this.assertEqual(before[16].slice(0, 27), closing[16].slice(0, 27));
+    // The pane still shows the session, so the row stays until the pane goes.
+    const ended = screen_text((await viewer.poll()).data, 100, 30);
+    this.assertIn("Departing-agent", ended[16].slice(0, 27));
     this.assertNotIn(
       "Session ended",
-      closing
+      ended
         .slice(16, 28)
         .map(row => row.slice(0, 27))
         .join("\n"),
     );
-    this.assertEqual((await viewer.input("\x1b[<0;6;17M\x1b[<0;6;17m")).pane, second);
     await this.command("pane.close", { target: first });
+    const closing = screen_text((await viewer.poll()).data, 100, 30);
+    this.assertIn("Departing-agent", closing[16].slice(0, 27));
+    this.assertEqual((await viewer.input("\x1b[<0;6;17M\x1b[<0;6;17m")).pane, second);
     await sleep(0.3);
     const closed = screen_text((await viewer.poll()).data, 100, 30);
     this.assertIn("Surviving-agent", closed[16].slice(0, 27));

@@ -4949,11 +4949,9 @@ export class Controller {
   private openSessions(): Set<string> {
     const open = new Set<string>();
     for (const pane of this.runtime.panes)
-      if (pane.agent.provider && pane.agent.state !== "done" && pane.agent.session)
-        open.add(`${pane.agent.provider}:${pane.agent.session}`);
+      if (pane.agent.provider && pane.agent.session) open.add(`${pane.agent.provider}:${pane.agent.session}`);
     for (const session of this.runtime.sessions)
-      if (!session.exited && session.state !== "done" && session.agent?.session)
-        open.add(`${session.provider}:${session.agent.session}`);
+      if (!session.exited && session.agent?.session) open.add(`${session.provider}:${session.agent.session}`);
     return open;
   }
   private browsingWorktree(): worktreeAgents.Selection | null {

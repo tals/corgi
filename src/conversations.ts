@@ -5,7 +5,7 @@ import { Timeline } from "./activity/timeline";
 import { View, Codex as NativeMeter } from "./usage/live";
 import { Reading, Points } from "./usage/context_window";
 import { Claude } from "./providers/claude";
-import { Agent, Provider, Text, type State } from "./agents";
+import { Agent, Provider, Text, type Presence, type State } from "./agents";
 import type { Outcome } from "./observation";
 import { Model } from "./providers/model";
 import { PromptWatch, claudeRunning } from "./detection";
@@ -142,9 +142,9 @@ export class Actor {
   provider() {
     return this.state.provider!;
   }
-  observeHook(event: any, seq: bigint, watched: boolean, now: number) {
+  observeHook(event: any, seq: bigint, watched: boolean, now: number, presence: Presence = "detached") {
     const was = this.state.compacting;
-    const ding = this.state.observeHook(this.provider(), event, seq, watched, now);
+    const ding = this.state.observeHook(this.provider(), event, seq, watched, now, presence);
     if (ding === null) return false;
     if (this.state.last_seq === seq) this.screen_compacting = false;
     if (event.model) {
@@ -304,9 +304,9 @@ export class Registry {
     }
     return false;
   }
-  observeHook(actor: Actor, event: any, seq: bigint, watched: boolean, now: number) {
+  observeHook(actor: Actor, event: any, seq: bigint, watched: boolean, now: number, presence: Presence = "detached") {
     const accepted = actor.state.last_seq;
-    const ding = actor.observeHook(event, seq, watched, now);
+    const ding = actor.observeHook(event, seq, watched, now, presence);
     if (actor.state.last_seq === accepted || actor.provider() !== "claude") return ding;
     if (event.subagent) this.observeLaunch(actor, event, now);
     const listed = background_tasks.Children.claude(event.background_tasks);
@@ -413,14 +413,6 @@ export class Registry {
       return actor;
     }
     const actor = this.find(provider, event.session);
-    if (!actor || !binding.knows(actor.id)) return null;
-    if (
-      event.kind !== "session_end" &&
-      binding.actor &&
-      binding.actor !== actor &&
-      binding.actor.state.state === "done"
-    )
-      binding.select(actor);
-    return actor;
+    return actor && binding.knows(actor.id) ? actor : null;
   }
 }

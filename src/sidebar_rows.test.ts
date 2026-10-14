@@ -10,7 +10,7 @@ const checkout = (path: string) => ({ workspace: 1, path, ghost: false });
 const header = (path: string) =>
   sidebarEntry({ name: path, target: { worktree: path, workspace: 1 }, worktree: checkout(path) });
 const under = (e: Entry, path: string): Entry => ({ ...e, worktree: checkout(path) });
-test("end hook and disappearance share one frozen exit without changing adjacent rows", () => {
+test("an ended agent's row stays live until it goes, then fades once without changing adjacent rows", () => {
   const rows = new State(),
     out: Entry[] = [],
     live = [{ ...entry(1, "codex", "working"), name: "Dog" }, entry(2, "claude")];
@@ -18,17 +18,35 @@ test("end hook and disappearance share one frozen exit without changing adjacent
   live[0].name = "Xog";
   live[0].state = "done";
   let shown = rows.update(1, live, out, 10);
-  expect(shown[0].name).toBe("Dog");
-  expect(shown[0].state).toBe("working");
-  expect(shown[0].exit).not.toBeNull();
+  expect(shown[0].name).toBe("Xog");
+  expect(shown[0].state).toBe("done");
+  expect(shown[0].exit ?? null).toBeNull();
   shown = rows.update(1, live.slice(1), out, 130);
   expect(shown.length).toBe(2);
   expect(paneOf(shown[1])).toBe(2);
-  expect(shown[0].exit?.progress).toBe(0.5);
+  expect(shown[0].name).toBe("Xog");
+  expect(shown[0].exit?.progress).toBe(0);
   shown = rows.update(1, live.slice(1), out, 250);
+  expect(shown[0].exit?.progress).toBe(0.5);
+  shown = rows.update(1, live.slice(1), out, 370);
   expect(shown.length).toBe(1);
   expect(paneOf(shown[0])).toBe(2);
-  expect(rows.update(2, [], out, 260)).toHaveLength(0);
+  expect(rows.update(2, [], out, 380)).toHaveLength(0);
+});
+test("an agent that ends and goes on, as Codex does to revert, keeps its row in its group", () => {
+  const rows = new State(),
+    out: Entry[] = [],
+    row = under(entry(1), "/wt");
+  rows.update(1, [header("/wt"), row], out, 0);
+  for (const [state, at] of [
+    ["done", 100],
+    ["done", 400],
+    ["idle", 1600],
+  ] as const) {
+    const shown = rows.update(1, [header("/wt"), { ...row, state }], out, at);
+    expect(shown.map(paneOf)).toEqual([null, 1]);
+    expect(shown[1]).toMatchObject({ state, exit: null, moved: null });
+  }
 });
 test("a reopened row fades in as long as a closing one fades out; other new rows just appear", () => {
   const rows = new State(),

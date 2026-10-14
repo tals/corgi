@@ -50,9 +50,9 @@ function checkoutsOf(snapshot: worktrees.Snapshot, target: sidebar.Target, cwd: 
   const at = checkoutAt(snapshot, cwd);
   return at === null ? [] : [at];
 }
-/** Whether a live agent is listed under the checkout at `path`. */
+/** Whether an agent is listed under the checkout at `path`. */
 export function belongs(snapshot: worktrees.Snapshot, path: string, entry: sidebar.Entry): boolean {
-  if (!sidebar.isAgent(entry.target) || entry.state === "done") return false;
+  if (!sidebar.isAgent(entry.target)) return false;
   return checkoutsOf(snapshot, entry.target, entry.cwd).includes(path);
 }
 /** Where a new agent beside `target` starts: its folder `cwd`, unless the

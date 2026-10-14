@@ -34,8 +34,13 @@ provider can reuse the sources it actually supports.
 ## Observations and switching
 
 - Hooks select on `SessionStart`. Later events for a conversation known to that
-  attachment update that actor without changing selection, unless the selected
-  conversation has ended; then any event but `SessionEnd` selects it. Claude
+  attachment update that actor without changing selection. A conversation a
+  pane or session shows ends with its process or when the pane moves on, so its
+  `SessionEnd` leaves it idle; only a conversation nothing shows, such as a
+  daemon-hosted one, is marked done. Codex also sends `SessionEnd` and
+  `SessionStart` when it reverts a turn, and the conversation goes on. A
+  `SessionStart` for a live conversation already shown only refreshes its
+  transcript. Claude
   processes outside their terminal's foreground job, such as daemon-hosted
   sessions or a `claude -p` an agent runs from a tool, inherit `CORGI_PANE` but
   never select. A first hook can also
