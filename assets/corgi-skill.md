@@ -94,6 +94,7 @@ Existing `corgi workspace` commands manage workspace metadata; use its help.
 Do not stop/restart the runtime to obtain a missing command. Ask the user about
 updating when the server does not support this CLI.
 
-Success is JSON on stdout. Errors are JSON on stderr with `ok:false` and `err`;
-usage errors exit 2, runtime errors exit 1. No automatic retries of mutations.
+Success is JSON on stdout. Errors are JSON on stderr with `ok:false` and `err`
+(a `Usage` error adds the command's `usage` lines); usage errors exit 2,
+runtime errors exit 1. No automatic retries of mutations.
 A broken connection can occur after a successful mutation: rediscover first.

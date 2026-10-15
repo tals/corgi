@@ -6,6 +6,7 @@ import * as os from "./os";
 import * as rpc from "./rpc";
 import * as cli from "./cli";
 import * as json from "./json";
+import * as errors from "./errors";
 import helpText from "../assets/help.txt" with { type: "text" };
 import { specs as actionSpecs } from "./action";
 import type { Preset } from "./keymap";
@@ -35,7 +36,7 @@ const help = helpText.replace("\n\n\n\n", `\n\n${actionNames}\n\n`);
 export const buildId = (): string => build_id.of(executable);
 const provider = (value: string) => {
   const parsed = Provider.parse(value);
-  if (!parsed) throw Error("BadProvider");
+  if (!parsed) throw Error("Usage");
   return parsed;
 };
 export function providerAlias(argv0: string): Provider | null {
@@ -140,12 +141,18 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     try {
       await cli.run(path, args);
     } catch (error) {
-      cli.failure(error instanceof Error ? error.message : String(error), 2);
+      cli.failure(error instanceof Error ? error.message : String(error), 2, args);
     }
     return;
   }
+  // `agent` hands the rest of its line to the agent; `integration` prints its own help.
+  const own =
+    command === "agent" ? args.slice(0, 2) : command === "integration" || command.startsWith("__") ? [] : args;
+  if (cli.asksHelp(own)) {
+    process.stdout.write(help + cli.help);
+    return;
+  }
   switch (command) {
-    case "--help":
     case "help":
       process.stdout.write(help + cli.help);
       return;
@@ -352,14 +359,31 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       throw Error("UnknownCommand");
   }
 }
-if (import.meta.main)
-  run().catch(error => {
-    const message = error instanceof Error ? error.message : String(error);
-    if (["IncompatibleViewerProtocol", "UnsupportedViewerProtocol", "UnsupportedProtocol"].includes(message))
-      process.stderr.write(
-        "corgi: this viewer is incompatible with the server (requires viewer protocol 3). The server may have changed during a restart. Reattach using the same Corgi version as the server.\n",
-      );
-    else process.stderr.write(`corgi: ${message}\n`);
+/** What corgi prints when the command line `args` failed with `error`. */
+export function failure(args: string[], error: unknown): string {
+  const name = errors.name(error) ?? String(error);
+  switch (name) {
+    case "Usage": {
+      const lines = cli.usage(help, args);
+      if (!lines.length) return "corgi: usage: see corgi --help\n";
+      if (args[0] === "action") lines.push("", actionNames);
+      return `corgi: usage:\n${lines.join("\n")}\n`;
+    }
+    case "UnknownCommand":
+      return `corgi: unknown command ${args[0]}; see corgi --help\n`;
+    case "IncompatibleViewerProtocol":
+    case "UnsupportedViewerProtocol":
+    case "UnsupportedProtocol":
+      return "corgi: this viewer is incompatible with the server (requires viewer protocol 3). The server may have changed during a restart. Reattach using the same Corgi version as the server.\n";
+    default:
+      return `corgi: ${name}\n`;
+  }
+}
+if (import.meta.main) {
+  const args = process.argv.slice(2);
+  run(args).catch(error => {
+    process.stderr.write(failure(args, error));
     if (process.env.CORGI_DEBUG) console.error(error);
-    process.exitCode = 1;
+    process.exitCode = errors.is(error, "Usage") || errors.is(error, "UnknownCommand") ? 2 : 1;
   });
+}

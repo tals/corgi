@@ -67,7 +67,8 @@ Attachments compose their UI locally from session snapshots and terminal surface
 
 `corgi --skill` prints the [bundled agent guide](../src/corgi-skill.md); the main
 help includes the instruction to load it only when it is not already in context.
-`corgi tab`, `corgi pane`, and command `--help` show usage without connecting.
+`corgi tab`, `corgi pane`, and any command's `--help` show usage without
+connecting. A malformed command prints its own usage lines and exits 2.
 
 `corgi list` returns a versioned session snapshot in `result`, plus `viewers`.
 Workspace entries contain ordered tabs and split trees; pane entries contain

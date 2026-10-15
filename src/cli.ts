@@ -50,6 +50,29 @@ const actions = new Set([
 export function handles(args: string[]): boolean {
   return groups.has(args[0]);
 }
+/** Whether a command line asks for help: `--help` or `-h` before any `--`. */
+export function asksHelp(args: string[]): boolean {
+  for (const arg of args) {
+    if (arg === "--") return false;
+    if (arg === "--help" || arg === "-h") return true;
+  }
+  return false;
+}
+/** The lines of a help text that show the command a line names, matched by
+ * its longest run of leading words: `pane split 3` finds `corgi pane split`. */
+export function usage(text: string, args: string[]): string[] {
+  const end = args.findIndex(arg => arg.startsWith("-")),
+    words = end === -1 ? args : args.slice(0, end);
+  for (let n = words.length; n > 0; n--) {
+    const prefix = ["corgi", ...words.slice(0, n)].join(" "),
+      lines = text.split("\n").filter(line => {
+        const shown = line.trimStart();
+        return shown.startsWith(prefix) && [undefined, " ", "|"].includes(shown[prefix.length]);
+      });
+    if (lines.length) return lines;
+  }
+  return [];
+}
 export function id(value: string): number {
   if (!/^\+?\d+$/.test(value)) throw Error("InvalidCharacter");
   const n = Number(value);
@@ -265,7 +288,7 @@ export async function run(path: string, args: string[]): Promise<void> {
     process.stdout.write(skill);
     return;
   }
-  if ((nested.has(group) && args.length === 1) || args.slice(1).some(v => v === "--help" || v === "-h")) {
+  if ((nested.has(group) && args.length === 1) || asksHelp(args.slice(1))) {
     process.stdout.write(help);
     return;
   }
@@ -297,7 +320,9 @@ export async function run(path: string, args: string[]): Promise<void> {
     conn.close();
   }
 }
-export function failure(code: string, status = 1): void {
-  process.stderr.write(stringify({ ok: false, err: code }) + "\n");
+/** Writes a failed command line's JSON error; a usage error lists the command's help lines. */
+export function failure(code: string, status = 1, args: string[] = []): void {
+  const lines = code === "Usage" ? usage(help, args).map(line => line.trim()) : [];
+  process.stderr.write(stringify({ ok: false, err: code, ...(lines.length ? { usage: lines } : {}) }) + "\n");
   process.exitCode = status;
 }

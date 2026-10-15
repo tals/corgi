@@ -1,5 +1,5 @@
 import { test, expect, spyOn } from "bun:test";
-import { actionNames, providerAlias, paneId, run } from "./main";
+import { actionNames, failure, providerAlias, paneId, run } from "./main";
 import { specs } from "./action";
 import * as rpc from "./rpc";
 import { readFileSync, existsSync, realpathSync } from "node:fs";
@@ -45,6 +45,33 @@ test("open inside a pane quietly sends its viewer the folder's real path", async
     if (previous === undefined) delete process.env.CORGI_PANE;
     else process.env.CORGI_PANE = previous;
   }
+});
+test("--help prints help instead of running the command", async () => {
+  const request = spyOn(rpc, "request").mockResolvedValue({ ok: true });
+  const output = spyOn(process.stdout, "write").mockReturnValue(true);
+  try {
+    for (const args of [["shutdown", "--help"], ["reload", "-h"], ["-h"], ["agent", "--help"]]) {
+      output.mockClear();
+      await run(args);
+      expect(String(output.mock.calls[0]?.[0])).toContain("corgi shutdown");
+    }
+    expect(request).not.toHaveBeenCalled();
+  } finally {
+    request.mockRestore();
+    output.mockRestore();
+  }
+});
+test("usage errors show the command's help lines", () => {
+  expect(failure(["open"], Error("Usage"))).toBe(
+    "corgi: usage:\n  corgi open DIR                show DIR's workspace; add one if none\n",
+  );
+  expect(failure(["which", "gemini"], Error("Usage"))).toContain("corgi which claude|codex");
+  expect(failure(["update", "status", "x"], Error("Usage"))).not.toContain("corgi update auto on|off");
+  expect(failure(["update", "bogus"], Error("Usage"))).toContain("corgi update auto on|off");
+  expect(failure(["action"], Error("Usage"))).toEndWith(actionNames + "\n");
+  expect(failure(["ping", "x"], Error("Usage"))).toBe("corgi: usage: see corgi --help\n");
+  expect(failure(["shutdwon"], Error("UnknownCommand"))).toBe("corgi: unknown command shutdwon; see corgi --help\n");
+  expect(failure(["open"], Error("NotDir"))).toBe("corgi: NotDir\n");
 });
 test("every source file is in the test root", () => {
   const config = JSON.parse(readFileSync(resolve(import.meta.dir, "../tsconfig.json"), "utf8"));
