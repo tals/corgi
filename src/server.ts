@@ -216,11 +216,12 @@ export class Server {
         this.socketPath = SocketPath.claim(this.socket);
         for (const provider of Provider.all)
           try {
-            await integration.install(provider);
+            if (!integration.uninstalled(provider)) await integration.install(provider);
           } catch (error) {
             console.error("hook setup:", error);
           }
-        void integration.installCodexTitle().catch(error => console.error("Codex title setup:", error));
+        if (!integration.uninstalled("codex"))
+          void integration.installCodexTitle().catch(error => console.error("Codex title setup:", error));
       } else this.socketPath = SocketPath.claim(this.socket);
       this.bindPanes();
       observers.start(this);

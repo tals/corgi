@@ -12,6 +12,7 @@ corgi — a small Ghostty-powered agent terminal
   corgi action NAME [VALUE]     run a viewer action, named below
   corgi agent claude|codex ...   optional discovered-binary launcher
   corgi hooks claude|codex       print hook configuration
+  corgi integration COMMAND     status, install, uninstall hooks
   corgi which codex             show automatically selected executable
   corgi keys [PRESET]           list shortcuts: corgi, tmux, herdr, cmux
   corgi native start PROVIDER [--workspace ID]

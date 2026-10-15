@@ -478,6 +478,34 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
     for (const [i, path] of paths.entries())
       this.assertEqual([readFileSync(path), statSync(path, { bigint: true }).mtimeNs], contents[i]);
   }
+  async test_integration_uninstall_restores_settings_until_installed_again() {
+    const original = { theme: "dark", hooks: { Stop: [{ hooks: [{ type: "command", command: "echo existing" }] }] } };
+    const paths = [join(this.env.CODEX_HOME!, "hooks.json"), join(this.env.CLAUDE_CONFIG_DIR!, "settings.json")];
+    for (const path of paths) {
+      mkdirSync(join(path, ".."), { recursive: true });
+      writeFileSync(path, JSON.stringify(original));
+    }
+    await this.restart_runtime();
+    for (const path of paths) await this.until(() => file(path).includes("CORGI_BIN"));
+    const out = await this.run_cli("integration", "uninstall");
+    for (const path of paths) {
+      this.assertEqual(json(path), original);
+      this.assertFalse(existsSync(path + ".corgi-backup"));
+      this.assertIn(`removed from ~${path.slice(this.temp.name.length)}`, out);
+    }
+    await this.restart_runtime();
+    await this.open_pane({ cwd: this.temp.name });
+    for (const path of paths) this.assertEqual(json(path), original);
+    this.assertIn("· Claude Code  startup  off", await this.run_cli("integration", "status", "claude"));
+    await this.run_cli("integration", "install", "claude");
+    this.assertTrue(file(paths[1]).includes("CORGI_BIN"));
+    this.assertEqual(json(paths[0]), original);
+    this.assertEqual(
+      await this.run_cli("integration", "status", "claude"),
+      "✓ Claude Code  hooks  in ~/.claude/settings.json\n",
+    );
+    this.assertIn("status", await this.run_cli("integration", "--help"));
+  }
   async test_invalid_or_symlink_settings_are_left_intact() {
     mkdirSync(this.env.CODEX_HOME!, { recursive: true });
     mkdirSync(this.env.CLAUDE_CONFIG_DIR!, { recursive: true });

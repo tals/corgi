@@ -282,6 +282,23 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       } catch {}
       return;
     }
+    case "integration": {
+      const integration = await import("./integration"),
+        [op, name, ...rest] = args.slice(1);
+      if (op === undefined || ["help", "--help", "-h"].includes(op) || args.includes("--help") || args.includes("-h"))
+        return void process.stdout.write(integration.help);
+      if (
+        (op !== "status" && op !== "install" && op !== "uninstall") ||
+        rest.length ||
+        (name !== undefined && name !== "claude" && name !== "codex")
+      ) {
+        process.stderr.write(integration.help);
+        process.exitCode = 2;
+        return;
+      }
+      if (!(await integration.command(op, name === undefined ? null : provider(name)))) process.exitCode = 1;
+      return;
+    }
     case "hooks": {
       if (args.length !== 2) throw Error("Usage");
       const integration = await import("./integration");
