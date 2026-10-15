@@ -31,7 +31,23 @@ test("primary agents stay direct; confirmed writes take precedence over cwd and 
   expect(rows[2].target).toEqual({ pane: 2 });
   expect(agents.grouped(null, 1, [main], state)).toEqual([main]);
 });
-test("a new agent starts where the list puts the one beside it, its own folder when that's inside", () => {
+test("an agent's listed worktree is the one the list puts it under, the one it's in first", () => {
+  const data = snapshot(),
+    one = data.entries[1].path,
+    two = data.entries[2].path;
+  expect(agents.listedWorktree(data, { pane: 1 }, `${one}/src`)).toBe(one);
+  expect(agents.listedWorktree(data, { pane: 1 }, "/repo/src")).toBeNull();
+  data.agents = [
+    { target: { pane: 1 }, path: one, source: "write", stale: false },
+    { target: { pane: 1 }, path: two, source: "write", stale: false },
+  ];
+  expect(agents.listedWorktree(data, { pane: 1 }, `${two}/docs`)).toBe(two);
+  expect(agents.listedWorktree(data, { pane: 1 }, "/repo/src")).toBe(one);
+  data.agents = [{ target: { pane: 1 }, path: "/repo", source: "write", stale: false }];
+  expect(agents.listedWorktree(data, { pane: 1 }, `${one}/src`)).toBeNull();
+  expect(agents.listedWorktree(null, { pane: 1 }, `${one}/src`)).toBeNull();
+});
+test("an agent's folder is the checkout the list puts it under, its own when that's inside", () => {
   const data = snapshot(),
     one = data.entries[1].path,
     two = data.entries[2].path;

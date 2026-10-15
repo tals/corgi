@@ -55,18 +55,33 @@ export function belongs(snapshot: worktrees.Snapshot, path: string, entry: sideb
   if (!sidebar.isAgent(entry.target)) return false;
   return checkoutsOf(snapshot, entry.target, entry.cwd).includes(path);
 }
-/** Where a new agent beside `target` starts: its folder `cwd`, unless the
- * agent list puts it under another checkout, then that checkout. Linked
- * worktrees come first, as `grouped` lists an agent under them. */
-export function folder(snapshot: worktrees.Snapshot | null, target: sidebar.Target, cwd: string): string {
-  if (!snapshot) return cwd;
+/** The linked worktree whose group lists `target`, the one holding `cwd`
+ * when several do; null for a direct row. */
+export function listedWorktree(
+  snapshot: worktrees.Snapshot | null,
+  target: sidebar.Target,
+  cwd: string,
+): string | null {
+  if (!snapshot) return null;
   const listed = checkoutsOf(snapshot, target, cwd),
     here = checkoutAt(snapshot, cwd);
   const groups = worktrees.linked(snapshot).filter(e => listed.includes(e.path));
-  if (groups.length) return groups.some(e => e.path === here) ? cwd : groups[0].path;
+  if (!groups.length) return null;
+  return groups.some(e => e.path === here) ? here : groups[0].path;
+}
+/** The folder an agent's work is in: its own `cwd`, unless the agent list
+ * puts it under another checkout, then that checkout. Linked worktrees come
+ * first, as `grouped` lists an agent under them. */
+export function folder(snapshot: worktrees.Snapshot | null, target: sidebar.Target, cwd: string): string {
+  if (!snapshot) return cwd;
+  const at = listedWorktree(snapshot, target, cwd),
+    here = checkoutAt(snapshot, cwd);
+  if (at !== null) return at === here ? cwd : at;
   // A direct row: in the main checkout when the daemon puts it there.
   const primary = snapshot.entries.find(e => e.primary);
-  return primary && listed.includes(primary.path) && here !== primary.path ? primary.path : cwd;
+  return primary && checkoutsOf(snapshot, target, cwd).includes(primary.path) && here !== primary.path
+    ? primary.path
+    : cwd;
 }
 /** Each linked worktree's live agents by state, counted as its group
  * header counts them. */

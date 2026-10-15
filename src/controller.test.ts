@@ -799,6 +799,22 @@ test("the launcher lights the checkout it starts agents in, as the overview ligh
   s.openLauncher(true);
   expect([s.agent_launcher.cwd, s.agent_launcher.place().label]).toEqual(["/src/app-topic", "topic"]);
   expect(s.spotlight()).toEqual({ workspace: 1, path: "/src/app-topic" });
+  s.closeLauncher();
+  // Beside a terminal in a folder of main it starts at the workspace's root,
+  // beside an agent in a folder of topic at topic's root.
+  Object.assign(snapshot.panes[0], { cwd: "/src/app/lib", agent: { ...snapshot.panes[0].agent, provider: null } });
+  (snapshot.workspaces[0] as any).worktrees.agents = [];
+  s.receiveSnapshot(snapshot);
+  s.openLauncher(true);
+  expect(s.agent_launcher.cwd).toBe("/src/app");
+  s.closeLauncher();
+  Object.assign(snapshot.panes[0], {
+    cwd: "/src/app-topic/lib",
+    agent: { ...snapshot.panes[0].agent, provider: "codex" },
+  });
+  s.receiveSnapshot(snapshot);
+  s.openLauncher(true);
+  expect(s.agent_launcher.cwd).toBe("/src/app-topic");
 });
 
 test("an agent's review reads the checkout the list puts it under", () => {

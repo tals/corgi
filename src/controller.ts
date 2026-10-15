@@ -1958,7 +1958,7 @@ export class Controller {
    * seconds; null when Git refused it, with the reason in its form. */
   private async launcherDir(): Promise<string | null> {
     const launch = this.agent_launcher;
-    if (!launch) return this.currentCwd();
+    if (!launch) return this.launcherCwd();
     const c = launch.worktree,
       planned = c.planned;
     if (!planned) return launch.cwd;
@@ -2248,13 +2248,14 @@ export class Controller {
     this.rememberLauncherSelection();
     this.agent_launcher = null;
   }
-  /** Where the launcher starts: the focused agent's folder, or the
-   * checkout the agent list puts it under when that differs. */
+  /** Where the launcher starts: the workspace's root, or the root of the
+   * worktree the agent list puts the focused pane under. */
   private launcherCwd(): string {
-    const p = this.focused();
-    if (!p) return this.currentCwd();
+    const ws = this.current(),
+      p = this.focused();
+    if (!p) return ws.cwd;
     const cwd = p.agent.provider !== null && p.agent.cwd.length > 0 ? p.agent.cwd : p.cwd;
-    return worktreeAgents.folder(this.current().worktrees ?? null, { pane: p.id }, cwd);
+    return worktreeAgents.listedWorktree(ws.worktrees ?? null, { pane: p.id }, cwd) ?? ws.cwd;
   }
   private openLauncher(pinned: boolean, cwd = this.launcherCwd()): void {
     this.closeMenu();
@@ -2373,7 +2374,7 @@ export class Controller {
     }
   }
   updateLaunchPreview(): void {
-    const cwd = this.agent_launcher ? this.agent_launcher.cwd : this.currentCwd();
+    const cwd = this.agent_launcher ? this.agent_launcher.cwd : this.launcherCwd();
     if (!this.launch_previews.poll(this.current().id, cwd)) return;
     const launch = this.agent_launcher;
     if (launch) {
