@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { Claude } from "./claude";
+import { Claude } from "./index";
 test("transcript lines decode their envelope and drop subagent lines", () => {
   const line = Claude.Line.decode({
     type: "assistant",

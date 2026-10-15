@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { titleItems, edit, restoredTitle, movedApprovals } from "./codex_config";
+import { titleItems, edit, restoredTitle, movedApprovals } from "./config";
 test("title setup preserves custom items and is idempotent", () => {
   expect(titleItems({ terminal_title: ["activity", "project"] })).toEqual(["activity", "project", "thread-id"]);
   expect(titleItems({ terminal_title: ["thread-id", "project"] })).toBeNull();

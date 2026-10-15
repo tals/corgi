@@ -2,8 +2,8 @@ import { test, expect } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { jobIn, attachCommand } from "./claude_daemon";
-import { Text } from "./providers/common";
+import { jobIn, attachCommand } from "./daemon";
+import { Text } from "../common";
 test("a session attaches only to the live background job that holds it", () => {
   const directory = mkdtempSync(join(tmpdir(), "corgi-daemon-"));
   try {

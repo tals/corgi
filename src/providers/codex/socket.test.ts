@@ -1,9 +1,9 @@
 import { test, expect } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { Client } from "./codex_socket";
-import { unique, threadState, isActiveWait } from "./codex_observer";
-import { Text } from "./agents";
+import { Client } from "./socket";
+import { unique, threadState, isActiveWait } from "./observer";
+import { Text } from "../../agents";
 test("Unix WebSocket client initializes and reads responses without selecting sessions", async () => {
   const dir = mkdtempSync(tmpdir() + "/corgi-ts-ws-"),
     socket = dir + "/control.sock",

@@ -59,7 +59,7 @@ the types you use. Use `import type` for types only.
 - Every viewer command is an `action.Action`, whether a key, a click,
   `corgi action` or a daemon control asks for it.
 - Each vocabulary has one home: `protocol.ts`, `keys.ts`,
-  `providers/codex.ts`, `providers/claude.ts`, `providers/common.ts`. Extend
+  `providers/codex/`, `providers/claude/`, `providers/common.ts`. Extend
   these rather than redefining a local copy.
 
 **Never read display text back as state.** Keep a union or boolean and

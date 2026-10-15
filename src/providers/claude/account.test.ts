@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
-import { applyUsage, defaultModel } from "./claude";
-import { Info } from "../usage/account";
-import { Text } from "../providers";
+import { applyUsage, defaultModel } from "./account";
+import { Info } from "../../usage/account";
+import { Text } from "../../providers";
 test("Claude control usage preserves login on unsupported or malformed quota data", () => {
   const info = new Info();
   info.signed_in = true;

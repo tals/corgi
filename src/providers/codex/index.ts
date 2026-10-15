@@ -1,5 +1,5 @@
-import { field, str, Hooks, nativeEvent, Text, planLabel } from "./common";
-import { info } from "./codex_info";
+import { field, str, Hooks, nativeEvent, Text, planLabel } from "../common";
+import { info } from "./info";
 import path from "node:path";
 export const Method = [
   "turn/started",

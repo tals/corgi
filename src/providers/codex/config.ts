@@ -1,6 +1,6 @@
 import { lstatSync, readFileSync, writeFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
-import type { Position, Removal } from "./integration";
+import type { Position, Removal } from "../../integration";
 /** What Corgi writes when the title is unset. */
 const unset_title = ["app-name", "thread-id", "activity", "project"];
 export function titleItems(tui: any): string[] | null {

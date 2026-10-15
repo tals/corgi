@@ -1,9 +1,10 @@
 import { openSync, closeSync, fstatSync, readFileSync, constants } from "node:fs";
 import path from "node:path";
-import { BoundedText } from "./bounded_text";
+import { BoundedText } from "../../bounded_text";
+import { nativeFiles } from "../../build_assets";
 export class Name extends BoundedText(160) {}
-import { Codex } from "./providers/codex";
-import type { Agent } from "./agents";
+import { Codex } from "./index";
+import type { Agent } from "../../agents";
 type IndexWorker = Worker & { unref(): void };
 export class Index {
   names = new Map<string, Name>();
@@ -51,7 +52,9 @@ export class Index {
     this.pending = pending;
     try {
       if (!this.worker) {
-        this.worker = new Worker(new URL("./codex_files_worker.ts", import.meta.url)) as IndexWorker;
+        // A compiled bundle's import.meta.url belongs to the main entrypoint.
+        const entry = nativeFiles ? "./providers/codex/files_worker.js" : "./files_worker.ts";
+        this.worker = new Worker(new URL(entry, import.meta.url)) as IndexWorker;
         this.worker.onmessage = async event => {
           if (event.data.changed) {
             const names = new Map<string, Name>();

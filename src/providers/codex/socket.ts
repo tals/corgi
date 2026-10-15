@@ -1,4 +1,4 @@
-import { parse, stringify } from "./json";
+import { parse, stringify } from "../../json";
 type UnixWebSocket = WebSocket & { terminate(): void };
 export class Client {
   next_id = 1;

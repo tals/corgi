@@ -12,7 +12,7 @@ import { Attachment, Registry } from "./conversations";
 import { Tracker } from "./detection";
 import { ResumeHint } from "./resume_hint";
 import { waitpid, tcgetpgrp, systemCall } from "./native_bridge";
-import { attachCommand } from "./claude_daemon";
+import { attachCommand } from "./providers/claude/daemon";
 import * as keys from "./keys";
 import * as trackers from "./trackers";
 import { Model as AgentModel } from "./providers/model";

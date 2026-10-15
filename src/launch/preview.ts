@@ -6,7 +6,7 @@ import { Model } from "../providers/model";
 import { Info, codexAccount, limits, serializeLimits } from "../usage/account";
 import { none, update as updateLimitHistory } from "../usage/limits";
 import { Pool } from "../inference";
-import { Client } from "./claude";
+import { Client } from "../providers/claude/account";
 import { Cache, interval } from "../usage/account_cache";
 import * as discovery from "../discovery";
 import * as errors from "../errors";

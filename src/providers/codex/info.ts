@@ -1,4 +1,4 @@
-import { Info } from "./common";
+import { Info } from "../common";
 export const info = new Info({
   label: "Codex",
   name: "Codex",

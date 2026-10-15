@@ -1,17 +1,17 @@
 import path from "node:path";
-import { BoundedText, Path } from "./bounded_text";
+import { BoundedText, Path } from "../../bounded_text";
 class Name extends BoundedText(160) {}
 class Role extends BoundedText(80) {}
 class Turn extends BoundedText(128) {}
-import { Text, field, str } from "./providers/common";
-import { Codex } from "./providers/codex";
-import { Client } from "./codex_socket";
-import * as errors from "./errors";
-import { Inventory, capacity } from "./activity/background_tasks";
-import { codex, Text as SummaryText } from "./activity/summary";
-import type { State } from "./agents";
-import type { Runtime } from "./runtime";
-import type { Location } from "./worktrees";
+import { Text, field, str } from "../common";
+import { Codex } from "./index";
+import { Client } from "./socket";
+import * as errors from "../../errors";
+import { Inventory, capacity } from "../../activity/background_tasks";
+import { codex, Text as SummaryText } from "../../activity/summary";
+import type { State } from "../../agents";
+import type { Runtime } from "../../runtime";
+import type { Location } from "../../worktrees";
 function transcriptPath(value: string) {
   try {
     return Path.init(value);

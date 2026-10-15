@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { Codex } from "./codex";
+import { Codex } from "./index";
 test("rollout lines decode their envelope and payload kind", () => {
   const rollout = Codex.Rollout.decode({
     type: "event_msg",

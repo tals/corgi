@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test, expect } from "bun:test";
-import { Index, available } from "./codex_files";
-import { Agent } from "./agents";
+import { Index, available } from "./files";
+import { Agent } from "../../agents";
 test("file names wait five seconds after protocol metadata, on the daemon clock", () => {
   const agent = new Agent();
   agent.provider = "codex";

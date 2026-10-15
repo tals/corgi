@@ -1,6 +1,6 @@
 import path from "node:path";
-import { field, str, Hooks, nativeEvent, planLabel } from "./common";
-import { info } from "./claude_info";
+import { field, str, Hooks, nativeEvent, planLabel } from "../common";
+import { info } from "./info";
 export const MessageType = ["assistant", "user", "result", "control_request", "control_response"] as const;
 export const BlockType = ["text", "tool_use", "tool_result"] as const;
 export const TranscriptLine = [

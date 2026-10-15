@@ -106,7 +106,11 @@ const configSource = Object.entries({ ...config, builtAt })
   .map(([key, value]) => `export const ${key}=${JSON.stringify(value)};`)
   .join("\n");
 const result = await Bun.build({
-  entrypoints: [`${root}/src/main.ts`, `${root}/src/codex_files_worker.ts`, `${root}/src/trackers/resources_worker.ts`],
+  entrypoints: [
+    `${root}/src/main.ts`,
+    `${root}/src/providers/codex/files_worker.ts`,
+    `${root}/src/trackers/resources_worker.ts`,
+  ],
   target: "bun",
   compile: { target: `bun-${platform}-${arch}` as any, outfile },
   plugins: [

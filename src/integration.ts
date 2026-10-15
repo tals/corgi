@@ -16,7 +16,7 @@ import { flock } from "./native_bridge";
 import { atomicWrite, quote } from "./os";
 import * as discovery from "./discovery";
 import * as rpc from "./rpc";
-import * as codexConfig from "./codex_config";
+import * as codexConfig from "./providers/codex/config";
 import { Pool } from "./inference";
 /** What a step of `corgi integration` found or did. */
 export type Outcome = "added" | "present" | "removed" | "absent" | "no_config";

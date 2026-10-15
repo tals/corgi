@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { Session, PendingRequest, RequestId } from "./native";
-import { Snapshot } from "./codex_observer";
+import { Snapshot } from "./providers/codex/observer";
 import { Text } from "./providers/common";
 import { Registry } from "./conversations";
 function session(provider: "codex" | "claude" = "codex") {

@@ -1,4 +1,4 @@
-import { Index } from "./codex_files";
+import { Index } from "./files";
 
 const index = new Index();
 self.onmessage = (event: MessageEvent<{ path: string }>) => {

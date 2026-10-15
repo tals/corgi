@@ -3,7 +3,7 @@ import { parseLabel } from "./activity/summary";
 import { test, expect } from "bun:test";
 import { Registry, Attachment, Actor } from "./conversations";
 import { Agent, Text } from "./agents";
-import { Snapshot, Child } from "./codex_observer";
+import { Snapshot, Child } from "./providers/codex/observer";
 import { View } from "./activity/tools";
 import { Inventory, Ended } from "./activity/background_tasks";
 import { Hooks } from "./providers/common";

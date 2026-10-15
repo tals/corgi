@@ -7,7 +7,7 @@ import { Claude } from "../providers/claude";
 import { Model } from "../providers/model";
 import { parse } from "../json";
 import { verifySession } from "../transcript";
-import { Index, available } from "../codex_files";
+import { Index, available } from "../providers/codex/files";
 import { Counts, Tracker } from "./tokens";
 import { Codex, View, Tokens } from "./live";
 import { Reading } from "./context_window";

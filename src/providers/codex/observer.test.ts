@@ -1,9 +1,9 @@
 import { test, expect } from "bun:test";
 import path from "node:path";
 import { tmpdir } from "node:os";
-import { Codex } from "./providers/codex";
-import { Text } from "./providers/common";
-import { childName, unique, threadState, location, snapshot, Worker } from "./codex_observer";
+import { Codex } from "./index";
+import { Text } from "../common";
+import { childName, unique, threadState, location, snapshot, Worker } from "./observer";
 
 test("title UUID parsing handles truncation and refuses ambiguity", () => {
   const id = "01901234-1234-1234-1234-123456789abc";

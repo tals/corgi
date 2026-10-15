@@ -1,8 +1,8 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { Text } from "./providers/common";
-import { Claude } from "./providers/claude";
-import { running } from "./os";
+import { Text } from "../common";
+import { Claude } from "./index";
+import { running } from "../../os";
 export { Text as JobId };
 export function jobName(id: string) {
   return /^[a-z0-9_]{1,32}$/.test(id);

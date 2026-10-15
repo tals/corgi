@@ -1,5 +1,5 @@
 import { Text, Provider } from "./providers";
-import * as claudeDaemon from "./claude_daemon";
+import * as claudeDaemon from "./providers/claude/daemon";
 import type { Agent } from "./agents";
 export class ResumeHint {
   name = new Text();

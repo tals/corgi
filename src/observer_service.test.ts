@@ -3,7 +3,7 @@ import { afterEach, expect, test } from "bun:test";
 import { Server } from "./server";
 import { Pane } from "./runtime";
 import { Terminal } from "./pane/terminal";
-import { Snapshot, Worker } from "./codex_observer";
+import { Snapshot, Worker } from "./providers/codex/observer";
 import { Text } from "./providers/common";
 import { Codex } from "./providers/codex";
 import { codexActor, codexMissed, reattachFromTitle, retitled } from "./observer_service";

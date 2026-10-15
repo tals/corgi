@@ -1,6 +1,6 @@
 import path from "node:path";
 import { Worker as TranscriptWorker } from "./transcript";
-import { Worker as CodexWorker } from "./codex_observer";
+import { Worker as CodexWorker } from "./providers/codex/observer";
 import { Worker as UsageWorker } from "./usage/worker";
 import { Worker as SummaryWorker } from "./activity/worker";
 import { Backend } from "./providers";
@@ -13,7 +13,7 @@ import { stringify } from "./json";
 import type { Server } from "./server";
 import type { Runtime, Pane } from "./runtime";
 import type { Provider, Text } from "./providers";
-import type { Snapshot, Request as CodexRequest } from "./codex_observer";
+import type { Snapshot, Request as CodexRequest } from "./providers/codex/observer";
 import type { Request } from "./protocol";
 import { Model } from "./providers/model";
 
