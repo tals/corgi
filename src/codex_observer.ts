@@ -6,6 +6,7 @@ class Turn extends BoundedText(128) {}
 import { Text, field, str } from "./providers/common";
 import { Codex } from "./providers/codex";
 import { Client } from "./codex_socket";
+import * as errors from "./errors";
 import { Inventory, capacity } from "./activity/background_tasks";
 import { codex, Text as SummaryText } from "./activity/summary";
 import type { State } from "./agents";
@@ -49,6 +50,8 @@ export class Snapshot {
   cwd = new Path();
   location: Location | null = null;
   outcome: "completed" | "interrupted" | "failed" | null = null;
+  /** A thread Codex keeps no history of, such as a `/btw` side conversation. */
+  ephemeral = false;
   observed_at = Date.now() * 1000;
   updated_at = 0;
   constructor(request: Request, session: string, state: State) {
@@ -159,6 +162,9 @@ export async function snapshot(client: Client, req: Request, session: string) {
   let state = threadState(field(thread, "status"));
   if (state === "unknown") state = "initializing";
   const out = new Snapshot(req, session, state);
+  // Codex lists no turns or items of an ephemeral thread.
+  out.ephemeral = field(thread, "ephemeral") === true;
+  if (out.ephemeral) return out;
   if (path.isAbsolute(str(thread, "cwd"))) out.cwd = transcriptPath(str(thread, "cwd"));
   if (Number.isInteger(field(thread, "updatedAt")) && field(thread, "updatedAt") > 0)
     out.updated_at = field(thread, "updatedAt");
@@ -271,6 +277,8 @@ export class Worker {
   requests: Request[] = [];
   cursor = 0;
   results: Snapshot[] = [];
+  /** Pane requests whose thread the daemon doesn't have, or no daemon to ask. */
+  missed: Request[] = [];
   socket: string;
   timer: ReturnType<typeof setInterval> | null = null;
   running = false;
@@ -286,11 +294,21 @@ export class Worker {
     this.stopping = true;
     if (this.timer) clearInterval(this.timer);
     this.results = [];
+    this.missed = [];
   }
   take() {
     const results = this.results;
     this.results = [];
     return results;
+  }
+  takeMissed() {
+    const missed = this.missed;
+    this.missed = [];
+    return missed;
+  }
+  private miss(req: Request) {
+    this.missed = this.missed.filter(old => old.pane !== req.pane);
+    this.missed.push(req);
   }
   reconcile(runtime: Runtime) {
     this.requests = [];
@@ -304,16 +322,28 @@ export class Worker {
         p.terminal.title_pid !== p.detection.pid
       )
         continue;
-      const prefix = Codex.titleSession(p.terminal.title);
+      const prefix = Codex.titleSession(p.terminal.title),
+        actor = p.attachment.actor;
       if (!prefix) continue;
-      this.requests.push({
-        pane: p.id,
-        pid: p.detection.pid,
-        prefix,
-        actor: 0,
-        generation: p.attachment.generation,
-        title_revision: p.terminal.title_revision,
-      });
+      // Behind a side conversation, follow the conversation it forked.
+      if (p.attachment.side && actor)
+        this.requests.push({
+          pane: 0,
+          pid: 0,
+          prefix: new Text(actor.state.sessionId()),
+          actor: actor.id,
+          generation: 0n,
+          title_revision: 0n,
+        });
+      else
+        this.requests.push({
+          pane: p.id,
+          pid: p.detection.pid,
+          prefix,
+          actor: 0,
+          generation: p.attachment.generation,
+          title_revision: p.terminal.title_revision,
+        });
       if (this.requests.length === 64) break;
     }
     const actors = runtime.conversations.items;
@@ -342,7 +372,12 @@ export class Worker {
     this.running = true;
     let client: Client | null = null;
     try {
-      client = await Client.open(this.socket);
+      try {
+        client = await Client.open(this.socket);
+      } catch (error) {
+        if (errors.is(error, "ConnectFailed")) for (const req of this.requests) if (!req.actor) this.miss(req);
+        throw error;
+      }
       const ids: string[] = [];
       await pages(
         client,
@@ -356,7 +391,10 @@ export class Worker {
       for (const req of [...this.requests]) {
         if (this.stopping) return;
         const session = req.actor ? req.prefix.text() : unique(ids, req.prefix);
-        if (!session) continue;
+        if (!session) {
+          this.miss(req);
+          continue;
+        }
         try {
           const s = await snapshot(client, req, session);
           this.results = this.results.filter(old => old.request.pane !== req.pane || old.request.actor !== req.actor);

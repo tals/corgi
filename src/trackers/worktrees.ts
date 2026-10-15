@@ -653,6 +653,9 @@ export class Tracker {
           .filter(old => JSON.stringify(old.target) === key)
           .map(old => ({ ...old, stale: true }));
       out.push(...agents);
+      // A pane between conversations keeps the placement for the one it
+      // showed, should it come back.
+      if (!input.session) continue;
       const inside = agents.filter(a => linked.some(e => e.path === a.path));
       if (inside.length) this.placed.set(key, { session: input.session, agents: inside });
       else this.placed.delete(key);

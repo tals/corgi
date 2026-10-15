@@ -3,9 +3,10 @@ import { afterEach, expect, test } from "bun:test";
 import { Server } from "./server";
 import { Pane } from "./runtime";
 import { Terminal } from "./pane/terminal";
-import { Snapshot } from "./codex_observer";
+import { Snapshot, Worker } from "./codex_observer";
 import { Text } from "./providers/common";
-import { codexActor, reattachFromTitle } from "./observer_service";
+import { Codex } from "./providers/codex";
+import { codexActor, codexMissed, reattachFromTitle, retitled } from "./observer_service";
 
 const id = "11111111-1111-4111-8111-111111111111";
 class ObserverTerminal extends Terminal {
@@ -109,5 +110,61 @@ test("local Codex reattachment requires current unambiguous identity and preserv
   terminal.title = id;
   terminal.exited = true;
   reattachFromTitle(server, pane, "codex", 42);
+  expect(pane.attachment.actor).toBeNull();
+});
+
+test("a Codex side conversation in the title leaves the pane on the conversation it forked", () => {
+  const { server, pane, terminal, registry } = fixture();
+  const fork = "33333333-3333-4333-8333-333333333333",
+    next = "44444444-4444-4444-8444-444444444444",
+    gone = "55555555-5555-4555-8555-555555555555";
+  const main = registry.get("codex", id);
+  const show = (session: string) => {
+    terminal.title = `codex | ${session} | project`;
+    terminal.title_revision++;
+    retitled(server.runtime, pane, Codex.titleSession(terminal.title));
+  };
+  const request = () => ({
+    pane: 1,
+    pid: 42,
+    actor: 0,
+    prefix: Codex.titleSession(terminal.title)!,
+    generation: pane.attachment.generation,
+    title_revision: terminal.title_revision,
+  });
+  const observe = (session: string, ephemeral: boolean) => {
+    const snapshot = new Snapshot(request(), session, "idle");
+    snapshot.ephemeral = ephemeral;
+    return codexActor(server, snapshot);
+  };
+  pane.attachment.select(main);
+  show(id);
+  show(fork);
+  expect(pane.attachment.actor).toBe(main);
+  expect(observe(fork, true)).toBeNull();
+  expect(pane.attachment).toMatchObject({ actor: main, side: true });
+  expect(registry.find("codex", fork)).toBeNull();
+  const worker = new Worker();
+  worker.reconcile(server.runtime);
+  expect(worker.requests.map(r => [r.pane, r.actor, r.prefix.text()])).toEqual([[0, main.id, id]]);
+  codexMissed(server, request());
+  expect(pane.attachment.actor).toBe(main);
+
+  show(id);
+  expect(pane.attachment).toMatchObject({ actor: main, side: false });
+  // A new thread replaces the conversation once the observer reads it.
+  show(next);
+  expect(pane.attachment.actor).toBe(main);
+  const started = observe(next, false)!;
+  expect(started.state.sessionId()).toBe(next);
+  expect(pane.attachment.actor).toBe(started);
+  // A known conversation in the title takes over at once.
+  show(id);
+  reattachFromTitle(server, pane, "codex", 42);
+  expect(pane.attachment.actor).toBe(main);
+  // So does no conversation, when the daemon doesn't have the thread.
+  show(gone);
+  expect(pane.attachment.actor).toBe(main);
+  codexMissed(server, request());
   expect(pane.attachment.actor).toBeNull();
 });

@@ -228,6 +228,8 @@ export class Attachment {
   provisional = new Agent();
   generation = 1n;
   selection_hash = 0n;
+  /** Codex: the title shows a side conversation (`/btw`) of `actor`. */
+  side = false;
   hook_seq = 0n;
   known: ActorId[] = [];
   get known_len() {
@@ -241,6 +243,7 @@ export class Attachment {
       if (this.known.length === 256) this.known.shift();
       this.known.push(actor.id);
     }
+    this.side = false;
     if (this.actor === actor) return;
     this.actor = actor;
     this.generation = BigInt.asUintN(64, this.generation + 1n);
@@ -250,6 +253,7 @@ export class Attachment {
   }
   deselect() {
     this.actor = null;
+    this.side = false;
     this.provisional = new Agent();
     this.generation = BigInt.asUintN(64, this.generation + 1n);
   }

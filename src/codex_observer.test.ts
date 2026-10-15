@@ -1,6 +1,9 @@
 import { test, expect } from "bun:test";
+import path from "node:path";
+import { tmpdir } from "node:os";
 import { Codex } from "./providers/codex";
-import { childName, unique, threadState, location } from "./codex_observer";
+import { Text } from "./providers/common";
+import { childName, unique, threadState, location, snapshot, Worker } from "./codex_observer";
 
 test("title UUID parsing handles truncation and refuses ambiguity", () => {
   const id = "01901234-1234-1234-1234-123456789abc";
@@ -147,4 +150,26 @@ test("location history scans have a page bound", async () => {
   const client = itemPages(...Array.from({ length: 33 }, () => []));
   await expect(location(client, "session", "/repo")).rejects.toThrow("TooManyItems");
   expect(client.calls.length).toBe(32);
+});
+test("an ephemeral thread reads as one without listing its turns", async () => {
+  const methods: string[] = [];
+  const client = {
+    async call(method: string) {
+      methods.push(method);
+      return { result: { thread: { id: "fork", ephemeral: true, status: { type: "active", activeFlags: [] } } } };
+    },
+  };
+  const request = { pane: 1, pid: 42, prefix: new Text("fork"), actor: 0, generation: 1n, title_revision: 1n };
+  const out = await snapshot(client as any, request, "fork");
+  expect(out).toMatchObject({ ephemeral: true, state: "working" });
+  expect(methods).toEqual(["thread/read"]);
+});
+test("with no Codex daemon to ask, pane requests are missed and conversation requests wait", async () => {
+  const worker = new Worker();
+  worker.socket = path.join(tmpdir(), `corgi-no-codex-${process.pid}.sock`);
+  const pane = { pane: 1, pid: 42, prefix: new Text("11111111"), actor: 0, generation: 1n, title_revision: 1n };
+  worker.requests = [pane, { ...pane, pane: 0, pid: 0, actor: 7 }];
+  await worker.run();
+  expect(worker.takeMissed()).toEqual([pane]);
+  expect(worker.take()).toEqual([]);
 });

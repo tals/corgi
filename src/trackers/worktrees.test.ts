@@ -242,6 +242,27 @@ test("an agent leaves a worktree only for an edit, a move, or a finished turn sp
     await f.close();
   }
 }, 20000);
+test("a pane between conversations keeps the placement for the one it comes back to", async () => {
+  const f = await fixture(),
+    tracker = new Tracker();
+  try {
+    const child = join(f.repo, ".worktrees", "remote");
+    await git(f.repo, "worktree", "add", "-b", "remote", child);
+    const snapshot = await tracker.refresh(f.repo, false, 1000);
+    const place = async (input: object) => {
+      const base = { target: { pane: 1 }, session: "s", cwd: f.repo, writes: [], ran: [f.repo], basis: "default" };
+      const out = await (tracker as any).associate(snapshot, [{ ...base, settled: true, ...input }], 1000, null);
+      return out.map((a: worktrees.Association) => a.path);
+    };
+    expect(await place({ cwd: child, ran: [f.repo, child], basis: "named", settled: false })).toEqual([child]);
+    expect(await place({})).toEqual([child]);
+    expect(await place({ session: "" })).toEqual([f.repo]);
+    expect(await place({})).toEqual([child]);
+  } finally {
+    tracker.close();
+    await f.close();
+  }
+}, 20000);
 test("a scan cannot follow a workspace through a directory edit, even when it returns to the old path", () => {
   const workspace = new Workspace(1, "/project"),
     store = new Store();

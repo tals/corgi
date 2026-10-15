@@ -12,8 +12,8 @@ import * as clock from "./clock";
 import { stringify } from "./json";
 import type { Server } from "./server";
 import type { Runtime, Pane } from "./runtime";
-import type { Provider } from "./providers";
-import type { Snapshot } from "./codex_observer";
+import type { Provider, Text } from "./providers";
+import type { Snapshot, Request as CodexRequest } from "./codex_observer";
 import type { Request } from "./protocol";
 import { Model } from "./providers/model";
 
@@ -87,41 +87,81 @@ function attention(server: Server, ding: boolean, state: string) {
   server.attention(ding, state);
 }
 
-export function codexActor(server: Server, snapshot: Snapshot) {
-  const runtime = server.runtime;
-  if (snapshot.request.actor) return runtime.conversations.byId(snapshot.request.actor);
-  const pane = runtime.pane(snapshot.request.pane);
+/** The pane, when it still shows the title thread `request` asked about. */
+function titled(runtime: Runtime, request: CodexRequest) {
+  const pane = runtime.pane(request.pane);
   const prefix = pane ? Backend.init("codex").titleSession(pane.terminal.title) : null;
   if (
     !pane ||
     !prefix ||
     pane.terminal.exited ||
     pane.detection.missing ||
-    pane.detection.pid !== snapshot.request.pid ||
-    pane.terminal.title_pid !== snapshot.request.pid ||
-    pane.terminal.title_revision !== snapshot.request.title_revision ||
-    pane.attachment.generation !== snapshot.request.generation ||
-    prefix.text() !== snapshot.request.prefix.text()
+    pane.detection.pid !== request.pid ||
+    pane.terminal.title_pid !== request.pid ||
+    pane.terminal.title_revision !== request.title_revision ||
+    pane.attachment.generation !== request.generation ||
+    prefix.text() !== request.prefix.text()
   )
     return null;
+  return pane;
+}
+export function codexActor(server: Server, snapshot: Snapshot) {
+  const runtime = server.runtime;
+  if (snapshot.request.actor) return runtime.conversations.byId(snapshot.request.actor);
+  const pane = titled(runtime, snapshot.request);
+  if (!pane) return null;
+  // A side conversation (`/btw`) leaves the pane on the conversation it forked.
+  if (snapshot.ephemeral) {
+    if (pane.attachment.actor) pane.attachment.side = true;
+    return null;
+  }
   const actor = runtime.conversations.get("codex", snapshot.session);
   pane.attachment.select(actor);
   if (!actor.workspace || !runtime.workspaces.get(actor.workspace))
     actor.workspace = runtime.workspaces.owner(pane.id)?.id ?? actor.workspace;
   return actor;
 }
-export function reattachFromTitle(server: Server, pane: Pane, provider: Provider, pid: number) {
-  if (pane.attachment.actor || pane.terminal.exited || pid <= 0 || pane.terminal.title_pid !== pid) return;
-  const prefix = Backend.init(provider).titleSession(pane.terminal.title);
-  if (!prefix) return;
-  const matches = server.runtime.conversations.items.filter(
+/** The observer can't see the thread the title moved to, so the pane no
+ * longer shows a conversation it knows. */
+export function codexMissed(server: Server, request: CodexRequest) {
+  const pane = titled(server.runtime, request),
+    actor = pane?.attachment.actor;
+  if (!pane || !actor || pane.attachment.side || actor.state.sessionId().startsWith(request.prefix.text())) return;
+  pane.attachment.deselect();
+  changed(server);
+}
+/** The one known conversation whose session the title names. */
+function titleActor(runtime: Runtime, provider: Provider, prefix: Text) {
+  const matches = runtime.conversations.items.filter(
     actor =>
       actor.provider() === provider &&
       actor.state.session.len === 36 &&
       actor.state.sessionId().startsWith(prefix.text()),
   );
-  if (matches.length !== 1) return;
-  const actor = matches[0];
+  return matches.length === 1 ? matches[0] : null;
+}
+/** Codex's title named the thread `prefix`. Another thread than the one
+ * shown may be a side conversation of it, which the observer tells, so the
+ * pane keeps its conversation unless the title names a known one. */
+export function retitled(runtime: Runtime, pane: Pane, prefix: Text | null) {
+  const hash = prefix ? Bun.hash.wyhash(prefix.text(), 0n) : 0n,
+    binding = pane.attachment,
+    actor = binding.actor;
+  if (hash === binding.selection_hash) return;
+  if (
+    actor &&
+    (!prefix || (!actor.state.sessionId().startsWith(prefix.text()) && titleActor(runtime, "codex", prefix)))
+  )
+    binding.deselect();
+  binding.side = false;
+  binding.generation++;
+  binding.selection_hash = hash;
+}
+export function reattachFromTitle(server: Server, pane: Pane, provider: Provider, pid: number) {
+  if (pane.attachment.actor || pane.terminal.exited || pid <= 0 || pane.terminal.title_pid !== pid) return;
+  const prefix = Backend.init(provider).titleSession(pane.terminal.title);
+  const actor = prefix && titleActor(server.runtime, provider, prefix);
+  if (!actor) return;
   pane.attachment.select(actor);
   if (!actor.workspace || !server.runtime.workspaces.get(actor.workspace))
     actor.workspace = server.runtime.workspaces.owner(pane.id)?.id ?? actor.workspace;
@@ -138,14 +178,7 @@ export function detectPane(server: Server, pane: Pane, observedJob?: detection.J
     if ((previous && previous !== job.pid) || (pane.attachment.actor && pane.agent().provider !== job.provider))
       pane.attachment.detach();
     if (job.provider === "codex") {
-      const prefix = Backend.init(job.provider).titleSession(pane.terminal.title);
-      const hash = prefix ? Bun.hash.wyhash(prefix.text(), 0n) : 0n;
-      if (hash !== pane.attachment.selection_hash) {
-        if (pane.attachment.actor && (!prefix || !pane.agent().sessionId().startsWith(prefix.text())))
-          pane.attachment.deselect();
-        pane.attachment.generation++;
-        pane.attachment.selection_hash = hash;
-      }
+      retitled(runtime, pane, Backend.init(job.provider).titleSession(pane.terminal.title));
       reattachFromTitle(server, pane, job.provider, job.pid);
     }
   }
@@ -257,6 +290,7 @@ export async function tick(server: Server) {
     }
     for (const actor of runtime.conversations.items) actor.checkPause();
     workers.codex.reconcile(runtime);
+    for (const request of workers.codex.takeMissed()) codexMissed(server, request);
     for (const snapshot of workers.codex.take()) {
       const actor = codexActor(server, snapshot);
       if (!actor) continue;
