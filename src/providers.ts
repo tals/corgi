@@ -2,28 +2,41 @@ import { Codex } from "./providers/codex";
 import { Claude } from "./providers/claude";
 export { Codex, Claude };
 export * from "./providers/common";
-export type Provider = "codex" | "claude";
+/** Every provider Corgi integrates with, by name. `Provider` derives from it,
+ * so a provider missing from any `ByProvider` record fails to compile. Key
+ * order is the order the UI lists them in. */
+const registry = { codex: Codex, claude: Claude };
+export type Provider = keyof typeof registry;
+export type ByProvider<T> = Record<Provider, T>;
+const all = Object.keys(registry) as Provider[];
 export const Provider = {
-  codex: "codex" as Provider,
-  claude: "claude" as Provider,
-  all: ["codex", "claude"] as Provider[],
+  all,
+  /** The provider with this name, as protocol and CLI spell it. */
+  parse(name: unknown): Provider | null {
+    return all.find(p => p === name) ?? null;
+  },
+  /** The provider whose executable is `name`. */
   named(name: string): Provider | null {
-    return this.all.find(p => this.info(p).executables.includes(name)) ?? null;
+    return all.find(p => registry[p].info.executables.includes(name)) ?? null;
   },
   info(p: Provider) {
-    return p === "codex" ? Codex.info : Claude.info;
+    return registry[p].info;
   },
   backend(p: Provider) {
     return Backend.init(p);
   },
 };
+/** A record with a value for every provider. */
+export function byProvider<T>(value: (p: Provider) => T): ByProvider<T> {
+  return Object.fromEntries(all.map(p => [p, value(p)])) as ByProvider<T>;
+}
 export class Backend {
   constructor(public provider: Provider) {}
   static init(provider: Provider) {
     return new Backend(provider);
   }
   get adapter() {
-    return this.provider === "codex" ? new Codex() : new Claude();
+    return new registry[this.provider]();
   }
   hook(v: any) {
     return this.adapter.hook(v);
@@ -35,34 +48,9 @@ export class Backend {
     return this.nativeEvent(v).response_id;
   }
   hookEvents() {
-    return this.provider === "codex" ? Codex.hook_events : Claude.hook_events;
+    return registry[this.provider].hook_events;
   }
   titleSession(title: string) {
-    return this.provider === "codex" ? Codex.titleSession(title) : Claude.titleSession(title);
-  }
-}
-export class Each<T> {
-  values: { codex: T; claude: T };
-  constructor(defaultValue: T, named: Partial<Record<Provider, T>> = {}) {
-    if (Object.keys(named).some(k => !Provider.all.includes(k as Provider))) throw Error("UnknownField");
-    this.values = {
-      codex: named.codex ?? structuredClone(defaultValue),
-      claude: named.claude ?? structuredClone(defaultValue),
-    };
-  }
-  get(p: Provider) {
-    return this.values[p];
-  }
-  getPtr(p: Provider) {
-    return this.values[p];
-  }
-  getPtrConst(p: Provider) {
-    return this.values[p];
-  }
-  set(p: Provider, value: T) {
-    this.values[p] = value;
-  }
-  toJSON() {
-    return this.values;
+    return registry[this.provider].titleSession(title);
   }
 }

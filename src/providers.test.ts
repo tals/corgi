@@ -1,14 +1,15 @@
 import { test, expect } from "bun:test";
-import { Provider, Backend, Each } from "./providers";
+import { Provider, Backend, byProvider } from "./providers";
 import { Model } from "./providers/model";
 import { Claude } from "./providers/claude";
 import { Codex } from "./providers/codex";
 import { Hooks, timestampMs } from "./providers/common";
-test("per-provider values are keyed by name and a missing provider takes the default", () => {
-  const f = new Each(false, { claude: true });
-  expect(JSON.stringify(f)).toBe('{"codex":false,"claude":true}');
-  expect(f.get("codex")).toBe(false);
-  expect(() => new Each(false, { other: true } as any)).toThrow("UnknownField");
+test("per-provider values are keyed by name, in the registry's order", () => {
+  expect(JSON.stringify(byProvider(p => p === "claude"))).toBe('{"codex":false,"claude":true}');
+  expect(Provider.all).toEqual(["codex", "claude"]);
+  expect(Provider.parse("claude")).toBe("claude");
+  expect(Provider.parse("other")).toBeNull();
+  expect(Provider.named("claude-code")).toBe("claude");
 });
 test("native adapters keep provider envelopes separate and identify concrete conversations", () => {
   const v = {

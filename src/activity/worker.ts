@@ -203,8 +203,8 @@ export class Worker {
     s.model = setup.model(provider);
     s.locked = this.locked;
     for (const p of Provider.all) {
-      s.launches.set(p, this.launches.count.get(p));
-      s.models.set(p, setup.model(p));
+      s.launches[p] = this.launches.count[p];
+      s.models[p] = setup.model(p);
     }
     return s;
   }

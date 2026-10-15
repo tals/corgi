@@ -1,5 +1,6 @@
 //! The sidebar: workspaces above, agents below. Mirrors sidebar.zig.
 import * as palette from "./palette";
+import type { Provider } from "./providers";
 import { Style, colors, fg, bg, fgRgb, bgRgb, mix, underline } from "./palette";
 import * as corgiAnimation from "./corgi_animation";
 import * as corgiBadge from "./corgi_badge";
@@ -89,7 +90,6 @@ palette.derived(() => {
   hover_bg = bgRgb(hover_rgb);
 });
 
-export type Provider = "codex" | "claude";
 export type State = "initializing" | "idle" | "working" | "blocked" | "done" | string;
 export type Attention = "none" | "finished" | "needs_input";
 /** `group` is a workspace header row in the grouped "All" list, not an agent. */

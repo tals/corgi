@@ -5,7 +5,7 @@ import { join, isAbsolute, basename } from "node:path";
 import { Runtime, Pane, Create } from "../runtime";
 import { Model, Tab, max_panes, max_workspaces } from "../layout";
 import { ResumeHint } from "../resume_hint";
-import { Text } from "../providers";
+import { Provider, Text } from "../providers";
 import { label } from "../pane/label";
 import * as errors from "../errors";
 export type SourcePane = {
@@ -42,7 +42,7 @@ function resumeRef(value: any): ResumeHint {
   const out = new ResumeHint();
   if (
     value?.kind !== "id" ||
-    !["codex", "claude"].includes(value.agent) ||
+    !Provider.parse(value.agent) ||
     typeof value.value !== "string" ||
     !value.value ||
     /[\x00-\x1f\x7f]/.test(value.value)

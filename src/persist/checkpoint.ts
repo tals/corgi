@@ -24,17 +24,6 @@ const invalid = (): never => {
 // bounded strings. Arrays with heterogeneous entries are restored by their owner.
 export function hydrate<T>(template: T, value: any): T {
   if (value === undefined) return template;
-  if (
-    template &&
-    typeof template === "object" &&
-    "values" in template &&
-    value &&
-    typeof value === "object" &&
-    "codex" in value
-  ) {
-    (template as any).values = hydrate((template as any).values, value);
-    return template;
-  }
   if (typeof template === "bigint") return BigInt(value) as T;
   if (typeof template === "number" && typeof value === "bigint") {
     const number = Number(value);

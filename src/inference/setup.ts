@@ -1,26 +1,25 @@
 import { dirname, join } from "node:path";
-import { Provider, Each } from "../providers";
+import { Provider, byProvider } from "../providers";
+import type { ByProvider } from "../providers";
 import * as settings from "../settings";
 import type { Choice } from "./harness";
-export { Provider };
 export type { Choice };
 export class Launches {
-  count = new Each(0);
+  count: ByProvider<number> = byProvider(() => 0);
   latest: Provider | null = null;
   static restore(value: any) {
     const launches = new Launches();
-    for (const provider of Provider.all)
-      launches.count.set(provider, value?.[provider] ?? value?.count?.[provider] ?? 0);
+    for (const provider of Provider.all) launches.count[provider] = value?.[provider] ?? value?.count?.[provider] ?? 0;
     launches.latest = value?.latest ?? null;
     return launches;
   }
   record(provider: Provider) {
-    this.count.set(provider, Math.min(0xffffffff, this.count.get(provider) + 1));
+    this.count[provider] = Math.min(0xffffffff, this.count[provider] + 1);
     this.latest = provider;
   }
   favorite(fallback: Provider) {
-    const best = Math.max(...Provider.all.map(p => this.count.get(p)));
-    const leaders = Provider.all.filter(p => this.count.get(p) === best);
+    const best = Math.max(...Provider.all.map(p => this.count[p]));
+    const leaders = Provider.all.filter(p => this.count[p] === best);
     return leaders.length === 1 ? leaders[0] : (this.latest ?? fallback);
   }
 }
@@ -39,8 +38,8 @@ export class Status {
   provider: Provider | null = null;
   model = "";
   locked = false;
-  launches = new Each(0);
-  models = new Each("");
+  launches: ByProvider<number> = byProvider(() => 0);
+  models: ByProvider<string> = byProvider(() => "");
   uses: Uses = allUses(true);
 }
 export function resolve(choice: Choice, launches: Launches, remembered: Provider) {
@@ -51,15 +50,18 @@ export function model(provider: Provider | null) {
     ? ""
     : (process.env.CORGI_INFERENCE_MODEL ?? process.env.CORGI_SUMMARY_MODEL ?? Provider.info(provider).summary_model);
 }
+/** A choice as settings and the environment spell it. */
+export function parseChoice(value: unknown): Choice | null {
+  return value === "auto" || value === "off" ? value : Provider.parse(value);
+}
 export function initial(saved: Choice | null) {
   if (saved !== null) return saved;
   if (process.env.CORGI_SUMMARY_COMMAND === "off") return "off";
   const name = process.env.CORGI_INFERENCE_PROVIDER ?? "auto";
-  return ["auto", "codex", "claude", "off"].includes(name) ? (name as Choice) : "off";
+  return parseChoice(name) ?? "off";
 }
 export function load(file: string): Choice | null {
-  const v = settings.read(file).inference;
-  return v === "auto" || v === "codex" || v === "claude" || v === "off" ? v : null;
+  return parseChoice(settings.read(file).inference);
 }
 export function save(file: string, choice: Choice) {
   settings.update(file, { inference: choice });

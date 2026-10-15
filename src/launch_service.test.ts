@@ -14,7 +14,7 @@ test("preview subscriptions schedule stale refreshes and publish completion with
     s = service(server),
     before = new Preview();
   before.pending = false;
-  before.options.get("claude").model = new Text("before");
+  before.options.claude.model = new Text("before");
   client.launch_preview = {
     cwd: "/",
     preview: before,
@@ -38,18 +38,18 @@ test("preview subscriptions schedule stale refreshes and publish completion with
   publish(server, client);
   expect(s.launch_previews.jobs[0].queued).toBe(true);
   expect(client.launch_preview.preview.pending).toBe(true);
-  expect(client.launch_preview.preview.options.get("claude").model.text()).toBe("before");
+  expect(client.launch_preview.preview.options.claude.model.text()).toBe("before");
   messages.length = 0;
   client.launch_preview.checked = 0;
   s.launch_previews.jobs[0].updated = Date.now();
   s.launch_previews.jobs[0].queued = false;
   s.launch_previews.jobs[0].preview = new Preview();
   s.launch_previews.jobs[0].preview.pending = false;
-  s.launch_previews.jobs[0].preview.options.get("claude").model = new Text("after");
+  s.launch_previews.jobs[0].preview.options.claude.model = new Text("after");
   publish(server, client);
   expect(messages[0].type).toBe("agent.preview");
   expect(client.launch_preview.preview.pending).toBe(false);
-  expect(client.launch_preview.preview.options.get("claude").model.text()).toBe("after");
+  expect(client.launch_preview.preview.options.claude.model.text()).toBe("after");
   messages.length = 0;
   client.launch_preview.checked = 0;
   publish(server, client);

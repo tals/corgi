@@ -11,7 +11,8 @@ import { join } from "node:path";
 import * as palette from "./palette";
 import { Style, colors, bgRgb, mix, type Token } from "./palette";
 import { Rect } from "./layout";
-import { Provider } from "./providers";
+import { Provider, byProvider } from "./providers";
+import type { ByProvider } from "./providers";
 import { Model } from "./providers/model";
 import * as corgiAnimation from "./corgi_animation";
 import * as sidebar from "./sidebar";
@@ -46,8 +47,8 @@ export interface Status {
   provider: Provider | null;
   model: string;
   locked: boolean;
-  launches: { codex: number; claude: number };
-  models: { codex: string; claude: string };
+  launches: ByProvider<number>;
+  models: ByProvider<string>;
   uses: Uses;
 }
 export function status(value: any = {}): Status {
@@ -59,8 +60,8 @@ export function status(value: any = {}): Status {
     provider: value?.provider ?? null,
     model: value?.model ?? "",
     locked: value?.locked === true,
-    launches: { codex: Number(value?.launches?.codex ?? 0), claude: Number(value?.launches?.claude ?? 0) },
-    models: { codex: value?.models?.codex ?? "", claude: value?.models?.claude ?? "" },
+    launches: byProvider(p => Number(value?.launches?.[p] ?? 0)),
+    models: byProvider(p => value?.models?.[p] ?? ""),
     uses: {
       activity: use(value?.uses?.activity),
       worktrees: use(value?.uses?.worktrees),
@@ -68,14 +69,14 @@ export function status(value: any = {}): Status {
   };
 }
 /** Who answers what Corgi asks the model; "off" only from an older daemon. */
-export type Summarizer = "auto" | "codex" | "claude" | "off";
-const summarizers: Summarizer[] = ["auto", "codex", "claude"];
+export type Summarizer = "auto" | Provider | "off";
+const summarizers: Summarizer[] = ["auto", ...Provider.all];
 export const Summarizer = {
   provider(choice: Summarizer): Provider | null {
-    return choice === "codex" || choice === "claude" ? choice : null;
+    return Provider.parse(choice);
   },
   label(choice: Summarizer): string {
-    return { auto: "Auto", codex: "Codex", claude: "Claude", off: "Off" }[choice];
+    return choice === "auto" ? "Auto" : choice === "off" ? "Off" : Provider.info(choice).name;
   },
 };
 

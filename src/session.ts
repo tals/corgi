@@ -5,7 +5,7 @@ import { Model, Tab } from "./layout";
 import { label } from "./pane/label";
 import { Entry, Semantics, resolve, analyze, shellStatus } from "./launch/command";
 import { ResumeHint } from "./resume_hint";
-import { Text, Each } from "./providers";
+import { Text } from "./providers";
 import { logicalKey } from "./keys";
 import { encode } from "./keyboard";
 export type Context = { socket: string; executable: string; theme: any };
@@ -90,17 +90,16 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
       return location(r, pane);
     }
     case "agent.visibility":
-      r.agent_hidden =
-        request.payload.hidden instanceof Each ? request.payload.hidden : new Each(false, request.payload.hidden);
+      r.agent_hidden = { ...request.payload.hidden };
       r.changed();
       return {};
     case "agent.yolo":
-      r.agent_yolo.set(request.payload.provider, request.payload.enabled);
+      r.agent_yolo[request.payload.provider] = request.payload.enabled;
       r.changed();
       return {};
     case "agent.create": {
       const provider = request.payload.provider ?? r.lastAgent(r.getWorkspace(request.payload.workspace)),
-        launch = new Launch({ provider, yolo: r.agent_yolo.get(provider) }),
+        launch = new Launch({ provider, yolo: r.agent_yolo[provider] }),
         pane = await r.create({
           ...spawnOptions(r, ctx, request.payload.workspace, null, request.payload.cwd ?? ""),
           command: launch.paneCommand(ctx.executable, launch.typed()),
@@ -126,7 +125,7 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
           opts,
           new Launch({
             provider: request.payload.provider,
-            yolo: r.agent_yolo.get(request.payload.provider),
+            yolo: r.agent_yolo[request.payload.provider],
           }),
           h,
           null,

@@ -3,7 +3,8 @@
 //! remembers the choice. Mirrors agent_launcher.zig.
 import * as palette from "./palette";
 import { Style, keycap } from "./palette";
-import { Provider } from "./providers";
+import { Provider, byProvider } from "./providers";
+import type { ByProvider } from "./providers";
 import { Rect } from "./layout";
 import { Dialog } from "./name_dialog";
 import { Entry as CommandEntry, Semantics, Resolution, capacity as command_capacity } from "./launch/command";
@@ -18,45 +19,22 @@ import type * as worktrees from "./worktrees";
 import type { View as SidebarView, Spotlight } from "./sidebar";
 import { Writer, displayWidth, writeEllipsis, sat } from "./text";
 
-export type PerProvider<T> = { codex: T; claude: T };
-const providers: Provider[] = ["codex", "claude"];
+const providers = Provider.all;
+const customs = ["custom0", "custom1", "custom2", "custom3", "custom4", "custom5"] as const;
 
 /** Launcher rows: one per provider, then saved commands and a plain terminal. */
-export type Row =
-  | "codex"
-  | "claude"
-  | "custom0"
-  | "custom1"
-  | "custom2"
-  | "custom3"
-  | "custom4"
-  | "custom5"
-  | "terminal"
-  | "add"
-  | "manage";
-export const rows: Row[] = [
-  "codex",
-  "claude",
-  "custom0",
-  "custom1",
-  "custom2",
-  "custom3",
-  "custom4",
-  "custom5",
-  "terminal",
-  "add",
-  "manage",
-];
+export type Row = Provider | (typeof customs)[number] | "terminal" | "add" | "manage";
+export const rows: Row[] = [...providers, ...customs, "terminal", "add", "manage"];
 export const Row = {
   of(provider: Provider): Row {
     return provider;
   },
   custom(row: Row): number | null {
-    const i = rows.indexOf(row);
-    return i >= 2 && i <= 7 ? i - 2 : null;
+    const i = customs.indexOf(row as (typeof customs)[number]);
+    return i >= 0 ? i : null;
   },
   agent(row: Row): Provider | null {
-    return row === "codex" || row === "claude" ? row : null;
+    return Provider.parse(row);
   },
 };
 /** The agent a launcher key starts. */
@@ -102,14 +80,14 @@ export function modelLabel(o: { model: string; model_name: string }): string {
 }
 export interface Preview {
   pending: boolean;
-  options: PerProvider<Option>;
-  installed: PerProvider<boolean>;
+  options: ByProvider<Option>;
+  installed: ByProvider<boolean>;
 }
 export function preview(value: any = {}): Preview {
   return {
     pending: value.pending !== false,
-    options: { codex: option(value.options?.codex), claude: option(value.options?.claude) },
-    installed: { codex: value.installed?.codex !== false, claude: value.installed?.claude !== false },
+    options: byProvider(p => option(value.options?.[p])),
+    installed: byProvider(p => value.installed?.[p] !== false),
   };
 }
 /** A saved launch command from the snapshot, with its methods. */
@@ -139,8 +117,8 @@ export class Menu {
   /** Conversations panes run now, which the list jumps to instead. */
   open: launcherResume.Open[] = [];
   selected: Row = "codex";
-  yolo: PerProvider<boolean> = { codex: false, claude: false };
-  hidden: PerProvider<boolean> = { codex: false, claude: false };
+  yolo = byProvider(() => false);
+  hidden = byProvider(() => false);
   managing = false;
   editor = Object.assign(Dialog.init({ agent_command: 0 }, ""), { selected: false });
   name_editor = Object.assign(Dialog.init({ rename: 0 }, ""), { selected: false });

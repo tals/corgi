@@ -53,7 +53,7 @@ test("uses save apart from the model choice; an old saved off turns them all off
 
 test("launch history restores legacy checkpoint counters", () => {
   const launches = Launches.restore({ codex: 7, claude: 4, latest: "claude" });
-  expect(launches.count.get("codex")).toBe(7);
-  expect(launches.count.get("claude")).toBe(4);
+  expect(launches.count.codex).toBe(7);
+  expect(launches.count.claude).toBe(4);
   expect(resolve("auto", launches, "claude")).toBe("codex");
 });

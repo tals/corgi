@@ -15,6 +15,7 @@ import { testBuild } from "./build_assets";
 import * as config from "./build_config";
 import * as crash from "./crash";
 import * as build_id from "./build_id";
+import { Provider } from "./providers";
 export const executable = build_id.executablePath(
   import.meta.filename,
   process.execPath,
@@ -33,12 +34,12 @@ export const actionNames = (() => {
 const help = helpText.replace("\n\n\n\n", `\n\n${actionNames}\n\n`);
 export const buildId = (): string => build_id.of(executable);
 const provider = (value: string) => {
-  if (value !== "codex" && value !== "claude") throw Error("BadProvider");
-  return value;
+  const parsed = Provider.parse(value);
+  if (!parsed) throw Error("BadProvider");
+  return parsed;
 };
-export function providerAlias(argv0: string): "codex" | "claude" | null {
-  const name = basename(argv0);
-  return name === "codex" || name === "claude" ? name : null;
+export function providerAlias(argv0: string): Provider | null {
+  return Provider.parse(basename(argv0));
 }
 export function paneId(value: string): number {
   if (!/^\+?\d+$/.test(value)) throw Error("InvalidCharacter");
@@ -290,7 +291,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       if (
         (op !== "status" && op !== "install" && op !== "uninstall") ||
         rest.length ||
-        (name !== undefined && name !== "claude" && name !== "codex")
+        (name !== undefined && !Provider.parse(name))
       ) {
         process.stderr.write(integration.help);
         process.exitCode = 2;

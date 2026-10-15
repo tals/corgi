@@ -13,8 +13,7 @@ import * as errors from "../errors";
 export { Provider };
 export type Choice = "auto" | Provider | "off";
 export const Choice = {
-  provider: (choice: Choice): Provider | null =>
-    Provider.all.includes(choice as Provider) ? (choice as Provider) : null,
+  provider: (choice: Choice): Provider | null => Provider.parse(choice),
 };
 export type Config = {
   provider: Provider;

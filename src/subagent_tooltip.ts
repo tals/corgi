@@ -1,7 +1,7 @@
 //! The agent card a sidebar row opens on hover, and the usage overview the
 //! status bar opens. Mirrors subagent_tooltip.zig.
 import { microTimestamp, milliTimestamp } from "./clock";
-import { Provider } from "./providers";
+import { Provider, byProvider } from "./providers";
 import { View as UsageView, Tokens } from "./usage/live";
 import { View as ContextView } from "./usage/context_window";
 import * as prices from "./usage/prices";
@@ -660,7 +660,7 @@ export interface Release {
 }
 /** Account limits for the pane beside Top agents, from the launcher preview. */
 export class Accounts {
-  options: { codex: Option; claude: Option } = { codex: option(), claude: option() };
+  options = byProvider(() => option());
   /** The provider the activity summarizer runs on. */
   system: Provider | null = null;
   /** Unix seconds; zero reads the clock. */

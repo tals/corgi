@@ -14,6 +14,7 @@ import type { Entry as CommandEntry } from "./launch/command";
 import { status as setupStatus, type Status as SetupStatus } from "./corgi_setup";
 import { status as shellStatus } from "./shell_picker";
 import type { ShellStatus } from "./launch/command";
+import { byProvider } from "./providers";
 import type { Provider } from "./providers";
 import { type Conversation, conversation, usageView } from "./subagent_tooltip";
 import { View as UsageView } from "./usage/live";
@@ -456,8 +457,8 @@ export class Runtime {
   resources = new resources.Snapshot();
   resources_hash: bigint | null = null;
   last_agent: Provider = "codex";
-  agent_yolo = { codex: false, claude: false };
-  agent_hidden = { codex: false, claude: false };
+  agent_yolo = byProvider(() => false);
+  agent_hidden = byProvider(() => false);
   agent_commands: CommandEntry[] = Array.from({ length: 6 }, () => commandEntry());
   pane(id: number): Pane | null {
     return this.panes.find(p => p.id === id) ?? null;
@@ -527,11 +528,8 @@ export class Runtime {
     this.smart_links = snapshot.smart_links !== false;
     this.ports = snapshot.ports ?? { workspaces: [] };
     this.last_agent = snapshot.last_agent ?? "codex";
-    this.agent_yolo = { codex: snapshot.agent_yolo?.codex === true, claude: snapshot.agent_yolo?.claude === true };
-    this.agent_hidden = {
-      codex: snapshot.agent_hidden?.codex === true,
-      claude: snapshot.agent_hidden?.claude === true,
-    };
+    this.agent_yolo = byProvider(p => snapshot.agent_yolo?.[p] === true);
+    this.agent_hidden = byProvider(p => snapshot.agent_hidden?.[p] === true);
     this.agent_commands = Array.from({ length: 6 }, (_, i) => commandEntry(snapshot.agent_commands?.[i]));
   }
 }

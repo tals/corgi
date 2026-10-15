@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import type { Quit } from "../subprocess";
+import type { Provider } from "../providers";
 import type { Stopping } from "../inference";
 export type ControlStopping = Stopping | { stopping: boolean };
 export type Options = {
@@ -30,7 +31,7 @@ export class Control {
   >();
   initialized: Promise<any> | null = null;
   constructor(
-    public provider: "codex" | "claude",
+    public provider: Provider,
     public executable: string = provider,
   ) {}
   start() {

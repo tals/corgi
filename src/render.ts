@@ -4,6 +4,7 @@ import * as palette from "./palette";
 import { Style, keycap } from "./palette";
 import { Rect, View as LayoutView, Model, type Axis, type Border } from "./layout";
 import * as sidebar from "./sidebar";
+import { byProvider } from "./providers";
 import {
   View as SidebarView,
   Preview,
@@ -157,8 +158,8 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
       provider: null,
       model: "",
       locked: false,
-      launches: { codex: 0, claude: 0 },
-      models: { codex: "", claude: "" },
+      launches: byProvider(() => 0),
+      models: byProvider(() => ""),
       uses: { activity: true, worktrees: true },
     },
     copy_feedback: false,

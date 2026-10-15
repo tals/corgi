@@ -1,7 +1,7 @@
 import { Quit } from "../subprocess";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { Provider, Each, Text } from "../providers";
+import { Provider, byProvider, Text } from "../providers";
 import { Model } from "../providers/model";
 import { Info, codexAccount, limits, serializeLimits } from "../usage/account";
 import { none, update as updateLimitHistory } from "../usage/limits";
@@ -37,16 +37,11 @@ export class Option {
 }
 export class Preview {
   pending = true;
-  options = new Each(new Option(), {
-    codex: new Option(),
-    claude: new Option(),
-  });
-  installed = new Each(true);
+  options = byProvider(() => new Option());
+  installed = byProvider(() => true);
 }
 export function installed() {
-  const result = new Each(true);
-  for (const p of Provider.all) result.set(p, discovery.installed(p));
-  return result;
+  return byProvider(p => discovery.installed(p));
 }
 export function applyModel(out: Option, value: any, source: string) {
   if (typeof value?.model === "string" && value.model) out.setModel(value.model, source);
@@ -171,7 +166,7 @@ export class Worker {
     result.installed = installed();
     for (const p of Provider.all) {
       if (this.stopping) return;
-      if (!result.installed.get(p)) continue;
+      if (!result.installed[p]) continue;
       let out: Option;
       if (p === "claude") out = claudeModel(job.cwd);
       else {
@@ -202,7 +197,7 @@ export class Worker {
       } catch {
         out.usage_error = new Text("account read failed");
       }
-      result.options.set(p, out);
+      result.options[p] = out;
     }
     if (this.jobs.includes(job)) {
       job.preview = result;

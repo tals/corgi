@@ -1,6 +1,7 @@
 //! Viewer-local resource card: three framed graphs and a stable mini top.
 //! Mirrors resource_tooltip.zig.
 import { Style, derived } from "./palette";
+import type { Provider } from "./providers";
 import { Rect } from "./layout";
 import { cpuText, ioText } from "./trackers/resources";
 import { Writer, displayWidth, writeClipped, directoryLabel, sat, zigRound } from "./text";
@@ -55,7 +56,7 @@ export interface Process {
   pid: number;
   start: bigint;
   name: string;
-  provider?: "codex" | "claude" | null;
+  provider?: Provider | null;
   cpu?: number | null;
   memory?: bigint;
   read?: bigint | null;

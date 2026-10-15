@@ -2,13 +2,13 @@
 //! rows, and every one, grouped by day and searchable, once expanded.
 //! Mirrors launcher_resume.zig.
 import { basename } from "node:path";
+import type { Provider } from "./providers";
 import * as palette from "./palette";
 import { Style, keycap } from "./palette";
 import { Dialog } from "./name_dialog";
 import { Writer, writeEllipsis, truncatedText, sat } from "./text";
 import * as scrollThumb from "./scroll_thumb";
 
-export type Provider = "codex" | "claude";
 export type Scope = "folder" | "workspace" | "everywhere";
 const scopes: Scope[] = ["folder", "workspace", "everywhere"];
 export function scopeLabel(s: Scope): string {

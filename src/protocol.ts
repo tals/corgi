@@ -1,7 +1,7 @@
 import * as json from "./json";
 import { Theme } from "./theme";
 import type { View as SurfaceView } from "./pane/surface";
-import type { Provider } from "./providers";
+import { Provider, byProvider } from "./providers";
 import type { Target } from "./agent_order";
 export interface Control {
   seq: bigint;
@@ -167,12 +167,12 @@ const commands = {
   },
   "agent.command.create": { workspace: "u32", cwd: ["string", ""], index: "u64" },
   "agent.visibility": { hidden: "visibility" },
-  "agent.yolo": { provider: "codex|claude", enabled: "bool" },
-  "agent.create": { workspace: "u32", cwd: ["string", ""], provider: ["?codex|claude", null] },
+  "agent.yolo": { provider: "provider", enabled: "bool" },
+  "agent.create": { workspace: "u32", cwd: ["string", ""], provider: ["?provider", null] },
   "agent.resume": {
     workspace: "u32",
     cwd: "string",
-    provider: "codex|claude",
+    provider: "provider",
     session: "string",
     asleep: ["bool", false],
     name: ["string", ""],
@@ -232,7 +232,11 @@ export function decode<K extends Op>(op: K, input: unknown): Requests[K] {
   const spec = (requests as Partial<Record<Op, Fields>>)[op];
   return (spec ? struct(value, spec, false) : {}) as Requests[K];
 }
-type Alternatives<T extends string> = T extends `${infer Head}|${infer Tail}` ? Head | Alternatives<Tail> : T;
+/** An enum's members; `provider` stands for every provider. */
+type Member<T extends string> = T extends "provider" ? Provider : T;
+type Alternatives<T extends string> = T extends `${infer Head}|${infer Tail}`
+  ? Member<Head> | Alternatives<Tail>
+  : Member<T>;
 type TaggedValues = { target: Target; paneDestination: PaneDestination; tabDestination: TabDestination };
 type Value<T extends string> = T extends `?${infer Inner}`
   ? Value<Inner> | null
@@ -369,9 +373,10 @@ function validate(value: any, type: string, strict = false): any {
     if (n < min || n > max) throw Error("Overflow");
     return bits < 64n ? Number(n) : n;
   }
-  if (type.includes("|")) {
+  if (type.includes("|") || type === "provider") {
     if (typeof value !== "string") throw Error("UnexpectedToken");
-    if (!type.split("|").includes(value)) throw Error("InvalidEnumTag");
+    const members = type.split("|").flatMap(m => (m === "provider" ? Provider.all : [m]));
+    if (!members.includes(value)) throw Error("InvalidEnumTag");
     return value;
   }
   const nested = (structures as Record<string, Fields>)[type];
@@ -396,9 +401,9 @@ function struct(value: any, fields: Fields, strict: boolean) {
   return out;
 }
 const structures = {
-  visibility: { codex: ["bool", false], claude: ["bool", false] },
+  visibility: byProvider(() => ["bool", false] as const),
   semantics: {
-    provider: ["?codex|claude", null],
+    provider: ["?provider", null],
     suggested_name: ["string", ""],
     model: ["string", ""],
     model_name: ["string", ""],
@@ -489,7 +494,7 @@ const requests = {
   "pane.surface": { pane: "u32" },
   "server.reload": { executable: ["string", ""] },
   "inference.configure": {
-    choice: ["?auto|codex|claude|off", null],
+    choice: ["?auto|provider|off", null],
     activity: ["?bool", null],
     worktrees: ["?bool", null],
   },
@@ -515,13 +520,13 @@ const requests = {
   action: { name: ["string", ""], value: ["string", ""], viewer: ["?u32", null], pane: ["?u32", null] },
   focus: { pane: "u32", viewer: ["?u32", null] },
   "workspace.switch": { workspace: "u32", viewer: ["?u32", null] },
-  "native.start": { provider: "codex|claude", cwd: ["string", ""], workspace: ["?u32", null] },
+  "native.start": { provider: "provider", cwd: ["string", ""], workspace: ["?u32", null] },
   "native.stop": { session: "u32" },
   "native.send": { session: "u32", message: "json" },
   "native.events": { session: "u32", after: ["u64", 0] },
   theme: { theme: ["theme", null] },
   hook: {
-    provider: "codex|claude",
+    provider: "provider",
     event: "json",
     pane: ["u32", 0],
     seq: ["?i64", null],
