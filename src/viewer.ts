@@ -395,7 +395,10 @@ export async function run(
         }
         view.clearEffects();
         // The host's answer wakes a viewer waiting on it; only a full terminal is polled.
-        const clock = Date.now() - active_at < idle_after_ms ? 16 : Math.max(1, next_sync - Date.now());
+        const clock =
+          Date.now() - active_at < idle_after_ms
+            ? Math.min(16, view.frameDelay())
+            : Math.max(1, next_sync - Date.now());
         await poll.wait(Math.min(clock, Math.max(1, wakeDue() - Date.now())), held && !probe.pacer.waiting(Date.now()));
         // Input reaches the daemon with a frame's sync, so send it now, and
         // show the first change after it (its echo) without waiting a frame.

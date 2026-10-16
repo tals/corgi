@@ -111,6 +111,7 @@ test("the daemon and the viewer never import each other", () => {
       "mirror",
       "name_dialog",
       "navigation",
+      "new_workspace",
       "onboarding",
       "paste_card",
       "preferences",

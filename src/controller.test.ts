@@ -5,6 +5,7 @@ import { Controller, cardEffect, pasteKey, forkName, breadcrumbs } from "./contr
 import * as preferences from "./preferences";
 import { TabMenu } from "./commands";
 import { Dialog } from "./name_dialog";
+import * as newWorkspace from "./new_workspace";
 import { Menu as LauncherMenu } from "./agent_launcher";
 import { Menu as SetupMenu } from "./corgi_setup";
 import * as hostClipboard from "./host_clipboard";
@@ -130,6 +131,20 @@ test("a paste goes to the field that owned the keyboard when it began", async ()
   s.name_dialog = null;
   s.beginPrefix();
   expect(s.pasteTarget()).toBe("discard");
+});
+
+test("keys stay on the name while the folder field doesn't fit", async () => {
+  const s = controller();
+  s.input_state.attached = true;
+  const d = new newWorkspace.Dialog(newWorkspace.Browser.init("/a", "/home", () => ["b"]));
+  s.name_dialog = d;
+  s.height = 12;
+  await s.input(bytes("\tx"));
+  expect(d.browser.focused).toBe(false);
+  expect(d.name()).toBe("ax");
+  s.height = 30;
+  await s.input(bytes("\ty"));
+  expect(d.browser.field.raw()).toBe("/a/y");
 });
 
 test("a paste read from the host clipboard goes where a paste would", async () => {

@@ -2,16 +2,8 @@ import { expect, test } from "bun:test";
 import * as palette from "./palette";
 import { Grid } from "./cell_grid";
 import * as removal from "./worktree_removal";
-import {
-  assumed_delay_ms,
-  first_repeat_ms,
-  hold_ms,
-  repeat_gap_ms,
-  message_ms,
-  finale_ms,
-  Hold,
-  type Target,
-} from "./worktree_removal";
+import { assumed_delay_ms, first_repeat_ms, repeat_gap_ms } from "./key_hold";
+import { hold_ms, message_ms, finale_ms, Hold, type Target } from "./worktree_removal";
 import { parseInventory } from "./trackers/worktrees";
 
 const [, topic, next] = parseInventory(

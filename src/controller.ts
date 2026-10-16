@@ -47,6 +47,7 @@ import {
 import { parse as parseAction, needsPane, type Action } from "./action";
 import * as corgiBadge from "./corgi_badge";
 import * as forkMotion from "./fork_motion";
+import * as newWorkspace from "./new_workspace";
 import { State as SidebarRows } from "./sidebar_rows";
 import * as agentLauncher from "./agent_launcher";
 import { Menu as LauncherMenu, Row, keyAgent, type Row as LauncherRow } from "./agent_launcher";
@@ -1366,7 +1367,10 @@ export class Controller {
       if (index === null) return;
       initial = this.runtime.workspaces.items[index].custom_name;
     }
-    this.name_dialog = Dialog.init({ workspace_name: id }, initial);
+    this.name_dialog =
+      id === null
+        ? new newWorkspace.Dialog(newWorkspace.Browser.init(this.currentCwd()))
+        : Dialog.init({ workspace_name: id }, initial);
     this.prepareName();
   }
   private async newWorkspace(name: string, cwd: string): Promise<number> {
@@ -1397,6 +1401,11 @@ export class Controller {
     this.selection = null;
     this.dirty = true;
   }
+  /** Keys stay on the name while the screen is too small to draw the folder field. */
+  private fitNameDialog(): void {
+    const d = this.name_dialog;
+    if (d instanceof newWorkspace.Dialog) d.fit(this.width, this.height);
+  }
   dismissName(): void {
     // The hero's images go with it.
     if (this.name_dialog && this.name_dialog.hero.motion) this.queueEffect({ write_terminal: forkMotion.remove });
@@ -1414,11 +1423,14 @@ export class Controller {
     this.queueEffect({ write_terminal: forkMotion.upload(cell) });
     d.hero.motion = { start: milliTimestamp() + forkMotion.lead_ms, cell };
   }
-  /** How long the viewer waits between frames: a display frame while the
-   * fork card's hero moves or a sidebar row glides to another group. */
+  /** How long the viewer waits between frames: 120 a second while a hold to
+   * create fills or springs back, a display frame while the fork card's hero
+   * moves or a sidebar row glides to another group. */
   frameDelay(): number {
     const now = milliTimestamp(),
       d = this.name_dialog;
+    const own = d?.frame() ?? null;
+    if (own !== null) return own;
     return (d && forkMotion.moving(d.hero, now)) || this.sidebar_rows.moving(now) ? 16 : 30;
   }
   private async renamePane(id: number, name: string): Promise<void> {
@@ -1439,10 +1451,14 @@ export class Controller {
           return;
         }
       } else if ("workspace_name" in target) {
-        const name = dialog.name();
+        const fresh = dialog instanceof newWorkspace.Dialog ? dialog : null;
+        // A name that follows the folder is left empty, so the folder names the workspace.
+        const name = fresh?.follows_folder ? "" : dialog.name();
         if (target.workspace_name === null) {
+          const cwd = fresh ? fresh.confirm() : this.currentCwd();
+          if (cwd === null) return;
           try {
-            await this.newWorkspace(name, this.currentCwd());
+            await this.newWorkspace(name, cwd);
           } catch {
             this.notice(" Could not create workspace");
           }
@@ -3235,6 +3251,7 @@ export class Controller {
       return;
     }
     if (this.name_dialog) {
+      this.fitNameDialog();
       switch (this.name_dialog.key(byte)) {
         case "save":
           await this.finishName(true);
@@ -3536,7 +3553,10 @@ export class Controller {
         if (this.agent_picker && byte >= 32 && byte < 127) await this.key(byte);
         break;
       case "name":
-        if (this.name_dialog) this.name_dialog.pasteByte(byte);
+        if (this.name_dialog) {
+          this.fitNameDialog();
+          this.name_dialog.pasteByte(byte);
+        }
         break;
       case "discard":
         break;
@@ -3771,6 +3791,7 @@ export class Controller {
         if (parsed_key === "page_up") this.pageMenu(false);
         else if (parsed_key === "page_down") this.pageMenu(true);
       } else if (this.name_dialog) {
+        this.fitNameDialog();
         this.name_dialog.sequence(text);
         this.dirty = true;
       } else if (this.reviewKeys()) {
@@ -4468,15 +4489,18 @@ export class Controller {
       const dialog = this.name_dialog;
       if (!release && button === 0) {
         this.ui_mouse_down = true;
-        const dialog_view = NameView.init(this.width, this.height, dialog);
-        const found = dialog_view.hit(x, y);
-        if (found.tag === "save") await this.finishName(true);
-        else if (found.tag === "cancel") await this.finishName(false);
-        else if (found.tag === "clear") dialog.clear();
-        else if (found.tag === "field")
-          dialog.position(dialog.byteAtColumn(dialog_view.offset, found.field - dialog_view.offset));
+        switch (dialog.press(NameView.init(this.width, this.height, dialog), x, y, milliTimestamp())) {
+          case "save":
+            await this.finishName(true);
+            break;
+          case "cancel":
+            await this.finishName(false);
+            break;
+          default:
+            break;
+        }
         this.dirty = true;
-      }
+      } else if (release) dialog.release(milliTimestamp());
       return;
     }
     let entries = this.sidebarEntries();
@@ -4859,6 +4883,11 @@ export class Controller {
     }
     if (this.copy_feedback_until !== 0 && milliTimestamp() >= this.copy_feedback_until) {
       this.copy_feedback_until = 0;
+      this.dirty = true;
+    }
+    const dialog = this.name_dialog;
+    if (dialog && dialog.frame() !== null) {
+      if (dialog.tick(milliTimestamp()) === "save") await this.finishName(true);
       this.dirty = true;
     }
     const removal = this.worktree_card.removal;

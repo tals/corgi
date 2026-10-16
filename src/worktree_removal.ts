@@ -5,6 +5,7 @@ import * as corgiAnimation from "./corgi_animation";
 import * as worktrees from "./worktrees";
 import * as sidebar from "./sidebar";
 import type { Grid } from "./cell_grid";
+import { KeyHold } from "./key_hold";
 
 export type Effect = "dust" | "burn" | "bury";
 export const effects: readonly Effect[] = ["dust", "burn", "bury"];
@@ -17,12 +18,6 @@ export function pick(last: Effect | null, random = Math.random): Effect {
 /** How long the key is held to remove; letting go undoes it faster. */
 export const hold_ms = 1500;
 export const heal_ms = 400;
-/** Terminals report no key release, only repeats: the first comes after the
- * host's repeat delay, then one at its repeat rate. A longer silence is a release. */
-export const first_repeat_ms = 1000;
-export const repeat_gap_ms = 250;
-/** The host's repeat delay until a hold has shown it. */
-export const assumed_delay_ms = 400;
 export const message_ms = 4000;
 export const finale_ms: Record<Effect, number> = { dust: 600, burn: 500, bury: 1800 };
 
@@ -62,34 +57,26 @@ export class Hold {
   phase: Phase = "idle";
   target: Target | null = null;
   effect: Effect = "dust";
-  progress = 0;
   committed_at = 0;
   settled_at = 0;
   reason = "";
   /** The daemon's removal, and what it last said about deleting the files. */
   job = 0;
   report: worktrees.Removal | null = null;
-  private repeating = false;
-  /** When the hold was last moved on, when it started, and when the key last arrived. */
-  private at = 0;
-  private started = 0;
-  private last = 0;
-  /** The host's repeat delay and rate, as measured. */
-  private delay = assumed_delay_ms;
-  private interval = repeat_gap_ms / 2;
-  /** Held until then, unless the key arrives again. */
-  private until = 0;
-  /** Presses before this are the tail of a hold that already ended. */
-  private quiet_until = 0;
+  private key = new KeyHold(hold_ms, heal_ms);
   /** When the removed worktree left the list. */
   private gone_at: number | null = null;
+
+  get progress(): number {
+    return this.key.progress;
+  }
 
   /** One press of the key, or one repeat. True when it completes the hold:
    * the key is still down once the row is gone. A new hold plays `effect`. */
   press(now: number, target: Target, effect: Effect): boolean {
     this.advance(now);
-    if (now < this.quiet_until || this.phase === "removing") {
-      this.quiet_until = now + repeat_gap_ms;
+    if (this.key.quieted(now) || this.phase === "removing") {
+      this.key.quiet(now);
       if (this.phase === "locked") this.settled_at = now;
       return false;
     }
@@ -98,56 +85,28 @@ export class Hold {
       this.phase = "locked";
       this.target = target;
       this.settled_at = now;
-      this.quiet_until = now + repeat_gap_ms;
+      this.key.quiet(now);
       return false;
     }
-    const same = this.phase === "held" && this.target?.path === target.path,
-      // The first repeat, even one later than the delay expected it.
-      first = same && !this.repeating && now - this.started <= first_repeat_ms;
-    if (same && (now < this.until || first)) {
-      if (this.progress >= 1) {
-        this.phase = "removing";
-        this.job = 0;
-        this.committed_at = now;
-        this.gone_at = null;
-        this.quiet_until = now + repeat_gap_ms;
-        return true;
-      }
-      if (this.repeating) this.interval = Math.min(repeat_gap_ms, now - this.last);
-      else this.delay = Math.max(100, Math.min(first_repeat_ms, now - this.started));
-      this.repeating = true;
-      this.last = now;
-      this.until = now + repeat_gap_ms;
-      return false;
-    }
-    if (!same) {
-      this.progress = 0;
+    if (this.phase !== "held" || this.target?.path !== target.path) {
+      this.key.reset();
       this.effect = effect;
       this.report = null;
     }
     this.phase = "held";
     this.target = target;
-    this.repeating = false;
-    this.at = this.started = this.last = now;
-    this.until = now + this.delay + repeat_gap_ms;
-    return false;
+    if (!this.key.press(now)) return false;
+    this.phase = "removing";
+    this.job = 0;
+    this.committed_at = now;
+    this.gone_at = null;
+    return true;
   }
-  /** Moves the hold on to `now`: forward while the key is down, back once
-   * it's up. It goes forward only to when the next key is due, the first
-   * repeat after the host's repeat delay, so a hold doesn't stop to wait for
-   * it, and a key let go just before the end, noticed a gap later, never removes. */
+  /** Moves the hold on to `now`; see `KeyHold.advance`. */
   advance(now: number): void {
     if (this.phase === "held") {
-      const grown = Math.min(now, this.last + (this.repeating ? this.interval : this.delay));
-      if (grown > this.at) {
-        this.progress = Math.min(1, this.progress + (grown - this.at) / hold_ms);
-        this.at = grown;
-      }
-      if (now > this.until) {
-        this.progress = Math.max(0, this.progress - (now - Math.max(this.at, this.until)) / heal_ms);
-        this.at = now;
-      }
-      if (this.progress === 0 && now >= this.until) this.reset();
+      this.key.advance(now);
+      if (!this.key.active) this.reset();
     } else if (this.phase !== "idle" && this.phase !== "removing" && now - this.settled_at >= message_ms) this.reset();
   }
   /** The daemon's answer: removed, or why not. */
@@ -155,20 +114,19 @@ export class Hold {
     this.phase = reason === null ? "removed" : "failed";
     this.reason = reason ?? "";
     this.settled_at = now;
-    if (reason !== null) this.progress = 0;
+    if (reason !== null) this.key.reset();
   }
   /** Esc stopped Git deleting it; the worktree stays, short of what was already gone. */
   stopped(now: number): void {
     this.phase = "stopped";
     this.settled_at = now;
-    this.progress = 0;
+    this.key.reset();
   }
   reset(): void {
     this.phase = "idle";
     this.target = null;
     this.report = null;
-    this.progress = 0;
-    this.repeating = false;
+    this.key.reset();
   }
   /** Whether the hold is past the point where letting go undoes it. */
   committed(): boolean {

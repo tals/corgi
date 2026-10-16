@@ -19,21 +19,47 @@ export type Target =
   /** The name a copy of an agent pane's conversation starts with. */
   | { fork: number }
   /** The shell new panes run, typed from the shell picker. */
-  | { shell: null };
+  | { shell: null }
+  /** The new-workspace dialog's folder field. */
+  | { folder: null };
 export const targetKind = (
   t: Target,
-): "pane" | "rename" | "workspace_name" | "agent_command" | "agent" | "fork" | "shell" => Object.keys(t)[0] as any;
+): "pane" | "rename" | "workspace_name" | "agent_command" | "agent" | "fork" | "shell" | "folder" =>
+  Object.keys(t)[0] as any;
 /** Whether names keep non-ASCII text, which the agents' own names carry. */
 function unicodeTarget(t: Target): boolean {
-  return "agent_command" in t || "agent" in t || "fork" in t;
+  return "agent_command" in t || "agent" in t || "fork" in t || "folder" in t;
 }
 export type Result = "none" | "save" | "cancel";
 /** The longest name, in bytes, outside launch commands. */
 export const name_limit = 80;
 const max_length = 2048;
 const capacity = 4096;
+/** C0 and C1 controls and DEL, which a folder's name may hold and the
+ * terminal would act on. */
+const controls = /[\x00-\x1f\x7f-\x9f]/g;
+/** The columns `cp` takes in `t`'s field, where the controls it shows take one. */
+function fieldWidth(t: Target, cp: number): number {
+  return ("agent_command" in t && cp < 32) || ("folder" in t && (cp < 32 || (cp >= 127 && cp <= 159)))
+    ? 1
+    : codepointWidth(cp);
+}
+/** `text` with each control shown as "?", one column wide. */
+export function printable(text: string): string {
+  return text.replace(controls, "?");
+}
+/** The longest text, in bytes, a target takes. */
+function limit(t: Target): number {
+  return "agent_command" in t || "folder" in t ? max_length : name_limit;
+}
 export type Hit =
-  { tag: "none" } | { tag: "save" } | { tag: "clear" } | { tag: "cancel" } | { tag: "field"; field: number };
+  | { tag: "none" }
+  | { tag: "save" }
+  | { tag: "clear" }
+  | { tag: "cancel" }
+  | { tag: "field"; field: number }
+  /** Another of the dialog's own keys, by its place in the row. */
+  | { tag: "key"; index: number };
 
 function sequenceLength(byte: number): number {
   if (byte < 0x80) return 1;
@@ -67,26 +93,18 @@ export class Dialog {
   }
   static init(target: Target, initial: string): Dialog {
     const d = new Dialog(target);
-    const source = Buffer.from(initial);
-    d.len = Math.min(source.length, "agent_command" in target ? max_length : name_limit);
-    for (let i = 0; i < d.len; i++) {
-      const ch = source[i];
-      d.text[i] = unicodeTarget(target) || (ch >= 32 && ch < 127) ? ch : "_".charCodeAt(0);
-    }
-    while (d.len > 0 && !validUtf8(d.text.subarray(0, d.len))) d.len -= 1;
-    d.cursor = d.len;
+    d.fill(initial);
     return d;
   }
-  clone(): Dialog {
-    const d = new Dialog(this.target);
-    d.text = this.text.slice();
-    d.len = this.len;
-    d.cursor = this.cursor;
-    d.selected = this.selected;
-    d.failed = this.failed;
-    d.overflow = this.overflow;
-    d.hero = { ...this.hero };
-    return d;
+  protected fill(initial: string): void {
+    const source = Buffer.from(initial);
+    this.len = Math.min(source.length, limit(this.target));
+    for (let i = 0; i < this.len; i++) {
+      const ch = source[i];
+      this.text[i] = unicodeTarget(this.target) || (ch >= 32 && ch < 127) ? ch : "_".charCodeAt(0);
+    }
+    while (this.len > 0 && !validUtf8(this.text.subarray(0, this.len))) this.len -= 1;
+    this.cursor = this.len;
   }
   /** The text as written, untrimmed. */
   raw(): string {
@@ -120,8 +138,7 @@ export class Dialog {
   }
   private insert(bytes: number[]): void {
     if (this.selected) this.clear();
-    const limit = "agent_command" in this.target ? max_length : name_limit;
-    if (this.len + bytes.length > limit) {
+    if (this.len + bytes.length > limit(this.target)) {
       this.overflow = true;
       return;
     }
@@ -186,7 +203,7 @@ export class Dialog {
       const piece = this.text.subarray(pos, pos + n);
       if (!validUtf8(piece)) break;
       const cp = Buffer.from(piece).toString().codePointAt(0)!;
-      used += "agent_command" in this.target && cp < 32 ? 1 : codepointWidth(cp);
+      used += fieldWidth(this.target, cp);
       if (used > columns) break;
       pos += n;
     }
@@ -219,6 +236,40 @@ export class Dialog {
         break;
     }
   }
+  /** A view of its own, in place of the plain one; none by default. */
+  view(_width: number, _height: number): View | null {
+    return null;
+  }
+  /** A press at `x`, `y` in `v`: its keys save, cancel or clear, and its
+   * field takes the cursor. */
+  press(v: View, x: number, y: number, _now: number): Result {
+    const found = v.hit(x, y);
+    switch (found.tag) {
+      case "save":
+        return "save";
+      case "cancel":
+        return "cancel";
+      case "clear":
+        this.clear();
+        break;
+      case "field":
+        this.position(this.byteAtColumn(v.offset, found.field - v.offset));
+        break;
+      default:
+        break;
+    }
+    return "none";
+  }
+  /** The mouse button let go. */
+  release(_now: number): void {}
+  /** Moves a dialog that animates on to `now`; "save" when it finishes by itself. */
+  tick(_now: number): Result {
+    return "none";
+  }
+  /** How often it wants frames while it moves, or null at rest. */
+  frame(): number | null {
+    return null;
+  }
 }
 
 interface Card {
@@ -233,13 +284,20 @@ interface Button {
   padded: boolean;
 }
 /** A plain dialog's button: a keycap, and a label beside it when there is room. */
-interface Key {
+export interface Key {
   x: number;
   width: number;
   key: string;
   label: string;
   cap: boolean;
+  hit: Hit;
+  /** Each character on a cap of its own. */
+  split: boolean;
 }
+export type KeySpec = { key: string; label: string; hit: Hit; split?: boolean };
+/** The columns a key's caps take; a split key's stand a column apart. */
+export const capped = (k: { key: string; split?: boolean }) => (k.split ? k.key.length * 4 - 1 : k.key.length + 2);
+export const labelled = (k: { key: string; label: string; split?: boolean }) => capped(k) + 1 + k.label.length;
 /** How many columns each fork card button's label takes. */
 const card_label_widths = [13, 8, 10];
 /** The fork card's selected name and call to action: tints of the accent, not
@@ -251,7 +309,6 @@ palette.derived(() => {
   create_fill = "\x1b[0m" + bgRgb(mix(colors.surface, colors.accent, 22));
   create_label = create_fill + "\x1b[1m" + fgRgb(colors.accent);
 });
-
 export class View {
   x = 0;
   y = 0;
@@ -276,10 +333,9 @@ export class View {
       const v = View.forkCard(width, height, d);
       if (v) return v;
     }
-    const w = Math.min(
-      width,
-      Math.max(10, Math.max(Math.min(Math.max(0, width - 2), 36), Math.min(Math.floor((width * 3) / 5), 70))),
-    );
+    const own = d.view(width, height);
+    if (own) return own;
+    const w = View.plainWidth(width);
     const h = Math.min(height, 7);
     const y = Math.floor((height - h) / 2);
     const field_y = y + (h >= 7 ? 3 : h >= 5 ? 2 : 1);
@@ -305,6 +361,12 @@ export class View {
       fork: "fork" in d.target,
     });
     return v;
+  }
+  static plainWidth(width: number): number {
+    return Math.min(
+      width,
+      Math.max(10, Math.max(Math.min(Math.max(0, width - 2), 36), Math.min(Math.floor((width * 3) / 5), 70))),
+    );
   }
   /** The first byte that shows, keeping the cursor inside `columns`. */
   static scroll(d: Dialog, columns: number): number {
@@ -363,20 +425,37 @@ export class View {
    * dialogs keep only the caps, and the narrowest only the keys. */
   buttons(): Key[] {
     const inner = this.width - 2;
-    const names = ["↵", "^C", "esc"];
-    const labels = [this.fork ? "fork" : "save", "clear", "cancel"];
-    // The columns each key takes, without its cap's spaces.
-    const key_widths = [1, 2, 3];
-    const full = inner >= 32;
-    const caps = inner >= 14;
-    const gap = inner >= 36 ? 2 : 1;
-    const widths = key_widths.map((key, i) => (full ? key + 3 + labels[i].length : caps ? key + 2 : key));
-    let x = this.x + 1 + Math.floor(Math.max(0, inner - (widths[0] + widths[1] + widths[2] + 2 * gap)) / 2);
-    return names.map((key, i) => {
-      const result = { x, width: widths[i], key, label: full ? labels[i] : "", cap: caps };
+    const keys = this.keys();
+    // The keys are one column a character.
+    const span = (width: (k: KeySpec) => number, gap: number) =>
+      keys.reduce((n, k) => n + width(k), 0) + gap * (keys.length - 1);
+    const full = span(labelled, 1) <= inner;
+    const caps = span(capped, 1) <= inner;
+    const gap = span(labelled, 2) + 2 <= inner ? 2 : 1;
+    const widths = keys.map(k => (full ? labelled(k) : caps ? capped(k) : k.key.length));
+    let x =
+      this.x + 1 + Math.floor(Math.max(0, inner - widths.reduce((n, w) => n + w, 0) - gap * (keys.length - 1)) / 2);
+    return keys.map((k, i) => {
+      const result = {
+        x,
+        width: widths[i],
+        key: k.key,
+        label: full ? k.label : "",
+        cap: caps,
+        hit: k.hit,
+        split: k.split === true,
+      };
       x += widths[i] + gap;
       return result;
     });
+  }
+  /** The keys along the bottom. */
+  protected keys(): KeySpec[] {
+    return [
+      { key: "↵", label: this.fork ? "fork" : "save", hit: { tag: "save" } },
+      { key: "^C", label: "clear", hit: { tag: "clear" } },
+      { key: "esc", label: "cancel", hit: { tag: "cancel" } },
+    ];
   }
   hit(x: number, y: number): Hit {
     const v = this;
@@ -397,16 +476,10 @@ export class View {
     }
     // The field's fill beside the text answers too.
     const fill = v.padded ? 1 : 0;
-    if (y === v.field_y && x + fill >= v.text_x && x < v.text_x + v.text_width + fill)
-      return { tag: "field", field: v.offset + Math.min(Math.max(0, x - v.text_x), v.text_width) };
-    if (y === v.buttons_y) {
-      const buttons = v.buttons();
-      for (let i = 0; i < buttons.length; i++) {
-        const b = buttons[i];
-        if (x >= b.x && x < b.x + b.width)
-          return i === 0 ? { tag: "save" } : i === 1 ? { tag: "clear" } : { tag: "cancel" };
-      }
-    }
+    const across = x + fill >= v.text_x && x < v.text_x + v.text_width + fill;
+    const column = Math.min(Math.max(0, x - v.text_x), v.text_width);
+    if (y === v.field_y && across) return { tag: "field", field: v.offset + column };
+    if (y === v.buttons_y) for (const b of v.buttons()) if (x >= b.x && x < b.x + b.width) return b.hit;
     return { tag: "none" };
   }
   /** Drawn like the launcher and the menus: a rounded box on `surface`, a
@@ -414,6 +487,13 @@ export class View {
   draw(d: Dialog, w: Writer, number: number): void {
     const v = this;
     if (v.card) return v.drawCard(v.card, d, w);
+    v.drawBox(w);
+    v.heading(d, w, number);
+    v.drawButtons(w);
+    v.placeCursor(d, w);
+  }
+  protected drawBox(w: Writer): void {
+    const v = this;
     const panel = new Style({ fg: "text", bg: "surface" }).sgr();
     const border = new Style({ fg: "line", bg: "surface" }).sgr();
     for (let row = 0; row < v.height; row++) {
@@ -428,6 +508,11 @@ export class View {
         w.write(border + "│");
       }
     }
+  }
+  /** The title, a line about it, and the field. Returns where text starts,
+   * lined up with the field's fill, and the columns it has. */
+  protected heading(d: Dialog, w: Writer, number: number): { left: number; room: number } {
+    const v = this;
     const kind = targetKind(d.target);
     const title =
       kind === "agent_command"
@@ -445,7 +530,6 @@ export class View {
                   : (d.target as { workspace_name: number | null }).workspace_name === null
                     ? "New workspace"
                     : "Rename workspace";
-    // Text lines up with the field's fill.
     const left = v.text_x - (v.padded ? 1 : 0);
     const room = v.x + v.width - 1 - left - (v.padded ? 1 : 0);
     w.write(
@@ -490,48 +574,41 @@ export class View {
       );
       w.write(Buffer.from(shown).toString());
     }
+    return { left, room };
+  }
+  /** How key `i` draws: its cap, its label, and the key alone without room for caps.
+   * The first key saves; its label is the one that stands out. */
+  protected look(_b: Key, i: number): { cap: string; label: string; bare: string } {
+    const strong = new Style({ fg: "strong", bg: "surface", bold: true }).sgr();
+    return { cap: keycap, label: i === 0 ? strong : new Style({ fg: "muted", bg: "surface" }).sgr(), bare: strong };
+  }
+  protected drawButtons(w: Writer): void {
+    const v = this;
     v.buttons().forEach((b, i) => {
+      const look = v.look(b, i);
       w.write(`\x1b[${v.buttons_y + 1};${b.x + 1}H`);
       if (!b.cap) {
         // Too narrow for caps: the bare key.
-        w.write(new Style({ fg: "strong", bg: "surface", bold: true }).sgr() + b.key);
+        w.write(look.bare + b.key);
         return;
       }
-      w.write(keycap + ` ${b.key} `);
-      if (b.label.length === 0) return;
-      // The first button saves; its label is the one that stands out.
-      const label =
-        i === 0
-          ? new Style({ fg: "strong", bg: "surface", bold: true }).sgr()
-          : new Style({ fg: "muted", bg: "surface" }).sgr();
-      w.write(`${label} ${b.label}`);
+      if (b.split)
+        w.write([...b.key].map(ch => `${look.cap} ${ch} `).join(new Style({ fg: "text", bg: "surface" }).sgr() + " "));
+      else w.write(look.cap + ` ${b.key} `);
+      if (b.label.length > 0) w.write(`${look.label} ${b.label}`);
     });
-    v.placeCursor(d, w);
   }
-  private placeCursor(d: Dialog, w: Writer): void {
+  protected placeCursor(d: Dialog, w: Writer, offset = this.offset, y = this.field_y): void {
     let cursor_width = 0;
-    for (const ch of d.bytes(this.offset, d.cursor)) {
+    for (const ch of d.bytes(offset, d.cursor)) {
       const cp = ch.codePointAt(0)!;
-      cursor_width += "agent_command" in d.target && cp < 32 ? 1 : codepointWidth(cp);
+      cursor_width += fieldWidth(d.target, cp);
     }
-    w.write(`\x1b[0m\x1b[${this.field_y + 1};${this.text_x + 1 + cursor_width}H\x1b[?25h`);
+    w.write(`\x1b[0m\x1b[${y + 1};${this.text_x + 1 + cursor_width}H\x1b[?25h`);
   }
   private drawCard(card: Card, d: Dialog, w: Writer): void {
     const v = this;
-    const panel = new Style({ fg: "text", bg: "surface" }).sgr();
-    const border = new Style({ fg: "line", bg: "surface" }).sgr();
-    for (let row = 0; row < v.height; row++) {
-      w.write(`\x1b[${v.y + row + 1};${v.x + 1}H${border}`);
-      if (row === 0 || row + 1 === v.height) {
-        w.write(row === 0 ? "╭" : "╰");
-        w.write("─".repeat(v.width - 2));
-        w.write(row === 0 ? "╮" : "╯");
-      } else {
-        w.write("│" + panel);
-        w.splat(" ", v.width - 2);
-        w.write(border + "│");
-      }
-    }
+    v.drawBox(w);
     if (card.hero_y !== null)
       w.write(
         forkMotion.draw(v.x + Math.floor((v.width - forkMotion.width) / 2), card.hero_y, d.hero, milliTimestamp()),
