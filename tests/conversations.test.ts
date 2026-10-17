@@ -365,6 +365,12 @@ class ClaudeConversations extends Runtime {
       });
     await this.hook("context", "SessionStart");
     await this.hook("context", "UserPromptSubmit");
+    // Only a compaction inside a turn marks where the window fills.
+    this.record("context", {
+      type: "user",
+      timestamp: new Date().toISOString(),
+      message: { role: "user", content: "keep going" },
+    });
     call("context", "m1", 300000);
     await this.until(async () => (await this.actor("context"))?.context?.used === 301002);
     const first = (await this.actor("context")).context;

@@ -38,6 +38,8 @@ if (mode === 'single') {
   const udp = createSocket('udp4');
   ports.udp = await new Promise(resolve => udp.bind(0, '127.0.0.1', () => resolve(udp.address().port)));
 }
+// Corgi probes only the ports a server announces.
+for (const [name, port] of Object.entries(ports)) if (name !== 'udp') console.log('Listening on port ' + port);
 ports.pid = process.pid;
 writeFileSync(ready, JSON.stringify(ports));
 setInterval(() => {}, 1000);

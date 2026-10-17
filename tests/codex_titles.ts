@@ -299,11 +299,27 @@ export class Titles extends Runtime {
         .worktrees?.agents.find((a: any) => a.target.pane === this.pane);
     await this.untilAdvancing(4, async () => (await association())?.path === one);
     this.assertEqual((await association()).source, "write");
+    // A command elsewhere moves the agent only once its turn ends there.
     this.items[A].push({ type: "commandExecution", status: "completed", cwd: two, command: "pwd" });
+    await this.sim.wait_for_request("thread/items/list", { session: A, after: this.sim.requests.length });
+    await this.advance(4);
+    this.assertEqual((await association()).path, one);
+    this.states[A] = "idle";
+    this.turns[A] = ["new", "completed"];
     await this.untilAdvancing(4, async () => (await association())?.path === two);
     this.assertEqual((await association()).source, "cwd");
     this.assertEqual((await this.state()).cwd, repo);
-    this.items[A].push(edit, {
+    const turn = (id: string, ...items: any[]) => {
+      this.sim.history_items[A] = [
+        ...this.items[A].toReversed().map(item => ({ turnId: this.turns[A][0], item })),
+        ...this.sim.history_items[A],
+      ];
+      this.states[A] = "active";
+      this.turns[A] = [id, "inProgress"];
+      this.items[A] = [{ type: "userMessage", content: [{ type: "text", text: "continue" }] }, ...items];
+    };
+    // An edit moves it at once; a command in the thread's own folder doesn't.
+    turn("next", edit, {
       type: "commandExecution",
       status: "completed",
       cwd: repo,
@@ -311,9 +327,7 @@ export class Titles extends Runtime {
     });
     await this.untilAdvancing(4, async () => (await association())?.path === one);
     this.assertEqual((await association()).source, "write");
-    this.sim.history_items[A] = this.items[A].toReversed().map(item => ({ turnId: "new", item }));
-    this.turns[A] = ["next", "inProgress"];
-    this.items[A] = [{ type: "userMessage", content: [{ type: "text", text: "continue again" }] }];
+    turn("last");
     await this.sim.wait_for_request("thread/items/list", { session: A, after: this.sim.requests.length });
     await this.advance(4);
     this.assertEqual((await association()).path, one);

@@ -958,18 +958,19 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     };
     await view.input("\x02i");
     await this.until(async () => (await text()).includes("Corgi setup"));
-    this.assertIn("Who writes activity summaries", await text());
-    this.assertIn("● Auto", await text());
+    this.assertRegex(await text(), /Model +● Auto/);
     this.assertEqual((await this.session()).inference.choice, "auto");
-    // Enter opens the options on the one in use.
-    await view.input("\r\x1b[B\x1b[B\r");
+    // Enter moves to the options, and again opens Model's on the one in use.
+    await view.input("\r\r\x1b[B\x1b[B\r");
     await this.until(async () => (await this.session()).inference.choice === "claude");
     // Choosing a setting keeps setup open; only Esc closes it.
-    await this.until(async () => (await text()).includes("● Claude"));
+    await this.until(async () => /Model +● Claude/.test(await text()));
     this.assertIn("Corgi setup", await text());
-    await this.clickText(view, "No summaries, plain links", 100);
-    await this.until(async () => (await this.session()).inference.choice === "off");
-    this.assertIsNone((await this.session()).inference.provider);
+    // Summaries turn off on their own switch, keeping the model.
+    await this.clickText(view, "Activity summaries", 100);
+    await this.until(async () => (await this.session()).inference.uses.activity === false);
+    this.assertEqual((await this.session()).inference.choice, "claude");
+    this.assertRegex(await text(), /Activity summaries +○ Off/);
     const readSaved = () => JSON.parse(readFileSync(join(this.env.XDG_STATE_HOME!, "corgi/viewer.json"), "utf8"));
     this.assertNotIn("When busy", await text());
     this.assertNotIn("Process card on hover", await text());
@@ -980,7 +981,7 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     await this.until(async () => readSaved().resources.enabled === false);
     await this.until(async () => /Resources\s+Off/.test(await text()));
     // Mouse motion selects the setup row before a keyboard activation.
-    await clickSetting("Summaries");
+    await clickSetting("Clever Corgi");
     const setupRows = screen_text((await view.poll()).data, 100, 30);
     const resourceRow = setupRows.findIndex(row => row.includes("Resources"));
     this.assertGreaterEqual(resourceRow, 0);
@@ -997,7 +998,8 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     this.assertEqual(readSaved().resources, { enabled: true });
     await view.input("\x1b");
     await this.until(async () => !(await text()).includes("Corgi setup"));
-    this.assertEqual((await this.session()).inference.choice, "off");
+    this.assertEqual((await this.session()).inference.choice, "claude");
+    this.assertFalse((await this.session()).inference.uses.activity);
   }
   async test_launcher_resumes_a_closed_conversation_in_its_folder() {
     const view = await Viewer.create(this, 120, 30);

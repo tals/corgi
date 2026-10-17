@@ -136,6 +136,7 @@ class Links extends Runtime {
       `#!/usr/bin/env bun
 import { writeFileSync } from 'node:fs';
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('OK') });
+console.log('Listening on port ' + server.port);
 writeFileSync(process.argv[2], String(server.port));
 `,
     );

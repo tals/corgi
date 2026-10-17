@@ -187,11 +187,14 @@ class Files extends Runtime {
     await this.settle();
     this.assertEqual((await this.state()).activity, "");
     this.assertEqual((await this.state()).completed, 0);
-    await this.attachment.select(A);
+    // Resumed, A starts afresh under its own name.
     await this.hook("SessionStart");
+    await this.attachment.select(A);
     await this.until(async () => (await this.state()).session === A);
     this.assertEqual((await this.state()).name, "Investigate missing session details");
-    this.assertEqual((await this.state()).activity, "Tracing pane focus");
+    this.assertEqual((await this.state()).state, "idle");
+    this.assertEqual((await this.state()).activity, "");
+    this.assertEqual(this.calls().length, 1);
   }
   async test_exit_and_resume_restores_sidebar_name_before_any_hook() {
     await this.command("pane.close", { target: this.pane });
