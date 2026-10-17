@@ -1039,13 +1039,6 @@ export class View {
     if (napping) return "ᶻ";
     return "";
   }
-  /** The thinking swirl, or dots that pile up and squash flat while compacting. */
-  static spinnerFrame(compacting: boolean, now_ms: number): string {
-    const thinking = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-    const pile = ["⣀", "⣁", "⣂", "⣄", "⣌", "⣔", "⣤", "⣥", "⣦", "⣮", "⣶", "⣷", "⣿", "⣿", "⣿", "⣶", "⣤", "⣀", "⣀"];
-    if (compacting) return pile[mod(Math.floor(now_ms / 75), pile.length)];
-    return thinking[mod(Math.floor(now_ms / 80), thinking.length)];
-  }
   drawAgent(
     w: Writer,
     e: Entry,
@@ -1096,7 +1089,7 @@ export class View {
     // Without sleeping corgis, a dim Z marks an idle agent; unseen ones are
     // brighter. Selected rows take muted, as faint is too dim on them.
     const napping = e.state === "idle" && v.corgi_intensity === 0;
-    const activity = View.activityGlyph(e, waiting, napping, View.spinnerFrame(compacting, now_ms));
+    const activity = View.activityGlyph(e, waiting, napping, corgiAnimation.spinner(compacting, now_ms));
     const activity_color = selected
       ? "\x1b[22m" + fg("muted")
       : napping && e.attention !== "finished"
@@ -1812,11 +1805,8 @@ function gitColor(phase: GitPush["phase"]): string {
 /** Keep the right edge fixed: expansion covers the name, never moves the badge. */
 export function gitLabel(ws: WorkspaceEntry, expanded: boolean): string {
   switch (ws.git_push.phase) {
-    case "pushing": {
-      const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-      const i = mod(Math.floor(Date.now() / 80), frames.length);
-      return ` Pushing ${frames[i]}`;
-    }
+    case "pushing":
+      return ` Pushing ${corgiAnimation.spinner(false, Date.now())}`;
     case "succeeded":
       return " Pushed ✓";
     case "failed":

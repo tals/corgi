@@ -33,6 +33,10 @@ export const wag = [
   "~ᐯ•.•ᐯ",
   "^ᐯ•.•ᐯ",
 ];
+/** The working swirl. */
+export const thinking = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+/** Dots that pile up and squash flat while compacting. */
+export const pile = ["⣀", "⣁", "⣂", "⣄", "⣌", "⣔", "⣤", "⣥", "⣦", "⣮", "⣶", "⣷", "⣿", "⣿", "⣿", "⣶", "⣤", "⣀", "⣀"];
 export const fetch = [
   "~ᐯ•ᴥ•ᐯ",
   "~ᐯ•ᴥ•ᐯ",

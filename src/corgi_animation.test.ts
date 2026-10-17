@@ -456,3 +456,9 @@ test("a fork's corgi digs out its own, shorter word", () => {
     expect(plain(a.writeUnearth(a.Dig.width("forking"), ms, "forking"))).toBe(text);
   expect(plain(a.writeUnearth(a.Dig.width("forking") - 1, 0, "forking"))).toBe("Forking…");
 });
+test("bundles for a browser, where the landing page plays it", async () => {
+  const build = await Bun.build({ entrypoints: [`${import.meta.dir}/corgi_animation.ts`], target: "browser" }),
+    code = await build.outputs[0].text();
+  expect(code).not.toContain("node:");
+  expect(code).not.toMatch(/\bBun\.|\bBuffer\b/);
+});

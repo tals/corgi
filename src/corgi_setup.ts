@@ -1154,7 +1154,7 @@ export class Menu {
         writeEllipsis(w, "Visual flourishes", room);
         break;
       case 4:
-        w.write(at(x + 1, y) + palette.fg("faint") + sidebar.View.spinnerFrame(false, now));
+        w.write(at(x + 1, y) + palette.fg("faint") + corgiAnimation.spinner(false, now));
         w.write(at(x + 4, y) + corgiAnimation.writeWag(room, now, intensity));
         break;
       case 5:

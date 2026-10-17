@@ -1,16 +1,22 @@
 //! Viewer-local corgi motion policies mirrored from corgi_animation.zig.
-import { randomBytes } from "node:crypto";
+//! The landing page bundles this module, so it uses only what browsers have.
 import * as palette from "./palette";
 import * as frames from "./corgi_frames";
+const golden = 0x9e3779b97f4a7c15n;
+/** SplitMix64's finalizer. */
+function mix(value: bigint): bigint {
+  let z = BigInt.asUintN(64, (value ^ (value >> 30n)) * 0xbf58476d1ce4e5b9n);
+  z = BigInt.asUintN(64, (z ^ (z >> 27n)) * 0x94d049bb133111ebn);
+  return z ^ (z >> 31n);
+}
+const randomSeed = () => crypto.getRandomValues(new BigUint64Array(1))[0];
 export class Random {
   state: bigint[];
   constructor(seed: bigint = 0n) {
     let value = seed;
     this.state = Array.from({ length: 4 }, () => {
-      value = BigInt.asUintN(64, value + 0x9e3779b97f4a7c15n);
-      let z = BigInt.asUintN(64, (value ^ (value >> 30n)) * 0xbf58476d1ce4e5b9n);
-      z = BigInt.asUintN(64, (z ^ (z >> 27n)) * 0x94d049bb133111ebn);
-      return z ^ (z >> 31n);
+      value = BigInt.asUintN(64, value + golden);
+      return mix(value);
     });
   }
   next(): bigint {
@@ -39,9 +45,9 @@ export class Random {
       }
       lz = Math.min(lz, 1022);
     }
-    const bytes = Buffer.alloc(8);
-    bytes.writeBigUInt64LE((BigInt(1022 - lz) << 52n) | (rand & 0xfffffffffffffn));
-    return bytes.readDoubleLE();
+    const bits = new DataView(new ArrayBuffer(8));
+    bits.setBigUint64(0, (BigInt(1022 - lz) << 52n) | (rand & 0xfffffffffffffn));
+    return bits.getFloat64(0);
   }
   int(n: number): number {
     const mask = 0xffffffffn,
@@ -247,6 +253,11 @@ export function fetchTicks(width: number, value: Throw) {
 }
 const fetchPace = (width: number, value: Throw) => Math.max(fetchTicks(width, value), 192);
 export const wagTail = (step: number) => ["~", "-", "~", "^"][step % 4];
+/** The thinking swirl, or dots that pile up and squash flat while compacting. */
+export function spinner(compacting: boolean, now_ms: number): string {
+  const list = compacting ? frames.pile : frames.thinking;
+  return list[Math.floor(Math.max(0, now_ms) / (compacting ? 75 : 80)) % list.length];
+}
 export function writeFetch(width: number, value: Throw, tick: number): string {
   const scene = fetchScene(width, value, tick),
     dog = [...scene.dog];
@@ -604,15 +615,17 @@ export class Playback {
 export class Fetch {
   thrown_ms: number | null = null;
   throw = new Throw();
+  /** The narrowest room a throw plays in. */
+  constructor(readonly min_room = 18) {}
   throwBall(room: number, now: number) {
-    if (room < 18 || this.tick(room, now) !== null) return;
+    if (room < this.min_room || this.tick(room, now) !== null) return;
     this.thrown_ms = now;
-    this.throw = Throw.random(new Random(randomBytes(8).readBigUInt64LE()));
+    this.throw = Throw.random(new Random(randomSeed()));
   }
   tick(room: number, now: number): number | null {
     if (this.thrown_ms === null) return null;
     const elapsed = Math.max(0, now - this.thrown_ms);
-    if (room < 18 || elapsed >= 9600) return null;
+    if (room < this.min_room || elapsed >= 9600) return null;
     const at = 16 + Math.floor((elapsed * fetchPace(room, this.throw)) / 9600);
     return at < fetchTicks(room, this.throw) ? at : null;
   }
@@ -795,9 +808,7 @@ export function pick(sleepers: bigint[], period: bigint, skip: bigint | null): b
     bestScore = 0n;
   for (const key of sleepers) {
     if (key === skip) continue;
-    const bytes = Buffer.alloc(8);
-    bytes.writeBigUInt64LE(key);
-    const score = Bun.hash.wyhash(bytes, period);
+    const score = mix(BigInt.asUintN(64, key ^ mix(BigInt.asUintN(64, period + golden))));
     if (best === null || score > bestScore) {
       best = key;
       bestScore = score;
@@ -946,7 +957,7 @@ export function observe(key: bigint, mode: Mode, now: number): Presentation | nu
     if (!slot) throw Error("AnimationCapacity");
     slot.key = id;
     slot.presentation = new Presentation();
-    slot.presentation.playback.random = new Random(randomBytes(8).readBigUInt64LE());
+    slot.presentation.playback.random = new Random(randomSeed());
   }
   slot.seen = true;
   slot.presentation.update(mode, now);
