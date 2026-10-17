@@ -215,7 +215,9 @@ export class Runtime extends TestCase {
   async run_cli(...args: string[]) {
     // A daemon that stops takes the kept connections with it.
     if (args[0] === "shutdown") this.#disconnect();
-    return (await run([EXE, ...args], { env: this.env })).stdout;
+    // Started from the runner's folder, the daemon would open its home
+    // workspace, and its shells, in this checkout.
+    return (await run([EXE, ...args], { env: this.env, cwd: this.temp.name })).stdout;
   }
   #disconnect() {
     this.#calls?.close();

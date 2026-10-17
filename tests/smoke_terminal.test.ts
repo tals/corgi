@@ -286,7 +286,7 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
       TMPDIR: this.temp.name,
     };
     for (const name of ["CORGI_BELL", "SSH_CONNECTION", "SSH_TTY"]) delete env[name];
-    const pty = await Pty.spawn([EXE], { env, cols: 80, rows: 24 });
+    const pty = await Pty.spawn([EXE], { env, cwd: this.temp.name, cols: 80, rows: 24 });
     this.pty = pty;
     await this.until(async () => (await this.panes()).length > 0);
     const pane = (await this.panes())[0].id;
@@ -405,7 +405,9 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
     const pane = (
       await this.open_pane({
         cwd: this.temp.name,
-        command: "printf OUT; exec /bin/sh",
+        // On its own line: the shell redraws its prompt's line when the
+        // viewer attached below resizes the pane.
+        command: "echo OUT; exec /bin/sh",
       })
     ).pane;
     await this.until(async () =>
@@ -696,8 +698,8 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
     const pty = new Pty(80, 24);
     this.pty = pty;
     const before = await pty.settings();
-    pty.start([EXE], { env: this.env });
-    await pty.waitFor("corgi", 4000);
+    pty.start([EXE], { env: this.env, cwd: this.temp.name });
+    await pty.waitFor("workspaces", 4000);
     const offset = pty.output.length;
     pty.write(keys);
     this.assertEqual(await deadline(pty.proc.exited, 4000, "Corgi did not detach"), 0);
@@ -744,7 +746,7 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
   }
   async test_real_client_holds_frames_while_the_host_is_behind() {
     const pane = (await this.open_pane({ command: "i=0; while :; do i=$((i+1)); echo TICK$i; sleep 0.02; done" })).pane;
-    const pty = await Pty.spawn([EXE], { env: this.env, cols: 80, rows: 24 });
+    const pty = await Pty.spawn([EXE], { env: this.env, cwd: this.temp.name, cols: 80, rows: 24 });
     this.pty = pty;
     const request = "\x1b[5n";
     await pty.waitFor(request, 4000);
@@ -762,7 +764,7 @@ appendFileSync(${JSON.stringify(played)}, JSON.stringify({hash:createHash('sha25
     this.assertEqual(await deadline(pty.proc.exited, 4000, "Corgi did not detach"), 0);
   }
   async test_real_client_inherits_host_theme_and_answers_child_color_queries() {
-    const pty = await Pty.spawn([EXE], { env: this.env, cols: 80, rows: 24 });
+    const pty = await Pty.spawn([EXE], { env: this.env, cwd: this.temp.name, cols: 80, rows: 24 });
     this.pty = pty;
     await pty.waitFor("\x1b]11;?", 4000);
     pty.write("printf EARLY_INPUT_OK\r\x1b]10;rgb:dddd/");

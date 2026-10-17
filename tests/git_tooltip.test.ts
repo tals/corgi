@@ -1,4 +1,5 @@
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { Runtime, screen_text } from "./runtime";
 import { Viewer } from "./viewer_client";
 import { registerCase, run, sleep } from "./support";
@@ -13,19 +14,25 @@ class GitTooltip extends Runtime {
     for (const viewer of this.viewers) await viewer.close();
     await super.tearDown();
   }
+  // Not the home workspace's folder: Corgi has already found it isn't a
+  // repository, and looks again only after 30 s.
+  get repo() {
+    return join(this.temp.name, "repo");
+  }
   async git(...args: string[]) {
-    return (await run(["git", "-C", this.temp.name, ...args], { env: this.env })).stdout.trim();
+    return (await run(["git", "-C", this.repo, ...args], { env: this.env })).stdout.trim();
   }
   async new() {
     return (
       await this.command("pane.create", {
         workspace: (await this.session()).workspaces[0].id,
-        cwd: this.temp.name,
+        cwd: this.repo,
         command: "sleep 60",
       })
     ).pane;
   }
   async test_hover_metadata_is_local_and_refreshes_after_push() {
+    mkdirSync(this.repo);
     await this.git("init", "-b", "main");
     await this.git("config", "user.name", "Corgi Author");
     await this.git("config", "user.email", "test@example.invalid");
