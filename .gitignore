@@ -22,3 +22,4 @@ zig-pkg/
 
 # Repeatable live-model eval outputs; curated scorecards can be checked in separately.
 /evals/results/
+/playback
