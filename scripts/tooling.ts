@@ -55,7 +55,7 @@ export async function packages(tool: string, versions: Record<string, string>): 
   return found as string[];
 }
 
-const sources = ["*.ts", "{src,tests,evals,tools,scripts}/**/*.ts"];
+const sources = ["*.ts", "{src,tests,evals,tools,scripts,site}/**/*.ts"];
 
 /** Formats the TypeScript sources, or with "check" lists the ones that need it. */
 export async function prettier(mode: "check" | "write"): Promise<number> {

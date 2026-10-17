@@ -7,7 +7,10 @@
     "build": "bun build.ts",
     "test": "bun test src",
     "typecheck": "bun typecheck.ts",
-    "integration": "bun integration.ts"
+    "integration": "bun integration.ts",
+    "landingpage:dev": "bun site/serve.ts --dev",
+    "landingpage:build": "bun build --compile --target=browser --minify site/index.html --outdir site/dist",
+    "landingpage:start": "bun site/serve.ts"
   },
   "dependencies": { "@earendil-works/pi-tui": "1.0.4" }
 }

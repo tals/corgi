@@ -20,6 +20,12 @@
   when a feature needs a particular world to poke at.
 - **UI probe:** `bun tools/probe.ts run bun -e 'key ctrl+b c; snap'` drives a
   viewer in a PTY and records its screens. See `tools/probe.ts`.
+- **Landing page:** `bun run landingpage:dev` serves `site/` and reloads on
+  save; `landingpage:build` writes one self-contained `site/dist/index.html`
+  and `landingpage:start` serves it. `bun tools/site_frames.ts` re-records the
+  page's screens into `site/frames.json` with Corgi's renderer (`--check`
+  compares). The page imports Corgi's animation code, so keep
+  `src/corgi_animation.ts` browser-safe.
 
 ## Layout
 

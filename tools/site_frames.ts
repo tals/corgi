@@ -1,9 +1,11 @@
 /**
  * Site frames: renders the landing page's terminal screens with Corgi's own
- * renderer and writes them into site/index.html as DATA.frames.
+ * renderer and writes them to site/frames.json, which the page imports.
  *
  *   bun tools/site_frames.ts            render and update the page
  *   bun tools/site_frames.ts --check    compare with the page, change nothing
+ *   bun tools/site_frames.ts --show NAME [--all]   print a frame as text
+ *   bun tools/site_frames.ts --tally    count every changed cell by what changed
  *   bun tools/site_frames.ts --dump DIR also write each screen as .ansi
  *
  * The page draws these as cell grids: each frame is rows of [text, style]
@@ -25,179 +27,28 @@ import { Process, Work, cpuText, memoryText, type Point } from "../src/trackers/
 import { View as ContextView } from "../src/usage/context_window";
 import { Writer } from "../src/text";
 import { microTimestamp, milliTimestamp } from "../src/clock";
+import { blankCell, grid, unknown, type Cell } from "../site/terminal";
 
 const root = join(import.meta.dir, "..");
-const PAGE = join(root, "site", "index.html");
+const FRAMES = join(root, "site", "frames.json");
 const arg = (name: string) => {
   const i = process.argv.indexOf(name);
   return i >= 0 ? process.argv[i + 1] : undefined;
 };
 const dumpDir = arg("--dump");
 const checkOnly = process.argv.includes("--check");
+// --show and --tally only look, as --check does.
+const writes = !["--check", "--show", "--tally"].some(flag => process.argv.includes(flag));
 // One moment for every frame, so a rerun changes only what Corgi draws differently.
 const PINNED = new Date(2026, 9, 5, 10, 21, 0).getTime();
 Date.now = () => PINNED;
 
-// ---------------------------------------------------------------- cells
-type Cell = [string, string | null, string | null, boolean, number, string | null];
-const PALETTE: Record<string, string> = {
-  "24,27,32": "bg",
-  "35,40,47": "surface",
-  "51,57,65": "selected",
-  "80,90,101": "line",
-  "131,144,158": "faint",
-  "165,174,184": "muted",
-  "209,214,219": "text",
-  "238,241,244": "strong",
-  "123,241,168": "accent",
-  "229,195,139": "warm",
-  "237,163,152": "hot",
-};
-const color = (rgb: number[]) => PALETTE[rgb.join(",")] ?? "#" + rgb.map(n => n.toString(16).padStart(2, "0")).join("");
-const blankCell = (): Cell => [" ", null, null, false, 0, null];
-const unknown = new Set<string>();
-
-/** A terminal just big enough for Corgi's frames: cursor moves, SGR and
- * clears; titles, hyperlinks, pointer shapes and images are skipped. */
-class Screen {
-  grid: Cell[][] = [];
-  x = 0;
-  y = 0;
-  saved: [number, number] = [0, 0];
-  fg: string | null = null;
-  bg: string | null = null;
-  bold = false;
-  inverse = false;
-  ul = 0;
-  ulc: string | null = null;
-  constructor(
-    readonly cols: number,
-    readonly rows: number,
-  ) {
-    this.clear();
-  }
-  clear() {
-    this.grid = Array.from({ length: this.rows }, () => Array.from({ length: this.cols }, blankCell));
-  }
-  reset() {
-    this.fg = this.bg = this.ulc = null;
-    this.bold = this.inverse = false;
-    this.ul = 0;
-  }
-  put(ch: string) {
-    if (this.y >= 0 && this.y < this.rows && this.x >= 0 && this.x < this.cols)
-      this.grid[this.y][this.x] = this.inverse
-        ? [ch, this.bg ?? "bg", this.fg ?? "text", this.bold, this.ul, this.ulc]
-        : [ch, this.fg, this.bg, this.bold, this.ul, this.ulc];
-    this.x += 1;
-  }
-  sgr(params: string) {
-    const parts = params ? params.split(";") : ["0"];
-    for (let i = 0; i < parts.length; i++) {
-      const p = parts[i];
-      if (p.includes(":")) {
-        const sub = p.split(":");
-        const rgb = () =>
-          sub
-            .slice(2)
-            .filter(s => s !== "")
-            .map(Number)
-            .slice(-3);
-        if (sub[0] === "4") this.ul = Number(sub[1] || 0);
-        else if (sub[0] === "58") this.ulc = color(rgb());
-        else if (sub[0] === "38") this.fg = color(rgb());
-        else if (sub[0] === "48") this.bg = color(rgb());
-        continue;
-      }
-      const n = Number(p || 0);
-      if (n === 0) this.reset();
-      else if (n === 1) this.bold = true;
-      else if (n === 22) this.bold = false;
-      else if (n === 7) this.inverse = true;
-      else if (n === 27) this.inverse = false;
-      else if (n === 4) this.ul = 1;
-      else if (n === 24) this.ul = 0;
-      else if ((n === 38 || n === 48 || n === 58) && parts[i + 1] === "2") {
-        const c = color([Number(parts[i + 2]), Number(parts[i + 3]), Number(parts[i + 4])]);
-        if (n === 38) this.fg = c;
-        else if (n === 48) this.bg = c;
-        else this.ulc = c;
-        i += 4;
-      } else if (n === 39) this.fg = null;
-      else if (n === 49) this.bg = null;
-      else if (n === 59) this.ulc = null;
-      else unknown.add(`SGR ${n}`);
-    }
-  }
-  feed(data: string) {
-    const chars = Array.from(data);
-    for (let i = 0; i < chars.length; i++) {
-      const c = chars[i];
-      if (c === "\x1b") {
-        const next = chars[i + 1];
-        if (next === "[") {
-          let j = i + 2,
-            priv = "",
-            params = "";
-          if (/[?>=]/.test(chars[j])) priv = chars[j++];
-          while (j < chars.length && /[0-9;:]/.test(chars[j])) params += chars[j++];
-          while (j < chars.length && /[ -/]/.test(chars[j])) j++;
-          const final = chars[j];
-          i = j;
-          if (priv) continue;
-          const nums = params.split(";");
-          switch (final) {
-            case "H":
-              this.y = Number(nums[0] || 1) - 1;
-              this.x = nums.length > 1 ? Number(nums[1] || 1) - 1 : 0;
-              break;
-            case "J":
-              this.clear();
-              break;
-            case "m":
-              this.sgr(params);
-              break;
-            case "C":
-              this.x += Number(params || 1);
-              break;
-            case "G":
-              this.x = Number(params || 1) - 1;
-              break;
-            default:
-              unknown.add(`CSI ${params}${final}`);
-          }
-          continue;
-        }
-        if (next === "]" || next === "_" || next === "P" || next === "^") {
-          let j = i + 2;
-          while (j < chars.length && chars[j] !== "\x07" && !(chars[j] === "\x1b" && chars[j + 1] === "\\")) j++;
-          i = chars[j] === "\x07" ? j : j + 1;
-          continue;
-        }
-        if (next === "7") this.saved = [this.x, this.y];
-        else if (next === "8") [this.x, this.y] = this.saved;
-        i += 1;
-        continue;
-      }
-      if (c === "\n") {
-        this.y += 1;
-        this.x = 0;
-      } else if (c === "\r") this.x = 0;
-      else this.put(c);
-    }
-  }
-}
-function grid(ansi: string, cols: number, rows: number): Cell[][] {
-  const s = new Screen(cols, rows);
-  s.feed(ansi);
-  return s.grid;
-}
-
 // ---------------------------------------------------------------- the page
-const html = readFileSync(PAGE, "utf8");
-const dataLine = /^const DATA = (\{.*\});$/m.exec(html);
-if (!dataLine) throw new Error("site/index.html has no DATA line");
-const data = JSON.parse(dataLine[1]) as { styles: unknown[][]; frames: Record<string, any> };
+const data = JSON.parse(readFileSync(FRAMES, "utf8")) as {
+  styles: unknown[][];
+  resTotals: unknown;
+  frames: Record<string, any>;
+};
 const styleIndex = new Map(data.styles.map((s, i) => [JSON.stringify(s), i]));
 function sid(style: unknown[]): number {
   const key = JSON.stringify(style);
@@ -224,10 +75,7 @@ function encode(rows: Cell[][]): Runs {
 }
 const made = new Map<string, Runs | Runs[]>();
 /** Frames the page can't take yet, and why: they stay as the page has them. */
-const HELD: Record<string, string> = {
-  band: "the restoring card is now a centered box; the page still places the old band",
-  pband: "the restoring card is now a centered box; the page still places the old band",
-};
+const HELD: Record<string, string> = {};
 function keep(name: string, cells: Cell[][] | Cell[][][], ansi?: string) {
   const list = Array.isArray(cells[0]?.[0]?.[0]);
   made.set(name, list ? (cells as Cell[][][]).map(encode) : encode(cells as Cell[][]));
@@ -1096,29 +944,48 @@ function pickerFrames() {
     for (const ch of query) menu.resume_view.query.key(ch.charCodeAt(0));
     draw(menu, `search${i}`);
   });
-  // The restoring card, as the picker opens a conversation: wide and on a phone.
-  for (const [name, w] of [
-    ["band", 112],
-    ["pband", 48],
+  // The restoring card each conversation opens behind, centered on the
+  // picker's pane, wide and on a phone, as its dig ends. The dig is the one row
+  // that moves; the page plays it over the card from a flipbook per card width.
+  const models: Record<string, string> = { claude: "Opus 5.5", codex: "GPT-6 Astra" };
+  for (const [pre, w, h] of [
+    ["", 112, 18],
+    ["p", 48, 19],
   ] as const) {
-    const frames: Cell[][][] = [];
-    for (let t = 0; t <= 3600; t += 80) {
-      const out = new Writer();
+    const card = (n: number, t: number) => {
+      const e = HISTORY[n],
+        id = (((n + 1) * 0x9e3779b1) >>> 0).toString(16).padStart(8, "0") + "-4e1b-4c8e-9d2a-51b0e6f3a7c" + n,
+        out = new Writer();
       out.write("\x1b[0m\x1b[H\x1b[J");
       drawRestoring(
         out,
-        new Rect(0, 0, w, 5),
+        new Rect(0, 0, w, h),
         {
-          command: "claude --resume 7f3a2c19-4e1b-4c8e-9d2a-51b0e6f3a7c4",
-          name: "Fix sidebar flicker",
-          meta: "claude · Opus 5.5 · ~/dev/corgi",
+          command: e.provider === "claude" ? `claude --resume ${id}` : `codex resume ${id}`,
+          name: e.title,
+          meta: `${e.provider} · ${models[e.provider]} · ~/dev/corgi`,
           dig: "restoring",
         },
         t,
       );
-      frames.push(grid(out.buffered(), w, 5));
-    }
-    keep(name, frames);
+      const rows = grid(out.buffered(), w, h);
+      return rows.slice(
+        rows.findIndex(row => row.some(([ch]) => ch === "╭")),
+        rows.findIndex(row => row.some(([ch]) => ch === "╰")) + 1,
+      );
+    };
+    const digs = new Set<number>();
+    HISTORY.forEach((_, n) => {
+      const last = card(n, 3600),
+        width = last[0].filter(([ch]) => ch !== " ").length;
+      keep(`${pre}rest${n}`, last);
+      if (digs.has(width)) return;
+      digs.add(width);
+      const row = last.findIndex((cells, r) => cells.some(([ch], c) => ch !== card(n, 0)[r][c][0]));
+      const frames: Cell[][][] = [];
+      for (let t = 0; t <= 3600; t += 80) frames.push([card(n, t)[row]]);
+      keep(`${pre}dig${width}`, frames);
+    });
   }
 }
 
@@ -1345,17 +1212,28 @@ for (const [name, frames] of made) {
 }
 const missing = Object.keys(data.frames).filter(k => !made.has(k));
 console.log(`${made.size} frames, ${changed} changed${missing.length ? `; not made here: ${missing.join(", ")}` : ""}`);
-if (!checkOnly) {
-  for (const [name, frames] of made) if (!HELD[name]) data.frames[name] = frames;
+if (writes) {
+  // Frames this run no longer makes go, unless held.
+  data.frames = Object.fromEntries([
+    ...[...made].filter(([name]) => !HELD[name]),
+    ...Object.keys(HELD).map(name => [name, data.frames[name]]),
+  ]);
   for (const [name, why] of Object.entries(HELD)) console.log(`kept the page's ${name}: ${why}`);
-  let page =
-    html.slice(0, dataLine.index) +
-    "const DATA = " +
-    JSON.stringify(data) +
-    ";" +
-    html.slice(dataLine.index + dataLine[0].length);
-  const resTotals = /^const RES_TOTALS = .*;$/m;
-  if (resTotals.test(page)) page = page.replace(resTotals, `const RES_TOTALS = ${JSON.stringify(totals)};`);
-  writeFileSync(PAGE, page);
-  console.log(`wrote ${PAGE}`);
+  data.resTotals = totals;
+  // One frame per line, so a re-recording diffs by frame.
+  const frames = Object.entries(data.frames).map(([name, f]) => `    ${JSON.stringify(name)}: ${JSON.stringify(f)}`);
+  writeFileSync(
+    FRAMES,
+    [
+      "{",
+      `  "styles": ${JSON.stringify(data.styles)},`,
+      `  "resTotals": ${JSON.stringify(data.resTotals)},`,
+      `  "frames": {`,
+      frames.join(",\n"),
+      "  }",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  console.log(`wrote ${FRAMES}`);
 }

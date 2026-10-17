@@ -1,0 +1,255 @@
+/* Layout: two columns of tiles, each a name, one line and a screen. Every
+   screen is drawn from frames corgi itself rendered. Colors are
+   src/palette.zig, dark only, like corgi. */
+:root {
+  --bg: #181b20;
+  --surface: #23282f;
+  --selected: #333941;
+  --line: #505a65;
+  --faint: #83909e;
+  --muted: #a5aeb8;
+  --text: #d1d6db;
+  --strong: #eef1f4;
+  --accent: #7bf1a8;
+  --warm: #e5c38b;
+  --hot: #eda398;
+  /* The host terminal behind a pane. */
+  --pane: #121418;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+html { background: var(--bg); }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.6 var(--mono);
+  font-variant-ligatures: none;
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: var(--selected); color: var(--strong); }
+a { color: var(--text); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+a:hover { color: var(--strong); text-decoration-color: var(--strong); }
+:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+code { font: inherit; }
+kbd { font: inherit; font-size: 12px; font-weight: 700; color: var(--strong); background: var(--line); padding: 0 0.5ch; }
+kbd.flash { animation: keyflash .25s ease-out; }
+@keyframes keyflash { 15% { filter: brightness(1.3); } }
+
+.page {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding-inline: 32px;
+  padding-block: 28px 28px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 32px 56px;
+  align-items: start;
+}
+.tile { container-type: inline-size; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; gap: 8px; min-width: 0; }
+.tile > h2 { justify-self: stretch; }
+.tile > p { margin: 0; color: var(--muted); }
+.tile > p code { color: var(--text); }
+h2 { display: flex; align-items: center; gap: 2ch; margin: 0; font-size: inherit; font-weight: 700; color: var(--strong); }
+h2::before, h2::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+h2 s { color: var(--faint); font-weight: 400; text-decoration-thickness: 1px; }
+
+.hero { overflow-x: clip; grid-column: 1 / -1; display: grid; justify-items: center; gap: 6px; text-align: center; }
+.title { position: relative; }
+.title .sprite { position: absolute; left: calc(100% + 2ch); bottom: 0.35em; }
+.sprite { display: flex; width: max-content; padding: 0; border: 0; background: none; color: var(--text); font: 22px/1.3 var(--mono); cursor: pointer; }
+.sprite span { flex: 0 0 1ch; width: 1ch; text-align: center; white-space: pre; }
+.sprite span.slant { color: var(--faint); }
+h1 { margin: 0; font-size: 48px; line-height: 1.05; font-weight: 700; color: var(--strong); letter-spacing: -0.01em; }
+.lede { margin: 0; font-size: 19px; line-height: 1.45; color: var(--strong); }
+.love { display: flex; margin: 0; color: var(--muted); font-size: 13px; }
+.love span { flex: 0 0 1ch; width: 1ch; text-align: center; white-space: pre; }
+.get { margin-top: 10px; display: grid; justify-items: center; gap: 6px; max-width: 100%; }
+.cmd { position: relative; overflow: hidden; isolation: isolate; display: flex; align-items: center; gap: 2ch; min-width: 0; max-width: 100%; background: var(--surface); border-radius: 6px; padding: 8px 8px 8px 1.75ch; font-size: 16px; }
+/* A click sweeps a glint along the command and into the button. */
+.cmd::before { content: ""; position: absolute; z-index: -1; inset: 0 auto 0 0; width: 45%; background: linear-gradient(90deg, transparent, rgb(123 241 168 / .16), transparent); transform: translateX(-100%); pointer-events: none; }
+.cmd.glint::before { animation: glint .55s cubic-bezier(.4, 0, .6, 1); }
+@keyframes glint { to { transform: translateX(222%); } }
+.cmd code { flex: 1; min-width: 0; overflow-x: auto; white-space: pre; color: var(--strong); scrollbar-width: none; }
+.btn .ico { display: none; width: 15px; height: 15px; vertical-align: -3px; }
+.cmd code::-webkit-scrollbar { display: none; }
+.ps { color: var(--faint); user-select: none; }
+.btn { position: relative; font: inherit; font-size: 14px; font-weight: 700; color: var(--strong); background: var(--selected); border: 0; border-radius: 4px; padding: 2px 1ch; cursor: pointer; white-space: pre; }
+.btn:hover { background: var(--line); }
+/* Copied: a check takes the label's place; the button keeps its size. */
+.btn .done { position: absolute; inset: 0; display: grid; place-items: center; font-size: 17px; color: var(--accent); opacity: 0; }
+.btn.copied .label { visibility: hidden; }
+.btn.copied .done { opacity: 1; animation: check .15s ease-out; }
+@keyframes check { from { transform: scale(.75); } }
+.note { font-size: 13px; color: var(--faint); }
+
+/* Cell screens */
+.screen {
+  --fs: min(var(--max, 12.5px), max(8.5px, calc((100cqw - var(--pad, 26px)) / var(--cols) / 0.6)));
+  position: relative;
+  width: max-content;
+  font-size: var(--fs);
+  line-height: 1;
+  color: var(--text);
+  background: var(--pane);
+  user-select: none;
+}
+.screen.bare { background: transparent; }
+.screen .r { display: flex; height: 1.42em; }
+.screen .r[hidden] { display: none; }
+.screen .r > span { position: relative; flex: 0 0 1ch; width: 1ch; line-height: 1.42em; text-align: center; white-space: pre; background-repeat: no-repeat; }
+.screen .b { font-weight: 700; }
+.screen .u::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0.12em; border-bottom: 1px solid var(--ulc, currentColor); }
+.screen .ud::after { border-bottom-style: dotted; }
+#v-watch { width: calc(var(--vis, 124) * 1ch); overflow: hidden; }
+/* A phone's keeps watch runs edge to edge, the terminal its own box. */
+.stage.phone { padding: 0; border: 0; border-radius: 0; background: none; }
+.screen .badge { position: absolute; z-index: 1; top: calc(.71em - 1.5ch); width: 3ch; height: 3ch; object-fit: contain; }
+.f-bg { color: var(--bg); } .f-surface { color: var(--surface); } .f-selected { color: var(--selected); }
+.f-line { color: var(--line); } .f-faint { color: var(--faint); } .f-muted { color: var(--muted); }
+.f-text { color: var(--text); } .f-strong { color: var(--strong); } .f-accent { color: var(--accent); }
+.f-warm { color: var(--warm); } .f-hot { color: var(--hot); }
+.k-bg { background-color: var(--bg); } .k-surface { background-color: var(--surface); }
+.k-selected { background-color: var(--selected); } .k-line { background-color: var(--line); }
+.k-strong { background-color: var(--strong); } .k-text { background-color: var(--text); } .k-pane { background-color: var(--pane); }
+.stage { justify-self: center; max-width: 100%; overflow-x: auto; margin-top: 4px; padding: 12px; background: var(--pane); border: 1px solid var(--surface); border-radius: 8px; }
+
+/* The picker sits on the page itself. */
+#launcher-stage { position: relative; justify-self: center; max-width: 100%; overflow-x: auto; margin-top: 4px; outline: none; }
+#launcher-stage .screen { --pad: 0px; }
+#launcher-stage.opened .screen { box-shadow: 0 0 0 1px var(--surface); }
+#launcher-query { position: absolute; z-index: 2; left: 0; top: 0; width: 100%; height: 1.5em; padding: 0; border: 0; opacity: 0; font: 16px var(--mono); }
+.cursor { position: absolute; z-index: 2; left: 52ch; top: calc(10 * 1.42em); width: 1.25em; height: 1.6em; pointer-events: none; opacity: 0; transition: left .9s cubic-bezier(.3, .7, .2, 1), top .9s cubic-bezier(.3, .7, .2, 1), opacity .3s; filter: drop-shadow(0 1px 1px rgb(0 0 0 / .5)); }
+.cursor svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.cursor .hand, .cursor.over .arrow { display: none; }
+.cursor.over .hand { display: block; transform: translate(-30%, -4%); }
+.cursor.on { opacity: 1; }
+
+.band { grid-column: 1 / -1; container-type: inline-size; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; gap: 8px; }
+.band > h2 { justify-self: stretch; }
+.band > p, .band .line p { margin: 0; color: var(--muted); }
+.band .line { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: center; gap: 4px 4ch; }
+.band .stage { margin-top: 4px; }
+.legend { display: flex; flex-wrap: wrap; gap: 2px 2.5ch; margin: 0; padding: 0; list-style: none; font-size: 13px; color: var(--faint); }
+.legend b { font-weight: 700; }
+#v-watch .cursor { left: 11ch; top: calc(5.5 * 1.42em); transition: left .6s cubic-bezier(.3, .7, .2, 1), top .6s cubic-bezier(.3, .7, .2, 1), opacity .3s; }
+#v-watch.taken .cursor { opacity: 0; }
+/* Like a shaken macOS pointer: it shows up large, then shrinks into place. */
+#v-watch .cursor { transform-origin: 0 0; }
+#v-watch .cursor.locate { animation: locate 1.1s cubic-bezier(.3, .6, .2, 1); }
+@keyframes locate { 0%, 30% { transform: scale(4); } 100% { transform: scale(1); } }
+footer { grid-column: 1 / -1; display: grid; justify-items: center; text-align: center; gap: 4px; font-size: 13px; color: var(--faint); }
+footer .sleeper { display: flex; font-size: 15px; height: 1.6em; }
+footer .sleeper span { flex: 0 0 1ch; width: 1ch; text-align: center; white-space: pre; }
+footer p { margin: 0; }
+footer a { color: var(--muted); }
+
+/* `top` as a terminal shows it: regular weight on a screen's ground. */
+#overview h2 code { font-weight: 400; color: var(--text); background: var(--pane); border: 1px solid var(--surface); border-radius: 4px; padding: 1px 0.75ch; }
+/* Its padding stays inside the band on a phone; the card scrolls instead. */
+#overview-stage { box-sizing: border-box; }
+#v-overview-phone { --pad: 0px; }
+/* The overview hangs from the badge, where a pointer rests until the visitor's own arrives. */
+#v-overview .cursor { left: 2.4ch; top: 0.9em; }
+#v-overview:hover .cursor { opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cursor { transition: none; }
+}
+@media (max-width: 1099px) {
+  .page { grid-template-columns: minmax(0, 1fr); padding-inline: 16px; gap: 40px; }
+}
+@media (max-width: 719px) {
+  .page { padding-block: 32px 24px; }
+  h1 { font-size: 40px; }
+  .lede { font-size: 16px; }
+  .hero { gap: 8px; }
+  .note { font-size: 12px; }
+}
+/* A phone keeps the one row: the command, sized to fit, beside an icon
+   that copies it. The prompt goes to make room. */
+@media (max-width: 600px) {
+  /* The title and the idle corgi center as a pair, the corgi on the word's
+     baseline; its fetch runs on toward the screen's edge (laneNow). */
+  .title { display: flex; align-items: baseline; gap: 10px; }
+  .title .sprite { position: static; width: 7ch; overflow: visible; font-size: 16px; }
+  /* The lane runs past the page's margin, its ramp at the screen's edge. */
+  .hero { overflow-x: visible; }
+  .get { margin-top: 14px; gap: 10px; width: 100%; }
+  .band > p, .band .line p { font-size: 14px; }
+  .cmd { width: 100%; box-sizing: border-box; gap: 8px; padding: 6px 6px 6px 10px; }
+  .cmd .ps { display: none; }
+  .cmd code { overflow: visible; font-size: min(14px, calc((100vw - 92px) / 30.4)); }
+  .btn .word { display: none; }
+  .btn .ico { display: inline-block; }
+  .cmd .btn { padding: 4px 6px; }
+}
+/* ---- The guided session: a split corgi a user drives, with notes that
+   point at what's worth seeing. Notes take the accent as a guide color. */
+/* Notes animate in from a little larger; they never widen the page. */
+.sim-band { gap: 12px; overflow-x: clip; }
+.band[hidden] { display: none; }
+.sim-host { position: relative; justify-self: center; max-width: 100%; }
+.sim-stage { margin-top: 0; outline: none; }
+#v-sim { outline: none; }
+.sim-layer { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.sim-layer > * { position: absolute; }
+.sim-in { animation: sim-in .3s ease-out both; }
+.sim-out { animation: sim-out .22s ease-in both; }
+@keyframes sim-in { from { opacity: 0; translate: 0 3px; } }
+@keyframes sim-out { to { opacity: 0; } }
+
+/* A stop pauses the session and darkens all but what the note is about.
+   Then the ring, the wire and the note come in, in that order. */
+/* Sized once its note is placed; until then it takes no room. */
+.sim-dim { width: 0; height: 0; overflow: visible; pointer-events: none; animation: sim-dim .4s ease-out both; }
+.sim-dim > rect { fill: rgb(6 7 9 / .66); }
+@keyframes sim-dim { from { opacity: 0; } }
+.sim-ring.sim-in { animation: sim-ring .35s .2s cubic-bezier(.2, .8, .3, 1.2) both; }
+@keyframes sim-ring { from { opacity: 0; scale: 1.25; } }
+.sim-box.sim-in { animation-delay: .75s; }
+.sim-layer .sim-out { animation: sim-out .22s ease-in both; }
+
+/* A ring on what the note means, and a wire into the note. */
+.sim-ring { border-radius: 4px; outline: 1px solid var(--accent); outline-offset: 1px; box-shadow: 0 0 0 4px rgb(123 241 168 / .08); }
+.sim-wire { left: 0; top: 0; width: 100%; height: 100%; overflow: visible; }
+.sim-wire path { fill: none; stroke: var(--accent); stroke-width: 1; stroke-linejoin: miter; stroke-dasharray: var(--len) var(--len); stroke-dashoffset: var(--len); animation: sim-draw .45s .4s ease-out forwards; }
+.sim-wire circle { fill: var(--accent); }
+@keyframes sim-draw { to { stroke-dashoffset: 0; } }
+
+/* The note: a title, then one line that shows rather than tells. Set on the
+   terminal's grid at its font size. */
+.sim-box { box-sizing: border-box; display: grid; align-content: center; gap: .2em; white-space: pre; text-align: left; background: color-mix(in srgb, var(--accent) 7%, var(--pane)); border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent); border-radius: 4px; box-shadow: 0 8px 24px rgb(0 0 0 / .5); line-height: 1.3; }
+.sim-box b { color: var(--accent); font-weight: 700; }
+.sim-box .ln { color: var(--text); }
+.sim-box .k { color: var(--strong); font-weight: 700; background: var(--line); padding: 0 .4ch; border-radius: 2px; }
+.sim-box .c { color: #a9b1f5; }
+.sim-box .lk { color: var(--strong); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+.sim-box .ar { color: var(--faint); }
+
+/* Keys the user presses, shown once at the bottom of the screen. */
+.sim-keys { position: absolute; z-index: 4; left: 50%; bottom: 18px; translate: -50% 0; display: flex; gap: 4px; pointer-events: none; opacity: 0; transition: opacity .2s; }
+.sim-keys.on { opacity: 1; }
+.sim-keys kbd { font-size: 13px; padding: 2px 8px; border-radius: 4px; background: var(--selected); box-shadow: 0 0 0 1px var(--line), 0 4px 12px rgb(0 0 0 / .5); }
+.sim-keys kbd.flash { animation: keyflash .25s ease-out; }
+
+/* The tour's pointer glides between stops and dips on a click. */
+#v-sim .sim-cursor { left: 0; top: 0; transition: left .55s cubic-bezier(.3, .7, .2, 1), top .55s cubic-bezier(.3, .7, .2, 1), opacity .3s; transform-origin: 0 0; }
+#v-sim .sim-cursor.press svg { transform: scale(.82); transition: transform .08s; }
+#v-sim .sim-cursor svg { transition: transform .15s; }
+#v-sim .sim-cursor.locate { animation: locate 1.1s cubic-bezier(.3, .6, .2, 1); }
+#v-sim.taken .sim-cursor { opacity: 0; }
+#v-sim.detached .badge { display: none; }
+
+/* Stops: where the tour is, and a way to jump. */
+.sim-chapters { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 4px; margin: 0; padding: 0; list-style: none; font-size: 12px; }
+.sim-chapters button { position: relative; font: inherit; color: var(--faint); background: none; border: 0; padding: 3px 1ch 5px; cursor: pointer; }
+.sim-chapters button:hover { color: var(--text); }
+.sim-chapters button::after { content: ""; position: absolute; left: 1ch; right: 1ch; bottom: 1px; height: 1px; background: var(--surface); }
+.sim-chapters button[aria-current="step"] { color: var(--strong); }
+.sim-chapters button[aria-current="step"]::after { background: linear-gradient(90deg, var(--accent) var(--p, 0%), var(--line) var(--p, 0%)); }
+@media (prefers-reduced-motion: reduce) {
+  .sim-in, .sim-out, .sim-dim, .sim-ring.sim-in, .sim-wire path { animation: none; stroke-dashoffset: 0; }
+  #v-sim .sim-cursor { transition: none; }
+}
+
