@@ -27,11 +27,8 @@ import {
   byteLength,
   zigRound,
 } from "./text";
-import { max_panes, max_workspaces } from "./layout";
 export { displayWidth, writeClipped, writeEllipsis, directoryLabel, compactCount, zigRound } from "./text";
 
-/** Agents plus one header per workspace in the grouped "All" list. */
-export const max_entries = max_panes + 16 + max_workspaces;
 /** How far rows outside a lit checkout fade, as `writeExit` progress. */
 export const spotlight_dim = 0.55;
 /** A checkout whose rows stay lit: a linked worktree's group, or with no

@@ -626,7 +626,6 @@ export class Job {
     this.fds = [];
   }
   prepare(runtime: Runtime) {
-    if (runtime.panes.length + this.staged.panes.length > max_panes) throw Error("TooManyPanes");
     if (
       runtime.workspaces.items.length + this.staged.workspaces.items.length > max_workspaces ||
       runtime.workspaces.next_id > 0xffffffff - this.staged.workspaces.items.length

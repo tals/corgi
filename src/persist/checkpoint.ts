@@ -1,7 +1,7 @@
 import { isAbsolute } from "node:path";
 import { Runtime, Pane, ClosedAgent, Launch, closed_per_workspace } from "../runtime";
 import { Workspace, Store } from "../workspace";
-import { Model, Tab, max_panes, max_workspaces } from "../layout";
+import { Model, Tab, max_workspaces } from "../layout";
 import { Order } from "../agent_order";
 import { Agent, Text } from "../agents";
 import { Attachment, Registry, max_actors } from "../conversations";
@@ -225,7 +225,6 @@ export async function restore(
     !Array.isArray(state.panes) ||
     !Array.isArray(state.closed) ||
     !Array.isArray(state.sessions) ||
-    state.panes.length > max_panes ||
     state.closed.length > closed_per_workspace * max_workspaces ||
     state.sessions.length > 16 ||
     (state.conversations?.length ?? 0) > max_actors
@@ -344,7 +343,7 @@ export async function restore(
   if (!live) {
     for (const p of r.panes) await recoverPane(p, socket, executable);
     for (const n of state.sessions) {
-      if (n.exited || r.panes.length >= max_panes) continue;
+      if (n.exited) continue;
       const cwd = await safeDirectory(n.cwd);
       const id = await r.create({
         workspace: n.workspace_id,

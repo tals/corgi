@@ -3,7 +3,7 @@
 //! created here. Mirrors mirror.zig.
 import { Terminal as NativeTerminal } from "./pane/terminal";
 import * as viewerNative from "./viewer_native";
-import { Model, max_panes, max_workspaces } from "./layout";
+import { Model, max_workspaces } from "./layout";
 import { stringify } from "./json";
 import * as surface from "./pane/surface";
 import * as resources from "./trackers/resources";
@@ -477,8 +477,7 @@ export class Runtime {
     const snapshot = value;
     const workspaces = snapshot?.workspaces ?? [];
     const infos = snapshot?.panes ?? [];
-    if (workspaces.length === 0 || workspaces.length > max_workspaces || infos.length > max_panes)
-      throw Error("InvalidSnapshot");
+    if (workspaces.length === 0 || workspaces.length > max_workspaces) throw Error("InvalidSnapshot");
     const parsed = workspaces.map(workspace);
     const created: Terminal[] = [];
     const panes: Pane[] = [];

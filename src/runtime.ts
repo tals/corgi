@@ -1,7 +1,7 @@
 import * as clock from "./clock";
 import { lstatSync, readFileSync, readlinkSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { Model, Tab, max_panes } from "./layout";
+import { Model, Tab } from "./layout";
 import type { Axis, PaneId } from "./layout";
 import { Store, Workspace } from "./workspace";
 import { Provider, byProvider, Text, validRef } from "./providers";
@@ -18,7 +18,6 @@ import * as trackers from "./trackers";
 import { Model as AgentModel } from "./providers/model";
 import { Status as InferenceStatus } from "./inference/setup";
 import { label as paneLabel } from "./pane/label";
-import { capacity as order_capacity } from "./agent_order";
 import type { Target } from "./agent_order";
 import { Briefs } from "./worktree_briefs";
 export type Create = {
@@ -394,7 +393,6 @@ export class Runtime {
     if (w) w.last_agent = p;
   }
   async create(opts: Create) {
-    if (this.panes.length >= max_panes) throw Error("TooManyPanes");
     const ws = this.getWorkspace(opts.workspace),
       next = clone(ws.model);
     next.next_id = this.workspaces.next_pane_id;
@@ -688,7 +686,6 @@ export class Runtime {
     for (let i = 0; i < ws.model.count; i++)
       for (const p of this.panes) if (ws.model.tabForPane(p.id) === i) out.push({ pane: p.id });
     for (const s of this.sessions) if (s.workspace_id === ws.id) out.push({ native: s.id });
-    if (out.length > order_capacity) throw Error("TooManyAgents");
     return out;
   }
   async renameAgent(id: number, wanted: string | null) {

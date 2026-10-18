@@ -1,5 +1,3 @@
-import { max_panes } from "./layout";
-export const capacity = max_panes + 16;
 export type Target = { pane: number } | { native: number };
 const equal = (a: Target, b: Target) =>
   "pane" in a && "pane" in b ? a.pane === b.pane : "native" in a && "native" in b && a.native === b.native;
@@ -19,7 +17,7 @@ export class Order {
     return this.items.slice();
   }
   static restore(t: Target[]) {
-    if (t.length > capacity || t.some((x, i) => !("pane" in x ? x.pane : x.native) || index(t.slice(0, i), x) !== null))
+    if (t.some((x, i) => !("pane" in x ? x.pane : x.native) || index(t.slice(0, i), x) !== null))
       throw Error("InvalidAgentOrder");
     const o = new Order();
     o.items = structuredClone(t);
@@ -32,7 +30,6 @@ export class Order {
     return o;
   }
   move(live: Target[], target: Target, before: Target | null) {
-    if (live.length > capacity) throw Error("TooManyAgents");
     if (index(live, target) === null) throw Error("NoAgent");
     if (before) {
       if (index(live, before) === null) throw Error("InvalidDestination");
@@ -43,7 +40,6 @@ export class Order {
     this.items = next.items;
   }
   moveAfter(live: Target[], target: Target, other: Target) {
-    if (live.length > capacity) throw Error("TooManyAgents");
     const n = this.without(live, target),
       i = index(n.items, other);
     if (i === null) throw Error("InvalidDestination");

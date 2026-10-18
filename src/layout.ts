@@ -1,9 +1,9 @@
 import { parse } from "./json";
 /** Flat shared layout; mirrors src/layout.zig. */
 export const max_workspaces = 32,
+  /** Most panes one tab or one import holds; the runtime keeps no total. */
   max_panes = 64,
-  max_borders = 67,
-  max_nodes = 128;
+  max_borders = 67;
 export type PaneId = number;
 export const PaneId = { none: 0, first: 1, next: (id: number) => id + 1 };
 export type TabId = number;
@@ -46,7 +46,7 @@ export class Tab {
 }
 export type Placement = { id: PaneId; rect: Rect };
 export class Model {
-  nodes: (Node | null)[] = Array(max_nodes).fill(null);
+  nodes: (Node | null)[] = [];
   tabs: Tab[] = [];
   count = 0;
   next_id = 1;
@@ -70,7 +70,7 @@ export class Model {
     const bad = () => {
       throw Error("UnexpectedToken");
     };
-    if (!d || !Array.isArray(d.nodes) || !Array.isArray(d.tabs) || d.nodes.length > max_nodes) bad();
+    if (!d || !Array.isArray(d.nodes) || !Array.isArray(d.tabs)) bad();
     const integer = (value: number, max: number) => Number.isInteger(value) && value >= 0 && value <= max;
     for (const node of d.nodes) {
       if (node === null) continue;
@@ -82,8 +82,8 @@ export class Model {
         if (
           !branch ||
           !["horizontal", "vertical"].includes(branch.axis) ||
-          !integer(branch.first, 255) ||
-          !integer(branch.second, 255) ||
+          !integer(branch.first, 0xffffffff) ||
+          !integer(branch.second, 0xffffffff) ||
           !integer(branch.ratio, 65535)
         )
           bad();
@@ -92,7 +92,7 @@ export class Model {
     for (const tab of d.tabs)
       if (
         !integer(tab.id, 0xffffffff) ||
-        !integer(tab.root, 255) ||
+        !integer(tab.root, 0xffffffff) ||
         (tab.title !== undefined && typeof tab.title !== "string") ||
         Buffer.byteLength(tab.title ?? "") > 80
       )
@@ -101,7 +101,7 @@ export class Model {
     if (typeof d.revision === "number" && !Number.isSafeInteger(d.revision)) bad();
     if (BigInt(d.revision) < 0n || BigInt(d.revision) > 0xffffffffffffffffn) bad();
     const m = new Model();
-    m.nodes.splice(0, d.nodes.length, ...structuredClone(d.nodes));
+    m.nodes = structuredClone(d.nodes);
     m.tabs = d.tabs.map(t => Object.assign(new Tab(t.id, t.root), t, { title: t.title ?? "" }));
     m.count = m.tabs.length;
     m.revision = BigInt(d.revision);
@@ -109,7 +109,7 @@ export class Model {
       ids = new Set<number>(),
       tabs = new Set<number>();
     const visit = (i: number) => {
-      if (i < 0 || i >= max_nodes || seen.has(i) || !m.nodes[i]) bad();
+      if (i < 0 || i >= m.nodes.length || seen.has(i) || !m.nodes[i]) bad();
       seen.add(i);
       const n = m.nodes[i]!;
       if ("pane" in n) {
@@ -133,7 +133,7 @@ export class Model {
   }
   alloc(n: Node) {
     const i = this.nodes.indexOf(null);
-    if (i < 0) throw Error("TooManyPanes");
+    if (i < 0) return this.nodes.push(n) - 1;
     this.nodes[i] = n;
     return i;
   }
@@ -153,14 +153,9 @@ export class Model {
   split(target: PaneId, axis: Axis) {
     const old = this.findNode(target);
     if (old === null) throw Error("NoPane");
-    const first = this.alloc(this.nodes[old]!);
-    let second: number;
-    try {
+    if (this.paneCount(this.tabs[this.tabForPane(target)!].root) >= max_panes) throw Error("TooManyPanes");
+    const first = this.alloc(this.nodes[old]!),
       second = this.alloc({ pane: this.next_id });
-    } catch (e) {
-      this.nodes[first] = null;
-      throw e;
-    }
     const id = this.next_id++;
     this.nodes[old] = { split: { axis, first, second, ratio: 500 } };
     return id;
@@ -168,6 +163,10 @@ export class Model {
   firstPane(i: number): PaneId {
     const n = this.nodes[i]!;
     return "pane" in n ? n.pane : this.firstPane(n.split.first);
+  }
+  paneCount(i: number): number {
+    const n = this.nodes[i]!;
+    return "pane" in n ? 1 : this.paneCount(n.split.first) + this.paneCount(n.split.second);
   }
   contains(i: number, id: PaneId): boolean {
     const n = this.nodes[i]!;
@@ -262,6 +261,8 @@ export class Model {
   insertTree(root: number, target: PaneId, d: Direction) {
     const i = this.findNode(target);
     if (i === null) throw Error("NoPane");
+    if (this.paneCount(this.tabs[this.tabForPane(target)!].root) + this.paneCount(root) > max_panes)
+      throw Error("TooManyPanes");
     const old = this.alloc(this.nodes[i]!),
       before = d === "left" || d === "up";
     this.nodes[i] = {

@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { Model, Selection, View, Rect } from "./layout";
+import { Model, Selection, View, Rect, max_panes } from "./layout";
 test("nested split close preserves stable identities and collapses tree", () => {
   const m = new Model(),
     a = m.newTab(""),
@@ -32,6 +32,16 @@ test("layout JSON validates identity, tree ownership, ratios and cycles", () => 
       revision: 0,
     } as any),
   ).toThrow("UnexpectedToken");
+});
+test("a workspace holds any number of tabs, and one tab at most max_panes", () => {
+  const m = new Model();
+  for (let i = 0; i < 300; i++) m.newTab("");
+  expect(Model.fromData(m.toJSON()).toJSON()).toEqual(m.toJSON());
+  const full = new Model();
+  let last = full.newTab("");
+  for (let i = 1; i < max_panes; i++) last = full.split(last, "horizontal");
+  expect(() => full.split(last, "vertical")).toThrow("TooManyPanes");
+  expect(() => full.insertTree(full.copyTree(m, m.tabs[0].root), last, "left")).toThrow("TooManyPanes");
 });
 test("selection survives reordered tabs and closed neighbor", () => {
   const m = new Model(),

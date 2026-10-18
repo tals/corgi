@@ -213,6 +213,28 @@ test("cold recovery leaves an agent's pane dormant over its old screen, and a li
     r.destroy();
   }
 });
+test("cold recovery and a live reload keep every pane however many there are", async () => {
+  const r = fresh(),
+    ws = r.workspaces.items[0];
+  for (let i = 0; i < 80; i++) {
+    const p = new Pane(ws.model.newTab(""), Terminal.create(20, 4), "/tmp");
+    p.attachment.select(r.conversations.get("codex", `session-${i}`));
+    r.panes.push(p);
+  }
+  r.workspaces.next_pane_id = ws.model.next_id;
+  const cold = new Runtime(),
+    live = new Runtime();
+  try {
+    await restore(cold, cp.capture(r, false), false);
+    expect(cold.panes.filter(p => p.dormant)).toHaveLength(80);
+    await restore(live, cp.capture(cold, true), true);
+    expect(live.panes).toHaveLength(80);
+  } finally {
+    live.destroy();
+    cold.destroy();
+    r.destroy();
+  }
+});
 test("legacy pane checkpoint migrates identity into an actor", async () => {
   const tree = json.parse(readFileSync(resolve(fixtures, "checkpoint-v4.json"), "utf8"));
   tree.version = 1;

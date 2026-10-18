@@ -193,7 +193,7 @@ $.closed[].screen.runs_command: bool
 $.closed[].screen.initial_input: optional
 $.closed[].screen.initial_input?: string
 $.closed[].tab.id: u32
-$.closed[].tab.root: u8
+$.closed[].tab.root: u32
 $.closed[].tab.title: custom bounded_text.BoundedText(80)
 $.closed[].workspace_id: u32
 $.closed[].resume_hint.name: custom bounded_text.BoundedText(160)

@@ -94,6 +94,18 @@ test("an agent resumed asleep waits in its own tab, named and idle, with nothing
     r.destroy();
   }
 });
+test("a runtime holds any number of panes", async () => {
+  const { opts } = fixture(),
+    r = new Runtime(),
+    ws = new Workspace(1, "/tmp");
+  r.workspaces.items = [ws];
+  try {
+    for (let i = 0; i < 80; i++) await r.create({ ...opts, asleep: true });
+    expect([r.panes.length, ws.model.count]).toEqual([80, 80]);
+  } finally {
+    r.destroy();
+  }
+});
 test("a fork survives conversation capacity and sidebar placement errors", async () => {
   const { r, ws, opts } = fixture(),
     source = await r.create(opts),

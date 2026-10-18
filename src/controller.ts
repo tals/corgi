@@ -768,7 +768,7 @@ export class Controller {
       if (workspace !== undefined ? ws.id !== workspace : !this.inScope(ws.id)) return;
       if (grouped) {
         const total = totals[ws_index];
-        if (total.agents === 0 || entries.length === sidebar.max_entries) return;
+        if (total.agents === 0) return;
         const folded = this.groupFolded(ws.id);
         const here = ws.id === this.current().id;
         // A folded header stands in for the focused agent it hides.
@@ -788,12 +788,7 @@ export class Controller {
       const first_agent = entries.length;
       for (let tab_index = 0; tab_index < ws.model.count; tab_index++) {
         for (const p of this.runtime.panes) {
-          if (
-            p.agent.provider === null ||
-            ws.model.tabForPane(p.id) !== tab_index ||
-            entries.length === sidebar.max_entries
-          )
-            continue;
+          if (p.agent.provider === null || ws.model.tabForPane(p.id) !== tab_index) continue;
           entries.push(
             sidebar.entry({
               conversation: p.agent.conversation,
@@ -817,7 +812,7 @@ export class Controller {
         }
       }
       for (const session of this.runtime.sessions) {
-        if (session.workspace !== ws.id || entries.length === sidebar.max_entries) continue;
+        if (session.workspace !== ws.id) continue;
         const e = sidebar.entry({
           target: { native: session.id },
           provider: session.provider,
