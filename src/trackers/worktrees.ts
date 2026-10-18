@@ -43,6 +43,7 @@ type Job = {
   workspace: Workspace;
   cwd: string;
   epoch: number;
+  edits: number;
   inputs: Input[];
   detail: boolean;
   result?: worktrees.Snapshot | null;
@@ -156,6 +157,14 @@ export function parseBase(raw: string): worktrees.Base | null {
 function stale(snapshot: worktrees.Snapshot): worktrees.Snapshot {
   return { ...snapshot, stale: true, agents: snapshot.agents.map(a => ({ ...a, stale: true })) };
 }
+/** The snapshot without one of its worktrees and the agents placed there. */
+function without(snapshot: worktrees.Snapshot, path: string): worktrees.Snapshot {
+  return {
+    ...snapshot,
+    entries: snapshot.entries.filter(e => e.path !== path),
+    agents: snapshot.agents.filter(a => a.path !== path),
+  };
+}
 /** Whether a path lies in one of the repository's checkouts. A write
  * anywhere else, such as a scratch directory, says nothing of where an
  * agent works. */
@@ -212,6 +221,11 @@ export class Tracker {
   private next_removal = 1;
   /** The removals as viewers last heard of them. */
   private reported = "";
+  /** Counts Corgi's own changes to a list of worktrees. Scans begun before
+   * one stop, and nothing they found is kept. */
+  private edits = 0;
+  /** Worktrees Git has removed, for the next tick to take off the lists. */
+  private gone: { common: string; path: string }[] = [];
   /** When each worktree was made, by admin directory and its inode. */
   private created = new Map<string, number | null>();
   /** Commit times by commit, in ms. */
@@ -251,6 +265,7 @@ export class Tracker {
   }
   /** Lists the repository's worktrees again on the next tick, after one was added. */
   forget(common: string) {
+    this.edits++;
     this.cache.delete(common);
     this.next_refresh = 0;
   }
@@ -313,17 +328,29 @@ export class Tracker {
     } catch {
       [phase, error] = job.quit.aborted ? ["stopped", ""] : ["failed", "WorktreeRemoveFailed"];
     }
-    // The next tick lists the worktrees again instead of waiting out the cache.
-    this.cache.delete(common);
-    this.next_refresh = 0;
     job.phase = phase;
     job.error = error;
     job.at = clock.milliTimestamp();
+    if (phase === "done") this.drop(common, job.path);
+  }
+  /** Takes a worktree Git has removed off the lists without listing them again. */
+  private drop(common: string, path: string) {
+    this.edits++;
+    const cached = this.cache.get(common);
+    if (cached) cached.snapshot = without(cached.snapshot, path);
+    this.gone.push({ common, path });
   }
   tick(runtime: Runtime, details: ReadonlySet<number> = new Set()) {
+    let changed = false;
+    for (const { common, path } of this.gone.splice(0))
+      for (const ws of runtime.workspaces.items)
+        if (ws.worktrees?.common_dir === common) {
+          ws.worktrees = without(ws.worktrees, path);
+          changed = true;
+        }
     // A removal's progress reaches viewers with the next snapshot.
     const removals = JSON.stringify([...this.removals.keys()].map(id => this.removal(id)));
-    let changed = removals !== this.reported;
+    changed = removals !== this.reported || changed;
     this.reported = removals;
     if (this.thread) {
       if (!this.done) return changed;
@@ -339,6 +366,7 @@ export class Tracker {
       workspace,
       cwd: workspace.cwd,
       epoch: workspace.git_epoch,
+      edits: this.edits,
       detail: details.has(workspace.id),
       inputs: [
         ...runtime.panes
@@ -359,7 +387,13 @@ export class Tracker {
     let changed = false;
     for (const job of this.jobs) {
       const ws = runtime.workspaces.get(job.workspace.id);
-      if (ws !== job.workspace || ws.cwd !== job.cwd || ws.git_epoch !== job.epoch || job.result === undefined)
+      if (
+        ws !== job.workspace ||
+        ws.cwd !== job.cwd ||
+        ws.git_epoch !== job.epoch ||
+        job.edits !== this.edits ||
+        job.result === undefined
+      )
         continue;
       const encode = (v: unknown) =>
         JSON.stringify(v, (_, value) => (typeof value === "bigint" ? value.toString() : value));
@@ -374,7 +408,7 @@ export class Tracker {
   private async run(now: number) {
     // Bound subprocess concurrency and share inventory even across workspaces.
     for (const job of this.jobs) {
-      if (this.stopping) break;
+      if (this.stopping || job.edits !== this.edits) break;
       const snapshot = await this.refresh(job.cwd, job.detail, now, job.workspace.worktrees);
       job.result = snapshot
         ? { ...snapshot, agents: await this.associate(snapshot, job.inputs, now, job.workspace.worktrees) }
@@ -509,7 +543,9 @@ export class Tracker {
   ): Promise<worktrees.Snapshot> {
     let snapshot = cached?.snapshot;
     let inventory_at = cached?.inventory_at ?? -Infinity;
-    const comparisons = cached?.comparisons ?? new Map<string, worktrees.Comparison>();
+    const comparisons = cached?.comparisons ?? new Map<string, worktrees.Comparison>(),
+      edits = this.edits,
+      current = () => !this.stopping && this.edits === edits;
     try {
       if (!snapshot || now - inventory_at >= inventory_ms) {
         const raw = await this.query(cwd, ["worktree", "list", "--porcelain", "-z"]);
@@ -544,7 +580,7 @@ export class Tracker {
       if (detail) {
         const base = snapshot.base;
         for (const e of worktrees.linked(snapshot)) {
-          if (this.stopping) break;
+          if (!current()) break;
           if (base && /^[0-9a-f]{40,64}$/.test(e.head) && !/^0+$/.test(e.head)) {
             const fingerprint = `${base.head}...${e.head}`;
             let comparison = comparisons.get(fingerprint) ?? null;
@@ -576,12 +612,12 @@ export class Tracker {
         comparisons,
         seen: now,
       };
-      if (!this.stopping) this.cache.set(key, result);
+      if (current()) this.cache.set(key, result);
       if (comparisons.size > 1024) comparisons.clear();
       return snapshot;
     } catch {
       const failed = snapshot ? stale(snapshot) : { common_dir: key, base: null, entries: [], agents: [], stale: true };
-      if (!this.stopping)
+      if (current())
         this.cache.set(key, { snapshot: failed, inventory_at: now, detail_at: now, comparisons, seen: now });
       return failed;
     }

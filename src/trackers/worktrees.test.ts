@@ -274,6 +274,7 @@ test("a scan cannot follow a workspace through a directory edit, even when it re
       workspace,
       cwd: workspace.cwd,
       epoch: workspace.git_epoch,
+      edits: 0,
       inputs: [],
       detail: false,
       result: { common_dir: "/project/.git", entries: [], agents: [], base: null, stale: false },
@@ -362,3 +363,59 @@ test("a removal runs in the background, and stopping it kills Git and keeps the 
     await f.close();
   }
 }, 30000);
+test("a removed worktree leaves the list once Git is done, and a scan begun before then can't bring it back", async () => {
+  const f = await fixture(),
+    blocked = Promise.withResolvers<void>(),
+    release = Promise.withResolvers<void>();
+  let hold = false;
+  const tracker = new Tracker(async (cwd, args) => {
+    if (hold && args[0] === "status") {
+      hold = false;
+      blocked.resolve();
+      await release.promise;
+    }
+    return git(cwd, ...args).catch(() => null);
+  });
+  try {
+    const topic = join(f.root, "topic"),
+      other = join(f.root, "other");
+    await git(f.repo, "worktree", "add", "-b", "topic", topic);
+    await git(f.repo, "worktree", "add", "-b", "other", other);
+    const workspace = new Workspace(1, f.repo),
+      store = new Store();
+    store.items = [workspace];
+    const runtime = { workspaces: store, panes: [], sessions: [] } as unknown as Runtime,
+      details = new Set([1]),
+      listed = () =>
+        worktrees
+          .linked(workspace.worktrees)
+          .map(e => e.path)
+          .sort();
+    const settle = async () => {
+      do {
+        tracker.tick(runtime, details);
+        await Bun.sleep(5);
+      } while (tracker.busy());
+    };
+    await settle();
+    expect(listed()).toEqual([other, topic]);
+    // A detail scan, on the list as it was, is under way when Git finishes.
+    for (const cached of (tracker as any).cache.values()) cached.detail_at = -Infinity;
+    tracker.next_refresh = 0;
+    hold = true;
+    tracker.tick(runtime, details);
+    await blocked.promise;
+    await tracker.remove(runtime, 1, topic);
+    expect((await finished(tracker, 1)).phase).toBe("done");
+    expect(tracker.tick(runtime, details)).toBe(true);
+    expect(listed()).toEqual([other]);
+    release.resolve();
+    await settle();
+    expect(listed()).toEqual([other]);
+    expect(worktrees.linked(await tracker.refresh(f.repo, false)).map(e => e.path)).toEqual([other]);
+  } finally {
+    release.resolve();
+    tracker.close();
+    await f.close();
+  }
+}, 20000);
