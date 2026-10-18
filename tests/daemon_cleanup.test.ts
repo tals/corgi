@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { quote, registerCase } from "./support";
-import { Runtime } from "./runtime";
+import { Runtime, running } from "./runtime";
 
 describe("development daemon cleanup", () => {
   test("identifies only same-user servers, including reloaded daemons and paths with spaces", () => {
@@ -213,3 +213,23 @@ class DaemonChildren extends Runtime {
 }
 
 registerCase("daemon children", DaemonChildren, { timeout: 60_000 });
+
+class OrphanedDaemon extends Runtime {
+  standIn!: Bun.Subprocess;
+  async configure() {
+    this.standIn = Bun.spawn(["sleep", "60"], { stdout: "ignore", stderr: "ignore" });
+    this.addCleanup(() => this.standIn.kill("SIGKILL"));
+    this.env.CORGI_TEST_OWNER = String(this.standIn.pid);
+  }
+  async test_daemon_stops_once_its_test_process_is_gone() {
+    const daemon = (await this.rpc({ op: "hello", protocol: 1 })).server_pid;
+    this.standIn.kill("SIGKILL");
+    await this.standIn.exited;
+    await this.until(() => !running(daemon), 10);
+    this.assertFalse(existsSync(this.path));
+    // Teardown stops a daemon of its own.
+    this.env.CORGI_TEST_OWNER = String(process.pid);
+    await this.run_cli("start");
+  }
+}
+registerCase("orphaned daemon", OrphanedDaemon);

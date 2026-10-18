@@ -83,8 +83,8 @@ export class Scope {
   }
 }
 
-async function members(id: string, pid?: number): Promise<Process[]> {
-  const selection = pid === undefined ? ["-A"] : ["-p", String(pid)];
+async function members(id: string, pids?: number[]): Promise<Process[]> {
+  const selection = pids === undefined ? ["-A"] : ["-p", pids.join(",")];
   const ps = Bun.spawn(["ps", "eww", ...selection, "-o", "pid=,stat=,lstart=,command="], {
     env: { ...process.env, LC_ALL: "C" },
     stdout: "pipe",
@@ -95,7 +95,7 @@ async function members(id: string, pid?: number): Promise<Process[]> {
     new Response(ps.stderr).text(),
     ps.exited,
   ]);
-  if (code === 1 && pid !== undefined && !output.trim() && !error.trim()) return [];
+  if (code === 1 && pids !== undefined && !output.trim() && !error.trim()) return [];
   if (code) throw new Error(`Cannot inspect scoped processes: ${error}`);
   const result: Process[] = [];
   for (const line of output.split("\n")) {
@@ -116,14 +116,15 @@ async function reap(id: string, graceful: boolean): Promise<Report> {
     const current = await members(id);
     if (!current.length) return { reaped: [...reaped], remaining: [] };
     const elapsed = Date.now() - start;
-    if (elapsed >= grace + 7000) return { reaped: [...reaped], remaining: current.map(p => p.pid) };
-    if (elapsed >= grace)
+    // A scan slowed by load can use up the budget; what it found still gets SIGKILL first.
+    if (elapsed >= grace) {
+      const signal = elapsed >= grace + 2000 ? "SIGKILL" : "SIGTERM";
+      const pids = current.map(p => p.pid);
+      const live = await members(id, pids);
       for (const member of current) {
-        const signal = elapsed >= grace + 2000 ? "SIGKILL" : "SIGTERM";
         const identity = `${member.born}:${signal}`;
         if (signaled.get(member.pid) === identity) continue;
-        const [live] = await members(id, member.pid);
-        if (!live || live.born !== member.born) continue;
+        if (!live.some(p => p.pid === member.pid && p.born === member.born)) continue;
         try {
           process.kill(member.pid, signal);
           signaled.set(member.pid, identity);
@@ -132,6 +133,8 @@ async function reap(id: string, graceful: boolean): Promise<Report> {
           if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
         }
       }
+    }
+    if (elapsed >= grace + 7000) return { reaped: [...reaped], remaining: current.map(p => p.pid) };
     await Bun.sleep(100);
   }
 }

@@ -97,7 +97,7 @@ export function layout_tree(workspace: any, tab = 0): any {
   }
   return tree(model.tabs[tab].root);
 }
-function running(pid: number) {
+export function running(pid: number) {
   try {
     process.kill(pid, 0);
     return true;
@@ -133,6 +133,8 @@ export class Runtime extends TestCase {
       CODEX_HOME: join(this.temp.name, ".codex"),
       CLAUDE_CONFIG_DIR: join(this.temp.name, ".claude"),
       CORGI_SOCKET: this.path,
+      // The daemon stops if this process dies before tearing it down.
+      CORGI_TEST_OWNER: String(process.pid),
       CORGI_BELL: "off",
       CORGI_CODEX_BIN: fake,
       CORGI_CLAUDE_BIN: fake,

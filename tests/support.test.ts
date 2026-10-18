@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { Lines, Pty, TestCase, deadline, run, tempDir } from "./support";
+import { Lines, Pty, TestCase, deadline, registerCase, run, tempDir } from "./support";
 
 test("line reader keeps fragmented, coalesced and queued replies in order", async () => {
   const lines = new Lines();
@@ -48,6 +48,22 @@ test("assertion adapter catches empty collections and missing await", () => {
   expect(() => assertions.assertTrue(Promise.resolve(false))).toThrow("await");
   assertions.assertFalse([]);
   assertions.assertIn({ id: 1 }, [{ id: 1 }]);
+});
+let overlapping = 0,
+  mostOverlapping = 0;
+class Overlap extends TestCase {}
+for (let i = 0; i < 8; i++)
+  Object.assign(Overlap.prototype, {
+    async [`test_${i}`]() {
+      mostOverlapping = Math.max(mostOverlapping, ++overlapping);
+      // Real time: keep the slot so the other cases have to overlap this one.
+      await Bun.sleep(50);
+      overlapping--;
+    },
+  });
+registerCase("overlap", Overlap, { concurrent: true });
+test("concurrent cases run four at a time without the runner's limit", () => {
+  expect(mostOverlapping).toBe(4);
 });
 test("PTY settings capture control characters beyond Bun flag words", async () => {
   const pty = new Pty();

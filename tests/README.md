@@ -19,7 +19,8 @@ the slowest suites first. It prints a pass/fail table and exits nonzero when
 any suite fails.
 
 Cases within a suite run one at a time unless the suite registers with
-`registerCase(..., { concurrent: true })`. Only mark suites whose cases share
+`registerCase(..., { concurrent: true })`, and then at most four at a time,
+even under a bare `bun test`. Only mark suites whose cases share
 nothing beyond their own runtime and do not depend on tight timing. Each runtime
 uses a temporary home, provider settings, and socket; mock providers make no
 model requests. A test failure is not converted into a skip if Unix sockets or
@@ -68,7 +69,9 @@ daemon reloads and reparenting. When an owner exits, including after SIGKILL,
 the watchdog terminates its remaining processes and escalates to SIGKILL.
 Scopes nest, so concurrent suites do not clean up each other's processes.
 Pass the scope's environment to every subprocess; do not clear its
-`CORGI_PROCESS_SCOPE` marker.
+`CORGI_PROCESS_SCOPE` marker. As a second guard, a runtime's
+`CORGI_TEST_OWNER` names the test process, and a test build's daemon stops
+once that process is gone.
 
 Normal teardown requests shutdown and verifies process exit. A surviving
 daemon or a process reaped by the watchdog fails the test. Cleanup failures

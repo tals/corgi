@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Scope } from "../scripts/process_scope";
-import { deadline, tempDir } from "./support";
+import { deadline, quote, tempDir, writeExecutable } from "./support";
 
 function alive(pid: number) {
   const status = Bun.spawnSync(["ps", "-p", String(pid), "-o", "stat="], { stderr: "ignore" })
@@ -55,6 +55,36 @@ test("scope cleanup detects detached descendants and leaves other scopes alone",
     if (orphan && alive(orphan)) process.kill(orphan, "SIGKILL");
   }
 }, 20_000);
+
+test("watchdog kills what it finds even when listing processes outlasts its budget", async () => {
+  const temp = tempDir("corgi-scope-");
+  // Only full listings are slow, as under heavy load.
+  writeExecutable(
+    join(temp.name, "ps"),
+    `#!/bin/sh\ncase " $* " in *" -A "*) sleep 8.5;; esac\nexec ${quote(Bun.which("ps")!)} "$@"\n`,
+  );
+  const path = process.env.PATH;
+  process.env.PATH = `${temp.name}:${path}`;
+  let scope: Scope;
+  try {
+    scope = await Scope.start();
+  } finally {
+    process.env.PATH = path;
+  }
+  const child = Bun.spawn([process.execPath, "-e", "process.on('SIGTERM', () => {}); await Bun.sleep(60000)"], {
+    env: scope.env,
+    stdout: "ignore",
+    stderr: "ignore",
+  });
+  try {
+    await expect(scope.assertClean()).rejects.toThrow("Process scope watchdog failed");
+    await until(() => !alive(child.pid));
+  } finally {
+    child.kill("SIGKILL");
+    await child.exited;
+    temp.cleanup();
+  }
+}, 30_000);
 
 for (const mode of ["exit", "SIGKILL"] as const)
   test(`watchdog cleans up an uncooperative process after its owner ${mode}`, async () => {

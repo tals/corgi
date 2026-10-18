@@ -12,7 +12,7 @@ import * as protocol from "./protocol";
 import * as session from "./session";
 import * as viewer from "./viewer_protocol";
 import * as clock from "./clock";
-import { SocketPath, listen } from "./os";
+import { SocketPath, listen, running } from "./os";
 import * as json from "./json";
 import * as recovery from "./persist/recovery";
 import * as launch from "./launch_service";
@@ -56,6 +56,9 @@ export class Server {
   private lastRecovery = 0;
   private workspaceWrites: Promise<void> = Promise.resolve();
   private collecting = false;
+  // Test builds stop with the test process that owns their runtime.
+  private owner = testBuild ? Number(process.env.CORGI_TEST_OWNER) || 0 : 0;
+  private ownerChecked = 0;
   constructor(
     readonly socket: string,
     readonly executable: string,
@@ -322,6 +325,13 @@ export class Server {
   }
   private async collect(): Promise<void> {
     if (this.stopped || this.frozen) return;
+    if (this.owner && Date.now() - this.ownerChecked >= 1000) {
+      this.ownerChecked = Date.now();
+      if (!running(this.owner)) {
+        void this.shutdown();
+        return;
+      }
+    }
     await importer.tick(this);
     const now = Date.now();
     for (const p of [...this.runtime.panes]) {

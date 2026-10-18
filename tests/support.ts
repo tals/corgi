@@ -321,6 +321,20 @@ function contains(collection: any, item: any) {
   if (collection instanceof Set || collection instanceof Map) return collection.has(item);
   return Object.hasOwn(collection, item);
 }
+// Each concurrent case runs a whole Corgi, and a bare `bun test` starts 20 at once.
+let freeSlots = 4;
+const slotWaiters: (() => void)[] = [];
+async function inSlot(run: () => Promise<void>) {
+  if (freeSlots > 0) freeSlots--;
+  else await new Promise<void>(resolve => slotWaiters.push(resolve));
+  try {
+    await run();
+  } finally {
+    const next = slotWaiters.shift();
+    if (next) next();
+    else freeSlots++;
+  }
+}
 export function registerCase(
   name: string,
   Suite: new () => TestCase,
@@ -346,23 +360,20 @@ export function registerCase(
     for (const method of [...names].sort()) {
       const register =
         options.skip || options.skipTests?.[method] ? test.skip : options.concurrent ? test.concurrent : test;
-      register(
-        method,
-        async () => {
-          const instance = new Suite();
+      const run = async () => {
+        const instance = new Suite();
+        try {
+          await instance.setUp();
+          await instance[method]();
+        } finally {
           try {
-            await instance.setUp();
-            await instance[method]();
+            await instance.tearDown();
           } finally {
-            try {
-              await instance.tearDown();
-            } finally {
-              await instance.doCleanups();
-            }
+            await instance.doCleanups();
           }
-        },
-        options.timeout ?? 120_000,
-      );
+        }
+      };
+      register(method, options.concurrent ? () => inSlot(run) : run, options.timeout ?? 120_000);
     }
   });
 }
