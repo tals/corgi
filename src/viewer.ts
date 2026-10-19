@@ -29,6 +29,12 @@ const quiet_sync_ms = 500;
 /** How long after input or a change on screen frames keep their full rate.
  * After that a still screen is drawn only as often as the viewer syncs. */
 const idle_after_ms = 1000;
+/** How long a pane's output pauses before its frame counts as finished. */
+const settle_ms = 2;
+/** The shortest gap between frames drawn at a pane's own pace (120 fps). */
+const pane_frame_ms = 8;
+/** How often a pane that never pauses, such as a flood of output, is drawn. */
+const flood_frame_ms = 33;
 /** How often a viewer saves its agent list's scroll for the next viewer to start from. */
 const scroll_save_ms = 1000;
 
@@ -262,12 +268,21 @@ export async function run(
     // Opened once the first sync names this viewer.
     let waker: Socket | null = null;
     let watch_opened = false;
-    let woken = true;
+    // What the daemon said changed since the last sync: when it first and
+    // last said so, and whether to draw it at once.
+    let woken: { first: number; last: number; prompt: boolean } | null = null;
     let synced = 0;
     let next_sync = 0;
     let typed = false;
     let active_at = Date.now();
     let scroll_saved = 0;
+    // A change is drawn once its output pauses, at the pane's own pace up to
+    // pane_frame_ms; output that never pauses is drawn every flood_frame_ms.
+    const wakeDue = (): number => {
+      if (woken === null) return Infinity;
+      if (woken.prompt) return 0;
+      return Math.max(Math.min(woken.last + settle_ms, woken.first + flood_frame_ms), synced + pane_frame_ms);
+    };
     const poll = new Poll();
     view.wake = () => poll.notify("host");
     stdin.listen(bytes => {
@@ -324,24 +339,29 @@ export async function run(
           view.saveAgentScroll();
           scroll_saved = now;
         }
-        if (view.dirty || now >= next_sync || (held && ready(probe))) {
-          // Frames keep their clock for animations; the daemon is asked
-          // only when it said something changed, or often enough that it
-          // still counts this viewer as watching.
-          if (waker === null || view.dirty || woken || now - synced >= quiet_sync_ms) {
-            if (!(await sync(view, bell, true))) return view.executable.length > 0 ? view.executable : null;
-            woken = false;
+        // Frames keep their clock for animations, and a change waits for
+        // its due time; the daemon is asked only when it said something
+        // changed, or often enough that it still counts this viewer as watching.
+        if (view.dirty || now >= (woken === null ? next_sync : wakeDue()) || (held && ready(probe))) {
+          if (waker === null || view.dirty || woken !== null || now - synced >= quiet_sync_ms) {
+            // A wake during the sync may be past what it brings: keep it.
+            woken = null;
             synced = now;
+            if (!(await sync(view, bell, true))) return view.executable.length > 0 ? view.executable : null;
             if (!watch_opened) {
               waker = watch(
                 socket,
                 view.input_state.viewer_id,
                 () => {
-                  woken = true;
-                  // An idle viewer draws the change now rather than at its next quiet frame.
-                  if (typed || Date.now() - active_at >= idle_after_ms) next_sync = 0;
+                  const at = Date.now(),
+                    due = wakeDue();
+                  // Typing's echo, or a change on an idle screen, is drawn now.
+                  const prompt = typed || at - active_at >= idle_after_ms || woken?.prompt === true;
+                  woken = { first: woken?.first ?? at, last: at, prompt };
                   typed = false;
-                  poll.notify("waker");
+                  // The daemon wakes per read of a pane's output; the loop
+                  // already waits for the change's due time unless this brings it nearer.
+                  if (wakeDue() < due) poll.notify("waker");
                 },
                 () => {
                   // A daemon gone or replaced by a reload stops waking; sync on
@@ -375,10 +395,8 @@ export async function run(
         }
         view.clearEffects();
         // The host's answer wakes a viewer waiting on it; only a full terminal is polled.
-        await poll.wait(
-          Date.now() - active_at < idle_after_ms ? 16 : Math.max(1, next_sync - Date.now()),
-          held && !probe.pacer.waiting(Date.now()),
-        );
+        const clock = Date.now() - active_at < idle_after_ms ? 16 : Math.max(1, next_sync - Date.now());
+        await poll.wait(Math.min(clock, Math.max(1, wakeDue() - Date.now())), held && !probe.pacer.waiting(Date.now()));
         // Input reaches the daemon with a frame's sync, so send it now, and
         // show the first change after it (its echo) without waiting a frame.
         if (poll.stdin) {
