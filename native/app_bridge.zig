@@ -123,10 +123,12 @@ fn perform(t: *pane.Terminal, alloc: std.mem.Allocator, req: Request, out: [*]u8
             t.owner = .runtime;
             defer t.owner = owner;
             t.refreshRedraw(req.now);
+            return result(alloc, t.redraw_pending or t.redraw_restore_at != null, out, cap);
         },
         .tick => {
             t.exited = req.exited;
-            return result(alloc, t.read(), out, cap);
+            const changed = t.read();
+            return result(alloc, .{ .changed = changed, .expecting = t.expecting() }, out, cap);
         },
         .reap => {
             t.pid = req.pid;

@@ -33,6 +33,10 @@ export class Terminal extends EventEmitter {
   private output = Buffer.alloc(65536);
   private paused = false;
   private dirty = false;
+  // A launch command or synchronized output waiting on time, not output.
+  private waiting = false;
+  /** An adopted pane's redraw nudge is under way. */
+  redrawing = false;
   static create(cols: number, rows: number): Terminal {
     return new Terminal(cols, rows);
   }
@@ -150,6 +154,7 @@ export class Terminal extends EventEmitter {
     this.owner = "runtime";
     symbols.app_terminal_fd(this.handle, fd, pid);
     this.native({ op: "adopt" });
+    this.redrawing = true;
     this.attachReadiness();
   }
   private attachReadiness(): void {
@@ -191,9 +196,19 @@ export class Terminal extends EventEmitter {
     this.drain();
     const dirty = this.dirty || false;
     this.dirty = false;
-    const changed = !this.paused ? this.native({ op: "tick", exited: this.exited }) : false;
+    let changed = false;
+    if (!this.paused) {
+      const tick = this.native({ op: "tick", exited: this.exited });
+      changed = tick.changed;
+      this.waiting = tick.expecting;
+    }
     this.arm();
     return changed || dirty;
+  }
+  /** Whether the daemon's tick has work here: output to follow up on, or
+   * something waiting on time rather than output. */
+  due(): boolean {
+    return this.dirty || this.waiting || this.redrawing;
   }
   send(bytes: Uint8Array | string): void {
     const data = typeof bytes === "string" ? Buffer.from(bytes) : bytes;
@@ -269,6 +284,7 @@ export class Terminal extends EventEmitter {
   }
   prefill(command: string): void {
     this.native({ op: "prefill", text: command });
+    this.waiting = true;
   }
   pasteEvent(contents: { mime: string; data: string | Uint8Array }[]): boolean {
     return this.native({
@@ -287,7 +303,7 @@ export class Terminal extends EventEmitter {
     this.native({ op: "restore", text: Buffer.from(bytes).toString() });
   }
   refreshRedraw(now: number): void {
-    this.native({ op: "refreshRedraw", now });
+    this.redrawing = this.native({ op: "refreshRedraw", now });
   }
   updateRender(): void {
     this.surface(0);

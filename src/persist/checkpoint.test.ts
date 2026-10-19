@@ -405,7 +405,9 @@ test("redraw cycle changes PTY dimensions only after activation and restores the
     t.refreshRedraw(1100);
     n.probe_winsize(slave, ptr(size));
     expect(size[0]).toBe(39);
+    expect(t.redrawing).toBe(true);
     t.refreshRedraw(1250);
+    expect(t.redrawing).toBe(false);
     n.probe_winsize(slave, ptr(size));
     expect(size[0]).toBe(40);
   } finally {

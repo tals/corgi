@@ -111,6 +111,29 @@ test("unfinished synchronized output expires or releases on process exit", async
     t.destroy();
   }
 });
+test("the daemon tick visits a terminal after output and while it waits on time", () => {
+  const t = Terminal.create(40, 8);
+  try {
+    expect(t.due()).toBe(false);
+    t.feed("$ ");
+    expect(t.due()).toBe(true);
+    t.read();
+    expect(t.due()).toBe(false);
+    t.feed("\x1b[?2026hHALF");
+    t.read();
+    expect(t.due()).toBe(true);
+    t.feed("\x1b[?2026l");
+    t.read();
+    expect(t.due()).toBe(false);
+    t.prefill("make");
+    expect(t.due()).toBe(true);
+    // No line editor reads it yet.
+    t.read();
+    expect(t.due()).toBe(true);
+  } finally {
+    t.destroy();
+  }
+});
 test("snapshot restores primary history and alternate output without input modes", () =>
   terminals(30, 4, 2, ([old, fresh]) => {
     old.feed("EARLY_HISTORY\r\n1\r\n2\r\n3\r\n4\r\n5\r\n");

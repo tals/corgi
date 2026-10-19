@@ -335,18 +335,23 @@ export class Server {
     await importer.tick(this);
     const now = Date.now();
     for (const p of [...this.runtime.panes]) {
-      p.terminal.read();
-      const copied = p.terminal.takeCopied();
-      if (copied !== null) viewer.copy(this, p.id, copied);
-      p.terminal.refreshRedraw(now);
-      if (p.watchGhost(now)) this.runtime.changed();
-      const cwd = p.cwd;
-      p.refreshCwd();
-      // Viewers inherit a pane's folder for new tabs, so a `cd` wakes them.
-      if (p.cwd !== cwd) {
-        this.runtime.changed();
-        this.dirty = true;
+      // Panes read their output as it comes; the tick follows up on a pane
+      // that printed, and keeps time for one waiting on more than output.
+      if (p.terminal.due()) {
+        if (p.terminal.read()) {
+          const copied = p.terminal.takeCopied();
+          if (copied !== null) viewer.copy(this, p.id, copied);
+          const cwd = p.cwd;
+          p.refreshCwd();
+          // Viewers inherit a pane's folder for new tabs, so a `cd` wakes them.
+          if (p.cwd !== cwd) {
+            this.runtime.changed();
+            this.dirty = true;
+          }
+        }
+        if (p.terminal.redrawing) p.terminal.refreshRedraw(now);
       }
+      if (p.watchGhost(now)) this.runtime.changed();
       if (p.failed()) {
         if (p.keepFailed()) this.dirty = true;
       } else if (p.terminal.exited && !p.dormant) this.runtime.close(p.id);
