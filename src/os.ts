@@ -120,6 +120,7 @@ export function readToEndAlloc(fd: number, max: number): Buffer {
     parts.push(chunk.subarray(0, count));
   }
 }
+const cwd_buffer = Buffer.alloc(max_path_bytes);
 export function processCwd(pid: number): string | null {
   if (process.platform === "linux") {
     try {
@@ -129,13 +130,8 @@ export function processCwd(pid: number): string | null {
     }
   }
   if (process.platform !== "darwin") return null;
-  const values = new BigUint64Array(5),
-    cwd = Buffer.alloc(max_path_bytes),
-    exe = Buffer.alloc(max_path_bytes),
-    args = Buffer.alloc(max_path_bytes);
-  return n.probe_macos_process(pid, ptr(values), ptr(cwd), ptr(exe), ptr(args), max_path_bytes) & 4
-    ? cwd.toString("utf8", 0, cwd.indexOf(0))
-    : null;
+  const len = n.probe_process_cwd(pid, ptr(cwd_buffer), cwd_buffer.length);
+  return len < 0 ? null : cwd_buffer.toString("utf8", 0, len);
 }
 /** The account's login shell, or null when the account database has none. */
 export function loginShell(): string | null {

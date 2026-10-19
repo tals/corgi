@@ -45,13 +45,15 @@ export const tcgetpgrp = (fd: number): number => n.probe_foreground(fd);
 export function processArgs(pid: number): { argv: string[]; complete: boolean } {
   return readProcessArgs(pid) ?? { argv: [], complete: false };
 }
+// Replies land here; a larger one gets a buffer of its own.
+const reply = Buffer.allocUnsafe(65536);
 export function call(handle: Pointer | bigint, request: object): any {
   const input = Buffer.from(json.stringify(request));
-  let output = Buffer.alloc(65536);
+  let output = reply;
   let size = Number(symbols.app_terminal_json(handle, ptr(input), input.length, ptr(output), output.length));
   if (size < -1) {
     if (-size > 64 * 1024 * 1024) throw Error("NativeMessageTooLarge");
-    output = Buffer.alloc(-size);
+    output = Buffer.allocUnsafe(-size);
     size = Number(symbols.app_terminal_json(handle, ptr(input), input.length, ptr(output), output.length));
   }
   if (size < 0) throw Error("NativeOperationFailed");

@@ -17,6 +17,7 @@ export const lib = dlopen(`${nativeRoot}/lib/libcorgi_probe.${suffix}`, {
   frame_make: { args: ["u32"], returns: FFIType.i64_fast },
   proc_scan: { args: ["i32"], returns: FFIType.i64_fast },
   probe_macos_process: { args: ["i32", "ptr", "ptr", "ptr", "ptr", "i32"], returns: "i32" },
+  probe_process_cwd: { args: ["i32", "ptr", "i32"], returns: "i32" },
   probe_rss_kib: { args: [], returns: FFIType.i64_fast },
   probe_connect: { args: ["cstring"], returns: "i32" },
   probe_group_pids: { args: ["i32", "ptr", "i32"], returns: "i32" },

@@ -237,6 +237,20 @@ int probe_macos_process(int pid, uint64_t *values, char *cwd, char *exe, char *a
     return 0;
 #endif
 }
+/* A process's working directory, NUL-terminated, or -1. */
+int probe_process_cwd(int pid, char *cwd, int cap) {
+#ifdef __APPLE__
+    struct proc_vnodepathinfo path;
+    if(proc_pidinfo(pid,PROC_PIDVNODEPATHINFO,0,&path,sizeof(path))!=sizeof(path)) return -1;
+    size_t len=strlen(path.pvi_cdir.vip_path);
+    if(len>=(size_t)cap) return -1;
+    memcpy(cwd,path.pvi_cdir.vip_path,len+1);
+    return (int)len;
+#else
+    (void)pid;(void)cwd;(void)cap;
+    return -1;
+#endif
+}
 /* Whether fd takes output now, waiting up to `ms` (0 polls once). */
 int probe_writable(int fd, int ms) {
     struct pollfd p = { .fd = fd, .events = POLLOUT, .revents = 0 };
