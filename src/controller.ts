@@ -2224,7 +2224,9 @@ export class Controller {
     if (launch.managing || launch.selected === "manage" || launch.selected === "add") return;
     this.rememberLauncherRow(launch.workspace, launch.selected);
   }
+  /** A terminal is a detour, so the launcher keeps the row from before it. */
   private rememberLauncherRow(id: number, row: LauncherRow): void {
+    if (row === "terminal") return;
     this.launcher_selection = row;
     this.navigation.rememberLauncherRow(this.runtime.workspaces, id, row);
   }

@@ -187,6 +187,29 @@ test("escape in the launcher's search clears the query, then closes the launcher
   expect(s.agent_launcher).toBeNull();
 });
 
+test("the launcher reopens on the row from before a terminal", async () => {
+  const snapshot = folders("/src/app");
+  const s: any = new Controller({
+    socket: "",
+    request: transport(async op => (op === "session.command" ? { result: { pane: 1 } } : snapshot)).request,
+  });
+  s.receiveSnapshot(snapshot);
+  s.input_state.attached = true;
+  s.openLauncher(true);
+  s.agent_launcher.selected = "claude";
+  s.closeLauncher();
+  s.openLauncher(true);
+  await s.key("t".charCodeAt(0));
+  expect(s.agent_launcher).toBeNull();
+  s.openLauncher(true);
+  expect(s.agent_launcher.selected).toBe("claude");
+  // Leaving it on the terminal row doesn't stick either.
+  s.agent_launcher.selected = "terminal";
+  s.closeLauncher();
+  s.openLauncher(true);
+  expect(s.agent_launcher.selected).toBe("claude");
+});
+
 test("a fork's name is its title marked as a fork, cut to fit", () => {
   expect(forkName("refactor")).toBe("refactor (fork)");
   const long = forkName("x".repeat(72) + "⑂⑂");
