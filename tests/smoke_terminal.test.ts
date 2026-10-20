@@ -866,6 +866,11 @@ class Discovery extends TestCase {
     this.env.PATH = [hung, valid].map(path => join(path, "..")).join(":");
     this.assertEqual(await this.which(), valid);
   }
+  async test_wait_for_slow_last_candidate() {
+    const slow = this.script("slow/codex", '/bin/sleep 0.8; echo "codex-cli 1.2.3"');
+    this.env.PATH = join(slow, "..");
+    this.assertEqual(await this.which(), slow);
+  }
   async test_preserve_symlink_shim_invocation() {
     const shim = this.script("shared/shim", 'case "$0" in */codex) echo "codex-cli 1.2.3";; *) exit 1;; esac');
     const link = join(this.root, "bin/codex");

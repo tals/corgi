@@ -46,20 +46,54 @@ function candidates(provider: Provider, cwd = process.cwd()): string[] {
     }
   return [...new Set(paths)];
 }
+/** The promise's value if it settles within `ms`, else null. */
+async function within<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<null>(resolve => (timer = setTimeout(resolve, ms, null)));
+  try {
+    return await Promise.race([promise, expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 export async function resolve(provider: Provider, cwd: string | null = null): Promise<string> {
   const info = Provider.info(provider),
-    override = process.env[info.binary_env];
-  if (override !== undefined && (override.length || info.version_prefix === null)) return override;
-  if (!info.version_prefix) return info.executables[0];
-  const deadline = performance.now() + 2000;
-  for (const path of candidates(provider, absolute(cwd ?? process.cwd()))) {
-    if (!executable(path)) continue;
-    const timeout = Math.min(750, deadline - performance.now());
-    if (timeout <= 0) break;
+    override = process.env[info.binary_env],
+    prefix = info.version_prefix;
+  if (override !== undefined && (override.length || prefix === null)) return override;
+  if (!prefix) return info.executables[0];
+  const deadline = performance.now() + 2000,
+    quit = subprocess.Quit.init(),
+    probes: Promise<string | null>[] = [];
+  let report!: (path: string) => void;
+  const found = new Promise<string>(resolve => (report = resolve));
+  const probe = async (path: string, timeout_ms: number) => {
     try {
-      const output = await subprocess.run([path, "--version"], { timeout_ms: timeout, max_output: 4096 });
-      if (output.ok() && isVersion(output.stdout.toString(), info.version_prefix)) return path;
+      const output = await subprocess.run([path, "--version"], { timeout_ms, max_output: 4096, quit });
+      if (output.ok() && isVersion(output.stdout.toString(), prefix)) {
+        report(path);
+        return path;
+      }
     } catch {}
+    return null;
+  };
+  try {
+    for (const path of candidates(provider, absolute(cwd ?? process.cwd()))) {
+      if (!executable(path)) continue;
+      const left = deadline - performance.now();
+      if (left <= 0) break;
+      // A probe may use the whole budget, but after 750 ms the next
+      // candidate starts beside it: a hung one shouldn't hide the rest.
+      const running = probe(path, left);
+      probes.push(running);
+      const winner = await within(Promise.race([found, running]), Math.min(750, left));
+      if (winner) return winner;
+    }
+    const rest = Promise.all(probes).then(paths => paths.find(path => path !== null) ?? null);
+    const winner = await Promise.race([found, rest]);
+    if (winner) return winner;
+  } finally {
+    quit.signal();
   }
   throw Error("ProviderNotFound");
 }
