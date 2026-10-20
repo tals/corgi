@@ -13,7 +13,7 @@ let list = false,
   check = false,
   external = false,
   dev = false,
-  jobs = Math.max(1, Math.min(6, Math.floor(availableParallelism() / 2)));
+  jobs = Math.max(1, Math.min(2, Math.floor(availableParallelism() / 4)));
 function usage(): never {
   console.log(
     "Usage: bun run tests/run.ts [suite ...] [--list|--check] [--jobs N] [--external] [--dev] [--corgi PATH] [--herdr PATH] [-- bun-test-options]\nWithout suite names, runs all normal suites in isolated processes, several at a time (--jobs 1 runs them one by one). Herdr handoff and developer-launch suites are opt-in.",
@@ -88,7 +88,7 @@ async function runSuite(suite: string) {
   // Parallel suites buffer their output so each prints as one block.
   const child = Bun.spawn(
     // Bounds overlap within suites whose cases are marked concurrent.
-    [process.execPath, "test", "--max-concurrency=4", resolve(import.meta.dir, suite), ...forwarded],
+    [process.execPath, "test", "--max-concurrency=2", resolve(import.meta.dir, suite), ...forwarded],
     {
       cwd: resolve(import.meta.dir, ".."),
       env: scope.env,

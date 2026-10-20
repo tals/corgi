@@ -11,15 +11,16 @@ bun build.ts --test       # dist/corgi-test, the default CORGI_TEST_BIN
 bun integration.ts        # or: bun run tests/run.ts
 ```
 
-The runner starts a separate Bun process for each suite and runs several at
-once (`--jobs N`, default half the cores up to 6; `--jobs 1` runs them one by
-one with live output). Parallel suites print their output when they finish.
+The runner starts a separate Bun process for each suite and runs a couple at
+once (`--jobs N`, default a quarter of the cores, at most 2; `--jobs 1` runs
+them one by one with live output). Parallel suites print their output when
+they finish.
 Durations from the previous run, kept in `.zig-cache/test-timings.json`, start
 the slowest suites first. It prints a pass/fail table and exits nonzero when
 any suite fails.
 
 Cases within a suite run one at a time unless the suite registers with
-`registerCase(..., { concurrent: true })`, and then at most four at a time,
+`registerCase(..., { concurrent: true })`, and then at most two at a time,
 even under a bare `bun test`. Only mark suites whose cases share
 nothing beyond their own runtime and do not depend on tight timing. Each runtime
 uses a temporary home, provider settings, and socket; mock providers make no

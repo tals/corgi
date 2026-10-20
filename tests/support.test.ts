@@ -62,8 +62,8 @@ for (let i = 0; i < 8; i++)
     },
   });
 registerCase("overlap", Overlap, { concurrent: true });
-test("concurrent cases run four at a time without the runner's limit", () => {
-  expect(mostOverlapping).toBe(4);
+test("concurrent cases run two at a time without the runner's limit", () => {
+  expect(mostOverlapping).toBe(2);
 });
 test("PTY settings capture control characters beyond Bun flag words", async () => {
   const pty = new Pty();

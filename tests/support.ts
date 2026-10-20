@@ -322,7 +322,7 @@ function contains(collection: any, item: any) {
   return Object.hasOwn(collection, item);
 }
 // Each concurrent case runs a whole Corgi, and a bare `bun test` starts 20 at once.
-let freeSlots = 4;
+let freeSlots = 2;
 const slotWaiters: (() => void)[] = [];
 async function inSlot(run: () => Promise<void>) {
   if (freeSlots > 0) freeSlots--;
