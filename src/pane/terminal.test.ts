@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { Terminal } from "./terminal";
+import { Terminal, closeReadiness } from "./terminal";
 import { Theme } from "../theme";
 import { n } from "../native_bridge";
 const info = (t: Terminal) => t.native({ op: "info" });
@@ -204,3 +204,19 @@ test("reap collects the terminal's own shell once and nothing for a stopped one"
     expect(t.exit_status).toBe(3 << 8);
     expect(t.reap()).toBe(false);
   }));
+test("a command exits only once its status arrives, not when its PTY hangs up", async () => {
+  const t = new Terminal(20, 4);
+  try {
+    await t.spawn("/tmp", "", 1, process.execPath, "sleep 0.3; exit 3");
+    // Bun learns of the exit on a later turn, so a busy read sees the hang-up first.
+    const deadline = Date.now() + 5000;
+    while (!t.hung_up && !t.exited && Date.now() < deadline) t.read();
+    expect(t.hung_up).toBe(true);
+    expect(t.exited).toBe(false);
+    while (!t.exited && Date.now() < deadline) await Bun.sleep(10);
+    expect(t.exit_status).toBe(3 << 8);
+  } finally {
+    t.destroy();
+    closeReadiness();
+  }
+});

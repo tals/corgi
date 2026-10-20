@@ -19,6 +19,8 @@ export class Terminal extends EventEmitter {
   pid = -1;
   exited = false;
   exit_status = 0;
+  /** The PTY closed; a spawned child's `exited` still waits for its status. */
+  hung_up = false;
   runs_command = false;
   imported = false;
   get initial_input(): string | null {
@@ -167,7 +169,7 @@ export class Terminal extends EventEmitter {
     this.arm();
   }
   private arm(): void {
-    if (!this.paused && !this.exited && this.watch) this.watch.arm(READ | (this.pendingBytes ? 4 : 0));
+    if (!this.paused && !this.exited && !this.hung_up && this.watch) this.watch.arm(READ | (this.pendingBytes ? 4 : 0));
   }
   private drain(): void {
     if (this.paused || this.fd < 0 || this.destroyed) return;
@@ -175,7 +177,8 @@ export class Terminal extends EventEmitter {
       const count = n.probe_read(this.fd, ptr(this.output), this.output.length);
       if (count > 0) this.feed(this.output.subarray(0, count));
       else if (count === 0 || count === -5) {
-        this.exited = true;
+        this.hung_up = true;
+        if (!this.child) this.exited = true;
         this.emit("change");
         break;
       } else if (count === -4) continue;
