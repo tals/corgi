@@ -4,7 +4,7 @@ import { expect, setSystemTime, spyOn, test } from "bun:test";
 import { Controller, agentMessage, cardEffect, pasteKey, forkName, breadcrumbs } from "./controller";
 import * as sim from "./providers/sim";
 import * as preferences from "./preferences";
-import { TabMenu } from "./commands";
+import { TabMenu, type Row } from "./commands";
 import { Dialog } from "./name_dialog";
 import * as newWorkspace from "./new_workspace";
 import * as agentLauncher from "./agent_launcher";
@@ -637,6 +637,28 @@ test("an agent marked unread stays unread in view until focus moves onto it", as
     s.switchWorkspace(2);
     await acknowledged();
     expect(s.marked_unread.size).toBe(0);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("edit workspace opens the current workspace's menu centered in its row, and r renames it", async () => {
+  const s = controller();
+  s.receiveSnapshot(folders("/a", "/b"));
+  try {
+    s.sidebar_open = false;
+    await s.perform({ name: "edit-workspace" });
+    expect([s.tab_menu?.anchor_x, s.tab_menu?.anchor_y]).toEqual([40, 1]);
+    s.sidebar_open = true;
+    s.navigation.workspace_id = 2;
+    await s.perform({ name: "edit-workspace" });
+    expect(s.tab_menu?.workspace).toBe(true);
+    expect(s.tab_menu?.tab).toBe(2);
+    expect(s.tab_menu?.entries().map((e: Row) => e.label)).toEqual(["Rename", "Close"]);
+    expect([s.tab_menu?.anchor_x, s.tab_menu?.anchor_y]).toEqual([4, 6]);
+    await s.key(114);
+    expect(s.tab_menu).toBeNull();
+    expect(s.name_dialog?.target).toEqual({ workspace_name: 2 });
   } finally {
     viewer.close(s);
   }

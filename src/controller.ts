@@ -1213,6 +1213,25 @@ export class Controller {
     this.tab_menu = opened;
     this.dirty = true;
   }
+  private openWorkspaceMenu(id: number, x: number, y: number): TabMenu {
+    this.closeMenu();
+    this.search_mode = false;
+    this.cancelDividers();
+    this.selection = null;
+    this.tab_menu = new TabMenu({ tab: id, workspace: true, anchor_x: x, anchor_y: y });
+    this.dirty = true;
+    return this.tab_menu;
+  }
+  /** Opens the current workspace's menu one line into its sidebar row and
+   * centered across it, or centered near the top with the sidebar closed. */
+  private openCurrentWorkspaceMenu(): void {
+    this.revealWorkspace();
+    const side = this.sidebarView([]),
+      slot = this.workspaceIndex() - side.workspace_offset;
+    const menu = this.openWorkspaceMenu(this.current().id, 0, side.width > 0 ? 3 + slot * side.workspaceRows() : 1);
+    const across = side.width > 0 ? side.width : this.width;
+    menu.anchor_x = Math.floor(sat(across, menu.bounds(this.width, this.height).width) / 2);
+  }
   /** Follows the daemon's report on a removal under way: its progress, then
    * how it ended. Reports of an earlier removal are not this one's. */
   private followRemoval(): void {
@@ -1861,7 +1880,7 @@ export class Controller {
         this.beginWorkspace(null);
         break;
       case "edit-workspace":
-        this.beginWorkspace(this.current().id);
+        this.openCurrentWorkspaceMenu();
         break;
       case "close-workspace":
         await this.closeWorkspace(this.current().id, true);
@@ -5145,16 +5164,7 @@ export class Controller {
           case "workspace": {
             const index = found.workspace;
             if (button === 2) {
-              this.closeMenu();
-              this.search_mode = false;
-              this.cancelDividers();
-              this.selection = null;
-              this.tab_menu = new TabMenu({
-                tab: this.runtime.workspaces.items[index].id,
-                workspace: true,
-                anchor_x: x,
-                anchor_y: y,
-              });
+              this.openWorkspaceMenu(this.runtime.workspaces.items[index].id, x, y);
             } else {
               const id = this.runtime.workspaces.items[index].id;
               const ws_entries = this.workspaceEntries();
