@@ -111,8 +111,12 @@ class SmokeTerminal extends Runtime {
     pty.write("\x1bP>|ghostty 1.3.1\x1b\\\x1b[?5522;0$y");
     await pty.waitFor("CARD_READY");
     // Ghostty passes Cmd+V on as a key when it had no text to paste.
+    let offset = pty.output.length;
     pty.write("\x1b[118;9u");
-    await pty.waitFor("Ghostty 1.3.1 can't send images over SSH.");
+    // The card's frame can arrive in pieces; wait for its end.
+    await pty.waitFor(output =>
+      /Ghostty 1\.3\.1 can't send images over SSH\.[^]*\x1b\[\?2026l/.test(output.slice(offset)),
+    );
     this.assertIn("Image not pasted", pty.output);
     this.assertIn("⇧⌘-click opens · click copies", pty.output);
     this.assertRegex(
@@ -126,7 +130,7 @@ class SmokeTerminal extends Runtime {
     const link = /\x1b\[(\d+);(\d+)H((?:(?!\x1b\[\d+;\d+H)[^])*?)Download: /.exec(pty.output)!;
     const before = [...link[3].replace(/\x1b\[[0-9;:]*m|\x1b\]8;[^\x1b]*\x1b\\/g, "")].length;
     const [row, column] = [Number(link[1]), Number(link[2]) + before + "Download: ".length + 2];
-    let offset = pty.output.length;
+    offset = pty.output.length;
     pty.write(`\x1b[<0;${column};${row}M\x1b[<0;${column};${row}m`);
     await pty.waitFor(output => output.slice(offset).includes("Copied to clipboard"));
     this.assertIn(`\x1b]52;c;${b64(url)}\x07`, pty.output.slice(offset));

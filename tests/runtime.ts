@@ -327,8 +327,12 @@ export class Runtime extends TestCase {
     if (views.length && views[0].pane) options.from ??= views[0].pane;
     const result = await this.command("pane.create", { workspace, ...options });
     if (!views.length) this.client = await Viewer.create(this, 80, 24);
-    if ((await this.session()).panes.some((p: any) => p.id === result.pane))
+    try {
       await this.rpc({ op: "focus", pane: result.pane });
+    } catch (error) {
+      // A command can exit before the focus arrives.
+      if ((await this.session()).panes.some((p: any) => p.id === result.pane)) throw error;
+    }
     return result;
   }
   async split_pane(direction = "right", options: any = {}) {
