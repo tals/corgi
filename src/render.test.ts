@@ -16,6 +16,7 @@ import {
   shellUnits,
   commandLines,
   drawPrefixBar,
+  untitledTab,
   type Pointer,
   type Restoring,
 } from "./render";
@@ -25,6 +26,7 @@ import * as sidebar from "./sidebar";
 import * as resourceTooltip from "./resource_tooltip";
 import * as corgiBadge from "./corgi_badge";
 import { TabMenu } from "./commands";
+import { agent, type Pane } from "./mirror";
 import { Menu as LauncherMenu } from "./agent_launcher";
 import { Writer } from "./text";
 import type { Prefix } from "./keymap";
@@ -171,6 +173,51 @@ test("dividers and the sidebar edge show resize pointers", () => {
   }
 });
 
+test("tabs show each number in a badge before the title, the active one's in the accent", () => {
+  const m = new Model();
+  const selection = new Selection();
+  const view = new View(m, selection);
+  m.newTab("one");
+  m.newTab("a sixteen letter");
+  m.newTab("");
+  selection.reconcile(m);
+  selection.active = 2;
+  const tabs = (panes: Pane[]) => {
+    const out = frame(view, panes, 60, 10, ui({ sidebar_open: false, message: "", copy_mode: false }));
+    return out.slice(0, out.indexOf("\x1b[2;")).replace(/\x1b\[[?0-9;:]*[a-zA-Z]/g, "");
+  };
+  // Tabs are at least 12 columns, and a renamed one fits its whole title: 12, 20 and 12.
+  expect(tabs([])).toContain("▐1▌one      ▐2▌a sixteen letter ▐3▌         ▐+▌");
+  const out = frame(view, [], 60, 10, ui({ sidebar_open: false, message: "", copy_mode: false }));
+  const accent = palette.colors.accent.join(";");
+  expect(out).toMatch(new RegExp(`48;2;${accent}m3`));
+  expect(out).not.toMatch(new RegExp(`48;2;${accent}m1`));
+  // An untitled tab shows its focused pane's label.
+  selection.active = 0;
+  const pane = { id: m.firstPane(m.tabs[2].root), label: "", cwd: "/w/claude", agent: agent() } as Pane;
+  expect(tabs([pane])).toContain("▐3▌claude   ▐+▌");
+  m.tabs[0].title = "past the usual sixteen";
+  expect(tabs([pane])).toContain("▐1▌past the usual sixteen ▐2▌");
+  // A name the tab cuts trails off: its last two letters fade into the tab.
+  m.tabs[0].title = "one";
+  const fade = (share: number) => palette.fgRgb(palette.mix(palette.colors.surface, palette.colors.faint, share));
+  const long = { ...pane, label: "subagent sidebar study" };
+  expect(tabs([long])).toContain("▐3▌subagent ▐+▌");
+  const cut = frame(view, [long], 60, 10, ui({ sidebar_open: false, message: "", copy_mode: false }));
+  expect(cut).toContain(`${fade(65)}n`);
+  expect(cut).toContain(`${fade(35)}t`);
+  expect(out).not.toContain(fade(35));
+});
+
+test("an untitled tab shows its pane's name, its agent's, or its folder", () => {
+  const pane = (fields: Partial<Pane>) => ({ label: "", cwd: "/w/corgi", agent: agent(), ...fields }) as Pane;
+  expect(untitledTab(pane({ label: "build" }))).toBe("build");
+  expect(untitledTab(pane({ agent: agent({ provider: "claude", name: "fix tabs" }) }))).toBe("fix tabs");
+  expect(untitledTab(pane({ agent: agent({ provider: "codex" }) }))).toBe("Codex");
+  expect(untitledTab(pane({}))).toBe("corgi");
+  expect(untitledTab(pane({ cwd: "/" }))).toBe("/");
+});
+
 test("tab drop slots follow midpoints and clipped visible tabs", () => {
   const m = new Model();
   const selection = new Selection();
@@ -181,8 +228,8 @@ test("tab drop slots follow midpoints and clipped visible tabs", () => {
   selection.reconcile(m);
   selection.active = 2;
   selection.offset = 2;
-  expect(tabDrop(view, 40, 4)!.index).toBe(0);
-  expect(tabDrop(view, 40, 5)!.index).toBe(1);
+  expect(tabDrop(view, 40, 5)!.index).toBe(0);
+  expect(tabDrop(view, 40, 6)!.index).toBe(1);
   expect(tabDrop(view, 40, 35)!.index).toBe(3);
   // Scrolled to the end, only tab three fits: the left gap is before it, not tab one.
   expect(tabDrop(view, 13, 0)!.index).toBe(2);
@@ -198,17 +245,17 @@ test("the tab bar scrolls by whole tabs and reveals a tab with the smallest chan
   const view = new View(m, selection);
   for (let i = 0; i < 6; i++) m.newTab("");
   selection.reconcile(m);
-  // Forty columns fit four ten-column tabs.
-  expect(maxTabStart(view, 40)).toBe(2);
-  expect(tabStart(view, 40)).toBe(0);
-  expect(revealTab(view, 40, 3)).toBe(0);
-  expect(revealTab(view, 40, 4)).toBe(1);
-  expect(revealTab(view, 40, 5)).toBe(2);
+  // Forty-eight columns fit four twelve-column tabs.
+  expect(maxTabStart(view, 48)).toBe(2);
+  expect(tabStart(view, 48)).toBe(0);
+  expect(revealTab(view, 48, 3)).toBe(0);
+  expect(revealTab(view, 48, 4)).toBe(1);
+  expect(revealTab(view, 48, 5)).toBe(2);
   selection.offset = 9;
-  expect(tabStart(view, 40)).toBe(2);
-  expect(revealTab(view, 40, 3)).toBe(2);
-  expect(revealTab(view, 40, 1)).toBe(1);
-  expect(maxTabStart(view, 60)).toBe(0);
+  expect(tabStart(view, 48)).toBe(2);
+  expect(revealTab(view, 48, 3)).toBe(2);
+  expect(revealTab(view, 48, 1)).toBe(1);
+  expect(maxTabStart(view, 72)).toBe(0);
   // A tab wider than the bar shows alone.
   expect(maxTabStart(view, 5)).toBe(5);
   expect(revealTab(view, 5, 4)).toBe(4);
@@ -220,23 +267,25 @@ test("the tab bar underlines its scrollbar only while hovered and overflowing", 
   const view = new View(m, selection);
   for (let i = 0; i < 4; i++) m.newTab("");
   selection.reconcile(m);
-  expect(tabThumb(view, 43)).toBeNull();
+  expect(tabThumb(view, 51)).toBeNull();
   const hover = () => ui({ sidebar_open: false, pointer: { x: 5, y: 0 }, message: "", copy_mode: false });
-  const fits = frame(view, [], 43, 10, hover());
+  const fits = frame(view, [], 51, 10, hover());
   expect(fits).not.toContain(track_rule);
   expect(fits).not.toContain(thumb_rule);
   for (let i = 0; i < 2; i++) m.newTab("");
   selection.reconcile(m);
-  expect(tabThumb(view, 43)).toEqual({ start: 0, len: 6 });
+  expect(tabThumb(view, 51)).toEqual({ start: 0, len: 6 });
   selection.offset = 1;
-  expect(tabThumb(view, 43)).toEqual({ start: 17, len: 6 });
+  expect(tabThumb(view, 51)).toEqual({ start: 21, len: 6 });
   selection.offset = 2;
-  expect(tabThumb(view, 43)).toEqual({ start: 34, len: 6 });
+  expect(tabThumb(view, 51)).toEqual({ start: 42, len: 6 });
   selection.offset = 0;
-  // The knob starts the first tab; the dotted track runs on under all four.
-  const hovered = frame(view, [], 43, 10, hover());
-  expect(count(hovered, thumb_rule)).toBe(1);
-  expect(count(hovered, track_rule)).toBe(4);
+  // The knob starts the first tab; the dotted track runs on under all four. Each
+  // style change repeats the rule: the knob spans the first tab's edge, badge,
+  // badge end and label, then the track takes over.
+  const hovered = frame(view, [], 51, 10, hover());
+  expect(count(hovered, thumb_rule)).toBe(4);
+  expect(count(hovered, track_rule)).toBe(13);
   // Off the tab row, with no pointer, or under a menu, it hides.
   for (const c of [
     ui({ sidebar_open: false, pointer: { x: 5, y: 1 }, message: "", copy_mode: false }),
@@ -249,7 +298,7 @@ test("the tab bar underlines its scrollbar only while hovered and overflowing", 
       copy_mode: false,
     }),
   ]) {
-    const plain = frame(view, [], 43, 10, c);
+    const plain = frame(view, [], 51, 10, c);
     expect(plain).not.toContain(track_rule);
     expect(plain).not.toContain(thumb_rule);
   }
@@ -554,6 +603,9 @@ test("the launcher dims the panes behind it", () => {
   selection.reconcile(m);
   const pane: any = {
     id,
+    label: "",
+    cwd: "/w/corgi",
+    agent: agent(),
     restoring: "",
     terminal: {
       updateRender() {},

@@ -2,7 +2,7 @@
 //! Mirrors render.zig.
 import * as palette from "./palette";
 import { Style, keycap } from "./palette";
-import { Rect, View as LayoutView, Model, type Axis, type Border } from "./layout";
+import { Rect, View as LayoutView, cleanLabel, type Axis, type Border } from "./layout";
 import * as sidebar from "./sidebar";
 import {
   View as SidebarView,
@@ -38,14 +38,35 @@ import * as bindings from "./bindings";
 import { Preferences } from "./preferences";
 import { providerName, type Pane } from "./mirror";
 import type { Notice } from "./host_clipboard";
-import { Writer, displayWidth, writeEllipsis, ellipsis, directoryLabel, sat, byteLength, byteSlice } from "./text";
+import {
+  Writer,
+  codepointWidth,
+  displayWidth,
+  writeEllipsis,
+  ellipsis,
+  directoryLabel,
+  sat,
+  byteLength,
+  byteSlice,
+} from "./text";
 
 export type Pointer = { x: number; y: number };
 /** The focused pane's outline. The divider tests parse it back. */
 export let divider_focused: string;
+/** How much ink a cut tab label's last two letters keep, in percent. */
+const tab_fade_ink = [65, 35];
 let tab_active: string,
   tab_inactive: string,
+  tab_badge: string,
+  tab_badge_active: string,
+  tab_open: string,
+  tab_open_active: string,
+  tab_badge_end: string,
+  tab_badge_end_active: string,
+  tab_fade: [string, string],
+  tab_fade_active: [string, string],
   button: string,
+  button_edge: string,
   chip: string,
   hint_key: string,
   hint_label: string,
@@ -55,8 +76,24 @@ let tab_active: string,
   ghost_edge: string;
 palette.derived(() => {
   tab_active = new Style({ fg: "strong", bg: "selected", bold: true }).sgr();
-  tab_inactive = new Style({ fg: "faint", bg: "bg" }).sgr();
+  tab_inactive = new Style({ fg: "faint", bg: "surface" }).sgr();
+  // Each tab's number, on the keycap's gray; the active tab's is lit with the focus color.
+  tab_badge = new Style({ fg: "text", bg: "line" }).sgr();
+  tab_badge_active = new Style({ fg: "bg", bg: "accent", bold: true }).sgr();
+  // Half blocks: the bar's half cell before the badge, and the badge's after its number.
+  tab_open = new Style({ fg: "line", bg: "bg" }).sgr();
+  tab_open_active = new Style({ fg: "accent", bg: "bg" }).sgr();
+  tab_badge_end = new Style({ fg: "line", bg: "surface" }).sgr();
+  tab_badge_end_active = new Style({ fg: "accent", bg: "selected" }).sgr();
+  // A cut label's last two letters fade into the tab, so the name trails off.
+  const fade = (style: string, ground: palette.Token, ink: palette.Token) =>
+    tab_fade_ink.map(
+      share => style + palette.fgRgb(palette.mix(palette.colors[ground], palette.colors[ink], share)),
+    ) as [string, string];
+  tab_fade = fade(tab_inactive, "surface", "faint");
+  tab_fade_active = fade(tab_active, "selected", "strong");
   button = new Style({ fg: "strong", bg: "surface", bold: true }).sgr();
+  button_edge = new Style({ fg: "surface", bg: "bg" }).sgr();
   chip = new Style({ fg: "text", bg: "selected" }).sgr();
   hint_key = new Style({ fg: "strong", bg: "surface", bold: true }).sgr();
   hint_label = new Style({ fg: "faint", bg: "surface" }).sgr();
@@ -212,12 +249,23 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     ...fields,
   };
 }
-export function tabWidth(tab: { title: string }, index: number): number {
-  const digits = index + 1 >= 10 ? 2 : 1;
-  return Math.max(10, 2 + (tab.title.length > 0 ? Math.min(byteLength(tab.title), 16) : digits));
+/** What an untitled tab shows for its focused pane: the pane's name, its
+ * agent's, or the last part of its folder. */
+export function untitledTab(p: Pane): string {
+  if (p.label.length > 0) return p.label;
+  if (p.agent.provider !== null) return cleanLabel(p.agent.name || providerName(p.agent));
+  const folder = directoryLabel(p.cwd, process.env.HOME ?? null);
+  return cleanLabel(folder === "/" ? folder : folder.slice(folder.lastIndexOf("/") + 1));
 }
-function tabExtent(tab: { title: string }, index: number, first: number, remaining: number): number {
-  const width = tabWidth(tab, index);
+/** A tab is a half cell of bar, its number, the badge's half cell, then its
+ * label and a space. Untitled tabs keep one width, so they don't move when an
+ * agent renames itself; a renamed tab fits its whole title. */
+export function tabWidth(view: LayoutView, index: number): number {
+  const digits = `${index + 1}`.length;
+  return Math.max(12, digits + 3 + byteLength(view.model.tabs[index].title));
+}
+function tabExtent(view: LayoutView, index: number, first: number, remaining: number): number {
+  const width = tabWidth(view, index);
   // Clip only when even the first tab cannot fit; avoid tiny trailing tabs.
   return index === first ? Math.min(width, remaining) : width <= remaining ? width : 0;
 }
@@ -231,7 +279,7 @@ export function maxTabStart(view: LayoutView, width: number): number {
   let start = model.count;
   let used = 0;
   while (start > 0) {
-    used += tabWidth(model.tabs[start - 1], start - 1);
+    used += tabWidth(view, start - 1);
     if (used > width) break;
     start -= 1;
   }
@@ -242,16 +290,16 @@ export function revealTab(view: LayoutView, width: number, index: number): numbe
   let start = tabStart(view, width);
   if (index < start) return index;
   let used = 0;
-  for (let i = start; i <= index; i++) used += tabWidth(view.model.tabs[i], i);
+  for (let i = start; i <= index; i++) used += tabWidth(view, i);
   while (start < index && used > width) {
-    used -= tabWidth(view.model.tabs[start], start);
+    used -= tabWidth(view, start);
     start += 1;
   }
   return start;
 }
-function tabsBefore(model: Model, index: number): number {
+function tabsBefore(view: LayoutView, index: number): number {
   let used = 0;
-  for (let i = 0; i < index; i++) used += tabWidth(model.tabs[i], i);
+  for (let i = 0; i < index; i++) used += tabWidth(view, i);
   return used;
 }
 export interface TabThumb {
@@ -263,13 +311,11 @@ export interface TabThumb {
  * so only its position tells how far the tabs are scrolled. */
 export function tabThumb(view: LayoutView, width: number): TabThumb | null {
   const available = sat(width, 3);
-  const last = tabsBefore(view.model, maxTabStart(view, available));
+  const last = tabsBefore(view, maxTabStart(view, available));
   const track = addTabX(view, width);
   if (last === 0 || track < 2) return null;
   const len = Math.min(6, track - 1);
-  const start = Math.floor(
-    ((track - len) * tabsBefore(view.model, tabStart(view, available)) + Math.floor(last / 2)) / last,
-  );
+  const start = Math.floor(((track - len) * tabsBefore(view, tabStart(view, available)) + Math.floor(last / 2)) / last);
   return { start: Math.min(start, track - len), len };
 }
 export let track_rule: string, thumb_rule: string;
@@ -277,23 +323,29 @@ palette.derived(() => {
   track_rule = "\x1b[4:4m" + palette.underline("line");
   thumb_rule = "\x1b[4m" + palette.underline("text");
 });
-/** Writes a tab's cells from column `left`, underlined as the scrollbar's
- * track or thumb while the tabs overflow. */
-function writeTabCells(w: Writer, cells: Buffer, left: number, thumb: TabThumb | null): void {
-  if (thumb === null) return w.write(cells.toString());
+/** Writes a tab's cells, one column each, from column `left`, each in its
+ * style, underlined as the scrollbar's track or thumb while the tabs overflow. */
+function writeTabCells(w: Writer, cells: string[], styles: string[], left: number, thumb: TabThumb | null): void {
+  let style: string | null = null;
   let lit: boolean | null = null;
-  let run = 0;
   for (let i = 0; i < cells.length; i++) {
     const column = left + i;
-    const on = column >= thumb.start && column < thumb.start + thumb.len;
-    if (lit !== on) {
-      if (i > run) w.write(cells.subarray(run, i).toString());
-      run = i;
-      w.write(on ? thumb_rule : track_rule);
-    }
+    const on = thumb !== null && column >= thumb.start && column < thumb.start + thumb.len;
+    // A style resets the underline, so the rule follows it.
+    if (style !== styles[i] || lit !== on) w.write(styles[i] + (thumb === null ? "" : on ? thumb_rule : track_rule));
+    w.write(cells[i]);
+    style = styles[i];
     lit = on;
   }
-  w.write(cells.subarray(run).toString());
+}
+/** `text` as one entry per column, a wide character's second column empty. */
+function columns(text: string): string[] {
+  const out: string[] = [];
+  for (const ch of text) {
+    out.push(ch);
+    if (codepointWidth(ch.codePointAt(0)!) === 2) out.push("");
+  }
+  return out;
 }
 export function addTabX(view: LayoutView, width: number): number {
   const model = view.model;
@@ -301,7 +353,7 @@ export function addTabX(view: LayoutView, width: number): number {
   let x = 0;
   const first = tabStart(view, available);
   for (let i = first; i < model.count; i++) {
-    const len = tabExtent(model.tabs[i], i, first, available - x);
+    const len = tabExtent(view, i, first, available - x);
     if (len === 0) break;
     x += len;
   }
@@ -313,7 +365,7 @@ export function tabAt(view: LayoutView, width: number, x: number): number | null
   let start = 0;
   const first = tabStart(view, available);
   for (let i = first; i < model.count; i++) {
-    const len = tabExtent(model.tabs[i], i, first, available - start);
+    const len = tabExtent(view, i, first, available - start);
     if (len === 0) break;
     if (x >= start && x < start + len) return i;
     start += len;
@@ -333,7 +385,7 @@ export function tabDrop(view: LayoutView, width: number, x: number): TabDrop | n
   let left = 0;
   let last: TabDrop | null = null;
   for (let i = first; i < model.count; i++) {
-    const len = tabExtent(model.tabs[i], i, first, available - left);
+    const len = tabExtent(view, i, first, available - left);
     if (len === 0) break;
     if (x < left + Math.floor(len / 2)) return { index: i, x: sat(left, 1) };
     left += len;
@@ -484,19 +536,40 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   const thumb = over_tabs ? tabThumb(view, width - side.tabX() - side.panel) : null;
   for (let i = start; i < model.count; i++) {
     const tab = model.tabs[i];
-    const len = tabExtent(tab, i, start, tab_space - x);
+    const len = tabExtent(view, i, start, tab_space - x);
     if (len === 0) break;
-    w.write(i === view.selection.active ? tab_active : tab_inactive);
-    const text = tab.title.length === 0 ? `${i + (u.prefs.preset === "tmux" ? 0 : 1)}` : byteSlice(tab.title, 16);
-    const text_len = Math.min(byteLength(text), len);
-    const padding = Math.floor((len - text_len) / 2);
-    // A tab is at most 18 columns wide.
-    const cells = Buffer.alloc(18, " ");
-    Buffer.from(text).copy(cells, padding, 0, text_len);
-    writeTabCells(w, cells.subarray(0, len), x, thumb);
+    const active = i === view.selection.active;
+    const number = `${i + (u.prefs.preset === "tmux" ? 0 : 1)}`;
+    const focus = view.selection.tabs[i]?.focus;
+    const p = tab.title.length === 0 ? panes.find(p => p.id === focus) : undefined;
+    // The label is cut to leave a space at its end, unless the bar already cuts the tab.
+    const name = p ? untitledTab(p) : tab.title;
+    let label = byteSlice(name, sat(len, number.length + (len < tabWidth(view, i) ? 2 : 3)));
+    const cut = label.length < name.length;
+    if (cut) label = label.trimEnd();
+    const text = columns(label);
+    const cells = ["▐", ...number, "▌", ...text].slice(0, len);
+    while (cells.length < len) cells.push(" ");
+    const [open, badge, end, plain, faded] = active
+      ? [tab_open_active, tab_badge_active, tab_badge_end_active, tab_active, tab_fade_active]
+      : [tab_open, tab_badge, tab_badge_end, tab_inactive, tab_fade];
+    const label_end = number.length + 2 + text.length;
+    const styles = cells.map((_, c) =>
+      c === 0
+        ? open
+        : c <= number.length
+          ? badge
+          : c === number.length + 1
+            ? end
+            : cut && c >= label_end - 2 && c < label_end
+              ? faded[c - (label_end - 2)]
+              : plain,
+    );
+    writeTabCells(w, cells, styles, x, thumb);
     x += len;
   }
-  w.write(button + " + ");
+  // The add button keeps the tabs' half-cell gap.
+  w.write(button_edge + "▐" + button + "+" + button_edge + "▌");
   w.write("\x1b[0m");
   if (u.tab_drop_x !== null)
     w.write(`\x1b[1;${side.tabX() + u.tab_drop_x + 1}H\x1b[1m` + palette.fg("strong") + "│\x1b[0m");

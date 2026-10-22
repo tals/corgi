@@ -1,7 +1,7 @@
 /** Real PTY/socket regressions. Provider doubles never make inference requests. */
 import { existsSync, mkdirSync, readFileSync, writeFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
-import { Runtime, EXE, PALETTE, screen_text, scrollbar, layout_tree } from "./runtime";
+import { Runtime, EXE, PALETTE, screen_text, scrollbar, layout_tree, tab_row } from "./runtime";
 import { registerCase, run, sleep, quote, shellJoin, writeExecutable, JsonSocket } from "./support";
 
 class Smoke extends Runtime {
@@ -507,7 +507,7 @@ emit('\x1b[2;20H        \x1b[5;5HDONE_SYNC\x1b[5;5H\x1b[?2026l');await Bun.sleep
       this.fail("missing tab drop indicator");
     };
     let x = screen[0].indexOf("First") + 1;
-    const end = screen[0].lastIndexOf(" + ") + 1;
+    const end = screen[0].indexOf("▐+▌") + 1;
     await this.input(`\x1b[<0;${x};1M\x1b[<32;${end};1M`);
     screen = await dragFrame();
     this.assertEqual(screen[0][end - 2], "│");
@@ -563,7 +563,7 @@ emit('\x1b[2;20H        \x1b[5;5HDONE_SYNC\x1b[5;5H\x1b[?2026l');await Bun.sleep
     await this.input(`\x1b[<0;${x};1M` + `\x1b[<65;${x};1M`.repeat(2));
     // The drop marker sits before T3, now under the pointer.
     screen = await this.tabs_are("│ T3 T4 T5 T6");
-    const end = screen[0].lastIndexOf(" + ") + 1;
+    const end = screen[0].indexOf("▐+▌") + 1;
     await this.input(`\x1b[<32;${end};1M\x1b[<0;${end};1m`);
     await this.tabs_are("T4 T5 T6 T1");
     this.assertEqual(
@@ -587,7 +587,7 @@ emit('\x1b[2;20H        \x1b[5;5HDONE_SYNC\x1b[5;5H\x1b[?2026l');await Bun.sleep
     };
     await checkSize(80, 23);
     const [other, reader] = await this.viewer(60, 18);
-    await this.viewer_frame(reader, " + ", 60, 18);
+    await this.viewer_frame(reader, "▐+▌", 60, 18);
     await checkSize(60, 17);
     await this.input("printf 'FIRST_VIEWER\\n'\r");
     await this.viewer_frame(reader, "FIRST_VIEWER", 60, 18);
@@ -604,7 +604,7 @@ emit('\x1b[2;20H        \x1b[5;5HDONE_SYNC\x1b[5;5H\x1b[?2026l');await Bun.sleep
     await this.input("printf 'STILL_CONNECTED\\n'\r");
     await this.frame_with("STILL_CONNECTED", 100, 30);
     const [third, thirdReader] = await this.viewer(50, 12);
-    await this.viewer_frame(thirdReader, " + ", 50, 12);
+    await this.viewer_frame(thirdReader, "▐+▌", 50, 12);
     await checkSize(50, 11);
     await thirdReader.close();
     await third.close();
@@ -821,13 +821,13 @@ process.stdin.on('data',data=>appendFileSync(log,data));process.stdin.resume();`
   }
   async test_tab_context_keyboard_dismissal_and_minimum_size() {
     await this.attach();
-    let screen = await this.frame_with(" 1 ");
-    await this.right_click_tab(screen, " 1 ");
+    let screen = await this.frame_with("▐1▌");
+    await this.right_click_tab(screen, "▐1▌");
     await this.frame_with("n  New tab");
     await this.click(79, 23);
     screen = screen_text((await this.client!.poll()).data);
     this.assertNotIn("n  New tab", screen.join("\n"));
-    await this.right_click_tab(screen, " 1 ");
+    await this.right_click_tab(screen, "▐1▌");
     await this.frame_with("n  New tab");
     await this.input("\x1b");
     await sleep(0.1);
@@ -835,8 +835,8 @@ process.stdin.on('data',data=>appendFileSync(log,data));process.stdin.resume();`
     screen = screen_text((await this.client!.poll()).data);
     this.assertNotIn("n  New tab", screen.join("\n"));
     await this.write({ op: "size", cols: 10, rows: 4 });
-    screen = await this.frame_with(" 1 ", 10, 4);
-    await this.right_click_tab(screen, " 1 ");
+    screen = await this.frame_with("▐1▌", 10, 4);
+    await this.right_click_tab(screen, "▐1▌");
     // Too narrow for keycaps: just the labels.
     const menu = await this.frame_with("│ New tab", 10, 4);
     this.assertTrue(menu.some(row => row.includes("│ Rename")));
@@ -887,7 +887,7 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
   }
   async test_wheel_and_right_drag_do_not_open_commands() {
     await this.attach();
-    const screen = await this.frame_with(" + ");
+    const screen = await this.frame_with("▐+▌");
     // The last row belongs to the sidebar and panes; no status text sits there.
     this.assertEqual(screen.at(-1)!.replace("│", "").trim(), "");
     for (const modifiers of [0, 4, 8, 16, 28])
@@ -981,30 +981,30 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
   }
   async test_plus_and_shortcut_open_picker_before_creating_unnamed_tab() {
     await this.attach();
-    const initial = await this.frame_with(" + ");
-    this.assertEqual(initial[0].lastIndexOf(" + ") - 28, 10);
-    await this.click_text(initial.slice(0, 1), " + ");
+    const initial = await this.frame_with("▐+▌");
+    this.assertEqual(initial[0].indexOf("▐+▌") - 28, 12);
+    await this.click_text(initial.slice(0, 1), "▐+▌");
     await this.frame_with("New terminal");
     this.assertEqual(await this.tab_count(), 1);
     await this.input("\x1b");
     this.assertEqual(await this.tab_count(), 1);
-    await this.click_text(initial.slice(0, 1), " + ");
+    await this.click_text(initial.slice(0, 1), "▐+▌");
     await this.choose_terminal();
     await this.until(async () => (await this.tab_count()) === 2);
-    const screen = await this.frame_with(" 2 ");
+    const screen = await this.frame_with("▐2▌");
     this.assertNotIn("new tab", screen.join("\n"));
     this.assertEqual(realpathSync((await this.focused()).cwd), realpathSync(this.temp.name));
     await this.input("\x02c");
     await this.choose_terminal();
     await this.until(async () => (await this.tab_count()) === 3);
-    this.assertNotIn("new tab", (await this.frame_with(" 3 ")).join("\n"));
+    this.assertNotIn("new tab", (await this.frame_with("▐3▌")).join("\n"));
   }
   async test_new_tab_picker_works_with_sidebar_hidden() {
     await this.attach();
     await this.rpc({ op: "action", name: "sidebar" });
-    const initial = await this.frame_with(" + ");
+    const initial = await this.frame_with("▐+▌");
     this.assertNotIn("workspaces", initial.join("\n"));
-    await this.click_text(initial.slice(0, 1), " + ");
+    await this.click_text(initial.slice(0, 1), "▐+▌");
     await this.choose_terminal();
     this.assertEqual(await this.tab_count(), 2);
     await this.input("\x02c");
@@ -1013,7 +1013,7 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
   }
   async test_unnamed_tabs_recompute_numbers_after_reorder_close_and_restore() {
     await this.attach();
-    await this.frame_with(" 1 ");
+    await this.frame_with("▐1▌");
     const first = (await this.panes())[0].id;
     await this.input("\x02c");
     await this.choose_terminal();
@@ -1037,40 +1037,43 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
       seq: 1,
       event: { hook_event_name: "SessionStart", session_id: "restored" },
     });
-    const labels = (screen: string[]) => screen[0].slice(28).trim().split(/\s+/).join(" ");
+    const numbers = (screen: string[]) =>
+      tab_row(screen[0])
+        .map(t => t.number || t.label)
+        .join(" ");
     await this.rpc({ op: "action", name: "move-tab", value: "left" });
     let screen = await this.tabs_are("1 2 3");
-    this.assertEqual(labels(screen), "1 2 3 +");
+    this.assertEqual(numbers(screen), "1 2 3 +");
     await this.command("pane.close", { target: first });
     screen = await this.tabs_are("1 2");
-    this.assertEqual(labels(screen), "1 2 +");
-    this.assertNotIn(" 3 ", screen[0]);
+    this.assertEqual(numbers(screen), "1 2 +");
+    this.assertNotIn("▐3▌", screen[0]);
     await this.input("\x02T");
     await this.frame_with("Rename tab");
     await this.rpc({ op: "action", name: "move-tab", value: "right" });
     await this.frame_with("│  2");
     await this.input("\r");
     screen = await this.tabs_are("1 2");
-    this.assertEqual(labels(screen), "1 2 +");
+    this.assertEqual(numbers(screen), "1 2 +");
     await this.input("\x02TPinned\r");
     await this.tab_frame("Pinned");
     await this.input("\x02T\x03");
     await this.frame_with("│  2");
     await this.input("\r");
     screen = await this.tabs_are("1 2");
-    this.assertEqual(labels(screen), "1 2 +");
+    this.assertEqual(numbers(screen), "1 2 +");
     await this.input("\x02T2\r");
     await this.tabs_are("1 2");
     await this.rpc({ op: "action", name: "move-tab", value: "left" });
     await this.tabs_are("2 2");
     // The reopened agent's tab goes back first, where it was.
     await this.rpc({ op: "action", name: "undo-close" });
-    screen = await this.frame_with(" 3 ");
-    this.assertEqual(labels(screen), "1 2 3 +");
+    screen = await this.frame_with("▐3▌");
+    this.assertEqual(numbers(screen), "1 2 3 +");
     const second = (await this.panes()).find((p: any) => p.id !== third && !p.focused).id;
     await this.command("pane.close", { target: second });
     screen = await this.tabs_are("1 2");
-    this.assertNotIn(" 3 ", screen[0]);
+    this.assertNotIn("▐3▌", screen[0]);
     await this.split_pane("right", { cwd: this.temp.name });
     await this.rpc({ op: "action", name: "break" });
     await this.tabs_are("1 2 3");
@@ -1105,7 +1108,7 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
         title: `Long tab name ${i}`,
       });
     const screen = await this.tab_frame("Long tab name 3", 30, 14);
-    await this.click_text(screen.slice(0, 1), " + ");
+    await this.click_text(screen.slice(0, 1), "▐+▌");
     await this.choose_terminal(30, 14);
     await this.until(async () => (await this.tab_count()) === 6);
   }

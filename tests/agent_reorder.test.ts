@@ -48,9 +48,11 @@ class AgentReorder extends Viewers {
     await second.focus(b);
     const tabs = (await this.session()).workspaces[0].model.tabs;
     await first.input(mouse(0, 6, 16));
+    // Below the tab row, which names each tab for its agent.
     this.assertNotIn(
       "Agent-0",
       screen_text(first.state.data, 100, 30)
+        .slice(1)
         .map(row => row.slice(28))
         .join("\n"),
     );
@@ -70,6 +72,7 @@ class AgentReorder extends Viewers {
     this.assertNotIn(
       "Agent-0",
       screen_text(first.state.data, 100, 30)
+        .slice(1)
         .map(row => row.slice(28))
         .join("\n"),
     );
@@ -127,7 +130,7 @@ class AgentReorder extends Viewers {
     this.assertEqual(this.labels(viewer), ["Agent-1", "Agent-2", "Agent-0"]);
     this.assertEqual(await this.order(), []);
     const screen = screen_text(viewer.state.data, 100, 30);
-    this.assertFalse(screen.slice(0, -1).some(row => row.slice(28).includes("Agent-")));
+    this.assertFalse(screen.slice(1, -1).some(row => row.slice(28).includes("Agent-")));
     await viewer.input(mouse(32, 65, 22));
     this.assertEqual(this.labels(viewer), ["Agent-0", "Agent-1", "Agent-2"]);
     this.assertNotIn(ghost, viewer.state.data);

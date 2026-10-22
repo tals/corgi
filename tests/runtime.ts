@@ -73,6 +73,21 @@ export function screen_text(data: string, cols = 80, rows = 24): string[] {
   }
   return grid.map(row => row.join(""));
 }
+/** The tab row past the sidebar: each tab's number and label (`▐3▌claude`),
+ * the drop marker as a "│" label, and the add button as a "+" one. */
+export function tab_row(row: string): { number: string; label: string }[] {
+  return row
+    .slice(28)
+    .replace(/│/g, "▐│▐")
+    .split("▐")
+    .map(part => part.trim())
+    .filter(part => part.length > 0)
+    .map(part => {
+      if (part === "│" || part === "+▌") return { number: "", label: part[0] };
+      const [, number, label] = /^(\d*)▌?(.*)$/.exec(part)!;
+      return { number, label: label.trim() };
+    });
+}
 /** The agent list's rows of the sidebar border, where its scrollbar thumb shows. */
 export function scrollbar(screen: string[]): string {
   const top = Math.floor((screen.length - 1) / 2) + 2;
@@ -480,10 +495,15 @@ export class Runtime extends TestCase {
     }
     this.fail(`missing two-line agent entry ${provider}`);
   }
+  /** Waits for the tab row to read `labels`, a word per tab naming its label
+   * or, for an untitled one, its number. */
   async tabs_are(labels: string) {
+    const words = [...labels.split(" "), "+"];
     for (let i = 0; i < 100; i++) {
       const screen = screen_text((await this.get_type("frame")).data);
-      if (screen[0].slice(28).trim().split(/\s+/).join(" ") === labels + " +") return screen;
+      const tabs = tab_row(screen[0]);
+      if (tabs.length === words.length && tabs.every((t, j) => words[j] === t.label || words[j] === t.number))
+        return screen;
     }
     this.fail(`missing tab labels ${labels}`);
   }

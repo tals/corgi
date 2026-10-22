@@ -251,7 +251,7 @@ class SmokeInput extends Runtime {
     );
     await this.until(async () => (await this.panes()).find((p: any) => p.focused).id === panes[8]);
     await this.write({ op: "size", cols: 30, rows: 8 });
-    screen = await this.frame_with(" + ", 30, 8);
+    screen = await this.frame_with("▐+▌", 30, 8);
     this.assertNotIn("agents", screen[0]);
     await this.write({ op: "size", cols: 80, rows: 24 });
     await this.scrollbar_with("││││┃┃┃┃┃││");
