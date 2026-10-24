@@ -275,7 +275,7 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
       before.panes.map((p: any) => [p.id, p.pid]),
       after.panes.map((p: any) => [p.id, p.pid]),
     );
-    this.assertEqual(after.inference.launches, { codex: 7, claude: 4, pi: 0, opencode2: 0 });
+    this.assertEqual(after.inference.launches, { codex: 7, claude: 4, pi: 0, opencode2: 0, omp: 0 });
     this.assertEqual((await viewer.poll()).pane, first);
     await viewer.input("printf 'MIGRATED_%s\\n' ALIVE\r");
     await this.until(async () => (await this.screen(first)).includes("MIGRATED_ALIVE"));

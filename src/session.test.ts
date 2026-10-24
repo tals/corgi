@@ -292,7 +292,7 @@ test("an account's YOLO and Show are its own, apart from its provider's", async 
     // A viewer that sends no accounts keeps the hidden ones.
     await run({ "agent.visibility": { hidden: { claude: true } } });
     expect([r.agent_hidden, r.account_hidden]).toEqual([
-      { codex: false, claude: true, pi: false, opencode2: false },
+      { codex: false, claude: true, pi: false, opencode2: false, omp: false },
       ["/accounts/work"],
     ]);
     await expect(run({ "agent.visibility": { hidden: {}, hidden_accounts: ["work"] } })).rejects.toThrow(

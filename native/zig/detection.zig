@@ -10,6 +10,7 @@ pub const Provider = enum {
     codex,
     claude,
     pi,
+    omp,
 
     const Info = struct {
         executables: []const []const u8,
@@ -27,6 +28,7 @@ pub const Provider = enum {
         return switch (provider) {
             .codex => .{ .executables = &.{"codex"}, .scripts = &.{"/@openai/codex/bin/codex.js"} },
             .pi => .{ .executables = &.{"pi"}, .scripts = &.{"/@earendil-works/pi-coding-agent/dist/bundle/cli.js", "/@earendil-works/pi-coding-agent/dist/cli.js", "/@mariozechner/pi-coding-agent/dist/cli.js"} },
+            .omp => .{ .executables = &.{"omp"}, .scripts = &.{"/@oh-my-pi/pi-coding-agent/dist/cli.js"} },
             .claude => .{
                 .executables = &.{ "claude", "claude-code" },
                 // Claude's daemon launches the versioned native binary directly.
@@ -217,4 +219,8 @@ test "Pi executable and bundled CLI are agents" {
     try std.testing.expectEqual(@as(?Provider, .pi), identify(&.{"/opt/bin/pi"}));
     try std.testing.expectEqual(@as(?Provider, .pi), identify(&.{"bun", "/a/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js"}));
     try std.testing.expectEqual(@as(?Provider, null), identify(&.{"vim", "pi"}));
+}
+test "omp executable and its CLI script are agents" {
+    try std.testing.expectEqual(@as(?Provider, .omp), identify(&.{"/opt/bin/omp"}));
+    try std.testing.expectEqual(@as(?Provider, .omp), identify(&.{"bun", "/a/node_modules/@oh-my-pi/pi-coding-agent/dist/cli.js"}));
 }

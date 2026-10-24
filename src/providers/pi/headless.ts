@@ -77,7 +77,7 @@ export class Pi implements Client {
     }
     delete env.CORGI_PANE;
     delete env.CORGI_SOCKET;
-    const c = new Pi(Stdio.spawn([at.executable, "--mode", "rpc", ...args], { cwd: at.cwd, env }), at.cwd);
+    const c = new this(Stdio.spawn([at.executable, "--mode", "rpc", ...args], { cwd: at.cwd, env }), at.cwd);
     c.io.write({ id: "corgi-state", type: "get_state" });
     return c;
   }
@@ -88,9 +88,14 @@ export class Pi implements Client {
   flushCommand() {
     if (this.awaiting || !this.commands.length) return;
     const command = this.commands.shift()!;
-    if (command.type === "abort") this.interrupted = !!this.turn;
+    if (command.id.startsWith("corgi-abort-")) this.interrupted = !!this.turn;
     this.io.write(command);
     this.awaiting = command.id;
+  }
+  abort() {
+    // Pi's abort continues queued work unless the queue is cleared first.
+    this.command({ id: `corgi-clear-${++this.next}`, type: "clear_queue" });
+    this.command({ id: `corgi-abort-${++this.next}`, type: "abort" });
   }
   send(input: Input) {
     if (input.kind !== "answer" && input.session && input.session !== this.session) throw Error("WrongSession");
@@ -109,10 +114,8 @@ export class Pi implements Client {
           this.events.push({ kind: "request_closed", session: this.session, id, running: !!this.turn });
         }
         this.requests.clear();
-        // Pi's abort continues queued work unless the queue is cleared first.
         this.interrupted = !!this.turn;
-        this.command({ id: `corgi-clear-${++this.next}`, type: "clear_queue" });
-        this.command({ id: `corgi-abort-${++this.next}`, type: "abort" });
+        this.abort();
         return;
       case "answer": {
         const d = this.requests.get(input.request);
@@ -201,18 +204,7 @@ export class Pi implements Client {
         return;
       }
       case "agent_settled":
-        if (this.turn)
-          this.events.push({
-            kind: "turn",
-            session,
-            turn: this.turn,
-            phase: "ended",
-            outcome: field(v, "aborted") === true || this.interrupted ? "interrupted" : this.result,
-          });
-        this.turn = "";
-        for (const [id] of this.requests) this.events.push({ kind: "request_closed", session, id, running: false });
-        this.requests.clear();
-        this.writes.clear();
+        this.settled(field(v, "aborted") === true);
         return;
       case "extension_ui_request": {
         const id = str(v, "id"),
@@ -239,6 +231,22 @@ export class Pi implements Client {
         return;
       }
     }
+  }
+  /** The run is over, with nothing queued that would start another. */
+  settled(aborted: boolean) {
+    const session = this.session;
+    if (this.turn)
+      this.events.push({
+        kind: "turn",
+        session,
+        turn: this.turn,
+        phase: "ended",
+        outcome: aborted || this.interrupted ? "interrupted" : this.result,
+      });
+    this.turn = "";
+    for (const [id] of this.requests) this.events.push({ kind: "request_closed", session, id, running: false });
+    this.requests.clear();
+    this.writes.clear();
   }
   take() {
     for (const v of this.io.read()) this.decode(v);
@@ -310,7 +318,7 @@ export class Pi implements Client {
       commands: Pi["commands"];
       awaiting: string;
     };
-    const c = new Pi(Stdio.restore(saved, live), s.cwd);
+    const c = new this(Stdio.restore(saved, live), s.cwd);
     Object.assign(c, {
       ready: s.ready,
       session: s.session,

@@ -63,6 +63,22 @@ test("attachments select stable actors and delayed hooks never change selection"
   expect(b.knows(a.id)).toBe(false);
   expect(b.actor).toBeNull();
 });
+test("nested child hooks reach only descendants of the attachment without selecting them", () => {
+  const registry = new Registry(),
+    binding = new Attachment(),
+    root = registry.get("omp", "root"),
+    child = registry.get("omp", "child"),
+    unrelated = registry.get("omp", "unrelated");
+  registry.linkChild(root, child);
+  binding.select(root);
+  const event = { kind: "subagent_start", session: "child" };
+  expect(registry.routeHook(binding, "omp", event, true)).toBe(child);
+  expect(registry.routeHook(binding, "omp", { ...event, session: unrelated.state.sessionId() }, true)).toBeNull();
+  expect(registry.routeHook(binding, "omp", { ...event, kind: "tool_start" }, true)).toBeNull();
+  expect(binding.actor).toBe(root);
+  binding.detach();
+  expect(registry.routeHook(binding, "omp", event, true)).toBeNull();
+});
 test("Codex tools survive snapshots but never leak into another turn", () => {
   const actor = new Actor({ id: 1, state: new Agent({ provider: "codex" }) }),
     request = {

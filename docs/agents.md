@@ -354,3 +354,57 @@ The terminal check uses a disposable configuration and runtime; the RPC
 check saves sessions only in its disposable directory. Both consume model
 usage. The provider enum and defaulted provider maps expand in the schema
 snapshots; existing wire and saved fields retain their meanings.
+
+## Oh My Pi
+
+Oh My Pi (`omp`) is a fork of Pi with its own extension events, RPC
+details and folders; Corgi supports it as a separate provider, `omp`, that
+reuses Pi's code where the two still agree. Corgi discovers `omp` on PATH
+(or `CORGI_OMP_BIN`) and installs `extensions/corgi.js` under
+`${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}`. omp reads Pi's variable for its
+agent folder, so a value meant for Pi moves omp into Pi's folder, where the
+two extensions would claim the same `extensions/corgi.js`. Corgi records the
+omp sessions it sees in `corgi-omp-history/`, apart from Pi's.
+
+omp runs the extension for every subagent session in its process. Only the
+pane's own TUI session reports terminal lifecycle; child factories relay
+nested task lifecycle without selecting their sessions in the pane.
+Runner events link subagents by their real session IDs, with type, task
+description and transcript, so their status and usage appear in the
+subagent count and hover card. Child factories register identity before
+their lazy transcript exists; extension-free children become identifiable
+once their transcript header is available.
+
+A terminal `agent_end` ends a Corgi turn. `willContinue` keeps it active
+unless it only awaits background work: then the idle parent shows the pause
+icon until it resumes. Interrupted or failed turns do not acquire that pause,
+even if children continue. Tool approvals, plan reviews and the `ask` tool
+show as needing input. Dialogs another extension opens don't. Manual and
+automatic compaction show as compacting; background summary preparation
+does too, until the next tool event or other lifecycle update clears it.
+The extension never handles `session_before_compact`, which would switch
+off omp's background compaction.
+
+omp names its sessions itself, in a title slot at the top of each session
+file and in `title_change` records, so Corgi follows those names and never
+suggests one. Renames from Corgi go through the extension. Forks use omp's
+`--fork`, which takes no name; Corgi renames the fork once it appears.
+Resume passes the session file Corgi saw, or the ID, which omp looks up.
+
+The launcher reads the default model from omp's RPC state, falling back to
+`modelRoles.default` in `config.yml`. omp keeps sign-ins in `agent.db`; the
+launcher shows the one for the default model's provider and reads its limits
+from `omp usage --json`. Adding accounts from Corgi isn't supported yet: omp
+keeps several sign-ins per folder already. Bypass maps to `--auto-approve`.
+
+Headless sessions and Clever Corgi use `omp --mode rpc`. A run ends at
+`session_settled`, after queued prompts and background work. Stop sends
+`abort_and_restore_queue`, so withdrawn prompts never run.
+
+```sh
+bun tools/omp_live.ts
+bun tools/omp_rpc_live.ts
+```
+
+Both use the signed-in default model and consume model usage; the terminal
+check copies the sign-ins into a disposable configuration.

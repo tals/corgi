@@ -1229,7 +1229,7 @@ test("the focused list sits in a box in the focused pane's outline, sharing the 
   expect(lines[13]).toBe(edge("┌", "┤"));
   // The row its search opens in shows its key.
   expect(lines[15]).toBe("│ / search" + " ".repeat(17) + "│");
-  expect(lines[21]).toBe("│" + " ".repeat(26) + "│");
+  expect(lines[22]).toBe("│" + " ".repeat(26) + "│");
   expect(lines[29]).toBe(edge("└", "┘"));
   expect([0, 12, 13, 29].map(y => view.outlines(y))).toEqual([false, false, true, true]);
   view.focus = "workspaces";

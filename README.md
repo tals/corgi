@@ -13,7 +13,8 @@ curl -fsSL https://corgi.computer/install.sh | bash
 ## First session
 
 1. Run `corgi` in your project directory and choose a shortcut preset.
-2. Click **New** in the agent list to start Claude Code, Codex, Pi or OpenCode.
+2. Click **New** in the agent list to start Claude Code, Codex, Pi, OpenCode or
+   Oh My Pi.
 3. Click an agent or pane to focus it; open the shortcut menu with your prefix,
    then `?` (the default prefix is Ctrl+B).
 4. Choose **Detach** in the shortcut menu to leave processes running.
@@ -29,19 +30,19 @@ curl -fsSL https://corgi.computer/install.sh | bash -s uninstall
 
 ## Agents
 
-Run `claude`, `codex`, `pi` or `opencode` in any pane. Corgi notices them and
-adds its hooks to their settings; Pi gets an extension, and OpenCode needs
-nothing. Codex asks you to trust the hooks once, in `/hooks`.
+Run `claude`, `codex`, `pi`, `opencode` or `omp` in any pane. Corgi notices
+them and adds its hooks to their settings; Pi and Oh My Pi get an extension,
+and OpenCode needs nothing. Codex asks you to trust the hooks once, in `/hooks`.
 
-|                                      | Claude Code | Codex | Pi  | OpenCode |
-| ------------------------------------ | :---------: | :---: | :-: | :------: |
-| Status: ▶ working ● needs you ● done |      ✓      |   ✓   |  ✓  |    ✓     |
-| Activity summaries                   |      ✓      |   ✓   |  ✓  |    ✓     |
-| Subagents                            |      ✓      |   ✓   |     |    ✓     |
-| Context, tokens and rate limits      |      ✓      |   ✓   |  ✓  |    ✓     |
-| Rename and fork                      |      ✓      |   ✓   |  ✓  |    ✓     |
-| Resume after a crash or reboot       |      ✓      |   ✓   |  ✓  |    ✓     |
-| Multi accounts                       |      ✓      |   ✓   |  ✓  |          |
+|                                      | Claude Code | Codex | Pi  | OpenCode | Oh My Pi |
+| ------------------------------------ | :---------: | :---: | :-: | :------: | :------: |
+| Status: ▶ working ● needs you ● done |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |
+| Activity summaries                   |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |
+| Subagents                            |      ✓      |   ✓   |     |    ✓     |          |
+| Context, tokens and rate limits      |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |
+| Rename and fork                      |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |
+| Resume after a crash or reboot       |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |
+| Multi accounts                       |      ✓      |   ✓   |  ✓  |          |          |
 
 
 ## Scripting
