@@ -4,6 +4,23 @@ Corgi keeps terminals and agents running in workspaces. Each workspace has a
 folder, tabs and split panes. Start with the [installation guide](../README.md);
 building and working on Corgi are covered in [HACKING](../HACKING.md).
 
+## Browser
+
+The viewer attaches to a terminal. [scripts/web-tunnel.sh](../scripts/web-tunnel.sh)
+gives it one in the browser: [ttyd](https://github.com/tsl0922/ttyd) on
+127.0.0.1:7681, serving `corgi`. Run it from the folder new panes should use.
+`CORGI_WEB_PORT`, `CORGI_BIN` and `TTYD` override the port and the two programs.
+
+Session state stays under `~/.local/state/corgi-web` (`CORGI_WEB_STATE`),
+apart from the main Corgi environment. The socket directory has to be mode
+700. A world-writable mount, such as a Windows drive, is refused.
+
+Set `CORGI_TUNNEL_MAIL` to an email address and the script also runs
+`cloudflared`, which publishes that page. Cloudflare sends a one-time PIN to
+the address. The hostname lasts only while `cloudflared` is running. Closing
+the browser tab ends that viewer. The browser terminal does not show Kitty
+graphics.
+
 ## Set up and import
 
 Run `corgi` to start or attach. `corgi onboard` reopens setup; inside Corgi,
