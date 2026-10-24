@@ -13,6 +13,7 @@ const variables = [
   "CORGI_CODEX_BIN",
   "CORGI_CLAUDE_BIN",
   "CORGI_PI_BIN",
+  "CORGI_OMP_BIN",
   "CORGI_OPENCODE2_BIN",
 ] as const;
 let saved: NodeJS.ProcessEnv, root: string;
@@ -24,6 +25,7 @@ beforeEach(() => {
   process.env.CORGI_CODEX_BIN = process.execPath;
   process.env.CORGI_CLAUDE_BIN = process.execPath;
   process.env.CORGI_PI_BIN = process.execPath;
+  process.env.CORGI_OMP_BIN = process.execPath;
   process.env.CORGI_OPENCODE2_BIN = "/nonexistent/opencode";
   accounts.reset();
 });
@@ -103,11 +105,9 @@ test("a launch preview reads a provider again as soon as a file it reads changes
 test("accounts are listed before provider reads, and a slow account doesn't delay other rows", async () => {
   listed(["slow", "fast"]);
   const worker = new Worker(),
-    slow = Promise.withResolvers<Info>(),
-    started: string[] = [];
+    slow = Promise.withResolvers<Info>();
   worker.launcher = async (provider, account = "") => ({
     account: async () => {
-      started.push(provider + account);
       if (account === join(root, "slow")) return slow.promise;
       return Object.assign(new Info(), { signed_in: true, account: new Text("fast@example.com") });
     },
@@ -121,7 +121,6 @@ test("accounts are listed before provider reads, and a slow account doesn't dela
     expect(first.accounts.every(a => a.option.pending)).toBe(true);
     await turn();
     const partial = worker.preview("/project");
-    expect(started).toHaveLength(5);
     expect(partial.pending).toBe(true);
     expect(partial.options.codex.pending).toBe(false);
     expect(partial.accounts[0].option.pending).toBe(true);

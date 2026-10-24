@@ -212,6 +212,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       claude: false,
       pi: false,
       opencode2: false,
+      omp: false,
     });
     await this.newCommand(view);
     const source = "FOO=123 claude code --whatever 'two words' --prompt '" + "x".repeat(100) + "'\n";
@@ -242,6 +243,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       claude: false,
       pi: false,
       opencode2: false,
+      omp: false,
     });
     const entry = (await this.session()).agent_commands[0];
     this.assertEqual(entry.command, changed);
@@ -633,6 +635,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       claude: false,
       pi: false,
       opencode2: false,
+      omp: false,
     });
     this.assertEqual((await this.session()).panes.length, 1);
     this.assertIn("New agent", (await view.poll()).data);
@@ -643,6 +646,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       claude: true,
       pi: false,
       opencode2: false,
+      omp: false,
     });
     await view.input("y");
     this.assertEqual((await this.session()).agent_yolo, {
@@ -650,6 +654,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       claude: false,
       pi: false,
       opencode2: false,
+      omp: false,
     });
     await view.input("k");
     await view.input("a");
@@ -661,6 +666,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       claude: false,
       pi: false,
       opencode2: false,
+      omp: false,
     });
     await this.command("agent.yolo", { provider: "claude", enabled: true });
     await this.command("agent.create", {

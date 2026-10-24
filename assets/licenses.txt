@@ -34,6 +34,11 @@ These are distributed under the MIT License, whose text follows the list.
   pi-tui: https://github.com/earendil-works/pi
     Copyright (c) 2025 Mario Zechner
 
+  Oh My Pi's tab mark: https://github.com/can1357/oh-my-pi/blob/main/assets/icon.svg
+    Copyright (c) 2025 Mario Zechner
+    Copyright (c) 2025-2026 Can Bölük
+    Copyright (c) 2026 Stencil Labs, Inc.
+
   get-east-asian-width: https://github.com/sindresorhus/get-east-asian-width
     Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
 
@@ -202,6 +207,9 @@ versions in Corgi:
     CC BY 3.0, https://creativecommons.org/licenses/by/3.0/
   Neovim: Neovim logo by Jason Long.
     CC BY 3.0, https://creativecommons.org/licenses/by/3.0/
+
+Oh My Pi's mark uses its upstream Pi-and-connector icon (MIT, above),
+converted to filled paths with theme-colored ink and solid orange dots.
 
 tmux's mark, https://github.com/tmux/tmux/tree/master/logo:
 

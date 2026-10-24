@@ -401,6 +401,15 @@ export class Registry {
    * already shows. */
   routeHook(binding: Attachment, provider: Provider, event: any, binds: boolean) {
     if (!event.session) return null;
+    if (event.kind === "subagent_start" || event.kind === "subagent_stop") {
+      const actor = this.find(provider, event.session);
+      let ancestor = actor;
+      for (let i = 0; ancestor && i < max_actors; i++) {
+        if (binding.knows(ancestor.id)) return actor;
+        ancestor = ancestor.parent === null ? null : this.byId(ancestor.parent);
+      }
+      return null;
+    }
     if (!binds) {
       const actor = this.find(provider, event.session);
       return actor && binding.knows(actor.id) ? actor : null;

@@ -126,6 +126,9 @@ export class Hooks {
       kind,
       /** A provider settlement event, unlike a pre-completion Stop hook. */
       outcome: null as Outcome | null,
+      awaiting_async_work: false,
+      child_transcript: "",
+      owner_pid: 0,
       session: str(v, "session_id"),
       turn: str(v, "turn_id"),
       prompt: str(v, "prompt_id"),

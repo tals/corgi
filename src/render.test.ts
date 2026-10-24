@@ -254,6 +254,7 @@ test("an agent's tab wears its provider's mark", () => {
     ({ label: "", cwd: "/w/corgi", command: "", brand: null, agent: agent(), ...fields }) as Pane;
   expect(tabBrand(pane({ agent: agent({ provider: "codex" }) }))).toBe("openai");
   expect(tabBrand(pane({ agent: agent({ provider: "claude" }), brand: "node" }))).toBe("claude");
+  expect(tabBrand(pane({ agent: agent({ provider: "omp" }), brand: "bun" }))).toBe("omp");
   expect(tabBrand(pane({ agent: agent({ provider: "pi" }), brand: "node" }))).toBe("node");
   expect(tabBrand(pane({ brand: "bun" }))).toBe("bun");
 });

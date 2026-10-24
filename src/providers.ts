@@ -2,6 +2,7 @@ import * as codex from "./providers/codex";
 import * as claude from "./providers/claude";
 import * as pi from "./providers/pi";
 import * as opencode2 from "./providers/opencode2";
+import * as omp from "./providers/omp";
 import type { Adapter } from "./providers/adapter";
 export * from "./providers/common";
 /** Every provider Corgi integrates with, by id. `Provider` derives from it,
@@ -12,6 +13,7 @@ const registry = {
   claude: claude.adapter,
   pi: pi.adapter,
   opencode2: opencode2.adapter,
+  omp: omp.adapter,
 } satisfies Record<string, Adapter>;
 export type Provider = keyof typeof registry;
 export type ByProvider<T> = Record<Provider, T>;

@@ -157,6 +157,7 @@ export class Runtime extends TestCase {
       CORGI_CLAUDE_BIN: fake,
       CORGI_PI_BIN: join(this.temp.name, "pi-not-installed"),
       CORGI_OPENCODE2_BIN: join(this.temp.name, "opencode-not-installed"),
+      CORGI_OMP_BIN: join(this.temp.name, "omp-not-installed"),
       // Test builds look for system installs here instead of /usr, /opt and /Applications.
       CORGI_TEST_SYSTEM_ROOT: join(this.temp.name, "system"),
       SHELL: "/bin/sh",
