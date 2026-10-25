@@ -49,7 +49,7 @@ await Bun.write(
 const results = [];
 for (const terminal of ["ghostty", "iterm2"]) {
   const dir = join(root, terminal);
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   const app = terminal === "ghostty" ? "/Applications/Ghostty.app" : "/Applications/iTerm.app";
   const processName = terminal === "ghostty" ? "ghostty" : "iTerm2";
   const result: Record<string, unknown> = { terminal, app };
