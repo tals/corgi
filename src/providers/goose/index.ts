@@ -8,6 +8,7 @@ import { info } from "./info";
 import { accounts } from "./accounts";
 import { directory, install, status, uninstall, startup, snippet } from "./integration";
 import { GooseInference } from "./inference";
+import { GooseObserver } from "./observer";
 const hooks = new Hooks();
 export const adapter: Adapter = {
   ...info,
@@ -37,6 +38,9 @@ export const adapter: Adapter = {
   // and goose's hooks make it authoritative, so a survey here would never
   // be consulted. Settlement comes from the hook mapping below.
   watch: () => new ScreenWatcher(() => null),
+  // Usage comes from the sessions database, not a transcript: the observer
+  // the daemon starts with itself reports each session's accumulated totals.
+  observer: () => new GooseObserver(),
   hook(v) {
     const input = field(v, "input");
     const hook = hooks.decode({
