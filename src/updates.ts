@@ -422,6 +422,16 @@ export async function startup(socket: string, exe: string, args: string[], skip 
       CORGI_APP_EXE: target,
     } as Record<string, string>);
 }
+/** What `corgi update status` says about the install at `root`. */
+export function state(root: string): string[] {
+  return [
+    `Automatic updates: ${existsSync(join(root, "auto-off")) ? "off" : "on"}`,
+    ...["current", "staged", "previous", "suppressed", "last-error"].flatMap(name => {
+      const v = read(root, name);
+      return v === null ? [] : [`${name}: ${v}`];
+    }),
+  ];
+}
 export async function command(args: string[], socket: string, exe: string) {
   const rel = release(exe),
     root = managed(rel, exe);
@@ -438,11 +448,7 @@ export async function command(args: string[], socket: string, exe: string) {
     return;
   }
   if (args.length === 1 && args[0] === "status") {
-    console.error(`Automatic updates: ${existsSync(join(root, "auto-off")) ? "off" : "on"}`);
-    for (const name of ["current", "staged", "previous", "suppressed", "last-error"]) {
-      const v = read(root, name);
-      if (v !== null) console.error(`${name}: ${v}`);
-    }
+    for (const line of state(root)) console.error(line);
     const h = await hello(socket);
     if (h) console.error(`running: ${h.release_version}`);
     return;

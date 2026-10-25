@@ -30,6 +30,8 @@ import type { State as ClipboardState } from "./host_clipboard";
 import * as framePacing from "./frame_pacing";
 import * as config from "./build_config";
 import * as releaseLabel from "./release_label";
+import * as bugReport from "./bug_report";
+import * as os from "./os";
 import { Writer, clamp, directoryLabel, displayWidth, writeEllipsis, sat } from "./text";
 import { Dialog, View as DialogView, writeField } from "./name_dialog";
 import { matches } from "./search";
@@ -109,6 +111,7 @@ export type Item =
   | "source_control"
   | "terminal"
   | "about"
+  | "report_bug"
   | ImportItem
   | "detach";
 type ImportItem = "import_tmux" | "import_herdr" | "import_cmux";
@@ -140,6 +143,7 @@ const list: ListRow[] = [
   ),
   null,
   "about",
+  "report_bug",
   "detach",
 ];
 export const items = list.filter((row): row is Item => typeof row === "string");
@@ -154,6 +158,7 @@ const labels: Record<Item, string> = {
   agents: "Manage agents",
   terminal: "Terminal capabilities",
   about: "About",
+  report_bug: "Report a bug",
   import_tmux: "tmux",
   import_herdr: "Herdr",
   import_cmux: "cmux",
@@ -168,6 +173,14 @@ function importSource(item: Item): catalog.Source | null {
   return item in import_sources ? import_sources[item as ImportItem] : null;
 }
 
+/** The settings Report a bug names, as they are now. */
+function reportSettings(s: Status, prefs: Preferences): bugReport.Settings {
+  return {
+    theme: bugReport.theme(prefs.theme, palette.chosen(prefs.theme)),
+    keymap: bugReport.keymap(prefs),
+    clever_corgi: bugReport.cleverCorgi(s),
+  };
+}
 /** What Enter or a click asks the controller to do. */
 export type Apply =
   | { kind: "summaries"; choice: Summarizer; model?: string; account?: string }
@@ -189,7 +202,9 @@ export type Apply =
   | { kind: "detach" }
   | { kind: "moonlander" }
   /** A link the user clicked. */
-  | { kind: "open"; url: string };
+  | { kind: "open"; url: string }
+  /** A link to copy where Corgi can't open it, as over SSH. */
+  | { kind: "copy"; text: string };
 /** A list row, an option, a choice in the open dropdown, the import picker
  * or the release's commit link under the pointer. */
 export type Hit =
@@ -508,6 +523,17 @@ export class Menu {
   project: { name: string; root: string } | null = null;
   /** The running build, which the top border names. */
   release = releaseLabel.of(config.releaseVersion, config.releaseCommit, config.builtAt);
+  /** What Report a bug says, once gathered. */
+  report: bugReport.Report | null = null;
+  /** What the viewer found out about its terminal, for the report. */
+  host_terminal: bugReport.Terminal | null = null;
+  /** The full report, where the report wrote one. */
+  full_path: string | null = null;
+  private gathering = false;
+  /** Asks for a redraw when something arrives without input, as the report does. */
+  changed: () => void = () => {};
+  /** Whether the issue link went to the clipboard, where no browser opens it. */
+  link_copied = false;
   /** Where the field's caret was drawn, for the terminal's cursor. */
   private caret: { x: number; y: number } | null = null;
   /** Sessions from the import source under the list's cursor. */
@@ -1011,6 +1037,17 @@ export class Menu {
     if (first < 0) return false;
     return menuAim.grazed(new Rect(l.options.x, l.b.y + 2 + first, l.options.w, last - first + 1), from, x, y);
   }
+  /** Starts gathering what Report a bug shows, once per setup. */
+  private gatherReport(s: Status, prefs: Preferences): void {
+    if (this.gathering || this.report !== null) return;
+    this.gathering = true;
+    const socket = os.socketPath();
+    void bugReport.collect(socket, this.host_terminal).then(async report => {
+      this.report = report;
+      this.full_path = await bugReport.writeFull(report, reportSettings(s, prefs), socket);
+      this.changed();
+    });
+  }
   /** The frame as it rests after the current change. */
   private rest(cols: number, rows: number): Layout | null {
     if ((this.expand.from > 0 || this.expand.to > 0) && this.rendered?.cols === cols && this.rendered.rows === rows)
@@ -1147,6 +1184,7 @@ export class Menu {
     }
     const hint_x = (l.list > 0 && !l.single ? b.x + 1 + l.list : b.x) + 2;
     drawHints(w, hint_x, b.y + b.h - 1, l.options.x + l.options.w - 1 - hint_x, this.hints(s, prefs));
+    if (this.item === "report_bug") this.gatherReport(s, prefs);
     w.write("\x1b[0m\x1b[?25l");
     // drawField sets it, after the reset above.
     const caret = this.caret as { x: number; y: number } | null;
@@ -1594,6 +1632,7 @@ export class Menu {
         art,
       );
     }
+    if (this.item === "report_bug") return out.slice(0, l.body);
     if (this.item === "flourishes" && out.length > l.body)
       return out.filter(line => line.tag !== "blank" && line.tag !== "lead").slice(0, l.body);
     // A short frame draws the answer-time chart as one row.
@@ -1905,6 +1944,40 @@ export class Menu {
           ...this.pacingLines(fit.chart),
         ];
       }
+      case "report_bug": {
+        if (this.report === null) return [title("Report a bug"), lead("Gathering details about this machine…")];
+        const settings = reportSettings(s, prefs),
+          url = bugReport.issueUrl(this.report, settings, this.full_path !== null) ?? bugReport.issues_url,
+          brief = (text: string): Line => ({ tag: "brief", text, tone: "muted" });
+        return [
+          title("Report a bug"),
+          lead("The issue starts with these details. Nothing is sent until you submit it on GitHub."),
+          blank,
+          option({
+            label: "Open an Issue on GitHub",
+            detail: "",
+            mark: "none",
+            // Over SSH the browser would open on the other machine, if at all.
+            apply: this.terminal.ssh ? { kind: "copy", text: url } : { kind: "open", url },
+            action: this.terminal.ssh ? "copy link" : "open",
+            arrow: true,
+          }),
+          ...(this.link_copied ? [brief("Copied the link; paste it into your browser.")] : []),
+          ...(this.full_path
+            ? [
+                {
+                  tag: "note",
+                  text: `Please attach ${bugReport.tilde(this.full_path)}${this.terminal.ssh ? ", on the machine Corgi runs on" : ""}.`,
+                } as Line,
+              ]
+            : []),
+          blank,
+          ...bugReport
+            .rows(this.report, settings)
+            .filter(row => !row.local)
+            .map((row): Line => ({ tag: "variable", name: "  ".repeat(row.depth) + row.label, value: row.value })),
+        ];
+      }
       case "detach":
         return [
           title("Detach"),
@@ -2010,6 +2083,7 @@ export class Menu {
           : { text: "custom", tone: "muted" };
       case "terminal":
       case "about":
+      case "report_bug":
       case "agents":
         return { text: "", tone: "faint" };
       case "detach":

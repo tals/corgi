@@ -126,6 +126,23 @@ export function onBackground(own: Record<Token, Rgb>, background: Rgb): Record<T
     hot: keep(own.hot, grounds),
   };
 }
+/** Which status colors the theme's own ANSI slots supply; the rest take
+ * a fallback hue in `tokens`. */
+export function supplied(ansi: (Rgb | null)[]): Record<"accent" | "warm" | "hot", boolean> {
+  const has = (name: Status) =>
+    slots[name].some(slot => {
+      const color = ansi[slot];
+      if (!color) return false;
+      const [, chroma, hue] = lch(oklab(color));
+      return chroma >= min_chroma && inFamily(name, hue);
+    });
+  return { accent: has("accent"), warm: has("warm"), hot: has("hot") };
+}
+/** A color's OKLCH chroma and hue in degrees; below `gray` it reads as gray. */
+export function hue(rgb: Rgb): { chroma: number; hue: number; gray: boolean } {
+  const [, chroma, h] = lch(oklab(rgb));
+  return { chroma, hue: (h + 360) % 360, gray: chroma < min_chroma };
+}
 /** Each status color from the theme's ANSI slots, readable on every ground
  * and apart from the ones chosen before it. Needs you and failed choose
  * first; live gives way to them. When a slot's color matches an earlier

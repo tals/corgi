@@ -31,6 +31,7 @@ export class Server {
   runtime = new Runtime();
   clients: Client[] = [];
   theme = new Theme();
+  started_at = Date.now();
   next_viewer = 1;
   next_active = 0;
   preferred_workspace = 1;
@@ -539,6 +540,28 @@ export class Server {
         this.updateTheme(request.payload.theme);
         cl.queue({ ok: true });
         return;
+      case "viewer.terminal":
+        cl.terminal = request.payload.terminal;
+        cl.queue({ ok: true });
+        return;
+      case "bugreport": {
+        const now = clock.microTimestamp();
+        cl.queue({
+          ok: true,
+          pid: process.pid,
+          uptime_ms: Date.now() - this.started_at,
+          viewers: this.clients
+            .filter(c => c.viewer && !c.dead)
+            .sort((a, b) => b.input_at - a.input_at)
+            .map(c => ({ id: c.viewer_id, terminal: c.terminal })),
+          hooks: Object.fromEntries(
+            this.runtime.conversations.items
+              .filter((a: any) => a.hooked_at > 0)
+              .map((a: any) => [String(a.id), Math.max(0, Math.round((now - a.hooked_at) / 1000))]),
+          ),
+        });
+        return;
+      }
       case "hook":
         await observers.hook(this, request.payload);
         cl.queue({ ok: true });

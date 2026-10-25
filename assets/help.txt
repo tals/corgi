@@ -25,6 +25,7 @@ corgi — a small Ghostty-powered agent terminal
   corgi reload [ABSOLUTE_EXE]    replace daemon, preserve live processes
   corgi checkpoint               save recovery context now
   corgi shutdown                terminate runtime and its panes
+  corgi bugreport [--full]      details for a bug report, and a link to file it
   corgi licenses                Corgi's license and the software it includes
 
 Keys: Ctrl+B opens a clickable command menu; `corgi keys` lists every shortcut.

@@ -80,3 +80,59 @@ test("Moonlander image replies reach the viewer across fragments and stay out of
   expect(fragmented(p, paste)).toBe(paste);
   expect(p.graphics).toEqual([reply]);
 });
+test("terminal report answers are consumed while asked for, and keys pass through around them", () => {
+  const p = new Probe();
+  // Before the questions go out, the same bytes are typed input.
+  expect(p.feed("\x1b[?62;22c").toString()).toBe("\x1b[?62;22c");
+  const asked = p.terminal.start(30, Date.now());
+  expect(asked).toContain("\x1b[30;1H👍\x1b[6n");
+  expect(asked.endsWith("\x1b[c")).toBe(true);
+  const replies =
+    "\x1b[30;3R" +
+    "\x1b[?2026;2$y\x1b[?1u\x1b[4;600;800t" +
+    "\x1bP1+r6b697474792d71756572792d666f6e745f66616d696c79=4a6574427261696e73204d6f6e6f\x1b\\" +
+    "\x1bP0+r\x1b\\";
+  // Arrows, a modified F3 (a position report on the top row) and text stay input.
+  expect(fragmented(p, "a\x1b[A" + replies + "\x1b[1;5Rb")).toBe("a\x1b[A\x1b[1;5Rb");
+  expect(p.terminal.done).toBe(false);
+  expect(fragmented(p, "\x1b[?62;4;22c")).toBe("");
+  expect(p.terminal.done).toBe(true);
+  const a = p.terminal.answers;
+  expect(a.widths[0]).toEqual({ kind: "emoji", text: "👍", expected: 2, got: 2 });
+  expect(a.widths[1].got).toBeNull();
+  expect(a.modes).toEqual({ "2026": 2 });
+  expect(a.keyboard).toBe(1);
+  expect(a.window).toEqual({ width: 800, height: 600 });
+  expect(a.font).toBe("JetBrains Mono");
+  expect(a.da1).toEqual([62, 4, 22]);
+  expect(a.replies[0]).toBe("\\e[30;3R");
+  // Once answered, the same replies are input again.
+  expect(p.feed("\x1b[?1u").toString()).toBe("\x1b[?1u");
+});
+test("a terminal that never answers the report holds input only until it gives up", () => {
+  const p = new Probe(),
+    now = Date.now();
+  p.terminal.start(30, now);
+  expect(p.feed("x\x1b[?1;2$y").toString()).toBe("x");
+  p.expire(now + 5001);
+  expect(p.terminal.done).toBe(true);
+  expect(p.terminal.answers.answered).toBe(false);
+  // Answers that come late are dropped, not typed into a pane, and not
+  // recorded; a modified F3 still reads as a key.
+  expect(fragmented(p, "a\x1b[30;3R\x1b[?2026;2$y\x1b[1;5Rb\x1bP1+r536d756c78=31\x1b\\")).toBe("a\x1b[1;5Rb");
+  expect(p.terminal.answers.widths[0].got).toBeNull();
+  expect(p.terminal.answers.modes).toEqual({ "1": 2 });
+  // The device attributes, asked last, end the wait.
+  expect(fragmented(p, "\x1b[?62c")).toBe("");
+  expect(p.feed("\x1b[30;3R").toString()).toBe("\x1b[30;3R");
+});
+test("outside Corgi the report's samples go on the cursor's line, and any row's position counts", () => {
+  const p = new Probe(),
+    asked = p.terminal.start(null, Date.now());
+  expect(asked.startsWith("\x1b7\r👍\x1b[6n\r⚠\x1b[6n")).toBe(true);
+  expect(asked).toContain("\r\x1b[2K\x1b8");
+  expect(fragmented(p, "\x1b[17;3R\x1b[6;18;9t\x1b[?0u\x1b[?62c")).toBe("");
+  expect(p.terminal.answers.widths[0].got).toBe(2);
+  expect(p.terminal.answers.cell).toEqual({ width: 9, height: 18 });
+  expect(p.terminal.answers.keyboard).toBe(0);
+});

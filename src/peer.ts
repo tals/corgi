@@ -13,6 +13,8 @@ export class Client {
   view_workspace = 0;
   controls: Control[] = [];
   viewer = false;
+  /** What the viewer found out about its terminal, for bug reports. */
+  terminal: unknown = null;
   view_focus: number | null = null;
   interests: Interest[] = [];
   protocol_version: number | null = null;

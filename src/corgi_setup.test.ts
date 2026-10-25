@@ -1747,3 +1747,67 @@ test("expanded settings and the popup render the same account rows and usage bar
   for (const row of accountRows(expanded)) expect(row).toContain("━");
   expect(accountRows(expanded)[1]).toContain("$5.9k / $10k");
 });
+
+test("Report a bug shows what the issue will say, and opens it, or copies its link over SSH", () => {
+  const s = status(),
+    prefs = new Preferences(),
+    menu = Menu.open();
+  menu.item = "report_bug";
+  // Already under way, so drawing doesn't ask the real daemon.
+  (menu as unknown as { gathering: boolean }).gathering = true;
+  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("Gathering details");
+  menu.report = {
+    corgi: "1.2.3 (abc1234), linux-x64",
+    install: { path: "/usr/bin/corgi", auto_update: null },
+    system: {
+      os: "Ubuntu 24.04.1 LTS",
+      os_timed_out: false,
+      kernel: "Linux 6.8.0",
+      locale: "C.UTF-8",
+      shell: { path: "/usr/bin/fish", version: "fish, version 3.7.1" },
+      agents: [
+        {
+          name: "Codex",
+          version: "codex-cli 0.46.0",
+          path: "/usr/bin/codex",
+          old: false,
+          unanswered: false,
+          hooks: "installed",
+        },
+      ],
+    },
+    daemon: null,
+    slow: { daemon: false, sessions: false, report: false },
+    terminal: null,
+    overrides: [],
+    logs: { server: "/tmp/server.log", crashes: 0 },
+    warnings: ["warn: only local"],
+    inference: null,
+  };
+  const shown = draw(menu, 100, 30, 0, s, prefs),
+    text = shown.join("\n");
+  expect(text).toMatch(/Shell +fish, version 3\.7\.1 \(\/usr\/bin\/fish\)/);
+  expect(text).toMatch(/ {2}Codex +codex-cli 0\.46\.0 \(\/usr\/bin\/codex\),/);
+  expect(text).toMatch(/Settings +theme Corgi \(automatic\), keymap/);
+  expect(text).not.toContain("only local");
+  // The button sits above the report, so a short frame still shows it.
+  const at = (needle: string) => shown.findIndex(row => row.includes(needle));
+  expect(at("Open an Issue on GitHub")).toBeLessThan(at("1.2.3 (abc1234)"));
+  expect(draw(menu, 100, 16, 0, s, prefs).join("\n")).toContain("Open an Issue on GitHub");
+  const button = hits(menu, 100, 30, s, prefs).find(hit => "option" in hit)!,
+    open = menu.click(button, s, prefs);
+  expect(open?.kind).toBe("open");
+  const url = (open as { url: string }).url;
+  expect(url).toContain("https://github.com/tals/corgi/issues/new?body=");
+  expect(decodeURIComponent(url)).toContain("- Shell: fish, version 3.7.1 (/usr/bin/fish)");
+  // No browser opens over SSH, so the same button copies the link and says so.
+  menu.terminal = { ...menu.terminal, ssh: true };
+  expect(menu.click(button, s, prefs)).toEqual({ kind: "copy", text: url });
+  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("enter copy link");
+  menu.link_copied = true;
+  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("Copied the link; paste it into your browser.");
+  menu.full_path = "/tmp/full_bug_report.txt";
+  const attach = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  expect(attach).toContain("Please attach /tmp/full_bug_report.txt,");
+  expect(attach).toContain("Corgi runs on.");
+});

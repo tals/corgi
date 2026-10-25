@@ -99,6 +99,8 @@ export const operations = [
   "headless.send",
   "headless.events",
   "theme",
+  "viewer.terminal",
+  "bugreport",
   "hook",
   "ping",
   "shutdown",
@@ -111,6 +113,8 @@ const local = new Set([
   "focus",
   "workspace.switch",
   "theme",
+  "viewer.terminal",
+  "bugreport",
   "hook",
   "ping",
   "shutdown",
@@ -546,6 +550,7 @@ const requests = {
   "headless.send": { provider: "provider", session: "string", input: "json" },
   "headless.events": { provider: "provider", session: "string", after: ["u64", 0] },
   theme: { theme: ["theme", null] },
+  "viewer.terminal": { terminal: "json" },
   hook: {
     provider: "provider",
     event: "json",
@@ -624,6 +629,14 @@ export interface ReplyPayloads {
   "agent.subscribe": { type: "agent.preview"; cwd: string; preview: import("./launch/preview").Preview };
   "agent.history": Ok & { history: import("./launch/history").History };
   action: Ok & { viewer: number; queued: true };
+  bugreport: Ok & {
+    pid: number;
+    uptime_ms: number;
+    /** Each viewer's terminal as it reported it, most recently used first. */
+    viewers: { id: number; terminal: unknown }[];
+    /** How long ago each conversation's last hook came, in ms, by its id. */
+    hooks: Record<string, number>;
+  };
   focus: Ok & { viewer: number; queued: true };
   "workspace.switch": Ok & { viewer: number; queued: true };
   "headless.start": Ok & { session: string; provider: Provider };

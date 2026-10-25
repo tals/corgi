@@ -156,6 +156,23 @@ function describe(line: Line, home: string, op: Op): string {
       return `failed in ${at}: ${line.error}`;
   }
 }
+/** The lines `corgi integration` prints, aligned. */
+function format(lines: Line[], op: Op): string[] {
+  const label = (l: Line) =>
+      adapter(l.provider).label + (l.account ? " · " + accounts.label(l.provider, l.account) : ""),
+    labels = Math.max(...lines.map(l => label(l).length)),
+    items = Math.max(...lines.map(l => l.item.length)),
+    home = process.env.HOME ?? "";
+  return lines.map(
+    line => `${mark(line, op)} ${label(line).padEnd(labels)}  ${line.item.padEnd(items)}  ${describe(line, home, op)}`,
+  );
+}
+/** What `corgi integration status` prints, for every agent and account. */
+export async function status(): Promise<string[]> {
+  const lines: Line[] = [];
+  for (const { provider, account } of everyAccount()) lines.push(...(await steps(provider, account, "status")));
+  return format(lines, "status");
+}
 function mark(line: Line, op: Op): string {
   if (line.outcome === "failed" || line.outcome === "partial" || ("todo" in line && line.todo)) return "✗";
   return line.outcome === (op === "status" ? "present" : "added") || line.outcome === "removed" ? "✓" : "·";
@@ -177,15 +194,7 @@ export async function command(op: Op, only: Provider | null, named: string | nul
   const lines: Line[] = [];
   for (const { provider, account } of everyAccount(only))
     if (chosen === null || chosen === account) lines.push(...(await steps(provider, account, op)));
-  const label = (l: Line) =>
-      adapter(l.provider).label + (l.account ? " · " + accounts.label(l.provider, l.account) : ""),
-    labels = Math.max(...lines.map(l => label(l).length)),
-    items = Math.max(...lines.map(l => l.item.length)),
-    home = process.env.HOME ?? "";
-  for (const line of lines)
-    process.stdout.write(
-      `${mark(line, op)} ${label(line).padEnd(labels)}  ${line.item.padEnd(items)}  ${describe(line, home, op)}\n`,
-    );
+  for (const text of format(lines, op)) process.stdout.write(text + "\n");
   if (op === "uninstall")
     process.stdout.write("Corgi won't add them back when it starts; `corgi integration install` does.\n");
   else if (op === "install" && lines.some(l => l.item === "hooks" && l.outcome === "added"))

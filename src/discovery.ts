@@ -55,6 +55,15 @@ export function outdated(provider: Provider): string | null {
   }
   return null;
 }
+/** Each install found for `provider`, with what its `--version` said when
+ * `resolve` asked: its version line and whether it was taken, or null for
+ * one it never asked. */
+export function considered(provider: Provider): { path: string; version: string | null; ok: boolean | null }[] {
+  return candidates(provider).map(path => {
+    const v = verdict(path);
+    return { path, version: v?.version ?? null, ok: v?.ok ?? null };
+  });
+}
 function candidates(provider: Provider): string[] {
   const command = adapter(provider).command,
     path = (process.env.PATH ?? "").split(":").map(dir => absolute(dir, command));

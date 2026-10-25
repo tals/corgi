@@ -214,5 +214,9 @@
   "test.settle": {},
   "test.advance": {
     "ms": 1000
-  }
+  },
+  "viewer.terminal": {
+    "terminal": { "name": "kitty(0.39.1)", "cols": 120, "rows": 40 }
+  },
+  "bugreport": {}
 }

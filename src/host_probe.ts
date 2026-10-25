@@ -2,6 +2,7 @@ import { Theme } from "./theme";
 import * as corgi_badge from "./corgi_badge";
 import * as host_clipboard from "./host_clipboard";
 import * as frame_pacing from "./frame_pacing";
+import * as terminal_probe from "./terminal_probe";
 const clipboard_prefix = "\x1b]5522;",
   mode_prefix = "\x1b[?5522;",
   version_prefix = "\x1bP>|",
@@ -18,6 +19,8 @@ export class Probe {
   graphics: string[] = [];
   clipboard = new host_clipboard.State();
   pacer = new frame_pacing.Pacer();
+  /** Answers for bug reports, taken while its questions are out. */
+  terminal = new terminal_probe.Collector();
   changed = false;
   /** The terminal reported a new color scheme; its colors need asking again. */
   scheme_changed = false;
@@ -107,6 +110,11 @@ export class Probe {
         }
         if (sequence.length < 128) return;
       }
+      if (this.terminal.accept(sequence)) {
+        this.pending = "";
+        return;
+      }
+      if (this.terminal.wants(sequence)) return;
       if (sequence === frame_pacing.answer) {
         this.pacer.answered(now);
         this.pending = "";
@@ -146,6 +154,7 @@ export class Probe {
   }
   expire(now = Date.now()): Buffer {
     const out: number[] = [];
+    this.terminal.expire(now);
     if (this.pending && now - this.touched >= 100) this.flush(out);
     if (this.in_packet && now - this.touched >= 10_000) {
       this.in_packet = false;

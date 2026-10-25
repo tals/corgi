@@ -12,6 +12,7 @@ import * as onboarding from "./onboarding";
 import * as shortcutHelp from "./shortcut_help";
 import * as palette from "./palette";
 import type { Colors as TerminalColors } from "./terminal_palette";
+import type { Terminal as BugTerminal } from "./bug_report";
 import {
   Rect,
   View as LayoutView,
@@ -267,6 +268,8 @@ export class Controller {
   sidebar_open = true;
   corgi_badge: corgiBadge.Mode = "none";
   corgi_badge_explicit_size = false;
+  /** What the viewer found out about its terminal, once it has. */
+  host_terminal: BugTerminal | null = null;
   supports_kitty_graphics = false;
   /** The host's cell in pixels, when it reports it. */
   cell_pixels: forkMotion.Cell | null = null;
@@ -3231,6 +3234,7 @@ export class Controller {
       colors: this.terminal_colors !== null,
     };
     setup.shell = this.runtime.shell;
+    setup.host_terminal = this.host_terminal;
     setup.shells = installedShells();
     // Source control previews the worktree folder in a real project, this workspace's first.
     for (const ws of [this.current(), ...this.runtime.workspaces.items]) {
@@ -3240,6 +3244,10 @@ export class Controller {
       break;
     }
     setup.smart_links = this.runtime.smart_links;
+    setup.changed = () => {
+      this.dirty = true;
+      this.wake();
+    };
     this.corgi_setup = setup;
     this.dirty = true;
   }
@@ -3279,6 +3287,10 @@ export class Controller {
         return this.perform({ name: "detach" });
       case "open":
         return this.queueEffect({ open_url: apply.url });
+      case "copy":
+        this.copyQuietly(apply.text);
+        if (this.corgi_setup) this.corgi_setup.link_copied = true;
+        return;
       case "imported":
         this.closeMenu();
         if (apply.workspace === null) return;

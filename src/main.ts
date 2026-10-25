@@ -216,6 +216,12 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     case "--version":
       process.stdout.write(`corgi ${config.releaseVersion} (${config.releaseCommit})\n`);
       return;
+    case "bugreport": {
+      const asked = args[1] === "--full";
+      if (args.length > (asked ? 2 : 1)) throw Error("Usage");
+      process.stdout.write(await (await import("./bug_report")).command(path, asked));
+      return;
+    }
     case "licenses":
       if (args.length !== 1) throw Error("Usage");
       process.stdout.write((await import("./licenses")).text);

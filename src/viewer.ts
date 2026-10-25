@@ -7,6 +7,7 @@ import { Controller } from "./controller";
 import { call, unread, acknowledge, type Transport } from "./mirror";
 import { parse as parseAction } from "./action";
 import * as corgiBadge from "./corgi_badge";
+import * as bugReport from "./bug_report";
 import * as linkThumbnail from "./link_thumbnail";
 import * as forkMotion from "./fork_motion";
 import { Differ } from "./frame_diff";
@@ -272,6 +273,10 @@ export async function run(
     let held = false;
     probe.badge = new corgiBadge.State();
     writeAll(corgiBadge.query);
+    // What a bug report says about this terminal, asked once.
+    const probed_at = Date.now();
+    writeAll(probe.terminal.start(dimensions().rows, probed_at));
+    let terminal_sent = false;
     // Opened once the first sync names this viewer.
     let waker: Socket | null = null;
     let watch_opened = false;
@@ -318,6 +323,11 @@ export async function run(
           view.corgi_badge_explicit_size = explicit_size;
           view.supports_kitty_graphics = probe.badge.supports_kitty_graphics;
           view.dirty = true;
+        }
+        // Sent once the answers are in and the badge knows how it draws.
+        if (!terminal_sent && probe.terminal.done && (probe.badge.mode() !== "none" || Date.now() - probed_at > 3000)) {
+          terminal_sent = true;
+          void reportTerminal(view, connection, probe).catch(() => {});
         }
         if (probe.scheme_changed) {
           probe.scheme_changed = false;
@@ -534,6 +544,29 @@ function watch(socket: string, viewer: number, woken: () => void, closed: () => 
     return null;
   }
 }
+/** Keeps what the probe found for setup's Report a bug and tells the daemon,
+ * for `corgi bugreport`; an older daemon doesn't take it. */
+async function reportTerminal(view: Controller, connection: Transport, probe: Probe): Promise<void> {
+  const size = dimensions(),
+    terminal: bugReport.Terminal = {
+      source: "this viewer",
+      name: probe.clipboard.terminal.text(),
+      env: bugReport.terminalEnv(process.env),
+      cols: size.cols,
+      rows: size.rows,
+      measured: true,
+      pty: size.pty,
+      used: view.cell_pixels,
+      graphics: probe.badge.supports_kitty_graphics,
+      badge: probe.badge.mode(),
+      colors: hostColors(probe),
+      tmux: await bugReport.tmuxOf(process.env),
+      ssh: sshViewer(),
+      answers: probe.terminal.answers,
+    };
+  view.host_terminal = terminal;
+  await call(connection, "viewer.terminal", { terminal });
+}
 /** The host's colors, when it answered the probe with its foreground and background. */
 function hostColors(probe: Probe): TerminalColors | null {
   const { foreground, background, palette } = probe.theme,
@@ -541,9 +574,16 @@ function hostColors(probe: Probe): TerminalColors | null {
   if (!foreground || !background) return null;
   return { foreground: rgb(foreground)!, background: rgb(background)!, ansi: palette.map(rgb) };
 }
-function dimensions(): { cols: number; rows: number; cell: forkMotion.Cell | null } {
-  const size = new Uint16Array(4);
-  if (n.probe_winsize_pixels(0, ptr(size)) !== 0) size.fill(0);
+function dimensions(): {
+  cols: number;
+  rows: number;
+  cell: forkMotion.Cell | null;
+  /** The window size as the PTY said it, before any of it was used; null when it couldn't say. */
+  pty: bugReport.Pty | null;
+} {
+  const size = new Uint16Array(4),
+    said = n.probe_winsize_pixels(0, ptr(size)) === 0;
+  if (!said) size.fill(0);
   const [ws_col, ws_row, ws_xpixel, ws_ypixel] = size;
   // Terminals that report pixels pad under a cell, so this is the cell.
   const cell =
@@ -554,6 +594,7 @@ function dimensions(): { cols: number; rows: number; cell: forkMotion.Cell | nul
     cols: ws_col === 0 ? 100 : Math.min(Math.max(ws_col, 10), 500),
     rows: ws_row === 0 ? 30 : Math.min(Math.max(ws_row, 4), 200),
     cell,
+    pty: said ? { cols: ws_col, rows: ws_row, width: ws_xpixel, height: ws_ypixel } : null,
   };
 }
 /** Whether a terminal by this name draws Kitty's branch drawing characters:

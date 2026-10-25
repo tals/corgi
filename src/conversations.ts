@@ -30,6 +30,8 @@ export class Actor {
   prompt_watch = new PromptWatch();
   workspace = 0;
   observed_at = 0;
+  /** When the last hook came, in µs; 0 before any. */
+  hooked_at = 0;
   tracked_since = 0;
   child_refresh = false;
   children_observed_at = 0;
@@ -177,6 +179,7 @@ export class Actor {
     this.compactionChanged(was, now);
     adapter(this.provider()).conversation?.hooked?.(this, event, now);
     this.observed_at = Math.max(this.observed_at, now);
+    this.hooked_at = now;
     return ding;
   }
   checkPause() {
