@@ -8,7 +8,7 @@ import { Entry, Semantics, resolve, analyze, shellStatus } from "./launch/comman
 import { ResumeHint } from "./resume_hint";
 import { Text, adapter } from "./providers";
 import { logicalKey } from "./keys";
-import { encode } from "./keyboard";
+import * as viewerNative from "./viewer_native";
 import * as accounts from "./accounts";
 import * as integration from "./integration";
 import * as worktreeAgents from "./worktree_agents";
@@ -292,7 +292,7 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
         (bracketed ? "\x1b[200~" : "") +
           request.payload.text +
           (bracketed ? "\x1b[201~" : "") +
-          (request.payload.enter ? encode(logicalKey("enter")) : ""),
+          (request.payload.enter ? viewerNative.encodeKey(p.terminal.handle, logicalKey("enter")) : ""),
       );
       return location(r, request.payload.target);
     }
@@ -302,7 +302,7 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
       const output = request.payload.text
         .split(" ")
         .filter(Boolean)
-        .map((k: string) => encode(logicalKey(k)))
+        .map((k: string) => viewerNative.encodeKey(p.terminal.handle, logicalKey(k)))
         .join("");
       p.detection.observeInput(output, Date.now() * 1000);
       await p.terminal.send(output);

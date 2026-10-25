@@ -24,6 +24,35 @@ function pane(r: Runtime, w: Workspace, split: number | null = null) {
   return id;
 }
 const topology = (r: Runtime) => stringify(r.workspaces.items.map(w => w.model));
+test("pane keys and send follow the destination's current keyboard modes", async () => {
+  const { r, home } = setup();
+  const id = pane(r, home),
+    terminal = r.pane(id)!.terminal,
+    pending = () => terminal.native({ op: "takePending" });
+  try {
+    for (const [mode, expected, enter] of [
+      ["", "\x1b[A\x1b[1;5D\r\x1b", "\r"],
+      ["\x1b[?1h", "\x1bOA\x1b[1;5D\r\x1b", "\r"],
+      ["\x1b[>9u", "\x1b[A\x1b[1;5D\x1b[13u\x1b[27u", "\x1b[13u"],
+      ["\x1b[<u\x1b[?1l", "\x1b[A\x1b[1;5D\r\x1b", "\r"],
+    ]) {
+      terminal.feed(mode);
+      await execute(r, ctx, { "pane.keys": { target: id, text: "up ctrl+left enter esc" } });
+      expect(pending()).toBe(expected);
+      await execute(r, ctx, { "pane.send": { target: id, text: "hello", enter: true } });
+      expect(pending()).toBe("hello" + enter);
+    }
+    terminal.feed("\x1b[>9u\x1b[?2004h");
+    await execute(r, ctx, { "pane.send": { target: id, text: "hello", enter: true } });
+    expect(pending()).toBe("\x1b[200~hello\x1b[201~\x1b[13u");
+    await expect(execute(r, ctx, { "pane.keys": { target: id, text: "enter invalid-key" } })).rejects.toThrow(
+      "InvalidKey",
+    );
+    expect(pending()).toBe("");
+  } finally {
+    r.destroy();
+  }
+});
 test("forking uses the conversation's listed worktree, preserving a folder within it", async () => {
   const { r, home } = setup();
   try {

@@ -3,6 +3,7 @@
 //! native/viewer_bridge.zig.
 import type { Pointer } from "bun:ffi";
 import { n, ptr } from "./native_ffi";
+import type { Key, Mods } from "./keyboard";
 
 function take(size: number): Buffer {
   if (size < 0) throw Error("NativeViewerFailed");
@@ -51,14 +52,6 @@ export function bracketedPaste(handle: Pointer | bigint): boolean {
 export function pasteEvents(handle: Pointer | bigint): boolean {
   return n.viewer_mode(handle as Pointer, 1);
 }
-export interface Mods {
-  shift?: boolean;
-  alt?: boolean;
-  ctrl?: boolean;
-  super?: boolean;
-  caps_lock?: boolean;
-  num_lock?: boolean;
-}
 function modBits(mods: Mods): number {
   return (
     (mods.shift ? 1 : 0) |
@@ -70,8 +63,8 @@ function modBits(mods: Mods): number {
   );
 }
 /** A key encoded for a pane's program, or with default options when `handle` is null. */
-export function encodeKey(handle: Pointer | bigint | null, codepoint: number, mods: Mods): string {
-  return take(Number(n.viewer_encode_key((handle ?? null) as Pointer, codepoint, modBits(mods)))).toString();
+export function encodeKey(handle: Pointer | bigint | null, key: Key): string {
+  return take(Number(n.viewer_encode_key((handle ?? null) as Pointer, key.codepoint, modBits(key.mods)))).toString();
 }
 export function encodeMouse(handle: Pointer | bigint, button: number, x: number, y: number, release: boolean): string {
   return take(Number(n.viewer_encode_mouse(handle as Pointer, button, x, y, release))).toString();

@@ -4308,14 +4308,14 @@ export class Controller {
         if (key_event && this.signin) {
           // Its agent gets keys as its terminal asked for them; the frame reads them plain.
           const s = this.signin,
-            plain = viewerNative.encodeKey(null, key_event.codepoint, key_event.mods);
+            plain = viewerNative.encodeKey(null, key_event);
           if (plain.length === 1 && (await this.signinPrefix(plain.charCodeAt(0), key_event))) {
             this.dirty = true;
             used += len;
             continue;
           }
           if (s.typing && plain !== "\x03" && plain !== "\x11")
-            s.send(viewerNative.encodeKey(s.child!.handle, key_event.codepoint, key_event.mods));
+            s.send(viewerNative.encodeKey(s.child!.handle, key_event));
           else await s.input(plain);
           this.dirty = true;
           used += len;
@@ -4352,9 +4352,7 @@ export class Controller {
           // Corgi's own text boxes read some keys in sequences legacy encoding can't make.
           const edit = owned ? keyboard.editSequence(key_event) : null;
           const legacy = Array.from(
-            edit !== null
-              ? Buffer.from(edit, "latin1")
-              : Buffer.from(viewerNative.encodeKey(null, key_event.codepoint, key_event.mods)),
+            edit !== null ? Buffer.from(edit, "latin1") : Buffer.from(viewerNative.encodeKey(null, key_event)),
           );
           if (
             owned ||
@@ -4365,10 +4363,7 @@ export class Controller {
             seq = legacy;
           } else {
             const p = this.focused();
-            if (p)
-              seq = Array.from(
-                Buffer.from(viewerNative.encodeKey(p.terminal.handle, key_event.codepoint, key_event.mods)),
-              );
+            if (p) seq = Array.from(Buffer.from(viewerNative.encodeKey(p.terminal.handle, key_event)));
           }
           if (seq.length === 0) {
             used += len;

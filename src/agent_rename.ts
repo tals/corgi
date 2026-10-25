@@ -1,4 +1,4 @@
-import { encode } from "./keyboard";
+import * as viewerNative from "./viewer_native";
 import { adapter } from "./providers";
 import { milliTimestamp, microTimestamp } from "./clock";
 import type { Runtime, Pane } from "./runtime";
@@ -18,8 +18,7 @@ export async function paste(t: Terminal, text: string) {
   await t.send((mode ? "\x1b[200~" : "") + text + (mode ? "\x1b[201~" : ""));
 }
 export async function submit(t: Terminal) {
-  const modes = t.surface(0).modes;
-  await t.send(encode({ codepoint: 13, mods: {} }, { kitty: !!(modes.kitty & 1), alt_escape: modes.alt_escape }));
+  await t.send(viewerNative.encodeKey(t.handle, { codepoint: 13, mods: {} }));
 }
 function renamed(runtime: Runtime, pane: Pane, name: string) {
   pane.agent().setName(name);

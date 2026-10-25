@@ -1057,7 +1057,7 @@ class ViewerScenarios extends Viewers {
 import { openSync, writeSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 spawnSync('stty', ['raw', '-echo'], { stdio: 'inherit' });
-process.stdout.write('\\x1b[>1u\\x1b[?1002h\\x1b[?1006hREADY');
+process.stdout.write('\\x1b[>9u\\x1b[?1002h\\x1b[?1006hREADY');
 const fd = openSync(process.argv[2], 'w');
 process.stdin.on('data', data => writeSync(fd, data));
 process.stdin.resume();
@@ -1071,6 +1071,14 @@ process.stdin.resume();
     await a.focus(first);
     await a.input("\x1b[97;5u");
     await this.until(() => existsSync(capture) && readFileSync(capture).includes(Buffer.from("\x1b[97;5u")));
+    const locked = "\x1b[1;129A\x1b[3;193~";
+    await a.input(locked);
+    await this.until(() => readFileSync(capture).includes(Buffer.from(locked)));
+    await this.run_cli("pane", "keys", String(first), "enter", "esc", "ctrl+a");
+    const cliKeys = "\x1b[13u\x1b[27u\x1b[97;5u";
+    await this.until(() => readFileSync(capture).includes(Buffer.from(cliKeys)));
+    await this.run_cli("pane", "send", String(first), "submitted", "--enter");
+    await this.until(() => readFileSync(capture).includes(Buffer.from("submitted\x1b[13u")));
     await a.input("\x1b[<0;29;2M\x1b[<0;29;2m");
     await this.until(() => readFileSync(capture).includes(Buffer.from("\x1b[<0;1;1M")));
     const before = readFileSync(capture);
@@ -1106,13 +1114,12 @@ process.stdin.resume();
       await this.until(async () => (await viewer.poll()).data.includes(label));
     };
     const arrows = async (index: number, prefix: string) => {
-      for (const incoming of ["[", "O"]) {
-        await viewer.input(
-          "ABCD"
-            .split("")
-            .map(key => `\x1b${incoming}${key}`)
-            .join(""),
-        );
+      for (const incoming of ["[", "O", "[1;129"]) {
+        const input = "ABCD"
+          .split("")
+          .map(key => `\x1b${incoming}${key}`)
+          .join("");
+        for (const chunk of incoming === "[1;129" ? [...input] : [input]) await viewer.input(chunk);
         expected[index] = Buffer.concat([
           expected[index],
           Buffer.from(
@@ -1127,6 +1134,13 @@ process.stdin.resume();
         );
         this.assertEqual(readFileSync(captures[index]), expected[index]);
       }
+      await this.run_cli("pane", "keys", String(panes[index]), "up", "down", "right", "left");
+      expected[index] = Buffer.concat([
+        expected[index],
+        Buffer.from([..."ABCD"].map(key => `\x1b${prefix}${key}`).join("")),
+      ]);
+      await this.until(() => readFileSync(captures[index]).length >= expected[index].length);
+      this.assertEqual(readFileSync(captures[index]), expected[index]);
     };
     await syncMode(0, "APPLICATION");
     await arrows(0, "O");
