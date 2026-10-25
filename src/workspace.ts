@@ -156,8 +156,9 @@ export class Store {
     return p;
   }
   async add(name: string, cwd: string) {
+    const dir = await Store.directory(cwd);
     if (this.items.length >= max_workspaces) throw Error("TooManyWorkspaces");
-    const w = new Workspace(this.next_id, await Store.directory(cwd));
+    const w = new Workspace(this.next_id, dir);
     w.rename(name);
     this.items.push(w);
     this.next_id++;

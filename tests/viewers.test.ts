@@ -714,6 +714,30 @@ class ViewerScenarios extends Viewers {
     this.assertEqual((await b.poll()).pane, first);
   }
 
+  async test_workspace_rename_targets_recreated_workspace_with_same_name_and_folder() {
+    const first = (await this.session()).workspaces[0].id,
+      second = (await this.command("workspace.create", { name: "Same", cwd: this.temp.name })).workspace;
+    await this.command("workspace.close", { target: first, close_contents: true });
+    const third = (await this.command("workspace.create", { name: "Same", cwd: this.temp.name })).workspace;
+    this.assertGreater(third, second);
+    const viewer = await this.newViewer();
+    await viewer.request({ op: "workspace", workspace: second });
+    await viewer.input("\x1b[<2;5;6M\x1b[<2;5;6m");
+    await viewer.input("r");
+    this.assertIn("Rename workspace", viewer.state.data);
+    await viewer.input("Renamed\r");
+    this.assertEqual(
+      (await this.session()).workspaces.map((w: any) => [w.id, w.name]),
+      [
+        [second, "Same"],
+        [third, "Renamed"],
+      ],
+    );
+    const screen = screen_text((await viewer.poll()).data, 100, 30);
+    this.assertIn("Same", screen[2]);
+    this.assertIn("Renamed", screen[5]);
+  }
+
   async test_workspace_name_uses_first_tab_in_both_viewers() {
     const one = join(this.temp.name, "one"),
       two = join(this.temp.name, "two");

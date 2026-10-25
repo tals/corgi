@@ -3,6 +3,21 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Store } from "./workspace";
+import * as layout from "./layout";
+test("overlapping workspace creation keeps rename targets distinct", async () => {
+  const s = new Store();
+  const keep = await s.add("Keep", tmpdir());
+  const ids = await Promise.all([s.add("Same", tmpdir()), s.add("Same", tmpdir())]);
+  expect(new Set(s.items.map(w => w.id)).size).toBe(3);
+  await s.edit(ids[1], "Renamed", tmpdir());
+  expect([keep, ...ids].map(id => s.get(id)!.name())).toEqual(["Keep", "Same", "Renamed"]);
+});
+test("overlapping workspace creation respects the workspace limit", async () => {
+  const s = new Store();
+  for (let i = 0; i < layout.max_workspaces - 1; i++) await s.add("Same", tmpdir());
+  await expect(Promise.all([s.add("One", tmpdir()), s.add("Two", tmpdir())])).rejects.toThrow("TooManyWorkspaces");
+  expect(s.items).toHaveLength(layout.max_workspaces);
+});
 test("automatic workspace names follow folders while overrides survive save and load", async () => {
   const root = await mkdtemp(join(tmpdir(), "corgi-ws-"));
   try {
