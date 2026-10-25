@@ -32,21 +32,17 @@ export const adapter: Adapter = {
   // PATH only; the install script's paths are not yet verified.
   installs: () => [],
   accounts,
-  // Hooks carry working; the screen survey confirms idle. Goose's input
-  // prompt ("Enter to send · Ctrl+J newline") only renders while it waits
-  // for input, so its presence in the tail is the idle marker. Tool calls
-  // stay in scrollback when idle, so they must NOT count as working here;
-  // anything else is "can't tell" and the hooks keep speaking.
-  watch: () =>
-    new ScreenWatcher((_title, text) => {
-      const tail = text.trimEnd().split("\n").slice(-10).join("\n").toLowerCase();
-      if (tail.includes("enter to send")) return "idle";
-      return null;
-    }),
+  // No screen survey: the watcher only speaks for agents no hook reports,
+  // and goose's hooks make it authoritative, so a survey here would never
+  // be consulted. Settlement comes from the hook mapping below.
+  watch: () => new ScreenWatcher(() => null),
   hook(v) {
     const input = field(v, "input");
     const hook = hooks.decode({
-      hook_event_name: str(v, "event"),
+      // Goose's Stop is turn settlement, not Claude's pre-completion stop:
+      // no transcript exists to confirm a pending stop, so decode it as
+      // idle and the row settles. The next tool event flips it working.
+      hook_event_name: str(v, "event") === "Stop" ? "Idle" : str(v, "event"),
       session_id: str(v, "session"),
       turn_id: "",
       prompt_id: "",

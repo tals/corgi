@@ -33,7 +33,7 @@ test("Goose hook events decode to corgi kinds", () => {
   expect(tool?.tool).toBe("text_editor");
   expect(adapter.hook({ event: "PostToolUse", session: "20251025_1" })?.kind).toBe("tool_finish");
   expect(adapter.hook({ event: "PostToolUseFailure", session: "20251025_1" })?.kind).toBe("tool_failure");
-  expect(adapter.hook({ event: "Stop", session: "20251025_1" })?.kind).toBe("stop");
+  expect(adapter.hook({ event: "Stop", session: "20251025_1" })?.kind).toBe("idle");
   expect(adapter.hook({ event: "SessionEnd", session: "20251025_1" })?.kind).toBe("session_end");
   expect(adapter.hook({ event: "Nope", session: "20251025_1" })).toBe(null);
 });
