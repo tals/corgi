@@ -10,7 +10,7 @@ $.link_labels.entries[64]?.attempted: bool
 $.link_labels.entries[64]?.pending: bool
 $.link_labels.entries[64]?.name: custom bounded_text.BoundedText(32)
 $.link_labels.generation: u64
-$.last_agent: enum codex claude pi opencode2
+$.last_agent: enum codex claude pi opencode2 goose
 $.agent_yolo.codex: bool
 $.agent_yolo.claude: bool
 $.agent_yolo.opencode2: bool
@@ -24,7 +24,7 @@ $.agent_commands[6].original: custom bounded_text.BoundedText(2048)
 $.agent_commands[6].hidden: bool
 $.agent_commands[6].name: custom bounded_text.BoundedText(160)
 $.agent_commands[6].semantics.provider: optional
-$.agent_commands[6].semantics.provider?: enum codex claude pi opencode2
+$.agent_commands[6].semantics.provider?: enum codex claude pi opencode2 goose
 $.agent_commands[6].semantics.suggested_name: custom bounded_text.BoundedText(160)
 $.agent_commands[6].semantics.model: custom bounded_text.BoundedText(160)
 $.agent_commands[6].semantics.model_name: custom bounded_text.BoundedText(160)
@@ -73,7 +73,7 @@ $.conversations[].agent.last_finished_turn: custom bounded_text.BoundedText(160)
 $.conversations[].agent.finished_since_activity: bool
 $.conversations[].agent.recent: custom bounded_text.BoundedText(160)
 $.conversations[].agent.provider: optional
-$.conversations[].agent.provider?: enum codex claude pi opencode2
+$.conversations[].agent.provider?: enum codex claude pi opencode2 goose
 $.conversations[].agent.state: enum unknown initializing idle working blocked done
 $.conversations[].agent.attention: enum none finished needs_input
 $.conversations[].agent.session: custom bounded_text.BoundedText(160)
@@ -185,7 +185,7 @@ $.workspaces[].agent_order[]: one of
 $.workspaces[].agent_order[]|pane: u32
 $.workspaces[].agent_order[]|headless: u32
 $.workspaces[].last_agent: optional
-$.workspaces[].last_agent?: enum codex claude pi opencode2
+$.workspaces[].last_agent?: enum codex claude pi opencode2 goose
 $.workspaces[].launcher_hidden[]: string
 $.workspaces[].focus: u32
 $.panes[].binding.actor: u32
@@ -209,7 +209,7 @@ $.panes[].binding.provisional.last_finished_turn: custom bounded_text.BoundedTex
 $.panes[].binding.provisional.finished_since_activity: bool
 $.panes[].binding.provisional.recent: custom bounded_text.BoundedText(160)
 $.panes[].binding.provisional.provider: optional
-$.panes[].binding.provisional.provider?: enum codex claude pi opencode2
+$.panes[].binding.provisional.provider?: enum codex claude pi opencode2 goose
 $.panes[].binding.provisional.state: enum unknown initializing idle working blocked done
 $.panes[].binding.provisional.attention: enum none finished needs_input
 $.panes[].binding.provisional.session: custom bounded_text.BoundedText(160)
@@ -250,7 +250,7 @@ $.panes[].screen.runs_command: bool
 $.panes[].screen.initial_input: optional
 $.panes[].screen.initial_input?: string
 $.panes[].detection.claim: optional
-$.panes[].detection.claim?.provider: enum codex claude pi opencode2
+$.panes[].detection.claim?.provider: enum codex claude pi opencode2 goose
 $.panes[].detection.claim?.owner: i32
 $.panes[].detection.claim?.parent: i32
 $.panes[].detection.structured: bool
@@ -266,14 +266,14 @@ $.panes[].detection.interrupt_key_at: i64
 $.panes[].resume_hint.name: custom bounded_text.BoundedText(160)
 $.panes[].resume_hint.touched_at: i64
 $.panes[].resume_hint.provider: optional
-$.panes[].resume_hint.provider?: enum codex claude pi opencode2
+$.panes[].resume_hint.provider?: enum codex claude pi opencode2 goose
 $.panes[].resume_hint.session: custom bounded_text.BoundedText(160)
 $.panes[].resume_hint.permissions: optional
 $.panes[].resume_hint.permissions?: enum default bypass
 $.panes[].resume_hint.model: custom bounded_text.BoundedText(160)
 $.panes[].launch: optional
 $.panes[].launch?: one of
-$.panes[].launch?|agent.provider: enum codex claude pi opencode2
+$.panes[].launch?|agent.provider: enum codex claude pi opencode2 goose
 $.panes[].launch?|agent.yolo: bool
 $.panes[].launch?|agent.args[]: string
 $.panes[].launch?|agent.env[][]: string
@@ -300,14 +300,14 @@ $.closed[].workspace_id: u32
 $.closed[].resume_hint.name: custom bounded_text.BoundedText(160)
 $.closed[].resume_hint.touched_at: i64
 $.closed[].resume_hint.provider: optional
-$.closed[].resume_hint.provider?: enum codex claude pi opencode2
+$.closed[].resume_hint.provider?: enum codex claude pi opencode2 goose
 $.closed[].resume_hint.session: custom bounded_text.BoundedText(160)
 $.closed[].resume_hint.permissions: optional
 $.closed[].resume_hint.permissions?: enum default bypass
 $.closed[].resume_hint.model: custom bounded_text.BoundedText(160)
 $.closed[].launch: optional
 $.closed[].launch?: one of
-$.closed[].launch?|agent.provider: enum codex claude pi opencode2
+$.closed[].launch?|agent.provider: enum codex claude pi opencode2 goose
 $.closed[].launch?|agent.yolo: bool
 $.closed[].launch?|agent.args[]: string
 $.closed[].launch?|agent.env[][]: string
@@ -337,7 +337,7 @@ $.sessions[].binding.provisional.last_finished_turn: custom bounded_text.Bounded
 $.sessions[].binding.provisional.finished_since_activity: bool
 $.sessions[].binding.provisional.recent: custom bounded_text.BoundedText(160)
 $.sessions[].binding.provisional.provider: optional
-$.sessions[].binding.provisional.provider?: enum codex claude pi opencode2
+$.sessions[].binding.provisional.provider?: enum codex claude pi opencode2 goose
 $.sessions[].binding.provisional.state: enum unknown initializing idle working blocked done
 $.sessions[].binding.provisional.attention: enum none finished needs_input
 $.sessions[].binding.provisional.session: custom bounded_text.BoundedText(160)
@@ -380,7 +380,7 @@ $.sessions[].turns[].thread: string
 $.sessions[].turns[].turn: string
 $.sessions[].id: u32
 $.sessions[].session: string
-$.sessions[].provider: enum codex claude pi opencode2
+$.sessions[].provider: enum codex claude pi opencode2 goose
 $.sessions[].cwd: string
 $.sessions[].workspace_id: u32
 $.sessions[].client.state: any
@@ -404,7 +404,7 @@ $.sessions[].journal_bytes: usize
 $.sessions[].resume_hint.name: custom bounded_text.BoundedText(160)
 $.sessions[].resume_hint.touched_at: i64
 $.sessions[].resume_hint.provider: optional
-$.sessions[].resume_hint.provider?: enum codex claude pi opencode2
+$.sessions[].resume_hint.provider?: enum codex claude pi opencode2 goose
 $.sessions[].resume_hint.session: custom bounded_text.BoundedText(160)
 $.sessions[].resume_hint.permissions: optional
 $.sessions[].resume_hint.permissions?: enum default bypass
