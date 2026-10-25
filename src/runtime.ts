@@ -9,7 +9,7 @@ import { Entry, capacity as command_capacity, commandLine, identify } from "./la
 import * as accounts from "./accounts";
 import * as agentOptions from "./agent_options";
 import { Terminal } from "./pane/terminal";
-import { Attachment, Registry, type ActorId } from "./conversations";
+import { Attachment, Registry, type Actor, type ActorId } from "./conversations";
 import { Tracker, locate, process_buffer, type Foreground } from "./detection";
 import type { Brand } from "./process_name";
 import { ResumeHint } from "./resume_hint";
@@ -517,12 +517,23 @@ export class Runtime {
       this.sessions.filter(s => !s.exited && s.members.includes(actor)).length
     );
   }
-  followed(actor: any) {
-    for (let i = 0; i < 1024 && actor; i++) {
-      if (this.attachments(actor) > 0) return true;
-      actor = actor.parent ? this.conversations.byId(actor.parent) : null;
+  /** Current attachments and their descendants, indexed once for a batch. */
+  followed(): Set<Actor> {
+    const roots = new Set<Actor>(),
+      children = new Map<ActorId, Actor[]>();
+    for (const pane of this.panes)
+      if ((pane.dormant || !pane.terminal.exited) && pane.attachment.actor) roots.add(pane.attachment.actor);
+    for (const session of this.sessions) if (!session.exited) for (const actor of session.members) roots.add(actor);
+    for (const actor of this.conversations.items) {
+      if (actor.parent === null) continue;
+      const siblings = children.get(actor.parent);
+      if (siblings) siblings.push(actor);
+      else children.set(actor.parent, [actor]);
     }
-    return false;
+    const followed = new Set(this.conversations.items.filter(actor => roots.has(actor)));
+    // Set iteration visits added descendants once, including cyclic families.
+    for (const actor of followed) for (const child of children.get(actor.id) ?? []) followed.add(child);
+    return followed;
   }
   /** Forgets conversations no pane, pending import, closed agent or
    * headless session refers to. */

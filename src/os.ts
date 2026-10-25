@@ -121,14 +121,16 @@ export class ProcessArgs {
     if (entry && this.env.length < 512) this.env.push(entry);
   }
 }
+// Process inspection is synchronous; returned strings own their bytes.
+const args_buffer = Buffer.allocUnsafe(1024 * 1024);
 export function processArgs(
   pid: number,
-  buffer: Uint8Array | number = 1024 * 1024,
+  buffer: Uint8Array | number = args_buffer,
   want: { env?: boolean } = {},
 ): ProcessArgs | null {
   const bytes =
       typeof buffer === "number"
-        ? Buffer.alloc(buffer)
+        ? Buffer.allocUnsafe(buffer)
         : Buffer.from(buffer.buffer, buffer.byteOffset, buffer.byteLength),
     out = new ProcessArgs();
   if (!bytes.length) return null;

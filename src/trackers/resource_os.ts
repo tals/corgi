@@ -23,7 +23,7 @@ export type Host = {
   memory: bigint;
   pressure: MemoryPressure;
 };
-export type Inventory = { items: Identity[]; truncated: boolean };
+export type Inventory = { items: Identity[]; truncated: boolean; counters(pid: number): Counters | null };
 export type Stat = { identity: Identity; ticks: bigint; pages: bigint };
 export function parseStat(pid: number, text: string): Stat | null {
   const begin = text.indexOf("("),
@@ -58,7 +58,7 @@ function linuxStat(pid: number) {
     return null;
   }
 }
-/** The host's processes; on Linux, only the trees under `roots` when given. */
+/** The host's processes; on Linux, the requested trees with their counters. */
 export function inventory(roots?: number[]): Inventory {
   if (process.platform === "darwin") {
     const result = systemCall({ op: "resource.inventory" });
@@ -68,17 +68,21 @@ export function inventory(roots?: number[]): Inventory {
         ...item,
         start: BigInt(item.start),
       })),
+      counters,
     };
   }
   if (process.platform !== "linux") throw Error("UnsupportedPlatform");
   const items: Identity[] = [];
   const tree = roots ? processTree(roots) : null;
   if (tree) {
+    const readings = new Map<number, Counters | null>();
     for (const pid of tree) {
       const s = linuxStat(pid);
-      if (s) items.push(s.identity);
+      if (!s) continue;
+      items.push(s.identity);
+      readings.set(pid, linuxCounters(pid, s));
     }
-    return { items, truncated: tree.length === 16384 };
+    return { items, truncated: tree.length === 16384, counters: pid => readings.get(pid) ?? null };
   }
   let truncated = false;
   for (const name of readdirSync("/proc")) {
@@ -90,7 +94,7 @@ export function inventory(roots?: number[]): Inventory {
     const s = linuxStat(Number(name));
     if (s) items.push(s.identity);
   }
-  return { items, truncated };
+  return { items, truncated, counters };
 }
 export function field(text: string, key: string): bigint | null {
   const l = text.split("\n").find(l => l.startsWith(key));
@@ -117,7 +121,9 @@ export function counters(pid: number): Counters | null {
   }
   if (process.platform !== "linux") return null;
   const s = linuxStat(pid);
-  if (!s) return null;
+  return s ? linuxCounters(pid, s) : null;
+}
+function linuxCounters(pid: number, s: Stat): Counters | null {
   const ticks = sysconf(false),
     pages = sysconf(true);
   if (ticks <= 0 || pages <= 0) return null;

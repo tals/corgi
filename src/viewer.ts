@@ -405,7 +405,7 @@ export async function run(
             }
           }
           const frame = view.frame();
-          if (view.dirty || previous !== frame || view.overlayOpen()) active_at = now;
+          if (previous !== frame || view.overlayOpen()) active_at = now;
           next_sync = Date.now() + (now - active_at < idle_after_ms ? view.frameDelay() : quiet_sync_ms);
           view.dirty = false;
           held = previous !== frame && !ready(probe);
