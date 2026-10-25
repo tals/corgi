@@ -57,10 +57,9 @@ function screen(p: panel.Panel, width = 70, height = 34): string[] {
   }
 }
 const settle = async (p: panel.Panel) => {
-  for (let i = 0; i < 4; i++) {
-    await p.refresh();
-    await Bun.sleep(10);
-  }
+  // A refresh already in flight queues another; wait for that one too.
+  await p.refresh();
+  await p.refresh();
 };
 const key = (p: panel.Panel, k: string | panel.Named) =>
   p.key(k.length === 1 ? { text: k } : { named: k as panel.Named });
