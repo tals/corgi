@@ -28,6 +28,18 @@ export class GooseObserver implements Observer {
   private tracked: Tracked[] = [];
   private emitted = new Map<string, string>();
   private dbPath = sessionsDbPath();
+  /** TEMPORARY debug: one line per key, so the daemon log stays readable. */
+  private logged = new Set<string>();
+
+  constructor() {
+    console.error(`[goose-observer] started, db ${this.dbPath}`);
+  }
+
+  private logOnce(key: string, line: string) {
+    if (this.logged.has(key)) return;
+    this.logged.add(key);
+    console.error(line);
+  }
 
   reconcile(runtime: Runtime) {
     this.tracked = [];
@@ -35,8 +47,18 @@ export class GooseObserver implements Observer {
     for (const actor of runtime.conversations.items) {
       if (this.tracked.length >= 64) break;
       const a = actor.state;
-      if (a.provider !== "goose" || !a.session.len) continue;
-      if (a.permission_review !== null) continue;
+      if (a.provider !== "goose") continue;
+      if (!a.session.len) {
+        this.logOnce(`nosession:${actor.id}`, `[goose-observer] actor ${actor.id} has no session yet`);
+        continue;
+      }
+      if (a.permission_review !== null) {
+        this.logOnce(
+          `perm:${actor.id}`,
+          `[goose-observer] actor ${actor.id} session ${a.sessionId()}: permission pending`,
+        );
+        continue;
+      }
       const session = a.sessionId();
       seen.add(session);
       this.tracked.push({
@@ -60,10 +82,14 @@ export class GooseObserver implements Observer {
     for (const t of this.tracked) {
       const session = t.request.prefix.text(),
         usage = readUsage(this.dbPath, session);
-      if (!usage) continue;
+      if (!usage) {
+        this.logOnce(`norow:${session}`, `[goose-observer] no db row for session ${session} (db ${this.dbPath})`);
+        continue;
+      }
       const key = `${usage.input}/${usage.output}/${usage.cached_input}`;
       if (this.emitted.get(session) === key) continue;
       this.emitted.set(session, key);
+      console.error(`[goose-observer] emit session ${session}: ${key}`);
       const snapshot = new Snapshot(t.request, session, t.state);
       snapshot.usage = { total: usage, last: null };
       snapshot.tool = t.tool;
