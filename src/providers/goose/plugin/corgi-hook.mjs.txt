@@ -1,0 +1,39 @@
+// Corgi's Goose integration. Managed by `corgi integration install goose`.
+// Reads one goose HookContext JSON object on stdin, reshapes it to corgi's
+// hook shape, and reports it to `corgi hook goose`. Never fails the host:
+// any error exits 0 silently, so a broken reporter can't break a session.
+import { spawn } from "node:child_process";
+const bin = process.env.CORGI_BIN;
+const pane = process.env.CORGI_PANE;
+if (!bin || !pane) process.exit(0);
+const safety = setTimeout(() => process.exit(0), 5000);
+let text = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", chunk => {
+  text += chunk;
+});
+process.stdin.on("end", () => {
+  clearTimeout(safety);
+  let ctx;
+  try {
+    ctx = JSON.parse(text);
+  } catch {
+    process.exit(0);
+  }
+  const data = {
+    event: typeof ctx.event === "string" ? ctx.event : "",
+    session: typeof ctx.session_id === "string" ? ctx.session_id : "",
+    cwd: typeof ctx.working_dir === "string" ? ctx.working_dir : "",
+    model: "",
+    tool: typeof ctx.tool_name === "string" ? ctx.tool_name : "",
+    input: ctx.tool_input && typeof ctx.tool_input === "object" ? ctx.tool_input : {},
+    message: typeof ctx.message === "string" ? ctx.message : "",
+  };
+  if (!data.event || !data.session) process.exit(0);
+  const child = spawn(bin, ["hook", "goose"], { stdio: ["pipe", "ignore", "ignore"], timeout: 2200 });
+  child.on("error", () => process.exit(0));
+  child.on("close", () => process.exit(0));
+  child.stdin.on("error", () => {});
+  child.stdin.end(JSON.stringify(data));
+});
+process.stdin.on("error", () => process.exit(0));

@@ -9,9 +9,9 @@ import * as sim from "./providers/sim";
 import type { Settings } from "./providers/adapter";
 test("per-provider values are keyed by name, in the registry's order", () => {
   expect(JSON.stringify(byProvider(p => p === "claude"))).toBe(
-    '{"codex":false,"claude":true,"pi":false,"opencode2":false}',
+    '{"codex":false,"claude":true,"pi":false,"opencode2":false,"goose":false}',
   );
-  expect(Provider.all).toEqual(["codex", "claude", "pi", "opencode2"]);
+  expect(Provider.all).toEqual(["codex", "claude", "pi", "opencode2", "goose"]);
   expect(Provider.parse("claude")).toBe("claude");
   expect(Provider.parse("other")).toBeNull();
   expect(Provider.owning("/opt/bin/claude-code")).toBe("claude");
@@ -19,17 +19,17 @@ test("per-provider values are keyed by name, in the registry's order", () => {
 test("a registered provider is listed, parsed and found until it is removed", () => {
   const remove = sim.register();
   try {
-    expect<string[]>(Provider.all).toEqual(["codex", "claude", "pi", "opencode2", "sim"]);
+    expect<string[]>(Provider.all).toEqual(["codex", "claude", "pi", "opencode2", "goose", "sim"]);
     expect(Provider.parse("sim")).toBe(sim.sim);
     expect(Provider.owning("sim")).toBe(sim.sim);
     expect(adapter(sim.sim).name).toBe("Sim");
     expect(adapter(sim.sim)).toBe(sim.adapter);
-    expect(Object.keys(byProvider(p => p))).toEqual(["codex", "claude", "pi", "opencode2", "sim"]);
+    expect(Object.keys(byProvider(p => p))).toEqual(["codex", "claude", "pi", "opencode2", "goose", "sim"]);
     expect(() => sim.register()).toThrow("ProviderExists");
   } finally {
     remove();
   }
-  expect(Provider.all).toEqual(["codex", "claude", "pi", "opencode2"]);
+  expect(Provider.all).toEqual(["codex", "claude", "pi", "opencode2", "goose"]);
   expect(Provider.parse("sim")).toBeNull();
   expect(() => adapter(sim.sim)).toThrow("UnknownProvider");
 });
@@ -63,7 +63,11 @@ test("a bypassing launch skips each provider's permission checks", () => {
   expect(claude.adapter.launch.start(bypass)).toEqual(["--dangerously-skip-permissions"]);
   expect(codex.adapter.launch.start(bypass)).toEqual(["--dangerously-bypass-approvals-and-sandbox"]);
   for (const p of Provider.all)
-    expect(adapter(p).launch.start({ permissions: "default", model: null, args: [] })).toEqual([]);
+    // Goose's session is a subcommand, not a flag, so its bare launch
+    // names the session command instead of passing no arguments.
+    expect(adapter(p).launch.start({ permissions: "default", model: null, args: [] })).toEqual(
+      p === "goose" ? ["session"] : [],
+    );
   // Codex reports a sandboxed run that never asks as bypassing too.
   expect(codex.adapter.launch.start({ ...bypass, args: ["-a", "never", "-s", "read-only"] })).toEqual([
     "-a",
