@@ -1,4 +1,4 @@
-import { test, expect, beforeEach, afterEach, setSystemTime } from "bun:test";
+import { test, expect, beforeEach, afterEach, setSystemTime, spyOn } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import type { FSWatcher } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,6 +7,7 @@ import { Option, Worker, active_every, idle_every } from "./preview";
 import { Info, Window } from "../usage/account";
 import { Provider, Text } from "../providers";
 import * as accounts from "../accounts";
+import * as discovery from "../discovery";
 
 const bin = (p: Provider) => `CORGI_${p.toUpperCase()}_BIN`;
 /** The providers these tests find installed. */
@@ -65,6 +66,34 @@ test("a launch preview names the model it shows and where it came from", () => {
   expect(o.model.text()).toBe("opus");
   expect(o.modelLabel()).toBe("Opus");
   expect(o.source.text()).toBe("Project");
+});
+
+test("install discovery expires and an explicit refresh sees changes immediately", async () => {
+  let available = true;
+  const found = spyOn(discovery, "installed").mockImplementation(() => available),
+    worker = new Worker();
+  worker.launcher = async () => ({
+    account: async () => new Info(),
+    model: async () => ({ model: "", source: "test" }),
+    close() {},
+  });
+  try {
+    setSystemTime(new Date(1_000_000_000));
+    worker.preview(root);
+    await worker.pump();
+    expect(worker.preview(root).installed.codex).toBe(true);
+    available = false;
+    setSystemTime(new Date(1_000_004_000));
+    expect(worker.preview(root).installed.codex).toBe(true);
+    setSystemTime(new Date(1_000_006_000));
+    expect(worker.preview(root).installed.codex).toBe(false);
+    available = true;
+    expect(worker.preview(root, true).installed.codex).toBe(true);
+  } finally {
+    await worker.stop();
+    found.mockRestore();
+    setSystemTime();
+  }
 });
 
 test("a launch preview prefers the provider's model name and keeps its launch id", async () => {

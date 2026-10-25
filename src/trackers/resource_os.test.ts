@@ -1,4 +1,6 @@
-import { test, expect } from "bun:test";
+import { test, expect, spyOn } from "bun:test";
+import * as fs from "node:fs";
+import * as os from "../os";
 import { parseStat, counters, inventory, host, nvidiaFiles, exists } from "./resource_os";
 test("linux stat handles spaces and closing parentheses in process names", () => {
   const fields = Array(22).fill("0");
@@ -19,11 +21,38 @@ test("native counters can sample this process", () => {
   const c = counters(process.pid);
   expect(c).not.toBeNull();
   expect(c!.memory).toBeGreaterThan(0n);
-  expect(inventory().items.some(p => p.pid === process.pid)).toBe(true);
+  const processes = inventory();
+  expect(processes.items.some(p => p.pid === process.pid)).toBe(true);
+  expect(processes.counters(process.pid)?.start).toBe(c!.start);
   expect(host().cores).toBeGreaterThan(0);
 });
 test("the inventory names each process", () => {
   expect(inventory().items.find(p => p.pid === process.pid)?.name).toBe("bun");
+});
+test.skipIf(process.platform !== "linux")("a resource scan collects adjacent counters without retaining them", () => {
+  const reads = spyOn(fs, "readFileSync"),
+    tree = spyOn(os, "processTree").mockReturnValue([process.pid, process.ppid]),
+    statReads = () => reads.mock.calls.filter(call => call[0] === `/proc/${process.pid}/stat`).length;
+  try {
+    const first = inventory([process.pid]),
+      identity = first.items.find(p => p.pid === process.pid)!,
+      reading = first.counters(process.pid)!;
+    expect(reading.start).toBe(identity.start);
+    expect(first.counters(process.pid)).toBe(reading);
+    expect(first.counters(0x7ffffff0)).toBeNull();
+    expect(statReads()).toBe(1);
+    const paths = reads.mock.calls.map(call => call[0]);
+    for (const pid of [process.pid, process.ppid])
+      expect(paths[paths.indexOf(`/proc/${pid}/stat`) + 1]).toBe(`/proc/${pid}/io`);
+    counters(process.pid);
+    expect(statReads()).toBe(2);
+    const second = inventory([process.pid]);
+    expect(second.counters(process.pid)).not.toBe(reading);
+    expect(statReads()).toBe(3);
+  } finally {
+    reads.mockRestore();
+    tree.mockRestore();
+  }
 });
 // Only Linux lists a process's open files under /proc; elsewhere the answer is null.
 test.skipIf(process.platform !== "linux")("a process without GPU device files holds none open", () => {

@@ -58,6 +58,7 @@ export class Server {
   private lastRecovery = 0;
   private workspaceWrites: Promise<void> = Promise.resolve();
   private collecting = false;
+  private collected = 0;
   // Test builds stop with the test process that owns their runtime.
   private owner = testBuild ? Number(process.env.CORGI_TEST_OWNER) || 0 : 0;
   private ownerChecked = 0;
@@ -188,8 +189,13 @@ export class Server {
   private publish(): void {
     if (this.subscribedRevision === this.runtime.revision && !this.dirty) return;
     if (this.subscribedRevision !== this.runtime.revision) {
-      const snapshot = session.snapshot(this.runtime);
-      for (const c of this.clients) if (c.subscribed) c.queue(snapshot);
+      const subscribers = this.clients.filter(c => c.subscribed && !c.dead);
+      // A snapshot raises agents that entered a section; without one, raise
+      // them now so they keep the order they entered in.
+      if (subscribers.length) {
+        const snapshot = session.snapshot(this.runtime);
+        for (const c of subscribers) c.queue(snapshot);
+      } else if (this.runtime.raiseEntered()) this.runtime.changed();
       this.subscribedRevision = this.runtime.revision;
     }
     this.wakeViewers();
@@ -257,6 +263,17 @@ export class Server {
     this.registration.arm(READ);
     this.timer = setInterval(() => {
       if (this.collecting || this.frozen) return;
+      const now = Date.now();
+      if (
+        now - this.collected < 250 &&
+        !this.dirty &&
+        !this.bell &&
+        !this.clients.some(c => c.headless_start || c.launch_preview) &&
+        !this.runtime.panes.some(p => p.terminal.due() || p.ghost !== null) &&
+        !this.runtime.sessions.some(s => !s.exited)
+      )
+        return;
+      this.collected = now;
       this.collecting = true;
       this.enqueue(async () => {
         try {
@@ -381,7 +398,7 @@ export class Server {
       viewers.filter(c => c.watched && c.worktree_detail !== null).map(c => c.worktree_detail!),
     );
     tracked = this.runtime.worktree_tracker.tick(this.runtime, overviews) || tracked;
-    const inference = this.summaries?.status();
+    const inference = this.runtime.inference;
     tracked =
       this.runtime.worktree_briefs.tick(this.runtime, overviews, {
         enabled: (this.summaries?.uses.worktrees ?? false) && !!inference?.model,
@@ -391,7 +408,7 @@ export class Server {
         file: settings.path(this.socket),
       }) || tracked;
     if (viewers.length) this.resource_readings = viewers.some(c => c.resources);
-    if (this.resource_readings)
+    if (this.resource_readings && (viewers.length || this.runtime.panes.length || this.runtime.sessions.length))
       tracked =
         this.runtime.resources.tick(
           this.runtime,

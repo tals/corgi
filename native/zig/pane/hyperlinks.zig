@@ -69,6 +69,7 @@ fn safeUri(uri: []const u8) bool {
 // Map UTF-8 bytes back to actual cells, joining only soft-wrapped rows. Explicit
 // OSC 8 cells and concealed text are barriers: their targets must win.
 fn detectPlain(allocator: std.mem.Allocator, state: *const vt.RenderState, links: *std.ArrayList(Link)) !void {
+    if (!hasPlainPrefix(state)) return;
     var scratch: std.heap.ArenaAllocator = .init(a);
     defer scratch.deinit();
     const temporary = scratch.allocator();
@@ -163,4 +164,31 @@ fn imagePath(bytes: []const u8, start: usize) ?usize {
         if (end - start > extension.len and std.ascii.endsWithIgnoreCase(bytes[start..end], extension)) return end;
     }
     return null;
+}
+
+// Avoid the byte-to-cell map when there cannot be a link: no "http", and no
+// image extension after a slash. Graphemes take the full path; this scan only
+// rules out screens made of single codepoints.
+fn hasPlainPrefix(state: *const vt.RenderState) bool {
+    var matched: usize = 0;
+    var slash = false;
+    var tail: [5]u8 = @splat(0);
+    for (state.row_data.items(.raw), state.row_data.items(.cells)) |row, cells| {
+        for (cells.items(.raw)) |cell| {
+            if (cell.wide == .spacer_tail or cell.wide == .spacer_head) continue;
+            if (cell.content_tag == .codepoint_grapheme) return true;
+            const cp = cell.codepoint();
+            matched = if (cp == "http"[matched]) matched + 1 else if (cp == 'h') 1 else 0;
+            if (matched == 4) return true;
+            if (cp == '/') slash = true;
+            std.mem.copyForwards(u8, tail[0..4], tail[1..]);
+            tail[4] = if (cp < 128) std.ascii.toLower(@intCast(cp)) else 0;
+            // Every extension is four or five bytes, dot first.
+            if (slash and (tail[0] == '.' or tail[1] == '.')) for (image_extensions) |extension| {
+                if (std.mem.endsWith(u8, &tail, extension)) return true;
+            };
+        }
+        if (!row.wrap) matched = 0;
+    }
+    return false;
 }

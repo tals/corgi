@@ -404,8 +404,10 @@ export async function run(
             }
           }
           const frame = view.frame();
-          if (view.dirty || previous !== frame || view.overlayOpen()) active_at = now;
-          next_sync = Date.now() + (now - active_at < idle_after_ms ? view.frameDelay() : quiet_sync_ms);
+          if (previous !== frame || view.overlayOpen()) active_at = now;
+          // Without the daemon's wakes, panes' output arrives only with a frame's sync.
+          const delay = waker === null ? Math.min(30, view.frameDelay()) : view.frameDelay();
+          next_sync = Date.now() + (now - active_at < idle_after_ms ? delay : quiet_sync_ms);
           view.dirty = false;
           held = previous !== frame && !ready(probe);
           if (!held) {

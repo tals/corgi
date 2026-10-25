@@ -194,7 +194,7 @@ function groupMembers(pgid: number, roots: number[]): number[] | null {
   return [...pids.subarray(0, count)];
 }
 
-export function foregrounds(terminals: { fd: number; pid: number }[]) {
+export function foregrounds(terminals: { fd: number; pid: number; agent?: number }[]) {
   const result = new Map<number, Foreground | null>();
   if (process.platform === "darwin") {
     for (const { fd } of terminals) result.set(fd, foreground(fd));
@@ -203,7 +203,7 @@ export function foregrounds(terminals: { fd: number; pid: number }[]) {
   // Terminals with one foreground group share its reading.
   const fronts = new Map<number, Foreground>(),
     groups = new Map<number, number[]>();
-  for (const { fd, pid } of terminals) {
+  for (const { fd, pid, agent } of terminals) {
     const pgid = n.probe_foreground(fd);
     if (pgid <= 0) {
       result.set(fd, null);
@@ -213,7 +213,9 @@ export function foregrounds(terminals: { fd: number; pid: number }[]) {
     if (!front) {
       front = { pgid, program: null, job: null };
       fronts.set(pgid, front);
-      if (!inspect(front, pgid)) groups.set(pgid, []);
+      inspect(front, pgid);
+      if (!front.job && agent && agent !== pgid && processJob(agent)?.pgid === pgid) inspect(front, agent);
+      if (!front.job) groups.set(pgid, []);
     }
     result.set(fd, front);
     groups.get(pgid)?.push(pid);

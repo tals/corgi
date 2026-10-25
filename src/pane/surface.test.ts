@@ -63,6 +63,17 @@ test("plain image paths link to their file, and other paths stay plain", () => {
     t.destroy();
   }
 });
+test("an image path links on a screen with no web link", () => {
+  const t = Terminal.create(40, 4);
+  try {
+    t.feed("Saved /tmp/shot.PNG");
+    expect(links(t)).toEqual([expect.objectContaining({ uri: "file:///tmp/shot.PNG" })]);
+    t.feed("\r\x1b[2KSaved /tmp/shot.txt");
+    expect(links(t)).toEqual([]);
+  } finally {
+    t.destroy();
+  }
+});
 test("plain links span soft wraps but not hard newlines and remain snapshot owned", () => {
   const t = Terminal.create(20, 5);
   try {
@@ -78,6 +89,24 @@ test("plain links span soft wraps but not hard newlines and remain snapshot owne
     t.feed("\x1b[?2026l\x1b[2J\x1b[Hhttp://\r\nexample.com");
     capture(9, t);
     expect(links(t)).toHaveLength(0);
+  } finally {
+    t.destroy();
+  }
+});
+test("plain link prefixes survive soft wraps, repeated h and preceding graphemes", () => {
+  const t = Terminal.create(20, 5),
+    url = "https://example.com/";
+  try {
+    for (const prefix of ["h", "é ", "👩‍💻 ", ...[1, 2, 3].map(n => "x".repeat(20 - n))]) {
+      t.feed("\x1b[2J\x1b[H" + prefix + url);
+      const found = links(t);
+      expect(found.length).toBeGreaterThan(0);
+      for (const link of found) expect(link.uri).toBe(url);
+    }
+    for (const text of ["ht\r\ntps://example.com/", "htt\x1b[8mp\x1b[0ms://example.com/", "plain text"]) {
+      t.feed("\x1b[2J\x1b[H" + text);
+      expect(links(t)).toHaveLength(0);
+    }
   } finally {
     t.destroy();
   }

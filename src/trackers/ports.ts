@@ -255,7 +255,8 @@ export function sockets(text: string, list: Process[], roots: Root[], all: Inter
 export async function procInventory(list: Process[], roots: Root[]): Promise<string> {
   const held: { process: Process; fds: [string, string][] }[] = [];
   for (const p of list) {
-    if (owner(p.pid, list, roots) === null) continue;
+    const root = owner(p.pid, list, roots);
+    if (!root || !workload(p, root)) continue;
     const dir = `/proc/${p.pid}/fd`;
     let entries: string[];
     try {
@@ -662,6 +663,7 @@ export class Tracker {
     return now - e.probed_at > wait;
   }
   async scan(paneText: (pane: number) => string) {
+    if (!this.roots.length) return;
     let list = process.platform === "linux" ? paneProcesses(this.roots) : null;
     if (!list) {
       const ps = await command(["ps", "-axo", "pid=,ppid=,pgid=,comm="], false, this.abort.signal);

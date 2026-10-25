@@ -213,6 +213,35 @@ test("conversation names are queued only while attached to a live Corgi pane", (
   worker.reconcile([actor], [pane]);
   expect(worker.names.slots.size).toBe(0);
 });
+test("naming reconciliation visits each pane once for many attached conversations", () => {
+  const worker = new Worker("off"),
+    registry = new Registry();
+  let scans = 0;
+  const actors = Array.from({ length: 64 }, (_, i) => {
+      const actor = registry.get("pi", `session-${i}`);
+      actor.state.transcript = new Path(`/tmp/session-${i}.jsonl`);
+      return actor;
+    }),
+    panes = actors.map(actor => ({
+      attachment: { actor },
+      terminal: {
+        get exited() {
+          scans++;
+          return false;
+        },
+      },
+    })) as unknown as Parameters<Worker["reconcile"]>[1];
+  try {
+    worker.reconcile(actors, panes);
+    expect(scans).toBe(actors.length);
+    expect(worker.names.slots.size).toBe(actors.length);
+    worker.reconcile(actors, []);
+    expect(worker.names.slots.size).toBe(0);
+  } finally {
+    worker.stop();
+  }
+});
+
 test("conversation naming shares the worker's off switch and inference scheduling", async () => {
   const worker = new Worker("off");
   let calls = 0;

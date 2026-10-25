@@ -8,6 +8,7 @@ import * as surface from "./surface";
 import type { Link } from "./hyperlinks";
 import type { Pointer } from "bun:ffi";
 import type { Wire } from "../protocol";
+export type Title = { text: string; pid: number; revision: bigint };
 let readiness: ReadyLoop | null = null;
 const loop = () => (readiness ??= new ReadyLoop());
 export function closeReadiness(): void {
@@ -57,10 +58,16 @@ export class Terminal extends EventEmitter {
     return call(this.handle, request);
   }
   get surface_identity(): bigint {
-    return BigInt(this.native({ op: "info" }).surface_identity);
+    if (this.destroyed) throw Error("TerminalClosed");
+    return n.terminal_surface_identity(this.handle);
   }
   get surface_revision(): bigint {
-    return BigInt(this.native({ op: "info" }).surface_revision);
+    if (this.destroyed) throw Error("TerminalClosed");
+    return n.terminal_surface_revision(this.handle);
+  }
+  titleInfo(): Title {
+    const info = this.native({ op: "info" });
+    return { text: info.title, pid: info.title_pid, revision: BigInt(info.title_revision) };
   }
   get title_pid(): number {
     return this.native({ op: "info" }).title_pid;

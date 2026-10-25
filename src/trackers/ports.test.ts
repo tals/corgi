@@ -1,6 +1,7 @@
-import { test, expect } from "bun:test";
+import { test, expect, spyOn } from "bun:test";
 import {
   procSockets,
+  procInventory,
   type Socket,
   Snapshot,
   kind,
@@ -21,6 +22,7 @@ import {
   type Interface,
 } from "./ports";
 import { mkdtempSync, writeFileSync } from "node:fs";
+import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 test("socket inventory scopes descendants without widening network selection", () => {
@@ -33,6 +35,17 @@ test("socket inventory scopes descendants without widening network selection", (
   expect(command).toContain("-iUDP");
   const empty = socketCommand(list, []);
   expect(empty[empty.indexOf("-p") + 1]).toBe(String(process.pid));
+});
+test("proc inventory only opens descriptors for processes that can expose ports", async () => {
+  const list = processes("10 1 10 sh\n11 10 10 claude\n12 10 12 node\n13 12 13 server\n20 1 20 other"),
+    roots = [{ pid: 10, pane: 1, workspace: 1, agent_pid: 12 }],
+    directories = spyOn(fs, "readdir").mockResolvedValue([]);
+  try {
+    expect(await procInventory(list, roots)).toBe("");
+    expect(directories.mock.calls.map(call => call[0])).toEqual(["/proc/13/fd"]);
+  } finally {
+    directories.mockRestore();
+  }
 });
 const endpoint = (fields: Partial<Endpoint> = {}): Endpoint => ({
   label: "",
