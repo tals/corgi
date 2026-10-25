@@ -180,14 +180,15 @@ libc.symbols.lseek(fd, 0n, 0);
     const first = await this.new(),
       folder = join(this.temp.name, "project");
     mkdirSync(folder);
-    const before = (await this.session()).workspaces[0],
+    const physicalFolder = realpathSync(folder),
+      before = (await this.session()).workspaces[0],
       ws = before.id;
     await this.reload();
     await this.command("pane.input", {
       target: first,
       data: `cd ${quote(folder)}\r`,
     });
-    await this.until(async () => (await this.session()).workspaces[0].cwd === folder);
+    await this.until(async () => (await this.session()).workspaces[0].cwd === physicalFolder);
     this.assertEqual((await this.session()).workspaces[0].name, before.name);
     await this.command("workspace.edit", { name: "Override", target: ws });
     await this.reload();
@@ -210,8 +211,9 @@ libc.symbols.lseek(fd, 0n, 0);
     const first = await this.new(),
       folder = join(this.temp.name, "项目 café");
     mkdirSync(folder);
+    const physicalFolder = realpathSync(folder);
     await this.command("pane.input", { target: first, data: `cd ${quote(folder)}\r` });
-    await this.until(async () => (await this.session()).workspaces[0].cwd === folder);
+    await this.until(async () => (await this.session()).workspaces[0].cwd === physicalFolder);
     const before = await this.session();
     const executable = this.candidate("m.runtime.version = 6; m.runtime.workspaces[0].name = ''");
     await this.reload(executable);
