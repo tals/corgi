@@ -138,6 +138,7 @@ $.workspaces[].away.counts.output: u64
 $.workspaces[].away.counts.tokens_known: bool
 $.workspaces[].id: u32
 $.workspaces[].name: string
+$.workspaces[].pristine: bool
 $.workspaces[].cwd: string
 $.workspaces[].worktrees: optional
 $.workspaces[].worktrees?.common_dir: string

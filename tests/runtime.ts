@@ -122,6 +122,7 @@ export function running(pid: number) {
   }
 }
 export class Runtime extends TestCase {
+  autostart = true;
   temp!: ReturnType<typeof tempDir>;
   path!: string;
   env!: Record<string, string | undefined>;
@@ -174,8 +175,10 @@ export class Runtime extends TestCase {
     this.viewers = [];
     this.proc = null;
     if (this.configure) await this.configure();
-    await this.run_cli("start");
-    this.started = true;
+    if (this.autostart) {
+      await this.run_cli("start");
+      this.started = true;
+    }
   }
   async tearDown() {
     const errors: unknown[] = [];

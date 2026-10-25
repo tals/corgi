@@ -158,6 +158,7 @@ export function capture(r: Runtime, live: boolean) {
       away: w.away,
       id: w.id,
       name: w.name(),
+      pristine: w.pristine,
       cwd: w.cwd,
       worktrees: live ? w.worktrees : null,
       model: w.model,
@@ -278,6 +279,7 @@ export async function restore(
     )
       invalid();
     const item = new Workspace(w.id, w.cwd, w.name);
+    item.pristine = w.pristine ?? false;
     if (live && w.worktrees != null) {
       item.worktrees = worktrees.snapshot(w.worktrees);
       if (

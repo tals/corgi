@@ -10,7 +10,7 @@ import type { Snapshot as Worktrees } from "./worktrees";
 export class Workspace {
   static Id = { none: 0, first: 1, next: (id: number) => id + 1 };
   private label: string;
-  /** An untouched empty starter can be replaced by an onboarding import. */
+  /** No explicit rename; onboarding may replace this workspace while empty. */
   pristine: boolean;
   model = new Model();
   agent_order = new Order();
@@ -37,6 +37,10 @@ export class Workspace {
   name() {
     return this.label;
   }
+  initializeFolder(cwd: string) {
+    if (this.pristine) this.label = basename(cwd) || "/";
+    this.follow(cwd);
+  }
   follow(cwd: string) {
     if (!cwd || cwd === this.cwd) return false;
     this.cwd = cwd;
@@ -52,8 +56,9 @@ export class Workspace {
     this.git_commits = new Commits();
   }
   rename(value: string) {
-    let name = [...value.replace(/^ +| +$/g, "").replace(/[\x00-\x1f\x7f-\x9f]/g, "_")].slice(0, 80).join("");
-    while (Buffer.byteLength(name) > 80) name = [...name].slice(0, -1).join("");
+    const capacity = Math.max(80, Buffer.byteLength(this.label));
+    let name = [...value.replace(/^ +| +$/g, "").replace(/[\x00-\x1f\x7f-\x9f]/g, "_")].slice(0, capacity).join("");
+    while (Buffer.byteLength(name) > capacity) name = [...name].slice(0, -1).join("");
     if (!name) throw Error("InvalidName");
     this.label = name;
     this.pristine = false;
@@ -85,6 +90,7 @@ export class Store {
             workspaces: this.items.map(w => ({
               id: w.id,
               name: w.name(),
+              pristine: w.pristine,
               cwd: w.cwd,
             })),
           },
@@ -121,11 +127,13 @@ export class Store {
         items.some(w => w.id === x.id) ||
         typeof x.name !== "string" ||
         !x.name ||
+        (x.pristine !== undefined && typeof x.pristine !== "boolean") ||
         typeof x.cwd !== "string" ||
         !isAbsolute(x.cwd)
       )
         invalid();
       const w = new Workspace(x.id, x.cwd, x.name);
+      w.pristine = x.pristine ?? false;
       items.push(w);
     }
     if (!items.some(w => w.id === d.active)) invalid();

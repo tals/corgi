@@ -127,6 +127,7 @@ export class Dialog {
   private pressed_at: number | null = null;
   /** The text as UTF-8, as fields draw it, until the text changes. */
   private utf8 = { text: "", bytes: new Uint8Array() };
+  private initial = "";
 
   constructor(target: Target) {
     this.target = target;
@@ -170,10 +171,15 @@ export class Dialog {
   /** Replaces the text, keeping it wholly selected if it was. */
   protected fill(initial: string): void {
     const whole = this.selected;
+    this.initial = initial;
     let text = unicodeTarget(this.target) ? initial : initial.replace(/[^\x20-\x7e]/gu, "_");
-    while (Buffer.byteLength(text) > limit(this.target)) text = [...text].slice(0, -1).join("");
+    while (Buffer.byteLength(text) > this.capacity()) text = [...text].slice(0, -1).join("");
     this.area = new TextArea(text, false);
     if (whole) this.selected = true;
+  }
+  private capacity(): number {
+    // Folder-derived workspace names may exceed the limit for new names.
+    return Math.max(limit(this.target), "workspace_name" in this.target ? Buffer.byteLength(this.initial) : 0);
   }
   /** The text as written, untrimmed. */
   raw(): string {
@@ -183,6 +189,7 @@ export class Dialog {
     return Buffer.from(this.text.subarray(from, to)).toString();
   }
   name(): string {
+    if ("workspace_name" in this.target && this.area.text === this.initial) return this.initial;
     const trim = "agent_command" in this.target ? " \t\r\n" : " ";
     let start = 0;
     let end = this.area.text.length;
@@ -216,7 +223,7 @@ export class Dialog {
   }
   private insert(text: string): void {
     const sel = this.selection() ?? [this.cursor, this.cursor];
-    if (this.len - (sel[1] - sel[0]) + Buffer.byteLength(text) > limit(this.target)) {
+    if (this.len - (sel[1] - sel[0]) + Buffer.byteLength(text) > this.capacity()) {
       this.overflow = true;
       return;
     }

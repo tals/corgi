@@ -369,6 +369,7 @@ function workspaceNames(value: any) {
     const fields = object(workspace);
     if (fields.name !== "") continue;
     if (typeof fields.cwd !== "string") throw Error("InvalidCheckpoint");
+    fields.pristine = true;
     fields.name = basename(fields.cwd) || "/";
   }
 }
