@@ -165,16 +165,16 @@ test("only attached conversations and their subagents are followed", () => {
   const { r, w } = setup();
   try {
     const parent = r.conversations.get("claude", "parent"),
-      child = r.conversations.get("claude", "child"),
-      other = r.conversations.get("claude", "other");
+      child = r.conversations.get("claude", "child");
+    r.conversations.get("claude", "other");
     child.parent = parent.id;
     const p = add(r, w);
     p.attachment.select(parent);
-    expect(r.followed(parent)).toBe(true);
-    expect(r.followed(child)).toBe(true);
-    expect(r.followed(other)).toBe(false);
+    expect(r.followed()).toEqual(new Set([parent, child]));
+    parent.parent = child.id;
+    expect(r.followed()).toEqual(new Set([parent, child]));
     p.terminal.exited = true;
-    expect(r.followed(child)).toBe(false);
+    expect(r.followed().size).toBe(0);
   } finally {
     r.destroy();
   }

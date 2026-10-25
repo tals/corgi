@@ -75,7 +75,9 @@ export class Terminal {
   render_dirty = true;
   /** Bytes for the program, sent with the next sync. */
   pending: number[] = [];
-  private links: Link[] = [];
+  private links: Link[] | null = null;
+  private received: surface.Surface | null = null;
+  private rendered: { key: string; rows: string } | null = null;
 
   constructor(
     public conn: Transport,
@@ -89,12 +91,15 @@ export class Terminal {
     return this.inner.handle;
   }
   hyperlinks(): Link[] {
-    return this.links;
+    this.updateRender();
+    return (this.links ??= this.inner.hyperlinks());
   }
   updateRender(): void {
     if (!this.render_dirty) return;
+    this.received = null;
+    this.rendered = null;
+    this.links = null;
     viewerNative.updateRender(this.handle);
-    this.links = this.inner.hyperlinks();
     this.render_dirty = false;
   }
   destroy(): void {
@@ -180,6 +185,7 @@ export class Terminal {
     // hold the old display while the daemon continues collecting output.
     this.known = view.stamp ?? null;
     this.images = frame.images ?? [];
+    this.received = frame;
   }
   async image(id: string, offset: number): Promise<string | null> {
     return (await call(this.conn, "viewer.image", { pane: this.id, image: id, offset })).data;
@@ -203,7 +209,20 @@ export class Terminal {
     return viewerNative.cursor(this.handle, false);
   }
   rows(pane: number, x: number, y: number, w: number, h: number, dimmed: boolean, hovered: bigint | null): string {
-    return viewerNative.rows(this.handle, pane, x, y, w, h, dimmed, hovered);
+    this.updateRender();
+    const key = `${pane}:${x}:${y}:${w}:${h}:${dimmed}:${hovered}`;
+    if (this.rendered?.key !== key) {
+      const received = this.received;
+      const rows =
+        received && pane === received.pane && w === received.cols && !dimmed && hovered === null && !this.selection
+          ? received.lines
+              .slice(0, Math.min(received.rows, h))
+              .map((line, row) => `\x1b[${y + row + 1};${x + 1}H${line}`)
+              .join("")
+          : viewerNative.rows(this.handle, pane, x, y, w, h, dimmed, hovered);
+      this.rendered = { key, rows };
+    }
+    return this.rendered.rows;
   }
 }
 

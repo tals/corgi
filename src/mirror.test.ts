@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test, spyOn } from "bun:test";
 import { Controller } from "./controller";
 import { transport } from "./fixtures/transport";
 import * as json from "./json";
@@ -7,6 +7,8 @@ import * as protocol from "./protocol";
 import * as viewer from "./viewer";
 import * as sim from "./providers/sim";
 import { Provider } from "./providers";
+import { Terminal } from "./pane/terminal";
+import * as viewerNative from "./viewer_native";
 
 test("provider names use the registered display name, not the wire id", () => {
   const unregister = sim.register();
@@ -59,6 +61,94 @@ test("a snapshot whose stars the viewer can't read shows none", () => {
     runtime.destroy();
   }
 });
+test("cached pane rows follow surfaces, selection, geometry, dimming and hovered links", () => {
+  const source = new Terminal(32, 3),
+    pane = new mirror.Terminal(
+      transport(async () => ({})),
+      1,
+      32,
+      3,
+    );
+  const draw = (x = 0, dim = false, hover: bigint | null = null) => {
+    const rows = pane.rows(1, x, 1, 30, 3, dim, hover);
+    expect(rows).toBe(viewerNative.rows(pane.handle, 1, x, 1, 30, 3, dim, hover));
+    return rows;
+  };
+  try {
+    source.feed("\x1b]8;;https://example.com/\x1b\\Docs\x1b]8;;\x1b\\ plain");
+    pane.receive(source.surface(1));
+    const first = draw();
+    expect(draw()).toBe(first);
+    expect(draw(2)).not.toBe(first);
+    expect(draw(0, true)).not.toBe(first);
+    expect(draw(0, false, pane.hyperlinks()[0].id)).not.toBe(first);
+    pane.select(0, 0, 3, 0);
+    expect(draw()).not.toBe(first);
+    pane.clearSelection();
+    expect(draw()).toBe(first);
+    source.feed("\r\x1b[2KChanged");
+    pane.receive(source.surface(1));
+    expect(draw()).not.toBe(first);
+    expect(draw()).toContain("Changed");
+  } finally {
+    pane.destroy();
+    source.destroy();
+  }
+});
+
+test("unaltered surface rows preserve native rendering without another row conversion", () => {
+  const source = new Terminal(32, 3),
+    pane = new mirror.Terminal(
+      transport(async () => ({})),
+      1,
+      32,
+      3,
+    ),
+    direct = new Terminal(40, 8),
+    rendered = new Terminal(40, 8);
+  try {
+    source.feed("\x1b[31;1mRed 界 é 🐕\x1b[0m\r\n\x1b]8;id=docs;https://example.com/\x1b\\Docs\x1b]8;;\x1b\\ plain");
+    pane.receive(source.surface(1));
+    const reference = viewerNative.rows(pane.handle, 1, 3, 2, 32, 3, false, null),
+      rows = spyOn(viewerNative, "rows"),
+      links = spyOn(pane.inner, "hyperlinks");
+    try {
+      const output = pane.rows(1, 3, 2, 32, 3, false, null);
+      expect(rows).not.toHaveBeenCalled();
+      expect(links).not.toHaveBeenCalled();
+      direct.feed(output + "\x1b[1;1H");
+      rendered.feed(reference + "\x1b[1;1H");
+      expect(direct.snapshot()).toEqual(rendered.snapshot());
+      expect(pane.hyperlinks()).toHaveLength(1);
+      expect(links).toHaveBeenCalledTimes(1);
+      pane.hyperlinks();
+      expect(links).toHaveBeenCalledTimes(1);
+      pane.rows(1, 3, 2, 30, 3, false, null);
+      pane.rows(1, 3, 2, 32, 3, true, null);
+      pane.rows(1, 3, 2, 32, 3, false, pane.hyperlinks()[0].id);
+      expect(rows).toHaveBeenCalledTimes(3);
+      pane.select(0, 0, 2, 0);
+      pane.rows(1, 3, 2, 32, 3, false, null);
+      expect(rows).toHaveBeenCalledTimes(4);
+      pane.clearSelection();
+      source.feed("\x1b[2J\x1b[Hnew surface");
+      pane.receive(source.surface(1));
+      expect(pane.rows(1, 3, 2, 32, 3, false, null)).toContain("new surface");
+      expect(rows).toHaveBeenCalledTimes(4);
+      expect(pane.hyperlinks()).toEqual([]);
+      expect(links).toHaveBeenCalledTimes(2);
+    } finally {
+      rows.mockRestore();
+      links.mockRestore();
+    }
+  } finally {
+    source.destroy();
+    pane.destroy();
+    direct.destroy();
+    rendered.destroy();
+  }
+});
+
 test("viewer scalars retain their bigint type after small and large wire replies", async () => {
   let value = 1n;
   const requests: any[] = [];

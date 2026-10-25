@@ -7,6 +7,7 @@ import { Terminal } from "./pane/terminal";
 import { captureManifest, restoreClient, restoreMetadata } from "./persist/handoff";
 import * as json from "./json";
 import * as protocol from "./protocol";
+import * as session from "./session";
 function fixture() {
   const server = new Server("", "", "0".repeat(64));
   return {
@@ -17,6 +18,34 @@ function fixture() {
     },
   };
 }
+test("session snapshots are shared by subscribers and skipped without them", () => {
+  const { server, dispose } = fixture(),
+    snapshot = spyOn(session, "snapshot"),
+    first: unknown[] = [],
+    second: unknown[] = [];
+  try {
+    const publish = () => Reflect.get(server, "publish").call(server);
+    publish();
+    expect(snapshot).not.toHaveBeenCalled();
+    server.clients.push(
+      { subscribed: true, queue: (value: unknown) => first.push(value) } as any,
+      { subscribed: true, queue: (value: unknown) => second.push(value) } as any,
+    );
+    server.runtime.wrote();
+    publish();
+    expect(snapshot).toHaveBeenCalledTimes(1);
+    expect(first[0]).toBe(second[0]);
+    publish();
+    expect(snapshot).toHaveBeenCalledTimes(1);
+    server.clients = [];
+    server.runtime.wrote();
+    publish();
+    expect(snapshot).toHaveBeenCalledTimes(1);
+  } finally {
+    snapshot.mockRestore();
+    dispose();
+  }
+});
 test("a viewer's protocol version is checked before its request is decoded", async () => {
   const { server, dispose } = fixture(),
     messages: any[] = [];

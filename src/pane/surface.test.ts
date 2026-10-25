@@ -82,6 +82,24 @@ test("plain links span soft wraps but not hard newlines and remain snapshot owne
     t.destroy();
   }
 });
+test("plain link prefixes survive soft wraps, repeated h and preceding graphemes", () => {
+  const t = Terminal.create(20, 5),
+    url = "https://example.com/";
+  try {
+    for (const prefix of ["h", "é ", "👩‍💻 ", ...[1, 2, 3].map(n => "x".repeat(20 - n))]) {
+      t.feed("\x1b[2J\x1b[H" + prefix + url);
+      const found = links(t);
+      expect(found.length).toBeGreaterThan(0);
+      for (const link of found) expect(link.uri).toBe(url);
+    }
+    for (const text of ["ht\r\ntps://example.com/", "htt\x1b[8mp\x1b[0ms://example.com/", "plain text"]) {
+      t.feed("\x1b[2J\x1b[H" + text);
+      expect(links(t)).toHaveLength(0);
+    }
+  } finally {
+    t.destroy();
+  }
+});
 test("native surfaces and links expose exact bigint identities and numeric viewports", () => {
   const t = Terminal.create(32, 3);
   try {

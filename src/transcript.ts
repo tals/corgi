@@ -132,7 +132,8 @@ export class Worker {
     this.watchers.clear();
   }
   reconcile(actors: Array<{ id: number; state: Agent }>) {
-    for (const id of this.watchers.keys()) if (!actors.some(a => a.id === id)) this.watchers.delete(id);
+    const current = new Set(actors.map(actor => actor.id));
+    for (const id of this.watchers.keys()) if (!current.has(id)) this.watchers.delete(id);
     this.requests = actors
       .filter(a => a.state.observation.pending_stop && a.state.transcript.len && a.state.session.len)
       .map(a => ({ actor: a.id, agent: a.state.snapshot() }));
