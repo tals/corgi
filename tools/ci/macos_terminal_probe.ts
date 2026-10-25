@@ -125,14 +125,7 @@ for (const terminal of ["ghostty", "iterm2"]) {
     await checked(["screencapture", "-x", "-o", "-l", String(window.kCGWindowNumber), join(dir, "corgi.png")]);
     // Let the existing badge's upload and confirmation retries finish, too.
     await Bun.sleep(16000);
-    await checked([
-      "screencapture",
-      "-x",
-      "-o",
-      "-l",
-      String(window.kCGWindowNumber),
-      join(dir, "corgi-settled.png"),
-    ]);
+    await checked(["screencapture", "-x", "-o", "-l", String(window.kCGWindowNumber), join(dir, "corgi-settled.png")]);
     result.ok = true;
   } catch (error) {
     result.ok = false;
