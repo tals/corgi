@@ -19,6 +19,15 @@ test("Goose identity is its configured provider", () => {
   }
 });
 
+test("Goose identity reads active_provider first", () => {
+  const root = dirWith("active_provider: ollama_cloud\nproviders:\n  ollama_cloud:\n    model: gemma4:31b\n");
+  try {
+    expect(accounts.identity(root)).toEqual({ email: "ollama_cloud", id: "goose:ollama_cloud" });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Goose identity accepts provider spellings and quotes", () => {
   const root = dirWith("provider: 'openai'\n");
   try {

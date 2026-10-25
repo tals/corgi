@@ -42,6 +42,39 @@ export function configValueAt(dir: string, ...keys: string[]): string {
   return "";
 }
 
+/** Goose's configured provider: `active_provider` first, older keys after. */
+export function configProvider(dir: string): string {
+  return configValueAt(dir, "active_provider", "GOOSE_PROVIDER", "provider", "default_provider");
+}
+
+/** The model of `provider`'s block under `providers:`, else a top-level key. */
+export function configModel(dir: string, provider: string): string {
+  let text = "";
+  try {
+    text = readFileSync(join(dir, "config.yaml"), "utf8");
+  } catch {
+    return "";
+  }
+  if (provider) {
+    const lines = text.split("\n");
+    const at = lines.findIndex(l => {
+      const m = l.match(/^(\s*)([^:\s][^:]*):\s*(#.*)?$/);
+      return m !== null && m[2] === provider;
+    });
+    if (at >= 0) {
+      const indent = lines[at].match(/^\s*/)?.[0].length ?? 0;
+      for (let i = at + 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (/^\s*$/.test(line) || /^\s*#/.test(line)) continue;
+        if ((line.match(/^\s*/)?.[0].length ?? 0) <= indent) break;
+        const m = line.match(/^\s+model:\s*["']?([^"'\s#]+)/);
+        if (m) return m[1];
+      }
+    }
+  }
+  return configValueAt(dir, "GOOSE_MODEL", "model", "default_model");
+}
+
 /** The lines of a top-level `plugins:` block: its indent, and each child's key. */
 function pluginsBlock(lines: string[]): { at: number; indent: number } | null {
   const at = lines.findIndex(l => /^plugins:\s*(#.*)?$/.test(l));

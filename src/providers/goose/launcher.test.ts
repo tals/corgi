@@ -16,13 +16,29 @@ test("Goose launcher reports its provider and model from config", async () => {
   const prev = process.env.GOOSE_PATH_ROOT;
   process.env.GOOSE_PATH_ROOT = root;
   try {
-    withRoot(root, "GOOSE_PROVIDER: ollama_cloud\nGOOSE_MODEL: gemma4:31b\n");
+    withRoot(root, "active_provider: ollama_cloud\nproviders:\n  ollama_cloud:\n    model: gemma4:31b\n");
     const launcher = open("");
     const info = await launcher.account(Quit.init(), 0);
     expect(info.signed_in).toBe(true);
     expect(info.account.text()).toBe("ollama_cloud");
     expect((await launcher.model("/tmp", Quit.init())).model).toBe("gemma4:31b");
     expect(launcher.watches?.()).toEqual([join(root, "config", "config.yaml")]);
+    launcher.close();
+  } finally {
+    if (prev === undefined) delete process.env.GOOSE_PATH_ROOT;
+    else process.env.GOOSE_PATH_ROOT = prev;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Goose launcher reads the active provider's model, not the first", async () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-goose-"));
+  const prev = process.env.GOOSE_PATH_ROOT;
+  process.env.GOOSE_PATH_ROOT = root;
+  try {
+    withRoot(root, "active_provider: second\nproviders:\n  first:\n    model: one\n  second:\n    model: two\n");
+    const launcher = open("");
+    expect((await launcher.model("/tmp", Quit.init())).model).toBe("two");
     launcher.close();
   } finally {
     if (prev === undefined) delete process.env.GOOSE_PATH_ROOT;
