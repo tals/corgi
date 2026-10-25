@@ -10,7 +10,7 @@ pub const Provider = enum {
     codex,
     claude,
     pi,
-
+    goose,
     const Info = struct {
         executables: []const []const u8,
         install_markers: []const []const u8 = &.{},
@@ -27,6 +27,7 @@ pub const Provider = enum {
         return switch (provider) {
             .codex => .{ .executables = &.{"codex"}, .scripts = &.{"/@openai/codex/bin/codex.js"} },
             .pi => .{ .executables = &.{"pi"}, .scripts = &.{"/@earendil-works/pi-coding-agent/dist/bundle/cli.js", "/@earendil-works/pi-coding-agent/dist/cli.js", "/@mariozechner/pi-coding-agent/dist/cli.js"} },
+	        .goose => .{ .executables = &.{"goose"}, .scripts = &.{} },
             .claude => .{
                 .executables = &.{ "claude", "claude-code" },
                 // Claude's daemon launches the versioned native binary directly.
