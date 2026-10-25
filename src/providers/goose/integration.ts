@@ -27,6 +27,21 @@ const hooksPath = (env: NodeJS.ProcessEnv = process.env) => join(pluginDir(env),
 const scriptPath = (env: NodeJS.ProcessEnv = process.env) => join(pluginDir(env), "hooks", "corgi-hook.mjs");
 const configPath = (account = "", env: NodeJS.ProcessEnv = process.env) => join(directory(account, env), "config.yaml");
 
+/** A top-level `config.yaml` value in `dir`: the first matching key wins. */
+export function configValueAt(dir: string, ...keys: string[]): string {
+  let text = "";
+  try {
+    text = readFileSync(join(dir, "config.yaml"), "utf8");
+  } catch {
+    return "";
+  }
+  for (const key of keys) {
+    const match = text.match(new RegExp(`^${key}:\\s*["']?([^"'\\s#]+)`, "m"));
+    if (match) return match[1];
+  }
+  return "";
+}
+
 /** The lines of a top-level `plugins:` block: its indent, and each child's key. */
 function pluginsBlock(lines: string[]): { at: number; indent: number } | null {
   const at = lines.findIndex(l => /^plugins:\s*(#.*)?$/.test(l));

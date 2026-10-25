@@ -32,6 +32,7 @@ export const adapter: Adapter = {
   // PATH only; the install script's paths are not yet verified.
   installs: () => [],
   accounts,
+  launcher: account => import("./launcher").then(m => m.open(account)),
   // No screen survey: the watcher only speaks for agents no hook reports,
   // and goose's hooks make it authoritative, so a survey here would never
   // be consulted. Settlement comes from the hook mapping below.
