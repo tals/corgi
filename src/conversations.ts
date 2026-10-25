@@ -104,12 +104,10 @@ export class Actor {
     }
     if (snapshot.usage) {
       this.beginHeadlessUsage(binding && ["working", "blocked"].includes(snapshot.state));
-      this.headless_meter.sample(
-        snapshot.usage.total,
-        snapshot.usage.last,
-        snapshot.state === "working",
-        Math.floor(now / 1000),
-      );
+      // Observer snapshots are discrete reports: count every changed total,
+      // whatever the state. Counting only while working left idle sessions
+      // baselined and out of the meter.
+      this.headless_meter.sample(snapshot.usage.total, snapshot.usage.last, true, Math.floor(now / 1000));
     }
     if (snapshot.context) this.context = snapshot.context;
     if (snapshot.location) worktrees.recordLocation(a, snapshot.location);
