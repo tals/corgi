@@ -19,7 +19,10 @@ jobs:
         with:
           bun-version: 1.4.4
       - name: Install terminals
-        run: brew install --cask ghostty iterm2
+        run: |
+          brew install --cask ghostty iterm2
+          # Avoid an interactive first-launch confirmation on this disposable runner.
+          xattr -dr com.apple.quarantine /Applications/Ghostty.app /Applications/iTerm.app
       - uses: actions/download-artifact@v8
         with:
           name: build-macos-latest
