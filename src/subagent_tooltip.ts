@@ -724,20 +724,19 @@ export class Card {
     }
     const missing_tasks = root.timeline.omitted_tasks + feed.task_count - shown_tasks.size;
     const missing_details = detail_count - shown_details;
+    const hidden = [
+      missing_tasks ? `${missing_tasks} ${missing_tasks === 1 ? "task" : "tasks"}` : "",
+      missing_details ? `${missing_details} ${missing_details === 1 ? "activity" : "activities"}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const notice = `${points.length > 0 ? "Earlier" : "Not shown"}: ${hidden} hidden`;
     if (budget === 1) {
-      this.cell(
-        row,
-        0,
-        this.width - 6,
-        `Work · ${feed.task_count + root.timeline.omitted_tasks} tasks · ${detail_count} activities omitted`,
-        "faint",
-        false,
-      );
+      this.cell(row, 0, this.width - 6, `Work · ${hidden} hidden`, "faint", false);
       return 1;
     }
     const divider_width = this.width - 6;
-    const label =
-      omitted && !notice_row ? ` Work · +${missing_tasks} tasks · +${missing_details} activities ` : " Work ";
+    const label = omitted && !notice_row ? ` Work · ${notice} ` : " Work ";
     this.cell(row, 0, divider_width, "─".repeat(Math.min(88, divider_width)), "border", false);
     this.cell(
       row,
@@ -748,6 +747,10 @@ export class Card {
       false,
     );
     let offset = 1;
+    if (notice_row) {
+      this.cell(row + offset, 0, this.width - 6, notice, "faint", false);
+      offset++;
+    }
     for (const task of placeholders) this.taskRow(row + offset++, task);
     for (const group of visible) {
       if (group.task) {
@@ -783,17 +786,6 @@ export class Card {
         this.faded = false;
         offset++;
       }
-    }
-    if (notice_row) {
-      this.cell(
-        row + offset,
-        0,
-        this.width - 6,
-        `+${missing_tasks} tasks · +${missing_details} activities omitted`,
-        "faint",
-        false,
-      );
-      offset++;
     }
     return offset;
   }

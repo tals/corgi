@@ -216,6 +216,8 @@ Completed task context stays visible with its activity. Short cards retain the
 newest consecutive activities, including task context where it fits. The supplied
 plan is shown on its own only before the first activity; once history exists,
 headings appear only with their activity, never detached above the feed.
+Clipping notices sit above the first visible activity and identify earlier
+history, never below the newest activity. Zero omission counts are not shown.
 The timeline keeps 16 detailed
 intervals and rolls evicted intervals into their task's usage. Up to 128 task
 headings and 64 supplied placeholders are retained; omitted headings are reported.

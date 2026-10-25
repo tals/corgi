@@ -1284,7 +1284,9 @@ test("clipping preserves the newest contiguous activities and their task context
   expect(clipped).not.toContain("Finished goal");
   expect(clipped).not.toContain("Old interval");
   expect(clipped).not.toContain("Next goal");
-  expect(clipped).toContain("+1 tasks · +1 activities");
+  expect(clipped).toContain("1 task · 1 activity");
+  expect(clipped.indexOf("Earlier:")).toBeLessThan(clipped.indexOf("Current goal"));
+  expect(clipped.indexOf("Earlier current interval")).toBeLessThan(clipped.indexOf("Current interval"));
   const tiny = render(w => {
     expect(new Card(w, 0, 88).work(0, root, root.agent, 3)).toBe(3);
   });
@@ -1297,7 +1299,8 @@ test("clipping preserves the newest contiguous activities and their task context
   expect(one).not.toContain("Earlier current interval");
   root.timeline.omitted_tasks = 7;
   const bounded = render(w => new Card(w, 0, 88).work(0, root, root.agent, 12));
-  expect(bounded).toContain("+7 tasks · +0 activities");
+  expect(bounded).toContain("7 tasks");
+  expect(bounded.indexOf("Earlier:")).toBeLessThan(bounded.indexOf("Finished goal"));
 });
 
 test("task statuses use semantic tones and sanitize supplied labels and blockers", () => {
@@ -1356,7 +1359,7 @@ test("short narrow cards preserve task identity, boundaries and command priority
     truncated: false,
   };
   const busy = screenLines([root], e, 40, new Accounts(), 13);
-  expect(lineWith(busy, "Background commands")!).toBeLessThan(lineWith(busy, "tasks")!);
+  expect(lineWith(busy, "Background commands")!).toBeLessThan(lineWith(busy, "task")!);
   expect(lineWith(busy, "more commands")).not.toBeNull();
   expect(lineWith(busy, "╰")).not.toBeNull();
 });
