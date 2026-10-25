@@ -334,6 +334,12 @@ export class Session {
     let ding = false;
     const completed = !!reported && target.finishedTurn(reported);
     const stale = completed || (phase !== "working" && !!reported && !!target.turn.len && reported !== target.turnId());
+    // Keep transcript ownership unless the protocol supplies both counts.
+    if (actor && adapter(this.provider).caps.headless_counts && !stale) {
+      actor.beginHeadlessUsage(this.joined.get(actor) ?? false);
+      if (e.kind === "tool" && e.id)
+        actor.headless_meter.meter.count(0n, this.usage_tracker.tool(`${e.session}\0${e.id}`));
+    }
     if (!stale || phase === "completed") {
       if (e.kind === "tool") {
         if (e.done) this.finishTool(e.id, thread);
@@ -347,7 +353,13 @@ export class Session {
     if (e.kind === "usage" && e.total && actor) {
       const active = this.active_threads.has(e.session);
       actor.beginHeadlessUsage(this.joined.get(actor) ?? false);
-      actor.headless_meter.sample(new Tokens(e.total.total), e.total.last, active, Date.now());
+      actor.headless_meter.sample(
+        new Tokens(e.total.total),
+        e.total.last,
+        active,
+        Date.now(),
+        adapter(this.provider).caps.headless_counts,
+      );
     }
     if (e.kind === "request_closed") {
       const removed = this.approvals.filter(r => r.id === e.id && r.actor === actor);

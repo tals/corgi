@@ -19,7 +19,7 @@ import * as links from "../trackers/link_labels";
 import * as worktrees from "../worktrees";
 import { parseInventory } from "../trackers/worktrees";
 import { snapshot } from "../session";
-import { Tokens } from "../usage/live";
+import { Tokens, View } from "../usage/live";
 const fixtures = resolve(import.meta.dir, "../fixtures");
 const fresh = () => {
   const r = new Runtime(),
@@ -310,6 +310,7 @@ test("a conversation's headless count and tracking start survive handoffs, not c
     const first = new Tokens({ input: 100n, cached_input: 40n, output: 10n });
     actor.beginHeadlessUsage(false);
     actor.headless_meter.sample(first, first, true, 60_000);
+    actor.headless_meter.meter.count(2n, 3n);
     const state = roundtrip(cp.capture(original, live));
     validateCheckpoint(state);
     using next = new Runtime();
@@ -318,12 +319,75 @@ test("a conversation's headless count and tracking start survive handoffs, not c
     expect(restored.headless_usage).toBe(live);
     expect(restored.tracked_since === 1234).toBe(live);
     if (!live) continue;
+    expect(restored.usageView(60_000).counts_known).toBe(true);
+    restored.headless_meter.meter.count(1n, 2n);
     restored.headless_meter.sample(new Tokens({ input: 150n, cached_input: 60n, output: 15n }), null, true, 60_000);
     const usage = restored.usageView(60_000);
     expect(usage.tokens).toEqual(new Tokens({ input: 150n, cached_input: 60n, output: 15n }));
     expect(usage.partial).toBe(false);
     expect(usage.recent_tokens).toBe(165n);
+    expect([usage.turns, usage.tools]).toEqual([3n, 5n]);
+    const saved = state.conversations.find((item: { id: number }) => item.id === actor.id).headless_meter.meter.value;
+    delete saved.turns;
+    delete saved.tools;
+    delete saved.counts_known;
+    using older = new Runtime();
+    await restore(older, state, true);
+    const unknown = older.conversations.byId(actor.id)!.usageView(60_000);
+    expect([unknown.turns, unknown.tools, unknown.counts_known]).toEqual([0n, 0n, false]);
   }
+});
+test("task ownership and accumulated activity usage survive handoff without double counting", async () => {
+  using original = fresh();
+  const actor = original.conversations.get("omp", "work-history");
+  show(original, actor);
+  actor.live_usage = new View({ known: true, counts_known: true });
+  const timeline = actor.activity_timeline;
+  timeline.syncPlan(
+    [{ name: "Implement", tasks: [{ content: "Keep completed todos visible", status: "in_progress" }] }],
+    actor.live_usage,
+    1000,
+  );
+  const task = timeline.taskContext().tasks[0];
+  timeline.selectTask({ id: task.id, label: null }, []);
+  timeline.checkpoint("turn", new Text("Editing todo visibility"), actor.live_usage, 1000);
+  actor.live_usage.tokens.input = 100n;
+  actor.live_usage.turns = 2n;
+  actor.live_usage.tools = 3n;
+  timeline.checkpoint("turn", new Text("Checking idle rendering"), actor.live_usage, 2000);
+  actor.live_usage.tokens.input = 150n;
+  actor.live_usage.turns = 3n;
+  actor.live_usage.tools = 5n;
+  const saved = roundtrip(cp.capture(original, true));
+  validateCheckpoint(saved);
+  using next = new Runtime();
+  await restore(next, saved, true);
+  const resumed = next.conversations.byId(actor.id)!;
+  const work = resumed.activity_timeline;
+  expect(work.points.map(point => point.task_id)).toEqual([task.id, task.id]);
+  expect(work.taskViews(resumed.live_usage)[0].usage).toMatchObject({
+    tokens: new Tokens({ input: 150n }),
+    turns: 3n,
+    tools: 5n,
+  });
+  resumed.live_usage.tokens.input = 175n;
+  resumed.live_usage.turns = 4n;
+  resumed.live_usage.tools = 6n;
+  work.amend("turn", new Text("Checking completed and idle rendering"), resumed.live_usage, 3000);
+  expect(work.points).toHaveLength(2);
+  expect(work.taskViews(resumed.live_usage)[0].usage).toMatchObject({
+    tokens: new Tokens({ input: 175n }),
+    turns: 4n,
+    tools: 6n,
+  });
+  using cold = new Runtime();
+  await restore(cold, cp.capture(original, false), false);
+  expect(cold.conversations.byId(actor.id)!.activity_timeline.taskContext().tasks).toEqual([]);
+  delete saved.conversations[0].activity_timeline;
+  delete saved.conversations[0].live_usage;
+  using older = new Runtime();
+  await restore(older, saved, true);
+  expect(older.conversations.byId(actor.id)!.activity_timeline.taskContext().tasks).toEqual([]);
 });
 test("a workspace's hidden launcher rows survive checkpoints and default for old ones", async () => {
   for (const live of [true, false]) {

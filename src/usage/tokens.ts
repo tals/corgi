@@ -5,6 +5,7 @@ export const add = (a: bigint, b: bigint) => (a + b > max ? max : a + b);
 export const sub = (a: bigint, b: bigint) => (a > b ? a - b : 0n);
 export { number };
 export class Counts {
+  turns = 0n;
   tools = 0n;
   input = 0n;
   cached_input = 0n;
@@ -14,6 +15,7 @@ export class Counts {
     Object.assign(this, v);
   }
   add(other: Counts) {
+    this.turns = add(this.turns, other.turns);
     this.tools = add(this.tools, other.tools);
     this.input = add(this.input, other.input);
     this.cached_input = add(this.cached_input, other.cached_input);
@@ -21,7 +23,7 @@ export class Counts {
     this.tokens_known ||= other.tokens_known;
   }
   any() {
-    return this.tools > 0n || this.input > 0n || this.output > 0n;
+    return this.turns > 0n || this.tools > 0n || this.input > 0n || this.output > 0n;
   }
 }
 export class Window {
@@ -48,6 +50,8 @@ export class Tracker {
     output: 0n,
   }));
   tools = Array<bigint>(256).fill(0n);
+  responses = Array<bigint>(128).fill(0n);
+  next_response = 0;
   next_sample = 0;
   next_tool = 0;
   static key(id: string) {
@@ -74,7 +78,26 @@ export class Tracker {
     tracker.tools = value.tools.map(BigInt);
     tracker.next_sample = value.next_sample;
     tracker.next_tool = value.next_tool;
+    if (value.responses !== undefined) {
+      if (
+        !Array.isArray(value.responses) ||
+        value.responses.length !== 128 ||
+        !Number.isInteger(value.next_response) ||
+        value.next_response < 0 ||
+        value.next_response >= 128
+      )
+        throw Error("InvalidCheckpoint");
+      tracker.responses = value.responses.map(BigInt);
+      tracker.next_response = value.next_response;
+    }
     return tracker;
+  }
+  response(id: string) {
+    const hash = Tracker.key(id);
+    if (!id || this.responses.includes(hash)) return 0n;
+    this.responses[this.next_response] = hash;
+    this.next_response = (this.next_response + 1) % 128;
+    return 1n;
   }
   tool(id: string) {
     const hash = Tracker.key(id);

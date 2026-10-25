@@ -10,6 +10,8 @@ import * as spend from "./usage/spend";
 import { percentFigure } from "./launcher_usage";
 import * as limit_history from "./usage/limits";
 import { Group as BackgroundGroup, type Group as BackgroundGroupName } from "./activity/background_tasks";
+import type * as todos from "./activity/todos";
+import type { TaskView } from "./activity/timeline";
 import { max_actors as max } from "./conversations";
 import { stamp_bucket } from "./protocol";
 import { type AccountOption, type Option, option } from "./agent_launcher";
@@ -123,6 +125,7 @@ export interface ActivityPoint {
   at: number;
   activity: string;
   usage: UsageView;
+  task_id: string | null;
 }
 /** background_tasks.zig's `View`. */
 export interface BackgroundView {
@@ -135,7 +138,7 @@ export interface BackgroundView {
 export interface Conversation {
   background_tasks: BackgroundView;
   id: number;
-  timeline: { points: ActivityPoint[]; pending: UsageView };
+  timeline: { points: ActivityPoint[]; pending: UsageView; tasks: TaskView[]; omitted_tasks: number };
   /** The first-party model id; Bedrock and Vertex spellings are resolved. */
   model: string;
   /** Its display name, such as "Opus 5.5"; empty for an unknown shape. */
@@ -155,7 +158,8 @@ export interface Conversation {
 export function modelLabel(c: Conversation): string {
   return c.model_name.length > 0 ? c.model_name : c.model;
 }
-const big = (value: unknown): bigint => (typeof value === "bigint" ? value : BigInt(Math.trunc(Number(value ?? 0))));
+const big = (value: unknown): bigint =>
+  typeof value === "bigint" || typeof value === "string" ? BigInt(value) : BigInt(Math.trunc(Number(value ?? 0)));
 export function usageView(value: any = {}): UsageView {
   return new UsageView({
     tokens: new Tokens({
@@ -163,12 +167,53 @@ export function usageView(value: any = {}): UsageView {
       cached_input: big(value?.tokens?.cached_input),
       output: big(value?.tokens?.output),
     }),
+    turns: big(value?.turns),
+    tools: big(value?.tools),
+    counts_known: value?.counts_known === true,
     known: value?.known === true,
     partial: value?.partial === true,
     losses: Number(value?.losses ?? 0),
     since: Number(value?.since ?? 0),
     updated_at: Number(value?.updated_at ?? 0),
     recent_tokens: big(value?.recent_tokens),
+  });
+}
+/** Invalid or ambiguous identities must not acquire another task's activity. */
+function taskViews(value: unknown): TaskView[] {
+  if (!Array.isArray(value)) return [];
+  const ids = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const task of value) {
+    if (typeof task?.id !== "string") continue;
+    if (ids.has(task.id)) duplicates.add(task.id);
+    ids.add(task.id);
+  }
+  return value.flatMap((task): TaskView[] => {
+    if (
+      !task ||
+      typeof task.id !== "string" ||
+      task.id.trim().length === 0 ||
+      duplicates.has(task.id) ||
+      typeof task.label !== "string" ||
+      task.label.trim().length === 0 ||
+      typeof task.phase !== "string" ||
+      typeof task.present !== "boolean" ||
+      (task.source !== "agent" && task.source !== "inferred") ||
+      (task.status !== null && !["pending", "in_progress", "completed", "abandoned", "blocked"].includes(task.status))
+    )
+      return [];
+    return [
+      {
+        id: task.id,
+        label: task.label,
+        phase: task.phase,
+        present: task.present,
+        source: task.source,
+        status: task.status,
+        usage: usageView(task.usage),
+        ...(typeof task.blocker === "string" ? { blocker: task.blocker } : {}),
+      },
+    ];
   });
 }
 export function conversation(value: any = {}): Conversation {
@@ -191,8 +236,14 @@ export function conversation(value: any = {}): Conversation {
         at: Number(point.at ?? 0),
         activity: point.activity ?? "",
         usage: usageView(point.usage),
+        task_id: typeof point.task_id === "string" && point.task_id.trim().length > 0 ? point.task_id : null,
       })),
       pending: usageView(value.timeline?.pending),
+      tasks: taskViews(value.timeline?.tasks),
+      omitted_tasks:
+        Number.isSafeInteger(value.timeline?.omitted_tasks) && value.timeline.omitted_tasks > 0
+          ? value.timeline.omitted_tasks
+          : 0,
     },
     model: value.model ?? "",
     model_name: value.model_name ?? "",
@@ -273,6 +324,9 @@ function groupName(child: Conversation): string {
 function add(total: UsageView, next: UsageView) {
   total.tokens.add(next.tokens);
   total.recent_tokens = satAdd(total.recent_tokens, next.recent_tokens);
+  total.turns = satAdd(total.turns, next.turns);
+  total.tools = satAdd(total.tools, next.tools);
+  total.counts_known &&= next.counts_known;
   total.known = total.known || next.known;
   total.partial = total.partial || next.partial || !next.known;
 }
@@ -303,6 +357,7 @@ export class Model {
   static init(all: readonly Conversation[], parent: number): Model {
     const m = new Model();
     const root = find(all, parent);
+    m.total.counts_known = root?.usage.counts_known ?? false;
     if (root) add(m.total, root.usage);
     for (const child of all) {
       if (!descendant(all, child, parent)) continue;
@@ -313,7 +368,7 @@ export class Model {
       if (index < 0) {
         if (m.groups.length === max) break;
         index = m.groups.length;
-        m.groups.push({ name, count: 0, usage: new UsageView() });
+        m.groups.push({ name, count: 0, usage: new UsageView({ counts_known: true }) });
       }
       m.groups[index].count += 1;
       add(m.groups[index].usage, child.usage);
@@ -397,6 +452,31 @@ export function status(agent: Agent, stale: boolean): Status {
   }
 }
 const pad2 = (n: number) => String(n).padStart(2, "0");
+const task_status: Record<todos.Status, { icon: string; tone: Tone }> = {
+  pending: { icon: "○", tone: "muted" },
+  in_progress: { icon: "▶", tone: "live" },
+  completed: { icon: "✓", tone: "muted" },
+  abandoned: { icon: "×", tone: "faint" },
+  blocked: { icon: "!", tone: "warm" },
+};
+/** Timeline order is authoritative; a returning task starts another run. */
+function workFeed(root: Conversation, agent: Agent) {
+  const unreported = agent.state === "working" && agent.activity.length === 0 && !agent.compacting;
+  const count = root.timeline.points.length + Number(unreported);
+  const by_id = new Map(root.timeline.tasks.map(task => [task.id, task]));
+  const used = new Set<string>();
+  const runs: { task: TaskView | null; start: number; end: number }[] = [];
+  for (let index = 0; index < count; index++) {
+    const task = by_id.get(root.timeline.points[index]?.task_id ?? "") ?? null;
+    if (task) used.add(task.id);
+    const previous = runs[runs.length - 1];
+    if (previous && previous.task === task) previous.end = index + 1;
+    else runs.push({ task, start: index, end: index + 1 });
+  }
+  const standalone = root.timeline.points.length === 0 ? root.timeline.tasks : [];
+  const height = 1 + standalone.length + count + runs.filter(run => run.task !== null).length;
+  return { runs, standalone, unreported, count, height, task_count: used.size + standalone.length };
+}
 export class Card {
   /** Text recedes toward the background: timeline rows older than the
    * latest five. */
@@ -577,53 +657,153 @@ export class Card {
   }
   /** One timeline step: the live one has a sage time and a bright label,
    * and past ones recede. */
-  drawPoint(row: number, stamp: string, label: string, value: UsageView, live: boolean, dot: Tone) {
-    const icon = live ? "●" : "○";
+  drawPoint(row: number, stamp: string, label: string, value: UsageView, live: boolean, dot: Tone, nested = false) {
+    const icon = live ? "●" : dot === "warm" ? "!" : "✓";
     const gap = this.tight() ? " " : "  ";
-    this.cell(row, 0, this.textWidth(), `${stamp}${gap}${icon}${gap}${label}`, live ? "strong" : "muted", false);
+    let counts = value.counts_known
+      ? `${compact(value.turns)} ${value.turns === 1n ? "turn" : "turns"} · ${compact(value.tools)} ${value.tools === 1n ? "tool" : "tools"}`
+      : "";
+    const prefix = `${stamp}${gap}${icon}${gap}`;
+    if (value.counts_known && this.textWidth() - displayWidth(prefix) - displayWidth(counts) - 1 < 12)
+      counts = `${compact(value.turns)}t · ${compact(value.tools)} ${value.tools === 1n ? "tool" : "tools"}`;
+    const counts_width = Math.min(displayWidth(counts), Math.max(0, this.textWidth()));
+    const label_width = sat(this.textWidth(), counts_width + Number(counts_width > 0));
+    const show_time = label_width > displayWidth(prefix);
+    const activity_label = nested ? `╰ ${label}` : label;
+    this.cell(
+      row,
+      0,
+      label_width,
+      show_time ? `${prefix}${activity_label}` : activity_label,
+      live ? "strong" : "muted",
+      false,
+    );
+    if (counts_width > 0) this.cell(row, this.textWidth() - counts_width, counts_width, counts, "faint", true);
     this.tokenColumns(row, value, live, !value.known ? "muted" : live ? "title" : "strong");
     const time: Tone = live ? "live" : "faint";
-    this.w.write(
-      `\x1b[${row + 1};${this.x + 4}H${base}${this.ink(time)}${stamp}\x1b[${row + 1};${this.x + (this.tight() ? 10 : 11)}H${base}${this.ink(dot)}${icon}`,
-    );
-  }
-  timeline(row: number, root: Conversation, agent: Agent, nodes: number, pending: boolean) {
-    // A working agent without a summary has no current named phase. Keep
-    // the previous interval in history until a fresh summary arrives.
-    const unreported = agent.state === "working" && agent.activity.length === 0 && !agent.compacting;
-    const history_nodes = nodes - Number(unreported);
-    const show_pending = pending && history_nodes > 0;
-    const divider_width = this.width - 6;
-    const label = " Recent ";
-    this.cell(row, 0, divider_width, "─".repeat(Math.min(88, divider_width)), "border", false);
-    this.cell(row, Math.floor((divider_width - label.length) / 2), label.length, label, "muted", false);
-    const completed = history_nodes - Number(show_pending);
-    const history_end = root.timeline.points.length - Number(pending);
-    // The latest five rows, the current one included, keep their colors.
-    const older = new Card(this.w, this.x, this.width);
-    older.faded = true;
-    root.timeline.points.slice(history_end - completed, history_end).forEach((point, i) => {
-      const local = new Date(Math.floor(point.at / 1000) * 1000);
-      const time = Number.isNaN(local.getTime()) ? "--:--" : `${pad2(local.getHours())}:${pad2(local.getMinutes())}`;
-      (i + 5 < nodes ? older : this).drawPoint(row + 1 + i, time, point.activity, point.usage, false, "faint");
-    });
-    if (show_pending) {
-      const active = agent.state === "working" && !unreported;
-      const blocked = agent.state === "blocked";
-      const latest = root.timeline.points[root.timeline.points.length - 1];
-      this.drawPoint(
-        row + 1 + completed,
-        active || blocked ? "  now" : " last",
-        latest.activity,
-        root.timeline.pending,
-        active,
-        active ? "working" : blocked ? "warm" : "faint",
+    if (show_time)
+      this.w.write(
+        `\x1b[${row + 1};${this.x + 4}H${base}${this.ink(time)}${stamp}\x1b[${row + 1};${this.x + (this.tight() ? 10 : 11)}H${base}${this.ink(dot)}${icon}`,
       );
+  }
+  /** Keep a chronological suffix, repeating task context at each transition. */
+  work(row: number, root: Conversation, agent: Agent, budget: number, feed = workFeed(root, agent)): number {
+    const points = root.timeline.points;
+    const tasks = root.timeline.tasks;
+    if (budget < 1 || (points.length === 0 && tasks.length === 0 && root.timeline.omitted_tasks === 0)) return 0;
+    const { runs, standalone, unreported, count: detail_count } = feed;
+    const current_index = detail_count - 1;
+    const omitted = feed.height > budget || root.timeline.omitted_tasks > 0;
+    const notice_row = omitted && budget >= (feed.task_count > 0 ? 4 : 3);
+    let remaining = Math.max(0, budget - 1 - Number(notice_row));
+    const visible: typeof runs = [];
+    // Never skip a newer interval to fit an older task or a shorter run.
+    for (let i = runs.length - 1; i >= 0 && remaining > 0; i--) {
+      const run = runs[i];
+      const heading = Number(run.task !== null);
+      if (remaining <= heading) {
+        if (visible.length === 0) {
+          visible.push({ task: null, start: run.end - 1, end: run.end });
+          remaining--;
+        }
+        break;
+      }
+      const count = Math.min(run.end - run.start, remaining - heading);
+      visible.push({ ...run, start: run.end - count });
+      remaining -= heading + count;
+      if (count < run.end - run.start) break;
     }
-    if (unreported) {
-      const current = agent.compacting ? "Compacting…" : agent.subagents.waiting ? "Waiting on subagents" : thinking();
-      this.drawPoint(row + nodes, "  now", current, new UsageView(), true, "working");
+    visible.reverse();
+    // Show the supplied plan only until there is an activity feed to anchor it.
+    const placeholders = standalone.slice(0, remaining);
+    const shown_tasks = new Set(placeholders.map(task => task.id));
+    let shown_details = 0;
+    for (const run of visible) {
+      if (run.task) shown_tasks.add(run.task.id);
+      shown_details += run.end - run.start;
     }
+    const missing_tasks = root.timeline.omitted_tasks + feed.task_count - shown_tasks.size;
+    const missing_details = detail_count - shown_details;
+    if (budget === 1) {
+      this.cell(
+        row,
+        0,
+        this.width - 6,
+        `Work · ${feed.task_count + root.timeline.omitted_tasks} tasks · ${detail_count} activities omitted`,
+        "faint",
+        false,
+      );
+      return 1;
+    }
+    const divider_width = this.width - 6;
+    const label =
+      omitted && !notice_row ? ` Work · +${missing_tasks} tasks · +${missing_details} activities ` : " Work ";
+    this.cell(row, 0, divider_width, "─".repeat(Math.min(88, divider_width)), "border", false);
+    this.cell(
+      row,
+      Math.max(0, Math.floor((divider_width - label.length) / 2)),
+      Math.min(label.length, divider_width),
+      label,
+      "muted",
+      false,
+    );
+    let offset = 1;
+    for (const task of placeholders) this.taskRow(row + offset++, task);
+    for (const group of visible) {
+      if (group.task) {
+        this.taskRow(row + offset, group.task);
+        offset++;
+      }
+      for (let index = group.start; index < group.end; index++) {
+        const latest = index === points.length - 1;
+        const live = index === current_index && agent.state === "working" && (!unreported || index === points.length);
+        const point = points[index];
+        const local = new Date(Math.floor((point?.at ?? 0) / 1000) * 1000);
+        const stamp =
+          index === points.length || (latest && !unreported && (live || agent.state === "blocked"))
+            ? "  now"
+            : latest
+              ? " last"
+              : Number.isNaN(local.getTime())
+                ? "--:--"
+                : `${pad2(local.getHours())}:${pad2(local.getMinutes())}`;
+        const value = index === points.length ? new UsageView() : latest ? root.timeline.pending : point.usage;
+        const activity_label =
+          index === points.length ? (agent.subagents.waiting ? "Waiting on subagents" : thinking()) : point.activity;
+        this.faded = index + 5 < points.length;
+        this.drawPoint(
+          row + offset,
+          stamp,
+          activity_label,
+          value,
+          live,
+          live ? "working" : latest && agent.state === "blocked" ? "warm" : "faint",
+          group.task !== null,
+        );
+        this.faded = false;
+        offset++;
+      }
+    }
+    if (notice_row) {
+      this.cell(
+        row + offset,
+        0,
+        this.width - 6,
+        `+${missing_tasks} tasks · +${missing_details} activities omitted`,
+        "faint",
+        false,
+      );
+      offset++;
+    }
+    return offset;
+  }
+  taskRow(row: number, task: TaskView) {
+    const marker = task.status === null ? { icon: "○", tone: "muted" as Tone } : task_status[task.status];
+    const width = this.width - 6;
+    const source = task.source === "inferred" ? " · inferred" : "";
+    const blocker =
+      task.status === "blocked" && task.blocker && width - displayWidth(task.label) >= 9 ? ` — ${task.blocker}` : "";
+    this.cell(row, 0, width, `${marker.icon} ${task.label}${blocker}${source}`, marker.tone, false);
   }
 }
 /** The title row: "Observed tokens", and "2.4M tokens (+38M cached)" at the
@@ -1243,22 +1423,18 @@ export function draw(
     entry.name.length > 0 ? entry.name : root_agent.name.length > 0 ? root_agent.name : providerName(root_agent);
   const model = children_available ? Model.init(all, parent) : Object.assign(new Model(), { total: root.usage });
   const width = Math.min(88, cols);
-  const pending = root.timeline.points.length > 0;
-  const timeline_nodes = Math.min(
-    16,
-    root.timeline.points.length +
-      Number(root_agent.state === "working" && root_agent.activity.length === 0 && !root_agent.compacting),
-  );
-  const timeline_height = timeline_nodes > 0 ? timeline_nodes + 1 : 0;
+  const has_work = root.timeline.points.length > 0 || root.timeline.tasks.length > 0 || root.timeline.omitted_tasks > 0;
+  const feed = workFeed(root, root_agent);
+  const work_height = has_work ? Math.min(18, feed.height + Number(root.timeline.omitted_tasks > 0)) : 0;
   const child_footer = children_available && model.children === 0;
   const tasks = root.background_tasks;
   const task_height = tasks.items.length > 0 ? Math.min(8, tasks.items.length + 1 + Number(tasks.truncated)) : 0;
-  // Until there is a timeline, the activity takes its own line under the subtitle.
-  const activity_row = timeline_nodes === 0;
+  // Until there is work history, activity takes its own subtitle line.
+  const activity_row = !has_work;
   const wanted =
     7 +
     Number(activity_row) +
-    timeline_height +
+    work_height +
     task_height +
     (model.children > 0 ? model.children + 3 : Number(child_footer));
   const height = Math.min(wanted, rows - 2);
@@ -1321,18 +1497,13 @@ export function draw(
   let row = header + 2;
   const footer_row = y + height - 2;
   const end = model.children > 0 || child_footer ? footer_row : y + height - 1;
-  // Give requested background work priority on short terminals. The section
-  // stays bounded and reports omitted commands explicitly.
-  row += card.backgroundTasks(row, tasks, Math.min(task_height, sat(end, row)));
-  // Reserve child rows and the combined total; use the rest for recent phases.
+  // Background commands retain priority, with a work omission notice even
+  // when the terminal cannot fit its task headings.
+  row += card.backgroundTasks(row, tasks, Math.min(task_height, sat(sat(end, row), Number(has_work))));
   const room = sat(end, row);
   const total_rows = model.children > 0 ? 2 : 0;
-  const reserved_children = Math.min(model.children, sat(room, total_rows + (timeline_nodes > 0 ? 2 : 0)));
-  const visible_nodes = Math.min(timeline_nodes, sat(sat(room, reserved_children + total_rows), 1));
-  if (visible_nodes > 0) {
-    card.timeline(row, root, root_agent, visible_nodes, pending);
-    row += visible_nodes + 1;
-  }
+  const reserved_children = Math.min(model.children, sat(room, total_rows + (has_work ? 3 : 0)));
+  row += card.work(row, root, root_agent, Math.min(work_height, sat(room, reserved_children + total_rows)), feed);
   let shown = 0;
   if (children_available)
     for (const child of all.filter(item => visibleChild(all, item, parent)).sort(byName)) {

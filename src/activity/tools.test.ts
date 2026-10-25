@@ -4,6 +4,7 @@ import * as claudeUsage from "../providers/claude/usage";
 import * as codexUsage from "../providers/codex/usage";
 import { parseLabel } from "./summary";
 import * as prompt from "./prompt";
+import { Timeline } from "./timeline";
 import { classify } from "./background_tasks";
 import * as claudeConversation from "../providers/claude/conversation";
 test("completed tools are deduplicated, historical calls do not advance waves, and turns reset", () => {
@@ -90,17 +91,20 @@ test("Claude tool progress joins hook turn and text commentary", () => {
   expect(t.view().commentary.text()).toContain("Inspecting parser");
 });
 test("abstention is valid and invalid labels fail separately", () => {
-  expect(prompt.parse('{"action":"none","label":null}', null).label).toBeNull();
-  expect(prompt.parse('{"action":"new","label":" Null "}', null).label).toBeNull();
-  expect(prompt.parse('{"action":"new","label":"Running tests"}', null).label?.text()).toBe("Running tests");
+  const work = new Timeline().taskContext();
+  const decision = (action: string, label: unknown) =>
+    JSON.stringify({ action, label, task: { id: null, label: null }, completed: [] });
+  expect(prompt.parse(decision("none", null), null, work).label).toBeNull();
+  expect(prompt.parse(decision("new", " Null "), null, work).label).toBeNull();
+  expect(prompt.parse(decision("new", "Running tests"), null, work).label?.text()).toBe("Running tests");
   for (const raw of [
     "{}",
     "null",
     '{"action":"new","label":false}',
     '{"action":"none","label":null,"reason":"unknown"}',
   ])
-    expect(() => prompt.parse(raw, null)).toThrow("InvalidDecision");
-  expect(() => prompt.parse('{"action":"new","label":""}', null)).toThrow("EmptyLabel");
+    expect(() => prompt.parse(raw, null, work)).toThrow("InvalidDecision");
+  expect(() => prompt.parse(decision("new", ""), null, work)).toThrow("EmptyLabel");
   expect(parseLabel("Running\ncommands")).toBeNull();
   expect(parseLabel("This label has far too many words")).toBeNull();
 });

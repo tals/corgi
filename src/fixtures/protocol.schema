@@ -381,6 +381,9 @@ $.snapshot.system_usage.losses: u32
 $.snapshot.system_usage.since: i64
 $.snapshot.system_usage.updated_at: i64
 $.snapshot.system_usage.recent_tokens: u64
+$.snapshot.system_usage.turns: u64
+$.snapshot.system_usage.tools: u64
+$.snapshot.system_usage.counts_known: bool
 $.snapshot.last_agent: enum codex claude pi opencode2 omp
 $.snapshot.agent_yolo.codex: bool
 $.snapshot.agent_yolo.claude: bool
@@ -416,8 +419,16 @@ $.snapshot.conversations[].background_tasks.observed_at: i64
 $.snapshot.conversations[].background_tasks.live: bool
 $.snapshot.conversations[].background_tasks.truncated: bool
 $.snapshot.conversations[].id: u32
+$.snapshot.conversations[].todo_phases: optional
+$.snapshot.conversations[].todo_phases[].name: string
+$.snapshot.conversations[].todo_phases[].tasks[].content: string
+$.snapshot.conversations[].todo_phases[].tasks[].status: enum pending in_progress completed abandoned blocked
+$.snapshot.conversations[].todo_phases[].tasks[].blocker: optional
+$.snapshot.conversations[].todo_phases[].tasks[].blocker?: string
 $.snapshot.conversations[].timeline.points[].at: i64
 $.snapshot.conversations[].timeline.points[].activity: string
+$.snapshot.conversations[].timeline.points[].task_id: optional
+$.snapshot.conversations[].timeline.points[].task_id?: string
 $.snapshot.conversations[].timeline.points[].usage.tokens.input: u64
 $.snapshot.conversations[].timeline.points[].usage.tokens.cached_input: u64
 $.snapshot.conversations[].timeline.points[].usage.tokens.output: u64
@@ -427,6 +438,9 @@ $.snapshot.conversations[].timeline.points[].usage.losses: u32
 $.snapshot.conversations[].timeline.points[].usage.since: i64
 $.snapshot.conversations[].timeline.points[].usage.updated_at: i64
 $.snapshot.conversations[].timeline.points[].usage.recent_tokens: u64
+$.snapshot.conversations[].timeline.points[].usage.turns: u64
+$.snapshot.conversations[].timeline.points[].usage.tools: u64
+$.snapshot.conversations[].timeline.points[].usage.counts_known: bool
 $.snapshot.conversations[].timeline.pending.tokens.input: u64
 $.snapshot.conversations[].timeline.pending.tokens.cached_input: u64
 $.snapshot.conversations[].timeline.pending.tokens.output: u64
@@ -436,6 +450,31 @@ $.snapshot.conversations[].timeline.pending.losses: u32
 $.snapshot.conversations[].timeline.pending.since: i64
 $.snapshot.conversations[].timeline.pending.updated_at: i64
 $.snapshot.conversations[].timeline.pending.recent_tokens: u64
+$.snapshot.conversations[].timeline.pending.turns: u64
+$.snapshot.conversations[].timeline.pending.tools: u64
+$.snapshot.conversations[].timeline.pending.counts_known: bool
+$.snapshot.conversations[].timeline.tasks[].id: string
+$.snapshot.conversations[].timeline.tasks[].label: string
+$.snapshot.conversations[].timeline.tasks[].phase: string
+$.snapshot.conversations[].timeline.tasks[].status: optional
+$.snapshot.conversations[].timeline.tasks[].status?: enum pending in_progress completed abandoned blocked
+$.snapshot.conversations[].timeline.tasks[].source: enum agent inferred
+$.snapshot.conversations[].timeline.tasks[].present: bool
+$.snapshot.conversations[].timeline.tasks[].blocker: optional
+$.snapshot.conversations[].timeline.tasks[].blocker?: string
+$.snapshot.conversations[].timeline.tasks[].usage.tokens.input: u64
+$.snapshot.conversations[].timeline.tasks[].usage.tokens.cached_input: u64
+$.snapshot.conversations[].timeline.tasks[].usage.tokens.output: u64
+$.snapshot.conversations[].timeline.tasks[].usage.known: bool
+$.snapshot.conversations[].timeline.tasks[].usage.partial: bool
+$.snapshot.conversations[].timeline.tasks[].usage.losses: u32
+$.snapshot.conversations[].timeline.tasks[].usage.since: i64
+$.snapshot.conversations[].timeline.tasks[].usage.updated_at: i64
+$.snapshot.conversations[].timeline.tasks[].usage.recent_tokens: u64
+$.snapshot.conversations[].timeline.tasks[].usage.turns: u64
+$.snapshot.conversations[].timeline.tasks[].usage.tools: u64
+$.snapshot.conversations[].timeline.tasks[].usage.counts_known: bool
+$.snapshot.conversations[].timeline.omitted_tasks: u32
 $.snapshot.conversations[].model: string
 $.snapshot.conversations[].model_name: string
 $.snapshot.conversations[].model_price: optional
@@ -457,6 +496,9 @@ $.snapshot.conversations[].usage.losses: u32
 $.snapshot.conversations[].usage.since: i64
 $.snapshot.conversations[].usage.updated_at: i64
 $.snapshot.conversations[].usage.recent_tokens: u64
+$.snapshot.conversations[].usage.turns: u64
+$.snapshot.conversations[].usage.tools: u64
+$.snapshot.conversations[].usage.counts_known: bool
 $.snapshot.conversations[].context.used: u64
 $.snapshot.conversations[].context.window: u64
 $.snapshot.conversations[].context.compacts_at: u64
@@ -692,6 +734,7 @@ $.snapshot.workspaces[].worktree_briefs[].label: optional
 $.snapshot.workspaces[].worktree_briefs[].label?: string
 $.snapshot.workspaces[].worktree_briefs[].phase: enum ready writing failed
 $.snapshot.workspaces[].stats.tools: u64
+$.snapshot.workspaces[].stats.turns: u64
 $.snapshot.workspaces[].stats.input: u64
 $.snapshot.workspaces[].stats.cached_input: u64
 $.snapshot.workspaces[].stats.output: u64

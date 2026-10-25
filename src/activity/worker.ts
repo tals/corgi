@@ -6,6 +6,7 @@ import { Agent, Provider, Text } from "../agents";
 import * as summary from "./summary";
 import * as prompt from "./prompt";
 import type { View as ToolView } from "./tools";
+import type { TaskContext, TaskSelection } from "./timeline";
 import { Backend, outcome } from "../summary_backend";
 import * as setup from "../inference/setup";
 import { Selection, automatic } from "../inference/models";
@@ -32,6 +33,7 @@ export class Request {
   generation = 0n;
   completed_tools = 0n;
   turn_epoch = 0;
+  work: TaskContext = { revision: 0, supplied: false, current_task: null, tasks: [] };
   toJSON() {
     return {
       ...this,
@@ -49,6 +51,8 @@ export class Result {
     public request: Request,
     public label: Text | null,
     public action: prompt.Action = label === null ? "none" : "new",
+    public task: TaskSelection = { id: null, label: null },
+    public completed: string[] = [],
   ) {}
   stale(agent: Agent) {
     if (agent.state !== "working") return "not_working";
@@ -59,11 +63,15 @@ export class Result {
   apply(actor: Actor) {
     if (actor.id !== this.request.actor) return false;
     const agent = actor.state,
-      reason = this.stale(agent);
+      reason =
+        this.stale(agent) ??
+        (actor.activity_timeline.taskContext().revision !== this.request.work.revision ? "evidence_changed" : null);
     if (reason) {
       outcome(this.number, reason);
       return false;
     }
+    const timeline = actor.activity_timeline,
+      task_id = timeline.selectTask(this.task, this.completed);
     outcome(this.number, null);
     if (this.label === null) {
       agent.activity = new Text();
@@ -73,11 +81,10 @@ export class Result {
     agent.activity = new Text(this.label.text());
     agent.activity_inferred = true;
     actor.status_inference.remember(agent.turnId(), this.request.evidence.text(), this.label, this.action);
-    const now = clock.milliTimestamp(),
-      timeline = actor.activity_timeline;
+    const now = clock.milliTimestamp();
     if (agent.compacting) return true;
-    if (this.action === "amend") timeline.amend(agent.turnId(), this.label, actor.usageView(now), now);
-    else timeline.checkpoint(agent.turnId(), this.label, actor.usageView(now), now);
+    if (this.action === "amend") timeline.amend(agent.turnId(), this.label, actor.usageView(now), now, task_id);
+    else timeline.checkpoint(agent.turnId(), this.label, actor.usageView(now), now, task_id);
     return true;
   }
 }
@@ -88,6 +95,7 @@ export class Slot {
   attempted_tools = 0n;
   attempted_evidence: bigint | null = null;
   attempted_commentary: bigint | null = null;
+  attempted_work: number | null = null;
   attempted_at = 0;
   tools_changed_at = 0;
   tools_pending_since = 0;
@@ -98,6 +106,7 @@ export class Slot {
   ready(now: number, away: boolean) {
     if (!this.active || now < this.next || !this.request.evidence.len) return false;
     if (this.retry) return true;
+    if (this.attempted_work !== this.request.work.revision) return true;
     if (this.attempted_evidence === null) return true;
     if (this.attempted_evidence === summary.hash(this.request.evidence)) return false;
     if (away && now - this.attempted_at < away_interval_ms) return false;
@@ -127,6 +136,7 @@ export class Slot {
     this.attempted_tools = this.request.completed_tools;
     this.attempted_evidence = summary.hash(this.request.evidence);
     this.attempted_commentary = summary.hash(this.commentary);
+    this.attempted_work = this.request.work.revision;
     this.attempted_at = now;
     this.tools_pending_since = 0;
     this.retry = false;
@@ -417,6 +427,7 @@ export class Worker {
       evidence,
       generation: agent.activity_generation,
       conversation: owner.status_inference,
+      work: owner.activity_timeline.taskContext(),
       name: agent.name,
       panes: panes
         .filter(p => p.attachment.actor === owner)
@@ -431,6 +442,7 @@ export class Worker {
     slot.request.panes = req.panes;
     slot.request.name = req.name;
     slot.request.conversation = req.conversation;
+    slot.request.work = req.work;
     slot.active = agent.state === "working";
     slot.commentary = evidence;
     slot.request.generation = agent.activity_generation;
@@ -455,6 +467,7 @@ export class Worker {
       if (actor) {
         slot.active = actor.state.state === "working";
         slot.request.conversation = actor.status_inference;
+        slot.request.work = actor.activity_timeline.taskContext();
         return slot;
       }
       if (slot.result) outcome(slot.result.number, "not_working");
@@ -562,6 +575,7 @@ export class Worker {
             phase: request.conversation.phase(turn),
             earlier: request.conversation.earlier(turn),
             evidence: request.evidence.text(),
+            work: request.work,
             history: request.conversation.recent.slice(0, request.conversation.len).map(e => e.text()),
           },
           turn,
@@ -580,14 +594,22 @@ export class Worker {
       let discard: "not_working" | "turn_changed" | "evidence_changed" | null = "not_working";
       if (current) {
         if (!current.request.sameTurn(request)) discard = "turn_changed";
+        else if (
+          current.request.generation !== request.generation ||
+          current.request.work.revision !== request.work.revision
+        )
+          discard = "evidence_changed";
         else if (attempt.decision) {
-          if (current.request.generation !== request.generation) discard = "evidence_changed";
-          else {
-            if (current.result) outcome(current.result.number, "superseded");
-            current.result = new Result(request, attempt.decision.label, attempt.decision.action);
-            current.result.number = attempt.request;
-            discard = null;
-          }
+          if (current.result) outcome(current.result.number, "superseded");
+          current.result = new Result(
+            request,
+            attempt.decision.label,
+            attempt.decision.action,
+            attempt.decision.task,
+            attempt.decision.completed,
+          );
+          current.result.number = attempt.request;
+          discard = null;
         } else {
           current.retry = true;
           current.next = clock.milliTimestamp() + retry_ms;

@@ -97,6 +97,12 @@ function fixture() {
   const actor = server.runtime.conversations.get("codex", "schema-session");
   actor.workspace = 1;
   actor.model.price = { label: "catalog", input: 1250n, output: 5000n };
+  actor.todo_phases = [
+    { name: "Implement", tasks: [{ content: "Wire OMP todos", status: "blocked", blocker: "Needs transport" }] },
+  ];
+  actor.activity_timeline.syncPlan(actor.todo_phases, actor.live_usage, 1000);
+  actor.activity_timeline.selectTask({ id: actor.activity_timeline.taskContext().tasks[0].id, label: null }, []);
+  actor.activity_timeline.checkpoint("turn", parseLabel("Wiring supplied todos")!, actor.live_usage, 1000);
   pane.attachment.select(actor);
   const loop = (server as any).loop;
   const client = new Client(
@@ -147,7 +153,7 @@ function fixture() {
 test("the runtime wire matches protocol.version", () => {
   expect(protocol.version).toBe(3);
   expect(createHash("sha256").update(schemas.protocol).digest("hex")).toBe(
-    "a7a7b8e4ad6824005f877e7933e60ab452cb3f71517a5aac8153c050f9323e9d",
+    "ecf79a5930246ab359415490a78430a1931ef1e2fe086337c08198b58afae13f",
   );
   const { server, client, dispose } = fixture();
   try {
@@ -161,6 +167,7 @@ test("the runtime wire matches protocol.version", () => {
     expect(restorePreview(preview).options.claude.spend).toBeNull();
     expect(snapshot.panes[0].agent.session).toBe("schema-session");
     expect(snapshot.conversations[0].model_price).toEqual({ label: "catalog", input: 1250, output: 5000 });
+    expect(snapshot.conversations[0].todo_phases).toEqual(server.runtime.conversations.items[0].todo_phases);
     const wrong = structuredClone(snapshot);
     wrong.panes[0].id = -1;
     expect(() => validate(schemas.protocol, { snapshot: wrong })).toThrow();
@@ -212,6 +219,7 @@ test("the viewer wire matches viewer_version.version", async () => {
     validate(schemas.viewer, { view });
     expect(view.surfaces).toHaveLength(1);
     expect(view.surfaces[0].surface.lines.join("\n")).toContain("schema boundary");
+    expect(view.session.conversations[0].todo_phases).toEqual(server.runtime.conversations.items[0].todo_phases);
     expect(() => validate(schemas.viewer, { view: { ...view, viewer_protocol: -1 } })).toThrow();
   } finally {
     dispose();
@@ -222,7 +230,7 @@ test("saved handoff format matches its version", async () => {
   expect(handoff_version).toBe(5);
   expect(checkpoint_version).toBe(6);
   expect(createHash("sha256").update(schemas.handoff).digest("hex")).toBe(
-    "99b87251e123ebb54c852287078c09bffd4ee709f50ddf9385ac57256c67cdb1",
+    "dbdc7360f8090909aba2007025c66c2d7c2be79ec232a1b24b1d6fe4f40bca3c",
   );
   const { server, client, dispose } = fixture();
   const summaries = new Worker();
@@ -245,6 +253,7 @@ test("saved handoff format matches its version", async () => {
     expect(captured.clients[0].launch_preview.preview.options.claude.spend.used_minor).toBe(59);
     expect(captured.summaries.pool.slots).toHaveLength(4);
     expect(captured.usage[0].position.offset).toBe(42);
+    expect(captured.runtime.conversations[0]).not.toHaveProperty("todo_phases");
     expect(() => validate(schemas.handoff, { ...captured, listener: "bad" })).toThrow();
   } finally {
     await summaries.stop();

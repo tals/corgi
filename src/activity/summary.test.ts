@@ -1,6 +1,10 @@
 import { test, expect } from "bun:test";
 import { parseLabel, Text } from "./summary";
 import * as prompt from "./prompt";
+import { Timeline, type TaskContext } from "./timeline";
+const work = new Timeline().taskContext();
+const decision = (action: string, label: unknown, task = { id: null, label: null }, completed: string[] = []) =>
+  JSON.stringify({ action, label, task, completed });
 test("strict labels and bounded evidence", () => {
   for (const label of [
     "Tracing focus changes",
@@ -14,9 +18,9 @@ test("strict labels and bounded evidence", () => {
   expect(new Text("a".repeat(3000)).len).toBe(2048);
 });
 test("abstention is a valid decision distinct from invalid output", () => {
-  expect(prompt.parse('{"action":"none","label":null}', null).label).toBeNull();
-  expect(prompt.parse('{"action":"new","label":"null"}', null).label).toBeNull();
-  expect(prompt.parse('{"action":"new","label":"Tracing focus changes"}', null).label?.text()).toBe(
+  expect(prompt.parse(decision("none", null), null, work).label).toBeNull();
+  expect(prompt.parse(decision("new", "null"), null, work).label).toBeNull();
+  expect(prompt.parse(decision("new", "Tracing focus changes"), null, work).label?.text()).toBe(
     "Tracing focus changes",
   );
   for (const output of [
@@ -28,11 +32,15 @@ test("abstention is a valid decision distinct from invalid output", () => {
     "{}",
     "[]",
   ])
-    expect(() => prompt.parse(output, null)).toThrow();
+    expect(() => prompt.parse(output, null, work)).toThrow();
 });
 test("decisions are read against the current phase", () => {
   const parse = (action: string, label: string | null, phase: string | null) => {
-    const decision = prompt.parse(JSON.stringify({ action, label }), phase);
+    const decision = prompt.parse(
+      JSON.stringify({ action, label, task: { id: null, label: null }, completed: [] }),
+      phase,
+      work,
+    );
     return [decision.action, decision.label?.text() ?? null];
   };
   expect(parse("keep", null, "Running tests")).toEqual(["keep", "Running tests"]);
@@ -62,7 +70,43 @@ test("the conversation keeps the latest turn's phases", () => {
   expect(context.earlier("b")).toEqual([]);
 });
 test("history is sent only when supplied", () => {
-  const input = { provider: "codex" as const, turn: "turn", phase: null, earlier: [], evidence: "build" };
+  const input = { provider: "codex" as const, turn: "turn", phase: null, earlier: [], evidence: "build", work };
   expect(JSON.parse(prompt.content(input))).not.toHaveProperty("history");
   expect(JSON.parse(prompt.content({ ...input, history: [] })).history).toEqual([]);
+});
+test("task decisions require the complete strict schema and known authoritative references", () => {
+  const context: TaskContext = {
+    revision: 1,
+    supplied: true,
+    current_task: "plan",
+    tasks: [
+      { id: "plan", label: "Repair parser", phase: "", status: "in_progress", source: "agent", present: true },
+      { id: "goal", label: "Repair logging", phase: "", status: null, source: "inferred", present: true },
+    ],
+  };
+  const parse = (task: unknown, completed: unknown = [], action = "new") =>
+    prompt.parse(
+      JSON.stringify({ action, label: action === "none" ? null : "Reading parser", task, completed }),
+      null,
+      context,
+    );
+  expect(parse({ id: "plan", label: null }).task.id).toBe("plan");
+  expect(parse({ id: null, label: null }).task.id).toBeNull();
+  for (const task of [
+    { id: "missing", label: null },
+    { id: "goal", label: null },
+    { id: "plan", label: "Renamed plan" },
+    { id: null, label: "New goal" },
+    { id: null },
+    null,
+  ])
+    expect(() => parse(task)).toThrow("InvalidDecision");
+  for (const completed of [["plan"], ["missing"], ["goal", "goal"], "goal"])
+    expect(() => parse({ id: null, label: null }, completed)).toThrow("InvalidDecision");
+  expect(parse({ id: null, label: null }, ["goal"], "none").completed).toEqual(["goal"]);
+  context.supplied = false;
+  expect(parse({ id: null, label: "Repair parser" }).task.label).toBe("Repair parser");
+  expect(parse({ id: "goal", label: "Repair log rotation" }).task.id).toBe("goal");
+  expect(() => parse({ id: null, label: "Repair parser" }, [], "none")).toThrow("InvalidDecision");
+  expect(() => prompt.parse('{"action":"none","label":null}', null, context)).toThrow("InvalidDecision");
 });

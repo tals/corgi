@@ -25,6 +25,7 @@ export const adapter: Adapter = {
     follows_cd: true,
     titles_once_loaded: false,
     transcript_tools: false,
+    headless_counts: false,
   },
   owns: p => p.split("/").at(-1) === "sim",
   inspect: c =>

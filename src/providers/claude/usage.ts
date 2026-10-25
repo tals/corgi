@@ -27,6 +27,7 @@ export function messageTokens(tracker: Tracker, message: any) {
       false,
     );
   }
+  if (str(message, "model") !== "<synthetic>") delta.turns = tracker.response(id);
   const content = field(message, "content");
   if (Array.isArray(content))
     for (const block of content)
@@ -154,6 +155,7 @@ function notes(t: Tail, session: string, value: any) {
 export function open(): TranscriptReader {
   return {
     open(t) {
+      t.live.meter.count(0n, 0n);
       if (!t.live.meter.value.known) {
         t.live.meter.value.known = true;
         t.live.meter.value.since = Date.now();
@@ -170,11 +172,14 @@ export function open(): TranscriptReader {
       const line = Line.of(value, session),
         delta = line?.type === "assistant" ? messageTokens(t.tracker, line.message) : new Counts(),
         owned = t.catch_up && stamp !== null && stamp >= req.tracked_since;
-      if ((appended || owned) && delta.tokens_known)
-        t.live.meter.add(
-          new Tokens({ input: delta.input, cached_input: delta.cached_input, output: delta.output }),
-          stamp ?? Date.now(),
-        );
+      if (appended || owned) {
+        t.live.meter.count(delta.turns, delta.tools);
+        if (delta.tokens_known)
+          t.live.meter.add(
+            new Tokens({ input: delta.input, cached_input: delta.cached_input, output: delta.output }),
+            stamp ?? Date.now(),
+          );
+      }
       return delta;
     },
   };

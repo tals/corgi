@@ -44,6 +44,7 @@ export const transcript: Transcript = {
   reader: () => ({
     open(t, _req, _head, catch_up) {
       t.catch_up = catch_up;
+      t.live.meter.count(0n, 0n);
     },
     record(t, req, v, appended, stamp) {
       const type = str(v, "type"),
@@ -72,11 +73,7 @@ export const transcript: Transcript = {
         const tokens = reported(field(m, "usage"));
         if (tokens && id)
           delta.add(t.tracker.tokensCached(id, tokens.input, tokens.cached_input, tokens.output, false));
-        if ((appended || (t.catch_up && stamp !== null && stamp >= req.tracked_since)) && delta.tokens_known)
-          t.live.meter.add(
-            new Tokens({ input: delta.input, cached_input: delta.cached_input, output: delta.output }),
-            stamp ?? Date.now(),
-          );
+        delta.turns = t.tracker.response(id);
         const text = messageText(m).trim();
         if (text && stamp !== null) {
           t.update = new Text(clip(text, 160));
@@ -96,6 +93,14 @@ export const transcript: Transcript = {
               t.progress.save(call, true);
             }
           }
+        }
+        if (appended || (t.catch_up && stamp !== null && stamp >= req.tracked_since)) {
+          t.live.meter.count(delta.turns, delta.tools);
+          if (delta.tokens_known)
+            t.live.meter.add(
+              new Tokens({ input: delta.input, cached_input: delta.cached_input, output: delta.output }),
+              stamp ?? Date.now(),
+            );
         }
         if (appended && text && t.progress.turn.len) {
           t.progress.commentary = new Summary(clip("Latest agent update: " + text, 2048));

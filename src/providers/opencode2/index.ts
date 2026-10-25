@@ -17,6 +17,7 @@ export const adapter: Adapter = {
     follows_cd: false,
     titles_once_loaded: false,
     transcript_tools: false,
+    headless_counts: false,
   },
   owns: p => ["opencode2", "opencode"].includes(basename(p)),
   version: s => /^opencode v2\./m.test(s.trim()),

@@ -43,6 +43,7 @@ test("Claude repeated message blocks count tools once and include cached input",
   const d = claudeUsage.messageTokens(t, v);
   expect(d.input).toBe(35n);
   expect(d.cached_input).toBe(10n);
+  expect(d.turns).toBe(1n);
   expect(d.tools).toBe(1n);
   expect(claudeUsage.messageTokens(t, v).any()).toBe(false);
 });
@@ -50,12 +51,14 @@ test("owned first request is counted once and recent buckets expire", () => {
   const c = new Counter(),
     total = new Tokens({ input: 1100n, cached_input: 800n, output: 120n }),
     last = new Tokens({ input: 100n, cached_input: 50n, output: 20n });
-  c.sample(total, last, true, 60000);
-  c.sample(total, last, true, 60100);
+  c.sample(total, last, true, 60000, true);
+  c.sample(total, last, true, 60100, true);
   expect(c.meter.view(60200).tokens.total()).toBe(120n);
   expect(c.meter.view(60200).recent_tokens).toBe(120n);
   expect(c.meter.view(360000).recent_tokens).toBe(0n);
   expect(c.meter.value.tokens.cached_input).toBe(50n);
+  expect(c.meter.value.turns).toBe(1n);
+  expect(c.meter.value.counts_known).toBe(true);
 });
 test("counter regressions and inherited jumps cannot inflate live spend", () => {
   const c = new Counter();
@@ -66,6 +69,48 @@ test("counter regressions and inherited jumps cannot inflate live spend", () => 
   c.sample(new Tokens({ input: 9000n, output: 900n }), new Tokens({ input: 30n, output: 5n }), true, 4);
   expect(c.meter.value.tokens.total()).toBe(35n);
   expect(c.meter.value.partial).toBe(true);
+});
+test("response identities deduplicate independently of missing or revised usage", () => {
+  const tracker = new Tracker(),
+    message = {
+      id: "response",
+      content: [
+        { type: "tool_use", id: "parallel-a" },
+        { type: "tool_use", id: "parallel-b" },
+      ],
+    };
+  const first = claudeUsage.messageTokens(tracker, message);
+  expect(first.turns).toBe(1n);
+  expect(first.tools).toBe(2n);
+  expect(first.tokens_known).toBe(false);
+  const repeated = claudeUsage.messageTokens(tracker, {
+    ...message,
+    usage: { input_tokens: 10, output_tokens: 2 },
+  });
+  expect(repeated.turns).toBe(0n);
+  expect(repeated.tools).toBe(0n);
+  expect(repeated.input).toBe(10n);
+  const restored = Tracker.restore(tracker);
+  expect(claudeUsage.messageTokens(restored, message).any()).toBe(false);
+  expect(claudeUsage.messageTokens(restored, { id: "synthetic", model: "<synthetic>" }).turns).toBe(0n);
+});
+test("cumulative response counts exclude baselines, repeats and unidentifiable gaps", () => {
+  const c = new Counter(),
+    total = (input: bigint) => new Tokens({ input });
+  c.sample(total(100n), total(10n), false, 1, true);
+  expect(c.meter.value.turns).toBe(0n);
+  c.sample(total(110n), total(10n), true, 2, true);
+  c.sample(total(110n), total(10n), true, 3, true);
+  c.sample(total(1n), total(1n), true, 4, true);
+  expect(c.meter.value.turns).toBe(1n);
+  c.sample(total(200n), total(10n), true, 5, true);
+  expect(c.meter.value.turns).toBe(2n);
+  expect(c.meter.value.partial).toBe(true);
+  c.sample(total(210n), null, true, 6, true);
+  expect(c.meter.value.turns).toBe(2n);
+  const unknown = new Counter();
+  unknown.sample(total(100n), total(10n), true, 1);
+  expect(unknown.meter.value.counts_known).toBe(false);
 });
 test("context readings include input caches and provider windows", () => {
   const r = new Reading();

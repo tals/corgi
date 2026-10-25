@@ -1,4 +1,5 @@
 import * as background_tasks from "./activity/background_tasks";
+import * as todos from "./activity/todos";
 import { Conversation, hash } from "./activity/summary";
 import { Timeline } from "./activity/timeline";
 import { View, Tokens, Counter } from "./usage/live";
@@ -42,6 +43,8 @@ export class Actor {
   status_inference = new Conversation();
   activity_timeline = new Timeline();
   background_tasks = new background_tasks.Inventory();
+  /** Derived from the transcript again after a reload, not persisted. */
+  todo_phases: todos.Phase[] = [];
   /** The background shells its last Stop listed, each of which can wake it. */
   shells = new background_tasks.Shells();
   live_usage = new View();
@@ -59,6 +62,7 @@ export class Actor {
     this.headless_meter.meter.value.recent_tokens = 0n;
     this.headless_meter.baseline_next = this.live_usage.known || active;
     if (this.headless_meter.baseline_next) this.headless_meter.meter.value.partial = true;
+    if (adapter(this.provider()).caps.headless_counts) this.headless_meter.meter.count(0n, 0n);
   }
   compactionChanged(was: boolean, now: number) {
     if (this.state.compacting === was) return;

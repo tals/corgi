@@ -79,12 +79,13 @@ export function rolloutTokens(c: Counter, value: any, appended: boolean, now: nu
     parseTokens(field(info, "last_token_usage"), false),
     appended || c.catch_up,
     Math.min(timestampMs(r.timestamp) ?? now, now),
+    true,
   );
 }
 /** Counts an app server's token report into `c`. */
 export function headlessTokens(c: Counter, value: any, active: boolean, now: number) {
   const total = parseTokens(field(value, "total"), true);
-  if (total) c.sample(total, parseTokens(field(value, "last"), true), active, now);
+  if (total) c.sample(total, parseTokens(field(value, "last"), true), active, now, true);
 }
 /** How full the context window is after a record. */
 export function context(r: Reading, value: any) {
@@ -193,6 +194,7 @@ export function open(indexes: () => string[]): TranscriptReader {
   return {
     refresh: async () => void (await Promise.all(indexes().map(file => index(file).refreshAsync(file)))),
     open(t, req, head, catch_up) {
+      t.live.meter.count(0n, 0n);
       if (head !== null) header(t.live, head, req.child, req.tracked_since, catch_up);
       else if (req.child) t.live.meter.lose();
       t.progress.bind(req.agent.turnId());
@@ -202,6 +204,9 @@ export function open(indexes: () => string[]): TranscriptReader {
       progress(t.progress, value, appended);
       t.observeModel(field(value, "payload"));
       const delta = counts(t.tracker, value);
+      const ordinal = number(value, "ordinal"),
+        owned = t.live.owned_from === null || (ordinal !== null && ordinal >= t.live.owned_from);
+      if (owned && (appended || t.live.catch_up)) t.live.meter.count(0n, delta.tools);
       rolloutTokens(t.live, value, appended, Date.now());
       context(t.context, value);
       return delta;

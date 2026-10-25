@@ -164,6 +164,8 @@ test("headless children retain parent selection and own usage across duplicate s
   s.apply(registry, usage);
   expect(child.headless_meter.meter.value.tokens.total()).toBe(120n);
   expect(child.headless_meter.meter.value.tokens.cached_input).toBe(50n);
+  expect(child.headless_meter.meter.value.turns).toBe(1n);
+  expect(parent.headless_meter.meter.value.turns).toBe(0n);
   expect(parent.headless_meter.meter.value.tokens.total()).toBe(0n);
   expect(finish(s, registry, "child", "work")).toBe(false);
   expect(child.state.observation.completed).toBe(1n);
@@ -184,6 +186,54 @@ test("tools follow their turn, and the journal stays bounded", () => {
   for (let i = 0; i < 140; i++) s.apply(registry, { kind: "message", session: "a", text: String(i) });
   expect(s.events.length).toBe(128);
   expect(s.next_seq).toBeGreaterThan(128n);
+});
+test("headless response counts are not lifecycle turns and tools deduplicate after completion", () => {
+  const registry = new Registry(),
+    s = session();
+  shown(s, registry, "a");
+  start(s, registry, "a", "user-turn");
+  const actor = registry.find("codex", "a")!;
+  expect(actor.usageView(0).counts_known).toBe(true);
+  expect(actor.usageView(0).turns).toBe(0n);
+  for (const input of [10n, 10n, 20n])
+    s.apply(registry, {
+      kind: "usage",
+      session: "a",
+      turn: "user-turn",
+      total: { total: new Tokens({ input }), last: new Tokens({ input: 10n }) },
+    });
+  for (const id of ["one", "two"])
+    for (const done of [false, true, false, true])
+      s.apply(registry, { kind: "tool", session: "a", turn: "user-turn", id, done, wrote: [] });
+  expect(actor.usageView(0).turns).toBe(2n);
+  expect(actor.usageView(0).tools).toBe(2n);
+  const restored = Session.restore(clone(s.capture(true)), registry, true);
+  restored.apply(registry, { kind: "tool", session: "a", turn: "user-turn", id: "one", done: false, wrote: [] });
+  expect(actor.usageView(0).tools).toBe(2n);
+  actor.live_usage.turns = 100n;
+  actor.live_usage.tools = 100n;
+  expect(actor.usageView(0).turns).toBe(2n);
+  expect(actor.usageView(0).tools).toBe(2n);
+});
+test.each(["claude", "pi", "omp"] as const)("%s keeps transcript count ownership in headless mode", provider => {
+  const registry = new Registry(),
+    s = new Session(1, provider, "/tmp", new Fake());
+  shown(s, registry, "a");
+  start(s, registry, "a", "user-turn");
+  const actor = registry.find(provider, "a")!;
+  actor.live_usage.counts_known = true;
+  actor.live_usage.turns = 2n;
+  actor.live_usage.tools = 3n;
+  s.apply(registry, {
+    kind: "usage",
+    session: "a",
+    turn: "user-turn",
+    part: { id: "response", tokens: new Tokens({ input: 10n }) },
+  });
+  s.apply(registry, { kind: "tool", session: "a", turn: "user-turn", id: "tool", done: false, wrote: [] });
+  expect(actor.headless_usage).toBe(false);
+  expect(actor.usageView(0).turns).toBe(2n);
+  expect(actor.usageView(0).tools).toBe(3n);
 });
 test("a Codex client over a real process shakes hands, starts a thread and runs a turn", async () => {
   const dir = mkdtempSync(join(tmpdir(), "corgi-headless-")),

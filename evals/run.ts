@@ -84,7 +84,13 @@ async function main() {
         steps: scenario.steps.map((step, index) => {
           const stepID = `${id}/${index + 1}`;
           expected.push({ id: stepID, scenario: scenario.id, category: scenario.category, repeat, expected: step });
-          return { id: stepID, evidence: step.evidence, turn: step.turn ?? `turn-${index + 1}`, task: step.task };
+          return {
+            id: stepID,
+            evidence: step.evidence,
+            turn: step.turn ?? `turn-${index + 1}`,
+            task: step.task,
+            plan: step.plan,
+          };
         }),
       });
     }
@@ -99,6 +105,7 @@ async function main() {
     "evals/run.ts",
     "src/activity/prompt.ts",
     "src/activity/summary.ts",
+    "src/activity/timeline.ts",
     "src/summary_backend.ts",
     "src/inference/harness.ts",
   ];

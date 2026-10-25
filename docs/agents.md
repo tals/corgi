@@ -183,6 +183,57 @@ history, counter resets or source gaps mean partial coverage (`≥`), not an
 invented total; unknown usage remains unknown. These observations are distinct
 from provider account rate limits.
 
+Each activity in the Work hierarchy shows its observed model responses (`turns`) and
+individual tool invocations (`tools`) beside the token totals for that interval.
+A user prompt can span several model turns; parallel tool calls count separately.
+Cached tokens are summed cache reads across those requests, not context size.
+OMP, Pi and Claude count transcript response and tool IDs; Codex counts distinct
+request reports and tool IDs. OpenCode's cumulative snapshots do not identify
+every request, so its counts remain unknown. When count coverage is unavailable,
+the activity row omits the counts and gives their space back to the description.
+Known zero counts still display as zero.
+
+Count fields and response deduplication state have defaults for older wire,
+checkpoint and handoff records. Protocol and saved-format versions are unchanged;
+older readings remain count-unknown until a fully observed activity interval.
+
+Work is a chronological activity feed, oldest first. Consecutive activities for
+the same task share a heading; returning to that task later repeats its heading
+instead of moving activity out of time order. An agent-supplied plan owns its
+task names, statuses and blockers; the summarizer only associates observed work
+with those tasks. Without a supplied plan, the summarizer creates
+goals from work evidence and reuses them across user follow-ups. Inferred
+completion requires explicit evidence, not an idle agent or a switch to another
+goal. Unmatched activities appear as standalone rows without a task heading or
+branch marker, rather than inheriting whichever TODO happens to be active.
+All activity timestamps share one column. Nested activities use the same `╰`
+connector as worktree briefs; finished intervals use `✓`, while the current interval
+keeps its live marker. Finishing an interval does not complete its parent task.
+
+Task headings use the full card width for their label and status, without
+statistics. Activity rows retain all statistics; overall token totals are unchanged.
+Completed task context stays visible with its activity. Short cards retain the
+newest consecutive activities, including task context where it fits. The supplied
+plan is shown on its own only before the first activity; once history exists,
+headings appear only with their activity, never detached above the feed.
+The timeline keeps 16 detailed
+intervals and rolls evicted intervals into their task's usage. Up to 128 task
+headings and 64 supplied placeholders are retained; omitted headings are reported.
+Unique unchanged task names retain identity across reorder/status changes.
+Ambiguous renamed or replaced tasks get new identities rather than moving old
+activity into a different goal.
+
+Live handoff retains task identities, interval ownership and usage baselines.
+Cold recovery starts a new observed-work window. New task fields default safely
+on older wire and saved records; protocol and saved-format versions are unchanged.
+
+OMP restores its latest committed todo snapshot by scanning backwards in bounded
+chunks, stopping at the first valid snapshot or the beginning of the transcript.
+An empty snapshot clears the plan; failed, malformed and incomplete records do
+not replace it. The initial usage tail and recovered plan are published together,
+so discovery and reload do not display historical tasks or intermediate context
+readings while catching up. This changes no wire or saved formats.
+
 Context comes from provider records, not summed lifetime usage. Model aliases
 and platform-specific IDs normalize at the provider boundary; unknown IDs stay
 recognizable. Provider-specific assumptions and exceptions belong in the
@@ -390,6 +441,19 @@ file and in `title_change` records, so Corgi follows those names and never
 suggests one. Renames from Corgi go through the extension. Forks use omp's
 `--fork`, which takes no name; Corgi renames the fork once it appears.
 Resume passes the session file Corgi saw, or the ID, which omp looks up.
+
+The agent hover card fuses omp's persisted todos with observed activity in the
+Work hierarchy. Tasks remain visible when completed or abandoned; their activity
+appears underneath. Clearing the supplied plan removes unstarted placeholders,
+but does not erase tasks that already own recorded work.
+Corgi reads committed `todo` results and `user_todo_edit` records, not tool
+arguments or terminal text. Failed calls and read-only views do not replace the
+plan. Provider TODO snapshots are rebuilt from the transcript after reload;
+the hierarchy and its usage history survive live handoff.
+
+The raw `todo_phases` conversation field remains available to consumers of the
+supplied plan. `timeline.tasks` supplies normalized task identities and rollups;
+each activity point carries its fixed `task_id` or null for unassigned work.
 
 The launcher reads the default model from omp's RPC state, falling back to
 `modelRoles.default` in `config.yml`. omp keeps sign-ins in `agent.db`; the

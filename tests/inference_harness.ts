@@ -99,7 +99,13 @@ for await (const line of createInterface({ input: process.stdin })) {
       "name" in properties
         ? { name: control.name ?? null }
         : "action" in properties
-          ? { action: control.action ?? (label === null ? "none" : "new"), label }
+          ? {
+              action: control.action ?? (label === null ? "none" : "new"),
+              label,
+              ...("task" in properties
+                ? { task: control.task ?? { id: null, label: null }, completed: control.completed ?? [] }
+                : {}),
+            }
           : { label };
     if (schema && ("label" in control || "name" in control)) result = JSON.stringify(structured);
     if ("raw" in control) result = control.raw;

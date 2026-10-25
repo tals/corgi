@@ -2,11 +2,16 @@ import { stringify } from "./json";
 import { afterEach, expect, test } from "bun:test";
 import { Server } from "./server";
 import { Pane, Launch } from "./runtime";
+import { Workspace } from "./workspace";
 import { Terminal } from "./pane/terminal";
 import { Worker } from "./providers/codex/observer";
 import { Snapshot } from "./providers/snapshot";
 import { Text } from "./providers/common";
 import * as codex from "./providers/codex";
+import * as protocol from "./protocol";
+import * as session from "./session";
+import { Result as UsageResult, Worker as UsageWorker } from "./usage/worker";
+import type { Client } from "./peer";
 import {
   snapshotActor,
   missed,
@@ -16,6 +21,8 @@ import {
   detectPane,
   hook,
   stop,
+  start,
+  tick,
 } from "./observer_service";
 
 const id = "11111111-1111-4111-8111-111111111111";
@@ -343,4 +350,53 @@ test("a Codex side conversation in the title leaves the pane on the conversation
   expect(pane.attachment.actor).toBe(main);
   missed(server, "codex", request());
   expect(pane.attachment.actor).toBeNull();
+});
+
+test("transcript todo snapshots reach conversation.list and viewer snapshots through observation", async () => {
+  const { server, pane, registry } = fixture(),
+    actor = registry.get("omp", "todo-session");
+  const workspace = new Workspace(1, "/tmp");
+  workspace.model.newTab("");
+  server.runtime.workspaces.items.push(workspace);
+  pane.detection.pid = 0;
+  pane.dormant = true;
+  pane.attachment.select(actor);
+  server.usage = new UsageWorker();
+  const workers = start(server);
+  const phases = [
+    { name: "Implement", tasks: [{ content: "Transport", status: "blocked" as const, blocker: "Access" }] },
+  ];
+  let revision = 0;
+  for (const value of [phases, null, []]) {
+    const result = new UsageResult();
+    result.actor = actor.id;
+    result.todo_phases = value;
+    workers.usage.results.push(result);
+    workers.detected = 0;
+    await tick(server);
+    const expected = value === null ? phases : value;
+    expect(actor.todo_phases).toEqual(expected);
+    expect(session.viewerSnapshot(server.runtime).conversations[0].todo_phases).toEqual(expected);
+    const work = actor.activity_timeline.taskContext();
+    expect(work.supplied).toBe(expected.length > 0);
+    expect(work.tasks.map(task => task.label)).toEqual(
+      expected.flatMap(phase => phase.tasks.map(task => task.content)),
+    );
+    if (value === null) expect(work.revision).toBe(revision);
+    else expect(work.revision).toBeGreaterThan(revision);
+    revision = work.revision;
+    const tasks = session.viewerSnapshot(server.runtime).conversations[0].timeline.tasks;
+    expect(tasks.map((task: { label: string }) => task.label)).toEqual(work.tasks.map(task => task.label));
+    if (tasks.length) expect(tasks[0]).toMatchObject({ source: "agent", status: "blocked", blocker: "Access" });
+    const responses: unknown[] = [];
+    // conversation.list uses only the negotiated protocol and queue on its client.
+    const client = {
+      protocol_version: protocol.version,
+      queue: (value: unknown) => {
+        responses.push(value);
+      },
+    } as unknown as Client;
+    await server.request(client, protocol.envelope("conversation.list"));
+    expect(responses).toMatchObject([{ conversations: [{ todo_phases: expected }] }]);
+  }
 });

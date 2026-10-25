@@ -25,6 +25,21 @@ $.summaries?.slots[].slot.request.conversation.phase_turn: custom bounded_text.B
 $.summaries?.slots[].slot.request.generation: u64
 $.summaries?.slots[].slot.request.completed_tools: u64
 $.summaries?.slots[].slot.request.turn_epoch: u32
+$.summaries?.slots[].slot.request.work.revision: u32
+$.summaries?.slots[].slot.request.work.supplied: bool
+$.summaries?.slots[].slot.request.work.current_task: optional
+$.summaries?.slots[].slot.request.work.current_task?: string
+$.summaries?.slots[].slot.request.work.tasks[].id: string
+$.summaries?.slots[].slot.request.work.tasks[].label: string
+$.summaries?.slots[].slot.request.work.tasks[].phase: string
+$.summaries?.slots[].slot.request.work.tasks[].status: optional
+$.summaries?.slots[].slot.request.work.tasks[].status?: enum pending in_progress completed abandoned blocked
+$.summaries?.slots[].slot.request.work.tasks[].source: enum agent inferred
+$.summaries?.slots[].slot.request.work.tasks[].present: bool
+$.summaries?.slots[].slot.request.work.tasks[].blocker: optional
+$.summaries?.slots[].slot.request.work.tasks[].blocker?: string
+$.summaries?.slots[].slot.attempted_work: optional
+$.summaries?.slots[].slot.attempted_work?: u32
 $.summaries?.slots[].slot.commentary: custom bounded_text.BoundedText(2048)
 $.summaries?.slots[].slot.tool_evidence: custom bounded_text.BoundedText(2048)
 $.summaries?.slots[].slot.next: i64
@@ -56,10 +71,28 @@ $.summaries?.slots[].slot.result?.request.conversation.phase_turn: custom bounde
 $.summaries?.slots[].slot.result?.request.generation: u64
 $.summaries?.slots[].slot.result?.request.completed_tools: u64
 $.summaries?.slots[].slot.result?.request.turn_epoch: u32
+$.summaries?.slots[].slot.result?.request.work.revision: u32
+$.summaries?.slots[].slot.result?.request.work.supplied: bool
+$.summaries?.slots[].slot.result?.request.work.current_task: optional
+$.summaries?.slots[].slot.result?.request.work.current_task?: string
+$.summaries?.slots[].slot.result?.request.work.tasks[].id: string
+$.summaries?.slots[].slot.result?.request.work.tasks[].label: string
+$.summaries?.slots[].slot.result?.request.work.tasks[].phase: string
+$.summaries?.slots[].slot.result?.request.work.tasks[].status: optional
+$.summaries?.slots[].slot.result?.request.work.tasks[].status?: enum pending in_progress completed abandoned blocked
+$.summaries?.slots[].slot.result?.request.work.tasks[].source: enum agent inferred
+$.summaries?.slots[].slot.result?.request.work.tasks[].present: bool
+$.summaries?.slots[].slot.result?.request.work.tasks[].blocker: optional
+$.summaries?.slots[].slot.result?.request.work.tasks[].blocker?: string
 $.summaries?.slots[].slot.result?.label: optional
 $.summaries?.slots[].slot.result?.label?: custom bounded_text.BoundedText(80)
 $.summaries?.slots[].slot.result?.action: enum new keep amend none
 $.summaries?.slots[].slot.result?.number: u64
+$.summaries?.slots[].slot.result?.task.id: optional
+$.summaries?.slots[].slot.result?.task.id?: string
+$.summaries?.slots[].slot.result?.task.label: optional
+$.summaries?.slots[].slot.result?.task.label?: string
+$.summaries?.slots[].slot.result?.completed[]: string
 $.summaries?.link_requests[].slot: usize
 $.summaries?.link_requests[].generation: u64
 $.summaries?.link_requests[].key.workspace: u32
@@ -113,6 +146,9 @@ $.summaries?.pool.system_usage.meter.value.losses: u32
 $.summaries?.pool.system_usage.meter.value.since: i64
 $.summaries?.pool.system_usage.meter.value.updated_at: i64
 $.summaries?.pool.system_usage.meter.value.recent_tokens: u64
+$.summaries?.pool.system_usage.meter.value.turns: u64
+$.summaries?.pool.system_usage.meter.value.tools: u64
+$.summaries?.pool.system_usage.meter.value.counts_known: bool
 $.summaries?.pool.system_usage.meter.buckets[5].minute: i64
 $.summaries?.pool.system_usage.meter.buckets[5].tokens: u64
 $.summaries?.pool.system_usage.reports: u64
@@ -148,6 +184,9 @@ $.usage?[].meter.value.losses: u32
 $.usage?[].meter.value.since: i64
 $.usage?[].meter.value.updated_at: i64
 $.usage?[].meter.value.recent_tokens: u64
+$.usage?[].meter.value.turns: u64
+$.usage?[].meter.value.tools: u64
+$.usage?[].meter.value.counts_known: bool
 $.usage?[].meter.buckets[5].minute: i64
 $.usage?[].meter.buckets[5].tokens: u64
 $.usage?[].position: optional

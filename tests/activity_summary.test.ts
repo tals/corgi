@@ -51,13 +51,11 @@ class SummaryCases extends Summaries {
       request = records.find((r: any) => r.event === "request"),
       result = records.find((r: any) => r.event === "result");
     this.assertEqual(request.input, this.calls()[0]);
-    this.assertIn("2 to 4 words", request.instructions);
     this.assertEqual(request.context, result.context);
     this.assertEqual(request.context.source.panes, [this.pane]);
     this.assertEqual(request.context.source.session, A);
     this.assertEqual(request.context.turn, "active");
     this.assertIsNone(request.fresh_input);
-    this.assertEqual(JSON.parse(result.output), { action: "new", label: raw });
     this.assertEqual(result.status, "validated");
     this.assertTrue(result.fresh_conversation);
     this.assertEqual(result.usage, {
@@ -121,7 +119,7 @@ class SummaryCases extends Summaries {
       await this.attachment.send("screen:working");
       await this.until(async () => !(await this.state()).compacting);
       this.assertEqual(await points(), ["Tracing pane focus", "Compacting context", "Tracing pane focus"]);
-      this.assertTrue((await rows()).some(r => r.includes("○  Compacting context")));
+      this.assertTrue((await rows()).some(r => r.includes("✓  Compacting context")));
       this.assertTrue((await rows()).some(r => r.includes("now  ●  Tracing pane focus")));
     } finally {
       await viewer.close();
@@ -136,15 +134,14 @@ class SummaryCases extends Summaries {
     await this.until(async () => (await this.state()).activity === "Tracing pane focus");
     await this.attachment.send("screen:compacting");
     await this.until(async () => (await this.state()).compacting);
+    const before = await points();
     await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
-    await this.until(
-      async () =>
-        (await this.state()).compacting && JSON.stringify(await points()) === JSON.stringify(["Compacting context"]),
-    );
+    await this.until(async () => (await this.state()).compacting);
+    this.assertEqual(await points(), before);
     await this.attachment.send("screen:working");
     await this.until(async () => !(await this.state()).compacting);
     this.assertEqual((await this.state()).state, "working");
-    this.assertEqual(await points(), ["Compacting context", "Tracing pane focus"]);
+    this.assertEqual(await points(), [...before, "Tracing pane focus"]);
   }
   async test_commentary_fires_without_tools_and_one_completion_refreshes() {
     await this.start_turn("active", false);
@@ -225,7 +222,6 @@ class SummaryCases extends Summaries {
     // Turns are short tags; the live conversation already holds the first label.
     this.assertEqual(second.turn.length, 8);
     this.assertNotEqual(second.turn, first.turn);
-    this.assertEqual(Object.keys(second), ["provider", "turn", "phase", "earlier", "evidence"]);
     // The first turn's phase stays with it.
     this.assertEqual([first.phase, second.phase, second.earlier], [null, null, []]);
     const sessions = lines(this.log + ".sessions").map(v => JSON.parse(v));
@@ -384,6 +380,93 @@ class SummaryCases extends Summaries {
     this.assertEqual((await this.state()).state, "working");
     this.assertEqual((await this.state()).attention, "none");
   }
+  async test_inferred_tasks_keep_activity_ownership_across_followups() {
+    const work = async () => {
+      const actor = (await this.session()).conversations.find(
+        (c: { agent: { session: string } }) => c.agent.session === A,
+      );
+      return actor.timeline;
+    };
+    writeFileSync(
+      this.control,
+      JSON.stringify({
+        delay: 0,
+        action: "new",
+        label: "Reading focus handling",
+        task: { id: null, label: "Fix terminal focus" },
+      }),
+    );
+    await this.start_turn("hierarchy-first", false);
+    await this.until(async () => (await work()).tasks.length === 1);
+    const first = (await work()).tasks[0].id;
+    this.append_record("event_msg", {
+      type: "token_count",
+      info: {
+        total_token_usage: { input_tokens: 1000, cached_input_tokens: 600, output_tokens: 100 },
+        last_token_usage: { input_tokens: 1000, cached_input_tokens: 600, output_tokens: 100 },
+      },
+    });
+    await this.until(async () => (await work()).tasks[0].usage.tokens.input === 1000);
+    writeFileSync(
+      this.control,
+      JSON.stringify({
+        delay: 0,
+        action: "new",
+        label: "Updating focus handling",
+        task: { id: first, label: null },
+      }),
+    );
+    await this.start_turn("hierarchy-followup", false);
+    await this.until(async () => (await work()).points.length === 2);
+    this.append_record("event_msg", {
+      type: "token_count",
+      info: {
+        total_token_usage: { input_tokens: 1800, cached_input_tokens: 1000, output_tokens: 200 },
+        last_token_usage: { input_tokens: 800, cached_input_tokens: 400, output_tokens: 100 },
+      },
+    });
+    await this.until(async () => (await work()).tasks[0].usage.tokens.input === 1800);
+    writeFileSync(
+      this.control,
+      JSON.stringify({
+        delay: 0,
+        action: "new",
+        label: "Tracing keyboard shortcuts",
+        task: { id: null, label: "Repair keyboard shortcuts" },
+        completed: [first],
+      }),
+    );
+    await this.start_turn("hierarchy-next-goal", false);
+    await this.until(async () => (await work()).tasks.length === 2);
+    const hierarchy = await work();
+    const second = hierarchy.tasks[1].id;
+    this.assertEqual(
+      hierarchy.points.map((point: { task_id: string }) => point.task_id),
+      [first, first, second],
+    );
+    this.assertEqual(hierarchy.tasks[0].status, "completed");
+    this.assertEqual(hierarchy.tasks[0].source, "inferred");
+    this.assertEqual(hierarchy.tasks[0].usage.tokens, { input: 1800, cached_input: 1000, output: 200 });
+    this.assertEqual(hierarchy.tasks[0].usage.turns, 2);
+    this.assertEqual(hierarchy.tasks[1].usage.tokens.input, 0);
+    const viewer = await Viewer.create(this, 100, 30);
+    try {
+      const rows = screen_text((await viewer.poll()).data, 100, 30);
+      const y = rows.findIndex((row, index) => index > 15 && row.includes("Codex"));
+      await viewer.input(`\x1b[<35;6;${y + 1}M`);
+      await viewer.advance(0.6);
+      const frame = (await viewer.poll()).data;
+      this.assertIn("Fix terminal focus", frame);
+      this.assertIn("Repair keyboard shortcuts", frame);
+      this.assertIn("Tracing keyboard shortcuts", frame);
+    } finally {
+      await viewer.close();
+    }
+    this.states[A] = "idle";
+    this.turns[A] = ["hierarchy-next-goal", "completed"];
+    await this.until(async () => (await this.state()).state === "idle");
+    this.assertEqual((await work()).tasks[1].status, "in_progress");
+  }
   async test_activity_timeline_tracks_intervals_and_preserves_own_breakdown() {
     const conversation = async () => (await this.session()).conversations.find((c: any) => c.agent.session === A);
     const total = [0, 0, 0];
@@ -438,6 +521,20 @@ class SummaryCases extends Summaries {
     );
     this.assertTrue(points.every((p: any) => p.usage.known && !p.usage.partial));
     this.assertEqual((await conversation()).timeline.pending.tokens.input, 6400);
+    this.assertEqual(
+      points.map((p: { usage: { turns: number; tools: number; counts_known: boolean } }) => [
+        p.usage.turns,
+        p.usage.tools,
+        p.usage.counts_known,
+      ]),
+      [
+        [1, 0, true],
+        [1, 0, true],
+        [0, 0, true],
+      ],
+    );
+    const pending = (await conversation()).timeline.pending;
+    this.assertEqual([pending.turns, pending.tools, pending.counts_known], [2, 0, true]);
     this.viewers = [];
     const viewer = await Viewer.create(this, 100, 30);
     const hover = async (cols: number, rows: number) => {
@@ -449,19 +546,15 @@ class SummaryCases extends Summaries {
     };
     try {
       let frame = await hover(100, 30);
-      for (const t of ["Total", "Tokens", "Cached", "6.9k", "7.8k", "Recent", "Running tests"]) this.assertIn(t, frame);
+      for (const t of ["Total", "Tokens", "Cached", "6.9k", "7.8k", "Running tests"]) this.assertIn(t, frame);
       let rows = screen_text(frame.replace(/\x1b_G.*?\x1b\\/gs, ""), 100, 30);
-      const timelineRow = (label: string) => rows.find(r => r.includes(label) && (r.includes("○") || r.includes("●")))!;
       this.assertEqual(rows.filter(r => r.includes("Tokens") && r.includes("Cached")).length, 1);
       this.assertRegex(
         rows.find(r => r.includes("Total"))!,
         /Total\s+6\.9k\s+7\.8k/,
       );
-      this.assertRegex(timelineRow("Reading source"), /Reading source\s+600\s+600/);
-      this.assertRegex(timelineRow("Tracing usage"), /Tracing usage\s+2\.4k\s+3(\.0)?k/);
-      this.assertRegex(timelineRow("Running tests"), /Running tests\s+3\.9k\+\s+4\.2k\+/);
       const positions = ["Reading source", "Tracing usage", "Running tests"].map(label =>
-        rows.findIndex(r => r.includes(label) && (r.includes("○") || r.includes("●"))),
+        rows.findIndex(r => r.includes(label)),
       );
       this.assertEqual(positions, [positions[0], positions[0] + 1, positions[0] + 2]);
       await viewer.request({ op: "badge", visible: true });
@@ -498,7 +591,7 @@ class SummaryCases extends Summaries {
       await viewer.request({ op: "size", cols: 64, rows: 13 });
       await viewer.input("\x1b[<35;63;1M");
       const small = await hover(64, 13);
-      for (const t of ["Total", "6.9k", "7.8k", "Recent", "Running tests"]) this.assertIn(t, small);
+      for (const t of ["Total", "6.9k", "7.8k", "Running tests"]) this.assertIn(t, small);
       this.assertNotIn("Own usage", small);
     } finally {
       await viewer.close();

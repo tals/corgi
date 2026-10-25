@@ -8,6 +8,9 @@ import { stringify } from "./json";
 import * as worktrees from "./worktrees";
 import { parseInventory } from "./trackers/worktrees";
 import { Path } from "./bounded_text";
+import { Text } from "./providers/common";
+import { View } from "./usage/live";
+import type { TaskView } from "./activity/timeline";
 const ctx = { socket: "/tmp/corgi-test", executable: "/bin/corgi", theme: {} };
 function setup() {
   const r = new Runtime(),
@@ -361,6 +364,69 @@ test("a viewer's snapshot leaves out conversations nothing is attached to", () =
     expect(shown.map(a => a.id)).toEqual([attached.id, child.id]);
     expect(shown[0].attachments).toBe(1);
     expect(snapshot(r).conversations.length).toBe(3);
+  } finally {
+    r.destroy();
+  }
+});
+
+test("session and viewer snapshots carry derived todo phases, including explicit clears", () => {
+  const { r, home } = setup();
+  try {
+    const actor = r.conversations.get("omp", "todo-session");
+    r.pane(pane(r, home))!.attachment.select(actor);
+    const phases = () => [snapshot(r).conversations[0].todo_phases, viewerSnapshot(r).conversations[0].todo_phases];
+    expect(phases()).toEqual([[], []]);
+    actor.todo_phases = [
+      {
+        name: "Implement",
+        tasks: [
+          { content: "Read the transcript", status: "completed" },
+          { content: "Carry the snapshot", status: "in_progress" },
+          { content: "Wait for access", status: "blocked", blocker: "Credentials" },
+          { content: "Old approach", status: "abandoned" },
+          { content: "Review", status: "pending" },
+        ],
+      },
+    ];
+    actor.activity_timeline.syncPlan(actor.todo_phases, actor.usageView(1), 1);
+    expect(phases()).toEqual([actor.todo_phases, actor.todo_phases]);
+    const goals = viewerSnapshot(r).conversations[0].timeline.tasks;
+    expect(goals.map((task: TaskView) => task.label)).toEqual(actor.todo_phases[0].tasks.map(task => task.content));
+    expect(goals[2]).toMatchObject({ source: "agent", status: "blocked", blocker: "Credentials" });
+    expect(goals.every((task: TaskView) => !task.usage.counts_known)).toBe(true);
+    actor.todo_phases = [];
+    actor.activity_timeline.syncPlan([], actor.usageView(2), 2);
+    expect(phases()).toEqual([[], []]);
+    expect(viewerSnapshot(r).conversations[0].timeline.tasks).toEqual([]);
+    const other = r.conversations.get("pi", "not-omp");
+    expect(snapshot(r).conversations.find(a => a.id === other.id)!.todo_phases).toEqual([]);
+  } finally {
+    r.destroy();
+  }
+});
+
+test("wire hierarchy carries immutable owners and own rollups without changing actor totals", () => {
+  const { r, home } = setup();
+  try {
+    const actor = r.conversations.get("omp", "goals");
+    r.pane(pane(r, home))!.attachment.select(actor);
+    actor.live_usage = new View({ known: true, counts_known: true });
+    const timeline = actor.activity_timeline;
+    const id = timeline.selectTask({ id: null, label: "Implement storage" }, []);
+    timeline.checkpoint("turn", new Text("Reading source"), actor.live_usage, 1);
+    actor.live_usage.tokens.input = 20n;
+    actor.live_usage.tools = 3n;
+    for (const wire of [snapshot(r), viewerSnapshot(r)]) {
+      const conversation = wire.conversations[0];
+      expect(conversation.timeline.points[0].task_id).toBe(id);
+      expect(conversation.timeline.tasks[0]).toMatchObject({
+        id,
+        source: "inferred",
+        usage: { tokens: { input: 20n }, tools: 3n, counts_known: true },
+      });
+      expect(conversation.usage.tokens.input).toBe(20n);
+      expect(conversation.timeline.omitted_tasks).toBe(0);
+    }
   } finally {
     r.destroy();
   }

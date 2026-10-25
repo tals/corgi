@@ -55,6 +55,35 @@ test("usage tail frames records, ignores history and advances baselines while wa
   expect(delta.input).toBe(30n);
   expect(delta.output).toBe(5n);
 });
+test("Codex tools count without usage and exclude inherited child history", () => {
+  const tail = new Tail(),
+    req = request("codex"),
+    source = reader(req);
+  req.child = true;
+  req.tracked_since = 1000;
+  source.open(
+    tail,
+    req,
+    {
+      type: "session_meta",
+      payload: { subagent_history_start_ordinal: 10, timestamp: "1970-01-01T00:00:02.000Z" },
+    },
+    true,
+  );
+  const tool = (ordinal: number, id: string) => ({
+    type: "response_item",
+    ordinal,
+    payload: { type: "function_call", call_id: id },
+  });
+  source.record(tail, req, tool(9, "parent"), false, 2000);
+  source.record(tail, req, tool(10, "own-a"), false, 2000);
+  source.record(tail, req, tool(11, "own-b"), false, 2000);
+  source.record(tail, req, tool(11, "own-b"), true, 2000);
+  expect(tail.live.meter.value.tools).toBe(2n);
+  expect(tail.live.meter.value.turns).toBe(0n);
+  expect(tail.live.meter.value.counts_known).toBe(true);
+  expect(tail.live.meter.value.known).toBe(false);
+});
 test("Claude chosen names outrank generated names and continued session clears on resumed speech", () => {
   const t = new Tail();
   const said = request("claude");
@@ -288,11 +317,13 @@ test("a Claude subagent's own transcript counts its usage from when it was track
   ingestLine(tail, req, message("a2", "m3", 4, 100, 5));
   expect(tail.live.meter.value.tokens.input).toBe(10n);
   expect(tail.live.meter.value.tokens.output).toBe(2n);
+  expect(tail.live.meter.value.turns).toBe(1n);
   const parent = new Tail();
   const parentReq = request("claude");
   parentReq.agent.session = new Text("s");
   ingestLine(parent, parentReq, message("a1", "m2", 3, 10, 2));
   expect(parent.live.meter.value.tokens.input).toBe(0n);
+  expect(parent.live.meter.value.turns).toBe(0n);
 });
 
 test("Claude transcripts supply chosen names over generated titles and report continuations", () => {
@@ -498,6 +529,7 @@ test("a handoff's usage tail counts on from where the last daemon stopped", asyn
     appendFileSync(file, line("m2", 10, 2) + `{"type":"assistant","sessionId":"s"`);
     await tail.poll(req, reader(req));
     expect(tail.live.meter.value.tokens.input).toBe(10n);
+    expect(tail.live.meter.value.turns).toBe(1n);
     const next = handOver(tail);
     // Written while the daemons hand over, finishing the line the last one read half of.
     appendFileSync(file, `,"message":{"id":"m3","usage":{"input_tokens":20,"output_tokens":3}}}\n`);
@@ -506,9 +538,14 @@ test("a handoff's usage tail counts on from where the last daemon stopped", asyn
     expect(after.live.meter.value.tokens.input).toBe(30n);
     expect(after.live.meter.value.tokens.output).toBe(5n);
     expect(after.live.meter.value.partial).toBe(false);
+    expect(after.live.meter.value.turns).toBe(2n);
     appendFileSync(file, line("m4", 1, 1));
     await after.poll(req, reader(req));
     expect(after.live.meter.value.tokens.input).toBe(31n);
+    expect(after.live.meter.value.turns).toBe(3n);
+    appendFileSync(file, line("m4", 1, 1));
+    await after.poll(req, reader(req));
+    expect(after.live.meter.value.turns).toBe(3n);
     const moved = join(root, "moved.jsonl");
     writeFileSync(moved, line("m1", 7, 1));
     req.agent.transcript = new Path(moved);
@@ -558,12 +595,14 @@ test("a Codex subagent's count stays whole through a handoff", async () => {
     await tail.poll(req, reader(req));
     expect(tail.live.meter.value.tokens.input).toBe(150n);
     expect(tail.live.meter.value.partial).toBe(false);
+    expect(tail.live.meter.value.turns).toBe(2n);
     const after = handOver(tail)();
     appendFileSync(file, count(4, 200, 50));
     await after.poll(req, reader(req));
     expect(after.live.meter.value.tokens.input).toBe(200n);
     expect(after.live.meter.value.tokens.output).toBe(20n);
     expect(after.live.meter.value.partial).toBe(false);
+    expect(after.live.meter.value.turns).toBe(3n);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

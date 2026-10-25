@@ -8,12 +8,23 @@ const output = (label: string | null, action = label === null ? "none" : "new"):
   status: label === null ? "abstained" : "label",
   action,
   label,
-  raw: JSON.stringify({ action, label: action === "keep" ? null : label }),
+  raw: JSON.stringify({
+    action,
+    label: action === "keep" ? null : label,
+    task: { id: null, label: null },
+    completed: [],
+  }),
+  task: { id: null, label: null },
+  completed: [],
+  input: {
+    phase: action === "keep" ? label : null,
+    work: { revision: 0, supplied: false, current_task: null, tasks: [] },
+  },
   elapsed_ms: 1000,
 });
 describe("activity eval assertions", () => {
   test("fixtures have meaningful, bounded assertions", () => {
-    expect(validateCases(cases)).toHaveLength(19);
+    expect(validateCases(cases)).toHaveLength(cases.length);
   });
   test("name cases use the production format and reject mismatched driver output", () => {
     expect(validateCases(namingCases)).toHaveLength(9);
@@ -76,5 +87,42 @@ describe("activity eval assertions", () => {
     expect(scorecard([base, { ...base, observation: null, failures: ["missing result"] }])).toContain(
       "| fixture | 1/2 | 1/2 |",
     );
+  });
+  test("task ownership and completion rubrics use context labels rather than generated IDs", () => {
+    const task = { id: "goal", label: null };
+    const observation: Observation = {
+      ...output("Running tests"),
+      task,
+      completed: [],
+      raw: JSON.stringify({ action: "new", label: "Running tests", task, completed: [] }),
+      input: {
+        phase: null,
+        work: {
+          revision: 1,
+          supplied: false,
+          current_task: "goal",
+          tasks: [{ id: "goal", label: "Repair parser", phase: "", source: "inferred", status: null, present: true }],
+        },
+      },
+    };
+    const step = {
+      evidence: "Parser tests",
+      expect: "label" as const,
+      all: ["test"],
+      goal: { kind: "existing" as const, all: ["parser"] },
+      completed: [],
+    };
+    expect(grade(step, observation)).toEqual([]);
+    expect(grade({ ...step, goal: { kind: "new" } }, observation)).toContain("expected new goal, got existing");
+    const completed = {
+      ...observation,
+      completed: ["goal"],
+      raw: JSON.stringify({ action: "new", label: "Running tests", task, completed: ["goal"] }),
+    };
+    expect(grade(step, completed)).toContain("unexpected completed goals");
+    expect(grade({ ...step, completed: ["parser"] }, completed)).toEqual([]);
+    expect(grade(step, { ...observation, raw: '{"action":"new","label":"Running tests"}' })).toEqual([
+      "invalid response schema",
+    ]);
   });
 });

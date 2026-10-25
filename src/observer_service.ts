@@ -455,6 +455,10 @@ export async function tick(server: Server) {
       if (!actor.model_from_hook && result.model.id.len) actor.model = result.model;
       if (!actor.headless_usage) actor.live_usage = result.live;
       actor.context = result.context;
+      if (result.todo_phases !== null) {
+        actor.todo_phases = result.todo_phases;
+        actor.activity_timeline.syncPlan(result.todo_phases, actor.usageView(now), now);
+      }
       runtime.conversations.compaction_points.learn(result.context.model.id.text(), result.context.auto_compaction);
       const continuation = adapter(actor.provider()).transcript?.continuation;
       if (result.continued.len && continuation && result.continued.text() !== actor.state.sessionId()) {

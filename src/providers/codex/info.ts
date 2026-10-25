@@ -16,6 +16,7 @@ export const caps: Caps = {
   follows_cd: false,
   titles_once_loaded: true,
   transcript_tools: true,
+  headless_counts: true,
 };
 /** How its command line chooses a model, an account and its permission checks. */
 export const vocabulary: Vocabulary = {

@@ -47,6 +47,7 @@ export const adapter: Adapter = {
     follows_cd: false,
     titles_once_loaded: false,
     transcript_tools: true,
+    headless_counts: false,
   },
   owns: p =>
     path.basename(p) === "pi" ||

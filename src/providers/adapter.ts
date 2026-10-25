@@ -1,3 +1,4 @@
+import type { FileHandle } from "node:fs/promises";
 import type { Hook, Text } from "./common";
 import type { Quit } from "../subprocess";
 import type { Info as Account } from "../usage/account";
@@ -98,6 +99,8 @@ export interface TranscriptReader {
   refresh?(): Promise<void>;
   /** Readies `t` for a file it just opened; `head` is the file's first record. */
   open(t: UsageTail, req: UsageRequest, head: unknown, catch_up: boolean): void;
+  /** Restores durable state after the initial tail is read, before any result is published. */
+  restore?(t: UsageTail, file: FileHandle): Promise<void>;
   /** Folds one record into `t`; the tokens and tools it counted. */
   record(t: UsageTail, req: UsageRequest, value: any, appended: boolean, stamp: number | null): Counts;
   /** A session's name, when it comes from somewhere besides its transcript:
@@ -328,6 +331,8 @@ export type Caps = {
   titles_once_loaded: boolean;
   /** Its transcripts show which tools run, beyond what its hooks report. */
   transcript_tools: boolean;
+  /** Its headless protocol identifies individual model responses and tool calls. */
+  headless_counts: boolean;
 };
 /** What a provider's hooks tell beyond its lifecycle. */
 export interface Conversation {

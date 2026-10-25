@@ -5,8 +5,11 @@ import { readFileSync } from "node:fs";
 import { Pool, type Provider } from "../src/inference";
 import * as contract from "../src/activity/prompt";
 import * as naming from "../src/conversation_name";
+import { Timeline } from "../src/activity/timeline";
+import { View } from "../src/usage/live";
+import type { Phase } from "../src/activity/todos";
 
-type Step = { id: string; evidence: string; turn: string; task?: "name" };
+type Step = { id: string; evidence: string; turn: string; task?: "name"; plan?: Phase[] };
 /** Instructions and schema default to production; playback backfills override them. */
 type Scenario = { id: string; steps: Step[]; instructions?: string | null; schema?: string | null };
 
@@ -30,7 +33,8 @@ async function main() {
   try {
     const plan: Scenario[] = JSON.parse(readFileSync(planPath, "utf8"));
     for (const scenario of plan) {
-      const context = new contract.Context();
+      const context = new contract.Context(),
+        timeline = new Timeline();
       for (const step of scenario.steps) {
         if (stopping.value) throw Error("Cancelled");
         // Match the production evidence bound; never silently evaluate more context.
@@ -67,6 +71,7 @@ async function main() {
           }
           continue;
         }
+        if (step.plan !== undefined) timeline.syncPlan(step.plan, new View(), Date.now());
         // As in production, history accompanies only a newly created conversation.
         const history = context.recent.slice(0, context.len).map(entry => entry.text());
         const phase = context.phase(step.turn);
@@ -76,6 +81,7 @@ async function main() {
           phase,
           earlier: context.earlier(step.turn),
           evidence: step.evidence,
+          work: timeline.taskContext(),
         };
         const fresh: contract.Input = { ...live, history };
         const json = contract.content(live);
@@ -108,7 +114,7 @@ async function main() {
         const input = response.fresh && fresh_json !== null ? fresh : live;
         let decision;
         try {
-          decision = contract.parse(response.text(), phase);
+          decision = contract.parse(response.text(), phase, live.work);
         } catch (error) {
           emit({
             id: step.id,
@@ -122,6 +128,11 @@ async function main() {
           continue;
         }
         const label = decision.label;
+        const task_id = timeline.selectTask(decision.task, decision.completed);
+        if (label !== null) {
+          if (decision.action === "amend") timeline.amend(step.turn, label, new View(), Date.now(), task_id);
+          else timeline.checkpoint(step.turn, label, new View(), Date.now(), task_id);
+        }
         emit({
           id: step.id,
           status: label === null ? "abstained" : "label",
@@ -129,6 +140,8 @@ async function main() {
           raw: response.text(),
           action: decision.action,
           label: label?.text() ?? null,
+          task: decision.task,
+          completed: decision.completed,
           elapsed_ms: Date.now() - started,
           input,
         });

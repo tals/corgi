@@ -6,6 +6,7 @@ import { View as ToolView } from "./tools";
 import { clone } from "../json";
 import { Path } from "../agents";
 import { Option, Selection, compare } from "../inference/models";
+import { Response } from "../inference/harness";
 test("Pi inference defaults to the cheapest subscription and pins an explicit model and account across handoff", () => {
   const worker = new Worker("pi");
   worker.catalog.refresh = async () => {};
@@ -252,8 +253,15 @@ test("worker live checkpoint preserves queued link evidence and unconsumed resul
   request.actor = 6;
   request.evidence = new Text("Tracing focus");
   request.conversation.remember("turn", "Tracing focus", parseLabel("Tracing focus")!);
+  request.work = {
+    revision: 7,
+    supplied: false,
+    current_task: "goal",
+    tasks: [{ id: "goal", label: "Repair pane focus", phase: "", status: null, source: "inferred", present: false }],
+  };
   const slot = new Slot(request);
-  slot.result = new Result(request, parseLabel("Tracing pane focus"), "amend");
+  slot.attempted_work = 7;
+  slot.result = new Result(request, parseLabel("Tracing pane focus"), "amend", { id: "goal", label: null }, ["goal"]);
   worker.slots[2] = slot;
   const key = {
     workspace: 1,
@@ -288,6 +296,10 @@ test("worker live checkpoint preserves queued link evidence and unconsumed resul
     const result = restored.take()[0];
     expect(result.label?.text()).toBe("Tracing pane focus");
     expect(result.action).toBe("amend");
+    expect(result.task).toEqual({ id: "goal", label: null });
+    expect(result.completed).toEqual(["goal"]);
+    expect(result.request.work).toEqual(request.work);
+    expect(restored.slots[2]?.attempted_work).toBe(7);
     expect(restored.take().length).toBe(0);
     expect(restored.slots[2]?.request.evidence.text()).toBe("Tracing focus");
   } finally {
@@ -567,4 +579,94 @@ test("results keep, amend or start the turn's phase", () => {
   apply("Fixing failures", "new");
   expect(rows()).toEqual(["Running unit tests", "Fixing failures"]);
   expect(actor.status_inference.earlier("t")).toEqual(["Running unit tests"]);
+});
+test("plan revisions invalidate results and refresh unchanged evidence", () => {
+  const actor = new Registry().get("codex", "plan"),
+    worker = new Worker();
+  actor.state.state = "working";
+  actor.state.setTurn("turn");
+  try {
+    worker.submit(actor, new Text("Reading parser"), null, []);
+    const slot = worker.slots[0]!;
+    const request = Object.assign(new Request(), slot.request);
+    slot.attempt(1000);
+    const plan = [{ name: "Repair", tasks: [{ content: "Repair parser", status: "pending" as const }] }];
+    actor.activity_timeline.syncPlan(plan, actor.usageView(2000), 2000);
+    expect(new Result(request, parseLabel("Reading parser")).apply(actor)).toBe(false);
+    worker.reconcile([actor]);
+    expect(request.work.tasks).toEqual([]);
+    expect(slot.request.work.tasks[0].label).toBe("Repair parser");
+    expect(slot.ready(10000, false)).toBe(true);
+    slot.attempt(10000);
+    actor.activity_timeline.syncPlan(plan, actor.usageView(11000), 11000);
+    worker.submit(actor, new Text("Reading parser"), null, []);
+    expect(slot.ready(20000, false)).toBe(false);
+  } finally {
+    worker.stop();
+  }
+});
+
+test("in-flight plan changes discard inference without waiting for new tools", async () => {
+  const actor = new Registry().get("codex", "plan"),
+    worker = new Worker("codex");
+  actor.state.state = "working";
+  actor.state.setTurn("turn");
+  worker.link_names = false;
+  const responseReady = Promise.withResolvers<Response>();
+  worker.implementation.pool.infer = async input => {
+    expect(JSON.parse(input.content).work.tasks).toEqual([]);
+    return await responseReady.promise;
+  };
+  try {
+    worker.submit(actor, new Text("Reading parser"), null, []);
+    const running = worker.run();
+    actor.activity_timeline.syncPlan(
+      [{ name: "", tasks: [{ content: "Repair parser", status: "in_progress" }] }],
+      actor.usageView(2000),
+      2000,
+    );
+    worker.reconcile([actor]);
+    const response = new Response();
+    response.set(
+      JSON.stringify({
+        action: "new",
+        label: "Reading parser",
+        task: { id: null, label: "Repair parser" },
+        completed: [],
+      }),
+    );
+    responseReady.resolve(response);
+    await running;
+    expect(worker.take()).toEqual([]);
+    const slot = worker.slots[0]!;
+    expect(slot.ready(slot.next, false)).toBe(true);
+  } finally {
+    worker.stop();
+  }
+});
+
+test("task selection owns intervals across turns and completion-only none preserves history", () => {
+  const actor = new Registry().get("codex", "goals");
+  actor.state.state = "working";
+  actor.state.setTurn("first");
+  const request = () =>
+    Object.assign(new Request(), {
+      actor: actor.id,
+      turn_epoch: actor.state.turn_epoch,
+      work: actor.activity_timeline.taskContext(),
+    });
+  expect(
+    new Result(request(), parseLabel("Reading parser"), "new", { id: null, label: "Repair parser" }).apply(actor),
+  ).toBe(true);
+  const goal = actor.activity_timeline.taskContext().tasks[0];
+  actor.state.beginTurn("second");
+  expect(new Result(request(), parseLabel("Running tests"), "new", { id: goal.id, label: null }).apply(actor)).toBe(
+    true,
+  );
+  expect(actor.activity_timeline.points.map(point => point.task_id)).toEqual([goal.id, goal.id]);
+  expect(actor.activity_timeline.taskContext().tasks).toHaveLength(1);
+  expect(new Result(request(), null, "none", { id: null, label: null }, [goal.id]).apply(actor)).toBe(true);
+  expect(actor.activity_timeline.taskContext().tasks[0].status).toBe("completed");
+  expect(actor.activity_timeline.points).toHaveLength(2);
+  expect(actor.state.activity.text()).toBe("");
 });

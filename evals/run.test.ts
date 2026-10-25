@@ -70,7 +70,8 @@ test("runner exits nonzero for failures/missing results and saves a reproducible
 const plan = await Bun.file(process.argv.at(-1)).json();
 for (const scenario of plan) for (const step of scenario.steps) {
   if (process.env.EVAL_TEST_MISSING) continue;
-  console.log(JSON.stringify({id:step.id,status:"abstained",label:null,action:"none",raw:'{"action":"none","label":null}',elapsed_ms:1}));
+  const decision = { action:"none", label:null, task:{id:null,label:null}, completed:[] };
+  console.log(JSON.stringify({id:step.id,status:"abstained",...decision,raw:JSON.stringify(decision),elapsed_ms:1,input:{phase:null,work:{revision:0,supplied:false,current_task:null,tasks:[]}}}));
 }
 `,
     );
@@ -105,6 +106,59 @@ for (const scenario of plan) for (const step of scenario.steps) {
       expect(report.results[0].failures.length === 0).toBe(code === 0);
       expect(await readFile(join(out, "latest.md"), "utf8")).toContain(code === 0 ? "1/1" : "0/1");
     }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("production driver carries supplied plans and inferred goals between snapshots", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "corgi-hierarchy-driver-"));
+  try {
+    const plan = join(dir, "plan.json"),
+      control = join(dir, "control.json");
+    await writeFile(control, JSON.stringify({ label: "Reading parser", task: { id: null, label: "Repair parser" } }));
+    await writeFile(
+      plan,
+      JSON.stringify([
+        {
+          id: "goals",
+          steps: [
+            { id: "first", turn: "one", evidence: "Reading parser to repair its crash" },
+            { id: "second", turn: "two", evidence: "Reading parser to repair its crash" },
+            {
+              id: "plan",
+              turn: "three",
+              evidence: "Reading parser to repair its crash",
+              plan: [{ name: "Repair", tasks: [{ content: "Repair parser", status: "in_progress" }] }],
+            },
+          ],
+        },
+      ]),
+    );
+    const proc = Bun.spawn([process.execPath, join(import.meta.dir, "driver.ts"), "codex", "fixture", plan], {
+      stdout: "pipe",
+      stderr: "pipe",
+      env: {
+        ...process.env,
+        CORGI_EVAL_HARNESS: join(import.meta.dir, "../tests/inference_harness.ts"),
+        CORGI_INFERENCE_TEST_CONTROL: control,
+      },
+    });
+    const output = new Response(proc.stdout).text(),
+      error = new Response(proc.stderr).text();
+    expect(await proc.exited, await error).toBe(0);
+    const rows = (await output)
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line));
+    expect(rows[0].input.work.tasks).toEqual([]);
+    expect(rows[1].input.work.tasks).toHaveLength(1);
+    expect(rows[1].input.work.tasks[0].label).toBe("Repair parser");
+    expect(rows[1].task).toEqual({ id: null, label: "Repair parser" });
+    expect(rows[2].input.work.supplied).toBe(true);
+    expect(rows[2].input.work.tasks.some((task: { source: string }) => task.source === "agent")).toBe(true);
+    // The fixture keeps requesting a new goal: supplied authority must reject it.
+    expect(rows[2].status).toBe("invalid");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

@@ -1,6 +1,9 @@
 # Inference evals
 
-These are small, deterministic assertions around **live model responses** for activity summaries and conversation names. They probe when an activity summarizer should abstain, whether it can still name useful work, and whether it keeps a phase across snapshots instead of adding a row per call. They run the production inference harness, prompt, JSON schema, parser, and bounded conversation-history implementation, through `evals/driver.ts`. They do not open a Corgi runtime or modify a running session.
+These are deterministic assertions around **live model responses** for activity
+summaries, task ownership and conversation names. They exercise the production
+inference harness, prompt, strict JSON schema, parser and work hierarchy through
+`evals/driver.ts`, without opening a Corgi runtime or modifying a running session.
 
 ```sh
 bun test evals                         # scorer/runner tests; no model calls
@@ -24,12 +27,14 @@ bun run evals/run.ts --list
 
 ## Assertions and scorecard
 
-`cases.json` contains 19 scenarios / 24 assertions per repeat:
+`cases.json` contains activity and task-ownership scenarios:
 
-- Sparse requests, generic thinking, opaque tool names, and clarification requests should produce `{"label":null}`. The application owns needs-input status.
+- Sparse requests, generic thinking, opaque tool names, and clarification requests should abstain (`action: "none"`, `label: null`). The application owns needs-input status.
 - Concrete assistant updates, active tools, completed searches, and known background builds should produce a useful label. Positive controls prevent passing by always abstaining.
 - Multi-step scenarios share a real inference conversation. They test evidence arriving after abstention and old context failing to override a sparse replacement snapshot, both within and across turns.
 - Phase scenarios check that more of the same work keeps or amends the current phase, and that a new kind of work starts one.
+- Supplied tasks are selected from evidence, not blindly from their active status; unrelated work remains unassigned.
+- Inferred goals are reused across user follow-ups. Explicit completion evidence may settle them; switching goals must not.
 - Instructions embedded in evidence must not override the summarizer's instructions.
 
 Assertions check the response contract, abstention decision, the action where a step names it, permitted label length, generic/input-status wording, and broad topic patterns. They allow wording variations; no exact-match golden labels or subjective LLM grading. Topic patterns are deliberately conservative regression checks, not proof of semantic correctness. New useful wording may require a reviewed rubric adjustment. Never loosen an expectation just to make a model pass.
@@ -39,6 +44,12 @@ Every assertion must pass. Errors, invalid responses, and missing results fail t
 Each run writes `evals/results/<timestamp>/report.json` and `scorecard.md`, plus `latest.json` and `latest.md`. Reports record requested model IDs, repeat count, selected cases, exact model input/output, source hashes, the driver hash, and errors. Latencies include harness setup where needed and are useful only for rough comparison. Generated runs are ignored by Git.
 
 To add a probe, append a scenario with `id`, `category`, and `steps`. Each step includes the production evidence text, `expect: "abstain" | "label"`, an optional turn ID, and—for labels—an `all` array of case-insensitive topic regexes. A phase step may add `action`, the actions it accepts. A `keep` is scored as the label of the phase it kept. Evidence is limited to the production 2048-byte bound. Use synthetic evidence so scorecards are safe to share.
+
+Activity decisions include `task: {id, label}` and `completed` IDs alongside
+`action` and `label`. The driver evolves the production task registry between
+steps; a step's optional `plan` replaces its supplied plan. Ownership assertions
+check the selected goal's source and topic, and completion assertions check
+which inferred goals settled. Agent-supplied statuses remain authoritative.
 
 ## Conversation names
 
@@ -77,6 +88,13 @@ provider-supported schema constraints were tightened. The combined suite scored
 33/33 on Haiku and 32/33 on Luna: its existing `background-build` check abstained
 once, then passed three focused reruns. Private comparisons remain in local
 `evals/results/history/`; no historical conversations were added to fixtures.
+
+The task hierarchy update (2026-10-25) passed all eight new ownership and
+completion checks on each model. The complete suite scored 43/43 on Haiku
+5.5 and 42/43 on Luna; the existing `background-build` probe again returned
+`keep` without a current phase, which normalizes to abstention. Expectations
+were not relaxed. Live evaluation also caught an unsupported `uniqueItems`
+schema keyword in Codex; duplicate completion IDs remain rejected by the parser.
 
 The Pi picker follow-up passed all eleven naming probes on Haiku, Codex Luna
 and Pi's Codex-backed Luna. Pi initially copied raw command tokens or abstained

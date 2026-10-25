@@ -18,6 +18,9 @@ export class Tokens {
 export class View {
   tokens = new Tokens();
   known = false;
+  turns = 0n;
+  tools = 0n;
+  counts_known = false;
   partial = false;
   losses = 0;
   since = 0;
@@ -33,6 +36,11 @@ export class Meter {
   lose() {
     this.value.partial = true;
     this.value.losses = Math.min(0xffffffff, this.value.losses + 1);
+  }
+  count(turns: bigint, tools: bigint) {
+    this.value.counts_known = true;
+    this.value.turns = add(this.value.turns, turns);
+    this.value.tools = add(this.value.tools, tools);
   }
   add(tokens: Tokens, timestamp: number) {
     this.value.known = true;
@@ -67,8 +75,9 @@ export class Counter {
   catch_up = false;
   ordinal: bigint | null = null;
   baseline_next = false;
-  /** Counts what `total` adds to the last one, at most `last`; with `count` false it only sets the baseline. */
-  sample(total: Tokens, last: Tokens | null, count: boolean, stamp: number) {
+  /** Counts what `total` adds to the last one, at most `last`; with `count` false it only sets the baseline.
+   * `response` is for request-completion reports, not snapshots of cumulative usage. */
+  sample(total: Tokens, last: Tokens | null, count: boolean, stamp: number, response = false) {
     const p = this.previous,
       regressed = p && (total.input < p.input || total.output < p.output || total.cached_input < p.cached_input);
     if (!count || this.baseline_next) {
@@ -111,5 +120,7 @@ export class Counter {
     }
     this.previous = total;
     this.meter.add(delta, stamp);
+    if (response && !last) this.meter.lose();
+    if (response && last) this.meter.count(1n, 0n);
   }
 }

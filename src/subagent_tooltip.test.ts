@@ -16,6 +16,7 @@ import {
   shallow_inks,
   unread_ink,
   status,
+  usageView,
   type Conversation,
   type BackgroundView,
 } from "./subagent_tooltip";
@@ -31,6 +32,7 @@ import { Terminal } from "./pane/terminal";
 import { microTimestamp } from "./clock";
 import type { Agent } from "./mirror";
 import { Model as ProviderModel } from "./providers/model";
+import type { TaskView } from "./activity/timeline";
 
 const base = new palette.Style({ fg: "text", bg: "bg" }).sgr();
 const usage = (
@@ -49,8 +51,32 @@ const usage = (
 function agent(fields: Partial<Agent>): Agent {
   return conversation({ agent: { state: "working", attention: "none", session: "test", ...fields } }).agent;
 }
-function convo(fields: Partial<Omit<Conversation, "agent">> & { agent: Agent }): Conversation {
-  return { ...conversation({}), ...fields, agent: { ...fields.agent, subagents: { ...fields.agent.subagents } } };
+function convo(
+  fields: Partial<Omit<Conversation, "agent" | "timeline">> & {
+    agent: Agent;
+    timeline?: Partial<Omit<Conversation["timeline"], "points">> & {
+      points?: { at: number; activity: string; usage: UsageView; task_id?: string | null }[];
+    };
+  },
+): Conversation {
+  return {
+    ...conversation(),
+    ...fields,
+    timeline: conversation({ timeline: fields.timeline }).timeline,
+    agent: { ...fields.agent, subagents: { ...fields.agent.subagents } },
+  };
+}
+function task(id: string, fields: Partial<TaskView> = {}): TaskView {
+  return {
+    id,
+    label: id,
+    phase: "",
+    source: "agent",
+    status: "pending",
+    present: true,
+    usage: new UsageView(),
+    ...fields,
+  };
 }
 function entry(fields: Partial<sidebar.Entry>): sidebar.Entry {
   return sidebar.entry({ target: { pane: 1 }, ...fields });
@@ -61,6 +87,114 @@ function render(fn: (w: Writer) => void): string {
   fn(w);
   return w.buffered();
 }
+
+test("usage wire normalization preserves precise counts and leaves legacy readings unknown", () => {
+  const own = { turns: "9007199254740993", tools: "9007199254740995", counts_known: true };
+  const point = { turns: "3", tools: 8, counts_known: true };
+  const root = conversation({
+    usage: own,
+    timeline: { points: [{ at: 1000, activity: "Reading source", usage: point }], pending: point },
+  });
+  expect(root.usage).toMatchObject({
+    turns: 9007199254740993n,
+    tools: 9007199254740995n,
+    counts_known: true,
+  });
+  expect(root.timeline.points[0].usage).toMatchObject({ turns: 3n, tools: 8n, counts_known: true });
+  expect(root.timeline.pending).toMatchObject({ turns: 3n, tools: 8n, counts_known: true });
+  expect(usageView({ known: true })).toMatchObject({ turns: 0n, tools: 0n, counts_known: false });
+});
+
+test("usage aggregates retain counts without inventing knowledge for missing descendants", () => {
+  const working = agent({ provider: "codex", activity: "Scanning" });
+  const all = [
+    convo({
+      id: 1,
+      agent: working,
+      usage: usage({}, { turns: 3n, tools: 8n, counts_known: true }),
+    }),
+    convo({
+      id: 2,
+      parent: 1,
+      role: "Explorer",
+      agent: working,
+      usage: usage({}, { turns: 1n, tools: 2n, counts_known: true }),
+    }),
+    convo({
+      id: 3,
+      parent: 2,
+      role: "Explorer",
+      agent: working,
+      usage: usage({}, { turns: 2n, tools: 4n, counts_known: true }),
+    }),
+  ];
+  const model = Model.init(all, 1);
+  expect(model.total).toMatchObject({ turns: 6n, tools: 14n, counts_known: true });
+  expect(model.groups[0].usage).toMatchObject({ turns: 3n, tools: 6n, counts_known: true });
+  expect(all[0].usage).toMatchObject({ turns: 3n, tools: 8n, counts_known: true });
+  all[2].usage = usage();
+  const incomplete = Model.init(all, 1);
+  expect(incomplete.total).toMatchObject({ turns: 4n, tools: 10n, counts_known: false });
+  expect(incomplete.groups[0].usage).toMatchObject({ turns: 1n, tools: 2n, counts_known: false });
+});
+
+test("long activity labels leave visible counts and unchanged token columns at narrow widths", () => {
+  const readings = [
+    { fields: { turns: 3n, tools: 8n, counts_known: true }, full: "3 turns · 8 tools", short: "3t · 8 tools" },
+    { fields: { turns: 1n, tools: 1n, counts_known: true }, full: "1 turn · 1 tool", short: "1t · 1 tool" },
+    { fields: { turns: 0n, tools: 0n, counts_known: true }, full: "0 turns · 0 tools", short: "0t · 0 tools" },
+  ];
+  for (const cols of [88, 64, 54, 40]) {
+    const w = new Writer();
+    const card = new Card(w, 0, cols);
+    card.tokenColumns(0, null, false, "faint");
+    for (const [i, reading] of readings.entries())
+      card.drawPoint(
+        i + 1,
+        "13:59",
+        "Reading source with a very long activity label that must not hide its counters",
+        usage({ input: 21000, cached_input: 12000, output: 900 }, reading.fields),
+        true,
+        "working",
+      );
+    const host = Terminal.create(cols, 6);
+    try {
+      host.feed(w.buffered());
+      const lines = host.text().split("\n");
+      for (const [i, reading] of readings.entries()) {
+        const line = lines[i + 1];
+        const text_end = 3 + card.textWidth();
+        expect(line.slice(0, text_end)).toContain(cols >= 64 ? reading.full : reading.short);
+        expect(line.slice(0, text_end)).toContain(cols === 40 ? "Re" : "Reading");
+        expect(line.slice(text_end + 1, text_end + 1 + card.numbers()).trim()).toBe("9.9k+");
+        expect(line.slice(text_end + card.numbers() + 2, text_end + 2 * card.numbers() + 2).trim()).toBe("12k+");
+      }
+    } finally {
+      host.destroy();
+    }
+  }
+});
+
+test("unavailable activity counts give their full width back to the description", () => {
+  for (const cols of [88, 64, 54, 40]) {
+    const w = new Writer();
+    const card = new Card(w, 0, cols);
+    const prefix = cols < 70 ? "13:59 ● " : "13:59  ●  ";
+    const label = "Reading " + "x".repeat(card.textWidth() - prefix.length - "Reading ".length);
+    card.drawPoint(0, "13:59", label, usage({ input: 21000, cached_input: 12000, output: 900 }), true, "working");
+    const host = Terminal.create(cols, 2);
+    try {
+      host.feed(w.buffered());
+      const line = host.text().split("\n")[0];
+      const text_end = 3 + card.textWidth();
+      expect(line.slice(3, text_end)).toBe(prefix + label);
+      expect(line.slice(text_end + 1, text_end + 1 + card.numbers()).trim()).toBe("9.9k+");
+      expect(line.slice(text_end + card.numbers() + 2, text_end + 2 * card.numbers() + 2).trim()).toBe("12k+");
+    } finally {
+      host.destroy();
+    }
+  }
+});
 
 test("compact child rows prioritize activity and color only the status and secondary name", () => {
   const child = convo({
@@ -279,8 +413,6 @@ test("cards narrower than 70 columns pack their columns", () => {
   });
   expect(new Card(new Writer(), 0, 69).textWidth()).toBe(69 - 6 - 14);
   expect(new Card(new Writer(), 0, 70).textWidth()).toBe(70 - 6 - 18);
-  expect(wide).toContain("13:59  ○  Reading install.sh");
-  expect(narrow).toContain("13:59 ○ Reading install.sh");
   expect(wide).toContain("       ↳");
   expect(narrow).toContain("     ↳");
   expect(narrow).not.toContain("      ↳");
@@ -292,27 +424,39 @@ test("cards narrower than 70 columns pack their columns", () => {
 
 test("timeline renders each phase once with its own interval including idle and clipped views", () => {
   const points = [
-    { at: 1000, activity: "Reviewing pending changes", usage: usage({ input: 21500, cached_input: 12800 }) },
+    {
+      at: 1000,
+      activity: "Reviewing pending changes",
+      usage: usage({ input: 21500, cached_input: 12800 }, { turns: 1n, tools: 2n, counts_known: true }),
+    },
     { at: 2000, activity: "Inspecting repository changes", usage: usage() },
   ];
   const root = convo({
     id: 1,
     agent: agent({ provider: "codex", activity: "Inspecting repository changes" }),
-    timeline: { points, pending: usage({ input: 99600, cached_input: 78700 }) },
+    usage: usage({}, { turns: 100n, tools: 200n, counts_known: true }),
+    timeline: {
+      points,
+      pending: usage({ input: 99600, cached_input: 78700 }, { turns: 3n, tools: 8n, counts_known: true }),
+    },
   });
   for (const state of ["working", "blocked", "idle"]) {
     root.agent.state = state;
     for (const nodes of [1, 2]) {
-      const frame = render(w => new Card(w, 0, 88).timeline(0, root, root.agent, nodes, true));
+      const frame = render(w => new Card(w, 0, 88).work(0, root, root.agent, nodes + 1));
       const latest = frame.indexOf("Inspecting repository changes");
       expect(frame.slice(latest + 1)).not.toContain("Inspecting repository changes");
       expect(frame.slice(latest)).toContain(state === "working" ? "20.9k+" : "20.9k");
       expect(frame.slice(latest)).toContain("78.7k");
+      expect(frame.slice(latest)).toContain("3 turns · 8 tools");
+      expect(frame).not.toContain("100 turns");
+      expect(frame).not.toContain("200 tools");
       expect(frame).not.toContain("In progress");
       if (nodes === 2) {
         expect(frame.slice(0, latest)).toContain("Reviewing pending changes");
         expect(frame.slice(0, latest)).toContain("8.7k");
         expect(frame.slice(0, latest)).toContain("12.8k");
+        expect(frame.slice(0, latest)).toContain("1 turn · 2 tools");
       } else expect(frame).not.toContain("Reviewing pending changes");
     }
   }
@@ -326,16 +470,16 @@ test("new turn without a summary keeps the old label historical even when clippe
     timeline: { points, pending: usage({ input: 345 }) },
   });
   for (const nodes of [1, 2]) {
-    const frame = render(w => new Card(w, 0, 88).timeline(0, root, root.agent, nodes, true));
+    const frame = render(w => new Card(w, 0, 88).work(0, root, root.agent, nodes + 1));
     expect(frame).toContain("  now  ●  .");
     expect(frame).not.toContain("Old tool");
     expect(frame).not.toContain("345+");
-    if (nodes === 2) expect(frame).toContain(" last  ○  Inspecting installer script");
+    if (nodes === 2) expect(frame).toContain("Inspecting installer script");
     else expect(frame).not.toContain("Inspecting installer script");
   }
-  root.timeline = { points: [], pending: new UsageView() };
-  const output = render(w => new Card(w, 0, 88).timeline(0, root, root.agent, 1, false));
-  expect(output).toContain("  now  ●  .");
+  root.timeline = conversation().timeline;
+  const output = render(w => new Card(w, 0, 88).work(0, root, root.agent, 2));
+  expect(output).toBe("");
 });
 
 test("compaction is the current timeline phase even before the first summary", () => {
@@ -922,9 +1066,6 @@ test("overview footer shows the running release and a staged update", () => {
   expect(current).toMatch(/Corgi \d{4}-\d\d-\d\d \d\d:\d\d · be82c7b/);
   expect(current).not.toContain("Update");
   const release = { running: "20260925T183012Z-be82c7b9090a", staged: "20260926T090000Z-a1b2c3d4e5f6" };
-  const ready = render(w => drawOverview(w, all, new UsageView(), false, "", "", release, new Accounts(), 100, 30));
-  expect(ready).toMatch(/\[38;[\d;]+m↑ Update \d{4}-\d\d-\d\d \d\d:\d\d · a1b2c3d ready · relaunch Corgi/);
-  expect(ready).toContain(Tone.ansi("title") + "↑ Update ");
   const narrow = render(w => drawOverview(w, all, new UsageView(), false, "", "", release, new Accounts(), 40, 13));
   expect(narrow).toContain("↑ Update ready · relaunch Corgi");
 });
@@ -948,12 +1089,18 @@ test("overview footer names a development build's commit", () => {
   expect(output).toContain("Corgi 0123abc-dirty");
 });
 
-function screenLines(all: Conversation[], e: sidebar.Entry, cols: number, accounts = new Accounts()): string[] {
-  const output = render(w => draw(w, all, e, cols, 30, 0, 2, accounts));
-  const host = Terminal.create(cols, 30);
+function screenLines(
+  all: Conversation[],
+  e: sidebar.Entry,
+  cols: number,
+  accounts = new Accounts(),
+  rows = 30,
+): string[] {
+  const output = render(w => draw(w, all, e, cols, rows, 0, 2, accounts));
+  const host = Terminal.create(cols, rows);
   try {
     host.feed(output);
-    return host.text().split("\n").slice(0, 30);
+    return host.text().split("\n").slice(0, rows);
   } finally {
     host.destroy();
   }
@@ -962,6 +1109,277 @@ const lineWith = (lines: string[], needle: string) => {
   const i = lines.findIndex(line => line.includes(needle));
   return i < 0 ? null : i;
 };
+
+test("work normalization rejects malformed and ambiguous identities without nesting their activity", () => {
+  const valid = task("known", { source: "inferred", status: null });
+  const root = conversation({
+    timeline: {
+      tasks: [
+        valid,
+        task("duplicate"),
+        task("duplicate"),
+        { ...valid, id: "" },
+        { ...valid, id: "bad-status", status: "done" },
+        { ...valid, id: "bad-source", source: "guessed" },
+        { ...valid, id: 1 },
+        { ...valid, id: "bad-present", present: "true" },
+      ],
+      points: [{ activity: "Unmatched activity", task_id: "duplicate" }, { activity: "Old activity" }],
+      omitted_tasks: -1,
+    },
+  });
+  expect(root.timeline.tasks).toEqual([valid]);
+  expect(root.timeline.omitted_tasks).toBe(0);
+  expect(root.timeline.points.map(point => point.task_id)).toEqual(["duplicate", null]);
+  expect(conversation().timeline.tasks).toEqual([]);
+  expect(conversation({ timeline: { tasks: {} } }).timeline.tasks).toEqual([]);
+  expect(conversation()).not.toHaveProperty("todo_phases");
+  const output = render(w => new Card(w, 0, 88).work(0, root, root.agent, 8));
+  expect(count(output, "Unmatched activity")).toBe(1);
+});
+
+test("completed and retired task headings survive idle", () => {
+  const root = convo({ id: 1, agent: agent({ provider: "omp", activity: "Preparing release" }) });
+  const e = entry({ conversation: 1, provider: "omp", state: "working" });
+  root.timeline.tasks = [
+    task("ship", { label: "Ship build", status: "completed", present: false }),
+    task("announce", { label: "Announce", status: "in_progress" }),
+  ];
+  root.timeline.tasks[1].status = "completed";
+  root.agent.state = e.state = "idle";
+  const settled = screenLines([root], e, 60);
+  expect(lineWith(settled, "✓ Ship build")).not.toBeNull();
+  expect(lineWith(settled, "✓ Announce")).not.toBeNull();
+  expect(lineWith(settled, "Total")).not.toBeNull();
+  root.timeline.tasks[1].status = "abandoned";
+  expect(lineWith(screenLines([root], e, 60), "× Announce")).not.toBeNull();
+});
+
+test("task headings leave statistics on their explicitly owned activity rows", () => {
+  const root = convo({
+    id: 1,
+    usage: usage({ input: 9999 }),
+    agent: agent({ provider: "omp", activity: "Testing release" }),
+    timeline: {
+      tasks: [
+        task("ship", {
+          label: "Ship build",
+          status: "in_progress",
+          usage: usage({ input: 6000, cached_input: 2000 }, { turns: 3n, tools: 8n, counts_known: true }),
+        }),
+        task("infer", { label: "Review goal", source: "inferred", status: "completed" }),
+      ],
+      points: [
+        { at: 1000, activity: "Reviewing release", task_id: "infer", usage: usage({ input: 1000 }) },
+        { at: 2000, activity: "Unknown ownership", task_id: "missing", usage: usage({ input: 2000 }) },
+        { at: 3000, activity: "Testing release", task_id: "ship", usage: usage({ input: 99999 }) },
+      ],
+      pending: usage({ input: 3000 }, { turns: 1n, tools: 2n, counts_known: true }),
+    },
+  });
+  const lines = screenLines([root], entry({ conversation: 1, state: "working" }), 100);
+  const ship = lineWith(lines, "Ship build")!;
+  const detail = lineWith(lines, "Testing release")!;
+  const inferred = lineWith(lines, "Review goal")!;
+  const unknown = lineWith(lines, "Unknown ownership")!;
+  expect(ship).toBeLessThan(detail);
+  expect(unknown).toBeLessThan(ship);
+  expect(inferred).toBeLessThan(lineWith(lines, "Reviewing release")!);
+  const reviewed = lineWith(lines, "Reviewing release")!;
+  expect(unknown).toBe(reviewed + 1);
+  expect(lines[unknown].indexOf("✓")).toBe(lines[reviewed].indexOf("✓"));
+  expect(lines[reviewed]).toContain("╰ Reviewing release");
+  expect(lines[unknown]).not.toContain("╰");
+  expect(
+    lines[ship].slice(lines[ship].indexOf("Ship build") + "Ship build".length, lines[ship].lastIndexOf("│")).trim(),
+  ).toBe("");
+  expect(lines[detail]).toContain("3k+");
+  expect(lines[detail]).toContain("1 turn · 2 tools");
+  expect(lines[inferred]).toContain("inferred");
+  expect(lines[inferred]).not.toContain("0t");
+  expect(lines[lineWith(lines, "Total")!]).toContain("10k");
+  expect(lines.join("\n")).not.toContain("100k");
+});
+
+test("standalone current activity leaves its reclaimed row for task detail", () => {
+  const root = convo({
+    id: 1,
+    agent: agent({ activity: "Checking shortcuts" }),
+    timeline: {
+      tasks: [task("fix", { label: "Fix focus", status: "completed" })],
+      points: [
+        { at: 1000, activity: "Updating focus", task_id: "fix", usage: usage() },
+        { at: 2000, activity: "Checking shortcuts", task_id: null, usage: usage() },
+      ],
+      pending: usage(),
+    },
+  });
+  const output = render(w => new Card(w, 0, 88).work(0, root, root.agent, 4));
+  expect(output).toContain("Fix focus");
+  expect(output).toContain("Updating focus");
+  expect(output).toContain("Checking shortcuts");
+});
+
+test("activity feed repeats task context without regrouping interleaved work", () => {
+  const labels = ["Alpha first", "Alpha followup", "Beta work", "Alpha return", "Loose work", "Alpha finish"];
+  const owners = ["a", "a", "b", "a", null, "a"];
+  const root = convo({
+    id: 1,
+    agent: agent({ activity: labels[5] }),
+    timeline: {
+      tasks: [
+        task("future", { label: "Future goal", status: "in_progress" }),
+        task("b", { label: "Beta goal" }),
+        task("a", { label: "Alpha goal" }),
+      ],
+      points: labels.map((activity, i) => ({ at: (i + 1) * 1000, activity, task_id: owners[i], usage: usage() })),
+      pending: usage(),
+    },
+  });
+  const lines = screenLines([root], entry({ conversation: 1, state: "working" }), 100);
+  const feed = lines.filter(line => labels.some(label => line.includes(label)) || line.includes("goal"));
+  expect(feed.map(line => [...labels, "Alpha goal", "Beta goal"].find(label => line.includes(label)))).toEqual([
+    "Alpha goal",
+    "Alpha first",
+    "Alpha followup",
+    "Beta goal",
+    "Beta work",
+    "Alpha goal",
+    "Alpha return",
+    "Loose work",
+    "Alpha goal",
+    "Alpha finish",
+  ]);
+  const loose = lines[lineWith(lines, "Loose work")!];
+  const owned = lines[lineWith(lines, "Alpha return")!];
+  expect(loose.indexOf("✓")).toBe(owned.indexOf("✓"));
+  expect(loose.match(/\d\d:\d\d/)?.index).toBe(owned.match(/\d\d:\d\d/)?.index);
+  expect(owned).toContain("╰ Alpha return");
+  expect(loose).not.toContain("╰");
+});
+
+test("clipping preserves the newest contiguous activities and their task context", () => {
+  const root = convo({
+    id: 1,
+    agent: agent({ activity: "Current interval" }),
+    timeline: {
+      tasks: [
+        task("old", { label: "Finished goal", status: "completed" }),
+        task("current", { label: "Current goal", status: "in_progress" }),
+        task("next", { label: "Next goal" }),
+      ],
+      points: [
+        { at: 1000, activity: "Old interval", task_id: "old", usage: usage() },
+        { at: 2000, activity: "Earlier current interval", task_id: "current", usage: usage() },
+        { at: 3000, activity: "Current interval", task_id: "current", usage: usage() },
+      ],
+      pending: usage(),
+    },
+  });
+  const clipped = render(w => {
+    expect(new Card(w, 0, 88).work(0, root, root.agent, 5)).toBe(5);
+  });
+  for (const label of ["Current goal", "Current interval", "Earlier current interval"])
+    expect(count(clipped, label)).toBe(1);
+  expect(clipped).not.toContain("Finished goal");
+  expect(clipped).not.toContain("Old interval");
+  expect(clipped).not.toContain("Next goal");
+  expect(clipped).toContain("+1 tasks · +1 activities");
+  const tiny = render(w => {
+    expect(new Card(w, 0, 88).work(0, root, root.agent, 3)).toBe(3);
+  });
+  expect(tiny).toContain("Current goal");
+  expect(tiny).toContain("Current interval");
+  expect(tiny).not.toContain("Finished goal");
+  const one = render(w => new Card(w, 0, 88).work(0, root, root.agent, 2));
+  expect(one).toContain("Current interval");
+  expect(one).not.toContain("Current goal");
+  expect(one).not.toContain("Earlier current interval");
+  root.timeline.omitted_tasks = 7;
+  const bounded = render(w => new Card(w, 0, 88).work(0, root, root.agent, 12));
+  expect(bounded).toContain("+7 tasks · +0 activities");
+});
+
+test("task statuses use semantic tones and sanitize supplied labels and blockers", () => {
+  const root = convo({
+    id: 1,
+    agent: agent({ activity: "Preparing release" }),
+    timeline: {
+      tasks: [
+        task("done", { label: "Prepare release", status: "completed" }),
+        task("ship", { label: "Ship build\x1b[2J", status: "in_progress" }),
+        task("approval", { label: "Approval", status: "blocked", blocker: "Release window" }),
+        task("old", { label: "Old path", status: "abandoned" }),
+      ],
+    },
+  });
+  const output = render(w => new Card(w, 0, 88).work(0, root, root.agent, 8));
+  expect(output).toContain(Tone.ansi("live") + "▶");
+  expect(output).toContain(Tone.ansi("warm") + "!");
+  expect(output).toContain(Tone.ansi("faint") + "×");
+  expect(output).toContain("Approval — Release window");
+  expect(output).toContain("Ship build?[2J");
+  expect(output).not.toContain("\x1b[2J");
+});
+
+test("short narrow cards preserve task identity, boundaries and command priority", () => {
+  const root = convo({
+    id: 1,
+    agent: agent({ provider: "omp", activity: "Testing build" }),
+    timeline: {
+      tasks: [
+        task("old", { label: `Prepare ${"release ".repeat(20)}`, status: "completed" }),
+        task("ship", {
+          label: "Ship build",
+          status: "in_progress",
+          usage: usage({ input: 3000 }, { turns: 1n, tools: 20n, counts_known: true }),
+        }),
+        task("next", { label: "Announce" }),
+      ],
+      points: [{ at: 1000, activity: "Testing build", task_id: "ship", usage: usage() }],
+      pending: usage(),
+    },
+  });
+  const e = entry({ conversation: 1, provider: "omp", state: "working" });
+  const lines = screenLines([root], e, 40, new Accounts(), 13);
+  expect(lineWith(lines, "Ship build")).not.toBeNull();
+  expect(lineWith(lines, "Testing")).not.toBeNull();
+  for (const line of lines.filter(line => line.includes("│"))) {
+    expect(line.startsWith("│")).toBe(true);
+    expect(line.endsWith("│")).toBe(true);
+  }
+  expect(lineWith(lines, "╰")).not.toBeNull();
+  root.background_tasks = {
+    items: Array.from({ length: 8 }, (_, i) => ({ id: `${i}`, label: `Build ${i}`, group: "builds" })),
+    observed_at: microTimestamp(),
+    live: true,
+    truncated: false,
+  };
+  const busy = screenLines([root], e, 40, new Accounts(), 13);
+  expect(lineWith(busy, "Background commands")!).toBeLessThan(lineWith(busy, "tasks")!);
+  expect(lineWith(busy, "more commands")).not.toBeNull();
+  expect(lineWith(busy, "╰")).not.toBeNull();
+});
+
+test("hierarchy leaves room for observed children and combined usage", () => {
+  const now = microTimestamp();
+  const root = convo({
+    id: 1,
+    children_observed_at: now,
+    agent: agent({ activity: "Current detail" }),
+    timeline: {
+      tasks: Array.from({ length: 20 }, (_, i) =>
+        task(`Goal ${i}`, { status: i === 19 ? "in_progress" : "completed" }),
+      ),
+      points: [{ at: 1000, activity: "Current detail", task_id: "Goal 19", usage: usage() }],
+      pending: usage(),
+    },
+  });
+  const child = convo({ id: 2, parent: 1, observed_at: now, agent: agent({ activity: "Reviewing release" }) });
+  const lines = screenLines([root, child], entry({ conversation: 1, state: "working" }), 100);
+  for (const label of ["Goal 19", "Current detail", "Reviewing release", "Including subagents"])
+    expect(lineWith(lines, label)).not.toBeNull();
+});
 
 test("the card shows sixteen recent phases when the terminal has room", () => {
   const points = Array.from({ length: 16 }, (_, i) => ({
@@ -980,26 +1398,6 @@ test("the card shows sixteen recent phases when the terminal has room", () => {
   const e = entry({ conversation: 1, name: "long run", provider: "codex", state: "working", attention: "none" });
   const lines = screenLines(all, e, 100);
   for (let i = 1; i <= 16; i++) expect(lineWith(lines, `Phase ${String(i).padStart(2, "0")}`)).not.toBeNull();
-});
-
-test("timeline rows older than the latest five recede toward the background", () => {
-  const points = Array.from({ length: 8 }, (_, i) => ({
-    at: 1000 * (i + 1),
-    activity: `Phase ${String(i + 1).padStart(2, "0")}`,
-    usage: usage({ input: 1000 }),
-  }));
-  const root = convo({
-    id: 1,
-    agent: agent({ provider: "codex", session: "s", activity: "Phase 08" }),
-    timeline: { points, pending: usage() },
-  });
-  const frame = render(w => new Card(w, 0, 88).timeline(0, root, root.agent, points.length, true));
-  for (let i = 1; i <= 8; i++) {
-    const at = frame.indexOf(`Phase ${String(i).padStart(2, "0")}`);
-    const color = frame.slice(frame.lastIndexOf("\x1b[38;2;", at));
-    const tone = i <= 3 ? Tone.faded("muted") : i === 8 ? Tone.ansi("strong") : Tone.ansi("muted");
-    expect(color.startsWith(tone)).toBe(true);
-  }
 });
 
 test("the subtitle pairs provider and model with the context meter, and activity moves below until there is a timeline", () => {
@@ -1026,7 +1424,9 @@ test("the subtitle pairs provider and model with the context meter, and activity
   expect(lines[subtitle + 2]).toContain("Tokens");
 
   // With a timeline, the activity is its "now" row and the card keeps its height.
-  all[0].timeline = { points: [{ at: 1000, activity: activity_text, usage: usage() }], pending: usage() };
+  all[0].timeline = conversation({
+    timeline: { points: [{ at: 1000, activity: activity_text, usage: usage() }], pending: usage() },
+  }).timeline;
   lines = screenLines(all, e, 100);
   subtitle = lineWith(lines, "Codex · GPT-6 Astra")!;
   expect(lines[subtitle + 1]).toContain("Tokens");

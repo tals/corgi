@@ -76,7 +76,7 @@ export class Backend {
       return { request, decision: null };
     }
     try {
-      const decision = contract.parse(response.text(), input.phase);
+      const decision = contract.parse(response.text(), input.phase, input.work);
       log.info("Summary result", {
         event: "result",
         context,
@@ -84,6 +84,8 @@ export class Backend {
         output: response.text(),
         action: decision.action,
         label: decision.label?.text() ?? null,
+        task: decision.task,
+        completed: decision.completed,
         fresh_conversation: response.fresh,
         usage: response.usage,
       });

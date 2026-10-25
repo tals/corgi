@@ -13,6 +13,7 @@ import { Counter, Meter, View } from "./live";
 import { Reading } from "./context_window";
 import { Tracker as Tools, View as Progress } from "../activity/tools";
 import { Ended } from "../activity/background_tasks";
+import * as todos from "../activity/todos";
 import * as accounts from "../accounts";
 import { max_actors } from "../conversations";
 import { hydrate } from "../persist/checkpoint";
@@ -32,6 +33,7 @@ export class Result {
   since = 0;
   delta = new Counts();
   progress: Progress | null = null;
+  todo_phases: todos.Phase[] | null = null;
   name = new Text();
   seq = 0n;
   model = new Model();
@@ -51,9 +53,13 @@ export class Tail {
   initial_until = 0;
   tracker = new Tracker();
   progress = new Tools();
+  todo_phases: todos.Phase[] | null = null;
+  todos_dirty = false;
   inode = 0;
   device = 0;
   offset = 0;
+  file_size = 0;
+  file_mtime = 0;
   partial = Buffer.alloc(0);
   discard = false;
   model = new Model();
@@ -134,7 +140,15 @@ export class Tail {
         named = await lstat(req.agent.transcriptPath());
       if (!stat.isFile()) throw Error("NotRegular");
       const resumed =
-        this.inode !== 0 && stat.ino === this.inode && stat.dev === this.device && stat.size >= this.offset;
+        this.inode !== 0 &&
+        stat.ino === this.inode &&
+        stat.dev === this.device &&
+        stat.size >= this.offset &&
+        // OMP can rewrite an existing transcript without replacing its inode.
+        !(
+          req.agent.provider === "omp" &&
+          (stat.size < this.file_size || (stat.size === this.file_size && stat.mtimeMs !== this.file_mtime))
+        );
       if (!resumed) {
         const first = await head(file);
         adapter(req.agent.provider!).transcript?.verify?.(first, req.agent.sessionId());
@@ -168,14 +182,25 @@ export class Tail {
       }
       this.inode = stat.ino;
       this.device = stat.dev;
+      this.file_size = stat.size;
+      this.file_mtime = stat.mtimeMs;
       if (!named.isFile() || named.ino !== this.inode || named.dev !== this.device || stat.size < this.offset)
         throw Error("Replaced");
-      if (stat.size === this.offset) return new Counts();
+      const restoring = !resumed && reader.restore !== undefined;
+      if (stat.size === this.offset && !restoring) return new Counts();
       const bytes = Buffer.alloc(65536),
-        start = this.offset,
-        { bytesRead } = await file.read(bytes, 0, bytes.length, this.offset);
-      this.offset += bytesRead;
-      return this.ingest(req, reader, bytes.subarray(0, bytesRead), start);
+        until = restoring ? this.initial_until : Math.min(stat.size, this.offset + bytes.length),
+        found = new Counts();
+      while (this.offset < until) {
+        const start = this.offset,
+          length = Math.min(bytes.length, until - start),
+          { bytesRead } = await file.read(bytes, 0, length, start);
+        if (!bytesRead) throw Error("UnexpectedEnd");
+        this.offset += bytesRead;
+        found.add(this.ingest(req, reader, bytes.subarray(0, bytesRead), start));
+      }
+      if (restoring) await reader.restore!(this, file);
+      return found;
     } finally {
       await file.close();
     }
@@ -291,6 +316,7 @@ export class Worker {
           !delta.any() &&
           !delta.tokens_known &&
           !t.progress.dirty &&
+          !t.todos_dirty &&
           !reader.name &&
           !t.model.id.len &&
           !t.name.len &&
@@ -314,6 +340,7 @@ export class Worker {
         r.live = t.live.meter.view(Date.now());
         r.context = Object.assign(new Reading(), t.context);
         r.progress = t.progress.view();
+        r.todo_phases = t.todo_phases;
         r.name = reader.name?.(req.agent.sessionId()) ?? t.name;
         r.continued = t.continued;
         r.update = t.update;
@@ -323,6 +350,7 @@ export class Worker {
         if (existing) this.results[this.results.indexOf(existing)] = r;
         else this.results.push(r);
         if (t.progress.turn.text() === req.agent.turnId()) t.progress.dirty = false;
+        t.todos_dirty = false;
       }
     } finally {
       this.running = false;

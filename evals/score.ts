@@ -1,5 +1,6 @@
-import { actions, type Action } from "../src/activity/prompt";
+import { actions, parse, type Action, type Input } from "../src/activity/prompt";
 import * as naming from "../src/conversation_name";
+import { phases, type Phase } from "../src/activity/todos";
 
 /** `action` lists the decisions a step accepts, when it matters which one. */
 export type CaseStep = {
@@ -10,6 +11,9 @@ export type CaseStep = {
   expect: "abstain" | "label";
   all?: string[];
   action?: Action[];
+  plan?: Phase[];
+  goal?: { kind: "new" | "existing" | "unassigned"; all?: string[] };
+  completed?: string[];
 };
 export type Scenario = { id: string; category: string; steps: CaseStep[] };
 export type Observation = {
@@ -19,6 +23,8 @@ export type Observation = {
   raw: string | null;
   action?: string | null;
   label: string | null;
+  task?: { id: string | null; label: string | null };
+  completed?: string[];
   elapsed_ms: number;
   input?: unknown;
 };
@@ -43,9 +49,8 @@ export function grade(step: CaseStep, output: Observation | null): string[] {
   if (!output) return ["missing result"];
   if (output.status === "error" || output.status === "invalid") return [`${output.status}: ${output.err ?? "unknown"}`];
   if (!["abstained", "label"].includes(output.status)) return [`unknown status: ${output.status}`];
-  let raw: unknown;
   try {
-    raw = JSON.parse(output.raw ?? "");
+    JSON.parse(output.raw ?? "");
   } catch {
     return ["invalid JSON response"];
   }
@@ -68,14 +73,40 @@ export function grade(step: CaseStep, output: Observation | null): string[] {
     }
     return failures;
   }
-  if (!raw || typeof raw !== "object" || Array.isArray(raw) || Object.keys(raw).sort().join() !== "action,label")
+  const input = output.input as Input | undefined;
+  if (!input?.work) return ["missing work context"];
+  let decision;
+  try {
+    decision = parse(output.raw ?? "", input.phase, input.work);
+  } catch {
     return ["invalid response schema"];
-  const { action, label: value } = raw as { action: unknown; label: unknown };
-  if (!actions.includes(action as Action)) return ["invalid action"];
-  if (value !== null && typeof value !== "string") return ["invalid label type"];
+  }
+  if (
+    JSON.stringify(output.task) !== JSON.stringify(decision.task) ||
+    JSON.stringify(output.completed) !== JSON.stringify(decision.completed)
+  )
+    return ["inconsistent task decision"];
+  if (output.action !== decision.action || output.label !== (decision.label?.text() ?? null))
+    return ["inconsistent activity decision"];
   if (output.status === "abstained" && output.label !== null) return ["inconsistent abstention"];
   if (output.status === "label" && typeof output.label !== "string") return ["inconsistent label"];
   const failures: string[] = [];
+  const selected = input.work.tasks.find(task => task.id === decision.task.id);
+  if (step.goal) {
+    const kind = decision.task.id !== null ? "existing" : decision.task.label !== null ? "new" : "unassigned";
+    if (kind !== step.goal.kind) failures.push(`expected ${step.goal.kind} goal, got ${kind}`);
+    const label = decision.task.label ?? selected?.label ?? "";
+    for (const pattern of step.goal.all ?? [])
+      if (!new RegExp(pattern, "i").test(label)) failures.push(`missing goal topic: ${pattern}`);
+  }
+  if (step.completed) {
+    const labels = decision.completed.map(id => input.work.tasks.find(task => task.id === id)!.label);
+    if (
+      labels.length !== step.completed.length ||
+      !step.completed.every(pattern => labels.some(label => new RegExp(pattern, "i").test(label)))
+    )
+      failures.push("unexpected completed goals");
+  }
   if (step.expect === "abstain" && output.status !== "abstained") failures.push("expected abstention");
   if (step.expect === "label" && output.status !== "label") failures.push("unnecessary abstention");
   if (step.action && !step.action.includes(output.action as Action))
@@ -161,13 +192,21 @@ export function validateCases(value: unknown): Scenario[] {
         Buffer.byteLength(step.evidence) > 2048 ||
         !["abstain", "label"].includes(step.expect) ||
         (step.turn !== undefined && typeof step.turn !== "string") ||
+        (step.plan !== undefined && phases(step.plan) === null) ||
+        (step.goal !== undefined &&
+          (!step.goal ||
+            !["new", "existing", "unassigned"].includes(step.goal.kind) ||
+            (step.goal.all !== undefined &&
+              (!Array.isArray(step.goal.all) || !step.goal.all.every((p: unknown) => typeof p === "string"))))) ||
+        (step.completed !== undefined &&
+          (!Array.isArray(step.completed) || !step.completed.every((p: unknown) => typeof p === "string"))) ||
         (step.action !== undefined &&
           (!Array.isArray(step.action) || !step.action.length || !step.action.every((a: any) => actions.includes(a))))
       )
         throw new Error(`invalid step in ${scenario.id}`);
       if (step.expect === "label" && (!Array.isArray(step.all) || !step.all.length))
         throw new Error(`positive case needs a topic assertion: ${scenario.id}`);
-      for (const pattern of step.all ?? []) {
+      for (const pattern of [...(step.all ?? []), ...(step.goal?.all ?? []), ...(step.completed ?? [])]) {
         if (typeof pattern !== "string") throw new Error("invalid pattern");
         new RegExp(pattern, "i");
       }

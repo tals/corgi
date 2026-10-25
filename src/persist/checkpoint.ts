@@ -10,8 +10,9 @@ import { Terminal } from "../pane/terminal";
 import { Tracker } from "../detection";
 import { Cache } from "../trackers/link_labels";
 import { Conversation } from "../activity/summary";
+import { Timeline } from "../activity/timeline";
 import { Entry } from "../launch/command";
-import { Meter, Tokens } from "../usage/live";
+import { Meter, Tokens, View } from "../usage/live";
 import * as binary from "../base64";
 import * as json from "../json";
 import * as worktrees from "../worktrees";
@@ -203,6 +204,8 @@ export function capture(r: Runtime, live: boolean) {
       worktree_location: worktrees.observed(actor.state),
       worktree_placement: worktrees.placement(actor.state),
       status_inference: live ? actor.status_inference : new Conversation(),
+      activity_timeline: live ? actor.activity_timeline : null,
+      live_usage: live ? actor.live_usage : null,
       screen_compacting: live && actor.screen_compacting,
       parent: actor.parent,
       workspace: actor.workspace,
@@ -326,6 +329,8 @@ export async function restore(
     worktrees.restoreLocation(actor.state, saved.worktree_location);
     worktrees.restorePlacement(actor.state, saved.worktree_placement);
     if (live) actor.status_inference = hydrate(new Conversation(), saved.status_inference);
+    if (live && saved.activity_timeline) actor.activity_timeline = Timeline.restore(saved.activity_timeline);
+    if (live && saved.live_usage) actor.live_usage = hydrate(new View(), saved.live_usage);
     actor.parent = saved.parent ?? null;
     actor.workspace = r.workspaces.get(saved.workspace) ? saved.workspace : 0;
     actor.observed_at = live ? (saved.observed_at ?? 0) : 0;
