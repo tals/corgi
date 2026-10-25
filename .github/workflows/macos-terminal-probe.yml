@@ -1,0 +1,37 @@
+name: macOS terminal probe
+
+on:
+  push:
+    branches: [codex/macos-terminal-probe]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  gui:
+    runs-on: macos-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: Install terminals
+        run: brew install --cask ghostty iterm2
+      - uses: actions/download-artifact@v8
+        with:
+          name: build-macos-latest
+          run-id: 40225528598
+          github-token: ${{ github.token }}
+      - run: tar -xzf build.tgz
+      - name: Launch terminals and capture pixels
+        run: bun tools/ci/macos_terminal_probe.ts
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: macos-terminal-probe
+          path: gui-artifacts
+          if-no-files-found: error
+          retention-days: 7
