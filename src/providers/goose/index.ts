@@ -32,8 +32,17 @@ export const adapter: Adapter = {
   // PATH only; the install script's paths are not yet verified.
   installs: () => [],
   accounts,
-  // Hooks carry state; the TUI screen survey is still open.
-  watch: () => new ScreenWatcher(() => null),
+  // Hooks carry working; the screen survey confirms idle. Goose's input
+  // prompt ("Enter to send · Ctrl+J newline") only renders while it waits
+  // for input, so its presence in the tail is the idle marker. Tool calls
+  // stay in scrollback when idle, so they must NOT count as working here;
+  // anything else is "can't tell" and the hooks keep speaking.
+  watch: () =>
+    new ScreenWatcher((_title, text) => {
+      const tail = text.trimEnd().split("\n").slice(-10).join("\n").toLowerCase();
+      if (tail.includes("enter to send")) return "idle";
+      return null;
+    }),
   hook(v) {
     const input = field(v, "input");
     const hook = hooks.decode({
