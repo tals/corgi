@@ -687,7 +687,8 @@ export class Job {
       const cwd = text(snapshot, "identity_cwd");
       if (!isAbsolute(cwd)) throw Error("InvalidHerdrDirectory");
       const ws = new Workspace(this.staged.workspaces.next_id++, cwd);
-      ws.rename(text(snapshot, "custom_name"));
+      const name = text(snapshot, "custom_name");
+      if (name) ws.rename(name);
       const tabs = list(snapshot.tabs);
       if (!tabs.length) throw Error("InvalidHerdrLayout");
       for (const tab of tabs) {

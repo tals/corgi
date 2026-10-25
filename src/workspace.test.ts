@@ -1,9 +1,16 @@
 import { test, expect } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Store } from "./workspace";
+import { Store, Workspace } from "./workspace";
 import * as layout from "./layout";
+test("workspace renames bound UTF-8 names without splitting characters", () => {
+  const workspace = new Workspace(1, "/tmp");
+  workspace.rename("x".repeat(79) + "🐕");
+  expect(workspace.name()).toBe("x".repeat(79));
+  workspace.rename("🐕".repeat(100));
+  expect(workspace.name()).toBe("🐕".repeat(20));
+});
 test("overlapping workspace creation keeps rename targets distinct", async () => {
   const s = new Store();
   const keep = await s.add("Keep", tmpdir());
@@ -18,27 +25,29 @@ test("overlapping workspace creation respects the workspace limit", async () => 
   await expect(Promise.all([s.add("One", tmpdir()), s.add("Two", tmpdir())])).rejects.toThrow("TooManyWorkspaces");
   expect(s.items).toHaveLength(layout.max_workspaces);
 });
-test("automatic workspace names follow folders while overrides survive save and load", async () => {
+test("workspace names stay fixed across directory changes and save/load", async () => {
   const root = await mkdtemp(join(tmpdir(), "corgi-ws-"));
   try {
+    const folder = join(root, "项目 café");
+    await mkdir(folder);
     const s = new Store(),
-      id = await s.add("", "."),
+      id = await s.add("", folder),
       w = s.items[0];
-    w.follow("/tmp/项目");
-    expect(w.name()).toBe("项目");
-    s.rename(id, "My project");
     w.follow("/tmp/next");
-    expect(w.name()).toBe("My project");
+    expect(w.name()).toBe("项目 café");
     const file = join(root, "workspaces.json");
     await s.save(file, id);
     const restored = new Store();
     expect(await restored.load(file)).toBe(id);
-    expect(restored.items[0].name()).toBe("My project");
-    s.rename(id, "");
+    expect(restored.items[0].name()).toBe("项目 café");
+    s.rename(id, "My project");
+    expect(() => s.rename(id, "")).toThrow("InvalidName");
+    await expect(s.edit(id, " ", root)).rejects.toThrow("InvalidName");
+    expect(w.cwd).toBe("/tmp/next");
     await s.save(file, id);
     await restored.load(file);
     restored.items[0].follow("/");
-    expect(restored.items[0].name()).toBe("/");
+    expect(restored.items[0].name()).toBe("My project");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -62,9 +71,44 @@ test("old workspace state drops pins and preserves all existing names", async ()
     const s = new Store();
     await s.load(file);
     expect(s.items.map(w => w.name())).toEqual(["Default", "Custom"]);
-    s.rename(1, "");
     s.items[0].follow("/tmp/moved");
-    expect(s.items[0].name()).toBe("moved");
+    expect(s.items[0].name()).toBe("Default");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+test("legacy empty names migrate from saved folders and remain fixed", async () => {
+  const root = await mkdtemp(join(tmpdir(), "corgi-ws-"));
+  try {
+    const file = join(root, "workspaces.json");
+    for (const version of [1, 2]) {
+      await writeFile(
+        file,
+        JSON.stringify({
+          version,
+          active: 1,
+          next_id: 5,
+          workspaces: [
+            { id: 1, name: "", cwd: "/missing/项目 café/" },
+            { id: 2, name: "", cwd: "/" },
+            { id: 3, name: "Custom", cwd: "/elsewhere" },
+            { id: 4, name: "", cwd: "/tmp/" + "x".repeat(100) },
+          ],
+        }),
+      );
+      const store = new Store();
+      await store.load(file);
+      const names = ["项目 café", "/", "Custom", "x".repeat(100)];
+      expect(store.items.map(w => w.name())).toEqual(names);
+      for (const w of store.items) w.follow("/changed");
+      await store.save(file, 1);
+      expect(JSON.parse(await readFile(file, "utf8")).version).toBe(3);
+      const next = new Store();
+      await next.load(file);
+      expect(next.items.map(w => w.name())).toEqual(names);
+    }
+    await writeFile(file, JSON.stringify({ version: 99 }));
+    await expect(new Store().load(file)).rejects.toThrow("UnsupportedStateVersion");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

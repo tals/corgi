@@ -240,10 +240,10 @@ test("checkpoint integer fields restore as bigint for small and wide values", as
     expect(json.stringify(cp.captureBinding(nextBinding, true))).toBe(bytes);
   }
 });
-for (const version of [2, 3, 4, 5, 6])
+for (const version of [2, 3, 4, 5, 6, 7])
   test(
-    version === 6
-      ? "V6 fixture is current and restores as saved"
+    version === 7
+      ? "V7 fixture is current and restores as saved"
       : `V${version} fixture migrates before typed decoding and restores unchanged terminal data`,
     async () => {
       const bytes = readFileSync(resolve(fixtures, `checkpoint-v${version}.json`), "utf8"),
@@ -251,14 +251,14 @@ for (const version of [2, 3, 4, 5, 6])
         r = new Runtime();
       try {
         expect(decoded.from).toBe(version);
-        expect(decoded.migrated).toBe(version !== 6);
+        expect(decoded.migrated).toBe(version !== 7);
         expect(decoded.value.version).toBe(migrations.checkpoint_version);
         if (version === 2) {
           expect(decoded.value.panes[0].binding.provisional.provider).toBeNull();
           expect(decoded.value.panes[0].resume_hint.provider).toBeNull();
           await restore(r, decoded.value, true);
           expect(r.panes[0].terminal.text()).toContain("other");
-          expect(r.workspaces.items[0].customName()).toBe("other");
+          expect(r.workspaces.items[0].name()).toBe("other");
           expect(migrations.decode("checkpoint", json.stringify(decoded.value)).migrated).toBe(false);
         } else {
           await restore(r, decoded.value, false);

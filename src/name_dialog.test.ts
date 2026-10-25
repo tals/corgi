@@ -4,6 +4,10 @@ import { Dialog, View, selection } from "./name_dialog";
 import { Writer } from "./text";
 
 const c = (s: string) => s.charCodeAt(0);
+test("workspace rename keeps a migrated folder name intact", () => {
+  const d = Dialog.init({ workspace_name: 1 }, "项目 café");
+  expect(d.name()).toBe("项目 café");
+});
 
 test("name editing supports selection, insertion, cursor movement and clear", () => {
   const d = Dialog.init({ rename: 1 }, "original");

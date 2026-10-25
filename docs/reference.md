@@ -36,6 +36,8 @@ Even an isolated Corgi environment imports from real source sessions.
 **prefix c** opens the [agent and terminal picker](agent-launcher.md).
 **prefix N** creates a workspace; choose its name and folder, then hold Enter
 to create it. Missing folders can be created from the folder picker.
+The name is fixed when the workspace is created; changing directories or
+reordering tabs does not change it. Use the workspace menu to rename it.
 
 Click a tab, pane or sidebar agent to focus it. Drag split dividers to resize.
 Right-click tabs, panes and agents for their actions; hold Shift when an

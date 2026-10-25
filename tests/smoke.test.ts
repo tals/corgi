@@ -247,11 +247,14 @@ class Smoke extends Runtime {
     const explicit = (await this.split_pane("right", { cwd: two })).pane;
     this.assertEqual((await this.pane(explicit)).cwd, realpathSync(two));
   }
-  async test_workspace_name_follows_first_tab_and_custom_name_can_be_cleared() {
+  async test_workspace_name_stays_fixed_until_explicitly_renamed() {
     const one = this.folder("one"),
       two = this.folder("two"),
       three = this.folder("three");
-    const first = (await this.open_pane({ cwd: one, command: "exec /bin/sh" })).pane;
+    const initial = (await this.workspaces())[0].id;
+    const first = (await this.new_workspace({ cwd: one })).pane;
+    await this.command("workspace.close", { target: initial, close_contents: true });
+    await this.attach();
     await this.until(async () => (await this.workspaces())[0].name === "one");
     const second = (await this.open_pane({ cwd: two, command: "exec /bin/sh" })).pane;
     this.assertEqual((await this.workspaces())[0].name, "one");
@@ -259,10 +262,12 @@ class Smoke extends Runtime {
       target: first,
       data: `cd ${quote(three)}\r`,
     });
-    await this.until(async () => (await this.workspaces())[0].name === "three");
+    await this.until(async () => (await this.workspaces())[0].cwd === realpathSync(three));
+    this.assertEqual((await this.workspaces())[0].name, "one");
     this.assertEqual((await this.workspaces())[0].cwd, realpathSync(three));
     await this.rpc({ op: "action", name: "move-tab", value: "left" });
-    await this.until(async () => (await this.workspaces())[0].name === "two");
+    await this.until(async () => (await this.workspaces())[0].cwd === realpathSync(two));
+    this.assertEqual((await this.workspaces())[0].name, "one");
     const ws = (await this.workspaces())[0].id;
     await this.command("workspace.edit", { name: "Custom", target: ws });
     await this.command("pane.input", {
@@ -276,14 +281,16 @@ class Smoke extends Runtime {
     await this.input("\x02Wr");
     await this.frame_with("Rename workspace");
     await this.input("\x03\r");
-    await this.frame_with("one");
-    await this.until(async () => (await this.workspaces())[0].name === "one");
+    await this.frame_with("Enter a workspace name.");
+    this.assertEqual((await this.workspaces())[0].name, "Custom");
+    await this.input("Renamed\r");
     await this.command("pane.close", { target: second });
-    await this.until(async () => (await this.workspaces())[0].name === "three");
+    await this.until(async () => (await this.workspaces())[0].cwd === realpathSync(three));
+    this.assertEqual((await this.workspaces())[0].name, "Renamed");
     await this.restart_runtime();
-    this.assertEqual((await this.workspaces())[0].name, "three");
+    this.assertEqual((await this.workspaces())[0].name, "Renamed");
     this.assertNotIn("pinned", (await this.workspaces())[0]);
-    this.assertEqual(JSON.parse(readFileSync(this.path + ".workspaces.json", "utf8")).workspaces[0].name, "");
+    this.assertEqual(JSON.parse(readFileSync(this.path + ".workspaces.json", "utf8")).workspaces[0].name, "Renamed");
   }
   async test_workspace_metadata_survives_restart() {
     const folder = this.folder("项目 café"),

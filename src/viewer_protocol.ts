@@ -48,7 +48,7 @@ export async function open(s: Server, cl: Client, q: Open) {
   if (cl.subscribed || cl.launch_preview != null || cl.viewer) throw new Error("AlreadyAttached");
   if (s.runtime.panes.length === 0 && s.initialWorkspace().model.count === 0) {
     if (s.default_folder_pending && q.cwd) {
-      await s.runtime.workspaces.edit(s.initialWorkspace().id, s.initialWorkspace().customName(), q.cwd);
+      await s.runtime.workspaces.edit(s.initialWorkspace().id, s.initialWorkspace().name(), q.cwd);
       s.default_folder_pending = false;
       await s.saveWorkspaces();
     }
