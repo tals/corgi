@@ -1,3 +1,5 @@
+$.envelope.request_id: optional
+$.envelope.request_id?: u64
 $.requests: one of
 $.requests|hello: {}
 $.requests|session.command.command: one of
@@ -648,7 +650,6 @@ $.snapshot.server_pid: i32
 $.snapshot.revision: u64
 $.snapshot.workspaces[].id: u32
 $.snapshot.workspaces[].name: string
-$.snapshot.workspaces[].custom_name: string
 $.snapshot.workspaces[].cwd: string
 $.snapshot.workspaces[].model: custom layout.Model
 $.snapshot.workspaces[].agent_order[]: one of

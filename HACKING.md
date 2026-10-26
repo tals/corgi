@@ -265,6 +265,32 @@ client can discover and replace an older daemon. No protocol fallback is needed.
 version negotiates ordinary requests on that connection. Management requests
 always carry their own version, even on a negotiated connection.
 
+Runtime protocol 4 lets a request carry a positive safe-integer `request_id`,
+which the daemon echoes on its success or error reply. Tagged replies can
+arrive out of order: a branch listing or worktree addition answers after
+requests sent later. `rpc.Connection` tags by default and fails the
+connection on an untagged reply; subscription events remain untagged. With
+`requestIds: false` it sends one untagged request at a time, as `hello`,
+`server.reload` and `corgi rpc` do.
+
+The id is optional, so a script can speak plain JSON lines or HTTP `POST`.
+Requests without one are answered in the order they were sent; a slow request
+holds that connection's later ones until it replies. Older runtime protocols
+are rejected, without a serial fallback.
+
+Discovery and replacement use one untagged management request per connection,
+so `hello` and `server.reload` can still upgrade an older daemon. Startup probes
+with `hello` before deciding whether a daemon needs to be started. One-shot
+unversioned requests, including `ping` and `shutdown`, and bug-report queries
+also omit ids so older daemons can answer. Management protocol 1 and viewer
+protocol 3 are unchanged.
+
+Reload returns `ReloadBusy` while a worktree addition is still running. Retry
+after it finishes; worktree mutations are never replayed. A branch listing still
+running is answered with `Reloading` and dropped. Handoff
+retains the reload request id and pending headless-start ids as optional fields
+defaulting to null, so the saved-format versions are unchanged.
+
 For saved data, a defaulted addition needs an updated schema snapshot; a rename,
 removal or change of meaning needs a migration:
 

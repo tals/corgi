@@ -260,7 +260,7 @@ test("a new viewer opens on the pane last used in the preferred workspace", asyn
   await use(idle, first);
   expect(ws.focus).toBe(second);
   const next = s.addClient(-1, false),
-    reply = spyOn(next, "reply").mockImplementation(() => {});
+    reply = spyOn(next, "queue").mockImplementation(() => {});
   await open(s, next, protocol.decode("viewer.open", {}));
-  expect(reply.mock.calls[0][1]).toMatchObject({ workspace: 1, focus: second });
+  expect(reply.mock.calls[0][0]).toMatchObject({ workspace: 1, focus: second });
 });

@@ -53,24 +53,28 @@ export function paneId(value: string): number {
   if (!Number.isSafeInteger(pane) || pane > 0xffffffff) throw Error("Overflow");
   return pane;
 }
-async function ping(path: string): Promise<boolean> {
+/** Any reply, even an error, means a daemon owns the socket. */
+async function reachable(path: string): Promise<boolean> {
+  const connection = new rpc.Connection(path, { requestIds: false });
   try {
-    await rpc.request(path, "ping");
+    await connection.request("hello");
     return true;
   } catch {
     return false;
+  } finally {
+    connection.close();
   }
 }
 export async function ensureServer(path: string, exe = executable): Promise<void> {
-  if (await ping(path)) return;
+  if (await reachable(path)) return;
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const guard = openSync(path + ".start.lock", "a", 0o600);
   try {
     while (!flock(guard)) {
-      if (await ping(path)) return;
+      if (await reachable(path)) return;
       await Bun.sleep(20);
     }
-    if (await ping(path)) return;
+    if (await reachable(path)) return;
     try {
       unlinkSync(path);
     } catch {}
@@ -96,7 +100,7 @@ export async function ensureServer(path: string, exe = executable): Promise<void
     });
     const until = Date.now() + 10000;
     while (Date.now() < until && !exited) {
-      if (await ping(path)) return;
+      if (await reachable(path)) return;
       await Bun.sleep(20);
     }
     try {
@@ -333,7 +337,8 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     case "shutdown": {
       const reply = await rpc.request(path, "shutdown");
       for (let i = 0; i < 500; i++) {
-        if (!(await ping(path))) return void process.stdout.write(asJson ? json.stringify(reply) + "\n" : "stopped\n");
+        if (!(await reachable(path)))
+          return void process.stdout.write(asJson ? json.stringify(reply) + "\n" : "stopped\n");
         await Bun.sleep(10);
       }
       throw Error("ShutdownTimedOut");
@@ -357,7 +362,8 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     }
     case "rpc": {
       if (args.length !== 2) throw Error("Usage");
-      const connection = new rpc.Connection(path);
+      // Sent as typed, so it reaches any daemon version.
+      const connection = new rpc.Connection(path, { requestIds: false });
       try {
         process.stdout.write(json.stringify(await connection.rawRequest(json.parse(args[1]))) + "\n");
       } finally {
@@ -457,7 +463,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     case "dev": {
       await ensureServer(path);
       const hello = await rpc.request(path, "hello");
-      if (hello.build_id !== buildId()) await rpc.request(path, "server.reload", { executable });
+      if (hello.build_id !== buildId()) await rpc.reload(path, executable);
       if (process.env.CORGI_PANE !== undefined)
         await print(path, "action", { name: "relaunch", value: executable, pane: paneId(process.env.CORGI_PANE) });
       else {
@@ -496,6 +502,8 @@ export function failure(args: string[], error: unknown): string {
       return `corgi: this client uses runtime protocol ${protocol.version}, which the server does not support. Reload the server using this Corgi version, or use a matching client.\n`;
     case "UnsupportedManagementProtocol":
       return `corgi: this client uses management protocol ${protocol.management_version}, which the server does not support. Use a matching Corgi version to reload the server.\n`;
+    case "ReloadBusy":
+      return "corgi: the server is adding a worktree and reloads once Git finishes; try again in a moment.\n";
     default:
       return `corgi: ${name}\n`;
   }
