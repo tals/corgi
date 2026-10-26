@@ -325,6 +325,37 @@ test("a picked link copies its target only when the pane shows it", () => {
     t.destroy();
   }
 });
+test("a picked link spans the rows its detection joined", () => {
+  const t = Terminal.create(40, 6),
+    url = "https://example.com/?body=" + "it's%20a%20long%20report%20".repeat(4),
+    text = `Open the PR (${url})`,
+    rows: string[] = [];
+  for (let at = 0; at < text.length; at += 38) rows.push("  " + text.slice(at, at + 38));
+  const docs = (label: string) => `\x1b]8;id=docs;https://example.com/docs\x1b\\${label}\x1b]8;;\x1b\\`;
+  try {
+    t.feed(rows.join("\r\n"));
+    for (const [x, y] of [
+      [20, 0],
+      [10, 2],
+    ])
+      expect(t.pick("word", x, y, null, null, 0)).toMatchObject({
+        match: { x: 15, y: 0, end_x: rows[3].length - 2, end_y: 3 },
+        copy: url,
+      });
+    // A soft wrap keeps the label's space; the same id after a line break is another link.
+    t.feed(`\x1b[2J\x1b[H${" ".repeat(32)}${docs("Read the docs")}\r\n${docs("again")}`);
+    expect(t.pick("word", 34, 0, null, null, 0)).toMatchObject({
+      match: { x: 32, y: 0, end_x: 4, end_y: 1 },
+      copy: "Read the docs",
+    });
+    expect(t.pick("word", 1, 2, null, null, 0)).toMatchObject({
+      match: { x: 0, y: 2, end_x: 4, end_y: 2 },
+      copy: "again",
+    });
+  } finally {
+    t.destroy();
+  }
+});
 test("a pick during a synchronized redraw finds links only in the rows it last drew", () => {
   const t = Terminal.create(30, 3);
   try {
