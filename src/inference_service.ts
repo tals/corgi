@@ -1,13 +1,18 @@
 import * as setup from "./inference/setup";
 import { Model } from "./providers/model";
 import type { Server } from "./server";
-import type { Client } from "./peer";
+import { Reply, type Client } from "./peer";
 import type { Request } from "./protocol";
 import { Provider, adapter } from "./providers";
 import { Selection } from "./inference/models";
 import * as accounts from "./accounts";
 /** Sets who answers, what they are asked for, or both; each part it names is saved. */
-export async function configure(server: Server, client: Client, query: Request<"inference.configure">) {
+export async function configure(
+  server: Server,
+  client: Client,
+  query: Request<"inference.configure">,
+  reply = new Reply(client),
+) {
   const worker = server.summaries;
   if (!worker) throw Error("InferenceUnavailable");
   const uses: Partial<setup.Uses> = {};
@@ -62,5 +67,5 @@ export async function configure(server: Server, client: Client, query: Request<"
   server.runtime.system_model = Model.resolve(status.model);
   server.runtime.changed();
   server.dirty = true;
-  client.reply("inference.configure", { saved, inference: status });
+  reply.ok({ saved, inference: status });
 }

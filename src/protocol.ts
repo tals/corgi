@@ -66,7 +66,7 @@ export interface View<Session = unknown, Resources = unknown> {
   /** Always false; retained for older viewers. Detach uses an action control. */
   detach: boolean;
 }
-export const version = 3;
+export const version = 4;
 export const management_version = 1;
 export const viewer_version = 3;
 export type Op = (typeof operations)[number];
@@ -184,6 +184,13 @@ export function parse(value: unknown): Op | null {
   if (value === null || typeof value !== "object") return null;
   const op = (value as Record<string, unknown>).op;
   return typeof op === "string" && (operations as readonly string[]).includes(op) ? (op as Op) : null;
+}
+/** Correlation for RPC; raw requests and subscriptions may omit it. */
+export function requestId(value: unknown): number | null {
+  if (!value || typeof value !== "object" || !Object.hasOwn(value, "request_id")) return null;
+  const id = (value as Record<string, unknown>).request_id;
+  if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0) throw Error("InvalidRequestId");
+  return id;
 }
 export function require(value: any, negotiated: number | null, kind: "runtime" | "management" = "runtime"): void {
   if (!Object.hasOwn(value, "protocol") && negotiated === null) throw Error("ProtocolRequired");
@@ -709,7 +716,8 @@ export interface ReplyPayloads {
   "agent.preview": Ok & { preview: import("./launch/preview").Preview };
   "agent.track_usage": Ok & { preview: import("./launch/preview").Preview };
   "agent.subscribe": { type: "agent.preview"; cwd: string; preview: import("./launch/preview").Preview };
-  "agent.history": Ok & { history: import("./launch/history").History };
+  /** Without history when following; updates arrive as `agent.history` events. */
+  "agent.history": Ok & { history?: import("./launch/history").History };
   action: Ok & { viewer: number; queued: true };
   bugreport: Ok & {
     pid: number;

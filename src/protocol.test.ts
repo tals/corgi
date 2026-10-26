@@ -107,6 +107,8 @@ test("management and runtime versions are checked independently", () => {
   expect(() => protocol.require({ protocol: management_version }, null, "management")).not.toThrow();
   expect(() => protocol.require({ protocol: version }, null)).not.toThrow();
   expect(() => protocol.require({}, version)).not.toThrow();
+  expect(() => protocol.require({ protocol: version - 1 }, version)).toThrow("UnsupportedProtocol");
+  expect(() => protocol.require({}, version - 1)).toThrow("UnsupportedProtocol");
   expect(() => protocol.require({ protocol: management_version }, version)).toThrow("UnsupportedProtocol");
   for (const version of [0, 2, 999, -1, "1", null])
     expect(() => protocol.require({ protocol: version }, null, "management")).toThrow("UnsupportedManagementProtocol");

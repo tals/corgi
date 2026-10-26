@@ -1,7 +1,7 @@
 import { closeSync, fstatSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { Server } from "../server";
-import type { Client } from "../peer";
+import { Reply, type Client } from "../peer";
 import { ReadyLoop, AsyncFD, n, ptr } from "../native_bridge";
 import { native as fdNative } from "../fd_loop";
 import { Theme } from "../theme";
@@ -69,13 +69,14 @@ export function restoreClient(server: Server, value: unknown): Client {
   client.output = Buffer.from(output, "base64");
   return client;
 }
-export function captureManifest(server: Server, requester: Client) {
+export function captureManifest(server: Server, requester: Client, request_id: number | null = null) {
   return {
     version: migrations.handoff_version,
     update_abi,
     terminal_abi,
     listener: server.listener,
     requester: requester.fd,
+    request_id,
     runtime: checkpoint.capture(server.runtime, true),
     summaries: server.summaries?.capture() ?? null,
     usage: server.usage?.capture() ?? null,
@@ -138,7 +139,12 @@ function descriptors(manifest: any): { fds: number[]; state: any } {
   for (const slot of state.summaries?.pool?.slots ?? []) if (slot) slot.client.handles = slot.client.handles.map(add);
   return { fds, state };
 }
-export async function replace(server: Server, requester: Client, executable: string): Promise<void> {
+export async function replace(
+  server: Server,
+  requester: Client,
+  executable: string,
+  request_id: number | null = null,
+): Promise<void> {
   if (!isAbsolute(executable)) throw Error("InvalidExecutable");
   await server.flushWorkspaceWrites();
   await recovery.save(server.runtime, server.socket);
@@ -173,7 +179,7 @@ export async function replace(server: Server, requester: Client, executable: str
     candidate: Bun.Subprocess | undefined,
     timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    const manifest = captureManifest(server, requester);
+    const manifest = captureManifest(server, requester, request_id);
     const transfer = descriptors(manifest),
       bytes = Buffer.from(json.stringify(transfer.state));
     if (bytes.length > 256 * 1024 * 1024) throw Error("CheckpointTooLarge");
@@ -301,7 +307,7 @@ export async function importAndRun(
       fdNative.fd_cloexec(saved.fd);
       const client = restoreClient(server, saved);
       if (saved.fd === m.requester)
-        client.queue({ ok: true, server_pid: process.pid, panes: server.runtime.panes.length });
+        new Reply(client, m.request_id ?? null).ok({ server_pid: process.pid, panes: server.runtime.panes.length });
     }
     await control.write(Buffer.from("ready\n"));
     if ((await line(control, 32)) !== "commit") throw Error("ReloadNotCommitted");

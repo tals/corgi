@@ -50,12 +50,19 @@ class ReplyProxy {
             request = JSON.parse(line);
           server.write(line + "\n");
           const upstreamReply = await replies.next(30000);
-          let reply = upstreamReply;
-          if (request.op === "viewer.open" && this.open_reply !== null) reply = JSON.stringify(this.open_reply);
+          let replacement: object | null = null;
+          if (request.op === "viewer.open") replacement = this.open_reply;
           if (request.op === "viewer.sync") {
-            if (this.sync_reply !== null) reply = JSON.stringify(this.sync_reply);
+            replacement = this.sync_reply;
             this.synced = true;
           }
+          const reply =
+            replacement === null
+              ? upstreamReply
+              : JSON.stringify({
+                  ...replacement,
+                  ...(request.request_id === undefined ? {} : { request_id: request.request_id }),
+                });
           client.write(reply + "\n");
         }
       } catch {

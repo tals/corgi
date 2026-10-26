@@ -8,7 +8,7 @@ import { microTimestamp } from "./clock";
 import { stringify } from "./json";
 import { version as wire_version, type View as WireView, type Control, type Request } from "./protocol";
 import type { Server } from "./server";
-import type { Client } from "./peer";
+import { Reply, type Client } from "./peer";
 import type { Snapshot as Resources } from "./trackers/resources";
 export type { Control } from "./protocol";
 export type View = WireView<ReturnType<typeof session.viewerSnapshot>, Resources>;
@@ -44,7 +44,7 @@ export function validateInterests(interests: Interest[]) {
     seen.add(i.pane);
   }
 }
-export async function open(s: Server, cl: Client, q: Open) {
+export async function open(s: Server, cl: Client, q: Open, reply = new Reply(cl)) {
   if (cl.subscribed || cl.launch_preview != null || cl.viewer) throw new Error("AlreadyAttached");
   if (s.runtime.panes.length === 0 && s.initialWorkspace().model.count === 0) {
     if (s.default_folder_pending && q.cwd) {
@@ -66,7 +66,7 @@ export async function open(s: Server, cl: Client, q: Open) {
   cl.protocol_version = wire_version;
   if (first) s.updateTheme(q.theme ?? null);
   const ws = s.initialWorkspace();
-  cl.reply("viewer.open", {
+  reply.ok({
     viewer_protocol: version,
     bell_seq: s.bell_seq,
     workspace: ws.id,
@@ -82,7 +82,7 @@ function hash(bytes: string) {
 function viewport(value: bigint | null): number | null {
   return value === null ? null : Number(value > BigInt(Number.MAX_SAFE_INTEGER) ? Number.MAX_SAFE_INTEGER : value);
 }
-export async function sync(s: Server, cl: Client, q: Sync) {
+export async function sync(s: Server, cl: Client, q: Sync, reply = new Reply(cl)) {
   if (!cl.viewer) throw new Error("NotAttached");
   const interests: Interest[] = q.interests.map(i => ({
     ...i,
@@ -162,18 +162,18 @@ export async function sync(s: Server, cl: Client, q: Sync) {
     viewer: cl.viewer_id,
     detach: false,
   };
-  cl.queue(view);
+  reply.send(view);
 }
-export async function search(s: Server, cl: Client, q: Request<"viewer.search">) {
+export async function search(s: Server, cl: Client, q: Request<"viewer.search">, reply = new Reply(cl)) {
   const p = s.runtime.pane(q.pane);
   if (!p) throw new Error("NoPane");
-  cl.reply("viewer.search", await p.displayed().search(q.needle, viewport(q.skip)!));
+  reply.ok(await p.displayed().search(q.needle, viewport(q.skip)!));
 }
-export function image(s: Server, cl: Client, q: Request<"viewer.image">) {
+export function image(s: Server, cl: Client, q: Request<"viewer.image">, reply = new Reply(cl)) {
   if (!cl.viewer) throw new Error("NotAttached");
   const pane = s.runtime.pane(q.pane);
   if (!pane || !cl.interests.some(i => i.pane === q.pane)) throw new Error("NoPane");
-  cl.reply("viewer.image", { data: pane.displayed().native({ op: "image", text: q.image, skip: q.offset }) });
+  reply.ok({ data: pane.displayed().native({ op: "image", text: q.image, skip: q.offset }) });
 }
 /** The pane `q` names, if it still runs the agent the viewer showed. */
 function shownPane(s: Server, q: Request<"pane.mark_unread">) {
@@ -188,7 +188,7 @@ function shownPane(s: Server, q: Request<"pane.mark_unread">) {
     throw new Error("StaleAcknowledgement");
   return p;
 }
-export function acknowledge(s: Server, cl: Client, q: Request<"pane.acknowledge">) {
+export function acknowledge(s: Server, cl: Client, q: Request<"pane.acknowledge">, reply = new Reply(cl)) {
   const p = shownPane(s, q),
     agent = p.agent();
   if (agent.attention !== "none" || agent.observation.unread()) {
@@ -200,16 +200,16 @@ export function acknowledge(s: Server, cl: Client, q: Request<"pane.acknowledge"
     s.runtime.changed();
     s.dirty = true;
   }
-  cl.queue({ ok: true });
+  reply.send({ ok: true });
 }
-export function markUnread(s: Server, cl: Client, q: Request<"pane.mark_unread">) {
+export function markUnread(s: Server, cl: Client, q: Request<"pane.mark_unread">, reply = new Reply(cl)) {
   if (shownPane(s, q).agent().markUnread()) {
     s.runtime.changed();
     s.dirty = true;
   }
-  cl.queue({ ok: true });
+  reply.send({ ok: true });
 }
-export async function paste(s: Server, cl: Client, q: Request<"pane.paste">) {
+export async function paste(s: Server, cl: Client, q: Request<"pane.paste">, reply = new Reply(cl)) {
   const p = s.runtime.pane(q.pane);
   if (!p) throw new Error("NoPane");
   const contents: { mime: string; data: Uint8Array }[] = [];
@@ -225,7 +225,7 @@ export async function paste(s: Server, cl: Client, q: Request<"pane.paste">) {
     if (data.length > 32 * 1024 * 1024) throw new Error("StreamTooLong");
     contents.push({ mime: q.image.mime, data });
   }
-  cl.reply("pane.paste", { pasted: await p.terminal.pasteEvent(contents) });
+  reply.ok({ pasted: await p.terminal.pasteEvent(contents) });
 }
 export async function resize(s: Server) {
   for (const p of s.runtime.panes) {
@@ -266,11 +266,11 @@ export function queue(s: Server, target: Client, value: Omit<Control, "seq">) {
   target.controls.push({ ...value, seq: target.next_control++ });
   s.dirty = true;
 }
-function send(s: Server, cl: Client, target: Client, value: Omit<Control, "seq">) {
+function send(s: Server, reply: Reply, target: Client, value: Omit<Control, "seq">) {
   queue(s, target, value);
-  cl.queue({ ok: true, viewer: target.viewer_id, queued: true });
+  reply.send({ ok: true, viewer: target.viewer_id, queued: true });
 }
-export function action(s: Server, cl: Client, q: Request<"action">) {
+export function action(s: Server, cl: Client, q: Request<"action">, reply = new Reply(cl)) {
   const act = parseAction(q.name, q.value ?? "");
   let target: Client;
   if (act.name === "relaunch") {
@@ -279,17 +279,17 @@ export function action(s: Server, cl: Client, q: Request<"action">) {
     if (!isAbsolute(String(act.value))) throw new Error("InvalidExecutable");
   } else if ((act.name === "onboard" || act.name === "open") && q.pane != null) target = viewerShowing(s, q.pane);
   else target = targetViewer(s, q.viewer);
-  send(s, cl, target, { kind: "action", name: q.name, value: q.value ?? "" });
+  send(s, reply, target, { kind: "action", name: q.name, value: q.value ?? "" });
 }
-export function focus(s: Server, cl: Client, q: Request<"focus">) {
+export function focus(s: Server, cl: Client, q: Request<"focus">, reply = new Reply(cl)) {
   const target = targetViewer(s, q.viewer);
   if (!s.runtime.pane(q.pane)) throw new Error("NoPane");
-  send(s, cl, target, { kind: "focus", id: q.pane });
+  send(s, reply, target, { kind: "focus", id: q.pane });
 }
-export function switchWorkspace(s: Server, cl: Client, q: Request<"workspace.switch">) {
+export function switchWorkspace(s: Server, cl: Client, q: Request<"workspace.switch">, reply = new Reply(cl)) {
   const target = targetViewer(s, q.viewer);
   s.runtime.getWorkspace(q.workspace);
-  send(s, cl, target, { kind: "workspace", id: q.workspace });
+  send(s, reply, target, { kind: "workspace", id: q.workspace });
 }
 export function copy(s: Server, pane: number, text: string) {
   let target: Client | null = null;
