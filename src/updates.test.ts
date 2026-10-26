@@ -3,7 +3,7 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { version, parse, managed, release, abi, type Release } from "./updates";
+import { version, parse, managed, release, abi, platform, type Release } from "./updates";
 import { releaseVersion } from "./build_config";
 const keys = () => generateKeyPairSync("ed25519");
 const key = (k: ReturnType<typeof keys>) =>
@@ -24,7 +24,7 @@ function signedManifest(signer: ReturnType<typeof keys>, schema: number, url: st
       version: "1.2.4",
       commit: "abc",
       update_abi: abi,
-      targets: { "macos-aarch64": target, "linux-x86_64": target },
+      targets: { "macos-aarch64": target, "linux-x86_64": target, "linux-aarch64": target },
     });
   return JSON.stringify({ payload, signature: sign(null, Buffer.from(payload), signer.privateKey).toString("hex") });
 }
@@ -48,7 +48,7 @@ test("manifests verify against the release's key", () => {
   expect(() => parse(rel(""), bytes)).toThrow("BadUpdateSignature");
   expect(() => parse(r, signedManifest(signer, 2, "https://example.invalid/corgi"))).toThrow("UnknownUpdateSchema");
 });
-test("signed manifests still require every typed field on both platforms", () => {
+test("signed manifests require every typed field, and this platform's target", () => {
   const signer = keys(),
     r = rel(key(signer));
   const original = JSON.parse(JSON.parse(signedManifest(signer, 1, "https://example.invalid/corgi")).payload);
@@ -66,13 +66,17 @@ test("signed manifests still require every typed field on both platforms", () =>
     value[field] = 3;
     expect(() => parse(r, encode(value))).toThrow("UnexpectedToken");
   }
-  for (const platform of ["macos-aarch64", "linux-x86_64"]) {
+  for (const name of ["macos-aarch64", "linux-x86_64", "linux-aarch64"]) {
     const value = structuredClone(original);
-    value.targets[platform].url = null;
+    value.targets[name].url = null;
     expect(() => parse(r, encode(value))).toThrow("UnexpectedToken");
-    delete value.targets[platform];
-    expect(() => parse(r, encode(value))).toThrow("MissingField");
+    delete value.targets[name];
+    if (name === platform) expect(() => parse(r, encode(value))).toThrow("MissingField");
+    else expect(parse(r, encode(value)).version).toBe("1.2.4");
   }
+  expect(() => parse(r, encode({ ...original, targets: { ...original.targets, "plan9-mips": {} } }))).toThrow(
+    "UnknownField",
+  );
   expect(() => parse(r, encode({ ...original, extra: true }))).toThrow("UnknownField");
 });
 test("local http targets need test mode", () => {

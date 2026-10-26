@@ -4,7 +4,7 @@ A multiplexer terminal agent manager, heavily inspired by [herdr](https://github
 
 ## Install
 
-macOS (Apple Silicon) or Linux (amd64):
+macOS (Apple Silicon) or Linux (amd64 or arm64):
 
 ```sh
 curl -fsSL https://corgi.computer/install.sh | bash

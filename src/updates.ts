@@ -21,7 +21,11 @@ import { testBuild } from "./build_assets";
 import * as config from "./build_config";
 import * as json from "./json";
 export const abi = "1-a826bd22ebcdbe60";
-export const platform = process.platform === "darwin" ? "macos-aarch64" : "linux-x86_64";
+export const platform =
+  process.platform === "darwin" ? "macos-aarch64" : process.arch === "arm64" ? "linux-aarch64" : "linux-x86_64";
+const platforms = ["macos-aarch64", "linux-x86_64", "linux-aarch64"];
+// Releases from before Linux arm64 reject a manifest naming a target they don't know, so it has its own channel.
+const channel = platform === "linux-aarch64" ? "stable-linux-aarch64" : "stable";
 export type Release = { version: string; commit: string; feed_url: string; public_key: string; test_mode: boolean };
 type Target = { url: string; sha256: string; size: number };
 type Manifest = {
@@ -135,9 +139,11 @@ export function parse(rel: Release, bytes: string): Manifest {
   const m = record(json.parse(envelope.payload), ["schema_version", "version", "commit", "update_abi", "targets"]);
   integer(m, "schema_version", 32);
   for (const field of ["version", "commit", "update_abi"]) string(m, field);
-  const targets = record(m.targets, ["macos-aarch64", "linux-x86_64"]);
-  for (const platform of ["macos-aarch64", "linux-x86_64"]) {
-    const target = record(targets[platform], ["url", "sha256", "size"]);
+  const targets = record(m.targets, null);
+  for (const key of Object.keys(targets)) if (!platforms.includes(key)) throw Error("UnknownField");
+  if (!Object.hasOwn(targets, platform)) throw Error("MissingField");
+  for (const key of Object.keys(targets)) {
+    const target = record(targets[key], ["url", "sha256", "size"]);
     string(target, "url");
     string(target, "sha256");
     integer(target, "size", 64);
@@ -157,8 +163,9 @@ export function parse(rel: Release, bytes: string): Manifest {
   secure(rel, t.url);
   return m as Manifest;
 }
-function record(value: unknown, fields: string[]): Record<string, any> {
+function record(value: unknown, fields: string[] | null): Record<string, any> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("UnexpectedToken");
+  if (!fields) return value as Record<string, any>;
   for (const key of Object.keys(value)) if (!fields.includes(key)) throw Error("UnknownField");
   for (const key of fields) if (!Object.hasOwn(value, key)) throw Error("MissingField");
   return value as Record<string, any>;
@@ -214,7 +221,7 @@ async function feed(rel: Release, root: string, download: boolean, explicit: boo
   const unlock = await lock(root, "download.lock", explicit);
   if (!unlock) return;
   try {
-    const bytes = (await fetchBytes(rel, `${rel.feed_url}/channels/stable.json`, 1024 * 1024)).toString(),
+    const bytes = (await fetchBytes(rel, `${rel.feed_url}/channels/${channel}.json`, 1024 * 1024)).toString(),
       m = parse(rel, bytes),
       current = read(root, "current");
     if (!current) throw Error("MissingInstalledVersion");

@@ -15,6 +15,7 @@ import {
   releaseEnvironment,
   macosSdk,
   validateBinary,
+  manifests,
   signCommands,
   debugTools,
   type Store,
@@ -46,44 +47,63 @@ const testInstaller = () =>
   installer("https://example.invalid", "1.2.3", {
     "macos-aarch64": { sha256: "mac", size: 1 },
     "linux-x86_64": { sha256: "linux", size: 2 },
+    "linux-aarch64": { sha256: "linux-arm", size: 3 },
   });
 const assets = ["macos", "linux", "manifest.json"].map(name => ({
   key: `releases/1.2.3/${name}`,
   bytes: bytes(name),
   type: "application/octet-stream",
 }));
-test("publication verifies every platform before advancing the channel", async () => {
+const channels = (feed: string) =>
+  ["channels/stable.json", "channels/stable-linux-aarch64.json"].map(key => ({
+    key,
+    bytes: bytes(`${feed} ${key}`),
+    type: "application/json",
+  }));
+test("publication verifies every platform before advancing the channels", async () => {
   const store = new MemoryStore();
-  await publish(store, assets, bytes("signed feed"), bytes("installer"));
-  expect(store.writes.at(-1)).toBe("channels/stable.json");
+  await publish(store, assets, channels("signed feed"), bytes("installer"));
+  expect(store.writes.slice(-2)).toEqual(["channels/stable.json", "channels/stable-linux-aarch64.json"]);
   expect(store.writes.slice(0, 3)).toEqual(assets.map(a => a.key));
+});
+test("targets from before Linux arm64 keep a manifest that names only them", () => {
+  expect(manifests).toEqual([
+    { name: "manifest.json", channel: "channels/stable.json", targets: ["macos-aarch64", "linux-x86_64"] },
+    {
+      name: "manifest-linux-aarch64.json",
+      channel: "channels/stable-linux-aarch64.json",
+      targets: ["linux-aarch64"],
+    },
+  ]);
 });
 test("failed public download leaves channel untouched; retry reuses identical uploads", async () => {
   const store = new MemoryStore();
   store.files.set("channels/stable.json", bytes("old"));
   store.fail = assets[1].key;
-  await expect(publish(store, assets, bytes("new"), bytes("installer"))).rejects.toThrow("Offline");
+  await expect(publish(store, assets, channels("new"), bytes("installer"))).rejects.toThrow("Offline");
   expect(store.files.get("channels/stable.json")).toEqual(bytes("old"));
   store.fail = "";
-  await publish(store, assets, bytes("new"), bytes("installer"));
+  await publish(store, assets, channels("new"), bytes("installer"));
   expect(store.writes.filter(k => k === assets[0].key).length).toBe(1);
 });
 test("immutable release collision never changes the channel", async () => {
   const store = new MemoryStore();
   store.files.set(assets[0].key, bytes("different"));
-  await expect(publish(store, assets, bytes("new"), bytes("installer"))).rejects.toThrow("Refusing to overwrite");
+  await expect(publish(store, assets, channels("new"), bytes("installer"))).rejects.toThrow("Refusing to overwrite");
   expect(store.writes).toEqual([]);
 });
 test("versions are stable semantic versions and cannot become paths", () => {
   for (const v of ["../1.0.0", "v1.0.0", "01.2.3", "1.0.0-beta", "1.2.3/4"]) expect(() => releaseVersion(v)).toThrow();
   expect(releaseVersion("1.2.3")).toBe("1.2.3");
 });
-test("installer pins both checksums and shell-quotes the base URL", () => {
+test("installer pins every checksum and shell-quotes the base URL", () => {
   const script = installer("https://example.com/a'b", "1.2.3", {
     "macos-aarch64": { sha256: "mac", size: 1 },
     "linux-x86_64": { sha256: "linux", size: 2 },
+    "linux-aarch64": { sha256: "linux-arm", size: 3 },
   });
   expect(script).toContain("'https://example.com/a'\\''b'");
+  expect(script).toContain("expected='linux-arm' size=3");
   expect(script).toContain("${CORGI_INSTALL_ROOT:-$HOME/.local/share/corgi}");
   const p = Bun.spawnSync(["/bin/sh", "-n"], { stdin: Buffer.from(script) });
   expect(p.exitCode).toBe(0);
@@ -376,6 +396,10 @@ test("binaries must match their platform", () => {
   validateBinary("linux-x86_64", elf);
   expect(() => validateBinary("macos-aarch64", elf)).toThrow("Mach-O");
   expect(() => validateBinary("linux-x86_64", mach)).toThrow("ELF");
+  expect(() => validateBinary("linux-aarch64", elf)).toThrow("arm64 ELF");
+  elf.writeUInt16LE(183, 18);
+  validateBinary("linux-aarch64", elf);
+  expect(() => validateBinary("linux-x86_64", elf)).toThrow("amd64 ELF");
 });
 
 test("CLI dry run accepts dirty HEAD without creating release state", async () => {

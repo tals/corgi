@@ -122,7 +122,7 @@ install_corgi() {
 
   # Corgi verifies the signed manifest and installs itself, or stages itself over
   # an older installation for the next launch to activate.
-  fetch manifest.json manifest.json
+  fetch "$manifest" manifest.json
   chmod 700 "$tmp/corgi"
   "$tmp/corgi" __install "$root" "$tmp/manifest.json" </dev/null 2>"$tmp/error" ||
     fail "Couldn't install corgi: $(cat "$tmp/error")"
@@ -393,8 +393,12 @@ main() {
   case "$(uname -s)-$(uname -m)" in
     Darwin-arm64) target=macos-aarch64 platform='macOS arm64' expected=@MAC_SHA256@ size=@MAC_SIZE@ ;;
     Linux-x86_64) target=linux-x86_64 platform='Linux amd64' expected=@LINUX_SHA256@ size=@LINUX_SIZE@ ;;
-    *) echo 'Corgi supports macOS arm64 and Linux amd64.' >&2; exit 1 ;;
+    Linux-aarch64 | Linux-arm64)
+      target=linux-aarch64 platform='Linux arm64' expected=@LINUX_ARM_SHA256@ size=@LINUX_ARM_SIZE@ ;;
+    *) echo 'Corgi supports macOS arm64 and Linux amd64 and arm64.' >&2; exit 1 ;;
   esac
+  manifest=manifest.json
+  [ "$target" != linux-aarch64 ] || manifest=manifest-linux-aarch64.json
   if [ -n "$live" ]; then
     # Keys typed while it works would otherwise land in the progress line.
     tty_mode=$(stty -g </dev/tty)

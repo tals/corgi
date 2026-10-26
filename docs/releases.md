@@ -1,7 +1,12 @@
 # Releases
 
-The publisher builds committed HEAD for macOS arm64 and Linux amd64 in an
-isolated checkout. Pending edits are excluded; Git tags and remotes are untouched.
+The publisher builds committed HEAD for macOS arm64 and Linux amd64 and arm64 in
+an isolated checkout. Pending edits are excluded; Git tags and remotes are untouched.
+
+Linux arm64 has its own manifest and channel (`manifest-linux-aarch64.json`,
+`channels/stable-linux-aarch64.json`): releases before it reject a manifest that
+names a target they don't know, so `manifest.json` and `channels/stable.json`
+keep only macOS arm64 and Linux amd64. A new target gets its own the same way.
 
 ## Setup
 

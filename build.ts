@@ -23,7 +23,7 @@ function gitCommit(): string {
 }
 const buildTarget = option("target", `${process.platform}-${process.arch}`),
   [platform, arch] = buildTarget.split("-");
-if (!["linux-x64", "darwin-arm64", "darwin-x64"].includes(buildTarget))
+if (!["linux-x64", "linux-arm64", "darwin-arm64", "darwin-x64"].includes(buildTarget))
   throw Error(`Unsupported target: ${buildTarget}`);
 const nativeRoot = option(
   "native-root",

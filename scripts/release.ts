@@ -6,10 +6,23 @@ import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 
 const repo = resolve(import.meta.dir, "..");
+// Releases from before Linux arm64 read manifest.json and reject a target they don't
+// know, so it and any later target get a manifest and channel of their own.
 export const targets = [
-  { name: "macos-aarch64", bun: "darwin-arm64" },
-  { name: "linux-x86_64", bun: "linux-x64" },
+  { name: "macos-aarch64", bun: "darwin-arm64", manifest: "manifest.json", channel: "channels/stable.json" },
+  { name: "linux-x86_64", bun: "linux-x64", manifest: "manifest.json", channel: "channels/stable.json" },
+  {
+    name: "linux-aarch64",
+    bun: "linux-arm64",
+    manifest: "manifest-linux-aarch64.json",
+    channel: "channels/stable-linux-aarch64.json",
+  },
 ] as const;
+// Each manifest and the channel that serves it, with the targets it names.
+export const manifests = [...new Set(targets.map(t => t.manifest))].map(name => {
+  const named = targets.filter(t => t.manifest === name);
+  return { name, channel: named[0].channel, targets: named.map(t => t.name) };
+});
 type Target = (typeof targets)[number];
 // The native layer, in the paths build.ts embeds it from.
 const nativeFiles = (target: Target) => {
@@ -143,14 +156,15 @@ export function validateBinary(name: string, bytes: Uint8Array) {
     if (b.length < 32 || b.readUInt32LE(0) !== 0xfeedfacf || b.readUInt32LE(4) !== 0x0100000c)
       throw new Error("Expected an arm64 Mach-O binary.");
   } else {
+    const [machine, arch] = name === "linux-aarch64" ? [183, "arm64"] : [62, "amd64"];
     if (
       b.length < 64 ||
       b.subarray(0, 4).toString("hex") !== "7f454c46" ||
       b[4] !== 2 ||
       b[5] !== 1 ||
-      b.readUInt16LE(18) !== 62
+      b.readUInt16LE(18) !== machine
     )
-      throw new Error("Expected an amd64 ELF binary.");
+      throw new Error(`Expected an ${arch} ELF binary.`);
     const offset = Number(b.readBigUInt64LE(32)),
       size = b.readUInt16LE(54),
       count = b.readUInt16LE(56);
@@ -213,7 +227,7 @@ export interface Store {
   put(key: string, bytes: Uint8Array, type: string, cache: string): Promise<void>;
   publicGet(key: string): Promise<Uint8Array>;
 }
-export async function publish(store: Store, assets: Asset[], envelope: Uint8Array, installer: Uint8Array) {
+export async function publish(store: Store, assets: Asset[], channels: Asset[], installer: Uint8Array) {
   // Publisher invocations must be serialized (the CLI takes a local lock).
   // Existing immutable objects can be reused only when their bytes match.
   for (const asset of assets) {
@@ -227,10 +241,14 @@ export async function publish(store: Store, assets: Asset[], envelope: Uint8Arra
   await store.put("install.sh", installer, "text/x-shellscript", "no-cache, max-age=0");
   if (sha256(await store.publicGet("install.sh")) !== sha256(installer))
     throw new Error("Public installer verification failed");
-  // Single-object signed envelope: there is no signature/manifest pairing race.
-  await store.put("channels/stable.json", envelope, "application/json", "no-cache, max-age=0");
-  if (sha256(await store.publicGet("channels/stable.json")) !== sha256(envelope))
-    throw new Error("Channel was published, but public verification failed; check CDN caching before retrying.");
+  // Single-object signed envelopes: there is no signature/manifest pairing race.
+  for (const channel of channels) {
+    await store.put(channel.key, channel.bytes, channel.type, "no-cache, max-age=0");
+    if (sha256(await store.publicGet(channel.key)) !== sha256(channel.bytes))
+      throw new Error(
+        `${channel.key} was published, but public verification failed; check CDN caching before retrying.`,
+      );
+  }
 }
 function shellQuote(value: string) {
   return "'" + value.replaceAll("'", "'\\''") + "'";
@@ -247,12 +265,17 @@ export function installer(
     VERSION: shellQuote(releaseVersion(version)),
     MAC_SHA256: shellQuote(binaries["macos-aarch64"].sha256),
     LINUX_SHA256: shellQuote(binaries["linux-x86_64"].sha256),
+    LINUX_ARM_SHA256: shellQuote(binaries["linux-aarch64"].sha256),
     MAC_SIZE: String(binaries["macos-aarch64"].size),
     LINUX_SIZE: String(binaries["linux-x86_64"].size),
+    LINUX_ARM_SIZE: String(binaries["linux-aarch64"].size),
   };
-  for (const size of [values.MAC_SIZE, values.LINUX_SIZE])
+  for (const size of [values.MAC_SIZE, values.LINUX_SIZE, values.LINUX_ARM_SIZE])
     if (!/^[1-9]\d*$/.test(size)) throw new Error("Invalid binary size.");
-  return template.replace(/@(BASE|VERSION|MAC_SHA256|LINUX_SHA256|MAC_SIZE|LINUX_SIZE)@/g, (_, key) => values[key]);
+  return template.replace(
+    /@(BASE|VERSION|MAC_SHA256|LINUX_SHA256|LINUX_ARM_SHA256|MAC_SIZE|LINUX_SIZE|LINUX_ARM_SIZE)@/g,
+    (_, key) => values[key],
+  );
 }
 // Finds the one Developer ID Application (or else Apple Development) identity in the keychain.
 async function signingIdentity(run: (argv: string[], capture?: boolean) => Promise<string>) {
@@ -487,7 +510,7 @@ async function main() {
   const argv = process.argv.slice(2);
   if (argv[0] === "--help") {
     console.log(
-      "Usage: ./scripts/release [VERSION] [--dry-run | --build-only | --publish-only] [--skip-tests]\n       ./scripts/release --init-key PATH\n\nBuilds macOS arm64 + Linux amd64, signs the macOS binary (keychain on a Mac, or rcodesign with\ncodesignP12 anywhere), then publishes to an S3-compatible bucket. Config: ~/.config/corgi/release.json or CORGI_RELEASE_CONFIG.\nCredentials: private credentialsFile in config, or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (R2/S3).\nBuilds committed HEAD in an isolated checkout, leaving pending edits and development build outputs alone.\nOmit VERSION for UTC datetime + Git hash. --build-only does not upload, and runs on Linux too.\n--publish-only requires VERSION and resumes the saved commit without rebuilding/signing, even if HEAD has moved.\n--skip-tests builds without running the typecheck and test suites.",
+      "Usage: ./scripts/release [VERSION] [--dry-run | --build-only | --publish-only] [--skip-tests]\n       ./scripts/release --init-key PATH\n\nBuilds macOS arm64 + Linux amd64 and arm64, signs the macOS binary (keychain on a Mac, or rcodesign with\ncodesignP12 anywhere), then publishes to an S3-compatible bucket. Config: ~/.config/corgi/release.json or CORGI_RELEASE_CONFIG.\nCredentials: private credentialsFile in config, or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (R2/S3).\nBuilds committed HEAD in an isolated checkout, leaving pending edits and development build outputs alone.\nOmit VERSION for UTC datetime + Git hash. --build-only does not upload, and runs on Linux too.\n--publish-only requires VERSION and resumes the saved commit without rebuilding/signing, even if HEAD has moved.\n--skip-tests builds without running the typecheck and test suites.",
     );
     return;
   }
@@ -514,7 +537,7 @@ async function main() {
   const out = join(releases, version);
   if (mode === "--dry-run") {
     console.log(
-      `Release ${version}: ${options.skipTests ? "" : "test → "}build Linux amd64 and macOS arm64 → sign macOS → smoke-test → sign manifest → upload debug files to Sentry → upload/verify assets → publish channel last.\nSource: ${commit} (isolated committed tree; pending edits excluded)\nArtifacts: ${out}\nConfig: ${process.env.CORGI_RELEASE_CONFIG || join(homedir(), ".config/corgi/release.json")}\nNo builds, tags, uploads, or remote changes performed.`,
+      `Release ${version}: ${options.skipTests ? "" : "test → "}build Linux amd64 and arm64 and macOS arm64 → sign macOS → smoke-test → sign manifests → upload debug files to Sentry → upload/verify assets → publish channels last.\nSource: ${commit} (isolated committed tree; pending edits excluded)\nArtifacts: ${out}\nConfig: ${process.env.CORGI_RELEASE_CONFIG || join(homedir(), ".config/corgi/release.json")}\nNo builds, tags, uploads, or remote changes performed.`,
     );
     return;
   }
@@ -704,15 +727,21 @@ async function main() {
         throw new Error("Release metadata mismatch or unsafe test build.");
       step(`Smoke-testing corgi-${host()}`);
       await smokeTest(local);
-      const payload = JSON.stringify({
-        schema_version: 1,
-        version,
-        commit,
-        update_abi: info.update_abi,
-        targets: binaries,
-      });
-      const envelope = JSON.stringify({ payload, signature: sign(null, Buffer.from(payload), key).toString("hex") });
-      await writeFile(join(out, "manifest.json"), envelope);
+      const envelopes: Record<string, string> = {};
+      for (const manifest of manifests) {
+        const payload = JSON.stringify({
+          schema_version: 1,
+          version,
+          commit,
+          update_abi: info.update_abi,
+          targets: Object.fromEntries(manifest.targets.map(name => [name, binaries[name]])),
+        });
+        envelopes[manifest.name] = JSON.stringify({
+          payload,
+          signature: sign(null, Buffer.from(payload), key).toString("hex"),
+        });
+        await writeFile(join(out, manifest.name), envelopes[manifest.name]);
+      }
       const template = await readFile(join(source, "scripts/install.sh.in"), "utf8");
       const install = installer(config.publicBaseUrl, version, binaries, template);
       await writeFile(join(out, "install.sh"), install);
@@ -729,7 +758,7 @@ async function main() {
             sentry: config.sentry?.dsn,
             hashes: {
               ...Object.fromEntries(targets.map(t => [`corgi-${t.name}`, binaries[t.name].sha256])),
-              "manifest.json": sha256(envelope),
+              ...Object.fromEntries(manifests.map(m => [m.name, sha256(envelopes[m.name])])),
               "install.sh": sha256(install),
             },
           },
@@ -739,7 +768,7 @@ async function main() {
       );
     }
     if (mode === "--build-only") {
-      console.log(`Both platforms built and verified in ${out}. Nothing published.`);
+      console.log(`Every platform built and verified in ${out}. Nothing published.`);
       return;
     }
     const prepared = JSON.parse(await readFile(join(out, "prepared.json"), "utf8"));
@@ -799,11 +828,11 @@ async function main() {
         config.sentry!.project,
         "--wait",
         join(out, "dsym"),
-        join(out, "native", "linux-x86_64"),
+        ...targets.filter(t => t.name.startsWith("linux")).map(t => join(out, "native", t.name)),
       ]);
     }
     const assets = await Promise.all(
-      [...targets.map(t => `corgi-${t.name}`), "manifest.json", "install.sh"].map(async name => ({
+      [...targets.map(t => `corgi-${t.name}`), ...manifests.map(m => m.name), "install.sh"].map(async name => ({
         key: `releases/${version}/${name}`,
         bytes: await readFile(join(out, name)),
         type: name.endsWith(".json")
@@ -813,9 +842,16 @@ async function main() {
             : "application/octet-stream",
       })),
     );
-    await publish(store, assets, await readFile(join(out, "manifest.json")), await readFile(join(out, "install.sh")));
+    const channels = await Promise.all(
+      manifests.map(async m => ({
+        key: m.channel,
+        bytes: await readFile(join(out, m.name)),
+        type: "application/json",
+      })),
+    );
+    await publish(store, assets, channels, await readFile(join(out, "install.sh")));
     console.log(
-      `Published Corgi ${version} for macOS arm64 and Linux amd64.\nInstall: curl -fsSL ${config.publicBaseUrl}/install.sh | bash\nSource: ${commit}\nNo Git tags or remotes were changed.`,
+      `Published Corgi ${version} for macOS arm64 and Linux amd64 and arm64.\nInstall: curl -fsSL ${config.publicBaseUrl}/install.sh | bash\nSource: ${commit}\nNo Git tags or remotes were changed.`,
     );
   };
   try {

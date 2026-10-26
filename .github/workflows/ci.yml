@@ -15,6 +15,10 @@ jobs:
     uses: ./.github/workflows/platform.yml
     with:
       os: ubuntu-latest
+  linux-arm64:
+    uses: ./.github/workflows/platform.yml
+    with:
+      os: ubuntu-24.04-arm
   macos:
     uses: ./.github/workflows/platform.yml
     with:

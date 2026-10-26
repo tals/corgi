@@ -6,7 +6,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { EXE, Pty, deadline } from "./support";
-import { installer } from "../scripts/release.ts";
+import { installer, manifests as releaseManifests } from "../scripts/release.ts";
 import { Scope } from "../scripts/process_scope";
 const base = await mkdtemp(join(tmpdir(), "corgi-updates-"));
 const keys = generateKeyPairSync("ed25519");
@@ -21,6 +21,9 @@ let latest = "1.0.1",
 let requests = 0;
 const binaries = new Map<string, Uint8Array>();
 const manifests = new Map<string, string>();
+// The manifest a release serves this platform; CORGI_OLD_EXE may predate the others' targets.
+const host = `${process.platform === "darwin" ? "macos" : process.platform}-${process.arch === "arm64" ? "aarch64" : "x86_64"}`,
+  feed = releaseManifests.find(m => (m.targets as readonly string[]).includes(host))!;
 const sha = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
 const server = Bun.serve({
   hostname: "127.0.0.1",
@@ -29,7 +32,7 @@ const server = Bun.serve({
     requests++;
     if (unavailable) return new Response("unavailable", { status: 503 });
     const path = new URL(req.url).pathname;
-    if (path === "/channels/stable.json") {
+    if (path === `/${feed.channel}`) {
       const envelope = JSON.parse(manifests.get(latest)!);
       if (badAbi) {
         const payload = JSON.parse(envelope.payload);
@@ -90,7 +93,7 @@ beforeAll(async () => {
       commit: info.commit,
       version: v,
       update_abi: info.update_abi,
-      targets: { "macos-aarch64": target, "linux-x86_64": target },
+      targets: Object.fromEntries(feed.targets.map(name => [name, target])),
     });
     manifests.set(
       v,
@@ -126,6 +129,7 @@ beforeEach(async () => {
   const script = installer(url, "1.0.0", {
     "macos-aarch64": { sha256: "", size: 1 },
     "linux-x86_64": { sha256: "", size: 1 },
+    "linux-aarch64": { sha256: "", size: 1 },
   });
   await exec(["/bin/sh", "-c", script.replace(/\nmain "\$@"\n$/, "\nwrite_launcher\n")], {
     ...env,
