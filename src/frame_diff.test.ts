@@ -2,12 +2,36 @@ import { expect, test } from "bun:test";
 import { Differ } from "./frame_diff";
 import * as native from "./native_ffi";
 import * as rowGlide from "./row_glide";
+import { Terminal } from "./pane/terminal";
 
 const render = (d: Differ, frame: string) => d.diff(frame).toString();
 
 const picture = (row: number, col: number, id = 1) => `\x1b[${row};${col}H\x1b_Ga=p,i=${id},p=1,C=1,q=2\x1b\\`;
 const canvas = "\x1b[?2026h\x1b[?25l\x1b[0m\x1b[H\x1b[Junchanged text\x1b[2;1Hsecond line";
 const done = "\x1b[1;1H\x1b[?2026l";
+
+test("frame diffs preserve long hyperlink targets when the URL or label changes", () => {
+  const d = Differ.create(40, 4),
+    host = Terminal.create(40, 4),
+    base = "https://example.com/?body=" + "it's%20long%20".repeat(300);
+  try {
+    for (const [url, label] of [
+      [base, "Docs"],
+      [base + "changed", "Docs"],
+      [base + "changed", "More docs"],
+    ]) {
+      const frame = `\x1b[?2026h\x1b[H\x1b[2J\x1b]8;;${url}\x1b\\${label}\x1b]8;;\x1b\\\x1b[?2026l`;
+      host.feed(render(d, frame));
+      host.updateRender();
+      expect(host.hyperlinks().map(link => link.uri)).toEqual([url]);
+      expect(host.hyperlinks()[0].end).toBe(label.length);
+      expect(render(d, frame)).toBe("");
+    }
+  } finally {
+    d.destroy();
+    host.destroy();
+  }
+});
 
 test("external image writes replay unchanged placements without repainting text", () => {
   const d = Differ.create(30, 8),

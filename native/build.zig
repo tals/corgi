@@ -6,6 +6,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const ghostty = b.dependency("ghostty", .{ .target = target, .optimize = optimize, .simd = false, .@"emit-lib-vt" = true });
+    longLinks(b, ghostty);
     const opts = b.addOptions();
     opts.addOption(bool, "check_leaks", false);
 
@@ -51,6 +52,24 @@ pub fn build(b: *std.Build) void {
     const pty_exec = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
     pty_exec.addCSourceFile(.{ .file = b.path("pty-exec.c"), .flags = &.{ "-O2", "-Wall", "-Wextra" } });
     install(b, b.addExecutable(.{ .name = "pty-exec", .root_module = pty_exec }));
+}
+
+// Keep long OSC 8 targets through both pane mirrors and frame diffs. Patch a
+// build-owned copy, leaving the pinned dependency cache untouched.
+fn longLinks(b: *std.Build, ghostty: *std.Build.Dependency) void {
+    const files = b.addWriteFiles();
+    _ = files.addCopyDirectory(ghostty.path("src"), "src", .{ .exclude_extensions = &.{ "terminal/osc.zig", "terminal/bitmap_allocator.zig" } });
+    patch(b, ghostty, files, "src/terminal/osc.zig", "pub const MAX_BUF = 2048;", "pub const MAX_BUF = 64 * 1024;");
+    // A long URI can need one more bitmap after the last full word. Return
+    // OOM there so Screen grows the string table instead of reading past it.
+    patch(b, ghostty, files, "src/terminal/bitmap_allocator.zig", "if (@ctz(bitmaps[i]) < rem) continue;", "if (i >= bitmaps.len) return null;\n            if (@ctz(bitmaps[i]) < rem) continue;");
+    ghostty.module("ghostty-vt").root_source_file = files.getDirectory().path(b, "src/lib_vt.zig");
+}
+
+fn patch(b: *std.Build, dependency: *std.Build.Dependency, files: *std.Build.Step.WriteFile, path: []const u8, old: []const u8, new: []const u8) void {
+    const source = std.Io.Dir.cwd().readFileAlloc(b.graph.io, dependency.path(path).getPath(b), b.allocator, .limited(1024 * 1024)) catch @panic("cannot read Ghostty source");
+    if (std.mem.count(u8, source, old) != 1) @panic("Ghostty source changed; review the long-link patches");
+    _ = files.add(path, std.mem.replaceOwned(u8, b.allocator, source, old, new) catch @panic("out of memory"));
 }
 
 fn install(b: *std.Build, artifact: *std.Build.Step.Compile) void {

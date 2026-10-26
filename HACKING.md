@@ -74,6 +74,11 @@ readiness and crash reporting. Loading the system library does not initialize
 crash reporting; the application enables it explicitly. `pty-exec` and
 `corgi-hook` remain separate helper executables.
 
+Native builds patch a generated copy of Ghostty's sources to use a 64 KiB OSC
+buffer and safely grow long links' backing string storage. The build
+checks the patch sites against the pinned source. The dependency cache, wire
+formats and saved formats are unchanged; links still travel as OSC 8 sequences.
+
 ## Build, test and format
 
 ```sh

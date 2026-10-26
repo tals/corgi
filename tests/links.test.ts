@@ -47,6 +47,34 @@ class Links extends Runtime {
     this.assertEqual(copied.effects, [{ write_terminal: `\x1b]52;c;${Buffer.from(url).toString("base64")}\x07` }]);
     this.assertIn("Copied", copied.data);
   }
+  async test_wrapped_pr_link_copies_the_entire_target() {
+    const url = readFileSync(new URL("../src/fixtures/wrapped_pr_url.txt", import.meta.url), "utf8"),
+      file = join(this.temp.name, "wrapped-link");
+    const pane = await this.new(`read line; cat ${quote(file)}; exec /bin/sh`);
+    const viewer = await Viewer.create(this, 180, 55);
+    await viewer.focus(pane);
+    await viewer.poll();
+    const surface = (await this.rpc({ op: "pane.surface", protocol: 3, pane })).surface;
+    const text = `Open the PR (${url})`,
+      width = surface.cols - 2,
+      rows: string[] = [];
+    for (let at = 0; at < text.length; at += width) rows.push("  " + text.slice(at, at + width));
+    writeFileSync(file, "\x1b[2J\x1b[H" + rows.join("\r\n") + "\r\n");
+    await this.command("pane.input", { target: pane, data: "\n" });
+    const [x, y] = (await this.until(async () => {
+      const frame = await viewer.poll(),
+        screen = screen_text(frame.data, 180, 55),
+        y = screen.findIndex(row => row.includes("Open the PR"));
+      return y < 0 ? null : [screen[y].indexOf("https://") + 1, y + 1];
+    }))!;
+    await viewer.input(`\x1b[<35;${x};${y}M`);
+    this.assertIn("Copy link", (await viewer.advance(0.15)).data);
+    await viewer.input(`\x1b[<35;${x + 2};${y + 2}M\x1b[<0;${x + 2};${y + 2}M`);
+    const copied = await viewer.input(`\x1b[<0;${x + 2};${y + 2}m`);
+    this.assertEqual(url.length, 3458);
+    this.assertEqual(copied.effects, [{ write_terminal: `\x1b]52;c;${Buffer.from(url).toString("base64")}\x07` }]);
+    this.assertIn("Copied", copied.data);
+  }
   async test_pointer_names_follow_each_viewers_terminal() {
     const url = "https://example.com/pointer";
     const pane = await this.new(`printf %s ${quote(url + "\r\n")}; exec /bin/sh`);
