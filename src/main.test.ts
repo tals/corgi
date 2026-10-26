@@ -175,7 +175,7 @@ test("the daemon and the viewer never import each other", () => {
       "corgi_badge",
       "corgi_frames",
       "corgi_setup",
-      "fork_motion",
+      "fork_hero",
       "frame_diff",
       "ghostty_integration",
       "host_clipboard",

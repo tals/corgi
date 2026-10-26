@@ -8,7 +8,7 @@ import { contrast } from "./terminal_palette";
 import { art } from "./assets/brand_icons";
 import { brands, type Brand } from "./process_name";
 import { rasterize, type Layer } from "./path_raster";
-import type { Cell } from "./fork_motion";
+import type { Cell } from "./fork_hero";
 
 /** The columns a mark takes in its tab, after the number. */
 export const cols = 2;

@@ -1,7 +1,7 @@
 //! Viewer-owned Kitty badge; unsupported hosts fall back to emoji.
 import { png_base64 } from "./assets/corgi_badge";
 import { Rect } from "./layout";
-import type { Cell } from "./fork_motion";
+import type { Cell } from "./fork_hero";
 const png = Buffer.from(png_base64, "base64");
 export const reply_prefix = "\x1b_G";
 export const query = "\x1b_Ga=q,i=730031,t=d,f=24,s=1,v=1;AAAA\x1b\\";

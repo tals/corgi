@@ -7,7 +7,7 @@ import * as hull from "./hull";
 import * as palette from "../palette";
 import * as keyboard from "../keyboard";
 import { masks } from "./glyphs";
-import type { Cell } from "../fork_motion";
+import type { Cell } from "../fork_hero";
 
 export type Rasterize = (atlas: faces.Atlas) => Uint8Array | Promise<Uint8Array>;
 function lines(screen: scene.Screen) {

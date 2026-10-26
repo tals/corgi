@@ -6,8 +6,7 @@ import * as palette from "./palette";
 import { Style, keycap, fgRgb, bgRgb, mix, colors, selection } from "./palette";
 export { selection } from "./palette";
 import * as keys from "./keys";
-import * as forkMotion from "./fork_motion";
-import { milliTimestamp } from "./clock";
+import * as forkHero from "./fork_hero";
 import { identify, shell } from "./launch/command";
 import { adapter } from "./providers";
 import { Writer, writeEllipsis, codepointWidth } from "./text";
@@ -117,8 +116,8 @@ export class Dialog {
   area = new TextArea("", false);
   failed = false;
   overflow = false;
-  /** The fork card's hero. */
-  hero: forkMotion.Hero = { glyphs: false, motion: null };
+  /** Whether the fork card's hero draws the host's branch glyphs. */
+  branch_glyphs = false;
   /** A typed character's bytes until it is whole. */
   private partial: number[] = [];
   /** Empty, whether text filled in later starts selected, as a new dialog's does. */
@@ -661,9 +660,7 @@ export class View {
     const v = this;
     v.drawBox(w);
     if (card.hero_y !== null)
-      w.write(
-        forkMotion.draw(v.x + Math.floor((v.width - forkMotion.width) / 2), card.hero_y, d.hero, milliTimestamp()),
-      );
+      w.write(forkHero.draw(v.x + Math.floor((v.width - forkHero.width) / 2), card.hero_y, d.branch_glyphs));
     v.centered(w, v.title_y, new Style({ fg: "strong", bg: "surface", bold: true }).sgr(), "Fork this agent");
     if (d.overflow)
       v.centered(w, card.subtitle_y, new Style({ fg: "hot", bg: "surface" }).sgr(), "Names fit in 80 characters");

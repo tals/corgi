@@ -10,7 +10,6 @@ import * as corgiBadge from "./corgi_badge";
 import * as terminal_info from "./terminal_info";
 import * as linkThumbnail from "./link_thumbnail";
 import * as rowGlide from "./row_glide";
-import * as forkMotion from "./fork_motion";
 import { Differ } from "./frame_diff";
 import * as framePacing from "./frame_pacing";
 import { Openers } from "./url_opener";
@@ -323,10 +322,6 @@ export async function run(
         const badge_mode = probe.badge.mode();
         if (view.supports_kitty_graphics && !graphics) {
           writeAll(rowGlide.hide + linkThumbnail.hide);
-          if (view.name_dialog?.hero.motion) {
-            writeAll(forkMotion.remove);
-            view.name_dialog.hero.motion = null;
-          }
         }
         if (view.corgi_badge !== badge_mode || view.supports_kitty_graphics !== graphics) {
           view.corgi_badge = badge_mode;
@@ -478,7 +473,6 @@ export async function run(
       if (view.thumbnails.sent !== null) writeAll(linkThumbnail.remove);
       writeAll(view.images.clear());
       writeAll(view.tab_icons.clear());
-      if (view.name_dialog?.hero.motion) writeAll(forkMotion.remove);
       if (view.moonlander) {
         writeAll(view.moonlander.close());
         view.moonlander = null;

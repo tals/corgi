@@ -2,7 +2,7 @@
 //! on Bun's image worker, sent to the host once as a Kitty image, and placed
 //! by each frame that shows the card.
 import { hostname } from "node:os";
-import type { Cell } from "./fork_motion";
+import type { Cell } from "./fork_hero";
 import type { Rect } from "./layout";
 import { filePath, thumbnailCells, type Thumbnail } from "./link_tooltip";
 

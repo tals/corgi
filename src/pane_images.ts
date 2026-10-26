@@ -1,5 +1,5 @@
 import type { Image, ImagePlacement } from "./pane/surface";
-import type { Cell } from "./fork_motion";
+import type { Cell } from "./fork_hero";
 import { Rect } from "./layout";
 
 type Read = (id: string, offset: number) => Promise<string | null>;

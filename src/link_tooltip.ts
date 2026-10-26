@@ -1,5 +1,5 @@
 import type { Target as AgentTarget } from "./sidebar";
-import type { Cell } from "./fork_motion";
+import type { Cell } from "./fork_hero";
 import type { Link as TerminalLink } from "./pane/hyperlinks";
 import { Rect } from "./layout";
 import * as palette from "./palette";

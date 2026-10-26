@@ -49,7 +49,7 @@ import {
 } from "./mirror";
 import { needsPane, type Action } from "./action";
 import * as corgiBadge from "./corgi_badge";
-import * as forkMotion from "./fork_motion";
+import * as forkHero from "./fork_hero";
 import * as newWorkspace from "./new_workspace";
 import { State as SidebarRows } from "./sidebar_rows";
 import * as agentLauncher from "./agent_launcher";
@@ -271,7 +271,7 @@ export class Controller {
   host_terminal: TerminalSnapshot | null = null;
   supports_kitty_graphics = false;
   /** The host's cell in pixels, when it reports it. */
-  cell_pixels: forkMotion.Cell | null = null;
+  cell_pixels: forkHero.Cell | null = null;
   /** Whether the host draws Kitty's branch drawing characters. */
   branch_glyphs = false;
   /** The host's colors, when it reports them; both themes follow them. */
@@ -1352,7 +1352,7 @@ export class Controller {
         case "fork": {
           const title = p.label.length > 0 ? p.label : p.agent.name.length > 0 ? p.agent.name : providerName(p.agent);
           this.name_dialog = Dialog.init({ fork: pane_id }, forkName(title));
-          this.startHero();
+          this.name_dialog.branch_glyphs = this.branch_glyphs;
           this.prepareName();
           break;
         }
@@ -1591,31 +1591,17 @@ export class Controller {
     if (d instanceof newWorkspace.Dialog) d.fit(this.width, this.height);
   }
   dismissName(): void {
-    // The hero's images go with it.
-    if (this.name_dialog && this.name_dialog.hero.motion) this.queueEffect({ write_terminal: forkMotion.remove });
     this.name_dialog = null;
   }
-  /** Sets the fork card's hero moving, where the host shows Kitty images
-   * and reports its cell size; elsewhere it shows at rest. */
-  private startHero(): void {
-    const d = this.name_dialog;
-    if (!d) return;
-    d.hero.glyphs = this.branch_glyphs;
-    const cell = this.cell_pixels;
-    if (!cell) return;
-    if (!this.supports_kitty_graphics) return;
-    this.queueEffect({ write_terminal: forkMotion.upload(cell) });
-    d.hero.motion = { start: milliTimestamp() + forkMotion.lead_ms, cell };
-  }
   /** How long the viewer waits between frames: 120 a second while a hold to
-   * create fills or springs back, a display frame while the fork card's hero
-   * moves or a sidebar row glides to another group. */
+   * create fills or springs back, a display frame while a sidebar row glides
+   * to another group. */
   frameDelay(): number {
     const now = milliTimestamp(),
       d = this.name_dialog;
     const own = d?.frame() ?? null;
     if (own !== null) return own;
-    return (d && forkMotion.moving(d.hero, now)) || this.sidebar_rows.moving(now) ? 16 : 30;
+    return this.sidebar_rows.moving(now) ? 16 : 30;
   }
   private async renamePane(id: number, name: string): Promise<void> {
     await this.edit({ "pane.rename": { target: id, name } });

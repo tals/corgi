@@ -9,7 +9,7 @@ import * as gitTooltip from "./git_tooltip";
 import * as dropdown from "./dropdown";
 import * as worktrees from "./worktrees";
 import * as rowGlide from "./row_glide";
-import type { Cell } from "./fork_motion";
+import type { Cell } from "./fork_hero";
 import { url as portUrl } from "./trackers/ports";
 import { cpuText, memoryText } from "./trackers/resources";
 import { View as ContextView } from "./usage/context_window";

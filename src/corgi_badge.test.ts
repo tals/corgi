@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { State, reply_prefix, hide, hit, place } from "./corgi_badge";
 import { Terminal } from "./pane/terminal";
-import type { Cell } from "./fork_motion";
+import type { Cell } from "./fork_hero";
 const cell = { width: 9, height: 18 };
 async function upload(s: State, now: number, size: Cell | null = cell): Promise<string> {
   const first = s.upload(now, size);

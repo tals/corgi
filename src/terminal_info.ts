@@ -3,7 +3,7 @@ import { Theme } from "./theme";
 import * as corgi_badge from "./corgi_badge";
 import * as host_clipboard from "./host_clipboard";
 import * as frame_pacing from "./frame_pacing";
-import type { Cell } from "./fork_motion";
+import type { Cell } from "./fork_hero";
 import type { Colors } from "./terminal_palette";
 import type { Rgb } from "./palette";
 import type { RGB } from "./theme";

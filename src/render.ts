@@ -21,7 +21,7 @@ import type { Menu as LauncherMenu } from "./agent_launcher";
 import { Menu as SetupMenu, status as setupStatus, type Status as SetupStatus } from "./corgi_setup";
 import * as corgiBadge from "./corgi_badge";
 import * as rowGlide from "./row_glide";
-import type { Cell } from "./fork_motion";
+import type { Cell } from "./fork_hero";
 import * as pasteCard from "./paste_card";
 import * as resourceTooltip from "./resource_tooltip";
 import * as gitTooltip from "./git_tooltip";

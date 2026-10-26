@@ -4,7 +4,7 @@
 //! without Kitty graphics get a truecolor tint where the row lands.
 import { deflateSync } from "node:zlib";
 import { colors } from "./palette";
-import type { Cell } from "./fork_motion";
+import type { Cell } from "./fork_hero";
 
 export const glide_ms = 300,
   land_ms = 700,
