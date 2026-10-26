@@ -396,9 +396,9 @@ class Smoke extends Runtime {
     this.assertIn("Group-3", screen[2]);
     this.assertIn("Group-5", screen[8]);
     this.assertEqual(thumb(screen), "│││││┃┃┃");
-    await this.scrollbar_with("┃┃┃┃┃┃┃┃│││");
+    await this.scrollbar_with("┃┃┃┃┃┃┃┃┃┃│");
     await this.input("\x1b[<65;5;15M");
-    screen = await this.scrollbar_with("││┃┃┃┃┃┃┃┃│");
+    screen = await this.scrollbar_with("│┃┃┃┃┃┃┃┃┃┃");
     this.assertIn("Group-3", screen[2]);
     this.assertIn("Group-5", screen[8]);
     this.assertEqual(thumb(screen), "│││││┃┃┃");
@@ -408,7 +408,7 @@ class Smoke extends Runtime {
     await this.input("\x1b[<64;5;5M".repeat(2));
     screen = await this.frame_with("Group-0");
     this.assertEqual(thumb(screen), "│┃┃┃││││");
-    this.assertEqual(scrollbar(screen), "││┃┃┃┃┃┃┃┃│");
+    this.assertEqual(scrollbar(screen), "│┃┃┃┃┃┃┃┃┃┃");
     await this.click_text(
       screen.map(r => r.slice(0, 27)),
       "Group-1",

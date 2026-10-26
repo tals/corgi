@@ -681,6 +681,7 @@ export class Controller {
     view.resources = this.prefs.resources;
     view.gpus = resourceTooltip.gpuCount(this.runtime.resources) > 0;
     view.drawer = this.sidebar_focus?.drawer ?? null;
+    view.focus = this.sidebar_focus?.section() ?? null;
     view = view.withWorkspaces(this.runtime.workspaces.items.length, this.workspace_offset).withEntries(entries);
     view.scope_label = this.scopeLabel();
     return view;
@@ -5359,6 +5360,9 @@ export class Controller {
             break;
           case "agent_scope":
             this.openScopeMenu(true);
+            break;
+          case "active":
+            this.agentOffset().set(found.offset);
             break;
           case "workspace": {
             const index = found.workspace;

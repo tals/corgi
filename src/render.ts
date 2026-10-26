@@ -709,6 +709,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
           case "agent_scope":
           case "agent_new":
           case "agent_options":
+          case "active":
             link_pointer = true;
             break;
           case "workspace":

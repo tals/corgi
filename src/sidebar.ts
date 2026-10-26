@@ -55,6 +55,17 @@ export const lists_x = 1;
 function shiftColumns(bytes: string, dx: number): string {
   return bytes.replace(/\x1b\[(\d+);(\d+)H/g, (_, row, col) => `\x1b[${row};${Number(col) + dx}H`);
 }
+/** Drops what `bytes` writes from row `end` (0-based) down, keeping its
+ * colors so the writes after it start in the same style. */
+function clipRows(bytes: string, end: number): string {
+  return bytes
+    .split(/(?=\x1b\[\d+;\d+H)/)
+    .map(part => {
+      const row = /^\x1b\[(\d+);\d+H/.exec(part);
+      return row && Number(row[1]) > end ? (part.match(/\x1b\[[\d;:]*m/g) ?? []).join("") : part;
+    })
+    .join("");
+}
 // Styles that code or tests concatenate.
 export let panel: string,
   active_name: string,
@@ -68,12 +79,19 @@ export let panel: string,
   /** The agent row under the pointer, halfway from the panel to `selected`. */
   hover_rgb: palette.Rgb,
   hover_bg: string;
-let selected_bg: string, button: string, ghost_underline: string, outline: string;
+let selected_bg: string,
+  button: string,
+  button_glyph: string,
+  button_warm: string,
+  ghost_underline: string,
+  outline: string;
 palette.derived(() => {
   selected_bg = bg("selected");
   panel = new Style({ fg: "muted", bg: "bg" }).sgr();
   outline = new Style({ bg: "bg" }).sgr() + fgRgb(palette.outline);
   button = new Style({ fg: "strong", bg: "surface", bold: true }).sgr();
+  button_glyph = new Style({ fg: "accent", bg: "surface", bold: true }).sgr();
+  button_warm = new Style({ fg: "warm", bg: "surface", bold: true }).sgr();
   active_name = new Style({ fg: "strong", bg: "selected", bold: true }).sgr();
   active_meta = new Style({ fg: "muted", bg: "selected" }).sgr();
   // Stacked half blocks join into one bar on hosts that draw block elements
@@ -368,6 +386,35 @@ export function workspaceEntry(
     ...fields,
   };
 }
+/** Agents scrolled out of sight past an edge of the agent list that are
+ * working, need the user or finished unseen, and the scroll that shows the
+ * nearest. */
+/** Running sums over the entries, each indexed by entry: rows and badge
+ * counts before it, the group and worktree headers above it, and the
+ * nearest counted agent before it and from it on; -1 for none. */
+interface Index {
+  rows: number[];
+  group: number[];
+  worktree: number[];
+  counts: BadgeCounts[];
+  prev: number[];
+  next: number[];
+}
+type BadgeKind = "working" | "attention" | "unread";
+type BadgeCounts = Record<BadgeKind, number>;
+export interface Badge extends BadgeCounts {
+  x: number;
+  y: number;
+  side: "above" | "below";
+  offset: number;
+}
+/** What an agent counts as in a badge, by the precedence `indicator` shows. */
+export function badgeKind(e: Entry): BadgeKind | null {
+  if (!isAgent(e.target) || e.exit !== null || e.state === "done") return null;
+  if (e.state === "blocked" || e.attention === "needs_input") return "attention";
+  if (e.state === "working") return "working";
+  return e.attention === "finished" ? "unread" : null;
+}
 export type Hit =
   | { tag: "none" }
   | { tag: "toggle" }
@@ -375,6 +422,8 @@ export type Hit =
   | { tag: "agent_new" }
   | { tag: "agent_options" }
   | { tag: "entry"; entry: number }
+  /** A badge counting agents scrolled out of sight, and the scroll that shows the nearest. */
+  | { tag: "active"; offset: number }
   | { tag: "workspace_new" }
   | { tag: "workspace"; workspace: number };
 const hit = <T extends Hit["tag"]>(tag: T): Hit => ({ tag }) as Hit;
@@ -415,6 +464,8 @@ export class View {
   capacity = 1;
   /** When set, rows are measured per entry: group headers take one row. */
   entries: Entry[] = [];
+  /** Rows before each entry and the group and worktree headers above it. */
+  private index: Index = View.index([]);
   dragged: number | null = null;
   /** The agent entry under the pointer. */
   hovered: number | null = null;
@@ -536,16 +587,90 @@ export class View {
     v.capacity = 1;
     v.offset = 0;
     v.capacity = Math.max(1, Math.floor(v.listRows() / 2));
-    v.offset = Math.min(offset, sat(count, v.capacity));
+    // Focus and search change the list's end, so `withEntries` clamps the rest.
+    v.offset = Math.min(offset, sat(count, 1));
     return v;
   }
-  /** The list runs to the bottom, above the search hint while searching. */
-  /** The bottom row stays free for a box's edge, or the search hint. */
+  /** The list runs to the bottom row unless the search hint or a box's
+   * edge takes it; a drawer is always boxed. */
   listEnd(): number {
-    return sat(this.rows, 1);
+    const boxed = this.drawer !== null || this.box()?.bottom === this.rows - 1;
+    return this.search !== null || boxed ? sat(this.rows, 1) : this.rows;
   }
   listRows(): number {
     return sat(this.listEnd(), this.middle() + 2);
+  }
+  /** Rows end here for drawing: above the bottom badge while it shows. */
+  drawEnd(below: Badge | null): number {
+    return below !== null ? sat(this.rows, 1) : this.listEnd();
+  }
+  /** The row below entry `index` from the current scroll at `offset`. */
+  private entryEnd(offset: number, index: number): number {
+    return this.middle() + 2 + this.pinned(offset).length + this.rowsBefore(index + 1) - this.rowsBefore(offset);
+  }
+  /** Entries drawn from `offset`: those that fit, then any cut off at `drawEnd`. */
+  shown(end: number): number {
+    if (this.entries.length === 0) return Math.min(this.count - this.offset, this.capacity);
+    let n = 0;
+    while (this.offset + n < this.count && (n < this.capacity || this.entryEnd(this.offset, this.offset + n - 1) < end))
+      n += 1;
+    return n;
+  }
+  /** The badge counting agents scrolled out of sight `above` the list or
+   * `below` it, on the blank row under the header or the bottom row. */
+  badge(side: "above" | "below"): Badge | null {
+    if (this.width === 0 || this.entries.length === 0 || this.search !== null || this.drawer === "workspaces")
+      return null;
+    const { counts, prev, next } = this.index;
+    let found: BadgeCounts;
+    let offset: number;
+    if (side === "above") {
+      if (prev[this.offset] < 0) return null;
+      found = counts[this.offset];
+      offset = prev[this.offset];
+    } else {
+      // It shows for an agent past the list's end, then also counts one it covers.
+      const y = sat(this.rows, 1);
+      if (next[Math.min(this.offset + this.capacity, this.count)] < 0) return null;
+      let covered = this.offset;
+      while (covered < this.count && this.entryEnd(this.offset, covered) <= y) covered += 1;
+      const total = counts[this.count];
+      found = {
+        working: total.working - counts[covered].working,
+        attention: total.attention - counts[covered].attention,
+        unread: total.unread - counts[covered].unread,
+      };
+      offset = this.offset;
+      while (offset < next[covered] && this.entryEnd(offset, next[covered]) > y) offset += 1;
+      offset = Math.min(offset, this.maxOffset());
+    }
+    const badge: Badge = {
+      x: 0,
+      y: side === "above" ? this.middle() + 1 : this.rows - 1,
+      side,
+      ...found,
+      offset,
+    };
+    badge.x = Math.floor(sat(this.width - 1, displayWidth(View.badgeText(badge))) / 2);
+    return badge;
+  }
+  /** A badge's text, its counts styled as `count` writes them. */
+  static badgeText(b: Badge, count = (n: number, glyph: string, _warm: boolean) => `${n} ${glyph}`): string {
+    const parts: [number, string, boolean][] = [
+      [b.working, "▶", false],
+      [b.attention, "●", true],
+      [b.unread, "●", false],
+    ];
+    const counts = parts.filter(([n]) => n > 0).map(([n, glyph, warm]) => count(n, glyph, warm));
+    return ` ${counts.join(" ")} ${b.side === "above" ? "↑" : "↓"} `;
+  }
+  drawBadges(w: Writer): void {
+    for (const side of ["above", "below"] as const) {
+      const b = this.badge(side);
+      if (b === null) continue;
+      const text = View.badgeText(b, (n, glyph, warm) => `${n} ${warm ? button_warm : button_glyph}${glyph}${button}`);
+      w.write(`\x1b[${b.y + 1};${b.x + 1}H${button}${text}\x1b[0m`);
+    }
   }
   static height(e: Entry): number {
     const content = isHeading(e.target) ? 1 : 2;
@@ -553,26 +678,19 @@ export class View {
   }
   /** The headers of the groups the entry at `from` belongs to, which stay
    * pinned above it: its workspace's in the grouped list, then its
-   * worktree's. Ghost groups scroll with the list. */
+   * worktree's. Ghost groups scroll with the list. Near the list's end they
+   * give up rows, outermost first, so the last entries fill it. */
   pinned(from: number): number[] {
     const first = this.entries[from];
     if (!first || isGroup(first.target)) return [];
+    const index = this.index;
     const out: number[] = [];
-    for (let i = from - 1; i >= 0; i--)
-      if (isGroup(this.entries[i].target)) {
-        out.push(i);
-        break;
-      }
+    if (index.group[from] >= 0) out.push(index.group[from]);
     const checkout = first.worktree;
-    if (checkout && !checkout.ghost && !("worktree" in first.target))
-      for (let i = from - 1; i >= 0 && !isGroup(this.entries[i].target); i--) {
-        const target = this.entries[i].target;
-        if ("worktree" in target && target.worktree === checkout.path) {
-          out.push(i);
-          break;
-        }
-      }
-    return out;
+    if (checkout && !checkout.ghost && !("worktree" in first.target) && index.worktree[from] >= 0)
+      out.push(index.worktree[from]);
+    const room = this.listRows() - (this.rowsBefore(this.entries.length) - this.rowsBefore(from));
+    return room >= 0 && room < out.length ? out.slice(out.length - room) : out;
   }
   /** Entries that fit in the list starting at `from`, below its pinned headers. */
   fits(from: number): number {
@@ -598,9 +716,37 @@ export class View {
   }
   rowsBefore(index: number): number {
     if (this.entries.length === 0) return index * 2;
-    let rows = 0;
-    for (const e of this.entries.slice(0, index)) rows += View.height(e);
-    return rows;
+    return this.index.rows[clamp(index, 0, this.entries.length)];
+  }
+  private static index(entries: Entry[]): Index {
+    const rows = [0],
+      group: number[] = [],
+      worktree: number[] = [],
+      counts: BadgeCounts[] = [{ working: 0, attention: 0, unread: 0 }],
+      prev: number[] = [],
+      next: number[] = [];
+    let header = -1,
+      checkouts = new Map<string, number>(),
+      last = -1;
+    entries.forEach((e, i) => {
+      rows.push(rows[i] + View.height(e));
+      group.push(header);
+      worktree.push(e.worktree ? (checkouts.get(e.worktree.path) ?? -1) : -1);
+      prev.push(last);
+      const kind = badgeKind(e);
+      counts.push(kind === null ? counts[i] : { ...counts[i], [kind]: counts[i][kind] + 1 });
+      if (kind !== null) {
+        while (next.length <= i) next.push(i);
+        last = i;
+      }
+      if (isGroup(e.target)) {
+        header = i;
+        checkouts = new Map();
+      } else if ("worktree" in e.target) checkouts.set(e.target.worktree, i);
+    });
+    prev.push(last);
+    while (next.length <= entries.length) next.push(-1);
+    return { rows, group, worktree, counts, prev, next };
   }
   /** The scrollbar thumb's rows within the list, drawn over the border;
    * null while every entry fits. */
@@ -616,6 +762,7 @@ export class View {
   withEntries(entries: Entry[]): View {
     const result = this.clone();
     result.entries = entries;
+    result.index = View.index(entries);
     result.count = entries.length;
     result.offset = Math.min(this.offset, result.maxOffset());
     result.capacity = result.fits(result.offset);
@@ -686,6 +833,11 @@ export class View {
       const qualifier = v.scopeQualifier();
       if (x < v.scopeStart() + displayWidth(qualifier) + displayWidth(v.scopeArrow())) return hit("agent_scope");
     }
+    const below = v.badge("below");
+    for (const b of [v.badge("above"), below]) {
+      if (b && y === b.y && x >= b.x && x < b.x + displayWidth(View.badgeText(b)))
+        return { tag: "active", offset: b.offset };
+    }
     if (y < v.middle()) {
       if (y < 2 || y >= v.workspaceEnd()) return hit("none");
       const slot = Math.floor((y - 2) / v.workspaceRows());
@@ -694,13 +846,15 @@ export class View {
         ? { tag: "workspace", workspace: index }
         : hit("none");
     }
-    if (y < v.middle() + 2 || y >= v.listEnd()) return hit("none");
+    const end = v.drawEnd(below);
+    if (y < v.middle() + 2 || y >= end) return hit("none");
     let top = v.middle() + 2;
     for (const index of v.pinned(v.offset)) {
       top += 1;
       if (y < top) return { tag: "entry", entry: index };
     }
-    for (let index = v.offset; index < Math.min(v.count, v.offset + v.capacity); index++) {
+    const shown = Math.min(v.count, v.offset + v.shown(end));
+    for (let index = v.offset; index < shown; index++) {
       top += v.entries.length > 0 ? View.height(v.entries[index]) : 2;
       if (y < top) return { tag: "entry", entry: index };
     }
@@ -784,6 +938,9 @@ export class View {
       v.lists().drawFrame(lists, entries, workspaces, now_ms);
       w.write(shiftColumns(lists.buffered(), lists_x));
       v.drawBox(w);
+      const badges = new Writer();
+      v.lists().drawBadges(badges);
+      w.write(shiftColumns(badges.buffered(), lists_x));
       return;
     }
     for (let row = 0; row < v.rows; row++) {
@@ -985,7 +1142,8 @@ export class View {
     });
     const list_top = next_y;
     let glide = "";
-    const visible = entries.slice(v.offset, Math.min(entries.length, v.offset + v.capacity));
+    const end = v.drawEnd(v.badge("below"));
+    const visible = entries.slice(v.offset, Math.min(entries.length, v.offset + v.shown(end)));
     const sleepers: bigint[] = [];
     for (const e of visible) {
       if (!isAgent(e.target) || e.state !== "idle" || e.exit !== null) continue;
@@ -1009,10 +1167,14 @@ export class View {
             : null;
       const fade = dimmed[absolute] ? Math.max(fading ?? 0, spotlight_dim) : fading;
       const tint = moved !== null && !gliding && fade === null ? rowGlide.tint(moved.ms) : 0;
-      const row_writer = fade !== null || tint > 0 ? exit_writer : w;
+      // A row cut off at the end draws whole, then loses its lower rows.
+      const cut = next_y + View.height(e) > end;
+      const row_writer = fade !== null || tint > 0 || cut ? exit_writer : w;
       const finish = () => {
-        if (fade !== null) writeExit(w, exit_writer.buffered(), fade);
-        else if (tint > 0) writeTint(w, exit_writer.buffered(), tint);
+        const bytes = cut ? clipRows(exit_writer.buffered(), end) : exit_writer.buffered();
+        if (fade !== null) writeExit(w, bytes, fade);
+        else if (tint > 0) writeTint(w, bytes, tint);
+        else if (cut) w.write(bytes);
       };
       const frame_ms = e.exit ? e.exit.frame_ms : now_ms;
       const top = next_y;
@@ -1025,7 +1187,7 @@ export class View {
           rowGlide.position(from, top, moved.ms),
           v.width - 1,
           View.height(e),
-          { top: list_top, bottom: v.listEnd() },
+          { top: list_top, bottom: end },
           rowGlide.opacity(moved.ms),
           v.cell!,
         );
@@ -1038,7 +1200,7 @@ export class View {
       }
       const in_group = grouped || e.worktree !== null;
       const last_in_group = in_group && lastInGroup(absolute);
-      const divider = !in_group && index + 1 < Math.min(entries.length - v.offset, v.capacity);
+      const divider = !in_group && index + 1 < visible.length;
       v.drawAgent(
         row_writer,
         // Emoji keep their colors, so a mostly faded row shows the spinner.

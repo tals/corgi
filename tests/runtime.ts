@@ -473,11 +473,13 @@ export class Runtime extends TestCase {
   }
   /** Waits for the agent list's scrollbar, read down the sidebar border, to show `bar`. */
   async scrollbar_with(bar: string, cols = 80, rows = 24) {
+    let seen = "";
     for (let i = 0; i < 100; i++) {
       const screen = screen_text((await this.get_type("frame")).data, cols, rows);
-      if (scrollbar(screen) === bar) return screen;
+      seen = scrollbar(screen);
+      if (seen === bar) return screen;
     }
-    this.fail(`missing scrollbar ${bar}`);
+    this.fail(`missing scrollbar ${bar}, saw ${seen}`);
   }
   tab_frame(text: string, cols = 80, rows = 24) {
     return this.frame_with(text, cols, rows, 0);

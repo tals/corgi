@@ -807,13 +807,16 @@ test("grouped scrolling fits more rows when headers are shorter", () => {
   const entries = Array.from({ length: 7 }, (_, i) =>
     entry({ target: i % 3 === 0 ? { group: i } : { pane: i }, provider: "codex", state: "idle" }),
   );
-  // 14 rows leave five list rows above the bottom one: three entries where
-  // only two agents fit. Scrolled into a group, its pinned header takes one.
-  const view = View.init(100, 14, true, 0, entries.length).withEntries(entries);
+  // 13 rows leave five list rows: three entries where only two agents fit.
+  // Scrolled into a group, its pinned header takes one, except at the end,
+  // where the last entries fill the list.
+  const view = View.init(100, 13, true, 0, entries.length).withEntries(entries);
   expect(view.capacity).toBe(3);
-  expect(view.maxOffset()).toBe(5);
+  expect(view.pinned(1)).toEqual([0]);
+  expect(view.maxOffset()).toBe(4);
+  expect(view.pinned(4)).toEqual([]);
   expect(view.reveal(3)).toBe(2);
-  expect(View.init(100, 14, true, 99, entries.length).withEntries(entries).offset).toBe(5);
+  expect(View.init(100, 13, true, 99, entries.length).withEntries(entries).offset).toBe(4);
 });
 
 test("worktree groups branch off the workspace rail and pin their headers above scrolled rows", () => {
@@ -840,6 +843,21 @@ test("worktree groups branch off the workspace rail and pin their headers above 
       name: "blog",
       group: { agents: 1, working: 0, attention: 0, folded: true, current: false },
     }),
+    entry({
+      target: { group: 3 },
+      name: "site",
+      group: { agents: 1, working: 0, attention: 0, folded: true, current: false },
+    }),
+    entry({
+      target: { group: 4 },
+      name: "docs",
+      group: { agents: 1, working: 0, attention: 0, folded: true, current: false },
+    }),
+    entry({
+      target: { group: 5 },
+      name: "notes",
+      group: { agents: 1, working: 0, attention: 0, folded: true, current: false },
+    }),
   ];
   const rows = (view: View, n: number) => {
     const top = view.middle() + 2;
@@ -863,7 +881,7 @@ test("worktree groups branch off the workspace rail and pin their headers above 
   ]);
   // Scrolled to "second", corgi's and the worktree's headers stay on top;
   // the lower one underlines its row, and both hit as themselves.
-  const scrolled = View.init(100, 14, true, 99, entries.length).withEntries(entries);
+  const scrolled = View.init(100, 13, true, 4, entries.length).withEntries(entries);
   expect(scrolled.offset).toBe(4);
   expect(scrolled.pinned(4)).toEqual([0, 2]);
   expect(scrolled.pinned(2)).toEqual([0]);
@@ -872,7 +890,7 @@ test("worktree groups branch off the workspace rail and pin their headers above 
     " ├▾ ⌥ one ───────────── 2○ │",
     " ╰○  second                ┃",
     "     Session ended         ┃",
-    " ▸ blog ━━━━━━━━━━━━━━━ 1○ ┃",
+    " ▸ blog ━━━━━━━━━━━━━━━ 1○ │",
   ]);
   const top = scrolled.middle() + 2;
   expect([0, 1, 2, 4].map(row => scrolled.hit(5, top + row))).toEqual([
@@ -936,14 +954,14 @@ test("in All, a lit main checkout keeps its workspace's header and direct rows",
 
 test("agent list shows a scrollbar on the border only when it overflows", () => {
   const entries = Array.from({ length: 6 }, (_, i) => entry({ target: { pane: i }, provider: "codex", state: "idle" }));
-  // 24 rows leave ten list rows above the bottom one: five agents.
-  const fits = View.init(80, 24, true, 0, 5).withEntries(entries.slice(0, 5));
+  // 23 rows leave ten list rows: five agents.
+  const fits = View.init(80, 23, true, 0, 5).withEntries(entries.slice(0, 5));
   expect(fits.thumb()).toBeNull();
   expect(has(draw(fits, entries.slice(0, 5), [], 0), "┃")).toBe(false);
-  const top = View.init(80, 24, true, 0, entries.length).withEntries(entries);
+  const top = View.init(80, 23, true, 0, entries.length).withEntries(entries);
   expect(top.thumb()!.start).toBe(0);
   expect(top.thumb()!.len).toBe(8);
-  expect(View.init(80, 24, true, 99, entries.length).withEntries(entries).thumb()!.start).toBe(2);
+  expect(View.init(80, 23, true, 99, entries.length).withEntries(entries).thumb()!.start).toBe(2);
   const out = draw(top, entries, [], 0);
   expect(count(out, "┃")).toBe(8);
   expect(has(out, "\x1b[14;28H")).toBe(true);
@@ -1262,7 +1280,7 @@ test("a dragged split moves the agents header within bounds", () => {
   expect(View.init(100, 30, true, 0, 0, 10).middle()).toBe(10);
   expect(View.init(100, 30, true, 0, 0, 2).middle()).toBe(6);
   expect(View.init(100, 30, true, 0, 0, 40).middle()).toBe(25);
-  expect(View.init(100, 30, true, 0, 0, 10).listRows()).toBe(17);
+  expect(View.init(100, 30, true, 0, 0, 10).listRows()).toBe(18);
 });
 
 test("an unfolded group scrolls into view as far as it fits, its header at most on top", () => {
@@ -1350,4 +1368,83 @@ test("the push popover shows what the push and each commit change", () => {
   w = new Writer();
   drawGitTooltip(w, { ...ws, git_commits: [commit("Grow", none)] }, 100, 30, 0, 0);
   expect(hostText(w.s)).not.toContain("file");
+});
+
+test("the agent list draws into the bottom row and cuts off the entry that runs past it", () => {
+  const entries = Array.from({ length: 10 }, (_, i) => entry({ target: { pane: i + 1 }, name: `agent ${i}` }));
+  const view = View.init(80, 20, true, 0, entries.length).withEntries(entries);
+  const lines = hostText(draw(view, entries, []), 80, 20).split("\n");
+  expect(lines[19]).toContain("agent 4");
+  expect(view.hit(5, 19)).toEqual({ tag: "entry", entry: 4 });
+  // Scrolling still stops where the last entry fits whole.
+  expect(view.maxOffset()).toBe(6);
+  const focused = View.init(80, 20, true, 0, entries.length).withEntries(entries);
+  focused.focus = "agents";
+  expect(hostText(draw(focused, entries, []), 80, 20).split("\n")[19]).not.toContain("agent 4");
+});
+
+test("badges count agents scrolled out of sight and point at the nearest", () => {
+  const working = new Set([0, 1, 7]);
+  const entries = Array.from({ length: 10 }, (_, i) =>
+    entry({
+      target: { pane: i + 1 },
+      name: `agent ${i}`,
+      state: working.has(i) ? "working" : i === 8 ? "blocked" : "idle",
+      attention: i === 9 ? "finished" : "none",
+    }),
+  );
+  const view = View.init(80, 21, true, 3, entries.length).withEntries(entries);
+  const lines = hostText(draw(view, entries, []), 80, 21).split("\n");
+  expect(lines[11]).toContain(" 2 ▶ ↑ ");
+  expect(lines[20]).toContain(" 1 ▶ 1 ● 1 ● ↓ ");
+  const above = view.lists().badge("above")!,
+    below = view.lists().badge("below")!;
+  expect(view.hit(above.x + lists_x + 1, above.y)).toEqual({ tag: "active", offset: 1 });
+  expect(view.hit(below.x + lists_x + 1, below.y)).toEqual({ tag: "active", offset: 4 });
+  const top = View.init(80, 21, true, 0, entries.length).withEntries(entries);
+  expect(top.lists().badge("above")).toBeNull();
+  const searching = view.withSearch({ text: "", cursor: 0, selection: null });
+  expect(searching.lists().badge("below")).toBeNull();
+});
+
+test("a focused agent list scrolls its last agent fully into view", () => {
+  const entries = Array.from({ length: 10 }, (_, i) => entry({ target: { pane: i + 1 }, name: `agent ${i}` }));
+  const view = View.init(80, 22, true, 99, entries.length);
+  view.focus = "agents";
+  const focused = view.withEntries(entries);
+  expect(focused.offset).toBe(6);
+  expect(hostText(draw(focused, entries, []), 80, 22).split("\n")[18]).toContain("agent 9");
+});
+
+test("the agent list stops scrolling once its last entry shows", () => {
+  const entries: Entry[] = [];
+  for (let g = 0; g < 4; g++) {
+    const worktree = { workspace: 1, path: `/w/${g}`, ghost: false };
+    entries.push(entry({ target: { worktree: worktree.path, workspace: 1 }, name: `wt ${g}`, worktree }));
+    for (let a = 0; a < 3; a++)
+      entries.push(entry({ target: { pane: g * 10 + a + 1 }, name: `agent ${g}.${a}`, worktree }));
+  }
+  const view = View.init(80, 31, true, 99, entries.length).withEntries(entries);
+  expect(view.offset).toBe(8);
+  const lines = hostText(draw(view, entries, []), 80, 31).split("\n");
+  expect(lines[29]).toContain("agent 3.2");
+  expect(lines[30]).toContain("~");
+  // Past another workspace's worktree, its two pinned headers would leave
+  // three rows empty at the end; they give way instead.
+  const shape = "GddWaaWaWaaGddWaa";
+  let pane = 0,
+    group = 0,
+    checkout: Entry["worktree"] = null;
+  const grouped = [...shape].map(c => {
+    if (c === "G") return entry({ target: { group: ++group }, name: `ws ${group}` });
+    if (c === "W") {
+      checkout = { workspace: group, path: `/w/${pane}`, ghost: false };
+      return entry({ target: { worktree: checkout.path, workspace: group }, name: "wt", worktree: checkout });
+    }
+    return entry({ target: { pane: ++pane }, name: `agent ${pane}`, worktree: c === "a" ? checkout : null });
+  });
+  const end = View.init(80, 29, true, 99, grouped.length).withEntries(grouped);
+  expect(end.offset).toBe(10);
+  expect(end.pinned(end.offset)).toEqual([8]);
+  expect(hostText(draw(end, grouped, []), 80, 29).split("\n")[28]).toContain("~");
 });
