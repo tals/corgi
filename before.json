@@ -1,0 +1,14 @@
+[
+  {
+    "case": "wrapped",
+    "expected": 3458,
+    "copied": 139,
+    "matches": false
+  },
+  {
+    "case": "apostrophe",
+    "expected": 44,
+    "copied": 22,
+    "matches": false
+  }
+]
