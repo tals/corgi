@@ -86,11 +86,27 @@ test("a launch preview reads a provider again as soon as a file it reads changes
     worker.preview(root);
     await worker.pump();
     expect(worker.preview(root).options.pi.model.text()).toBe("first");
+    // Bun starts macOS watches asynchronously. Observe the temporary file
+    // before replacing the settings, so the rename can't precede the watch.
+    const watcher = worker.watching.get(file)!,
+      deadline = performance.now() + 3000;
+    let ready = false;
+    const changed = (_event: string, name: string | Buffer | null) => {
+      if (name?.toString() === "picked.json.tmp") ready = true;
+    };
+    watcher.on("change", changed);
+    try {
+      while (!ready && performance.now() < deadline) {
+        writeFileSync(file + ".tmp", JSON.stringify({ model: "second" }));
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      expect(ready).toBe(true);
+    } finally {
+      watcher.off("change", changed);
+    }
     // Replaced, as editors and atomic writers do, rather than written in place.
-    writeFileSync(file + ".tmp", JSON.stringify({ model: "second" }));
     renameSync(file + ".tmp", file);
-    const deadline = Date.now() + 3000;
-    while (worker.preview(root).options.pi.model.text() !== "second" && Date.now() < deadline) {
+    while (worker.preview(root).options.pi.model.text() !== "second" && performance.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, 20));
       await worker.pump();
     }
