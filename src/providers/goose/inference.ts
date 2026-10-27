@@ -1,9 +1,10 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import type { Client, Event, Inference, Input, Place, Saved } from "../adapter";
 
-/** A one-shot `goose run`: instructions on stdin, the run's stdout as the
- * answer. Tool-less-ness and the output shape are bench-verified, not yet
- * proven; see the adapter's proof-of-concept notes. */
+/** A one-shot `goose run -t`: instructions and prompt combined as the
+ * --text argument, the run's stdout as the answer. goose 1.50.1 rejects bare
+ * stdin (it demands -i, -t, or --recipe) and --instructions takes a file and
+ * conflicts with --text, so --text is the one-shot form. */
 export class GooseInference implements Client {
   readonly ready = true;
   private events: Event[] = [];
@@ -11,27 +12,15 @@ export class GooseInference implements Client {
   private done = false;
   private ended = false;
   private proc: ChildProcess | null = null;
+  private executable = "";
+  private cwd = "";
+  private instructions = "";
   private constructor() {}
   static start(at: Place, r: Inference): Client {
     const client = new GooseInference();
-    const proc = spawn(at.executable, ["run"], { cwd: at.cwd, stdio: ["pipe", "pipe", "pipe"] });
-    client.proc = proc;
-    let text = "";
-    proc.stdout.on("data", chunk => {
-      text += chunk;
-    });
-    const finish = () => {
-      if (client.ended) return;
-      client.ended = true;
-      client.done = true;
-      if (text.trim()) client.events.push({ kind: "message", session: "", text });
-      client.events.push({ kind: "ended" });
-      client.notify();
-    };
-    proc.on("error", finish);
-    proc.on("close", finish);
-    proc.stdin.on("error", () => {});
-    proc.stdin.end(r.instructions);
+    client.executable = at.executable;
+    client.cwd = at.cwd;
+    client.instructions = r.instructions;
     return client;
   }
   static restore(_saved: Saved, _live: boolean): Client {
@@ -46,8 +35,42 @@ export class GooseInference implements Client {
     this.waiters = [];
     for (const w of waiters) w();
   }
+  /** A fresh run for one prompt: the harness only prompts a drained client,
+   * so no live run is ever replaced here. */
+  private run(text: string): void {
+    this.events = [];
+    this.done = false;
+    this.ended = false;
+    const proc = spawn(this.executable, ["run", "-t", this.instructions + "\n\n" + text], {
+      cwd: this.cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    this.proc = proc;
+    let out = "";
+    proc.stdout.on("data", chunk => {
+      out += chunk;
+    });
+    const finish = (failed: boolean) => {
+      if (this.ended) return;
+      this.ended = true;
+      this.done = true;
+      if (out.trim()) this.events.push({ kind: "message", session: "", text: out });
+      this.events.push({
+        kind: "turn",
+        session: "",
+        turn: "",
+        phase: "ended",
+        outcome: failed ? "failed" : "completed",
+      });
+      this.events.push({ kind: "ended" });
+      this.notify();
+    };
+    proc.on("error", () => finish(true));
+    proc.on("close", code => finish(code !== 0));
+  }
   send(input: Input): void {
     if (input.kind === "interrupt") this.close();
+    else if (input.kind === "prompt") this.run(input.text);
   }
   take(): Event[] {
     const events = this.events;
