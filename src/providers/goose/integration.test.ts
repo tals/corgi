@@ -108,4 +108,3 @@ test("Goose integration leaves a foreign plugin dir alone on status", async () =
     rmSync(root, { recursive: true, force: true });
   }
 });
-);
