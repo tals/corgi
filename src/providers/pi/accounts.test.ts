@@ -170,7 +170,9 @@ test.each(["environment", "settings"])(
         adapter.hook({ event: "SessionStart", session, transcript, cwd: root, account });
       }
       const list = async () =>
-        Promise.all(readers.map(async h => (await h.list(() => false)).sessions.map(e => [e.account, e.session])));
+        Promise.all(
+          readers.map(async h => (await h.list(() => false)).sessions.map(e => [e.account, e.session]).sort()),
+        );
       expect(await list()).toEqual([[], [[a, "shared-0"]], [[b, "shared-1"]]]);
       // Resuming the same transcript with another account updates cached readers too.
       adapter.hook({
