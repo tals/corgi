@@ -16,7 +16,7 @@ import {
   type Section,
 } from "./sidebar";
 import { ResizeView, TabMenu } from "./commands";
-import { Dialog, View as NameView } from "./name_dialog";
+import { Dialog, View as NameView, printable } from "./name_dialog";
 import type { Menu as LauncherMenu } from "./agent_launcher";
 import { Menu as SetupMenu, status as setupStatus, type Status as SetupStatus } from "./corgi_setup";
 import * as corgiBadge from "./corgi_badge";
@@ -45,6 +45,7 @@ import {
   Writer,
   codepointWidth,
   displayWidth,
+  clipped,
   writeEllipsis,
   ellipsis,
   directoryLabel,
@@ -275,7 +276,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
  * agent's, the program in front of its shell, or the last part of its folder. */
 export function untitledTab(p: Pane): string {
   if (p.label.length > 0) return p.label;
-  if (p.agent.provider !== null) return cleanLabel(p.agent.name || providerName(p.agent));
+  if (p.agent.provider !== null) return printable(p.agent.name || providerName(p.agent));
   if (p.command.length > 0) return cleanLabel(p.command);
   const folder = directoryLabel(p.cwd, process.env.HOME ?? null);
   return cleanLabel(folder === "/" ? folder : folder.slice(folder.lastIndexOf("/") + 1));
@@ -292,7 +293,7 @@ type TabMark = { brand: Brand; x: number };
  * agent renames itself; a renamed tab fits its whole title. */
 export function tabWidth(view: LayoutView, index: number): number {
   const digits = `${index + 1}`.length;
-  return Math.max(12, digits + 3 + byteLength(view.model.tabs[index].title));
+  return Math.max(12, digits + 3 + displayWidth(view.model.tabs[index].title));
 }
 function tabExtent(view: LayoutView, index: number, first: number, remaining: number): number {
   const width = tabWidth(view, index);
@@ -371,9 +372,16 @@ function writeTabCells(w: Writer, cells: string[], styles: string[], left: numbe
 /** `text` as one entry per column, a wide character's second column empty. */
 function columns(text: string): string[] {
   const out: string[] = [];
+  let base = -1;
   for (const ch of text) {
+    const width = codepointWidth(ch.codePointAt(0)!);
+    if (width === 0) {
+      if (base >= 0) out[base] += ch;
+      continue;
+    }
+    base = out.length;
     out.push(ch);
-    if (codepointWidth(ch.codePointAt(0)!) === 2) out.push("");
+    if (width === 2) out.push("");
   }
   return out;
 }
@@ -557,7 +565,7 @@ function drawTabs(
     const name = p ? untitledTab(p) : tab.title;
     const brand = p && marks ? tabBrand(p) : null,
       mark = brand ? tabIcons.cols : 0;
-    let label = byteSlice(name, sat(len, number.length + mark + (len < tabWidth(view, i) ? 2 : 3)));
+    let label = clipped(name, sat(len, number.length + mark + (len < tabWidth(view, i) ? 2 : 3)));
     const cut = label.length < name.length;
     if (cut) label = label.trimEnd();
     const text = columns(label);

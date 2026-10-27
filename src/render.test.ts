@@ -33,6 +33,7 @@ import { agent, type Pane } from "./mirror";
 import { Icons } from "./tab_icons";
 import { Menu as LauncherMenu } from "./agent_launcher";
 import { Writer } from "./text";
+import { Terminal } from "./pane/terminal";
 import type { Prefix } from "./keymap";
 
 function emptyView() {
@@ -211,6 +212,45 @@ test("tabs show each number in a badge before the title, the active one's in the
   expect(cut).toContain(`${fade(65)}n`);
   expect(cut).toContain(`${fade(35)}t`);
   expect(out).not.toContain(fade(35));
+});
+
+test("agent tab names preserve Unicode and clip by cells without shifting the next tab", () => {
+  const m = new Model();
+  const selection = new Selection();
+  const view = new View(m, selection);
+  const id = m.newTab("");
+  m.newTab("next");
+  selection.reconcile(m);
+  const terminal = { updateRender() {}, hyperlinks: () => [], cursor: () => null, rows: () => "" };
+  const pane = {
+    id,
+    label: "",
+    cwd: "/tmp",
+    command: "",
+    brand: null,
+    agent: agent({ provider: "claude" }),
+    restoring: "",
+    terminal,
+  } as unknown as Pane;
+  const screen = new Terminal(40, 10);
+  try {
+    for (const [name, label] of [
+      ["🐶 fix tabs", "🐶 fix t"],
+      ["🐶🐱🐭🐹🐰", "🐶🐱🐭🐹"],
+      ["cafe\u0301 fixes", "cafe\u0301 fix"],
+      ["🐶\ufe0f fixes", "🐶\ufe0f fixes"],
+      ["abcdefg🐶", "abcdefg"],
+      ["🐶\x1b\x07\u009bfix", "🐶???fix"],
+    ]) {
+      pane.agent.name = name;
+      screen.feed(frame(view, [pane], 40, 10, ui({ sidebar_open: false, message: "", copy_mode: false })));
+      const row = screen.text().split("\n")[0];
+      const padding = name === "abcdefg🐶" ? "  " : " ";
+      expect(row).toStartWith(`▐1▌${label}${padding}▐2▌next     ▐+▌`);
+    }
+  } finally {
+    screen.destroy();
+  }
 });
 
 test("a tab wears its program's mark after its number, once the host holds it, and not under a menu", () => {

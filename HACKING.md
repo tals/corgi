@@ -67,6 +67,11 @@ size, the viewer keeps text and emoji fallbacks. The sidebar badge is resized
 with `Bun.Image` and displayed at its native pixel size, like thumbnails and
 tab icons, without terminal-specific scaling commands.
 
+Agent-derived tab labels keep Unicode names, including emoji, while replacing
+terminal controls with printable placeholders. Tabs measure and clip labels in
+Ghostty display cells, keeping combining marks with their base character.
+This is display-only; saved-name rules and wire formats are unchanged.
+
 The binary bundles two native shared libraries: `corgi_term` owns Ghostty
 terminal emulation, rendering, frame diffs and input encoding; `corgi_system`
 owns POSIX/PTY helpers, process inspection, resource sampling, descriptor
