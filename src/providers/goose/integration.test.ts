@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensurePluginEnabled, install, pluginEnabled, removePluginEntry, status, uninstall } from "./integration";
@@ -14,6 +14,35 @@ test("Goose config edits enable, keep and remove the corgi entry", () => {
   expect(pluginEnabled(ensurePluginEnabled(disabled))).toBe(true);
   expect(pluginEnabled(removePluginEntry(ensurePluginEnabled(disabled)))).toBe(false);
   expect(removePluginEntry(other)).toBe(other);
+});
+test("Goose config edits match existing indent and never duplicate keys", () => {
+  const four = "plugins:\n    other:\n      enabled: true\n";
+  const added = ensurePluginEnabled(four);
+  expect(pluginEnabled(added)).toBe(true);
+  expect(added).toContain("    corgi:\n      enabled: true");
+  expect(added).toContain("    other:\n      enabled: true");
+  const empty = "plugins: {}\n";
+  const flowed = ensurePluginEnabled(empty);
+  expect(pluginEnabled(flowed)).toBe(true);
+  expect(flowed).toBe("plugins: {corgi: {enabled: true}}\n");
+  expect(flowed.match(/^plugins:/gm)?.length).toBe(1);
+  const flow = "plugins: {other: {enabled: true}}\n";
+  const flowedOther = ensurePluginEnabled(flow);
+  expect(pluginEnabled(flowedOther)).toBe(true);
+  expect(flowedOther).toBe("plugins: {other: {enabled: true}, corgi: {enabled: true}}\n");
+  expect(flowedOther.match(/^plugins:/gm)?.length).toBe(1);
+  expect(ensurePluginEnabled("plugins: {corgi: {enabled: true}}\n")).toBe("plugins: {corgi: {enabled: true}}\n");
+  expect(pluginEnabled(ensurePluginEnabled("plugins: {corgi: {enabled: false}}\n"))).toBe(true);
+  expect(ensurePluginEnabled("plugins:\n  corgi: {enabled: false}\n")).toBe("plugins:\n  corgi: {enabled: true}\n");
+  expect(pluginEnabled(ensurePluginEnabled("plugins:\n  corgi: {enabled: true}\n"))).toBe(true);
+  expect(() => ensurePluginEnabled("plugins: {\n  other: true\n}\n")).toThrow();
+  expect(() => ensurePluginEnabled("plugins:\n  corgi: true\n")).toThrow();
+  expect(removePluginEntry("plugins: {other: {enabled: true}, corgi: {enabled: true}}\n")).toBe(
+    "plugins: {other: {enabled: true}}\n",
+  );
+  expect(removePluginEntry("plugins:\n  corgi: {enabled: true}\n  other:\n    enabled: true\n")).toBe(
+    "plugins:\n  other:\n    enabled: true\n",
+  );
 });
 test("Goose integration installs, reports and uninstalls in a temp root", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-goose-"));
@@ -60,3 +89,4 @@ test("Goose integration leaves a foreign plugin dir alone on status", async () =
     rmSync(root, { recursive: true, force: true });
   }
 });
+
