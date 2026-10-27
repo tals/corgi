@@ -1,4 +1,5 @@
 import { test, expect } from "bun:test";
+import { readFileSync } from "node:fs";
 import { Terminal } from "./terminal";
 import { capture, view } from "./surface";
 const links = (t: Terminal) => t.native({ op: "links" }) as { uri: string; start: number; end: number }[];
@@ -65,6 +66,107 @@ test("plain links span soft wraps but not hard newlines and remain snapshot owne
     t.feed("\x1b[?2026l\x1b[2J\x1b[Hhttp://\r\nexample.com");
     capture(9, t);
     expect(links(t)).toHaveLength(0);
+  } finally {
+    t.destroy();
+  }
+});
+test("plain links keep apostrophes inside URLs and trim surrounding punctuation", () => {
+  const t = Terminal.create(100, 6);
+  try {
+    const url = "https://example.com/it's?body=doesn't%20stop";
+    for (const printed of [url, `'${url}'`, `(${url}).`, `\"${url}\"`, `\`${url}\``]) {
+      t.feed(`\x1b[2J\x1b[H${printed}`);
+      expect(links(t).map(link => link.uri)).toEqual([url]);
+    }
+  } finally {
+    t.destroy();
+  }
+});
+test("plain links join indented full rows and map only their URL cells", () => {
+  const t = Terminal.create(40, 6);
+  const url = "https://example.com/?body=" + "it's%20a%20long%20report%20".repeat(5);
+  const text = `Open (${url}).`,
+    rows = text.match(/.{1,38}/g)!;
+  try {
+    for (const separator of ["\r\n", ""]) {
+      t.feed("\x1b[2J\x1b[H" + rows.map(row => "  " + row).join(separator));
+      const found = t.hyperlinks();
+      expect(found).toHaveLength(rows.length);
+      for (const [row, link] of found.entries()) {
+        expect(link.uri).toBe(url);
+        expect(link.id).toBe(found[0].id);
+        expect(link.row).toBe(row);
+        expect(link.start).toBe(row === 0 ? 8 : 2);
+        expect(link.end).toBe(row === rows.length - 1 ? rows[row].length : 40);
+      }
+    }
+  } finally {
+    t.destroy();
+  }
+});
+test("plain link continuation stops at paragraphs, indentation changes and explicit links", () => {
+  const t = Terminal.create(40, 5),
+    first = "https://example.com/" + "a".repeat(19);
+  try {
+    for (const next of [
+      "  ordinary words on another line",
+      "   /different-indent",
+      "",
+      "  https://another.example/",
+      "  \x1b]8;;https://explicit.example/\x1b\\/named\x1b]8;;\x1b\\",
+      "  \x1b[8m/hidden\x1b[0m",
+    ]) {
+      t.feed(`\x1b[2J\x1b[H  ${first}\r\n${next}`);
+      expect(links(t)[0].uri).toBe(first);
+    }
+    t.feed("\x1b[2J\x1b[H  https://example.com/short\r\n  /separate");
+    expect(links(t).map(link => link.uri)).toEqual(["https://example.com/short"]);
+  } finally {
+    t.destroy();
+  }
+});
+test("the reported PR URL survives wrapping at different pane widths", () => {
+  const url = readFileSync(new URL("../fixtures/wrapped_pr_url.txt", import.meta.url), "utf8");
+  for (const cols of [40, 80, 97, 120, 154, 180, 200]) {
+    const t = Terminal.create(cols, 100),
+      text = `Open the PR (${url})`,
+      rows: string[] = [];
+    for (let at = 0; at < text.length; at += cols - 2) rows.push("  " + text.slice(at, at + cols - 2));
+    try {
+      t.feed(rows.join("\r\n"));
+      const found = t.hyperlinks();
+      expect(found).toHaveLength(rows.length);
+      for (const link of found) expect(link.uri).toBe(url);
+    } finally {
+      t.destroy();
+    }
+  }
+});
+test.each(["", "id=long"])("long OSC 8 targets with parameters %j survive fragmented input and capture", params => {
+  const t = Terminal.create(40, 4),
+    mirror = Terminal.create(40, 4),
+    url = "https://example.com/?body=" + "it's%20long%20".repeat(300);
+  try {
+    const output = `\x1b]8;${params};${url}\x1b\\Docs\x1b]8;;\x1b\\ plain`;
+    for (let at = 0; at < output.length; at += 137) t.feed(output.slice(at, at + 137));
+    const frame = capture(7, t);
+    mirror.feed(frame.lines[0]);
+    expect(links(mirror).map(link => link.uri)).toEqual([url]);
+    expect(links(mirror)[0]).toMatchObject({ start: 0, end: 4 });
+  } finally {
+    t.destroy();
+    mirror.destroy();
+  }
+});
+test("OSC 8 accepts large targets within its bound and discards oversized sequences", () => {
+  const t = Terminal.create(40, 4);
+  try {
+    for (const length of [2050, 4096, 16384, 65000, 66000]) {
+      const url = "https://example.com/" + "a".repeat(length);
+      t.feed(`\x1b[2J\x1b[H\x1b]8;;${url}\x1b\\Docs\x1b]8;;\x1b\\ plain`);
+      expect(links(t).map(link => link.uri)).toEqual(length < 65536 ? [url] : []);
+      expect(t.text()).toContain("Docs plain");
+    }
   } finally {
     t.destroy();
   }
