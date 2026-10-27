@@ -1,4 +1,6 @@
 {
+  "                                check tools, download a speech model": "                                도구 확인 및 음성 모델 다운로드",
+  "                                dictate into the focused pane by speaking": "                                말해서 포커스된 창에 받아쓰기",
   "    prompt through the agent's own channel, or type it and press Enter": "    에이전트 자체 채널로 프롬프트를 보내고, 없으면 입력한 뒤 Enter를 누릅니다",
   "    search conversation text; --session PROVIDER:ID narrows, -o extracts matches": "    대화 본문 검색; --session PROVIDER:ID로 범위를 좁히고 -o로 일치 부분 추출",
   "    to today's log, MEMORY.md or a workspace's note; an exact repeat isn't added": "    오늘의 로그, MEMORY.md 또는 워크스페이스 메모에 추가. 완전히 같은 내용은 제외",
@@ -650,6 +652,7 @@
   "Move without a position appends. Env replaces overrides, e.g. '{\"KEY\":\"value\"}'.": "위치 없이 move하면 끝에 추가합니다. Env는 재정의 값을 교체합니다. 예: '{\"KEY\":\"value\"}'.",
   "Mute / unmute": "음소거 / 해제",
   "Mute / unmute sounds": "알림음 끄기 / 켜기",
+  "Mute / unmute voice": "음성 입력 끄기 / 켜기",
   "Name": "이름",
   "Name it and pick a folder": "이름을 정하고 폴더 선택",
   "Name tab": "탭 이름 지정",

@@ -1,4 +1,6 @@
 {
+  "                                check tools, download a speech model": "                                проверить инструменты и скачать речевую модель",
+  "                                dictate into the focused pane by speaking": "                                диктовать голосом в активную панель",
   "    prompt through the agent's own channel, or type it and press Enter": "    отправить запрос через канал самого агента, а без него ввести текст и нажать Enter",
   "    search conversation text; --session PROVIDER:ID narrows, -o extracts matches": "    поиск по тексту бесед; --session PROVIDER:ID сужает поиск, -o выводит совпадения",
   "    to today's log, MEMORY.md or a workspace's note; an exact repeat isn't added": "    добавить в журнал за сегодня, MEMORY.md или заметку пространства; точные повторы пропускаются",
@@ -898,6 +900,7 @@
   "Move without a position appends. Env replaces overrides, e.g. '{\"KEY\":\"value\"}'.": "Перемещение без позиции добавляет в конец. Env заменяет переопределения, например '{\"KEY\":\"value\"}'.",
   "Mute / unmute": "Включить / выключить звук",
   "Mute / unmute sounds": "Включить / выключить звуки",
+  "Mute / unmute voice": "Включить / выключить голос",
   "Name": "Имя",
   "Name it and pick a folder": "Назовите и выберите папку",
   "Name tab": "Имя вкладки",

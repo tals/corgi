@@ -1,0 +1,14 @@
+#!/usr/bin/env bun
+// Stands in for pactl in the voice tests: two microphones and a monitor.
+const args = process.argv.slice(2).join(" ");
+if (args === "list short sources")
+  process.stdout.write(
+    [
+      "0\talsa_output.pci.analog-stereo.monitor\tPipeWire\ts32le 2ch 48000Hz\tSUSPENDED",
+      "1\tStudio Microphone\tPipeWire\ts16le 1ch 48000Hz\tRUNNING",
+      "2\tMacBook Pro Microphone\tPipeWire\ts32le 2ch 48000Hz\tSUSPENDED",
+      "",
+    ].join("\n"),
+  );
+else if (args === "get-default-source") process.stdout.write("MacBook Pro Microphone\n");
+else process.exit(1);

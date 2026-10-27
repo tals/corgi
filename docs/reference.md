@@ -223,6 +223,7 @@ tmux tab numbering starts at zero; other presets start at one.
 | Jump to attention | `prefix f`, `F1` | `prefix F` | `prefix o` | `Cmd+Shift+U`, `prefix f` |
 | New agent | `prefix A`, `prefix Ctrl+A` | `prefix a` | `prefix a` | `prefix A`, `prefix Ctrl+A` |
 | Mute / unmute sounds | `prefix m` | `prefix m` | `prefix m` | `prefix m` |
+| Mute / unmute voice | `prefix M` | `prefix M` | `prefix M` | `prefix M` |
 | Focus left | `prefix ←`, `prefix h` | `prefix ←` | `prefix h` | `Cmd+Opt+←`, `prefix ←`, `prefix h` |
 | Focus down | `prefix ↓`, `prefix j` | `prefix ↓` | `prefix j` | `Cmd+Opt+↓`, `prefix ↓`, `prefix j` |
 | Focus up | `prefix ↑`, `prefix k` | `prefix ↑` | `prefix k` | `Cmd+Opt+↑`, `prefix ↑`, `prefix k` |
@@ -489,6 +490,13 @@ receipts.
 
 For multiple machines, use `corgi machine add HOST` and `corgi --machine HOST list`. The terminal viewer lists all workspaces together; its **all** dropdown filters by machine and shows connection status. See [Machines over SSH](remote.md) for setup, authentication and reconnect behavior. You can also run Corgi directly through SSH (`ssh -t host corgi`); the runtime persists there when the connection drops. Corgi itself does not expose a TCP listener.
 
+## Dictate by voice
+
+`corgi voice setup` installs a local Whisper model; `corgi voice` then types
+what you say into the focused pane, and `corgi voice --ssh HOST` does the same
+for a runtime on another host. It never presses Enter. **prefix M** mutes
+voice. See the [voice guide](voice.md).
+
 ## Settings and troubleshooting
 
 Prefer **Corgi setup** for changes. **Panes → Shell** selects the shell for new
@@ -511,7 +519,12 @@ to `~/.local/state/corgi`:
 | `settings.json` | Runtime settings, including shell and inference choices |
 | `recovery/` | Saved layout, terminal output and agent recovery context |
 | `account-previews/`, `limit-history/` | Each account's latest usage reading, and its limit and spend history |
+| `voice.json` | Voice mode's settings, on the machine running `corgi voice` |
+| `voice.log` | Voice mode's diagnostics, written only with `corgi voice --verbose` |
 | `accounts.json`, `accounts/` | Provider accounts besides the default, and the folders Corgi made for them; shared by every environment. A new one waits in a private `corgi-account-*` folder in the temporary directory until it's signed in |
+
+Voice models and the speech filter are cached in
+`$XDG_CACHE_HOME/corgi/voice/`, defaulting to `~/.cache/corgi/voice/`.
 
 An explicit `CORGI_SOCKET` selects another runtime; its workspace/settings
 files live beside the socket. Viewer preferences remain shared. Developer

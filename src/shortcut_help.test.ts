@@ -142,3 +142,18 @@ test("the help pictures the Corgi prompt under Corgi, in each preset's spelling"
   expect(narrow.rows.some(row => row.some(part => part.text === "Corgi prompt"))).toBe(true);
   expect(narrow.rows.some(row => row.some(part => part.text === "~ᐯ◡ᴥ◡ᐯ"))).toBe(false);
 });
+
+test("voice mute sits under sounds, and 112 × 36 still shows every row", () => {
+  for (const preset of available_presets) {
+    const column = new Column(47, preset);
+    navigation(column);
+    const rows = column.rows.map(row => row.map(part => part.text).join(" "));
+    expect(rows.findIndex(r => r.includes("Mute / unmute voice"))).toBe(
+      rows.findIndex(r => r.includes("Mute / unmute") && !r.includes("voice")) + 1,
+    );
+    // The voice row costs no scrolling: its column still fits a 112 × 36 page.
+    // The panes column, with the Corgi prompt card, sets the help's height.
+    // cmux's extra Cmd rows already scrolled before voice.
+    if (preset !== "cmux") expect(column.rows.length).toBeLessThanOrEqual(bounds(112, 36).h - 8);
+  }
+});
