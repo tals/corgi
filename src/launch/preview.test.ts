@@ -14,6 +14,7 @@ const variables = [
   "CORGI_CLAUDE_BIN",
   "CORGI_PI_BIN",
   "CORGI_OPENCODE2_BIN",
+  "CORGI_GOOSE_BIN",
 ] as const;
 let saved: NodeJS.ProcessEnv, root: string;
 beforeEach(() => {
@@ -25,6 +26,7 @@ beforeEach(() => {
   process.env.CORGI_CLAUDE_BIN = process.execPath;
   process.env.CORGI_PI_BIN = process.execPath;
   process.env.CORGI_OPENCODE2_BIN = "/nonexistent/opencode";
+  process.env.CORGI_GOOSE_BIN = "/nonexistent/goose";
   accounts.reset();
 });
 afterEach(() => {
