@@ -46,11 +46,20 @@ its own image ids, clips pictures to their panes and frees images that leave
 the screen. Pictures sit above text, so `render.frame` places them last, cut
 around the cards and menus drawn over them, and only while their pane isn't
 dimmed. This supports static RGB/RGBA and PNG images sent directly or by local
-file. Unicode placeholder placements, animation, Sixel and iTerm2 image
-commands are not forwarded. The host must support Kitty graphics and report its
+file, including Unicode placeholder placements. Ghostty resolves placeholder
+cells into visible image fragments; the text surface carries blanks instead of
+placeholder glyphs and diacritics. Animation, Sixel and iTerm2 image commands
+are not forwarded. The host must support Kitty graphics and report its
 cell pixel size. The added surface fields and cell-size hint are optional, so
 wire versions and saved formats are unchanged; older viewers continue to
 receive text. `./go.ts --sandbox images` shows a picture to open cards over.
+
+Pane processes identify the emulated Ghostty terminal through `TERM_PROGRAM`,
+not the daemon's original host. Outer-terminal identity hints such as
+`ITERM_SESSION_ID` are removed, so programs such as omp choose Kitty graphics
+rather than the outer host's protocol. `TERM` stays `xterm-256color` for
+portable terminfo lookup. Already-running shells keep their old environment;
+open a new pane after updating to pick up the corrected identity.
 
 `terminal_info.ts` owns live terminal state and separates replies from typed
 input. The viewer and daemon keep its plain snapshot, including `Probe.info`,

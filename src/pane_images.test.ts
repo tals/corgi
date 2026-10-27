@@ -54,6 +54,33 @@ test("Kitty RGB and PNG images survive a surface, including file transport", () 
     }
   }));
 
+test("Unicode image placeholders retain their crops as cells are overwritten and scrolled", () =>
+  using(t => {
+    const pixels = Buffer.from([
+      255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0,
+    ]);
+    t.feed(command("a=t,f=24,s=2,v=4,i=71,q=2", pixels.toString("base64")));
+    t.feed(command("a=p,U=1,i=71,p=9,c=2,r=2,q=2"));
+    expect(pictures(t)).toEqual([]);
+    const marker = "\u{10eeee}";
+    t.feed(
+      `\x1b[2;4H\x1b[38;2;0;0;71;58:2::0:0:9m${marker}\u0305\u0305${marker}\u0305\u030d` +
+        `\x1b[3;4H${marker}\u030d\u0305${marker}\u030d\u030d\x1b[0m`,
+    );
+    expect(pictures(t)).toMatchObject([
+      { x: 3, y: 1, width: 2, height: 1, source_x: 0, source_y: 0, source_width: 2, source_height: 2 },
+      { x: 3, y: 2, width: 2, height: 1, source_x: 0, source_y: 2, source_width: 2, source_height: 2 },
+    ]);
+    expect(t.surface(1).surface.lines.join("")).not.toContain(marker);
+    t.feed("\x1b[2;4HX");
+    expect(pictures(t)[0]).toMatchObject({ x: 4, y: 1, width: 1, source_x: 1, source_width: 1 });
+    t.feed("\x1b[5;1H\n");
+    expect(pictures(t).map(p => p.y)).toEqual([0, 1]);
+    expect(pictures(t, 0).map(p => p.y)).toEqual([1, 2]);
+    t.feed(command("a=d,d=I,i=71,q=2"));
+    expect(pictures(t)).toEqual([]);
+  }));
+
 test("images retain the completed synchronized frame and replacements get a new identity", () =>
   using(t => {
     t.feed(red);

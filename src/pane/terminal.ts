@@ -115,11 +115,16 @@ export class Terminal extends EventEmitter {
       SHELL: shell,
       TERM: "xterm-256color",
       COLORTERM: "truecolor",
+      // Programs talk to our Ghostty emulator, not the daemon's original host.
+      TERM_PROGRAM: "ghostty",
+      TERM_PROGRAM_VERSION: undefined,
       CORGI_SOCKET: socket,
       CORGI_BIN: hookSender(executable),
       CORGI_PANE: String(id),
       PATH: `${dirname(executable)}:${process.env.PATH ?? "/usr/bin:/bin"}`,
     };
+    for (const key of ["ITERM_SESSION_ID", "KITTY_WINDOW_ID", "WEZTERM_PANE", "VSCODE_PID", "ALACRITTY_WINDOW_ID"])
+      delete env[key];
     for (const p of Provider.all) adapter(p).unnest?.(env);
     for (const [key, value] of extra) env[key] = value;
     n.probe_resize(master, this.cols, this.rows);

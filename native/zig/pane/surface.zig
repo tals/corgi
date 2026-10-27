@@ -93,10 +93,11 @@ pub fn writeRowHovered(w: *std.Io.Writer, state: *const vt.RenderState, links: [
             last_bg = bg;
         }
         const cp = cell.codepoint();
+        const blank = cp == 0 or cp == vt.kitty.graphics.unicode.placeholder or style.flags.invisible;
         var bytes: [4]u8 = undefined;
-        const len = try std.unicode.utf8Encode(if (cp == 0 or style.flags.invisible) ' ' else cp, &bytes);
+        const len = try std.unicode.utf8Encode(if (blank) ' ' else cp, &bytes);
         try w.writeAll(bytes[0..len]);
-        if (cell.content_tag == .codepoint_grapheme and !style.flags.invisible) for (cells.items(.grapheme)[col]) |extra| {
+        if (cell.content_tag == .codepoint_grapheme and !blank) for (cells.items(.grapheme)[col]) |extra| {
             const n = try std.unicode.utf8Encode(extra, &bytes);
             try w.writeAll(bytes[0..n]);
         };

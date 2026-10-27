@@ -36,18 +36,33 @@ const read = (pw: string, types: string) =>
 
 class SmokeTerminal extends Runtime {
   async test_child_kitty_image_reaches_viewer_and_is_removed() {
+    await this.childImage("\x1b_Ga=T,f=24,s=1,v=1,i=730140,c=4,r=2,C=1,q=2;/wAA\x1b\\", 32);
+  }
+
+  async test_child_unicode_image_reaches_viewer_and_is_removed() {
+    const marker = "\u{10eeee}";
+    const row = (r: string) => [0x305, 0x30d, 0x30e, 0x310].map(c => marker + r + String.fromCodePoint(c)).join("");
+    await this.childImage(
+      "\x1b_Ga=t,f=24,s=2,v=2,i=730140,q=2;/wAA/wAA/wAA/wAA\x1b\\" +
+        "\x1b_Ga=p,U=1,i=730140,p=1,c=4,r=2,q=2\x1b\\" +
+        `\x1b[38;2;11;36;28;58:2::0:0:1m${row("\u0305")}\r\n${row("\u030d")}\x1b[0m`,
+      16,
+    );
+  }
+
+  private async childImage(picture: string, height: number) {
     const program = join(this.temp.name, "image-child.ts");
     writeFileSync(
       program,
       `process.stdin.setRawMode(true);
-process.stdout.write("\\x1b[2J\\x1b[H\\x1b_Ga=T,f=24,s=1,v=1,i=730140,c=4,r=2,C=1,q=2;/wAA\\x1b\\\\IMAGE_READY");
-process.stdin.on("data", () => process.stdout.write("\\x1b_Ga=d,d=A,q=2\\x1b\\\\IMAGE_GONE"));
+process.stdout.write("\\x1b[2J\\x1b[H" + ${JSON.stringify(picture)} + "IMAGE_READY");
+process.stdin.on("data", () => process.stdout.write("\\x1b_Ga=d,d=I,i=730140,q=2\\x1b\\\\IMAGE_GONE"));
 `,
     );
     await this.open_pane({ command: shellJoin([process.execPath, program]) });
     await this.client.request({ op: "badge", visible: true });
     await this.client.request({ op: "size", cols: 100, rows: 30, cell: { width: 8, height: 16 } });
-    const upload = "\x1b_Ga=t,t=d,f=32,s=32,v=32,i=268435456";
+    const upload = `\x1b_Ga=t,t=d,f=32,s=32,v=${height},i=268435456`;
     await this.until(() => this.client.events.some((event: any) => event.data?.includes(upload)));
     await this.until(() => this.client.state.data.includes("\x1b_Ga=p,i=268435456"));
     // A child's id must not overwrite Corgi's hover thumbnail id.

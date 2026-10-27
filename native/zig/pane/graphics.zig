@@ -75,6 +75,7 @@ pub const Snapshot = struct {
         const cw: f64 = @floatFromInt(@max(1, t.width_px / t.cols));
         const ch: f64 = @floatFromInt(@max(1, t.height_px / t.rows));
         var placements = storage.placements.iterator();
+        var has_virtual = false;
         while (placements.next()) |entry| {
             const p = entry.value_ptr;
             const image = storage.imageById(entry.key_ptr.image_id) orelse continue;
@@ -83,7 +84,10 @@ pub const Snapshot = struct {
             var dy: i32 = 0;
             switch (p.location) {
                 .pin => |value| pin = value,
-                .virtual => continue,
+                .virtual => {
+                    has_virtual = true;
+                    continue;
+                },
                 .relative => |rel| {
                     const chain = storage.resolveChain(rel) orelse continue;
                     pin = switch (chain.root.location) {
@@ -119,6 +123,32 @@ pub const Snapshot = struct {
                     .z = p.z,
                 });
                 break;
+            }
+        }
+        if (has_virtual) {
+            // Ghostty resolves placeholder colors and diacritics into visible row runs.
+            var virtuals = vt.kitty.graphics.unicode.placementIterator(pages.getTopLeft(.viewport), pages.getBottomRight(.viewport));
+            while (virtuals.next()) |p| {
+                const image = storage.imageById(p.image_id) orelse continue;
+                const rendered = p.renderPlacement(storage, &image, @intFromFloat(cw), @intFromFloat(ch)) catch continue;
+                if (rendered.dest_width == 0 or rendered.dest_height == 0 or rendered.source_width == 0 or rendered.source_height == 0) continue;
+                const point = (pages.pointFromPin(.viewport, rendered.top_left) orelse continue).viewport;
+                for (next.assets.items) |asset| {
+                    if (asset.generation != image.generation) continue;
+                    try next.placements.append(a, .{
+                        .image = asset.image,
+                        .x = @as(f64, @floatFromInt(point.x)) + @as(f64, @floatFromInt(rendered.offset_x)) / cw,
+                        .y = @as(f64, @floatFromInt(point.y)) + @as(f64, @floatFromInt(rendered.offset_y)) / ch,
+                        .width = @as(f64, @floatFromInt(rendered.dest_width)) / cw,
+                        .height = @as(f64, @floatFromInt(rendered.dest_height)) / ch,
+                        .source_x = rendered.source_x,
+                        .source_y = rendered.source_y,
+                        .source_width = rendered.source_width,
+                        .source_height = rendered.source_height,
+                        .z = -1,
+                    });
+                    break;
+                }
             }
         }
         self.deinit();
