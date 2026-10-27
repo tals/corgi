@@ -3,7 +3,7 @@
 import * as palette from "../palette";
 import { Style } from "../palette";
 import * as level from "./level";
-import { keys, type Key } from "../terminal_keys";
+import { keys, incomplete, type Key } from "../terminal_keys";
 import { displayWidth, ellipsis } from "../text";
 import { thumb } from "../scroll_thumb";
 import { Differ } from "../frame_diff";
@@ -23,6 +23,8 @@ const reset = "\x1b[0m",
   column_width = 28,
   /** The level row is not clipped: its label, the meter, two spaces and "T:100". */
   min_cols = 1 + label_width + meter_cells + 2 + 5,
+  /** How long a read that ends in an escape waits for the rest of the key. */
+  esc_ms = 50,
   /** A meter cell filled by quarters, bottom up. */
   fills = [" ", "⣀", "⣤", "⣶", "⣿"],
   /** The meter's colors run from the accent through warm to hot, so they follow the theme. */
@@ -221,7 +223,7 @@ export function mode(s: VoiceSession): {
   if (!s.available || s.server === "crashed") return { note: "○", style: warm, ...off };
   if (s.muted) return { note: "♪", style: muted, ...off };
   const on = { muted: false, label: "Listening", label_style: strong };
-  if (!s.viewer) return { note: "♫", style: warm, ...on };
+  if (!s.viewer) return { note: "♫", style: muted, ...on };
   if (s.recording) return { note: "♫", style: recording_note, ...on };
   if (s.transcribing) return { note: "♫", style: transcribing_note, ...on };
   return { note: "♫", style: listening_note, ...on };
@@ -658,10 +660,26 @@ export async function run(ui: VoiceUi, stop: Promise<void>, cleanup: () => Promi
     const out = differ.diff(ui.draw(cols, rows));
     if (out.length) process.stdout.write(Buffer.concat([out, hide]));
   };
-  const onData = (data: Buffer) => {
-    ui.input(data.toString("latin1"), rows);
+  // A read can end inside a key's bytes: the rest waits for the next read,
+  // or a moment, since a lone Escape is a key too.
+  let partial = "",
+    flush: ReturnType<typeof setTimeout> | undefined;
+  const feed = (data: string) => {
+    clearTimeout(flush);
+    const text = partial + data,
+      cut = incomplete(text);
+    partial = text.slice(cut);
+    ui.input(text.slice(0, cut), rows);
+    if (partial)
+      flush = setTimeout(() => {
+        const held = partial;
+        partial = "";
+        ui.input(held, rows);
+        paint();
+      }, esc_ms);
     paint();
   };
+  const onData = (data: Buffer) => feed(data.toString("latin1"));
   const onResize = () => {
     ({ cols, rows } = size());
     differ.destroy();
@@ -671,6 +689,7 @@ export async function run(ui: VoiceUi, stop: Promise<void>, cleanup: () => Promi
   };
   const restore = () => {
     clearInterval(timer);
+    clearTimeout(flush);
     process.stdin.off("data", onData);
     process.stdout.off("resize", onResize);
     try {

@@ -37,6 +37,14 @@ const named: [string, Key["kind"]][] = [
   ["\x1b[5~", "pageup"],
   ["\x1b[6~", "pagedown"],
 ];
+/** Where `data` ends inside an escape sequence or a paste, or `data.length`:
+ * a read can stop between the bytes of one key, and the rest comes next. */
+export function incomplete(data: string): number {
+  const paste = data.lastIndexOf("\x1b[200~");
+  if (paste >= 0 && data.indexOf("\x1b[201~", paste) < 0) return paste;
+  const esc = data.lastIndexOf("\x1b");
+  return esc >= 0 && /^\x1b(?:\[[0-9;?<]*|O)?$/.test(data.slice(esc)) ? esc : data.length;
+}
 /** The keys, clicks and wheel notches in `data`. Coordinates are 0-based. */
 export function keys(data: string): Key[] {
   const out: Key[] = [];

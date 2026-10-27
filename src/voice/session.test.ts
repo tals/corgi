@@ -37,9 +37,12 @@ class FakeWhisper {
   heard: string[] = [];
   requests = 0;
   crash: (code: number | null) => void = () => {};
+  /** Holds every transcription until it resolves, for a Whisper that is behind. */
+  gate: Promise<void> = Promise.resolve();
   constructor(private script: string[]) {}
   async transcribe() {
     this.requests++;
+    await this.gate;
     return this.script.shift() ?? "";
   }
   on(_event: "crashed", fn: (code: number | null) => void) {
@@ -186,6 +189,23 @@ test("text the runtime refuses as muted is discarded, not failed", async () => {
   speak(s);
   await until(() => s.history[0]?.status === "discarded");
   expect(statuses(s)).toEqual([["discarded", "muted"]]);
+});
+
+test("a Whisper that falls behind is not handed more than four recordings", async () => {
+  const { s, whisper, link } = session(["one", "two", "three", "four"]);
+  let open!: () => void;
+  whisper.gate = new Promise(resolve => (open = resolve));
+  await s.connect();
+  for (let i = 0; i < 6; i++) speak(s);
+  expect(statuses(s).map(([status]) => status)).toEqual([...Array(4).fill("transcribing"), "failed", "failed"]);
+  expect(s.history[5].reason).toBe("transcription backlog");
+  open();
+  await until(() => statuses(s).filter(([status]) => status === "delivered").length === 4);
+  expect(link.calls.map(c => c.value)).toEqual(["one", "two", "three", "four"]);
+  // With the backlog cleared, speech goes through again.
+  speak(s);
+  await until(() => s.history.at(-1)?.status === "dropped" || s.history.at(-1)?.status === "delivered");
+  expect(s.history.at(-1)?.reason).not.toBe("transcription backlog");
 });
 
 test("words that sound like commands are typed as text", async () => {
