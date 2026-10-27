@@ -19,7 +19,10 @@ function freePort(): number {
   probe.stop(true);
   return port;
 }
-async function start(env: Record<string, string> = {}, opts: { healthTimeoutMs?: number; vadModel?: string } = {}) {
+async function start(
+  env: Record<string, string> = {},
+  opts: { healthTimeoutMs?: number; vadModel?: string; signal?: AbortSignal } = {},
+) {
   Object.assign(process.env, env);
   const server = await Server.start({ binary: fake, model: "/models/base.bin", port: freePort(), ...opts });
   servers.push(server);
@@ -80,6 +83,30 @@ test("a crash fails the request and fires crashed once", async () => {
   await expect(server.transcribe(utterance)).rejects.toThrow("ServerDown");
   await Bun.sleep(100);
   expect(crashes).toEqual([3]);
+});
+
+test("a start given up on while the model loads stops the server", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-whisper-")),
+    log = join(dir, "log"),
+    stopping = new AbortController();
+  try {
+    setTimeout(() => stopping.abort(), 100);
+    await expect(
+      start(
+        { CORGI_FAKE_WHISPER_MODE: "no_health", CORGI_FAKE_WHISPER_LOG: log },
+        { healthTimeoutMs: 10_000, signal: stopping.signal },
+      ),
+    ).rejects.toThrow("Aborted");
+    const pid = Number(
+      Bun.spawnSync(["pgrep", "-f", `${fake} -m /models/base.bin`])
+        .stdout.toString()
+        .trim()
+        .split("\n")[0],
+    );
+    expect(pid || 0).toBe(0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("a server that never turns healthy is stopped", async () => {

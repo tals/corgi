@@ -37,6 +37,8 @@ export class Server {
     port: number;
     vadModel?: string;
     healthTimeoutMs?: number;
+    /** Stops a server still loading, with `Aborted`. */
+    signal?: AbortSignal;
   }): Promise<Server> {
     if (await answers(opts.port)) throw Error("PortInUse");
     const args = [opts.binary, "-m", opts.model, "--host", "127.0.0.1", "--port", String(opts.port)];
@@ -51,13 +53,13 @@ export class Server {
       until = Date.now() + (opts.healthTimeoutMs ?? 60_000);
     let exited = false;
     void child.exited.then(() => (exited = true));
-    while (Date.now() < until && !exited) {
+    while (Date.now() < until && !exited && !opts.signal?.aborted) {
       if (await server.healthy(Math.max(1, Math.min(1000, until - Date.now())))) return server;
       await Bun.sleep(250);
     }
     const failed = exited;
     await server.stop();
-    throw Error(failed ? "WhisperStartFailed" : "Timeout");
+    throw Error(opts.signal?.aborted ? "Aborted" : failed ? "WhisperStartFailed" : "Timeout");
   }
   private async healthy(ms: number): Promise<boolean> {
     try {

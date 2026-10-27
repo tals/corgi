@@ -148,7 +148,7 @@ test("reconnecting sends the current mute state", async () => {
   const { s } = session([], { links: async () => links[connects++] });
   await s.connect();
   s.setMuted(true);
-  expect(links[0].sets).toEqual([{ muted: true, available: true }]);
+  expect(links[0].sets).toEqual([{ muted: true }]);
   links[0].events.emitClosed("runtime_gone");
   await until(() => s.link_state === "connected");
   expect(links[1].watched[0]).toMatchObject({ muted: true, available: true });
@@ -198,14 +198,44 @@ test("a Whisper that falls behind is not handed more than four recordings", asyn
   await s.connect();
   for (let i = 0; i < 6; i++) speak(s);
   expect(statuses(s).map(([status]) => status)).toEqual([...Array(4).fill("transcribing"), "failed", "failed"]);
-  expect(s.history[5].reason).toBe("transcription backlog");
+  expect(s.history[5].reason).toBe("backlog");
   open();
   await until(() => statuses(s).filter(([status]) => status === "delivered").length === 4);
   expect(link.calls.map(c => c.value)).toEqual(["one", "two", "three", "four"]);
   // With the backlog cleared, speech goes through again.
   speak(s);
   await until(() => s.history.at(-1)?.status === "dropped" || s.history.at(-1)?.status === "delivered");
-  expect(s.history.at(-1)?.reason).not.toBe("transcription backlog");
+  expect(s.history.at(-1)?.reason).not.toBe("backlog");
+});
+
+test("a runtime that is slow to take text is not handed more than four utterances", async () => {
+  const link = new FakeLink();
+  link.reply = () => new Promise(() => {});
+  const { s } = session(["a", "b", "c", "d", "e", "f"], { link, timeout: 200 });
+  await s.connect();
+  for (let i = 0; i < 6; i++) speak(s);
+  await until(() => s.history[0]?.status === "delivering");
+  expect(statuses(s).map(([status]) => status)).toEqual([
+    "delivering",
+    ...Array(3).fill("transcribing"),
+    "failed",
+    "failed",
+  ]);
+  expect(s.history[4].reason).toBe("backlog");
+  await until(() => statuses(s).filter(([, why]) => why === "timed out").length === 4, 3000);
+});
+
+test("an availability update on its way does not undo a mute from a viewer", async () => {
+  const link = new FakeLink();
+  const { s } = session([], { link });
+  await s.connect();
+  s.setAvailable(false, "mic_busy");
+  // What goes out names only what changed here.
+  expect(link.sets).toEqual([{ available: false }]);
+  link.events.emitMuted(true);
+  s.frame(new Int16Array(320));
+  expect(link.sets).toEqual([{ available: false }, { available: true }]);
+  expect(s.muted).toBe(true);
 });
 
 test("words that sound like commands are typed as text", async () => {
@@ -239,7 +269,7 @@ test("a server crash fails the utterance and stops listening for good", async ()
   whisper.crash(3);
   expect(statuses(s)).toEqual([["failed", "server crashed"]]);
   expect([s.available, s.unavailable, s.server]).toEqual([false, "server_down", "crashed"]);
-  expect(link.sets).toEqual([{ muted: false, available: false }]);
+  expect(link.sets).toEqual([{ available: false }]);
   speak(s);
   expect(s.history).toHaveLength(1);
   s.setMuted(false);
@@ -265,10 +295,7 @@ test("a microphone that comes back makes voice available again", async () => {
   expect(s.unavailable).toBe("mic_denied");
   s.frame(new Int16Array(320));
   expect([s.available, s.unavailable]).toEqual([true, null]);
-  expect(link.sets).toEqual([
-    { muted: false, available: false },
-    { muted: false, available: true },
-  ]);
+  expect(link.sets).toEqual([{ available: false }, { available: true }]);
 });
 
 test("a first connection that fails and is given up on never retries", async () => {
@@ -318,7 +345,7 @@ test("state the runtime did not take is sent again", async () => {
   s.setMuted(true);
   expect(link.sets).toEqual([]);
   await until(() => link.sets.length === 1, 2000);
-  expect(link.sets[0]).toEqual({ muted: true, available: true });
+  expect(link.sets[0]).toEqual({ muted: true });
 });
 
 test("a mute pressed while the watch is on its way still reaches the runtime", async () => {
@@ -333,7 +360,7 @@ test("a mute pressed while the watch is on its way still reaches the runtime", a
   answer();
   await connecting;
   expect(s.muted).toBe(true);
-  expect(link.sets).toEqual([{ muted: true, available: true }]);
+  expect(link.sets).toEqual([{ muted: true }]);
 });
 
 test("a runtime that refuses this voice is not retried", async () => {

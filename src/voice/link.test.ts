@@ -79,6 +79,18 @@ test("heartbeats renew the presence on the watch connection", async () => {
   expect(beats.every(b => b.connection === watch.connection)).toBe(true);
 });
 
+test("a runtime that stops answering heartbeats is lost", async () => {
+  const { path } = stub(request => (request.op === "voice.set" ? null : { ok: true }));
+  const link = await LocalLink.connect(path, { heartbeat_ms: 50, deadline_ms: 150 });
+  const lost: string[] = [];
+  link.on("closed", reason => lost.push(reason));
+  await link.watch({ muted: false, available: true });
+  const end = Date.now() + 2000;
+  while (!lost.length && Date.now() < end) await Bun.sleep(10);
+  expect(lost).toEqual(["heartbeat_timeout"]);
+  await expect(link.type("x")).rejects.toThrow("NotConnected");
+});
+
 test("pushed mute changes and a lost presence reach the listeners", async () => {
   let push!: (value: object) => void,
     gone = false;

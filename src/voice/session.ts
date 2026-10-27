@@ -46,7 +46,7 @@ export function reason(error: unknown): string {
       return errors.name(error) ?? String(error);
   }
 }
-/** How many recordings may wait for Whisper; past that, speech fails instead of piling up. */
+/** How many utterances may wait for Whisper or the runtime; past that, speech fails instead of piling up. */
 const max_backlog = 4;
 /** Refusals that retrying cannot fix. */
 const refusals = new Set(["VoiceAttached", "DaemonLacksVoice", "RemoteTooOld", "RemoteMissing"]);
@@ -72,11 +72,11 @@ export class VoiceSession {
   private next_id = 1;
   private current: Utterance | null = null;
   private transcriptions: Promise<void> = Promise.resolve();
-  /** Recordings waiting for Whisper, or with it; each holds its audio. */
-  private backlog = 0;
   private deliveries: Promise<void> = Promise.resolve();
   private retry?: ReturnType<typeof setTimeout>;
   private resend?: ReturnType<typeof setTimeout>;
+  /** State the runtime has not taken yet, sent again by `resend`. */
+  private owed = new Set<"muted" | "available">();
   private quit = new AbortController();
   private listeners: (() => void)[] = [];
   constructor(
@@ -130,7 +130,9 @@ export class VoiceSession {
       this.link_state = "connected";
       this.deps.log?.("link: connected");
       // A change made while the watch was on its way still has to go out.
-      if (sent.muted !== this.muted || sent.available !== this.available) this.push();
+      this.owed.clear();
+      const changed = (["muted", "available"] as const).filter(k => sent[k] !== this[k]);
+      if (changed.length) this.push(...changed);
       this.changed();
     } catch (error) {
       link?.close();
@@ -204,12 +206,17 @@ export class VoiceSession {
     this.current = null;
     u.captured_at = segment.started_at;
     u.duration = segment.duration;
-    // Whisper that is this far behind is not handed more audio to hold.
-    if (this.backlog >= max_backlog) return this.finish(u, "failed", "transcription backlog");
+    // Speech this far behind Whisper or the runtime is not kept on top.
+    if (this.pending >= max_backlog) return this.finish(u, "failed", "backlog");
     u.status = "transcribing";
     this.changed();
-    this.backlog++;
-    this.transcriptions = this.transcriptions.then(() => this.transcribe(u, segment)).finally(() => this.backlog--);
+    this.transcriptions = this.transcriptions.then(() => this.transcribe(u, segment));
+  }
+  /** Utterances waiting for Whisper or for the runtime, each holding its audio or text. */
+  private get pending(): number {
+    let n = 0;
+    for (const u of this.history) if (u.status === "transcribing" || u.status === "delivering") n++;
+    return n;
   }
   private async transcribe(u: Utterance, segment: Segment): Promise<void> {
     if (u.status !== "transcribing") return;
@@ -263,16 +270,26 @@ export class VoiceSession {
   setMuted(muted: boolean): void {
     if (!muted && !this.available) return;
     this.applyMuted(muted);
-    this.push();
+    this.push("muted");
   }
-  /** Tells the runtime this side's state, again a second later until it took it. */
-  private push(): void {
-    clearTimeout(this.resend);
+  /** Tells the runtime what changed here, and only that, so an update on its
+   * way never overwrites a change a viewer made meanwhile. What the runtime
+   * did not take is sent again a second later. */
+  private push(...keys: ("muted" | "available")[]): void {
     const link = this.link;
-    if (!link) return;
-    void link.set({ muted: this.muted, available: this.available }).catch(() => {
-      if (this.link === link) this.resend = setTimeout(() => this.push(), 1000);
-    });
+    if (!link || !keys.length) return;
+    const state = Object.fromEntries(keys.map(k => [k, this[k]])) as { muted?: boolean; available?: boolean };
+    void link.set(state).then(
+      () => {
+        for (const k of keys) this.owed.delete(k);
+      },
+      () => {
+        if (this.link !== link) return;
+        for (const k of keys) this.owed.add(k);
+        clearTimeout(this.resend);
+        this.resend = setTimeout(() => this.push(...this.owed), 1000);
+      },
+    );
   }
   /** Mute from either side drops what was not yet delivered. */
   private applyMuted(muted: boolean): void {
@@ -320,7 +337,7 @@ export class VoiceSession {
       this.current = null;
     }
     this.deps.log?.(this.available ? "listening again" : `cannot listen: ${this.unavailable}`);
-    if (was !== this.available) this.push();
+    if (was !== this.available) this.push("available");
     this.changed();
   }
   private crashed(): void {

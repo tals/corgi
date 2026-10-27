@@ -1,6 +1,7 @@
 //! The microphone, through an ffmpeg process that writes 16 kHz mono s16le
 //! to stdout: avfoundation on macOS, PulseAudio (or pipewire-pulse) on Linux.
 import * as subprocess from "../subprocess";
+import { Failure } from "../failure";
 
 export type MicProblem = "mic_missing" | "mic_denied" | "mic_busy";
 export type Device = { id: string; label: string; default: boolean };
@@ -26,6 +27,8 @@ export class Capture {
   private child: ReturnType<typeof Bun.spawn> | null = null;
   private retry?: ReturnType<typeof setTimeout>;
   private stopped = false;
+  /** The problem last reported: retries report it once, and again after frames came. */
+  private failure = new Failure();
   private constructor(
     private device: string | null,
     private onFrame: (f: Int16Array) => void,
@@ -51,7 +54,7 @@ export class Capture {
     void child.exited.then(async () => {
       if (this.stopped || this.child !== child) return;
       this.child = null;
-      this.onProblem(classify(await stderr.catch(() => "")));
+      this.report(classify(await stderr.catch(() => "")));
       this.retry = setTimeout(() => this.recover(), retry_ms);
     });
   }
@@ -61,14 +64,18 @@ export class Capture {
     try {
       this.spawn();
     } catch {
-      this.onProblem("mic_missing");
+      this.report("mic_missing");
       this.retry = setTimeout(() => this.recover(), retry_ms);
     }
+  }
+  private report(problem: MicProblem): void {
+    if (this.failure.changed(problem)) this.onProblem(problem);
   }
   private async read(stream: ReadableStream<Uint8Array>): Promise<void> {
     let pending = new Uint8Array(0);
     try {
       for await (const chunk of stream) {
+        this.failure.clear();
         const bytes = new Uint8Array(pending.length + chunk.length);
         bytes.set(pending);
         bytes.set(chunk, pending.length);
