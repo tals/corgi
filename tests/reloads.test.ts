@@ -10,7 +10,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { JsonSocket, EXE, quote, registerCase, run, shellJoin, sleep, writeExecutable } from "./support";
+import { JsonSocket, EXE, quote, registerCase, run, shellJoin, sleep, versioned, writeExecutable } from "./support";
+import * as protocol from "../src/protocol";
 import { Runtime } from "./runtime";
 import { Viewer } from "./viewer_client";
 import { CodexObserver, write_codex_terminal } from "./provider_sim";
@@ -115,24 +116,27 @@ class Reloads extends Runtime {
     ).pane;
   }
   reload(exe = EXE) {
-    return this.rpc({ op: "server.reload", protocol: 1, executable: exe });
+    return this.rpc({ op: "server.reload", executable: exe });
   }
   async test_management_version_is_strict_and_independent_of_runtime() {
     const pane = await this.new(),
       before = await this.session();
     const socket = await JsonSocket.connect(this.path);
     try {
-      await socket.request({ op: "hello", protocol: 1, runtime_protocol: 3 });
+      await socket.request(versioned({ op: "hello" }));
       for (const op of ["hello", "server.reload"]) {
-        for (const protocol of [0, 2, 999, -1, "1", undefined]) {
-          const reply = await socket.request({ op, protocol, executable: EXE });
-          this.assertEqual(reply.err, protocol === undefined ? "ProtocolRequired" : "UnsupportedManagementProtocol");
+        for (const version of [0, 2, 999, -1, "1", undefined]) {
+          const reply = await socket.request({ op, protocol: version, executable: EXE });
+          this.assertEqual(reply.err, version === undefined ? "ProtocolRequired" : "UnsupportedManagementProtocol");
         }
       }
       this.assertEqual((await this.session()).server_pid, before.server_pid);
-      this.assertEqual((await socket.request({ op: "hello", protocol: 1, runtime_protocol: 999 })).protocol, 3);
+      this.assertEqual(
+        (await socket.request(versioned({ op: "hello", runtime_protocol: 999 }))).protocol,
+        protocol.version,
+      );
       this.assertEqual((await socket.request({ op: "session.snapshot" })).err, "ProtocolRequired");
-      this.assertEqual((await socket.request({ op: "server.reload", protocol: 1, executable: EXE })).ok, true);
+      this.assertEqual((await socket.request(versioned({ op: "server.reload", executable: EXE }))).ok, true);
     } finally {
       socket.close();
     }
@@ -238,7 +242,6 @@ libc.symbols.lseek(fd, 0n, 0);
     for (const executable of ["/does/not/exist", "/usr/bin/false"]) {
       const response = await this.raw_rpc({
         op: "server.reload",
-        protocol: 1,
         executable,
       });
       this.assertEqual(response.err, "ReloadCandidateFailed");
@@ -267,7 +270,7 @@ for (const command of m.runtime.agent_commands)
   if (command.semantics.provider === null) command.semantics.provider = 'other';
 m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
 `);
-    const result = await this.raw_rpc({ op: "server.reload", protocol: 1, executable });
+    const result = await this.raw_rpc({ op: "server.reload", executable });
     this.assertTrue(result.ok, readFileSync(join(this.temp.name, "server.log"), "utf8"));
     this.assertNotEqual(result.server_pid, before.server_pid);
     const after = await this.session();
@@ -279,7 +282,7 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
     this.assertEqual((await viewer.poll()).pane, first);
     await viewer.input("printf 'MIGRATED_%s\\n' ALIVE\r");
     await this.until(async () => (await this.screen(first)).includes("MIGRATED_ALIVE"));
-    const saved = (await this.rpc({ op: "recovery.save", protocol: 3 })).path;
+    const saved = (await this.rpc({ op: "recovery.save" })).path;
     const state = JSON.parse(readFileSync(saved, "utf8"));
     this.assertEqual(state.version, 6);
     this.assertEqual(state.panes[0].binding.provisional.provider, null);
@@ -290,7 +293,7 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
     const first = await this.new("printf 'MIGRATION_%s\\n' HISTORY; exec /bin/sh");
     await this.until(async () => (await this.screen(first)).includes("MIGRATION_HISTORY"));
     const before = await this.session();
-    const saved = (await this.rpc({ op: "recovery.save", protocol: 3 })).path;
+    const saved = (await this.rpc({ op: "recovery.save" })).path;
     await this.run_cli("shutdown");
     await this.until(() => {
       try {
@@ -338,7 +341,7 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
       client.socket.write('{"op":"session.snap');
       await sleep(0.05);
       await this.reload();
-      client.socket.write('shot","protocol":3}\n');
+      client.socket.write(`shot","protocol":${protocol.version}}\n`);
       this.assertEqual((await client.read()).type, "session");
     } finally {
       client.close();
@@ -350,19 +353,16 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
     const session = (
       await this.rpc({
         op: "headless.start",
-        protocol: 3,
         prompt: "test/init",
         provider: "codex",
         cwd: this.temp.name,
       })
     ).session;
-    await this.until(async () => (await this.rpc({ op: "headless.list", protocol: 3 })).sessions[0].ready);
+    await this.until(async () => (await this.rpc({ op: "headless.list" })).sessions[0].ready);
     await this.headless_command(session, "test/approval");
-    await this.until(
-      async () => (await this.rpc({ op: "headless.list", protocol: 3 })).sessions[0].pending_requests === 1,
-    );
-    const before = await this.rpc({ op: "headless.events", protocol: 3, provider: "codex", session });
-    const pid = (await this.rpc({ op: "headless.list", protocol: 3 })).sessions[0].pid;
+    await this.until(async () => (await this.rpc({ op: "headless.list" })).sessions[0].pending_requests === 1);
+    const before = await this.rpc({ op: "headless.events", provider: "codex", session });
+    const pid = (await this.rpc({ op: "headless.list" })).sessions[0].pid;
     await this.reload();
     await this.reload(
       this.candidate(
@@ -370,16 +370,14 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
       ),
     );
     this.assertEqual(
-      (await this.rpc({ op: "headless.events", protocol: 3, provider: "codex", session })).pending_requests,
+      (await this.rpc({ op: "headless.events", provider: "codex", session })).pending_requests,
       before.pending_requests,
     );
-    this.assertEqual((await this.rpc({ op: "headless.list", protocol: 3 })).sessions[0].pid, pid);
+    this.assertEqual((await this.rpc({ op: "headless.list" })).sessions[0].pid, pid);
     await this.headless_answer(session, "codex");
-    await this.until(
-      async () => (await this.rpc({ op: "headless.list", protocol: 3 })).sessions[0].pending_requests === 0,
-    );
+    await this.until(async () => (await this.rpc({ op: "headless.list" })).sessions[0].pending_requests === 0);
     await this.headless_command(session, "test/exit");
-    await this.until(async () => (await this.rpc({ op: "headless.list", protocol: 3 })).sessions[0].exited);
+    await this.until(async () => (await this.rpc({ op: "headless.list" })).sessions[0].exited);
   }
   async test_cold_recovery_preserves_layout_cwd_history_and_resume_hint() {
     this.env.SHELL = "/bin/bash";
@@ -408,7 +406,7 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
       async () => (await this.session()).panes[0].agent.session === "01901234-1234-1234-1234-123456789abc",
     );
     const before = await this.session(),
-      saved = (await this.rpc({ op: "recovery.save", protocol: 3 })).path;
+      saved = (await this.rpc({ op: "recovery.save" })).path;
     this.assertTrue(saved.startsWith(join(this.env.XDG_STATE_HOME!, "corgi", "recovery") + "/"));
     this.assertEqual(statSync(saved).mode & 0o777, 0o600);
     process.kill(before.server_pid, "SIGKILL");
@@ -494,7 +492,7 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
           (p: any) => p.id === first && p.agent.session === "01901234-1234-1234-1234-123456789def",
         ),
       );
-      await this.rpc({ op: "recovery.save", protocol: 3 });
+      await this.rpc({ op: "recovery.save" });
       await this.restart_runtime();
       await this.command("pane.wake", { target: first, shell: true });
       await this.until(async () =>
@@ -528,7 +526,7 @@ await Bun.sleep(120000);
     const first = await this.new("printf 'BEFORE_%s\\n' CRASH; exec /bin/sh");
     await this.until(async () => (await this.screen(first)).includes("BEFORE_CRASH"));
     await this.pair(first, session);
-    await this.rpc({ op: "recovery.save", protocol: 3 });
+    await this.rpc({ op: "recovery.save" });
     await this.restart_runtime();
     const pane = async () => (await this.session()).panes.find((p: any) => p.id === first);
     this.assertEqual([(await pane()).dormant, (await pane()).pid], [true, -1]);
@@ -559,7 +557,6 @@ await Bun.sleep(120000);
       const candidate = this.candidate(mutation);
       const response = await this.raw_rpc({
         op: "server.reload",
-        protocol: 1,
         executable: candidate,
       });
       this.assertEqual(response.err, expected);
@@ -613,20 +610,17 @@ process.stdin.resume();
     const ident = (
       await this.rpc({
         op: "headless.start",
-        protocol: 3,
         prompt: "test/init",
         provider: "codex",
         cwd: this.temp.name,
       })
     ).session;
-    await this.until(async () => (await this.rpc({ op: "headless.list", protocol: 3 })).sessions[0].ready);
+    await this.until(async () => (await this.rpc({ op: "headless.list" })).sessions[0].ready);
     await this.headless_command(ident, "test/approval");
-    await this.until(
-      async () => (await this.rpc({ op: "headless.list", protocol: 3 })).sessions[0].pending_requests === 1,
-    );
-    await this.rpc({ op: "recovery.save", protocol: 3 });
+    await this.until(async () => (await this.rpc({ op: "headless.list" })).sessions[0].pending_requests === 1);
+    await this.rpc({ op: "recovery.save" });
     await this.restart_runtime();
-    const sessions = (await this.rpc({ op: "headless.list", protocol: 3 })).sessions;
+    const sessions = (await this.rpc({ op: "headless.list" })).sessions;
     this.assertTrue(sessions[0].exited);
     this.assertEqual(sessions[0].pid, -1);
     this.assertEqual((await this.session()).panes.length, 1);
@@ -645,7 +639,7 @@ process.stdin.resume();
       data: `cd ${quote(folder)}\r`,
     });
     await this.until(async () => (await this.session()).panes[0].cwd === realpathSync(folder));
-    await this.rpc({ op: "recovery.save", protocol: 3 });
+    await this.rpc({ op: "recovery.save" });
     await this.run_cli("shutdown");
     await this.until(() => !existsSync(this.path));
     rmdirSync(folder);
@@ -662,9 +656,9 @@ process.stdin.resume();
     const client = await JsonSocket.connect(this.path);
     try {
       client.socket.write(
-        JSON.stringify({ op: "server.reload", protocol: 1, executable: EXE }) +
+        JSON.stringify(versioned({ op: "server.reload", executable: EXE })) +
           "\n" +
-          JSON.stringify({ op: "session.snapshot", protocol: 3 }) +
+          JSON.stringify(versioned({ op: "session.snapshot" })) +
           "\n",
       );
       const first = await client.read(),
@@ -711,16 +705,16 @@ process.stdin.resume();
 `,
     );
     const cancelled = await JsonSocket.connect(this.path);
-    cancelled.send({ op: "headless.start", protocol: 3, prompt: "ping", provider: "codex", cwd: this.temp.name });
-    await this.until(async () => (await this.rpc({ op: "headless.list", protocol: 3 })).sessions.length === 1);
+    cancelled.send(versioned({ op: "headless.start", prompt: "ping", provider: "codex", cwd: this.temp.name }));
+    await this.until(async () => (await this.rpc({ op: "headless.list" })).sessions.length === 1);
     cancelled.close();
-    await this.until(async () => (await this.rpc({ op: "headless.list", protocol: 3 })).sessions.length === 0);
+    await this.until(async () => (await this.rpc({ op: "headless.list" })).sessions.length === 0);
     const client = await JsonSocket.connect(this.path);
     try {
-      client.send({ op: "headless.start", protocol: 3, prompt: "ping", provider: "codex", cwd: this.temp.name });
+      client.send(versioned({ op: "headless.start", prompt: "ping", provider: "codex", cwd: this.temp.name }));
       client.send({ op: "ping" });
-      await this.until(async () => (await this.rpc({ op: "headless.list", protocol: 3 })).sessions.length === 1);
-      const starting = (await this.rpc({ op: "headless.list", protocol: 3 })).sessions[0];
+      await this.until(async () => (await this.rpc({ op: "headless.list" })).sessions.length === 1);
+      const starting = (await this.rpc({ op: "headless.list" })).sessions[0];
       this.assertEqual(starting.session, null);
       this.assertTrue((await this.rpc({ op: "ping" })).ok);
       await this.reload();
@@ -728,11 +722,11 @@ process.stdin.resume();
       const started = await client.read();
       this.assertEqual(started, { ok: true, provider: "codex", session: "t" });
       this.assertTrue((await client.read()).ok);
-      this.assertEqual(starting.pid, (await this.rpc({ op: "headless.list", protocol: 3 })).sessions[0].pid);
+      this.assertEqual(starting.pid, (await this.rpc({ op: "headless.list" })).sessions[0].pid);
       await this.until(async () =>
-        (
-          await this.rpc({ op: "headless.events", protocol: 3, provider: "codex", session: started.session })
-        ).events.some((e: any) => e.event.kind === "turn" && e.event.turn === "deferred-survived"),
+        (await this.rpc({ op: "headless.events", provider: "codex", session: started.session })).events.some(
+          (e: any) => e.event.kind === "turn" && e.event.turn === "deferred-survived",
+        ),
       );
     } finally {
       client.close();

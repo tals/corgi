@@ -150,7 +150,6 @@ class Observations extends Runtime {
     await this.hook("PreToolUse", "codex", { tool_name: "request_user_input" });
     await this.rpc({
       op: "pane.acknowledge",
-      protocol: 3,
       pane: this.pane,
       session: SESSION,
       through: 1,
@@ -165,7 +164,6 @@ class Observations extends Runtime {
     await this.finish();
     await this.rpc({
       op: "pane.acknowledge",
-      protocol: 3,
       pane: this.pane,
       session: SESSION,
       through: old,
@@ -173,7 +171,6 @@ class Observations extends Runtime {
     this.assertTrue((await this.state()).unread);
     const result = await this.raw_rpc({
       op: "pane.acknowledge",
-      protocol: 3,
       pane: this.pane,
       session: "wrong",
       through: 2,
@@ -182,7 +179,6 @@ class Observations extends Runtime {
     this.assertTrue((await this.state()).unread);
     await this.rpc({
       op: "pane.acknowledge",
-      protocol: 3,
       pane: this.pane,
       session: SESSION,
       through: 2,
@@ -190,16 +186,16 @@ class Observations extends Runtime {
     this.assertFalse((await this.state()).unread);
   }
   async test_mark_unread_brings_back_the_last_completion() {
-    const mark = (session: string) => this.raw_rpc({ op: "pane.mark_unread", protocol: 3, pane: this.pane, session });
+    const mark = (session: string) => this.raw_rpc({ op: "pane.mark_unread", pane: this.pane, session });
     await mark(SESSION);
     this.assertFalse((await this.state()).unread);
     await this.finish();
-    await this.rpc({ op: "pane.acknowledge", protocol: 3, pane: this.pane, session: SESSION, through: 1 });
+    await this.rpc({ op: "pane.acknowledge", pane: this.pane, session: SESSION, through: 1 });
     this.assertEqual((await mark("wrong")).err, "StaleAcknowledgement");
     this.assertFalse((await this.state()).unread);
     await mark(SESSION);
     this.assertEqual([(await this.state()).unread, (await this.state()).attention], [true, "finished"]);
-    await this.rpc({ op: "pane.acknowledge", protocol: 3, pane: this.pane, session: SESSION, through: 1 });
+    await this.rpc({ op: "pane.acknowledge", pane: this.pane, session: SESSION, through: 1 });
     this.assertFalse((await this.state()).unread);
   }
   async test_active_viewer_visits_read_background_viewer_does_not() {
@@ -226,7 +222,7 @@ class Observations extends Runtime {
     await this.hook("Stop");
     this.append();
     await this.until(async () => (await this.state()).unread);
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.rpc({ op: "server.reload", executable: EXE });
     this.assertEqual((await this.state()).completed, 1);
     await this.settle();
     this.assertEqual((await this.state()).completed, 1);
@@ -261,7 +257,7 @@ class Observations extends Runtime {
     this.turn = 1;
     await this.hook("UserPromptSubmit");
     await this.hook("Stop");
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.rpc({ op: "server.reload", executable: EXE });
     this.append();
     await this.until(async () => (await this.state()).unread);
     await this.run_cli("checkpoint");
@@ -278,7 +274,6 @@ class Observations extends Runtime {
     const ident = (
       await this.rpc({
         op: "headless.start",
-        protocol: 3,
         prompt: "test/init",
         provider: "codex",
         cwd: this.temp.name,
@@ -299,14 +294,13 @@ class Observations extends Runtime {
     await event("turn/started", "two");
     await this.until(async () => (await snapshot()).state === "working");
     this.assertEqual((await snapshot()).observation.read, 0);
-    const seq = async () =>
-      (await this.rpc({ op: "headless.events", protocol: 3, provider: "codex", session: ident })).next_seq;
+    const seq = async () => (await this.rpc({ op: "headless.events", provider: "codex", session: ident })).next_seq;
     const before = await seq();
     await event("turn/completed", "one", "completed");
     // The stale completion goes through the provider process, not a worker.
     await this.until(async () => (await seq()) > before);
     this.assertEqual((await snapshot()).state, "working");
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.rpc({ op: "server.reload", executable: EXE });
     await event("turn/completed", "two", "interrupted");
     await this.until(async () => (await snapshot()).state === "idle");
     this.assertEqual((await snapshot()).observation.outcome, "interrupted");
@@ -337,7 +331,7 @@ class Observations extends Runtime {
     await this.hook("Stop", "claude");
     await this.settle();
     this.assertEqual([(await this.state()).state, (await this.state()).completed], ["idle", 1]);
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.rpc({ op: "server.reload", executable: EXE });
     await this.hook("Stop", "claude");
     await this.settle();
     this.assertEqual([(await this.state()).state, (await this.state()).completed], ["idle", 1]);
@@ -437,7 +431,7 @@ class Observations extends Runtime {
     });
     this.assertEqual((await this.state()).completed, 0);
     // The list holds across a reload; nothing re-reads it.
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.rpc({ op: "server.reload", executable: EXE });
     await this.settle();
     seen = await parent();
     this.assertEqual(seen.agent.subagents, {
@@ -595,7 +589,7 @@ class Observations extends Runtime {
     await this.settleTranscript();
     count(100, 100);
     await this.until(async () => (await usage())?.tokens.input === 100);
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.rpc({ op: "server.reload", executable: EXE });
     count(150, 50);
     await this.until(async () => (await usage())?.tokens.input === 150);
     this.assertEqual((await usage()).tokens.output, 15);

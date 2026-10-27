@@ -127,13 +127,19 @@ export function check(op: string): "none" | "management" | "runtime" | "viewer" 
   return local.has(op) ? "none" : "runtime";
 }
 export const capabilities = operations.filter(op => op !== "hello" && check(op) !== "none");
+/** The protocol versions a request for `op` carries. */
+export function versions(op: string): { protocol?: number; runtime_protocol?: number; viewer_protocol?: number } {
+  return {
+    ...(check(op) !== "none" ? { protocol: check(op) === "management" ? management_version : version } : {}),
+    ...(op === "hello" ? { runtime_protocol: version } : {}),
+    ...(check(op) === "viewer" ? { viewer_protocol: viewer_version } : {}),
+  };
+}
 export function envelope(op: string, payload: Record<string, unknown> = {}): object {
   const fields = op === "viewer.open" ? { cwd: "", onboarding: false, theme: null, ...payload } : payload;
   return {
     op,
-    ...(check(op) !== "none" ? { protocol: check(op) === "management" ? management_version : version } : {}),
-    ...(op === "hello" ? { runtime_protocol: version } : {}),
-    ...(check(op) === "viewer" ? { viewer_protocol: viewer_version } : {}),
+    ...versions(op),
     ...Object.fromEntries(Object.entries(fields).filter(([key, value]) => value !== null || key === "theme")),
   };
 }

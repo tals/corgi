@@ -2,6 +2,7 @@ import { test, expect, spyOn } from "bun:test";
 import { actionNames, failure, providerAlias, paneId, run, say } from "./main";
 import { specs } from "./action";
 import * as rpc from "./rpc";
+import * as protocol from "./protocol";
 import { readFileSync, realpathSync } from "node:fs";
 import { resolve, dirname, relative } from "node:path";
 test("provider named launchers use their original argv0", () => {
@@ -18,10 +19,12 @@ test("pane environment IDs use the source unsigned integer boundary", () => {
 });
 test("runtime protocol errors are distinct from viewer incompatibility", () => {
   const runtime = failure(["dev"], Error("UnsupportedProtocol"));
-  expect(runtime).toContain("runtime protocol 3");
+  expect(runtime).toContain(`runtime protocol ${protocol.version}`);
   expect(runtime).not.toContain("viewer protocol");
-  expect(failure(["dev"], Error("UnsupportedViewerProtocol"))).toContain("viewer protocol 3");
-  expect(failure(["reload"], Error("UnsupportedManagementProtocol"))).toContain("management protocol 1");
+  expect(failure(["dev"], Error("UnsupportedViewerProtocol"))).toContain(`viewer protocol ${protocol.viewer_version}`);
+  expect(failure(["reload"], Error("UnsupportedManagementProtocol"))).toContain(
+    `management protocol ${protocol.management_version}`,
+  );
 });
 test("help names every action on lines of at most 80 columns", () => {
   for (const line of actionNames.split("\n")) expect(Buffer.byteLength(line)).toBeLessThanOrEqual(80);

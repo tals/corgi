@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { EXE, JsonSocket, sleep, tempDir } from "./support";
+import { EXE, JsonSocket, sleep, tempDir, versioned } from "./support";
 
 const removePrefixes = [
   "CORGI_",
@@ -71,11 +71,8 @@ export class ImportFixture {
     }
   }
 
-  async rpc(message: Record<string, unknown>, allowError = false) {
-    const response = await this.exchange(this.path, {
-      protocol: 3,
-      ...message,
-    });
+  async rpc(message: { op: string; [field: string]: unknown }, allowError = false) {
+    const response = await this.exchange(this.path, versioned(message));
     if (!allowError && "err" in response) throw new Error(`RPC error: ${JSON.stringify(response)}`);
     return response;
   }

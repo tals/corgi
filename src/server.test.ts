@@ -5,6 +5,7 @@ import { Pane } from "./runtime";
 import { Terminal } from "./pane/terminal";
 import { captureManifest, restoreClient, restoreMetadata } from "./persist/handoff";
 import * as json from "./json";
+import * as protocol from "./protocol";
 function fixture() {
   const server = new Server("", "", "0".repeat(64));
   return {
@@ -20,10 +21,16 @@ test("a viewer's protocol version is checked before its request is decoded", asy
     messages: any[] = [];
   try {
     const cl = { protocol_version: null, queue: (value: any) => messages.push(value) } as any;
-    await server.request(cl, { op: "viewer.sync", protocol: 3, viewer_protocol: 4, interests: "x" });
-    expect(messages).toEqual([{ err: "UnsupportedViewerProtocol", viewer_protocol: 3 }]);
+    const { version, viewer_version } = protocol;
+    await server.request(cl, {
+      op: "viewer.sync",
+      protocol: version,
+      viewer_protocol: viewer_version + 1,
+      interests: "x",
+    });
+    expect(messages).toEqual([{ err: "UnsupportedViewerProtocol", viewer_protocol: viewer_version }]);
     await expect(
-      server.request(cl, { op: "viewer.sync", protocol: 3, viewer_protocol: 3, interests: "x" }),
+      server.request(cl, { op: "viewer.sync", protocol: version, viewer_protocol: viewer_version, interests: "x" }),
     ).rejects.toThrow("UnexpectedToken");
   } finally {
     dispose();

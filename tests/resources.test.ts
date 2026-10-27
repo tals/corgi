@@ -217,7 +217,7 @@ class Resources extends Runtime {
 
   async test_headless_agent_process_is_attributed_without_a_pane() {
     const workspace = (await this.session()).workspaces[0].id;
-    await this.rpc({ op: "headless.start", protocol: 3, prompt: "test/init", provider: "codex", cwd: this.temp.name });
+    await this.rpc({ op: "headless.start", prompt: "test/init", provider: "codex", cwd: this.temp.name });
     let work: any;
     await this.until(async () => {
       work = (await this.session()).resources.workspaces.find((w: any) => w.id === workspace);

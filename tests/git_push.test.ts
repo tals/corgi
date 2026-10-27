@@ -136,7 +136,6 @@ class GitPush extends Runtime {
     await this.commit("created after the preview");
     const response = await this.raw_rpc({
       op: "git.push",
-      protocol: 3,
       workspace: before.id,
       ref: before.git_ref,
     });
@@ -226,7 +225,6 @@ class GitPush extends Runtime {
     await this.git("branch", "--set-upstream-to=local-upstream");
     const response = await this.raw_rpc({
       op: "git.push",
-      protocol: 3,
       workspace: before.id,
       ref: before.git_ref,
     });

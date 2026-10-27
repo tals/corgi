@@ -175,7 +175,7 @@ else console.log('{}');
     }
   }
   async headless() {
-    const result = await this.rpc({ op: "headless.list", protocol: 3 });
+    const result = await this.rpc({ op: "headless.list" });
     return result.sessions[0];
   }
   async test_manager_keeps_opencode_visible_without_account_creation() {
@@ -203,7 +203,6 @@ else console.log('{}');
   async create(prompt: string) {
     const result = await this.rpc({
       op: "headless.start",
-      protocol: 3,
       provider: "opencode2",
       prompt,
       workspace: 1,
@@ -216,13 +215,13 @@ else console.log('{}');
     const session = await this.create("wait");
     await this.until(async () => (await this.headless()).active_tools === 1);
     const before = await this.headless();
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.rpc({ op: "server.reload", executable: EXE });
     this.assertEqual((await this.headless()).pid, before.pid);
     this.service.finish();
     await this.until(async () => (await this.headless()).state === "idle");
-    const events = (
-      await this.rpc({ op: "headless.events", protocol: 3, provider: "opencode2", session, after: 0 })
-    ).events.map((e: any) => e.event);
+    const events = (await this.rpc({ op: "headless.events", provider: "opencode2", session, after: 0 })).events.map(
+      (e: any) => e.event,
+    );
     this.assertEqual(events.filter((e: any) => e.kind === "turn" && e.phase === "started").length, 1);
     this.assertEqual(events.filter((e: any) => e.kind === "turn" && e.phase === "ended").length, 1);
     const usage = events.findLast((e: any) => e.kind === "usage");
@@ -233,11 +232,10 @@ else console.log('{}');
   async test_approval_round_trip_and_interrupt() {
     const session = await this.create("approval");
     await this.until(async () => (await this.headless()).state === "blocked");
-    const pending = await this.rpc({ op: "headless.events", protocol: 3, provider: "opencode2", session, after: 0 });
+    const pending = await this.rpc({ op: "headless.events", provider: "opencode2", session, after: 0 });
     this.assertEqual(pending.pending_requests[0].id, "per_fixture");
     await this.rpc({
       op: "headless.send",
-      protocol: 3,
       provider: "opencode2",
       session,
       input: { kind: "answer", request: "per_fixture", allow: true },
@@ -245,16 +243,14 @@ else console.log('{}');
     await this.until(async () => (await this.headless()).state === "idle");
     await this.rpc({
       op: "headless.send",
-      protocol: 3,
       provider: "opencode2",
       session,
       input: { kind: "prompt", text: "wait" },
     });
     await this.until(async () => (await this.headless()).state === "working");
-    await this.rpc({ op: "headless.send", protocol: 3, provider: "opencode2", session, input: { kind: "interrupt" } });
+    await this.rpc({ op: "headless.send", provider: "opencode2", session, input: { kind: "interrupt" } });
     await this.until(async () => (await this.headless()).state === "idle");
-    const events = (await this.rpc({ op: "headless.events", protocol: 3, provider: "opencode2", session, after: 0 }))
-      .events;
+    const events = (await this.rpc({ op: "headless.events", provider: "opencode2", session, after: 0 })).events;
     this.assertTrue(events.some((e: any) => e.event.kind === "turn" && e.event.outcome === "interrupted"));
   }
   async test_terminal_pane_leaves_needs_input_once_the_prompt_is_answered() {

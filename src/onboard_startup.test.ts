@@ -1,6 +1,7 @@
 import { transport } from "./fixtures/transport";
 import { test, expect, spyOn } from "bun:test";
 import { Controller } from "./controller";
+import * as protocol from "./protocol";
 import * as viewer from "./viewer";
 
 /** One workspace with one pane, as `session.snapshot` sends it. */
@@ -55,7 +56,7 @@ test("explicit onboarding opens again after preferences say it was completed", a
     socket: "",
     request: transport(async (op, fields) => {
       calls.push({ op, fields });
-      return { viewer_protocol: 3, workspace: 1, bell_seq: 0 };
+      return { viewer_protocol: protocol.viewer_version, workspace: 1, bell_seq: 0 };
     }).request,
   });
   view.receiveSnapshot(snapshot());
@@ -75,7 +76,7 @@ test("a relaunch control exits sync with its executable before acknowledgement",
   const view = new Controller({
     socket: "",
     request: transport(async () => ({
-      viewer_protocol: 3,
+      viewer_protocol: protocol.viewer_version,
       session: null,
       session_hash: 0,
       resources: null,

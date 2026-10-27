@@ -33,7 +33,7 @@ class Links extends Runtime {
     await this.until(async () =>
       (await this.command("pane.read", { target: pane, view: "screen" })).text.includes("Named docs"),
     );
-    const surface = (await this.rpc({ op: "pane.surface", protocol: 3, pane })).surface;
+    const surface = (await this.rpc({ op: "pane.surface", pane })).surface;
     this.assertIn(`;${url}\x1b\\`, surface.lines.join(""));
     const viewer = await Viewer.create(this);
     this.assertIn(`;${url}\x1b\\`, (await viewer.poll()).data);

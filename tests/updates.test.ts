@@ -5,7 +5,7 @@ import { generateKeyPairSync, sign, createHash } from "node:crypto";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { EXE, Pty, deadline } from "./support";
+import { EXE, Pty, deadline, versioned } from "./support";
 import { installer, manifests as releaseManifests } from "../scripts/release.ts";
 import { Scope } from "../scripts/process_scope";
 const base = await mkdtemp(join(tmpdir(), "corgi-updates-"));
@@ -67,8 +67,8 @@ async function exec(argv: string[], extraEnv = env, ok = true) {
 async function cli(args: string[], ok = true) {
   return exec([bin, ...args], env, ok);
 }
-async function rpc(value: unknown) {
-  return JSON.parse((await cli(["rpc", JSON.stringify(value)])).out);
+async function rpc(value: { op: string }) {
+  return JSON.parse((await cli(["rpc", JSON.stringify(versioned(value))])).out);
 }
 async function waitFor(fn: () => Promise<boolean>) {
   for (let i = 0; i < 150; i++) {
@@ -155,47 +155,44 @@ afterAll(async () => {
 });
 test("explicit update preserves real pane PID and supports rollback", async () => {
   await cli(["start"]);
-  const session = await rpc({ op: "session.snapshot", protocol: 3 });
+  const session = await rpc({ op: "session.snapshot" });
   await rpc({
     op: "session.command",
-    protocol: 3,
     command: { "pane.create": { workspace: session.workspaces[0].id, cwd: home, command: "exec /bin/sh" } },
   });
-  const before = await rpc({ op: "session.snapshot", protocol: 3 });
+  const before = await rpc({ op: "session.snapshot" });
   const pane = before.panes[0].id;
   await rpc({
     op: "session.command",
-    protocol: 3,
     command: { "pane.input": { target: pane, data: "printf 'BEFORE_UPDATE\\n'\r" } },
   });
   await waitFor(async () =>
     (
-      await rpc({ op: "session.command", protocol: 3, command: { "pane.read": { target: pane, view: "screen" } } })
+      await rpc({ op: "session.command", command: { "pane.read": { target: pane, view: "screen" } } })
     ).result.text.includes("BEFORE_UPDATE"),
   );
   await cli(["update"]);
-  const after = await rpc({ op: "session.snapshot", protocol: 3 });
+  const after = await rpc({ op: "session.snapshot" });
   expect(after.server_pid).not.toBe(before.server_pid);
   expect(after.panes[0].pid).toBe(before.panes[0].pid);
   await rpc({
     op: "session.command",
-    protocol: 3,
     command: { "pane.input": { target: pane, data: "printf 'AFTER_UPDATE\\n'\r" } },
   });
   await waitFor(async () =>
     (
-      await rpc({ op: "session.command", protocol: 3, command: { "pane.read": { target: pane, view: "screen" } } })
+      await rpc({ op: "session.command", command: { "pane.read": { target: pane, view: "screen" } } })
     ).result.text.includes("AFTER_UPDATE"),
   );
   expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.1");
   await cli(["update", "rollback"]);
   expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.0");
   expect(await readFile(join(root, "suppressed"), "utf8")).toBe("1.0.1");
-  expect((await rpc({ op: "session.snapshot", protocol: 3 })).panes[0].pid).toBe(before.panes[0].pid);
+  expect((await rpc({ op: "session.snapshot" })).panes[0].pid).toBe(before.panes[0].pid);
 }, 30_000);
 test("background download stages without activating, next start works offline", async () => {
   await cli(["start"]);
-  const old = await rpc({ op: "hello", protocol: 1 });
+  const old = await rpc({ op: "hello" });
   await cli(["update", "auto", "on"]);
   await waitFor(
     async () =>
@@ -204,7 +201,7 @@ test("background download stages without activating, next start works offline", 
         .catch(() => "")) === "1.0.1",
   );
   expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.0");
-  expect((await rpc({ op: "hello", protocol: 1 })).server_pid).toBe(old.server_pid);
+  expect((await rpc({ op: "hello" })).server_pid).toBe(old.server_pid);
   unavailable = true;
   await cli(["start"]);
   expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.1");
@@ -224,24 +221,24 @@ test("installing over an older release stages it for the next start", async () =
 }, 30_000);
 test("signature and checksum failures leave installation and runtime untouched", async () => {
   await cli(["start"]);
-  const before = await rpc({ op: "hello", protocol: 1 });
+  const before = await rpc({ op: "hello" });
   invalid = true;
   expect((await cli(["update"], false)).code).not.toBe(0);
   invalid = false;
   corrupt = true;
   expect((await cli(["update"], false)).code).not.toBe(0);
   expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.0");
-  expect((await rpc({ op: "hello", protocol: 1 })).server_pid).toBe(before.server_pid);
+  expect((await rpc({ op: "hello" })).server_pid).toBe(before.server_pid);
   expect(await Bun.file(join(root, "staged")).exists()).toBe(false);
 }, 30_000);
 test("incompatible update defers noninteractively and keeps running executable", async () => {
   await cli(["start"]);
-  const before = await rpc({ op: "hello", protocol: 1 });
+  const before = await rpc({ op: "hello" });
   badAbi = true;
   const result = await cli(["update"], false);
   expect(result.code).not.toBe(0);
   expect(result.err).toContain("UpdateDeferred");
-  expect((await rpc({ op: "hello", protocol: 1 })).server_pid).toBe(before.server_pid);
+  expect((await rpc({ op: "hello" })).server_pid).toBe(before.server_pid);
   expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.0");
 }, 30_000);
 test("help and ordinary RPC never check the network; auto off prevents activation", async () => {
@@ -250,7 +247,7 @@ test("help and ordinary RPC never check the network; auto off prevents activatio
   await cli(["--help"]);
   await cli(["--version"]);
   await cli(["start"]);
-  await rpc({ op: "hello", protocol: 1 });
+  await rpc({ op: "hello" });
   expect(requests).toBe(0);
   expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.0");
 }, 30_000);
@@ -261,11 +258,11 @@ test("cold activation starts the staged runtime before changing the current poin
   unavailable = true;
   await cli(["start"]);
   expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.1");
-  expect((await rpc({ op: "hello", protocol: 1 })).release_version).toBe("1.0.1");
+  expect((await rpc({ op: "hello" })).release_version).toBe("1.0.1");
 }, 30_000);
 test("interactive Escape skips once per runtime without stopping processes", async () => {
   await cli(["start"]);
-  const before = await rpc({ op: "hello", protocol: 1 });
+  const before = await rpc({ op: "hello" });
   badAbi = true;
   await cli(["update", "--download-only"]);
   await cli(["update", "auto", "on"]);
@@ -278,7 +275,7 @@ test("interactive Escape skips once per runtime without stopping processes", asy
   } finally {
     await terminal.close();
   }
-  expect((await rpc({ op: "hello", protocol: 1 })).server_pid).toBe(before.server_pid);
+  expect((await rpc({ op: "hello" })).server_pid).toBe(before.server_pid);
   expect((await cli(["start"])).err).not.toContain("Enter / Esc");
   expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.0");
 }, 30_000);
@@ -294,7 +291,7 @@ test("two simultaneous starts activate once; a second runtime catches up later",
     // The staged marker was consumed, but current still tells the older runtime
     // what it should adopt on its own next launch.
     await exec([bin, "start"], secondEnv);
-    const info = JSON.parse((await exec([bin, "rpc", JSON.stringify({ op: "hello", protocol: 1 })], secondEnv)).out);
+    const info = JSON.parse((await exec([bin, "rpc", JSON.stringify(versioned({ op: "hello" }))], secondEnv)).out);
     expect(info.release_version).toBe("1.0.1");
   } finally {
     await exec([bin, "shutdown"], secondEnv, false);

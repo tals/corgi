@@ -203,7 +203,7 @@ export class Titles extends Runtime {
     const expected = { running: 2, blocked: 1, waiting: true };
     await this.until(async () => JSON.stringify((await this.state()).subagents) === JSON.stringify(expected));
     this.assertEqual((await this.state()).activity, "");
-    const session = await this.rpc({ op: "session.snapshot", protocol: 3 });
+    const session = await this.rpc({ op: "session.snapshot" });
     this.assertEqual(session.panes.find((p: any) => p.id === this.pane).agent.subagents, expected);
     const viewer = await Viewer.create(this);
     try {

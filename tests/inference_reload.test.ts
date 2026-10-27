@@ -12,7 +12,6 @@ class InferenceReload extends Summaries {
   async reload() {
     const result = await this.rpc({
       op: "server.reload",
-      protocol: 1,
       executable: EXE,
     });
     await this.attachment.select(A);
@@ -21,7 +20,6 @@ class InferenceReload extends Summaries {
   async verify_continuity(provider: string) {
     await this.rpc({
       op: "inference.configure",
-      protocol: 3,
       choice: provider,
     });
     await this.start_turn("before-reload", false);
@@ -52,7 +50,6 @@ class InferenceReload extends Summaries {
     for (const executable of ["/usr/bin/false", candidate]) {
       const failure = await this.raw_rpc({
         op: "server.reload",
-        protocol: 1,
         executable,
       });
       this.assertEqual(failure.err, "ReloadCandidateFailed");

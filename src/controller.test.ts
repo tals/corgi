@@ -496,7 +496,7 @@ test.each([false, true])("a failed fallback terminal keeps the empty launcher at
         commands.push(fields);
         throw Error("ShellNotFound");
       }
-      if (op === "viewer.sync") return { viewer_protocol: 3, detach: true };
+      if (op === "viewer.sync") return { viewer_protocol: protocol.viewer_version, detach: true };
       throw Error("UnexpectedRequest");
     }),
   );
@@ -532,7 +532,7 @@ test.each([false, true])("a failed fallback terminal keeps the empty launcher at
 });
 
 test.each([false, true])("empty viewers ignore the legacy detach flag (%s)", async detach => {
-  const s = new Controller(transport(async () => ({ viewer_protocol: 3, detach })));
+  const s = new Controller(transport(async () => ({ viewer_protocol: protocol.viewer_version, detach })));
   s.receiveSnapshot({
     workspaces: [{ id: 1, name: "one", cwd: "/workspace", model: { nodes: [], tabs: [], revision: 0 } }],
     panes: [],

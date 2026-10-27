@@ -165,7 +165,7 @@ class AgentCli extends Runtime {
       await this.cli(["claim", "--clear", "--pane", one.pane], { error: "AgentClaimed" });
       this.assertEqual((await state()).provider, "claude");
       const before = (await this.session()).server_pid;
-      await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+      await this.rpc({ op: "server.reload", executable: EXE });
       this.assertNotEqual((await this.session()).server_pid, before);
       this.assertEqual([(await state()).provider, (await state()).state], ["claude", "working"]);
       this.assertEqual((await state()).session, "");
@@ -275,7 +275,6 @@ class AgentCli extends Runtime {
       (
         await this.raw_rpc({
           op: "session.command",
-          protocol: 3,
           command: { "pane.move": { target: one.pane } },
         })
       ).err,
@@ -400,7 +399,6 @@ class AgentCli extends Runtime {
       (
         await this.raw_rpc({
           op: "session.command",
-          protocol: 3,
           command: { "pane.create": {} },
         })
       ).err,
@@ -427,7 +425,6 @@ class AgentCli extends Runtime {
       (
         await this.raw_rpc({
           op: "session.command",
-          protocol: 3,
           command: { "pane.create": {} },
         })
       ).err,

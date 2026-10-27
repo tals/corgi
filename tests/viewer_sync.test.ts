@@ -2,7 +2,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Runtime } from "./runtime";
 import { Viewer } from "./viewer_client";
-import { EXE, JsonSocket, registerCase, shellJoin, sleep, writeExecutable } from "./support";
+import { EXE, JsonSocket, registerCase, shellJoin, sleep, versioned, writeExecutable } from "./support";
 
 // Viewer stamps and session hashes contain u64 values. The default JSON.parse
 // rounds them and makes an unchanged receipt look stale.
@@ -69,8 +69,8 @@ class WireViewer {
   close() {
     this.client.close();
   }
-  async call(request: Record<string, any>) {
-    this.client.socket.write(wireRequest({ protocol: 3, viewer_protocol: 3, ...request }) + "\n");
+  async call(request: { op: string; [field: string]: any }) {
+    this.client.socket.write(wireRequest(versioned(request)) + "\n");
     const line = await this.client.lines.next(5000);
     this.response_bytes = Buffer.byteLength(line) + 1;
     const reply = parseWire(line);
@@ -216,7 +216,6 @@ process.stdin.resume();
       before = await this.session();
     const result = await this.rpc({
       op: "server.reload",
-      protocol: 1,
       executable: EXE,
     });
     this.assertNotEqual(result.server_pid, before.server_pid);
@@ -259,7 +258,7 @@ await Bun.sleep(60000);
     const id = (await viewer.sync()).viewer;
     const watch = await JsonSocket.connect(this.path);
     this.addCleanup(() => watch.close());
-    watch.socket.write(JSON.stringify({ op: "viewer.watch", protocol: 3, viewer: id }) + "\n");
+    watch.socket.write(JSON.stringify(versioned({ op: "viewer.watch", viewer: id })) + "\n");
     this.assertEqual(JSON.parse(await watch.lines.next()), { ok: true });
     // While the pane sleeps, nothing a viewer shows changes.
     await this.settle();
@@ -288,7 +287,7 @@ await Bun.sleep(60000);
     await this.new("while :; do echo hidden; sleep 0.05; done");
     const watch = await JsonSocket.connect(this.path);
     this.addCleanup(() => watch.close());
-    watch.socket.write(JSON.stringify({ op: "viewer.watch", protocol: 3, viewer: id }) + "\n");
+    watch.socket.write(JSON.stringify(versioned({ op: "viewer.watch", viewer: id })) + "\n");
     this.assertEqual(JSON.parse(await watch.lines.next()), { ok: true });
     await this.settle();
     watch.lines.discard();
@@ -307,9 +306,9 @@ await Bun.sleep(60000);
     const id = (await viewer.sync()).viewer;
     const watch = await JsonSocket.connect(this.path);
     this.addCleanup(() => watch.close());
-    watch.socket.write(JSON.stringify({ op: "viewer.watch", protocol: 3, viewer: id }) + "\n");
+    watch.socket.write(JSON.stringify(versioned({ op: "viewer.watch", viewer: id })) + "\n");
     this.assertEqual(JSON.parse(await watch.lines.next()), { ok: true });
-    const reload = await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    const reload = await this.rpc({ op: "server.reload", executable: EXE });
     this.assertTrue(reload.ok, JSON.stringify(reload));
     // The new daemon wakes the watcher it inherited, then keeps waking it.
     this.assertEqual(JSON.parse(await watch.lines.next()).type, "viewer.wake");

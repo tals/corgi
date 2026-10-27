@@ -415,7 +415,6 @@ class SmokeInput extends Runtime {
     const ident = (
       await this.rpc({
         op: "headless.start",
-        protocol: 3,
         prompt: "test/init",
         provider: "codex",
         cwd: this.temp.name,
@@ -429,31 +428,29 @@ class SmokeInput extends Runtime {
       "Codex",
     );
     await this.frame_with(`corgi headless events codex ${ident}`);
-    const session = (await this.rpc({ op: "headless.list", protocol: 3 })).sessions[0];
+    const session = (await this.rpc({ op: "headless.list" })).sessions[0];
     this.assertEqual([session.pending_requests, session.attention], [1, "needs_input"]);
     await this.headless_answer(ident, "codex", false);
     await this.agent_frame("codex", "●", "", PALETTE.accent);
     await this.headless_command(ident, "test/exit");
     // Ended is faint, but the clicked row is selected, where faint becomes muted.
     await this.agent_frame("codex", "○", "", PALETTE.muted);
-    await this.until(async () => (await this.rpc({ op: "headless.list", protocol: 3 })).sessions[0].exited);
-    await this.rpc({ op: "headless.stop", protocol: 3, provider: "codex", session: ident });
+    await this.until(async () => (await this.rpc({ op: "headless.list" })).sessions[0].exited);
+    await this.rpc({ op: "headless.stop", provider: "codex", session: ident });
     await this.frame_with("No agents yet");
   }
   async test_headless_tool_activity_tracks_overlapping_calls_and_clears_on_turn_end() {
     await this.attach();
     await this.get_type("frame");
     for (const provider of ["codex", "claude"]) {
-      const ident = (
-        await this.rpc({ op: "headless.start", protocol: 3, prompt: "test/init", provider, cwd: this.temp.name })
-      ).session;
+      const ident = (await this.rpc({ op: "headless.start", prompt: "test/init", provider, cwd: this.temp.name }))
+        .session;
       await this.agent_frame(provider, "○");
       const send = (method: string, tool = "a") => this.headless_command(ident, `test/${method} ${tool}`, provider);
       const count = (n: number) =>
         this.until(
           async () =>
-            (await this.rpc({ op: "headless.list", protocol: 3 })).sessions.find((s: any) => s.session === ident)
-              .active_tools === n,
+            (await this.rpc({ op: "headless.list" })).sessions.find((s: any) => s.session === ident).active_tools === n,
         );
       await send("tool-start");
       await count(1);
@@ -478,7 +475,7 @@ class SmokeInput extends Runtime {
       await send("exit");
       await count(0);
       await this.agent_frame(provider, "○", "", PALETTE.faint);
-      await this.rpc({ op: "headless.stop", protocol: 3, provider, session: ident });
+      await this.rpc({ op: "headless.stop", provider, session: ident });
       await this.frame_with("No agents yet");
     }
   }

@@ -38,7 +38,7 @@ class Dev extends Runtime {
     this.fail(`viewer did not attach/relaunch: ${this.pty.output.slice(-4000)}`);
   }
   async test_unchanged_daemon_and_nested_client_relaunch() {
-    const before = await this.rpc({ op: "hello", protocol: 1 });
+    const before = await this.rpc({ op: "hello" });
     this.assertEqual(before.build_id, createHash("sha256").update(readFileSync(EXE)).digest("hex"));
     const viewer = await this.launch(),
       panes = (await this.session()).panes.map((p: any) => [p.id, p.pid]);
@@ -47,7 +47,7 @@ class Dev extends Runtime {
       target: viewer.pane,
     });
     await this.wait_viewer(viewer.id);
-    this.assertEqual((await this.rpc({ op: "hello", protocol: 1 })).server_pid, before.server_pid);
+    this.assertEqual((await this.rpc({ op: "hello" })).server_pid, before.server_pid);
     this.assertEqual(
       (await this.session()).panes.map((p: any) => [p.id, p.pid]),
       panes,
@@ -63,12 +63,11 @@ class Dev extends Runtime {
     const panes = (await this.session()).panes.map((p: any) => [p.id, p.pid]);
     await this.rpc({
       op: "server.reload",
-      protocol: 1,
       executable: process.env.CORGI_OLD_EXE,
     });
-    const old = await this.rpc({ op: "hello", protocol: 1 });
+    const old = await this.rpc({ op: "hello" });
     await this.launch();
-    const current = await this.rpc({ op: "hello", protocol: 1 });
+    const current = await this.rpc({ op: "hello" });
     this.assertNotEqual(old.build_id, current.build_id);
     this.assertEqual(current.executable, realpathSync(EXE));
     this.assertEqual(current.build_id, createHash("sha256").update(readFileSync(EXE)).digest("hex"));

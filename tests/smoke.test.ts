@@ -2,7 +2,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { Runtime, EXE, PALETTE, screen_text, scrollbar, layout_tree, tab_row } from "./runtime";
-import { registerCase, run, sleep, quote, shellJoin, writeExecutable, JsonSocket } from "./support";
+import { registerCase, run, sleep, quote, shellJoin, writeExecutable, JsonSocket, versioned } from "./support";
+import * as protocol from "../src/protocol";
 
 class Smoke extends Runtime {
   async focused() {
@@ -29,30 +30,33 @@ class Smoke extends Runtime {
     await this.input("t");
   }
   async test_runtime_protocol_negotiates_and_rejects_before_mutating() {
-    const hello = await this.raw_rpc({ op: "hello", protocol: 1 });
+    const hello = await this.raw_rpc({ op: "hello" });
     this.assertEqual(hello.type, "hello");
     this.assertIn("pane.surface", hello.capabilities);
     this.assertNotIn("handoff", hello.capabilities);
     const ws = (await this.workspaces())[0].id;
-    for (const protocol of [0, 1, 2, 999, -1, "3"])
+    for (const version of [0, 1, protocol.version - 1, 999, -1, String(protocol.version)])
       this.assertEqual(
         (
           await this.raw_rpc({
             op: "session.command",
             command: { "pane.create": { workspace: ws } },
-            protocol,
+            protocol: version,
           })
         ).err,
         "UnsupportedProtocol",
       );
-    this.assertEqual((await this.raw_rpc({ op: "session.snapshot" })).err, "ProtocolRequired");
+    this.assertEqual((await this.raw_rpc({ op: "session.snapshot", protocol: undefined })).err, "ProtocolRequired");
     this.assertEqual((await this.session()).panes, []);
     const socket = await JsonSocket.connect(this.path);
     try {
-      this.assertEqual((await socket.request({ op: "hello", protocol: 1, runtime_protocol: 3 })).protocol, 3);
+      this.assertEqual((await socket.request(versioned({ op: "hello" }))).protocol, protocol.version);
       this.assertEqual((await socket.request({ op: "session.snapshot" })).type, "session");
       for (const runtime_protocol of [1, 999, undefined]) {
-        this.assertEqual((await socket.request({ op: "hello", protocol: 1, runtime_protocol })).protocol, 3);
+        this.assertEqual(
+          (await socket.request(versioned({ op: "hello", runtime_protocol }))).protocol,
+          protocol.version,
+        );
         this.assertEqual((await socket.request({ op: "session.snapshot" })).err, "ProtocolRequired");
       }
     } finally {
@@ -128,7 +132,7 @@ class Smoke extends Runtime {
       { "pane.input": { data: 42, target: pane } },
       { "tab.rename": { name: "missing target" } },
     ])
-      this.assertIn("err", await this.raw_rpc({ op: "session.command", protocol: 3, command }));
+      this.assertIn("err", await this.raw_rpc({ op: "session.command", command }));
     const after = await this.session();
     this.assertEqual(after.workspaces, before.workspaces);
     this.assertEqual(
@@ -156,7 +160,6 @@ class Smoke extends Runtime {
     );
     const response = await this.rpc({
         op: "pane.surface",
-        protocol: 3,
         pane: first,
       }),
       surface = response.surface;
@@ -172,10 +175,7 @@ class Smoke extends Runtime {
     await this.open_pane({ command: "sleep 30" });
     const socket = await JsonSocket.connect(this.path);
     try {
-      const initial = await socket.request({
-        op: "session.subscribe",
-        protocol: 3,
-      });
+      const initial = await socket.request(versioned({ op: "session.subscribe" }));
       this.assertEqual(initial.type, "session");
       await sleep(5.2);
       const pane = (await this.open_pane({ command: "sleep 30" })).pane;
@@ -421,7 +421,6 @@ class Smoke extends Runtime {
     const original = (await this.workspaces())[0].id;
     await this.rpc({
       op: "headless.start",
-      protocol: 3,
       prompt: "test/init",
       provider: "codex",
       cwd: this.temp.name,

@@ -1,7 +1,7 @@
 /** Real viewer launch controls and read-only agent previews. */
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { registerCase, writeExecutable, shellJoin, quote, sleep, EXE, ROOT, JsonSocket } from "./support";
+import { registerCase, writeExecutable, shellJoin, quote, sleep, EXE, ROOT, JsonSocket, versioned } from "./support";
 import { Runtime, screen_text } from "./runtime";
 import { Viewer } from "./viewer_client";
 
@@ -236,7 +236,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await view.input("\x1b[200~" + changed + "\x1b[201~");
     await view.input("\r");
     await this.waitSaved(0, changed);
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.rpc({ op: "server.reload", executable: EXE });
     this.assertEqual((await this.session()).agent_hidden, {
       codex: true,
       claude: false,
@@ -317,7 +317,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     this.assertEqual(removed.name, "");
     this.assertEqual(removed.original, "");
     this.assertFalse(removed.hidden);
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.rpc({ op: "server.reload", executable: EXE });
     this.assertEqual((await this.session()).agent_commands[0].command, "");
   }
 
@@ -343,7 +343,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       await view.poll();
       return (await this.session()).agent_commands[0].name.startsWith("Renamed assistant");
     });
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.rpc({ op: "server.reload", executable: EXE });
     this.assertTrue((await this.session()).agent_commands[0].name.startsWith("Renamed assistant"));
   }
   async test_custom_agent_account_in_picker() {
@@ -378,7 +378,6 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       (
         await this.rpc({
           op: "agent.preview",
-          protocol: 3,
           workspace: ws,
           cwd: this.launchDir,
         })
@@ -401,7 +400,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     writeFileSync(auth, "{}");
     writeFileSync(control, JSON.stringify({ account: null }));
     const preview = async () =>
-      (await this.rpc({ op: "agent.preview", protocol: 3, workspace: this.ws, cwd: this.launchDir })).preview;
+      (await this.rpc({ op: "agent.preview", workspace: this.ws, cwd: this.launchDir })).preview;
     const first = await Viewer.create(this, 160, 30);
     await this.until(async () => !(await preview()).pending, 12);
     this.assertFalse((await preview()).options.codex.signed_in);
@@ -615,7 +614,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await this.clickViewer(other, 20, 15);
     await this.until(() => lines(this.launches).length === 2);
     this.assertEqual((await this.session()).last_agent, "claude");
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.rpc({ op: "server.reload", executable: EXE });
     this.assertEqual((await this.session()).last_agent, "claude");
     await this.clickViewer(other, 26, 15);
     await other.input("k\r");
@@ -655,7 +654,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await view.input("a");
     await this.until(() => existsSync(this.launches));
     this.assertIn("--dangerously-bypass-approvals-and-sandbox", JSON.parse(lines(this.launches)[0]).args);
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.rpc({ op: "server.reload", executable: EXE });
     this.assertEqual((await this.session()).agent_yolo, {
       codex: true,
       claude: false,
@@ -693,12 +692,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
   async test_subscription_pushes_updates_and_survives_idle_reload() {
     const client = await JsonSocket.connect(this.path);
     try {
-      client.send({
-        op: "agent.subscribe",
-        protocol: 3,
-        workspace: this.ws,
-        cwd: this.launchDir,
-      });
+      client.send(versioned({ op: "agent.subscribe", workspace: this.ws, cwd: this.launchDir }));
       let initial = await client.read(12000);
       this.assertEqual(initial.type, "agent.preview");
       while (initial.preview.pending) initial = await client.read(12000);
@@ -708,7 +702,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       const settings = join(this.launchDir, ".claude/settings.json");
       mkdirSync(join(this.launchDir, ".claude"));
       writeFileSync(settings, JSON.stringify({ model: "sonnet" }));
-      await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+      await this.rpc({ op: "server.reload", executable: EXE });
       let update = await client.read(12000);
       while (update.preview.pending) {
         this.assertEqual(
@@ -720,12 +714,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       this.assertEqual(update.preview.options.claude.model, "sonnet");
       const other = join(this.temp.name, "other");
       mkdirSync(other);
-      client.send({
-        op: "agent.subscribe",
-        protocol: 3,
-        workspace: this.ws,
-        cwd: other,
-      });
+      client.send(versioned({ op: "agent.subscribe", workspace: this.ws, cwd: other }));
       update = await client.read(12000);
       while (update.preview.pending) update = await client.read(12000);
       this.assertEqual(update.cwd, other);
@@ -751,7 +740,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     writeFileSync(join(this.env.XDG_STATE_HOME!, "corgi", "accounts.json"), JSON.stringify({ accounts: saved }));
     const client = await JsonSocket.connect(this.path);
     try {
-      client.send({ op: "agent.subscribe", protocol: 3, workspace: this.ws, cwd: this.launchDir });
+      client.send(versioned({ op: "agent.subscribe", workspace: this.ws, cwd: this.launchDir }));
       let message = await client.read(12000);
       this.assertEqual(
         message.preview.accounts.map((a: any) => a.name),
@@ -1071,8 +1060,7 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
   async directoryPreview(name: string, provider: "codex" | "claude" = "claude") {
     const directory = join(this.temp.name, name);
     mkdirSync(directory, { recursive: true });
-    const preview = async () =>
-      (await this.rpc({ op: "agent.preview", protocol: 3, workspace: this.ws, cwd: directory })).preview;
+    const preview = async () => (await this.rpc({ op: "agent.preview", workspace: this.ws, cwd: directory })).preview;
     await this.until(async () => !(await preview()).pending, 12);
     return (await preview()).options[provider];
   }
@@ -1084,7 +1072,7 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
   async askUsage() {
     const directory = join(this.temp.name, "asked");
     mkdirSync(directory, { recursive: true });
-    await this.rpc({ op: "agent.track_usage", protocol: 3, workspace: this.ws, cwd: directory });
+    await this.rpc({ op: "agent.track_usage", workspace: this.ws, cwd: directory });
   }
   async test_claude_control_usage_reuses_process_and_cache_without_credentials() {
     // A stale credential file must not override Claude's own auth status.
@@ -1105,7 +1093,7 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     const requests = this.metadataRequests().filter(r => r.kind === "get_usage");
     this.assertEqual(requests.length, 2);
     this.assertEqual(requests[0].pid, requests[1].pid);
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.rpc({ op: "server.reload", executable: EXE });
     await this.directoryPreview("after-reload");
     this.assertEqual(this.metadataRequests().filter(r => r.kind === "get_usage").length, 2);
     this.assertFalse(existsSync(this.launches));
@@ -1156,7 +1144,7 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     this.assertEqual(first.spend.limit_minor, 1000000);
     const reset = new Date(first.spend.reset_at * 1000);
     this.assertEqual([reset.getUTCDate(), reset.getUTCHours(), reset.getUTCMinutes()], [1, 0, 0]);
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.rpc({ op: "server.reload", executable: EXE });
     const restored = await this.directoryPreview("enterprise-reloaded");
     this.assertEqual(restored.spend, first.spend);
     this.assertEqual(this.metadataRequests().filter(r => r.kind === "get_usage").length, 1);
@@ -1201,7 +1189,7 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
       join(this.env.CLAUDE_CONFIG_DIR!, "metadata.json"),
       JSON.stringify({ email: "other@example.com", mode: "malformed" }),
     );
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.rpc({ op: "server.reload", executable: EXE });
     const other = await this.directoryPreview("other");
     this.assertTrue(other.signed_in);
     this.assertEqual(other.account, "other@example.com");
@@ -1457,7 +1445,6 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
       (
         await this.rpc({
           op: "agent.preview",
-          protocol: 3,
           workspace: this.ws,
           cwd: project,
         })

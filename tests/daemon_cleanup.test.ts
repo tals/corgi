@@ -227,7 +227,7 @@ function childrenOf(parent: number) {
 
 class DaemonChildren extends Runtime {
   async test_closed_and_exited_panes_leave_no_zombie_shells() {
-    const daemon = (await this.rpc({ op: "hello", protocol: 1 })).server_pid;
+    const daemon = (await this.rpc({ op: "hello" })).server_pid;
     const shells: number[] = [];
     const closing: number[] = [];
     for (const [name, rest] of [
@@ -260,7 +260,7 @@ class OrphanedDaemon extends Runtime {
     this.env.CORGI_TEST_OWNER = String(this.standIn.pid);
   }
   async test_daemon_stops_once_its_test_process_is_gone() {
-    const daemon = (await this.rpc({ op: "hello", protocol: 1 })).server_pid;
+    const daemon = (await this.rpc({ op: "hello" })).server_pid;
     this.standIn.kill("SIGKILL");
     await this.standIn.exited;
     await this.until(() => !running(daemon), 10);

@@ -113,9 +113,9 @@ test("RPC retains raw integer tokens until the receiving model normalizes them",
     expect(events.next_seq).toBe(2);
     expect(events.first_seq).toBe(0xffffffffffffffffn);
     expect(packets).toEqual([
-      '{"op":"viewer.search","protocol":3,"pane":1,"needle":"x","skip":2}',
-      '{"op":"viewer.search","protocol":3,"pane":1,"needle":"x","skip":18446744073709551615}',
-      '{"op":"headless.events","protocol":3,"provider":"codex","session":"t","after":0}',
+      `{"op":"viewer.search","protocol":${protocol.version},"pane":1,"needle":"x","skip":2}`,
+      `{"op":"viewer.search","protocol":${protocol.version},"pane":1,"needle":"x","skip":18446744073709551615}`,
+      `{"op":"headless.events","protocol":${protocol.version},"provider":"codex","session":"t","after":0}`,
     ]);
   } finally {
     conn.close();

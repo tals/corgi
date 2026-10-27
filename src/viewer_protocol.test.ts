@@ -44,7 +44,7 @@ function peer(server: Server, id = 1) {
 test("a viewer reads the view the daemon writes", () => {
   const written: WireView<{ revision: number }> = {
     type: "view",
-    viewer_protocol: 3,
+    viewer_protocol: version,
     session: { revision: 4 },
     session_hash: 7n,
     resources: null,
@@ -69,9 +69,8 @@ test("a viewer reads the view the daemon writes", () => {
   expect(json.parse(json.stringify(written)).session_hash).toBe(0xffffffffffffffffn);
 });
 test("viewer wire version checked on every exchange", () => {
-  expect(version).toBe(3);
-  expect(compatible({ viewer_protocol: 3 })).toBe(true);
-  for (const value of [null, 3, {}, { viewer_protocol: "3" }, { viewer_protocol: 2 }])
+  expect(compatible({ viewer_protocol: version })).toBe(true);
+  for (const value of [null, version, {}, { viewer_protocol: String(version) }, { viewer_protocol: version - 1 }])
     expect(() => requireVersion(value)).toThrow("IncompatibleViewerProtocol");
 });
 test("interest bounds and repeated pane validation match daemon", () => {

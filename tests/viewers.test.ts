@@ -11,7 +11,7 @@ import {
 import { join } from "node:path";
 import { Viewers } from "./viewers";
 import { PALETTE, screen_text, layout_tree } from "./runtime";
-import { EXE, JsonSocket, quote, registerCase, shellJoin, sleep, writeExecutable } from "./support";
+import { EXE, JsonSocket, quote, registerCase, shellJoin, sleep, versioned, writeExecutable } from "./support";
 
 import { CodexObserver, write_codex_terminal } from "./provider_sim";
 
@@ -358,7 +358,6 @@ class ViewerScenarios extends Viewers {
     const headless = (
       await this.rpc({
         op: "headless.start",
-        protocol: 3,
         prompt: "test/init",
         provider: "codex",
         cwd: this.temp.name,
@@ -652,7 +651,6 @@ class ViewerScenarios extends Viewers {
     const ident = (
       await this.rpc({
         op: "headless.start",
-        protocol: 3,
         prompt: "test/init",
         provider: "codex",
         cwd: this.temp.name,
@@ -677,7 +675,7 @@ class ViewerScenarios extends Viewers {
     });
     await this.until(async () => (await counts()).input === 100);
     this.assertEqual((await counts()).tools, 1);
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.rpc({ op: "server.reload", executable: EXE });
     this.assertEqual([(await counts()).tools, (await counts()).input, (await counts()).output], [1, 100, 10]);
     await send("thread/tokenUsage/updated", {
       threadId: "t",
@@ -962,7 +960,7 @@ class ViewerScenarios extends Viewers {
       ],
     ];
     for (const [command, error] of invalid) {
-      this.assertEqual((await this.raw_rpc({ op: "session.command", protocol: 3, command })).err, error);
+      this.assertEqual((await this.raw_rpc({ op: "session.command", command })).err, error);
       this.assertEqual((await this.session()).workspaces, before);
     }
   }
@@ -1182,7 +1180,7 @@ process.stdin.resume();
       second = await this.new();
     const client = await JsonSocket.connect(this.path);
     try {
-      const call = (request: any) => client.request({ protocol: 3, viewer_protocol: 3, ...request });
+      const call = (request: { op: string; [field: string]: unknown }) => client.request(versioned(request));
       await call({ op: "viewer.open", cwd: this.temp.name });
       await call({
         op: "viewer.sync",

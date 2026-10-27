@@ -38,7 +38,7 @@ class WorktreeReload extends Runtime {
       observer.set_turn(session, "next", "completed");
       await observer.wait_for_request("thread/items/list", { after: observer.requests.length });
       await observer.close();
-      await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+      await this.rpc({ op: "server.reload", executable: EXE });
       this.assertEqual(await placement(), child);
       this.assertEqual((await state()).pid, pid);
       await this.until(async () => (await viewer.poll()).data.includes("Worktree agent"));

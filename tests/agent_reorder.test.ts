@@ -81,7 +81,7 @@ class AgentReorder extends Viewers {
     this.assertEqual(second.state.pane, b);
     this.assertEqual((await this.session()).workspaces[0].model.tabs, tabs);
     this.assertEqual((await first.input("\x02]")).pane, b);
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.rpc({ op: "server.reload", executable: EXE });
     this.assertEqual(await this.order(), [{ pane: b }, { pane: c }, { pane: a }]);
     await first.poll();
     this.assertEqual(this.labels(first), ["Agent-1", "Agent-2", "Agent-0"]);
@@ -170,7 +170,6 @@ class AgentReorder extends Viewers {
     const headless = (
       await this.rpc({
         op: "headless.start",
-        protocol: 3,
         prompt: "test/init",
         provider: "codex",
         cwd: this.temp.name,
@@ -187,7 +186,7 @@ class AgentReorder extends Viewers {
     await this.mark_agent(added, "Agent-3");
     await viewer.poll();
     this.assertEqual(this.labels(viewer), ["Agent-0", "Agent-1", "Agent-3"]);
-    await this.rpc({ op: "recovery.save", protocol: 3 });
+    await this.rpc({ op: "recovery.save" });
     await viewer.close();
     await this.restart_runtime();
     this.assertEqual(await this.order(), order);
@@ -214,7 +213,6 @@ class AgentReorder extends Viewers {
     this.assertEqual(await this.order(), [{ pane: b }, { pane: a }]);
     const response = await this.raw_rpc({
       op: "session.command",
-      protocol: 3,
       command: { "agent.move": { workspace: home, target: { pane: a }, before: { pane: outsider } } },
     });
     this.assertEqual(response.err, "InvalidDestination");

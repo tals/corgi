@@ -62,7 +62,7 @@ process.stdin.on('data', data => {
     const before = await this.session();
     const pid = before.panes.find((p: any) => p.id === pane).pid;
     const geometry = before.panes.find((p: any) => p.id === pane);
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.rpc({ op: "server.reload", executable: EXE });
     const after = await this.session();
     this.assertNotEqual(before.server_pid, after.server_pid);
     this.assertEqual(
@@ -98,7 +98,7 @@ process.stdin.on('data', data => {
     this.assertIn("READY", await text());
     await this.command("pane.input", { target: pane, data: "still here\r" });
     await this.until(async () => (await text()).includes(`ALIVE ${pid} still here`));
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.rpc({ op: "server.reload", executable: EXE });
     await this.command("pane.input", { target: pane, data: "twice\r" });
     await this.until(async () => (await text()).includes(`ALIVE ${pid} twice`));
   }

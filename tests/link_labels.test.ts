@@ -78,7 +78,7 @@ class LinkLabels extends Runtime {
     this.assertEqual(state.effects, [{ open_url: payload.url }]);
     await this.advance(1);
     this.assertEqual(lines(this.log).length, 1);
-    this.assertEqual((await this.rpc({ op: "headless.list", protocol: 3 })).sessions, []);
+    this.assertEqual((await this.rpc({ op: "headless.list" })).sessions, []);
     await this.command("pane.close", { target: pane });
     await this.untilAdvancing(3, async () => (await this.endpoints()).length === 0);
     this.assertNotIn("Finance ↗", (await viewer.poll()).data);
@@ -114,13 +114,13 @@ class LinkLabels extends Runtime {
     await this.start_server();
     await this.untilAdvancing(3, () => existsSync(this.log));
     this.assertTrue((await this.endpoints()).some((e: any) => e.label_pending));
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.rpc({ op: "server.reload", executable: EXE });
     await this.until(
       async () => (await this.endpoints()).some((e: any) => e.label === "Finance" && !e.label_pending),
       25,
     );
     this.assertEqual(lines(this.log).length, 1, "completed in-flight link inference was billed again");
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.rpc({ op: "server.reload", executable: EXE });
     await this.until(async () => (await this.endpoints()).some((e: any) => e.label === "Finance"), 25);
     await this.advance(1);
     this.assertEqual(lines(this.log).length, 1, "cached link name was inferred again after reload");

@@ -12,18 +12,29 @@ test("every op decodes a sample request", () => {
 });
 test("a client's envelope writes what the hand-written requests did", () => {
   for (const [op, payload, expected] of [
-    ["hello", {}, { op: "hello", protocol: 1, runtime_protocol: 3 }],
+    ["hello", {}, { op: "hello", protocol: protocol.management_version, runtime_protocol: protocol.version }],
     ["shutdown", {}, { op: "shutdown" }],
-    ["server.reload", { executable: "/bin/corgi" }, { op: "server.reload", protocol: 1, executable: "/bin/corgi" }],
+    [
+      "server.reload",
+      { executable: "/bin/corgi" },
+      { op: "server.reload", protocol: protocol.management_version, executable: "/bin/corgi" },
+    ],
     [
       "session.command",
       { command: { "pane.close": { target: 3 } } },
-      { op: "session.command", protocol: 3, command: { "pane.close": { target: 3 } } },
+      { op: "session.command", protocol: protocol.version, command: { "pane.close": { target: 3 } } },
     ],
     [
       "viewer.open",
       { cwd: "/tmp", onboarding: true },
-      { op: "viewer.open", protocol: 3, viewer_protocol: 3, cwd: "/tmp", theme: null, onboarding: true },
+      {
+        op: "viewer.open",
+        protocol: protocol.version,
+        viewer_protocol: protocol.viewer_version,
+        cwd: "/tmp",
+        theme: null,
+        onboarding: true,
+      },
     ],
     ["focus", { pane: 3, viewer: 2 }, { op: "focus", pane: 3, viewer: 2 }],
     ["workspace.switch", { workspace: 1, viewer: null }, { op: "workspace.switch", workspace: 1 }],
@@ -31,10 +42,11 @@ test("a client's envelope writes what the hand-written requests did", () => {
     expect(protocol.envelope(op, payload)).toEqual(expected);
 });
 test("management and runtime versions are checked independently", () => {
-  expect(() => protocol.require({ protocol: 1 }, null, "management")).not.toThrow();
-  expect(() => protocol.require({ protocol: 3 }, null)).not.toThrow();
-  expect(() => protocol.require({}, 3)).not.toThrow();
-  expect(() => protocol.require({ protocol: 1 }, 3)).toThrow("UnsupportedProtocol");
+  const { version, management_version } = protocol;
+  expect(() => protocol.require({ protocol: management_version }, null, "management")).not.toThrow();
+  expect(() => protocol.require({ protocol: version }, null)).not.toThrow();
+  expect(() => protocol.require({}, version)).not.toThrow();
+  expect(() => protocol.require({ protocol: management_version }, version)).toThrow("UnsupportedProtocol");
   for (const version of [0, 2, 999, -1, "1", null])
     expect(() => protocol.require({ protocol: version }, null, "management")).toThrow("UnsupportedManagementProtocol");
   expect(() => protocol.require({}, null, "management")).toThrow("ProtocolRequired");

@@ -3,6 +3,7 @@ import { Controller } from "./controller";
 import { transport } from "./fixtures/transport";
 import * as json from "./json";
 import * as mirror from "./mirror";
+import * as protocol from "./protocol";
 import * as viewer from "./viewer";
 import * as sim from "./providers/sim";
 
@@ -32,7 +33,7 @@ test("viewer scalars retain their bigint type after small and large wire replies
       requests.push({ op, fields });
       return json.parse(
         json.stringify({
-          viewer_protocol: 3,
+          viewer_protocol: protocol.viewer_version,
           session: null,
           session_hash: value,
           resources: null,

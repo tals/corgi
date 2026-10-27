@@ -1,7 +1,7 @@
 /** Opt-in live Herdr -> Corgi handoff. Uses only disposable runtime paths. */
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { EXE, JsonSocket, registerCase, run, shellJoin, sleep, TestCase, tempDir } from "./support";
+import { EXE, JsonSocket, registerCase, run, shellJoin, sleep, TestCase, tempDir, versioned } from "./support";
 import { Scope } from "../scripts/process_scope";
 
 const cliValue = (flag: string) => {
@@ -110,7 +110,7 @@ class HerdrHandoff extends TestCase {
     }
   }
   corgi(message: any) {
-    return this.exchange(this.corgiSocket, { protocol: 3, ...message });
+    return this.exchange(this.corgiSocket, versioned(message));
   }
   async herdr(method: string, params: any = {}) {
     return (
@@ -286,7 +286,6 @@ for await (const chunk of Bun.stdin.stream()) { for (const line of new TextDecod
   async test_rejected_handoff_rolls_back_and_can_retry() {
     await this.corgi({
       op: "viewer.open",
-      viewer_protocol: 3,
       onboarding: true,
       cwd: this.root,
     });

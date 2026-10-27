@@ -5,6 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { createConnection, type Socket } from "node:net";
 import { describe, test } from "bun:test";
+import * as protocol from "../src/protocol";
 
 export const ROOT = resolve(import.meta.dir, "..");
 export const EXE = process.env.CORGI_TEST_BIN || `${ROOT}/dist/corgi-test`;
@@ -119,6 +120,10 @@ export class Lines {
       if (index >= 0) this.waiting.splice(index, 1);
     });
   }
+}
+/** `value` with the protocol versions its op carries, unless it sets them itself. */
+export function versioned<T extends { op: string }>(value: T) {
+  return { ...protocol.versions(value.op), ...value };
 }
 export class JsonSocket {
   socket!: Socket;

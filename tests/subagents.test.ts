@@ -182,7 +182,6 @@ class HeadlessUsage extends Runtime {
     const headless = (
       await this.rpc({
         op: "headless.start",
-        protocol: 3,
         prompt: "test/init",
         provider: "codex",
         cwd: this.temp.name,
@@ -255,7 +254,6 @@ class HeadlessUsage extends Runtime {
     const headless = (
       await this.rpc({
         op: "headless.start",
-        protocol: 3,
         prompt: "test/init",
         provider: "codex",
         cwd: this.temp.name,
@@ -279,7 +277,7 @@ class HeadlessUsage extends Runtime {
       tokenUsage: first,
     });
     await this.until(async () => (await actor()).usage.tokens.input === 100);
-    await this.rpc({ op: "server.reload", protocol: 1, executable: EXE });
+    await this.rpc({ op: "server.reload", executable: EXE });
     const restored = await actor();
     this.assertTrue(restored.usage.known);
     this.assertEqual(restored.usage.tokens.input, 100);
