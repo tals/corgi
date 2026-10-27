@@ -1,4 +1,5 @@
 //! Released pure JSON migrations, mirrored from persist/steps.zig.
+import { basename } from "node:path";
 class RawBytes extends String {
   constructor(public bytes: Buffer) {
     super(bytes.toString("utf8"));
@@ -363,5 +364,25 @@ function handoff4To5(value: any) {
       delete fields[key];
   }
 }
-export const checkpoint: Step[] = [table, checkpoint2To3, checkpoint3To4, checkpoint4To5, checkpoint5To6];
+function workspaceNames(value: any) {
+  for (const workspace of items(value, "workspaces")) {
+    const fields = object(workspace);
+    if (fields.name !== "") continue;
+    if (typeof fields.cwd !== "string") throw Error("InvalidCheckpoint");
+    fields.pristine = true;
+    fields.name = basename(fields.cwd) || "/";
+  }
+}
+function workspaces1To2(value: any) {
+  for (const workspace of items(value, "workspaces")) delete object(workspace).pinned;
+}
+export const checkpoint: Step[] = [
+  table,
+  checkpoint2To3,
+  checkpoint3To4,
+  checkpoint4To5,
+  checkpoint5To6,
+  workspaceNames,
+];
 export const handoff: Step[] = [handoff1To2, handoff2To3, handoff3To4, handoff4To5];
+export const workspaces: Step[] = [workspaces1To2, workspaceNames];

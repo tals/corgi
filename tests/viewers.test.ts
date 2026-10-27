@@ -714,13 +714,42 @@ class ViewerScenarios extends Viewers {
     this.assertEqual((await b.poll()).pane, first);
   }
 
-  async test_workspace_name_uses_first_tab_in_both_viewers() {
+  async test_workspace_rename_targets_recreated_workspace_with_same_name_and_folder() {
+    const first = (await this.session()).workspaces[0].id,
+      second = (await this.command("workspace.create", { name: "Same", cwd: this.temp.name })).workspace;
+    await this.command("workspace.close", { target: first, close_contents: true });
+    const third = (await this.command("workspace.create", { name: "Same", cwd: this.temp.name })).workspace;
+    this.assertGreater(third, second);
+    const viewer = await this.newViewer();
+    await viewer.request({ op: "workspace", workspace: second });
+    await viewer.input("\x1b[<2;5;6M\x1b[<2;5;6m");
+    await viewer.input("r");
+    this.assertIn("Rename workspace", viewer.state.data);
+    await viewer.input("Renamed\r");
+    this.assertEqual(
+      (await this.session()).workspaces.map((w: any) => [w.id, w.name]),
+      [
+        [second, "Same"],
+        [third, "Renamed"],
+      ],
+    );
+    const screen = screen_text((await viewer.poll()).data, 100, 30);
+    this.assertIn("Same", screen[2]);
+    this.assertIn("Renamed", screen[5]);
+  }
+
+  async test_workspace_name_stays_fixed_in_both_viewers() {
     const one = join(this.temp.name, "one"),
       two = join(this.temp.name, "two");
     mkdirSync(one);
     mkdirSync(two);
-    const first = (await this.open_pane({ cwd: one, command: "exec /bin/sh" })).pane;
-    const second = (await this.open_pane({ cwd: two, command: "exec /bin/sh" })).pane;
+    const initial = (await this.session()).workspaces[0].id;
+    const created = await this.command("workspace.create", { cwd: one });
+    await this.command("workspace.close", { target: initial, close_contents: true });
+    const first = created.pane;
+    const second = (
+      await this.command("pane.create", { workspace: created.workspace, cwd: two, command: "exec /bin/sh" })
+    ).pane;
     const a = await this.newViewer(),
       b = await this.newViewer();
     await a.focus(first);
@@ -743,13 +772,13 @@ class ViewerScenarios extends Viewers {
       screen_text((await a.poll()).data, 100, 30)[2]
         .slice(2, 27)
         .trim(),
-      "two",
+      "one",
     );
     this.assertEqual(
       screen_text((await b.poll()).data, 100, 30)[2]
         .slice(2, 27)
         .trim(),
-      "two",
+      "one",
     );
     await b.input("\x02Wr");
     await b.input("Custom\r");
@@ -757,12 +786,14 @@ class ViewerScenarios extends Viewers {
     this.assertIn("Custom", (await b.poll()).data);
     await b.input("\x02Wr");
     await b.input("\x03\r");
-    this.assertEqual((await this.session()).workspaces[0].custom_name, "");
+    this.assertIn("Enter a workspace name.", b.state.data);
+    this.assertEqual((await this.session()).workspaces[0].name, "Custom");
+    await b.input("Renamed\r");
     this.assertEqual(
       screen_text((await a.poll()).data, 100, 30)[2]
         .slice(2, 27)
         .trim(),
-      "two",
+      "Renamed",
     );
     await a.action("new");
     this.assertEqual((await this.session()).panes.find((p: any) => p.id === a.state.pane).cwd, realpathSync(one));

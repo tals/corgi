@@ -1,0 +1,28 @@
+{
+  "version": 2,
+  "workspaces": [
+    {
+      "id": 1,
+      "name": "project",
+      "cwd": "/missing/project/",
+      "pristine": true
+    },
+    {
+      "id": 2,
+      "name": "/",
+      "cwd": "/",
+      "pristine": true
+    },
+    {
+      "id": 3,
+      "name": "项目 café",
+      "cwd": "/tmp/项目 café",
+      "pristine": true
+    },
+    {
+      "id": 4,
+      "name": "Custom",
+      "cwd": "/tmp/other"
+    }
+  ]
+}

@@ -20,7 +20,7 @@ class Service {
     const r = server.runtime;
     if (r.workspaces.items.length !== 1 || r.sessions.length) return;
     const ws = r.workspaces.items[0];
-    if (!ws.model.count && !ws.name_len) this.starter = { id: ws.id, revision: ws.model.revision };
+    if (!ws.model.count && ws.pristine) this.starter = { id: ws.id, revision: ws.model.revision };
   }
   async finish(server: Server, destination: number | null) {
     const starter = this.starter;
@@ -33,7 +33,7 @@ class Service {
     )
       return;
     const ws = server.runtime.workspaces.get(starter.id);
-    if (!ws || ws.model.count || ws.name_len || ws.model.revision !== starter.revision) return;
+    if (!ws || ws.model.count || !ws.pristine || ws.model.revision !== starter.revision) return;
     try {
       await server.runtime.closeWorkspace(starter.id, false);
     } catch {

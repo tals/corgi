@@ -31,7 +31,7 @@ export const targetKind = (
   Object.keys(t)[0] as any;
 /** Whether names keep non-ASCII text, which the agents' own names carry. */
 function unicodeTarget(t: Target): boolean {
-  return "agent_command" in t || "agent" in t || "fork" in t || "folder" in t;
+  return "agent_command" in t || "agent" in t || "fork" in t || "folder" in t || "workspace_name" in t;
 }
 export type Result = "none" | "save" | "cancel";
 /** The longest name, in bytes, outside launch commands. */
@@ -126,6 +126,7 @@ export class Dialog {
   private pressed_at: number | null = null;
   /** The text as UTF-8, as fields draw it, until the text changes. */
   private utf8 = { text: "", bytes: new Uint8Array() };
+  private initial = "";
 
   constructor(target: Target) {
     this.target = target;
@@ -169,10 +170,15 @@ export class Dialog {
   /** Replaces the text, keeping it wholly selected if it was. */
   protected fill(initial: string): void {
     const whole = this.selected;
+    this.initial = initial;
     let text = unicodeTarget(this.target) ? initial : initial.replace(/[^\x20-\x7e]/gu, "_");
-    while (Buffer.byteLength(text) > limit(this.target)) text = [...text].slice(0, -1).join("");
+    while (Buffer.byteLength(text) > this.capacity()) text = [...text].slice(0, -1).join("");
     this.area = new TextArea(text, false);
     if (whole) this.selected = true;
+  }
+  private capacity(): number {
+    // Folder-derived workspace names may exceed the limit for new names.
+    return Math.max(limit(this.target), "workspace_name" in this.target ? Buffer.byteLength(this.initial) : 0);
   }
   /** The text as written, untrimmed. */
   raw(): string {
@@ -182,6 +188,7 @@ export class Dialog {
     return Buffer.from(this.text.subarray(from, to)).toString();
   }
   name(): string {
+    if ("workspace_name" in this.target && this.area.text === this.initial) return this.initial;
     const trim = "agent_command" in this.target ? " \t\r\n" : " ";
     let start = 0;
     let end = this.area.text.length;
@@ -215,7 +222,7 @@ export class Dialog {
   }
   private insert(text: string): void {
     const sel = this.selection() ?? [this.cursor, this.cursor];
-    if (this.len - (sel[1] - sel[0]) + Buffer.byteLength(text) > limit(this.target)) {
+    if (this.len - (sel[1] - sel[0]) + Buffer.byteLength(text) > this.capacity()) {
       this.overflow = true;
       return;
     }
@@ -596,9 +603,11 @@ export class View {
       const msg =
         kind === "agent_command"
           ? "Could not save command; max 2048 bytes."
-          : kind === "shell"
-            ? "No executable shell there."
-            : "Could not save. Check folder or capacity.";
+          : kind === "workspace_name" && d.len === 0
+            ? "Enter a workspace name."
+            : kind === "shell"
+              ? "No executable shell there."
+              : "Could not save. Check folder or capacity.";
       w.write(
         `\x1b[${v.title_y + 2};${left + 1}H` +
           new Style({ fg: "hot", bg: "surface" }).sgr() +
@@ -618,7 +627,7 @@ export class View {
     w.write(`\x1b[${v.field_y + 1};${left + 1}H` + new Style({ fg: "text", bg: "selected" }).sgr());
     w.splat(" ", v.text_width + 2 * (v.padded ? 1 : 0));
     w.write(`\x1b[${v.field_y + 1};${v.text_x + 1}H`);
-    if (d.len === 0 && (kind === "rename" || kind === "workspace_name")) {
+    if (d.len === 0 && kind === "rename") {
       // This is a preview of the current position, never an editable/saved name.
       w.write(palette.fg("muted") + `${number}`);
     } else {

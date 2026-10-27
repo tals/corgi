@@ -17,7 +17,7 @@ import * as json from "../json";
 import * as worktrees from "../worktrees";
 import { validateCheckpoint } from "./schema";
 
-export const version = 6;
+export const version = 7;
 const invalid = (): never => {
   throw Error("InvalidCheckpoint");
 };
@@ -157,7 +157,8 @@ export function capture(r: Runtime, live: boolean) {
     workspaces: r.workspaces.items.map(w => ({
       away: w.away,
       id: w.id,
-      name: w.customName(),
+      name: w.name(),
+      pristine: w.pristine,
       cwd: w.cwd,
       worktrees: live ? w.worktrees : null,
       model: w.model,
@@ -268,8 +269,17 @@ export async function restore(
     r.link_labels = Cache.restore(r.link_labels);
   }
   for (const w of state.workspaces) {
-    if (!w.id || w.id >= state.next_workspace || r.workspaces.get(w.id) || !isAbsolute(w.cwd)) invalid();
-    const item = new Workspace(w.id, w.cwd);
+    if (
+      !w.id ||
+      w.id >= state.next_workspace ||
+      r.workspaces.get(w.id) ||
+      !isAbsolute(w.cwd) ||
+      typeof w.name !== "string" ||
+      !w.name
+    )
+      invalid();
+    const item = new Workspace(w.id, w.cwd, w.name);
+    item.pristine = w.pristine ?? false;
     if (live && w.worktrees != null) {
       item.worktrees = worktrees.snapshot(w.worktrees);
       if (
@@ -279,7 +289,6 @@ export async function restore(
       )
         invalid();
     }
-    item.rename(w.name);
     item.model = Model.fromData(w.model);
     item.agent_order = Order.restore(w.agent_order ?? []);
     item.last_agent = w.last_agent ?? null;

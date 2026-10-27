@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "workspaces": [
+    {
+      "id": 1,
+      "name": "Custom",
+      "cwd": "/project"
+    }
+  ]
+}

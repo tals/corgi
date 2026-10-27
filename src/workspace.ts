@@ -1,6 +1,7 @@
 import { basename, dirname, join, isAbsolute } from "node:path";
 import { mkdir, open, rename, readFile, realpath, stat } from "node:fs/promises";
-import { Model, cleanLabel, max_workspaces } from "./layout";
+import { Model, max_workspaces } from "./layout";
+import * as migrations from "./persist/migrations";
 import { Order } from "./agent_order";
 import { Ref, State } from "./trackers/git_push";
 import { Commits } from "./trackers/git_status";
@@ -8,8 +9,9 @@ import { Window } from "./usage/tokens";
 import type { Snapshot as Worktrees } from "./worktrees";
 export class Workspace {
   static Id = { none: 0, first: 1, next: (id: number) => id + 1 };
-  name_buf = "";
-  name_len = 0;
+  private label: string;
+  /** No explicit rename; onboarding may replace this workspace while empty. */
+  pristine: boolean;
   model = new Model();
   agent_order = new Order();
   last_agent: string | null = null;
@@ -27,12 +29,17 @@ export class Workspace {
   constructor(
     public id: number,
     public cwd: string,
-  ) {}
-  customName() {
-    return this.name_buf;
+    name?: string,
+  ) {
+    this.label = name ?? (basename(cwd) || "/");
+    this.pristine = name === undefined;
   }
   name() {
-    return this.name_len ? this.customName() : basename(this.cwd) || "/";
+    return this.label;
+  }
+  initializeFolder(cwd: string) {
+    if (this.pristine) this.label = basename(cwd) || "/";
+    this.follow(cwd);
   }
   follow(cwd: string) {
     if (!cwd || cwd === this.cwd) return false;
@@ -49,8 +56,12 @@ export class Workspace {
     this.git_commits = new Commits();
   }
   rename(value: string) {
-    this.name_buf = cleanLabel(value);
-    this.name_len = this.name_buf.length;
+    const capacity = Math.max(80, Buffer.byteLength(this.label));
+    let name = [...value.replace(/^ +| +$/g, "").replace(/[\x00-\x1f\x7f-\x9f]/g, "_")].slice(0, capacity).join("");
+    while (Buffer.byteLength(name) > capacity) name = [...name].slice(0, -1).join("");
+    if (!name) throw Error("InvalidName");
+    this.label = name;
+    this.pristine = false;
   }
 }
 export class Store {
@@ -73,12 +84,13 @@ export class Store {
       await f.writeFile(
         JSON.stringify(
           {
-            version: 2,
+            version: migrations.workspaces_version,
             active: selected,
             next_id: this.next_id,
             workspaces: this.items.map(w => ({
               id: w.id,
-              name: w.customName(),
+              name: w.name(),
+              pristine: w.pristine,
               cwd: w.cwd,
             })),
           },
@@ -101,17 +113,11 @@ export class Store {
       throw e;
     }
     if (Buffer.byteLength(bytes) > 1024 * 1024) throw Error("FileTooBig");
-    const d = JSON.parse(bytes);
+    const { value: d } = migrations.decode("workspaces", bytes);
     const invalid = () => {
       throw Error("InvalidWorkspaceState");
     };
-    if (
-      ![1, 2].includes(d.version) ||
-      !Array.isArray(d.workspaces) ||
-      !d.workspaces.length ||
-      d.workspaces.length > max_workspaces
-    )
-      invalid();
+    if (!Array.isArray(d.workspaces) || !d.workspaces.length || d.workspaces.length > max_workspaces) invalid();
     const items: Workspace[] = [];
     for (const x of d.workspaces) {
       if (
@@ -119,12 +125,15 @@ export class Store {
         x.id <= 0 ||
         x.id >= d.next_id ||
         items.some(w => w.id === x.id) ||
+        typeof x.name !== "string" ||
+        !x.name ||
+        (x.pristine !== undefined && typeof x.pristine !== "boolean") ||
         typeof x.cwd !== "string" ||
         !isAbsolute(x.cwd)
       )
         invalid();
-      const w = new Workspace(x.id, x.cwd);
-      w.rename(x.name);
+      const w = new Workspace(x.id, x.cwd, x.name);
+      w.pristine = x.pristine ?? false;
       items.push(w);
     }
     if (!items.some(w => w.id === d.active)) invalid();
@@ -156,9 +165,10 @@ export class Store {
     return p;
   }
   async add(name: string, cwd: string) {
+    const dir = await Store.directory(cwd);
     if (this.items.length >= max_workspaces) throw Error("TooManyWorkspaces");
-    const w = new Workspace(this.next_id, await Store.directory(cwd));
-    w.rename(name);
+    const w = new Workspace(this.next_id, dir);
+    if (name.trim()) w.rename(name);
     this.items.push(w);
     this.next_id++;
     return w.id;
@@ -171,8 +181,9 @@ export class Store {
   async edit(id: number, name: string, cwd: string) {
     const w = this.get(id);
     if (!w) throw Error("NoWorkspace");
-    w.cwd = await Store.directory(cwd);
+    const dir = await Store.directory(cwd);
+    if (name !== w.name()) w.rename(name);
+    w.cwd = dir;
     w.resetGit();
-    w.rename(name);
   }
 }

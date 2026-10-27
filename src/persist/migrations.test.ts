@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import * as json from "../json";
 import * as steps from "./steps";
 import { decode, checkpoint_version, handoff_version } from "./migrations";
-for (const kind of ["checkpoint", "handoff"] as const)
+for (const kind of ["checkpoint", "handoff", "workspaces"] as const)
   for (const [i, step] of steps[kind].entries())
     test(`${kind} released step ${i + 1} retains golden output`, () => {
       const base = new URL(`../fixtures/steps/${kind}-${i + 1}`, import.meta.url);
@@ -18,6 +18,27 @@ test("versions are checked before current enum decoding", () => {
     expect(() => decode("checkpoint", `{"version":${value}}`)).toThrow("InvalidStateVersion");
   expect(() => decode("checkpoint", '{"version":99,"provider":"other"}')).toThrow("UnsupportedStateVersion");
   expect(() => decode("handoff", '{"version":2,"runtime":{"version":99}}')).toThrow("UnsupportedStateVersion");
+});
+test("empty workspace names migrate in checkpoints and nested live handoffs", () => {
+  for (const kind of ["checkpoint", "handoff"] as const) {
+    const runtime = {
+      version: 6,
+      workspaces: [
+        { id: 1, name: "", cwd: "/missing/项目 café/" },
+        { id: 2, name: "", cwd: "/" },
+        { id: 3, name: "Custom", cwd: "/other" },
+      ],
+    };
+    const decoded = decode(kind, JSON.stringify(kind === "handoff" ? { version: handoff_version, runtime } : runtime));
+    const state = kind === "handoff" ? decoded.value.runtime : decoded.value;
+    expect(state.workspaces.map((w: any) => w.name)).toEqual(["项目 café", "/", "Custom"]);
+    expect(state.version).toBe(checkpoint_version);
+    expect(decoded.migrated).toBe(true);
+    expect(decode(kind, json.stringify(decoded.value)).migrated).toBe(false);
+  }
+  expect(() => decode("checkpoint", '{"version":6,"workspaces":[{"name":"","cwd":null}]}')).toThrow(
+    "InvalidCheckpoint",
+  );
 });
 test("handoff and runtime versions migrate independently without losing launch counts", () => {
   const result = decode(
