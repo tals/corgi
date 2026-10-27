@@ -176,6 +176,18 @@ test("muting discards what is being said or transcribed", async () => {
   expect(link.calls).toEqual([]);
 });
 
+test("text the runtime refuses as muted is discarded, not failed", async () => {
+  const link = new FakeLink();
+  link.reply = async () => {
+    throw Error("VoiceMuted");
+  };
+  const { s } = session(["late words"], { link });
+  await s.connect();
+  speak(s);
+  await until(() => s.history[0]?.status === "discarded");
+  expect(statuses(s)).toEqual([["discarded", "muted"]]);
+});
+
 test("words that sound like commands are typed as text", async () => {
   const { s, link } = session(["Send.", "next"]);
   await s.connect();

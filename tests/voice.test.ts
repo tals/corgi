@@ -115,6 +115,8 @@ class Voice extends Viewers {
     link.on("muted", muted => pushed.push(muted));
     await link.watch({ muted: false, available: true });
     this.assertEqual((await this.rpc({ op: "voice.toggle", protocol: 3 })).muted, true);
+    // Text already on its way when the viewer muted is refused.
+    await this.assertRejects(link.type("late"), "VoiceMuted");
     await this.until(() => pushed.includes(true), 1);
     this.assertEqual(await this.voice(), "muted");
     await link.set({ muted: false });

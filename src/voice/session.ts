@@ -236,7 +236,9 @@ export class VoiceSession {
       this.finish(u, "delivered", null);
     } catch (error) {
       u.timings.deliver_ms = this.deps.now() - started;
-      this.finish(u, "failed", reason(error));
+      // Muted from a viewer before this arrived: dropped, as a mute here drops it.
+      if (errors.name(error) === "VoiceMuted") this.finish(u, "discarded", "muted");
+      else this.finish(u, "failed", reason(error));
     }
   }
   private finish(u: Utterance, status: UtteranceStatus, why: string | null): void {

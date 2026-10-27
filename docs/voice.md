@@ -53,7 +53,7 @@ The screen is a small table:
 | --- | --- |
 | `Target` | `local` or the SSH host, and the title of the pane your text goes to, as `local → dictation` |
 | `Device` | The microphone; `(default)` for the system default |
-| `Level` | A braille meter from green to red, dimmed while your voice is under the threshold (the orange bar, `T:`), and grey while muted. A thin grey line grows under it while you pause; when it reaches the end, the utterance ends |
+| `Level` | A braille meter in the theme's colors, dimmed while your voice is under the threshold (the bar, `T:`), and grey while muted. A thin grey line grows under it while you pause; when it reaches the end, the utterance ends |
 | `Model` | The Whisper model |
 | `Mode` | `Listening`, or `MUTED` in red (also while voice cannot listen, as in the sidebar) |
 | `Options` | What ends an utterance (`silence`, `burst`), the speech `filter`, and what starts one (`pre-roll`, `min speech`) |

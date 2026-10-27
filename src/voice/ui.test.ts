@@ -178,7 +178,7 @@ test("the mode is MUTED or Listening; the note adds a missing viewer and what sp
   expect(shown()).toMatchObject({ note: "♪", mode: "MUTED" });
   session.viewer = true;
   expect(shown()).toMatchObject({ note: "♪", mode: "MUTED" });
-  expect(shown().frame).toContain(palette.fgRgb([230, 70, 60]) + "MUTED");
+  expect(shown().frame).toContain(new Style({ fg: "hot", bg: "bg", bold: true }).sgr() + "MUTED");
 });
 
 test("a click on the note or the mode mutes and unmutes", () => {
@@ -231,31 +231,33 @@ test("the meter fills braille dots in quarter cells, dimmed under the threshold"
   const { session, ui } = setup();
   // The meter starts after the 9-cell label at column 1.
   const meter = () => screen(ui.draw(80, 20), 80, 20)[4].slice(10, 30);
-  const orange = palette.fgRgb([255, 175, 0]),
-    green = [0, 95, 0] as palette.Rgb;
-  // 20 cells; the threshold 44 is a solid orange bar in cell 9, whatever the level.
+  const mark = new Style({ fg: "warm", bg: "bg", bold: true }).sgr(),
+    green = palette.colors.accent;
+  // 20 cells; the threshold 44 is a solid warm bar in cell 9, whatever the level.
   session.level = 0;
   expect(meter()).toBe(" ".repeat(9) + "┃" + " ".repeat(10));
-  expect(ui.draw(80, 20)).toContain(orange + "┃");
+  expect(ui.draw(80, 20)).toContain(mark + "┃");
   // 30 fills six cells, dimmed: the level is under the threshold.
   session.level = 30;
   expect(meter()).toBe("⣿".repeat(6) + " ".repeat(3) + "┃" + " ".repeat(10));
   expect(ui.draw(80, 20)).toContain(palette.fgRgb(palette.mix(green, palette.colors.bg, 55)) + "⣿");
-  // 52.5 fills 10.5 cells in full color; the bar stays orange.
+  // 52.5 fills 10.5 cells in full color; the bar stays warm.
   session.level = 52.5;
   expect(meter()).toBe("⣿".repeat(9) + "┃" + "⣤" + " ".repeat(9));
-  expect(ui.draw(80, 20)).toContain(orange + "┃");
-  // The filled cells run from dark green to red.
+  expect(ui.draw(80, 20)).toContain(mark + "┃");
+  // The filled cells run from the accent to hot.
   session.level = 100;
   const frame = ui.draw(80, 20);
   expect(frame).toContain(palette.fgRgb(green) + "⣿");
-  expect(frame).toContain(palette.fgRgb([255, 0, 0]) + "⣿");
-  // Muted, the same cells turn grey at the same brightness: red is 76.
+  expect(frame).toContain(palette.fgRgb(palette.colors.hot) + "⣿");
+  // Muted, the same cells turn grey at the same brightness.
   session.muted = true;
-  const muted = ui.draw(80, 20);
-  expect(muted).toContain(palette.fgRgb([76, 76, 76]) + "⣿");
-  expect(muted).not.toContain(palette.fgRgb([255, 0, 0]) + "⣿");
-  expect(muted).toContain(orange + "┃");
+  const muted = ui.draw(80, 20),
+    [r, g, b] = palette.colors.hot,
+    y = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+  expect(muted).toContain(palette.fgRgb([y, y, y]) + "⣿");
+  expect(muted).not.toContain(palette.fgRgb(palette.colors.hot) + "⣿");
+  expect(muted).toContain(mark + "┃");
 });
 
 test("the wheel moves the threshold anywhere in the window", () => {
@@ -451,6 +453,26 @@ test("the device picker lists microphones and switches to one", async () => {
   ui.input("d");
   ui.input("\x1b");
   expect(ui.picker).toBeNull();
+});
+
+test("the device picker scrolls to keep the chosen microphone in view", async () => {
+  const devices = Array.from({ length: 12 }, (_, i) => ({ id: String(i), label: `Mic ${i}`, default: i === 0 }));
+  const { ui, calls } = setup({ listDevices: async () => ({ devices }) });
+  ui.input("d");
+  await Bun.sleep(0);
+  // On 14 rows the picker shows seven devices.
+  for (let i = 0; i < 11; i++) ui.input("\x1b[B", 14);
+  const rows = screen(ui.draw(80, 14), 80, 14).join("\n");
+  expect(rows).toContain("❯ Mic 11");
+  expect(rows).not.toContain("Mic 4");
+  ui.input("\r", 14);
+  expect(calls.switched.map(d => d.id)).toEqual(["11"]);
+});
+
+test("a window narrower than the level row asks to be made bigger", () => {
+  const { ui } = setup();
+  expect(screen(ui.draw(36, 20), 36, 20)[0]).toContain("Make this window bigger");
+  expect(screen(ui.draw(37, 20), 37, 20)[4]).toContain("T:44");
 });
 
 test("m mutes and q or ctrl+c quits", () => {
