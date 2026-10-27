@@ -1,6 +1,7 @@
 //! `corgi voice setup`: checks the tools voice mode runs, downloads the
 //! speech model and the speech filter, and says whether voice is ready.
 import { createWriteStream, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { pipeline } from "node:stream/promises";
 import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 import * as models from "./models";
@@ -53,20 +54,22 @@ export async function download(entry: models.Entry, progress: (bytes: number) =>
   try {
     const reply = await fetch(entry.url);
     if (!reply.ok || !reply.body) throw Error("DownloadFailed");
-    const hash = createHash("sha256"),
-      out = createWriteStream(part, { mode: 0o644 });
+    const hash = createHash("sha256");
     let bytes = 0;
-    try {
-      for await (const chunk of reply.body) {
-        hash.update(chunk);
-        bytes += chunk.length;
-        if (bytes > entry.bytes) throw Error("ChecksumMismatch");
-        if (!out.write(chunk)) await new Promise(resolve => out.once("drain", resolve));
-        progress(bytes);
-      }
-    } finally {
-      await new Promise<void>(resolve => out.end(resolve));
-    }
+    // The pipeline fails on a write error too (a full disk), and closes the file either way.
+    await pipeline(
+      reply.body,
+      async function* (chunks: AsyncIterable<Uint8Array>) {
+        for await (const chunk of chunks) {
+          hash.update(chunk);
+          bytes += chunk.length;
+          if (bytes > entry.bytes) throw Error("ChecksumMismatch");
+          progress(bytes);
+          yield chunk;
+        }
+      },
+      createWriteStream(part, { mode: 0o644 }),
+    );
     if (bytes !== entry.bytes || hash.digest("hex") !== entry.sha256) throw Error("ChecksumMismatch");
     renameSync(part, file);
   } catch (error) {

@@ -21,28 +21,12 @@ const reset = "\x1b[0m",
   label_width = 9,
   /** The first column's values: a meter, two spaces and its setting. */
   column_width = 28,
+  /** The level row is not clipped: its label, the meter, two spaces and "T:100". */
+  min_cols = 1 + label_width + meter_cells + 2 + 5,
   /** A meter cell filled by quarters, bottom up. */
   fills = [" ", "⣀", "⣤", "⣶", "⣿"],
-  /** The level's colors, dark green through yellow to red, as in cc-deck:
-   * vivid on purpose, so they do not follow the theme. */
-  levels: palette.Rgb[] = [
-    [0, 95, 0],
-    [0, 135, 0],
-    [0, 175, 0],
-    [0, 215, 0],
-    [0, 255, 0],
-    [95, 255, 0],
-    [135, 255, 0],
-    [175, 255, 0],
-    [215, 255, 0],
-    [255, 255, 0],
-    [255, 215, 0],
-    [255, 175, 0],
-    [255, 135, 0],
-    [255, 95, 0],
-    [255, 0, 0],
-  ],
-  orange: palette.Rgb = [255, 175, 0];
+  /** The meter's colors run from the accent through warm to hot, so they follow the theme. */
+  meter_stops: palette.Token[] = ["accent", "warm", "hot"];
 type Option = keyof Timing | "filter";
 /** The options in two lines of aligned columns: what ends an utterance, then what starts one. */
 const option_lines: Option[][] = [
@@ -70,7 +54,7 @@ const seconds = (v: number) => `${v} s`;
 const help_entries: [string, string][] = [
   [
     "threshold",
-    "How loud a sound must be to count as speech: the orange bar on the meter, changed with + and - or the mouse wheel. Raise it in a noisy room; lower it when quiet words are missed.",
+    "How loud a sound must be to count as speech: the bar on the meter, changed with + and - or the mouse wheel. Raise it in a noisy room; lower it when quiet words are missed.",
   ],
   [
     "silence",
@@ -122,7 +106,7 @@ let plain = "",
   listening_note = "",
   recording_note = "",
   transcribing_note = "",
-  red = "",
+  hotBold = "",
   /** Each meter cell's fill color, and the same dimmed while the level is
    * under the threshold; the grey ones, at the same brightness, while muted. */
   gradient: string[] = [],
@@ -131,7 +115,13 @@ let plain = "",
   grey_dimmed: string[] = [];
 palette.derived(() => {
   plain = new Style({ bg: "bg" }).sgr();
-  const cell = (i: number) => levels[Math.round((i * (levels.length - 1)) / (meter_cells - 1))],
+  const stops = meter_stops.map(t => palette.colors[t]),
+    cell = (i: number) => {
+      // Where cell i falls between two stops, as a percentage of the way.
+      const t = (i * (stops.length - 1) * 100) / (meter_cells - 1),
+        from = Math.min(stops.length - 2, Math.floor(t / 100));
+      return palette.mix(stops[from], stops[from + 1], t - from * 100);
+    },
     grey = ([r, g, b]: palette.Rgb): palette.Rgb => {
       const y = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
       return [y, y, y];
@@ -142,12 +132,12 @@ palette.derived(() => {
   dimmed = cells(i => palette.mix(cell(i), palette.colors.bg, 55));
   grey_gradient = cells(i => grey(cell(i)));
   grey_dimmed = cells(i => palette.mix(grey(cell(i)), palette.colors.bg, 55));
-  mark = plain + "\x1b[1m" + palette.fgRgb(orange);
+  mark = new Style({ fg: "warm", bg: "bg", bold: true }).sgr();
   const green = palette.colors.accent;
   listening_note = plain + "\x1b[1m" + palette.fgRgb(palette.mix(green, palette.colors.bg, 35));
   recording_note = plain + "\x1b[1m" + palette.fgRgb(green);
-  transcribing_note = plain + "\x1b[1m" + palette.fgRgb(palette.mix(green, [80, 200, 220], 35));
-  red = plain + "\x1b[1m" + palette.fgRgb([230, 70, 60]);
+  transcribing_note = plain + "\x1b[1m" + palette.fgRgb(palette.mix(green, palette.colors.strong, 35));
+  hotBold = new Style({ fg: "hot", bg: "bg", bold: true }).sgr();
   strong = new Style({ fg: "strong", bg: "bg", bold: true }).sgr();
   text = new Style({ fg: "text", bg: "bg" }).sgr();
   muted = new Style({ fg: "muted", bg: "bg" }).sgr();
@@ -219,14 +209,22 @@ function linkStatus(session: VoiceSession, target: string): string | null {
 /** The mode: MUTED or Listening, as the sidebar has it (a voice that cannot
  * listen counts as muted). The note in the title adds whether a viewer is
  * attached and what speech is doing. */
-export function mode(s: VoiceSession): { note: string; style: string; label: string; label_style: string } {
-  if (!s.available || s.server === "crashed") return { note: "○", style: warm, label: "MUTED", label_style: red };
-  if (s.muted) return { note: "♪", style: muted, label: "MUTED", label_style: red };
-  const label = "Listening";
-  if (!s.viewer) return { note: "♫", style: warm, label, label_style: strong };
-  if (s.recording) return { note: "♫", style: recording_note, label, label_style: strong };
-  if (s.transcribing) return { note: "♫", style: transcribing_note, label, label_style: strong };
-  return { note: "♫", style: listening_note, label, label_style: strong };
+export function mode(s: VoiceSession): {
+  note: string;
+  style: string;
+  /** Whether the mode is MUTED, which the meter greys for. */
+  muted: boolean;
+  label: string;
+  label_style: string;
+} {
+  const off = { muted: true, label: "MUTED", label_style: hotBold };
+  if (!s.available || s.server === "crashed") return { note: "○", style: warm, ...off };
+  if (s.muted) return { note: "♪", style: muted, ...off };
+  const on = { muted: false, label: "Listening", label_style: strong };
+  if (!s.viewer) return { note: "♫", style: warm, ...on };
+  if (s.recording) return { note: "♫", style: recording_note, ...on };
+  if (s.transcribing) return { note: "♫", style: transcribing_note, ...on };
+  return { note: "♫", style: listening_note, ...on };
 }
 /** A local wall-clock time, as 14:02:31. */
 export function clock(ms: number): string {
@@ -303,7 +301,7 @@ export class VoiceUi {
       frame += at(y, x) + style + shown + reset;
       return displayWidth(shown);
     };
-    if (cols < 30 || rows < 14) {
+    if (cols < min_cols || rows < 14) {
       put(0, 0, text, "Make this window bigger for voice mode.");
       return frame;
     }
@@ -330,11 +328,11 @@ export class VoiceUi {
       this.hits.push({ y: 3, x: second + label_width, width: shown, act: mute });
     }
     // The level in braille dots, a quarter cell at a time, dimmed while it is
-    // under the threshold, which is a solid orange bar. Grey while muted.
+    // under the threshold, which is a solid warm bar. Grey while muted.
     const filled = (s.level / 100) * meter_cells,
       threshold = Math.min(meter_cells - 1, Math.round((this.threshold / 100) * meter_cells)),
       loud = s.level >= this.threshold,
-      colors = state.label === "MUTED" ? (loud ? grey_gradient : grey_dimmed) : loud ? gradient : dimmed;
+      colors = state.muted ? (loud ? grey_gradient : grey_dimmed) : loud ? gradient : dimmed;
     put(meter_row, 1, muted, "Level:");
     frame += at(meter_row, 1 + label_width);
     for (let i = 0; i < meter_cells; i++) {
@@ -534,8 +532,11 @@ export class VoiceUi {
     for (let y = 1; y < height - 1; y++)
       out += at(top + y, left) + line + "│" + plain + " ".repeat(width - 2) + line + "│";
     out += at(top + height - 1, left) + "╰" + "─".repeat(width - 2) + "╯" + reset;
-    lines.slice(0, height - 3).forEach((l, i) => {
-      const chosen = !p.loading && i === p.choice;
+    // The list scrolls so the chosen device stays in view.
+    const visible = height - 3,
+      first = p.loading ? 0 : Math.max(0, p.choice - visible + 1);
+    lines.slice(first, first + visible).forEach((l, i) => {
+      const chosen = !p.loading && first + i === p.choice;
       out += at(top + 1 + i, left + 2) + (chosen ? focused : text) + ellipsis(l, width - 4) + reset;
     });
     if (p.notice) out += at(top + height - 3, left + 2) + warm + ellipsis(p.notice, width - 4) + reset;

@@ -52,15 +52,18 @@ export class Capture {
       if (this.stopped || this.child !== child) return;
       this.child = null;
       this.onProblem(classify(await stderr.catch(() => "")));
-      this.retry = setTimeout(() => {
-        if (this.stopped || this.child) return;
-        try {
-          this.spawn();
-        } catch {
-          this.onProblem("mic_missing");
-        }
-      }, retry_ms);
+      this.retry = setTimeout(() => this.recover(), retry_ms);
     });
+  }
+  /** Starts ffmpeg again; when it cannot start, says so and tries later. */
+  private recover(): void {
+    if (this.stopped || this.child) return;
+    try {
+      this.spawn();
+    } catch {
+      this.onProblem("mic_missing");
+      this.retry = setTimeout(() => this.recover(), retry_ms);
+    }
   }
   private async read(stream: ReadableStream<Uint8Array>): Promise<void> {
     let pending = new Uint8Array(0);
@@ -83,7 +86,7 @@ export class Capture {
     const old = this.child;
     this.child = null;
     old?.kill();
-    this.spawn();
+    this.recover();
   }
   stop(): void {
     this.stopped = true;
