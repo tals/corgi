@@ -348,8 +348,8 @@ class Voice extends Viewers {
     pty.write("d");
     await this.shows(pty, "Studio Microphone");
     await this.shows(pty, "MacBook Pro Microphone");
-    // The picker starts on the current device, so the default one is a key away.
-    pty.write("\x1b[A\x1b[A\r");
+    // The picker starts on the current device, the default, so the other one is a key away.
+    pty.write("\x1b[A\r");
     const captures = () => this.lines(logs.ffmpeg).filter(l => Array.isArray(l) && !l.includes("-list_devices"));
     await this.until(() => captures().length === 2);
     const started = captures(),
