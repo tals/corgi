@@ -1,0 +1,17 @@
+#!/usr/bin/env bun
+// Stands in for system_profiler in the voice tests: names the default
+// microphone, as the fake pactl does on Linux, so the picker starts on it.
+const args = process.argv.slice(2).join(" ");
+if (args !== "SPAudioDataType -json") process.exit(1);
+process.stdout.write(
+  JSON.stringify({
+    SPAudioDataType: [
+      {
+        _items: [
+          { _name: "Studio Microphone" },
+          { _name: "MacBook Pro Microphone", coreaudio_default_audio_input_device: "spaudio_yes" },
+        ],
+      },
+    ],
+  }) + "\n",
+);
