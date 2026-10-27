@@ -237,6 +237,8 @@ export class SshLink implements VoiceLink {
   async watch(req: WatchRequest): Promise<{ voice_id: string; muted: boolean } & Seen> {
     // The voice runs on another host, so it is never one of the runtime's panes.
     const reply = await this.request("voice.watch", { muted: req.muted, available: req.available });
+    // The same read may have held the reply and a close: nothing to attach to.
+    if (this.closed) throw Error("ConnectionClosed");
     this.attached = true;
     return { voice_id: reply.voice_id, muted: reply.muted === true, ...seen(reply) };
   }
