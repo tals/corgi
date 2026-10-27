@@ -35,8 +35,10 @@ class Voice extends Viewers {
     );
     return { pane, file };
   }
-  async captured(file: string, text: string) {
-    await this.until(() => existsSync(file) && readFileSync(file, "latin1").includes(text));
+  /** Waits for `text` in the pane's capture: long enough for whisper-server to
+   * start and a few utterances to play, even on a busy CI runner. */
+  async captured(file: string, text: string, timeout = 15) {
+    await this.until(() => existsSync(file) && readFileSync(file, "latin1").includes(text), timeout);
     return readFileSync(file, "latin1");
   }
 
