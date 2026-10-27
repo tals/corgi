@@ -325,6 +325,7 @@ test("rows hidden in this workspace leave its picker but stay in Manage agents, 
     ["Claude Code · work", true, false],
     ["Pi", true, true],
     ["OpenCode", true, true],
+    ["Goose", true, true],
   ]);
   expect([model.here(0), model.here(1)]).toEqual([false, true]);
   expect(["codex", "claude:/a", "custom5", "terminal", "claude:work", "custom6", ""].map(Row.parse)).toEqual([
