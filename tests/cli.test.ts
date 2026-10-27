@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { Runtime, EXE, layout_tree, Viewer } from "./runtime";
 import { registerCase, run, shellJoin } from "./support";
 import { write_ordinary_agent } from "./provider_sim";
+import { Provider } from "../src/providers";
 
 class AgentCli extends Runtime {
   async cli(args: any[], { caller, error, stdin }: { caller?: number; error?: string; stdin?: string } = {}) {
@@ -315,10 +316,10 @@ class AgentCli extends Runtime {
           .map((a: any) => a.agent);
     await this.cli(["launcher", "hide", "codex", "--workspace", 1]);
     // Inside a pane, its own workspace.
-    await this.cli(["launcher", "hide", "claude", "pi", "opencode2"], { caller: one.pane });
+    await this.cli(["launcher", "hide", ...Provider.all.filter(p => p !== "codex")], { caller: one.pane });
     this.assertEqual(await shown(1), []);
-    this.assertEqual(await shown(other), ["codex", "claude", "pi", "opencode2"]);
-    this.assertEqual((await this.snapshot()).workspaces[0].launcher_hidden, ["codex", "claude", "pi", "opencode2"]);
+    this.assertEqual(await shown(other), Provider.all);
+    this.assertEqual((await this.snapshot()).workspaces[0].launcher_hidden, Provider.all);
     this.assertEqual((await this.cli(["launcher", "show", "codex", "--workspace", 1])).workspaces[0].agents, [
       { agent: "codex", label: "Codex", launcher: true, hidden: false },
     ]);

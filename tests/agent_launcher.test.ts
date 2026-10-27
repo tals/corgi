@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { registerCase, writeExecutable, shellJoin, quote, sleep, EXE, ROOT, JsonSocket, versioned } from "./support";
 import { Runtime, screen_text } from "./runtime";
 import { Viewer } from "./viewer_client";
+import { byProvider } from "../src/providers";
 
 function json(path: string): any {
   return JSON.parse(readFileSync(path, "utf8"));
@@ -207,12 +208,10 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await view.input("\x02A");
     await this.clickText(view, "Manage agents");
     await this.managerRemoveOrRestore(view, "Codex");
-    this.assertEqual((await this.session()).agent_hidden, {
-      codex: true,
-      claude: false,
-      pi: false,
-      opencode2: false,
-    });
+    this.assertEqual(
+      (await this.session()).agent_hidden,
+      byProvider(p => p === "codex"),
+    );
     await this.newCommand(view);
     const source = "FOO=123 claude code --whatever 'two words' --prompt '" + "x".repeat(100) + "'\n";
     await view.input("\x1b[200~" + source + "\x1b[201~");
@@ -237,12 +236,10 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await view.input("\r");
     await this.waitSaved(0, changed);
     await this.rpc({ op: "server.reload", executable: EXE });
-    this.assertEqual((await this.session()).agent_hidden, {
-      codex: true,
-      claude: false,
-      pi: false,
-      opencode2: false,
-    });
+    this.assertEqual(
+      (await this.session()).agent_hidden,
+      byProvider(p => p === "codex"),
+    );
     const entry = (await this.session()).agent_commands[0];
     this.assertEqual(entry.command, changed);
     this.assertFalse(entry.hidden);
@@ -627,40 +624,32 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     const rows = screen_text((await view.poll()).data, 120, 30);
     const y = rows.findIndex(row => row.includes("Codex"));
     await this.clickViewer(view, rows[y].indexOf("·") + 1, y + 1);
-    this.assertEqual((await this.session()).agent_yolo, {
-      codex: true,
-      claude: false,
-      pi: false,
-      opencode2: false,
-    });
+    this.assertEqual(
+      (await this.session()).agent_yolo,
+      byProvider(p => p === "codex"),
+    );
     this.assertEqual((await this.session()).panes.length, 1);
     this.assertIn("New agent", (await view.poll()).data);
     await view.input("j");
     await view.input("y");
-    this.assertEqual((await this.session()).agent_yolo, {
-      codex: true,
-      claude: true,
-      pi: false,
-      opencode2: false,
-    });
+    this.assertEqual(
+      (await this.session()).agent_yolo,
+      byProvider(p => p === "codex" || p === "claude"),
+    );
     await view.input("y");
-    this.assertEqual((await this.session()).agent_yolo, {
-      codex: true,
-      claude: false,
-      pi: false,
-      opencode2: false,
-    });
+    this.assertEqual(
+      (await this.session()).agent_yolo,
+      byProvider(p => p === "codex"),
+    );
     await view.input("k");
     await view.input("a");
     await this.until(() => existsSync(this.launches));
     this.assertIn("--dangerously-bypass-approvals-and-sandbox", JSON.parse(lines(this.launches)[0]).args);
     await this.rpc({ op: "server.reload", executable: EXE });
-    this.assertEqual((await this.session()).agent_yolo, {
-      codex: true,
-      claude: false,
-      pi: false,
-      opencode2: false,
-    });
+    this.assertEqual(
+      (await this.session()).agent_yolo,
+      byProvider(p => p === "codex"),
+    );
     await this.command("agent.yolo", { provider: "claude", enabled: true });
     await this.command("agent.create", {
       workspace: this.ws,

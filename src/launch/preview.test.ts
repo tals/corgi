@@ -5,27 +5,20 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Option, Worker, active_every, idle_every } from "./preview";
 import { Info, Window } from "../usage/account";
-import { Text } from "../providers";
+import { Provider, Text } from "../providers";
 import * as accounts from "../accounts";
 
-const variables = [
-  "CORGI_ENV_BASE",
-  "XDG_STATE_HOME",
-  "CORGI_CODEX_BIN",
-  "CORGI_CLAUDE_BIN",
-  "CORGI_PI_BIN",
-  "CORGI_OPENCODE2_BIN",
-] as const;
+const bin = (p: Provider) => `CORGI_${p.toUpperCase()}_BIN`;
+/** The providers these tests find installed. */
+const installed: Provider[] = Provider.all.filter(p => p !== "opencode2");
+const variables = ["CORGI_ENV_BASE", "XDG_STATE_HOME", ...Provider.all.map(bin)];
 let saved: NodeJS.ProcessEnv, root: string;
 beforeEach(() => {
   saved = { ...process.env };
   root = mkdtempSync(join(tmpdir(), "corgi-preview-"));
   process.env.CORGI_ENV_BASE = root;
   process.env.XDG_STATE_HOME = root;
-  process.env.CORGI_CODEX_BIN = process.execPath;
-  process.env.CORGI_CLAUDE_BIN = process.execPath;
-  process.env.CORGI_PI_BIN = process.execPath;
-  process.env.CORGI_OPENCODE2_BIN = "/nonexistent/opencode";
+  for (const p of Provider.all) process.env[bin(p)] = installed.includes(p) ? process.execPath : `/nonexistent/${p}`;
   accounts.reset();
 });
 afterEach(() => {
@@ -143,7 +136,7 @@ test("accounts are listed before provider reads, and a slow account doesn't dela
     expect(first.accounts.every(a => a.option.pending)).toBe(true);
     await turn();
     const partial = worker.preview("/project");
-    expect(started).toHaveLength(5);
+    expect(started).toHaveLength(installed.length + 2);
     expect(partial.pending).toBe(true);
     expect(partial.options.codex.pending).toBe(false);
     expect(partial.accounts[0].option.pending).toBe(true);

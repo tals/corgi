@@ -8,28 +8,29 @@ import { Hooks, timestampMs } from "./providers/common";
 import * as sim from "./providers/sim";
 import type { Settings } from "./providers/adapter";
 test("per-provider values are keyed by name, in the registry's order", () => {
-  expect(JSON.stringify(byProvider(p => p === "claude"))).toBe(
-    '{"codex":false,"claude":true,"pi":false,"opencode2":false}',
-  );
-  expect(Provider.all).toEqual(["codex", "claude", "pi", "opencode2"]);
+  const value = byProvider(p => p === "claude");
+  expect(Object.keys(value)).toEqual(Provider.all);
+  expect(Object.entries(value).filter(([, on]) => on)).toEqual([["claude", true]]);
+  expect(Provider.all.slice(0, 3)).toEqual(["codex", "claude", "pi"]);
   expect(Provider.parse("claude")).toBe("claude");
   expect(Provider.parse("other")).toBeNull();
   expect(Provider.owning("/opt/bin/claude-code")).toBe("claude");
 });
 test("a registered provider is listed, parsed and found until it is removed", () => {
+  const builtIn = [...Provider.all];
   const remove = sim.register();
   try {
-    expect<string[]>(Provider.all).toEqual(["codex", "claude", "pi", "opencode2", "sim"]);
+    expect<string[]>(Provider.all).toEqual([...builtIn, "sim"]);
     expect(Provider.parse("sim")).toBe(sim.sim);
     expect(Provider.owning("sim")).toBe(sim.sim);
     expect(adapter(sim.sim).name).toBe("Sim");
     expect(adapter(sim.sim)).toBe(sim.adapter);
-    expect(Object.keys(byProvider(p => p))).toEqual(["codex", "claude", "pi", "opencode2", "sim"]);
+    expect(Object.keys(byProvider(p => p))).toEqual([...builtIn, "sim"]);
     expect(() => sim.register()).toThrow("ProviderExists");
   } finally {
     remove();
   }
-  expect(Provider.all).toEqual(["codex", "claude", "pi", "opencode2"]);
+  expect(Provider.all).toEqual(builtIn);
   expect(Provider.parse("sim")).toBeNull();
   expect(() => adapter(sim.sim)).toThrow("UnknownProvider");
 });

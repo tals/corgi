@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { realpathSync } from "node:fs";
 import { asksHelp, handles, help, idle, launcher, launcherText, layout, list, parse, read, usage, words } from "./cli";
+import { Provider, adapter } from "./providers";
 
 test("help is asked for only before --", () => {
   expect(asksHelp(["move", "3", "--help"])).toBe(true);
@@ -314,29 +315,33 @@ test("launcher names each agent and says where it shows", () => {
       { id: 4, name: "", launcher_hidden: [] },
     ],
   };
-  expect(launcherText(launcher(snapshot))).toBe(
-    [
-      'workspace 1 "corgi"',
-      "  codex         Codex                shown",
-      "  claude        Claude Code          shown",
-      "  claude/work   Claude Code · work   hidden",
-      "  claude/codex  Claude Code · codex  not in the launcher",
-      "  pi            Pi                   shown",
-      "  opencode2     OpenCode             shown",
-      "  command/2     review-bot           hidden",
-      "  command/3     Codex command        not in the launcher",
-      "workspace 4",
-      "  codex         Codex                shown",
-      "  claude        Claude Code          shown",
-      "  claude/work   Claude Code · work   shown",
-      "  claude/codex  Claude Code · codex  not in the launcher",
-      "  pi            Pi                   shown",
-      "  opencode2     OpenCode             shown",
-      "  command/2     review-bot           shown",
-      "  command/3     Codex command        not in the launcher",
-      "",
-    ].join("\n"),
-  );
+  const text = launcherText(launcher(snapshot)),
+    lines = text.trimEnd().split("\n"),
+    rest = Provider.all.slice(3).map(p => [p, adapter(p).name, "shown"]);
+  expect(lines.map(line => line.trim().split(/ {2,}/))).toEqual([
+    ['workspace 1 "corgi"'],
+    ["codex", "Codex", "shown"],
+    ["claude", "Claude Code", "shown"],
+    ["claude/work", "Claude Code · work", "hidden"],
+    ["claude/codex", "Claude Code · codex", "not in the launcher"],
+    ["pi", "Pi", "shown"],
+    ...rest,
+    ["command/2", "review-bot", "hidden"],
+    ["command/3", "Codex command", "not in the launcher"],
+    ["workspace 4"],
+    ["codex", "Codex", "shown"],
+    ["claude", "Claude Code", "shown"],
+    ["claude/work", "Claude Code · work", "shown"],
+    ["claude/codex", "Claude Code · codex", "not in the launcher"],
+    ["pi", "Pi", "shown"],
+    ...rest,
+    ["command/2", "review-bot", "shown"],
+    ["command/3", "Codex command", "not in the launcher"],
+  ]);
+  // Labels and places line up in columns.
+  const agents = lines.filter(line => line.startsWith("  "));
+  for (const column of [1, 2])
+    expect(new Set(agents.map(line => line.indexOf(line.trim().split(/ {2,}/)[column]))).size).toBe(1);
   // Its own name comes first; another name must fit one agent.
   const named = (...names: string[]) => launcher(snapshot, 1, names)[0].agents.map(a => a.agent);
   expect(named("codex", "work", "review-bot", "command/3", "claude/default", "work")).toEqual([

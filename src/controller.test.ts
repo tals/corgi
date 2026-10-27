@@ -3,6 +3,7 @@ import { transport } from "./fixtures/transport";
 import { expect, setSystemTime, spyOn, test } from "bun:test";
 import { Controller, agentMessage, cardEffect, pasteKey, forkName, breadcrumbs } from "./controller";
 import * as sim from "./providers/sim";
+import { byProvider } from "./providers";
 import * as preferences from "./preferences";
 import { TabMenu, type Row } from "./commands";
 import { Dialog } from "./name_dialog";
@@ -1604,7 +1605,7 @@ test("an account's row has a YOLO and launcher membership of its own, apart from
     agent: s.agent_launcher.manageModel().agents.find((a: agentManager.Agent) => a.account === "/accounts/work"),
   });
   expect(sent.at(-1)).toEqual({
-    "agent.visibility": { hidden: { codex: false, claude: false, pi: false, opencode2: false }, hidden_accounts: [] },
+    "agent.visibility": { hidden: byProvider(() => false), hidden_accounts: [] },
   });
   expect([s.agent_launcher.hiddenOf(work), s.agent_launcher.hiddenOf("claude")]).toEqual([false, false]);
   s.agent_launcher.manager.at = agentManager.agentKey("claude", "");
@@ -1613,7 +1614,7 @@ test("an account's row has a YOLO and launcher membership of its own, apart from
     agent: s.agent_launcher.manageModel().agents.find((a: agentManager.Agent) => a.provider === "claude" && !a.account),
   });
   expect(sent.at(-1)).toEqual({
-    "agent.visibility": { hidden: { codex: false, claude: true, pi: false, opencode2: false } },
+    "agent.visibility": { hidden: byProvider(p => p === "claude") },
   });
 });
 

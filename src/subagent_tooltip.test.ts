@@ -25,7 +25,7 @@ import { View as ContextView } from "./usage/context_window";
 import { Window } from "./usage/account";
 import type { Spark, SpendCell } from "./usage/limits";
 import type { Reading } from "./usage/spend";
-import { option } from "./agent_launcher";
+import { option, type Option } from "./agent_launcher";
 import { Writer } from "./text";
 import * as palette from "./palette";
 import * as sidebar from "./sidebar";
@@ -33,6 +33,7 @@ import { Terminal } from "./pane/terminal";
 import { microTimestamp } from "./clock";
 import type { Agent } from "./mirror";
 import { Model as ProviderModel } from "./providers/model";
+import { byProvider, type ByProvider } from "./providers";
 
 const base = new palette.Style({ fg: "text", bg: "bg" }).sgr();
 const usage = (
@@ -471,7 +472,8 @@ function testAccounts(now: number): Accounts {
     usage_fetched_at: now,
     limits: { windows: [{ minutes: 10080, used: 84, reset_at: now + 5 * 86400 + 14 * 3600 }, null] },
   });
-  return new Accounts({ system: "codex", now, options: { codex, claude, pi: codex, opencode2: option({}) } });
+  const options: Partial<ByProvider<Option>> = { codex, claude, pi: codex };
+  return new Accounts({ system: "codex", now, options: byProvider(p => options[p] ?? option({})) });
 }
 
 test("wide terminals put each account's limits beside its agents", () => {
