@@ -2,7 +2,7 @@
 //! under the text that glides from where the row was to where it lands,
 //! then fades there. The text itself only moves by whole rows. Hosts
 //! without Kitty graphics get a truecolor tint where the row lands.
-import { deflateSync } from "node:zlib";
+import { crc32, deflateSync } from "node:zlib";
 import { colors } from "./palette";
 import type { Cell } from "./fork_hero";
 
@@ -50,20 +50,33 @@ export function tint(ms: number): number {
   return ms >= tint_ms ? 0 : strength * (1 - ms / tint_ms) ** 2;
 }
 
+function chunk(type: string, data: Uint8Array): Buffer {
+  const out = Buffer.alloc(12 + data.length);
+  out.writeUInt32BE(data.length);
+  out.write(type, 4, "latin1");
+  out.set(data, 8);
+  out.writeUInt32BE(crc32(out.subarray(4, 8 + data.length)), 8 + data.length);
+  return out;
+}
 const encoded = new Map<string, string>();
+/** A 1-bit PNG whose one palette entry is the accent at `alpha`. PNG
+ * rather than o=z: Ghostty 1.3.1 crashes inflating o=z images over 64 KiB. */
 function pixels(width: number, height: number, alpha: number): string {
   const key = `${width}x${height}:${alpha}`;
   let data = encoded.get(key);
   if (data === undefined) {
-    const rgba = Buffer.alloc(width * height * 4);
-    const [r, g, b] = colors.accent;
-    for (let i = 0; i < rgba.length; i += 4) {
-      rgba[i] = r;
-      rgba[i + 1] = g;
-      rgba[i + 2] = b;
-      rgba[i + 3] = alpha;
-    }
-    data = deflateSync(rgba, { level: 1 }).toString("base64");
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(width);
+    ihdr.writeUInt32BE(height, 4);
+    ihdr.set([1, 3, 0, 0, 0], 8);
+    data = Buffer.concat([
+      Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+      chunk("IHDR", ihdr),
+      chunk("PLTE", Uint8Array.from(colors.accent)),
+      chunk("tRNS", Uint8Array.of(alpha)),
+      chunk("IDAT", deflateSync(new Uint8Array((Math.ceil(width / 8) + 1) * height))),
+      chunk("IEND", new Uint8Array()),
+    ]).toString("base64");
     if (encoded.size >= 128) encoded.clear();
     encoded.set(key, data);
   }
@@ -91,7 +104,7 @@ export function place(
   if (width <= 0 || to <= from || level === 0) return "";
   const shown = top + from,
     row = Math.floor(shown / cell.height);
-  const keys = `a=T,f=32,o=z,s=${width},v=${height},i=${image_id},p=1,Y=${shown - row * cell.height},y=${from},h=${to - from},z=-1,C=1,q=2`;
+  const keys = `a=T,f=100,i=${image_id},p=1,Y=${shown - row * cell.height},y=${from},h=${to - from},z=-1,C=1,q=2`;
   const data = pixels(width, height, level);
   let out = `\x1b7\x1b[${row + 1};${x + 1}H`;
   for (let offset = 0; offset < data.length; offset += 4096) {

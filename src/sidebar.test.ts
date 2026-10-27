@@ -1076,7 +1076,7 @@ test("a moved row rides a Kitty tint from where it was and shows as it lands; el
   // on, and the row's text is still hidden.
   let out = draw(kitty, moved(150), [], 0);
   const at = (row: number) => `\x1b[${row};${lists_x + 1}H\x1b_Ga=T`;
-  expect(has(out, `${at(top + 2)},f=32,o=z,s=${(kitty.width - lists_x - 1) * 10},v=40,i=730120,p=1,Y=10,`)).toBe(true);
+  expect(has(out, `${at(top + 2)},f=100,i=730120,p=1,Y=10,`)).toBe(true);
   expect(has(out, fgRgb(colors.bg) + "moves")).toBe(true);
   // Landed, the row shows and the tint fades on it.
   out = draw(kitty, moved(400), [], 0);
