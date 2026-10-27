@@ -314,6 +314,7 @@ function writeConfig(path: string, enable: boolean): "added" | "present" | "abse
   const next = enable ? ensurePluginEnabled(yaml) : removePluginEntry(yaml);
   if (next === yaml) return exists && enable ? "present" : "absent";
   mkdirSync(join(path, ".."), { recursive: true });
+  if (exists) atomicWrite(path + ".corgi-backup", yaml, 0o600, false);
   atomicWrite(path, next, 0o600, false);
   return "added";
 }
@@ -399,4 +400,3 @@ export function snippet(): string {
     "#     enabled: true",
   ].join("\n");
 }
-
