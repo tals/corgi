@@ -1,5 +1,23 @@
 import { test, expect } from "bun:test";
-import { keys } from "./terminal_keys";
+import { keys, incomplete } from "./terminal_keys";
+
+test("a read that ends inside a key or a paste is cut before it", () => {
+  expect(incomplete("abc")).toBe(3);
+  expect(incomplete("ab\x1b")).toBe(2);
+  expect(incomplete("ab\x1b[")).toBe(2);
+  expect(incomplete("ab\x1bO")).toBe(2);
+  expect(incomplete("q\x1b[<0;5;3")).toBe(1);
+  expect(incomplete("\x1b[1;5")).toBe(0);
+  expect(incomplete("\x1b[Aq")).toBe(4);
+  expect(incomplete("\x1b[<0;5;3M")).toBe(9);
+  expect(incomplete("x\x1b[200~pas")).toBe(1);
+  expect(incomplete("\x1b[200~pasted\x1b[201~y")).toBe(19);
+  // The rest, once it arrives, makes the key the read split.
+  const first = "m\x1b[",
+    cut = incomplete(first);
+  expect(keys(first.slice(0, cut))).toEqual([{ kind: "text", text: "m" }]);
+  expect(keys(first.slice(cut) + "B")).toEqual([{ kind: "down" }]);
+});
 
 test("clicks and wheel notches come from SGR mouse reports", () => {
   expect(keys("\x1b[<0;5;3M\x1b[<0;5;3m")).toEqual([{ kind: "click", x: 4, y: 2 }]);

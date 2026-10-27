@@ -46,6 +46,8 @@ export function reason(error: unknown): string {
       return errors.name(error) ?? String(error);
   }
 }
+/** How many recordings may wait for Whisper; past that, speech fails instead of piling up. */
+const max_backlog = 4;
 /** Refusals that retrying cannot fix. */
 const refusals = new Set(["VoiceAttached", "DaemonLacksVoice", "RemoteTooOld", "RemoteMissing"]);
 
@@ -70,6 +72,8 @@ export class VoiceSession {
   private next_id = 1;
   private current: Utterance | null = null;
   private transcriptions: Promise<void> = Promise.resolve();
+  /** Recordings waiting for Whisper, or with it; each holds its audio. */
+  private backlog = 0;
   private deliveries: Promise<void> = Promise.resolve();
   private retry?: ReturnType<typeof setTimeout>;
   private resend?: ReturnType<typeof setTimeout>;
@@ -200,9 +204,12 @@ export class VoiceSession {
     this.current = null;
     u.captured_at = segment.started_at;
     u.duration = segment.duration;
+    // Whisper that is this far behind is not handed more audio to hold.
+    if (this.backlog >= max_backlog) return this.finish(u, "failed", "transcription backlog");
     u.status = "transcribing";
     this.changed();
-    this.transcriptions = this.transcriptions.then(() => this.transcribe(u, segment));
+    this.backlog++;
+    this.transcriptions = this.transcriptions.then(() => this.transcribe(u, segment)).finally(() => this.backlog--);
   }
   private async transcribe(u: Utterance, segment: Segment): Promise<void> {
     if (u.status !== "transcribing") return;
