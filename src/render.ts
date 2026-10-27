@@ -174,6 +174,8 @@ export interface Ui {
   /** The folded sidebar's list that shows as a drawer over the panes. */
   sidebar_drawer: Section | null;
   corgi_badge: corgiBadge.Mode;
+  /** Voice mode's state for the sidebar's indicator; null without voice. */
+  voice: "listening" | "muted" | null;
   supports_kitty_graphics: boolean;
   images: Images | null;
   /** The brand marks the host holds for untitled tabs, where it shows Kitty images. */
@@ -247,6 +249,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     sidebar_open: true,
     sidebar_drawer: null,
     corgi_badge: "none",
+    voice: null,
     supports_kitty_graphics: false,
     images: null,
     tab_icons: null,
@@ -640,6 +643,7 @@ export function frame(
   side.focus = u.sidebar_focus;
   side = side.withWorkspaces(u.workspaces.length, u.workspace_offset).withEntries(entries);
   side.corgi_badge = u.corgi_badge;
+  side.voice = u.voice;
   side.supports_kitty_graphics = u.supports_kitty_graphics;
   side.cell = u.cell_pixels;
   side.scope_label = u.scope_label;
@@ -752,6 +756,7 @@ export function frame(
         switch (found.tag) {
           case "toggle":
           case "workspace_new":
+          case "voice":
           case "agent_scope":
           case "agent_new":
           case "agent_options":

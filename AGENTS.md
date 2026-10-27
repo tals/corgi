@@ -111,6 +111,7 @@ Byte lengths where the protocol counts bytes use `text.byteLength`; screen
 widths use `text.displayWidth`, which follows Ghostty's codepoint widths.
 
 **Logging.** Only `serve` and `__handoff` log (their stderr is server.log).
+`corgi voice --verbose` also logs, to its own `voice.log`: its stderr is its screen.
 A periodic job warns once per distinct failure, not every cycle.
 Best-effort cleanup may swallow errors.
 

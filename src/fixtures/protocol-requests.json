@@ -193,6 +193,20 @@
     "after": 4,
     "provider": "codex"
   },
+  "voice.watch": {
+    "pane": 12,
+    "muted": false,
+    "available": true
+  },
+  "voice.set": {
+    "voice_id": "v-1",
+    "muted": true
+  },
+  "voice.type": {
+    "voice_id": "v-1",
+    "text": "refactor the parser module"
+  },
+  "voice.toggle": {},
   "theme": {
     "theme": {
       "foreground": {

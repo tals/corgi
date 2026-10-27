@@ -532,6 +532,8 @@ export class Runtime {
   shell: ShellStatus = shellStatus();
   system_working = false;
   smart_links = true;
+  /** The attached voice mode's state; null when none is attached or the daemon predates voice. */
+  voice: "listening" | "muted" | null = null;
   system_usage = new UsageView();
   ports: any = { workspaces: [] };
   resources = new resources.Snapshot();
@@ -613,6 +615,8 @@ export class Runtime {
     this.system_usage = usageView(snapshot.system_usage);
     this.system_working = snapshot.system_working === true;
     this.smart_links = snapshot.smart_links !== false;
+    this.voice =
+      snapshot.voice?.state === "listening" || snapshot.voice?.state === "muted" ? snapshot.voice.state : null;
     this.ports = snapshot.ports ?? { workspaces: [] };
     this.last_agent = Provider.parse(snapshot.last_agent) ?? Provider.first;
     this.agent_yolo = byProvider(p => snapshot.agent_yolo?.[p] === true);

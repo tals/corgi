@@ -87,8 +87,12 @@ let selected_bg: string,
   button_glyph: string,
   button_warm: string,
   ghost_underline: string,
-  outline: string;
+  outline: string,
+  voice_on: string,
+  voice_off: string;
 palette.derived(() => {
+  voice_on = new Style({ fg: "accent", bg: "bg", bold: true }).sgr();
+  voice_off = new Style({ fg: "faint", bg: "bg" }).sgr();
   selected_bg = bg("selected");
   panel = new Style({ fg: "muted", bg: "bg" }).sgr();
   outline = new Style({ bg: "bg" }).sgr() + fgRgb(palette.outline);
@@ -498,8 +502,11 @@ export type Hit =
   /** A badge counting agents scrolled out of sight, and the scroll that shows the nearest. */
   | { tag: "active"; offset: number }
   | { tag: "workspace_new" }
-  | { tag: "workspace"; workspace: number };
+  | { tag: "workspace"; workspace: number }
+  | { tag: "voice" };
 const hit = <T extends Hit["tag"]>(tag: T): Hit => ({ tag }) as Hit;
+/** The shortest title the voice indicator may shorten it to, as in "work…". */
+const min_title = 5;
 
 /** Render the prospective order without changing shared state or the stable
  * row geometry used by the captured gesture's hit testing. */
@@ -524,6 +531,8 @@ export class View {
   /** Header scope: "all" or the workspace whose agents are listed. */
   scope_label = "";
   corgi_badge: corgiBadge.Mode = "none";
+  /** Voice mode's state, shown in the title row while it is attached. */
+  voice: "listening" | "muted" | null = null;
   supports_kitty_graphics = false;
   /** The host's cell in pixels, for images placed by the pixel. */
   cell: Cell | null = null;
@@ -932,6 +941,8 @@ export class View {
     if (y === 0 && v.drawer !== "agents") {
       if (x >= v.width - 5) return hit("toggle");
       if (x >= v.width - 11 && x < v.width - 6) return hit("workspace_new");
+      const mic = v.voiceLabel();
+      if (mic && x >= mic.x && x < mic.x + displayWidth(mic.text)) return hit("voice");
     }
     if (
       y === v.middle() &&
@@ -1147,16 +1158,37 @@ export class View {
   private thumbStyle(section: Section): string {
     return this.focus === section ? outline : panel + fg("faint");
   }
+  /** Where the voice indicator goes in the title row: a music note left of
+   * `[ + ]` (♫ listening, ♪ muted), spaced from it when there is room. Beside the corgi badge the
+   * title shortens for it. Null while no voice is attached or the row cannot
+   * fit it. */
+  voiceLabel(): { x: number; text: string } | null {
+    if (!this.voice || this.width === 0) return null;
+    const note = this.voice === "listening" ? "♫" : "♪",
+      end = this.width - 11,
+      room = end - (this.titleX() + displayWidth(i18n.t`workspaces`) + 1);
+    if (room >= 2) return { x: end - 2, text: note };
+    // The button's own background sets it apart.
+    if (room >= 1 || (this.corgi_badge !== "none" && end - 2 - this.titleX() >= min_title))
+      return { x: end - 1, text: note };
+    return null;
+  }
+  /** Where the title starts: after the corgi badge when it shows. */
+  private titleX(): number {
+    return this.corgi_badge !== "none" ? 5 : 1;
+  }
   /** The title row and the workspace list above the agents. */
   private drawWorkspaces(w: Writer, workspaces: WorkspaceEntry[]): void {
     const v = this;
     w.write(`${w.cup(1, v.width - 4)}${panel} < `);
+    const mic = v.voiceLabel();
     if (v.corgi_badge !== "none") {
       if (v.corgi_badge === "emoji") w.write(`${w.cup(1, 2)}${panel}${corgiBadge.emoji}`);
       w.write(`${w.cup(1, 6)}\x1b[1m` + fg("strong"));
-      writeEllipsis(w, i18n.t`workspaces`, sat(v.width, 17));
+      writeEllipsis(w, i18n.t`workspaces`, Math.min(sat(v.width, 17), mic ? mic.x - 1 - v.titleX() : Infinity));
     } else v.line(w, 0, i18n.t`workspaces`, "\x1b[1m" + fg("strong"));
     w.write(w.cup(1, v.width - 10) + button + `[ + ]${panel}`);
+    if (mic) w.write(w.cup(1, mic.x + 1) + (v.voice === "listening" ? voice_on : voice_off) + mic.text + panel);
     const shown = workspaces.slice(
       v.workspace_offset,
       Math.min(workspaces.length, v.workspace_offset + v.workspaceCapacity()),

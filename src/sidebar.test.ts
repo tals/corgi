@@ -1893,3 +1893,46 @@ test("positioned activity sections and overflow badges keep their column offsets
   view.drawAt(writer, entries, [], 5000);
   expect(writer.s).toBe(shifted(expected, 7));
 });
+
+test("the voice indicator sits left of [ + ] without moving the title row", () => {
+  const ws = [workspaceEntry({ id: 1, name: "a", cwd: "", active: true })];
+  const title = (view: View) => draw(view, [], ws);
+  const row = (view: View) => hostText(title(view)).split("\n")[0];
+  const plain = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0);
+  const listening = plain.clone();
+  listening.voice = "listening";
+  const base = row(plain),
+    shown = row(listening);
+  expect(base).not.toMatch(/[♪♫]/);
+  // A music note, spaced from the button: two while listening.
+  expect(shown).toMatch(/workspaces +♫ \[ \+ \]/);
+  for (const item of ["workspaces", "[ + ]", "<"]) expect(shown.indexOf(item)).toBe(base.indexOf(item));
+  expect(has(title(listening), new Style({ fg: "accent", bg: "bg", bold: true }).sgr() + "♫")).toBe(true);
+  const x = shown.indexOf("♫");
+  expect(listening.hit(x, 0)).toEqual(H("voice"));
+  expect(listening.hit(x - 1, 0)).toEqual(H("none"));
+  expect(listening.hit(shown.indexOf("[ + ]"), 0)).toEqual(H("workspace_new"));
+  // Muted, one faint note.
+  const muted = listening.clone();
+  muted.voice = "muted";
+  expect(has(title(muted), new Style({ fg: "faint", bg: "bg" }).sgr() + "♪")).toBe(true);
+  // Beside the corgi badge at the default width, the title gives up a letter for it.
+  const badged = listening.withWidth(28);
+  badged.voice = "listening";
+  badged.corgi_badge = "emoji";
+  expect(row(badged)).toContain("workspac… ♫[ + ]");
+  expect(badged.hit(row(badged).indexOf("♫"), 0)).toEqual(H("voice"));
+  // Narrower, the badged title shortens for it, down to "work…".
+  const narrow = badged.withWidth(26);
+  narrow.voice = "listening";
+  narrow.corgi_badge = "emoji";
+  expect(row(narrow)).toMatch(/ work\S*…\s*♫\[ \+ \]/);
+  const narrowest = badged.withWidth(20);
+  narrowest.voice = "listening";
+  narrowest.corgi_badge = "emoji";
+  expect(row(narrowest)).not.toMatch(/[♪♫]/);
+  // No indicator in a collapsed sidebar.
+  const collapsed = View.init(100, 30, false, 0, 0).withWorkspaces(1, 0);
+  collapsed.voice = "listening";
+  expect(row(collapsed)).not.toMatch(/[♪♫]/);
+});

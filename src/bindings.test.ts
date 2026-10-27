@@ -170,3 +170,9 @@ test("arrows after the prefix repeat without it, as tmux's bind -r", async () =>
   expect(find("corgi", { name: "focus", value: "up" })?.key).toBe(57352);
   expect(find("corgi", { name: "swap", value: "up" })?.key).toBe(75);
 });
+test("prefix M mutes voice in every preset, beside prefix m for sounds", () => {
+  for (const preset of ["corgi", "tmux", "herdr", "cmux"] as Preset[]) {
+    expect(lookup(preset, true, 77)).toEqual({ name: "voice-mute" });
+    expect(lookup(preset, true, 109)).toEqual({ name: "mute" });
+  }
+});

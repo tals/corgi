@@ -135,6 +135,10 @@ export const operations = [
   "headless.stop",
   "headless.send",
   "headless.events",
+  "voice.watch",
+  "voice.set",
+  "voice.type",
+  "voice.toggle",
   "theme",
   "viewer.terminal",
   "bugreport",
@@ -629,6 +633,9 @@ const requests = {
   "headless.stop": { provider: "provider", session: "string" },
   "headless.send": { provider: "provider", session: "string", input: "json" },
   "headless.events": { provider: "provider", session: "string", after: ["u64", 0] },
+  "voice.watch": { pane: ["?u32", null], muted: ["bool", false], available: ["bool", true] },
+  "voice.set": { voice_id: "string", muted: ["?bool", null], available: ["?bool", null] },
+  "voice.type": { voice_id: "string", text: "string" },
   theme: { theme: ["theme", null] },
   "viewer.terminal": { terminal: "json" },
   hook: {
@@ -723,6 +730,10 @@ export interface ReplyPayloads {
   "workspace.switch": Ok & { viewer: number; queued: true };
   "headless.start": Ok & { session: string; provider: Provider };
   "headless.list": Ok & { sessions: unknown[] };
+  "voice.watch": Ok & { voice_id: string; muted: boolean; viewer: boolean; focus: string | null };
+  "voice.set": Ok & { muted: boolean };
+  "voice.type": Ok & { pane: number; viewer: number };
+  "voice.toggle": Ok & { muted: boolean };
   "headless.events": Ok & {
     events: unknown[];
     pending_requests: unknown;
