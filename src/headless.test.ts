@@ -57,6 +57,34 @@ const approval = (session: string, id: string): Event => ({
   id,
   ask: { tool: true, name: "item/commandExecution/requestApproval", summary: "" },
 });
+test("native activity follows its headless turn without changing approvals or reopening completion", () => {
+  const registry = new Registry(),
+    s = new Session(1, "omp", "/tmp", new Fake());
+  shown(s, registry, "a");
+  start(s, registry, "a", "turn");
+  const actor = registry.find("omp", "a")!;
+  const activity = (text: string, amend = false, turn = "turn") =>
+    s.apply(registry, { kind: "activity", session: "a", turn, text, amend });
+  activity("Creating protocol");
+  activity("Creating protocol smoke", true);
+  expect(actor.activity_timeline.points.map(p => p.label.text())).toEqual(["Creating protocol smoke"]);
+  expect(actor.state.tool_active).toBe(false);
+  s.apply(registry, approval("a", "approval"));
+  activity("Waiting for write approval");
+  expect(actor.state.state).toBe("blocked");
+  expect(actor.state.attention).toBe("needs_input");
+  expect(actor.pending_headless_requests).toBe(1);
+  s.apply(registry, { kind: "request_closed", session: "a", id: "approval", running: true });
+  finish(s, registry, "a", "turn");
+  activity("Late result");
+  expect(actor.state.state).toBe("idle");
+  expect(actor.state.activity.text()).not.toBe("Late result");
+  start(s, registry, "a", "next");
+  activity("Old turn");
+  expect(actor.state.activity.text()).toBe("");
+  expect(actor.state.turnId()).toBe("next");
+});
+
 test("headless conversations retain independent turns and receipts across selection", () => {
   const registry = new Registry(),
     s = session();

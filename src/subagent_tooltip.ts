@@ -10,8 +10,10 @@ import * as spend from "./usage/spend";
 import { percentFigure } from "./launcher_usage";
 import * as limit_history from "./usage/limits";
 import { Group as BackgroundGroup, type Group as BackgroundGroupName } from "./activity/background_tasks";
+import type * as checklist from "./activity/checklist";
+import * as checklist_view from "./checklist_view";
 import { max_actors as max } from "./conversations";
-import { stamp_bucket } from "./protocol";
+import { decodeChecklist, stamp_bucket } from "./protocol";
 import { type AccountOption, type Option, option } from "./agent_launcher";
 import * as palette from "./palette";
 import * as releaseLabel from "./release_label";
@@ -136,6 +138,7 @@ export interface Conversation {
   background_tasks: BackgroundView;
   id: number;
   timeline: { points: ActivityPoint[]; pending: UsageView };
+  checklist: checklist.List;
   /** The first-party model id; Bedrock and Vertex spellings are resolved. */
   model: string;
   /** Its display name, such as "Opus 5.5"; empty for an unknown shape. */
@@ -186,6 +189,7 @@ export function conversation(value: any = {}): Conversation {
       truncated: tasks.truncated === true,
     },
     id: Number(value.id ?? 0),
+    checklist: decodeChecklist(value.checklist),
     timeline: {
       points: (value.timeline?.points ?? []).map((point: any) => ({
         at: Number(point.at ?? 0),
@@ -241,8 +245,8 @@ export function childCount(all: readonly Conversation[], parent: number): number
 export function childrenAvailable(all: readonly Conversation[], parent: number, now: number): boolean {
   const root = find(all, parent);
   if (!root) return false;
-  // A list that holds until the next one does not age.
-  const lasting = root.agent.provider !== null ? adapter(root.agent.provider).caps.children_at_stop : false;
+  // Hook-driven child lifecycle holds until the next event.
+  const lasting = root.agent.provider !== null ? adapter(root.agent.provider).caps.children_from_hooks : false;
   const age = now - root.children_observed_at;
   if (root.children_observed_at <= 0 || (!lasting && (age < 0 || age > fresh_window))) return false;
   // Omit the whole section when child status cannot be presented reliably.
@@ -345,7 +349,8 @@ function activity(agent: Agent): string {
   if (agent.compacting) return "Compacting";
   if (agent.state === "working" && agent.subagents.waiting) return "Waiting on subagents";
   if (agent.activity.length > 0) return agent.activity;
-  if (agent.recent_activity.length > 0) return agent.recent_activity;
+  if (agent.recent_activity.length > 0 && !(agent.provider && adapter(agent.provider).caps.native_activity))
+    return agent.recent_activity;
   if (agent.tool_active && agent.state === "working") return "Running a tool";
   switch (agent.state) {
     case "working":
@@ -434,6 +439,28 @@ export class Card {
       offset += 1;
     }
     return offset;
+  }
+  checklist(row: number, list: checklist.List, view: checklist_view.Window) {
+    this.w.write(`\x1b[${row + 2};${this.x + 1}H${base}${this.ink("border")}├${"─".repeat(this.width - 2)}┤`);
+    this.line(row + 2, "TODOs", `${view.done}/${view.total}${list.partial ? "+" : ""} done`, "title", "muted");
+    let offset = 3;
+    const markers: Record<checklist.Status, { glyph: string; tone: Tone }> = {
+      pending: { glyph: "☐", tone: "muted" },
+      active: { glyph: "▶", tone: "working" },
+      done: { glyph: "✓", tone: "faint" },
+      dropped: { glyph: "×", tone: "faint" },
+      blocked: { glyph: "!", tone: "warm" },
+    };
+    for (const group of view.groups) {
+      if (group.name) this.line(row + offset++, group.name, "", "muted", "muted");
+      if (group.more_done > 1)
+        this.line(row + offset++, `${group.name ? "  " : ""}… ${group.more_done} done`, "", "faint", "faint");
+      for (const item of group.items) {
+        const marker = markers[item.status];
+        this.line(row + offset++, `${group.name ? "  " : ""}${marker.glyph} ${item.text}`, "", marker.tone, "muted");
+      }
+    }
+    if (view.more_pending > 1) this.line(row + offset, `+${view.more_pending} more pending`, "", "faint", "faint");
   }
   /** The cells `line` leaves its left text beside a right text this wide. */
   leftRoom(right_width: number): number {
@@ -646,7 +673,8 @@ function runningSomewhere(all: readonly Conversation[], item: Conversation, now:
   if (item.agent.state !== "working" && item.agent.state !== "blocked" && item.agent.state !== "initializing")
     return false;
   const age = now - item.observed_at;
-  if (item.observed_at <= 0 || age < 0 || age > fresh_window) return false;
+  const lasting = item.agent.provider !== null ? adapter(item.agent.provider).caps.children_from_hooks : false;
+  if (item.observed_at <= 0 || (!lasting && (age < 0 || age > fresh_window))) return false;
   let parent = item.parent;
   for (let i = 0; i < Math.min(max, all.length); i++) {
     if (parent === null) return false;
@@ -1264,9 +1292,12 @@ export function draw(
       Number(root_agent.state === "working" && root_agent.activity.length === 0 && !root_agent.compacting),
   );
   const timeline_height = timeline_nodes > 0 ? timeline_nodes + 1 : 0;
-  const child_footer = children_available && model.children === 0;
+  const child_footer =
+    children_available && model.children === 0 && (entry.subagents.running > 0 || entry.subagents.blocked > 0);
   const tasks = root.background_tasks;
   const task_height = tasks.items.length > 0 ? Math.min(8, tasks.items.length + 1 + Number(tasks.truncated)) : 0;
+  const todo_view = checklist_view.window(root.checklist);
+  const todo_height = checklist_view.visible(root.checklist, microTimestamp()) ? todo_view.rows + 3 : 0;
   // Until there is a timeline, the activity takes its own line under the subtitle.
   const activity_row = timeline_nodes === 0;
   const wanted =
@@ -1274,6 +1305,7 @@ export function draw(
     Number(activity_row) +
     timeline_height +
     task_height +
+    todo_height +
     (model.children > 0 ? model.children + 3 : Number(child_footer));
   const height = Math.min(wanted, rows - 2);
   const x = Math.min(px + 2, cols - width);
@@ -1333,8 +1365,13 @@ export function draw(
   card.cell(header + 1, 0, card.textWidth(), "Total", "text", false);
   card.tokenColumns(header + 1, root.usage, false, root.usage.known ? "title" : "muted");
   let row = header + 2;
-  const footer_row = y + height - 2;
-  const end = model.children > 0 || child_footer ? footer_row : y + height - 1;
+  const bottom = y + height - 1;
+  const todo_room = sat(bottom, row + task_height + 2 + (model.children > 0 ? 3 : Number(child_footer)));
+  const fitted_todos = checklist_view.window(root.checklist, 5, Math.max(0, todo_room - 3));
+  const todo_budget = todo_height > 0 && fitted_todos.items.length > 0 ? fitted_todos.rows + 3 : 0;
+  const todo_top = bottom - todo_budget;
+  const footer_row = todo_top - 1;
+  const end = model.children > 0 || child_footer ? footer_row : todo_top;
   // Give requested background work priority on short terminals. The section
   // stays bounded and reports omitted commands explicitly.
   row += card.backgroundTasks(row, tasks, Math.min(task_height, sat(end, row)));
@@ -1369,10 +1406,9 @@ export function draw(
       ? "Updating child details…"
       : shown < model.children
         ? `+${model.children - shown} more`
-        : model.children === 0
-          ? "No subagents"
-          : "Live usage";
-  if (model.children > 0 || child_footer) card.line(footer_row, footer, "", "faint", "faint");
+        : "";
+  if (footer) card.line(footer_row, footer, "", "faint", "faint");
+  if (todo_budget) card.checklist(todo_top, root.checklist, fitted_todos);
   w.write("\x1b[0m\x1b8");
   return new Rect(x, y, width, height);
 }

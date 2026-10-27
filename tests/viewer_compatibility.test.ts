@@ -89,7 +89,11 @@ class ViewerCompatibility extends Runtime {
   }
   async test_server_rejects_open_before_creating_or_attaching() {
     for (const version of [undefined, current - 1, newer, -1, String(current)]) {
-      const result = await this.raw_rpc({ op: "viewer.open", cwd: this.temp.name, viewer_protocol: version });
+      const result = await this.raw_rpc({
+        op: "viewer.open",
+        cwd: { incompatible: "payload" },
+        viewer_protocol: version,
+      });
       this.assertEqual(result.err, "UnsupportedViewerProtocol");
       this.assertEqual(result.viewer_protocol, current);
     }

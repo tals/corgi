@@ -447,6 +447,11 @@ $.snapshot.conversations[].context.window: u64
 $.snapshot.conversations[].context.compacts_at: u64
 $.snapshot.conversations[].context.at: i64
 $.snapshot.conversations[].children_observed_at: i64
+$.snapshot.conversations[].checklist.items[].text: custom bounded_text.BoundedText(512)
+$.snapshot.conversations[].checklist.items[].status: enum pending active blocked done dropped
+$.snapshot.conversations[].checklist.items[].group: custom bounded_text.BoundedText(160)
+$.snapshot.conversations[].checklist.partial: bool
+$.snapshot.conversations[].checklist.at: i64
 $.snapshot.conversations[].agent.conversation: u32
 $.snapshot.conversations[].agent.subagents.running: u32
 $.snapshot.conversations[].agent.subagents.blocked: u32

@@ -3,6 +3,67 @@ import * as protocol from "./protocol";
 import * as json from "./json";
 import { Model, Selection } from "./layout";
 import samples from "./fixtures/protocol-requests.json";
+import * as checklist from "./activity/checklist";
+
+test("checklist wire state roundtrips labels and statuses unchanged", () => {
+  const original = new checklist.List(
+    checklist.statuses.map(status => ({ text: `Review ${status}`, status, group: "Delivery" })),
+    true,
+    1_700_000_000_000_000,
+  );
+  const decoded = protocol.decodeChecklist(json.parse(json.stringify(original)));
+  expect(decoded).toBeInstanceOf(checklist.List);
+  expect(decoded).toEqual(original);
+  expect(protocol.decodeChecklist(undefined)).toEqual(new checklist.List());
+  const labels = {
+    items: [{ text: "  Keep  spaces  ", status: "pending" as const, group: "  Group  " }],
+    partial: false,
+    at: 0,
+  };
+  expect(protocol.decodeChecklist(labels).items).toEqual(labels.items);
+});
+test("checklist wire state rejects malformed shapes and statuses instead of normalizing them", () => {
+  const item = { text: "Task", status: "pending", group: "" };
+  for (const value of [
+    null,
+    [],
+    { items: {}, partial: false, at: 0 },
+    { items: [], partial: "false", at: 0 },
+    { items: [], partial: false, at: "0" },
+    { items: [], partial: false, at: -1 },
+    { items: [], partial: false, at: 1.5 },
+    { items: [null], partial: false, at: 0 },
+    { items: [{ ...item, text: 1 }], partial: false, at: 0 },
+    { items: [{ ...item, status: 1 }], partial: false, at: 0 },
+    { items: [{ ...item, group: null }], partial: false, at: 0 },
+  ])
+    expect(() => protocol.decodeChecklist(value)).toThrow("UnexpectedToken");
+  for (const value of [
+    {},
+    { items: [], partial: false },
+    { items: [{ text: "Task", status: "pending" }], partial: false, at: 0 },
+  ])
+    expect(() => protocol.decodeChecklist(value)).toThrow("MissingField");
+  expect(() => protocol.decodeChecklist({ items: [{ ...item, status: "unknown" }], partial: false, at: 0 })).toThrow(
+    "InvalidEnumTag",
+  );
+});
+test("checklist wire state enforces item count and UTF-8 label bounds", () => {
+  const item = { text: "Task", status: "pending", group: "" };
+  for (const items of [
+    Array(65).fill(item),
+    [{ ...item, group: "é".repeat(81) }],
+    [{ ...item, text: "é".repeat(257) }],
+  ])
+    expect(() => protocol.decodeChecklist({ items, partial: false, at: 0 })).toThrow("Overflow");
+  const bounded = protocol.decodeChecklist({
+    items: Array.from({ length: 64 }, () => ({ text: "é".repeat(256), status: "pending", group: "é".repeat(80) })),
+    partial: false,
+    at: 0,
+  });
+  expect(bounded.items).toHaveLength(64);
+});
+
 test("every op decodes a sample request", () => {
   expect(Object.keys(samples).sort()).toEqual([...protocol.operations].sort());
   for (const op of protocol.operations) {

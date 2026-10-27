@@ -38,9 +38,11 @@ Set `CORGI_OLD_EXE` to a test-enabled binary from the previous release when
 running `updates`; its first fixture version then uses that binary to exercise
 the real cross-version handoff.
 
-`CORGI_OLD_EXE=/path/to/protocol-1/corgi-test bun integration.ts reload_compatibility`
-checks automatic developer switchover and explicit reload from a protocol-1
-daemon. Both keep a live shell and verify it still accepts input after handoff.
+`CORGI_OLD_EXE=/path/to/previous/corgi bun integration.ts reload_compatibility`
+checks automatic developer switchover and explicit reload from an older
+daemon, discovering its runtime protocol through management hello. The old
+binary need not be test-enabled. Both checks preserve a live shell's PID and
+verify it still accepts input after handoff.
 
 `--check` parses and bundles the suites without executing them; it is not a
 replacement for running the tests. The former smoke suite is split into
@@ -120,6 +122,12 @@ A test waits on the daemon, never on the time it might take:
   the daemon's clock, or a viewer's with `viewer.advance()`.
 - `sleep()` is for real-time behavior only, such as escape-key timing or a
   real child process, with a comment saying which.
+
+`settle()` does not wait for a child process to finish starting or for replies
+on another socket to reach the test. Before measuring watcher silence, wait
+for the child's ready marker and expected foreground command in the session.
+Then settle and send `ping` on the watch socket: count every notification
+before its reply. Discarding currently buffered lines is not a delivery barrier.
 
 `sleep_budget.test.ts` caps the number of sleeps in `tests/*.ts`. Lower its
 budget when you remove one; a new sleep has to raise it.

@@ -1,4 +1,5 @@
 import * as background_tasks from "./activity/background_tasks";
+import * as checklist from "./activity/checklist";
 import { Conversation, hash } from "./activity/summary";
 import { Timeline } from "./activity/timeline";
 import { View, Tokens, Counter } from "./usage/live";
@@ -42,6 +43,7 @@ export class Actor {
   status_inference = new Conversation();
   activity_timeline = new Timeline();
   background_tasks = new background_tasks.Inventory();
+  checklist = new checklist.List();
   /** The background shells its last Stop listed, each of which can wake it. */
   shells = new background_tasks.Shells();
   live_usage = new View();
@@ -69,6 +71,17 @@ export class Actor {
     const text = this.state.compacting ? "Compacting context" : this.state.activity.text();
     if (text)
       this.activity_timeline.checkpoint(this.state.turnId(), new Text(text.slice(0, 80)), this.usageView(ms), ms);
+  }
+  checkpointActivity(amend: boolean, now: number) {
+    if (this.state.compacting || !this.state.activity.len) return;
+    const ms = Math.floor(now / 1000),
+      timeline = this.activity_timeline;
+    if (amend) timeline.amend(this.state.turnId(), this.state.activity, this.usageView(ms), ms);
+    else timeline.checkpoint(this.state.turnId(), this.state.activity, this.usageView(ms), ms);
+  }
+  /** Keeps `list` unless the one it holds is newer. */
+  observeChecklist(list: checklist.List) {
+    if (list.at >= this.checklist.at) this.checklist = list;
   }
   observeTaskEnds(ended: background_tasks.Ended) {
     this.shells.drop(ended);
@@ -171,7 +184,9 @@ export class Actor {
     const was = this.state.compacting;
     const ding = this.state.observeHook(this.provider(), event, seq, watched, now, presence);
     if (ding === null) return false;
-    if (this.state.last_seq === seq) this.screen_compacting = false;
+    if (event.checklist) this.observeChecklist(event.checklist.stamped(now));
+    if (event.kind === "checklist") return false;
+    if (this.state.last_seq === seq && event.kind !== "activity") this.screen_compacting = false;
     if (event.model) {
       this.model = Model.resolve(event.model);
       this.model_from_hook = true;
@@ -361,7 +376,17 @@ export class Registry {
   }
   observeHook(actor: Actor, event: any, seq: bigint, watched: boolean, now: number, presence: Presence = "detached") {
     if (event.kind === "subagent_start" || event.kind === "subagent_stop") {
+      // Child hooks share a transport, not their parent's or siblings' event order.
+      const child = this.find(actor.provider(), event.subagent);
+      if (
+        child &&
+        (seq < child.state.last_seq ||
+          (seq === child.state.last_seq && child.state.state === "idle" && event.kind === "subagent_start"))
+      )
+        return false;
       adapter(actor.provider()).conversation?.child?.(this, actor, event, now);
+      const updated = this.find(actor.provider(), event.subagent);
+      if (updated?.parent === actor.id) updated.state.last_seq = seq;
       return false;
     }
     const accepted = actor.state.last_seq;
@@ -404,6 +429,15 @@ export class Registry {
    * already shows. */
   routeHook(binding: Attachment, provider: Provider, event: any, binds: boolean) {
     if (!event.session) return null;
+    if (event.kind === "subagent_start" || event.kind === "subagent_stop") {
+      const actor = this.find(provider, event.session);
+      let ancestor = actor;
+      for (let i = 0; ancestor && i < max_actors; i++) {
+        if (binding.knows(ancestor.id)) return actor;
+        ancestor = ancestor.parent === null ? null : this.byId(ancestor.parent);
+      }
+      return null;
+    }
     if (!binds) {
       const actor = this.find(provider, event.session);
       return actor && binding.knows(actor.id) ? actor : null;

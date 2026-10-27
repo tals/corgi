@@ -3,6 +3,41 @@ import { Theme } from "./theme";
 import type { View as SurfaceView } from "./pane/surface";
 import { Provider, type ByProvider } from "./providers";
 import type { Target } from "./agent_order";
+import * as checklist from "./activity/checklist";
+import * as text from "./text";
+
+/** Decode Corgi's own checklist, as the daemon sends or saves it, without provider cleanup. */
+export function decodeChecklist(value: unknown): checklist.List {
+  if (value === undefined) return new checklist.List();
+  const source: Record<string, unknown> = json.object(value);
+  if (!["items", "partial", "at"].every(key => Object.hasOwn(source, key))) throw Error("MissingField");
+  const { items, partial, at } = source;
+  if (
+    !Array.isArray(items) ||
+    typeof partial !== "boolean" ||
+    typeof at !== "number" ||
+    !Number.isSafeInteger(at) ||
+    at < 0
+  )
+    throw Error("UnexpectedToken");
+  if (items.length > checklist.max_items) throw Error("Overflow");
+  return new checklist.List(
+    items.map((value: unknown): checklist.Item => {
+      const item: Record<string, unknown> = json.object(value);
+      if (!["text", "status", "group"].every(key => Object.hasOwn(item, key))) throw Error("MissingField");
+      if (typeof item.text !== "string" || typeof item.status !== "string" || typeof item.group !== "string")
+        throw Error("UnexpectedToken");
+      if (text.byteLength(item.text) > checklist.text_bytes || text.byteLength(item.group) > checklist.group_bytes)
+        throw Error("Overflow");
+      const status = checklist.statuses.find(status => status === item.status);
+      if (status === undefined) throw Error("InvalidEnumTag");
+      return { text: item.text, status, group: item.group };
+    }),
+    partial,
+    at,
+  );
+}
+
 export interface Control {
   seq: bigint;
   kind: "focus" | "workspace" | "action";

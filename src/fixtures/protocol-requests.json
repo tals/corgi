@@ -21,13 +21,13 @@
     "cwd": "/tmp"
   },
   "viewer.open": {
-    "viewer_protocol": 3,
+    "viewer_protocol": 4,
     "cwd": "/tmp",
     "onboarding": true,
     "theme": {}
   },
   "viewer.sync": {
-    "viewer_protocol": 3,
+    "viewer_protocol": 4,
     "interests": [
       {
         "pane": 1,

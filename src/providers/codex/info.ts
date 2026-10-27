@@ -13,7 +13,7 @@ export const info: Info = {
 };
 export const caps: Caps = {
   prompt_turns: false,
-  children_at_stop: false,
+  children_from_hooks: false,
   follows_cd: false,
   titles_once_loaded: true,
   transcript_tools: true,

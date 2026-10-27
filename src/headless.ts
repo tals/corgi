@@ -334,6 +334,16 @@ export class Session {
     let ding = false;
     const completed = !!reported && target.finishedTurn(reported);
     const stale = completed || (phase !== "working" && !!reported && !!target.turn.len && reported !== target.turnId());
+    if (e.kind === "activity") {
+      if (!stale && reported && reported === target.turnId() && ["working", "blocked"].includes(target.state)) {
+        target.setActivity(e.text);
+        target.activity_inferred = false;
+        target.activity_at = Date.now() * 1000;
+        actor?.checkpointActivity(e.amend, target.activity_at);
+      }
+      this.journal(e);
+      return false;
+    }
     if (!stale || phase === "completed") {
       if (e.kind === "tool") {
         if (e.done) this.finishTool(e.id, thread);

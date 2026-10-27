@@ -51,7 +51,7 @@ export const transcript: Transcript = {
         role = str(m, "role"),
         id = str(v, "id");
       const delta = new Counts();
-      if (type === "session_info") t.name = new Text(str(v, "name").slice(0, 160));
+      if (!req.child && type === "session_info") t.name = new Text(str(v, "name").slice(0, 160));
       if (type === "model_change") t.model = Model.resolve(str(v, "modelId"));
       if (type === "custom" && str(v, "customType") === "corgi-context") {
         const data = field(v, "data"),
@@ -78,7 +78,8 @@ export const transcript: Transcript = {
             stamp ?? Date.now(),
           );
         const text = messageText(m).trim();
-        if (text && stamp !== null) {
+        // A child's runner owns its label; assistant prose remains transcript evidence.
+        if (!req.child && text && stamp !== null) {
           t.update = new Text(clip(text, 160));
           t.update_at = stamp * 1000;
         }

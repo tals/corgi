@@ -51,6 +51,7 @@ export class Result {
     public action: prompt.Action = label === null ? "none" : "new",
   ) {}
   stale(agent: Agent) {
+    if (agent.provider && adapter(agent.provider).caps.native_activity) return "superseded";
     if (agent.state !== "working") return "not_working";
     if (agent.turn_epoch !== this.request.turn_epoch) return "turn_changed";
     if (agent.activity_generation !== this.request.generation) return "evidence_changed";
@@ -407,7 +408,13 @@ export class Worker {
   }
   submit(owner: Actor, evidence: Text, progress: ToolView | null, panes: any[]) {
     const agent = owner.state;
-    if (!["working", "blocked"].includes(agent.state) || !agent.turn.len || !this.summarizing()) return;
+    if (
+      adapter(owner.provider()).caps.native_activity ||
+      !["working", "blocked"].includes(agent.state) ||
+      !agent.turn.len ||
+      !this.summarizing()
+    )
+      return;
     const req = Object.assign(new Request(), {
       actor: owner.id,
       provider: owner.provider(),
@@ -448,6 +455,7 @@ export class Worker {
       if (!slot) return null;
       const actor = actors.find(
         a =>
+          !adapter(a.provider()).caps.native_activity &&
           a.id === slot.request.actor &&
           ["working", "blocked"].includes(a.state.state) &&
           a.state.turn_epoch === slot.request.turn_epoch,
@@ -512,6 +520,10 @@ export class Worker {
       let index = -1;
       for (let n = 0; n < max_actors && this.summarizing(); n++) {
         const i = (this.cursor + n) % max_actors;
+        if (this.slots[i] && adapter(this.slots[i]!.request.provider).caps.native_activity) {
+          this.slots[i] = null;
+          continue;
+        }
         if (this.slots[i]?.ready(now, now - this.observed_at >= away_after_ms)) {
           index = i;
           break;

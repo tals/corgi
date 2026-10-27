@@ -102,6 +102,11 @@ $.conversations[].parent?: u32
 $.conversations[].workspace: u32
 $.conversations[].observed_at: i64
 $.conversations[].children_observed_at: i64
+$.conversations[].checklist.items[].text: custom bounded_text.BoundedText(512)
+$.conversations[].checklist.items[].status: enum pending active blocked done dropped
+$.conversations[].checklist.items[].group: custom bounded_text.BoundedText(160)
+$.conversations[].checklist.partial: bool
+$.conversations[].checklist.at: i64
 $.conversations[].tracked_since: i64
 $.conversations[].headless_meter: optional
 $.conversations[].headless_meter?.meter.value.tokens.input: u64

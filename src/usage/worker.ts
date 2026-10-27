@@ -13,6 +13,7 @@ import { Counter, Meter, View } from "./live";
 import { Reading } from "./context_window";
 import { Tracker as Tools, View as Progress } from "../activity/tools";
 import { Ended } from "../activity/background_tasks";
+import * as checklist from "../activity/checklist";
 import * as accounts from "../accounts";
 import { max_actors } from "../conversations";
 import { hydrate } from "../persist/checkpoint";
@@ -42,6 +43,7 @@ export class Result {
   update_at = 0;
   spoke_at = 0;
   ended = new Ended();
+  checklist: checklist.List | null = null;
   fallback(agent: Agent, now: number) {
     return agent.provider ? (adapter(agent.provider).transcript?.fallback(this, agent, now) ?? false) : false;
   }
@@ -68,6 +70,7 @@ export class Tail {
   update_at = 0;
   spoke_at = 0;
   ended = new Ended();
+  checklist: checklist.List | null = null;
   /** Where the daemon before a handoff stopped counting, until the file opens. */
   carried: Position | null = null;
   closeFile() {
@@ -298,6 +301,7 @@ export class Worker {
           !t.update.len &&
           !t.spoke_at &&
           !t.ended.len &&
+          !t.checklist &&
           !t.context.at
         )
           continue;
@@ -320,6 +324,7 @@ export class Worker {
         r.update_at = t.update_at;
         r.spoke_at = t.spoke_at;
         r.ended = Object.assign(new Ended(), { items: [...t.ended.items] });
+        r.checklist = t.checklist;
         if (existing) this.results[this.results.indexOf(existing)] = r;
         else this.results.push(r);
         if (t.progress.turn.text() === req.agent.turnId()) t.progress.dirty = false;

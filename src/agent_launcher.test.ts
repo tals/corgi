@@ -1,6 +1,6 @@
 // Mirrors the tests in agent_launcher.zig.
 import { expect, test } from "bun:test";
-import { Menu, Row, commandEntry, preview, resolution, returned } from "./agent_launcher";
+import { Menu, Row, commandEntry, keyAgent, preview, resolution, returned } from "./agent_launcher";
 import { View as SidebarView } from "./sidebar";
 import { analyze } from "./launch/command";
 import { Terminal } from "./pane/terminal";
@@ -16,6 +16,16 @@ const menu = (fields: Partial<Menu> = {}) => {
   return value;
 };
 const now = () => Math.floor(Date.now() / 1000);
+test("each agent has a launcher key of its own, apart from the launcher's", () => {
+  // The controller's own launcher keys: all, move, manage, terminal, usage, worktrees, YOLO, search, help.
+  const taken = "aAjkmtuwy/?";
+  const keys = Provider.all.map(p => adapter(p).launcher_key);
+  expect(new Set(keys).size).toBe(keys.length);
+  for (const [i, key] of keys.entries()) {
+    expect(taken).not.toContain(key);
+    expect(keyAgent(key.charCodeAt(0))).toBe(Provider.all[i]);
+  }
+});
 /** The screen `m` draws, as text. */
 function screen(m: Menu, cols: number, rows: number, side: SidebarView): string[] {
   const w = new Writer();

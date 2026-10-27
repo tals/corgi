@@ -448,6 +448,36 @@ test("the first summary of a turn sees the tools read with its commentary", () =
   }
 });
 
+test("native OMP activity is not queued or overwritten by old inference results", () => {
+  const registry = new Registry(),
+    omp = registry.get("omp", "native"),
+    pi = registry.get("pi", "inferred"),
+    worker = new Worker();
+  try {
+    for (const actor of [omp, pi]) {
+      actor.state.state = "working";
+      actor.state.setTurn("turn");
+      worker.submit(actor, new Text("Inspecting the protocol"), null, []);
+    }
+    expect(worker.slots.filter(Boolean).map(slot => slot!.request.actor)).toEqual([pi.id]);
+    omp.state.setActivity("Creating live protocol transition smoke");
+    const old = Object.assign(new Request(), {
+      actor: omp.id,
+      provider: "omp",
+      turn_epoch: omp.state.turn_epoch,
+      generation: omp.state.activity_generation,
+    });
+    expect(new Result(old, parseLabel("Inspecting protocol")).apply(omp)).toBe(false);
+    expect(omp.state.activity.text()).toBe("Creating live protocol transition smoke");
+    worker.slots[1] = new Slot(old);
+    worker.reconcile(registry.items);
+    expect(worker.slots[1]).toBeNull();
+    expect(worker.slots[0]?.request.actor).toBe(pi.id);
+  } finally {
+    worker.stop();
+  }
+});
+
 test("actor inference context survives turns and detachment but rejects stale results", () => {
   const registry = new Registry();
   const actor = registry.get("codex", "shared");

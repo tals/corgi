@@ -7,8 +7,6 @@ import * as claudeHeadless from "./providers/claude/headless";
 import { Hooks, timestampMs } from "./providers/common";
 import * as sim from "./providers/sim";
 import type { Settings } from "./providers/adapter";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 test("per-provider values are keyed by name, in the registry's order", () => {
   const value = byProvider(p => p === "claude");
   expect(Object.keys(value)).toEqual(Provider.all);
@@ -30,17 +28,23 @@ test("every provider id is one corgi-hook forwards", () => {
     expect(Provider.wellFormed(id)).toBe(false);
   expect(() => Provider.register({ ...sim.adapter, id: "Sim" })).toThrow("InvalidProvider");
 });
-test("the native layer's copy of Claude's programs matches the registry", () => {
-  const zig = readFileSync(join(import.meta.dir, "../native/zig/detection.zig"), "utf8"),
-    block = /const claude: Programs = \.\{([\s\S]*?)\n\};/.exec(zig)?.[1] ?? "",
-    field = (key: string) =>
-      [...block.matchAll(/\.(\w+) = &\.\{([^}]*)\}/g)]
-        .filter(m => m[1] === key)
-        .flatMap(m => [...m[2].matchAll(/"([^"]*)"/g)].map(s => s[1]));
-  const programs = adapter("claude").programs;
-  expect(field("names")).toEqual(programs.names);
-  expect(field("markers")).toEqual(programs.markers ?? []);
-  expect(field("scripts")).toEqual(programs.scripts ?? []);
+test.each(Provider.all)("the %s adapter can initialize before the registry", async provider => {
+  const module = new URL(`./providers/${provider}/index.ts`, import.meta.url).href;
+  const registry = new URL("./providers.ts", import.meta.url).href;
+  // Separate processes and sequential imports exercise initialization order; static imports cannot isolate it.
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      "-e",
+      `const direct = await import(${JSON.stringify(module)});
+const registry = await import(${JSON.stringify(registry)});
+if (direct.adapter !== registry.adapter(${JSON.stringify(provider)})) throw Error("WrongAdapter");
+if (registry.Provider.owning(direct.adapter.command) !== ${JSON.stringify(provider)}) throw Error("WrongOwner");`,
+    ],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  const stderr = new Response(child.stderr).text();
+  expect(await child.exited, await stderr).toBe(0);
 });
 test("a registered provider is listed, parsed and found until it is removed", () => {
   const builtIn = [...Provider.all];

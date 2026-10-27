@@ -400,7 +400,7 @@ test("the top border says when the build was made and links its commit", () => {
 test("Model opens a dropdown on the choice in use, and Left closes it", () => {
   const menu = Menu.open(),
     prefs = new Preferences(),
-    s = status({ choice: "opencode2" });
+    s = status({ choice: "omp" });
   expect(menu.enter(s, prefs)).toBeNull();
   expect(menu.focus).toBe("options");
   expect(menu.cursor).toBe(0);
@@ -961,6 +961,7 @@ test("cached models stay visible while refreshing with only a quiet heading indi
       available: [
         { provider: "pi", model: "custom/cached", name: "Cached model", account: "", ready: true },
         { provider: "opencode2", model: "custom/old", name: "Older model", account: "", ready: false },
+        { provider: "omp", model: "custom/omp", name: "omp model", account: "", ready: true },
       ],
     });
   menu.enter(s, prefs);
@@ -970,6 +971,7 @@ test("cached models stay visible while refreshing with only a quiet heading indi
   text = draw(menu, 100, 40, 0, s, prefs).join("\n");
   expect(text).toMatch(/Pi\s+1 model ◌/);
   expect(text).toMatch(/OpenCode\s+1 model ◌/);
+  expect(text).toMatch(/omp\s+1 model ◌/);
   expect(text).toContain("Cached model");
   expect(text).toContain("Older model");
   expect(text).not.toContain("Fetching models");

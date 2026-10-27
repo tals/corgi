@@ -20,6 +20,7 @@ import * as worktrees from "../worktrees";
 import { parseInventory } from "../trackers/worktrees";
 import { snapshot } from "../session";
 import { Tokens } from "../usage/live";
+import * as checklist from "../activity/checklist";
 const fixtures = resolve(import.meta.dir, "../fixtures");
 const fresh = () => {
   const r = new Runtime(),
@@ -752,3 +753,57 @@ test("a restored candidate terminal does not signal its process until adopted", 
     n.probe_wait_child(pid);
   }
 });
+
+test.each([false, true])("checklists survive persistence and default when absent, live=%s", async live => {
+  using original = fresh();
+  const actor = original.conversations.get("omp", "todo-session");
+  show(original, actor);
+  actor.checklist = new checklist.List(
+    [
+      { text: "Implement", status: "done", group: "Delivery" },
+      { text: "Review", status: "blocked", group: "Delivery" },
+    ],
+    false,
+    120000,
+  );
+  const saved = cp.capture(original, live);
+  using next = new Runtime();
+  await restore(next, saved, live);
+  const restored = next.conversations.find("omp", "todo-session")!;
+  expect(restored.checklist).toBeInstanceOf(checklist.List);
+  expect(restored.checklist).toEqual(actor.checklist);
+  expect(snapshot(next).conversations[0].checklist).toEqual(restored.checklist);
+  const older = roundtrip(saved);
+  delete older.conversations[0].checklist;
+  using compatible = new Runtime();
+  await restore(compatible, older, live);
+  expect(compatible.conversations.find("omp", "todo-session")!.checklist).toEqual(new checklist.List());
+  const invalid = roundtrip(saved);
+  invalid.conversations[0].checklist.items[0].status = "unknown";
+  using rejected = new Runtime();
+  await expect(restore(rejected, invalid, live)).rejects.toThrow("InvalidEnumTag");
+  const malformed = roundtrip(saved);
+  malformed.conversations[0].checklist.items = {};
+  using malformedRuntime = new Runtime();
+  await expect(restore(malformedRuntime, malformed, live)).rejects.toThrow("UnexpectedToken");
+});
+
+test.each([false, true])(
+  "any provider's checklist restores, and the earlier todos fields are ignored, live=%s",
+  async live => {
+    using original = fresh();
+    const actor = original.conversations.get("codex", "plan");
+    show(original, actor);
+    actor.checklist = new checklist.List([{ text: "Plan", status: "active", group: "" }], false, 100);
+    const saved = roundtrip(cp.capture(original, live));
+    saved.conversations[0].todos = {
+      phases: [{ name: "Earlier shape", tasks: [{ content: "Ignored", status: "in_progress" }] }],
+      truncated: false,
+    };
+    saved.conversations[0].todos_at = 123;
+    saved.conversations[0].todos_changed_at = 100;
+    using restored = new Runtime();
+    await restore(restored, saved, live);
+    expect(restored.conversations.find("codex", "plan")!.checklist).toEqual(actor.checklist);
+  },
+);

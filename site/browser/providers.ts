@@ -8,10 +8,11 @@ import { info as codex } from "../../src/providers/codex/info";
 import { info as claude } from "../../src/providers/claude/info";
 import { info as pi } from "../../src/providers/pi/info";
 import { info as opencode2 } from "../../src/providers/opencode2/info";
+import { info as omp } from "../../src/providers/omp/info";
 import type { Info } from "../../src/providers/adapter";
 export * from "../../src/providers/common";
 
-const registry = { codex, claude, pi, opencode2 } satisfies Record<string, Info>;
+const registry = { codex, claude, pi, opencode2, omp } satisfies Record<string, Info>;
 export type Provider = keyof typeof registry;
 export type ByProvider<T> = Record<Provider, T>;
 const all = Object.keys(registry) as Provider[];

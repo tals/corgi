@@ -10,6 +10,7 @@ import { Terminal } from "../pane/terminal";
 import { Tracker } from "../detection";
 import { Cache } from "../trackers/link_labels";
 import { Conversation } from "../activity/summary";
+import { decodeChecklist } from "../protocol";
 import { Entry } from "../launch/command";
 import { Meter, Tokens } from "../usage/live";
 import * as binary from "../base64";
@@ -208,6 +209,7 @@ export function capture(r: Runtime, live: boolean) {
       workspace: actor.workspace,
       observed_at: live ? actor.observed_at : 0,
       children_observed_at: live ? actor.children_observed_at : 0,
+      checklist: actor.checklist,
       tracked_since: live ? actor.tracked_since : 0,
       headless_meter:
         live && actor.headless_usage
@@ -330,6 +332,7 @@ export async function restore(
     actor.workspace = r.workspaces.get(saved.workspace) ? saved.workspace : 0;
     actor.observed_at = live ? (saved.observed_at ?? 0) : 0;
     actor.children_observed_at = live ? (saved.children_observed_at ?? 0) : 0;
+    actor.checklist = decodeChecklist(saved.checklist);
     if (live && saved.tracked_since) actor.tracked_since = saved.tracked_since;
     if (live && saved.headless_meter) {
       actor.headless_usage = true;

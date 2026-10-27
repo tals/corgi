@@ -239,6 +239,7 @@ const COMMITS: sidebar.GitCommit[] = [
     subject: "sidebar: mark the selected agent with the workspace's green bar",
     author: "Tal Shiri",
     date: "2026-10-05 12:41",
+    diff: { files: 0, insertions: 0, deletions: 0 },
   },
   {
     timestamp: secs - 3 * 3600,
@@ -246,6 +247,7 @@ const COMMITS: sidebar.GitCommit[] = [
     subject: "launcher: date Claude conversations by their last prompt or reply",
     author: "Tal Shiri",
     date: "2026-10-05 10:06",
+    diff: { files: 0, insertions: 0, deletions: 0 },
   },
 ];
 /** moonlander's `bun --hot` dev server, named after its page. */
@@ -627,6 +629,7 @@ function launcher(selected: Row): LauncherMenu {
   });
   menu.history = { pending: false, entries: HISTORY };
   menu.preview.pending = false;
+  menu.preview.installed = { codex: true, claude: true, pi: true, opencode: false, omp: false };
   menu.preview.options.claude = option({
     model: "claude-opus-5-5",
     model_name: "Opus 5.5",

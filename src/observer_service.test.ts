@@ -7,6 +7,9 @@ import { Worker } from "./providers/codex/observer";
 import { Snapshot } from "./providers/snapshot";
 import { Text } from "./providers/common";
 import * as codex from "./providers/codex";
+import * as checklist from "./activity/checklist";
+import * as omp from "./providers/omp";
+import { Result as UsageResult } from "./usage/worker";
 import {
   snapshotActor,
   missed,
@@ -16,6 +19,8 @@ import {
   detectPane,
   hook,
   stop,
+  start,
+  tick,
 } from "./observer_service";
 
 const id = "11111111-1111-4111-8111-111111111111";
@@ -91,6 +96,66 @@ test("a bridge claim runs the existing screen watcher without a local agent or c
   expect(pane.detection.claim).toBeNull();
   expect(pane.agent()).toMatchObject({ provider: null, state: "unknown", attention: "none" });
   expect(pane.agent().observation.completed).toBe(0n);
+});
+
+test("child settlement cannot be discarded by newer parent or sibling hooks", () => {
+  const { server, pane, registry } = fixture();
+  pane.detection.pid = 0;
+  pane.dormant = true;
+  const parent = registry.get("omp", "parent");
+  pane.attachment.select(parent);
+  const send = (seq: bigint, event: object) =>
+    hook(server, { pane: 1, provider: "omp", event: { session: "parent", ...event }, seq, pid: 0, background: false });
+  send(1n, { event: "UserPromptSubmit", turn: "parent-turn" });
+  send(2n, { event: "SubagentStart", subagent: "child", subagent_name: "Audit" });
+  send(5n, { event: "SubagentStart", subagent: "sibling" });
+  send(4n, { event: "PreToolUse", turn: "parent-turn", tool: "read" });
+  send(3n, { event: "SubagentStop", subagent: "child", outcome: "completed" });
+  expect(registry.find("omp", "child")!.state.state).toBe("idle");
+  expect(parent.state.last_seq).toBe(4n);
+  expect(parent.state.subagents.running).toBe(1);
+  send(2n, { event: "SubagentStart", subagent: "child" });
+  expect(registry.find("omp", "child")!.state.state).toBe("idle");
+  send(6n, { event: "SubagentStart", subagent: "child" });
+  send(3n, { event: "SubagentStop", subagent: "child", outcome: "completed" });
+  expect(registry.find("omp", "child")!.state.state).toBe("working");
+  send(7n, { event: "SubagentStop", subagent: "child", outcome: "completed" });
+  expect(registry.find("omp", "child")!.state.state).toBe("idle");
+});
+
+test("delayed child hooks cannot override a newer complete sibling list", () => {
+  const { server, pane, registry } = fixture();
+  pane.detection.pid = 0;
+  pane.dormant = true;
+  const parent = registry.get("claude", "parent");
+  pane.attachment.select(parent);
+  for (const id of ["a", "b"]) {
+    const child = registry.get("claude", id);
+    registry.linkChild(parent, child);
+    child.state.state = "working";
+  }
+  const send = (seq: bigint, event: object) =>
+    hook(server, {
+      pane: 1,
+      provider: "claude",
+      seq,
+      pid: 0,
+      background: false,
+      event: { session_id: "parent", ...event },
+    });
+  const stop = (agent_id: string, listed: string[]) => ({
+    hook_event_name: "SubagentStop",
+    agent_id,
+    background_tasks: listed.map(id => ({ id, type: "subagent", status: "running" })),
+  });
+  send(4n, stop("b", ["b"]));
+  send(3n, stop("a", ["a", "b"]));
+  expect(registry.find("claude", "a")!.state.state).toBe("idle");
+  expect(registry.find("claude", "b")!.state.state).toBe("idle");
+  expect(parent.state.subagents.running).toBe(0);
+  send(3n, { hook_event_name: "SubagentStart", agent_id: "a" });
+  expect(registry.find("claude", "a")!.state.state).toBe("idle");
+  expect(parent.state.subagents.running).toBe(0);
 });
 
 test("only a claim's live owner can replace or clear it, and owner loss returns to local detection", () => {
@@ -343,4 +408,44 @@ test("a Codex side conversation in the title leaves the pane on the conversation
   expect(pane.attachment.actor).toBe(main);
   missed(server, "codex", request());
   expect(pane.attachment.actor).toBeNull();
+});
+
+test("transcript checklists cannot replace newer hooks and stay with their own conversation", async () => {
+  const { server, pane, terminal, registry } = fixture();
+  terminal.exited = true;
+  const actor = registry.get("omp", "todo-parent"),
+    child = registry.get("omp", "todo-child");
+  registry.linkChild(actor, child);
+  pane.attachment.select(actor);
+  const workers = start(server);
+  workers.transcripts.stop();
+  workers.usage.stop();
+  workers.summaries.stop();
+  for (const { observer } of workers.observers.values()) observer.stop();
+  workers.observers.clear();
+  workers.settling = 1;
+  const phases = [{ name: "Live", tasks: [{ content: "Current", status: "in_progress" }] }];
+  actor.observeHook(omp.decode({ event: "Todos", session: "todo-parent", todos: { phases } }), 1n, false, 2000);
+  const live = actor.checklist;
+  const apply = async (id: number, at: number, items: checklist.Item[]) => {
+    const result = new UsageResult();
+    result.actor = id;
+    result.checklist = new checklist.List(items, false, at);
+    workers.usage.results.push(result);
+    await tick(server);
+  };
+  await apply(actor.id, 1000, []);
+  expect(actor.checklist).toBe(live);
+  await apply(actor.id, 3000, [...live.items]);
+  expect(actor.checklist.at).toBe(3000);
+  await apply(actor.id, 2500, []);
+  expect(actor.checklist.items).toEqual(live.items);
+  await apply(child.id, 3000, [{ text: "Independent", status: "blocked", group: "Child" }]);
+  expect(child.checklist.items[0].group).toBe("Child");
+  expect(actor.checklist.items).toEqual(live.items);
+  await apply(actor.id, 4000, []);
+  expect(actor.checklist.items).toEqual([]);
+  expect(actor.checklist.at).toBe(4000);
+  await apply(actor.id, 3500, [...live.items]);
+  expect(actor.checklist.items).toEqual([]);
 });

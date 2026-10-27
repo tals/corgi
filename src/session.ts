@@ -527,6 +527,7 @@ function build(r: Runtime, viewer: boolean) {
           attachments: r.attachments(a),
           role: text(a.role),
           background_tasks: a.background_tasks?.view?.() ?? {},
+          checklist: a.checklist ?? { items: [], partial: false, at: 0 },
           model: text(a.model?.id),
           model_name: text(a.model?.name),
           model_price: a.model?.price ?? null,

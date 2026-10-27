@@ -330,6 +330,7 @@ export function hook(server: Server, query: Request<"hook">) {
   if (!event) return;
   const now = clock.microTimestamp(),
     seq = query.seq ?? BigInt(now);
+  const child = event.independent_child;
   const known = runtime.conversations.find(query.provider, event.session),
     presence: Presence =
       known && runtime.attachments(known) > 0 ? "attached" : query.background ? "detached" : "attaching";
@@ -345,10 +346,10 @@ export function hook(server: Server, query: Request<"hook">) {
     if (!pane) throw Error("NoPane");
     if (pane.detection.claim) return;
     detectPane(server, pane);
-    if (seq <= pane.attachment.hook_seq) return;
+    if (!child && seq <= pane.attachment.hook_seq) return;
     actor = runtime.conversations.routeHook(pane.attachment, query.provider, event, route.binds);
     if (!actor) return;
-    pane.attachment.hook_seq = seq;
+    if (!child) pane.attachment.hook_seq = seq;
     if (event.kind === "session_start") runtime.rememberAgent(pane.id, query.provider);
     if (!actor.workspace || !runtime.workspaces.get(actor.workspace))
       actor.workspace = runtime.workspaces.owner(pane.id)?.id ?? 0;
@@ -452,6 +453,7 @@ export async function tick(server: Server) {
     for (const result of workers.usage.take()) {
       const actor = runtime.conversations.byId(result.actor);
       if (!actor) continue;
+      if (result.checklist) actor.observeChecklist(result.checklist);
       if (!actor.model_from_hook && result.model.id.len) actor.model = result.model;
       if (!actor.headless_usage) actor.live_usage = result.live;
       actor.context = result.context;
@@ -482,9 +484,11 @@ export async function tick(server: Server) {
       actor.observeTranscriptTurn(result.spoke_at);
       actor.observeTaskEnds(result.ended);
       if (result.progress) actor.observeTools(result.progress);
-      if (result.fallback(actor.state, clock.microTimestamp()))
-        workers.summaries.submit(actor, result.progress!.commentary, result.progress, runtime.panes);
-      else if (result.progress) workers.summaries.tools(actor.id, actor.state, result.progress);
+      const now = clock.microTimestamp();
+      if (result.fallback(actor.state, now)) {
+        if (adapter(actor.provider()).caps.native_activity) actor.checkpointActivity(false, now);
+        else workers.summaries.submit(actor, result.progress!.commentary, result.progress, runtime.panes);
+      } else if (result.progress) workers.summaries.tools(actor.id, actor.state, result.progress);
       if (!actor.headless_usage && !workspaceWatched(server, result.workspace))
         runtime.workspaces.get(result.workspace)?.away.record(result.since, result.delta);
       changed(server);

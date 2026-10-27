@@ -13,7 +13,7 @@ export const adapter: Adapter = {
   ...info,
   caps: {
     prompt_turns: false,
-    children_at_stop: false,
+    children_from_hooks: false,
     follows_cd: false,
     titles_once_loaded: false,
     transcript_tools: false,

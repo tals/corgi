@@ -32,6 +32,7 @@ class Smoke extends Runtime {
   async test_runtime_protocol_negotiates_and_rejects_before_mutating() {
     const hello = await this.raw_rpc({ op: "hello" });
     this.assertEqual(hello.type, "hello");
+    this.assertEqual(hello.protocol, protocol.version);
     this.assertIn("pane.surface", hello.capabilities);
     this.assertNotIn("handoff", hello.capabilities);
     const ws = (await this.workspaces())[0].id;
@@ -58,7 +59,17 @@ class Smoke extends Runtime {
           protocol.version,
         );
         this.assertEqual((await socket.request({ op: "session.snapshot" })).err, "ProtocolRequired");
+        this.assertEqual(
+          (
+            await socket.request({
+              op: "session.command",
+              command: { "pane.create": { workspace: ws } },
+            })
+          ).err,
+          "ProtocolRequired",
+        );
       }
+      this.assertEqual((await this.session()).panes, []);
     } finally {
       socket.close();
     }

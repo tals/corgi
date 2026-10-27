@@ -220,6 +220,24 @@ export class Agent {
       binds_completion = screen_completed && (event === "stop" || event === "interrupt");
     if ((this.session.len && session && session !== this.sessionId()) || (this.provider && this.provider !== provider))
       return null;
+    if (event === "checklist") {
+      this.last_seq = seq;
+      return false;
+    }
+    if (event === "activity") {
+      if (
+        !reported ||
+        reported !== this.turnId() ||
+        this.finishedTurn(reported) ||
+        !["working", "blocked"].includes(this.state)
+      )
+        return null;
+      this.setActivity(hook.description);
+      this.activity_inferred = false;
+      this.activity_at = now;
+      this.last_seq = seq;
+      return false;
+    }
     if (
       ["stop", "interrupt"].includes(event) &&
       ((!binds_completion &&
@@ -297,9 +315,17 @@ export class Agent {
         this.activity_inferred = false;
       }
       if (start || event === "prompt") this.activity_inferred = false;
-      this.activity_at = now;
-      if (event === "tool_start" && !hook.asking && !this.activity_inferred)
-        this.setActivity(toolActivity(hook.tool, hook.description, hook.target));
+      const native = adapter(provider).caps.native_activity;
+      if (!native || start || event === "prompt") this.activity_at = now;
+      if (event === "tool_start" && !hook.asking) {
+        if (native) {
+          if (hook.description) {
+            this.setActivity(hook.description);
+            this.activity_inferred = false;
+            this.activity_at = now;
+          }
+        } else if (!this.activity_inferred) this.setActivity(toolActivity(hook.tool, hook.description, hook.target));
+      }
     }
     if (start || next === "working") this.attention = this.observation.unread() ? "finished" : "none";
     if (this.observation.pending_stop && hook.outcome) return this.endTurn(this.turnId(), hook.outcome, "hook", now);

@@ -1,0 +1,271 @@
+// Corgi's omp integration. Managed by `corgi integration install omp`.
+import { spawn } from "node:child_process";
+import { randomUUID, createHash } from "node:crypto";
+import { createServer } from "node:net";
+import { chmodSync, openSync, readSync, closeSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
+import { stripVTControlCharacters } from "node:util";
+// Factories are rebound in-process before a child's lazy transcript exists.
+const sessions = new Map();
+export default function (pi) {
+  const owner = process.env.CORGI_OMP_OWNER;
+  if (owner && owner !== String(process.pid)) return;
+  let turn = "", result = "completed", escaped = false, prompts = 0, prompt = "", removeInput, server, serving = "";
+  const inputs = new Map();
+  let queue = Promise.resolve(), pendingActivity, activityTimer, activityCall = "", activityIntent = "", closed = false;
+  const nativeIntent = value => {
+    if (typeof value !== "string") return "";
+    const text = stripVTControlCharacters(value).replace(/[\p{Cc}\p{Cf}\s]+/gu, " ").trim().replace(/\s*\.+$/, "");
+    const bytes = Buffer.from(text);
+    let end = Math.min(bytes.length, 160);
+    while (end > 0 && (bytes[end] & 0xc0) === 0x80) end--;
+    return bytes.subarray(0, end).toString().trim();
+  };
+  const root = () => process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".omp/agent");
+  const connected = () => process.env.CORGI_PANE && process.env.CORGI_SOCKET && process.env.CORGI_BIN;
+  const active = ctx => ctx.mode === "tui" && ctx.agent?.kind !== "sub" && connected();
+  const identity = ctx => ({ session: ctx.sessionManager.getSessionId(), transcript: ctx.sessionManager.getSessionFile() || "", cwd: ctx.cwd, account: root(), owner_pid: process.pid });
+  const send = data => {
+    const { promise, resolve } = Promise.withResolvers();
+    const child = spawn(process.env.CORGI_BIN, ["hook", "omp"], { stdio: ["pipe", "ignore", "ignore"], timeout: 2200 });
+    child.on("error", resolve); child.on("close", resolve); child.stdin.on("error", () => {});
+    child.stdin.end(JSON.stringify(data));
+    return promise;
+  };
+  const enqueue = work => (queue = queue.then(work));
+  const flushActivity = (detach = false) => {
+    if (activityTimer) clearTimeout(activityTimer);
+    activityTimer = undefined;
+    const pending = pendingActivity;
+    if (!pending) return;
+    if (detach) pendingActivity = undefined;
+    if (pending.queued) return;
+    pending.queued = true;
+    enqueue(() => {
+      if (pendingActivity === pending) pendingActivity = undefined;
+      return send(pending.data);
+    });
+  };
+  const resetActivity = () => {
+    flushActivity(true);
+    activityCall = ""; activityIntent = ""; inputs.clear();
+  };
+  const frame = (ctx, event, extra) => ({ ...identity(ctx), event, turn,
+    model: ctx.model ? ctx.model.provider + "/" + ctx.model.id : "", ...extra });
+  const report = (ctx, event, extra = {}) => {
+    if (!active(ctx)) return Promise.resolve();
+    const data = frame(ctx, event, extra);
+    flushActivity(true);
+    return enqueue(() => send(data));
+  };
+  const todoPhases = entry => {
+    if (entry?.type === "custom" && entry.customType === "user_todo_edit") return entry.data?.phases;
+    const message = entry?.type === "message" ? entry.message : undefined;
+    if (message?.role === "toolResult" && message.toolName === "todo" && !message.isError && message.details?.op !== "view")
+      return message.details?.phases;
+  };
+  const reportTodos = (ctx, phases) => report(ctx, "Todos", { todos: { phases } });
+  const activity = (ctx, id, intent) => {
+    if (!id || !intent || (activityCall === id && activityIntent === intent)) return;
+    const amend = activityCall === id;
+    if (!amend) flushActivity(true);
+    activityCall = id; activityIntent = intent;
+    if (pendingActivity) pendingActivity.data.intent = intent;
+    else pendingActivity = { data: frame(ctx, "Activity", { intent, amend }), queued: false };
+    // One in-flight send and one coalesced revision, regardless of token rate.
+    if (!pendingActivity.queued && !activityTimer) activityTimer = setTimeout(() => flushActivity(), 50);
+  };
+  // Runner frames include extension-free children; use their transcript when no factory registered them.
+  let current;
+  const children = new Map(), header = Buffer.alloc(8192);
+  const flushChild = child => {
+    const known = sessions.get(child.path);
+    if (known) { child.session = known.session; child.model = known.model; }
+    if (!child.session) {
+      let fd;
+      try {
+        fd = openSync(child.path, "r");
+        const text = header.subarray(0, readSync(fd, header, 0, header.length, 0)).toString();
+        for (const line of text.split("\n")) {
+          let entry; try { entry = JSON.parse(line); } catch { continue; }
+          if (entry.type === "session") child.session = entry.id;
+          if (entry.type === "model_change") child.model = entry.model;
+        }
+      } catch {} finally { if (fd !== undefined) closeSync(fd); }
+      if (!child.session) {
+        child.timer ??= setTimeout(() => { child.timer = undefined; flushChild(child); }, 50);
+        child.timer.unref();
+        return;
+      }
+    }
+    const signature = child.status + "\n" + child.name + "\n" + child.description;
+    if (signature === child.sent) return;
+    child.sent = signature;
+    const data = { ...child.parent, event: child.status === "started" ? "SubagentStart" : "SubagentStop",
+      subagent: child.session, subagent_type: child.agent, subagent_name: child.name, description: child.description,
+      child_transcript: child.path, model: child.model || "",
+      outcome: child.status === "aborted" ? "interrupted" : child.status === "failed" ? "failed" : "completed" };
+    child.queue = child.queue.then(() => send(data));
+  };
+  const lifecycle = event => {
+    if (!current || !event.sessionFile || !["started", "completed", "failed", "aborted"].includes(event.status)) return;
+    let child = children.get(event.sessionFile);
+    if (!child) {
+      child = { parent: current, path: event.sessionFile, name: event.id || "", agent: event.agent || "", description: event.description || "",
+        status: event.status, queue: Promise.resolve() };
+      children.set(event.sessionFile, child);
+    }
+    child.status = event.status;
+    if (event.id) child.name = event.id;
+    if (event.description) child.description = event.description;
+    flushChild(child);
+  };
+  const progress = event => {
+    const child = children.get(event.sessionFile);
+    if (!child) return;
+    if (event.progress?.id) child.name = event.progress.id;
+    child.description = nativeIntent(event.progress?.currentToolIntent) || nativeIntent(event.progress?.lastIntent)
+      || (event.progress?.description || child.description || event.assignment || event.task || "").slice(0, 160);
+    flushChild(child);
+  };
+  const unsubscribe = [
+    pi.events?.on("task:subagent:lifecycle", lifecycle),
+    pi.events?.on("task:subagent:progress", progress),
+  ];
+  const close = () => new Promise(resolve => { const s = server; server = undefined; serving = ""; s ? s.close(() => resolve()) : resolve(); });
+  // A socket per session lets Corgi rename it.
+  const listen = async ctx => {
+    const session = ctx.sessionManager.getSessionId();
+    if (serving === session) return;
+    await close();
+    serving = session;
+    const hash = createHash("sha256").update(root()+"\n"+session).digest("hex").slice(0,24);
+    const socketPath = join(tmpdir(), `corgi-omp-${process.getuid?.() ?? 0}-${hash}-${process.pid}.sock`);
+    server = createServer(socket => {
+      let bytes = "";
+      socket.setTimeout(1500, () => socket.destroy()); socket.on("error", () => {});
+      socket.on("data", chunk => {
+        bytes += chunk;
+        if(bytes.length > 2048) return socket.destroy();
+        if(!bytes.includes("\n")) return;
+        try {
+          const r = JSON.parse(bytes);
+          if(r.session !== ctx.sessionManager.getSessionId()) return socket.end('{"ok":false}\n');
+          if(r.name !== undefined) {
+            if(typeof r.name !== "string" || r.name.length > 160 || /[\x00-\x1f]/.test(r.name)) return socket.end('{"ok":false}\n');
+            if(r.only_unnamed && pi.getSessionName()) return socket.end('{"ok":false,"exists":true}\n');
+            pi.setSessionName(r.name).then(() => socket.end('{"ok":true,"automatic":true}\n'), () => socket.end('{"ok":false}\n'));
+            return;
+          }
+          socket.end('{"ok":true,"automatic":true}\n');
+        } catch { socket.destroy(); }
+      });
+    });
+    server.on("error", () => {});
+    server.listen(socketPath, () => { try { chmodSync(socketPath,0o600); } catch {} });
+  };
+  const started = async (_e, ctx) => {
+    if (!connected() || (!active(ctx) && ctx.agent?.kind !== "sub")) return;
+    resetActivity();
+    turn = ""; prompts = 0; prompt = ""; closed = false;
+    if (current) sessions.delete(current.transcript);
+    current = identity(ctx);
+    sessions.set(current.transcript, { session: current.session, model: ctx.model ? ctx.model.provider + "/" + ctx.model.id : "" });
+    if (!active(ctx)) return;
+    process.env.CORGI_OMP_OWNER = String(process.pid);
+    removeInput ??= ctx.ui.onTerminalInput(data => { if (turn && !prompts && data === "\x1b") escaped = true; });
+    // The list as of its last edit, so that reading it back doesn't count as editing it.
+    let phases = [], at = 0;
+    const branch = ctx.sessionManager.getBranch();
+    for (let i = branch.length - 1; i >= 0; i--) {
+      const found = todoPhases(branch[i]);
+      if (Array.isArray(found)) { phases = found; at = Date.parse(branch[i].timestamp); break; }
+    }
+    const data = frame(ctx, "Todos", { todos: { phases }, ...(at > 0 ? { at } : {}) });
+    await listen(ctx);
+    await report(ctx, "SessionStart");
+    await enqueue(() => send(data));
+  };
+  // Prompts that wait on the user: tool approvals, plan reviews and the ask tool.
+  const asked = (ctx, tool) => { prompts++; return report(ctx, "PermissionRequest", { tool }); };
+  const answered = ctx => { prompts = Math.max(0, prompts-1); return prompts ? undefined : report(ctx, turn ? "PostToolUse" : "Idle"); };
+  pi.on("session_start", started);
+  pi.on("session_switch", started);
+  pi.on("session_branch", started);
+  pi.on("before_agent_start", (e, ctx) => { prompt = active(ctx) ? e.prompt || "" : ""; });
+  pi.on("agent_start", async (_e, ctx) => {
+    if (!active(ctx) || turn || closed) return;
+    resetActivity();
+    turn = randomUUID(); result = "completed"; escaped = false;
+    const opening = pi.getSessionName() ? undefined : ctx.sessionManager.getBranch().find(e => e.type === "message" && e.message.role === "user");
+    const content = opening?.message.content ?? (pi.getSessionName() ? "" : prompt);
+    const text = typeof content === "string" ? content : (content || []).filter(b => b.type === "text").map(b => b.text).join("\n");
+    const bytes = Buffer.from(text);
+    let end = Math.min(bytes.length, 2048);
+    while(end > 0 && (bytes[end] & 0xc0) === 0x80) end--;
+    await report(ctx, "UserPromptSubmit", { initial_request: bytes.subarray(0,end).toString() });
+  });
+  pi.on("message_update", (e, ctx) => {
+    if (!active(ctx) || !turn || closed || current?.session !== ctx.sessionManager.getSessionId() || e.message?.role !== "assistant") return;
+    const content = e.message.content;
+    if (!Array.isArray(content)) return;
+    for (let i = content.length - 1; i >= 0; i--) {
+      const call = content[i];
+      if (call?.type !== "toolCall") continue;
+      const intent = nativeIntent(call.arguments?.i);
+      if (intent) { activity(ctx, call.id, intent); return; }
+    }
+  });
+  pi.on("message_end", (e, ctx) => {
+    if (!active(ctx) || e.message.role !== "assistant") return;
+    result = e.message.stopReason === "aborted" ? "interrupted" : ["error", "length"].includes(e.message.stopReason) ? "failed" : "completed";
+    const usage = ctx.getContextUsage();
+    pi.appendEntry("corgi-context", { model: ctx.model?.id, window: ctx.model?.contextWindow, used: usage?.tokens });
+  });
+  pi.on("tool_execution_start", (e, ctx) => {
+    if (!active(ctx) || !turn || closed || current?.session !== ctx.sessionManager.getSessionId()) return;
+    inputs.set(e.toolCallId, e.args);
+    const intent = nativeIntent(e.intent) || nativeIntent(e.args?.i) || (activityCall === e.toolCallId ? activityIntent : "");
+    const amend = activityCall === e.toolCallId;
+    if (!amend) flushActivity(true);
+    activityCall = e.toolCallId; activityIntent = intent;
+    return e.toolName === "ask" ? asked(ctx, "ask") : report(ctx, "PreToolUse", { tool: e.toolName, input: e.args, ...(intent ? { intent, amend } : {}) });
+  });
+  pi.on("tool_execution_end", async (e, ctx) => {
+    if (!active(ctx) || closed || current?.session !== ctx.sessionManager.getSessionId()) return;
+    const input = inputs.get(e.toolCallId); inputs.delete(e.toolCallId);
+    const finished = e.toolName === "ask" ? answered(ctx) : report(ctx, e.isError ? "PostToolUseFailure" : "PostToolUse", { tool: e.toolName, input });
+    if (e.toolName === "todo" && !e.isError && !e.result?.isError && e.result?.details?.op !== "view" && Array.isArray(e.result?.details?.phases))
+      await reportTodos(ctx, e.result.details.phases);
+    await finished;
+  });
+  pi.on("tool_approval_requested", (e, ctx) => active(ctx) ? asked(ctx, e.toolName) : undefined);
+  pi.on("tool_approval_resolved", (_e, ctx) => active(ctx) ? answered(ctx) : undefined);
+  pi.on("plan_review_requested", (_e, ctx) => active(ctx) ? asked(ctx, "plan review") : undefined);
+  pi.on("plan_review_resolved", (_e, ctx) => active(ctx) ? answered(ctx) : undefined);
+  // A session_before_compact handler would switch off omp's background compaction.
+  pi.on("auto_compaction_start", (_e, ctx) => report(ctx, "PreCompact"));
+  pi.on("auto_compaction_end", (_e, ctx) => report(ctx, turn ? "PostCompact" : "Idle"));
+  pi.on("agent_end", async (e, ctx) => {
+    // A continuation keeps the turn; background work may wake a yielded one later.
+    if (!active(ctx) || !turn || (e.willContinue && !e.awaitingAsyncWork)) return;
+    const outcome = escaped ? "interrupted" : result, settled = turn, session = ctx.sessionManager.getSessionId();
+    // Clear before sending: a background result may start another turn while the hook is in flight.
+    turn = ""; prompts = 0;
+    resetActivity();
+    await report(ctx, "Stop", { turn: settled, outcome, awaiting_async_work: e.awaitingAsyncWork === true && outcome === "completed" });
+    if (ctx.sessionManager.getSessionId() === session) pi.appendEntry("corgi-settled", { session, turn: settled, outcome });
+  });
+  pi.on("session_shutdown", async (_e, ctx) => {
+    closed = true;
+    resetActivity(); turn = ""; prompts = 0;
+    if (current) sessions.delete(current.transcript);
+    current = undefined;
+    for (const off of unsubscribe) off?.();
+    for (const child of children.values()) if (child.timer) clearTimeout(child.timer);
+    await queue;
+    await Promise.all([...children.values()].map(child => child.queue));
+    removeInput?.(); await close(); await report(ctx, "SessionEnd");
+  });
+}

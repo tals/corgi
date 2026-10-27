@@ -3,6 +3,7 @@ import { copyFileSync, mkdirSync, readFileSync, realpathSync, writeFileSync } fr
 import { join } from "node:path";
 import { Runtime, EXE } from "../tests/runtime";
 import { quote } from "../tests/support";
+import * as protocol from "../src/protocol";
 const cli = process.argv[2];
 if (!cli) throw Error("Pass Pi's cli.js path");
 const auth = join(process.env.PI_CODING_AGENT_DIR ?? join(process.env.HOME!, ".pi/agent"), "auth.json");
@@ -70,7 +71,7 @@ try {
   const historySession = (await agent()).session;
   await t.until(
     async () =>
-      (await t.rpc({ op: "agent.history", protocol: 2 })).history.entries.some(
+      (await t.rpc({ op: "agent.history", protocol: protocol.version })).history.entries.some(
         (e: any) => e.provider === "pi" && e.session === historySession && e.account === t.account,
       ),
     15,
@@ -146,13 +147,13 @@ try {
   console.log("PASS ephemeral completion");
   const h = await t.rpc({
     op: "headless.start",
-    protocol: 2,
+    protocol: protocol.version,
     provider: "pi",
     cwd: t.temp.name,
     prompt: "Run bash command sleep 8, then reply HEADLESS_DONE.",
   });
   const hs = async () =>
-    (await t.rpc({ op: "headless.list", protocol: 2 })).sessions.find(
+    (await t.rpc({ op: "headless.list", protocol: protocol.version })).sessions.find(
       (s: any) => s.provider === "pi" && s.session === h.session,
     );
   await t.until(async () => (await hs())?.ready, 30);
@@ -164,16 +165,22 @@ try {
   console.log("PASS headless live handoff during tool execution");
   await t.rpc({
     op: "headless.send",
-    protocol: 2,
+    protocol: protocol.version,
     provider: "pi",
     session: h.session,
     input: { kind: "prompt", text: "/corgi-confirm" },
   });
   await t.until(async () => (await hs())?.state === "blocked", 10);
-  await t.rpc({ op: "headless.send", protocol: 2, provider: "pi", session: h.session, input: { kind: "interrupt" } });
+  await t.rpc({
+    op: "headless.send",
+    protocol: protocol.version,
+    provider: "pi",
+    session: h.session,
+    input: { kind: "interrupt" },
+  });
   await t.until(async () => (await hs())?.pending_requests === 0 && (await hs()).state !== "blocked", 10);
   console.log("PASS headless dialog interrupt");
-  await t.rpc({ op: "headless.stop", protocol: 2, provider: "pi", session: h.session });
+  await t.rpc({ op: "headless.stop", protocol: protocol.version, provider: "pi", session: h.session });
   console.log("LIVE TERMINAL PASS", cli);
 } catch (e) {
   console.error(e);

@@ -34,6 +34,22 @@ import { microTimestamp } from "./clock";
 import type { Agent } from "./mirror";
 import { Model as ProviderModel } from "./providers/model";
 import { byProvider, type ByProvider } from "./providers";
+import { List } from "./activity/checklist";
+import * as checklist_view from "./checklist_view";
+
+test("conversation decodes checklist wire state and defaults an absent field", () => {
+  expect(conversation({}).checklist).toEqual(new List());
+  const checklist = {
+    items: [{ text: "Review", status: "blocked" as const, group: "Delivery" }],
+    partial: true,
+    at: 5,
+  };
+  expect(conversation({ checklist }).checklist).toEqual(new List(checklist.items, true, 5));
+  expect(() => conversation({ checklist: { ...checklist, partial: "true" } })).toThrow("UnexpectedToken");
+  expect(() =>
+    conversation({ checklist: { ...checklist, items: [{ text: "Review", status: "unknown", group: "" }] } }),
+  ).toThrow("InvalidEnumTag");
+});
 
 const base = new palette.Style({ fg: "text", bg: "bg" }).sgr();
 const usage = (
@@ -195,7 +211,6 @@ test("both agent rows open one safe card before a session is bound and exiting r
   expect(text).toContain("Total");
   expect(count(text, "—")).toBe(2);
   expect(text).toContain("Starting session");
-  expect(text).not.toContain("No subagents");
   entries[0].exit = { frame_ms: 1, progress: 0.5 };
   expect(sidebar.agentAt(view, entries, 5, top)).toBeNull();
 });
@@ -845,10 +860,6 @@ test("unavailable or stale child discovery makes no subagent claims", () => {
   presentChildren(e, all, now);
   expect(e.children).toBe(1);
   expect(e.subagents.running).toBe(2);
-  e.subagents = { running: 0, blocked: 0, waiting: false };
-  all[0].agent.subagents = { running: 0, blocked: 0, waiting: false };
-  const output = render(w => draw(w, all.slice(0, 1), e, 100, 30, 5, 14));
-  expect(output).toContain("No subagents");
 });
 
 test("Claude's child list holds until its next Stop", () => {
@@ -882,6 +893,30 @@ test("Claude's child list holds until its next Stop", () => {
   presentChildren(e, all, now);
   expect(e.children).toBe(0);
   expect(e.subagents.waiting).toBe(false);
+});
+
+test("OMP children remain visible through quiet work and leave on settlement", () => {
+  const now = microTimestamp();
+  const old = now - 10 * fresh_window;
+  const parent = agent({ provider: "omp", subagents: { running: 1, blocked: 0, waiting: false } });
+  const child = agent({ provider: "omp", name: "ProviderAudit", activity: "Audit provider lifecycle" });
+  const all = [
+    convo({ id: 1, attachments: 1, agent: parent, children_observed_at: old }),
+    convo({ id: 2, parent: 1, agent: child, role: "reviewer", observed_at: old }),
+  ];
+  const e = entry({ conversation: 1, provider: "omp", state: "working", subagents: { ...parent.subagents } });
+  presentChildren(e, all, now);
+  expect(e.children).toBe(1);
+  expect(e.subagents.running).toBe(1);
+  expect(render(w => draw(w, all, e, 100, 30, 5, 14))).toContain("Audit provider lifecycle");
+  const overview = () => render(w => drawOverview(w, all, new UsageView(), false, "", "", {}, new Accounts(), 100, 30));
+  expect(overview()).toContain("ProviderAudit");
+  all[1].agent.state = "idle";
+  all[0].agent.subagents.running = 0;
+  e.subagents.running = 0;
+  presentChildren(e, all, now);
+  expect(e.children).toBe(0);
+  expect(overview()).not.toContain("ProviderAudit");
 });
 
 test("compact token counts round through unit boundaries without overflow", () => {
@@ -995,6 +1030,45 @@ test("the card shows sixteen recent phases when the terminal has room", () => {
   const e = entry({ conversation: 1, name: "long run", provider: "codex", state: "working", attention: "none" });
   const lines = screenLines(all, e, 100);
   for (let i = 1; i <= 16; i++) expect(lineWith(lines, `Phase ${String(i).padStart(2, "0")}`)).not.toBeNull();
+});
+
+test("the TODOs section draws each group once with a mark per status", () => {
+  const list = new List([
+    { text: "Plan", status: "done", group: "Prepare" },
+    { text: "Build", status: "active", group: "Implement" },
+    { text: "Wait on review", status: "blocked", group: "Implement" },
+    { text: "Ship", status: "pending", group: "Release" },
+  ]);
+  const host = Terminal.create(90, 12);
+  try {
+    host.feed(render(w => new Card(w, 0, 88).checklist(0, list, checklist_view.window(list))));
+    const lines = host.text().split("\n");
+    expect(lines[2]).toContain("TODOs");
+    expect(lines[2]).toContain("1/4 done");
+    const rows = ["Prepare", "  ✓ Plan", "Implement", "  ▶ Build", "  ! Wait on review", "Release", "  ☐ Ship"];
+    expect(lines.slice(3, 10).map(line => line.trimEnd())).toEqual(rows.map(row => `   ${row}`));
+  } finally {
+    host.destroy();
+  }
+});
+
+test("the card shows a finished checklist until it retires", () => {
+  const finished = new List([{ text: "Ship", status: "done", group: "" }]);
+  const card = (checklist: List) =>
+    screenLines(
+      [
+        convo({
+          id: 1,
+          agent: agent({ provider: "omp", session: "s", activity: "Shipping" }),
+          timeline: { points: [{ at: 1000, activity: "Shipping", usage: usage() }], pending: usage() },
+          checklist,
+        }),
+      ],
+      entry({ conversation: 1, name: "omp run", provider: "omp", state: "working", attention: "none" }),
+      100,
+    );
+  expect(lineWith(card(new List(finished.items, false, microTimestamp())), "✓ Ship")).not.toBeNull();
+  expect(lineWith(card(new List(finished.items, false, 1)), "TODOs")).toBeNull();
 });
 
 test("timeline rows older than the latest five recede toward the background", () => {

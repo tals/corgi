@@ -41,6 +41,7 @@ export type Event =
   | { kind: "turn"; session: string; turn: string; phase: "started" }
   | { kind: "turn"; session: string; turn: string; phase: "ended"; outcome: Outcome }
   | { kind: "message"; session: string; text: string }
+  | { kind: "activity"; session: string; turn: string; text: string; amend: boolean }
   | { kind: "tool"; session: string; turn: string; id: string; done: boolean; wrote: string[] }
   | { kind: "request"; session: string; id: string; ask: Ask }
   | { kind: "request_closed"; session: string; id: string; running: boolean }
@@ -325,14 +326,16 @@ export type Fork = {
 export type Caps = {
   /** A prompt's hook ID names the turn it opens. */
   prompt_turns: boolean;
-  /** The subagent list its Stop hook reports holds until the next one. */
-  children_at_stop: boolean;
+  /** Child lifecycle holds until another hook, rather than expiring between polls. */
+  children_from_hooks: boolean;
   /** The cwd its hooks report follows the shell's `cd`. */
   follows_cd: boolean;
   /** Its chat view titles the terminal; the screen it shows while a session loads doesn't. */
   titles_once_loaded: boolean;
   /** Its transcripts show which tools run, beyond what its hooks report. */
   transcript_tools: boolean;
+  /** Its own tool intents replace inferred activity summaries. */
+  native_activity?: boolean;
 };
 /** What a provider's hooks tell beyond its lifecycle. */
 export interface Conversation {

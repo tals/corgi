@@ -67,7 +67,7 @@ async function exec(argv: string[], extraEnv = env, ok = true) {
 async function cli(args: string[], ok = true) {
   return exec([bin, ...args], env, ok);
 }
-async function rpc(value: { op: string }) {
+async function rpc(value: { op: string; [field: string]: unknown }) {
   return JSON.parse((await cli(["rpc", JSON.stringify(versioned(value))])).out);
 }
 async function waitFor(fn: () => Promise<boolean>) {
@@ -155,20 +155,27 @@ afterAll(async () => {
 });
 test("explicit update preserves real pane PID and supports rollback", async () => {
   await cli(["start"]);
-  const session = await rpc({ op: "session.snapshot" });
+  const oldProtocol = (await rpc({ op: "hello", protocol: 1 })).protocol;
+  const session = await rpc({ op: "session.snapshot", protocol: oldProtocol });
   await rpc({
     op: "session.command",
+    protocol: oldProtocol,
     command: { "pane.create": { workspace: session.workspaces[0].id, cwd: home, command: "exec /bin/sh" } },
   });
-  const before = await rpc({ op: "session.snapshot" });
+  const before = await rpc({ op: "session.snapshot", protocol: oldProtocol });
   const pane = before.panes[0].id;
   await rpc({
     op: "session.command",
+    protocol: oldProtocol,
     command: { "pane.input": { target: pane, data: "printf 'BEFORE_UPDATE\\n'\r" } },
   });
   await waitFor(async () =>
     (
-      await rpc({ op: "session.command", command: { "pane.read": { target: pane, view: "screen" } } })
+      await rpc({
+        op: "session.command",
+        protocol: oldProtocol,
+        command: { "pane.read": { target: pane, view: "screen" } },
+      })
     ).result.text.includes("BEFORE_UPDATE"),
   );
   await cli(["update"]);
@@ -188,7 +195,8 @@ test("explicit update preserves real pane PID and supports rollback", async () =
   await cli(["update", "rollback"]);
   expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.0");
   expect(await readFile(join(root, "suppressed"), "utf8")).toBe("1.0.1");
-  expect((await rpc({ op: "session.snapshot" })).panes[0].pid).toBe(before.panes[0].pid);
+  const rollbackProtocol = (await rpc({ op: "hello", protocol: 1 })).protocol;
+  expect((await rpc({ op: "session.snapshot", protocol: rollbackProtocol })).panes[0].pid).toBe(before.panes[0].pid);
 }, 30_000);
 test("background download stages without activating, next start works offline", async () => {
   await cli(["start"]);

@@ -169,9 +169,21 @@ and the provider adapters, not UI label comparisons.
 ## Children, usage and context
 
 Parent links must be provider-consistent, deduplicated and cycle checked.
-Codex child listings and Claude subagent observations feed the conversation
+Codex child listings and Claude and OMP subagent observations feed the conversation
 registry. Failed discovery must not erase previously known children. Keep child
 identity separate from whichever parent a transport currently displays.
+
+OMP's runner supplies the child's display name separately from its role and real
+session ID. Its short description can arrive in a later progress event and takes
+precedence over the raw assignment. Child transcripts supply usage and evidence,
+not replacement names or raw assistant prose for these labels. Hook-driven child
+status holds until the next lifecycle event, including through quiet model calls;
+it does not expire like a polled child listing. Child hooks are ordered per child,
+so a newer parent or sibling event cannot discard a completion. Settled children
+leave the active list.
+
+The OMP hook's optional display-name field does not change runtime or saved-state
+versions. Reload Corgi and restart OMP to load the updated managed extension.
 
 Three measurements have different lifetimes:
 
@@ -191,6 +203,44 @@ Context comes from provider records, not summed lifetime usage. Model aliases
 and platform-specific IDs normalize at the provider boundary; unknown IDs stay
 recognizable. Provider-specific assumptions and exceptions belong in the
 adapters. Live meters are not a durable ledger.
+
+## Checklists
+
+A provider that keeps a task list reports it as a
+[checklist](../src/activity/checklist.ts): always the whole list, with the
+time it was true. Hook events and transcript readers carry it.
+Corgi keeps the newest per conversation, saves it in checkpoints and handoffs,
+and never edits it. A provider whose tools change one item at a time folds
+those changes into a whole list itself.
+
+The adapter maps the provider's statuses to Corgi's (pending, active, blocked,
+done, dropped), names the group of items that come in groups, and builds the
+list with `List.of`, which cleans labels and bounds the inventory. A status
+it can't read leaves the list partial. A list without its own time takes the
+time its hook arrived. Reading a list back from a session is not an edit, so
+the list keeps the time of the entry it came from.
+
+The hover card shows the checklist at the bottom under a separate TODOs
+heading and full-width divider, without token columns
+([checklist_view.ts](../src/checklist_view.ts)). Five items form the main
+window. Grouped checklists show each selected group once as a heading, with its
+items indented underneath; a checklist with one group or none stays flat.
+Items within a group appear as closed, active/blocked, then pending, keeping the
+provider's order within each status.
+
+Selection prioritizes active work, then upcoming items; spare rows show the
+latest closed items as shared context. Groups with active or blocked work show
+"… N done" above their items when multiple earlier completions are omitted.
+Only pending omissions get a bottom footer: "+N more pending". Both summaries
+require at least two omitted items; a lone done or pending item appears
+directly instead, even if this extends the main window. Short terminals keep
+recent activity visible and fit items, headings and summaries together without
+leaving empty groups. An empty checklist removes the section.
+
+Corgi hides a checklist whose items are all done or dropped 60 seconds after
+its time, without deleting it. Pending, active or blocked work keeps the
+section visible, and a new edit shows it again. Partial checklists stay visible
+because missing items may still be open.
 
 ## Inference and data boundaries
 
@@ -358,3 +408,88 @@ The terminal check uses a disposable configuration and runtime; the RPC
 check saves sessions only in its disposable directory. Both consume model
 usage. The provider enum and defaulted provider maps expand in the schema
 snapshots; existing wire and saved fields retain their meanings.
+
+## Oh My Pi
+
+Oh My Pi (`omp`) is a fork of Pi with its own extension events, RPC
+details and folders; Corgi supports it as a separate provider, `omp`, that
+reuses Pi's code where the two still agree. Corgi discovers `omp` on PATH
+(or `CORGI_OMP_BIN`) and installs `extensions/corgi.js` under
+`${PI_CODING_AGENT_DIR:-$HOME/.omp/agent}`. omp reads Pi's variable for its
+agent folder, so a value meant for Pi moves omp into Pi's folder, where the
+two extensions would claim the same `extensions/corgi.js`. Corgi records the
+omp sessions it sees in `corgi-omp-history/`, apart from Pi's.
+
+omp runs the extension for every subagent session in its process. Only the
+pane's own TUI session reports terminal lifecycle; child factories relay
+nested task lifecycle without selecting their sessions in the pane.
+Runner events link subagents by their real session IDs, with type, task
+description and transcript, so their status and usage appear in the
+subagent count and hover card. Child factories register identity before
+their lazy transcript exists; extension-free children become identifiable
+once their transcript header is available.
+
+A terminal `agent_end` ends a Corgi turn. `willContinue` keeps it active
+unless it only awaits background work: then the idle parent shows the pause
+icon until it resumes. Interrupted or failed turns do not acquire that pause,
+even if children continue. Tool approvals, plan reviews and the `ask` tool
+show as needing input. Dialogs another extension opens don't. Automatic
+compaction uses paired start/end events. Manual compaction and background
+summary preparation are not reported: omp has no matching end event on
+cancellation or failure. The extension never handles `session_before_compact`,
+which would switch off omp's background compaction.
+
+omp names its sessions itself, in a title slot at the top of each session
+file and in `title_change` records, so Corgi follows those names and never
+suggests one. Renames from Corgi go through the extension. Forks use omp's
+`--fork`, which takes no name; Corgi renames the fork once it appears.
+Resume passes the session file Corgi saw, or the ID, which omp looks up.
+
+The hover card keeps activity history and token totals together. Empty child
+lists have no footer, and child totals have no "Live usage" label.
+
+omp's `todo` tool supplies the [checklist](#checklists). Its phases become
+groups; `in_progress`, `completed` and `abandoned` read as active, done and
+dropped. The extension sends the list after each successful edit. On session
+start, switch and branch it reads the list on the current branch back from the
+session, timed by the entry that holds it, so a finished list doesn't return.
+Transcript catchup restores missed edits without overwriting newer hook
+updates. OMP's own HUD visibility doesn't affect the card.
+
+OMP activity comes from its native tool intents, not Corgi's inference worker.
+The extension forwards `i` while tool arguments stream, so a write's intent
+appears before its file content finishes generating. Execution-start intents
+and child progress update the same activity history; revisions of a streaming
+intent amend its current entry. Missing intents retain the last semantic note,
+never a raw tool or path label. OMP's headless transport and transcripts also
+supply native intents; older transcript records cannot replace a newer live
+label.
+
+Activity updates do not change working, approval or compaction state. Other
+providers still use Corgi's activity summaries. Restart already-running OMP
+sessions after installing the updated integration to load the streaming hook.
+
+The launcher reads the default model from omp's RPC state, falling back to
+`modelRoles.default` in `config.yml`. omp keeps sign-ins in `agent.db`; the
+launcher shows the one for the default model's provider and reads its limits
+from `omp usage --json`. Adding accounts from Corgi isn't supported yet: omp
+keeps several sign-ins per folder already. Bypass maps to `--auto-approve`.
+
+Headless sessions and Clever Corgi both use `omp --mode rpc-ui`, which lets
+headless tools ask questions through Corgi. Inference disables tools and
+extensions, so it needs no UI interaction. A run ends at `session_settled`,
+after queued prompts and background work. Stop sends
+`abort_and_restore_queue`, so withdrawn prompts never run.
+
+OMP support keeps runtime and viewer protocol 3 and management protocol 1.
+Provider entries and the checklist default when reading existing records, so
+checkpoint and handoff versions are unchanged and no saved-state migration is
+needed. Older peers ignore provider names they do not know.
+
+```sh
+bun tools/omp_live.ts
+bun tools/omp_rpc_live.ts
+```
+
+Both use the signed-in default model and consume model usage; the terminal
+check copies the sign-ins into a disposable configuration.

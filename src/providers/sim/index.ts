@@ -22,7 +22,7 @@ export const adapter: Adapter = {
   programs: { names: ["sim"] },
   caps: {
     prompt_turns: true,
-    children_at_stop: false,
+    children_from_hooks: false,
     follows_cd: true,
     titles_once_loaded: false,
     transcript_tools: false,

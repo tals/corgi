@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { Adapter } from "../adapter";
-import { Hooks, field, str } from "../common";
+import { Hooks, field, str, type Hook } from "../common";
 import { ScreenWatcher } from "../watcher";
 import * as commandLine from "../command_line";
 import { Pi, summaryArgs } from "./headless";
@@ -12,11 +12,38 @@ import { accounts } from "./accounts";
 import * as locations from "./locations";
 import { clip } from "../../activity/tools";
 const hooks = new Hooks();
+/** A hook Corgi's extension sent, as Pi and omp send them. */
+export function decode(v: unknown): Hook {
+  const input = field(v, "input"),
+    tool = str(v, "tool");
+  const hook = hooks.decode({
+    hook_event_name: str(v, "event"),
+    session_id: str(v, "session"),
+    turn_id: str(v, "turn"),
+    prompt_id: str(v, "event") === "UserPromptSubmit" ? str(v, "turn") : "",
+    transcript_path: str(v, "transcript"),
+    cwd: str(v, "cwd"),
+    model: str(v, "model"),
+    tool_name: tool,
+    tool_input: {
+      command: str(input, "command"),
+      file_path: str(input, "path"),
+      description: str(input, "description"),
+    },
+  });
+  if (hook && hook.kind === "prompt") hook.initial_request = clip(str(v, "initial_request"), 2048);
+  const outcome = str(v, "outcome");
+  if (hook && hook.kind === "stop" && ["completed", "interrupted", "failed"].includes(outcome))
+    hook.outcome = outcome as "completed" | "interrupted" | "failed";
+  if (hook && hook.kind === "tool_finish" && ["write", "edit"].includes(tool) && str(input, "path"))
+    hook.writes = [path.resolve(hook.cwd, str(input, "path"))];
+  return hook;
+}
 export const adapter: Adapter = {
   ...info,
   caps: {
     prompt_turns: true,
-    children_at_stop: false,
+    children_from_hooks: false,
     follows_cd: false,
     titles_once_loaded: false,
     transcript_tools: true,
@@ -54,29 +81,7 @@ export const adapter: Adapter = {
       return null;
     }),
   hook(v) {
-    const input = field(v, "input"),
-      tool = str(v, "tool");
-    const hook = hooks.decode({
-      hook_event_name: str(v, "event"),
-      session_id: str(v, "session"),
-      turn_id: str(v, "turn"),
-      prompt_id: str(v, "event") === "UserPromptSubmit" ? str(v, "turn") : "",
-      transcript_path: str(v, "transcript"),
-      cwd: str(v, "cwd"),
-      model: str(v, "model"),
-      tool_name: tool,
-      tool_input: {
-        command: str(input, "command"),
-        file_path: str(input, "path"),
-        description: str(input, "description"),
-      },
-    });
-    if (hook && hook.kind === "prompt") hook.initial_request = clip(str(v, "initial_request"), 2048);
-    const outcome = str(v, "outcome");
-    if (hook && hook.kind === "stop" && ["completed", "interrupted", "failed"].includes(outcome))
-      hook.outcome = outcome as "completed" | "interrupted" | "failed";
-    if (hook && hook.kind === "tool_finish" && ["write", "edit"].includes(tool) && str(input, "path"))
-      hook.writes = [path.resolve(hook.cwd, str(input, "path"))];
+    const hook = decode(v);
     if (hook && (hook.kind === "session_start" || hook.kind === "stop"))
       locations.remember(str(v, "session"), str(v, "transcript"), str(v, "account"));
     return hook;
@@ -136,12 +141,12 @@ export const adapter: Adapter = {
       }),
   },
   rename: { channel, suggest },
-  headless: { start: at => Pi.start(at), restore: Pi.restore },
+  headless: { start: at => Pi.start(at), restore: (saved, live) => Pi.restore(saved, live) },
   inference: {
     model: "openai-codex/gpt-6-luna",
     models: (account, quit) => import("./models").then(m => m.read(account, quit)),
     start: (r, at) => Pi.start({ ...at, cwd: "/tmp" }, summaryArgs(r)),
-    restore: Pi.restore,
+    restore: (saved, live) => Pi.restore(saved, live),
   },
   launcher: account => import("./launcher").then(m => m.open(account)),
   history: account => import("./history").then(m => m.open(account)),
