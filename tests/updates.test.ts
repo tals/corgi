@@ -21,8 +21,10 @@ let latest = "1.0.1",
 let requests = 0;
 const binaries = new Map<string, Uint8Array>();
 const manifests = new Map<string, string>();
-// The manifest a release serves this platform; CORGI_OLD_EXE may predate the others' targets.
-const host = `${process.platform === "darwin" ? "macos" : process.platform}-${process.arch === "arm64" ? "aarch64" : "x86_64"}`,
+// The manifest a release serves this platform, chosen as the updater does (every Mac is
+// macos-aarch64); CORGI_OLD_EXE may predate the others' targets.
+const host =
+    process.platform === "darwin" ? "macos-aarch64" : process.arch === "arm64" ? "linux-aarch64" : "linux-x86_64",
   feed = releaseManifests.find(m => (m.targets as readonly string[]).includes(host))!;
 const sha = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
 const server = Bun.serve({

@@ -21,9 +21,11 @@ import { testBuild } from "./build_assets";
 import * as config from "./build_config";
 import * as json from "./json";
 export const abi = "1-a826bd22ebcdbe60";
-export const platform =
+const platforms = ["macos-aarch64", "linux-x86_64", "linux-aarch64"] as const;
+type Platform = (typeof platforms)[number];
+export const platform: Platform =
   process.platform === "darwin" ? "macos-aarch64" : process.arch === "arm64" ? "linux-aarch64" : "linux-x86_64";
-const platforms = ["macos-aarch64", "linux-x86_64", "linux-aarch64"];
+const parsePlatform = (name: string): Platform | null => platforms.find(p => p === name) ?? null;
 // Releases from before Linux arm64 reject a manifest naming a target they don't know, so it has its own channel.
 const channel = platform === "linux-aarch64" ? "stable-linux-aarch64" : "stable";
 export type Release = { version: string; commit: string; feed_url: string; public_key: string; test_mode: boolean };
@@ -33,8 +35,10 @@ type Manifest = {
   version: string;
   commit: string;
   update_abi: string;
-  targets: Record<string, Target>;
+  targets: Partial<Record<Platform, Target>>;
 };
+// parse() rejects a manifest without this platform's target.
+const own = (m: Manifest) => m.targets[platform]!;
 export function release(exe: string): Release {
   const r = {
     version: config.releaseVersion,
@@ -140,7 +144,7 @@ export function parse(rel: Release, bytes: string): Manifest {
   integer(m, "schema_version", 32);
   for (const field of ["version", "commit", "update_abi"]) string(m, field);
   const targets = record(m.targets, null);
-  for (const key of Object.keys(targets)) if (!platforms.includes(key)) throw Error("UnknownField");
+  for (const key of Object.keys(targets)) if (parsePlatform(key) === null) throw Error("UnknownField");
   if (!Object.hasOwn(targets, platform)) throw Error("MissingField");
   for (const key of Object.keys(targets)) {
     const target = record(targets[key], ["url", "sha256", "size"]);
@@ -237,12 +241,12 @@ async function feed(rel: Release, root: string, download: boolean, explicit: boo
       dir = dirname(dest);
     privateDirectory(dir);
     try {
-      verifyFile(dest, m.targets[platform]);
+      verifyFile(dest, own(m));
     } catch {
       const partial = join(dir, "download.tmp");
       try {
-        atomicWrite(partial, await fetchBytes(rel, m.targets[platform].url, m.targets[platform].size), 0o700);
-        verifyFile(partial, m.targets[platform]);
+        atomicWrite(partial, await fetchBytes(rel, own(m).url, own(m).size), 0o700);
+        verifyFile(partial, own(m));
         if (existsSync(dest)) throw Error("ExistingReleaseDiffers");
         renameSync(partial, dest);
       } finally {
@@ -360,7 +364,7 @@ async function select(
     if (bytes === null) throw Error("MissingReleaseManifest");
     const m = parse(rel, bytes);
     if (m.version !== candidate) throw Error("WrongReleaseManifest");
-    verifyFile(target, m.targets[platform]);
+    verifyFile(target, own(m));
     if (h && !(h.server_pid > 0)) throw Error("UpdateRuntimeChanged");
     const deferred = h ? `deferred-${Bun.hash.wyhash(socket, 0n).toString(16)}-${h.server_pid}` : null;
     if (!explicit && deferred && read(root, deferred) === candidate) return old;
@@ -518,12 +522,12 @@ async function install(rel: Release, exe: string, root: string, manifest: string
     const bytes = readFileSync(manifest, "utf8"),
       m = parse(rel, bytes);
     if (m.version !== rel.version || m.commit !== rel.commit) throw Error("WrongReleaseManifest");
-    verifyFile(exe, m.targets[platform]);
+    verifyFile(exe, own(m));
     const dest = executable(root, rel.version),
       dir = dirname(dest);
     privateDirectory(dir);
     try {
-      verifyFile(dest, m.targets[platform]);
+      verifyFile(dest, own(m));
     } catch {
       copyFileSync(exe, dest);
       chmodSync(dest, 0o700);
