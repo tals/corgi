@@ -74,6 +74,25 @@ test("Goose integration installs, reports and uninstalls in a temp root", async 
     rmSync(root, { recursive: true, force: true });
   }
 });
+test("Goose integration backs up config.yaml before rewriting it", async () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-goose-"));
+  const env = { ...process.env, GOOSE_PATH_ROOT: root };
+  try {
+    const config = join(root, "config", "config.yaml");
+    mkdirSync(join(config, ".."), { recursive: true });
+    const original = "active_provider: openai\n";
+    writeFileSync(config, original);
+    const added = await install("", env);
+    expect(added.map(r => r.outcome)).toEqual(["added", "added", "added"]);
+    expect(readFileSync(config + ".corgi-backup", "utf8")).toBe(original);
+    expect(lstatSync(config + ".corgi-backup").mode & 0o777).toBe(0o600);
+    const again = await install("", env);
+    expect(again.map(r => r.outcome)).toEqual(["present", "present", "present"]);
+    expect(readFileSync(config + ".corgi-backup", "utf8")).toBe(original);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 test("Goose integration leaves a foreign plugin dir alone on status", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-goose-"));
   const env = { ...process.env, GOOSE_PATH_ROOT: root };
@@ -89,4 +108,4 @@ test("Goose integration leaves a foreign plugin dir alone on status", async () =
     rmSync(root, { recursive: true, force: true });
   }
 });
-
+);
