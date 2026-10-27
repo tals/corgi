@@ -181,7 +181,10 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
   log.configure(alias ? "agent" : command);
   quietExecveWarning();
   // Only the daemon logs native messages: its stderr is server.log.
-  if (command === "serve" || command === "__handoff") n.native_log_stderr(true);
+  if (command === "serve" || command === "__handoff") {
+    n.native_log_stderr(true);
+    (await import("./detection")).configureNative();
+  }
   if (["serve", "__handoff", "attach", "--no-update", "__viewer-test"].includes(command))
     try {
       crash.init(command === "serve" || command === "__handoff" ? "daemon" : "viewer");

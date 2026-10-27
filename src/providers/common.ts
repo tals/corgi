@@ -2,7 +2,7 @@ import { readdirSync } from "node:fs";
 import { BoundedText } from "../bounded_text";
 import path from "node:path";
 import { field, str } from "../json";
-import type { Permissions } from "./adapter";
+import type { Permissions, Programs } from "./adapter";
 export { field, str } from "../json";
 export type Outcome = "completed" | "interrupted" | "failed";
 export type SessionRef = { id: string } | { path: string };
@@ -164,4 +164,12 @@ export class Hooks {
       confirm: "now" as "now" | "screen",
     };
   }
+}
+/** Whether an executable, script or package at `path` is the one `programs` describes. */
+export function owns(programs: Programs, p: string): boolean {
+  return (
+    programs.names.includes(path.basename(p)) ||
+    (programs.markers ?? []).some(marker => p.includes(marker)) ||
+    (programs.scripts ?? []).some(script => p.endsWith(script))
+  );
 }

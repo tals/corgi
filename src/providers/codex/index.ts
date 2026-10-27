@@ -17,7 +17,7 @@ import { caps, identity, info, keeping, vocabulary } from "./info";
 import { signin } from "./signin";
 import * as commandLine from "../command_line";
 import { existsSync, realpathSync } from "node:fs";
-import path, { join } from "node:path";
+import { join } from "node:path";
 export function configDir(env = process.env) {
   return configHome(env, vocabulary.config_env, ".codex");
 }
@@ -61,7 +61,6 @@ export const adapter: Adapter = {
   ...info,
   caps,
   inspect: c => commandLine.inspect(c, vocabulary),
-  owns: p => path.basename(p) === "codex" || p.endsWith("/@openai/codex/bin/codex.js"),
   installs: at => [
     ...(at.home
       ? [".local/bin", ".bun/bin", ".npm-global/bin", ".volta/bin", ".cargo/bin"].map(dir =>

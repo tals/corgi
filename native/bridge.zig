@@ -21,6 +21,11 @@ fn logFn(
 pub export fn native_log_stderr(on: bool) void {
     log_to_stderr = on;
 }
+/// The providers' programs, so terminals know an agent in front of them.
+pub export fn detection_configure(data: [*]const u8, len: usize) i32 {
+    pane.detection.configure(data[0..len]) catch return -1;
+    return 0;
+}
 pub export fn terminal_new() ?*pane.Terminal {
     return pane.Terminal.create(120, 40) catch null;
 }

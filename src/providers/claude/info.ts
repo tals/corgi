@@ -9,6 +9,12 @@ export const info: Info = {
   glyph: "*",
   launcher_key: "l",
   command: "claude",
+  programs: {
+    names: ["claude", "claude-code"],
+    // Claude's daemon launches the versioned native binary directly.
+    markers: ["/claude/versions/"],
+    scripts: ["/@anthropic-ai/claude-code/cli.js"],
+  },
 };
 export const caps: Caps = {
   prompt_turns: true,

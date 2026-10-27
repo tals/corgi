@@ -16,6 +16,11 @@ test("per-provider values are keyed by name, in the registry's order", () => {
   expect(Provider.parse("other")).toBeNull();
   expect(Provider.owning("/opt/bin/claude-code")).toBe("claude");
 });
+test("the landing page's stand-in registry lists every provider", async () => {
+  const site = await import("../site/browser/providers");
+  expect(site.Provider.all).toEqual(Provider.all);
+  for (const p of Provider.all) expect(site.adapter(p).programs).toEqual(adapter(p).programs);
+});
 test("a registered provider is listed, parsed and found until it is removed", () => {
   const builtIn = [...Provider.all];
   const remove = sim.register();

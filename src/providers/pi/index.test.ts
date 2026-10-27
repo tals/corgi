@@ -8,6 +8,7 @@ import { entry, open } from "./history";
 import * as locations from "./locations";
 import { transcript } from "./transcript";
 import { Agent, Text } from "../../agents";
+import { Provider } from "../../providers";
 test("Pi prompt hooks carry bounded initial naming evidence only on prompt events", () => {
   const prompt = adapter.hook({ event: "UserPromptSubmit", session: "s", initial_request: "é".repeat(3000) })!;
   expect(Buffer.byteLength(prompt.initial_request)).toBe(2048);
@@ -27,7 +28,7 @@ test("Pi launches, resumes and forks without treating trust as tool approval", (
     args: ["--fork", "/tmp/a.jsonl", "--name", "name"],
     named: true,
   });
-  expect(adapter.owns("/x/@earendil-works/pi-coding-agent/dist/bundle/cli.js")).toBe(true);
+  expect(Provider.owning("/x/@earendil-works/pi-coding-agent/dist/bundle/cli.js")).toBe("pi");
   expect(adapter.version!("1.0.0")).toBe(true);
   expect(adapter.version!("0.99.0")).toBe(false);
 });

@@ -1,4 +1,4 @@
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Adapter } from "../adapter";
 import { Hooks } from "../common";
 import { ScreenWatcher } from "../watcher";
@@ -18,7 +18,6 @@ export const adapter: Adapter = {
     titles_once_loaded: false,
     transcript_tools: false,
   },
-  owns: p => ["opencode2", "opencode"].includes(basename(p)),
   version: s => /^opencode v2\./m.test(s.trim()),
   requires: "v2",
   installs: ({ home, root }) => [

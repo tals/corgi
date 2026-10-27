@@ -3,6 +3,7 @@ import * as claude from "./providers/claude";
 import * as pi from "./providers/pi";
 import * as opencode2 from "./providers/opencode2";
 import type { Adapter } from "./providers/adapter";
+import { owns } from "./providers/common";
 export * from "./providers/common";
 /** Every provider Corgi integrates with, by id. `Provider` derives from it,
  * so a provider missing from any `ByProvider` record fails to compile. Key
@@ -27,7 +28,7 @@ export const Provider = {
   },
   /** The provider an executable or script at `path` belongs to. */
   owning(path: string): Provider | null {
-    return all.find(p => adapter(p).owns(path)) ?? null;
+    return all.find(p => owns(adapter(p).programs, path)) ?? null;
   },
   /** Adds `provider` until the returned function runs. Tests register a
    * simulated provider to find code that assumes the built-in ones. */

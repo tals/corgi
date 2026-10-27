@@ -284,7 +284,12 @@ export type Info = {
   command: string;
   /** False when permission policy belongs to extensions, with no CLI bypass. */
   bypass?: boolean;
+  /** How its processes show; the native layer gets these too. */
+  programs: Programs;
 };
+/** An agent CLI's executable names, paths only its installs contain, and the
+ * scripts an interpreter runs for it. */
+export type Programs = { names: string[]; markers?: string[]; scripts?: string[] };
 /** How an agent asks before acting: as its own settings say, or never. */
 export type Permissions = "default" | "bypass";
 /** What a launch asks of a new agent: its permission checks and model, as
@@ -343,8 +348,6 @@ export interface Conversation {
 /** Everything core asks a provider. Each one lives in `providers/<name>/`. */
 export interface Adapter extends Info {
   caps: Caps;
-  /** Whether an executable, script or package at `path` is this provider. */
-  owns(path: string): boolean;
   inspect(c: CommandLine): Inspection;
   /** Where it may be installed besides PATH, most likely first. `root`
    * prefixes system locations so tests can stand in for them. */

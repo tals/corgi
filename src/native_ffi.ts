@@ -11,6 +11,7 @@ const term = dlopen(`${nativeRoot}/lib/libcorgi_term.${suffix}`, {
   terminal_text: { args: ["ptr", "ptr", "usize"], returns: FFIType.i64_fast },
   terminal_snapshot: { args: ["ptr", "ptr", "usize"], returns: FFIType.i64_fast },
   native_log_stderr: { args: ["bool"], returns: "void" },
+  detection_configure: { args: ["ptr", "usize"], returns: "i32" },
   frame_diff_new: { args: ["u16", "u16"], returns: "ptr" },
   frame_diff_invalidate_images: { args: ["ptr"], returns: "void" },
   frame_diff_free: { args: ["ptr"], returns: "void" },

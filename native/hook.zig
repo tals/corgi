@@ -11,8 +11,6 @@ const detection = deps.detection;
 const c = os.c;
 const a = os.allocator;
 
-const Provider = enum { claude, codex, pi };
-
 pub fn main(init: std.process.Init) void {
     os.initIo(init.minimal);
     run(init) catch {};
@@ -21,7 +19,11 @@ pub fn main(init: std.process.Init) void {
 fn run(init: std.process.Init) !void {
     const args = try init.minimal.args.toSlice(a);
     if (args.len != 3 or !std.mem.eql(u8, args[1], "hook")) return;
-    const provider = std.meta.stringToEnum(Provider, args[2]) orelse return;
+    // Any provider the daemon knows; only Claude's and Codex's hooks need more.
+    const provider = args[2];
+    if (provider.len == 0 or provider.len > 32) return;
+    for (provider) |ch| if (!std.ascii.isLower(ch) and !std.ascii.isDigit(ch)) return;
+    const claude = std.mem.eql(u8, provider, "claude");
     const pane = std.fmt.parseInt(u32, os.env("CORGI_PANE") orelse return, 10) catch return;
     const socket = os.env("CORGI_SOCKET") orelse return;
 
@@ -33,35 +35,26 @@ fn run(init: std.process.Init) !void {
         try input.appendSlice(a, buf[0..@intCast(n)]);
     }
     const parsed = std.json.parseFromSlice(std.json.Value, a, input.items, .{}) catch return;
-    switch (provider) {
-        // Codex tools/subagents inherit the pane environment. Their sessions
-        // must not take ownership of the parent terminal's sidebar entry.
-        .codex => if (os.env("CODEX_THREAD_ID")) |parent| {
-            const session = switch (parsed.value) {
-                .object => |o| if (o.get("session_id")) |v| switch (v) {
-                    .string => |s| s,
-                    else => "",
-                } else "",
+    // Codex tools/subagents inherit the pane environment. Their sessions
+    // must not take ownership of the parent terminal's sidebar entry.
+    if (std.mem.eql(u8, provider, "codex")) if (os.env("CODEX_THREAD_ID")) |parent| {
+        const session = switch (parsed.value) {
+            .object => |o| if (o.get("session_id")) |v| switch (v) {
+                .string => |s| s,
                 else => "",
-            };
-            if (parent.len > 0 and !std.mem.eql(u8, parent, session)) return;
-        },
-        .claude, .pi => {},
-    }
+            } else "",
+            else => "",
+        };
+        if (parent.len > 0 and !std.mem.eql(u8, parent, session)) return;
+    };
     // Claude's background daemon inherits the environment of whichever pane
     // first spawned it, and so does a `claude -p` an agent runs from a tool.
-    const origin: detection.HookOrigin = switch (provider) {
-        .claude => detection.hookOrigin(),
-        .codex, .pi => .{},
-    };
-    const background = switch (provider) {
-        .claude => std.mem.eql(u8, os.env("CLAUDE_CODE_SESSION_KIND") orelse "", "bg") or origin.background,
-        .codex, .pi => false,
-    };
+    const origin: detection.HookOrigin = if (claude) detection.hookOrigin() else .{};
+    const background = claude and (std.mem.eql(u8, os.env("CLAUDE_CODE_SESSION_KIND") orelse "", "bg") or origin.background);
     const body = try std.json.Stringify.valueAlloc(a, .{
         .op = "hook",
         .protocol = 2,
-        .provider = @tagName(provider),
+        .provider = provider,
         .event = parsed.value,
         .pane = pane,
         .seq = os.microTimestamp(),

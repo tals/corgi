@@ -165,7 +165,7 @@ pub const Terminal = struct {
             t.title_prefix = prefix;
         }
         if (!t.restoring and t.fd >= 0) {
-            t.title_pid = if (detection.foreground(t.fd)) |job| job.pid else 0;
+            t.title_pid = detection.foreground(t.fd) orelse 0;
         }
     }
     fn reply(handler: *vt.TerminalStream.Handler, bytes: []const u8) void {

@@ -21,9 +21,6 @@ export const adapter: Adapter = {
     titles_once_loaded: false,
     transcript_tools: true,
   },
-  owns: p =>
-    path.basename(p) === "pi" ||
-    /\/@(?:earendil-works|mariozechner)\/pi-coding-agent\/dist\/(?:bundle\/)?cli\.js$/.test(p),
   installs: ({ home, root }) => [
     ...(home ? [".bun/bin", ".local/bin", ".npm-global/bin"].map(d => path.join(home, d, "pi")) : []),
     ...["/opt/homebrew/bin/pi", "/usr/local/bin/pi"].map(p => root + p),

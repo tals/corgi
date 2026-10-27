@@ -1,14 +1,15 @@
 //! Claude Code processes: whether one still runs, and which one sent a hook.
 import { identify } from "../../detection";
 import { processArgs, processJob } from "../../os";
-import { adapter } from "./index";
+import { owns } from "../common";
+import { info as claude } from "./info";
 const buffer = 1024 * 1024;
 /** Whether `info` runs Claude Code, even as a process it retitled ("claude bg-spare"). */
 export function claudeProcess(info: { exe: string; argv: string[] }) {
   return (
-    adapter.owns(info.exe) ||
+    owns(claude.programs, info.exe) ||
     identify(info.argv) === "claude" ||
-    (!!info.argv.length && adapter.owns(info.argv[0].split(" ")[0]))
+    (!!info.argv.length && owns(claude.programs, info.argv[0].split(" ")[0]))
   );
 }
 function read(pid: number) {

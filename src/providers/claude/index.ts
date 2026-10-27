@@ -52,10 +52,6 @@ export const adapter: Adapter = {
   ...info,
   caps,
   inspect: c => commandLine.inspect(c, vocabulary),
-  owns: p =>
-    ["claude", "claude-code"].includes(path.basename(p)) ||
-    p.includes("/claude/versions/") ||
-    p.endsWith("/@anthropic-ai/claude-code/cli.js"),
   installs: ({ home, root }) => [
     ...(home
       ? [".claude/local", ".local/bin", ".bun/bin", ".npm-global/bin", ".volta/bin"].map(dir =>

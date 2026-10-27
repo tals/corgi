@@ -99,9 +99,11 @@ A provider's `index.ts` must not statically import a module that imports
 `./providers` while loading (discovery, inference, usage, launch). Those load
 with `import()`, or loading fails with "Cannot access 'adapter' before
 initialization". `providers/sim` exists only in tests; `sim.register()` adds it
-so a test finds code that still assumes Claude or Codex. `native/hook.zig` and
-`native/zig/detection.zig` keep small copies of the hook origin and executable
-checks, since they run without the adapters.
+so a test finds code that still assumes Claude or Codex. A provider's `info.ts`
+lists its `programs`, the executables and scripts that mark its processes; the
+daemon hands that table to the native layer at startup. `native/hook.zig`
+forwards any provider's hooks and keeps its own copy of Claude's programs only,
+to find the Claude process behind a hook.
 
 ## Resuming and forking
 

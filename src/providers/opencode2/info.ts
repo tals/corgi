@@ -6,4 +6,5 @@ export const info: Info = {
   glyph: "o",
   launcher_key: "o",
   command: "opencode",
+  programs: { names: ["opencode2", "opencode"] },
 };

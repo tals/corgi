@@ -9,6 +9,7 @@ export const info: Info = {
   glyph: "†",
   launcher_key: "c",
   command: "codex",
+  programs: { names: ["codex"], scripts: ["/@openai/codex/bin/codex.js"] },
 };
 export const caps: Caps = {
   prompt_turns: false,
