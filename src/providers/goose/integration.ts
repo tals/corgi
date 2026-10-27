@@ -87,7 +87,12 @@ function pluginsBlock(lines: string[]): { at: number; indent: number; flow: stri
   if (flow) return { at, indent: lines[at].search(/\S/), flow: flow[1] };
   throw Error("UnsupportedPluginsStyle");
 }
-function childBlock(lines: string[], at: number, indent: number, key: string): { at: number; indent: number; flow: string | null } | null {
+function childBlock(
+  lines: string[],
+  at: number,
+  indent: number,
+  key: string,
+): { at: number; indent: number; flow: string | null } | null {
   for (let i = at + 1; i < lines.length; i++) {
     const line = lines[i];
     if (/^\s*$/.test(line) || /^\s*#/.test(line)) continue;
@@ -244,7 +249,8 @@ export function ensurePluginEnabled(yaml: string): string {
     if (!flowBalanced(inner)) throw Error("UnsupportedPluginsStyle");
     const cEntries = flowEntries(inner);
     if (flowValue(cEntries, "enabled") === "true") return yaml;
-    lines[corgi.at] = " ".repeat(corgi.indent) + "corgi: {" + flowSet(cEntries, "enabled", "enabled: true").join(", ") + "}";
+    lines[corgi.at] =
+      " ".repeat(corgi.indent) + "corgi: {" + flowSet(cEntries, "enabled", "enabled: true").join(", ") + "}";
     return lines.join("\n");
   }
   for (let i = corgi.at + 1; i < lines.length; i++) {
@@ -271,7 +277,10 @@ export function removePluginEntry(yaml: string): string {
     if (!flowBalanced(inner)) throw Error("UnsupportedPluginsStyle");
     const entries = flowEntries(inner);
     if (flowValue(entries, "corgi") === null) return yaml;
-    lines[plugins.at] = "plugins: {" + entries.filter(entry => !new RegExp(`^(?:"corgi"|'corgi'|corgi)\\s*:`).test(entry)).join(", ") + "}";
+    lines[plugins.at] =
+      "plugins: {" +
+      entries.filter(entry => !new RegExp(`^(?:"corgi"|'corgi'|corgi)\\s*:`).test(entry)).join(", ") +
+      "}";
     return lines.join("\n");
   }
   const corgi = childBlock(lines, plugins.at, plugins.indent, "corgi");

@@ -1604,7 +1604,10 @@ test("an account's row has a YOLO and launcher membership of its own, apart from
     agent: s.agent_launcher.manageModel().agents.find((a: agentManager.Agent) => a.account === "/accounts/work"),
   });
   expect(sent.at(-1)).toEqual({
-    "agent.visibility": { hidden: { codex: false, claude: false, pi: false, opencode2: false, goose: false }, hidden_accounts: [] },
+    "agent.visibility": {
+      hidden: { codex: false, claude: false, pi: false, opencode2: false, goose: false },
+      hidden_accounts: [],
+    },
   });
   expect([s.agent_launcher.hiddenOf(work), s.agent_launcher.hiddenOf("claude")]).toEqual([false, false]);
   s.agent_launcher.manager.at = agentManager.agentKey("claude", "");
