@@ -156,6 +156,10 @@ export const operations = [
   "headless.events",
   "headless.search",
   "headless.memory",
+  "voice.watch",
+  "voice.set",
+  "voice.type",
+  "voice.toggle",
   "theme",
   "viewer.terminal",
   "bugreport",
@@ -748,6 +752,9 @@ const requests = {
     was_file: ["string", ""],
     was_line: ["string", ""],
   },
+  "voice.watch": { pane: ["?u32", null], muted: ["bool", false], available: ["bool", true] },
+  "voice.set": { voice_id: "string", muted: ["?bool", null], available: ["?bool", null] },
+  "voice.type": { voice_id: "string", text: "string" },
   theme: { theme: ["theme", null] },
   "viewer.terminal": { terminal: "json" },
   startup: {
@@ -866,6 +873,10 @@ export interface ReplyPayloads {
   "workspace.switch": Ok & { viewer: number; queued: true };
   "headless.start": Ok & { session: string; provider: Provider };
   "headless.list": Ok & { sessions: unknown[] };
+  "voice.watch": Ok & { voice_id: string; muted: boolean; viewer: boolean; focus: string | null };
+  "voice.set": Ok & { muted: boolean };
+  "voice.type": Ok & { pane: number; viewer: number };
+  "voice.toggle": Ok & { muted: boolean };
   "headless.events": Ok & {
     events: unknown[];
     transcript: string;

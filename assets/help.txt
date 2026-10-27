@@ -16,6 +16,10 @@ corgi — a small Ghostty-powered agent terminal
   corgi hooks claude|codex       print hook configuration
   corgi integration COMMAND     status, install, uninstall hooks
   corgi account COMMAND         list, add, login, remove provider accounts
+  corgi voice [--ssh HOST] [--model NAME] [--device ID] [--threshold N] [--silence SECONDS] [--port PORT] [--no-filter] [--verbose]
+                                dictate into the focused pane by speaking
+  corgi voice setup [--model tiny.en|base.en|small.en|medium|large-v3-turbo]
+                                check tools, download a speech model
   corgi which claude|codex      show automatically selected executable
   corgi keys [PRESET]           list shortcuts: corgi, tmux, herdr, cmux
   corgi headless start PROVIDER PROMPT [--workspace ID]

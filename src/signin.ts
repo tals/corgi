@@ -17,6 +17,7 @@ import { Provider, adapter } from "./providers";
 import type { Login, SigninStep } from "./providers/adapter";
 import { Terminal, closeReadiness } from "./pane/terminal";
 import { Differ } from "./frame_diff";
+import { keys, type Key } from "./terminal_keys";
 import { shellWords } from "./os";
 import { displayWidth, ellipsis } from "./text";
 import * as viewerNative from "./viewer_native";
@@ -112,59 +113,6 @@ type Dialog = {
 };
 type Stage =
   { kind: "agent"; offered: Provider[]; choice: number } | { kind: "signin" } | { kind: "dialog"; dialog: Dialog };
-type Key =
-  | { kind: "up" | "down" | "left" | "right" | "tab" | "backtab" | "enter" | "esc" | "backspace" | "cancel" }
-  | { kind: "text"; text: string }
-  | { kind: "click"; x: number; y: number };
-/** The keys and clicks in `data`, as the frame's own screens read them. */
-function keys(data: string): Key[] {
-  const out: Key[] = [],
-    named: [string, Key["kind"]][] = [
-      ["\x1b[A", "up"],
-      ["\x1bOA", "up"],
-      ["\x1b[B", "down"],
-      ["\x1bOB", "down"],
-      ["\x1b[C", "right"],
-      ["\x1bOC", "right"],
-      ["\x1b[D", "left"],
-      ["\x1bOD", "left"],
-      ["\x1b[Z", "backtab"],
-    ];
-  for (let i = 0; i < data.length;) {
-    const mouse = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])/.exec(data.slice(i));
-    if (mouse) {
-      if (mouse[4] === "M" && Number(mouse[1]) === 0)
-        out.push({ kind: "click", x: Number(mouse[2]) - 1, y: Number(mouse[3]) - 1 });
-      i += mouse[0].length;
-      continue;
-    }
-    if (data.startsWith("\x1b[200~", i)) {
-      const end = data.indexOf("\x1b[201~", i);
-      out.push({ kind: "text", text: data.slice(i + 6, end < 0 ? data.length : end) });
-      i = end < 0 ? data.length : end + 6;
-      continue;
-    }
-    const seq = named.find(([s]) => data.startsWith(s, i));
-    if (seq) {
-      out.push({ kind: seq[1] } as Key);
-      i += seq[0].length;
-      continue;
-    }
-    const ch = data[i++];
-    if (ch === "\x1b") {
-      // Another escape sequence: skip it whole.
-      const rest = /^\[[0-9;?]*[ -\/]*[@-~]/.exec(data.slice(i));
-      if (rest) i += rest[0].length;
-      else out.push({ kind: "esc" });
-    } else if (ch === "\r" || ch === "\n") out.push({ kind: "enter" });
-    else if (ch === "\t") out.push({ kind: "tab" });
-    else if (ch === "\x7f" || ch === "\b") out.push({ kind: "backspace" });
-    else if (ch === "\x03" || ch === "\x11") out.push({ kind: "cancel" });
-    else if (ch >= " ") out.push({ kind: "text", text: ch });
-  }
-  return out;
-}
-
 /** Where a sign-in shows. */
 export interface Host {
   /** Something in it changed, to draw again. */

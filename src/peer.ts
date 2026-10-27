@@ -40,6 +40,8 @@ export class Client {
   subscribed_output = true;
   watching = false;
   watch_viewer = 0;
+  /** Holds voice mode's presence; closed before a live reload. */
+  voice = false;
   woken = 0n;
   launch_preview: Subscription | null = null;
   headless_start: { id: number; deadline: number; request_id?: number | null } | null = null;
