@@ -4,7 +4,8 @@ import type { Client, Event, Inference, Input, Place, Saved } from "../adapter";
 /** A one-shot `goose run -t`: instructions and prompt combined as the
  * --text argument, the run's stdout as the answer. goose 1.50.1 rejects bare
  * stdin (it demands -i, -t, or --recipe) and --instructions takes a file and
- * conflicts with --text, so --text is the one-shot form. */
+ * conflicts with --text, so --text is the one-shot form. --no-profile loads
+ * no default extensions, so private summaries run without tools or MCP. */
 export class GooseInference implements Client {
   readonly ready = true;
   private events: Event[] = [];
@@ -41,7 +42,7 @@ export class GooseInference implements Client {
     this.events = [];
     this.done = false;
     this.ended = false;
-    const proc = spawn(this.executable, ["run", "-t", this.instructions + "\n\n" + text], {
+    const proc = spawn(this.executable, ["run", "-t", this.instructions + "\n\n" + text, "--no-profile"], {
       cwd: this.cwd,
       stdio: ["ignore", "pipe", "pipe"],
     });

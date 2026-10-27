@@ -29,6 +29,7 @@ test("goose inference runs on prompt and reports turn end", async () => {
     const [message, turn, ended] = events;
     if (message?.kind !== "message") throw new Error("expected first event to be a message");
     expect(message.text).toContain("-t");
+    expect(message.text).toContain("--no-profile");
     expect(message.text).toContain("Summarize this");
     expect(message.text).toContain("Conversation text");
     expect(turn).toEqual({ kind: "turn", session: "", turn: "", phase: "ended", outcome: "completed" });
