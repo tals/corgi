@@ -25,6 +25,11 @@ test("provider names use the registered display name, not the wire id", () => {
   }
 });
 
+test("a provider the viewer doesn't know reads as none", () => {
+  expect(mirror.agent({ provider: "future" }).provider).toBeNull();
+  expect(mirror.providerName(mirror.agent({ provider: "future" }))).toBe("agent");
+});
+
 test("viewer scalars retain their bigint type after small and large wire replies", async () => {
   let value = 1n;
   const requests: any[] = [];

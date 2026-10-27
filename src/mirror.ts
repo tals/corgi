@@ -256,7 +256,7 @@ export function agent(value: any = {}): Agent {
     recent_activity: value.recent_activity ?? "",
     changed_at: Number(value.changed_at ?? 0),
     working_since: Number(value.working_since ?? 0),
-    provider: value.provider ?? null,
+    provider: Provider.parse(value.provider),
     state: value.state ?? "unknown",
     attention: value.attention ?? "none",
     session: value.session ?? "",
@@ -325,7 +325,7 @@ function workspace(value: any): Workspace {
     cwd: value.cwd ?? "",
     model: Model.fromData(value.model),
     agent_order: value.agent_order ?? [],
-    last_agent: value.last_agent ?? null,
+    last_agent: Provider.parse(value.last_agent),
     launcher_hidden: strings(value.launcher_hidden).flatMap(text => Row.parse(text) ?? []),
     closed_agents: Number(value.closed_agents ?? 0),
     git_commits: (value.git_commits ?? []).map((c: any) => ({
@@ -501,7 +501,7 @@ export class Runtime {
     this.snapshot_hash = null;
     this.panes = panes;
     this.workspaces.items = parsed;
-    this.sessions = (snapshot.headless_sessions ?? []).map(headless);
+    this.sessions = (snapshot.headless_sessions ?? []).filter((s: any) => Provider.parse(s?.provider)).map(headless);
     this.conversations = (snapshot.conversations ?? []).map(conversation);
     this.system_model = snapshot.system_model ?? "";
     this.system_model_name = snapshot.system_model_name ?? "";
@@ -514,7 +514,7 @@ export class Runtime {
     this.system_working = snapshot.system_working === true;
     this.smart_links = snapshot.smart_links !== false;
     this.ports = snapshot.ports ?? { workspaces: [] };
-    this.last_agent = snapshot.last_agent ?? Provider.first;
+    this.last_agent = Provider.parse(snapshot.last_agent) ?? Provider.first;
     this.agent_yolo = byProvider(p => snapshot.agent_yolo?.[p] === true);
     this.agent_hidden = byProvider(p => snapshot.agent_hidden?.[p] === true);
     this.account_yolo = strings(snapshot.account_yolo);

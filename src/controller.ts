@@ -2986,7 +2986,8 @@ export class Controller {
     }
     for (const stop of this.stopped)
       known.push({ provider: stop.provider, session: stop.session, name: "", at: stop.at });
-    return launcherResume.merge(this.launch_previews.history.entries.map(launcherResume.historyEntry), known);
+    const entries = this.launch_previews.history.entries.filter((e: any) => Provider.parse(e?.provider));
+    return launcherResume.merge(entries.map(launcherResume.historyEntry), known);
   }
   /** Note the conversations panes stop running, and when, so a closed one
    * sorts by when it closed. */

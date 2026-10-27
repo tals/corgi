@@ -1,6 +1,6 @@
 import * as native from "./resource_os";
 import * as gpu from "./gpu";
-import type { Provider } from "../providers";
+import { Provider } from "../providers";
 import type { Runtime } from "../runtime";
 import * as clock from "../clock";
 import { Failure } from "../failure";
@@ -226,7 +226,7 @@ export function fromJSON(value: Wire<Snapshot> | null | undefined): Snapshot {
   const share = (s: Wire<gpu.Share>) => ({ index: s.index, util: s.util ?? null, memory: nullable(s.memory) });
   const restoreProcess = (p: Wire<Process>) =>
     Object.assign(new Process(p.pid, BigInt(p.start), p.name), {
-      provider: p.provider ?? null,
+      provider: Provider.parse(p.provider),
       cpu: p.cpu ?? null,
       memory: BigInt(p.memory ?? 0),
       read: nullable(p.read),

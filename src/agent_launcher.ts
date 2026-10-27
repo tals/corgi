@@ -115,6 +115,7 @@ export function preview(value: any = {}): Preview {
 export function commandEntry(value: any = {}): CommandEntry {
   const entry = Object.assign(new CommandEntry(), value ?? {});
   entry.semantics = Object.assign(new Semantics(), value?.semantics ?? {});
+  entry.semantics.provider = Provider.parse(entry.semantics.provider);
   return entry;
 }
 export function resolution(value: any = {}): Resolution {

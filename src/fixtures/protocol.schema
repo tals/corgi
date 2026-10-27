@@ -18,7 +18,7 @@ $.requests|session.command.command|agent.command.original: optional
 $.requests|session.command.command|agent.command.original?: string
 $.requests|session.command.command|agent.command.semantics: optional
 $.requests|session.command.command|agent.command.semantics?.provider: optional
-$.requests|session.command.command|agent.command.semantics?.provider?: enum codex claude pi opencode2
+$.requests|session.command.command|agent.command.semantics?.provider?: provider
 $.requests|session.command.command|agent.command.semantics?.suggested_name: custom bounded_text.BoundedText(160)
 $.requests|session.command.command|agent.command.semantics?.model: custom bounded_text.BoundedText(160)
 $.requests|session.command.command|agent.command.semantics?.model_name: custom bounded_text.BoundedText(160)
@@ -32,25 +32,23 @@ $.requests|session.command.command|agent.command.cwd?: string
 $.requests|session.command.command|agent.command.create.workspace: u32
 $.requests|session.command.command|agent.command.create.cwd: string
 $.requests|session.command.command|agent.command.create.index: usize
-$.requests|session.command.command|agent.visibility.hidden.codex: bool
-$.requests|session.command.command|agent.visibility.hidden.claude: bool
-$.requests|session.command.command|agent.visibility.hidden.opencode2: bool
+$.requests|session.command.command|agent.visibility.hidden{provider}: bool
 $.requests|session.command.command|agent.visibility.hidden_accounts: optional
 $.requests|session.command.command|agent.visibility.hidden_accounts?[]: string
 $.requests|session.command.command|agent.workspace_visibility.workspace: u32
 $.requests|session.command.command|agent.workspace_visibility.row: string
 $.requests|session.command.command|agent.workspace_visibility.shown: bool
-$.requests|session.command.command|agent.yolo.provider: enum codex claude pi opencode2
+$.requests|session.command.command|agent.yolo.provider: provider
 $.requests|session.command.command|agent.yolo.enabled: bool
 $.requests|session.command.command|agent.yolo.account: string
 $.requests|session.command.command|agent.create.workspace: u32
 $.requests|session.command.command|agent.create.cwd: string
 $.requests|session.command.command|agent.create.provider: optional
-$.requests|session.command.command|agent.create.provider?: enum codex claude pi opencode2
+$.requests|session.command.command|agent.create.provider?: provider
 $.requests|session.command.command|agent.create.account: string
 $.requests|session.command.command|agent.resume.workspace: u32
 $.requests|session.command.command|agent.resume.cwd: string
-$.requests|session.command.command|agent.resume.provider: enum codex claude pi opencode2
+$.requests|session.command.command|agent.resume.provider: provider
 $.requests|session.command.command|agent.resume.session: string
 $.requests|session.command.command|agent.resume.asleep: bool
 $.requests|session.command.command|agent.resume.name: string
@@ -170,7 +168,7 @@ $.requests|pane.idle.cwd: string
 $.requests|pane.idle.first: bool
 $.requests|pane.agent.pane: u32
 $.requests|pane.agent.provider: optional
-$.requests|pane.agent.provider?: enum codex claude pi opencode2
+$.requests|pane.agent.provider?: provider
 $.requests|pane.agent.owner: i32
 $.requests|conversation.list: {}
 $.requests|conversation.acknowledge.conversation: u32
@@ -181,7 +179,7 @@ $.requests|pane.surface.pane: u32
 $.requests|server.reload.executable: string
 $.requests|recovery.save: {}
 $.requests|inference.configure.choice: optional
-$.requests|inference.configure.choice?: enum auto codex claude pi opencode2 off
+$.requests|inference.configure.choice?: enum auto provider off
 $.requests|inference.configure.model: optional
 $.requests|inference.configure.model?: string
 $.requests|inference.configure.account: optional
@@ -261,7 +259,7 @@ $.requests|onboarding.copy.herdr_session?.workspaces[].tabs[].panes[].pid?: i32
 $.requests|onboarding.copy.herdr_session?.workspaces[].tabs[].panes[].resume_hint.name: custom bounded_text.BoundedText(160)
 $.requests|onboarding.copy.herdr_session?.workspaces[].tabs[].panes[].resume_hint.touched_at: i64
 $.requests|onboarding.copy.herdr_session?.workspaces[].tabs[].panes[].resume_hint.provider: optional
-$.requests|onboarding.copy.herdr_session?.workspaces[].tabs[].panes[].resume_hint.provider?: enum codex claude pi opencode2
+$.requests|onboarding.copy.herdr_session?.workspaces[].tabs[].panes[].resume_hint.provider?: provider
 $.requests|onboarding.copy.herdr_session?.workspaces[].tabs[].panes[].resume_hint.session: custom bounded_text.BoundedText(160)
 $.requests|onboarding.copy.herdr_session?.workspaces[].tabs[].root: any
 $.requests|onboarding.copy.selected[]: string
@@ -287,18 +285,18 @@ $.requests|focus.viewer?: u32
 $.requests|workspace.switch.workspace: u32
 $.requests|workspace.switch.viewer: optional
 $.requests|workspace.switch.viewer?: u32
-$.requests|headless.start.provider: enum codex claude pi opencode2
+$.requests|headless.start.provider: provider
 $.requests|headless.start.prompt: string
 $.requests|headless.start.cwd: string
 $.requests|headless.start.workspace: optional
 $.requests|headless.start.workspace?: u32
 $.requests|headless.list: {}
-$.requests|headless.stop.provider: enum codex claude pi opencode2
+$.requests|headless.stop.provider: provider
 $.requests|headless.stop.session: string
-$.requests|headless.send.provider: enum codex claude pi opencode2
+$.requests|headless.send.provider: provider
 $.requests|headless.send.session: string
 $.requests|headless.send.input: any
-$.requests|headless.events.provider: enum codex claude pi opencode2
+$.requests|headless.events.provider: provider
 $.requests|headless.events.session: string
 $.requests|headless.events.after: u64
 $.requests|theme.theme: optional
@@ -314,7 +312,7 @@ $.requests|theme.theme?.palette[16]: optional
 $.requests|theme.theme?.palette[16]?.r: u8
 $.requests|theme.theme?.palette[16]?.g: u8
 $.requests|theme.theme?.palette[16]?.b: u8
-$.requests|hook.provider: enum codex claude pi opencode2
+$.requests|hook.provider: provider
 $.requests|hook.event: any
 $.requests|hook.pane: u32
 $.requests|hook.seq: optional
@@ -330,17 +328,17 @@ $.snapshot.release_commit: string
 $.snapshot.staged_version: string
 $.snapshot.system_model: string
 $.snapshot.system_model_name: string
-$.snapshot.inference.choice: enum auto codex claude pi opencode2 off
+$.snapshot.inference.choice: enum auto provider off
 $.snapshot.inference.provider: optional
-$.snapshot.inference.provider?: enum codex claude pi opencode2
+$.snapshot.inference.provider?: provider
 $.snapshot.inference.model: string
 $.snapshot.inference.account: string
 $.snapshot.inference.selection.provider: optional
-$.snapshot.inference.selection.provider?: enum codex claude pi opencode2
+$.snapshot.inference.selection.provider?: provider
 $.snapshot.inference.selection.model: string
 $.snapshot.inference.selection.account: string
 $.snapshot.inference.loading: bool
-$.snapshot.inference.available[].provider: enum codex claude pi opencode2
+$.snapshot.inference.available[].provider: provider
 $.snapshot.inference.available[].model: string
 $.snapshot.inference.available[].name: string
 $.snapshot.inference.available[].account: string
@@ -354,12 +352,8 @@ $.snapshot.inference.available[].output_cost?: f64
 $.snapshot.inference.available[].ready: optional
 $.snapshot.inference.available[].ready?: bool
 $.snapshot.inference.locked: bool
-$.snapshot.inference.launches.codex: u32
-$.snapshot.inference.launches.claude: u32
-$.snapshot.inference.launches.opencode2: u32
-$.snapshot.inference.models.codex: string
-$.snapshot.inference.models.claude: string
-$.snapshot.inference.models.opencode2: string
+$.snapshot.inference.launches{provider}: u32
+$.snapshot.inference.models{provider}: string
 $.snapshot.inference.uses.activity: bool
 $.snapshot.inference.uses.worktrees: bool
 $.snapshot.shell.setting: string
@@ -378,13 +372,9 @@ $.snapshot.system_usage.losses: u32
 $.snapshot.system_usage.since: i64
 $.snapshot.system_usage.updated_at: i64
 $.snapshot.system_usage.recent_tokens: u64
-$.snapshot.last_agent: enum codex claude pi opencode2
-$.snapshot.agent_yolo.codex: bool
-$.snapshot.agent_yolo.claude: bool
-$.snapshot.agent_yolo.opencode2: bool
-$.snapshot.agent_hidden.codex: bool
-$.snapshot.agent_hidden.claude: bool
-$.snapshot.agent_hidden.opencode2: bool
+$.snapshot.last_agent: provider
+$.snapshot.agent_yolo{provider}: bool
+$.snapshot.agent_hidden{provider}: bool
 $.snapshot.account_yolo[]: string
 $.snapshot.account_hidden[]: string
 $.snapshot.agent_commands[6].command: custom bounded_text.BoundedText(2048)
@@ -392,7 +382,7 @@ $.snapshot.agent_commands[6].original: custom bounded_text.BoundedText(2048)
 $.snapshot.agent_commands[6].hidden: bool
 $.snapshot.agent_commands[6].name: custom bounded_text.BoundedText(160)
 $.snapshot.agent_commands[6].semantics.provider: optional
-$.snapshot.agent_commands[6].semantics.provider?: enum codex claude pi opencode2
+$.snapshot.agent_commands[6].semantics.provider?: provider
 $.snapshot.agent_commands[6].semantics.suggested_name: custom bounded_text.BoundedText(160)
 $.snapshot.agent_commands[6].semantics.model: custom bounded_text.BoundedText(160)
 $.snapshot.agent_commands[6].semantics.model_name: custom bounded_text.BoundedText(160)
@@ -400,7 +390,7 @@ $.snapshot.agent_commands[6].semantics.account: custom bounded_text.BoundedText(
 $.snapshot.agent_commands[6].semantics.mode: custom bounded_text.BoundedText(160)
 $.snapshot.agent_commands[6].semantics.yolo: bool
 $.snapshot.agent_commands[6].semantics.default_account: bool
-$.snapshot.accounts[].provider: enum codex claude pi opencode2
+$.snapshot.accounts[].provider: provider
 $.snapshot.accounts[].account: string
 $.snapshot.accounts[].name: string
 $.snapshot.accounts[].managed: bool
@@ -471,7 +461,7 @@ $.snapshot.conversations[].agent.recent_activity: string
 $.snapshot.conversations[].agent.changed_at: i64
 $.snapshot.conversations[].agent.working_since: i64
 $.snapshot.conversations[].agent.provider: optional
-$.snapshot.conversations[].agent.provider?: enum codex claude pi opencode2
+$.snapshot.conversations[].agent.provider?: provider
 $.snapshot.conversations[].agent.state: enum unknown initializing idle working blocked done
 $.snapshot.conversations[].agent.attention: enum none finished needs_input
 $.snapshot.conversations[].agent.session: string
@@ -549,7 +539,7 @@ $.snapshot.resources.workspaces[].processes[].pid: i32
 $.snapshot.resources.workspaces[].processes[].start: u64
 $.snapshot.resources.workspaces[].processes[].name: string
 $.snapshot.resources.workspaces[].processes[].provider: optional
-$.snapshot.resources.workspaces[].processes[].provider?: enum codex claude pi opencode2
+$.snapshot.resources.workspaces[].processes[].provider?: provider
 $.snapshot.resources.workspaces[].processes[].cpu: optional
 $.snapshot.resources.workspaces[].processes[].cpu?: f64
 $.snapshot.resources.workspaces[].processes[].memory: u64
@@ -583,7 +573,7 @@ $.snapshot.resources.workspaces[].history[].processes[].pid: i32
 $.snapshot.resources.workspaces[].history[].processes[].start: u64
 $.snapshot.resources.workspaces[].history[].processes[].name: string
 $.snapshot.resources.workspaces[].history[].processes[].provider: optional
-$.snapshot.resources.workspaces[].history[].processes[].provider?: enum codex claude pi opencode2
+$.snapshot.resources.workspaces[].history[].processes[].provider?: provider
 $.snapshot.resources.workspaces[].history[].processes[].cpu: optional
 $.snapshot.resources.workspaces[].history[].processes[].cpu?: f64
 $.snapshot.resources.workspaces[].history[].processes[].memory: u64
@@ -613,7 +603,7 @@ $.snapshot.workspaces[].agent_order[]: one of
 $.snapshot.workspaces[].agent_order[]|pane: u32
 $.snapshot.workspaces[].agent_order[]|headless: u32
 $.snapshot.workspaces[].last_agent: optional
-$.snapshot.workspaces[].last_agent?: enum codex claude pi opencode2
+$.snapshot.workspaces[].last_agent?: provider
 $.snapshot.workspaces[].launcher_hidden[]: string
 $.snapshot.workspaces[].closed_agents: usize
 $.snapshot.workspaces[].git_commits[].timestamp: i64
@@ -718,7 +708,7 @@ $.snapshot.panes[].agent.recent_activity: string
 $.snapshot.panes[].agent.changed_at: i64
 $.snapshot.panes[].agent.working_since: i64
 $.snapshot.panes[].agent.provider: optional
-$.snapshot.panes[].agent.provider?: enum codex claude pi opencode2
+$.snapshot.panes[].agent.provider?: provider
 $.snapshot.panes[].agent.state: enum unknown initializing idle working blocked done
 $.snapshot.panes[].agent.attention: enum none finished needs_input
 $.snapshot.panes[].agent.session: string
@@ -748,7 +738,7 @@ $.snapshot.headless_sessions[].agent?.recent_activity: string
 $.snapshot.headless_sessions[].agent?.changed_at: i64
 $.snapshot.headless_sessions[].agent?.working_since: i64
 $.snapshot.headless_sessions[].agent?.provider: optional
-$.snapshot.headless_sessions[].agent?.provider?: enum codex claude pi opencode2
+$.snapshot.headless_sessions[].agent?.provider?: provider
 $.snapshot.headless_sessions[].agent?.state: enum unknown initializing idle working blocked done
 $.snapshot.headless_sessions[].agent?.attention: enum none finished needs_input
 $.snapshot.headless_sessions[].agent?.session: string
@@ -767,7 +757,7 @@ $.snapshot.headless_sessions[].observation.outcome: enum completed interrupted f
 $.snapshot.headless_sessions[].id: u32
 $.snapshot.headless_sessions[].session: string
 $.snapshot.headless_sessions[].workspace: u32
-$.snapshot.headless_sessions[].provider: enum codex claude pi opencode2
+$.snapshot.headless_sessions[].provider: provider
 $.snapshot.headless_sessions[].cwd: string
 $.snapshot.headless_sessions[].ready: bool
 $.snapshot.headless_sessions[].exited: bool
@@ -812,17 +802,17 @@ $.replies.pane.idle.panes[].tab: u32
 $.replies.pane.idle.panes[].workspace: u32
 $.replies.pane.idle.panes[].cwd: string
 $.replies.inference.configure.saved: bool
-$.replies.inference.configure.inference.choice: enum auto codex claude pi opencode2 off
+$.replies.inference.configure.inference.choice: enum auto provider off
 $.replies.inference.configure.inference.provider: optional
-$.replies.inference.configure.inference.provider?: enum codex claude pi opencode2
+$.replies.inference.configure.inference.provider?: provider
 $.replies.inference.configure.inference.model: string
 $.replies.inference.configure.inference.account: string
 $.replies.inference.configure.inference.selection.provider: optional
-$.replies.inference.configure.inference.selection.provider?: enum codex claude pi opencode2
+$.replies.inference.configure.inference.selection.provider?: provider
 $.replies.inference.configure.inference.selection.model: string
 $.replies.inference.configure.inference.selection.account: string
 $.replies.inference.configure.inference.loading: bool
-$.replies.inference.configure.inference.available[].provider: enum codex claude pi opencode2
+$.replies.inference.configure.inference.available[].provider: provider
 $.replies.inference.configure.inference.available[].model: string
 $.replies.inference.configure.inference.available[].name: string
 $.replies.inference.configure.inference.available[].account: string
@@ -836,12 +826,8 @@ $.replies.inference.configure.inference.available[].output_cost?: f64
 $.replies.inference.configure.inference.available[].ready: optional
 $.replies.inference.configure.inference.available[].ready?: bool
 $.replies.inference.configure.inference.locked: bool
-$.replies.inference.configure.inference.launches.codex: u32
-$.replies.inference.configure.inference.launches.claude: u32
-$.replies.inference.configure.inference.launches.opencode2: u32
-$.replies.inference.configure.inference.models.codex: string
-$.replies.inference.configure.inference.models.claude: string
-$.replies.inference.configure.inference.models.opencode2: string
+$.replies.inference.configure.inference.launches{provider}: u32
+$.replies.inference.configure.inference.models{provider}: string
 $.replies.inference.configure.inference.uses.activity: bool
 $.replies.inference.configure.inference.uses.worktrees: bool
 $.replies.onboarding.status.progress.phase: enum idle connecting receiving preparing committing copying complete failed
@@ -851,7 +837,7 @@ $.replies.onboarding.status.progress.workspace: optional
 $.replies.onboarding.status.progress.workspace?: u32
 $.replies.onboarding.status.progress.message: string
 $.replies.agent.command.preview.resolution.semantics.provider: optional
-$.replies.agent.command.preview.resolution.semantics.provider?: enum codex claude pi opencode2
+$.replies.agent.command.preview.resolution.semantics.provider?: provider
 $.replies.agent.command.preview.resolution.semantics.suggested_name: custom bounded_text.BoundedText(160)
 $.replies.agent.command.preview.resolution.semantics.model: custom bounded_text.BoundedText(160)
 $.replies.agent.command.preview.resolution.semantics.model_name: custom bounded_text.BoundedText(160)
@@ -865,7 +851,7 @@ $.replies.agent.command.preview.resolution.command.original: custom bounded_text
 $.replies.agent.command.preview.resolution.command.hidden: bool
 $.replies.agent.command.preview.resolution.command.name: custom bounded_text.BoundedText(160)
 $.replies.agent.command.preview.resolution.command.semantics.provider: optional
-$.replies.agent.command.preview.resolution.command.semantics.provider?: enum codex claude pi opencode2
+$.replies.agent.command.preview.resolution.command.semantics.provider?: provider
 $.replies.agent.command.preview.resolution.command.semantics.suggested_name: custom bounded_text.BoundedText(160)
 $.replies.agent.command.preview.resolution.command.semantics.model: custom bounded_text.BoundedText(160)
 $.replies.agent.command.preview.resolution.command.semantics.model_name: custom bounded_text.BoundedText(160)
@@ -875,7 +861,7 @@ $.replies.agent.command.preview.resolution.command.semantics.yolo: bool
 $.replies.agent.command.preview.resolution.command.semantics.default_account: bool
 $.replies.agent.command.preview.resolution.error_message: custom bounded_text.BoundedText(160)
 $.replies.agent.history.history.pending: bool
-$.replies.agent.history.history.entries[].provider: enum codex claude pi opencode2
+$.replies.agent.history.history.entries[].provider: provider
 $.replies.agent.history.history.entries[].account: string
 $.replies.agent.history.history.entries[].session: string
 $.replies.agent.history.history.entries[].title: string
@@ -886,124 +872,48 @@ $.replies.agent.history.history.entries[].branch: string
 $.replies.agent.history.history.entries[].updated_at: i64
 $.replies.agent.history.history.entries[].interrupted: bool
 $.launch_preview.pending: bool
-$.launch_preview.options.codex.pending: optional
-$.launch_preview.options.codex.pending?: bool
-$.launch_preview.options.codex.signed_in: optional
-$.launch_preview.options.codex.signed_in?: bool
-$.launch_preview.options.codex.model: custom bounded_text.BoundedText(160)
-$.launch_preview.options.codex.model_name: custom bounded_text.BoundedText(160)
-$.launch_preview.options.codex.source: custom bounded_text.BoundedText(160)
-$.launch_preview.options.codex.account: custom bounded_text.BoundedText(160)
-$.launch_preview.options.codex.plan: custom bounded_text.BoundedText(160)
-$.launch_preview.options.codex.limits: one of
-$.launch_preview.options.codex.limits|none: {}
-$.launch_preview.options.codex.limits|metered: {}
-$.launch_preview.options.codex.limits|rate_limited: {}
-$.launch_preview.options.codex.limits|windows[2]: optional
-$.launch_preview.options.codex.limits|windows[2]?.minutes: optional
-$.launch_preview.options.codex.limits|windows[2]?.minutes?: i64
-$.launch_preview.options.codex.limits|windows[2]?.used: u8
-$.launch_preview.options.codex.limits|windows[2]?.reset_at: optional
-$.launch_preview.options.codex.limits|windows[2]?.reset_at?: i64
-$.launch_preview.options.codex.spend: optional
-$.launch_preview.options.codex.spend?.used_minor: f64
-$.launch_preview.options.codex.spend?.limit_minor: optional
-$.launch_preview.options.codex.spend?.limit_minor?: f64
-$.launch_preview.options.codex.spend?.currency: optional
-$.launch_preview.options.codex.spend?.currency?: string
-$.launch_preview.options.codex.spend?.exponent: u8
-$.launch_preview.options.codex.spend?.period_start: i64
-$.launch_preview.options.codex.spend?.reset_at: i64
-$.launch_preview.options.codex.usage_fetched_at: i64
-$.launch_preview.options.codex.usage_error: custom bounded_text.BoundedText(160)
-$.launch_preview.options.codex.usage_needs_consent: bool
-$.launch_preview.options.codex.history[2][14]: optional
-$.launch_preview.options.codex.history[2][14]?: u8
-$.launch_preview.options.codex.spend_history[14].minor: optional
-$.launch_preview.options.codex.spend_history[14].minor?: f64
-$.launch_preview.options.codex.spend_history[14].earlier: bool
-$.launch_preview.options.claude.pending: optional
-$.launch_preview.options.opencode2.pending: optional
-$.launch_preview.options.claude.pending?: bool
-$.launch_preview.options.opencode2.pending?: bool
-$.launch_preview.options.claude.signed_in: optional
-$.launch_preview.options.opencode2.signed_in: optional
-$.launch_preview.options.claude.signed_in?: bool
-$.launch_preview.options.opencode2.signed_in?: bool
-$.launch_preview.options.claude.model: custom bounded_text.BoundedText(160)
-$.launch_preview.options.opencode2.model: custom bounded_text.BoundedText(160)
-$.launch_preview.options.claude.model_name: custom bounded_text.BoundedText(160)
-$.launch_preview.options.opencode2.model_name: custom bounded_text.BoundedText(160)
-$.launch_preview.options.claude.source: custom bounded_text.BoundedText(160)
-$.launch_preview.options.opencode2.source: custom bounded_text.BoundedText(160)
-$.launch_preview.options.claude.account: custom bounded_text.BoundedText(160)
-$.launch_preview.options.opencode2.account: custom bounded_text.BoundedText(160)
-$.launch_preview.options.claude.plan: custom bounded_text.BoundedText(160)
-$.launch_preview.options.opencode2.plan: custom bounded_text.BoundedText(160)
-$.launch_preview.options.claude.limits: one of
-$.launch_preview.options.opencode2.limits: one of
-$.launch_preview.options.claude.limits|none: {}
-$.launch_preview.options.opencode2.limits|none: {}
-$.launch_preview.options.claude.limits|metered: {}
-$.launch_preview.options.opencode2.limits|metered: {}
-$.launch_preview.options.claude.limits|rate_limited: {}
-$.launch_preview.options.opencode2.limits|rate_limited: {}
-$.launch_preview.options.claude.limits|windows[2]: optional
-$.launch_preview.options.opencode2.limits|windows[2]: optional
-$.launch_preview.options.claude.limits|windows[2]?.minutes: optional
-$.launch_preview.options.opencode2.limits|windows[2]?.minutes: optional
-$.launch_preview.options.claude.limits|windows[2]?.minutes?: i64
-$.launch_preview.options.opencode2.limits|windows[2]?.minutes?: i64
-$.launch_preview.options.claude.limits|windows[2]?.used: u8
-$.launch_preview.options.opencode2.limits|windows[2]?.used: u8
-$.launch_preview.options.claude.limits|windows[2]?.reset_at: optional
-$.launch_preview.options.opencode2.limits|windows[2]?.reset_at: optional
-$.launch_preview.options.claude.limits|windows[2]?.reset_at?: i64
-$.launch_preview.options.opencode2.limits|windows[2]?.reset_at?: i64
-$.launch_preview.options.claude.spend: optional
-$.launch_preview.options.opencode2.spend: optional
-$.launch_preview.options.claude.spend?.used_minor: f64
-$.launch_preview.options.opencode2.spend?.used_minor: f64
-$.launch_preview.options.claude.spend?.limit_minor: optional
-$.launch_preview.options.opencode2.spend?.limit_minor: optional
-$.launch_preview.options.claude.spend?.limit_minor?: f64
-$.launch_preview.options.opencode2.spend?.limit_minor?: f64
-$.launch_preview.options.claude.spend?.currency: optional
-$.launch_preview.options.opencode2.spend?.currency: optional
-$.launch_preview.options.claude.spend?.currency?: string
-$.launch_preview.options.opencode2.spend?.currency?: string
-$.launch_preview.options.claude.spend?.exponent: u8
-$.launch_preview.options.opencode2.spend?.exponent: u8
-$.launch_preview.options.claude.spend?.period_start: i64
-$.launch_preview.options.opencode2.spend?.period_start: i64
-$.launch_preview.options.claude.spend?.reset_at: i64
-$.launch_preview.options.opencode2.spend?.reset_at: i64
-$.launch_preview.options.claude.usage_fetched_at: i64
-$.launch_preview.options.opencode2.usage_fetched_at: i64
-$.launch_preview.options.claude.usage_error: custom bounded_text.BoundedText(160)
-$.launch_preview.options.opencode2.usage_error: custom bounded_text.BoundedText(160)
-$.launch_preview.options.claude.usage_needs_consent: bool
-$.launch_preview.options.opencode2.usage_needs_consent: bool
-$.launch_preview.options.claude.history[2][14]: optional
-$.launch_preview.options.opencode2.history[2][14]: optional
-$.launch_preview.options.claude.history[2][14]?: u8
-$.launch_preview.options.opencode2.history[2][14]?: u8
-$.launch_preview.options.claude.spend_history[14].minor: optional
-$.launch_preview.options.opencode2.spend_history[14].minor: optional
-$.launch_preview.options.claude.spend_history[14].minor?: f64
-$.launch_preview.options.opencode2.spend_history[14].minor?: f64
-$.launch_preview.options.claude.spend_history[14].earlier: bool
-$.launch_preview.options.opencode2.spend_history[14].earlier: bool
-$.launch_preview.installed.codex: bool
-$.launch_preview.outdated.codex: string
-$.launch_preview.installed.claude: bool
-$.launch_preview.outdated.claude: string
-$.launch_preview.installed.opencode2: bool
-$.launch_preview.outdated.opencode2: string
+$.launch_preview.options{provider}.pending: optional
+$.launch_preview.options{provider}.pending?: bool
+$.launch_preview.options{provider}.signed_in: optional
+$.launch_preview.options{provider}.signed_in?: bool
+$.launch_preview.options{provider}.model: custom bounded_text.BoundedText(160)
+$.launch_preview.options{provider}.model_name: custom bounded_text.BoundedText(160)
+$.launch_preview.options{provider}.source: custom bounded_text.BoundedText(160)
+$.launch_preview.options{provider}.account: custom bounded_text.BoundedText(160)
+$.launch_preview.options{provider}.plan: custom bounded_text.BoundedText(160)
+$.launch_preview.options{provider}.limits: one of
+$.launch_preview.options{provider}.limits|none: {}
+$.launch_preview.options{provider}.limits|metered: {}
+$.launch_preview.options{provider}.limits|rate_limited: {}
+$.launch_preview.options{provider}.limits|windows[2]: optional
+$.launch_preview.options{provider}.limits|windows[2]?.minutes: optional
+$.launch_preview.options{provider}.limits|windows[2]?.minutes?: i64
+$.launch_preview.options{provider}.limits|windows[2]?.used: u8
+$.launch_preview.options{provider}.limits|windows[2]?.reset_at: optional
+$.launch_preview.options{provider}.limits|windows[2]?.reset_at?: i64
+$.launch_preview.options{provider}.spend: optional
+$.launch_preview.options{provider}.spend?.used_minor: f64
+$.launch_preview.options{provider}.spend?.limit_minor: optional
+$.launch_preview.options{provider}.spend?.limit_minor?: f64
+$.launch_preview.options{provider}.spend?.currency: optional
+$.launch_preview.options{provider}.spend?.currency?: string
+$.launch_preview.options{provider}.spend?.exponent: u8
+$.launch_preview.options{provider}.spend?.period_start: i64
+$.launch_preview.options{provider}.spend?.reset_at: i64
+$.launch_preview.options{provider}.usage_fetched_at: i64
+$.launch_preview.options{provider}.usage_error: custom bounded_text.BoundedText(160)
+$.launch_preview.options{provider}.usage_needs_consent: bool
+$.launch_preview.options{provider}.history[2][14]: optional
+$.launch_preview.options{provider}.history[2][14]?: u8
+$.launch_preview.options{provider}.spend_history[14].minor: optional
+$.launch_preview.options{provider}.spend_history[14].minor?: f64
+$.launch_preview.options{provider}.spend_history[14].earlier: bool
+$.launch_preview.installed{provider}: bool
+$.launch_preview.outdated{provider}: string
 $.launch_history.epoch: u64
 $.launch_history.revision: u64
 $.launch_history.full: bool
-$.launch_history.entries[].provider: enum codex claude pi opencode2
+$.launch_history.entries[].provider: provider
 $.launch_history.entries[].session: string
 $.launch_history.entries[].title: string
 $.launch_history.entries[].first: string
@@ -1012,12 +922,7 @@ $.launch_history.entries[].cwd: string
 $.launch_history.entries[].branch: string
 $.launch_history.entries[].updated_at: i64
 $.launch_history.entries[].interrupted: bool
-$.launch_history.removed[].provider: enum codex claude pi opencode2
+$.launch_history.removed[].provider: provider
 $.launch_history.removed[].session: string
 $.replies.viewer.image.data: optional
 $.replies.viewer.image.data?: string
-$.requests|session.command.command|agent.visibility.hidden.pi: bool
-$.snapshot.agent_yolo.pi: bool
-$.snapshot.agent_hidden.pi: bool
-$.launch_preview.installed.pi: bool
-$.launch_preview.outdated.pi: string

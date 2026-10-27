@@ -3,6 +3,7 @@ import * as protocol from "./protocol";
 import * as json from "./json";
 import { Model, Selection } from "./layout";
 import samples from "./fixtures/protocol-requests.json";
+import { byProvider } from "./providers";
 test("every op decodes a sample request", () => {
   expect(Object.keys(samples).sort()).toEqual([...protocol.operations].sort());
   for (const op of protocol.operations) {
@@ -245,9 +246,11 @@ test("command defaults normalize nested semantics and tagged destinations", () =
       cwd: null,
     },
   });
-  expect(protocol.decodeCommand({ "agent.visibility": { hidden: { codex: true } } })).toEqual({
-    "agent.visibility": { hidden: { codex: true, claude: false, pi: false, opencode2: false }, hidden_accounts: null },
+  // A provider this daemon doesn't know is left out, not refused.
+  expect(protocol.decodeCommand({ "agent.visibility": { hidden: { codex: true, future: true } } })).toEqual({
+    "agent.visibility": { hidden: byProvider(p => p === "codex"), hidden_accounts: null },
   });
+  expect(() => protocol.decodeCommand({ "agent.visibility": { hidden: { codex: "yes" } } })).toThrow("UnexpectedToken");
   // An older viewer sends no account, which picks the provider's own row.
   expect(protocol.decodeCommand({ "agent.yolo": { provider: "claude", enabled: true } })).toEqual({
     "agent.yolo": { provider: "claude", enabled: true, account: "" },
@@ -265,7 +268,6 @@ test("command defaults normalize nested semantics and tagged destinations", () =
 test("command schemas reject unknown nested fields while requests stay lenient", () => {
   for (const value of [
     { "agent.command": { index: 1, command: "x", semantics: { newer: 1 } } },
-    { "agent.visibility": { hidden: { newer: true } } },
     { "agent.move": { workspace: 1, target: { newer: 2 } } },
     { "pane.move": { target: 1, destination: { beside: { other: 2, newer: 3 } } } },
     { "pane.move": { target: 1, destination: { workspace: 2 } } },

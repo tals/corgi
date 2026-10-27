@@ -19,6 +19,7 @@ import { validateCheckpoint } from "./persist/schema";
 import { Preview } from "./launch/preview";
 import { preview as restorePreview } from "./agent_launcher";
 import { Option } from "./inference/models";
+import { Provider } from "./providers";
 
 const schemas = Object.fromEntries(
   ["protocol", "viewer", "handoff"].map(name => [
@@ -27,14 +28,27 @@ const schemas = Object.fromEntries(
   ]),
 );
 
+/** An enum's members; `provider` stands for every provider. */
+function members(type: string): string[] {
+  return type
+    .slice(5)
+    .split(" ")
+    .flatMap(m => (m === "provider" ? Provider.all : [m]));
+}
 // Runtime conformance replaces Zig's compile-time reflected-type comparison.
 // Branches absent from the captured value are covered by their module tests.
 function validate(schema: string, value: unknown): void {
   for (const line of schema.trim().split("\n")) {
     const [path, type] = line.split(": ");
     let values: any[] = [value];
-    for (const token of path.slice(1).matchAll(/\.([^.[?|]+)|\[(\d*)\]|(\?)|\|([^.[?|]+)/g)) {
-      if (token[1] || token[4]) {
+    for (const token of path.slice(1).matchAll(/\.([^.[?|{]+)|\[(\d*)\]|(\?)|\|([^.[?|{]+)|(\{provider\})/g)) {
+      if (token[5]) {
+        values = values.flatMap(item => {
+          expect(typeof item, path).toBe("object");
+          for (const key of Object.keys(item)) expect(Provider.parse(key), `${path}: ${key}`).not.toBeNull();
+          return Object.values(item);
+        });
+      } else if (token[1] || token[4]) {
         const name = token[1] ?? token[4];
         values = values.flatMap(item => (item && Object.hasOwn(item, name) ? [item[name]] : []));
       } else if (token[2] !== undefined) {
@@ -55,7 +69,8 @@ function validate(schema: string, value: unknown): void {
           .filter(line => line.startsWith(path + "|"))
           .map(line => line.slice(path.length + 1).split(/[.:|?\[]/)[0]);
         expect(tags, path).toContain(Object.keys(item)[0]);
-      } else if (type.startsWith("enum ")) expect(type.slice(5).split(" "), path).toContain(item);
+      } else if (type === "provider") expect(Provider.parse(item), path).not.toBeNull();
+      else if (type.startsWith("enum ")) expect(members(type), path).toContain(item);
       else if (type === "bool") expect(typeof item, path).toBe("boolean");
       else if (type === "{}") expect(item, path).toEqual({});
       else if (type === "string" || type.startsWith("custom bounded_text.")) {
@@ -147,7 +162,7 @@ function fixture() {
 test("the runtime wire matches protocol.version", () => {
   expect(protocol.version).toBe(3);
   expect(createHash("sha256").update(schemas.protocol).digest("hex")).toBe(
-    "c6cc7c3651313af30742a6b3edda9c63cfd494ffbe601c899807aed449dbdfaf",
+    "74d0a62d3a3038413c685daa36ab2fc9f54dab5cf4b61e31e575dd3d20d35792",
   );
   const { server, client, dispose } = fixture();
   try {
@@ -222,7 +237,7 @@ test("saved handoff format matches its version", async () => {
   expect(handoff_version).toBe(6);
   expect(checkpoint_version).toBe(6);
   expect(createHash("sha256").update(schemas.handoff).digest("hex")).toBe(
-    "6f038c8c4195f6d923b78a8e7298f36af38eab6c4c92e08a5c1a87d6ccc607ed",
+    "c0896d7fabe5d29dd71b51bb11a5c8df82d9334bf37f58e93156ecf0f78818d8",
   );
   const { server, client, dispose } = fixture();
   const summaries = new Worker();

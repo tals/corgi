@@ -9,7 +9,7 @@ $.runtime: versioned persist.checkpoint.State
 $.summaries: optional
 $.summaries?.slots[].index: usize
 $.summaries?.slots[].slot.request.actor: u32
-$.summaries?.slots[].slot.request.provider: enum codex claude pi opencode2
+$.summaries?.slots[].slot.request.provider: provider
 $.summaries?.slots[].slot.request.session: custom bounded_text.BoundedText(160)
 $.summaries?.slots[].slot.request.turn: custom bounded_text.BoundedText(160)
 $.summaries?.slots[].slot.request.evidence: custom bounded_text.BoundedText(2048)
@@ -40,7 +40,7 @@ $.summaries?.slots[].slot.retry: bool
 $.summaries?.slots[].slot.active: bool
 $.summaries?.slots[].slot.result: optional
 $.summaries?.slots[].slot.result?.request.actor: u32
-$.summaries?.slots[].slot.result?.request.provider: enum codex claude pi opencode2
+$.summaries?.slots[].slot.result?.request.provider: provider
 $.summaries?.slots[].slot.result?.request.session: custom bounded_text.BoundedText(160)
 $.summaries?.slots[].slot.result?.request.turn: custom bounded_text.BoundedText(160)
 $.summaries?.slots[].slot.result?.request.evidence: custom bounded_text.BoundedText(2048)
@@ -80,7 +80,7 @@ $.summaries?.link_results[64]?.key.scheme: enum unknown http https
 $.summaries?.link_results[64]?.key.address: u64
 $.summaries?.link_results[64]?.name: optional
 $.summaries?.link_results[64]?.name?: custom bounded_text.BoundedText(32)
-$.summaries?.pool.config.provider: enum codex claude pi opencode2
+$.summaries?.pool.config.provider: provider
 $.summaries?.pool.config.model: optional
 $.summaries?.pool.config.model?: string
 $.summaries?.pool.config.account: string
@@ -117,19 +117,17 @@ $.summaries?.pool.system_usage.meter.buckets[5].minute: i64
 $.summaries?.pool.system_usage.meter.buckets[5].tokens: u64
 $.summaries?.pool.system_usage.reports: u64
 $.summaries?.next_request: u64
-$.summaries?.choice: enum auto codex claude pi opencode2 off
+$.summaries?.choice: enum auto provider off
 $.summaries?.selected.provider: optional
-$.summaries?.selected.provider?: enum codex claude pi opencode2
+$.summaries?.selected.provider?: provider
 $.summaries?.selected.model: string
 $.summaries?.selected.account: string
-$.summaries?.launches.count.codex: u32
-$.summaries?.launches.count.claude: u32
-$.summaries?.launches.count.opencode2: u32
+$.summaries?.launches.count{provider}: u32
 $.summaries?.launches.latest: optional
-$.summaries?.launches.latest?: enum codex claude pi opencode2
-$.summaries?.remembered: enum codex claude pi opencode2
+$.summaries?.launches.latest?: provider
+$.summaries?.remembered: provider
 $.summaries?.active: optional
-$.summaries?.active?: enum codex claude pi opencode2
+$.summaries?.active?: provider
 $.summaries?.applied: bool
 $.summaries?.locked: bool
 $.summaries?.cursor: usize
@@ -188,120 +186,44 @@ $.clients[].watch_viewer: u32
 $.clients[].launch_preview: optional
 $.clients[].launch_preview?.cwd: custom bounded_text.BoundedText(10240)
 $.clients[].launch_preview?.preview.pending: bool
-$.clients[].launch_preview?.preview.options.codex.pending: optional
-$.clients[].launch_preview?.preview.options.codex.pending?: bool
-$.clients[].launch_preview?.preview.options.codex.signed_in: optional
-$.clients[].launch_preview?.preview.options.codex.signed_in?: bool
-$.clients[].launch_preview?.preview.options.codex.model: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options.codex.model_name: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options.codex.source: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options.codex.account: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options.codex.plan: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options.codex.limits: one of
-$.clients[].launch_preview?.preview.options.codex.limits|none: {}
-$.clients[].launch_preview?.preview.options.codex.limits|metered: {}
-$.clients[].launch_preview?.preview.options.codex.limits|rate_limited: {}
-$.clients[].launch_preview?.preview.options.codex.limits|windows[2]: optional
-$.clients[].launch_preview?.preview.options.codex.limits|windows[2]?.minutes: optional
-$.clients[].launch_preview?.preview.options.codex.limits|windows[2]?.minutes?: i64
-$.clients[].launch_preview?.preview.options.codex.limits|windows[2]?.used: u8
-$.clients[].launch_preview?.preview.options.codex.limits|windows[2]?.reset_at: optional
-$.clients[].launch_preview?.preview.options.codex.limits|windows[2]?.reset_at?: i64
-$.clients[].launch_preview?.preview.options.codex.spend: optional
-$.clients[].launch_preview?.preview.options.codex.spend?.used_minor: f64
-$.clients[].launch_preview?.preview.options.codex.spend?.limit_minor: optional
-$.clients[].launch_preview?.preview.options.codex.spend?.limit_minor?: f64
-$.clients[].launch_preview?.preview.options.codex.spend?.currency: optional
-$.clients[].launch_preview?.preview.options.codex.spend?.currency?: string
-$.clients[].launch_preview?.preview.options.codex.spend?.exponent: u8
-$.clients[].launch_preview?.preview.options.codex.spend?.period_start: i64
-$.clients[].launch_preview?.preview.options.codex.spend?.reset_at: i64
-$.clients[].launch_preview?.preview.options.codex.usage_fetched_at: i64
-$.clients[].launch_preview?.preview.options.codex.usage_error: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options.codex.usage_needs_consent: bool
-$.clients[].launch_preview?.preview.options.codex.history[2][14]: optional
-$.clients[].launch_preview?.preview.options.codex.history[2][14]?: u8
-$.clients[].launch_preview?.preview.options.codex.spend_history[14].minor: optional
-$.clients[].launch_preview?.preview.options.codex.spend_history[14].minor?: f64
-$.clients[].launch_preview?.preview.options.codex.spend_history[14].earlier: bool
-$.clients[].launch_preview?.preview.options.claude.pending: optional
-$.clients[].launch_preview?.preview.options.opencode2.pending: optional
-$.clients[].launch_preview?.preview.options.claude.pending?: bool
-$.clients[].launch_preview?.preview.options.opencode2.pending?: bool
-$.clients[].launch_preview?.preview.options.claude.signed_in: optional
-$.clients[].launch_preview?.preview.options.opencode2.signed_in: optional
-$.clients[].launch_preview?.preview.options.claude.signed_in?: bool
-$.clients[].launch_preview?.preview.options.opencode2.signed_in?: bool
-$.clients[].launch_preview?.preview.options.claude.model: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options.opencode2.model: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options.claude.model_name: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options.opencode2.model_name: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options.claude.source: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options.opencode2.source: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options.claude.account: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options.opencode2.account: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options.claude.plan: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options.opencode2.plan: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options.claude.limits: one of
-$.clients[].launch_preview?.preview.options.opencode2.limits: one of
-$.clients[].launch_preview?.preview.options.claude.limits|none: {}
-$.clients[].launch_preview?.preview.options.opencode2.limits|none: {}
-$.clients[].launch_preview?.preview.options.claude.limits|metered: {}
-$.clients[].launch_preview?.preview.options.opencode2.limits|metered: {}
-$.clients[].launch_preview?.preview.options.claude.limits|rate_limited: {}
-$.clients[].launch_preview?.preview.options.opencode2.limits|rate_limited: {}
-$.clients[].launch_preview?.preview.options.claude.limits|windows[2]: optional
-$.clients[].launch_preview?.preview.options.opencode2.limits|windows[2]: optional
-$.clients[].launch_preview?.preview.options.claude.limits|windows[2]?.minutes: optional
-$.clients[].launch_preview?.preview.options.opencode2.limits|windows[2]?.minutes: optional
-$.clients[].launch_preview?.preview.options.claude.limits|windows[2]?.minutes?: i64
-$.clients[].launch_preview?.preview.options.opencode2.limits|windows[2]?.minutes?: i64
-$.clients[].launch_preview?.preview.options.claude.limits|windows[2]?.used: u8
-$.clients[].launch_preview?.preview.options.opencode2.limits|windows[2]?.used: u8
-$.clients[].launch_preview?.preview.options.claude.limits|windows[2]?.reset_at: optional
-$.clients[].launch_preview?.preview.options.opencode2.limits|windows[2]?.reset_at: optional
-$.clients[].launch_preview?.preview.options.claude.limits|windows[2]?.reset_at?: i64
-$.clients[].launch_preview?.preview.options.opencode2.limits|windows[2]?.reset_at?: i64
-$.clients[].launch_preview?.preview.options.claude.spend: optional
-$.clients[].launch_preview?.preview.options.opencode2.spend: optional
-$.clients[].launch_preview?.preview.options.claude.spend?.used_minor: f64
-$.clients[].launch_preview?.preview.options.opencode2.spend?.used_minor: f64
-$.clients[].launch_preview?.preview.options.claude.spend?.limit_minor: optional
-$.clients[].launch_preview?.preview.options.opencode2.spend?.limit_minor: optional
-$.clients[].launch_preview?.preview.options.claude.spend?.limit_minor?: f64
-$.clients[].launch_preview?.preview.options.opencode2.spend?.limit_minor?: f64
-$.clients[].launch_preview?.preview.options.claude.spend?.currency: optional
-$.clients[].launch_preview?.preview.options.opencode2.spend?.currency: optional
-$.clients[].launch_preview?.preview.options.claude.spend?.currency?: string
-$.clients[].launch_preview?.preview.options.opencode2.spend?.currency?: string
-$.clients[].launch_preview?.preview.options.claude.spend?.exponent: u8
-$.clients[].launch_preview?.preview.options.opencode2.spend?.exponent: u8
-$.clients[].launch_preview?.preview.options.claude.spend?.period_start: i64
-$.clients[].launch_preview?.preview.options.opencode2.spend?.period_start: i64
-$.clients[].launch_preview?.preview.options.claude.spend?.reset_at: i64
-$.clients[].launch_preview?.preview.options.opencode2.spend?.reset_at: i64
-$.clients[].launch_preview?.preview.options.claude.usage_fetched_at: i64
-$.clients[].launch_preview?.preview.options.opencode2.usage_fetched_at: i64
-$.clients[].launch_preview?.preview.options.claude.usage_error: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options.opencode2.usage_error: custom bounded_text.BoundedText(160)
-$.clients[].launch_preview?.preview.options.claude.usage_needs_consent: bool
-$.clients[].launch_preview?.preview.options.opencode2.usage_needs_consent: bool
-$.clients[].launch_preview?.preview.options.claude.history[2][14]: optional
-$.clients[].launch_preview?.preview.options.opencode2.history[2][14]: optional
-$.clients[].launch_preview?.preview.options.claude.history[2][14]?: u8
-$.clients[].launch_preview?.preview.options.opencode2.history[2][14]?: u8
-$.clients[].launch_preview?.preview.options.claude.spend_history[14].minor: optional
-$.clients[].launch_preview?.preview.options.opencode2.spend_history[14].minor: optional
-$.clients[].launch_preview?.preview.options.claude.spend_history[14].minor?: f64
-$.clients[].launch_preview?.preview.options.opencode2.spend_history[14].minor?: f64
-$.clients[].launch_preview?.preview.options.claude.spend_history[14].earlier: bool
-$.clients[].launch_preview?.preview.options.opencode2.spend_history[14].earlier: bool
-$.clients[].launch_preview?.preview.installed.codex: bool
-$.clients[].launch_preview?.preview.outdated.codex: string
-$.clients[].launch_preview?.preview.installed.claude: bool
-$.clients[].launch_preview?.preview.outdated.claude: string
-$.clients[].launch_preview?.preview.installed.opencode2: bool
-$.clients[].launch_preview?.preview.outdated.opencode2: string
+$.clients[].launch_preview?.preview.options{provider}.pending: optional
+$.clients[].launch_preview?.preview.options{provider}.pending?: bool
+$.clients[].launch_preview?.preview.options{provider}.signed_in: optional
+$.clients[].launch_preview?.preview.options{provider}.signed_in?: bool
+$.clients[].launch_preview?.preview.options{provider}.model: custom bounded_text.BoundedText(160)
+$.clients[].launch_preview?.preview.options{provider}.model_name: custom bounded_text.BoundedText(160)
+$.clients[].launch_preview?.preview.options{provider}.source: custom bounded_text.BoundedText(160)
+$.clients[].launch_preview?.preview.options{provider}.account: custom bounded_text.BoundedText(160)
+$.clients[].launch_preview?.preview.options{provider}.plan: custom bounded_text.BoundedText(160)
+$.clients[].launch_preview?.preview.options{provider}.limits: one of
+$.clients[].launch_preview?.preview.options{provider}.limits|none: {}
+$.clients[].launch_preview?.preview.options{provider}.limits|metered: {}
+$.clients[].launch_preview?.preview.options{provider}.limits|rate_limited: {}
+$.clients[].launch_preview?.preview.options{provider}.limits|windows[2]: optional
+$.clients[].launch_preview?.preview.options{provider}.limits|windows[2]?.minutes: optional
+$.clients[].launch_preview?.preview.options{provider}.limits|windows[2]?.minutes?: i64
+$.clients[].launch_preview?.preview.options{provider}.limits|windows[2]?.used: u8
+$.clients[].launch_preview?.preview.options{provider}.limits|windows[2]?.reset_at: optional
+$.clients[].launch_preview?.preview.options{provider}.limits|windows[2]?.reset_at?: i64
+$.clients[].launch_preview?.preview.options{provider}.spend: optional
+$.clients[].launch_preview?.preview.options{provider}.spend?.used_minor: f64
+$.clients[].launch_preview?.preview.options{provider}.spend?.limit_minor: optional
+$.clients[].launch_preview?.preview.options{provider}.spend?.limit_minor?: f64
+$.clients[].launch_preview?.preview.options{provider}.spend?.currency: optional
+$.clients[].launch_preview?.preview.options{provider}.spend?.currency?: string
+$.clients[].launch_preview?.preview.options{provider}.spend?.exponent: u8
+$.clients[].launch_preview?.preview.options{provider}.spend?.period_start: i64
+$.clients[].launch_preview?.preview.options{provider}.spend?.reset_at: i64
+$.clients[].launch_preview?.preview.options{provider}.usage_fetched_at: i64
+$.clients[].launch_preview?.preview.options{provider}.usage_error: custom bounded_text.BoundedText(160)
+$.clients[].launch_preview?.preview.options{provider}.usage_needs_consent: bool
+$.clients[].launch_preview?.preview.options{provider}.history[2][14]: optional
+$.clients[].launch_preview?.preview.options{provider}.history[2][14]?: u8
+$.clients[].launch_preview?.preview.options{provider}.spend_history[14].minor: optional
+$.clients[].launch_preview?.preview.options{provider}.spend_history[14].minor?: f64
+$.clients[].launch_preview?.preview.options{provider}.spend_history[14].earlier: bool
+$.clients[].launch_preview?.preview.installed{provider}: bool
+$.clients[].launch_preview?.preview.outdated{provider}: string
 $.clients[].launch_preview?.checked: i64
 $.clients[].launch_preview?.history_asked: bool
 $.clients[].launch_preview?.history_epoch: u64
@@ -330,5 +252,3 @@ $.last_bell_kind: enum none finished needs_input
 $.clients[].headless_start: optional
 $.clients[].headless_start?.id: u32
 $.clients[].headless_start?.deadline: i64
-$.clients[].launch_preview?.preview.installed.pi: bool
-$.clients[].launch_preview?.preview.outdated.pi: string

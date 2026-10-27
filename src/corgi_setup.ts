@@ -73,8 +73,8 @@ export function status(value: any = {}): Status {
   const on = value?.choice !== "off",
     use = (v: unknown) => (typeof v === "boolean" ? v : on);
   return {
-    choice: value?.choice ?? "auto",
-    provider: value?.provider ?? null,
+    choice: value?.choice === "off" ? "off" : (Provider.parse(value?.choice) ?? "auto"),
+    provider: Provider.parse(value?.provider),
     model: value?.model ?? "",
     account: typeof value?.account === "string" ? value.account : "",
     selection: Selection.parse(value?.selection),

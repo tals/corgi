@@ -1,14 +1,20 @@
 //! Primitive saved-format validation follows the checked schema snapshot.
 import checkpointSchema from "../fixtures/checkpoint.schema" with { type: "text" };
 import { Model } from "../layout";
+import { Provider } from "../providers";
 export const checkpoint = checkpointSchema;
 function fail(name = "UnexpectedToken"): never {
   throw Error(name);
 }
 function values(value: any, path: string): any[] {
   let current = [value];
-  for (const match of path.slice(1).matchAll(/\.([^.[?|]+)|\[(\d*)\]|(\?)|\|([^.[?|]+)/g)) {
-    if (match[1])
+  for (const match of path.slice(1).matchAll(/\.([^.[?|{]+)|\[(\d*)\]|(\?)|\|([^.[?|{]+)|(\{provider\})/g)) {
+    // A record keyed by provider; a key no provider claims is left alone.
+    if (match[5])
+      current = current.flatMap(v =>
+        v && typeof v === "object" ? Provider.all.flatMap(p => (Object.hasOwn(v, p) ? [v[p]] : [])) : [],
+      );
+    else if (match[1])
       current = current.flatMap(v =>
         v !== null && typeof v === "object" && Object.hasOwn(v, match[1]) ? [v[match[1]]] : [],
       );
@@ -86,9 +92,10 @@ export function validateCheckpoint(value: any): void {
           .filter(s => s.startsWith(path + "|"))
           .map(s => s.slice(path.length + 1).split(/[.:]/)[0]);
         if (!tags.includes(Object.keys(item)[0])) fail();
-      } else if (type.startsWith("enum ")) {
+      } else if (type === "provider" || type.startsWith("enum ")) {
         if (typeof item !== "string") fail();
-        if (!type.slice(5).split(" ").includes(item)) fail("InvalidEnumTag");
+        const members = type === "provider" ? ["provider"] : type.slice(5).split(" ");
+        if (!members.includes(item) && !(members.includes("provider") && Provider.parse(item))) fail("InvalidEnumTag");
       } else if (type === "bool") {
         if (typeof item !== "boolean") fail();
       } else if (type === "string" || type.startsWith("custom bounded_text.")) {

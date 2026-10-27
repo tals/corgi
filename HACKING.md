@@ -166,6 +166,11 @@ version to change. Defaulted fields can be compatible, but `session.command`
 rejects unknown nested fields: changing its payload also affects old clients.
 Unversioned requests cannot rely on a version handshake for compatibility.
 
+Adding a provider changes no version. The schemas say `provider` for a
+provider's name and `{provider}` for a record keyed by one, and each peer
+parses names at its boundary: a viewer reads a provider it doesn't know as
+none, and the daemon ignores one in a per-provider record.
+
 `hello` and `server.reload` use management protocol 1, checked independently of
 the runtime version. Keep their request and reply shapes compatible so a new
 client can discover and replace an older daemon. No protocol fallback is needed.
