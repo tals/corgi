@@ -157,6 +157,7 @@ export async function replace(
     server.release();
     throw error;
   }
+  server.closeVoice();
   // Connections stay open and hold their requests until the candidate commits or fails.
   server.pause();
   breadcrumbs.record("reloading");

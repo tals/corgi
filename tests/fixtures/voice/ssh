@@ -1,0 +1,52 @@
+#!/usr/bin/env bun
+// Stands in for ssh in the voice bridge tests: drops the options and the
+// host, then runs the remote command here with `sh -c`.
+//   CORGI_FAKE_SSH_LOG          each invocation's argv; with it, only the first drops
+//   CORGI_FAKE_SSH_DROP_AFTER   kill the remote side and exit 255 after MS
+//   CORGI_FAKE_SSH_TRANSCRIPT   every line that crosses, "> " sent, "< " received
+//   CORGI_FAKE_SSH_STATE        the remote side's XDG_STATE_HOME
+//   CORGI_FAKE_SSH_DELAY        MS of login (a prompt, a slow host) before the command runs
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
+
+const args = process.argv.slice(2);
+let at = 0;
+while (at < args.length && args[at].startsWith("-")) at += args[at] === "-o" ? 2 : 1;
+const command = args.slice(at + 1).join(" "),
+  log = process.env.CORGI_FAKE_SSH_LOG,
+  transcript = process.env.CORGI_FAKE_SSH_TRANSCRIPT;
+const first = !log || !existsSync(log) || !readFileSync(log, "utf8").trim();
+if (log) appendFileSync(log, JSON.stringify(args) + "\n");
+const env = { ...process.env };
+if (process.env.CORGI_FAKE_SSH_STATE) env.XDG_STATE_HOME = process.env.CORGI_FAKE_SSH_STATE;
+if (Number(process.env.CORGI_FAKE_SSH_DELAY) > 0) await Bun.sleep(Number(process.env.CORGI_FAKE_SSH_DELAY));
+const child = Bun.spawn(["sh", "-c", command], { env, stdin: "pipe", stdout: "pipe", stderr: "inherit" });
+// Whole lines only: a chunk can end mid-line.
+const partial: Record<string, string> = { "> ": "", "< ": "" };
+const record = (prefix: string, chunk: Uint8Array) => {
+  if (!transcript) return;
+  const lines = (partial[prefix] + Buffer.from(chunk).toString()).split("\n");
+  partial[prefix] = lines.pop()!;
+  for (const line of lines) appendFileSync(transcript, prefix + line + "\n");
+};
+process.stdin.on("data", chunk => {
+  record("> ", chunk);
+  child.stdin.write(chunk);
+  child.stdin.flush();
+});
+process.stdin.on("end", () => child.stdin.end());
+const relayed = (async () => {
+  for await (const chunk of child.stdout) {
+    record("< ", chunk);
+    process.stdout.write(chunk);
+  }
+})();
+const drop = Number(process.env.CORGI_FAKE_SSH_DROP_AFTER);
+if (drop > 0 && first)
+  setTimeout(() => {
+    child.kill("SIGKILL");
+    process.exit(255);
+  }, drop);
+const code = await child.exited;
+// The last lines go through before ssh does.
+await relayed;
+process.exit(code);
