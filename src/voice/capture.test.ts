@@ -119,25 +119,32 @@ test("switching devices restarts only ffmpeg, with the new device", async () => 
   expect(argv(log)[1]).toContain(process.platform === "darwin" ? ":1" : "1");
 });
 
-test("switching to a device with no ffmpeg left reports the microphone instead of throwing", async () => {
+test("a microphone that cannot start is reported once, and again after it worked", async () => {
   const log = fake({ CORGI_FAKE_PCM: join(fixtures, "speech.pcm") });
-  const problems: capture.MicProblem[] = [];
+  const problems: capture.MicProblem[] = [],
+    path = process.env.PATH!;
+  let frames = 0;
   const c = capture.Capture.start(
     null,
-    () => {},
+    () => frames++,
     p => problems.push(p),
   );
   running.push(c);
-  await until(() => {
-    try {
-      return argv(log).length === 1;
-    } catch {
-      return false;
-    }
-  });
+  await until(() => frames > 0);
+  // No ffmpeg: switching reports the problem instead of throwing, and once only.
   process.env.PATH = "/nonexistent";
   c.switch("1");
+  c.switch("2");
   expect(problems).toEqual(["mic_missing"]);
+  // Frames again clear it, so the next failure is news.
+  process.env.PATH = path;
+  const before = frames;
+  c.switch("3");
+  await until(() => frames > before);
+  process.env.PATH = "/nonexistent";
+  c.switch("4");
+  expect(problems).toEqual(["mic_missing", "mic_missing"]);
+  expect(argv(log).filter(a => !a.includes("-list_devices"))).toHaveLength(2);
 });
 
 test("no ffmpeg is FileNotFound", () => {

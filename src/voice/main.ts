@@ -187,15 +187,24 @@ async function voice(
   connected = true;
   let mic: capture.Capture | null = null,
     cleaned: Promise<void> | null = null;
+  // A whisper-server still loading when voice mode ends is stopped too.
+  const stopping = new AbortController();
   const cleanup = () =>
     (cleaned ??= (async () => {
+      stopping.abort();
       mic?.stop();
       session.close();
       await server?.stop();
       logger.info("voice mode stopped");
     })());
   const start = async (vad: string | undefined) => {
-    const started = await Server.start({ binary, model: models.fileOf(model), port: s.port, vadModel: vad });
+    const started = await Server.start({
+      binary,
+      model: models.fileOf(model),
+      port: s.port,
+      vadModel: vad,
+      signal: stopping.signal,
+    });
     logger.info("whisper-server ready", { port: s.port, model: s.model, filter: vad !== undefined });
     started.on("crashed", code => {
       logger.error("whisper-server crashed", { code, output: started.output });
@@ -221,6 +230,11 @@ async function voice(
     }
     return vadModel ? "on" : "off";
   };
+  // Until the UI takes the terminal, Ctrl+C or a signal while the model loads
+  // still stops the server, which would otherwise keep the port.
+  const onSignal = () => void cleanup().finally(() => process.exit(1)),
+    signals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
+  for (const signal of signals) process.on(signal, onSignal);
   try {
     server = await start(vadModel);
     mic = capture.Capture.start(
@@ -234,6 +248,8 @@ async function voice(
   } catch (error) {
     await cleanup();
     throw error;
+  } finally {
+    for (const signal of signals) process.off(signal, onSignal);
   }
   let quit!: () => void;
   const stopped = new Promise<void>(resolve => (quit = resolve));
