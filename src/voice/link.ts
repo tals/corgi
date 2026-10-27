@@ -3,6 +3,7 @@
 //! and 2 s to finish, so one stuck delivery never holds up the next.
 import { createConnection, type Socket } from "node:net";
 import * as json from "../json";
+import * as errors from "../errors";
 import * as protocol from "../protocol";
 import * as rpc from "../rpc";
 
@@ -134,12 +135,15 @@ export class LocalLink implements VoiceLink {
       this.socket.write(json.stringify(protocol.envelope(op, fields as Record<string, unknown>)) + "\n");
     });
   }
+  /** Renews the presence; a runtime that keeps the socket but stops answering is lost. */
   private beat(): void {
-    void this.send({ voice_id: this.voice_id }, "voice.set").then(
+    void bounded(this.send({ voice_id: this.voice_id }, "voice.set"), this.opts.deadline_ms).then(
       reply => {
         if (reply?.err) this.lost(reply.err);
       },
-      () => {},
+      error => {
+        if (errors.is(error, "Timeout")) this.lost("heartbeat_timeout");
+      },
     );
   }
   /** The presence ended without close(); a link that never attached just fails its watch. */
