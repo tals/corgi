@@ -798,7 +798,9 @@ export class Server {
         this.voiceChanged();
         return;
       case "voice.type": {
-        this.runtime.voice.require(request.payload.voice_id);
+        const voice = this.runtime.voice.require(request.payload.voice_id);
+        // A mute from a viewer can outrun voice mode hearing of it.
+        if (voice.muted) throw Error("VoiceMuted");
         if (text.byteLength(request.payload.text) > 4096) throw Error("Usage");
         const target = this.runtime.voice.target(this.liveViewers(), new Set(this.runtime.panes.map(p => p.id))),
           p = this.runtime.pane(target.pane)!;

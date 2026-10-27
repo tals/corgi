@@ -78,6 +78,21 @@ test("a download that does not match its checksum is deleted", async () => {
   expect(out).toContain("[ok] speech filter");
 });
 
+test("a download that cannot be written fails instead of hanging", async () => {
+  const entries = { model: entry("base.en", "model bytes"), filter: entry("filter", "filter") },
+    cache = dirname(models.fileOf(entries.model));
+  mkdirSync(cache, { recursive: true });
+  chmodSync(cache, 0o500);
+  try {
+    const { code, out } = await report(entries);
+    expect(code).toBe(1);
+    expect(out).toContain("[failed] model base.en: the download failed");
+  } finally {
+    chmodSync(cache, 0o755);
+  }
+  expect(existsSync(models.fileOf(entries.model) + ".part")).toBe(false);
+});
+
 test("missing tools are reported with how to install them", async () => {
   const entries = { model: entry("base.en", "m"), filter: entry("filter", "f") };
   const { code, out } = await report(entries, join(dir, "empty"));
