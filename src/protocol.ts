@@ -98,6 +98,7 @@ export const operations = [
   "viewer.open",
   "viewer.sync",
   "viewer.search",
+  "viewer.pick",
   "viewer.image",
   "pane.acknowledge",
   "pane.mark_unread",
@@ -574,6 +575,15 @@ const requests = {
     resources_hash: ["?u64", null],
   },
   "viewer.search": { pane: "u32", needle: "string", skip: ["u64", 0] },
+  "viewer.pick": {
+    pane: "u32",
+    offset: "u64",
+    unit: "word|line",
+    x: "u16",
+    y: "u16",
+    to_x: ["?u16", null],
+    to_y: ["?u16", null],
+  },
   "viewer.image": { pane: "u32", image: "string", offset: "u32" },
   "pane.paste": { pane: "u32", text: ["?string", null], image: ["?image", null] },
   "pane.idle": { workspace: ["u32", 0], cwd: ["string", ""], first: ["bool", false] },
@@ -683,6 +693,13 @@ export interface ReplyPayloads {
     offset: bigint | null;
     match?: { x: number; y: number; end_x: number; end_y: number } | null;
   };
+  "viewer.pick": Ok & {
+    match: { x: number; y: number; end_x: number; end_y: number } | null;
+    /** The range's visible text, newlines removed. */
+    shown: string;
+    copy: string;
+    link: boolean;
+  };
   "viewer.list": Ok & { viewers: ViewerInfo[] };
   "viewer.image": Ok & { data: string | null };
   "pane.agent": Ok;
@@ -734,6 +751,9 @@ export interface ReplyPayloads {
 // normalizes its model. WireReply never claims to contain bigint-only fields.
 export type WireReply<K extends Op> = K extends keyof ReplyPayloads ? Wire<ReplyPayloads[K]> : Ok;
 export type Reply<K extends Op> = WireReply<K>;
+export type PickUnit = Request<"viewer.pick">["unit"];
+/** What `viewer.pick` finds at a cell, as the native terminal and the viewer see it. */
+export type PickResult = Omit<Reply<"viewer.pick">, "ok">;
 export type ErrorReply = { err: string; viewer_protocol?: number };
 export type Response<K extends Op> = Reply<K> | ErrorReply;
 export type Arguments<K extends Op> =

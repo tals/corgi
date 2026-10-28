@@ -186,6 +186,11 @@ export async function search(s: Server, cl: Client, q: Request<"viewer.search">)
   if (!p) throw new Error("NoPane");
   cl.reply("viewer.search", await p.displayed().search(q.needle, viewport(q.skip)!));
 }
+export async function pick(s: Server, cl: Client, q: Request<"viewer.pick">) {
+  const p = s.runtime.pane(q.pane);
+  if (!p) throw new Error("NoPane");
+  cl.reply("viewer.pick", await p.displayed().pick(q.unit, q.x, q.y, q.to_x, q.to_y, viewport(q.offset)!));
+}
 export function image(s: Server, cl: Client, q: Request<"viewer.image">) {
   if (!cl.viewer) throw new Error("NotAttached");
   const pane = s.runtime.pane(q.pane);

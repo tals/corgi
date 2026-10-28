@@ -3,11 +3,16 @@ const pane = @import("pane");
 const a = std.heap.c_allocator;
 const Theme = @typeInfo(@TypeOf(pane.Terminal.applyTheme)).@"fn".param_types[1].?;
 const Request = struct {
-    op: enum { info, surface, image, pixels, search, select, selection, clearSelection, liveText, text, history, snapshot, fadedSnapshot, theme, paste, prefill, flush, refreshRedraw, tick, takeCopied, takePending, restore, adopt, stop, reap, links, probeFormat },
+    op: enum { info, surface, image, pixels, search, pick, select, selection, clearSelection, liveText, text, history, snapshot, fadedSnapshot, theme, paste, prefill, flush, refreshRedraw, tick, takeCopied, takePending, restore, adopt, stop, reap, links, probeFormat },
     pane: u32 = 0,
     offset: ?usize = null,
     text: []const u8 = "",
     skip: usize = 0,
+    unit: pane.Terminal.PickUnit = .word,
+    x: u16 = 0,
+    y: u16 = 0,
+    to_x: ?u16 = null,
+    to_y: ?u16 = null,
     start_x: u16 = 0,
     start_y: u16 = 0,
     end_x: u16 = 0,
@@ -78,6 +83,11 @@ fn perform(t: *pane.Terminal, alloc: std.mem.Allocator, req: Request, out: [*]u8
             return result(alloc, writer.written(), out, cap);
         },
         .search => return result(alloc, try t.search(req.text, req.skip), out, cap),
+        .pick => {
+            const offset = req.offset orelse return error.MissingOffset;
+            const to: ?pane.Terminal.Cell = if (req.to_x != null or req.to_y != null) .{ .x = req.to_x orelse req.x, .y = req.to_y orelse req.y } else null;
+            return result(alloc, try t.pick(alloc, req.unit, req.x, req.y, to, offset), out, cap);
+        },
         .select => try t.select(req.start_x, req.start_y, req.end_x, req.end_y),
         .clearSelection => try t.clearSelection(),
         .selection => {
