@@ -5,6 +5,12 @@ import { tmpdir } from "node:os";
 import { LocalLink } from "./link";
 
 type Request = { op: string; [key: string]: any };
+/** Waits for `check`, polling, instead of a fixed sleep that load can outlast. */
+async function until(check: () => boolean, ms = 2000) {
+  const end = Date.now() + ms;
+  while (!check() && Date.now() < end) await Bun.sleep(5);
+  expect(check()).toBe(true);
+}
 /** A runtime stand-in that answers hello and the voice ops. */
 function stub(answer: (request: Request, push: (value: object) => void) => object | null = () => ({ ok: true })) {
   const dir = mkdtempSync(join(tmpdir(), "corgi-link-")),
@@ -28,7 +34,7 @@ function stub(answer: (request: Request, push: (value: object) => void) => objec
             request.op === "hello"
               ? { type: "hello", capabilities: ["voice.watch"] }
               : request.op === "voice.watch"
-                ? { ok: true, voice_id: "v-1", muted: false }
+                ? { ok: true, voice_id: "v-1", muted: false, viewer: true, focus: null }
                 : answer(request, push);
           if (reply) push(reply);
         }
@@ -71,11 +77,10 @@ test("heartbeats renew the presence on the watch connection", async () => {
   const { path, seen } = stub();
   const link = await LocalLink.connect(path, { heartbeat_ms: 50 });
   await link.watch({ muted: false, available: true });
-  await Bun.sleep(280);
+  await until(() => seen.filter(s => s.op === "voice.set").length >= 4);
   link.close();
   const watch = seen.find(s => s.op === "voice.watch")!,
     beats = seen.filter(s => s.op === "voice.set");
-  expect(beats.length).toBeGreaterThanOrEqual(4);
   expect(beats.every(b => b.connection === watch.connection)).toBe(true);
 });
 
@@ -85,14 +90,13 @@ test("a runtime that stops answering heartbeats is lost", async () => {
   const lost: string[] = [];
   link.on("closed", reason => lost.push(reason));
   await link.watch({ muted: false, available: true });
-  const end = Date.now() + 2000;
-  while (!lost.length && Date.now() < end) await Bun.sleep(10);
+  await until(() => lost.length > 0);
   expect(lost).toEqual(["heartbeat_timeout"]);
   await expect(link.type("x")).rejects.toThrow("NotConnected");
 });
 
 test("pushed mute changes and a lost presence reach the listeners", async () => {
-  let push!: (value: object) => void,
+  let push: ((value: object) => void) | undefined,
     gone = false;
   const { path } = stub((request, send) => {
     push = send;
@@ -104,12 +108,13 @@ test("pushed mute changes and a lost presence reach the listeners", async () => 
   link.on("muted", m => muted.push(m));
   link.on("closed", r => closed.push(r));
   await link.watch({ muted: false, available: true });
-  await Bun.sleep(50);
-  push({ type: "voice.muted", muted: true });
-  await Bun.sleep(20);
+  // The first heartbeat hands out the watch connection's push.
+  await until(() => push !== undefined);
+  push!({ type: "voice.muted", muted: true });
+  await until(() => muted.length > 0);
   expect(muted).toEqual([true]);
   gone = true;
-  await Bun.sleep(80);
+  await until(() => closed.length > 0);
   expect(closed).toEqual(["VoiceGone"]);
 });
 

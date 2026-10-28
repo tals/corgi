@@ -841,8 +841,10 @@ export class Server {
       return { viewer: viewers.length > 0, focus: null };
     }
   }
-  /** A pane's name as its tab shows it: the tab's title, else the pane's label,
-   * its agent, the program in front of its shell, or its folder. */
+  /** A pane's name, close to what its tab shows (`render.untitledTab` works on
+   * the viewer's snapshot, not on runtime panes): the tab's title, else the
+   * pane's label, its agent, the program in front of its shell, or its folder.
+   * Voice mode replaces control characters before showing it. */
   private paneTitle(id: number): string {
     const p = this.runtime.pane(id)!,
       owner = this.runtime.workspaces.owner(id),

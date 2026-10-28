@@ -178,10 +178,14 @@ type Picker = { devices: Device[]; choice: number; loading: boolean; notice?: st
 type Menu = { name: keyof Timing; values: number[]; choice: number; y: number; x: number };
 
 /** What a problem means for the user, and the fix. */
-export function problem(session: VoiceSession, app = process.env.TERM_PROGRAM): string | null {
+export function problem(
+  session: VoiceSession,
+  app = process.env.TERM_PROGRAM,
+  platform = process.platform,
+): string | null {
   switch (session.unavailable) {
     case "mic_denied":
-      return process.platform === "darwin"
+      return platform === "darwin"
         ? `Microphone access denied: allow ${app || "your terminal"} in System Settings › Privacy & Security › Microphone`
         : "Microphone access denied";
     case "mic_busy":
@@ -189,7 +193,7 @@ export function problem(session: VoiceSession, app = process.env.TERM_PROGRAM): 
     case "mic_missing":
       return "No microphone found: press d to pick another";
     case "server_down":
-      return "The Whisper server stopped: restart voice mode";
+      return "The Whisper server stopped: press f for a fresh one, or restart voice mode";
     default:
       return null;
   }
@@ -220,7 +224,7 @@ export function mode(s: VoiceSession): {
   label_style: string;
 } {
   const off = { muted: true, label: "MUTED", label_style: hotBold };
-  if (!s.available || s.server === "crashed") return { note: "○", style: warm, ...off };
+  if (!s.available) return { note: "○", style: warm, ...off };
   if (s.muted) return { note: "♪", style: muted, ...off };
   const on = { muted: false, label: "Listening", label_style: strong };
   if (!s.viewer) return { note: "♫", style: muted, ...on };
@@ -257,15 +261,39 @@ function describe(u: Utterance): { glyph: string; style: string; label: string }
     case "delivering":
       return { glyph: "→", style: muted, label: said };
     case "delivered":
-      return { glyph: "✓", style: text, label: u.reason ? `${said} · ${u.reason}` : said };
+      return { glyph: "✓", style: text, label: said };
     case "failed":
       return { glyph: "✗", style: warm, label: `${said ? said + " · " : ""}failed: ${u.reason}` };
-    // Muting drops what was said on purpose; it needs no row.
     case "discarded":
-      return u.reason === "muted" ? null : { glyph: "○", style: quiet, label: `discarded (${u.reason})` };
+      return { glyph: "○", style: quiet, label: `discarded (${u.reason})` };
+    // Muting drops what was said on purpose; it needs no row.
+    case "muted":
     case "dropped":
       return null;
   }
+}
+/** A rounded box, blank inside, with `title` in its top edge. */
+function box(
+  at: (y: number, x: number) => string,
+  top: number,
+  left: number,
+  width: number,
+  height: number,
+  title: string,
+): string {
+  let out =
+    at(top, left) +
+    line +
+    "╭─ " +
+    strong +
+    title +
+    line +
+    " " +
+    "─".repeat(Math.max(0, width - 5 - title.length)) +
+    "╮";
+  for (let y = 1; y < height - 1; y++)
+    out += at(top + y, left) + line + "│" + plain + " ".repeat(width - 2) + line + "│";
+  return out + at(top + height - 1, left) + "╰" + "─".repeat(width - 2) + "╯" + reset;
 }
 
 export class VoiceUi {
@@ -320,7 +348,7 @@ export class VoiceUi {
         put(y, x, muted, label);
         return put(y, x + label_width, style, value, Math.min(room, cols - 1 - x - label_width));
       };
-    // Where the next text goes: the focused pane's title, as its tab shows it.
+    // Where the next text goes: the focused pane's name, much as its tab shows it.
     cell(2, "Target:", this.opts.target + (s.focus ? ` → ${s.focus}` : ""), accent);
     cell(3, "Device:", this.device, accent);
     if (cols > second + label_width) {
@@ -433,11 +461,7 @@ export class VoiceUi {
     h.scroll = Math.max(0, Math.min(h.scroll, lines.length - room));
     const left = Math.floor((cols - width) / 2),
       top = Math.floor((rows - height) / 2);
-    let out =
-      at(top, left) + line + "╭─ " + strong + "Options" + line + " " + "─".repeat(Math.max(0, width - 12)) + "╮";
-    for (let y = 1; y < height - 1; y++)
-      out += at(top + y, left) + line + "│" + plain + " ".repeat(width - 2) + line + "│";
-    out += at(top + height - 1, left) + "╰" + "─".repeat(width - 2) + "╯" + reset;
+    let out = box(at, top, left, width, height, "Options");
     lines.slice(h.scroll, h.scroll + room).forEach((l, i) => {
       out += at(top + 1 + i, left + 2) + accent + l.name.padEnd(name_width) + text + l.text + reset;
     });
@@ -529,11 +553,7 @@ export class VoiceUi {
       height = Math.min(rows - 4, lines.length + (p.notice ? 5 : 4)),
       left = Math.floor((cols - width) / 2),
       top = Math.floor((rows - height) / 2);
-    let out =
-      at(top, left) + line + "╭─ " + strong + "Microphone" + line + " " + "─".repeat(Math.max(0, width - 15)) + "╮";
-    for (let y = 1; y < height - 1; y++)
-      out += at(top + y, left) + line + "│" + plain + " ".repeat(width - 2) + line + "│";
-    out += at(top + height - 1, left) + "╰" + "─".repeat(width - 2) + "╯" + reset;
+    let out = box(at, top, left, width, height, "Microphone");
     // The list scrolls so the chosen device stays in view.
     const visible = height - 3,
       first = p.loading ? 0 : Math.max(0, p.choice - visible + 1);
@@ -649,7 +669,8 @@ const enter = "\x1b[?1049h\x1b[?25l\x1b[?2004h\x1b[?1000h\x1b[?1006h\x1b[2J",
   hide = Buffer.from("\x1b[?25l");
 
 /** Runs `ui` in this process's terminal until `stop` resolves, then restores
- * the terminal. A hangup or SIGTERM restores it and runs `cleanup`. */
+ * the terminal. A signal restores it and runs `cleanup`; Ctrl+C itself is a
+ * key in raw mode, so SIGINT only comes from elsewhere. */
 export async function run(ui: VoiceUi, stop: Promise<void>, cleanup: () => Promise<void>): Promise<void> {
   const size = () => ({ cols: process.stdout.columns || 80, rows: process.stdout.rows || 24 });
   let { cols, rows } = size(),
@@ -700,7 +721,7 @@ export async function run(ui: VoiceUi, stop: Promise<void>, cleanup: () => Promi
     differ.destroy();
     closeReadiness();
   };
-  const signals = ["SIGHUP", "SIGTERM"] as const,
+  const signals = ["SIGINT", "SIGHUP", "SIGTERM"] as const,
     onSignal = () => {
       restore();
       void cleanup().finally(() => process.exit(1));

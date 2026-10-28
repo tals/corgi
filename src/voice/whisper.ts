@@ -1,5 +1,5 @@
 //! The whisper-server voice mode starts, owns and stops. It is never
-//! restarted after a crash, and never adopted when something else holds the port.
+//! adopted when something else holds the port.
 
 import * as subprocess from "../subprocess";
 
@@ -15,6 +15,14 @@ async function answers(port: number): Promise<boolean> {
   } catch {
     return false;
   }
+}
+/** A port nothing listens on now. whisper-server takes requests without
+ * authentication, so a port that changes each run is harder to find. */
+function freePort(): number {
+  const probe = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } }),
+    port = probe.port;
+  probe.stop(true);
+  return port;
 }
 export class Server {
   /** The end of the server's output, for the verbose log. */
@@ -34,14 +42,19 @@ export class Server {
   static async start(opts: {
     binary: string;
     model: string;
-    port: number;
+    /** A free one when unset. */
+    port?: number;
     vadModel?: string;
+    /** Whisper's `-l`; unset keeps its default, English. */
+    language?: string;
     healthTimeoutMs?: number;
     /** Stops a server still loading, with `Aborted`. */
     signal?: AbortSignal;
   }): Promise<Server> {
-    if (await answers(opts.port)) throw Error("PortInUse");
-    const args = [opts.binary, "-m", opts.model, "--host", "127.0.0.1", "--port", String(opts.port)];
+    const port = opts.port ?? freePort();
+    if (await answers(port)) throw Error("PortInUse");
+    const args = [opts.binary, "-m", opts.model, "--host", "127.0.0.1", "--port", String(port)];
+    if (opts.language) args.push("-l", opts.language);
     if (opts.vadModel) args.push("--vad", "--vad-model", opts.vadModel);
     let child: Child;
     try {
@@ -49,7 +62,7 @@ export class Server {
     } catch (error) {
       throw subprocess.spawnError(error);
     }
-    const server = new Server(child, opts.port),
+    const server = new Server(child, port),
       until = Date.now() + (opts.healthTimeoutMs ?? 60_000);
     let exited = false;
     void child.exited.then(() => (exited = true));

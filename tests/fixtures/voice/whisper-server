@@ -16,7 +16,7 @@ const log = (value: object) => {
   if (process.env.CORGI_FAKE_WHISPER_LOG)
     appendFileSync(process.env.CORGI_FAKE_WHISPER_LOG, JSON.stringify(value) + "\n");
 };
-log({ start: args, vad: args.includes("--vad") });
+log({ start: args, vad: args.includes("--vad"), pid: process.pid });
 const script = (() => {
   const source = process.env.CORGI_FAKE_WHISPER_SCRIPT ?? "";
   try {

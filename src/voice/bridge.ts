@@ -7,6 +7,11 @@ import * as config from "../build_config";
 import { Events, LocalLink, bounded, deadline_ms, seen, type Seen, type VoiceLink, type WatchRequest } from "./link";
 
 const bridge_version = 1;
+type RelayOp = "voice.watch" | "voice.set" | "voice.type";
+const relay_ops: readonly string[] = ["voice.watch", "voice.set", "voice.type"] satisfies RelayOp[];
+function relayOp(op: unknown): RelayOp | null {
+  return typeof op === "string" && relay_ops.includes(op) ? (op as RelayOp) : null;
+}
 const ping_ms = 1000,
   lost_ms = 3000,
   /** How long ssh may take to connect and start the bridge; prompts can take a while. */
@@ -18,7 +23,7 @@ const ping_ms = 1000,
 export async function serve(socket: string, args: string[] = []): Promise<number> {
   const write = (value: object) => void process.stdout.write(json.stringify(value) + "\n");
   if (args.length && args[0] !== String(bridge_version)) {
-    write({ type: "refused", reason: "bridge_version", detail: `this Corgi speaks bridge ${bridge_version}` });
+    write({ type: "refused", reason: "bridge_version", bridge: bridge_version });
     return 0;
   }
   let link: LocalLink;
@@ -44,17 +49,23 @@ export async function serve(socket: string, args: string[] = []): Promise<number
     finish();
   });
   const relay = async (request: any) => {
-    const { id, op, ...fields } = request;
+    const { id, op, ...fields } = request,
+      known = relayOp(op);
+    if (!known) return write({ id, ok: false, err: "UnknownOperation" });
     try {
-      const reply =
-        op === "voice.watch"
-          ? await link.watch(fields as WatchRequest)
-          : op === "voice.set"
-            ? await link.set(fields)
-            : op === "voice.type"
-              ? await link.type(String(fields.text ?? ""))
-              : null;
-      write(reply ? { id, ok: true, ...reply } : { id, ok: false, err: "UnknownOperation" });
+      let reply: object;
+      switch (known) {
+        case "voice.watch":
+          reply = await link.watch(fields as WatchRequest);
+          break;
+        case "voice.set":
+          reply = await link.set(fields);
+          break;
+        case "voice.type":
+          reply = await link.type(String(fields.text ?? ""));
+          break;
+      }
+      write({ id, ok: true, ...reply });
     } catch (error) {
       write({ id, ok: false, err: errors.name(error) ?? String(error) });
     }
@@ -91,8 +102,13 @@ export async function serve(socket: string, args: string[] = []): Promise<number
   return 0;
 }
 
-/** The remote command: Corgi from the login PATH, or where the installer puts it. */
-export const remote = `sh -c 'exec "$(command -v corgi || echo $HOME/.local/bin/corgi)" __voice-bridge'`;
+/** The remote command: Corgi from the login PATH, or where the installer puts
+ * it, told which bridge this side speaks. */
+export const remote = `sh -c 'exec "$(command -v corgi || echo $HOME/.local/bin/corgi)" __voice-bridge ${bridge_version}'`;
+/** Which side is behind when the bridges differ: the host's `bridge` against ours. */
+function versionError(bridge: unknown): Error {
+  return Error(typeof bridge === "number" && bridge > bridge_version ? "LocalTooOld" : "RemoteTooOld");
+}
 
 /** Why the bridge never said ready, from how ssh ended. */
 export function exitError(code: number | null, stderr: string): Error {
@@ -161,7 +177,7 @@ export class SshLink implements VoiceLink {
     }
     if (hello.type === "refused" || hello.bridge !== bridge_version) {
       link.close();
-      if (hello.type !== "refused" || hello.reason === "bridge_version") throw Error("RemoteTooOld");
+      if (hello.type !== "refused" || hello.reason === "bridge_version") throw versionError(hello.bridge);
       throw Error(hello.reason === "daemon_lacks_voice" ? "DaemonLacksVoice" : "NoRuntime");
     }
     void child.exited.then(() => link.lost("ssh_closed"));

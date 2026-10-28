@@ -51,6 +51,9 @@ test("short peaks, as in music under the threshold, do not hold an utterance ope
   const { segments } = feed(concat(tone(1.5), ...beats, silence(3)), { silence: 1 });
   // The speech ends 1 s after it stops, not after the beats; the beats alone are too little speech.
   expect(segments.map(s => s.duration)).toEqual([1.5 + 0.3]);
+  // Dense peaks, 60 ms in every 100 ms, count as pause too: it ends 1 s after the speech.
+  const dense = Array.from({ length: 40 }, () => concat(silence(0.04), tone(0.06)));
+  expect(feed(concat(tone(1.5), ...dense, silence(3)), { silence: 1 }).segments[0].duration).toBeCloseTo(1.8, 5);
   // Speech that resumes within the window still continues the utterance.
   expect(feed(concat(tone(1), silence(0.6), tone(1), silence(3)), { silence: 1 }).segments).toHaveLength(1);
 });
@@ -62,9 +65,18 @@ test("too little speech is dropped", () => {
 test("the threshold and the silence window apply", () => {
   expect(feed(shapes.speech(), { threshold: 90 }).segments).toHaveLength(0);
   expect(feed(concat(tone(1), silence(1), tone(1), silence(3)), { silence: 0.5 }).segments).toHaveLength(2);
+  // Raised mid-utterance, the threshold makes the same tone quiet: the pause runs out during it.
   const { segmenter } = feed(concat(tone(1), silence(1)));
   segmenter.setThreshold(100);
-  expect(segmenter.recording).toBe(true);
+  const out: Segment[] = [],
+    loud = tone(2);
+  for (let at = 0; at < loud.length; at += 320) out.push(...segmenter.push(loud.subarray(at, at + 320)));
+  expect(out).toHaveLength(1);
+  expect(segmenter.recording).toBe(false);
+  // At the old threshold, the tone keeps it open.
+  const kept = feed(concat(tone(1), silence(1), tone(2)));
+  expect(kept.segments).toHaveLength(0);
+  expect(kept.segmenter.recording).toBe(true);
 });
 
 test("the silence window can change mid-stream, and the pause shows how far it is", () => {

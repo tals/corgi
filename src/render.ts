@@ -56,6 +56,7 @@ import {
   byteLength,
   byteSlice,
 } from "./text";
+import type { VoiceState } from "./voice/presence";
 
 export type Pointer = { x: number; y: number };
 /** The focused pane's outline. The divider tests parse it back. */
@@ -175,7 +176,7 @@ export interface Ui {
   sidebar_drawer: Section | null;
   corgi_badge: corgiBadge.Mode;
   /** Voice mode's state for the sidebar's indicator; null without voice. */
-  voice: "listening" | "muted" | null;
+  voice: VoiceState | null;
   supports_kitty_graphics: boolean;
   images: Images | null;
   /** The brand marks the host holds for untitled tabs, where it shows Kitty images. */

@@ -6,22 +6,24 @@ const viewer = (viewer_id: number, active_seq: number, view_focus: number | null
   active_seq,
   view_focus,
 });
+// A viewer is attached, its focused pane unnamed.
+const seen = { viewer: true, focus: null };
 
 test("one voice attaches at a time", () => {
   const p = new Presence(),
-    first = p.watch("a", { muted: false, available: true }, 0);
+    first = p.watch("a", { muted: false, available: true }, 0, seen);
   expect(first.voice_id).toMatch(/^v-/);
   expect(first.muted).toBe(false);
-  expect(() => p.watch("b", { muted: false, available: true }, 0)).toThrow("VoiceAttached");
+  expect(() => p.watch("b", { muted: false, available: true }, 0, seen)).toThrow("VoiceAttached");
   expect(p.drop("b")).toBe(false);
   expect(p.drop("a")).toBe(true);
   expect(p.projection()).toBeUndefined();
-  expect(p.watch("b", { muted: true, available: true }, 0).muted).toBe(true);
+  expect(p.watch("b", { muted: true, available: true }, 0, seen).muted).toBe(true);
 });
 
 test("dictation goes to the focused pane of the viewer used last", () => {
   const p = new Presence();
-  p.watch("a", { pane: 9, muted: false, available: true }, 0);
+  p.watch("a", { pane: 9, muted: false, available: true }, 0, seen);
   const panes = new Set([3, 4, 9]);
   expect(p.target([viewer(1, 5, 3), viewer(2, 7, 4)], panes)).toEqual({ viewer: 2, pane: 4 });
   expect(p.target([viewer(1, 8n as any, 3), viewer(2, 7, 4)], panes)).toEqual({ viewer: 1, pane: 3 });
@@ -33,7 +35,7 @@ test("dictation goes to the focused pane of the viewer used last", () => {
 
 test("the lease runs out without voice.set", () => {
   const p = new Presence(),
-    { voice_id } = p.watch("a", { muted: false, available: true }, 1000);
+    { voice_id } = p.watch("a", { muted: false, available: true }, 1000, seen);
   expect(p.expire(4000)).toBe(false);
   expect(p.set({ voice_id }, 3500)).toEqual({ muted: false });
   expect(p.expire(6000)).toBe(false);
@@ -49,7 +51,7 @@ test("viewers toggle mute, but a voice that cannot listen stays muted", () => {
   const p = new Presence(),
     pushed: boolean[] = [];
   p.onMuted = muted => pushed.push(muted);
-  const { voice_id } = p.watch("a", { muted: false, available: true }, 0);
+  const { voice_id } = p.watch("a", { muted: false, available: true }, 0, seen);
   expect(p.projection()).toEqual({ state: "listening" });
   expect(p.toggle()).toEqual({ muted: true });
   expect(p.projection()).toEqual({ state: "muted" });

@@ -82,6 +82,8 @@ export class Segmenter {
     if (loud) {
       this.speech++;
       if (++this.run >= this.burst_frames || this.speech === this.run) this.quiet = this.tail = 0;
+      // A peak too short to be speech: the pause runs on through it.
+      else this.quiet++;
     } else {
       this.run = 0;
       this.quiet++;
