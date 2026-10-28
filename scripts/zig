@@ -12,19 +12,34 @@ case "$(uname -m)" in
 esac
 name="zig-$arch-$platform-$version"
 project="$root/.tools/$name/zig"
-install_hint() {
-    printf 'Get it from https://ziglang.org/download/%s/%s.tar.xz and unpack it in %s/.tools,\n' "$version" "$name" "$root" >&2
-    printf 'or set ZIG=/absolute/path/to/zig.\n' >&2
+url="https://ziglang.org/download/$version/$name.tar.xz"
+case "$arch-$platform" in
+    aarch64-macos) sum=b607e9b9234790a008116ae5bdb71c6243b84b9fb42a53a9e70fde41c06c536a ;;
+    aarch64-linux) sum=9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8 ;;
+    x86_64-linux) sum=1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026 ;;
+    *) sum= ;;
+esac
+
+# Fetches the pinned release into .tools, checked against its checksum.
+download() {
+    printf 'Downloading Zig %s into %s/.tools\n' "$version" "$root" >&2
+    mkdir -p "$root/.tools"
+    work=$(mktemp -d "$root/.tools/.zig-download.XXXXXX")
+    trap 'rm -rf "$work"' EXIT
+    curl -fsSL --retry 3 -o "$work/zig.tar.xz" "$url"
+    echo "$sum  $work/zig.tar.xz" | shasum -a 256 -c - >/dev/null
+    tar -xJf "$work/zig.tar.xz" -C "$work"
+    # Another build may have finished the same download first.
+    mv "$work/$name" "$root/.tools/" 2>/dev/null || [ -x "$project" ]
+    rm -rf "$work"
+    trap - EXIT
 }
+
 if [ -n "${ZIG:-}" ]; then
     found=$("$ZIG" version 2>/dev/null || echo 'not runnable')
     if [ "$found" != "$version" ]; then
         printf 'Corgi needs Zig %s, but ZIG=%s is %s.\n' "$version" "$ZIG" "$found" >&2
-        if [ -x "$project" ]; then
-            printf 'Unset ZIG to use %s, or point it at Zig %s.\n' "$project" "$version" >&2
-        else
-            install_hint
-        fi
+        printf 'Unset ZIG to use %s, or point it at Zig %s.\n' "$project" "$version" >&2
         exit 1
     fi
     compiler=$ZIG
@@ -32,9 +47,12 @@ elif command -v zig >/dev/null 2>&1 && [ "$(zig version)" = "$version" ]; then
     compiler=zig
 elif [ -x "$project" ]; then
     compiler=$project
+elif [ -n "$sum" ]; then
+    download
+    compiler=$project
 else
-    printf 'Corgi needs Zig %s (matching the pinned Ghostty API).\n' "$version" >&2
-    install_hint
+    printf 'Corgi needs Zig %s, and has no checksum to download it for %s-%s.\n' "$version" "$arch" "$platform" >&2
+    printf 'Unpack %s in %s/.tools, or set ZIG=/absolute/path/to/zig.\n' "$url" "$root" >&2
     exit 1
 fi
 cd "$root"

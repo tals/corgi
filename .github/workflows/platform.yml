@@ -17,18 +17,8 @@ jobs:
         with:
           bun-version: 1.4.4
       - name: Install Zig
-        shell: bash
-        run: |
-          # scripts/zig finds the pinned compiler in .tools.
-          case "$RUNNER_OS-$RUNNER_ARCH" in
-            macOS-ARM64) name=zig-aarch64-macos-0.17.0 sum=b607e9b9234790a008116ae5bdb71c6243b84b9fb42a53a9e70fde41c06c536a ;;
-            Linux-ARM64) name=zig-aarch64-linux-0.17.0 sum=9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8 ;;
-            *) name=zig-x86_64-linux-0.17.0 sum=1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026 ;;
-          esac
-          curl -fsSL --retry 3 -o zig.tar.xz "https://ziglang.org/download/0.17.0/$name.tar.xz"
-          echo "$sum  zig.tar.xz" | shasum -a 256 -c -
-          mkdir -p .tools && tar -xJf zig.tar.xz -C .tools && rm zig.tar.xz
-          ./scripts/zig version
+        # scripts/zig downloads the pinned compiler into .tools.
+        run: ./scripts/zig version
       # Zig doesn't retry a failed package download, and Ghostty's mirror sometimes resets.
       - uses: actions/cache@v6
         with:

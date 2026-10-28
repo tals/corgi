@@ -2,7 +2,7 @@
 
 ## Get running
 
-Install Bun and use the pinned Zig 0.17.0 wrapper, `./scripts/zig`.
+Install Bun. `./scripts/zig` downloads the pinned Zig 0.17.0 on first use.
 Start in an isolated environment:
 
 ```sh
