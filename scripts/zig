@@ -1,28 +1,40 @@
 #!/bin/sh
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+version=0.17.0
+case "$(uname -s)" in
+    Darwin) platform=macos ;;
+    *) platform=$(uname -s | tr '[:upper:]' '[:lower:]') ;;
+esac
+case "$(uname -m)" in
+    arm64) arch=aarch64 ;;
+    *) arch=$(uname -m) ;;
+esac
+name="zig-$arch-$platform-$version"
+project="$root/.tools/$name/zig"
+install_hint() {
+    printf 'Get it from https://ziglang.org/download/%s/%s.tar.xz and unpack it in %s/.tools,\n' "$version" "$name" "$root" >&2
+    printf 'or set ZIG=/absolute/path/to/zig.\n' >&2
+}
 if [ -n "${ZIG:-}" ]; then
-    compiler=$ZIG
-elif command -v zig >/dev/null 2>&1 && [ "$(zig version)" = 0.17.0 ]; then
-    compiler=zig
-else
-    case "$(uname -s)" in
-        Darwin) platform=macos ;;
-        *) platform=$(uname -s | tr '[:upper:]' '[:lower:]') ;;
-    esac
-    case "$(uname -m)" in
-        arm64) arch=aarch64 ;;
-        *) arch=$(uname -m) ;;
-    esac
-    compiler="$root/.tools/zig-$arch-$platform-0.17.0/zig"
-    if [ ! -x "$compiler" ]; then
-        echo 'Corgi requires Zig 0.17.0 (matching the pinned Ghostty API).' >&2
-        printf 'Install it in %s, or set ZIG=/absolute/path/to/zig.\n' "${compiler%/zig}" >&2
+    found=$("$ZIG" version 2>/dev/null || echo 'not runnable')
+    if [ "$found" != "$version" ]; then
+        printf 'Corgi needs Zig %s, but ZIG=%s is %s.\n' "$version" "$ZIG" "$found" >&2
+        if [ -x "$project" ]; then
+            printf 'Unset ZIG to use %s, or point it at Zig %s.\n' "$project" "$version" >&2
+        else
+            install_hint
+        fi
         exit 1
     fi
-fi
-if [ "$("$compiler" version)" != 0.17.0 ]; then
-    echo 'Expected Zig 0.17.0; set ZIG to the matching compiler.' >&2
+    compiler=$ZIG
+elif command -v zig >/dev/null 2>&1 && [ "$(zig version)" = "$version" ]; then
+    compiler=zig
+elif [ -x "$project" ]; then
+    compiler=$project
+else
+    printf 'Corgi needs Zig %s (matching the pinned Ghostty API).\n' "$version" >&2
+    install_hint
     exit 1
 fi
 cd "$root"
