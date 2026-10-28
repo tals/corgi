@@ -238,7 +238,6 @@ pub const Terminal = struct {
         /// joins and the whitespace beside them dropped.
         shown: []const u8 = "",
         copy: []const u8 = "",
-        link: bool = false,
     };
     /// The word, line or link at a viewer's cell, extended by words or lines
     /// to `to` for a drag. `offset` is the screen row at the top of the
@@ -253,32 +252,29 @@ pub const Terminal = struct {
             if (std.meta.eql(clamped, cell)) break :drag null;
             break :drag t.screenPin(top, clamped);
         } else null;
-        var uri: ?[]const u8 = null;
-        const sel = switch (unit) {
+        const found = switch (unit) {
             .line => pickLine(screen, anchor, drag),
             .word => word: {
-                const link = try t.linkAt(alloc, top, cell) orelse break :word pickWord(screen, anchor, drag);
+                const link = try t.linkAt(top, cell) orelse break :word pickWord(screen, anchor, drag);
                 const start = t.screenPin(top, link.start) orelse return .{};
                 const end = t.screenPin(top, link.end) orelse return .{};
                 const span: vt.Selection = .init(start, end, false);
-                const outside = drag orelse {
-                    uri = link.uri;
-                    break :word span;
-                };
-                if (!outside.before(start) and !end.before(outside)) {
-                    uri = link.uri;
-                    break :word span;
-                }
+                const reach = drag orelse break :word span;
+                if (!reach.before(start) and !end.before(reach)) break :word span;
                 // Dragging away from a link extends it by words.
-                if (outside.before(start)) {
-                    const near = screen.selectWordBetween(outside, start, &word_boundaries) orelse break :word span;
+                if (reach.before(start)) {
+                    const near = screen.selectWordBetween(reach, start, &word_boundaries) orelse break :word span;
                     break :word trimWord(.init(near.start(), end, false));
                 }
-                const near = screen.selectWordBetween(outside, end, &word_boundaries) orelse break :word span;
+                const near = screen.selectWordBetween(reach, end, &word_boundaries) orelse break :word span;
                 break :word trimWord(.init(start, near.end(), false));
             },
         } orelse return .{};
-        const clip = uri orelse try screen.selectionString(alloc, .{ .sel = sel, .trim = true });
+        // Copied as highlighted: a wrapped line or word stops at the view's
+        // edges, and a link copies the text the pane shows, never an OSC 8
+        // target the pane's program may have hidden behind it.
+        const sel = t.inView(top, found);
+        const clip = try screen.selectionString(alloc, .{ .sel = sel, .trim = true });
         if (std.mem.trim(u8, clip, " \t\r\n").len == 0) return .{};
         const start = t.viewCell(top, sel.topLeft(screen));
         const end = t.viewCell(top, sel.bottomRight(screen));
@@ -286,8 +282,20 @@ pub const Terminal = struct {
             .match = .{ .x = start.x, .y = start.y, .end_x = end.x, .end_y = end.y },
             .shown = try t.shownText(alloc, top, start, end),
             .copy = clip,
-            .link = uri != null,
         };
+    }
+    /// `sel` cut to the view at `top`.
+    fn inView(t: *Terminal, top: usize, sel: vt.Selection) vt.Selection {
+        const screen = t.vt.screens.active;
+        var start = sel.topLeft(screen);
+        var end = sel.bottomRight(screen);
+        if (t.screenPin(top, .{ .x = 0, .y = 0 })) |first| {
+            if (start.before(first)) start = first;
+        }
+        if (t.screenPin(top, .{ .x = t.vt.cols - 1, .y = t.vt.rows - 1 })) |last| {
+            if (last.before(end)) end = last;
+        }
+        return .init(start, end, false);
     }
     fn clampCell(t: *const Terminal, cell: Cell) Cell {
         return .{ .x = @min(cell.x, t.vt.cols - 1), .y = @min(cell.y, t.vt.rows - 1) };
@@ -319,38 +327,54 @@ pub const Terminal = struct {
         }
         return out.toOwnedSlice(alloc);
     }
-    const Link = struct { start: Cell, end: Cell, uri: []const u8 };
+    const Link = struct { start: Cell, end: Cell };
     /// The link at a viewer's cell, found over the borrowed viewport as
     /// `surface.captureView` does: its segment and the segments of the same
     /// link that continue it across soft wraps.
-    fn linkAt(t: *Terminal, alloc: std.mem.Allocator, top: usize, cell: Cell) !?Link {
+    fn linkAt(t: *Terminal, top: usize, cell: Cell) !?Link {
         // A pending synchronized redraw keeps its completed frame, whose links
         // are the viewer's only when it shows the same rows; else plain words.
         if (t.vt.modes.get(.synchronized_output)) {
             if (t.render_top != top) return null;
-            return linkIn(alloc, t.links.links, t.render.row_data.items(.raw), t.vt.cols, cell);
+            return linkIn(t.links.links, t.render.row_data.items(.raw), t.vt.cols, cell);
         }
-        const pages = &t.vt.screens.active.pages;
-        const old_viewport = pages.viewport;
-        const old_pin = pages.viewport_pin.*;
-        const old_offset = pages.viewport_pin_row_offset;
-        defer {
-            pages.viewport = old_viewport;
-            pages.viewport_pin.* = old_pin;
-            pages.viewport_pin_row_offset = old_offset;
-            t.vt.flags.dirty.clear = true;
-            t.updateRender() catch {};
-        }
+        const borrowed = t.borrowViewport();
+        defer borrowed.restore();
         t.vt.scrollViewport(.{ .row = top });
         t.vt.flags.dirty.clear = true;
         try t.updateRender();
-        return linkIn(alloc, t.links.links, t.render.row_data.items(.raw), t.vt.cols, cell);
+        return linkIn(t.links.links, t.render.row_data.items(.raw), t.vt.cols, cell);
     }
-    fn linkIn(alloc: std.mem.Allocator, links: []const hyperlink.Link, wraps: anytype, cols: u16, cell: Cell) !?Link {
+    /// The viewport and selection before a viewer borrowed the viewport to
+    /// read its own rows; `restore` puts them back and renders them again.
+    pub const BorrowedViewport = struct {
+        t: *Terminal,
+        viewport: @FieldType(vt.PageList, "viewport"),
+        pin: vt.Pin,
+        row_offset: @FieldType(vt.PageList, "viewport_pin_row_offset"),
+        selection: @FieldType(vt.Screen, "selection"),
+        pub fn restore(b: BorrowedViewport) void {
+            const screen = b.t.vt.screens.active;
+            const pages = &screen.pages;
+            pages.viewport = b.viewport;
+            pages.viewport_pin.* = b.pin;
+            pages.viewport_pin_row_offset = b.row_offset;
+            screen.selection = b.selection;
+            b.t.vt.flags.dirty.clear = true;
+            b.t.updateRender() catch {};
+        }
+    };
+    pub fn borrowViewport(t: *Terminal) BorrowedViewport {
+        const screen = t.vt.screens.active;
+        const pages = &screen.pages;
+        return .{ .t = t, .viewport = pages.viewport, .pin = pages.viewport_pin.*, .row_offset = pages.viewport_pin_row_offset, .selection = screen.selection };
+    }
+    fn linkIn(links: []const hyperlink.Link, wraps: anytype, cols: u16, cell: Cell) ?Link {
         const at = for (links, 0..) |link, i| {
             if (link.row == cell.y and link.start <= cell.x and cell.x < link.end) break i;
         } else return null;
-        // Only links a click would open; a file:// name picks as a word.
+        // Only links a click would open, as `openableLink` in
+        // src/controller.ts decides; a file:// name picks as a word.
         const uri = links[at].uri;
         const web = std.mem.startsWith(u8, uri, "http://") or std.mem.startsWith(u8, uri, "https://");
         if (!web or uri.len > 4096) return null;
@@ -361,7 +385,6 @@ pub const Terminal = struct {
         return .{
             .start = .{ .x = @intCast(links[first].start), .y = @intCast(links[first].row) },
             .end = .{ .x = @intCast(links[last].end - 1), .y = @intCast(links[last].row) },
-            .uri = try alloc.dupe(u8, uri),
         };
     }
     // A wide character's spacer may end a row one cell early.

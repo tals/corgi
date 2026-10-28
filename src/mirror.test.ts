@@ -239,7 +239,6 @@ test("a pick asks for the viewer's rows and reads any failure as no match", asyn
     match: { x: 0, y: 1, end_x: 4, end_y: 1 },
     shown: "hello",
     copy: "hello",
-    link: false,
   };
   const term = new mirror.Terminal(
     transport(async (op, fields) => {
@@ -256,7 +255,6 @@ test("a pick asks for the viewer's rows and reads any failure as no match", asyn
       match: { x: 0, y: 1, end_x: 4, end_y: 1 },
       shown: "hello",
       copy: "hello",
-      link: false,
     });
     term.offset = 12;
     await term.pick("line", 2, 1, { x: 5, y: 3 });

@@ -698,7 +698,6 @@ export interface ReplyPayloads {
     /** The range's visible text, newlines removed. */
     shown: string;
     copy: string;
-    link: boolean;
   };
   "viewer.list": Ok & { viewers: ViewerInfo[] };
   "viewer.image": Ok & { data: string | null };

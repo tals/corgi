@@ -105,7 +105,7 @@ export function releaseUninterested(view: Controller, interests: readonly { pane
 
 export async function sync(view: Controller, bell: { seq: bigint }, play_sound: boolean): Promise<boolean> {
   const telemetry_started = telemetry.begin();
-  view.sweepPicked();
+  view.sweepPickState();
   try {
     for (const p of view.runtime.panes) {
       const held = view.selection?.pane === p.id || view.gesture?.pane === p.id;

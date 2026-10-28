@@ -2687,14 +2687,19 @@ test("presses in copy mode don't count a click series", async () => {
 });
 
 /** A controller whose focused pane shows "  hello there", whose daemon answers every
- * pick with "hello" at its cells but the shown text in `reply.shown`. */
+ * pick with "hello" at its cells but the shown text in `reply.shown`, and
+ * records each pick it was asked in `asks`. */
 function picking() {
   const reply = { shown: "hello" };
+  const asks: any[] = [];
   const s: any = new Controller({
     socket: "",
-    request: transport(async op => {
+    request: transport(async (op, fields) => {
+      // A sync sees nothing new, and focus changes are accepted.
+      if (op === "viewer.sync" || op === "session.command") return { ok: true, viewer_protocol: 3 };
       if (op !== "viewer.pick") throw Error("UnexpectedRequest");
-      return { ok: true, match: { x: 2, y: 0, end_x: 6, end_y: 0 }, shown: reply.shown, copy: "hello", link: false };
+      asks.push(fields);
+      return { ok: true, match: { x: 2, y: 0, end_x: 6, end_y: 0 }, shown: reply.shown, copy: "hello" };
     }).request,
   });
   s.receiveSnapshot(folders("/a", "/b"));
@@ -2719,7 +2724,7 @@ function picking() {
     clock.reset();
     viewer.close(s);
   };
-  return { s, term, rect, reply, doubleClick, done };
+  return { s, term, rect, reply, asks, doubleClick, done };
 }
 
 test("a pick whose text the pane no longer shows copies nothing", async () => {
@@ -2760,7 +2765,7 @@ test("a pick's highlight goes on a click, key, scroll, copy mode, resize or focu
   try {
     await picked();
     // Frames and syncs alone keep it.
-    s.sweepPicked();
+    await viewer.sync(s, { seq: 0n }, false);
     expect(s.picked).not.toBeNull();
     await s.input(bytes(`\x1b[<0;${elsewhere}M\x1b[<0;${elsewhere}m`));
     cleared();
@@ -2776,11 +2781,11 @@ test("a pick's highlight goes on a click, key, scroll, copy mode, resize or focu
     s.copy_mode = false;
     await picked();
     s.width = 90;
-    s.sweepPicked();
+    await viewer.sync(s, { seq: 0n }, false);
     cleared();
     await picked();
     s.focusPane(2);
-    s.sweepPicked();
+    await viewer.sync(s, { seq: 0n }, false);
     cleared();
   } finally {
     done();
@@ -2804,6 +2809,10 @@ test("a held double-click ends on a scroll, a key or a focus change", async () =
   };
   try {
     await hold();
+    // A sync keeps the held frame and its gesture.
+    await viewer.sync(s, { seq: 0n }, false);
+    expect(s.gesture).not.toBeNull();
+    expect(term.holding_selection).toBe(true);
     s.scroll(-1);
     ended();
     await hold();
@@ -2811,10 +2820,72 @@ test("a held double-click ends on a scroll, a key or a focus change", async () =
     ended();
     await hold();
     s.focusPane(2);
-    s.sweepPicked();
+    await viewer.sync(s, { seq: 0n }, false);
     ended();
   } finally {
     done();
+  }
+});
+
+test("a drag past its pane's edges asks for the pane's edge cells", async () => {
+  const { s, rect, asks, done } = picking();
+  const at = `${rect.x + 4};${rect.y + 1}`;
+  try {
+    clock.advance(double_click_ms + 1);
+    await s.input(bytes(`\x1b[<0;${at}M\x1b[<0;${at}m\x1b[<0;${at}M`));
+    await s.gesture.pending;
+    await s.input(bytes(`\x1b[<32;${rect.x - 4};${rect.y + rect.h + 4}M`));
+    await s.gesture.pending;
+    expect(asks.at(-1)).toMatchObject({ x: 3, y: 0, to_x: 0, to_y: rect.h - 1 });
+    await s.input(bytes(`\x1b[<32;${rect.x + rect.w + 6};${rect.y + 1}M`));
+    await s.gesture.pending;
+    expect(asks.at(-1)).toMatchObject({ to_x: rect.w - 1, to_y: 0 });
+  } finally {
+    done();
+  }
+});
+
+test("a pick answered after its pane closed changes nothing", async () => {
+  const answers: (() => void)[] = [];
+  const s: any = new Controller({
+    socket: "",
+    request: transport(async op => {
+      if (op !== "viewer.pick") throw Error("UnexpectedRequest");
+      return new Promise(resolve =>
+        answers.push(() =>
+          resolve({ ok: true, match: { x: 2, y: 0, end_x: 6, end_y: 0 }, shown: "hello", copy: "hello" }),
+        ),
+      );
+    }).request,
+  });
+  s.receiveSnapshot(folders("/a", "/b"));
+  s.width = 100;
+  s.height = 30;
+  s.input_state.attached = true;
+  setSystemTime(new Date(1000));
+  const rect = s.layoutView().placements(s.area())[0].rect;
+  const native = NativeTerminal.create(rect.w, rect.h);
+  native.feed("  hello there");
+  s.pane(1).terminal.receive(native.surface(1));
+  const at = `${rect.x + 4};${rect.y + 1}`;
+  try {
+    await s.input(bytes(`\x1b[<0;${at}M\x1b[<0;${at}m\x1b[<0;${at}M`));
+    const g = s.gesture;
+    const select = spyOn(s.pane(1).terminal, "select");
+    const closed = folders("/a", "/b");
+    closed.workspaces = closed.workspaces.slice(1);
+    closed.panes = closed.panes.slice(1);
+    s.receiveSnapshot(closed);
+    // Its terminal is gone; selecting on it would throw with nothing to catch it.
+    answers[0]();
+    await g.pending;
+    expect(select).not.toHaveBeenCalled();
+    expect(s.effects).toEqual([]);
+  } finally {
+    native.destroy();
+    setSystemTime();
+    clock.reset();
+    viewer.close(s);
   }
 });
 
@@ -2827,8 +2898,7 @@ test("a drag keeps one pick out and copies the answer for where it ended", async
       return new Promise(resolve =>
         asks.push({
           to_x: fields.to_x,
-          answer: copy =>
-            resolve({ ok: true, match: { x: 2, y: 0, end_x: 6, end_y: 0 }, shown: "hello", copy, link: false }),
+          answer: copy => resolve({ ok: true, match: { x: 2, y: 0, end_x: 6, end_y: 0 }, shown: "hello", copy }),
         }),
       );
     }).request,
@@ -2941,8 +3011,8 @@ test("a plain click on a pane link opens it once the double-click window has pas
   }
 });
 
-test("another press in the window cancels a pane link's open; the wheel doesn't", async () => {
-  const { url, mouse, click, opened, done } = linking();
+test("a second press on a pane link cancels its open, another press opens it at once", async () => {
+  const { s, url, mouse, click, opened, done } = linking();
   try {
     // The second press of a double-click.
     await click();
@@ -2952,11 +3022,14 @@ test("another press in the window cancels a pane link's open; the wheel doesn't"
     await mouse(0, 0, true);
     clock.advance(double_click_ms);
     expect(await opened()).toEqual([]);
-    // A press on another cell of the pane.
+    // A press on another cell of the pane opens it before it lands.
     clock.advance(double_click_ms);
     await click();
     clock.advance(50);
-    await click(0, 20);
+    await mouse(0, 20);
+    expect(s.effects).toEqual([{ open_url: url }]);
+    s.clearEffects();
+    await mouse(0, 20, true);
     clock.advance(double_click_ms);
     expect(await opened()).toEqual([]);
     // A wheel step isn't a press.
@@ -2966,6 +3039,39 @@ test("another press in the window cancels a pane link's open; the wheel doesn't"
     await mouse(64);
     clock.advance(double_click_ms);
     expect(await opened()).toEqual([url]);
+  } finally {
+    done();
+  }
+});
+
+test("a second press on the same link opens it only once", async () => {
+  const { s, url, mouse, click, opened, done } = linking();
+  try {
+    // One cell over, which starts a new click rather than a double-click.
+    await click();
+    clock.advance(100);
+    await click(0, 1);
+    expect(s.effects).toEqual([]);
+    clock.advance(double_click_ms);
+    expect(await opened()).toEqual([url]);
+    // A Ctrl+click after a plain click opens at once, and only then.
+    clock.advance(double_click_ms);
+    await click();
+    clock.advance(50);
+    await mouse(16);
+    expect(s.effects).toEqual([]);
+    await mouse(16, 0, true);
+    expect(s.effects).toEqual([{ open_url: url }]);
+    s.clearEffects();
+    clock.advance(double_click_ms);
+    expect(await opened()).toEqual([]);
+    // Nor once its pane lost focus before the press.
+    clock.advance(double_click_ms);
+    await click();
+    s.focusPane(2);
+    await click(0, 20);
+    clock.advance(double_click_ms);
+    expect(await opened()).toEqual([]);
   } finally {
     done();
   }

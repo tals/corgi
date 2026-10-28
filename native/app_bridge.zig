@@ -85,7 +85,8 @@ fn perform(t: *pane.Terminal, alloc: std.mem.Allocator, req: Request, out: [*]u8
         .search => return result(alloc, try t.search(req.text, req.skip), out, cap),
         .pick => {
             const offset = req.offset orelse return error.MissingOffset;
-            const to: ?pane.Terminal.Cell = if (req.to_x != null or req.to_y != null) .{ .x = req.to_x orelse req.x, .y = req.to_y orelse req.y } else null;
+            // A drag names both coordinates of where it reached, or neither.
+            const to: ?pane.Terminal.Cell = if (req.to_x != null and req.to_y != null) .{ .x = req.to_x.?, .y = req.to_y.? } else null;
             return result(alloc, try t.pick(alloc, req.unit, req.x, req.y, to, offset), out, cap);
         },
         .select => try t.select(req.start_x, req.start_y, req.end_x, req.end_y),

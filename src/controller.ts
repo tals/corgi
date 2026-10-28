@@ -217,6 +217,31 @@ const portClick = (fields: Partial<PortClick> & { x: number; y: number }): PortC
 });
 /** How soon a press must follow the last one to extend a click series. */
 export const double_click_ms = 300;
+/** An SGR button press or release: neither motion nor the wheel. */
+const isButton = (button: number): boolean => (button & 96) === 0;
+/** Motion with a button held. */
+const isDrag = (button: number): boolean => (button & 96) === 32 && (button & 3) !== 3;
+/** Motion with the primary button held. */
+const isPrimaryDrag = (button: number): boolean => (button & 99) === 32;
+/** Motion with no button held. */
+const isHover = (button: number): boolean => (button & 99) === 35;
+/** Whether a press extends `series` on its cell and within the window:
+ * primary, Shift aside. `countClick` also wants the same pane and view. */
+function continuesSeries(
+  series: ClickSeries | null,
+  button: number,
+  x: number,
+  y: number,
+  now: number,
+): series is ClickSeries {
+  return (
+    series !== null && (button & 0xfb) === 0 && series.x === x && series.y === y && now - series.at <= double_click_ms
+  );
+}
+/** Links a click opens; native `linkIn` (pane/terminal.zig) picks the same ones. */
+export function openableLink(uri: string): boolean {
+  return (uri.startsWith("http://") || uri.startsWith("https://")) && byteLength(uri) <= 4096;
+}
 /** Primary presses on one pane cell, each within `double_click_ms` of the
  * last. `top` is the pane's view row and `w`, `h` its size at the press. */
 interface ClickSeries {
@@ -2520,20 +2545,28 @@ export class Controller {
     const to = g.to;
     const dragged = to.x !== g.anchor.x || to.y !== g.anchor.y;
     g.asking = true;
-    g.pending = term.pick(g.unit, g.anchor.x, g.anchor.y, dragged ? to : null).then(result => {
-      g.asking = false;
-      g.result = result;
-      if (this.gesture !== g) return;
-      if (g.to !== to) return this.pickGesture(g, term);
-      const m = result?.match;
-      if (m) term.select(m.x, m.y, m.end_x, m.end_y);
-      // Highlighted only while the held frame shows the picked text.
-      if (!m || !term.shows(result!.shown)) {
-        term.clearSelection();
-        term.holding_selection = true;
-      }
-      this.dirty = true;
-    });
+    g.pending = term
+      .pick(g.unit, g.anchor.x, g.anchor.y, dragged ? to : null)
+      .then(result => {
+        g.asking = false;
+        g.result = result;
+        // A sync may have closed the pane, and its terminal, since the ask.
+        if (this.gesture !== g || this.pane(g.pane)?.terminal !== term) return;
+        if (g.to !== to) return this.pickGesture(g, term);
+        const m = result?.match;
+        if (m) term.select(m.x, m.y, m.end_x, m.end_y);
+        // Highlighted only while the held frame shows the picked text.
+        if (!m || !term.shows(result!.shown)) {
+          term.clearSelection();
+          term.holding_selection = true;
+        }
+        this.dirty = true;
+      })
+      .catch(() => {
+        // Nothing awaits this before the release; a throw must not end the viewer.
+        g.asking = false;
+        if (this.gesture === g) this.dropGesture();
+      });
   }
   /** Extends a gesture to the cell its drag reached, clamped to its pane. */
   private dragGesture(g: Gesture, x: number, y: number): void {
@@ -2579,6 +2612,19 @@ export class Controller {
     this.copyText(result.copy);
     this.picked = { pane: g.pane, w: g.w, h: g.h };
   }
+  /** Whether screen cell `x`, `y` shows a pending open's link in its pane. */
+  private pressesLink(open: PendingOpen, x: number, y: number): boolean {
+    const rect = this.layoutView()
+      .placements(this.area())
+      .find(place => place.id === open.pane)?.rect;
+    const term = this.pane(open.pane)?.terminal;
+    if (!rect || !term || !rect.contains(x, y)) return false;
+    return term
+      .hyperlinks()
+      .some(
+        link => link.uri === open.url && link.row === y - rect.y && link.start <= x - rect.x && x - rect.x < link.end,
+      );
+  }
   private clearPicked(): void {
     const picked = this.picked;
     if (!picked) return;
@@ -2591,7 +2637,7 @@ export class Controller {
   /** Drops a pick's highlight once its text went, or its pane closed, lost
    * focus or changed size, and a gesture whose pane lost focus before its
    * release came. */
-  sweepPicked(): void {
+  sweepPickState(): void {
     if (this.gesture && this.focused()?.id !== this.gesture.pane) this.dropGesture();
     const picked = this.picked;
     if (!picked) return;
@@ -2618,21 +2664,17 @@ export class Controller {
     x: number,
     y: number,
   ): number {
-    if (this.copy_mode || (button & 0xe3) !== 0) return 0;
     // Shift may extend a series; Alt (8) and Ctrl (16) don't count, and the
     // press already ended the series.
-    if ((button & 24) !== 0) return 1;
+    if (this.copy_mode || (button & 0xfb) !== 0) return 0;
     const now = milliTimestamp();
     const top = term.offset ?? term.bottom;
     const same =
-      prior !== null &&
+      continuesSeries(prior, button, x, y, now) &&
       prior.pane === pane &&
-      prior.x === x &&
-      prior.y === y &&
       prior.top === top &&
       prior.w === rect.w &&
-      prior.h === rect.h &&
-      now - prior.at <= double_click_ms;
+      prior.h === rect.h;
     const count = same ? Math.min(prior.count + 1, 3) : 1;
     this.click_series = { pane, x, y, top, w: rect.w, h: rect.h, count, at: now };
     return count;
@@ -5404,14 +5446,18 @@ export class Controller {
     // and so does a drag off the series cell.
     const series = this.click_series;
     if (!release && (button & 32) === 0) this.click_series = null;
-    else if (series && (button & 32) !== 0 && (button & 3) !== 3 && (x !== series.x || y !== series.y))
-      this.click_series = null;
-    // A click ends a pick's highlight, a gesture whose release was lost,
-    // and a link open still waiting out the double-click window.
-    if (!release && (button & 0x60) === 0) {
+    else if (series && isDrag(button) && (x !== series.x || y !== series.y)) this.click_series = null;
+    // A click ends a pick's highlight and a gesture whose release was lost.
+    // A link open still waiting out the double-click window goes to a press
+    // that may pick it instead; any other press opens it now.
+    if (!release && isButton(button)) {
       this.clearPicked();
       this.dropGesture();
+      // A press on the link itself starts its own click or double-click.
+      const open = this.pending_open;
       this.pending_open = null;
+      if (open && !this.pressesLink(open, x, y) && this.focused()?.id === open.pane)
+        this.queueEffect({ open_url: open.url });
     }
     if (!release && (button & 32) === 0) this.endSigninExit();
     if (this.signin) {
@@ -5573,7 +5619,7 @@ export class Controller {
     // A gesture keeps its drag and release from the app, Shift or not.
     if (this.gesture) {
       if (release && (button & 3) === 0) return this.finishGesture(this.gesture);
-      if (!release && (button & 0x23) === 32) return this.dragGesture(this.gesture, x, y);
+      if (!release && isPrimaryDrag(button)) return this.dragGesture(this.gesture, x, y);
     }
     if (cl.port_click) {
       const click = cl.port_click;
@@ -5831,7 +5877,7 @@ export class Controller {
       this.dirty = true;
       return;
     }
-    if (cl.pane_press !== null && (release || ((button & 96) === 32 && (button & 3) !== 3))) {
+    if (cl.pane_press !== null && (release || isDrag(button))) {
       const id = cl.pane_press;
       if (release) cl.pane_press = null;
       for (const p of this.layoutView().placements(this.area())) {
@@ -6317,7 +6363,7 @@ export class Controller {
       }
       return;
     }
-    const hover = (button & 32) !== 0 && (button & 3) === 3;
+    const hover = isHover(button);
     for (const p of this.layoutView().placements(this.area())) {
       if (!p.rect.contains(x, y)) continue;
       const term = this.pane(p.id)!.terminal;
@@ -6365,8 +6411,7 @@ export class Controller {
       if (!release && (button === 16 || plain_link) && !this.copy_mode) {
         for (const link of term.hyperlinks()) {
           if (link.row !== y - p.rect.y || x - p.rect.x < link.start || x - p.rect.x >= link.end) continue;
-          if (!link.uri.startsWith("http://") && !link.uri.startsWith("https://")) continue;
-          if (byteLength(link.uri) > 4096) continue;
+          if (!openableLink(link.uri)) continue;
           cl.port_click = portClick({
             x,
             y,
@@ -6380,7 +6425,7 @@ export class Controller {
         }
       }
       if (app_mouse) {
-        if (!release && (button & 96) === 0) cl.pane_press = p.id;
+        if (!release && isButton(button)) cl.pane_press = p.id;
         sendMouse(term, p.rect, button, x, y, release);
         return;
       }
@@ -7214,7 +7259,7 @@ export class Controller {
   /** Movement arms hover; clicks, drags and scrolling dismiss it. */
   private moveHover(button: number, x: number, y: number, release: boolean): void {
     const moved = this.pointer === null || this.pointer.x !== x || this.pointer.y !== y;
-    if (!release && (button & 32) !== 0 && (button & 3) === 3 && (button & 64) === 0) {
+    if (!release && isHover(button)) {
       if (
         moved &&
         !this.linkHoverContains(x, y) &&

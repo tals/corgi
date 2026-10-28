@@ -360,7 +360,7 @@ export class Terminal extends EventEmitter {
   /** The word, line or link at a cell of the view `offset` rows down, leaving the viewport and selection alone. */
   pick(unit: PickUnit, x: number, y: number, to_x: number | null, to_y: number | null, offset: number): PickResult {
     const result: Wire<PickResult> = this.native({ op: "pick", unit, x, y, to_x, to_y, offset });
-    return { match: result.match ?? null, shown: result.shown, copy: result.copy, link: result.link };
+    return { match: result.match ?? null, shown: result.shown, copy: result.copy };
   }
   select(start_x: number, start_y: number, end_x: number, end_y: number): void {
     this.native({ op: "select", start_x, start_y, end_x, end_y });
