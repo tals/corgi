@@ -294,6 +294,7 @@ export async function run(
       return Math.max(Math.min(woken.last + settle_ms, woken.first + flood_frame_ms), synced + pane_frame_ms);
     };
     const poll = new Poll();
+    const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
     view.wake = () => poll.notify("host");
     let resized = false;
     const onResize = () => {
@@ -358,17 +359,11 @@ export async function run(
           view.input_state.active = true;
           view.dirty = true;
         }
-        let input_end = input.length;
-        while (input_end > 0 && !validUtf8(input.slice(0, input_end))) input_end -= 1;
-        if (input_end > 0) {
-          const chunk = input.splice(0, input_end);
-          try {
-            await view.input(Uint8Array.from(chunk));
-          } catch (error) {
-            view.notice((error as Error).message);
-          }
+        try {
+          await takeInput(input, decoder, chunk => view.input(chunk));
+        } catch (error) {
+          view.notice((error as Error).message);
         }
-        if (input.length > 4) input.length = 0;
         await view.expireInput();
         const now = Date.now();
         if (now - scroll_saved >= scroll_save_ms) {
@@ -578,13 +573,16 @@ function branchGlyphs(name: string): boolean {
   const lower = name.toLowerCase();
   return lower.includes("ghostty") || lower.includes("kitty");
 }
-function validUtf8(bytes: number[]): boolean {
-  try {
-    new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(bytes));
-    return true;
-  } catch {
-    return false;
-  }
+/** Hands `input` to `handle` as whole characters. `decoder` keeps a
+ * character split across reads until the rest arrives and turns an invalid
+ * byte into U+FFFD; keys that arrive while `handle` runs wait for the next call. */
+export async function takeInput(
+  input: number[],
+  decoder: TextDecoder,
+  handle: (chunk: Uint8Array) => Promise<void>,
+): Promise<void> {
+  const text = decoder.decode(Uint8Array.from(input.splice(0)), { stream: true });
+  if (text) await handle(new TextEncoder().encode(text));
 }
 
 /** The viewer's terminal input, as raw bytes. */
