@@ -26,7 +26,9 @@ download() {
     mkdir -p "$root/.tools"
     work=$(mktemp -d "$root/.tools/.zig-download.XXXXXX")
     trap 'rm -rf "$work"' EXIT
-    curl -fsSL --retry 3 -o "$work/zig.tar.xz" "$url"
+    # curl's meter shows size, speed and time left; logs only need errors.
+    if [ -t 2 ]; then progress=; else progress=--silent; fi
+    curl -fSL --retry 3 $progress -o "$work/zig.tar.xz" "$url"
     echo "$sum  $work/zig.tar.xz" | shasum -a 256 -c - >/dev/null
     tar -xJf "$work/zig.tar.xz" -C "$work"
     # Another build may have finished the same download first.
