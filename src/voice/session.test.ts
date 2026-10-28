@@ -237,6 +237,8 @@ test("an availability update on its way does not undo a mute from a viewer", asy
   expect(link.sets).toEqual([{ available: false }]);
   link.events.emitMuted(true);
   s.frame(new Int16Array(320));
+  // Updates go one at a time: this one follows the first.
+  await until(() => link.sets.length === 2);
   expect(link.sets).toEqual([{ available: false }, { available: true }]);
   expect(s.muted).toBe(true);
 });
@@ -303,6 +305,7 @@ test("a fresh server after a crash makes voice listen again", async () => {
   expect(s.available).toBe(false);
   s.serverReady();
   expect([s.available, s.unavailable, s.server]).toEqual([true, null, "ready"]);
+  await until(() => link.sets.length === 2);
   expect(link.sets).toEqual([{ available: false }, { available: true }]);
   speak(s);
   await until(() => s.history[0]?.status === "delivered");
@@ -344,6 +347,7 @@ test("a microphone that comes back makes voice available again", async () => {
   expect(s.unavailable).toBe("mic_denied");
   s.frame(new Int16Array(320));
   expect([s.available, s.unavailable]).toEqual([true, null]);
+  await until(() => link.sets.length === 2);
   expect(link.sets).toEqual([{ available: false }, { available: true }]);
 });
 
@@ -395,6 +399,25 @@ test("state the runtime did not take is sent again", async () => {
   expect(link.sets).toEqual([]);
   await until(() => link.sets.length === 1, 2000);
   expect(link.sets[0]).toEqual({ muted: true });
+});
+
+test("an older answer never cancels the retry of a newer mute change", async () => {
+  const link = new FakeLink();
+  let answer!: () => void;
+  link.set = async state => {
+    link.sets.push(state);
+    if (link.sets.length === 1) return new Promise(resolve => (answer = () => resolve({ muted: true })));
+    if (link.sets.length === 2) throw Error("Timeout");
+    return { muted: false };
+  };
+  const { s } = session([], { link });
+  await s.connect();
+  s.setMuted(true);
+  s.setMuted(false);
+  await until(() => answer !== undefined);
+  answer();
+  await until(() => link.sets.length === 3, 2000);
+  expect(link.sets).toEqual([{ muted: true }, { muted: false }, { muted: false }]);
 });
 
 test("a mute pressed while the watch is on its way still reaches the runtime", async () => {

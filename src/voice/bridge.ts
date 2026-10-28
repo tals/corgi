@@ -4,14 +4,25 @@
 import * as json from "../json";
 import * as errors from "../errors";
 import * as config from "../build_config";
-import { Events, LocalLink, bounded, deadline_ms, seen, type Seen, type VoiceLink, type WatchRequest } from "./link";
+import * as protocol from "../protocol";
+import {
+  Events,
+  LocalLink,
+  bounded,
+  deadline_ms,
+  event,
+  message,
+  typed,
+  watched,
+  type LinkEvents,
+  type Message,
+  type Typed,
+  type VoiceLink,
+  type Watched,
+  type WatchRequest,
+} from "./link";
 
 const bridge_version = 1;
-type RelayOp = "voice.watch" | "voice.set" | "voice.type";
-const relay_ops: readonly string[] = ["voice.watch", "voice.set", "voice.type"] satisfies RelayOp[];
-function relayOp(op: unknown): RelayOp | null {
-  return typeof op === "string" && relay_ops.includes(op) ? (op as RelayOp) : null;
-}
 const ping_ms = 1000,
   lost_ms = 3000,
   /** How long ssh may take to connect and start the bridge; prompts can take a while. */
@@ -48,22 +59,22 @@ export async function serve(socket: string, args: string[] = []): Promise<number
     write({ type: "closed", reason });
     finish();
   });
-  const relay = async (request: any) => {
-    const { id, op, ...fields } = request,
-      known = relayOp(op);
-    if (!known) return write({ id, ok: false, err: "UnknownOperation" });
+  const relay = async (op: protocol.Op | null, request: Message) => {
+    const id = typeof request.id === "number" ? request.id : null;
     try {
       let reply: object;
-      switch (known) {
+      switch (op) {
         case "voice.watch":
-          reply = await link.watch(fields as WatchRequest);
+          reply = await link.watch(watchRequest(request));
           break;
         case "voice.set":
-          reply = await link.set(fields);
+          reply = await link.set(setRequest(request));
           break;
         case "voice.type":
-          reply = await link.type(String(fields.text ?? ""));
+          reply = await link.type(typeof request.text === "string" ? request.text : "");
           break;
+        default:
+          return write({ id, ok: false, err: "UnknownOperation" });
       }
       write({ id, ok: true, ...reply });
     } catch (error) {
@@ -77,16 +88,18 @@ export async function serve(socket: string, args: string[] = []): Promise<number
     for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
       const line = buffer.slice(0, end);
       buffer = buffer.slice(end + 1);
-      let request: any;
+      let request: Message | null;
       try {
-        request = json.parse(line);
+        request = message(json.parse(line));
       } catch {
         continue;
       }
-      if (request?.op === "ping") {
+      if (!request) continue;
+      const op = protocol.parse(request);
+      if (op === "ping") {
         pinged = Date.now();
         write({ type: "pong" });
-      } else void relay(request);
+      } else void relay(op, request);
     }
   });
   process.stdin.on("end", finish);
@@ -100,6 +113,18 @@ export async function serve(socket: string, args: string[] = []): Promise<number
   // A quiet but open stdin would keep the process up.
   process.stdin.destroy();
   return 0;
+}
+
+/** What `SshLink.watch` sends; the voice on another host is never a pane there. */
+function watchRequest(request: Message): WatchRequest {
+  return { muted: request.muted === true, available: request.available !== false };
+}
+/** What `SshLink.set` sends: only the fields that changed. */
+function setRequest(request: Message): { muted?: boolean; available?: boolean } {
+  return {
+    ...(typeof request.muted === "boolean" ? { muted: request.muted } : {}),
+    ...(typeof request.available === "boolean" ? { available: request.available } : {}),
+  };
 }
 
 /** The remote command: Corgi from the login PATH, or where the installer puts
@@ -133,7 +158,7 @@ async function tail(stream: ReadableStream<Uint8Array>): Promise<string> {
 
 export class SshLink implements VoiceLink {
   private events = new Events();
-  private pending = new Map<number, (reply: any) => void>();
+  private pending = new Map<number, (reply: Message) => void>();
   private next_id = 1;
   private ponged = Date.now();
   private pinger?: ReturnType<typeof setInterval>;
@@ -157,8 +182,8 @@ export class SshLink implements VoiceLink {
     const child = Bun.spawn(argv, { env: process.env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
     const link = new SshLink(child, { deadline_ms: opts.deadline_ms ?? deadline_ms }),
       stderr = tail(child.stderr as ReadableStream<Uint8Array>);
-    let first!: (line: any) => void;
-    const greeted = new Promise<any>(resolve => (first = resolve));
+    let first!: (line: Message | null) => void;
+    const greeted = new Promise<Message | null>(resolve => (first = resolve));
     const reading = link.read(child.stdout as ReadableStream<Uint8Array>, line => first(line));
     // A refusal is the last line before the bridge exits: read it first.
     void Promise.all([child.exited, reading]).then(() => first(null));
@@ -189,7 +214,7 @@ export class SshLink implements VoiceLink {
     }, ping_ms);
     return link;
   }
-  private async read(stream: ReadableStream<Uint8Array>, greet: (line: any) => void): Promise<void> {
+  private async read(stream: ReadableStream<Uint8Array>, greet: (line: Message) => void): Promise<void> {
     const decoder = new TextDecoder();
     let buffer = "",
       greeted = false;
@@ -200,32 +225,42 @@ export class SshLink implements VoiceLink {
         for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
           const line = buffer.slice(0, end);
           buffer = buffer.slice(end + 1);
-          let message: any;
+          let read: Message | null;
           try {
-            message = json.parse(line);
+            read = message(json.parse(line));
           } catch {
             continue;
           }
-          if (!message || typeof message !== "object") continue;
+          if (!read) continue;
           if (!greeted) {
             greeted = true;
-            greet(message);
-          } else if (message.type === "pong") this.ponged = Date.now();
-          else if (message.type === "voice.muted") this.events.emitMuted(message.muted === true);
-          else if (message.type === "voice.viewer") this.events.emitViewer(seen(message));
-          else if (message.type === "closed")
-            this.lost(
-              typeof message.reason === "string" && /^[a-z_]{1,32}$/.test(message.reason)
-                ? message.reason
-                : "runtime_gone",
-            );
-          else if (typeof message.id === "number") {
-            this.pending.get(message.id)?.(message);
-            this.pending.delete(message.id);
-          }
+            greet(read);
+          } else this.receive(read);
         }
       }
     } catch {}
+  }
+  private receive(read: Message): void {
+    const e = event(read);
+    switch (e?.type) {
+      case "pong":
+        this.ponged = Date.now();
+        break;
+      case "voice.muted":
+        this.events.emitMuted(e.muted);
+        break;
+      case "voice.viewer":
+        this.events.emitViewer(e.seen);
+        break;
+      case "closed":
+        this.lost(e.reason);
+        break;
+      default:
+        if (typeof read.id === "number") {
+          this.pending.get(read.id)?.(read);
+          this.pending.delete(read.id);
+        }
+    }
   }
   private send(value: object): void {
     if (this.closed) return;
@@ -241,31 +276,30 @@ export class SshLink implements VoiceLink {
     this.close();
     if (attached) this.events.emitClosed(reason);
   }
-  private async request(op: string, fields: object = {}): Promise<any> {
+  private async request(op: protocol.Op, fields: object = {}): Promise<Message> {
     if (this.closed) throw Error("NotConnected");
     const id = this.next_id++,
-      reply = new Promise<any>(resolve => this.pending.set(id, resolve));
+      reply = new Promise<Message>(resolve => this.pending.set(id, resolve));
     this.send({ id, op, ...fields });
     const message = await bounded(reply, this.opts.deadline_ms, () => this.pending.delete(id));
     if (!message.ok) throw Error(errorName(message.err));
     return message;
   }
-  async watch(req: WatchRequest): Promise<{ voice_id: string; muted: boolean } & Seen> {
+  async watch(req: WatchRequest): Promise<Watched> {
     // The voice runs on another host, so it is never one of the runtime's panes.
     const reply = await this.request("voice.watch", { muted: req.muted, available: req.available });
     // The same read may have held the reply and a close: nothing to attach to.
     if (this.closed) throw Error("ConnectionClosed");
     this.attached = true;
-    return { voice_id: reply.voice_id, muted: reply.muted === true, ...seen(reply) };
+    return watched(reply);
   }
   async set(state: { muted?: boolean; available?: boolean }): Promise<{ muted: boolean }> {
     return { muted: (await this.request("voice.set", state)).muted === true };
   }
-  async type(text: string): Promise<{ pane: number; viewer: number }> {
-    const reply = await this.request("voice.type", { text });
-    return { pane: reply.pane, viewer: reply.viewer };
+  async type(text: string): Promise<Typed> {
+    return typed(await this.request("voice.type", { text }));
   }
-  on(event: "muted" | "viewer" | "closed", fn: (value: any) => void): void {
+  on<K extends keyof LinkEvents>(event: K, fn: LinkEvents[K]): void {
     this.events.on(event, fn);
   }
   close(): void {
