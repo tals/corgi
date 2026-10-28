@@ -63,8 +63,9 @@ click, or with `↑`/`↓` and Enter (Esc closes it). A click on `filter` switch
 it.
 
 The note before the title adds what speech is doing: `♫` in a slightly
-different green while listening, recording or transcribing, and a grey `♪`
-when muted. Click it, or the mode, to mute or unmute. Without a viewer there
+different green while listening, recording or transcribing, a grey `♫` while
+voice mode is not connected to the runtime or no viewer is attached, and a
+grey `♪` when muted. Click it, or the mode, to mute or unmute. Without a viewer there
 is nowhere to type, so voice mode holds off until one attaches, and says so
 at the top of the history.
 
