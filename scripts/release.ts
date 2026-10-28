@@ -131,9 +131,9 @@ export function releaseEnvironment(cwd: string, source: string, env = process.en
     const zig = Bun.which("zig", { PATH: env.PATH });
     const installed = zig && Bun.spawnSync([zig, "version"], { env, stdout: "pipe", stderr: "pipe" });
     compiler =
-      installed && installed.exitCode === 0 && installed.stdout.toString().trim() === "0.16.0"
+      installed && installed.exitCode === 0 && installed.stdout.toString().trim() === "0.17.0"
         ? "zig"
-        : join(cwd, `.tools/zig-${arch}-${os}-0.16.0/zig`);
+        : join(cwd, `.tools/zig-${arch}-${os}-0.17.0/zig`);
   }
   return { ...env, ZIG: compiler, ZIG_LOCAL_CACHE_DIR: join(source, "native/.zig-cache") };
 }

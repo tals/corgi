@@ -2,11 +2,11 @@
     .name = .corgi_native,
     .version = "0.1.0",
     .fingerprint = 0x46f83d7bc4dd69e6,
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .ghostty = .{
-            .url = "https://github.com/ghostty-org/ghostty/archive/f523504ea5c9f41d150d1eb93cc7a748b90f9361.tar.gz",
-            .hash = "ghostty-1.3.2-dev-5UdBC38HeAVpINLn9qneWgPWYKcX8WZ_8w2DZosk5XcB",
+            .url = "https://github.com/ghostty-org/ghostty/archive/refs/tags/v1.4.0.tar.gz",
+            .hash = "ghostty-1.4.0-5UdBC-qohwWqLS0BImOz05t4hVyTwbaKslyTPvKYvAtE",
         },
         // getsentry/sentry-native 0.7.8, from Ghostty's dependency mirror.
         .sentry = .{

@@ -4,11 +4,7 @@ const a = std.heap.c_allocator;
 comptime {
     _ = @import("posix.zig");
 }
-const c = @cImport({
-    @cInclude("unistd.h");
-    @cInclude("sys/wait.h");
-    @cInclude("sys/file.h");
-});
+const c = @import("c");
 pub export fn app_sysconf(pages: bool) i64 {
     return c.sysconf(if (pages) c._SC_PAGESIZE else c._SC_CLK_TCK);
 }

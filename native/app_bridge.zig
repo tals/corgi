@@ -1,7 +1,7 @@
 const std = @import("std");
 const pane = @import("pane");
 const a = std.heap.c_allocator;
-const Theme = @typeInfo(@TypeOf(pane.Terminal.applyTheme)).@"fn".params[1].type.?;
+const Theme = @typeInfo(@TypeOf(pane.Terminal.applyTheme)).@"fn".param_types[1].?;
 const Request = struct {
     op: enum { info, surface, image, pixels, search, select, selection, clearSelection, liveText, text, history, snapshot, fadedSnapshot, theme, paste, prefill, flush, refreshRedraw, tick, takeCopied, takePending, restore, adopt, stop, reap, links, probeFormat },
     pane: u32 = 0,

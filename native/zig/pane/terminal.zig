@@ -13,7 +13,7 @@ const BoundedText = @import("../bounded_text.zig").BoundedText;
 const Theme = struct {
     foreground: ?vt.color.RGB = null,
     background: ?vt.color.RGB = null,
-    palette: [16]?vt.color.RGB = .{null} ** 16,
+    palette: [16]?vt.color.RGB = @splat(null),
 };
 
 pub const Terminal = struct {

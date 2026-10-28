@@ -1,5 +1,6 @@
 const std = @import("std");
 const vt = @import("ghostty-vt");
+const unicode = vt.kitty.graphics.unicode;
 const a = @import("../os.zig").allocator;
 
 pub const Image = struct {
@@ -25,6 +26,47 @@ const Asset = struct {
     image: Image,
     generation: u64,
     data: []const u8,
+};
+
+/// Kitty placeholder runs in the viewport, left to right within each row.
+/// Ghostty resolves their colors and diacritics; a run never spans rows.
+const VirtualPlacements = struct {
+    rows: vt.PageList.RowIterator,
+    row: ?vt.Pin = null,
+    x: usize = 0,
+
+    fn next(self: *VirtualPlacements) ?unicode.Placement {
+        while (self.row) |row| {
+            if (row.rowAndCell().row.kitty_virtual_placeholder) {
+                const cells = row.cells(.all);
+                var run: ?unicode.IncompletePlacement = null;
+                var start = self.x;
+                while (self.x < cells.len) : (self.x += 1) {
+                    const cell = &cells[self.x];
+                    if (cell.codepoint() != unicode.placeholder) {
+                        if (run != null) break;
+                        continue;
+                    }
+                    const style = row.style(cell);
+                    const curr: unicode.IncompletePlacement = .init(&style, row.grapheme(cell) orelse &.{});
+                    if (run) |*prev| {
+                        if (!prev.append(&curr)) break;
+                    } else {
+                        run = curr.start();
+                        start = self.x;
+                    }
+                }
+                if (run) |r| {
+                    var pin = row;
+                    pin.x = @intCast(start);
+                    return .{ .pin = pin, .image_id = r.imageId(), .placement_id = r.placement_id orelse 0, .col = r.col.?, .row = r.row.?, .width = r.width, .height = 1 };
+                }
+            }
+            self.row = self.rows.next();
+            self.x = 0;
+        }
+        return null;
+    }
 };
 
 /// Owns the pixels and placements of the last completed render, including
@@ -126,11 +168,12 @@ pub const Snapshot = struct {
             }
         }
         if (has_virtual) {
-            // Ghostty resolves placeholder colors and diacritics into visible row runs.
-            var virtuals = vt.kitty.graphics.unicode.placementIterator(pages.getTopLeft(.viewport), pages.getBottomRight(.viewport));
+            var virtuals: VirtualPlacements = .{ .rows = pages.getTopLeft(.viewport).rowIterator(.right_down, pages.getBottomRight(.viewport)) };
+            virtuals.row = virtuals.rows.next();
             while (virtuals.next()) |p| {
                 const image = storage.imageById(p.image_id) orelse continue;
-                const rendered = p.renderPlacement(storage, &image, @intFromFloat(cw), @intFromFloat(ch)) catch continue;
+                const target = storage.placeholderTarget(p.image_id, p.placement_id) orelse continue;
+                const rendered = p.renderPlacement(&target.placement, &image, @intFromFloat(cw), @intFromFloat(ch)) catch continue;
                 if (rendered.dest_width == 0 or rendered.dest_height == 0 or rendered.source_width == 0 or rendered.source_height == 0) continue;
                 const point = (pages.pointFromPin(.viewport, rendered.top_left) orelse continue).viewport;
                 for (next.assets.items) |asset| {

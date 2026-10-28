@@ -2,23 +2,7 @@
 const std = @import("std");
 const os = @import("../os.zig");
 const builtin = @import("builtin");
-const c = @cImport({
-    if (builtin.os.tag == .macos) {
-        // The macOS 26.5 and 27.0 SDKs assert Mach message struct sizes,
-        // but translate-c can't size their bitfields. Use the SDK's non-arm64 no-op.
-        @cInclude("mach/port.h");
-        @cUndef("xnu_static_assert_struct_size");
-        @cDefine("xnu_static_assert_struct_size(name, size)", "_Static_assert(1, \"\")");
-    }
-    @cInclude("unistd.h");
-    if (builtin.os.tag == .macos) {
-        @cInclude("libproc.h");
-        @cInclude("sys/resource.h");
-        @cInclude("sys/sysctl.h");
-        @cInclude("mach/mach.h");
-        @cInclude("mach/mach_time.h");
-    }
-});
+const c = @import("c");
 
 pub const Identity = struct { pid: i32, parent: i32, start: u64, name: [64]u8 = @splat(0) };
 pub const Counters = struct { start: u64, cpu_ns: u64, memory: u64, read: ?u64, written: ?u64 };

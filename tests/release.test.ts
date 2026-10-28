@@ -318,7 +318,7 @@ test("isolated builds reuse a local compiler with a separate local cache", () =>
   expect(env.ZIG_LOCAL_CACHE_DIR).toBe("/isolated/native/.zig-cache");
   const host = `${process.arch === "arm64" ? "aarch64" : "x86_64"}-${process.platform === "darwin" ? "macos" : process.platform}`;
   expect(releaseEnvironment("/repo", "/isolated", { PATH: "/nonexistent" }).ZIG).toBe(
-    `/repo/.tools/zig-${host}-0.16.0/zig`,
+    `/repo/.tools/zig-${host}-0.17.0/zig`,
   );
 });
 

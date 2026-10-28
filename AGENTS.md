@@ -64,10 +64,10 @@ See [HACKING.md](HACKING.md) for development workflows and architecture.
 
 ## Zig toolchain
 
-The native layer requires exactly Zig 0.16.0; the pinned Ghostty commit
+The native layer requires exactly Zig 0.17.0; the pinned Ghostty release
 targets it. Build through `./scripts/zig` (or let `bun build.ts` do it),
-never bare `zig`. `scripts/zig` uses `$ZIG`, a 0.16.0 `zig` on PATH, or the
-project copy in `.tools/zig-<arch>-<os>-0.16.0/`, and refuses other versions.
+never bare `zig`. `scripts/zig` uses `$ZIG`, a 0.17.0 `zig` on PATH, or the
+project copy in `.tools/zig-<arch>-<os>-0.17.0/`, and refuses other versions.
 
 ## TypeScript style
 

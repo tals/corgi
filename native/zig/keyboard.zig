@@ -11,8 +11,8 @@ pub const Key = struct {
         const len = if (functional == null) try std.unicode.utf8Encode(self.codepoint, &utf8) else 0;
         var key = functional orelse vt.input.Key.unidentified;
         if (functional == null) {
-            inline for (std.meta.fields(vt.input.Key)) |field| {
-                const candidate: vt.input.Key = @enumFromInt(field.value);
+            inline for (@typeInfo(vt.input.Key).@"enum".field_values) |value| {
+                const candidate: vt.input.Key = @enumFromInt(value);
                 if (comptime candidate.codepoint()) |cp| {
                     if (self.codepoint == cp) key = candidate;
                 }
