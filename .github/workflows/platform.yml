@@ -16,8 +16,12 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
+      # scripts/zig pins the compiler and downloads it into .tools when the cache misses.
+      - uses: actions/cache@v6
+        with:
+          path: .tools/zig-*
+          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/zig') }}
       - name: Install Zig
-        # scripts/zig downloads the pinned compiler into .tools.
         run: ./scripts/zig version
       # Zig doesn't retry a failed package download, and Ghostty's mirror sometimes resets.
       - uses: actions/cache@v6
