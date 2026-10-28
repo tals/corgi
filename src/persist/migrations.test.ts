@@ -183,6 +183,25 @@ test("handoff keeps only the metered fact from launcher usage text", () => {
   for (const option of Object.values(options) as any[])
     for (const key of ["usage", "usage_metered", "resets"]) expect(option[key]).toBeUndefined();
 });
+test("handoff spend cells from before running totals are cleared", () => {
+  const cells = [
+    { minor: 1918, earlier: false },
+    { minor: null, earlier: true },
+  ];
+  const handoff = (spend_history: unknown) =>
+    JSON.stringify({
+      version: 5,
+      runtime: { version: checkpoint_version },
+      clients: [{ launch_preview: { preview: { options: { codex: { spend_history } } } } }],
+    });
+  const result = decode("handoff", handoff(cells));
+  expect(result.value.version).toBe(handoff_version);
+  expect(result.value.clients[0].launch_preview.preview.options.codex.spend_history).toEqual([
+    { minor: null, earlier: false },
+    { minor: null, earlier: true },
+  ]);
+  expect(() => decode("handoff", handoff({ minor: 1918 }))).toThrow("InvalidCheckpoint");
+});
 test("each released step still produces its golden output", () => {
   for (const kind of ["checkpoint", "handoff"] as const)
     for (const [i, step] of steps[kind].entries()) {

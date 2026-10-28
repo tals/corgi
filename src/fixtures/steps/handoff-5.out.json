@@ -1,0 +1,59 @@
+{
+  "version": 5,
+  "runtime": {
+    "version": 6
+  },
+  "clients": [
+    {
+      "fd": 7,
+      "viewer": true
+    },
+    {
+      "fd": 8,
+      "viewer": true,
+      "launch_preview": null
+    },
+    {
+      "fd": 9,
+      "viewer": true,
+      "launch_preview": {
+        "checked": 1792663200,
+        "preview": {
+          "options": {
+            "codex": {
+              "plan": "Enterprise",
+              "usage_fetched_at": 1792663200,
+              "spend_history": [
+                {
+                  "minor": null,
+                  "earlier": true
+                },
+                {
+                  "minor": null,
+                  "earlier": false
+                },
+                {
+                  "minor": null,
+                  "earlier": false
+                }
+              ]
+            },
+            "claude": {
+              "plan": "Enterprise",
+              "usage_fetched_at": 1792663200,
+              "spend_history": [
+                {
+                  "minor": null,
+                  "earlier": false
+                }
+              ]
+            },
+            "opencode2": {
+              "plan": ""
+            }
+          }
+        }
+      }
+    }
+  ]
+}

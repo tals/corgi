@@ -44,7 +44,7 @@ const day = 86400,
     period_start: start * day,
     reset_at: (start + 31) * day,
   });
-test("spend cells count days read after the day before, and leave the rest unknown", () => {
+test("spend cells hold the month's spend at each pair's last reading, and leave the rest unknown", () => {
   const state = new State();
   state.recordSpend(reading(100, 300), noon(103));
   state.recordSpend(reading(100, 450), noon(104));
@@ -55,17 +55,17 @@ test("spend cells count days read after the day before, and leave the rest unkno
   const cells = state.spendCells(reading(100, 870), noon(108));
   expect(cells).toHaveLength(cells_count);
   // The current pair is days 108 and 109, which hasn't come.
-  expect(cells[13]).toEqual({ minor: 70, earlier: false });
-  // Day 106 went unread, so its pair is unknown, not a share of the gap.
-  expect(cells[12]).toEqual({ minor: null, earlier: false });
-  // Day 104's last reading counts once.
-  expect(cells[11]).toEqual({ minor: 260, earlier: false });
-  // The first reading's day has nothing to count from.
-  expect(cells[10]).toEqual({ minor: null, earlier: false });
+  expect(cells[13]).toEqual({ minor: 870, earlier: false });
+  // Day 106 went unread; day 107 still ends its pair.
+  expect(cells[12]).toEqual({ minor: 800, earlier: false });
+  // Day 105's reading ends its pair, whatever day 104 read.
+  expect(cells[11]).toEqual({ minor: 560, earlier: false });
+  expect(cells[10]).toEqual({ minor: 300, earlier: false });
+  // Pairs before the first reading are unknown.
   expect(cells[9]).toEqual({ minor: null, earlier: false });
   expect(cells[8]).toEqual({ minor: null, earlier: true });
 });
-test("a new month counts from zero and last month's cells are marked", () => {
+test("last month's cells are marked and keep its running spend", () => {
   const state = new State();
   state.recordSpend(reading(70, 1000), noon(97));
   state.recordSpend(reading(70, 1100), noon(98));
@@ -74,7 +74,8 @@ test("a new month counts from zero and last month's cells are marked", () => {
   state.recordSpend(reading(100, 70), noon(101));
   const cells = state.spendCells(reading(100, 70), noon(101));
   expect(cells[13]).toEqual({ minor: 70, earlier: false });
-  expect(cells[12]).toEqual({ minor: 150, earlier: true });
+  expect(cells[12]).toEqual({ minor: 1150, earlier: true });
+  expect(cells[11]).toEqual({ minor: 1000, earlier: true });
   // Each day keeps one reading, for about a month.
   for (let d = 102; d < 140; d++) state.recordSpend(reading(100, 70 + d), noon(d));
   expect(state.spend.length).toBeLessThanOrEqual(32);

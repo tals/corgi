@@ -9,6 +9,7 @@ import {
   draw,
   drawOverview,
   fresh_window,
+  barInk,
   limitLine,
   spendSpark,
   presentChildren,
@@ -23,6 +24,7 @@ import { View as UsageView, Tokens } from "./usage/live";
 import { View as ContextView } from "./usage/context_window";
 import { Window } from "./usage/account";
 import type { Spark, SpendCell } from "./usage/limits";
+import type { Reading } from "./usage/spend";
 import { option } from "./agent_launcher";
 import { Writer } from "./text";
 import * as palette from "./palette";
@@ -685,31 +687,46 @@ test("sparks stipple the time left, and slots no reading covers fainter", () => 
   expect(high).toContain(`${Tone.ansi("hot")}100%`);
 });
 
-test("spend sparks scale to the busiest cell and set apart last month and unread days", () => {
+test("spend sparks draw the month's running spend like a window and set apart last month and unread cells", () => {
   const cell = (minor: number | null, earlier = false): SpendCell => ({ minor, earlier });
   const cells = [
     cell(null),
-    cell(400, true),
+    cell(5000, true),
     cell(0),
-    cell(100),
-    cell(800),
     cell(null),
-    ...Array.from({ length: 8 }, () => cell(50)),
+    cell(2500),
+    ...Array.from({ length: 7 }, () => cell(5000)),
+    cell(8500),
+    cell(10000),
   ];
-  const line = render(w => spendSpark(new Card(w, 0, 122), 5, 87, cells, true));
-  // Days Corgi didn't read are unknown, before the first reading or in a gap.
+  const reading: Reading = {
+    used_minor: 10000,
+    limit_minor: 10000,
+    currency: "USD",
+    exponent: 2,
+    period_start: 0,
+    reset_at: 30 * 86400,
+  };
+  const spark = (at: Reading, fresh = true, from = cells) =>
+    render(w => spendSpark(new Card(w, 0, 122), 5, 87, from, at, fresh));
+  const line = spark(reading);
+  // Cells Corgi didn't read are unknown, before the first reading or in a gap.
   expectSparkCell(line, 0, "⢕", unread_ink);
-  expectSparkCell(line, 5, "⢕", unread_ink);
+  expectSparkCell(line, 3, "⢕", unread_ink);
   // Last month's cells are dimmer whatever their height.
   expect(line).toContain(
     `${palette.bg("surface")}${palette.fgRgb(palette.mix(palette.colors.accent, palette.colors.faint, 60))}▄`,
   );
-  // Nothing spent is the gray floor; the busiest cell is full height.
-  expectSparkCell(line, 2, "▁", Tone.ansi("faint"));
-  expectSparkCell(line, 3, "▁", shallow_inks[0]);
-  expectSparkCell(line, 4, "█", Tone.ansi("live"));
-  const stale = render(w => spendSpark(new Card(w, 0, 122), 5, 87, cells, false));
-  expectSparkCell(stale, 4, "█", Tone.ansi("faint"));
+  // Each cell is the percent of the limit used so far, inked like a window's.
+  expectSparkCell(line, 2, "▁", barInk(0));
+  expectSparkCell(line, 4, "▂", barInk(25));
+  expectSparkCell(line, 12, "▇", Tone.ansi("warm_cell"));
+  expectSparkCell(line, 13, "█", Tone.ansi("hot_cell"));
+  expectSparkCell(spark(reading, false), 13, "█", Tone.ansi("faint"));
+  // A limit far above the spend is flat.
+  expectSparkCell(spark({ ...reading, limit_minor: 25_000_000 }), 13, "▁", barInk(0));
+  // Without a limit, the largest cell is full height but not hot.
+  expectSparkCell(spark({ ...reading, limit_minor: null }), 13, "█", shallow_inks[7]);
 });
 
 test("a finished agent the user has not seen shows a dot", () => {

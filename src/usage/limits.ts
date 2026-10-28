@@ -9,9 +9,9 @@ export const spend_days = 2;
 const day = 86400;
 export type Spark = Array<number | null>;
 export const none = () => [Array(cells).fill(null), Array(cells).fill(null)] as [Spark, Spark];
-/** Spend in a cell's days, in the reading's minor units; null unless Corgi
- * read each of them and the day before. `earlier` when the cell ends before
- * the current month began. */
+/** The month's spend at the last reading in a cell's days, in the reading's
+ * minor units; null when Corgi read none of them. `earlier` when the cell
+ * ends before the current month began. */
 export type SpendCell = { minor: number | null; earlier: boolean };
 export const noSpend = (): SpendCell[] => Array.from({ length: cells }, () => ({ minor: null, earlier: false }));
 /** A preview's spend cells, or none for an older one without them. */
@@ -65,7 +65,7 @@ export class State {
     });
     return result;
   }
-  /** Keeps each day's last reading, for the last month and a day before it. */
+  /** Keeps each day's last reading, for about the last month. */
   recordSpend(reading: Reading, at: number) {
     const today = Math.floor(at / day),
       entry: Daily = [today, reading.period_start, reading.used_minor],
@@ -75,28 +75,17 @@ export class State {
     else this.spend.push(entry);
     this.spend = this.spend.filter(([d]) => d > today - cells * spend_days - 4);
   }
-  /** The last four weeks of spend in two-day cells, paired from the current
-   * month's first day so its start falls between cells. A day counts when
-   * Corgi read it and the day before; a month's first day counts from zero. */
+  /** The last four weeks of the month's running spend in two-day cells,
+   * paired from the current month's first day so its start falls between
+   * cells. Each cell holds its last day's reading. */
   spendCells(reading: Reading, now: number): SpendCell[] {
-    const spent = new Map<number, number>();
-    this.spend.forEach(([d, period, used], i) => {
-      const previous = this.spend[i - 1];
-      if (previous?.[0] !== d - 1) return;
-      if (previous[1] === period) spent.set(d, Math.max(0, used - previous[2]));
-      else if (Math.floor(period / day) === d) spent.set(d, used);
-    });
     const today = Math.floor(now / day),
       first = Math.floor(reading.period_start / day),
       current = first + Math.floor((today - first) / spend_days) * spend_days;
     return Array.from({ length: cells }, (_, i) => {
-      const from = current - (cells - 1 - i) * spend_days;
-      let minor: number | null = 0;
-      for (let d = from; d < from + spend_days && d <= today && minor !== null; d++) {
-        const value = spent.get(d);
-        minor = value === undefined ? null : minor + value;
-      }
-      return { minor, earlier: from + spend_days <= first };
+      const from = current - (cells - 1 - i) * spend_days,
+        last = this.spend.findLast(([d]) => d >= from && d < from + spend_days);
+      return { minor: last?.[2] ?? null, earlier: from + spend_days <= first };
     });
   }
 }

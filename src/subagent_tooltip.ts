@@ -1112,7 +1112,7 @@ function spendLine(card: Card, row: number, pane: number, value: Option, line: n
     return;
   }
   card.cell(row, pane, 2, "mo", "muted", false);
-  spendSpark(card, row, pane + 3, value.spend_history, fresh);
+  spendSpark(card, row, pane + 3, value.spend_history, reading, fresh);
   const percent = spend.percent(reading);
   if (current && percent !== null) {
     const figure: Tone = !fresh ? "muted" : percent >= 100 ? "hot" : percent >= 80 ? "warm" : "title";
@@ -1121,17 +1121,31 @@ function spendLine(card: Card, row: number, pane: number, value: Option, line: n
   const status_text = !fresh ? "stale" : `↻ ${resetCountdown(reading.reset_at, now)}`;
   card.cell(row, pane + 23, 9, status_text, "faint", false);
 }
-/** Spend over the last four weeks, scaled to the busiest cell: it reads how
- * fast the money goes, which a limit far above it can't show. Cells before
- * the month began are dimmer, stale readings gray, and days Corgi didn't
- * read faintly stippled. */
-export function spendSpark(card: Card, row: number, at: number, cells: limit_history.SpendCell[], fresh: boolean) {
-  const top = Math.max(0, ...cells.map(cell => cell.minor ?? 0));
+/** The month's running spend over the last four weeks, drawn like a window's
+ * spark as a percent of the limit. Without a limit, cells scale to the
+ * largest. Cells before the month began are dimmer, stale readings gray, and
+ * cells Corgi didn't read faintly stippled. */
+export function spendSpark(
+  card: Card,
+  row: number,
+  at: number,
+  cells: limit_history.SpendCell[],
+  reading: spend.Reading,
+  fresh: boolean,
+) {
+  const limit = reading.limit_minor,
+    top = limit ?? Math.max(0, ...cells.map(cell => cell.minor ?? 0));
   cells.forEach((cell, i) => {
     if (cell.minor === null) return sparkCell(card, row, at + i, "⢕", unread_ink);
-    const height = top > 0 && cell.minor > 0 ? Math.max(1, Math.round((cell.minor * 8) / top)) : 0;
-    const ink = !fresh || height === 0 ? Tone.ansi("faint") : cell.earlier ? earlier_ink : shallow_inks[height - 1];
-    sparkCell(card, row, at + i, blocks[Math.max(1, height) - 1], ink);
+    const used = top > 0 ? (cell.minor * 100) / top : cell.minor > 0 ? 100 : 0;
+    const ink = !fresh
+      ? Tone.ansi("faint")
+      : cell.earlier
+        ? earlier_ink
+        : limit === null
+          ? shallow_inks[eighths(used) - 1]
+          : barInk(used);
+    sparkCell(card, row, at + i, block(used), ink);
   });
 }
 const blocks = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
