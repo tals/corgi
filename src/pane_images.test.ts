@@ -81,6 +81,30 @@ test("Unicode image placeholders retain their crops as cells are overwritten and
     expect(pictures(t)).toEqual([]);
   }));
 
+test("Unicode image placeholders split adjacent runs and reach the last column", () =>
+  using(t => {
+    t.feed(command("a=t,f=24,s=2,v=1,i=71,q=2", "/wAAAP8A"));
+    t.feed(command("a=t,f=24,s=1,v=1,i=72,q=2", "/wAA"));
+    t.feed(command("a=p,U=1,i=71,p=9,c=2,r=1,q=2"));
+    t.feed(command("a=p,U=1,i=71,p=10,c=1,r=1,q=2"));
+    t.feed(command("a=p,U=1,i=72,p=8,c=1,r=1,q=2"));
+    const cell = (image: number, placement: number, col: string) =>
+      `\x1b[38;2;0;0;${image};58:2::0:0:${placement}m\u{10eeee}̅${col}`;
+    t.feed(
+      `\x1b[2;1H${cell(71, 9, "̅")}${cell(71, 9, "̍")}${cell(72, 8, "̅")}${cell(71, 10, "̅")}` +
+        `\x1b[3;19H${cell(71, 9, "̅")}${cell(71, 9, "̍")}` +
+        `\x1b[4;1H${cell(72, 8, "̅")}\x1b[0m`,
+    );
+    const runs = pictures(t).map(p => ({ x: p.x, y: Math.floor(p.y), width: p.width, image: p.image.width }));
+    expect(runs).toEqual([
+      { x: 0, y: 1, width: 2, image: 2 },
+      { x: 2, y: 1, width: 1, image: 1 },
+      { x: 3, y: 1, width: 1, image: 2 },
+      { x: 18, y: 2, width: 2, image: 2 },
+      { x: 0, y: 3, width: 1, image: 1 },
+    ]);
+  }));
+
 test("images retain the completed synchronized frame and replacements get a new identity", () =>
   using(t => {
     t.feed(red);
