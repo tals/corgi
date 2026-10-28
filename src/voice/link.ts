@@ -10,35 +10,83 @@ import * as rpc from "../rpc";
 export type WatchRequest = { pane?: number; muted: boolean; available: boolean };
 /** Whether the runtime has a viewer, and the title of the pane text would go to. */
 export type Seen = { viewer: boolean; focus: string | null };
-/** `Seen` from a message off the wire; anything malformed reads as no viewer. */
-export function seen(message: any): Seen {
-  return { viewer: message?.viewer === true, focus: typeof message?.focus === "string" ? message.focus : null };
+export type Watched = { voice_id: string; muted: boolean } & Seen;
+export type Typed = { pane: number; viewer: number };
+/** A JSON object off the wire, its fields not yet read. */
+export type Message = Record<string, unknown>;
+/** `value` when it is a JSON object; anything else is not a message. */
+export function message(value: unknown): Message | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Message) : null;
 }
+/** `Seen` from a message off the wire; anything malformed reads as no viewer. */
+export function seen(message: Message): Seen {
+  return { viewer: message.viewer === true, focus: typeof message.focus === "string" ? message.focus : null };
+}
+/** The answer to `voice.watch`. */
+export function watched(reply: Message): Watched {
+  return {
+    voice_id: typeof reply.voice_id === "string" ? reply.voice_id : "",
+    muted: reply.muted === true,
+    ...seen(reply),
+  };
+}
+/** The answer to `voice.type`. */
+export function typed(reply: Message): Typed {
+  return {
+    pane: typeof reply.pane === "number" ? reply.pane : 0,
+    viewer: typeof reply.viewer === "number" ? reply.viewer : 0,
+  };
+}
+/** What a runtime or bridge says unasked; anything else answers a request. */
+export type Event =
+  | { type: "voice.muted"; muted: boolean }
+  | { type: "voice.viewer"; seen: Seen }
+  | { type: "pong" }
+  | { type: "closed"; reason: string };
+export function event(message: Message): Event | null {
+  switch (message.type) {
+    case "voice.muted":
+      return { type: "voice.muted", muted: message.muted === true };
+    case "voice.viewer":
+      return { type: "voice.viewer", seen: seen(message) };
+    case "pong":
+      return { type: "pong" };
+    case "closed":
+      return {
+        type: "closed",
+        reason:
+          typeof message.reason === "string" && /^[a-z_]{1,32}$/.test(message.reason) ? message.reason : "runtime_gone",
+      };
+    default:
+      return null;
+  }
+}
+export type LinkEvents = {
+  muted: (muted: boolean) => void;
+  viewer: (seen: Seen) => void;
+  closed: (reason: string) => void;
+};
 export interface VoiceLink {
-  watch(req: WatchRequest): Promise<{ voice_id: string; muted: boolean } & Seen>;
+  watch(req: WatchRequest): Promise<Watched>;
   set(state: { muted?: boolean; available?: boolean }): Promise<{ muted: boolean }>;
-  type(text: string): Promise<{ pane: number; viewer: number }>;
-  on(event: "muted", fn: (muted: boolean) => void): void;
-  on(event: "viewer", fn: (seen: Seen) => void): void;
-  on(event: "closed", fn: (reason: string) => void): void;
+  type(text: string): Promise<Typed>;
+  on<K extends keyof LinkEvents>(event: K, fn: LinkEvents[K]): void;
   close(): void;
 }
 /** `muted`, `viewer` and `closed` listeners, shared by the local and SSH links. */
 export class Events {
-  private muted: ((muted: boolean) => void)[] = [];
-  private viewer: ((seen: Seen) => void)[] = [];
-  private closed: ((reason: string) => void)[] = [];
-  on(event: "muted" | "viewer" | "closed", fn: (value: any) => void): void {
-    (event === "muted" ? this.muted : event === "viewer" ? this.viewer : this.closed).push(fn);
+  private listeners: { [K in keyof LinkEvents]: LinkEvents[K][] } = { muted: [], viewer: [], closed: [] };
+  on<K extends keyof LinkEvents>(event: K, fn: LinkEvents[K]): void {
+    this.listeners[event].push(fn);
   }
   emitMuted(muted: boolean): void {
-    for (const fn of this.muted) fn(muted);
+    for (const fn of this.listeners.muted) fn(muted);
   }
   emitViewer(state: Seen): void {
-    for (const fn of this.viewer) fn(state);
+    for (const fn of this.listeners.viewer) fn(state);
   }
   emitClosed(reason: string): void {
-    const listeners = this.closed.splice(0);
+    const listeners = this.listeners.closed.splice(0);
     for (const fn of listeners) fn(reason);
   }
 }
@@ -58,11 +106,12 @@ export function bounded<T>(promise: Promise<T>, ms: number, onTimeout: () => voi
   ]).finally(() => clearTimeout(timer));
 }
 /** One request on a connection of its own, dropped with it on timeout. */
-async function once(path: string, value: object, ms: number): Promise<any> {
+async function once(path: string, value: object, ms: number): Promise<Message> {
   const conn = new rpc.Connection(path);
   try {
-    const reply: any = await bounded(conn.rawRequest(value), ms);
-    if (reply?.err) throw Error(reply.err);
+    const reply = message(await bounded(conn.rawRequest(value), ms));
+    if (!reply) throw Error("UnexpectedToken");
+    if (reply.err) throw Error(String(reply.err));
     return reply;
   } catch (error) {
     throw connectionError(error);
@@ -80,7 +129,7 @@ export class LocalLink implements VoiceLink {
   private socket: Socket | null = null;
   private heartbeat?: ReturnType<typeof setInterval>;
   private voice_id = "";
-  private replies: ((value: any) => void)[] = [];
+  private replies: ((reply: Message) => void)[] = [];
   private closed = false;
   private constructor(
     readonly path: string,
@@ -88,11 +137,12 @@ export class LocalLink implements VoiceLink {
   ) {}
   /** Connects to the runtime at `path`, which must know the voice ops. */
   static async connect(path: string, opts: Partial<{ deadline_ms: number; heartbeat_ms: number }> = {}) {
-    const hello: any = await once(path, protocol.envelope("hello"), opts.deadline_ms ?? deadline_ms);
-    if (!hello.capabilities?.includes("voice.watch")) throw Error("DaemonLacksVoice");
+    const hello = await once(path, protocol.envelope("hello"), opts.deadline_ms ?? deadline_ms);
+    if (!Array.isArray(hello.capabilities) || !hello.capabilities.includes("voice.watch"))
+      throw Error("DaemonLacksVoice");
     return new LocalLink(path, { deadline_ms, heartbeat_ms: 1000, ...opts });
   }
-  watch(req: WatchRequest): Promise<{ voice_id: string; muted: boolean } & Seen> {
+  watch(req: WatchRequest): Promise<Watched> {
     const socket = createConnection(this.path);
     this.socket = socket;
     let buffer = "";
@@ -102,15 +152,24 @@ export class LocalLink implements VoiceLink {
       for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
         const line = buffer.slice(0, end);
         buffer = buffer.slice(end + 1);
-        let message: any;
+        let read: Message | null;
         try {
-          message = json.parse(line);
+          read = message(json.parse(line));
         } catch {
           continue;
         }
-        if (message?.type === "voice.muted") this.events.emitMuted(message.muted === true);
-        else if (message?.type === "voice.viewer") this.events.emitViewer(seen(message));
-        else this.replies.shift()?.(message);
+        if (!read) continue;
+        const e = event(read);
+        switch (e?.type) {
+          case "voice.muted":
+            this.events.emitMuted(e.muted);
+            break;
+          case "voice.viewer":
+            this.events.emitViewer(e.seen);
+            break;
+          default:
+            this.replies.shift()?.(read);
+        }
       }
     });
     socket.on("error", () => this.lost("runtime_gone"));
@@ -118,17 +177,18 @@ export class LocalLink implements VoiceLink {
     const sent = this.send({ ...req, pane: req.pane ?? null }, "voice.watch");
     return bounded(sent, this.opts.deadline_ms)
       .then(reply => {
-        if (reply.err) throw Error(reply.err);
-        this.voice_id = reply.voice_id;
+        if (reply.err) throw Error(String(reply.err));
+        const answer = watched(reply);
+        this.voice_id = answer.voice_id;
         this.heartbeat = setInterval(() => this.beat(), this.opts.heartbeat_ms);
-        return { voice_id: reply.voice_id as string, muted: reply.muted === true, ...seen(reply) };
+        return answer;
       })
       .catch(error => {
         this.close();
         throw connectionError(error);
       });
   }
-  private send(fields: object, op: "voice.watch" | "voice.set"): Promise<any> {
+  private send(fields: object, op: "voice.watch" | "voice.set"): Promise<Message> {
     return new Promise((resolve, reject) => {
       if (!this.socket || this.closed) return reject(Error("ConnectionClosed"));
       this.replies.push(resolve);
@@ -139,7 +199,7 @@ export class LocalLink implements VoiceLink {
   private beat(): void {
     void bounded(this.send({ voice_id: this.voice_id }, "voice.set"), this.opts.deadline_ms).then(
       reply => {
-        if (reply?.err) this.lost(reply.err);
+        if (reply.err) this.lost(String(reply.err));
       },
       error => {
         if (errors.is(error, "Timeout")) this.lost("heartbeat_timeout");
@@ -152,7 +212,7 @@ export class LocalLink implements VoiceLink {
     this.close();
     if (this.voice_id) this.events.emitClosed(reason);
   }
-  private request(op: protocol.Op, fields: object): Promise<any> {
+  private request(op: protocol.Op, fields: object): Promise<Message> {
     if (this.closed || !this.voice_id) return Promise.reject(Error("NotConnected"));
     return once(this.path, protocol.envelope(op, { voice_id: this.voice_id, ...fields }), this.opts.deadline_ms);
   }
@@ -160,11 +220,10 @@ export class LocalLink implements VoiceLink {
     const reply = await this.request("voice.set", state);
     return { muted: reply.muted === true };
   }
-  async type(text: string): Promise<{ pane: number; viewer: number }> {
-    const reply = await this.request("voice.type", { text });
-    return { pane: reply.pane, viewer: reply.viewer };
+  async type(text: string): Promise<Typed> {
+    return typed(await this.request("voice.type", { text }));
   }
-  on(event: "muted" | "viewer" | "closed", fn: (value: any) => void): void {
+  on<K extends keyof LinkEvents>(event: K, fn: LinkEvents[K]): void {
     this.events.on(event, fn);
   }
   close(): void {
