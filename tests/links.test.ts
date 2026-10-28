@@ -2,7 +2,24 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { join } from "node:path";
 import { Runtime, screen_text } from "./runtime";
 import { Viewer } from "./viewer_client";
-import { EXE, Pty, quote, registerCase, shellJoin, writeExecutable } from "./support";
+import {
+  EXE,
+  Pty,
+  clicks,
+  copied,
+  highlighted as highlightedIn,
+  quote,
+  registerCase,
+  shellJoin,
+  writeExecutable,
+} from "./support";
+
+const cols = 120,
+  rows = 40;
+const opens = (state: any) => state.effects.some((effect: any) => "open_url" in effect);
+/** The text drawn selected; see `highlightedIn`. */
+const highlighted = (data: string, left: number, plain: { x: number; y: number }) =>
+  highlightedIn(data, { cols, rows }, left, plain);
 
 class Links extends Runtime {
   async setUp() {
@@ -101,20 +118,28 @@ class Links extends Runtime {
     await mouse(32, 5);
     this.assertIn("38;2;0;0;0;48;2;255;255;255m", viewer.state.data);
     await mouse(0, 5, true);
-    this.assertFalse(viewer.state.effects.some((effect: any) => "open_url" in effect));
+    // A plain click opens only once the double-click window has passed.
+    this.assertFalse(opens(viewer.state));
+    this.assertFalse(opens(await viewer.advance(0.31)));
     await mouse(0);
     await mouse(32, 5);
     await mouse(32);
     await mouse(0, 0, true);
-    this.assertFalse(viewer.state.effects.some((effect: any) => "open_url" in effect));
+    this.assertFalse(opens(viewer.state));
+    this.assertFalse(opens(await viewer.advance(0.31)));
     await mouse(0, url.length + 2);
     await mouse(32, url.length + 1);
     await mouse(32, 3);
     await mouse(0, 3, true);
-    this.assertFalse(viewer.state.effects.some((effect: any) => "open_url" in effect));
+    this.assertFalse(opens(viewer.state));
+    this.assertFalse(opens(await viewer.advance(0.31)));
+    // A plain click opens once the double-click window has passed.
     await mouse(0);
     await mouse(0, 0, true);
-    this.assertEqual(viewer.state.effects, [{ open_url: url }]);
+    this.assertEqual(viewer.state.effects, []);
+    this.assertEqual((await viewer.advance(0.31)).effects, [{ open_url: url }]);
+    this.assertEqual((await viewer.advance(0.4)).effects, []);
+    // Ctrl+click opens at once.
     await mouse(16);
     await mouse(16, 0, true);
     this.assertEqual(viewer.state.effects, [{ open_url: url }]);
@@ -131,6 +156,95 @@ class Links extends Runtime {
     pty.write("\x1b[<35;30;2M\x1b[<16;30;2M\x1b[<16;30;2m");
     await this.until(() => existsSync(opened));
     this.assertEqual(readFileSync(opened, "utf8"), url);
+  }
+  async test_double_click_on_a_link_copies_it_and_never_opens_it() {
+    const pane = await this.new("exec /bin/sh");
+    const viewer = await Viewer.create(this, cols, rows);
+    await viewer.focus(pane);
+    // Sized for this viewer, not the daemon's default.
+    let width = 0;
+    await this.until(async () => {
+      const shown = (await this.session()).panes.find((p: any) => p.id === pane);
+      width = shown?.cols ?? 0;
+      return shown?.rows > 30;
+    });
+    // The lines sit below the "Copied to clipboard" toast's rows.
+    const lines = [
+      "MARKER_TOP",
+      "",
+      "",
+      "",
+      "see https://example.com/a for details",
+      "wiki https://en.wikipedia.org/wiki/Foo_(bar) end",
+      "read \x1b]8;;https://example.com/docs\x1b\\docs\x1b]8;;\x1b\\ here",
+      "wrap".padEnd(width - 12) + "https://example.com/wrapped/long/path end",
+      "MARKER_END",
+    ];
+    const file = join(this.temp.name, "links.txt");
+    writeFileSync(file, lines.join("\n"));
+    await this.command("pane.input", { target: pane, data: `printf '\\033[H\\033[2J'; cat ${file}; echo\n` });
+    let screen: string[] = [];
+    await this.until(async () => {
+      const frame = (await viewer.poll()).data.replace(/\x1b\]8;[^\x1b]*\x1b\\/g, "");
+      screen = screen_text(frame, cols, rows);
+      return screen.some(row => row.includes("MARKER_TOP")) && screen.some(row => row.includes("MARKER_END"));
+    });
+    const top = screen.findIndex(row => row.includes("MARKER_TOP"));
+    const origin = { x: screen[top].indexOf("MARKER_TOP"), y: top };
+    const wrapped = "https://example.com/wrapped/long/path";
+    // Where to double-click, what that copies and what it highlights.
+    const cases: [number, number, string, string][] = [
+      [origin.x + 10, origin.y + 4, "https://example.com/a", "https://example.com/a"],
+      [
+        origin.x + 40,
+        origin.y + 5,
+        "https://en.wikipedia.org/wiki/Foo_(bar)",
+        "https://en.wikipedia.org/wiki/Foo_(bar)",
+      ],
+      // A link whose text isn't its target copies the text.
+      [origin.x + 6, origin.y + 6, "docs", "docs"],
+      [origin.x + width - 5, origin.y + 7, wrapped, wrapped],
+      [origin.x + 5, origin.y + 8, wrapped, wrapped],
+    ];
+    for (const [x, y, copy, cells] of cases) {
+      await viewer.advance(0.4);
+      const state = await clicks(viewer, x, y, 2);
+      this.assertEqual(copied(state), copy);
+      this.assertEqual(highlighted(state.data, origin.x, origin), cells);
+      this.assertFalse(opens(state), copy);
+      this.assertFalse(opens(await viewer.advance(0.4)), copy);
+    }
+    const [x, y] = cases[0];
+    // A triple-click copies the line and doesn't open the link either.
+    let state = await clicks(viewer, x, y, 3);
+    this.assertEqual(copied(state), "see https://example.com/a for details");
+    this.assertFalse(opens(state));
+    this.assertFalse(opens(await viewer.advance(0.4)));
+    // A press dragged off the link, onto "for", never opens it.
+    await viewer.input(`\x1b[<0;${x + 1};${y + 1}M\x1b[<32;${x + 18};${y + 1}M\x1b[<0;${x + 18};${y + 1}m`);
+    this.assertFalse(opens(viewer.state));
+    this.assertFalse(opens(await viewer.advance(0.4)));
+    // A double-click on a link dragged within it keeps the link; dragged out
+    // of it, onto "for" or back onto "see", it extends by words.
+    for (const [dx, copy] of [
+      [3, "https://example.com/a"],
+      [17, "https://example.com/a for"],
+      [-9, "see https://example.com/a"],
+    ] as const) {
+      await viewer.advance(0.4);
+      const at = `${x + 1};${y + 1}`;
+      await viewer.input(`\x1b[<0;${at}M\x1b[<0;${at}m\x1b[<0;${at}M`);
+      await viewer.input(`\x1b[<32;${x + dx + 1};${y + 1}M`);
+      state = await viewer.input(`\x1b[<0;${x + dx + 1};${y + 1}m`);
+      this.assertEqual(copied(state), copy);
+      this.assertEqual(highlighted(state.data, origin.x, origin), copy);
+      this.assertFalse(opens(state));
+      this.assertFalse(opens(await viewer.advance(0.4)));
+    }
+    // A single click does.
+    state = await clicks(viewer, x, y, 1);
+    this.assertFalse(opens(state));
+    this.assertEqual((await viewer.advance(0.31)).effects, [{ open_url: "https://example.com/a" }]);
   }
   async test_plain_port_click_invokes_system_opener_in_attached_client() {
     const ready = join(this.temp.name, "port"),

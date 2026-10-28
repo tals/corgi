@@ -25,6 +25,8 @@ pub const Terminal = struct {
     surface_identity: u64,
     surface_revision: u64 = 0,
     links: hyperlink.Snapshot = .{},
+    /// The screen row at the top of the last completed render.
+    render_top: usize = 0,
     fd: c_int = -1,
     pid: c_int = -1,
     /// A handoff candidate holds duplicates of fds and pids the source daemon
@@ -222,6 +224,169 @@ pub const Terminal = struct {
         }
         return .{};
     }
+    pub const PickUnit = enum { word, line };
+    /// A cell in a viewer's view.
+    pub const Cell = struct { x: u16, y: u16 };
+    pub const Pick = struct {
+        match: ?struct { x: u16, y: u16, end_x: u16, end_y: u16 } = null,
+        /// The visible part of the match as the viewer reads it back: row
+        /// joins and the whitespace beside them dropped.
+        shown: []const u8 = "",
+        copy: []const u8 = "",
+    };
+    /// The word, line or link at a viewer's cell, extended by words or lines
+    /// to `to` for a drag. `offset` is the screen row at the top of the
+    /// viewer's view. Like `search`, the viewport and selection are kept.
+    pub fn pick(t: *Terminal, alloc: std.mem.Allocator, unit: PickUnit, x: u16, y: u16, to: ?Cell, offset: usize) !Pick {
+        const screen = t.vt.screens.active;
+        const top = @min(offset, screen.pages.total_rows -| t.vt.rows);
+        const cell = t.clampCell(.{ .x = x, .y = y });
+        const anchor = t.screenPin(top, cell) orelse return .{};
+        const drag: ?vt.Pin = if (to) |end| drag: {
+            const clamped = t.clampCell(end);
+            if (std.meta.eql(clamped, cell)) break :drag null;
+            break :drag t.screenPin(top, clamped);
+        } else null;
+        const found = switch (unit) {
+            .line => pickLine(screen, anchor, drag),
+            .word => word: {
+                const link = try t.linkAt(top, cell) orelse break :word pickWord(screen, anchor, drag);
+                const start = t.screenPin(top, link.start) orelse return .{};
+                const end = t.screenPin(top, link.end) orelse return .{};
+                const span: vt.Selection = .init(start, end, false);
+                const reach = drag orelse break :word span;
+                if (!reach.before(start) and !end.before(reach)) break :word span;
+                // Dragging away from a link extends it by words.
+                if (reach.before(start)) {
+                    const near = screen.selectWordBetween(reach, start, &word_boundaries) orelse break :word span;
+                    break :word trimWord(.init(near.start(), end, false));
+                }
+                const near = screen.selectWordBetween(reach, end, &word_boundaries) orelse break :word span;
+                break :word trimWord(.init(start, near.end(), false));
+            },
+        } orelse return .{};
+        // Copied as highlighted: a wrapped line or word stops at the view's
+        // edges, and a link copies the text the pane shows, never an OSC 8
+        // target the pane's program may have hidden behind it.
+        const sel = t.inView(top, found);
+        const clip = try screen.selectionString(alloc, .{ .sel = sel, .trim = true });
+        if (std.mem.trim(u8, clip, " \t\r\n").len == 0) return .{};
+        const start = t.viewCell(top, sel.topLeft(screen));
+        const end = t.viewCell(top, sel.bottomRight(screen));
+        return .{
+            .match = .{ .x = start.x, .y = start.y, .end_x = end.x, .end_y = end.y },
+            .shown = try t.shownText(alloc, top, start, end),
+            .copy = clip,
+        };
+    }
+    /// `sel` cut to the view at `top`.
+    fn inView(t: *Terminal, top: usize, sel: vt.Selection) vt.Selection {
+        const screen = t.vt.screens.active;
+        var start = sel.topLeft(screen);
+        var end = sel.bottomRight(screen);
+        if (t.screenPin(top, .{ .x = 0, .y = 0 })) |first| {
+            if (start.before(first)) start = first;
+        }
+        if (t.screenPin(top, .{ .x = t.vt.cols - 1, .y = t.vt.rows - 1 })) |last| {
+            if (last.before(end)) end = last;
+        }
+        return .init(start, end, false);
+    }
+    fn clampCell(t: *const Terminal, cell: Cell) Cell {
+        return .{ .x = @min(cell.x, t.vt.cols - 1), .y = @min(cell.y, t.vt.rows - 1) };
+    }
+    fn screenPin(t: *Terminal, top: usize, cell: Cell) ?vt.Pin {
+        return t.vt.screens.active.pages.pin(.{ .screen = .{ .x = cell.x, .y = @intCast(top + cell.y) } });
+    }
+    /// A pin's cell in the view at `top`, clamped to the view's corners.
+    fn viewCell(t: *Terminal, top: usize, p: vt.Pin) Cell {
+        const point = t.vt.screens.active.pages.pointFromPin(.screen, p) orelse return .{ .x = 0, .y = 0 };
+        const row: usize = point.screen.y;
+        if (row < top) return .{ .x = 0, .y = 0 };
+        if (row - top >= t.vt.rows) return .{ .x = t.vt.cols - 1, .y = t.vt.rows - 1 };
+        return .{ .x = point.screen.x, .y = @intCast(row - top) };
+    }
+    /// The viewer's rows from `start` to `end`, each trimmed like the viewer
+    /// trims its own, joined without the whitespace at each join.
+    fn shownText(t: *Terminal, alloc: std.mem.Allocator, top: usize, start: Cell, end: Cell) ![]const u8 {
+        const screen = t.vt.screens.active;
+        var out: std.ArrayList(u8) = .empty;
+        var y = start.y;
+        while (y <= end.y) : (y += 1) {
+            const from = t.screenPin(top, .{ .x = if (y == start.y) start.x else 0, .y = y }) orelse break;
+            const to = t.screenPin(top, .{ .x = if (y == end.y) end.x else t.vt.cols - 1, .y = y }) orelse break;
+            var row: []const u8 = try screen.selectionString(alloc, .{ .sel = .init(from, to, false), .trim = true });
+            if (y > start.y) row = std.mem.trimStart(u8, row, " \t");
+            if (y < end.y) row = std.mem.trimEnd(u8, row, " \t");
+            for (row) |byte| if (byte != '\n') try out.append(alloc, byte);
+        }
+        return out.toOwnedSlice(alloc);
+    }
+    const Link = struct { start: Cell, end: Cell };
+    /// The link at a viewer's cell, found over the borrowed viewport as
+    /// `surface.captureView` does: its segment and the segments of the same
+    /// link that continue it across soft wraps.
+    fn linkAt(t: *Terminal, top: usize, cell: Cell) !?Link {
+        // A pending synchronized redraw keeps its completed frame, whose links
+        // are the viewer's only when it shows the same rows; else plain words.
+        if (t.vt.modes.get(.synchronized_output)) {
+            if (t.render_top != top) return null;
+            return linkIn(t.links.links, t.render.row_data.items(.raw), t.vt.cols, cell);
+        }
+        const borrowed = t.borrowViewport();
+        defer borrowed.restore();
+        t.vt.scrollViewport(.{ .row = top });
+        t.vt.flags.dirty.clear = true;
+        try t.updateRender();
+        return linkIn(t.links.links, t.render.row_data.items(.raw), t.vt.cols, cell);
+    }
+    /// The viewport and selection before a viewer borrowed the viewport to
+    /// read its own rows; `restore` puts them back and renders them again.
+    pub const BorrowedViewport = struct {
+        t: *Terminal,
+        viewport: @FieldType(vt.PageList, "viewport"),
+        pin: vt.Pin,
+        row_offset: @FieldType(vt.PageList, "viewport_pin_row_offset"),
+        selection: @FieldType(vt.Screen, "selection"),
+        pub fn restore(b: BorrowedViewport) void {
+            const screen = b.t.vt.screens.active;
+            const pages = &screen.pages;
+            pages.viewport = b.viewport;
+            pages.viewport_pin.* = b.pin;
+            pages.viewport_pin_row_offset = b.row_offset;
+            screen.selection = b.selection;
+            b.t.vt.flags.dirty.clear = true;
+            b.t.updateRender() catch {};
+        }
+    };
+    pub fn borrowViewport(t: *Terminal) BorrowedViewport {
+        const screen = t.vt.screens.active;
+        const pages = &screen.pages;
+        return .{ .t = t, .viewport = pages.viewport, .pin = pages.viewport_pin.*, .row_offset = pages.viewport_pin_row_offset, .selection = screen.selection };
+    }
+    fn linkIn(links: []const hyperlink.Link, wraps: anytype, cols: u16, cell: Cell) ?Link {
+        const at = for (links, 0..) |link, i| {
+            if (link.row == cell.y and link.start <= cell.x and cell.x < link.end) break i;
+        } else return null;
+        // Only links a click would open, as `openableLink` in
+        // src/controller.ts decides; a file:// name picks as a word.
+        const uri = links[at].uri;
+        const web = std.mem.startsWith(u8, uri, "http://") or std.mem.startsWith(u8, uri, "https://");
+        if (!web or uri.len > 4096) return null;
+        var first = at;
+        while (first > 0 and continues(links[first - 1], links[first], wraps, cols)) first -= 1;
+        var last = at;
+        while (last + 1 < links.len and continues(links[last], links[last + 1], wraps, cols)) last += 1;
+        return .{
+            .start = .{ .x = @intCast(links[first].start), .y = @intCast(links[first].row) },
+            .end = .{ .x = @intCast(links[last].end - 1), .y = @intCast(links[last].row) },
+        };
+    }
+    // A wide character's spacer may end a row one cell early.
+    fn continues(before: hyperlink.Link, after: hyperlink.Link, wraps: anytype, cols: u16) bool {
+        return before.id == after.id and before.row + 1 == after.row and wraps[before.row].wrap and
+            before.end + 1 >= cols and after.start == 0;
+    }
     // Release the process/PTY while retaining the Ghostty screen and scrollback.
     pub fn stop(t: *Terminal) void {
         t.endSynchronizedOutput();
@@ -407,6 +572,8 @@ pub const Terminal = struct {
     pub fn updateRender(t: *Terminal) !void {
         if (t.vt.modes.get(.synchronized_output)) return;
         try t.render.update(a, &t.vt);
+        const pages = &t.vt.screens.active.pages;
+        if (pages.pointFromPin(.screen, pages.getTopLeft(.viewport))) |point| t.render_top = point.screen.y;
         try t.links.capture(&t.render);
         try t.graphics.capture(&t.vt, t.surface_identity);
     }
@@ -503,6 +670,55 @@ pub const Terminal = struct {
         return out.toOwnedSlice(a);
     }
 };
+/// Ghostty's default word boundaries without `:`, so `path:line` and
+/// `host:port` stay whole.
+const word_boundaries = [_]u21{ 0, ' ', '\t', '\'', '"', '│', '`', '|', ';', ',', '(', ')', '[', ']', '{', '}', '<', '>', '$' };
+const whitespace = [_]u21{ 0, ' ', '\t' };
+/// Trimmed from a word's end, so a sentence's `foo.` gives `foo`.
+const word_end = whitespace ++ [_]u21{ '.', ':', '!', '?' };
+
+fn pickWord(screen: *vt.Screen, anchor: vt.Pin, drag: ?vt.Pin) ?vt.Selection {
+    // A space between words picks nothing, not the punctuation beside it.
+    if (std.mem.indexOfScalar(u21, &whitespace, codepoint(anchor)) != null) return null;
+    const to = drag orelse return trimWord(screen.selectWord(anchor, &word_boundaries) orelse return null);
+    // As Ghostty's SelectionGesture extends a double-click.
+    const first = screen.selectWordBetween(anchor, to, &word_boundaries) orelse return null;
+    const last = screen.selectWordBetween(to, anchor, &word_boundaries) orelse return null;
+    if (to.before(anchor)) return trimWord(.init(last.start(), first.end(), false));
+    return trimWord(.init(first.start(), last.end(), false));
+}
+/// Drops whitespace from both ends and trailing punctuation; null when
+/// nothing else remains.
+fn trimWord(sel: vt.Selection) ?vt.Selection {
+    var start = sel.start();
+    var end = sel.end();
+    while (std.mem.indexOfScalar(u21, &whitespace, codepoint(start)) != null) {
+        if (start.eql(end)) return null;
+        start = start.rightWrap(1) orelse return null;
+    }
+    while (std.mem.indexOfScalar(u21, &word_end, codepoint(end)) != null) {
+        if (end.eql(start)) return null;
+        end = end.leftWrap(1) orelse return null;
+    }
+    return .init(start, end, false);
+}
+/// A cell's codepoint, a wide character's for its spacer tail.
+fn codepoint(p: vt.Pin) u21 {
+    const cell = p.rowAndCell().cell;
+    if (cell.wide == .spacer_tail and p.x > 0) return p.left(1).rowAndCell().cell.codepoint();
+    return cell.codepoint();
+}
+fn pickLine(screen: *vt.Screen, anchor: vt.Pin, drag: ?vt.Pin) ?vt.Selection {
+    const to = drag orelse return screen.selectLine(.{ .pin = anchor });
+    // As Ghostty extends a triple-click, taking a blank line whole.
+    var sel = lineOrBlank(screen, anchor) orelse return null;
+    const line = lineOrBlank(screen, to) orelse return sel;
+    if (to.before(anchor)) sel.startPtr().* = line.start() else sel.endPtr().* = line.end();
+    return sel;
+}
+fn lineOrBlank(screen: *vt.Screen, p: vt.Pin) ?vt.Selection {
+    return screen.selectLine(.{ .pin = p }) orelse screen.selectLine(.{ .pin = p, .whitespace = null });
+}
 /// A Codex session id, or its truncated start, in a terminal title.
 const SessionPrefix = BoundedText(36);
 /// The one session id a Codex title names, or null for none or several.

@@ -42,6 +42,7 @@
     "needle": "x",
     "skip": 1
   },
+  "viewer.pick": { "pane": 1, "offset": 0, "unit": "word", "x": 3, "y": 2, "to_x": 9, "to_y": 2 },
   "viewer.image": { "pane": 1, "image": "1-1", "offset": 0 },
   "pane.acknowledge": {
     "pane": 1,

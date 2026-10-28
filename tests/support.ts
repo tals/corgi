@@ -375,3 +375,87 @@ export function registerCase(
     }
   });
 }
+
+// Viewer frames and mouse input, shared by the selection and link suites.
+/** What the last OSC 52 effect in the viewer's last reply copied, if any. */
+export function copied(state: any): string | null {
+  let text: string | null = null;
+  for (const effect of state.effects) {
+    const data: string | undefined = effect.write_terminal;
+    if (data?.includes("\x1b]52;c;"))
+      text = Buffer.from(data.split("52;c;", 2)[1].split("\x07", 1)[0], "base64").toString();
+  }
+  return text;
+}
+/** The text a `cols` × `rows` viewer frame draws selected, rows run together:
+ * cells from column `left` whose colors are those of the plain cell at
+ * `plain`, swapped. */
+export function highlighted(
+  data: string,
+  size: { cols: number; rows: number },
+  left: number,
+  plain: { x: number; y: number },
+): string {
+  const { cols, rows } = size;
+  const grid = Array.from({ length: rows }, () => Array.from({ length: cols }, () => ({ char: " ", fg: "", bg: "" })));
+  let x = 0,
+    y = 0,
+    i = 0,
+    fg = "",
+    bg = "",
+    saved = [0, 0];
+  while (i < data.length) {
+    if (data.startsWith("\x1b7", i) || data.startsWith("\x1b8", i)) {
+      if (data[i + 1] === "7") saved = [x, y];
+      else [x, y] = saved;
+      i += 2;
+      continue;
+    }
+    if (data.startsWith("\x1b]", i)) {
+      i += /^\x1b\].*?(?:\x07|\x1b\\)/s.exec(data.slice(i))![0].length;
+      continue;
+    }
+    if (data[i] === "\x1b") {
+      const [match, args, kind] = /^\x1b\[([0-9;:?]*)([@-~])/.exec(data.slice(i))!;
+      if (kind === "H" || kind === "f") {
+        const values = args.split(";").map(v => Number(v || 1));
+        y = values[0] - 1;
+        x = (values[1] ?? 1) - 1;
+      } else if (kind === "m") {
+        const params = args.split(";");
+        if (params[0] === "" || params[0] === "0") fg = bg = "";
+        for (let k = 0; k < params.length; k++) {
+          if (params[k + 1] !== "2" || (params[k] !== "38" && params[k] !== "48")) continue;
+          const color = params.slice(k + 2, k + 5).join(";");
+          if (params[k] === "38") fg = color;
+          else bg = color;
+          k += 4;
+        }
+      }
+      i += match.length;
+      continue;
+    }
+    const char = String.fromCodePoint(data.codePointAt(i)!);
+    if (char === "\r") x = 0;
+    else if (char === "\n") y++;
+    else if (char >= " ") {
+      const width = /\p{Mark}/u.test(char) ? 0 : Bun.stringWidth(char);
+      if (x >= 0 && x < cols && y >= 0 && y < rows) grid[y][x] = { char, fg, bg };
+      // A wide character's second cell adds no text.
+      if (width === 2 && x + 1 < cols && y >= 0 && y < rows) grid[y][x + 1] = { char: "", fg, bg };
+      x += width;
+    }
+    i += char.length;
+  }
+  const ref = grid[plain.y][plain.x];
+  return grid
+    .flatMap(row => row.slice(left).filter(cell => cell.fg === ref.bg && cell.bg === ref.fg))
+    .map(cell => cell.char)
+    .join("");
+}
+/** `count` presses and releases on one screen cell within the double-click
+ * window, since the viewer's clock only moves when advanced. */
+export function clicks<R>(viewer: { input(data: string): R }, x: number, y: number, count: number, button = 0): R {
+  const at = `${button};${x + 1};${y + 1}`;
+  return viewer.input(`\x1b[<${at}M\x1b[<${at}m`.repeat(count));
+}

@@ -475,6 +475,9 @@ export class Server {
       case "viewer.search":
         await viewer.search(this, cl, request.payload);
         return;
+      case "viewer.pick":
+        await viewer.pick(this, cl, request.payload);
+        return;
       case "viewer.image":
         viewer.image(this, cl, request.payload);
         return;

@@ -7,7 +7,7 @@ import { Provider, adapter } from "../providers";
 import * as surface from "./surface";
 import type { Link } from "./hyperlinks";
 import type { Pointer } from "bun:ffi";
-import type { Wire } from "../protocol";
+import type { PickResult, PickUnit, Wire } from "../protocol";
 let readiness: ReadyLoop | null = null;
 const loop = () => (readiness ??= new ReadyLoop());
 export function closeReadiness(): void {
@@ -279,6 +279,11 @@ export class Terminal extends EventEmitter {
       offset: result.offset,
       match: result.match ?? null,
     };
+  }
+  /** The word, line or link at a cell of the view `offset` rows down, leaving the viewport and selection alone. */
+  pick(unit: PickUnit, x: number, y: number, to_x: number | null, to_y: number | null, offset: number): PickResult {
+    const result: Wire<PickResult> = this.native({ op: "pick", unit, x, y, to_x, to_y, offset });
+    return { match: result.match ?? null, shown: result.shown, copy: result.copy };
   }
   select(start_x: number, start_y: number, end_x: number, end_y: number): void {
     this.native({ op: "select", start_x, start_y, end_x, end_y });

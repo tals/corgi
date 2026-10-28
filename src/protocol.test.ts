@@ -278,6 +278,39 @@ test("command schemas reject unknown nested fields while requests stay lenient",
   });
 });
 
+test("a pick names a unit and a cell, with an optional drag end", () => {
+  expect(protocol.decode("viewer.pick", { pane: 1, offset: 4, unit: "word", x: 2, y: 3 })).toEqual({
+    pane: 1,
+    offset: 4n,
+    unit: "word",
+    x: 2,
+    y: 3,
+    to_x: null,
+    to_y: null,
+  });
+  const wide = protocol.decode("viewer.pick", {
+    pane: 1n,
+    offset: 0xffffffffffffffffn,
+    unit: "line",
+    x: 0,
+    y: 0,
+    to_x: 7,
+    to_y: 1,
+  });
+  expect([wide.pane, wide.offset, wide.unit, wide.to_x, wide.to_y]).toEqual([1, 0xffffffffffffffffn, "line", 7, 1]);
+  const pick = { pane: 1, offset: 0, unit: "word", x: 2, y: 3 };
+  expect(() => protocol.decode("viewer.pick", { ...pick, unit: "char" })).toThrow("InvalidEnumTag");
+  expect(() => protocol.decode("viewer.pick", { ...pick, unit: 1 })).toThrow("UnexpectedToken");
+  const { pane, ...paneless } = pick;
+  expect(() => protocol.decode("viewer.pick", paneless)).toThrow("MissingField");
+  const { offset, ...offsetless } = pick;
+  expect(() => protocol.decode("viewer.pick", offsetless)).toThrow("MissingField");
+  expect(() => protocol.decode("viewer.pick", { ...pick, offset: 1n << 64n })).toThrow("Overflow");
+  expect(() => protocol.decode("viewer.pick", { ...pick, offset: 1.5 })).toThrow("UnexpectedToken");
+  expect(() => protocol.decode("viewer.pick", { ...pick, x: 65536 })).toThrow("Overflow");
+  void [pane, offset];
+});
+
 test("headless commands require provider session IDs and a first prompt", () => {
   expect(() => protocol.decode("headless.start", { provider: "codex" })).toThrow("MissingField");
   expect(() => protocol.decode("headless.stop", { provider: "codex", session: 1 })).toThrow("UnexpectedToken");
