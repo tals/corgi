@@ -29,7 +29,7 @@ export class Presence {
     client: unknown,
     req: { pane?: number | null; muted: boolean; available: boolean },
     now: number,
-    seen: { viewer: boolean; focus: string | null } = { viewer: true, focus: null },
+    seen: { viewer: boolean; focus: string | null },
   ): { voice_id: string; muted: boolean; viewer: boolean; focus: string | null } {
     if (this.current) throw Error("VoiceAttached");
     this.current = {

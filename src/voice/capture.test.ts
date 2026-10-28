@@ -206,7 +206,10 @@ test("device listings parse per platform", async () => {
   ]);
   fake();
   const { devices } = await capture.listDevices("darwin");
-  expect(devices.map(d => d.label)).toEqual(["Studio Microphone", "MacBook Pro Microphone"]);
+  expect(devices).toEqual([
+    { id: "0", label: "Studio Microphone", default: false },
+    { id: "1", label: "MacBook Pro Microphone", default: true },
+  ]);
   process.env.PATH = "/nonexistent";
   const fallback = await capture.listDevices("linux");
   expect(fallback.devices).toEqual([{ id: "default", label: "System default", default: true }]);

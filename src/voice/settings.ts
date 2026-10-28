@@ -14,7 +14,8 @@ export type VoiceSettings = {
   min_speech: number;
   burst: number;
   model: models.ModelName;
-  port: number;
+  /** null picks a free port each run. */
+  port: number | null;
   speech_filter: boolean;
   device: string | null;
 };
@@ -24,7 +25,7 @@ export const defaults = (): VoiceSettings => ({
   threshold: level.default_threshold,
   ...default_timing,
   model: models.default_model,
-  port: 8234,
+  port: null,
   speech_filter: true,
   device: null,
 });
@@ -67,9 +68,11 @@ export function read(file: string): { settings: VoiceSettings; notices: string[]
   field("min_speech", "0.02..2", seconds(0.02, 2));
   field("burst", "0.02..1", seconds(0.02, 1));
   field("model", models.names.join("|"), v => (typeof v === "string" ? models.parseName(v) : null));
-  field("port", "1024..65535", v =>
-    Number.isInteger(v) && (v as number) >= 1024 && (v as number) <= 65535 ? (v as number) : null,
-  );
+  // null, the default, may also be written out.
+  if (d.port !== null)
+    field("port", "1024..65535 or null", v =>
+      Number.isInteger(v) && (v as number) >= 1024 && (v as number) <= 65535 ? (v as number) : null,
+    );
   field("speech_filter", "true or false", v => (typeof v === "boolean" ? v : null));
   if (Object.hasOwn(d, "device")) {
     if (d.device === null || (typeof d.device === "string" && d.device.trim()))

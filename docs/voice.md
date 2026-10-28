@@ -3,7 +3,7 @@
 `corgi voice` turns speech into typing. It listens on the machine with the
 microphone, transcribes with a local Whisper model, and types what you said
 into the focused pane of the viewer you used last. It never presses Enter for
-you, and every word you say is typed as text.
+you, and what you say is typed as text, without filler words.
 
 Audio stays on your machine. Only the transcribed text and the mute state
 reach the runtime, locally or over SSH.
@@ -37,7 +37,7 @@ downloads nothing. Exit status is 0 when voice is ready and 1 otherwise.
 | `tiny.en` | 78 MB | Fastest, least accurate |
 | `base.en` | 148 MB | Default |
 | `small.en` | 488 MB | More accurate, slower |
-| `medium` | 1.5 GB | Multilingual |
+| `medium` | 1.5 GB | Multilingual: detects the language you speak |
 | `large-v3-turbo` | 1.6 GB | Multilingual, most accurate |
 
 The speech filter needs a `whisper-server` whose `--help` lists `--vad`.
@@ -70,8 +70,9 @@ at the top of the history.
 
 The history lists each utterance with the time you said it and, once typed,
 how long the text took after you stopped speaking, as in
-`✓ 14:02:31 (156ms) text`. A `✗` row says why text was not typed. What you
-say while muted, or what muting cuts off, leaves no row.
+`✓ 14:02:31 (156ms) text`. A `✗` row says why text was not typed; one that
+got no answer in time may still have been typed. What you say while muted, or
+what muting cuts off, leaves no row.
 
 An utterance ends after 2.5 seconds of silence and is capped at 30 seconds.
 Short peaks under 0.1 seconds, such as music below your voice, don't keep it
@@ -89,7 +90,7 @@ the history says "focused pane is the voice pane".
 | `m` | Mute or unmute |
 | `?` | Explain the options and how each changes what becomes text |
 | `+` / `-` | Raise or lower the threshold by 2 (or turn the mouse wheel anywhere in the window) |
-| `f` | Turn the speech filter on or off; restarts whisper-server, about a second |
+| `f` | Turn the speech filter on or off; restarts whisper-server, about a second, and brings it back after a crash |
 | `d` | Pick another microphone |
 | `j` / `k`, `↓` / `↑` | Scroll the history by a row |
 | `Ctrl+D` / `Ctrl+U` | Scroll by half a page |
@@ -142,7 +143,6 @@ running voice mode. Every field is optional.
   "min_speech": 0.2,
   "burst": 0.1,
   "model": "base.en",
-  "port": 8234,
   "speech_filter": true,
   "device": null
 }
@@ -156,12 +156,13 @@ running voice mode. Every field is optional.
 | `min_speech` | 0.2 seconds, 0.02 to 2: shorter sounds are dropped | |
 | `burst` | 0.1 seconds, 0.02 to 1: shorter peaks don't keep an utterance open | |
 | `model` | `base.en` | `--model NAME` |
-| `port` | 8234, for whisper-server on 127.0.0.1 | `--port PORT` |
+| `port` | a free port each run, for whisper-server on 127.0.0.1 | `--port PORT` |
 | `speech_filter` | `true` | `--no-filter` |
 | `device` | system default | `--device ID` |
 
 A bad field falls back to its default, and voice mode shows a notice naming
-it. Flags apply to one run.
+it. Flags apply to one run. whisper-server answers anything on its port
+without authentication, so leave `port` unset unless you need a fixed one.
 
 `--verbose` appends one line per utterance (duration, transcription and
 delivery times, outcome) and whisper-server's health to `voice.log` beside
@@ -174,10 +175,10 @@ delivery times, outcome) and whisper-server's health to `voice.log` beside
 | "Microphone access denied" | macOS: allow your terminal app in System Settings › Privacy & Security › Microphone, then restart the terminal |
 | "The microphone is in use by another program" | Close the other program; voice mode retries every 5 seconds |
 | "No microphone found" | Press `d` and pick one, or check `--device` |
-| "port 8234 is in use" | Set `port` in `voice.json` or pass `--port` |
+| "port N is in use" | Set another `port` in `voice.json`, pass `--port`, or leave it unset |
 | "The speech filter is not installed" | Run `corgi voice setup`; without it, noise can turn into text |
 | "this Corgi daemon has no voice support" | `corgi reload` to replace the daemon |
 | "Corgi on HOST has no voice support" | Install a Corgi with voice support on the host |
-| "The Whisper server stopped" | Quit and start voice mode again; it doesn't restart Whisper itself |
+| "The Whisper server stopped" | Press `f` for a fresh one (it switches the filter), or quit and start voice mode again |
 | Background noise becomes text | Raise the threshold with `+`, or keep the speech filter on |
 | Quiet speech is missed | Lower the threshold with `-` until the meter crosses the marker as you speak |
