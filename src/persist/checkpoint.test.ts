@@ -283,6 +283,12 @@ test("saved checkpoint format matches its version", () => {
   expect(value.version).toBe(migrations.checkpoint_version);
   validateCheckpoint(value);
 });
+test("checkpoint validates goose provider values", () => {
+  using r = fresh();
+  r.last_agent = "goose";
+  r.workspaces.items[0].last_agent = "goose";
+  validateCheckpoint(roundtrip(cp.capture(r, true)));
+});
 test("an account's YOLO and Show survive checkpoints and default for old ones", async () => {
   for (const live of [true, false]) {
     using original = fresh();

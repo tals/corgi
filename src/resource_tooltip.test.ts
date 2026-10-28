@@ -45,7 +45,7 @@ test("agent processes carry their provider's mark, which the legend explains", (
     const w = new Writer();
     draw(w, new Rect(0, 0, 82, 24), "corgi", { workspaces: [work] }, state);
     expect(w.buffered()).toContain("§ sim");
-    expect(w.buffered()).toContain("† Codex   * Claude Code   π Pi   o OpenCode   § Simulated Agent");
+    expect(w.buffered()).toContain("† Codex   * Claude Code   π Pi   o OpenCode   G Goose   § Simulated Agent");
   } finally {
     remove();
   }

@@ -471,7 +471,11 @@ function testAccounts(now: number): Accounts {
     usage_fetched_at: now,
     limits: { windows: [{ minutes: 10080, used: 84, reset_at: now + 5 * 86400 + 14 * 3600 }, null] },
   });
-  return new Accounts({ system: "codex", now, options: { codex, claude, pi: codex, opencode2: option({}) } });
+  return new Accounts({
+    system: "codex",
+    now,
+    options: { codex, claude, pi: codex, opencode2: option({}), goose: option({}) },
+  });
 }
 
 test("wide terminals put each account's limits beside its agents", () => {

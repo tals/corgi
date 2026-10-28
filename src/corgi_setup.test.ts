@@ -416,15 +416,15 @@ test("Model opens a dropdown on the choice in use, and Left closes it", () => {
   // Keys wrap past either end; the wheel stops there.
   menu.enter(s, prefs);
   menu.move(true, s, prefs);
+  expect(menu.enter(s, prefs)).toEqual({ kind: "summaries", choice: "goose" });
+  menu.enter(s, prefs);
+  menu.move(true, s, prefs, false);
+  menu.move(true, s, prefs, false);
+  expect(menu.enter(s, prefs)).toEqual({ kind: "summaries", choice: "goose" });
+  menu.enter(s, prefs);
+  menu.move(true, s, prefs);
+  menu.move(true, s, prefs);
   expect(menu.enter(s, prefs)).toEqual({ kind: "summaries", choice: "auto" });
-  menu.enter(s, prefs);
-  menu.move(true, s, prefs, false);
-  menu.move(true, s, prefs, false);
-  expect(menu.enter(s, prefs)).toBeNull();
-  menu.enter(s, prefs);
-  menu.move(true, s, prefs);
-  menu.move(true, s, prefs);
-  expect(menu.enter(s, prefs)).toEqual({ kind: "summaries", choice: "codex" });
   // Clicks open it and choose.
   const row = hits(menu, 100, 30, s, prefs).find(hit => "option" in hit && hit.option === 0)!;
   expect(menu.click(row, s, prefs)).toBeNull();
