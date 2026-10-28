@@ -81,6 +81,9 @@ export class VoiceSession {
   private resend?: ReturnType<typeof setTimeout>;
   /** State the runtime has not taken yet, sent again by `resend`. */
   private owed = new Set<"muted" | "available">();
+  /** The last state update still on its way; updates go one at a time, so an
+   * older answer never settles a newer update. */
+  private updating: Promise<void> | null = null;
   private quit = new AbortController();
   /** Retries every 5 s log a failure once, until it changes or the link is back. */
   private link_failure = new Failure();
@@ -288,17 +291,23 @@ export class VoiceSession {
     const link = this.link;
     if (!link || !keys.length) return;
     const state = Object.fromEntries(keys.map(k => [k, this[k]])) as { muted?: boolean; available?: boolean };
-    void link.set(state).then(
-      () => {
-        for (const k of keys) this.owed.delete(k);
-      },
-      () => {
-        if (this.link !== link) return;
-        for (const k of keys) this.owed.add(k);
-        clearTimeout(this.resend);
-        this.resend = setTimeout(() => this.push(...this.owed), 1000);
-      },
-    );
+    const send = () =>
+      link.set(state).then(
+        () => {
+          for (const k of keys) this.owed.delete(k);
+        },
+        () => {
+          if (this.link !== link) return;
+          for (const k of keys) this.owed.add(k);
+          clearTimeout(this.resend);
+          this.resend = setTimeout(() => this.push(...this.owed), 1000);
+        },
+      );
+    const update = this.updating ? this.updating.then(send) : send();
+    this.updating = update;
+    void update.then(() => {
+      if (this.updating === update) this.updating = null;
+    });
   }
   /** Mute from either side drops what was not yet delivered. */
   private applyMuted(muted: boolean): void {
