@@ -30,6 +30,7 @@ download() {
     if [ -t 2 ]; then progress=; else progress=--silent; fi
     curl -fSL --retry 3 $progress -o "$work/zig.tar.xz" "$url"
     echo "$sum  $work/zig.tar.xz" | shasum -a 256 -c - >/dev/null
+    printf 'Extracting Zig %s\n' "$version" >&2
     tar -xJf "$work/zig.tar.xz" -C "$work"
     # Another build may have finished the same download first.
     mv "$work/$name" "$root/.tools/" 2>/dev/null || [ -x "$project" ]
