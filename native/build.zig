@@ -10,7 +10,9 @@ pub fn build(b: *std.Build) void {
     const sysroot = b.option([]const u8, "sysroot", "SDK root for macOS targets");
     const opts = b.addOptions();
     opts.addOption(bool, "check_leaks", false);
-    const c = b.addTranslateC(.{ .root_source_file = b.path("zig/c.h"), .target = target, .optimize = optimize }).createModule();
+    const c_headers = b.addTranslateC(.{ .root_source_file = b.path("zig/c.h"), .target = target, .optimize = optimize });
+    if (target.result.os.tag == .macos) if (sysroot) |sdk| c_headers.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/include" }) });
+    const c = c_headers.createModule();
 
     // Terminal emulation, frame diffs, keyboard and mouse encoding.
     const pane = b.createModule(.{ .root_source_file = b.path("zig/pane.zig"), .target = target, .optimize = optimize, .link_libc = true });
@@ -63,17 +65,15 @@ pub fn build(b: *std.Build) void {
 
 fn install(b: *std.Build, sysroot: ?[]const u8, artifact: *std.Build.Step.Compile) void {
     if (artifact.root_module.resolved_target.?.result.os.tag == .macos) {
-        if (sysroot) |sdk| {
-            artifact.setLibCFile(sdkLibc(b, sdk));
-            artifact.root_module.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System/Library/Frameworks" }) });
-        }
+        if (sysroot) |sdk| artifact.setLibCFile(sdkLibc(b, sdk));
     }
     b.installArtifact(artifact);
 }
 
 fn sdkLibc(b: *std.Build, sdk: []const u8) std.Build.LazyPath {
     const include = b.pathJoin(&.{ sdk, "usr/include" });
-    return b.addWriteFiles().add("libc.txt", b.fmt("include_dir={s}\nsys_include_dir={s}\ncrt_dir=\nmsvc_lib_dir=\nkernel32_lib_dir=\ngcc_dir=\n", .{ include, include }));
+    const lib = b.pathJoin(&.{ sdk, "usr/lib" });
+    return b.addWriteFiles().add("libc.txt", b.fmt("include_dir={s}\nsys_include_dir={s}\ncrt_dir={s}\nmsvc_lib_dir=\nkernel32_lib_dir=\ngcc_dir=\ndarwin_sdk_dir={s}\n", .{ include, include, lib, sdk }));
 }
 
 /// sentry-native with its in-process crash handler and no transport of its
