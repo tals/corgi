@@ -2067,14 +2067,15 @@ function drawOver(g, out, rows, ground = (look) => look) {
     if (look[1] !== null) g[r][c] = [ch, style(...ground(look, c))];
   }));
 }
-// The card and the line from its badge. Over the pane the card takes the
-// pane's ground, which its border cells would otherwise spill past its line.
+// The card and the line from its badge, the line on the ground of the cells
+// it crosses. Over the pane the card takes the pane's ground, which its
+// border cells would otherwise spill past its line.
 function drawTrees(g, o, rows) {
   const now = Date.now(), out = new Writer();
   if (o.card.removal.phase !== "idle") o.card.removal.advance(now);
   const rect = treesRect(o, rows, now);
   if (!rect) return;
-  worktreeTooltip.draw(out, rect, o.data.name, o.data.cwd, o.snapshot, o.card, treesBadge(o), now);
+  worktreeTooltip.draw(out, rect, o.data.name, o.data.cwd, o.snapshot, o.card, treesBadge(o), now, (x, y) => rgb(STYLES[g[y][x][1]][1] ?? "pane"));
   drawOver(g, out, rows, ([fg, bg, ...rest], c) => [fg, bg === "surface" && c >= o.sw ? "pane" : bg, ...rest]);
 }
 // ---- a worktree heading's menu: Corgi's own, as a right-click on the

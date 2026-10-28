@@ -645,6 +645,8 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   let resize_hover: Axis | null = null;
   // Pane images go in last, cut around the boxes drawn over them.
   const pictured: { pane: Pane; rect: Rect; hidden: boolean }[] = [];
+  // Each pane's rows as drawn, for lines drawn over them to keep their ground.
+  const drawn: { rect: Rect; rows: string }[] = [];
   const covered: Rect[] = [];
   const cover = (box: Rect | null) => {
     if (box) covered.push(box);
@@ -799,7 +801,9 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
       u.corgi_setup !== null ||
       u.sidebar_drawer !== null ||
       u.review_keys;
-    w.write(p.terminal.rows(p.id, r.x, r.y, r.w, r.h, dim, hovered));
+    const rows = p.terminal.rows(p.id, r.x, r.y, r.w, r.h, dim, hovered);
+    drawn.push({ rect: r, rows });
+    w.write(rows);
     w.write("\x1b[0m");
     if (p.restoring.length > 0) {
       drawRestoring(
@@ -891,7 +895,17 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
         u.worktree_card.lines(),
       );
       if (rect) {
-        worktreeTooltip.draw(w, rect, ws.name, ws.cwd, ws.worktrees, u.worktree_card, badge, now);
+        const ground = (x: number, y: number) => {
+          // The badge's row as the sidebar tints it, and its border, which
+          // the drawer draws over the panes.
+          if (x < side.width)
+            return x < side.width - 1 && side.tinted(ws, u.workspaces.indexOf(ws)) ? palette.colors.selected : null;
+          const pane = drawn.find(d => d.rect.contains(x, y));
+          return pane ? paneGround(pane.rows, pane.rect, x, y) : null;
+        };
+        worktreeTooltip.draw(w, rect, ws.name, ws.cwd, ws.worktrees, u.worktree_card, badge, now, ground, y =>
+          side.border(y),
+        );
         cover(rect);
         if (u.pointer && worktreeTooltip.sortAt(rect, u.pointer.x, u.pointer.y) !== null) link_pointer = true;
       } else cover(writeChip(w, "Worktrees: enlarge terminal · Esc to close", width, height, u.pointer));
@@ -1243,6 +1257,44 @@ export function drawWorkspaceGhost(
   // The dashed edge sits on the row below the band.
   drawEdge(w, cut, left, area.x + area.w - left, directoryLabel(g.name, null, 160), "↑");
   return new Rect(area.x, 0, area.w, cut + 1);
+}
+/** The background a pane's drawn `rows` give the cell at `x, y`. Each cell
+ * carries its colors as `38;2;…;48;2;…`, as the native layer writes them. */
+export function paneGround(rows: string, rect: Rect, x: number, y: number): palette.Rgb | null {
+  const start = rows.indexOf(`\x1b[${y + 1};${rect.x + 1}H`);
+  if (start < 0) return null;
+  let bg: palette.Rgb | null = null,
+    col = rect.x;
+  for (let i = start; i < rows.length;) {
+    if (rows[i] === "\x1b") {
+      // Hyperlinks open and close with OSC 8.
+      if (rows[i + 1] === "]") {
+        const end = rows.indexOf("\x1b\\", i);
+        i = end < 0 ? rows.length : end + 2;
+        continue;
+      }
+      let end = i + 2;
+      while (end < rows.length && (rows.charCodeAt(end) < 0x40 || rows.charCodeAt(end) > 0x7e)) end++;
+      // The next row starts with its own cursor move.
+      if (rows[end] === "H" && i > start) return null;
+      if (rows[end] === "m") {
+        const fields = rows.slice(i + 2, end).split(";");
+        for (let f = 0; f < fields.length; f++) {
+          if (fields[f] === "38" || fields[f] === "48") {
+            if (fields[f] === "48") bg = fields.slice(f + 2, f + 5).map(Number) as palette.Rgb;
+            f += 4;
+          }
+        }
+      }
+      i = end + 1;
+      continue;
+    }
+    const cp = rows.codePointAt(i)!;
+    col += codepointWidth(cp);
+    if (col > x) return bg;
+    i += cp > 0xffff ? 2 : 1;
+  }
+  return null;
 }
 /** `rows` from viewport row `from` on: each row opens with its own cursor move and style. */
 function rowsFrom(rows: string, rect: Rect, from: number): string {
