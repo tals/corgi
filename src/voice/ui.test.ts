@@ -173,8 +173,17 @@ test("the mode is MUTED or Listening; the note adds a missing viewer and what sp
   expect(shown()).toMatchObject({ note: "♫", mode: "Listening" });
   expect(shown().frame).toContain(palette.fgRgb(green) + "♫");
   session.history = [];
+  const grey = new Style({ fg: "muted", bg: "bg" }).sgr() + "♫";
+  // Not connected to the runtime: the note stays grey, whatever the link is doing.
+  for (const state of ["connecting", "lost", "refused"] as const) {
+    session.link_state = state;
+    expect(shown()).toMatchObject({ note: "♫", mode: "Listening" });
+    expect(shown().frame).toContain(grey);
+  }
+  session.link_state = "connected";
   session.viewer = false;
   expect(shown()).toMatchObject({ note: "♫", mode: "Listening" });
+  expect(shown().frame).toContain(grey);
   expect(screen(shown().frame, 80, 20)[9]).toContain("No Corgi window is attached");
   session.muted = true;
   expect(shown()).toMatchObject({ note: "♪", mode: "MUTED" });

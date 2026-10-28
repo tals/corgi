@@ -213,8 +213,8 @@ function linkStatus(session: VoiceSession, target: string): string | null {
   }
 }
 /** The mode: MUTED or Listening, as the sidebar has it (a voice that cannot
- * listen counts as muted). The note in the title adds whether a viewer is
- * attached and what speech is doing. */
+ * listen counts as muted). The note in the title adds whether the runtime is
+ * connected and has a viewer, and what speech is doing. */
 export function mode(s: VoiceSession): {
   note: string;
   style: string;
@@ -227,7 +227,8 @@ export function mode(s: VoiceSession): {
   if (!s.available) return { note: "○", style: warm, ...off };
   if (s.muted) return { note: "♪", style: muted, ...off };
   const on = { muted: false, label: "Listening", label_style: strong };
-  if (!s.viewer) return { note: "♫", style: muted, ...on };
+  // Nowhere for text to go: grey until the runtime is connected with a viewer.
+  if (s.link_state !== "connected" || !s.viewer) return { note: "♫", style: muted, ...on };
   if (s.recording) return { note: "♫", style: recording_note, ...on };
   if (s.transcribing) return { note: "♫", style: transcribing_note, ...on };
   return { note: "♫", style: listening_note, ...on };
