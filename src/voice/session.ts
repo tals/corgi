@@ -5,13 +5,15 @@ import * as wav from "./wav";
 import * as text from "./text";
 import * as level from "./level";
 import * as errors from "../errors";
+import { Failure } from "../failure";
 import { bounded, type Seen, type VoiceLink } from "./link";
 import type { Segmenter, Segment } from "./segmenter";
 import type { Server } from "./whisper";
 import type { MicProblem } from "./capture";
 
+/** "muted": dropped by a mute, on purpose; "discarded": dropped for `reason`. */
 export type UtteranceStatus =
-  "recording" | "transcribing" | "delivering" | "delivered" | "failed" | "discarded" | "dropped";
+  "recording" | "transcribing" | "delivering" | "delivered" | "failed" | "muted" | "discarded" | "dropped";
 export type Utterance = {
   id: number;
   captured_at: number;
@@ -42,6 +44,8 @@ export function reason(error: unknown): string {
       return "not connected";
     case "ServerDown":
       return "server crashed";
+    case "ServerRestarting":
+      return "filter switching";
     default:
       return errors.name(error) ?? String(error);
   }
@@ -49,7 +53,7 @@ export function reason(error: unknown): string {
 /** How many utterances may wait for Whisper or the runtime; past that, speech fails instead of piling up. */
 const max_backlog = 4;
 /** Refusals that retrying cannot fix. */
-const refusals = new Set(["VoiceAttached", "DaemonLacksVoice", "RemoteTooOld", "RemoteMissing"]);
+const refusals = new Set(["VoiceAttached", "DaemonLacksVoice", "RemoteTooOld", "LocalTooOld", "RemoteMissing"]);
 
 export class VoiceSession {
   history: Utterance[] = [];
@@ -57,7 +61,7 @@ export class VoiceSession {
   link_state: LinkState = "connecting";
   /** Why the runtime refused this voice, once `link_state` is "refused". */
   refused: string | null = null;
-  /** A crashed server stays crashed: it is never restarted. */
+  /** "crashed" until a fresh server takes over (switching the filter starts one). */
   server: "ready" | "crashed" = "ready";
   private mic: MicProblem | null = null;
   /** The last frame's level on the threshold scale. */
@@ -78,6 +82,8 @@ export class VoiceSession {
   /** State the runtime has not taken yet, sent again by `resend`. */
   private owed = new Set<"muted" | "available">();
   private quit = new AbortController();
+  /** Retries every 5 s log a failure once, until it changes or the link is back. */
+  private link_failure = new Failure();
   private listeners: (() => void)[] = [];
   constructor(
     private deps: {
@@ -128,6 +134,7 @@ export class VoiceSession {
       this.applyViewer(reply);
       this.link = attached;
       this.link_state = "connected";
+      this.link_failure.clear();
       this.deps.log?.("link: connected");
       // A change made while the watch was on its way still has to go out.
       this.owed.clear();
@@ -144,7 +151,7 @@ export class VoiceSession {
         this.link_state = "lost";
         this.schedule();
       }
-      this.deps.log?.(`link: ${errors.name(error) ?? error}`);
+      if (this.link_failure.changed(error)) this.deps.log?.(`link: ${errors.name(error) ?? error}`);
       this.changed();
       throw error;
     }
@@ -251,7 +258,9 @@ export class VoiceSession {
     } catch (error) {
       u.timings.deliver_ms = this.deps.now() - started;
       // Muted from a viewer before this arrived: dropped, as a mute here drops it.
-      if (errors.name(error) === "VoiceMuted") this.finish(u, "discarded", "muted");
+      if (errors.name(error) === "VoiceMuted") this.finish(u, "muted", null);
+      // The text was sent; only the answer is missing, so it may still arrive.
+      else if (errors.is(error, "Timeout")) this.finish(u, "failed", "no answer in time; may have been typed");
       else this.finish(u, "failed", reason(error));
     }
   }
@@ -295,30 +304,30 @@ export class VoiceSession {
   private applyMuted(muted: boolean): void {
     if (this.muted === muted) return;
     this.muted = muted;
-    if (muted) this.discard("muted");
+    if (muted) this.discard("muted", null);
     this.changed();
   }
   /** A viewer attached or went away; what is said meanwhile has nowhere to go. */
   private applyViewer(state: Seen): void {
     if (this.viewer === state.viewer && this.focus === state.focus) return;
-    if (this.viewer && !state.viewer) this.discard("no viewer");
+    if (this.viewer && !state.viewer) this.discard("discarded", "no viewer");
     this.viewer = state.viewer;
     this.focus = state.focus;
     this.changed();
   }
-  /** Speech is being recorded, or waits for Whisper. */
+  /** Speech is being recorded. */
   get recording(): boolean {
     return this.history.some(u => u.status === "recording");
   }
   get transcribing(): boolean {
     return this.history.some(u => u.status === "transcribing");
   }
-  private discard(why: string): void {
+  private discard(status: "muted" | "discarded", why: string | null): void {
     this.deps.segmenter.abort();
     this.current = null;
     for (const u of this.history)
       if (u.status === "recording" || u.status === "transcribing") {
-        u.status = "discarded";
+        u.status = status;
         u.reason = why;
       }
   }
@@ -349,6 +358,13 @@ export class VoiceSession {
         u.status = "failed";
         u.reason = "server crashed";
       }
+    this.availability(was);
+  }
+  /** A fresh server took over; after a crash, voice listens again. */
+  serverReady(): void {
+    if (this.server === "ready") return;
+    const was = this.available;
+    this.server = "ready";
     this.availability(was);
   }
   close(): void {

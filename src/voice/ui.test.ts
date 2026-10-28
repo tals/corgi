@@ -94,7 +94,8 @@ test("the screen shows the target, the meter and what happened", () => {
       timings: { transcribe_ms: 1200, deliver_ms: 50 },
     },
     said(2, "failed", "add tests", "no viewer attached"),
-    said(3, "discarded", null, "muted"),
+    said(3, "muted", null),
+    said(5, "discarded", null, "no viewer"),
     said(4, "dropped", null, "empty"),
     said(6, "recording", null),
     said(7, "transcribing", null),
@@ -126,8 +127,9 @@ test("the screen shows the target, the meter and what happened", () => {
   expect(history).toContain(`✓ ${at} (156ms) refactor the parser module`);
   expect(history).toContain(`✓ ${clock(3_600_000)} (1.3s) a longer one`);
   expect(history).toContain(`✗ ${at} add tests · failed: no viewer attached`);
-  // Muting drops speech on purpose; that needs no row.
-  expect(history).not.toContain("discarded");
+  // Muting drops speech on purpose; that needs no row. Other discards show why.
+  expect(history).toContain(`○ ${at} discarded (no viewer)`);
+  expect(history.match(/discarded/g)).toHaveLength(1);
   expect(history).not.toContain("listening…");
   expect(history).not.toContain("transcribing");
   expect(history).toContain(`→ ${at} on its way`);
@@ -208,10 +210,11 @@ test("muting does not shift the keys in the footer", () => {
 test("a denied microphone names the setting that fixes it", () => {
   const { session } = setup();
   session.setAvailable(false, "mic_denied");
-  const text = problem(session, "ghostty");
-  if (process.platform === "darwin")
-    expect(text).toBe("Microphone access denied: allow ghostty in System Settings › Privacy & Security › Microphone");
-  else expect(text).toBe("Microphone access denied");
+  expect(problem(session, "ghostty", "darwin")).toBe(
+    "Microphone access denied: allow ghostty in System Settings › Privacy & Security › Microphone",
+  );
+  expect(problem(session, "", "darwin")).toContain("allow your terminal in");
+  expect(problem(session, "ghostty", "linux")).toBe("Microphone access denied");
 });
 
 test("+ and - move the threshold by 2 within 0..100", () => {

@@ -1,6 +1,6 @@
-//! What "Jump to attention" goes to, for the viewer and for voice mode's
-//! "next": the pane that has waited longest for input, then the one that
-//! finished longest ago, then a headless session in that order.
+//! What "Jump to attention" goes to: the pane that has waited longest for
+//! input, then the one that finished longest ago, then a headless session in
+//! that order.
 
 import type { Attention } from "./agents";
 

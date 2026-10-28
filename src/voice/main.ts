@@ -74,7 +74,7 @@ function throwUsage(): never {
   throw Error("Usage");
 }
 /** The one line voice mode prints when it cannot start. */
-export function message(error: unknown, s: { model: string; port: number; ssh?: string }): string {
+export function message(error: unknown, s: { model: string; port: number | null; ssh?: string }): string {
   const name = errors.name(error),
     host = s.ssh;
   switch (name) {
@@ -85,13 +85,17 @@ export function message(error: unknown, s: { model: string; port: number; ssh?: 
     case "FfmpegMissing":
       return `ffmpeg not found; install: ${setup.hint("ffmpeg")}`;
     case "PortInUse":
-      return `port ${s.port} is in use; set "port" in voice.json or pass --port`;
+      return s.port === null
+        ? "whisper-server's port was taken as it started; start voice mode again"
+        : `port ${s.port} is in use; set another "port" in voice.json, pass --port, or leave it unset`;
     case "DaemonLacksVoice":
       return host
         ? `Corgi's daemon on ${host} has no voice support; reload it there with: corgi reload`
         : "this Corgi daemon has no voice support; reload it with: corgi reload";
     case "RemoteTooOld":
       return `Corgi on ${host} has no voice support; install Corgi ${config.releaseVersion} or newer there`;
+    case "LocalTooOld":
+      return `Corgi on ${host} speaks a newer voice bridge; update Corgi here`;
     case "RemoteMissing":
       return `Corgi is not installed on ${host}`;
     case "SshFailed":
@@ -163,12 +167,19 @@ async function voice(
   const timing = { silence: s.silence, pre_roll: s.pre_roll, min_speech: s.min_speech, burst: s.burst },
     segmenter = new Segmenter({ threshold: s.threshold, timing, now: Date.now });
   // The server starts after the first connection, so a refusal starts nothing.
-  let server: Server | null = null;
+  let server: Server | null = null,
+    restarting = false;
   const crashed: ((code: number | null) => void)[] = [];
   const session = new VoiceSession({
     link,
     transcriber: {
-      transcribe: wav => (server ? server.transcribe(wav) : Promise.reject(Error("ServerDown"))),
+      // What the filter switch cuts off, sent before it or during it, says so.
+      transcribe: wav =>
+        server
+          ? server.transcribe(wav).catch(error => {
+              throw restarting ? Error("ServerRestarting") : error;
+            })
+          : Promise.reject(Error(restarting ? "ServerRestarting" : "ServerDown")),
       on: (_event, fn) => void crashed.push(fn),
     },
     segmenter,
@@ -186,7 +197,8 @@ async function voice(
   }
   connected = true;
   let mic: capture.Capture | null = null,
-    cleaned: Promise<void> | null = null;
+    cleaned: Promise<void> | null = null,
+    starting: Promise<Server> | null = null;
   // A whisper-server still loading when voice mode ends is stopped too.
   const stopping = new AbortController();
   const cleanup = () =>
@@ -195,17 +207,31 @@ async function voice(
       mic?.stop();
       session.close();
       await server?.stop();
+      // A start in progress notices the abort and stops its child; one that
+      // just finished is stopped here. Either way, nothing keeps the port.
+      await starting?.then(
+        started => started.stop(),
+        () => {},
+      );
       logger.info("voice mode stopped");
     })());
   const start = async (vad: string | undefined) => {
-    const started = await Server.start({
+    const pending = Server.start({
       binary,
       model: models.fileOf(model),
-      port: s.port,
+      port: s.port ?? undefined,
       vadModel: vad,
+      language: models.multilingual(s.model) ? "auto" : undefined,
       signal: stopping.signal,
     });
-    logger.info("whisper-server ready", { port: s.port, model: s.model, filter: vad !== undefined });
+    starting = pending;
+    let started: Server;
+    try {
+      started = await pending;
+    } finally {
+      if (starting === pending) starting = null;
+    }
+    logger.info("whisper-server ready", { port: started.port, model: s.model, filter: vad !== undefined });
     started.on("crashed", code => {
       logger.error("whisper-server crashed", { code, output: started.output });
       for (const fn of crashed) fn(code);
@@ -213,20 +239,27 @@ async function voice(
     return started;
   };
   // The filter is a server option: switching it restarts the server, and
-  // what is said meanwhile fails rather than waits.
+  // what is said meanwhile fails rather than waits. A fresh server also
+  // brings voice back after a crash.
   const toggleFilter = async (): Promise<ui.FilterState> => {
     if (!models.installed(models.filter)) return "not installed";
     vadModel = vadModel ? undefined : models.fileOf(models.filter);
     const old = server;
     server = null;
+    restarting = true;
     await old?.stop();
     try {
       const fresh = await start(vadModel);
       if (cleaned) await fresh.stop();
-      else server = fresh;
+      else {
+        server = fresh;
+        session.serverReady();
+      }
     } catch (error) {
       logger.error("whisper-server restart failed", { error });
       for (const fn of crashed) fn(null);
+    } finally {
+      restarting = false;
     }
     return vadModel ? "on" : "off";
   };

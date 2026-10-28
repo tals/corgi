@@ -120,7 +120,7 @@ test("a delivery that never returns fails at the bound without holding up the ne
   expect(s.history[0].status).toBe("delivering");
   // Delivered as soon as the bound gives up on the first.
   await until(() => s.history[1].status === "delivered");
-  expect(s.history[0]).toMatchObject({ status: "failed", reason: "timed out" });
+  expect(s.history[0]).toMatchObject({ status: "failed", reason: "no answer in time; may have been typed" });
   expect(performance.now() - hung).toBeLessThan(300 + 150);
 });
 
@@ -161,7 +161,7 @@ test("muting discards what is being said or transcribed", async () => {
   for (let at = 0; at < 16000; at += 320) s.frame(pcm.subarray(at, at + 320));
   expect(s.history[0].status).toBe("recording");
   link.events.emitMuted(true);
-  expect(statuses(s)).toEqual([["discarded", "muted"]]);
+  expect(statuses(s)).toEqual([["muted", null]]);
   speak(s);
   await Bun.sleep(30);
   expect(whisper.requests).toBe(0);
@@ -175,7 +175,7 @@ test("muting discards what is being said or transcribed", async () => {
   s.setMuted(true);
   release("too late");
   await Bun.sleep(30);
-  expect(s.history.at(-1)?.status).toBe("discarded");
+  expect(s.history.at(-1)?.status).toBe("muted");
   expect(link.calls).toEqual([]);
 });
 
@@ -187,8 +187,8 @@ test("text the runtime refuses as muted is discarded, not failed", async () => {
   const { s } = session(["late words"], { link });
   await s.connect();
   speak(s);
-  await until(() => s.history[0]?.status === "discarded");
-  expect(statuses(s)).toEqual([["discarded", "muted"]]);
+  await until(() => s.history[0]?.status === "muted");
+  expect(statuses(s)).toEqual([["muted", null]]);
 });
 
 test("a Whisper that falls behind is not handed more than four recordings", async () => {
@@ -222,7 +222,10 @@ test("a runtime that is slow to take text is not handed more than four utterance
     "failed",
   ]);
   expect(s.history[4].reason).toBe("backlog");
-  await until(() => statuses(s).filter(([, why]) => why === "timed out").length === 4, 3000);
+  await until(
+    () => statuses(s).filter(([, why]) => why === "no answer in time; may have been typed").length === 4,
+    3000,
+  );
 });
 
 test("an availability update on its way does not undo a mute from a viewer", async () => {
@@ -260,7 +263,53 @@ test("non-speech and phantom text are dropped, not typed", async () => {
   expect(link.calls).toEqual([]);
 });
 
-test("a server crash fails the utterance and stops listening for good", async () => {
+test("a crash spares text Whisper already gave back", async () => {
+  const link = new FakeLink();
+  let release!: () => void,
+    first = true;
+  link.reply = () => {
+    if (!first) return Promise.resolve({ pane: 1, viewer: 1 });
+    first = false;
+    return new Promise(resolve => (release = () => resolve({ pane: 1, viewer: 1 })));
+  };
+  const { s, whisper } = session(["held", "waiting"], { link });
+  await s.connect();
+  speak(s);
+  await until(() => s.history[0]?.status === "delivering");
+  // Transcribed, and queued behind the delivery that hangs.
+  speak(s);
+  await until(() => s.history[1]?.text === "waiting");
+  whisper.crash(3);
+  expect(s.history[1].status).toBe("transcribing");
+  release();
+  await until(() => s.history[1].status === "delivered");
+  expect(link.calls.map(c => c.value)).toEqual(["held", "waiting"]);
+});
+
+test("speech during a filter switch fails as such, not as a crash", async () => {
+  const { s, whisper } = session([]);
+  await s.connect();
+  whisper.transcribe = () => Promise.reject(Error("ServerRestarting"));
+  speak(s);
+  await until(() => s.history[0]?.status === "failed");
+  expect(s.history[0].reason).toBe("filter switching");
+  expect(s.available).toBe(true);
+});
+
+test("a fresh server after a crash makes voice listen again", async () => {
+  const { s, link, whisper } = session(["back again"]);
+  await s.connect();
+  whisper.crash(3);
+  expect(s.available).toBe(false);
+  s.serverReady();
+  expect([s.available, s.unavailable, s.server]).toEqual([true, null, "ready"]);
+  expect(link.sets).toEqual([{ available: false }, { available: true }]);
+  speak(s);
+  await until(() => s.history[0]?.status === "delivered");
+  expect(link.calls.map(c => c.value)).toEqual(["back again"]);
+});
+
+test("a server crash fails the utterance and stops listening", async () => {
   const { s, link, whisper } = session([]);
   await s.connect();
   whisper.transcribe = () => new Promise<string>(() => {});
@@ -395,5 +444,42 @@ test("without a viewer, voice holds off and drops what is in progress", async ()
   // It goes away mid-sentence: the sentence is dropped, never typed later.
   link.events.emitViewer({ viewer: false, focus: null });
   expect(statuses(s)).toEqual([["discarded", "no viewer"]]);
+  expect(link.calls).toEqual([]);
+});
+
+test("a link that keeps failing is logged once per distinct failure", async () => {
+  const lines: string[] = [];
+  let attempts = 0,
+    failure = "NoRuntime";
+  const link = new FakeLink(),
+    s = new VoiceSession({
+      link: async () => {
+        attempts++;
+        if (failure) throw Error(failure);
+        return link;
+      },
+      transcriber: new FakeWhisper([]),
+      segmenter: new Segmenter({ threshold: 44, now: () => 0 }),
+      now: () => performance.now(),
+      retryMs: 5,
+      log: line => lines.push(line),
+    });
+  await s.connect().catch(() => {});
+  await until(() => attempts >= 5);
+  failure = "SshFailed";
+  await until(() => attempts >= 10);
+  failure = "";
+  await until(() => s.link_state === "connected");
+  s.close();
+  expect(lines).toEqual(["link: NoRuntime", "link: SshFailed", "link: connected"]);
+});
+
+test("a transcription that times out says so, not that it may have been typed", async () => {
+  const { s, whisper, link } = session([]);
+  await s.connect();
+  whisper.transcribe = () => Promise.reject(Error("Timeout"));
+  speak(s);
+  await until(() => s.history[0]?.status === "failed");
+  expect(s.history[0].reason).toBe("timed out");
   expect(link.calls).toEqual([]);
 });

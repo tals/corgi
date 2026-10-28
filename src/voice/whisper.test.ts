@@ -21,7 +21,7 @@ function freePort(): number {
 }
 async function start(
   env: Record<string, string> = {},
-  opts: { healthTimeoutMs?: number; vadModel?: string; signal?: AbortSignal } = {},
+  opts: { healthTimeoutMs?: number; vadModel?: string; language?: string; port?: number; signal?: AbortSignal } = {},
 ) {
   Object.assign(process.env, env);
   const server = await Server.start({ binary: fake, model: "/models/base.bin", port: freePort(), ...opts });
@@ -29,6 +29,23 @@ async function start(
   return server;
 }
 const utterance = wav.encode(new Int16Array(1600));
+/** Whether the fake whisper-server that wrote `log` still runs; this test's own
+ * child, not any other on the host. A child stopped before it wrote its first
+ * line never ran. */
+function stillRuns(log: string): boolean {
+  let first: { pid?: number };
+  try {
+    first = JSON.parse(readFileSync(log, "utf8").split("\n")[0]);
+  } catch {
+    return false;
+  }
+  try {
+    process.kill(first.pid!, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 test("transcribes through /inference and trims the text", async () => {
   const dir = mkdtempSync(join(tmpdir(), "corgi-whisper-")),
@@ -36,7 +53,7 @@ test("transcribes through /inference and trims the text", async () => {
   try {
     const server = await start(
       { CORGI_FAKE_WHISPER_SCRIPT: "refactor the parser module", CORGI_FAKE_WHISPER_LOG: log },
-      { vadModel: "/models/silero.bin" },
+      { vadModel: "/models/silero.bin", language: "auto" },
     );
     expect(await server.transcribe(utterance)).toBe("refactor the parser module");
     const lines = readFileSync(log, "utf8")
@@ -45,8 +62,27 @@ test("transcribes through /inference and trims the text", async () => {
       .map(line => JSON.parse(line));
     expect(lines[0].vad).toBe(true);
     expect(lines[0].start).toContain("/models/silero.bin");
+    expect(lines[0].start.join(" ")).toContain("-l auto");
     expect(lines[1].bytes).toBe(utterance.length);
     expect(lines[1].fields).toMatchObject({ temperature: "0.0", beam_size: "1", response_format: "json" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("without a port, the server takes a free one, and English stays the default", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-whisper-")),
+    log = join(dir, "log");
+  try {
+    const server = await start(
+      { CORGI_FAKE_WHISPER_SCRIPT: "hello", CORGI_FAKE_WHISPER_LOG: log },
+      { port: undefined },
+    );
+    expect(server.port).toBeGreaterThan(0);
+    expect(await server.transcribe(utterance)).toBe("hello");
+    const first = JSON.parse(readFileSync(log, "utf8").split("\n")[0]);
+    expect(first.start).toContain(String(server.port));
+    expect(first.start).not.toContain("-l");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -97,13 +133,7 @@ test("a start given up on while the model loads stops the server", async () => {
         { healthTimeoutMs: 10_000, signal: stopping.signal },
       ),
     ).rejects.toThrow("Aborted");
-    const pid = Number(
-      Bun.spawnSync(["pgrep", "-f", `${fake} -m /models/base.bin`])
-        .stdout.toString()
-        .trim()
-        .split("\n")[0],
-    );
-    expect(pid || 0).toBe(0);
+    expect(stillRuns(log)).toBe(false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -116,13 +146,7 @@ test("a server that never turns healthy is stopped", async () => {
     await expect(
       start({ CORGI_FAKE_WHISPER_MODE: "no_health", CORGI_FAKE_WHISPER_LOG: log }, { healthTimeoutMs: 300 }),
     ).rejects.toThrow("Timeout");
-    const pid = Number(
-      Bun.spawnSync(["pgrep", "-f", `${fake} -m /models/base.bin`])
-        .stdout.toString()
-        .trim()
-        .split("\n")[0],
-    );
-    expect(pid || 0).toBe(0);
+    expect(stillRuns(log)).toBe(false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

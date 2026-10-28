@@ -8,7 +8,7 @@ import { concat, silence, tone } from "./fixtures/voice/make_pcm";
 import * as config from "../src/build_config";
 
 const relayed = new Set(["ping", "voice.watch", "voice.set", "voice.type"]),
-  answers = new Set(["ready", "pong", "voice.muted", "closed"]);
+  answers = new Set(["ready", "pong", "voice.muted", "voice.viewer", "closed"]);
 
 class VoiceBridge extends Viewers {
   ptys: Pty[] = [];

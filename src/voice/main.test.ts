@@ -50,9 +50,18 @@ test("flags override settings within their ranges", () => {
 test("startup failures read as the CLI contract words them", () => {
   const local = { model: "base.en", port: 8234 },
     remote = { ...local, ssh: "devbox" };
-  const say = (name: string, s: { model: string; port: number; ssh?: string } = local) => message(Error(name), s);
+  const say = (name: string, s: { model: string; port: number | null; ssh?: string } = local) =>
+    message(Error(name), s);
   expect(say("ModelMissing")).toBe("voice model base.en is not installed; run: corgi voice setup --model base.en");
-  expect(say("PortInUse")).toBe('port 8234 is in use; set "port" in voice.json or pass --port');
+  expect(say("PortInUse")).toBe(
+    'port 8234 is in use; set another "port" in voice.json, pass --port, or leave it unset',
+  );
+  expect(say("PortInUse", { model: "base.en", port: null })).toBe(
+    "whisper-server's port was taken as it started; start voice mode again",
+  );
+  expect(say("LocalTooOld", { ...local, ssh: "devbox" })).toBe(
+    "Corgi on devbox speaks a newer voice bridge; update Corgi here",
+  );
   expect(say("DaemonLacksVoice")).toBe("this Corgi daemon has no voice support; reload it with: corgi reload");
   expect(say("VoiceAttached")).toBe("another voice session is already attached to this runtime");
   expect(say("NoRuntime")).toBe("no Corgi runtime is running");
