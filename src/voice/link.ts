@@ -8,11 +8,11 @@ import * as protocol from "../protocol";
 import * as rpc from "../rpc";
 
 export type WatchRequest = { pane?: number; muted: boolean; available: boolean };
-/** Whether the runtime has a viewer, and the title of the pane text would go to.
- * An older daemon sends neither: a viewer is assumed, its pane unnamed. */
+/** Whether the runtime has a viewer, and the title of the pane text would go to. */
 export type Seen = { viewer: boolean; focus: string | null };
+/** `Seen` from a message off the wire; anything malformed reads as no viewer. */
 export function seen(message: any): Seen {
-  return { viewer: message?.viewer !== false, focus: typeof message?.focus === "string" ? message.focus : null };
+  return { viewer: message?.viewer === true, focus: typeof message?.focus === "string" ? message.focus : null };
 }
 export interface VoiceLink {
   watch(req: WatchRequest): Promise<{ voice_id: string; muted: boolean } & Seen>;

@@ -21,7 +21,7 @@ test("a missing file gives the defaults without notices", () => {
       min_speech: 0.2,
       burst: 0.1,
       model: "base.en",
-      port: 8234,
+      port: null,
       speech_filter: true,
       device: null,
     },
@@ -88,7 +88,7 @@ test("each invalid field falls back with one notice", () => {
     'voice.json: "min_speech" must be 0.02..2; using 0.2',
     'voice.json: "burst" must be 0.02..1; using 0.1',
     'voice.json: "model" must be tiny.en|base.en|small.en|medium|large-v3-turbo; using "base.en"',
-    'voice.json: "port" must be 1024..65535; using 8234',
+    'voice.json: "port" must be 1024..65535 or null; using null',
     'voice.json: "speech_filter" must be true or false; using true',
     'voice.json: "device" must be a device name or null; using null',
   ]);
@@ -108,8 +108,12 @@ test("an unreadable file gives the defaults and one notice", () => {
 
 test("flags override the file for one run", () => {
   const merged = settings.merge(settings.defaults(), { model: "tiny.en", threshold: 30, speech_filter: false });
-  expect(merged).toMatchObject({ model: "tiny.en", threshold: 30, speech_filter: false, port: 8234 });
-  expect(settings.merge(settings.defaults(), { port: undefined }).port).toBe(8234);
+  expect(merged).toMatchObject({ model: "tiny.en", threshold: 30, speech_filter: false, port: null });
+  expect(settings.merge(settings.defaults(), { port: undefined }).port).toBeNull();
+  expect(settings.read(file("null_port.json", JSON.stringify({ port: null })))).toEqual({
+    settings: settings.defaults(),
+    notices: [],
+  });
 });
 
 test("voice.json lives in the state directory", () => {

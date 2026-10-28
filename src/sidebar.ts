@@ -38,6 +38,7 @@ import {
   byteLength,
   zigRound,
 } from "./text";
+import type { VoiceState } from "./voice/presence";
 export { displayWidth, writeClipped, writeEllipsis, directoryLabel, compactCount, zigRound } from "./text";
 
 /** How far rows outside a lit checkout fade, as `writeExit` progress. */
@@ -679,7 +680,7 @@ export class View {
   workspace_scope = "";
   corgi_badge: corgiBadge.Mode = "none";
   /** Voice mode's state, shown in the title row while it is attached. */
-  voice: "listening" | "muted" | null = null;
+  voice: VoiceState | null = null;
   supports_kitty_graphics = false;
   /** The host's cell in pixels, for images placed by the pixel. */
   cell: Cell | null = null;

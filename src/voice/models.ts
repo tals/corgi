@@ -36,6 +36,10 @@ export const filter: Entry = {
 export const names = Object.keys(catalog) as ModelName[];
 export const default_model: ModelName = "base.en";
 
+/** Whether a model knows more languages than English; `.en` models do not. */
+export function multilingual(name: ModelName): boolean {
+  return !name.endsWith(".en");
+}
 export function parseName(s: string): ModelName | null {
   return (names as string[]).includes(s) ? (s as ModelName) : null;
 }

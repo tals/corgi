@@ -213,6 +213,22 @@ class Voice extends Viewers {
     await this.shows(pty, /✓ [\d:]{8} \(\d+ms\) next/);
   }
 
+  async test_typing_between_utterances_starts_the_next_fresh() {
+    const target = await this.capturePane("target"),
+      a = await this.newViewer();
+    await a.focus(target.pane);
+    const link = await voiceClient(this);
+    await link.watch({ muted: false, available: true });
+    await link.type("first");
+    await link.type("joined");
+    await this.captured(target.file, "first joined");
+    // Anything typed in between means the next utterance gets no space.
+    await a.input("x");
+    await this.captured(target.file, "joinedx");
+    await link.type("fresh");
+    this.assertEqual(await this.captured(target.file, "fresh"), "first joinedxfresh");
+  }
+
   async test_without_a_viewer_voice_holds_off_then_names_the_pane() {
     const pane = await this.new("sleep 60", "notes");
     const { pty, logs } = await this.voiceMode({
@@ -242,7 +258,7 @@ class Voice extends Viewers {
     this.assertFalse(existsSync(target.file) && readFileSync(target.file).length > 0);
   }
 
-  async test_a_crashed_server_is_not_restarted() {
+  async test_a_crashed_server_is_not_restarted_until_the_filter_switches() {
     const target = await this.capturePane("target"),
       a = await this.newViewer();
     await a.focus(target.pane);
@@ -252,10 +268,16 @@ class Voice extends Viewers {
       CORGI_FAKE_WHISPER_MODE: "crash_after:1",
     });
     await this.captured(target.file, "first words");
-    await this.shows(pty, "The Whisper server stopped: restart voice mode");
+    await this.shows(pty, "The Whisper server stopped: press f for a fresh one");
     await this.shows(pty, "failed: server crashed");
     await this.until(async () => (await this.voice()) === "muted");
     this.assertEqual(this.lines(logs.whisper).filter(l => l.start).length, 1);
+    // Switching the filter starts a fresh server, without it, and voice listens again.
+    pty.write("f");
+    await this.until(() => this.lines(logs.whisper).filter(l => l.start).length === 2, 10);
+    this.assertFalse(this.lines(logs.whisper).filter(l => l.start)[1].vad);
+    await this.until(async () => (await this.voice()) === "listening", 10);
+    await this.shows(pty, /filter +off/);
   }
 
   async test_a_missing_model_stops_before_listening() {
@@ -300,7 +322,8 @@ class Voice extends Viewers {
     await this.until(() => pushed.filter(m => m).length === 2, 1);
     this.assertEqual(await this.voice(), "muted");
     link.close();
-    await this.until(async () => !(await title()).includes("mic"), 5);
+    // With no voice attached, the indicator is gone.
+    await this.until(async () => !/[♪♫]/.test(await title()), 5);
   }
 
   async test_a_viewer_mute_reaches_voice_mode_within_a_second() {

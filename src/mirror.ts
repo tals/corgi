@@ -33,6 +33,7 @@ import {
   type Snapshot as Worktrees,
 } from "./worktrees";
 import type { Progress as ImageProgress } from "./image_upload";
+import type { VoiceState } from "./voice/presence";
 
 export interface Transport {
   /** The daemon over HTTP, for a request that may outlast this connection. */
@@ -736,7 +737,7 @@ export class Runtime {
   smart_links = true;
   auto_retry = true;
   /** The attached voice mode's state; null when none is attached or the daemon predates voice. */
-  voice: "listening" | "muted" | null = null;
+  voice: VoiceState | null = null;
   system_usage = new UsageView();
   ports: any = { workspaces: [] };
   resources = new resources.Snapshot();
