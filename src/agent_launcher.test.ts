@@ -1,6 +1,6 @@
 // Mirrors the tests in agent_launcher.zig.
 import { expect, test } from "bun:test";
-import { Menu, Row, preview } from "./agent_launcher";
+import { Menu, Row, commandEntry, preview, resolution } from "./agent_launcher";
 import { View as SidebarView } from "./sidebar";
 import { analyze } from "./launch/command";
 import { Terminal } from "./pane/terminal";
@@ -757,4 +757,11 @@ test("both cards keep their bounds and columns as account details and usage arri
       m.back();
     }
   }
+});
+test("a command for a provider this viewer doesn't know runs no provider", () => {
+  const semantics = { provider: "future", suggested_name: "Future" };
+  expect(commandEntry({ command: "future", semantics }).semantics.provider).toBeNull();
+  const resolved = resolution({ semantics, command: { command: "future", semantics } });
+  expect([resolved.semantics.provider, resolved.command.semantics.provider]).toEqual([null, null]);
+  expect(resolved.semantics.suggested_name).toBe("Future");
 });

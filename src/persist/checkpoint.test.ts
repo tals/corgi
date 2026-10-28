@@ -282,6 +282,9 @@ test("saved checkpoint format matches its version", () => {
   const value = roundtrip(cp.capture(r, false));
   expect(value.version).toBe(migrations.checkpoint_version);
   validateCheckpoint(value);
+  // The schema's `provider` marker is not a provider.
+  for (const last_agent of ["provider", "future"])
+    expect(() => validateCheckpoint({ ...value, last_agent })).toThrow("InvalidEnumTag");
 });
 test("an account's YOLO and Show survive checkpoints and default for old ones", async () => {
   for (const live of [true, false]) {
