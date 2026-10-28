@@ -420,6 +420,26 @@ test("an older answer never cancels the retry of a newer mute change", async () 
   expect(link.sets).toEqual([{ muted: true }, { muted: false }, { muted: false }]);
 });
 
+test("a change waiting to go out never undoes a mute from a viewer", async () => {
+  const link = new FakeLink();
+  let answer!: () => void;
+  link.set = async state => {
+    link.sets.push(state);
+    if (link.sets.length === 1) await new Promise<void>(resolve => (answer = resolve));
+    return { muted: true };
+  };
+  const { s } = session([], { link });
+  await s.connect();
+  s.setMuted(true);
+  s.setMuted(false);
+  await until(() => answer !== undefined);
+  link.events.emitMuted(true);
+  answer();
+  await until(() => link.sets.length === 2);
+  expect(s.muted).toBe(true);
+  expect(link.sets).toEqual([{ muted: true }, { muted: true }]);
+});
+
 test("a mute pressed while the watch is on its way still reaches the runtime", async () => {
   const link = new FakeLink();
   let answer!: () => void;

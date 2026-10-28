@@ -286,13 +286,13 @@ export class VoiceSession {
   }
   /** Tells the runtime what changed here, and only that, so an update on its
    * way never overwrites a change a viewer made meanwhile. What the runtime
-   * did not take is sent again a second later. */
+   * did not take is sent again a second later. A queued update reads the state
+   * as it goes out, so it carries a viewer's change rather than undo it. */
   private push(...keys: ("muted" | "available")[]): void {
     const link = this.link;
     if (!link || !keys.length) return;
-    const state = Object.fromEntries(keys.map(k => [k, this[k]])) as { muted?: boolean; available?: boolean };
     const send = () =>
-      link.set(state).then(
+      link.set(Object.fromEntries(keys.map(k => [k, this[k]]))).then(
         () => {
           for (const k of keys) this.owed.delete(k);
         },
