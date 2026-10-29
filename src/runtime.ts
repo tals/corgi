@@ -419,6 +419,8 @@ export class Runtime {
   account_hidden: string[] = [];
   agent_commands = Array.from({ length: command_capacity }, () => new Entry());
   conversations = new Registry();
+  /** Live imports keep their bindings here until adoption or rollback. */
+  pending_bindings = new Set<Attachment>();
   system_model = new AgentModel();
   staged_version = "";
   inference = new InferenceStatus();
@@ -504,8 +506,8 @@ export class Runtime {
     }
     return false;
   }
-  /** Forgets the conversations nothing refers to: no pane shows or knows
-   * them, no closed agent reopens them and no headless session runs them. */
+  /** Forgets conversations no pane, pending import, closed agent or
+   * headless session refers to. */
   pruneConversations() {
     const keep = new Set<ActorId>(),
       hinted = new Set<string>();
@@ -520,6 +522,7 @@ export class Runtime {
       bound(p.attachment);
       hint(p.resume_hint);
     }
+    for (const binding of this.pending_bindings) bound(binding);
     for (const c of this.closed) hint(c.resume_hint);
     for (const s of this.sessions) {
       bound(s.attachment);

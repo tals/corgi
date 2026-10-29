@@ -542,6 +542,7 @@ export class Manager {
         job.reserved = true;
         job.approve?.();
       } catch (error) {
+        job.releaseBindings();
         job.preparation_failure = (error as Error).message;
         job.cancel = true;
         job.approve?.();
@@ -556,6 +557,7 @@ export class Manager {
         runtime.panes.push(pane);
       }
       runtime.workspaces.items.push(...job.staged.workspaces.items);
+      job.releaseBindings();
       job.staged.panes = [];
       job.staged.workspaces.items = [];
       job.adopted = true;
@@ -603,6 +605,7 @@ export class Job {
     try {
       await this.transfer();
     } catch (error) {
+      this.releaseBindings();
       this.failure = this.cancel ? this.preparation_failure || (error as Error).message : (error as Error).message;
       for (const fd of this.fds) if (fd >= 0) n.probe_close(fd);
       this.fds = [];
@@ -621,9 +624,13 @@ export class Job {
   }
   cleanup() {
     if (this.phase === "complete" && !this.adopted) return;
+    this.releaseBindings();
     this.staged.destroy();
     for (const fd of this.fds) if (fd >= 0) n.probe_close(fd);
     this.fds = [];
+  }
+  releaseBindings() {
+    for (const pane of this.staged.panes) this.target?.pending_bindings.delete(pane.attachment);
   }
   prepare(runtime: Runtime) {
     if (
@@ -633,6 +640,7 @@ export class Job {
       throw Error("TooManyWorkspaces");
     const offset = runtime.workspaces.next_pane_id;
     if (offset > 0xffffffff - this.staged.workspaces.next_pane_id) throw Error("TooManyPanes");
+    this.target = runtime;
     for (const pane of this.staged.panes) {
       pane.id += offset;
       const hint = pane.resume_hint;
@@ -643,6 +651,7 @@ export class Job {
           actor.state.observation.source = "screen";
         }
         pane.attachment.select(actor);
+        runtime.pending_bindings.add(pane.attachment);
       }
     }
     for (const ws of this.staged.workspaces.items) {
@@ -653,7 +662,6 @@ export class Job {
       ws.model.next_id += offset;
     }
     runtime.workspaces.next_pane_id = offset + this.staged.workspaces.next_pane_id;
-    this.target = runtime;
   }
   restoreManifest(manifest: any) {
     const snapshots = list(manifest?.snapshot?.workspaces),
