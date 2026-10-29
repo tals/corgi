@@ -172,6 +172,7 @@ export function usageView(value: any = {}): UsageView {
     since: Number(value?.since ?? 0),
     updated_at: Number(value?.updated_at ?? 0),
     recent_tokens: big(value?.recent_tokens),
+    tools: big(value?.tools),
   });
 }
 export function conversation(value: any = {}): Conversation {
@@ -277,6 +278,7 @@ function groupName(child: Conversation): string {
 function add(total: UsageView, next: UsageView) {
   total.tokens.add(next.tokens);
   total.recent_tokens = satAdd(total.recent_tokens, next.recent_tokens);
+  total.tools = satAdd(total.tools, next.tools);
   total.known = total.known || next.known;
   total.partial = total.partial || next.partial || !next.known;
 }
@@ -406,6 +408,8 @@ export class Card {
   /** Text recedes toward the background: timeline rows older than the
    * latest five. */
   faded = false;
+  /** The agent card counts tool calls; the overview doesn't. */
+  counted = false;
   constructor(
     public w: Writer,
     public x: number,
@@ -524,6 +528,7 @@ export class Card {
     this.w.write(`${context.percent() < 999n ? context.percent() : 999n}%`);
   }
   static number_width = 8;
+  static count_width = 5;
   /** Phone-narrow cards pack their columns. */
   tight(): boolean {
     return this.width < 70;
@@ -531,23 +536,35 @@ export class Card {
   numbers(): number {
     return this.tight() ? 6 : Card.number_width;
   }
+  /** Phone-narrow cards drop the tool count. */
+  counts(): number {
+    return !this.counted || this.tight() ? 0 : Card.count_width + 1;
+  }
   textWidth(): number {
-    return this.width - 6 - 2 * (this.numbers() + 1);
+    return this.width - 6 - 2 * (this.numbers() + 1) - this.counts();
   }
   /** Tokens are uncached input plus output; cached input is its own column.
    * Null draws the column headings. Overview rows and the timeline share it. */
   tokenColumns(row: number, value: UsageView | null, live: boolean, tone: Tone) {
-    const text_width = this.textWidth();
-    const suffix = live ? "+" : "";
+    const text_width = this.textWidth() + this.counts();
+    // A live figure's "+" hangs into the gap after its column.
+    const figure = (offset: number, width: number, text: string, tone: Tone) => {
+      this.cell(row, offset, width, text, tone, true);
+      if (live && value?.known) this.w.write("+");
+    };
+    if (this.counts()) {
+      const tools = value === null ? "Tools" : value.known ? compact(value.tools) : "—";
+      figure(text_width - this.counts() + 1, Card.count_width, tools, "faint");
+    }
     const tokens =
       value !== null
         ? value.known
-          ? `${value.partial ? "≥" : ""}${compact(satAdd(satSub(value.tokens.input, value.tokens.cached_input), value.tokens.output))}${suffix}`
+          ? `${value.partial ? "≥" : ""}${compact(satAdd(satSub(value.tokens.input, value.tokens.cached_input), value.tokens.output))}`
           : "—"
         : "Tokens";
-    const cached = value !== null ? (value.known ? `${compact(value.tokens.cached_input)}${suffix}` : "—") : "Cached";
-    this.cell(row, text_width + 1, this.numbers(), tokens, tone, true);
-    this.cell(row, text_width + this.numbers() + 2, this.numbers(), cached, "faint", true);
+    const cached = value !== null ? (value.known ? compact(value.tokens.cached_input) : "—") : "Cached";
+    figure(text_width + 1, this.numbers(), tokens, tone);
+    figure(text_width + this.numbers() + 2, this.numbers(), cached, "faint");
   }
   childRow(row: number, child: Conversation, now = microTimestamp()) {
     const text_width = this.textWidth();
@@ -629,6 +646,7 @@ export class Card {
     // The latest five rows, the current one included, keep their colors.
     const older = new Card(this.w, this.x, this.width);
     older.faded = true;
+    older.counted = this.counted;
     root.timeline.points.slice(history_end - completed, history_end).forEach((point, i) => {
       const local = new Date(Math.floor(point.at / 1000) * 1000);
       const time = Number.isNaN(local.getTime()) ? "--:--" : `${pad2(local.getHours())}:${pad2(local.getMinutes())}`;
@@ -1318,6 +1336,7 @@ export function draw(
     w.write(row === 0 ? "╮" : row === height - 1 ? "╯" : "│");
   }
   const card = new Card(w, x, width);
+  card.counted = true;
   const top = y + 1;
   const root_status = status(root_agent, false);
   const status_text = `${root_status.icon} ${root_status.label}`;

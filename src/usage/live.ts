@@ -23,6 +23,7 @@ export class View {
   since = 0;
   updated_at = 0;
   recent_tokens = 0n;
+  tools = 0n;
   constructor(v: Partial<View> = {}) {
     Object.assign(this, v);
   }
@@ -45,6 +46,9 @@ export class Meter {
     if (slot.minute > minute) return;
     if (slot.minute !== minute) slot = this.buckets[index] = { minute, tokens: 0n };
     slot.tokens = add(slot.tokens, tokens.total());
+  }
+  count(tools: bigint) {
+    this.value.tools = add(this.value.tools, tools);
   }
   view(now: number) {
     const out = new View({

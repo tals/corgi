@@ -209,7 +209,7 @@ test("both agent rows open one safe card before a session is bound and exiting r
   expect(text).toContain("探索?[2J");
   expect(text).not.toContain("\x1b[2J");
   expect(text).toContain("Total");
-  expect(count(text, "—")).toBe(2);
+  expect(count(text, "—")).toBe(3);
   expect(text).toContain("Starting session");
   entries[0].exit = { frame_ms: 1, progress: 0.5 };
   expect(sidebar.agentAt(view, entries, 5, top)).toBeNull();

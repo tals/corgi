@@ -1,6 +1,6 @@
 import { Text } from "../providers/common";
 import { View } from "../usage/live";
-import { sub } from "../usage/tokens";
+import { add, sub } from "../usage/tokens";
 export type Point = { at: number; label: Text; usage: View };
 export class Timeline {
   points: Point[] = [];
@@ -23,6 +23,7 @@ export class Timeline {
       delta.tokens[k] = sub(current.tokens[k], this.baseline.tokens[k]);
       if (current.tokens[k] < this.baseline.tokens[k]) delta.partial = true;
     }
+    delta.tools = sub(current.tools, this.baseline.tools);
     return delta;
   }
   pending(current: View) {
@@ -31,6 +32,7 @@ export class Timeline {
       last = this.points.at(-1)?.usage;
     if (last) {
       value.tokens.add(last.tokens);
+      value.tools = add(value.tools, last.tools);
       value.known ||= last.known;
       value.partial ||= last.partial;
       value.losses = Math.min(0xffffffff, value.losses + last.losses);
@@ -69,6 +71,7 @@ export class Timeline {
     for (const k of ["input", "cached_input", "output"] as const)
       this.baseline.tokens[k] =
         this.baseline.tokens[k] > current.tokens[k] ? this.baseline.tokens[k] : current.tokens[k];
+    if (current.tools > this.baseline.tools) this.baseline.tools = current.tools;
     this.baseline.known = current.known;
     this.baseline.losses = current.losses;
   }

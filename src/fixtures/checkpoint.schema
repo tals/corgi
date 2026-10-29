@@ -118,6 +118,7 @@ $.conversations[].headless_meter?.meter.value.losses: u32
 $.conversations[].headless_meter?.meter.value.since: i64
 $.conversations[].headless_meter?.meter.value.updated_at: i64
 $.conversations[].headless_meter?.meter.value.recent_tokens: u64
+$.conversations[].headless_meter?.meter.value.tools: u64
 $.conversations[].headless_meter?.meter.buckets[5].minute: i64
 $.conversations[].headless_meter?.meter.buckets[5].tokens: u64
 $.conversations[].headless_meter?.previous: optional

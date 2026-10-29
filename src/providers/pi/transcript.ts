@@ -72,7 +72,8 @@ export const transcript: Transcript = {
         const tokens = reported(field(m, "usage"));
         if (tokens && id)
           delta.add(t.tracker.tokensCached(id, tokens.input, tokens.cached_input, tokens.output, false));
-        if ((appended || (t.catch_up && stamp !== null && stamp >= req.tracked_since)) && delta.tokens_known)
+        const owned = appended || (t.catch_up && stamp !== null && stamp >= req.tracked_since);
+        if (owned && delta.tokens_known)
           t.live.meter.add(
             new Tokens({ input: delta.input, cached_input: delta.cached_input, output: delta.output }),
             stamp ?? Date.now(),
@@ -98,6 +99,7 @@ export const transcript: Transcript = {
             }
           }
         }
+        if (owned) t.live.meter.count(delta.tools);
         if (appended && text && t.progress.turn.len) {
           t.progress.commentary = new Summary(clip("Latest agent update: " + text, 2048));
           t.progress.dirty = true;

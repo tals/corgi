@@ -175,6 +175,7 @@ export function open(): TranscriptReader {
           new Tokens({ input: delta.input, cached_input: delta.cached_input, output: delta.output }),
           stamp ?? Date.now(),
         );
+      if (appended || owned) t.live.meter.count(delta.tools);
       return delta;
     },
   };

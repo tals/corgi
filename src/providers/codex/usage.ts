@@ -203,6 +203,7 @@ export function open(indexes: () => string[]): TranscriptReader {
       t.observeModel(field(value, "payload"));
       const delta = counts(t.tracker, value);
       rolloutTokens(t.live, value, appended, Date.now());
+      if (appended) t.live.meter.count(delta.tools);
       context(t.context, value);
       return delta;
     },

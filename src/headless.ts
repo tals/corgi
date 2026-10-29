@@ -229,13 +229,14 @@ export class Session {
     return !this.exited && (this.active_tools.length > 0 || this.approvals.some(request => request.ask.tool));
   }
   startTool(target: Agent, id: string, thread: string, turn: string) {
-    if (!id || [id, thread, turn].some(value => Buffer.byteLength(value) > 256)) return;
-    if (this.active_tools.some(tool => tool.id === id && tool.thread === thread)) return;
+    if (!id || [id, thread, turn].some(value => Buffer.byteLength(value) > 256)) return false;
+    if (this.active_tools.some(tool => tool.id === id && tool.thread === thread)) return false;
     if (this.active_tools.length >= 128) throw Error("TooManyHeadlessTools");
     this.active_tools.push({ id, thread, turn });
     this.usage_pending.tools = add(this.usage_pending.tools, 1n);
     target.state = "working";
     target.attention = target.observation.unread() ? "finished" : "none";
+    return true;
   }
   finishTool(id: string, thread: string) {
     this.active_tools = this.active_tools.filter(tool => !(tool.id === id && tool.thread === thread));
@@ -347,7 +348,8 @@ export class Session {
     if (!stale || phase === "completed") {
       if (e.kind === "tool") {
         if (e.done) this.finishTool(e.id, thread);
-        else this.startTool(target, e.id, thread, e.turn);
+        else if (this.startTool(target, e.id, thread, e.turn) && actor?.headless_usage)
+          actor.headless_meter.meter.count(1n);
       } else if (e.kind === "usage") {
         const delta = counted(this.usage_tracker, e, this.active_threads.has(e.session));
         delta.tools = 0n;

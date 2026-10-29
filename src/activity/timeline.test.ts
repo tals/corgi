@@ -83,6 +83,18 @@ test("activity transitions charge the previous phase and pending retains repeate
   expect(timeline.pending(current).tokens.total()).toBe(0n);
 });
 
+test("tool calls split between phases like tokens", () => {
+  const timeline = new Timeline();
+  const current = view();
+  current.tools = 2n;
+  timeline.checkpoint("a", reading, current, 1000);
+  current.tools = 6n;
+  timeline.checkpoint("a", testing, current, 2000);
+  expect(timeline.points[0].usage.tools).toBe(6n);
+  current.tools = 7n;
+  expect(timeline.pending(current).tools).toBe(1n);
+});
+
 test("usage after a finished compaction belongs to the next named phase", () => {
   const timeline = new Timeline();
   timeline.checkpoint("turn", parseLabel("Compacting context")!, new View(), 1000);
