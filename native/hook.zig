@@ -16,14 +16,27 @@ pub fn main(init: std.process.Init) void {
     run(init) catch {};
 }
 
+/// Any well-formed provider id, as `Provider.register` requires; the daemon
+/// decides whether it is one.
+fn providerName(arg: []const u8) bool {
+    if (arg.len == 0 or arg.len > 32) return false;
+    for (arg) |ch| if (!std.ascii.isLower(ch) and !std.ascii.isDigit(ch)) return false;
+    return true;
+}
+
+test "a provider id is lowercase letters and digits" {
+    for ([_][]const u8{ "claude", "opencode2", "pi" }) |id| try std.testing.expect(providerName(id));
+    for ([_][]const u8{ "", "Claude", "../x", "gemini_cli", "abcdefghijklmnopqrstuvwxyz0123456" }) |id| try std.testing.expect(!providerName(id));
+}
+
 fn run(init: std.process.Init) !void {
     const args = try init.minimal.args.toSlice(a);
     if (args.len != 3 or !std.mem.eql(u8, args[1], "hook")) return;
-    // Any provider the daemon knows; only Claude's and Codex's hooks need more.
     const provider = args[2];
-    if (provider.len == 0 or provider.len > 32) return;
-    for (provider) |ch| if (!std.ascii.isLower(ch) and !std.ascii.isDigit(ch)) return;
-    const claude = std.mem.eql(u8, provider, "claude");
+    if (!providerName(provider)) return;
+    // Only Claude's and Codex's hooks need more than forwarding.
+    const is_claude = std.mem.eql(u8, provider, "claude");
+    const is_codex = std.mem.eql(u8, provider, "codex");
     const pane = std.fmt.parseInt(u32, os.env("CORGI_PANE") orelse return, 10) catch return;
     const socket = os.env("CORGI_SOCKET") orelse return;
 
@@ -37,7 +50,7 @@ fn run(init: std.process.Init) !void {
     const parsed = std.json.parseFromSlice(std.json.Value, a, input.items, .{}) catch return;
     // Codex tools/subagents inherit the pane environment. Their sessions
     // must not take ownership of the parent terminal's sidebar entry.
-    if (std.mem.eql(u8, provider, "codex")) if (os.env("CODEX_THREAD_ID")) |parent| {
+    if (is_codex) if (os.env("CODEX_THREAD_ID")) |parent| {
         const session = switch (parsed.value) {
             .object => |o| if (o.get("session_id")) |v| switch (v) {
                 .string => |s| s,
@@ -49,8 +62,8 @@ fn run(init: std.process.Init) !void {
     };
     // Claude's background daemon inherits the environment of whichever pane
     // first spawned it, and so does a `claude -p` an agent runs from a tool.
-    const origin: detection.HookOrigin = if (claude) detection.hookOrigin() else .{};
-    const background = claude and (std.mem.eql(u8, os.env("CLAUDE_CODE_SESSION_KIND") orelse "", "bg") or origin.background);
+    const origin: detection.HookOrigin = if (is_claude) detection.hookOrigin() else .{};
+    const background = is_claude and (std.mem.eql(u8, os.env("CLAUDE_CODE_SESSION_KIND") orelse "", "bg") or origin.background);
     const body = try std.json.Stringify.valueAlloc(a, .{
         .op = "hook",
         .protocol = 2,

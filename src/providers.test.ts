@@ -7,6 +7,8 @@ import * as claudeHeadless from "./providers/claude/headless";
 import { Hooks, timestampMs } from "./providers/common";
 import * as sim from "./providers/sim";
 import type { Settings } from "./providers/adapter";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 test("per-provider values are keyed by name, in the registry's order", () => {
   const value = byProvider(p => p === "claude");
   expect(Object.keys(value)).toEqual(Provider.all);
@@ -19,7 +21,26 @@ test("per-provider values are keyed by name, in the registry's order", () => {
 test("the landing page's stand-in registry lists every provider", async () => {
   const site = await import("../site/browser/providers");
   expect(site.Provider.all).toEqual(Provider.all);
-  for (const p of Provider.all) expect(site.adapter(p).programs).toEqual(adapter(p).programs);
+  // Each provider's own command is among the programs that mark it.
+  for (const p of Provider.all) expect(site.adapter(p).programs.names).toContain(adapter(p).command);
+});
+test("every provider id is one corgi-hook forwards", () => {
+  for (const p of Provider.all) expect(Provider.wellFormed(p)).toBe(true);
+  for (const id of ["", "Claude", "gemini_cli", "open-code", "a".repeat(33)])
+    expect(Provider.wellFormed(id)).toBe(false);
+  expect(() => Provider.register({ ...sim.adapter, id: "Sim" })).toThrow("InvalidProvider");
+});
+test("the native layer's copy of Claude's programs matches the registry", () => {
+  const zig = readFileSync(join(import.meta.dir, "../native/zig/detection.zig"), "utf8"),
+    block = /const claude: Programs = \.\{([\s\S]*?)\n\};/.exec(zig)?.[1] ?? "",
+    field = (key: string) =>
+      [...block.matchAll(/\.(\w+) = &\.\{([^}]*)\}/g)]
+        .filter(m => m[1] === key)
+        .flatMap(m => [...m[2].matchAll(/"([^"]*)"/g)].map(s => s[1]));
+  const programs = adapter("claude").programs;
+  expect(field("names")).toEqual(programs.names);
+  expect(field("markers")).toEqual(programs.markers ?? []);
+  expect(field("scripts")).toEqual(programs.scripts ?? []);
 });
 test("a registered provider is listed, parsed and found until it is removed", () => {
   const builtIn = [...Provider.all];

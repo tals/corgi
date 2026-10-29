@@ -12,7 +12,8 @@ pub const Programs = struct {
     markers: []const []const u8 = &.{},
     scripts: []const []const u8 = &.{},
 };
-/// Hooks find their Claude process without the registry.
+/// Hooks find their Claude process without the registry; providers.test.ts
+/// checks it against Claude's `programs`.
 const claude: Programs = .{
     .names = &.{ "claude", "claude-code" },
     // Claude's daemon launches the versioned native binary directly.
@@ -22,12 +23,16 @@ const claude: Programs = .{
 /// Every provider's programs, as TypeScript's registry sends them.
 var agents: []const Programs = &.{};
 var configured: ?std.json.Parsed([]Programs) = null;
+var warned = false;
 
 /// Takes the registry's programs, a JSON array of `Programs`, before any
 /// terminal reads its foreground.
 pub fn configure(json: []const u8) !void {
     // Copy the strings: the caller's buffer goes away when this returns.
-    const next = try std.json.parseFromSlice([]Programs, os.allocator, json, .{ .allocate = .alloc_always });
+    const next = try std.json.parseFromSlice([]Programs, os.allocator, json, .{
+        .allocate = .alloc_always,
+        .ignore_unknown_fields = true,
+    });
     if (configured) |old| old.deinit();
     configured = next;
     agents = next.value;
@@ -131,6 +136,10 @@ fn backgroundJob(pid: c_int) bool {
 /// The agent process in front of the terminal at `fd`: its group's leader
 /// or, failing that, the first member that is one.
 pub fn foreground(fd: c_int) ?c_int {
+    if (configured == null and !warned) {
+        warned = true;
+        std.log.warn("detection: no provider programs configured, so no terminal finds its agent", .{});
+    }
     const pgid = c.tcgetpgrp(fd);
     if (pgid <= 0) return null;
     if (agent(pgid)) return pgid;
@@ -155,11 +164,10 @@ pub fn foreground(fd: c_int) ?c_int {
     return null;
 }
 
-const codex: Programs = .{ .names = &.{"codex"}, .scripts = &.{"/@openai/codex/bin/codex.js"} };
-const pi: Programs = .{ .names = &.{"pi"}, .scripts = &.{"/@earendil-works/pi-coding-agent/dist/bundle/cli.js"} };
-const known: []const Programs = &.{ codex, claude, pi };
-
 test "identify actual executables and scripts, not arguments or shell text" {
+    const codex: Programs = .{ .names = &.{"codex"}, .scripts = &.{"/@openai/codex/bin/codex.js"} };
+    const pi: Programs = .{ .names = &.{"pi"}, .scripts = &.{"/@earendil-works/pi-coding-agent/dist/bundle/cli.js"} };
+    const known: []const Programs = &.{ codex, claude, pi };
     try std.testing.expectEqual(@as(?usize, 0), identify(known, &.{"/opt/bin/codex"}));
     try std.testing.expectEqual(@as(?usize, 1), identify(known, &.{ "node", "/a/node_modules/@anthropic-ai/claude-code/cli.js" }));
     try std.testing.expectEqual(@as(?usize, 1), identify(known, &.{ "bun", "/a/node_modules/@anthropic-ai/claude-code/cli.js" }));
@@ -190,6 +198,9 @@ test "the registry's programs arrive as JSON" {
     std.testing.allocator.free(json);
     try std.testing.expectEqual(@as(?usize, 1), identify(agents, &.{ "bun", "/a/omp/cli.js" }));
     try std.testing.expectEqual(@as(?usize, null), identify(agents, &.{"claude"}));
+    // A field this build doesn't know yet is skipped.
+    try configure("[{\"names\":[\"codex\"],\"later\":[\"x\"]}]");
+    try std.testing.expectEqual(@as(?usize, 0), identify(agents, &.{"codex"}));
     try std.testing.expectError(error.UnexpectedToken, configure("{"));
 }
 

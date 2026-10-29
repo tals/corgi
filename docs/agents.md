@@ -42,10 +42,11 @@ Each provider is one plain object, `adapter` in
 directory. [providers.ts](../src/providers.ts) lists them in UI order; the
 first is the one Corgi offers before the user picks one. Core code asks
 `adapter(id)` and never names a provider. A provider calls its own modules
-rather than looking itself up.
+rather than looking itself up. An id is at most 32 lowercase letters and
+digits, which is all `corgi-hook` forwards.
 
 [adapter.ts](../src/providers/adapter.ts) is the contract. Every provider says
-what it is (names, command, install locations, `owns`), the few `caps` core has
+what it is (names, command, install locations, `programs`), the few `caps` core has
 to know, how to read its hooks and launcher commands, how to start, resume,
 attach to and fork a session, and how it runs headless sessions, the
 tool-less summarizer and its hook integration. Optional members exist only
@@ -102,8 +103,9 @@ initialization". `providers/sim` exists only in tests; `sim.register()` adds it
 so a test finds code that still assumes Claude or Codex. A provider's `info.ts`
 lists its `programs`, the executables and scripts that mark its processes; the
 daemon hands that table to the native layer at startup. `native/hook.zig`
-forwards any provider's hooks and keeps its own copy of Claude's programs only,
-to find the Claude process behind a hook.
+forwards any provider's hooks; `native/zig/detection.zig` keeps its own copy
+of Claude's programs only, to find the Claude process behind a hook, and
+`providers.test.ts` checks that copy.
 
 ## Resuming and forking
 
