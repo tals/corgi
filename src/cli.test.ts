@@ -317,7 +317,7 @@ test("launcher names each agent and says where it shows", () => {
   };
   const text = launcherText(launcher(snapshot)),
     lines = text.trimEnd().split("\n"),
-    rest = Provider.all.slice(3).map(p => [p, adapter(p).name, "shown"]);
+    rest = Provider.all.slice(3).map(p => [p, adapter(p).label, "shown"]);
   expect(lines.map(line => line.trim().split(/ {2,}/))).toEqual([
     ['workspace 1 "corgi"'],
     ["codex", "Codex", "shown"],

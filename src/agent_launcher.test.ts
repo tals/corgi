@@ -295,7 +295,7 @@ test("Manage agents lists the signed-out and hidden agents the picker leaves out
     ["Codex", "Not signed in", true, true],
     ["Claude Code", "me@example.com", false, false],
     ["Pi", "Unavailable", false, false],
-    ...others.map(p => [adapter(p).name, "Not installed", true, false]),
+    ...others.map(p => [adapter(p).label, "Not installed", true, false]),
   ]);
   m.commands[0].set("FOO=123 claude --whatever");
   m.commands[0].hidden = true;
@@ -325,7 +325,7 @@ test("rows hidden in this workspace leave its picker but stay in Manage agents, 
     ["Claude Code", true, false],
     ["Claude Code · work", true, false],
     ["Pi", true, true],
-    ...others.map(p => [adapter(p).name, true, true]),
+    ...others.map(p => [adapter(p).label, true, true]),
   ]);
   expect([model.here(0), model.here(1)]).toEqual([false, true]);
   expect(["codex", "claude:/a", "custom5", "terminal", "claude:work", "custom6", ""].map(Row.parse)).toEqual([
