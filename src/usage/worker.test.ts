@@ -536,6 +536,13 @@ test("a Codex subagent's count stays whole through a handoff", async () => {
               last_token_usage: { input_tokens: last, output_tokens: last / 10 },
             },
           },
+        }) + "\n",
+      call = (ordinal: number, id: string) =>
+        JSON.stringify({
+          type: "response_item",
+          timestamp: "1970-01-01T00:00:06.000Z",
+          ordinal,
+          payload: { type: "function_call", call_id: id, name: "exec_command", arguments: "{}" },
         }) + "\n";
     writeFileSync(
       file,
@@ -544,8 +551,10 @@ test("a Codex subagent's count stays whole through a handoff", async () => {
         payload: { id: "child", subagent_history_start_ordinal: 2, timestamp: "1970-01-01T00:00:05.000Z" },
       }) +
         "\n" +
+        call(0, "parent") +
         count(1, 900, 900) +
         count(2, 100, 100) +
+        call(3, "own") +
         count(3, 150, 50),
     );
     const req = request("codex");
@@ -557,12 +566,14 @@ test("a Codex subagent's count stays whole through a handoff", async () => {
     tail.actor = 2;
     await tail.poll(req, reader(req));
     expect(tail.live.meter.value.tokens.input).toBe(150n);
+    expect(tail.live.meter.value.tools).toBe(1n);
     expect(tail.live.meter.value.partial).toBe(false);
     const after = handOver(tail)();
     appendFileSync(file, count(4, 200, 50));
     await after.poll(req, reader(req));
     expect(after.live.meter.value.tokens.input).toBe(200n);
     expect(after.live.meter.value.tokens.output).toBe(20n);
+    expect(after.live.meter.value.tools).toBe(1n);
     expect(after.live.meter.value.partial).toBe(false);
   } finally {
     rmSync(root, { recursive: true, force: true });

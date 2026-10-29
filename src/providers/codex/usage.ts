@@ -81,6 +81,13 @@ export function rolloutTokens(c: Counter, value: any, appended: boolean, now: nu
     Math.min(timestampMs(r.timestamp) ?? now, now),
   );
 }
+/** Whether a record read while catching up is the subagent's own rather
+ * than parent history its rollout copied. */
+function owned(c: Counter, value: any) {
+  if (!c.catch_up || c.owned_from === null) return false;
+  const ordinal = number(value, "ordinal");
+  return ordinal !== null && ordinal >= c.owned_from;
+}
 /** Counts an app server's token report into `c`. */
 export function headlessTokens(c: Counter, value: any, active: boolean, now: number) {
   const total = parseTokens(field(value, "total"), true);
@@ -203,7 +210,7 @@ export function open(indexes: () => string[]): TranscriptReader {
       t.observeModel(field(value, "payload"));
       const delta = counts(t.tracker, value);
       rolloutTokens(t.live, value, appended, Date.now());
-      if (appended) t.live.meter.count(delta.tools);
+      if (appended || owned(t.live, value)) t.live.meter.count(delta.tools);
       context(t.context, value);
       return delta;
     },
