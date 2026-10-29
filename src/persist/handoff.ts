@@ -13,6 +13,7 @@ import { Worker as SummaryWorker } from "../activity/worker";
 import { Worker as UsageWorker } from "../usage/worker";
 import * as build_id from "../build_id";
 import * as setup from "../inference/setup";
+import * as breadcrumbs from "../breadcrumbs";
 
 export const terminal_abi = 0xa826bd22ebcdbe60n;
 export const update_abi = `1-${terminal_abi.toString(16)}`;
@@ -163,6 +164,7 @@ export async function replace(server: Server, requester: Client, executable: str
   }
   await server.summaries?.pause();
   server.pause();
+  breadcrumbs.record("reloading");
   const fds = new Int32Array(2);
   let stateFD = -1,
     controlFD = -1,
@@ -225,7 +227,10 @@ export async function replace(server: Server, requester: Client, executable: str
     ]);
     clearTimeout(timeout);
     if (ready !== "ready") {
-      if (["MissingStateVersion", "InvalidStateVersion", "UnsupportedStateVersion"].includes(ready)) throw Error(ready);
+      if (
+        ["MissingStateVersion", "InvalidStateVersion", "UnsupportedStateVersion", "InvalidCheckpoint"].includes(ready)
+      )
+        throw Error(ready);
       console.error("reload candidate:", ready);
       throw Error("ReloadCandidateFailed");
     }
@@ -281,7 +286,8 @@ export async function importAndRun(
     server.listener = m.listener;
     fdNative.fd_cloexec(m.listener);
     server.theme = Object.assign(new Theme(), m.theme);
-    await checkpoint.restore(server.runtime, m.runtime, true, socket, executable);
+    const repairs = await checkpoint.restore(server.runtime, m.runtime, true, socket, executable);
+    await recovery.recordRepairs(socket, m.runtime, repairs, executable);
     if (m.summaries) {
       server.summaries = SummaryWorker.restore(m.summaries);
       // Handoffs carry the model choice; what it is used for lives in settings.

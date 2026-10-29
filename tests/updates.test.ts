@@ -287,6 +287,31 @@ test("interactive Escape skips once per runtime without stopping processes", asy
   expect((await cli(["start"])).err).not.toContain("Enter / Esc");
   expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.0");
 }, 30_000);
+test.skipIf(!!process.env.CORGI_OLD_EXE)(
+  "a release that can't load the saved state is held back for an hour",
+  async () => {
+    await cli(["start"]);
+    await cli(["shutdown"]);
+    const saved = join(home, "state/corgi/recovery", `runtime-${Bun.hash.wyhash(socket, 0n).toString(16)}.json`),
+      state = JSON.parse(await readFile(saved, "utf8"));
+    state.next_workspace = 1;
+    await writeFile(saved, JSON.stringify(state));
+    await cli(["update", "--download-only"]);
+    const result = await cli(["update"], false);
+    expect(result.code).not.toBe(0);
+    expect(result.err).toContain("UpdateCheckFailed");
+    expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.0");
+    const failed = JSON.parse(await readFile(join(root, "check-failed"), "utf8"));
+    expect(failed.version).toBe("1.0.1");
+    // Within the hour a start doesn't try it again.
+    await cli(["update", "auto", "on"]);
+    unavailable = true;
+    await cli(["start"], false);
+    expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.0");
+    expect(JSON.parse(await readFile(join(root, "check-failed"), "utf8")).at).toBe(failed.at);
+  },
+  30_000,
+);
 test("two simultaneous starts activate once; a second runtime catches up later", async () => {
   await cli(["start"]);
   const secondEnv = { ...env, CORGI_SOCKET: join(home, "second/control.sock") };

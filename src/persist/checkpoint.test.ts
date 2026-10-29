@@ -480,6 +480,25 @@ test("cold recovery keeps a pane's unselected completion until it forgets that c
   expect(restored.pruneConversations()).toBe(true);
   expect(restored.conversations.byId(earlier.id)).toBeNull();
 });
+test("a pane bound to a conversation missing from the checkpoint loads unbound", async () => {
+  using original = fresh();
+  const gone = original.conversations.get("codex", "gone"),
+    kept = original.conversations.get("codex", "kept");
+  show(original, gone);
+  original.panes[0].attachment.select(kept);
+  for (const live of [true, false]) {
+    using next = new Runtime();
+    const saved = roundtrip(cp.capture(original, live));
+    saved.conversations = saved.conversations.filter((c: any) => c.id !== gone.id);
+    saved.panes[0].binding.actor = gone.id;
+    expect(await restore(next, saved, live)).toEqual([
+      `pane ${original.panes[0].id} pointed at conversation ${gone.id}, which isn't saved; dropped`,
+    ]);
+    const binding = next.panes[0].attachment;
+    expect(binding.actor).toBeNull();
+    expect(binding.known).toEqual([kept.id]);
+  }
+});
 test("a restore forgets the conversations nothing refers to, even a full registry's", async () => {
   const r = fresh(),
     shown = r.conversations.get("claude", "shown");

@@ -21,6 +21,7 @@ import { Status as InferenceStatus } from "./inference/setup";
 import type { Target } from "./agent_order";
 import type { Session } from "./headless";
 import { Briefs } from "./worktree_briefs";
+import * as breadcrumbs from "./breadcrumbs";
 export type Create = {
   workspace: number;
   split?: { pane: number; axis: Axis; before?: boolean } | null;
@@ -190,8 +191,17 @@ export class Launch {
   }
 }
 export class Pane {
+  readonly holder = "pane";
   label = "";
-  attachment = new Attachment();
+  #attachment = new Attachment();
+  get attachment(): Attachment {
+    this.#attachment.owner ??= this;
+    return this.#attachment;
+  }
+  set attachment(a: Attachment) {
+    a.owner = this;
+    this.#attachment = a;
+  }
   detection = new Tracker();
   detected = { output: 0n, at: 0 };
   resume_hint = new ResumeHint();
@@ -577,6 +587,7 @@ export class Runtime {
     const p = new Pane(id, t, dir);
     p.dormant = opts.asleep === true;
     this.panes.push(p);
+    breadcrumbs.record("opened", { owner: p });
     ws.model = next;
     this.workspaces.next_pane_id = next.next_id;
     this.changed();
@@ -613,6 +624,7 @@ export class Runtime {
         this.closed.push(saved);
       } else p.terminal.destroy();
       this.panes.splice(i, 1);
+      breadcrumbs.record("closed", { owner: p });
     }
     this.changed();
   }

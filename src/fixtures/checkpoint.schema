@@ -410,3 +410,8 @@ $.sessions[].resume_hint.session: custom bounded_text.BoundedText(160)
 $.sessions[].resume_hint.permissions: optional
 $.sessions[].resume_hint.permissions?: enum default bypass
 $.sessions[].resume_hint.model: custom bounded_text.BoundedText(160)
+$.breadcrumbs[].at: i64
+$.breadcrumbs[].kind: string
+$.breadcrumbs[].pane: u32
+$.breadcrumbs[].session: u32
+$.breadcrumbs[].actors[]: u32

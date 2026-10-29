@@ -1,4 +1,5 @@
 import * as background_tasks from "./activity/background_tasks";
+import * as breadcrumbs from "./breadcrumbs";
 import * as checklist from "./activity/checklist";
 import { Conversation, hash } from "./activity/summary";
 import { Timeline } from "./activity/timeline";
@@ -259,6 +260,8 @@ export class Attachment {
   side = false;
   hook_seq = 0n;
   known: ActorId[] = [];
+  /** The pane or native session it belongs to, for breadcrumbs. */
+  owner: breadcrumbs.Owner | null = null;
   get known_len() {
     return this.known.length;
   }
@@ -287,6 +290,7 @@ export class Attachment {
     }
     this.side = false;
     if (this.actor === actor) return;
+    breadcrumbs.record("bound", { owner: this.owner, actors: [actor.id] });
     this.actor = actor;
     this.generation = BigInt.asUintN(64, this.generation + 1n);
   }
@@ -294,13 +298,18 @@ export class Attachment {
     return this.known.includes(id as ActorId);
   }
   deselect() {
+    if (this.actor) breadcrumbs.record("unbound", { owner: this.owner, actors: [this.actor.id] });
+    this.clear();
+  }
+  private clear() {
     this.actor = null;
     this.side = false;
     this.provisional = new Agent();
     this.generation = BigInt.asUintN(64, this.generation + 1n);
   }
   detach() {
-    this.deselect();
+    if (this.actor || this.known.length) breadcrumbs.record("released", { owner: this.owner, actors: [...this.known] });
+    this.clear();
     this.known = [];
     this.selection_hash = 0n;
     this.hook_seq = 0n;
@@ -355,6 +364,7 @@ export class Registry {
         }
     }
     if (kept.size === this.items.length) return false;
+    breadcrumbs.record("forgot", { actors: this.items.flatMap(actor => (kept.has(actor.id) ? [] : [actor.id])) });
     this.items = this.items.filter(actor => kept.has(actor.id));
     return true;
   }

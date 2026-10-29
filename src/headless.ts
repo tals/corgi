@@ -13,7 +13,7 @@ import { Tokens } from "./usage/live";
 import * as discovery from "./discovery";
 import * as json from "./json";
 import * as worktrees from "./worktrees";
-import { captureBinding, restoreBinding, hydrate } from "./persist/checkpoint";
+import { Invalid, captureBinding, restoreBinding, hydrate, type Repairs } from "./persist/checkpoint";
 import type { Server } from "./server";
 import type { Client as Peer } from "./peer";
 import type { DecodedRequest } from "./protocol";
@@ -90,7 +90,16 @@ export class Session {
   resume_hint = new ResumeHint();
   workspace_id = 0;
   exited = false;
-  attachment = new Attachment();
+  readonly holder = "session";
+  #attachment = new Attachment();
+  get attachment(): Attachment {
+    this.#attachment.owner ??= this;
+    return this.#attachment;
+  }
+  set attachment(a: Attachment) {
+    a.owner = this;
+    this.#attachment = a;
+  }
   members: Actor[] = [];
   requests_released = false;
   events: Entry[] = [];
@@ -441,24 +450,28 @@ export class Session {
       resume_hint: this.resume_hint,
     };
   }
-  static restore(saved: any, registry: Registry, live: boolean) {
+  static restore(saved: any, registry: Registry, live: boolean, how: Repairs = {}) {
     const headless = adapter(saved.provider).headless,
       client: Client =
         live && !saved.exited && headless
           ? headless.restore(saved.client ?? { state: null, handles: [] }, live)
           : new Gone(saved.ready === true);
     const session = new Session(saved.id, saved.provider, saved.cwd, client);
-    session.attachment = restoreBinding(registry, saved.binding, live);
+    session.attachment = restoreBinding(registry, saved.binding, live, { ...how, what: `native session ${saved.id}` });
     session.exited = live ? saved.exited : true;
     session.workspace_id = saved.workspace_id;
     session.resume_hint = hydrate(new ResumeHint(), saved.resume_hint);
     session.session = saved.session ?? session.resume_hint.session.text();
     session.usage_tracker = live ? Tracker.restore(saved.usage_tracker) : new Tracker();
-    if ((saved.members?.length ?? 0) > 256 || (saved.approvals?.length ?? 0) > 64) throw Error("InvalidCheckpoint");
+    if ((saved.members?.length ?? 0) > 256 || (saved.approvals?.length ?? 0) > 64)
+      throw new Invalid(`native session ${saved.id} has too many members or approvals`);
     for (const id of saved.members ?? []) {
       const actor = registry.byId(id);
-      if (!actor || actor.state.provider !== saved.provider || session.members.includes(actor))
-        throw Error("InvalidCheckpoint");
+      if (!actor) throw new Invalid(`native session ${saved.id}'s member, conversation ${id}, isn't saved`);
+      if (actor.state.provider !== saved.provider || session.members.includes(actor))
+        throw new Invalid(
+          `native session ${saved.id}'s member, conversation ${id}, is listed twice or is another provider's`,
+        );
       session.members.push(actor);
     }
     if (!session.members.length && session.attachment.actor) session.members.push(session.attachment.actor);
@@ -469,7 +482,10 @@ export class Session {
     if (live) {
       for (const request of saved.approvals ?? []) {
         const actor = request.actor ? registry.byId(request.actor) : null;
-        if (request.actor && !actor) throw Error("InvalidCheckpoint");
+        if (request.actor && !actor)
+          throw new Invalid(
+            `native session ${saved.id}'s approval is for conversation ${request.actor}, which isn't saved`,
+          );
         session.approvals.push(new PendingRequest(String(request.id), actor ?? null, request.ask));
         if (!session.exited && actor) actor.pending_headless_requests++;
       }

@@ -14,7 +14,11 @@ import { tmpdir } from "node:os";
 import { atomicWrite } from "../os";
 import { save as saveInference } from "../inference/setup";
 import * as claude from "../providers/claude";
-import { Runtime } from "../runtime";
+import { Runtime, Pane } from "../runtime";
+import { Terminal } from "../pane/terminal";
+import { Workspace } from "../workspace";
+import { failure } from "../state_report";
+import * as json from "../json";
 import * as checkpoint from "./checkpoint";
 import * as recovery from "./recovery";
 
@@ -68,6 +72,7 @@ test("successful migrated recovery keeps its backup when the final rewrite fails
   const restore = spyOn(checkpoint, "restore").mockImplementationOnce(async () => {
       rmSync(source);
       mkdirSync(source, { mode: 0o700 });
+      return [];
     }),
     error = spyOn(console, "error").mockImplementation(() => {});
   try {
@@ -114,6 +119,41 @@ test("hook settings preserve ordinary config directory and file permissions", as
   } finally {
     if (prior === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = prior;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test("a load that repairs the saved session leaves a report for the next viewer, once", async () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-recovery-repair-")),
+    prior = process.env.XDG_STATE_HOME,
+    socket = join(root, "control.sock");
+  process.env.XDG_STATE_HOME = root;
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  using before = new Runtime();
+  using after = new Runtime();
+  try {
+    const ws = new Workspace(1, "/tmp");
+    before.workspaces.items.push(ws);
+    before.workspaces.next_id = 2;
+    const pane = new Pane(ws.model.newTab(""), Terminal.create(20, 4), "/tmp");
+    pane.terminal.exited = true;
+    pane.attachment.select(before.conversations.get("claude", "forgotten"));
+    before.panes.push(pane);
+    before.workspaces.next_pane_id = ws.model.next_id;
+    const state = json.parse(json.stringify(checkpoint.capture(before, false)));
+    state.conversations = [];
+    mkdirSync(dirname(recovery.path(socket)), { recursive: true, mode: 0o700 });
+    writeFileSync(recovery.path(socket), json.stringify(state), { mode: 0o600 });
+    expect(await recovery.load(after, socket, "/tmp/corgi")).toBe(true);
+    const taken = recovery.takeRepairs(socket);
+    expect(taken?.release).toBeString();
+    expect(failure(taken?.report).state.repairs).toEqual([
+      `pane ${pane.id} pointed at conversation 1, which isn't saved; dropped`,
+    ]);
+    expect(recovery.takeRepairs(socket)).toBeNull();
+  } finally {
+    warn.mockRestore();
+    if (prior === undefined) delete process.env.XDG_STATE_HOME;
+    else process.env.XDG_STATE_HOME = prior;
     rmSync(root, { recursive: true, force: true });
   }
 });

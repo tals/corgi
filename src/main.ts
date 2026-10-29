@@ -249,6 +249,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       if (args[1] !== "--update-routed") await updates.startup(path, executable, ["attach"], command === "--no-update");
       await ensureServer(path);
       updates.background(path, executable);
+      await (await import("./state_report")).showRepairs(path);
       const client = await import("./client");
       await client.attach(path);
       return;
@@ -266,6 +267,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       if (!routed) await updates.startup(path, executable, ["open", folder]);
       await ensureServer(path);
       updates.background(path, executable);
+      await (await import("./state_report")).showRepairs(path);
       try {
         crash.init("viewer");
       } catch (error) {

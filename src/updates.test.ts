@@ -3,7 +3,7 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { version, parse, managed, release, abi, platform, type Release } from "./updates";
+import { version, parse, managed, release, abi, platform, check, type Release } from "./updates";
 import { releaseVersion } from "./build_config";
 const keys = () => generateKeyPairSync("ed25519");
 const key = (k: ReturnType<typeof keys>) =>
@@ -113,5 +113,27 @@ test("only test builds take their release from the path and environment", () => 
   } finally {
     if (original === undefined) delete process.env.CORGI_TEST_UPDATE_KEY;
     else process.env.CORGI_TEST_UPDATE_KEY = original;
+  }
+});
+test("a release only passes the pre-update check with a result, or without the check at all", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-check-")),
+    script = (name: string, body: string) => {
+      const path = join(dir, name);
+      writeFileSync(path, `#!/bin/sh\n${body}\n`, { mode: 0o700 });
+      return path;
+    },
+    run = (target: string, limit_ms?: number) => check(join(dir, "none.sock"), target, null, limit_ms);
+  try {
+    expect(await run(script("passes", `echo '{"ok":true}'`))).toBeNull();
+    expect(await run(script("older", "echo 'corgi: UnknownCommand' >&2; exit 1"))).toBeNull();
+    const failed = await run(
+      script("fails", `echo '{"ok":false,"error":"InvalidCheckpoint","why":"pane 9 pointed at conversation 3"}'`),
+    );
+    expect(failed?.why).toBe("pane 9 pointed at conversation 3");
+    expect((await run(script("crashes", "exit 3")))?.why).toBe("the check exited with status 3, without a result");
+    expect((await run(script("babbles", "echo hello")))?.why).toBe("the check answered something other than a result");
+    expect((await run(script("hangs", "exec sleep 5"), 200))?.why).toBe("the check didn't finish in 0.2s");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

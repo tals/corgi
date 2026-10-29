@@ -1,4 +1,5 @@
 //! Herdr read-only discovery and copy transactions.
+import * as breadcrumbs from "../breadcrumbs";
 import { createConnection } from "node:net";
 import { readdirSync, statSync, mkdirSync, writeFileSync, rmSync, readlinkSync } from "node:fs";
 import { join, isAbsolute, basename } from "node:path";
@@ -554,6 +555,7 @@ export class Manager {
         pane.terminal.adopt(job.fds[i], job.pids[i]);
         job.fds[i] = -1;
         runtime.panes.push(pane);
+        breadcrumbs.record("imported", { owner: pane });
       }
       runtime.workspaces.items.push(...job.staged.workspaces.items);
       job.staged.panes = [];

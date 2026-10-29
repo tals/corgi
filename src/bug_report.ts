@@ -950,6 +950,11 @@ export function issueUrl(r: Report, s: Settings, attached = false): string | nul
     url = `${issues_url}?body=${encodeURIComponent(body)}`;
   return url.length <= max_url ? url : null;
 }
+/** A new issue with `title` and `body` filled in; null when too long for GitHub. */
+export function issueLink(title: string, body: string): string | null {
+  const url = `${issues_url}?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
+  return url.length <= max_url ? url : null;
+}
 /** Where the full report is written. */
 export function fullPath(): string {
   return join(dirname(preferences.path()), "full_bug_report.txt");
