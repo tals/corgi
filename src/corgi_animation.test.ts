@@ -219,6 +219,41 @@ test("a second try digs past a pebble when the row has room, and every dig fits 
   for (let n = 0; n < 20; n++) tries.add(a.Bone.random(r).tries);
   expect([...tries].sort()).toEqual([1, 2]);
 });
+test("the corgi shakes off his fleas, and they bounce back into him", () => {
+  const scenes = Array.from({ length: a.fleas_ticks }, (_, tick) => plain(a.writeFleas(a.fleas_width, tick))),
+    fleas = (scene: string) => [...scene].filter(glyph => /[⠁-⣿]/.test(glyph)).length;
+  for (const scene of scenes) expect(displayWidth(scene)).toBe(a.fleas_width);
+  expect(scenes[0]).toBe("      ~ᐯ•ᴥ•ᐯ" + " ".repeat(6));
+  expect(scenes[10]).toMatch(/~ᐯ>ᴥ<ᐯ⸜[⠁-⣿]/);
+  expect(scenes[28]).toContain("≋ᐯ-ᴥ-ᐯ≋");
+  // Scattered to both sides, then all back in, then one peeks out again.
+  expect(scenes[45]).toMatch(/^[⠀-⣿ ]{6}~ᐯ◡ᴥ◡ᐯ/);
+  expect(fleas(scenes[45])).toBe(4);
+  expect(fleas(scenes[75])).toBe(0);
+  expect(scenes.at(-1)).toMatch(/~ᐯ•ˑ•ᐯ [⠁-⣿]/);
+  for (const room of [0, 1, 6, a.fleas_width - 1])
+    for (let tick = 0; tick < a.fleas_ticks; tick += 5)
+      expect(displayWidth(plain(a.writeFleas(room, tick)))).toBeLessThanOrEqual(room);
+});
+test("the flea cycle plays the fleas, dozes off while they hop back, and wakes one eye at a time", () => {
+  const scenes = Array.from({ length: a.flea_cycle_ticks }, (_, tick) => plain(a.writeFleaCycle(a.fleas_width, tick))),
+    fleas = (scene: string) => [...scene].filter(glyph => /[⠁-⣿]/.test(glyph)).length;
+  for (const scene of scenes) expect(displayWidth(scene)).toBe(a.fleas_width);
+  // Scratching and shaking play as the one-shot does, the fleas already on him.
+  expect(scenes[0]).toMatch(/~ᐯ•ᴥ•ᐯ [⠁-⣿]/);
+  for (let tick = 4; tick < 40; tick++) expect(scenes[tick]).toBe(plain(a.writeFleas(a.fleas_width, tick)));
+  // Asleep while they hop back into his fur, then nothing stirs until he wakes.
+  expect(scenes[62]).toContain("~ᐯ◡ᴥ◡ᐯ");
+  expect(fleas(scenes[62])).toBe(4);
+  for (const scene of scenes.slice(100, 113)) expect(fleas(scene)).toBe(0);
+  expect(scenes[111]).toContain("~ᐯ-ᴥ•ᐯ");
+  expect(scenes[116]).toMatch(/~ᐯ-ᴥ•ᐯ⸜[⠁-⣿]/);
+  expect(scenes[0]).toContain("~ᐯ•ᴥ•ᐯ");
+  expect(plain(a.writeFleaCycle(a.fleas_width, a.flea_cycle_ticks + 12))).toBe(scenes[12]);
+  for (const room of [0, 1, 6, a.fleas_width - 1])
+    for (let tick = 0; tick < a.flea_cycle_ticks; tick += 5)
+      expect(displayWidth(plain(a.writeFleaCycle(room, tick)))).toBeLessThanOrEqual(room);
+});
 test("a delayed activity transition stays idle without another roll", () => {
   const x = playback(0);
   x.active = true;
