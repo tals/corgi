@@ -1811,3 +1811,13 @@ test("Report a bug shows what the issue will say, and opens it, or copies its li
   expect(attach).toContain("Please attach /tmp/full_bug_report.txt,");
   expect(attach).toContain("Corgi runs on.");
 });
+test("a setup choice or provider the viewer doesn't know reads as auto and none", () => {
+  expect([status({ choice: "future", provider: "future" }).choice, status({ provider: "future" }).provider]).toEqual([
+    "auto",
+    null,
+  ]);
+  expect([status({ choice: "off" }).choice, status({ choice: "codex", provider: "codex" }).provider]).toEqual([
+    "off",
+    "codex",
+  ]);
+});

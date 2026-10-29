@@ -285,6 +285,9 @@ test("saved checkpoint format matches its version", () => {
   // The schema's `provider` marker is not a provider.
   for (const last_agent of ["provider", "future"])
     expect(() => validateCheckpoint({ ...value, last_agent })).toThrow("InvalidEnumTag");
+  // A per-provider record skips a provider this build doesn't know, but checks the ones it does.
+  validateCheckpoint({ ...value, agent_yolo: { ...value.agent_yolo, future: true } });
+  expect(() => validateCheckpoint({ ...value, agent_hidden: { ...value.agent_hidden, codex: "yes" } })).toThrow();
 });
 test("an account's YOLO and Show survive checkpoints and default for old ones", async () => {
   for (const live of [true, false]) {

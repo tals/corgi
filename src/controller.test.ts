@@ -1451,6 +1451,24 @@ test.each(["launcher", "settings"] as const)(
   },
 );
 
+test("the launcher's history leaves out conversations from a provider the viewer doesn't know", () => {
+  const { s } = recording(folders("/src/app")),
+    entry = (provider: string, session: string) => ({
+      provider,
+      session,
+      title: session,
+      first: "",
+      last: "",
+      cwd: "/src/app",
+      branch: "",
+      updated_at: 1,
+      interrupted: false,
+    });
+  s.launch_previews.history = { pending: false, entries: [entry("future", "a"), entry("codex", "b")] as any };
+  s.openLauncher(true);
+  expect(s.agent_launcher.history.entries.map((e: any) => [e.provider, e.session])).toEqual([["codex", "b"]]);
+});
+
 /** The launcher over a preview that lists Claude Code's `work` account. */
 function withWork(option: object = {}) {
   const recorded = recording(folders("/src/app"));

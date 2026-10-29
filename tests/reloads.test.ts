@@ -12,6 +12,7 @@ import {
 import { join } from "node:path";
 import { JsonSocket, EXE, quote, registerCase, run, shellJoin, sleep, versioned, writeExecutable } from "./support";
 import * as protocol from "../src/protocol";
+import { byProvider } from "../src/providers";
 import { Runtime } from "./runtime";
 import { Viewer } from "./viewer_client";
 import { CodexObserver, write_codex_terminal } from "./provider_sim";
@@ -278,7 +279,10 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
       before.panes.map((p: any) => [p.id, p.pid]),
       after.panes.map((p: any) => [p.id, p.pid]),
     );
-    this.assertEqual(after.inference.launches, { codex: 7, claude: 4, pi: 0, opencode2: 0 });
+    this.assertEqual(
+      after.inference.launches,
+      byProvider(p => (p === "codex" ? 7 : p === "claude" ? 4 : 0)),
+    );
     this.assertEqual((await viewer.poll()).pane, first);
     await viewer.input("printf 'MIGRATED_%s\\n' ALIVE\r");
     await this.until(async () => (await this.screen(first)).includes("MIGRATED_ALIVE"));

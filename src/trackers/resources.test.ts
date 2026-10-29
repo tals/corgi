@@ -74,6 +74,14 @@ test("resource snapshots restore concrete integers after JSON transport", () => 
   expect(json.stringify(restored)).toBe(bytes);
   expect(fromJSON(null)).toEqual(new Snapshot());
 });
+test("a process from a provider the viewer doesn't know restores as no agent", () => {
+  const processes = [
+    { pid: 1, start: 1, name: "future", provider: "future" },
+    { pid: 2, start: 1, name: "codex", provider: "codex" },
+  ];
+  const restored = fromJSON({ workspaces: [{ id: 1, processes }] } as any);
+  expect(restored.workspace(1).processes.map(p => p.provider)).toEqual([null, "codex"]);
+});
 test("new process baselines preserve established workspace rates", () => {
   const established = Object.assign(new Process(1, 1n, "worker"), {
       cpu: 45,

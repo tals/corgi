@@ -4,6 +4,7 @@ import { Rect } from "./layout";
 import { Writer } from "./text";
 import { Terminal } from "./pane/terminal";
 import * as sim from "./providers/sim";
+import { Provider, adapter } from "./providers";
 test("resource card stays within terminal bounds", () => {
   for (const cols of [68, 88, 120, 200])
     for (const rows of [24, 30, 40]) {
@@ -45,8 +46,9 @@ test("agent processes carry their provider's mark, which the legend explains", (
     const w = new Writer();
     draw(w, new Rect(0, 0, 82, 24), "corgi", { workspaces: [work] }, state);
     expect(w.buffered()).toContain("§ sim");
-    expect(w.buffered()).toContain("† Codex   * Claude Code   π Pi   ");
-    expect(w.buffered()).toContain("   § Simulated Agent");
+    const legend = Provider.all.map(p => `${adapter(p).glyph} ${adapter(p).label}`).join("   ");
+    expect(w.buffered()).toContain(legend);
+    expect(legend).toEndWith("   § Simulated Agent");
   } finally {
     remove();
   }

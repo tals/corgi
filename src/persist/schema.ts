@@ -94,10 +94,11 @@ export function validateCheckpoint(value: any): void {
         if (!tags.includes(Object.keys(item)[0])) fail();
       } else if (type === "provider" || type.startsWith("enum ")) {
         if (typeof item !== "string") fail();
-        // `provider` stands for every provider's name, never for itself.
-        const members = type === "provider" ? ["provider"] : type.slice(5).split(" "),
-          named = item !== "provider" && members.includes(item);
-        if (!named && !(members.includes("provider") && Provider.parse(item))) fail("InvalidEnumTag");
+        // `provider` stands for every provider's name.
+        const members = (type === "provider" ? ["provider"] : type.slice(5).split(" ")).flatMap(m =>
+          m === "provider" ? Provider.all : [m],
+        );
+        if (!members.includes(item)) fail("InvalidEnumTag");
       } else if (type === "bool") {
         if (typeof item !== "boolean") fail();
       } else if (type === "string" || type.startsWith("custom bounded_text.")) {
