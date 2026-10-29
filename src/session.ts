@@ -95,7 +95,8 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
           request.payload.resolve && request.payload.command
             ? await resolve(request.payload.command, request.payload.cwd ?? null)
             : request.payload.command,
-        e = r.agent_commands[Number(request.payload.index)];
+        e = r.agent_commands[Number(request.payload.index)],
+        unchanged = !request.payload.resolve && source === e.command;
       e.set(source);
       if (request.payload.original !== null && request.payload.original !== undefined)
         e.setOriginal(request.payload.original);
@@ -106,10 +107,9 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
         // A command saved in its slot later starts shown everywhere.
         const row = Row.ofCommand(Number(request.payload.index));
         for (const w of r.workspaces.items) w.launcher_hidden = w.launcher_hidden.filter(h => h !== row);
-      } else
-        e.semantics = request.payload.semantics
-          ? Object.assign(new Semantics(), request.payload.semantics)
-          : analyze(source, request.payload.cwd ?? ".");
+      } else if (request.payload.semantics) e.semantics = Object.assign(new Semantics(), request.payload.semantics);
+      // A viewer that can't read the provider sends none, so the stored ones stand.
+      else if (!unchanged) e.semantics = analyze(source, request.payload.cwd ?? ".");
       r.agent_commands[Number(request.payload.index)].hidden = !!source && request.payload.hidden;
       r.changed();
       return {};
@@ -128,7 +128,8 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
     case "agent.visibility": {
       const hidden = request.payload.hidden_accounts;
       if (hidden?.some(a => !a.startsWith("/"))) throw Error("InvalidAccount");
-      r.agent_hidden = { ...request.payload.hidden };
+      // A viewer that doesn't know a provider leaves it as it was.
+      r.agent_hidden = { ...r.agent_hidden, ...request.payload.hidden };
       // An older viewer sends no accounts, which keeps the hidden ones.
       if (hidden) r.account_hidden = [...new Set(hidden)];
       r.changed();

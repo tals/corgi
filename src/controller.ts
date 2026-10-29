@@ -2722,7 +2722,7 @@ export class Controller {
           resolve: false,
           original: f.editor.name(),
           name: f.name_editor.name().length > 0 ? f.name_editor.name() : f.resolution.semantics.suggested_name,
-          semantics: f.resolution.semantics,
+          semantics: agentLauncher.returned(f.resolution.semantics),
         },
       });
     } catch {
@@ -2746,7 +2746,7 @@ export class Controller {
         resolve: false,
         original: entry.original,
         name: entry.name,
-        semantics: entry.semantics,
+        semantics: agentLauncher.returned(entry.semantics),
       },
     });
     const launch = this.launcherModel();

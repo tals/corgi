@@ -1,6 +1,6 @@
 // Mirrors the tests in agent_launcher.zig.
 import { expect, test } from "bun:test";
-import { Menu, Row, commandEntry, preview, resolution } from "./agent_launcher";
+import { Menu, Row, commandEntry, preview, resolution, returned } from "./agent_launcher";
 import { View as SidebarView } from "./sidebar";
 import { analyze } from "./launch/command";
 import { Terminal } from "./pane/terminal";
@@ -764,4 +764,10 @@ test("a command for a provider this viewer doesn't know runs no provider", () =>
   const resolved = resolution({ semantics, command: { command: "future", semantics } });
   expect([resolved.semantics.provider, resolved.command.semantics.provider]).toEqual([null, null]);
   expect(resolved.semantics.suggested_name).toBe("Future");
+  // Sending them back would erase the provider, so they stay with the daemon.
+  expect([returned(resolved.semantics), returned(resolved.command.semantics)]).toEqual([null, null]);
+  for (const provider of ["codex", null]) {
+    const known = commandEntry({ command: "x", semantics: { provider } }).semantics;
+    expect(returned(known)).toBe(known);
+  }
 });

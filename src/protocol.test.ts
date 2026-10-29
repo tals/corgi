@@ -3,7 +3,6 @@ import * as protocol from "./protocol";
 import * as json from "./json";
 import { Model, Selection } from "./layout";
 import samples from "./fixtures/protocol-requests.json";
-import { byProvider } from "./providers";
 test("every op decodes a sample request", () => {
   expect(Object.keys(samples).sort()).toEqual([...protocol.operations].sort());
   for (const op of protocol.operations) {
@@ -248,7 +247,7 @@ test("command defaults normalize nested semantics and tagged destinations", () =
   });
   // A provider this daemon doesn't know is left out, not refused.
   expect(protocol.decodeCommand({ "agent.visibility": { hidden: { codex: true, future: true } } })).toEqual({
-    "agent.visibility": { hidden: byProvider(p => p === "codex"), hidden_accounts: null },
+    "agent.visibility": { hidden: { codex: true }, hidden_accounts: null },
   });
   expect(() => protocol.decodeCommand({ "agent.visibility": { hidden: { codex: "yes" } } })).toThrow("UnexpectedToken");
   // An older viewer sends no account, which picks the provider's own row.

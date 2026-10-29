@@ -1,7 +1,7 @@
 import * as json from "./json";
 import { Theme } from "./theme";
 import type { View as SurfaceView } from "./pane/surface";
-import { Provider, byProvider, type ByProvider } from "./providers";
+import { Provider, type ByProvider } from "./providers";
 import type { Target } from "./agent_order";
 export interface Control {
   seq: bigint;
@@ -254,11 +254,12 @@ type Member<T extends string> = T extends "provider" ? Provider : T;
 type Alternatives<T extends string> = T extends `${infer Head}|${infer Tail}`
   ? Member<Head> | Alternatives<Tail>
   : Member<T>;
-type TaggedValues = {
+// Types with hand-written validators.
+type CustomValues = {
   target: Target;
   paneDestination: PaneDestination;
   tabDestination: TabDestination;
-  visibility: ByProvider<boolean>;
+  visibility: Partial<ByProvider<boolean>>;
 };
 type Value<T extends string> = T extends `?${infer Inner}`
   ? Value<Inner> | null
@@ -276,8 +277,8 @@ type Value<T extends string> = T extends `?${infer Inner}`
               ? unknown
               : T extends "theme"
                 ? Theme | null
-                : T extends keyof TaggedValues
-                  ? TaggedValues[T]
+                : T extends keyof CustomValues
+                  ? CustomValues[T]
                   : T extends keyof typeof structures
                     ? Normalized<(typeof structures)[T]>
                     : Alternatives<T>;
@@ -367,9 +368,11 @@ function validate(value: any, type: string, strict = false): any {
   if (type === "target") return target(value);
   if (type === "paneDestination" || type === "tabDestination") return destination(value, type === "paneDestination");
   if (type === "visibility") {
-    // A client that knows a provider this daemon doesn't may name it.
-    const source = json.object(value);
-    return byProvider(p => (Object.hasOwn(source, p) ? validate(source[p], "bool") : false));
+    // Only the providers named: a client may know more or fewer than this daemon.
+    const source = json.object(value),
+      out: Partial<ByProvider<boolean>> = {};
+    for (const p of Provider.all) if (Object.hasOwn(source, p)) out[p] = validate(source[p], "bool");
+    return out;
   }
   if (type === "theme") {
     try {
