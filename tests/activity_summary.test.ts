@@ -454,11 +454,11 @@ class SummaryCases extends Summaries {
       this.assertEqual(rows.filter(r => r.includes("Tokens") && r.includes("Cached")).length, 1);
       this.assertRegex(
         rows.find(r => r.includes("Total"))!,
-        /Total\s+6\.9k\s+7\.8k/,
+        /Total\s+0\s+6\.9k\s+7\.8k/,
       );
-      this.assertRegex(timelineRow("Reading source"), /Reading source\s+600\s+600/);
-      this.assertRegex(timelineRow("Tracing usage"), /Tracing usage\s+2\.4k\s+3(\.0)?k/);
-      this.assertRegex(timelineRow("Running tests"), /Running tests\s+3\.9k\+\s+4\.2k\+/);
+      this.assertRegex(timelineRow("Reading source"), /Reading source\s+0\s+600\s+600/);
+      this.assertRegex(timelineRow("Tracing usage"), /Tracing usage\s+0\s+2\.4k\s+3(\.0)?k/);
+      this.assertRegex(timelineRow("Running tests"), /Running tests\s+0\+\s+3\.9k\+\s+4\.2k\+/);
       const positions = ["Reading source", "Tracing usage", "Running tests"].map(label =>
         rows.findIndex(r => r.includes(label) && (r.includes("○") || r.includes("●"))),
       );
