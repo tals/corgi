@@ -887,7 +887,8 @@ export class Controller {
       return entry;
     });
   }
-  agentEntries(workspace?: number): Entry[] {
+  /** The agent list; `unfolded` keeps the agents of folded sections. */
+  agentEntries(workspace?: number, unfolded = false): Entry[] {
     let entries: Entry[] = [];
     const focus = this.model().count > 0 ? this.nav().tab().focus : 0;
     // Activity sorting sections the sidebar's list; a single workspace's,
@@ -1025,7 +1026,7 @@ export class Controller {
       const all = this.prefs.agents === "all";
       entries = agentSections.arrange(items, {
         all,
-        folded: this.folded_sections,
+        folded: unfolded ? new Set() : this.folded_sections,
         workspaces: this.runtime.workspaces.items.map(ws => ws.id),
         label: (id, checkout) => this.checkoutLabel(id, checkout, all),
       });
@@ -1131,6 +1132,12 @@ export class Controller {
       }
     } else if ("group" in target) this.toggleGroup(target.group);
     else if (sidebar.isSection(target)) this.toggleSection(target.section);
+    // An agent in a folded section opens it.
+    if (sidebar.isAgent(target) && this.folded_sections.size > 0 && this.prefs.agentSort() === "activity") {
+      const id = this.agentWorkspace(target),
+        e = id === null ? undefined : this.agentEntries(id).find(e => sidebar.sameTarget(e.target, target));
+      if (e && this.folded_sections.delete(this.shownSection(e))) this.sidebar_rows.reveal = true;
+    }
     this.rememberAgent();
     const entries = this.sidebarEntries();
     const index = agentNavigation.indexOf(entries, target);
@@ -1172,7 +1179,8 @@ export class Controller {
   }
   private navigateAgent(next: boolean | null): void {
     this.rememberAgent();
-    const entries = this.agentEntries();
+    // Stepping follows the list as shown; going back reaches a folded agent too.
+    const entries = this.agentEntries(undefined, next === null);
     const target =
       next !== null
         ? agentNavigation.relative(entries, this.focusedAgent(), next)
@@ -1198,7 +1206,7 @@ export class Controller {
     this.dirty = true;
   }
   private pickerEntries(): Entry[] {
-    const entries = this.agentEntries();
+    const entries = this.agentEntries(undefined, true);
     const picker = this.agent_picker!;
     const filtered = picker.list(entries);
     picker.reconcile(filtered, this.sidebarView(filtered).capacity);
@@ -6167,15 +6175,9 @@ export class Controller {
     this.closeMenu();
     // Its agents may all be in folded sections; those open.
     const ws = this.runtime.workspaces.items.find(ws => ws.id === selection.workspace);
-    for (const e of this.agentEntries(selection.workspace)) {
-      const target = e.target as OrderTarget;
-      if (worktreeAgents.listedWorktree(ws?.worktrees ?? null, target, e.cwd) !== selection.path) continue;
-      const pinned = ws?.pinned_agents.some(t => sidebar.sameTarget(t, target)) ?? false,
-        key = agentKey(target);
-      this.folded_sections.delete(
-        pinned ? "starred" : this.agent_since.shown(key, agentSections.section(e), e.focused),
-      );
-    }
+    for (const e of this.agentEntries(selection.workspace))
+      if (worktreeAgents.listedWorktree(ws?.worktrees ?? null, e.target as OrderTarget, e.cwd) === selection.path)
+        this.folded_sections.delete(this.shownSection(e));
     this.sidebar_rows.discard();
     const entries = this.sidebarEntries();
     const index = entries.findIndex(
@@ -6187,6 +6189,12 @@ export class Controller {
     if (focus && index >= 0) this.selectAgent(entries[index].target);
     if (index >= 0) this.agentOffset().set(this.sidebarView(entries).reveal(index));
     this.dirty = true;
+  }
+  /** The section an agent's row shows in, from its entry in a workspace's list. */
+  private shownSection(e: Entry): Section {
+    return e.starred
+      ? "starred"
+      : this.agent_since.shown(agentKey(e.target as OrderTarget), agentSections.section(e), e.focused);
   }
   private worktreeRect(): Rect | null {
     const id = this.worktreeDetail();

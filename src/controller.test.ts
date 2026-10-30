@@ -919,6 +919,24 @@ test("a workspace row opens that workspace; Esc leaves the sidebar as it was", a
   }
 });
 
+test("search finds agents in folded sections and opening one unfolds its section", () => {
+  const { s } = steering();
+  try {
+    s.prefs.agent_sort = "activity";
+    s.focusPane(1);
+    s.folded_sections.add("idle");
+    expect((s.agentEntries() as sidebar.Entry[]).some(e => sidebar.isAgent(e.target))).toBe(false);
+    s.openAgentPicker();
+    s.agent_picker.query = Dialog.init({ pane: 0 }, "agent 2");
+    expect(s.pickerEntries().map((e: sidebar.Entry) => e.target)).toEqual([{ pane: 2 }]);
+    s.acceptAgentPicker();
+    expect(s.focused().id).toBe(2);
+    expect(s.folded_sections.has("idle")).toBe(false);
+  } finally {
+    viewer.close(s);
+  }
+});
+
 test("/ searches the focused agent list and Esc comes back to it; letters and the workspace list don't search", async () => {
   const { s, sent } = steering();
   try {

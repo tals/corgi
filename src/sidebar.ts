@@ -840,7 +840,9 @@ export class View {
   revealSection(index: number): number {
     const end = groupEnd(this.entries, index);
     if (this.rowsBefore(end) - this.rowsBefore(index) <= this.listRows()) return this.revealGroup(index);
-    return Math.min(this.reveal(Math.min(index + 1, end - 1)), index);
+    let first = index + 1;
+    while (first < end && !isAgent(this.entries[first].target)) first += 1;
+    return Math.min(this.reveal(Math.min(first, end - 1)), index);
   }
   /** The smallest scroll change that shows entry `index`. */
   reveal(index: number): number {

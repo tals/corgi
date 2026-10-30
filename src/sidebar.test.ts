@@ -1616,6 +1616,26 @@ test("an opening section scrolls to show all of it, or when too long, just its f
   const scrolled = View.init(100, 30, true, offset, long.length).withEntries(long);
   expect(scrolled.reveal(6)).toBe(offset);
 });
+test.each([null, "/repo/topic"])("opening a large section reveals its first agent past subhead %s", checkout => {
+  const rows = (from: number, count: number) =>
+      Array.from({ length: count }, (_, i) => entry({ target: { pane: from + i }, name: `agent ${from + i}` })),
+    entries = [
+      entry({ target: { section: "working" } }),
+      ...rows(1, 5),
+      entry({
+        target: { section: "idle" },
+        group: { agents: 10, working: 0, attention: 0, folded: false, current: false, gap: true },
+      }),
+      entry({ target: { section: "idle", workspace: 1, checkout, run: 0 } }),
+      ...rows(6, 10),
+    ],
+    view = View.init(100, 30, true, 0, entries.length).withEntries(entries),
+    offset = view.revealSection(6),
+    shown = View.init(100, 30, true, offset, entries.length).withEntries(entries);
+  expect(shown.reveal(8)).toBe(offset);
+  expect(shown.reveal(6)).toBe(offset);
+  expect(offset).toBeLessThan(6);
+});
 test("the agent list's menu moves up to fit when the header sits low", () => {
   const view = View.init(100, 16, true, 0, 0).withWorkspaces(3, 0);
   const b = ScopeMenu.bounds(view, 100, 16);
