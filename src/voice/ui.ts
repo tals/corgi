@@ -225,7 +225,7 @@ export function mode(s: VoiceSession): {
 } {
   const off = { muted: true, label: "MUTED", label_style: hotBold };
   if (!s.available) return { note: "○", style: warm, ...off };
-  if (s.muted) return { note: "♪", style: muted, ...off };
+  if (s.muted) return { note: "♫", style: muted, ...off };
   const on = { muted: false, label: "Listening", label_style: strong };
   // Nowhere for text to go: grey until the runtime is connected with a viewer.
   if (s.link_state !== "connected" || !s.viewer) return { note: "♫", style: muted, ...on };

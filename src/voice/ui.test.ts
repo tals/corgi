@@ -141,7 +141,7 @@ test("the screen shows the target, the meter and what happened", () => {
 test("muted, unavailable and disconnected states say so", () => {
   const { session, ui } = setup();
   session.muted = true;
-  expect(screen(ui.draw(80, 20), 80, 20)[0]).toStartWith(" ♪ Corgi Voice");
+  expect(screen(ui.draw(80, 20), 80, 20)[0]).toStartWith(" ♫ Corgi Voice");
   expect(screen(ui.draw(80, 20), 80, 20)[3]).toContain("Mode:    MUTED");
   session.setAvailable(false, "mic_busy");
   let rows = screen(ui.draw(80, 20), 80, 20);
@@ -185,10 +185,13 @@ test("the mode is MUTED or Listening; the note adds a missing viewer and what sp
   expect(shown()).toMatchObject({ note: "♫", mode: "Listening" });
   expect(shown().frame).toContain(grey);
   expect(screen(shown().frame, 80, 20)[9]).toContain("No Corgi window is attached");
+  // Muted: the same note, grey, whether or not a viewer is attached.
   session.muted = true;
-  expect(shown()).toMatchObject({ note: "♪", mode: "MUTED" });
+  expect(shown()).toMatchObject({ note: "♫", mode: "MUTED" });
+  expect(shown().frame).toContain(grey);
   session.viewer = true;
-  expect(shown()).toMatchObject({ note: "♪", mode: "MUTED" });
+  expect(shown()).toMatchObject({ note: "♫", mode: "MUTED" });
+  expect(shown().frame).toContain(grey);
   expect(shown().frame).toContain(new Style({ fg: "hot", bg: "bg", bold: true }).sgr() + "MUTED");
 });
 
