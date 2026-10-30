@@ -120,3 +120,28 @@ test("by activity, an agent moves anywhere in its section, past worktree labels"
   expect(drag.action).toBe("place");
   expect(drag.before()).toBe(1);
 });
+test("in all, an agent drops only among its own workspace's rows, where its place is saved", () => {
+  const entries = [
+      row({ section: "pinned" }, null),
+      row({ section: "pinned", workspace: 1, checkout: null, run: 0 }, null),
+      row({ pane: 1 }, "pinned"),
+      row({ section: "pinned", workspace: 2, checkout: null, run: 0 }, null),
+      row({ pane: 2 }, "pinned"),
+      row({ section: "idle" }, null),
+      row({ section: "idle", workspace: 1, checkout: null, run: 0 }, null),
+      row({ pane: 3 }, "idle"),
+    ],
+    view = View.init(100, 30, true, 0, entries.length).withEntries(entries),
+    drag = Drag.init(view, 7, 5, yOf(view, 7), 1, 1, "activity");
+  drag.dragging = true;
+  // Among workspace 1's pins: pinned there.
+  drag.update(view, 1, 5, yOf(view, 2));
+  expect(drag.action).toBe("pin");
+  // Right after them, at the end of its own workspace's run: last of them.
+  drag.update(view, 1, 5, yOf(view, 3));
+  expect(drag.action).toBe("pin");
+  expect(drag.before()).toBe(4);
+  // Among workspace 2's pins, its place couldn't be saved: no drop.
+  drag.update(view, 1, 5, yOf(view, 5));
+  expect(drag.drop).toBeNull();
+});

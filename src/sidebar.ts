@@ -2046,10 +2046,11 @@ export class ScopeMenu {
   constructor(fields: Partial<ScopeMenu> = {}) {
     Object.assign(this, fields);
   }
+  /** Under the agents header, or moved up as far as it must to fit. */
   static bounds(side: View, cols: number, rows: number): Rect {
-    const y = side.middle() + 1;
     const width = Math.min(sat(cols, 1 + lists_x), Math.max(sat(side.width, 2 + lists_x), 26));
-    const height = Math.min(scope_rows.length + 2, sat(sat(rows, 1), y));
+    const height = Math.min(scope_rows.length + 2, sat(rows, 1));
+    const y = Math.min(side.middle() + 1, sat(sat(rows, 1), height));
     return new Rect(1 + lists_x, y, width, height);
   }
   static hit(side: View, cols: number, rows: number, x: number, y: number): ScopeChoice | null {

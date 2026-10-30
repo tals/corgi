@@ -1474,6 +1474,7 @@ test("activity sections draw centered headers, worktree labels over their rows",
     minutes: number,
     fields: Partial<agentSections.Item> = {},
   ) => ({
+    key: `pane:${pane}`,
     entry: entry({ target: { pane }, name, provider: "claude", state, attention: "none", paused: pane === 5 }),
     workspace: 1,
     checkout: null,
@@ -1566,4 +1567,12 @@ test("an opening section scrolls to show all of it, or when too long, just its f
   expect(offset).toBeLessThan(5);
   const scrolled = View.init(100, 30, true, offset, long.length).withEntries(long);
   expect(scrolled.reveal(6)).toBe(offset);
+});
+test("the agent list's menu moves up to fit when the header sits low", () => {
+  const view = View.init(100, 16, true, 0, 0).withWorkspaces(3, 0);
+  const b = ScopeMenu.bounds(view, 100, 16);
+  expect(b.h).toBe(8);
+  expect(b.y + b.h).toBeLessThanOrEqual(15);
+  expect(b.y).toBeLessThan(view.middle() + 1);
+  expect(ScopeMenu.hit(view, 100, 16, 5, b.y + 5)).toBe("activity");
 });

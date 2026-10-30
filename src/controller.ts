@@ -898,6 +898,7 @@ export class Controller {
     const totals = grouped ? this.workspaceEntries() : [];
     const items: agentSections.Item[] = [],
       seen = new Set<string>(),
+      held = new Set<string>(),
       now_ms = milliTimestamp();
     this.runtime.workspaces.items.forEach((ws, ws_index) => {
       if (workspace !== undefined ? ws.id !== workspace : !this.inScope(ws.id)) return;
@@ -1005,18 +1006,21 @@ export class Controller {
         const kind = section(entry.state, entry.attention, entry.paused),
           shown = this.agent_since.shown(key, kind, entry.focused);
         items.push({
+          key,
           entry,
           workspace: ws.id,
           checkout: worktreeAgents.listedWorktree(ws.worktrees, target, entry.cwd),
           section: shown,
           since: this.agent_since.observe(key, shown, starts[i], now_ms),
           pin: pin < 0 ? null : pin,
-          rank: this.agent_since.place(key, rank < 0 ? ws.activity_order.length : rank, shown !== kind),
+          rank: rank < 0 ? ws.activity_order.length : rank,
         });
+        if (shown !== kind) held.add(key);
       });
     });
     if (sectioned) {
       this.agent_since.keep(seen);
+      this.agent_since.place(items, held);
       const all = this.prefs.agents === "all";
       entries = agentSections.arrange(items, {
         all,
@@ -6078,16 +6082,23 @@ export class Controller {
     this.folded_groups = this.folded_groups.filter(id => id !== selection.workspace);
     if (this.current().id !== selection.workspace) this.switchWorkspace(selection.workspace);
     this.closeMenu();
+    // Its agents may all be in folded sections; those open.
+    const ws = this.runtime.workspaces.items.find(ws => ws.id === selection.workspace);
+    for (const e of this.agentEntries(selection.workspace)) {
+      const target = e.target as OrderTarget;
+      if (worktreeAgents.listedWorktree(ws?.worktrees ?? null, target, e.cwd) !== selection.path) continue;
+      const pinned = ws?.pinned_agents.some(t => sidebar.sameTarget(t, target)) ?? false;
+      this.folded_sections.delete(pinned ? "pinned" : section(e.state, e.attention, e.paused));
+    }
     this.sidebar_rows.discard();
-    const entries = this.sidebarEntries(),
-      index = worktreeAgents.index(entries, selection);
-    const first = entries.find(
+    const entries = this.sidebarEntries();
+    const index = entries.findIndex(
       e =>
         sidebar.isAgent(e.target) &&
         e.worktree?.workspace === selection.workspace &&
         e.worktree.path === selection.path,
     );
-    if (focus && first) this.selectAgent(first.target);
+    if (focus && index >= 0) this.selectAgent(entries[index].target);
     if (index >= 0) this.agentOffset().set(this.sidebarView(entries).reveal(index));
     this.dirty = true;
   }

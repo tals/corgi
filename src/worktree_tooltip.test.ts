@@ -732,6 +732,16 @@ test("a section header folds its agents on click; a worktree's subhead opens its
   await (view as any).selectAgent(subhead.target);
   expect(view.headless_notice).toBe(7);
 });
+test("entering a worktree whose agents are in a folded section opens it and focuses them", async () => {
+  const { view } = browsing(),
+    path = "/repo/.worktrees/1";
+  await view.input(Buffer.from("\x1b[27u"));
+  await (view as any).selectAgent({ section: "idle" });
+  expect((view as any).sidebarEntries().some((e: any) => e.name === "Search agent" && e.exit === null)).toBe(false);
+  (view as any).revealWorktree({ workspace: 1, path }, true);
+  expect(view.folded_sections.has("idle")).toBe(false);
+  expect(view.headless_notice).toBe(7);
+});
 /** Two claude panes in the first worktree and one in the primary checkout,
  * with a daemon that records closed panes. */
 function paneWorktrees() {

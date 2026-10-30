@@ -8,6 +8,7 @@ const item = (
   state: State,
   fields: Partial<agentSections.Item> & { attention?: Attention } = {},
 ): agentSections.Item => ({
+  key: `pane:${pane}`,
   entry: entry({
     target: { pane },
     name: `agent ${pane}`,
@@ -165,20 +166,21 @@ test("an agent keeps its place when a neighbour in its worktree leaves the secti
   expect(agents(agentSections.arrange(idle("idle"), options()))).toEqual([1, 2, 3, 4]);
   expect(agents(agentSections.arrange(idle("working"), options()))).toEqual([2, 3, 4]);
 });
-test("an agent held among the ready keeps its place there while the daemon moves it on", () => {
-  const since = new agentSections.Since();
-  // Ready: 1, 2, 3 in that order.
-  for (const [key, rank] of [
-    ["pane:1", 0],
-    ["pane:2", 1],
-    ["pane:3", 2],
-  ] as const)
-    since.place(key, rank, false);
-  // Opening 2 reads it; the daemon puts it first as it goes idle, and the others shift down.
-  expect(since.place("pane:2", 0, true)).toBe(1.5);
-  expect(since.place("pane:1", 1, false)).toBe(1);
-  expect(since.place("pane:3", 2, false)).toBe(2);
-  expect(since.place("pane:2", 0, true)).toBe(1.5);
-  // Left, it takes the place the daemon gave it.
-  expect(since.place("pane:2", 0, false)).toBe(0);
+test("an agent held among the ready stays between its neighbours while others move", () => {
+  const since = new agentSections.Since(),
+    ready = (ranks: Record<number, number>, held: number[]) => {
+      const items = Object.entries(ranks).map(([pane, rank]) =>
+        item(Number(pane), "idle", { attention: "finished", rank }),
+      );
+      since.place(items, new Set(held.map(pane => `pane:${pane}`)));
+      return agentSections.arrange(items, options()).flatMap(e => ("pane" in e.target ? [e.target.pane] : []));
+    };
+  // Ready: A, B, C.
+  expect(ready({ 1: 0, 2: 1, 3: 2 }, [])).toEqual([1, 2, 3]);
+  // Opening B reads it; the daemon puts it first, and it stays put.
+  expect(ready({ 2: 0, 1: 1, 3: 2 }, [2])).toEqual([1, 2, 3]);
+  // D finishes and goes on top; B still sits between A and C.
+  expect(ready({ 4: 0, 2: 1, 1: 2, 3: 3 }, [2])).toEqual([4, 1, 2, 3]);
+  // Left, B takes the place the daemon gave it.
+  expect(ready({ 4: 0, 2: 1, 1: 2, 3: 3 }, [])).toEqual([4, 2, 1, 3]);
 });

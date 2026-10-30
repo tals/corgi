@@ -1,4 +1,4 @@
-import { groupEnd, isAgent, isGroup, isSection, type Sort, type View, type Target } from "./sidebar";
+import { groupEnd, isAgent, isGroup, isSection, isSubhead, type Sort, type View, type Target } from "./sidebar";
 import { sameTarget } from "./agent_navigation";
 /** What a drop does: reorder the hand-sorted list, pin or unpin an agent,
  * or reorder its activity section. */
@@ -29,6 +29,8 @@ export class Drag {
   header: number | null;
   /** Whether the agent was pinned when picked up. */
   pinned: boolean;
+  /** Each row's workspace, by the subhead over it; null where none says. */
+  owners: (number | null)[];
   constructor(
     view: View,
     public source: number,
@@ -54,6 +56,12 @@ export class Drag {
     this.header = header < 0 ? null : header;
     this.pins = header < 0 ? { first: 0, end: 0 } : { first: header + 1, end: groupEnd(view.entries, header) };
     this.pinned = view.entries[source].section === "pinned";
+    let owner: number | null = null;
+    this.owners = view.entries.map(e => {
+      if (isSection(e.target) || isGroup(e.target)) owner = null;
+      else if (isSubhead(e.target)) owner = e.target.workspace;
+      return owner;
+    });
   }
   static init(view: View, source: number, x: number, y: number, workspace: number, current: number, sort?: Sort) {
     return new Drag(view, source, x, y, workspace, current, sort);
@@ -88,11 +96,20 @@ export class Drag {
       return;
     }
     if (drop.index === this.header) drop = { index: drop.index + 1, y: drop.y + 1 };
-    if (drop.index >= this.pins.first && drop.index <= this.pins.end) this.reorder(drop, "pin");
-    else if (this.pinned) {
+    if (drop.index >= this.pins.first && drop.index <= this.pins.end) {
+      if (this.own(drop.index)) this.reorder(drop, "pin");
+    } else if (this.pinned) {
       this.action = "unpin";
       this.drop = drop;
-    } else if (drop.index >= this.first && drop.index <= this.end) this.reorder(drop, "place");
+    } else if (drop.index >= this.first && drop.index <= this.end && this.own(drop.index)) this.reorder(drop, "place");
+  }
+  /** Whether a drop above row `index` lands among the agent's own workspace's
+   * rows: the order it changes is that workspace's, so it can go nowhere else. */
+  private own(index: number): boolean {
+    const mine = this.owners[this.source];
+    if (mine === null) return true;
+    const above = index > 0 && !isSection(this.ids[index - 1]) ? this.owners[index - 1] : (this.owners[index] ?? null);
+    return above === null || above === mine;
   }
   /** Previews the row at `drop`, unless that leaves it where it is. */
   private reorder(drop: { index: number; y: number }, action: Action) {

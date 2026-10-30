@@ -13,9 +13,10 @@ const order: Section[] = ["pinned", "working", "ready", "idle", "done"];
 /** When each agent entered its section, in ms. */
 export class Since {
   private seen = new Map<string, { kind: Section; at: number }>();
-  /** Each agent's last place in the section order, and a held one's kept place. */
+  /** Each agent's last place in its workspace's section order. */
   private ranks = new Map<string, number>();
-  private held = new Map<string, number>();
+  /** A held agent's neighbours in its section when it was opened. */
+  private anchors = new Map<string, { above: string | null; below: string | null }>();
   /** An agent first seen dates from `start`, the daemon's word for when its state began. */
   observe(key: string, kind: Section, start: number, now: number): number {
     const last = this.seen.get(key);
@@ -29,26 +30,52 @@ export class Since {
   shown(key: string, kind: Exclude<Section, "pinned">, focused: boolean): Exclude<Section, "pinned"> {
     return focused && kind === "idle" && this.seen.get(key)?.kind === "ready" ? "ready" : kind;
   }
-  /** An agent's place in the section order. The daemon puts one it sees go
-   * idle first; while `held` among the ready, it keeps the place it had, just
-   * after the agents that were above it then. */
-  place(key: string, rank: number, held: boolean): number {
-    if (!held) {
-      this.held.delete(key);
-      this.ranks.set(key, rank);
-      return rank;
+  /** Settles each item's place in the section order. The daemon puts an
+   * agent it sees go idle first; one `held` among the ready instead stays
+   * between the neighbours it had in its section, however the rest move. */
+  place(items: Item[], held: ReadonlySet<string>): void {
+    const now = new Map(items.map(item => [item.key, item.rank]));
+    for (const item of items) {
+      if (!held.has(item.key)) {
+        this.anchors.delete(item.key);
+        continue;
+      }
+      let anchor = this.anchors.get(item.key);
+      if (!anchor) {
+        anchor = this.neighbours(item, items);
+        this.anchors.set(item.key, anchor);
+      }
+      const below = anchor.below === null ? undefined : now.get(anchor.below),
+        above = anchor.above === null ? undefined : now.get(anchor.above);
+      if (below !== undefined) item.rank = below - 0.5;
+      else if (above !== undefined) item.rank = above + 0.5;
     }
-    if (!this.held.has(key)) this.held.set(key, (this.ranks.get(key) ?? rank) + 0.5);
-    return this.held.get(key)!;
+    for (const item of items) if (!held.has(item.key)) this.ranks.set(item.key, item.rank);
+  }
+  /** `item`'s neighbours in its workspace's section, by where they were last. */
+  private neighbours(item: Item, items: Item[]) {
+    const was = this.ranks.get(item.key) ?? item.rank;
+    let above: Item | null = null,
+      below: Item | null = null;
+    for (const other of items) {
+      const at = this.ranks.get(other.key);
+      if (other === item || at === undefined || other.workspace !== item.workspace || other.section !== item.section)
+        continue;
+      if (at < was && (above === null || at > this.ranks.get(above.key)!)) above = other;
+      if (at > was && (below === null || at < this.ranks.get(below.key)!)) below = other;
+    }
+    return { above: above?.key ?? null, below: below?.key ?? null };
   }
   /** Forgets agents that are gone. */
   keep(keys: ReadonlySet<string>): void {
-    for (const map of [this.seen, this.ranks, this.held])
+    for (const map of [this.seen, this.ranks, this.anchors])
       for (const key of map.keys()) if (!keys.has(key)) map.delete(key);
   }
 }
 
 export interface Item {
+  /** `pane:N` or `headless:N`. */
+  key: string;
   entry: sidebar.Entry;
   workspace: number;
   /** The linked worktree it's listed under; null in the workspace's own checkout. */
