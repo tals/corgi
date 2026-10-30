@@ -144,7 +144,12 @@ fresh actor; late hooks and protocol snapshots do not count that work again.
 
 Hooks, transcript readers, the Codex observer, headless transports and terminal
 screens supply different evidence. Fresh structured evidence takes precedence
-over screen inference. Once a local process acquires structured lifecycle,
+over screen inference. Codex titles are also resolved against local rollout
+headers when the shared app server does not own the thread or is unavailable.
+The title must still belong to the current process, and shortened IDs must
+resolve unambiguously. This supplies identity and transcript metadata only;
+hooks own standalone lifecycle. An app-server `notLoaded` result never settles
+that conversation or replaces its hook state. Once a local process acquires structured lifecycle,
 silence does not switch it to screen-only completion. Screens may still
 supplement status when protocol evidence ages. This ownership survives live
 reload and resets with process replacement. An unavailable source or idle screen

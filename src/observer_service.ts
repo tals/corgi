@@ -397,8 +397,10 @@ export async function tick(server: Server) {
           actor.observeSnapshot(snapshot, actorWatched(server, actor.id), clock.microTimestamp()),
           actor.state.state,
         );
-        runtime.conversations.observeChildren(actor, snapshot, clock.microTimestamp());
-        workers.summaries.submit(actor, snapshot.evidence, null, runtime.panes);
+        if (snapshot.lifecycle) {
+          runtime.conversations.observeChildren(actor, snapshot, clock.microTimestamp());
+          workers.summaries.submit(actor, snapshot.evidence, null, runtime.panes);
+        }
         changed(server);
       }
     }

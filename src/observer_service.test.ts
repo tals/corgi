@@ -6,6 +6,7 @@ import { Terminal } from "./pane/terminal";
 import { Worker } from "./providers/codex/observer";
 import { Snapshot } from "./providers/snapshot";
 import { Text } from "./providers/common";
+import { Path } from "./bounded_text";
 import * as codex from "./providers/codex";
 import * as checklist from "./activity/checklist";
 import * as omp from "./providers/omp";
@@ -448,4 +449,38 @@ test("transcript checklists cannot replace newer hooks and stay with their own c
   expect(actor.checklist.at).toBe(4000);
   await apply(actor.id, 3500, [...live.items]);
   expect(actor.checklist.items).toEqual([]);
+});
+
+test("local Codex identity attaches without lifecycle authority and admits only matching hooks", () => {
+  const { server, pane, terminal, registry } = fixture();
+  const request = {
+    pane: 1,
+    pid: 42,
+    actor: 0,
+    prefix: new Text(id),
+    generation: pane.attachment.generation,
+    title_revision: terminal.title_revision,
+  };
+  const identity = new Snapshot(request, id, "unknown");
+  identity.lifecycle = false;
+  identity.transcript = new Path("/tmp/rollout.jsonl");
+  const actor = snapshotActor(server, "codex", identity)!;
+  actor.observeSnapshot(identity, false, 100);
+  expect(pane.attachment.actor).toBe(actor);
+  expect(actor.state.last_seq).toBe(0n);
+  expect(actor.authoritative(100)).toBe(false);
+  const event = codex.adapter.hook({ hook_event_name: "UserPromptSubmit", session_id: id, turn_id: "turn" })!;
+  const watcher = codex.adapter.watch("");
+  const route = watcher.route(event as any, 1, session => (session === id ? 1 : null))!;
+  expect(route.binds).toBe(false);
+  expect(registry.routeHook(pane.attachment, "codex", event, route.binds)).toBe(actor);
+  expect(registry.routeHook(pane.attachment, "codex", { ...event, session: "other" }, false)).toBeNull();
+  actor.observeHook(event, 101n, false, 101);
+  expect(actor.state.state).toBe("working");
+  const before = stringify(actor.state);
+  identity.observed_at = 200;
+  actor.observeSnapshot(identity, false, 200);
+  expect(stringify(actor.state)).toBe(before);
+  terminal.title_revision++;
+  expect(snapshotActor(server, "codex", identity)).toBeNull();
 });

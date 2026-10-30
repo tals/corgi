@@ -1329,7 +1329,6 @@ export class Controller {
     // Review changes says what it would show: the line read ahead, checked
     // again now, or placeholder bars until git answers.
     this.review_summaries.ask(this.reviewCwd(p));
-    if (p.agent.session.length === 0) opened.off.add("copy-details");
     if (p.agent.observation.completed === 0n || unread(p.agent.observation)) opened.off.add("mark-unread");
     try {
       await call(this.connection, "session.command", { command: { "agent.rename": { target: id } } });

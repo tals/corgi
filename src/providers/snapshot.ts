@@ -30,6 +30,8 @@ export class Child {
   updated_at = 0;
 }
 export class Snapshot {
+  /** False when the source identifies a session but does not own its live state. */
+  lifecycle = true;
   model = "";
   model_info: Model | null = null;
   tool_active: boolean | null = null;
