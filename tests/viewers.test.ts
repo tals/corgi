@@ -104,22 +104,23 @@ class ViewerScenarios extends Viewers {
       b = await this.newViewer();
     await a.focus(shell);
     await b.focus(outsider);
-    for (const pane of agents) {
+    const ordered = agents.toReversed();
+    for (const pane of ordered) {
       this.assertEqual((await a.input("\x02]")).pane, pane);
       this.assertEqual(a.state.workspace, home);
     }
     const screen = screen_text(a.state.data, 100, 16);
     this.assertTrue(
-      screen.some(row => row.slice(0, 27).includes("Agent-5")),
+      screen.some(row => row.slice(0, 27).includes("Agent-0")),
       screen,
     );
-    this.assertEqual((await a.input("\x02]")).pane, agents[0]);
-    this.assertEqual((await a.input("\x02[")).pane, agents.at(-1));
+    this.assertEqual((await a.input("\x02]")).pane, ordered[0]);
+    this.assertEqual((await a.input("\x02[")).pane, ordered.at(-1));
     this.assertEqual((await b.poll()).pane, outsider);
     await a.input("\x02b");
-    this.assertEqual((await a.input("\x02]")).pane, agents[0]);
+    this.assertEqual((await a.input("\x02]")).pane, ordered[0]);
     await a.focus(shell);
-    this.assertEqual((await a.input("\x02\t")).pane, agents[0]);
+    this.assertEqual((await a.input("\x02\t")).pane, ordered[0]);
   }
 
   async test_agent_scope_menu_only_offers_all_and_current_workspace() {
@@ -297,11 +298,12 @@ class ViewerScenarios extends Viewers {
     await sleep(0.06);
     await a.poll();
     const restored = screen_text(a.state.data, 100, 24);
-    this.assertIn("Alpha", restored[13].slice(0, 27));
+    this.assertIn("Agent-4", restored[13].slice(0, 27));
+    this.assertIn("Agent-3", restored[15].slice(0, 27));
     this.assertNotIn("/ Agent-4", restored.join("\n"));
     this.assertEqual(a.state.pane, first);
     await a.input("\x02b\x02g");
-    for (const _ of rest) await a.input("\x1b[B");
+    for (const _ of rest) await a.input("\x1b[A");
     this.assertEqual(a.state.pane, first);
     let screen = screen_text(a.state.data, 100, 24);
     this.assertTrue(screen.slice(13, -1).some(row => row.slice(0, 27).includes("Agent-4")));
@@ -1217,8 +1219,8 @@ process.stdin.resume();
     await this.new();
     const first = await this.new(),
       second = await this.new();
-    await this.mark_agent(first, "Departing-agent");
     await this.mark_agent(second, "Surviving-agent");
+    await this.mark_agent(first, "Departing-agent");
     await this.rpc({
       op: "hook",
       pane: first,

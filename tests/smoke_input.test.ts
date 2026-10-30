@@ -227,7 +227,7 @@ class SmokeInput extends Runtime {
     await this.attach();
     let screen = await this.scrollbar_with("┃┃┃┃┃││││││");
     this.assertNotIn(
-      "Agent-11",
+      "Agent-0",
       screen
         .slice(12, 23)
         .map(r => r.slice(0, 27))
@@ -236,20 +236,23 @@ class SmokeInput extends Runtime {
     await this.input("\x1b[<65;5;15M");
     await this.scrollbar_with("│┃┃┃┃┃│││││");
     await this.input("\x1b[<65;5;15M".repeat(4));
-    screen = await this.scrollbar_with("││││┃┃┃┃┃││");
+    await this.scrollbar_with("││││┃┃┃┃┃││");
+    // The scrollbar moves before the agent rows finish sliding.
+    screen = screen_text((await this.client!.advance(0.3)).data, 80, 24);
     await this.click_text(
       screen.map((r, i) => (i < 12 ? "" : r.slice(0, 27))),
-      "Agent-8",
+      "Agent-3",
     );
-    await this.until(async () => (await this.panes()).find((p: any) => p.focused).id === panes[8]);
+    await this.until(async () => (await this.panes()).find((p: any) => p.focused).id === panes[3]);
     await this.rpc({ op: "action", name: "move-tab", value: "left" });
-    await this.command("pane.close", { target: panes[11] });
-    screen = await this.scrollbar_with("││││┃┃┃┃┃┃│");
+    await this.command("pane.close", { target: panes[0] });
+    await this.scrollbar_with("││││┃┃┃┃┃┃│");
+    screen = screen_text((await this.client!.advance(0.3)).data, 80, 24);
     await this.click_text(
       screen.map((r, i) => (i < 12 ? "" : r.slice(0, 27))),
-      "Agent-8",
+      "Agent-3",
     );
-    await this.until(async () => (await this.panes()).find((p: any) => p.focused).id === panes[8]);
+    await this.until(async () => (await this.panes()).find((p: any) => p.focused).id === panes[3]);
     await this.write({ op: "size", cols: 30, rows: 8 });
     screen = await this.frame_with("▐+▌", 30, 8);
     this.assertNotIn("agents", screen[0]);
@@ -311,6 +314,8 @@ class SmokeInput extends Runtime {
     }
     await this.attach();
     await this.scrollbar_with("┃┃┃┃┃┃┃┃┃││");
+    await this.input("\x1b[<65;5;15M".repeat(2));
+    await this.scrollbar_with("││┃┃┃┃┃┃┃┃┃");
     const before = (await this.session()).panes.map((p: any) => p.id);
     // The sidebar's "New" launches the last agent.
     await this.click(20, 12);
@@ -327,7 +332,7 @@ class SmokeInput extends Runtime {
       seq: 1,
       event: { hook_event_name: "SessionStart", session_id: "launched" },
     });
-    const screen = await this.scrollbar_with("│││┃┃┃┃┃┃┃┃");
+    const screen = await this.scrollbar_with("┃┃┃┃┃┃┃┃│││");
     this.assertIn(
       "Launched",
       screen
@@ -336,9 +341,9 @@ class SmokeInput extends Runtime {
         .join("\n"),
     );
     await this.command("pane.close", { target: pane });
-    await this.scrollbar_with("││┃┃┃┃┃┃┃┃┃");
-    await this.input("\x1b[<64;5;15M".repeat(3));
     await this.scrollbar_with("┃┃┃┃┃┃┃┃┃││");
+    await this.input("\x1b[<65;5;15M".repeat(2));
+    await this.scrollbar_with("││┃┃┃┃┃┃┃┃┃");
     const open = (await this.session()).panes.map((p: any) => p.id);
     await this.rpc({ op: "action", name: "undo-close" });
     await this.until(async () => {
