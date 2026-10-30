@@ -89,6 +89,16 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
       ws.agent_order.move(r.agentTargets(ws), request.payload.target, request.payload.before ?? null);
       break;
     }
+    case "agent.pin": {
+      const ws = r.getWorkspace(request.payload.workspace);
+      r.starAgent(ws, request.payload.target, request.payload.pinned, request.payload.before ?? null);
+      break;
+    }
+    case "agent.place": {
+      const ws = r.getWorkspace(request.payload.workspace);
+      ws.activity_order.move(r.agentTargets(ws), request.payload.target, request.payload.before ?? null);
+      break;
+    }
     case "agent.command": {
       if (request.payload.index < 0 || request.payload.index >= r.agent_commands.length) throw Error("InvalidCommand");
       const source =
@@ -514,6 +524,10 @@ export function viewerSnapshot(r: Runtime) {
   return build(r, true);
 }
 function build(r: Runtime, viewer: boolean) {
+  // An agent's new state and its place at the top of its new section go out
+  // together, or a viewer would show it at its old place first. The tick
+  // would then find nothing to raise, so the change is marked here.
+  if (r.raiseEntered()) r.changed();
   const coarse = (s: number) => (s <= 0 ? s : Math.floor(s / 5000000) * 5000000);
   const conversations = r.conversations.items
     .filter(a => !viewer || r.followed(a))
@@ -579,6 +593,10 @@ function build(r: Runtime, viewer: boolean) {
     accounts: accounts.known().map(a => ({ provider: a.provider, account: a.dir, name: a.name, managed: a.managed })),
     workspaces: r.workspaces.items.map((w: any) => ({
       agent_order: w.agent_order.slice(),
+      pinned_agents: w.pinned_agents.slice(),
+      starred_sessions: w.starred_sessions.slice(),
+      activity_order: w.activity_order.slice(),
+      starting_agents: r.startingAgents(w),
       last_agent: w.last_agent,
       launcher_hidden: w.launcher_hidden,
       closed_agents: r.closedCount(w.id),

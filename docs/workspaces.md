@@ -122,8 +122,8 @@ The comparison uses the local counterpart of `origin/HEAD`, then `main`,
 `master` or `trunk`; without one, comparison is unavailable.
 Enabled worktree briefs summarize commits and diffs while the overview is
 open. Press `r` to refresh them. Review changes with `e` or the worktree
-heading's menu; see [Review changes](reference.md#review-changes).
-The heading's menu also has Open folder, which focuses a shell already waiting
+name's menu in the agent list; see [Review changes](reference.md#review-changes).
+That menu also has Open folder, which focuses a shell already waiting
 at its prompt in the worktree or opens a tab there.
 
 ## Remove a worktree

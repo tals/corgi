@@ -654,7 +654,7 @@ test("a ghost previews a worktree's newest conversations as agents; Enter brings
     );
     entries = (view as any).sidebarEntries();
     expect(entries.some((e: any) => e.worktree?.ghost || "asleep" in e.target)).toBe(false);
-    const group = entries.findIndex((e: any) => e.target.worktree === path);
+    const group = entries.findIndex((e: any) => e.target.checkout === path);
     expect(entries.slice(group + 1, group + 4).map((e: any) => [e.target, e.name])).toEqual([
       [{ pane: 2 }, "Recent 0"],
       [{ pane: 3 }, "Recent 1"],
@@ -706,7 +706,7 @@ test("browsing an offscreen group scrolls the existing sidebar without a duplica
   });
   await view.input(Buffer.from("\x1b[B"));
   const entries = (view as any).sidebarEntries();
-  const index = entries.findIndex((e: any) => e.target.worktree === "/repo/.worktrees/1");
+  const index = entries.findIndex((e: any) => "headless" in e.target && e.worktree?.path === "/repo/.worktrees/1");
   const side = view.sidebarView(entries);
   expect(side.offset).toBeGreaterThan(0);
   expect(index).toBeGreaterThanOrEqual(side.offset);
@@ -715,20 +715,34 @@ test("browsing an offscreen group scrolls the existing sidebar without a duplica
   expect(entries.filter((e: any) => e.name.startsWith("Root "))).toHaveLength(15);
   expect(entries.some((e: any) => e.worktree?.ghost)).toBe(false);
 });
-test("a worktree header folds its group on click and entering the worktree unfolds it", async () => {
+test("a section header folds its agents on click; a worktree's subhead opens its first agent", async () => {
   const { view } = browsing(),
     path = "/repo/.worktrees/1";
+  view.prefs.agent_sort = "activity";
   await view.input(Buffer.from("\x1b[27u"));
   const rows = () => (view as any).sidebarEntries();
-  const header = rows().findIndex((e: any) => e.target.worktree === path);
-  expect(rows()[header]).toMatchObject({ name: "topic-1", focused: false });
-  await view.perform({ name: "worktree-agent", value: header });
+  const header = rows().findIndex((e: any) => e.target.section === "idle" && !("workspace" in e.target));
+  expect(rows()[header]).toMatchObject({ name: "idle", focused: false });
+  await (view as any).selectAgent(rows()[header].target);
   expect(rows()[header].group.folded).toBe(true);
-  expect(rows().some((e: any) => e.name === "Search agent")).toBe(false);
-  await (view as any).enterWorktree({ workspace: 1, path });
-  expect(rows()[header].group.folded).toBe(false);
-  expect(rows()[header].focused).toBe(false);
-  expect(rows().some((e: any) => e.name === "Search agent")).toBe(true);
+  // Its rows fade out rather than vanish.
+  expect(rows().find((e: any) => e.name === "Search agent")?.exit).not.toBeNull();
+  await (view as any).selectAgent(rows()[header].target);
+  const subhead = rows().find((e: any) => e.target.checkout === path);
+  expect(subhead.name).toBe("topic-1");
+  await (view as any).selectAgent(subhead.target);
+  expect(view.headless_notice).toBe(7);
+});
+test("entering a worktree whose agents are in a folded section opens it and focuses them", async () => {
+  const { view } = browsing(),
+    path = "/repo/.worktrees/1";
+  view.prefs.agent_sort = "activity";
+  await view.input(Buffer.from("\x1b[27u"));
+  await (view as any).selectAgent({ section: "idle" });
+  expect((view as any).sidebarEntries().some((e: any) => e.name === "Search agent" && e.exit === null)).toBe(false);
+  (view as any).revealWorktree({ workspace: 1, path }, true);
+  expect(view.folded_sections.has("idle")).toBe(false);
+  expect(view.headless_notice).toBe(7);
 });
 /** Two claude panes in the first worktree and one in the primary checkout,
  * with a daemon that records closed panes. */
@@ -782,7 +796,7 @@ function paneWorktrees() {
     })!;
     return y + 1;
   };
-  const heading = (e: any) => e.target.worktree === data.entries[1].path;
+  const heading = (e: any) => e.target.checkout === data.entries[1].path;
   return { view, data, closed, rows, row, heading };
 }
 test("e in the overview starts a reviewer in the browsed worktree and pins the review to it", async () => {
@@ -806,33 +820,28 @@ test("a worktree heading's right-click menu closes only the agents listed under 
     "Review changes",
     "Open folder",
     "Copy full path",
-    "Fold",
     "Close all agents for topic-0",
   ]);
   await view.input(Buffer.from("x"));
   expect(view.tab_menu).toBeNull();
   expect(closed).toEqual([1, 2]);
 });
-test("browsing a folded worktree in the overview dims the rest and peeks it open in place", async () => {
+test("browsing a worktree in the overview dims the rest and lights its agents where they are", async () => {
   const { view, data, rows, row, heading } = paneWorktrees(),
     path = data.entries[1].path,
     dim = new Writer();
   writeExit(dim, fg("text"), spotlight_dim);
   const faded = "\x1b[22m" + dim.buffered() + "main";
-  // Hovering the heading in the sidebar lights nothing.
+  // Hovering the subhead in the sidebar lights nothing.
   await view.input(Buffer.from(`\x1b[<35;6;${row(heading)}M`));
   expect(view.frame()).not.toContain(faded);
-  (view as any).toggleWorktree({ workspace: 1, path });
-  const header = rows().findIndex(heading);
+  const before = rows().map(e => e.target);
   await view.perform({ name: "worktrees", value: 1 });
   await view.perform({ name: "worktree-select", value: path });
-  const peek = rows();
-  expect(peek.findIndex(heading)).toBe(header);
-  expect(peek[header].worktree.ghost).toBe(true);
-  expect(peek.filter(e => e.worktree?.ghost && "pane" in e.target).map(e => e.name)).toEqual(["one", "two"]);
+  expect(rows().map(e => e.target)).toEqual(before);
+  expect(rows().some(e => e.worktree?.ghost)).toBe(false);
   expect(view.frame()).toContain(faded);
   await view.input(Buffer.from("\x1b[27u"));
-  expect(rows()[header]).toMatchObject({ worktree: { ghost: false }, group: { folded: true } });
   expect(view.frame()).not.toContain(faded);
 });
 test("the card closes once the pointer leaves it, its badge and the triangle between, pinned or not", async () => {

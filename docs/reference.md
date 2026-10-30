@@ -39,8 +39,26 @@ to create it. Missing folders can be created from the folder picker.
 
 Click a tab, pane or sidebar agent to focus it. Drag split dividers to resize.
 Right-click tabs, panes and agents for their actions; hold Shift when an
-application captures the mouse. Drag workspace or agent rows to reorder them.
-Workspace and agent order is shared; rearranging agents does not move panes.
+application captures the mouse. Drag workspace rows to reorder them.
+
+The agent list defaults to manual order, as dragged. New agents go on top,
+or first in their existing linked worktree group. Choose Sort: By activity
+in the "agents: … ▾" menu to group agents by what they are doing: working
+(including those waiting on you, in warm, and paused ones), ready to read,
+idle and done. A new agent stays dimmed in working through startup and idle,
+until its first prompt starts work. Each section keeps the order you drag it
+into; an agent that enters one goes on top. Agents next to each other in a linked worktree share a ⌥
+label, and ⌥ main marks where they stop. Click a section's header to fold it;
+done starts folded. Right-click an agent and choose **Star** or **Unstar**
+(`s` while the menu is open). Starred agents stay in the top **★ starred**
+section as their activity changes. Dragging only reorders agents within
+their section; it never stars or unstars them. Stars and order are shared
+and saved with the workspace; they don't move panes. Stars follow conversations
+when closed and resumed in that workspace, and show beside their titles in
+its new-tab history.
+Sort: Manual in the "agents: … ▾" menu keeps the dragged order and marks starred
+agents with ★. Starring does not change the selected sort.
+The default sort stays out of the preferences file until you choose a sort.
 
 Use **prefix w** to choose a workspace, **prefix a** to choose an agent, and
 **prefix g** to search agents in the Corgi preset; in the focused agent list,

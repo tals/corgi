@@ -6,7 +6,7 @@ import { readFileSync, mkdirSync, openSync, writeSync, fsyncSync, closeSync, ren
 import { randomUUID } from "node:crypto";
 import { supportedPreset, type Preset, type Prefix } from "./keymap";
 import * as palette from "./palette";
-import type { Scope } from "./sidebar";
+import type { Scope, Sort } from "./sidebar";
 import * as worktreeFolder from "./worktree_folder";
 
 /** Resource readings shown in the sidebar. Disabling removes the row and,
@@ -18,6 +18,8 @@ export type AgentScroll = { workspace: number | null; offset: number };
 export class Preferences {
   /** The agent scope persists across viewer restarts. */
   agents: Scope = "workspace";
+  /** An explicit agent order; unset follows the default without saving it. */
+  agent_sort: Sort | undefined = undefined;
   /** The last dragged sidebar width seeds new viewers; open ones keep their own. */
   sidebar_width = 28;
   /** The last dragged agents header row, seeding new viewers like the width;
@@ -40,6 +42,10 @@ export class Preferences {
   review_width = 80;
   /** Rows the review panel's file list takes at most, as last dragged. */
   review_tree_rows = 9;
+
+  agentSort(): Sort {
+    return this.agent_sort ?? "manual";
+  }
 }
 export function path(): string {
   if (process.env.XDG_STATE_HOME) return join(process.env.XDG_STATE_HOME, "corgi", "viewer.json");
@@ -84,6 +90,7 @@ export function read(file: string): Preferences {
 }
 const enums = {
   agents: ["workspace", "all"],
+  agent_sort: ["activity", "manual"],
   preset: ["corgi", "tmux", "herdr", "cmux"],
   prefix: ["ctrl_b", "ctrl_a"],
 } as const;

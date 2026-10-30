@@ -365,6 +365,7 @@ export class Server {
     }
     await this.followWorkspaceDirectories();
     this.runtime.reapStopped();
+    if (this.runtime.raiseEntered()) this.runtime.changed();
     await this.runtime.advanceRenames(clock.milliTimestamp());
     await observers.tick(this);
     if (this.clients.some(c => c.headless_start)) {

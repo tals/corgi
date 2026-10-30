@@ -28,6 +28,7 @@ const testEntry = (session: string, cwd: string, title: string, updated_at: numb
   branch: "",
   updated_at,
   interrupted: false,
+  starred: false,
 });
 
 test("collapsed shows this folder's newest closed conversations, then more", () => {
@@ -169,6 +170,36 @@ test("a conversation closed here comes first, under the name the sidebar showed"
   const rows = v.lines(c);
   expect(v.entry(c, rows)!.title).toBe("Review of 5b5101b6");
   expect(v.entry(c, rows)!.updated_at).toBe(1000);
+});
+
+test('stars sit inside history titles without moving columns or changing order; search finds them by "star"', () => {
+  const entries = [testEntry("a", "/w/corgi", "Fix login", 900), testEntry("b", "/w/corgi", "Review", 800)];
+  entries[1].starred = true;
+  const context = new Context({ pending: false, entries }, "/w/corgi", "/w", [], 1000);
+  for (const width of [44, 100]) {
+    const view = new View(),
+      writer = new Writer(),
+      terminal = new Terminal(width, 10);
+    try {
+      view.drawCollapsed(writer, context, 0, 1, width);
+      terminal.feed(writer.s);
+      const rows = terminal.text().split("\n");
+      expect(rows[1]).toContain("Fix login");
+      expect(rows[2]).toContain("★ Review");
+      expect(rows[2].indexOf("★")).toBe(rows[1].indexOf("Fix login"));
+      expect(rows[2].indexOf("3m")).toBe(rows[1].indexOf("1m"));
+      view.startSearch();
+      for (const ch of "review") view.query.key(ch.charCodeAt(0));
+      expect(view.entry(context, view.lines(context))?.session).toBe("b");
+      for (const query of ["Star", "starred", "star review"]) {
+        view.query.clear();
+        for (const ch of query) view.query.key(ch.charCodeAt(0));
+        expect(view.lines(context).filter(line => "entry" in line)).toEqual([{ entry: 1 }]);
+      }
+    } finally {
+      terminal.destroy();
+    }
+  }
 });
 
 test("a conversation from another account ends its title with the account's name, dimmed", () => {

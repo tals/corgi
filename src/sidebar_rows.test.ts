@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { State } from "./sidebar_rows";
+import { State, outOfOrder } from "./sidebar_rows";
 import { entry as sidebarEntry, type Entry } from "./sidebar";
 import * as rowGlide from "./row_glide";
 import type { Provider } from "./providers";
@@ -105,7 +105,7 @@ test("pane removal fades once while ended headless sessions stay visible and sam
   expect(shown).toHaveLength(1);
   expect(shown[0].state).toBe("done");
 });
-test("an agent moving into a worktree keeps its row, and rows it passes come back from 60%", () => {
+test("an agent moving into a worktree keeps its row, and rows it passes step up after it", () => {
   const rows = new State(),
     out: Entry[] = [],
     [a, b, c] = [entry(1), entry(2), entry(3)];
@@ -115,16 +115,16 @@ test("an agent moving into a worktree keeps its row, and rows it passes come bac
   expect(shown.map(paneOf)).toEqual([2, 3, null, 1]);
   expect(shown[3].exit).toBeNull();
   expect(shown[3].moved).toEqual({ from: 0, ms: 0 });
-  expect(shown[0].enter).toBe(State.shift_enter);
-  expect(shown[1].enter).toBe(State.shift_enter);
+  // Two rows up, they show where they were and step there a row at a time.
+  expect(shown.map(e => e.slide)).toEqual([2, 2, 0, 0]);
   expect(shown[2].enter).toBe(0);
-  shown = rows.update(1, inside, out, 110);
-  expect(shown[3].moved).toEqual({ from: 0, ms: 100 });
-  expect(shown[0].enter).toBeCloseTo(State.shift_enter + (1 - State.shift_enter) / 2);
+  shown = rows.update(1, inside, out, 10 + State.slide_ms / 2);
+  expect(shown.map(e => e.slide)).toEqual([1, 1, 0, 0]);
   expect(rows.moving(110)).toBe(true);
   shown = rows.update(1, inside, out, 10 + rowGlide.total_ms);
   expect(shown[3].moved).toBeNull();
   expect(shown.map(e => e.enter)).toEqual([null, null, null, null]);
+  expect(shown.map(e => e.slide)).toEqual([0, 0, 0, 0]);
   expect(rows.moving(10 + rowGlide.total_ms)).toBe(false);
 });
 test("an agent leaving its worktree takes the emptied header with it at once", () => {
@@ -136,7 +136,7 @@ test("an agent leaving its worktree takes the emptied header with it at once", (
   expect(shown.map(paneOf)).toEqual([1, 2]);
   expect(shown.map(e => e.exit)).toEqual([null, null]);
   expect(shown[0].moved).toEqual({ from: 3, ms: 0 });
-  expect(shown[1].enter).toBe(State.shift_enter);
+  expect(shown[1].slide).toBe(-2);
 });
 test("an agent listed under two checkouts keeps a row under each", () => {
   const rows = new State(),
@@ -153,4 +153,57 @@ test("an agent listed under two checkouts keeps a row under each", () => {
   expect(shown[1].exit).not.toBeNull();
   expect(shown[3].exit).toBeNull();
   expect(shown[3].moved).toBeNull();
+});
+test("the rows that moved are those outside the longest run that kept its order", () => {
+  expect(outOfOrder([0, 1, 2, 3])).toEqual([]);
+  // One row dragged from the bottom to the top.
+  expect(outOfOrder([3, 0, 1, 2])).toEqual([0]);
+  // One from the top to the bottom.
+  expect(outOfOrder([1, 2, 3, 0])).toEqual([3]);
+  expect(outOfOrder([])).toEqual([]);
+});
+test("a row reordered within its group glides there, and rows it passes step aside", () => {
+  const rows = new State(),
+    out: Entry[] = [],
+    [a, b, c] = [entry(1), entry(2), entry(3)];
+  rows.update(1, [a, b, c], out, 0);
+  const shown = rows.update(1, [c, a, b], out, 10);
+  expect(shown.map(paneOf)).toEqual([3, 1, 2]);
+  expect(shown[0].moved).toEqual({ from: 4, ms: 0 });
+  expect(shown[1].moved).toBeNull();
+  expect(shown.map(e => e.slide)).toEqual([0, -2, -2]);
+});
+test("a row pushed one row or less just lands", () => {
+  const rows = new State(),
+    out: Entry[] = [],
+    [a, b] = [entry(1), entry(2)],
+    gap = { ...header("/wt"), group: { ...header("/wt").group, gap: true } };
+  rows.update(1, [header("/wt"), a, b], out, 0);
+  // The header gains a blank row above it: one row down for each agent.
+  const shown = rows.update(1, [gap, a, b], out, 10);
+  expect(shown.map(e => e.slide)).toEqual([0, 0, 0]);
+  expect(rows.moving(10)).toBe(false);
+});
+test("an unfolding group's rows fade in; folding, they fade out", () => {
+  const rows = new State(),
+    out: Entry[] = [],
+    [a, b] = [entry(1), entry(2)];
+  rows.update(1, [a], out, 0);
+  rows.reveal = true;
+  let shown = rows.update(1, [a, b], out, 10);
+  expect(shown[1].enter).toBe(0);
+  expect(rows.reveal).toBe(false);
+  shown = rows.update(1, [a], out, 300);
+  expect(shown.map(paneOf)).toEqual([1, 2]);
+  expect(shown[1].exit).not.toBeNull();
+});
+test("a row that changes groups but lands where it was doesn't glide", () => {
+  const rows = new State(),
+    out: Entry[] = [],
+    a = entry(1);
+  // One agent at work becomes the one idle: its header changes, its row stays put.
+  rows.update(1, [{ ...a, section: "working" }], out, 0);
+  const shown = rows.update(1, [{ ...a, section: "idle" }], out, 10);
+  expect(shown[0].moved).toBeNull();
+  expect(rows.moving(10)).toBe(false);
 });

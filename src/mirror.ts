@@ -8,6 +8,7 @@ import { stringify } from "./json";
 import * as surface from "./pane/surface";
 import * as resources from "./trackers/resources";
 import * as protocol from "./protocol";
+import { Stars, type Session as StarredSession } from "./agent_stars";
 import * as viewerVersion from "./viewer_version";
 import { commandEntry, Row } from "./agent_launcher";
 import type { Entry as CommandEntry } from "./launch/command";
@@ -302,6 +303,11 @@ export interface Workspace {
   cwd: string;
   model: Model;
   agent_order: ({ pane: number } | { headless: number })[];
+  pinned_agents: ({ pane: number } | { headless: number })[];
+  starred_sessions: StarredSession[];
+  activity_order: ({ pane: number } | { headless: number })[];
+  /** Agents the daemon holds in working until their first turn. */
+  starting_agents: ({ pane: number } | { headless: number })[];
   last_agent: Provider | null;
   /** The launcher rows hidden in this workspace only. */
   launcher_hidden: Row[];
@@ -317,6 +323,14 @@ export interface Workspace {
   worktree_briefs: Brief[];
   stats: any;
 }
+/** A daemon's stars; a list it can't read shows none. */
+function starredSessions(value: unknown): StarredSession[] {
+  try {
+    return Stars.restore(value ?? []).slice();
+  } catch {
+    return [];
+  }
+}
 function workspace(value: any): Workspace {
   return {
     id: value.id,
@@ -325,6 +339,10 @@ function workspace(value: any): Workspace {
     cwd: value.cwd ?? "",
     model: Model.fromData(value.model),
     agent_order: value.agent_order ?? [],
+    pinned_agents: value.pinned_agents ?? [],
+    starred_sessions: starredSessions(value.starred_sessions),
+    activity_order: value.activity_order ?? [],
+    starting_agents: value.starting_agents ?? [],
     last_agent: Provider.parse(value.last_agent),
     launcher_hidden: strings(value.launcher_hidden).flatMap(text => Row.parse(text) ?? []),
     closed_agents: Number(value.closed_agents ?? 0),

@@ -71,10 +71,12 @@ import * as gitTooltip from "./git_tooltip";
 import type { Signal } from "./trackers/resources";
 import * as worktreeTooltip from "./worktree_tooltip";
 import * as worktreeAgents from "./worktree_agents";
+import * as agentSections from "./agent_sections";
+import { key as agentKey, section, type Section, type Target as OrderTarget } from "./agent_order";
+import * as worktrees from "./worktrees";
 import * as worktreeRemoval from "./worktree_removal";
 import * as rpc from "./rpc";
 import type { CommandInput } from "./protocol";
-import * as worktrees from "./worktrees";
 import * as launcherWorktree from "./launcher_worktree";
 import * as preferences from "./preferences";
 import { Preferences } from "./preferences";
@@ -293,8 +295,12 @@ export class Controller {
   paste_card: PasteCard | null = null;
   tab_menu: TabMenu | null = null;
   port_menu: sidebar.PortMenu | null = null;
-  /** Workspace ids whose group is folded in the grouped "All" list. */
+  /** Workspace ids whose group is folded in the manual "All" list. */
   folded_groups: number[] = [];
+  /** Activity sections folded to their header; done starts so. */
+  folded_sections = new Set<Section>(["done"]);
+  /** When each listed agent entered its activity section. */
+  agent_since = new agentSections.Since();
   scope_menu: sidebar.ScopeMenu | null = null;
   agent_picker: AgentPicker | null = null;
   agent_launcher: LauncherMenu | null = null;
@@ -568,7 +574,7 @@ export class Controller {
       return this.selectAgent(target);
     }
     if (arrow) return this.leaveSidebar();
-    if ("group" in target) return this.selectAgent(target);
+    if ("group" in target || "section" in target) return this.selectAgent(target);
     await this.perform({ name: "worktree-agent", value: index });
   }
   /** The agent under the sidebar's cursor, where entering it would put it,
@@ -722,12 +728,16 @@ export class Controller {
   private inScope(id: number): boolean {
     return this.prefs.agents === "workspace" ? id === this.current().id : true;
   }
-  private setAgentScope(scope: Scope): void {
+  private setAgentScope(choice: sidebar.ScopeChoice): void {
     this.closeMenu();
-    this.prefs.agents = scope;
+    const change: Partial<Preferences> =
+      choice === "activity" || choice === "manual" ? { agent_sort: choice } : { agents: choice };
+    Object.assign(this.prefs, change);
+    // The list's rows are new; nothing should glide from the old ones.
+    this.sidebar_rows.discard();
     this.dirty = true;
     try {
-      preferences.update({ agents: scope });
+      preferences.update(change);
     } catch (error) {
       this.notice((error as Error).message);
     }
@@ -753,6 +763,18 @@ export class Controller {
     } else if (this.folded_groups.length < max_workspaces) this.folded_groups.push(id);
     this.sidebar_rows.discard();
     if (index >= 0) this.revealGroup({ group: id });
+    this.dirty = true;
+  }
+  private toggleSection(kind: Section): void {
+    const unfolded = this.folded_sections.delete(kind);
+    if (!unfolded) this.folded_sections.add(kind);
+    // Its rows fade out as it folds, and in as it opens.
+    this.sidebar_rows.reveal = unfolded;
+    if (unfolded) {
+      const entries = this.sidebarEntries();
+      const index = agentNavigation.indexOf(entries, { section: kind });
+      if (index !== null) this.agentOffset().set(this.sidebarView(entries).revealSection(index));
+    }
     this.dirty = true;
   }
   private toggleWorktree(selection: worktreeAgents.Selection): void {
@@ -865,12 +887,19 @@ export class Controller {
       return entry;
     });
   }
-  agentEntries(workspace?: number): Entry[] {
-    const entries: Entry[] = [];
+  /** The agent list; `unfolded` keeps the agents of folded sections. */
+  agentEntries(workspace?: number, unfolded = false): Entry[] {
+    let entries: Entry[] = [];
     const focus = this.model().count > 0 ? this.nav().tab().focus : 0;
-    // "All" groups agents under a header per workspace that has any.
-    const grouped = workspace === undefined && this.prefs.agents === "all";
+    // Activity sorting sections the sidebar's list; a single workspace's,
+    // for its worktrees, keeps the hand-sorted order.
+    const sectioned = workspace === undefined && this.prefs.agentSort() === "activity";
+    // A hand-sorted "All" groups agents under a header per workspace that has any.
+    const grouped = workspace === undefined && !sectioned && this.prefs.agents === "all";
     const totals = grouped ? this.workspaceEntries() : [];
+    const items: agentSections.Item[] = [],
+      held = new Set<string>(),
+      now_ms = milliTimestamp();
     this.runtime.workspaces.items.forEach((ws, ws_index) => {
       if (workspace !== undefined ? ws.id !== workspace : !this.inScope(ws.id)) return;
       if (grouped) {
@@ -892,7 +921,8 @@ export class Controller {
         );
         if (folded) return;
       }
-      const first_agent = entries.length;
+      const first_agent = entries.length,
+        starts: number[] = [];
       for (let tab_index = 0; tab_index < ws.model.count; tab_index++) {
         for (const p of this.runtime.panes) {
           if (p.agent.provider === null || ws.model.tabForPane(p.id) !== tab_index) continue;
@@ -900,6 +930,8 @@ export class Controller {
             sidebar.entry({
               conversation: p.agent.conversation,
               target: { pane: p.id },
+              starred: ws.pinned_agents.some(t => sidebar.sameTarget(t, { pane: p.id })),
+              starting: ws.starting_agents.some(t => sidebar.sameTarget(t, { pane: p.id })),
               name: p.label.length > 0 ? p.label : p.agent.name,
               provider: p.agent.provider,
               state: p.agent.state,
@@ -916,12 +948,15 @@ export class Controller {
               reopened: p.restoring.length > 0 && !p.dormant,
             }),
           );
+          starts.push(stateStart(p.agent));
         }
       }
       for (const session of this.runtime.sessions) {
         if (session.workspace !== ws.id) continue;
         const e = sidebar.entry({
           target: { headless: session.id },
+          starred: ws.pinned_agents.some(t => sidebar.sameTarget(t, { headless: session.id })),
+          starting: ws.starting_agents.some(t => sidebar.sameTarget(t, { headless: session.id })),
           provider: session.provider,
           state: session.state,
           attention: session.attention,
@@ -937,15 +972,65 @@ export class Controller {
           e.activity = session.agent.activity;
         }
         entries.push(e);
+        starts.push(session.agent ? stateStart(session.agent) : 0);
       }
-      // std.sort.insertion is stable.
-      const sorted = entries
-        .slice(first_agent)
-        .sort((l, r) => (sidebar.lessThan(ws.agent_order, l, r) ? -1 : sidebar.lessThan(ws.agent_order, r, l) ? 1 : 0));
-      const decorated =
-        workspace === undefined ? worktreeAgents.grouped(ws.worktrees, ws.id, sorted, this.worktree_agents) : sorted;
-      entries.splice(first_agent, sorted.length, ...decorated);
+      if (!sectioned) {
+        // std.sort.insertion is stable.
+        const sorted = entries
+          .slice(first_agent)
+          .sort((l, r) =>
+            sidebar.lessThan(ws.agent_order, l, r) ? -1 : sidebar.lessThan(ws.agent_order, r, l) ? 1 : 0,
+          );
+        // Worktrees label the rows that sit together, as in the sections.
+        const placed = sorted.map(entry => {
+          const checkout = worktreeAgents.listedWorktree(ws.worktrees, entry.target, entry.cwd);
+          return {
+            entry: {
+              ...entry,
+              worktree: checkout === null ? null : { workspace: ws.id, path: checkout, ghost: false },
+            },
+            workspace: ws.id,
+            checkout,
+          };
+        });
+        const decorated =
+          workspace === undefined
+            ? agentSections.labelled(placed, null, false, (id, checkout) => this.checkoutLabel(id, checkout, false))
+            : sorted;
+        entries.splice(first_agent, sorted.length, ...decorated);
+        return;
+      }
+      entries.slice(first_agent).forEach((entry, i) => {
+        const target = entry.target as OrderTarget,
+          key = agentKey(target),
+          pin = ws.pinned_agents.findIndex(t => sidebar.sameTarget(t, target)),
+          rank = ws.activity_order.findIndex(t => sidebar.sameTarget(t, target));
+        // Opening an unread agent reads it; it stays among the ready until left.
+        const kind = agentSections.section(entry),
+          shown = this.agent_since.shown(key, kind, entry.focused);
+        items.push({
+          key,
+          entry,
+          workspace: ws.id,
+          checkout: worktreeAgents.listedWorktree(ws.worktrees, target, entry.cwd),
+          section: shown,
+          since: this.agent_since.observe(key, shown, starts[i], now_ms),
+          pin: pin < 0 ? null : pin,
+          rank: rank < 0 ? ws.activity_order.length : rank,
+        });
+        if (shown !== kind) held.add(key);
+      });
     });
+    if (sectioned) {
+      this.agent_since.place(items, held);
+      const all = this.prefs.agents === "all";
+      entries = agentSections.arrange(items, {
+        all,
+        folded: unfolded ? new Set() : this.folded_sections,
+        workspaces: this.runtime.workspaces.items.map(ws => ws.id),
+        label: (id, checkout) => this.checkoutLabel(id, checkout, all),
+      });
+    }
     const now = microTimestamp();
     for (const entry of entries) {
       if (!sidebar.isAgent(entry.target)) continue;
@@ -955,6 +1040,17 @@ export class Controller {
       if ("pane" in entry.target) entry.notes = this.review.noteCount(entry.target.pane);
     }
     return entries;
+  }
+  /** A subhead's text for checkout `checkout` of workspace `id`: a worktree's
+   * branch, or the workspace's own checkout's branch; in `all`, by workspace. */
+  private checkoutLabel(id: number, checkout: string | null, all: boolean): string {
+    const ws = this.runtime.workspaces.items.find(ws => ws.id === id);
+    const linked =
+      checkout !== null && ws?.worktrees ? worktrees.linked(ws.worktrees).find(e => e.path === checkout) : null;
+    const branch = linked ? worktreeAgents.label(linked) : null;
+    if (branch !== null) return all ? `${ws?.name ?? ""} · ${branch}` : branch;
+    const primary = !all && ws?.worktrees ? ws.worktrees.entries.find(e => e.primary) : null;
+    return primary ? worktreeAgents.label(primary) : (ws?.name ?? "");
   }
   private sidebarEntries(): Entry[] {
     const list = this.prefs.agents === "workspace" ? this.current().id : 0xffffffff;
@@ -966,11 +1062,13 @@ export class Controller {
       this.worktree_agents.appearing = null;
       return entries;
     }
-    let index = worktreeAgents.index(entries, selected);
-    // A browsed worktree missing from the list, or folded, shows as a ghost:
-    // at the top, or in its folded header's place.
-    const folded = index >= 0 && entries[index].group.folded;
-    if (index >= 0 && !folded) this.worktree_agents.appearing = null;
+    // A browsed worktree with agents in the list lights them where they are;
+    // one with none shows as a ghost at the top.
+    let index = entries.findIndex(
+      e =>
+        sidebar.isAgent(e.target) && e.worktree?.workspace === selected.workspace && e.worktree.path === selected.path,
+    );
+    if (index >= 0) this.worktree_agents.appearing = null;
     else {
       const snapshot = this.runtime.workspaces.items.find(ws => ws.id === selected.workspace)?.worktrees;
       if (snapshot) {
@@ -988,7 +1086,7 @@ export class Controller {
         // A worktree with nothing to list has no ghost; one fades in once it has.
         if (!ghost.length) this.worktree_agents.appearing = null;
         const shown = ghost.length ? this.worktree_agents.animate(ghost, selected, milliTimestamp()) : [];
-        entries = folded ? [...entries.slice(0, index), ...shown, ...entries.slice(index + 1)] : [...shown, ...entries];
+        entries = [...shown, ...entries];
       }
       index = worktreeAgents.index(entries, selected);
     }
@@ -1011,7 +1109,12 @@ export class Controller {
   }
   private selectAgent(target: Target): void {
     if ("worktree" in target) return this.revealWorktree({ workspace: target.workspace, path: target.worktree }, true);
-    if (!sidebar.isAgent(target) && !("group" in target)) return;
+    // A subhead stands for its worktree; a workspace's own rows have nothing to open.
+    if (sidebar.isSubhead(target)) {
+      if (target.checkout !== null) this.revealWorktree({ workspace: target.workspace, path: target.checkout }, true);
+      return;
+    }
+    if (!sidebar.isAgent(target) && !("group" in target) && !sidebar.isSection(target)) return;
     this.rememberAgent();
     this.copy_mode = false;
     this.search_mode = false;
@@ -1028,6 +1131,13 @@ export class Controller {
         this.noticeHeadlessSession(session);
       }
     } else if ("group" in target) this.toggleGroup(target.group);
+    else if (sidebar.isSection(target)) this.toggleSection(target.section);
+    // An agent in a folded section opens it.
+    if (sidebar.isAgent(target) && this.folded_sections.size > 0 && this.prefs.agentSort() === "activity") {
+      const id = this.agentWorkspace(target),
+        e = id === null ? undefined : this.agentEntries(id).find(e => sidebar.sameTarget(e.target, target));
+      if (e && this.folded_sections.delete(this.shownSection(e))) this.sidebar_rows.reveal = true;
+    }
     this.rememberAgent();
     const entries = this.sidebarEntries();
     const index = agentNavigation.indexOf(entries, target);
@@ -1047,6 +1157,11 @@ export class Controller {
     this.agentOffset().set(this.sidebarView(entries).reveal(index));
     this.launched = 0;
   }
+  /** The workspace an agent's pane or session is in. */
+  private agentWorkspace(target: OrderTarget): number | null {
+    if ("pane" in target) return this.runtime.workspaces.owner(target.pane)?.id ?? null;
+    return this.runtime.sessions.find(s => s.id === target.headless)?.workspace ?? null;
+  }
   private focusedAgent(): Target | null {
     if (this.headless_notice !== null) {
       const id = this.headless_notice;
@@ -1064,7 +1179,8 @@ export class Controller {
   }
   private navigateAgent(next: boolean | null): void {
     this.rememberAgent();
-    const entries = this.agentEntries();
+    // Stepping follows the list as shown; going back reaches a folded agent too.
+    const entries = this.agentEntries(undefined, next === null);
     const target =
       next !== null
         ? agentNavigation.relative(entries, this.focusedAgent(), next)
@@ -1090,7 +1206,7 @@ export class Controller {
     this.dirty = true;
   }
   private pickerEntries(): Entry[] {
-    const entries = this.agentEntries();
+    const entries = this.agentEntries(undefined, true);
     const picker = this.agent_picker!;
     const filtered = picker.list(entries);
     picker.reconcile(filtered, this.sidebarView(filtered).capacity);
@@ -1178,6 +1294,7 @@ export class Controller {
   }
   /** Whether a tab menu's target (pane, workspace, or tab) has disappeared. */
   private tabMenuStale(context: TabMenu): boolean {
+    if (context.headless) return !this.runtime.sessions.some(session => session.id === context.tab);
     if (context.worktree !== null) {
       const ws = this.runtime.workspaces.items.find(ws => ws.id === context.tab);
       return !worktrees.linked(ws?.worktrees ?? null).some(e => e.path === context.worktree);
@@ -1202,7 +1319,13 @@ export class Controller {
     this.selection = null;
     const p = this.pane(id);
     if (!p) return;
-    const opened = new TabMenu({ tab: id, agent: true, anchor_x: x, anchor_y: y });
+    const opened = new TabMenu({
+      tab: id,
+      agent: true,
+      starred: this.runtime.workspaces.owner(id)?.pinned_agents.some(t => sidebar.sameTarget(t, { pane: id })) ?? false,
+      anchor_x: x,
+      anchor_y: y,
+    });
     // Review changes says what it would show: the line read ahead, checked
     // again now, or placeholder bars until git answers.
     this.review_summaries.ask(this.reviewCwd(p));
@@ -1233,17 +1356,19 @@ export class Controller {
    * show, as on an agent's; Close all runs only while the group lists an
    * agent in a pane. */
   private openWorktreeMenu(entry: Entry, x: number, y: number): void {
-    if (!("worktree" in entry.target)) return;
+    // A section's subhead stands for its worktree, but folds nothing.
+    const subhead = sidebar.isSubhead(entry.target);
+    if (!("worktree" in entry.target) && !(subhead && entry.worktree)) return;
     this.closeMenu();
     this.search_mode = false;
     this.cancelDividers();
     this.selection = null;
-    const selection = { workspace: entry.target.workspace, path: entry.target.worktree };
+    const selection = { workspace: entry.worktree!.workspace, path: entry.worktree!.path };
     const opened = new TabMenu({
       tab: selection.workspace,
       worktree: selection.path,
       title: entry.name,
-      folded: entry.group.folded,
+      folded: subhead ? null : entry.group.folded,
       anchor_x: x,
       anchor_y: y,
     });
@@ -1318,6 +1443,10 @@ export class Controller {
     const context = this.tab_menu;
     if (!context) return;
     this.closeMenu();
+    if (context.headless) {
+      if (item === "star") await this.perform({ name: "star-session", value: context.tab });
+      return;
+    }
     if (context.worktree !== null) {
       const selection = { workspace: context.tab, path: context.worktree };
       switch (item) {
@@ -1346,6 +1475,9 @@ export class Controller {
       const p = this.pane(pane_id);
       if (!p) return;
       switch (item) {
+        case "star":
+          await this.perform({ name: "star-agent", value: pane_id });
+          break;
         case "rename":
           this.name_dialog = Dialog.init({ agent: pane_id }, p.label.length > 0 ? p.label : p.agent.name);
           this.prepareName();
@@ -2012,6 +2144,25 @@ export class Controller {
       case "new-agent":
         this.openLauncher(true);
         break;
+      case "star-agent":
+      case "star-session": {
+        const id = Number(act.value),
+          target = act.name === "star-session" ? { headless: id } : { pane: id },
+          owner = this.agentWorkspace(target),
+          ws = this.runtime.workspaces.items.find(ws => ws.id === owner);
+        if (!ws) break;
+        if ("pane" in target && !this.pane(id)?.agent.provider) break;
+        const starred = !ws.pinned_agents.some(t => sidebar.sameTarget(t, target));
+        await this.edit({ "agent.pin": { workspace: ws.id, target, pinned: starred } });
+        if (starred && this.prefs.agentSort() === "activity") {
+          this.folded_sections.delete("starred");
+          this.sidebar_rows.discard();
+          const entries = this.sidebarEntries(),
+            index = agentNavigation.indexOf(entries, target);
+          if (index !== null) this.agentOffset().set(this.sidebarView(entries).reveal(index));
+        }
+        break;
+      }
       case "find-agent":
         this.openAgentPicker();
         break;
@@ -2987,7 +3138,15 @@ export class Controller {
     for (const stop of this.stopped)
       known.push({ provider: stop.provider, session: stop.session, name: "", at: stop.at });
     const entries = this.launch_previews.history.entries.filter((e: any) => Provider.parse(e?.provider));
-    return launcherResume.merge(entries.map(launcherResume.historyEntry), known);
+    const starred = this.historyStars();
+    return launcherResume.merge(entries.map(launcherResume.historyEntry), known).map(entry => ({
+      ...entry,
+      starred: starred.has(`${entry.provider}:${entry.session}`),
+    }));
+  }
+  /** The current workspace's stars: a resumed conversation gets its star back only there. */
+  private historyStars(): Set<string> {
+    return new Set(this.current().starred_sessions.map(star => `${star.provider}:${star.session}`));
   }
   /** Note the conversations panes stop running, and when, so a closed one
    * sorts by when it closed. */
@@ -4389,6 +4548,7 @@ export class Controller {
       } else if (parsed_key === "focus_out") {
         cl.watched = false;
         this.moonlander?.release();
+        if (this.agent_drag) this.agent_drag.cancelled = true;
         this.pointer = null;
         this.dirty = true;
       } else if (text.startsWith("\x1b[<")) await this.mouse(text);
@@ -4839,14 +4999,31 @@ export class Controller {
         drag.dragging = true;
       }
       if (!release && button === 32 && (x !== drag.start_x || y !== drag.start_y)) drag.dragging = true;
-      drag.update(side, this.current().id, x, y);
+      if (!release && button === 35) drag.cancelled = true;
+      drag.update(side, this.current().id, x, y, milliTimestamp());
       if (release && (button & 3) === 0) {
         this.agent_drag = null;
         this.ui_mouse_down = false;
         if (drag.drop && sidebar.isAgent(drag.target)) {
-          const before = drag.drop.index === drag.end ? null : sidebar.orderTarget(live[drag.drop.index]);
+          // Pins and section order belong to a workspace; above another's row,
+          // the agent goes last in its own.
+          const at = drag.before(),
+            other = at === null ? null : sidebar.orderTarget(live[at]),
+            before = other && this.agentWorkspace(other) === drag.workspace ? other : null,
+            place = { workspace: drag.workspace, target: drag.target, before };
           try {
-            await this.edit({ "agent.move": { workspace: drag.workspace, target: drag.target, before } });
+            // The preview already shows where it lands; nothing should glide there again.
+            this.sidebar_rows.discard();
+            await this.edit(
+              drag.action === "move"
+                ? { "agent.move": place }
+                : drag.action === "place"
+                  ? { "agent.place": place }
+                  : { "agent.pin": { ...place, pinned: true } },
+            );
+            if (drag.action === "place") this.agent_since.move(agentKey(drag.target), before ? agentKey(before) : null);
+            // Nor step back from the order shown before the daemon took the drop.
+            this.sidebar_rows.discard();
           } catch (error) {
             this.notice((error as Error).message);
           }
@@ -5311,7 +5488,11 @@ export class Controller {
             const index = found.entry;
             if (entries[index].exit !== null) break;
             const target = entries[index].target;
-            if (!sidebar.isAgent(target) && !("group" in target)) {
+            if (button === 2 && sidebar.isSubhead(target)) {
+              this.openWorktreeMenu(entries[index], x, y);
+              break;
+            }
+            if (!sidebar.isAgent(target) && !("group" in target) && !("section" in target)) {
               if (button === 2 && "worktree" in target && !entries[index].worktree?.ghost)
                 this.openWorktreeMenu(entries[index], x, y);
               else await this.perform({ name: "worktree-agent", value: index });
@@ -5319,18 +5500,26 @@ export class Controller {
             }
             this.selectAgent(target);
             if (button === 2 && "pane" in target) await this.openAgentMenu(target.pane, x, y);
-            if (button === 0 && sidebar.isAgent(target) && !entries[index].worktree) {
+            else if (button === 2 && "headless" in target) {
+              this.closeMenu();
+              this.tab_menu = new TabMenu({
+                tab: target.headless,
+                headless: true,
+                starred: entries[index].starred,
+                anchor_x: x,
+                anchor_y: y,
+              });
+            }
+            if (button === 0 && sidebar.isAgent(target) && !entries[index].worktree?.ghost) {
               // Selecting another workspace can scroll the list.
               // Capture the post-selection viewport and identity.
               const updated = this.sidebarEntries();
               const view = this.sidebarView(updated);
               const at = agentNavigation.indexOf(updated, target);
               if (at !== null && view.offset === side.offset) {
-                const owner =
-                  "pane" in target
-                    ? this.runtime.workspaces.owner(target.pane)!.id
-                    : this.runtime.sessions.find(s => s.id === (target as { headless: number }).headless)!.workspace;
-                this.agent_drag = AgentDrag.init(view, at, x, y, owner, this.current().id);
+                const owner = this.agentWorkspace(target);
+                if (owner !== null)
+                  this.agent_drag = AgentDrag.init(view, at, x, y, owner, this.current().id, this.prefs.agentSort());
               }
             }
             break;
@@ -5554,6 +5743,22 @@ export class Controller {
     const previous_token = had ? this.model().revision : 0n;
     this.runtime.receive(this.connection, snapshot);
     this.trackRunning();
+    const live = new Set<string>();
+    for (const p of this.runtime.panes) {
+      if (p.agent.provider === null) continue;
+      const key = agentKey({ pane: p.id });
+      live.add(key);
+    }
+    for (const session of this.runtime.sessions) {
+      const key = agentKey({ headless: session.id });
+      live.add(key);
+    }
+    this.agent_since.keep(live);
+    if (this.agent_launcher) {
+      const starred = this.historyStars();
+      for (const entry of this.agent_launcher.history.entries)
+        entry.starred = starred.has(`${entry.provider}:${entry.session}`);
+    }
     if (previous_workspace !== this.current().id || previous_token !== this.model().revision) this.cancelDividers();
     if (previous_focus !== 0 && previous_focus !== (this.focused()?.id ?? 0)) {
       this.copy_mode = false;
@@ -5595,6 +5800,16 @@ export class Controller {
   }
   async expireInput(): Promise<void> {
     await this.wakeFocused();
+    if (this.agent_drag?.scrolling()) {
+      const entries = this.sidebarEntries(),
+        now = milliTimestamp(),
+        offset = this.agent_drag.scroll(this.sidebarView(entries), this.current().id, now);
+      if (offset !== null) {
+        this.agentOffset().set(offset);
+        this.agent_drag.scrolled(this.sidebarView(entries), this.current().id, now);
+        this.dirty = true;
+      }
+    }
     if (this.onboarding && (await this.onboarding.poll(this.rpc()))) this.dirty = true;
     if (this.corgi_setup && (await this.corgi_setup.poll(this.rpc(), this.width, this.height))) this.dirty = true;
     const hover = this.pollMenuHover();
@@ -5958,18 +6173,28 @@ export class Controller {
     this.folded_groups = this.folded_groups.filter(id => id !== selection.workspace);
     if (this.current().id !== selection.workspace) this.switchWorkspace(selection.workspace);
     this.closeMenu();
+    // Its agents may all be in folded sections; those open.
+    const ws = this.runtime.workspaces.items.find(ws => ws.id === selection.workspace);
+    for (const e of this.agentEntries(selection.workspace))
+      if (worktreeAgents.listedWorktree(ws?.worktrees ?? null, e.target as OrderTarget, e.cwd) === selection.path)
+        this.folded_sections.delete(this.shownSection(e));
     this.sidebar_rows.discard();
-    const entries = this.sidebarEntries(),
-      index = worktreeAgents.index(entries, selection);
-    const first = entries.find(
+    const entries = this.sidebarEntries();
+    const index = entries.findIndex(
       e =>
         sidebar.isAgent(e.target) &&
         e.worktree?.workspace === selection.workspace &&
         e.worktree.path === selection.path,
     );
-    if (focus && first) this.selectAgent(first.target);
+    if (focus && index >= 0) this.selectAgent(entries[index].target);
     if (index >= 0) this.agentOffset().set(this.sidebarView(entries).reveal(index));
     this.dirty = true;
+  }
+  /** The section an agent's row shows in, from its entry in a workspace's list. */
+  private shownSection(e: Entry): Section {
+    return e.starred
+      ? "starred"
+      : this.agent_since.shown(agentKey(e.target as OrderTarget), agentSections.section(e), e.focused);
   }
   private worktreeRect(): Rect | null {
     const id = this.worktreeDetail();
@@ -6833,6 +7058,11 @@ function sendMouse(term: Terminal, rect: Rect, button: number, x: number, y: num
 }
 function latin1(bytes: number[]): string {
   return String.fromCharCode(...bytes);
+}
+/** When an agent's state began, in ms, as far as the daemon says: its work
+ * clock while it works, else its last change. */
+function stateStart(agent: Agent): number {
+  return (agent.working_since > 0 ? agent.working_since : agent.changed_at) / 1000;
 }
 function contextView(value: any): sidebar.Entry["context"] {
   const view = sidebar.entry({ target: { pane: 0 } }).context;

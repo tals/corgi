@@ -144,6 +144,7 @@ test("conversations sit below the agents and their rows hit-test", () => {
         branch: "",
         updated_at: 5,
         interrupted: false,
+        starred: false,
       },
       {
         provider: "codex",
@@ -156,6 +157,7 @@ test("conversations sit below the agents and their rows hit-test", () => {
         branch: "",
         updated_at: 4,
         interrupted: false,
+        starred: false,
       },
     ],
   };
@@ -679,6 +681,7 @@ test("both cards keep the same width with expanded history and on narrow termina
       branch: "",
       updated_at: 5,
       interrupted: false,
+      starred: false,
     },
   ];
   m.resume_view.expand();

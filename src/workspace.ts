@@ -1,7 +1,8 @@
 import { basename, dirname, join, isAbsolute } from "node:path";
 import { mkdir, open, rename, readFile, realpath, stat } from "node:fs/promises";
 import { Model, cleanLabel, max_workspaces } from "./layout";
-import { Order } from "./agent_order";
+import { Order, Pins, type Section } from "./agent_order";
+import { Stars, type Session as StarredSession } from "./agent_stars";
 import { Ref, State } from "./trackers/git_push";
 import { Commits } from "./trackers/git_status";
 import { Window } from "./usage/tokens";
@@ -12,6 +13,20 @@ export class Workspace {
   name_len = 0;
   model = new Model();
   agent_order = new Order();
+  /** Starred agents' order; the saved and wire field keeps its original name. */
+  pinned_agents = new Pins();
+  starred_sessions = new Stars();
+  /** The conversation last seen in each live starred slot. */
+  star_bindings = new Map<string, StarredSession>();
+  /** The order inside each activity section: the user's, with an agent
+   * that enters a section put first. */
+  activity_order = new Order();
+  /** The last section by `pane:N` or `headless:N`; null for a plain shell. */
+  sections = new Map<string, Section | null>();
+  /** The agents, by key, held in working until their first turn. */
+  starting = new Set<string>();
+  /** The live slots that have held an agent, so one that drops its provider keeps its place. */
+  agent_slots = new Set<string>();
   last_agent: string | null = null;
   /** The launcher rows hidden in this workspace only. */
   launcher_hidden: string[] = [];

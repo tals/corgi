@@ -9,6 +9,7 @@ import { TabMenu, type Row } from "./commands";
 import { Dialog } from "./name_dialog";
 import * as newWorkspace from "./new_workspace";
 import * as agentLauncher from "./agent_launcher";
+import * as launcherResume from "./launcher_resume";
 import * as clock from "./clock";
 import { Menu as LauncherMenu } from "./agent_launcher";
 import * as agentManager from "./agent_manager";
@@ -797,6 +798,66 @@ function pair() {
     headless_sessions: [],
   };
 }
+test("an agent the daemon holds as starting shows dimmed in working until it lets go", () => {
+  const s = controller(),
+    snapshot: any = pair();
+  snapshot.workspaces[0].starting_agents = [{ pane: 1 }];
+  s.prefs.agent_sort = "activity";
+  s.folded_sections.clear();
+  try {
+    s.receiveSnapshot(snapshot);
+    const row = (pane: number) =>
+      (s.agentEntries() as sidebar.Entry[]).find(e => sidebar.sameTarget(e.target, { pane }));
+    expect(row(1)).toMatchObject({ section: "working", state: "idle", starting: true });
+    expect(row(2)).toMatchObject({ section: "idle", starting: false });
+    snapshot.workspaces[0].starting_agents = [];
+    s.receiveSnapshot(snapshot);
+    expect(row(1)).toMatchObject({ section: "idle", starting: false });
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("dropping an opened ready agent keeps its new position", async () => {
+  const snapshot: any = pair();
+  snapshot.workspaces[0].activity_order = [{ pane: 1 }, { pane: 2 }];
+  for (const pane of snapshot.panes.slice(0, 2)) {
+    pane.agent.attention = "finished";
+    pane.agent.observation.completed = 1;
+  }
+  const { s, sent } = recording(snapshot),
+    ready = () => (s.agentEntries() as sidebar.Entry[]).filter(e => e.section === "ready").map(e => e.target),
+    mouse = (button: number, y: number, release = false) => `\x1b[<${button};6;${y + 1}${release ? "m" : "M"}`;
+  s.prefs.agent_sort = "activity";
+  s.width = 100;
+  s.height = 30;
+  try {
+    expect(ready()).toEqual([{ pane: 1 }, { pane: 2 }]);
+    s.focusPane(2);
+    snapshot.panes[1].agent.attention = "none";
+    snapshot.panes[1].agent.observation.read = 1;
+    snapshot.workspaces[0].activity_order = [{ pane: 2 }, { pane: 1 }];
+    s.receiveSnapshot(snapshot);
+    expect(ready()).toEqual([{ pane: 1 }, { pane: 2 }]);
+    const entries: sidebar.Entry[] = s.sidebarEntries(),
+      side: sidebar.View = s.sidebarView(entries),
+      ys = Array.from({ length: s.height }, (_, y) => y),
+      from = ys.find(y => {
+        const hit = side.hit(5, y);
+        return hit.tag === "entry" && sidebar.sameTarget(entries[hit.entry].target, { pane: 2 });
+      })!,
+      to = ys.find(y => side.agentDrop(5, y)?.index === 1)!;
+    expect(from).toBeDefined();
+    expect(to).toBeDefined();
+    await s.input(bytes(mouse(0, from) + mouse(32, to) + mouse(0, to, true)));
+    expect(sent).toContainEqual({ "agent.place": { workspace: 1, target: { pane: 2 }, before: { pane: 1 } } });
+    expect(ready()).toEqual([{ pane: 2 }, { pane: 1 }]);
+    expect(s.focused().id).toBe(2);
+  } finally {
+    viewer.close(s);
+  }
+});
+
 /** A controller on `pair()` that records what panes are sent. */
 function steering() {
   const s = controller();
@@ -810,6 +871,7 @@ function steering() {
 test("prefixed arrows walk the panes into the sidebar, which opens the agent under its cursor", async () => {
   const { s, sent } = steering();
   try {
+    s.prefs.agent_sort = "activity";
     s.focusPane(2);
     await s.input(bytes("\x02\x1b[D"));
     expect(s.focused().id).toBe(1);
@@ -817,15 +879,18 @@ test("prefixed arrows walk the panes into the sidebar, which opens the agent und
     await s.input(bytes("\x1b[D"));
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 1 } });
     expect(s.frame()).toContain("SIDEBAR");
-    // Plain arrows stay in the agent list and wrap, inside the repeat window too.
+    // Plain arrows stay in the agent list and wrap, past its section's
+    // header, inside the repeat window too.
     await s.input(bytes("\x1b[B"));
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 2 } });
+    await s.input(bytes("\x1b[B"));
+    expect(s.sidebar_focus.cursor).toEqual({ entry: { section: "idle" } });
     await s.input(bytes("\x1b[B"));
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 1 } });
     // A prefixed arrow crosses to the workspaces, and back to the agent it left.
     await s.input(bytes("\x02\x1b[A"));
     expect(s.sidebar_focus.cursor).toEqual({ workspace: 1 });
-    await s.input(bytes("\x02\x1b[B\x1b[A"));
+    await s.input(bytes("\x02\x1b[B\x1b[A\x1b[A"));
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 2 } });
     await s.key(13);
     expect(s.sidebar_focus).toBeNull();
@@ -849,6 +914,24 @@ test("a workspace row opens that workspace; Esc leaves the sidebar as it was", a
     expect(s.sidebar_focus).toBeNull();
     expect(s.current().id).toBe(2);
     expect(sent).toEqual([]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("search finds agents in folded sections and opening one unfolds its section", () => {
+  const { s } = steering();
+  try {
+    s.prefs.agent_sort = "activity";
+    s.focusPane(1);
+    s.folded_sections.add("idle");
+    expect((s.agentEntries() as sidebar.Entry[]).some(e => sidebar.isAgent(e.target))).toBe(false);
+    s.openAgentPicker();
+    s.agent_picker.query = Dialog.init({ pane: 0 }, "agent 2");
+    expect(s.pickerEntries().map((e: sidebar.Entry) => e.target)).toEqual([{ pane: 2 }]);
+    s.acceptAgentPicker();
+    expect(s.focused().id).toBe(2);
+    expect(s.folded_sections.has("idle")).toBe(false);
   } finally {
     viewer.close(s);
   }
@@ -991,13 +1074,14 @@ test("a folded sidebar takes focus only as a drawer, which a prefixed command pu
 test("the sidebar's cursor ghosts an agent no pane shows, where entering it puts it", async () => {
   const { s } = steering();
   try {
+    s.prefs.agent_sort = "activity";
     s.prefs.agents = "all";
     s.focusPane(1);
     await s.input(bytes("\x02\x1b[D\x1b[B"));
     // Pane 2 is on screen, so nothing is ghosted.
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 2 } });
     expect(s.sidebarGhost()).toBeNull();
-    await s.input(bytes("\x1b[B\x1b[B"));
+    await s.input(bytes("\x1b[B"));
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 3 } });
     const ghost = s.sidebarGhost();
     expect(ghost.pane.id).toBe(3);
@@ -1010,7 +1094,7 @@ test("the sidebar's cursor ghosts an agent no pane shows, where entering it puts
     s.focusPane(1);
     s.pane(3).dormant = true;
     s.sidebar_open = false;
-    // Up passes workspace 1's header, then wraps.
+    // Up passes the section's header, then wraps.
     await s.input(bytes("\x02a\x1b[A\x1b[A"));
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 3 } });
     expect(s.sidebarGhost().area.x).toBe(0);
@@ -1468,6 +1552,52 @@ test("the launcher's history leaves out conversations from a provider the viewer
   s.openLauncher(true);
   expect(s.agent_launcher.history.entries.map((e: any) => [e.provider, e.session])).toEqual([["codex", "b"]]);
 });
+test("history stars follow the current workspace and refresh while the launcher stays open", () => {
+  const base = folders("/a", "/b"),
+    snapshot = {
+      ...base,
+      workspaces: base.workspaces.map(ws => ({
+        ...ws,
+        starred_sessions: [{ provider: "claude", session: ws.id === 1 ? "first" : "second" }],
+      })),
+    },
+    { s } = recording(snapshot),
+    stars = () => (s.agent_launcher.history.entries as launcherResume.Entry[]).map(e => [e.session, e.starred]);
+  s.launch_previews.history = {
+    pending: false,
+    entries: ["first", "second"].map(session =>
+      launcherResume.historyEntry({ provider: "claude", session, cwd: "/a", updated_at: 1 }),
+    ),
+  };
+  try {
+    s.openLauncher(true);
+    expect(stars()).toEqual([
+      ["first", true],
+      ["second", false],
+    ]);
+    s.switchWorkspace(2);
+    s.openLauncher(true);
+    expect(stars()).toEqual([
+      ["first", false],
+      ["second", true],
+    ]);
+    snapshot.workspaces[0].starred_sessions.push({ provider: "claude", session: "second" });
+    snapshot.workspaces[1].starred_sessions = [];
+    s.receiveSnapshot(snapshot);
+    expect(stars()).toEqual([
+      ["first", false],
+      ["second", false],
+    ]);
+    s.switchWorkspace(1);
+    s.openLauncher(true);
+    expect(stars()).toEqual([
+      ["first", true],
+      ["second", true],
+    ]);
+  } finally {
+    viewer.close(s);
+  }
+});
 
 /** The launcher over a preview that lists Claude Code's `work` account. */
 function withWork(option: object = {}) {
@@ -1794,8 +1924,9 @@ test("a worktree's menu shows its diff line and opens its folder in a waiting sh
   s.width = 120;
   s.height = 40;
   s.receiveSnapshot(snapshot);
-  const heading = s.sidebarEntries().find((e: sidebar.Entry) => "worktree" in e.target);
-  expect(heading.target).toEqual({ worktree: "/src/app-topic", workspace: 1 });
+  // Its agent's section names the worktree in a subhead, which opens its menu.
+  const heading = s.sidebarEntries().find((e: sidebar.Entry) => sidebar.isSubhead(e.target));
+  expect(heading.target).toMatchObject({ workspace: 1, checkout: "/src/app-topic" });
   s.openWorktreeMenu(heading, 5, 5);
   expect(s.tab_menu.highlightedItem()).toBe("review");
   expect(s.tab_menu.details.get("review").runs).toBeNull();

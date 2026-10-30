@@ -2,7 +2,7 @@
 //! list. Plain arrows move it within its list, wrapping; prefixed ones move it
 //! between the lists, as they move focus between panes. Opening a row is the
 //! controller's.
-import { sameTarget, type Entry, type Section, type Target } from "./sidebar";
+import { isSubhead, sameTarget, type Entry, type Section, type Target } from "./sidebar";
 
 /** A workspace row by id, or an agent list row by target. */
 export type Cursor = { workspace: number } | { entry: Target };
@@ -11,9 +11,10 @@ export function same(a: Cursor, b: Cursor): boolean {
   if ("workspace" in a) return "workspace" in b && a.workspace === b.workspace;
   return "entry" in b && sameTarget(a.entry, b.entry);
 }
-/** List rows the cursor stops on: not a closing row. */
+/** List rows the cursor stops on: not a closing row, nor a workspace's
+ * subhead, which only names it. */
 export function stops(e: Entry): boolean {
-  return e.exit === null;
+  return e.exit === null && !(isSubhead(e.target) && e.target.checkout === null);
 }
 /** The focused agent's row, or the folded header standing in for it, else the list's first. */
 function agentRow(entries: Entry[]): Cursor | null {

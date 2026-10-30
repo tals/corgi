@@ -1341,7 +1341,7 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     this.assertEqual((await this.session()).inference.choice, "claude");
     this.assertFalse((await this.session()).inference.uses.activity);
   }
-  async test_launcher_resumes_a_closed_conversation_in_its_folder() {
+  async test_launcher_marks_a_starred_history_entry_and_keeps_its_star_when_resumed() {
     const view = await Viewer.create(this, 120, 30);
     // Written while Corgi runs: the daemon notices it without being asked.
     const session = "4f1c2b9e-0a6d-4c1e-9b7f-2d3e4f5a6b7c";
@@ -1362,10 +1362,26 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
         prompt("does it work on linux?"),
       ].join("\n") + "\n",
     );
+    const source = (await this.session()).panes.at(-1).id;
+    await this.rpc({
+      op: "hook",
+      pane: source,
+      provider: "claude",
+      seq: 1,
+      event: {
+        hook_event_name: "SessionStart",
+        session_id: session,
+        transcript_path: join(project, session + ".jsonl"),
+      },
+    });
+    await this.command("agent.pin", { workspace: this.ws, target: { pane: source }, pinned: true });
+    await this.command("pane.close", { target: source });
     // The newest closed conversations sit under the agents.
     await this.until(async () => {
       const rows = screen_text((await view.input("\x02A")).data, 120, 30);
-      const shown = rows.some(row => row.includes("Sidebar flicker fixture") && row.includes("does it work on linux?"));
+      const shown = rows.some(
+        row => row.includes("★ Sidebar flicker fixture") && row.includes("does it work on linux?"),
+      );
       if (!shown) await view.input("\x1b");
       return shown;
     }, 20);
@@ -1377,6 +1393,14 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     this.assertEqual(launch.args, ["--resume", session]);
     this.assertEqual(realpathSync(launch.cwd), this.launchDir);
     this.assertNotIn("New agent", (await view.poll()).data);
+    const snapshot = await this.session(),
+      resumed = snapshot.panes.find((pane: any) => pane.agent.session === session);
+    this.assertTrue(!!resumed);
+    this.assertTrue(
+      snapshot.workspaces
+        .find((workspace: any) => workspace.id === this.ws)
+        .pinned_agents.some((target: any) => target.pane === resumed.id),
+    );
   }
   resume(session: string) {
     return this.command("agent.resume", {

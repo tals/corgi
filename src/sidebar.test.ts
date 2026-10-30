@@ -7,6 +7,9 @@ import * as corgiFrames from "./corgi_frames";
 import { Terminal } from "./pane/terminal";
 import { View as ContextView } from "./usage/context_window";
 import * as sim from "./providers/sim";
+import * as agentSections from "./agent_sections";
+import * as sidebarRows from "./sidebar_rows";
+import { section } from "./agent_order";
 import { Writer, displayWidth, writeClipped, directoryLabel } from "./text";
 import {
   View,
@@ -691,6 +694,37 @@ test("idle face replaces stale activity while working activity remains useful", 
   expect(has(out, "\x1b[1m" + fg("accent") + "▶")).toBe(true);
 });
 
+test("a startup ghost stays dimmed in working through its first idle prompt", () => {
+  const e = entry({ target: { pane: 1 }, name: "New agent", provider: "codex", starting: true }),
+    view = View.init(100, 30, true, 0, 1),
+    dim = fgRgb(mix(colors.bg, colors.text, 50));
+  for (const focused of [false, true]) {
+    e.focused = focused;
+    e.section = "working";
+    let out = "";
+    for (const state of ["unknown", "initializing", "idle"]) {
+      e.state = state;
+      out = draw(view, [e], []);
+      expect(out).toContain(dim + "New agent");
+      if (state === "initializing") expect(out).toContain(dim + "Starting session");
+    }
+    // Manual order and the other sections keep their usual appearance.
+    for (const section of [null, "ready", "idle", "done"] as const) {
+      e.section = section;
+      out = draw(view, [e], []);
+      expect(out).toContain(fg("text") + "New agent");
+    }
+    e.section = "working";
+    e.state = "working";
+    e.starting = false;
+    e.activity = "Reading files";
+    out = draw(view, [e], []);
+    expect(out).toContain(fg("text") + "New agent");
+    expect(out).not.toContain("Starting session");
+    e.starting = true;
+  }
+});
+
 test("agents header names its scope and opens the scope menu left of New", () => {
   for (const width of [20, 28, 40]) {
     const view = View.init(100, 30, true, 0, 0).withWidth(width);
@@ -719,19 +753,28 @@ test("scope menu offers only the current workspace and all agents", () => {
   ];
   const view = View.init(100, 30, true, 0, 0).withWorkspaces(3, 0);
   const b = ScopeMenu.bounds(view, 100, 30);
-  expect(b.h).toBe(4);
+  expect(b.h).toBe(8);
   expect(ScopeMenu.hit(view, 100, 30, 5, b.y + 1)).toBe("workspace");
   expect(ScopeMenu.hit(view, 100, 30, 5, b.y + 2)).toBe("all");
+  // The blank row and the sort heading are no choices.
   expect(ScopeMenu.hit(view, 100, 30, 5, b.y + 3)).toBeNull();
-  expect(ScopeMenu.hit(view, 100, 30, 5, b.y + 5)).toBeNull();
+  expect(ScopeMenu.hit(view, 100, 30, 5, b.y + 4)).toBeNull();
+  expect(ScopeMenu.hit(view, 100, 30, 5, b.y + 5)).toBe("activity");
+  expect(ScopeMenu.hit(view, 100, 30, 5, b.y + 6)).toBe("manual");
+  expect(ScopeMenu.hit(view, 100, 30, 5, b.y + 7)).toBeNull();
   expect(ScopeMenu.hit(view, 100, 30, b.x, b.y + 1)).toBeNull();
   const w = new Writer();
-  new ScopeMenu().draw(w, view, 100, 30, workspaces, "all");
+  new ScopeMenu().draw(w, view, 100, 30, workspaces, "all", "manual");
   const text = hostText(w.s);
   const lines = text.split("\n");
   expect(lines[b.y + 1].trimEnd()).toBe("  │   This workspace     3 │");
   expect(lines[b.y + 2].trimEnd()).toBe("  │ ✓ All                4 │");
-  expect(lines[b.y + 3].trimEnd()).toBe("  ╰────────────────────────╯");
+  expect(lines[b.y + 3].trimEnd()).toBe("  │                        │");
+  expect(lines[b.y + 4].trimEnd()).toBe("  │   Sort                 │");
+  // Each sort says what it does: activity by its sections' glyphs.
+  expect(lines[b.y + 5].trimEnd()).toBe("  │   By activity    ▶ ● ○ │");
+  expect(lines[b.y + 6].trimEnd()).toBe("  │ ✓ Manual    as dragged │");
+  expect(lines[b.y + 7].trimEnd()).toBe("  ╰────────────────────────╯");
   for (const ws of workspaces) expect(text).not.toContain(ws.name);
 });
 
@@ -1383,7 +1426,7 @@ test("the agent list draws into the bottom row and cuts off the entry that runs 
   expect(hostText(draw(focused, entries, []), 80, 20).split("\n")[19]).not.toContain("agent 4");
 });
 
-test("badges count agents scrolled out of sight and point at the nearest", () => {
+test("badges count agents scrolled out of sight and point at the farthest, so the rest show with it", () => {
   const working = new Set([0, 1, 7]);
   const entries = Array.from({ length: 10 }, (_, i) =>
     entry({
@@ -1399,12 +1442,34 @@ test("badges count agents scrolled out of sight and point at the nearest", () =>
   expect(lines[20]).toContain(" 1 ▶ 1 ● 1 ● ↓ ");
   const above = view.lists().badge("above")!,
     below = view.lists().badge("below")!;
-  expect(view.hit(above.x + lists_x + 1, above.y)).toEqual({ tag: "active", offset: 1 });
-  expect(view.hit(below.x + lists_x + 1, below.y)).toEqual({ tag: "active", offset: 4 });
+  expect(view.hit(above.x + lists_x + 1, above.y)).toEqual({ tag: "active", offset: 0 });
+  expect(view.hit(below.x + lists_x + 1, below.y)).toEqual({ tag: "active", offset: 6 });
+  // There, the three it counted all show, and nothing is left below.
+  const scrolled = View.init(80, 21, true, 6, entries.length).withEntries(entries);
+  const shown = hostText(draw(scrolled, entries, []), 80, 21);
+  for (const n of [7, 8, 9]) expect(shown).toContain(`agent ${n}`);
+  expect(scrolled.lists().badge("below")).toBeNull();
   const top = View.init(80, 21, true, 0, entries.length).withEntries(entries);
   expect(top.lists().badge("above")).toBeNull();
   const searching = view.withSearch({ text: "", cursor: 0, selection: null });
   expect(searching.lists().badge("below")).toBeNull();
+});
+
+test("a badge scrolls no farther than keeps the nearest it counts in view", () => {
+  const working = new Set([2, 25, 40, 60]);
+  const entries = Array.from({ length: 64 }, (_, i) =>
+    entry({ target: { pane: i + 1 }, name: `agent ${i}`, state: working.has(i) ? "working" : "idle" }),
+  );
+  const view = View.init(80, 21, true, 30, entries.length).withEntries(entries);
+  const above = view.lists().badge("above")!,
+    below = view.lists().badge("below")!;
+  expect(above.offset).toBe(25);
+  // The farthest, 60, would scroll 40 out of sight above; 40 goes to the bottom.
+  const scrolled = View.init(80, 21, true, below.offset, entries.length).withEntries(entries);
+  const shown = hostText(draw(scrolled, entries, []), 80, 21);
+  expect(shown).toContain("agent 40");
+  expect(shown).not.toContain("agent 60");
+  expect(scrolled.lists().badge("below")).not.toBeNull();
 });
 
 test("a focused agent list scrolls its last agent fully into view", () => {
@@ -1447,4 +1512,178 @@ test("the agent list stops scrolling once its last entry shows", () => {
   expect(end.offset).toBe(10);
   expect(end.pinned(end.offset)).toEqual([8]);
   expect(hostText(draw(end, grouped, []), 80, 29).split("\n")[28]).toContain("~");
+});
+
+test("activity sections draw centered headers, worktree labels over their rows", () => {
+  const now = 100_000_000;
+  const item = (
+    pane: number,
+    name: string,
+    state: string,
+    minutes: number,
+    fields: Partial<agentSections.Item> = {},
+  ) => ({
+    key: `pane:${pane}`,
+    entry: entry({ target: { pane }, name, provider: "claude", state, attention: "none", paused: pane === 5 }),
+    workspace: 1,
+    checkout: null,
+    since: now - minutes * 60_000,
+    pin: null,
+    rank: 0,
+    section: section(state, "none", pane === 5),
+    ...fields,
+  });
+  const entries = agentSections.arrange(
+    [
+      item(1, "Zig bump", "idle", 180, { pin: 0 }),
+      item(2, "Fix ssh test", "blocked", 2),
+      item(3, "Linux build", "blocked", 9, { checkout: "/repo/release" }),
+      item(4, "Sidebar", "working", 0),
+      item(5, "Docs", "idle", 40),
+      item(6, "Old idea", "idle", 300),
+    ],
+    { all: false, folded: new Set(), workspaces: [1], label: (_, checkout) => checkout?.slice(6) ?? "main" },
+  );
+  const view = View.init(100, 44, true, 0, entries.length).withEntries(entries);
+  const lines = hostText(draw(view, entries, [], now), 100, 44)
+    .split("\n")
+    .map(line =>
+      [...line]
+        .slice(0, view.width - 1)
+        .join("")
+        .trimEnd(),
+    );
+  const start = lines.findIndex(line => line.includes("starred"));
+  // Second lines with a corgi on them vary with its animation.
+  expect(lines.slice(start, start + 20)).toEqual([
+    "  ━━━━━ ★ starred 1 ━━━━━ ▾",
+    "  ○  Zig bump",
+    expect.any(String),
+    // A blank row parts each section from the one above.
+    "",
+    "  ━━━━━ ▶ working 4 ━━━━━ ▾",
+    "  ▶  Sidebar",
+    expect.any(String),
+    // Waiting on the user, or paused, an agent stays at work, with its own glyph.
+    "  ●  Fix ssh test",
+    "     Needs input",
+    // A worktree labels the rows that sit together, without moving them.
+    "  ⌥  release ┄┄┄┄┄┄┄┄┄┄┄┄┄",
+    "  ●  Linux build",
+    "     Needs input",
+    // After a worktree's rows, the workspace's own checkout is named too.
+    "  ⌥  main ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄",
+    "  ‖  Docs",
+    expect.any(String),
+    "",
+    "  ━━━━━━ ○ idle 1 ━━━━━━━ ▾",
+    "  ○  Old idea",
+    expect.any(String),
+    "",
+  ]);
+  // Its name takes the needs-input color.
+  expect(draw(view, entries, [], now)).toContain("\x1b[1m" + fg("warm") + "Fix ssh test");
+});
+test("an opening section scrolls to show all of it, or when too long, just its first agent", () => {
+  const rows = (n: number, from: number) =>
+    Array.from({ length: n }, (_, i) =>
+      entry({
+        target: { pane: from + i },
+        name: `agent ${from + i}`,
+        provider: "claude",
+        state: "idle",
+        section: "idle",
+      }),
+    );
+  const head = (section: "working" | "idle") =>
+    entry({
+      target: { section },
+      name: section,
+      group: { agents: 0, working: 0, attention: 0, folded: false, current: false, gap: section === "idle" },
+    });
+  const short = [head("working"), ...rows(4, 1), head("idle"), ...rows(2, 10)];
+  let view = View.init(100, 30, true, 0, short.length).withEntries(short);
+  // It fits: the list scrolls just enough to show all of it.
+  const fit = view.revealSection(5);
+  const shown = View.init(100, 30, true, fit, short.length).withEntries(short);
+  expect(fit).toBeLessThanOrEqual(5);
+  expect(shown.reveal(short.length - 1)).toBe(fit);
+  expect(shown.reveal(5)).toBe(fit);
+  const long = [head("working"), ...rows(4, 1), head("idle"), ...rows(19, 10)];
+  view = View.init(100, 30, true, 0, long.length).withEntries(long);
+  // Too long to fit: the header and its first agent show, without the header jumping to the top.
+  const offset = view.revealSection(5);
+  expect(offset).toBeLessThan(5);
+  const scrolled = View.init(100, 30, true, offset, long.length).withEntries(long);
+  expect(scrolled.reveal(6)).toBe(offset);
+});
+test.each([null, "/repo/topic"])("opening a large section reveals its first agent past subhead %s", checkout => {
+  const rows = (from: number, count: number) =>
+      Array.from({ length: count }, (_, i) => entry({ target: { pane: from + i }, name: `agent ${from + i}` })),
+    entries = [
+      entry({ target: { section: "working" } }),
+      ...rows(1, 5),
+      entry({
+        target: { section: "idle" },
+        group: { agents: 10, working: 0, attention: 0, folded: false, current: false, gap: true },
+      }),
+      entry({ target: { section: "idle", workspace: 1, checkout, run: 0 } }),
+      ...rows(6, 10),
+    ],
+    view = View.init(100, 30, true, 0, entries.length).withEntries(entries),
+    offset = view.revealSection(6),
+    shown = View.init(100, 30, true, offset, entries.length).withEntries(entries);
+  expect(shown.reveal(8)).toBe(offset);
+  expect(shown.reveal(6)).toBe(offset);
+  expect(offset).toBeLessThan(6);
+});
+test("the agent list's menu moves up to fit when the header sits low", () => {
+  const view = View.init(100, 16, true, 0, 0).withWorkspaces(3, 0);
+  const b = ScopeMenu.bounds(view, 100, 16);
+  expect(b.h).toBe(8);
+  expect(b.y + b.h).toBeLessThanOrEqual(15);
+  expect(b.y).toBeLessThan(view.middle() + 1);
+  expect(ScopeMenu.hit(view, 100, 16, 5, b.y + 5)).toBe("activity");
+});
+test("a row stepping aside draws off its place, never over the list's header", () => {
+  const view = View.init(100, 30, true, 0, 2),
+    entries = ["Alpha", "Beta"].map((name, i) =>
+      entry({ target: { pane: i + 1 }, name, provider: "claude", state: "idle", attention: "none" }),
+    );
+  const lines = () =>
+    hostText(draw(view, entries, [workspaceEntry({ id: 1, name: "ws", cwd: "", active: true })], 0)).split("\n");
+  const row = (text: string, screen: string[]) => screen.findIndex(line => line.includes(text));
+  const settled = lines();
+  entries[1].slide = 2;
+  expect(row("Beta", lines())).toBe(row("Beta", settled) + 2);
+  // A click finds the row where it shows.
+  const beta = row("Beta", settled) + 2;
+  expect(view.withEntries(entries).hit(5, beta)).toEqual({ tag: "entry", entry: 1 });
+  expect(view.withEntries(entries).hit(5, row("Beta", settled))).toEqual({ tag: "none" });
+  entries[0].slide = -2;
+  const pushed = lines();
+  expect(row("Alpha", pushed)).toBe(-1);
+  expect(pushed.slice(0, row("Alpha", settled))).toEqual(settled.slice(0, row("Alpha", settled)));
+});
+test("clicks follow the top row when successive reorders overlap animations", () => {
+  const base = [1, 2, 3, 4].map(pane =>
+    entry({ target: { pane }, name: `Agent ${pane}`, provider: "claude", state: "idle" }),
+  );
+  for (const graphics of [false, true]) {
+    const state = new sidebarRows.State();
+    state.update(1, base, [], 1000);
+    state.update(1, [base[0], base[1], base[3], base[2]], [], 2000);
+    for (const now of [2070, 2090, 2110, 2140, 2300]) {
+      const entries = state.update(1, [base[0], base[2], base[1], base[3]], [], now),
+        view = View.init(100, 30, true, 0, entries.length).withEntries(entries);
+      view.supports_kitty_graphics = graphics;
+      view.cell = graphics ? { width: 10, height: 20 } : null;
+      const lines = hostText(draw(view, entries, [], now)).split("\n");
+      expect(lines.some(line => line.includes("Agent 4"))).toBe(true);
+      for (let y = 0; y < lines.length; y++) {
+        const shown = entries.findIndex(e => lines[y].includes(e.name));
+        if (shown >= 0) expect(view.hit(8, y)).toEqual({ tag: "entry", entry: shown });
+      }
+    }
+  }
 });

@@ -81,6 +81,12 @@ terminal controls with printable placeholders. Tabs measure and clip labels in
 Ghostty display cells, keeping combining marks with their base character.
 This is display-only; saved-name rules and wire formats are unchanged.
 
+Workspace star bindings survive live handoff so a replacement conversation
+cannot inherit the previous one's star during startup. Cold recovery omits
+these process bindings. The optional checkpoint field `star_bindings` defaults
+to an empty list for older state; checkpoint 6 and runtime protocol 3 are
+unchanged, with no migration needed.
+
 The binary bundles two native shared libraries: `corgi_term` owns Ghostty
 terminal emulation, rendering, frame diffs and input encoding; `corgi_system`
 owns POSIX/PTY helpers, process inspection, resource sampling, descriptor

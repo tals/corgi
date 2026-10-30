@@ -10,7 +10,7 @@ import { Terminal } from "../pane/terminal";
 import { claim } from "../detection";
 import { adapter } from "../providers";
 import { n, ptr, symbols, waitpid } from "../native_bridge";
-import { Order } from "../agent_order";
+import { Order, Pins } from "../agent_order";
 import { Workspace } from "../workspace";
 import { Text } from "../agents";
 import { Attachment, type Actor } from "../conversations";
@@ -355,20 +355,89 @@ test("sidebar order survives live and recovery checkpoints and defaults for old 
     id = r.workspaces.items[0].id,
     order = [{ headless: 1 }, { pane: 2 }, { pane: 1 }];
   r.workspaces.items[0].agent_order = Order.restore(order);
+  r.workspaces.items[0].pinned_agents = Pins.restore([{ pane: 2 }]);
+  r.workspaces.items[0].starred_sessions.set("claude", "saved-star", true);
+  r.workspaces.items[0].activity_order = Order.restore([...order].reverse());
   try {
     for (const live of [true, false]) {
       using next = new Runtime();
       await restore(next, cp.capture(r, live), live);
-      expect(next.workspaces.get(id)!.agent_order.slice()).toEqual(order);
+      const ws = next.workspaces.get(id)!;
+      expect(ws.agent_order.slice()).toEqual(order);
+      expect(ws.pinned_agents.slice()).toEqual([{ pane: 2 }]);
+      expect(ws.starred_sessions.slice()).toEqual([{ provider: "claude", session: "saved-star" }]);
+      expect(ws.activity_order.slice()).toEqual([...order].reverse());
     }
     const state = cp.capture(r, true);
-    Reflect.deleteProperty(state.workspaces[0], "agent_order");
+    for (const key of ["agent_order", "pinned_agents", "starred_sessions", "activity_order"])
+      Reflect.deleteProperty(state.workspaces[0], key);
     using next = new Runtime();
     await restore(next, state, true);
-    expect(next.workspaces.get(id)!.agent_order.len).toBe(0);
+    const ws = next.workspaces.get(id)!;
+    expect(ws.agent_order.len).toBe(0);
+    expect(ws.pinned_agents.slice()).toEqual([]);
+    expect(ws.starred_sessions.slice()).toEqual([]);
+    expect(ws.activity_order.len).toBe(0);
+    // State from before the sections starts them in the dragged order.
+    const sorted = cp.capture(r, true);
+    Reflect.deleteProperty(sorted.workspaces[0], "activity_order");
+    using seeded = new Runtime();
+    await restore(seeded, sorted, true);
+    expect(seeded.workspaces.get(id)!.activity_order.slice()).toEqual(order);
   } finally {
     r.destroy();
   }
+});
+test.each(["replacement", "unstar", "explicit"])(
+  "live reload retains a star's conversation through %s startup",
+  async action => {
+    using original = fresh();
+    const ws = original.workspaces.items[0];
+    show(original, original.conversations.get("claude", "previous"));
+    const pane = original.panes[0],
+      target = { pane: pane.id };
+    original.starAgent(ws, target, true);
+    original.raiseEntered();
+    pane.attachment.deselect();
+    pane.agent().provider = "claude";
+    pane.agent().state = "initializing";
+    original.raiseEntered();
+    if (action === "explicit") original.starAgent(ws, target, true);
+    using next = new Runtime();
+    await restore(next, cp.capture(original, true), true);
+    const restored = next.workspaces.items[0];
+    if (action === "unstar") next.starAgent(restored, target, false);
+    const session = action === "unstar" ? "previous" : "replacement";
+    next.panes[0].attachment.select(next.conversations.get("claude", session));
+    next.raiseEntered();
+    expect(restored.pinned_agents.has(target)).toBe(action === "explicit");
+    expect(restored.starred_sessions.has("claude", "previous")).toBe(action !== "unstar");
+    expect(restored.starred_sessions.has("claude", "replacement")).toBe(action === "explicit");
+  },
+);
+test("star bindings default for old checkpoints and stay out of cold recovery", async () => {
+  using original = fresh();
+  const ws = original.workspaces.items[0];
+  show(original, original.conversations.get("claude", "previous"));
+  original.starAgent(ws, { pane: original.panes[0].id }, true);
+  const saved = roundtrip(cp.capture(original, true));
+  expect(saved.workspaces[0].star_bindings).toEqual([
+    { target: { pane: original.panes[0].id }, provider: "claude", session: "previous" },
+  ]);
+  for (const target of [{ pane: -1 }, { pane: 1, headless: 1 }, { other: 1 }]) {
+    const malformed = roundtrip(saved);
+    malformed.workspaces[0].star_bindings[0].target = target;
+    expect(() => validateCheckpoint(malformed)).toThrow();
+  }
+  delete saved.workspaces[0].star_bindings;
+  using old = new Runtime();
+  await restore(old, saved, true);
+  expect(old.workspaces.items[0].star_bindings.size).toBe(0);
+  const cold = cp.capture(original, false);
+  expect(cold.workspaces[0].star_bindings).toEqual([]);
+  using recovered = new Runtime();
+  await restore(recovered, cold, false);
+  expect(recovered.workspaces.items[0].star_bindings.size).toBe(0);
 });
 test("each workspace keeps its last agent, and one that has none follows the latest", async () => {
   const r = fresh(),

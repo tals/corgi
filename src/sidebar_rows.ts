@@ -2,8 +2,30 @@ import { View, isHeading, type Entry } from "./sidebar";
 import { sameTarget } from "./agent_navigation";
 import * as rowGlide from "./row_glide";
 const capacity = 2048;
-// An agent writing in two checkouts is listed under both.
+// A ghost worktree can list an agent the sections also list.
 const sameEntry = (a: Entry, b: Entry) => sameTarget(a.target, b.target) && a.worktree?.path === b.worktree?.path;
+/** Positions in `seq` outside one longest increasing run of it: the rows
+ * that moved when the rest kept their order. */
+export function outOfOrder(seq: number[]): number[] {
+  const tails: number[] = [],
+    previous: number[] = [];
+  seq.forEach((value, i) => {
+    let lo = 0,
+      hi = tails.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (seq[tails[mid]] < value) lo = mid + 1;
+      else hi = mid;
+    }
+    previous[i] = lo > 0 ? tails[lo - 1] : -1;
+    tails[lo] = i;
+  });
+  const run = new Set<number>();
+  for (let i = tails.at(-1) ?? -1; i >= 0; i = previous[i]) run.add(i);
+  return seq.flatMap((_, i) => (run.has(i) ? [] : [i]));
+}
+/** Rows in the same group: the same checkout, and the same activity section. */
+const sameGroup = (a: Entry, b: Entry) => a.worktree?.path === b.worktree?.path && a.section === b.section;
 interface Stored {
   entry: Entry;
   at_ms: number;
@@ -16,15 +38,17 @@ interface Stored {
   top: number;
   /** When it last changed groups, and its `top` before that. */
   moved: { at_ms: number; from: number } | null;
-  /** When another row's move pushed it up or down. */
-  shifted_ms: number | null;
+  /** When rows above it came or went, and where it showed then. */
+  slid: { at_ms: number; from: number } | null;
 }
+const ease = (x: number) => (x < 0.5 ? 2 * x * x : 1 - (-2 * x + 2) ** 2 / 2);
 export class State {
   static duration_ms = 240;
-  /** Rows a move pushes aside come back from about 60%. */
-  static shift_ms = 200;
-  static shift_enter = 0.57;
+  /** Rows pushed up or down step there a row at a time. */
+  static slide_ms = 220;
   workspace: number | null = null;
+  /** The next update's new rows fade in, as a group unfolds. */
+  reveal = false;
   slots: Stored[] = [];
   order: number[] = [];
   count = 0;
@@ -47,9 +71,8 @@ export class State {
       };
     if (slot.opening_ms !== null && now - slot.opening_ms < State.duration_ms)
       entry.enter = Math.max(now - slot.opening_ms, 0) / State.duration_ms;
-    else if (slot.shifted_ms !== null && now - slot.shifted_ms < State.shift_ms)
-      entry.enter = State.shift_enter + ((1 - State.shift_enter) * Math.max(now - slot.shifted_ms, 0)) / State.shift_ms;
     else entry.enter = null;
+    entry.slide = this.slide(slot, now);
     const moved = slot.moved;
     entry.moved =
       moved !== null && now - moved.at_ms < rowGlide.total_ms
@@ -57,11 +80,20 @@ export class State {
         : null;
     return entry;
   }
-  /** Whether a row is still moving to another group. */
+  /** Rows below or above where it lands a pushed row shows, `now`. */
+  private slide(slot: Stored, now: number): number {
+    const slid = slot.slid;
+    if (slid === null || now - slid.at_ms >= State.slide_ms) return 0;
+    return Math.round((slid.from - slot.top) * (1 - ease(Math.max(now - slid.at_ms, 0) / State.slide_ms)));
+  }
+  /** Whether a row is still moving to another group or stepping aside. */
   moving(now: number): boolean {
     return this.order.some(i => {
-      const moved = this.slots[i].moved;
-      return moved !== null && now - moved.at_ms < rowGlide.total_ms;
+      const { moved, slid } = this.slots[i];
+      return (
+        (moved !== null && now - moved.at_ms < rowGlide.total_ms) ||
+        (slid !== null && now - slid.at_ms < State.slide_ms)
+      );
     });
   }
   update(workspace: number, live: Entry[], out: Entry[] = [], now = 0): Entry[] {
@@ -78,7 +110,8 @@ export class State {
       if (!live.some(e => sameEntry(e, slot.entry))) slot.occupied = false;
     }
     const next: number[] = [],
-      headers: Stored[] = [];
+      headers: Stored[] = [],
+      arrivals = new Set<number>();
     let moved = false;
     for (const entry of live) {
       let index = this.slots.findIndex(s => s.occupied && sameEntry(s.entry, entry));
@@ -101,12 +134,12 @@ export class State {
           seen: false,
           top: 0,
           moved: null,
-          shifted_ms: null,
+          slid: null,
         });
       }
       const slot = this.slots[index],
         arrived = !slot.occupied,
-        regrouped = !arrived && slot.entry.worktree?.path !== entry.worktree?.path,
+        regrouped = !arrived && !sameGroup(slot.entry, entry),
         lost =
           slot.occupied &&
           "pane" in entry.target &&
@@ -118,18 +151,36 @@ export class State {
       const hold = lost && now - slot.unbound_ms! < 650;
       if (!hold) this.capture(slot, entry, now);
       if (arrived) {
-        slot.opening_ms = entry.reopened ? now : null;
+        arrivals.add(index);
+        slot.opening_ms = entry.reopened || this.reveal ? now : null;
         slot.moved = null;
-        slot.shifted_ms = null;
+        slot.slid = null;
         if (isHeading(entry.target)) headers.push(slot);
       }
-      if (regrouped && slot.closing_ms === null && slot.entry.worktree?.path === entry.worktree?.path) {
+      if (regrouped && slot.closing_ms === null && sameGroup(slot.entry, entry)) {
         slot.moved = { at_ms: now, from: slot.top };
         moved = true;
       }
       slot.seen = true;
       if (slot.closing_ms === null && next.length < capacity) next.push(index);
     }
+    // Rows that changed places within their group glide as well: those
+    // outside the longest run that kept its order.
+    const was = new Map(this.order.map((index, position) => [index, position])),
+      kept = next.filter(
+        i =>
+          was.has(i) &&
+          !arrivals.has(i) &&
+          this.slots[i].moved?.at_ms !== now &&
+          !isHeading(this.slots[i].entry.target),
+      );
+    for (const k of outOfOrder(kept.map(i => was.get(i)!))) {
+      const slot = this.slots[kept[k]];
+      slot.moved = { at_ms: now, from: slot.top };
+      moved = true;
+    }
+    const reveal = this.reveal;
+    this.reveal = false;
     // A group the move opens fades in; one it empties goes at once.
     if (moved) for (const slot of headers) slot.opening_ms = now;
     for (let position = 0; position < this.order.length; position++) {
@@ -145,11 +196,17 @@ export class State {
     for (const slot of this.slots)
       if (slot.occupied && !slot.seen && (slot.closing_ms === null || now - slot.closing_ms >= State.duration_ms))
         slot.occupied = false;
-    const shown = moved ? new Set(this.order) : null;
+    const shown = new Set(this.order);
     let rows = 0;
     for (const index of next) {
       const slot = this.slots[index];
-      if (shown?.has(index) && slot.moved?.at_ms !== now && slot.top !== rows) slot.shifted_ms = now;
+      // A row pushed more than a row's height steps there; less, it just lands.
+      if (shown.has(index) && !arrivals.has(index) && slot.moved?.at_ms !== now && slot.top !== rows) {
+        const from = slot.top + this.slide(slot, now);
+        slot.slid = Math.abs(rows - from) > 1 && !reveal ? { at_ms: now, from } : null;
+      }
+      // A row that changed groups but lands about where it was has nowhere to glide.
+      if (slot.moved?.at_ms === now && Math.abs(rows - slot.moved.from) <= 1) slot.moved = null;
       slot.top = rows;
       rows += View.height(slot.entry);
     }
