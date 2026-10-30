@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Viewers } from "./viewers";
-import { screen_text } from "./runtime";
+import { PALETTE, screen_text } from "./runtime";
 import { displayWidth } from "../src/text";
 import { EXE, Pty, registerCase, run } from "./support";
 import { FIXTURES, bracketed, capture, modelFile, voiceClient, voiceEnv } from "./voice_support";
@@ -307,14 +307,19 @@ class Voice extends Viewers {
     this.assertIn("Voice is not running", a.state.data);
     link.on("muted", muted => pushed.push(muted));
     await link.watch({ muted: false, available: true });
-    const title = async () => screen_text((await a.poll()).data, 100, 30)[0];
-    await this.until(async () => (await title()).includes("♫"));
+    const frame = async () => (await a.poll()).data,
+      title = async () => screen_text(await frame(), 100, 30)[0],
+      // The same note either way: bold green while listening, faint while muted.
+      note = (style: string) => new RegExp(`\\x1b\\[0;${style}(?:;[\\d;]*)?m♫`),
+      listening = note(`1;38;2;${PALETTE.accent}`),
+      muted = note(`38;2;${PALETTE.faint}`);
+    await this.until(async () => listening.test(await frame()));
     await a.action("voice-mute");
     await this.until(() => pushed.includes(true), 1);
     this.assertEqual(await this.voice(), "muted");
-    await this.until(async () => (await title()).includes("♪"), 1);
+    await this.until(async () => muted.test(await frame()), 1);
     await link.set({ muted: false });
-    await this.until(async () => (await title()).includes("♫"), 1);
+    await this.until(async () => listening.test(await frame()), 1);
     // A click on the indicator runs the same action.
     const row = await title(),
       x = displayWidth(row.slice(0, row.indexOf("♫"))) + 1;
@@ -323,7 +328,7 @@ class Voice extends Viewers {
     this.assertEqual(await this.voice(), "muted");
     link.close();
     // With no voice attached, the indicator is gone.
-    await this.until(async () => !/[♪♫]/.test(await title()), 5);
+    await this.until(async () => !(await title()).includes("♫"), 5);
   }
 
   async test_a_viewer_mute_reaches_voice_mode_within_a_second() {

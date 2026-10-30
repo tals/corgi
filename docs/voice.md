@@ -62,12 +62,11 @@ Click an option to change it: a menu opens with a few values to pick with a
 click, or with `↑`/`↓` and Enter (Esc closes it). A click on `filter` switches
 it.
 
-The note before the title adds what speech is doing: `♫` in a slightly
-different green while listening, recording or transcribing, a grey `♫` while
-voice mode is not connected to the runtime or no viewer is attached, and a
-grey `♪` when muted. Click it, or the mode, to mute or unmute. Without a viewer there
-is nowhere to type, so voice mode holds off until one attaches, and says so
-at the top of the history.
+The `♫` before the title adds what speech is doing: a slightly different
+green while listening, recording or transcribing, and grey while voice mode
+is muted, not connected to the runtime, or without a viewer. Click it, or the
+mode, to mute or unmute. Without a viewer there is nowhere to type, so voice
+mode holds off until one attaches, and says so at the top of the history.
 
 The history lists each utterance with the time you said it and, once typed,
 how long the text took after you stopped speaking, as in
@@ -107,9 +106,10 @@ see when the utterance is about to end. `Target:` follows the focused pane as yo
 
 Voice mode and Corgi share one mute state. Press `m` in voice mode, or
 **prefix M** in Corgi (every preset). **prefix m** still mutes sounds. The
-sidebar's title row shows `♫` while voice listens and a faint `♪` while it is
-muted; click it to toggle. Beside the corgi badge the title shortens to make
-room; with no voice attached it is gone. `corgi action voice-mute` does the same from a script.
+sidebar's title row shows a green `♫` while voice listens and a faint one
+while it is muted; click it to toggle. Beside the corgi badge the title
+shortens to make room; with no voice attached it is gone.
+`corgi action voice-mute` does the same from a script.
 
 Muting drops anything not yet typed. When the microphone or Whisper fails,
 the indicator shows muted and unmuting has no effect until it recovers.

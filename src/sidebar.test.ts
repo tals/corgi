@@ -1904,18 +1904,21 @@ test("the voice indicator sits left of [ + ] without moving the title row", () =
   const base = row(plain),
     shown = row(listening);
   expect(base).not.toMatch(/[♪♫]/);
-  // A music note, spaced from the button: two while listening.
+  // A music note, spaced from the button: green while listening.
   expect(shown).toMatch(/workspaces +♫ \[ \+ \]/);
   for (const item of ["workspaces", "[ + ]", "<"]) expect(shown.indexOf(item)).toBe(base.indexOf(item));
-  expect(has(title(listening), new Style({ fg: "accent", bg: "bg", bold: true }).sgr() + "♫")).toBe(true);
+  const green = new Style({ fg: "accent", bg: "bg", bold: true }).sgr() + "♫";
+  expect(has(title(listening), green)).toBe(true);
   const x = shown.indexOf("♫");
   expect(listening.hit(x, 0)).toEqual(H("voice"));
   expect(listening.hit(x - 1, 0)).toEqual(H("none"));
   expect(listening.hit(shown.indexOf("[ + ]"), 0)).toEqual(H("workspace_new"));
-  // Muted, one faint note.
+  // Muted, the same note, faint.
   const muted = listening.clone();
   muted.voice = "muted";
-  expect(has(title(muted), new Style({ fg: "faint", bg: "bg" }).sgr() + "♪")).toBe(true);
+  expect(row(muted)).toMatch(/workspaces +♫ \[ \+ \]/);
+  expect(has(title(muted), new Style({ fg: "faint", bg: "bg" }).sgr() + "♫")).toBe(true);
+  expect(has(title(muted), green)).toBe(false);
   // Beside the corgi badge at the default width, the title gives up a letter for it.
   const badged = listening.withWidth(28);
   badged.voice = "listening";
