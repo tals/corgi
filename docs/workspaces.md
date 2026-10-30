@@ -87,6 +87,8 @@ any partial matches. Hold Enter or the **hold ↵ to create** button to plan it.
 **From** appears for a new worktree, defaulting to the repository's local
 default branch; Tab lets you search for another base. **Folder** previews
 the destination from the configured template.
+Reopening a planned worktree keeps its name and base, with all checkouts
+shown until you edit the name.
 
 The worktree is created only when an agent, saved command or terminal launches.
 Escaping the picker leaves nothing behind. An existing branch/folder or an

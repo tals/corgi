@@ -130,6 +130,27 @@ test("partial matches offer creation, exact names switch, and editing resumes fi
   expect(c.creating(snapshot)).toBe(false);
 });
 
+test("reopening a planned worktree shows main even with more checkouts than fit", () => {
+  const many = {
+    ...snapshot,
+    entries: [...snapshot.entries, ...Array.from({ length: 10 }, (_, i) => checkout(`/src/other-${i}`, `other-${i}`))],
+  };
+  const c = new launcherWorktree.Chooser();
+  c.planned = { branch: "next", base: "refs/heads/topic", base_name: "topic", path: "/src/app-next" };
+  c.open(many, "/src/app-topic");
+  expect(c.field.name()).toBe("next");
+  expect(c.base?.name).toBe("topic");
+  expect(c.entries(many).map(e => e.branch)).toContain("refs/heads/main");
+  const choices = () => launcherWorktree.choices(many, "/src/app-topic", c);
+  expect(choices().at(-1)?.text).toBe("+ Create “next”");
+  expect(launcherWorktree.visible(c, choices(), 8)[0].text).toBe("main");
+  c.move(many, 1);
+  expect(c.selected(many)?.branch).toBe("refs/heads/main");
+  c.edit(field => field.key(21));
+  for (const byte of Buffer.from("other-9")) c.edit(field => field.key(byte));
+  expect(c.entries(many).map(e => e.branch)).toEqual(["refs/heads/other-9"]);
+});
+
 test("a new worktree goes where the template says, from main or the current branch", () => {
   expect(launcherWorktree.plannedPath(snapshot, "/src/app-topic", "feat/login", default_template)).toBe(
     "/src/app/.worktrees/feat-login",
