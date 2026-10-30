@@ -505,4 +505,3 @@ def run(args, plan):
         print(f"Complete: {output / 'comparison.json'}", flush=True)
         if frequency_gate and not manifest['causal_comparison_eligible']:
             raise SystemExit(3)
-
