@@ -296,12 +296,13 @@ export class Server {
         this.enqueue(async () => {
           if (cl.dead && cl.pending[0]?.op !== "hook") return;
           const v = cl.take();
+          let deferred = false;
           try {
-            await this.request(cl, v);
+            deferred = (await this.request(cl, v)) === "deferred";
           } catch (error) {
             cl.queue({ err: error instanceof Error ? error.message : String(error) });
           } finally {
-            if (!cl.headless_start) cl.done();
+            if (!deferred && !cl.headless_start) cl.done();
           }
           this.publish();
         });
@@ -416,7 +417,7 @@ export class Server {
     }
     this.publish();
   }
-  async request(cl: Client, value: unknown): Promise<void> {
+  async request(cl: Client, value: unknown): Promise<void | "deferred"> {
     const op = protocol.parse(value);
     if (!op) throw Error("UnknownOperation");
     const v = json.object(value);
@@ -467,13 +468,18 @@ export class Server {
         if (!agent.provider) throw Error("CustomCommandOptions");
         const quit = new ModelQuit(),
           timeout = setTimeout(() => quit.signal(), 15000);
-        try {
-          cl.reply(op, { models: await agentModels.read(agent.provider, agent.account, quit) });
-        } finally {
-          clearTimeout(timeout);
-          quit.signal();
-        }
-        return;
+        void agentModels
+          .read(agent.provider, agent.account, quit)
+          .then(
+            models => cl.reply(op, { models }),
+            error => cl.queue({ err: error instanceof Error ? error.message : String(error) }),
+          )
+          .finally(() => {
+            clearTimeout(timeout);
+            quit.signal();
+            cl.done();
+          });
+        return "deferred";
       }
       case "session.list":
         cl.queue({ ok: true, result: session.snapshot(this.runtime), viewers: viewer.viewers(this) });

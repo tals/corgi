@@ -1,5 +1,6 @@
 import { test, expect, spyOn } from "bun:test";
 import { Server } from "./server";
+import * as agentModels from "./agent_models";
 import { Preview } from "./launch/preview";
 import { Pane } from "./runtime";
 import { Terminal } from "./pane/terminal";
@@ -152,3 +153,86 @@ test("handoff restoration normalizes small and wide viewer counters before wakin
     }
   }
 });
+
+test("pending model discovery releases the shared request queue", async () => {
+  const { server, dispose } = fixture(),
+    messages: unknown[] = [],
+    pending = Promise.withResolvers<agentModels.Choice[]>(),
+    reader = spyOn(agentModels, "read").mockReturnValue(pending.promise),
+    cl = {
+      protocol_version: null,
+      queue: (v: unknown) => messages.push(v),
+      reply: (_op: string, v: unknown) => messages.push(v),
+      done: () => {},
+    } as any;
+  try {
+    (server as any).enqueue(() =>
+      server.request(cl, { op: "launcher.models", row: "codex", protocol: protocol.version }),
+    );
+    let serviced = false;
+    (server as any).enqueue(async () => {
+      serviced = true;
+    });
+    await Promise.race([(server as any).jobs, Bun.sleep(100)]);
+    expect(serviced).toBe(true);
+    expect(messages).toEqual([]);
+    pending.resolve([{ id: "test", name: "Test" }]);
+    await (server as any).jobs;
+    await pending.promise;
+    expect(messages).toEqual([{ models: [{ id: "test", name: "Test" }] }]);
+  } finally {
+    pending.resolve([]);
+    await (server as any).jobs;
+    reader.mockRestore();
+    dispose();
+  }
+});
+
+for (const failure of [false, true]) {
+  test(`model discovery preserves pipelined reply order on ${failure ? "failure" : "success"}`, async () => {
+    const { server, dispose } = fixture(),
+      pending = Promise.withResolvers<agentModels.Choice[]>(),
+      reader = spyOn(agentModels, "read").mockReturnValue(pending.promise),
+      cl = server.addClient(-1, false);
+    try {
+      cl.pending.push(
+        { op: "launcher.models", row: "codex", protocol: protocol.version },
+        { op: "ping", protocol: protocol.version },
+      );
+      // Exercise real client dispatch while retaining queued output without a socket.
+      (cl as any).paused = false;
+      const flush = spyOn(cl, "flush").mockImplementation(() => {});
+      (cl as any).dispatch();
+      await (server as any).jobs;
+      expect(cl.pending).toHaveLength(1);
+      expect(cl.output.length).toBe(0);
+      let serviced = false;
+      (server as any).enqueue(async () => {
+        serviced = true;
+      });
+      await (server as any).jobs;
+      expect(serviced).toBe(true);
+      if (failure) pending.reject(Error("CatalogFailed"));
+      else pending.resolve([]);
+      await pending.promise.catch(() => {});
+      await Bun.sleep(0);
+      await (server as any).jobs;
+      const replies = cl.output
+        .toString()
+        .trim()
+        .split("\n")
+        .map(line => JSON.parse(line));
+      expect(replies[0]).toEqual(failure ? { err: "CatalogFailed" } : { ok: true, models: [] });
+      expect(replies).toHaveLength(2);
+      expect(replies[1].ok).toBe(true);
+      expect(cl.pending).toHaveLength(0);
+      flush.mockRestore();
+    } finally {
+      pending.resolve([]);
+      await (server as any).jobs;
+      reader.mockRestore();
+      cl.close();
+      dispose();
+    }
+  });
+}
