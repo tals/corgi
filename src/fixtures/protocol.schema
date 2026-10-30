@@ -1,3 +1,5 @@
+$.envelope.request_id: optional
+$.envelope.request_id?: u64
 $.requests: one of
 $.requests|hello: {}
 $.requests|session.command.command: one of

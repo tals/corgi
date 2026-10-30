@@ -155,7 +155,8 @@ export async function collect(
     ask = async (op: "hello" | "session.list" | "bugreport"): Promise<any> => {
       let connection: rpc.Connection | null = null;
       try {
-        connection = new rpc.Connection(socket);
+        // An older daemon replies to hello without a request id.
+        connection = new rpc.Connection(socket, { requestIds: op !== "hello" });
         const reply = await within(connection.call(op), timeout_ms);
         if (reply === null)
           slow[({ hello: "daemon", "session.list": "sessions", bugreport: "report" } as const)[op]] = true;

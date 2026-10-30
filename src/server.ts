@@ -7,7 +7,7 @@ import { chmodSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { Runtime } from "./runtime";
 import { Store } from "./workspace";
-import { Client } from "./peer";
+import { Client, Reply } from "./peer";
 import { n, ReadyLoop, READ } from "./native_bridge";
 import { closeReadiness } from "./pane/terminal";
 import { Theme } from "./theme";
@@ -52,6 +52,8 @@ export class Server {
   private registration?: ReturnType<ReadyLoop["watch"]>;
   private jobs: Promise<void> = Promise.resolve();
   private modelReads = new Map<Client, () => void>();
+  /** Deferred replies, each with whether it changes state and how to answer it early. */
+  private deferred = new Map<Promise<void>, { mutates: boolean; drop: () => void }>();
   private timer?: ReturnType<typeof setInterval>;
   private stopped = false;
   private subscribedRevision = -1n;
@@ -300,12 +302,18 @@ export class Server {
           if (cl.dead && cl.pending[0]?.op !== "hook") return;
           const v = cl.take();
           let deferred = false;
+          let reply = new Reply(cl);
           try {
-            deferred = (await this.request(cl, v)) === "deferred";
+            reply = new Reply(cl, protocol.requestId(v));
+            deferred = (await this.request(cl, v, reply)) === "deferred";
           } catch (error) {
-            cl.queue({ err: error instanceof Error ? error.message : String(error) });
+            const err = error instanceof Error ? error.message : String(error);
+            // An invalid id is echoed as sent, so its client can still match the error.
+            if (reply.id === null && v && typeof v === "object" && Object.hasOwn(v, "request_id"))
+              cl.queue({ err, request_id: v.request_id });
+            else reply.send({ err });
           } finally {
-            if (!deferred && !cl.headless_start) cl.done();
+            if (!deferred && !cl.headless_start && !cl.held) cl.done();
           }
           this.publish();
         });
@@ -421,14 +429,18 @@ export class Server {
     }
     this.publish();
   }
-  async request(cl: Client, value: unknown): Promise<void | "deferred"> {
+  async request(
+    cl: Client,
+    value: unknown,
+    reply = new Reply(cl, protocol.requestId(value)),
+  ): Promise<void | "deferred"> {
     const op = protocol.parse(value);
     if (!op) throw Error("UnknownOperation");
     const v = json.object(value);
     if (!testBuild && (op === "test.advance" || op === "test.settle")) throw Error("UnknownOperation");
     const check = protocol.check(op);
     if (check === "viewer" && v.viewer_protocol !== protocol.viewer_version) {
-      cl.queue({ err: "UnsupportedViewerProtocol", viewer_protocol: protocol.viewer_version });
+      reply.send({ err: "UnsupportedViewerProtocol", viewer_protocol: protocol.viewer_version });
       return;
     }
     if (check === "management") protocol.require(v, null, "management");
@@ -438,7 +450,7 @@ export class Server {
     switch (request.op) {
       case "hello":
         cl.protocol_version = v.runtime_protocol === protocol.version ? protocol.version : null;
-        cl.queue({
+        reply.send({
           type: "hello",
           protocol: protocol.version,
           capabilities: protocol.capabilities,
@@ -450,35 +462,35 @@ export class Server {
         });
         return;
       case "ping":
-        cl.queue({ ok: true, pid: process.pid });
+        reply.send({ ok: true, pid: process.pid });
         return;
       case "shutdown":
-        cl.queue({ ok: true });
+        reply.send({ ok: true });
         setTimeout(() => void this.shutdown(), 0);
         return;
       case "session.command":
-        cl.reply(op, { result: await this.execute(request.payload.command) });
+        reply.ok({ result: await this.execute(request.payload.command) });
         return;
       case "session.locate":
-        cl.reply(op, {
+        reply.ok({
           result: { ...protocol.emptyResult(), ...session.location(this.runtime, request.payload.pane) },
         });
         return;
       case "launcher.catalog":
-        cl.reply(op, { agents: launcherConfig.catalog(this.runtime) });
+        reply.ok({ agents: launcherConfig.catalog(this.runtime) });
         return;
       case "launcher.models": {
         const agent = launcherConfig.get(this.runtime, request.payload.row);
         if (!agent.provider) throw Error("CustomCommandOptions");
         const quit = new ModelQuit();
         let settled = false;
-        const finish = (reply: { ok: true; models: agentModels.Choice[] } | { err: string }) => {
+        const finish = (result: { ok: true; models: agentModels.Choice[] } | { err: string }) => {
           if (settled) return;
           settled = true;
           this.modelReads.delete(cl);
           clearTimeout(timeout);
           quit.signal();
-          cl.queue(reply);
+          reply.send(result);
           cl.done();
         };
         const timeout = setTimeout(() => finish({ err: "TimedOut" }), 15000);
@@ -490,78 +502,78 @@ export class Server {
         return "deferred";
       }
       case "session.list":
-        cl.queue({ ok: true, result: session.snapshot(this.runtime), viewers: viewer.viewers(this) });
+        reply.send({ ok: true, result: session.snapshot(this.runtime), viewers: viewer.viewers(this) });
         return;
       case "session.snapshot":
-        cl.queue(session.snapshot(this.runtime));
+        reply.send(session.snapshot(this.runtime));
         return;
       case "session.subscribe":
         if (cl.viewer || cl.launch_preview || cl.watching) throw Error("AlreadyAttached");
         cl.subscribed = true;
-        cl.queue(session.snapshot(this.runtime));
+        reply.send(session.snapshot(this.runtime));
         return;
       case "viewer.open":
-        await viewer.open(this, cl, request.payload);
+        await viewer.open(this, cl, request.payload, reply);
         return;
       case "viewer.sync":
-        await viewer.sync(this, cl, request.payload);
+        await viewer.sync(this, cl, request.payload, reply);
         return;
       case "viewer.search":
-        await viewer.search(this, cl, request.payload);
+        await viewer.search(this, cl, request.payload, reply);
         return;
       case "viewer.image":
-        viewer.image(this, cl, request.payload);
+        viewer.image(this, cl, request.payload, reply);
         return;
       case "viewer.watch":
         if (cl.viewer || cl.subscribed || cl.launch_preview) throw Error("AlreadyAttached");
         cl.watching = true;
         cl.watch_viewer = request.payload.viewer;
         cl.woken = this.wakeSeq(request.payload.viewer);
-        cl.queue({ ok: true });
+        reply.send({ ok: true });
         return;
       case "viewer.list":
-        cl.queue({ ok: true, viewers: viewer.viewers(this) });
+        reply.send({ ok: true, viewers: viewer.viewers(this) });
         return;
       case "pane.acknowledge":
-        viewer.acknowledge(this, cl, request.payload);
+        viewer.acknowledge(this, cl, request.payload, reply);
         return;
       case "pane.mark_unread":
-        viewer.markUnread(this, cl, request.payload);
+        viewer.markUnread(this, cl, request.payload, reply);
         return;
       case "pane.paste":
-        await viewer.paste(this, cl, request.payload);
+        await viewer.paste(this, cl, request.payload, reply);
         return;
       case "pane.idle":
-        cl.reply(op, { panes: await session.idle(this.runtime, request.payload) });
+        reply.ok({ panes: await session.idle(this.runtime, request.payload) });
         return;
       case "pane.agent":
         observers.claimPane(this, request.payload);
-        cl.reply(op, {});
+        reply.ok({});
         return;
       case "action":
-        await viewer.action(this, cl, request.payload);
+        await viewer.action(this, cl, request.payload, reply);
         return;
       case "focus":
-        viewer.focus(this, cl, request.payload);
+        viewer.focus(this, cl, request.payload, reply);
         return;
       case "workspace.switch":
-        viewer.switchWorkspace(this, cl, request.payload);
+        viewer.switchWorkspace(this, cl, request.payload, reply);
         return;
       case "conversation.list":
-        cl.queue({ ok: true, conversations: session.snapshot(this.runtime).conversations });
+        reply.send({ ok: true, conversations: session.snapshot(this.runtime).conversations });
         return;
       case "conversation.acknowledge": {
         const actor = this.runtime.conversations.byId(request.payload.conversation);
         if (!actor) throw Error("NoConversation");
         actor.acknowledge(request.payload.through, request.payload.attention_at ?? null);
         this.runtime.changed();
-        cl.queue({ ok: true });
+        reply.send({ ok: true });
         return;
       }
       case "pane.surface": {
         const p = this.runtime.pane(request.payload.pane);
         if (!p) throw Error("NoPane");
-        cl.queue({
+        reply.send({
           type: "surface",
           protocol: protocol.version,
           server_pid: process.pid,
@@ -572,15 +584,15 @@ export class Server {
       }
       case "theme":
         this.updateTheme(request.payload.theme);
-        cl.queue({ ok: true });
+        reply.send({ ok: true });
         return;
       case "viewer.terminal":
         cl.terminal = request.payload.terminal;
-        cl.queue({ ok: true });
+        reply.send({ ok: true });
         return;
       case "bugreport": {
         const now = clock.microTimestamp();
-        cl.queue({
+        reply.send({
           ok: true,
           pid: process.pid,
           uptime_ms: Date.now() - this.started_at,
@@ -598,31 +610,33 @@ export class Server {
       }
       case "hook":
         await observers.hook(this, request.payload);
-        cl.queue({ ok: true });
+        reply.send({ ok: true });
         return;
       case "test.advance": {
         const ms = Number(request.payload.ms);
         if (!Number.isSafeInteger(ms)) throw Error("Overflow");
         clock.advance(ms);
         observers.poke(this);
-        cl.queue({ ok: true });
+        reply.send({ ok: true });
         return;
       }
       case "test.settle":
         await observers.settle(this);
         await trackers.settle(this.runtime, () => this.collect());
-        cl.queue({ ok: true });
+        reply.send({ ok: true });
         return;
       case "server.reload": {
         if (!isAbsolute(request.payload.executable ?? "")) throw Error("InvalidExecutable");
+        if ([...this.deferred.values()].some(d => d.mutates)) throw Error("ReloadBusy");
+        for (const d of this.deferred.values()) d.drop();
         const handoff = await import("./persist/handoff");
-        await handoff.replace(this, cl, request.payload.executable);
+        await handoff.replace(this, cl, request.payload.executable, reply.id);
         return;
       }
       case "recovery.save": {
         const recovery = await import("./persist/recovery");
         await recovery.save(this.runtime, this.socket);
-        cl.queue({ ok: true, path: recovery.path(this.socket) });
+        reply.send({ ok: true, path: recovery.path(this.socket) });
         return;
       }
       case "headless.start":
@@ -631,23 +645,23 @@ export class Server {
       case "headless.send":
       case "headless.events": {
         const headless = await import("./headless");
-        await headless.request(this, cl, request);
+        await headless.request(this, cl, request, reply);
         return;
       }
       case "agent.command.preview":
-        await launch.request(this, cl, request);
+        await launch.request(this, cl, request, reply);
         return;
       case "agent.preview":
       case "agent.track_usage":
       case "agent.subscribe":
       case "agent.history": {
         const launch = await import("./launch_service");
-        await launch.request(this, cl, request);
+        await launch.request(this, cl, request, reply);
         return;
       }
       case "inference.configure": {
         const inference = await import("./inference_service");
-        await inference.configure(this, cl, request.payload);
+        await inference.configure(this, cl, request.payload, reply);
         return;
       }
       case "shell.configure": {
@@ -656,7 +670,7 @@ export class Server {
         settings.update(settings.path(this.socket), { shell: shell || undefined });
         this.runtime.changed();
         this.dirty = true;
-        cl.reply(op, { shell: launch_command.shellStatus() });
+        reply.ok({ shell: launch_command.shellStatus() });
         return;
       }
       case "smart_links.configure": {
@@ -664,7 +678,7 @@ export class Server {
         this.runtime.ports.configure(request.payload.enabled);
         this.runtime.changed();
         this.dirty = true;
-        cl.reply(op, { smart_links: request.payload.enabled });
+        reply.ok({ smart_links: request.payload.enabled });
         return;
       }
       case "git.push": {
@@ -672,7 +686,7 @@ export class Server {
         await git.start(this.runtime, request.payload.workspace, request.payload.ref);
         this.runtime.changed();
         this.dirty = true;
-        cl.queue({ ok: true });
+        reply.send({ ok: true });
         return;
       }
       case "worktree.remove": {
@@ -683,60 +697,78 @@ export class Server {
         );
         this.runtime.changed();
         this.dirty = true;
-        cl.queue({ ok: true, removal });
+        reply.send({ ok: true, removal });
         return;
       }
       case "worktree.stop":
         this.runtime.worktree_tracker.stopRemoval(request.payload.workspace);
-        cl.queue({ ok: true });
+        reply.send({ ok: true });
         return;
       case "process.signal": {
         const { workspace, pid, start, signal } = request.payload;
         trackers.resources.signal(this.runtime.resources.current, workspace, pid, start, signal);
         this.runtime.resources.next_refresh = 0;
-        cl.queue({ ok: true });
+        reply.send({ ok: true });
         return;
       }
       case "worktree.brief":
         this.runtime.worktree_briefs.refresh(this.runtime, request.payload.workspace);
         this.runtime.refreshed();
-        cl.queue({ ok: true });
+        reply.send({ ok: true });
         return;
       case "git.branches":
-        // Outside the queue too: a repository with many refs takes a while.
-        void worktreeAdd.branches(this.runtime, request.payload.workspace).then(
-          branches => cl.queue({ ok: true, branches }),
-          error => cl.queue({ err: error instanceof Error ? error.message : String(error) }),
-        );
+        this.defer(cl, reply, false, async () => ({
+          branches: await worktreeAdd.branches(this.runtime, request.payload.workspace),
+        }));
         return;
       case "worktree.add":
-        // Outside the queue: checking out a big tree takes seconds, and
-        // every request waits on the one before.
-        void worktreeAdd
-          .add(
+        this.defer(cl, reply, true, async () => {
+          await worktreeAdd.add(
             this.runtime,
             request.payload.workspace,
             request.payload.path,
             request.payload.branch,
             request.payload.base,
-          )
-          .then(
-            () => {
-              this.runtime.changed();
-              this.dirty = true;
-              cl.queue({ ok: true });
-            },
-            error => cl.queue({ err: error instanceof Error ? error.message : String(error) }),
           );
+          this.runtime.changed();
+          this.dirty = true;
+          return {};
+        });
         return;
       case "onboarding.status":
       case "onboarding.handoff":
       case "onboarding.copy": {
         const importer = await import("./import");
-        await importer.request(this, cl, request);
+        await importer.request(this, cl, request, reply);
         return;
       }
     }
+  }
+  /** Replies once `work` finishes, letting the client's later requests run
+   * meanwhile. A request without an id holds them, so its replies stay in order.
+   * Reload refuses while work that `mutates` runs and answers the rest with `Reloading`. */
+  private defer(cl: Client, reply: Reply, mutates: boolean, work: () => Promise<object>): void {
+    const held = reply.id === null;
+    cl.held ||= held;
+    let answered = false;
+    const answer = (value: object) => {
+      if (answered) return;
+      answered = true;
+      reply.send(value);
+    };
+    const pending = work().then(
+      value => answer({ ok: true, ...value }),
+      error => answer({ err: error instanceof Error ? error.message : String(error) }),
+    );
+    this.deferred.set(pending, { mutates, drop: () => answer({ err: "Reloading" }) });
+    void pending
+      .catch(error => console.error("deferred reply:", error))
+      .finally(() => {
+        this.deferred.delete(pending);
+        if (!held) return;
+        cl.held = false;
+        cl.done();
+      });
   }
   async shutdown(): Promise<void> {
     if (this.stopped) return;

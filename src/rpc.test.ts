@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { createConnection, createServer } from "node:net";
+import { createConnection, createServer, type Socket } from "node:net";
 import { Connection } from "./rpc";
 import * as json from "./json";
 import * as protocol from "./protocol";
@@ -43,6 +43,155 @@ function requestTypes(conn: Connection) {
 }
 void requestTypes;
 
+async function peer(receive: (message: any, socket: Socket) => void, requestIds = true) {
+  const sockets = new Set<Socket>();
+  const server = createServer(socket => {
+    sockets.add(socket);
+    let buffer = "";
+    socket.setEncoding("utf8");
+    socket.on("data", chunk => {
+      buffer += chunk;
+      for (;;) {
+        const newline = buffer.indexOf("\n");
+        if (newline < 0) break;
+        const message = json.parse(buffer.slice(0, newline));
+        buffer = buffer.slice(newline + 1);
+        receive(message, socket);
+      }
+    });
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw Error("NoAddress");
+  const conn = new Connection(createConnection(address.port, "127.0.0.1"), { requestIds });
+  return {
+    conn,
+    async close() {
+      conn.close();
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve, reject) => server.close(error => (error ? reject(error) : resolve())));
+    },
+  };
+}
+function send(socket: Socket, message: object) {
+  socket.write(json.stringify(message) + "\n");
+}
+
+test.each([false, true])(
+  "RPC correlates deferred replies and errors without consuming events (error=%s)",
+  async error => {
+    let finish!: () => void;
+    const remote = await peer((message, socket) => {
+      if (message.op === "git.branches") {
+        finish = () =>
+          send(socket, {
+            request_id: message.request_id,
+            ...(error ? { err: "BranchesUnavailable" } : { ok: true, branches: [] }),
+          });
+        send(socket, { type: "session", panes: [] });
+        send(socket, { type: "agent.preview", preview: {} });
+        send(socket, { type: "viewer.wake" });
+      } else send(socket, { request_id: message.request_id, ok: true, pid: 7 });
+    });
+    try {
+      const branches = remote.conn.call("git.branches", { workspace: 1 }).then(
+        value => value,
+        failure => ({ error: failure.message }),
+      );
+      expect(await remote.conn.call("ping")).toEqual({ ok: true, pid: 7 });
+      finish();
+      expect(await branches).toEqual(error ? { error: "BranchesUnavailable" } : { ok: true, branches: [] });
+    } finally {
+      await remote.close();
+    }
+  },
+);
+
+test.each(["hello", "server.reload"] as const)("management can %s an older daemon without correlation", async op => {
+  const remote = await peer((message, socket) => {
+    expect(message).not.toHaveProperty("request_id");
+    expect(message.protocol).toBe(1);
+    send(socket, { ok: true });
+  }, false);
+  try {
+    const [first, second] = await Promise.allSettled([remote.conn.call(op), remote.conn.call(op)]);
+    expect(first).toEqual({ status: "fulfilled", value: { ok: true } });
+    expect(second).toMatchObject({ status: "rejected", reason: Error("RequestInFlight") });
+  } finally {
+    await remote.close();
+  }
+});
+
+test.each([null, "UnsupportedProtocol"])("RPC rejects the first untagged reply (%s)", async error => {
+  const remote = await peer((_message, socket) => send(socket, error ? { err: error } : { ok: true }));
+  try {
+    const results = await Promise.allSettled([
+      remote.conn.call("viewer.open"),
+      remote.conn.call("git.branches", { workspace: 1 }),
+    ]);
+    for (const result of results) {
+      expect(result.status).toBe("rejected");
+      if (result.status === "rejected") expect(result.reason.message).toBe(error ?? "UnexpectedReply");
+    }
+  } finally {
+    await remote.close();
+  }
+});
+
+test.each(["unknown", "duplicate", "untagged", "view", "disconnect"])(
+  "RPC fails all requests safely on %s replies",
+  async kind => {
+    let first = 0;
+    const remote = await peer((message, socket) => {
+      if (!first) {
+        first = message.request_id;
+        send(socket, { request_id: first, ok: true });
+      } else if (message.op === "ping") {
+        if (kind === "disconnect") socket.destroy();
+        else
+          send(
+            socket,
+            kind === "untagged"
+              ? { err: "InvalidJson" }
+              : kind === "view"
+                ? { type: "view" }
+                : { request_id: kind === "duplicate" ? first : 999, ok: true },
+          );
+      }
+    });
+    try {
+      await remote.conn.call("ping");
+      const requests = Promise.allSettled([
+        remote.conn.call("git.branches", { workspace: 1 }),
+        remote.conn.call("ping"),
+      ]);
+      const results = await requests;
+      expect(results.map(result => result.status)).toEqual(["rejected", "rejected"]);
+      for (const result of results)
+        if (result.status === "rejected")
+          expect(result.reason.message).toBe(kind === "disconnect" ? "ConnectionClosed" : "UnexpectedReply");
+    } finally {
+      await remote.close();
+    }
+  },
+);
+
+test("raw requests must be objects so they can carry correlation ids", async () => {
+  const seen: unknown[] = [];
+  const remote = await peer((message, socket) => {
+    seen.push(message);
+    send(socket, { request_id: message.request_id, ok: true, pid: 7 });
+  });
+  try {
+    for (const value of [null, [], "ping", 1])
+      await expect(remote.conn.rawRequest(value)).rejects.toThrow("UnexpectedToken");
+    expect(await remote.conn.call("ping")).toEqual({ ok: true, pid: 7 });
+    expect(seen).toEqual([{ op: "ping", request_id: 1 }]);
+  } finally {
+    await remote.close();
+  }
+});
+
 test("RPC keeps envelopes, errors, and raw requests at the socket boundary", async () => {
   const received: unknown[] = [];
   const server = createServer(socket => {
@@ -56,7 +205,10 @@ test("RPC keeps envelopes, errors, and raw requests at the socket boundary", asy
         const value = json.parse(buffer.slice(0, newline));
         buffer = buffer.slice(newline + 1);
         received.push(value);
-        socket.write(json.stringify(received.length === 2 ? { err: "NoPane" } : { ok: true, pid: 7 }) + "\n");
+        send(socket, {
+          request_id: value.request_id,
+          ...(received.length === 2 ? { err: "NoPane" } : { ok: true, pid: 7 }),
+        });
       }
     });
   });
@@ -69,9 +221,9 @@ test("RPC keeps envelopes, errors, and raw requests at the socket boundary", asy
     await expect(conn.call("viewer.search", { pane: 1, needle: "x", skip: 3n })).rejects.toThrow("NoPane");
     expect(await conn.rawRequest({ op: "invalid", arbitrary: true })).toEqual({ ok: true, pid: 7 });
     expect(received).toEqual([
-      { op: "ping" },
-      { op: "viewer.search", protocol: protocol.version, pane: 1, needle: "x", skip: 3 },
-      { op: "invalid", arbitrary: true },
+      { op: "ping", request_id: 1 },
+      { op: "viewer.search", protocol: protocol.version, pane: 1, needle: "x", skip: 3, request_id: 2 },
+      { op: "invalid", arbitrary: true, request_id: 3 },
     ]);
   } finally {
     conn.close();
@@ -96,7 +248,7 @@ test("RPC retains raw integer tokens until the receiving model normalizes them",
         if (newline < 0) break;
         packets.push(buffer.slice(0, newline));
         buffer = buffer.slice(newline + 1);
-        socket.write(replies[packets.length - 1] + "\n");
+        socket.write(replies[packets.length - 1].replace("{", `{"request_id":${packets.length},`) + "\n");
       }
     });
   });
@@ -113,9 +265,9 @@ test("RPC retains raw integer tokens until the receiving model normalizes them",
     expect(events.next_seq).toBe(2);
     expect(events.first_seq).toBe(0xffffffffffffffffn);
     expect(packets).toEqual([
-      `{"op":"viewer.search","protocol":${protocol.version},"pane":1,"needle":"x","skip":2}`,
-      `{"op":"viewer.search","protocol":${protocol.version},"pane":1,"needle":"x","skip":18446744073709551615}`,
-      `{"op":"headless.events","protocol":${protocol.version},"provider":"codex","session":"t","after":0}`,
+      `{"op":"viewer.search","protocol":${protocol.version},"pane":1,"needle":"x","skip":2,"request_id":1}`,
+      `{"op":"viewer.search","protocol":${protocol.version},"pane":1,"needle":"x","skip":18446744073709551615,"request_id":2}`,
+      `{"op":"headless.events","protocol":${protocol.version},"provider":"codex","session":"t","after":0,"request_id":3}`,
     ]);
   } finally {
     conn.close();

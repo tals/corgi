@@ -10,7 +10,7 @@ test("model discovery replies while fetching and cached selections never wait fo
   const worker = new Worker(),
     server: any = { summaries: worker, socket: "", runtime: { changed() {} } },
     replies: any[] = [],
-    client: any = { reply: (_op: string, reply: unknown) => replies.push(reply) },
+    client: any = { queue: (reply: unknown) => replies.push(reply) },
     path = spyOn(setup, "path").mockReturnValue("/unused/settings.json"),
     uses = spyOn(setup, "loadUses").mockReturnValue(setup.allUses(true)),
     save = spyOn(setup, "save").mockImplementation(() => {}),
@@ -71,7 +71,7 @@ test("an uncached selection fails promptly without starting model discovery", as
 test("native inference selects a known named account and returns to default without retaining it", async () => {
   const worker = new Worker(),
     server: any = { summaries: worker, socket: "", runtime: { changed() {} } },
-    client: any = { reply() {} },
+    client: any = { queue() {} },
     path = spyOn(setup, "path").mockReturnValue("/unused/settings.json"),
     uses = spyOn(setup, "loadUses").mockReturnValue(setup.allUses(true)),
     save = spyOn(setup, "save").mockImplementation(() => {}),
