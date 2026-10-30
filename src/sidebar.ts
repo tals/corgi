@@ -1073,9 +1073,11 @@ export class View {
       return;
     }
     if (v.drawer === null) {
-      // The rule meets the border, so an outline turns the corner.
-      w.write(`\x1b[${v.middle()};2H` + (v.focus !== null ? outline : panel + fg("line")));
-      w.write("─".repeat(Math.max(0, v.width - 2)) + "┤");
+      // The rule meets the border, so an outline turns the corner. Unboxed,
+      // it's heavy and a step brighter than the rules between rows and sections.
+      const boxed = v.focus !== null;
+      w.write(`\x1b[${v.middle()};2H` + (boxed ? outline : panel + fg("faint")));
+      w.write((boxed ? "─" : "━").repeat(Math.max(0, v.width - 2)) + (boxed ? "┤" : "┥"));
     }
     v.drawAgents(w, entries, now_ms);
   }
