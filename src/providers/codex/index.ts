@@ -1,3 +1,4 @@
+import * as effort from "../effort";
 import { appBundles, configHome, str, Hooks, Text } from "../common";
 import type { Adapter } from "../adapter";
 import * as hooksFile from "../hooks_file";
@@ -105,6 +106,7 @@ export const adapter: Adapter = {
   },
   titleSession,
   launch: {
+    options: (args, model, value) => effort.apply(null, model ? commandLine.withoutModel(args) : args, value),
     start: s => [
       // Its hooks report a run that never asks as bypassing permissions,
       // sandboxed or not, so approval and sandbox options it kept win.

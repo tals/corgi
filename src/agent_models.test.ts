@@ -1,5 +1,7 @@
-import { expect, test } from "bun:test";
-import { Picker, Cache, type Choice } from "./agent_models";
+import { adapter } from "./providers";
+import { Quit } from "./subprocess";
+import { expect, test, spyOn } from "bun:test";
+import { Picker, Cache, read, type Choice } from "./agent_models";
 import { Rect } from "./layout";
 import { Writer } from "./text";
 import { Terminal } from "./pane/terminal";
@@ -204,5 +206,21 @@ test("effort labels sit on the right beside Edit, with native defaults when know
     expect(terminal.text()).toContain("Default (Low)");
   } finally {
     terminal.destroy();
+  }
+});
+
+test("launcher discovery uses the read-only catalog rather than inference probes", async () => {
+  const provider = adapter("opencode2"),
+    catalog = spyOn(provider.launch, "models").mockResolvedValue([
+      { id: "test/model", name: "Test model", subscription: true, input_cost: 0, output_cost: 0 },
+    ]),
+    inference = spyOn(provider.inference, "models").mockRejectedValue(Error("MustNotProbe"));
+  try {
+    expect(await read("opencode2", "", new Quit())).toEqual([{ id: "test/model", name: "Test model" }]);
+    expect(catalog).toHaveBeenCalledTimes(1);
+    expect(inference).not.toHaveBeenCalled();
+  } finally {
+    catalog.mockRestore();
+    inference.mockRestore();
   }
 });

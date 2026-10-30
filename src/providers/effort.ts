@@ -1,5 +1,4 @@
 //! Native reasoning levels and their launch flags.
-import type { Provider } from "../providers";
 export const levels = ["none", "off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
 export type Effort = (typeof levels)[number];
 export function parse(value: unknown): Effort | null {
@@ -15,10 +14,8 @@ export function suffix(value?: Effort): string {
   return value ? " " + label(value) : "";
 }
 /** Keep literal prompt arguments after -- untouched. */
-export function apply(provider: Provider, args: string[], effort?: Effort): string[] {
+export function apply(flag: "--effort" | "--thinking" | null, args: string[], effort?: Effort): string[] {
   if (!effort) return args;
-  const flag = provider === "claude" ? "--effort" : provider === "pi" || provider === "omp" ? "--thinking" : null;
-  if (!flag && provider !== "codex") return args;
   const out: string[] = [];
   let tail: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -31,7 +28,7 @@ export function apply(provider: Provider, args: string[], effort?: Effort): stri
       if (word === flag) i++;
       continue;
     }
-    if (provider === "codex") {
+    if (!flag) {
       if ((word === "-c" || word === "--config") && /^model_reasoning_effort\s*=/.test(args[i + 1] ?? "")) {
         i++;
         continue;

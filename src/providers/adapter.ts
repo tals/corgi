@@ -378,6 +378,10 @@ export interface Adapter extends Info {
    * the pane then shows the conversation its title names. */
   titleSession?(title: string): Text | null;
   launch: {
+    /** Merge configured model and effort overrides with extra flags. */
+    options(args: string[], model?: string, effort?: Effort): string[];
+    /** Read-only launcher catalog, when inference discovery would probe access. */
+    models?(account: string, quit: Quit): Promise<InferenceModel[]>;
     /** Prepares a terminal session before exec, reporting its identity when
      * the provider's UI cannot report it itself, and variables the session
      * needs that the pane's shell does not set. */

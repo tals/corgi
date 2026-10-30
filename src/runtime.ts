@@ -8,8 +8,6 @@ import { Agent } from "./agents";
 import { Entry, capacity as command_capacity, commandLine, identify } from "./launch/command";
 import * as accounts from "./accounts";
 import * as agentOptions from "./agent_options";
-import * as effort from "./providers/effort";
-import * as providerCommand from "./providers/command_line";
 import { Terminal } from "./pane/terminal";
 import { Attachment, Registry, type ActorId } from "./conversations";
 import { Tracker, locate, process_buffer, type Foreground } from "./detection";
@@ -126,11 +124,7 @@ export class Launch {
   /** Starts `provider` in `account`. */
   static in(provider: Provider, account: string, yolo = false, options = accounts.launchOptions(provider, account)) {
     const flags = agentOptions.args(options.flags),
-      args = effort.apply(
-        provider,
-        options.model ? providerCommand.withoutModel(flags, provider === "pi" || provider === "omp") : flags,
-        options.effort,
-      ),
+      args = adapter(provider).launch.options(flags, options.model, options.effort),
       env = [
         ...options.env.filter(([key]) => key !== adapter(provider).accounts.env),
         ...accounts.env(provider, account),

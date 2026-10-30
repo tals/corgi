@@ -1,3 +1,4 @@
+import * as effort from "../effort";
 import path from "node:path";
 import type { Adapter } from "../adapter";
 import { field, Hooks, str, type Hook, type Outcome } from "../common";
@@ -107,6 +108,8 @@ export const adapter: Adapter = {
     delete env.CORGI_OMP_OWNER;
   },
   launch: {
+    options: (args, model, value) =>
+      effort.apply("--thinking", model ? commandLine.withoutModel(args, true) : args, value),
     start: s => [
       ...(s.permissions === "bypass" ? ["--auto-approve"] : []),
       ...(s.model ? ["--model", s.model] : []),

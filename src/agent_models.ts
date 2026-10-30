@@ -15,10 +15,8 @@ import { matches } from "./search";
 
 export type Choice = { id: string; name: string; efforts?: effort.Effort[]; default_effort?: effort.Effort };
 export async function read(provider: Provider, account: string, quit: Quit): Promise<Choice[]> {
-  const values =
-    provider === "opencode2"
-      ? await (await import("./providers/opencode2/models")).catalog(quit)
-      : ((await adapter(provider).inference.models?.(account, quit)) ?? []);
+  const launch = adapter(provider).launch,
+    values = (await (launch.models ?? adapter(provider).inference.models)?.(account, quit)) ?? [];
   return values.map(m => ({
     id: m.id,
     name: m.name,
