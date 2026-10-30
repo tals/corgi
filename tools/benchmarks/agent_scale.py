@@ -135,14 +135,22 @@ def report(output, directories):
         child = f'{row["daemon_waited_child_cpu"]:.3f}%' if row["daemon_waited_child_cpu"] is not None else "—"
         lines.append(f'| {row["agents"]} | {row["state"]} | {"attached" if row["attached"] else "detached"} | '
                      f'{row["daemon_cpu"]:.2f}% | {viewer} | {row["total_cpu"]:.2f}% | {child} |')
+    placements = {}
+    for row in ordered:
+        placements.setdefault((row["node"], row["cpus"]), set()).add(f'{row["agents"]} {row["state"]}')
+    for (node, cpus), cases in sorted(placements.items()):
+        lines.extend(["", f'NUMA {node}, CPUs `{cpus}`: {", ".join(sorted(cases))}.'])
+    if len(placements) > 1:
+        lines.extend(["", "Different placements limit comparisons across cells; memory is bound to each selected node."])
     lines.extend(["", "N alternating Claude/Codex fixture providers plus one quiet shell; one visible first-agent pane.",
                   "Host geometry 160×48, provider PTYs 132×47. Streaming updates one sparse row at 20 Hz",
                   "per agent on a shared monotonic schedule with staggered phases. Idle agents stay at stable prompts",
                   "without terminal output or transcript changes. Default animation intensity 50 and resources remain enabled. Transcripts are minimal;",
-                  "Codex app-server polling and real model inference are not exercised.", "",
+                  "Codex app-server polling and real model inference are not exercised. Projects are isolated non-Git directories;",
+                  "real repository/worktree/push scanning is not exercised.", "",
                   "All included trials passed workload, executable/native identity, geometry, applicable cadence/animation,",
-                  "affinity, utilization-clamp and cleanup checks, plus the original 2% whole-trial and measured-window",
-                  "SMT-sibling mean guards. At most three noise retries per case; every attempt is preserved.", "",
+                  "daemon/viewer leader-affinity, utilization-clamp and cleanup checks, plus the original 2% whole-trial and measured-window",
+                  "SMT-sibling mean guards. At most three attempts per case; every attempt is preserved.", "",
                   "Waited-child CPU is separate: /proc cutime/cstime charges when a child is reaped and can include",
                   "work preceding the sample. It is not a contemporaneous subtree total.", "",
                   f'Accepted cells: {len(ordered)}. Missing cells: {len(missing)}. Preserved unrun or unaccepted source cases: {len(excluded)}. Correctness-only preflight CPU is excluded.', "",

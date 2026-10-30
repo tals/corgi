@@ -1,6 +1,15 @@
 # Retained-surface validation
 
-## Latest measured candidate: v18
+## Rebased on main
+
+The effort is now rebased onto main `8153137`. The [post-rebase CPU matrix](main_rebase_matrix.md)
+covers 4/8/32/64 agents, idle/streaming and attached/detached, with all cells
+accepted under the original strict noise limits. The final 64-agent streaming
+case uses a different NUMA node after repeated contention; the report records
+that comparison limit and separates waited-child CPU. This is absolute
+workload characterization, not a new Herdr comparison.
+
+## V18 before the main rebase
 
 V18 combines the conservative 75 ms ordinary-view wait cap with eviction of
 hidden native mirror surfaces. Its prospective V15 → V18 → V18 → V15 aligned

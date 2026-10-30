@@ -1,5 +1,7 @@
 # Agent-count CPU matrix: Corgi V18 and Herdr v0.9.5
 
+For the newer Corgi-only results after rebasing on main, including 64 agents, see [the strict post-rebase matrix](main_rebase_matrix.md).
+
 All 12 requested scenarios are measured. Corgi retains a substantial viewer cost: about 0.52–0.57% of one core while idle and 1.53–1.70% while busy, versus Herdr’s 0.12–0.23%. At 32 busy agents, the detached daemon readings are close, but both are flagged for host interference. These are observations of this synthetic workload, not precise parity or optimization claims.
 
 CPU below is percent of **one core**. D = daemon process, including its threads; V = one viewer. Total = D + V. Detached viewers exited and are shown as absent. † marks an observation whose trial failed the original 2% sibling-load guard; ratios involving these values are approximate.
