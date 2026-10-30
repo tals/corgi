@@ -18,9 +18,10 @@ import * as keys from "./keys";
 import * as trackers from "./trackers";
 import { Model as AgentModel } from "./providers/model";
 import { Status as InferenceStatus } from "./inference/setup";
-import { section, type Target } from "./agent_order";
+import { index, section, type Section, type Target } from "./agent_order";
 import type { Session } from "./headless";
 import { Briefs } from "./worktree_briefs";
+import * as worktreeAgents from "./worktree_agents";
 import * as breadcrumbs from "./breadcrumbs";
 export type Create = {
   workspace: number;
@@ -871,28 +872,126 @@ export class Runtime {
     }
     return created;
   }
-  /** Puts each agent that entered another activity section, or is new to
-   * the list, first in its workspace's activity order. */
+  /** Changes the star on an agent and remembers its conversation for history. */
+  starAgent(ws: Workspace, target: Target, starred: boolean, before: Target | null = null): void {
+    const live = this.agentTargets(ws);
+    if (index(live, target) === null) {
+      if (starred) throw Error("NoAgent");
+      ws.pinned_agents.unpin(live, target);
+      return;
+    }
+    if (starred) ws.pinned_agents.pin(live, target, before);
+    else ws.pinned_agents.unpin(live, target);
+    const agent = this.targetAgent(target);
+    if (!agent?.provider || !agent.session.len) return;
+    ws.starred_sessions.set(agent.provider, agent.sessionId(), starred);
+    for (const other of live) {
+      const state = this.targetAgent(other);
+      if (state?.provider !== agent.provider || state.sessionId() !== agent.sessionId()) continue;
+      if (starred && !ws.pinned_agents.has(other)) ws.pinned_agents.pin(live, other, null);
+      else if (!starred) ws.pinned_agents.unpin(live, other);
+    }
+  }
+  private targetAgent(target: Target): Agent | null {
+    return "pane" in target
+      ? (this.pane(target.pane)?.agent() ?? null)
+      : (this.sessions.find(s => s.id === target.headless)?.attachment.agent() ?? null);
+  }
+  /** Remembers old stars and restores them when a conversation opens again. */
+  private syncStar(ws: Workspace, live: Target[], target: Target, key: string): boolean {
+    const agent = this.targetAgent(target);
+    if (!agent?.provider || !agent.session.len) return false;
+    const identity = `${agent.provider}:${agent.sessionId()}`,
+      previous = ws.star_bindings.get(key);
+    ws.star_bindings.set(key, identity);
+    let changed = false;
+    if (previous !== undefined && previous !== identity && ws.pinned_agents.has(target)) {
+      ws.pinned_agents.unpin(live, target);
+      changed = true;
+    }
+    if (ws.pinned_agents.has(target))
+      changed = ws.starred_sessions.set(agent.provider, agent.sessionId(), true) || changed;
+    else if (ws.starred_sessions.has(agent.provider, agent.sessionId())) {
+      ws.pinned_agents.pin(live, target, null);
+      changed = true;
+    }
+    return changed;
+  }
+  /** Places new agents in manual order and raises those entering an activity section. */
   raiseEntered(): boolean {
     let changed = false;
     for (const ws of this.workspaces.items) {
       const live = this.agentTargets(ws, []),
+        placed = ws.agent_order.slice(),
         seen = new Set<string>();
       for (const target of live) {
-        const kind = this.agentSection(target);
-        if (kind === null) continue;
         const key = "pane" in target ? `pane:${target.pane}` : `headless:${target.headless}`,
-          last = ws.sections.get(key);
+          last = ws.sections.get(key),
+          kind = this.startingSection(ws, target, key, last);
         seen.add(key);
+        changed = this.syncStar(ws, live, target, key) || changed;
         ws.sections.set(key, kind);
+        if (kind === null) continue;
+        const entered = last === null ? !ws.agent_slots.has(key) : last === undefined && index(placed, target) === null;
+        ws.agent_slots.add(key);
+        if (entered) {
+          const ordered = ws.agent_order
+              .without(live, target)
+              .items.filter(t => index(placed, t) !== null && this.agentSection(t) !== null),
+            checkout = this.agentWorktree(ws, target),
+            before = checkout === null ? undefined : ordered.find(t => this.agentWorktree(ws, t) === checkout);
+          ws.agent_order.move(live, target, before ?? ordered[0] ?? null);
+          placed.push(target);
+          changed = true;
+        }
         // A restored agent keeps its place until it moves on.
         if (last === kind || (last === undefined && ws.activity_order.has(target))) continue;
         ws.activity_order.raise(live, target);
         changed = true;
       }
       for (const key of ws.sections.keys()) if (!seen.has(key)) ws.sections.delete(key);
+      for (const key of ws.starting) if (!seen.has(key)) ws.starting.delete(key);
+      for (const key of ws.star_bindings.keys()) if (!seen.has(key)) ws.star_bindings.delete(key);
+      for (const key of ws.agent_slots) if (!seen.has(key)) ws.agent_slots.delete(key);
     }
     return changed;
+  }
+  private agentWorktree(ws: Workspace, target: Target) {
+    if ("pane" in target) {
+      const p = this.pane(target.pane);
+      return p ? worktreeAgents.listedWorktree(ws.worktrees, target, p.agent().cwd.text() || p.cwd) : null;
+    }
+    const s = this.sessions.find(s => s.id === target.headless);
+    return s ? worktreeAgents.listedWorktree(ws.worktrees, target, s.cwd) : null;
+  }
+  /** An agent's section, except that a new one waits in working until its
+   * first turn, through startup and idle. */
+  private startingSection(ws: Workspace, target: Target, key: string, last: Section | null | undefined) {
+    const kind = this.agentSection(target),
+      start = this.agentStart(target),
+      restored = last === undefined && ws.activity_order.has(target),
+      fresh = !restored || start?.state === "unknown" || start?.state === "initializing",
+      waiting = last ? ws.starting.has(key) : kind !== null && fresh;
+    if (waiting && kind === "idle" && start?.completed === 0n) {
+      ws.starting.add(key);
+      return "working";
+    }
+    ws.starting.delete(key);
+    return kind;
+  }
+  private agentStart(target: Target) {
+    if ("pane" in target) {
+      const agent = this.pane(target.pane)?.agent();
+      return agent ? { state: agent.state, completed: agent.observation.completed } : null;
+    }
+    const s = this.sessions.find(s => s.id === target.headless);
+    return s ? { state: s.status(), completed: s.observation().completed } : null;
+  }
+  /** The agents waiting in working for their first turn. */
+  startingAgents(ws: Workspace): Target[] {
+    return this.agentTargets(ws).filter(t =>
+      ws.starting.has("pane" in t ? `pane:${t.pane}` : `headless:${t.headless}`),
+    );
   }
   private agentSection(target: Target) {
     if ("pane" in target) {

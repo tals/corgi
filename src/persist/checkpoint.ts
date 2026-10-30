@@ -3,6 +3,7 @@ import { Runtime, Pane, ClosedAgent, Launch, closed_per_workspace } from "../run
 import { Workspace, Store } from "../workspace";
 import { Model, Tab, max_workspaces } from "../layout";
 import { Order, Pins } from "../agent_order";
+import { Stars } from "../agent_stars";
 import { Agent, Provider, Text } from "../agents";
 import { Attachment, Registry, max_actors } from "../conversations";
 import { ResumeHint } from "../resume_hint";
@@ -192,6 +193,7 @@ export function capture(r: Runtime, live: boolean) {
       model: w.model,
       agent_order: w.agent_order.slice(),
       pinned_agents: w.pinned_agents.slice(),
+      starred_sessions: w.starred_sessions.slice(),
       activity_order: w.activity_order.slice(),
       last_agent: w.last_agent,
       launcher_hidden: w.launcher_hidden,
@@ -331,6 +333,7 @@ export async function restore(
     item.model = Model.fromData(w.model);
     item.agent_order = Order.restore(w.agent_order ?? []);
     item.pinned_agents = Pins.restore(w.pinned_agents ?? []);
+    item.starred_sessions = Stars.restore(w.starred_sessions ?? []);
     // A checkpoint from before the sections starts them in the dragged order.
     item.activity_order = Order.restore(w.activity_order ?? w.agent_order ?? []);
     item.last_agent = w.last_agent ?? null;

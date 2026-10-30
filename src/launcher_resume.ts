@@ -27,6 +27,7 @@ export interface Entry {
   branch: string;
   updated_at: number;
   interrupted: boolean;
+  starred: boolean;
 }
 export function historyEntry(value: any): Entry {
   return {
@@ -40,6 +41,7 @@ export function historyEntry(value: any): Entry {
     branch: value.branch ?? "",
     updated_at: Number(value.updated_at ?? 0),
     interrupted: value.interrupted === true,
+    starred: value.starred === true,
   };
 }
 export interface History {
@@ -232,6 +234,7 @@ export class View {
   matches(e: Entry): boolean {
     for (const word of this.search().split(" ")) {
       if (word.length === 0) continue;
+      if (e.starred && starWord(word)) continue;
       if (!contains(e.title, word) && !contains(e.first, word) && !contains(e.last, word)) return false;
     }
     return true;
@@ -571,7 +574,7 @@ export class View {
         tag(branch, Math.min(Buffer.byteLength(branch), Math.floor(room / 2)), palette.fg("muted"));
     }
     w.write(`\x1b[${row};${col}H` + style);
-    writeEllipsis(w, e.title.length > 0 ? e.title : e.first, room);
+    writeEllipsis(w, (e.starred ? "★ " : "") + (e.title.length > 0 ? e.title : e.first), room);
     col += cols.title + 2;
     if (cols.folder > 0) {
       w.write(`\x1b[${row};${col}H` + palette.fg("muted"));
@@ -644,6 +647,10 @@ export function writeKey(w: Writer, key: string, after: string): void {
 }
 function lowerAscii(text: string): string {
   return text.replace(/[A-Z]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 32));
+}
+/** "star" up to "starred" finds starred conversations. */
+function starWord(word: string): boolean {
+  return word.length >= 4 && "starred".startsWith(lowerAscii(word));
 }
 function contains(text: string, query: string): boolean {
   return lowerAscii(text).includes(lowerAscii(query));

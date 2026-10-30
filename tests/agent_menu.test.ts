@@ -271,5 +271,42 @@ class AgentMenu extends Viewers {
     await viewer.input("x");
     await this.until(async () => !(await this.panes()).some((p: any) => p.id === pane));
   }
+
+  async test_right_click_stars_and_unstars_without_changing_manual_order() {
+    const first = await this.new(),
+      second = await this.new();
+    await this.mark_agent(first, "Agent-0");
+    await this.mark_agent(second, "Agent-1");
+    const viewer = await this.newViewer(),
+      rows = () => screen_text(viewer.state.data, 100, 30),
+      stars = async () => (await this.session()).workspaces[0].pinned_agents;
+    await viewer.focus(first);
+    const tabs = (await this.session()).workspaces[0].model.tabs;
+    const open = async () => {
+      const y = rows().findIndex((row, index) => index > 0 && row.slice(0, 27).includes("Agent-1"));
+      this.assertTrue(y >= 0);
+      await viewer.input(mouse(2, 6, y) + mouse(2, 6, y, true));
+    };
+    // Starring preserves the manual sort and adds a mark beside the name.
+    await open();
+    const y = rows().findIndex(row => row.includes("Star"));
+    this.assertTrue(y >= 0);
+    const x = rows()[y].indexOf("Star");
+    await viewer.input(mouse(0, x, y) + mouse(0, x, y, true));
+    this.assertEqual(await stars(), [{ pane: second }]);
+    this.assertTrue(rows().some(row => row.slice(0, 27).includes("★ Agent-1")));
+    this.assertFalse(rows().some(row => row.slice(0, 27).includes("starred")));
+    this.assertEqual((await this.session()).workspaces[0].model.tabs, tabs);
+    // Reopening offers Unstar; its menu key takes the same path as a click.
+    await open();
+    this.assertTrue(rows().some(row => row.includes("Unstar")));
+    await viewer.input("s");
+    this.assertEqual(await stars(), []);
+    await this.until(async () => {
+      await viewer.poll();
+      return !rows().some(row => row.slice(0, 27).includes("★"));
+    });
+    this.assertEqual((await this.session()).workspaces[0].model.tabs, tabs);
+  }
 }
 registerCase("Agent menu", AgentMenu);

@@ -34,6 +34,7 @@ export type Item =
   | "copy-details"
   | "copy-path"
   | "mark-unread"
+  | "star"
   | "review"
   | "open-folder"
   | "close"
@@ -67,7 +68,8 @@ const agent_actions = [
   row("review", "e", "Review changes"),
   row("copy-details", "c", "Copy details"),
   row("mark-unread", "u", "Mark as unread", { rule: true }),
-  row("rename", "r", "Rename"),
+  row("star", "s", "Star"),
+  row("rename", "r", "Rename", { rule: true }),
   row("fork", "f", "Fork"),
   row("close", "x", "Close", { rule: true }),
 ];
@@ -106,6 +108,9 @@ export class TabMenu {
   pane = false;
   /** An agent row's menu; `tab` is the agent's pane. */
   agent = false;
+  headless = false;
+  /** Whether the agent is starred. */
+  starred = false;
   /** A worktree group's checkout path; `tab` is its workspace, `title` its
    * heading, and `folded` whether the group is folded, or null for a
    * section's subhead, which has nothing to fold. */
@@ -130,7 +135,10 @@ export class TabMenu {
       this.details.set(item, { runs, since: now, placeholder: old.runs === null });
   }
   entries(): Row[] {
-    if (this.agent) return agent_actions;
+    if (this.agent || this.headless)
+      return agent_actions
+        .filter(entry => !this.headless || entry.item === "star")
+        .map(entry => (entry.item === "star" && this.starred ? { ...entry, label: "Unstar" } : entry));
     if (this.worktree !== null)
       return [
         row("review", "e", "Review changes"),

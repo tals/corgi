@@ -232,8 +232,7 @@ export interface Entry {
   section: SectionKind | null;
   /** A new agent waiting for its first prompt, held in working. */
   starting: boolean;
-  /** When it entered its section, in ms. */
-  since_ms: number;
+  starred: boolean;
 }
 export function entry(fields: Partial<Entry> & { target: Target }): Entry {
   return {
@@ -263,7 +262,7 @@ export function entry(fields: Partial<Entry> & { target: Target }): Entry {
     notes: 0,
     section: null,
     starting: false,
-    since_ms: 0,
+    starred: false,
     ...fields,
   };
 }
@@ -295,7 +294,7 @@ export function indicator(e: Entry, selected: boolean): { icon: string; color: s
 }
 /** Each activity section's header: the glyph its rows would show, and its name. */
 export const sections: Record<SectionKind, { glyph: string; token: palette.Token; label: string }> = {
-  pinned: { glyph: "⇅", token: "strong", label: "pinned" },
+  starred: { glyph: "★", token: "strong", label: "starred" },
   ready: { glyph: "●", token: "accent", label: "ready" },
   working: { glyph: "▶", token: "accent", label: "working" },
   idle: { glyph: "○", token: "muted", label: "idle" },
@@ -666,16 +665,19 @@ export class View {
     if (this.width === 0 || this.entries.length === 0 || this.search !== null || this.drawer === "workspaces")
       return null;
     const { counts, prev, next } = this.index;
+    // Rows end above a bottom badge.
+    const y = sat(this.rows, 1);
     let found: BadgeCounts;
     let offset: number;
     if (side === "above") {
-      if (prev[this.offset] < 0) return null;
+      const nearest = prev[this.offset];
+      if (nearest < 0) return null;
       found = counts[this.offset];
-      // Scrolls to the farthest, the list's first, so the rest come into view with it.
+      // Scrolls to the farthest that keeps the nearest in view, so the rest come into view with it.
       offset = next[0];
+      while (offset < nearest && this.entryEnd(offset, nearest) > y) offset = next[offset + 1];
     } else {
       // It shows for an agent past the list's end, then also counts one it covers.
-      const y = sat(this.rows, 1);
       if (next[Math.min(this.offset + this.capacity, this.count)] < 0) return null;
       let covered = this.offset;
       while (covered < this.count && this.entryEnd(this.offset, covered) <= y) covered += 1;
@@ -685,11 +687,17 @@ export class View {
         attention: total.attention - counts[covered].attention,
         unread: total.unread - counts[covered].unread,
       };
-      // Scrolls the farthest, the list's last, to the bottom, so the rest come into view with it.
-      const last = prev[this.count];
-      offset = this.offset;
-      while (offset < last && this.entryEnd(offset, last) > y) offset += 1;
-      offset = Math.min(offset, this.maxOffset());
+      // Scrolls the farthest that keeps the nearest in view to the bottom, so
+      // the rest come into view with it.
+      const nearest = next[covered],
+        bottom = (last: number) => {
+          let at = this.offset;
+          while (at < last && this.entryEnd(at, last) > y) at += 1;
+          return at;
+        };
+      let last = prev[this.count];
+      while (last > nearest && bottom(last) > nearest) last = prev[last];
+      offset = Math.min(bottom(last), this.maxOffset());
     }
     const badge: Badge = {
       x: 0,
@@ -936,6 +944,14 @@ export class View {
     const hidden =
       e.moved !== null && this.supports_kitty_graphics && this.cell !== null && (rowGlide.fade(e.moved.ms) ?? 0) > 0.5;
     return hidden ? 0 : e.slide !== 0 ? 1 : 2;
+  }
+  /** The header and spacer above the rows, and the terminal's last row.
+   * Never scroll over workspaces or beside the list. */
+  agentDragEdge(x: number, y: number): -1 | 0 | 1 {
+    if (this.framed()) return this.lists().agentDragEdge(x - lists_x, y);
+    if (this.width === 0 || x < 0 || x >= this.width - 1 || this.listRows() === 0 || this.count === 0) return 0;
+    if (y >= this.middle() && y < this.middle() + 2) return -1;
+    return y === this.rows - 1 ? 1 : 0;
   }
   /** Use the same row heights and viewport as hit testing. The marker sits
    * just above the destination row, including the gap after the last row. */
@@ -1399,7 +1415,7 @@ export class View {
             : "\x1b[22m" + fg("text")
       }`,
     );
-    writeEllipsis(w, name, sat(room, right));
+    writeEllipsis(w, (e.starred && e.section !== "starred" ? "★ " : "") + name, sat(room, right));
     w.write("\x1b[22m");
     // Unsent review notes wait for the user, so they take warm.
     if (notes.length > 0 && room > right + 4)

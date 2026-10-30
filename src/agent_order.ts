@@ -1,11 +1,11 @@
 export type Target = { pane: number } | { headless: number };
 /** The agent list's activity sections, in the order it shows them. */
-export type Section = "pinned" | "working" | "ready" | "idle" | "done";
+export type Section = "starred" | "working" | "ready" | "idle" | "done";
 /** The section an agent's state puts it in. One waiting on the user, or
  * paused until its background work wakes it, is still at work; its row says so. */
-export function section(state: string, attention: string, paused = false): Exclude<Section, "pinned"> {
+export function section(state: string, attention: string, paused = false): Exclude<Section, "starred"> {
   if (state === "done") return "done";
-  // Startup has no work yet; the viewer holds new agents until their first prompt.
+  // Startup has no work yet; the daemon holds new agents in working until their first prompt.
   if (state === "working" || state === "blocked" || attention === "needs_input" || paused) return "working";
   if (attention === "finished") return "ready";
   return "idle";

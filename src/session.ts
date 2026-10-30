@@ -90,10 +90,8 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
       break;
     }
     case "agent.pin": {
-      const ws = r.getWorkspace(request.payload.workspace),
-        live = r.agentTargets(ws);
-      if (request.payload.pinned) ws.pinned_agents.pin(live, request.payload.target, request.payload.before ?? null);
-      else ws.pinned_agents.unpin(live, request.payload.target);
+      const ws = r.getWorkspace(request.payload.workspace);
+      r.starAgent(ws, request.payload.target, request.payload.pinned, request.payload.before ?? null);
       break;
     }
     case "agent.place": {
@@ -596,7 +594,9 @@ function build(r: Runtime, viewer: boolean) {
     workspaces: r.workspaces.items.map((w: any) => ({
       agent_order: w.agent_order.slice(),
       pinned_agents: w.pinned_agents.slice(),
+      starred_sessions: w.starred_sessions.slice(),
       activity_order: w.activity_order.slice(),
+      starting_agents: r.startingAgents(w),
       last_agent: w.last_agent,
       launcher_hidden: w.launcher_hidden,
       closed_agents: r.closedCount(w.id),

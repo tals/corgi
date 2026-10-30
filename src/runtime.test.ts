@@ -23,6 +23,41 @@ function setup() {
   r.workspaces.items = [w];
   return { r, w };
 }
+test("stars follow conversations after closing and reopening, until explicitly removed", () => {
+  const { r, w } = setup();
+  try {
+    const actor = r.conversations.get("claude", "starred-session"),
+      first = add(r, w);
+    first.attachment.select(actor);
+    r.starAgent(w, { pane: first.id }, true);
+    r.raiseEntered();
+    actor.state.state = "done";
+    r.raiseEntered();
+    expect(w.pinned_agents.has({ pane: first.id })).toBe(true);
+    r.close(first.id);
+    // Another star change can discard the old pane's saved order.
+    const other = add(r, w);
+    other.attachment.select(r.conversations.get("claude", "other"));
+    r.starAgent(w, { pane: other.id }, true);
+    expect(w.pinned_agents.has({ pane: first.id })).toBe(false);
+    expect(w.starred_sessions.has("claude", "starred-session")).toBe(true);
+    const reopened = add(r, w);
+    reopened.attachment.select(r.conversations.get("claude", "starred-session"));
+    r.raiseEntered();
+    expect(w.pinned_agents.has({ pane: reopened.id })).toBe(true);
+    r.starAgent(w, { pane: reopened.id }, false);
+    r.raiseEntered();
+    expect(w.pinned_agents.has({ pane: reopened.id })).toBe(false);
+    expect(w.starred_sessions.has("claude", "starred-session")).toBe(false);
+    // A different conversation in a starred pane does not inherit its star.
+    other.attachment.select(r.conversations.get("claude", "replacement"));
+    r.raiseEntered();
+    expect(w.pinned_agents.has({ pane: other.id })).toBe(false);
+    expect(w.starred_sessions.has("claude", "other")).toBe(true);
+  } finally {
+    r.destroy();
+  }
+});
 test("stopping a Bun-owned shell leaves child collection to Bun", async () => {
   const r = new Runtime(),
     terminal = Terminal.create(20, 4);

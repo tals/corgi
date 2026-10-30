@@ -74,7 +74,7 @@ test("sections go in a fixed order, ready under working, newest first, neighbour
     1,
     "done 1",
   ]);
-  expect(out[7]).toMatchObject({ section: "working", since_ms: 3, worktree: null, state: "blocked" });
+  expect(out[7]).toMatchObject({ section: "working", worktree: null, state: "blocked" });
   expect(out[5].group.branch).toBe(true);
   expect(out[1].group.branch).toBe(true);
   expect(out[2]).toMatchObject({ section: "working", worktree: { workspace: 1, path: "/repo/topic", ghost: false } });
@@ -109,8 +109,8 @@ test("pins keep their order above the sections, each workspace's together", () =
     ],
     options(),
   );
-  expect(rows(out)).toEqual(["pinned 3", 2, 1, 3, "idle 1", 4]);
-  expect(out[1].section).toBe("pinned");
+  expect(rows(out)).toEqual(["starred 3", 2, 1, 3, "idle 1", 4]);
+  expect(out[1].section).toBe("starred");
   // In "all", each workspace and each of its worktrees gets a subhead.
   const all = agentSections.arrange(
     [
@@ -123,7 +123,7 @@ test("pins keep their order above the sections, each workspace's together", () =
   );
   // A section's place is among its own workspace's agents, so each workspace's
   // keep together, however recent another workspace's are.
-  expect(rows(all)).toEqual(["pinned 2", "· ws1", 1, "· ws2", 4, "working 2", "· topic", 3, "· ws2", 2]);
+  expect(rows(all)).toEqual(["starred 2", "· ws1", 1, "· ws2", 4, "working 2", "· topic", 3, "· ws2", 2]);
 });
 
 test("a folded section stands in for the focused agent it hides", () => {

@@ -12,9 +12,9 @@ const mouse = (button: number, x: number, y: number, release = false) =>
   `\x1b[<${button};${x + 1};${y + 1}${release ? "m" : "M"}`;
 
 // At 30 rows the agent list starts at row 16: the idle section's header, then
-// two rows per agent, the newest first. Once one is pinned, the pinned
+// two rows per agent, the newest first. Once one is starred, the starred
 // section's header is there.
-class AgentPins extends Viewers {
+class AgentStars extends Viewers {
   async setUp() {
     await super.setUp();
     writeFileSync(
@@ -43,7 +43,7 @@ class AgentPins extends Viewers {
     const screen = screen_text(viewer.state.data, 100, rows);
     return screen.findIndex((row, y) => y > Math.floor((rows - 1) / 2) && row.slice(0, 27).includes(text));
   }
-  async pins(index = 0) {
+  async stars(index = 0) {
     return (await this.session()).workspaces[index].pinned_agents;
   }
 
@@ -54,10 +54,11 @@ class AgentPins extends Viewers {
     await this.mark_agent(pane, "Agent-1");
     await this.until(async () => {
       await viewer.poll();
+      // Agent-0 has had no prompt either; the newer one goes on top.
       const working = this.row(viewer, "working"),
         added = this.row(viewer, "Agent-1"),
-        idle = this.row(viewer, "idle");
-      return working > 0 && added > working && idle > added;
+        older = this.row(viewer, "Agent-0");
+      return working > 0 && added === working + 1 && older > added;
     });
     this.assertEqual((await this.session()).panes.find((p: any) => p.id === pane).agent.state, "idle");
     const row = this.row(viewer, "Agent-1");
@@ -91,49 +92,37 @@ class AgentPins extends Viewers {
     this.assertNotIn("\x1b]22;fleur\x1b\\", viewer.state.data);
   }
 
-  async test_pins_are_shared_without_moving_tabs_and_survive_reload() {
+  async test_stars_are_shared_without_moving_tabs_and_survive_reload() {
     const [a, b, c] = await this.agents();
     const first = await this.newViewer(),
       second = await this.newViewer();
     await first.focus(a);
     await second.focus(b);
     const tabs = (await this.session()).workspaces[0].model.tabs;
-    // Above the first section, with nothing pinned yet.
-    await first.input(mouse(0, 6, 21) + mouse(32, 6, 16));
-    this.assertEqual(this.labels(first), ["Agent-0", "Agent-2", "Agent-1"]);
-    this.assertIn(ghost, first.state.data);
-    this.assertIn("\x1b]22;grabbing\x1b\\", first.state.data);
-    // Another viewer's release cannot complete this viewer's drag.
-    await second.input(mouse(0, 6, 16, true));
-    this.assertEqual(await this.pins(), []);
-    this.assertEqual(this.labels(second), ["Agent-2", "Agent-1", "Agent-0"]);
-    await first.input(mouse(0, 6, 16, true));
-    this.assertEqual(await this.pins(), [{ pane: a }]);
-    this.assertIn("pinned", screen_text(first.state.data, 100, 30)[16].slice(0, 27));
-    this.assertEqual(this.labels(first), ["Agent-0", "Agent-2", "Agent-1"]);
-    // The other rows step aside after a move; read the list once they land.
+    await first.action("star-agent", String(a));
+    this.assertEqual(await this.stars(), [{ pane: a }]);
+    this.assertIn("★ starred", screen_text(first.state.data, 100, 30)[16].slice(0, 27));
     await this.until(async () => {
       await second.poll();
       return JSON.stringify(this.labels(second)) === JSON.stringify(this.labels(first));
     });
-    this.assertEqual(this.labels(second), this.labels(first));
+    this.assertEqual(this.labels(first), ["Agent-0", "Agent-2", "Agent-1"]);
     this.assertEqual(second.state.pane, b);
     this.assertEqual((await this.session()).workspaces[0].model.tabs, tabs);
     await this.rpc({ op: "server.reload", executable: EXE });
-    this.assertEqual(await this.pins(), [{ pane: a }]);
+    this.assertEqual(await this.stars(), [{ pane: a }]);
     const third = await this.newViewer();
     this.assertEqual(this.labels(third), ["Agent-0", "Agent-2", "Agent-1"]);
-    // Above a pinned agent, one pins before it. A blank row parts the
-    // sections, so the idle header is at 20 and Agent-2 at 21.
-    await first.poll();
-    await first.input(mouse(0, 6, 21) + mouse(32, 6, 17) + mouse(0, 6, 17, true));
-    this.assertEqual(await this.pins(), [{ pane: c }, { pane: a }]);
-    this.assertEqual(this.labels(first), ["Agent-2", "Agent-0", "Agent-1"]);
-    // Dropped among the sections, a pinned agent comes unpinned, back in
-    // its section's order.
+    await first.action("star-agent", String(c));
+    this.assertEqual(await this.stars(), [{ pane: a }, { pane: c }]);
+    // Starred rows can reorder each other, but cannot be dragged out.
+    await first.input(mouse(0, 6, 19) + mouse(32, 6, 17) + mouse(0, 6, 17, true));
+    this.assertEqual(await this.stars(), [{ pane: c }, { pane: a }]);
     await first.input(mouse(0, 6, 19) + mouse(32, 6, 24) + mouse(0, 6, 24, true));
-    this.assertEqual(await this.pins(), [{ pane: c }]);
-    this.assertEqual(this.labels(first), ["Agent-2", "Agent-1", "Agent-0"]);
+    this.assertEqual(await this.stars(), [{ pane: c }, { pane: a }]);
+    await first.action("star-agent", String(a));
+    this.assertEqual(await this.stars(), [{ pane: c }]);
+    this.assertEqual((await this.session()).workspaces[0].model.tabs, tabs);
   }
 
   async test_cancel_outside_escape_resize_and_changed_list() {
@@ -142,28 +131,28 @@ class AgentPins extends Viewers {
     const begin = () => viewer.input(mouse(0, 6, 21) + mouse(32, 6, 16));
     await begin();
     await viewer.input(mouse(0, 50, 16, true));
-    this.assertEqual(await this.pins(), []);
+    this.assertEqual(await this.stars(), []);
     await begin();
     await viewer.input("\x1b");
     await viewer.input(mouse(0, 6, 16, true));
-    this.assertEqual(await this.pins(), []);
+    this.assertEqual(await this.stars(), []);
     this.assertNotIn("\x1b]22;grabbing\x1b\\", viewer.state.data);
     await begin();
     await viewer.request({ op: "size", cols: 100, rows: 32 });
     await viewer.input(mouse(0, 6, 17, true));
-    this.assertEqual(await this.pins(), []);
+    this.assertEqual(await this.stars(), []);
     await viewer.request({ op: "size", cols: 100, rows: 30 });
     await begin();
     await this.command("pane.close", { target: b });
     await viewer.input(mouse(0, 6, 16, true));
-    this.assertEqual(await this.pins(), []);
+    this.assertEqual(await this.stars(), []);
     this.assertEqual(
       (await this.session()).panes.map((p: any) => p.id),
       [a, c],
     );
   }
 
-  async test_ghost_previews_the_pinned_slot_and_restores_order_outside() {
+  async test_ghost_previews_the_section_slot_and_restores_order_outside() {
     await this.agents();
     const viewer = await this.newViewer();
     await viewer.input(mouse(0, 6, 21) + mouse(32, 8, 21));
@@ -173,7 +162,7 @@ class AgentPins extends Viewers {
     this.assertEqual(this.labels(viewer), ["Agent-2", "Agent-0", "Agent-1"]);
     await viewer.input(mouse(32, 6, 16));
     this.assertEqual(this.labels(viewer), ["Agent-0", "Agent-2", "Agent-1"]);
-    this.assertEqual(await this.pins(), []);
+    this.assertEqual(await this.stars(), []);
     await viewer.input(mouse(32, 65, 22));
     this.assertEqual(this.labels(viewer), ["Agent-2", "Agent-1", "Agent-0"]);
     this.assertNotIn(ghost, viewer.state.data);
@@ -185,7 +174,7 @@ class AgentPins extends Viewers {
       return this.labels(viewer).join(",") === "Agent-2,Agent-1,Agent-0";
     });
     await viewer.input(mouse(0, 6, 16, true));
-    this.assertEqual(await this.pins(), []);
+    this.assertEqual(await this.stars(), []);
     this.assertNotIn("\x1b]22;grabbing\x1b\\", viewer.state.data);
   }
 
@@ -202,11 +191,11 @@ class AgentPins extends Viewers {
     await viewer.input(mouse(0, 6, 19, true));
     const order = (await this.session()).workspaces[0].activity_order;
     this.assertEqual(order.at(-1), { pane: ids[6] });
-    this.assertEqual(await this.pins(), []);
+    this.assertEqual(await this.stars(), []);
     this.assertEqual(viewer.state.pane, ids[6]);
   }
 
-  async test_headless_agents_pin_and_cold_recovery_keeps_them() {
+  async test_headless_agents_star_from_the_menu_and_cold_recovery_keeps_them() {
     await this.agents(2);
     const workspace = (await this.session()).workspaces[0].id;
     const headless = (
@@ -224,9 +213,10 @@ class AgentPins extends Viewers {
       return this.row(viewer, "Codex") > 0;
     });
     const y = this.row(viewer, "Codex");
-    await viewer.input(mouse(0, 6, y) + mouse(32, 6, 16) + mouse(0, 6, 16, true));
+    await viewer.input(mouse(2, 6, y) + mouse(2, 6, y, true));
+    await viewer.input("s");
     const handle = (await this.session()).headless_sessions.find((s: any) => s.session === headless).id;
-    this.assertEqual(await this.pins(), [{ headless: handle }]);
+    this.assertEqual(await this.stars(), [{ headless: handle }]);
     this.assertIn("Codex", screen_text(viewer.state.data, 100, 30)[17]);
     const added = await this.new();
     await this.mark_agent(added, "Agent-3");
@@ -239,10 +229,12 @@ class AgentPins extends Viewers {
     await this.rpc({ op: "recovery.save" });
     await viewer.close();
     await this.restart_runtime();
-    this.assertEqual(await this.pins(), [{ headless: handle }]);
+    const recovered = (await this.session()).panes.find((pane: any) => pane.agent.session === headless);
+    this.assertTrue(recovered);
+    this.assertEqual(await this.stars(), [{ headless: handle }, { pane: recovered.id }]);
   }
 
-  async test_all_pins_within_each_workspace_and_rpc_rejects_other_workspaces() {
+  async test_all_stars_within_each_workspace_and_rpc_rejects_other_workspaces() {
     const [a] = await this.agents(2);
     const home = (await this.session()).workspaces[0].id;
     const other = (await this.command("workspace.create", { name: "Elsewhere", cwd: this.temp.name })).workspace;
@@ -257,18 +249,19 @@ class AgentPins extends Viewers {
     // Each workspace's subhead names it.
     this.assertTrue(this.row(viewer, "Elsewhere") > 0);
     const y = this.row(viewer, "Agent-2");
-    await viewer.input(mouse(0, 6, y) + mouse(32, 6, 16) + mouse(0, 6, 16, true));
-    this.assertEqual(await this.pins(), []);
+    await viewer.input(mouse(2, 6, y) + mouse(2, 6, y, true));
+    await viewer.input("s");
+    this.assertEqual(await this.stars(), []);
     const index = (await this.session()).workspaces.findIndex((w: any) => w.id === other);
-    this.assertEqual(await this.pins(index), [{ pane: outsider }]);
+    this.assertEqual(await this.stars(index), [{ pane: outsider }]);
     this.assertEqual(this.labels(viewer)[0], "Agent-2");
     const response = await this.raw_rpc({
       op: "session.command",
       command: { "agent.pin": { workspace: home, target: { pane: a }, before: { pane: outsider } } },
     });
     this.assertEqual(response.err, "InvalidDestination");
-    this.assertEqual(await this.pins(), []);
+    this.assertEqual(await this.stars(), []);
   }
 }
 
-registerCase("AgentPins", AgentPins);
+registerCase("AgentStars", AgentStars);

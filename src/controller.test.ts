@@ -797,101 +797,21 @@ function pair() {
     headless_sessions: [],
   };
 }
-test("a new agent stays a ghost through startup and idle until its first turn", () => {
-  for (const [state, attention, section] of [
-    ["idle", "finished", "ready"],
-    ["working", "none", "working"],
-    ["blocked", "needs_input", "working"],
-    ["done", "none", "done"],
-  ]) {
-    const s = controller(),
-      snapshot = pair();
-    snapshot.panes[0].agent.state = "unknown";
-    s.prefs.agent_sort = "activity";
-    s.folded_sections.clear();
-    try {
-      s.receiveSnapshot(snapshot);
-      s.focusPane(1);
-      const row = () => (s.agentEntries() as sidebar.Entry[]).find(e => sidebar.sameTarget(e.target, { pane: 1 }));
-      for (const state of ["unknown", "initializing", "idle"]) {
-        snapshot.panes[0].agent.state = state;
-        s.receiveSnapshot(snapshot);
-        expect(row()).toMatchObject({ section: "working", state, starting: true, focused: true });
-      }
-      // Leaving it and coming back does not end the hold.
-      s.focusPane(2);
-      expect(row()).toMatchObject({ section: "working", starting: true, focused: false });
-      s.focusPane(1);
-      snapshot.panes[0].agent.state = state;
-      snapshot.panes[0].agent.attention = attention;
-      s.receiveSnapshot(snapshot);
-      expect(row()).toMatchObject({ section, state, starting: false, focused: true });
-      snapshot.panes[0].agent.state = "idle";
-      snapshot.panes[0].agent.attention = "none";
-      s.receiveSnapshot(snapshot);
-      s.focusPane(2);
-      expect(row()).toMatchObject({ section: "idle", starting: false });
-    } finally {
-      viewer.close(s);
-    }
-  }
-});
-
-test("a newly listed idle agent waits for its first turn, while existing idle agents stay idle", () => {
+test("an agent the daemon holds as starting shows dimmed in working until it lets go", () => {
   const s = controller(),
-    snapshot = pair();
-  snapshot.panes[0].agent.provider = "";
+    snapshot: any = pair();
+  snapshot.workspaces[0].starting_agents = [{ pane: 1 }];
   s.prefs.agent_sort = "activity";
+  s.folded_sections.clear();
   try {
     s.receiveSnapshot(snapshot);
-    snapshot.panes[0].agent.provider = "claude";
+    const row = (pane: number) =>
+      (s.agentEntries() as sidebar.Entry[]).find(e => sidebar.sameTarget(e.target, { pane }));
+    expect(row(1)).toMatchObject({ section: "working", state: "idle", starting: true });
+    expect(row(2)).toMatchObject({ section: "idle", starting: false });
+    snapshot.workspaces[0].starting_agents = [];
     s.receiveSnapshot(snapshot);
-    const rows = s.agentEntries() as sidebar.Entry[];
-    expect(rows.find(e => sidebar.sameTarget(e.target, { pane: 1 }))).toMatchObject({
-      section: "working",
-      starting: true,
-      state: "idle",
-    });
-    expect(rows.find(e => sidebar.sameTarget(e.target, { pane: 2 }))).toMatchObject({
-      section: "idle",
-      starting: false,
-    });
-    // Work can start and finish while another workspace or manual order is shown.
-    s.switchWorkspace(2);
-    s.prefs.agent_sort = "manual";
-    snapshot.panes[0].agent.state = "working";
-    s.receiveSnapshot(snapshot);
-    snapshot.panes[0].agent.state = "idle";
-    s.receiveSnapshot(snapshot);
-    s.switchWorkspace(1);
-    s.prefs.agent_sort = "activity";
-    expect((s.agentEntries() as sidebar.Entry[]).find(e => sidebar.sameTarget(e.target, { pane: 1 }))).toMatchObject({
-      section: "idle",
-      starting: false,
-    });
-  } finally {
-    viewer.close(s);
-  }
-});
-
-test("a completed turn clears a startup ghost even when snapshots skip its working state", () => {
-  const s = controller(),
-    snapshot = pair();
-  snapshot.panes[0].agent.state = "unknown";
-  s.prefs.agent_sort = "activity";
-  try {
-    s.receiveSnapshot(snapshot);
-    expect((s.agentEntries() as sidebar.Entry[]).find(e => sidebar.sameTarget(e.target, { pane: 1 }))).toMatchObject({
-      section: "working",
-      starting: true,
-    });
-    snapshot.panes[0].agent.state = "idle";
-    snapshot.panes[0].agent.observation = { completed: 1, read: 1 };
-    s.receiveSnapshot(snapshot);
-    expect((s.agentEntries() as sidebar.Entry[]).find(e => sidebar.sameTarget(e.target, { pane: 1 }))).toMatchObject({
-      section: "idle",
-      starting: false,
-    });
+    expect(row(1)).toMatchObject({ section: "idle", starting: false });
   } finally {
     viewer.close(s);
   }

@@ -929,6 +929,8 @@ export class Controller {
             sidebar.entry({
               conversation: p.agent.conversation,
               target: { pane: p.id },
+              starred: ws.pinned_agents.some(t => sidebar.sameTarget(t, { pane: p.id })),
+              starting: ws.starting_agents.some(t => sidebar.sameTarget(t, { pane: p.id })),
               name: p.label.length > 0 ? p.label : p.agent.name,
               provider: p.agent.provider,
               state: p.agent.state,
@@ -952,6 +954,8 @@ export class Controller {
         if (session.workspace !== ws.id) continue;
         const e = sidebar.entry({
           target: { headless: session.id },
+          starred: ws.pinned_agents.some(t => sidebar.sameTarget(t, { headless: session.id })),
+          starting: ws.starting_agents.some(t => sidebar.sameTarget(t, { headless: session.id })),
           provider: session.provider,
           state: session.state,
           attention: session.attention,
@@ -1001,9 +1005,8 @@ export class Controller {
           pin = ws.pinned_agents.findIndex(t => sidebar.sameTarget(t, target)),
           rank = ws.activity_order.findIndex(t => sidebar.sameTarget(t, target));
         // Opening an unread agent reads it; it stays among the ready until left.
-        const kind = section(entry.state, entry.attention, entry.paused),
+        const kind = agentSections.section(entry),
           shown = this.agent_since.shown(key, kind, entry.focused);
-        entry.starting = this.agent_since.isStarting(key);
         items.push({
           key,
           entry,
@@ -1283,6 +1286,7 @@ export class Controller {
   }
   /** Whether a tab menu's target (pane, workspace, or tab) has disappeared. */
   private tabMenuStale(context: TabMenu): boolean {
+    if (context.headless) return !this.runtime.sessions.some(session => session.id === context.tab);
     if (context.worktree !== null) {
       const ws = this.runtime.workspaces.items.find(ws => ws.id === context.tab);
       return !worktrees.linked(ws?.worktrees ?? null).some(e => e.path === context.worktree);
@@ -1307,7 +1311,13 @@ export class Controller {
     this.selection = null;
     const p = this.pane(id);
     if (!p) return;
-    const opened = new TabMenu({ tab: id, agent: true, anchor_x: x, anchor_y: y });
+    const opened = new TabMenu({
+      tab: id,
+      agent: true,
+      starred: this.runtime.workspaces.owner(id)?.pinned_agents.some(t => sidebar.sameTarget(t, { pane: id })) ?? false,
+      anchor_x: x,
+      anchor_y: y,
+    });
     // Review changes says what it would show: the line read ahead, checked
     // again now, or placeholder bars until git answers.
     this.review_summaries.ask(this.reviewCwd(p));
@@ -1425,6 +1435,10 @@ export class Controller {
     const context = this.tab_menu;
     if (!context) return;
     this.closeMenu();
+    if (context.headless) {
+      if (item === "star") await this.perform({ name: "star-session", value: context.tab });
+      return;
+    }
     if (context.worktree !== null) {
       const selection = { workspace: context.tab, path: context.worktree };
       switch (item) {
@@ -1453,6 +1467,9 @@ export class Controller {
       const p = this.pane(pane_id);
       if (!p) return;
       switch (item) {
+        case "star":
+          await this.perform({ name: "star-agent", value: pane_id });
+          break;
         case "rename":
           this.name_dialog = Dialog.init({ agent: pane_id }, p.label.length > 0 ? p.label : p.agent.name);
           this.prepareName();
@@ -2119,6 +2136,25 @@ export class Controller {
       case "new-agent":
         this.openLauncher(true);
         break;
+      case "star-agent":
+      case "star-session": {
+        const id = Number(act.value),
+          target = act.name === "star-session" ? { headless: id } : { pane: id },
+          owner = this.agentWorkspace(target),
+          ws = this.runtime.workspaces.items.find(ws => ws.id === owner);
+        if (!ws) break;
+        if ("pane" in target && !this.pane(id)?.agent.provider) break;
+        const starred = !ws.pinned_agents.some(t => sidebar.sameTarget(t, target));
+        await this.edit({ "agent.pin": { workspace: ws.id, target, pinned: starred } });
+        if (starred && this.prefs.agentSort() === "activity") {
+          this.folded_sections.delete("starred");
+          this.sidebar_rows.discard();
+          const entries = this.sidebarEntries(),
+            index = agentNavigation.indexOf(entries, target);
+          if (index !== null) this.agentOffset().set(this.sidebarView(entries).reveal(index));
+        }
+        break;
+      }
       case "find-agent":
         this.openAgentPicker();
         break;
@@ -3094,7 +3130,15 @@ export class Controller {
     for (const stop of this.stopped)
       known.push({ provider: stop.provider, session: stop.session, name: "", at: stop.at });
     const entries = this.launch_previews.history.entries.filter((e: any) => Provider.parse(e?.provider));
-    return launcherResume.merge(entries.map(launcherResume.historyEntry), known);
+    const starred = this.historyStars();
+    return launcherResume.merge(entries.map(launcherResume.historyEntry), known).map(entry => ({
+      ...entry,
+      starred: starred.has(`${entry.provider}:${entry.session}`),
+    }));
+  }
+  /** The current workspace's stars: a resumed conversation gets its star back only there. */
+  private historyStars(): Set<string> {
+    return new Set(this.current().starred_sessions.map(star => `${star.provider}:${star.session}`));
   }
   /** Note the conversations panes stop running, and when, so a closed one
    * sorts by when it closed. */
@@ -4496,6 +4540,7 @@ export class Controller {
       } else if (parsed_key === "focus_out") {
         cl.watched = false;
         this.moonlander?.release();
+        if (this.agent_drag) this.agent_drag.cancelled = true;
         this.pointer = null;
         this.dirty = true;
       } else if (text.startsWith("\x1b[<")) await this.mouse(text);
@@ -4946,7 +4991,8 @@ export class Controller {
         drag.dragging = true;
       }
       if (!release && button === 32 && (x !== drag.start_x || y !== drag.start_y)) drag.dragging = true;
-      drag.update(side, this.current().id, x, y);
+      if (!release && button === 35) drag.cancelled = true;
+      drag.update(side, this.current().id, x, y, milliTimestamp());
       if (release && (button & 3) === 0) {
         this.agent_drag = null;
         this.ui_mouse_down = false;
@@ -4965,7 +5011,7 @@ export class Controller {
                 ? { "agent.move": place }
                 : drag.action === "place"
                   ? { "agent.place": place }
-                  : { "agent.pin": { ...place, pinned: drag.action === "pin" } },
+                  : { "agent.pin": { ...place, pinned: true } },
             );
             // Nor step back from the order shown before the daemon took the drop.
             this.sidebar_rows.discard();
@@ -5445,6 +5491,16 @@ export class Controller {
             }
             this.selectAgent(target);
             if (button === 2 && "pane" in target) await this.openAgentMenu(target.pane, x, y);
+            else if (button === 2 && "headless" in target) {
+              this.closeMenu();
+              this.tab_menu = new TabMenu({
+                tab: target.headless,
+                headless: true,
+                starred: entries[index].starred,
+                anchor_x: x,
+                anchor_y: y,
+              });
+            }
             if (button === 0 && sidebar.isAgent(target) && !entries[index].worktree?.ghost) {
               // Selecting another workspace can scroll the list.
               // Capture the post-selection viewport and identity.
@@ -5454,16 +5510,7 @@ export class Controller {
               if (at !== null && view.offset === side.offset) {
                 const owner = this.agentWorkspace(target);
                 if (owner !== null)
-                  this.agent_drag = AgentDrag.init(
-                    view,
-                    at,
-                    x,
-                    y,
-                    owner,
-                    this.current().id,
-                    this.prefs.agentSort(),
-                    this.runtime.workspaces.items.map(ws => ws.id),
-                  );
+                  this.agent_drag = AgentDrag.init(view, at, x, y, owner, this.current().id, this.prefs.agentSort());
               }
             }
             break;
@@ -5692,14 +5739,17 @@ export class Controller {
       if (p.agent.provider === null) continue;
       const key = agentSections.key({ pane: p.id });
       live.add(key);
-      this.agent_since.track(key, p.agent, had);
     }
     for (const session of this.runtime.sessions) {
       const key = agentSections.key({ headless: session.id });
       live.add(key);
-      this.agent_since.track(key, session, had);
     }
     this.agent_since.keep(live);
+    if (this.agent_launcher) {
+      const starred = this.historyStars();
+      for (const entry of this.agent_launcher.history.entries)
+        entry.starred = starred.has(`${entry.provider}:${entry.session}`);
+    }
     if (previous_workspace !== this.current().id || previous_token !== this.model().revision) this.cancelDividers();
     if (previous_focus !== 0 && previous_focus !== (this.focused()?.id ?? 0)) {
       this.copy_mode = false;
@@ -5741,6 +5791,16 @@ export class Controller {
   }
   async expireInput(): Promise<void> {
     await this.wakeFocused();
+    if (this.agent_drag?.scrolling()) {
+      const entries = this.sidebarEntries(),
+        now = milliTimestamp(),
+        offset = this.agent_drag.scroll(this.sidebarView(entries), this.current().id, now);
+      if (offset !== null) {
+        this.agentOffset().set(offset);
+        this.agent_drag.scrolled(this.sidebarView(entries), this.current().id, now);
+        this.dirty = true;
+      }
+    }
     if (this.onboarding && (await this.onboarding.poll(this.rpc()))) this.dirty = true;
     if (this.corgi_setup && (await this.corgi_setup.poll(this.rpc(), this.width, this.height))) this.dirty = true;
     const hover = this.pollMenuHover();
@@ -6109,8 +6169,11 @@ export class Controller {
     for (const e of this.agentEntries(selection.workspace)) {
       const target = e.target as OrderTarget;
       if (worktreeAgents.listedWorktree(ws?.worktrees ?? null, target, e.cwd) !== selection.path) continue;
-      const pinned = ws?.pinned_agents.some(t => sidebar.sameTarget(t, target)) ?? false;
-      this.folded_sections.delete(pinned ? "pinned" : section(e.state, e.attention, e.paused));
+      const pinned = ws?.pinned_agents.some(t => sidebar.sameTarget(t, target)) ?? false,
+        key = agentSections.key(target);
+      this.folded_sections.delete(
+        pinned ? "starred" : this.agent_since.shown(key, agentSections.section(e), e.focused),
+      );
     }
     this.sidebar_rows.discard();
     const entries = this.sidebarEntries();

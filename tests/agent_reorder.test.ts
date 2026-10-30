@@ -11,6 +11,7 @@ const mouse = (button: number, x: number, y: number, release = false) =>
 
 // The list sorted by hand, the integration suites' default.
 class AgentReorder extends Viewers {
+  initial_order: { pane: number }[] = [];
   async agents(count = 3) {
     const ids: number[] = [];
     for (let i = 0; i < count; i++) {
@@ -18,6 +19,10 @@ class AgentReorder extends Viewers {
       await this.mark_agent(pane, `Agent-${i}`);
       ids.push(pane);
     }
+    // Drag scenarios start in label order, independent of insertion order.
+    const workspace = (await this.session()).workspaces[0].id;
+    for (const pane of ids) await this.command("agent.move", { workspace, target: { pane }, before: null });
+    this.initial_order = ids.map(pane => ({ pane }));
     return ids;
   }
   labels(viewer: Viewer, rows = 30) {
@@ -65,7 +70,7 @@ class AgentReorder extends Viewers {
     this.assertIn("\x1b]22;grabbing\x1b\\", first.state.data);
     // Another viewer's release cannot complete this viewer's drag.
     await second.input(mouse(0, 6, 21, true));
-    this.assertEqual(await this.order(), []);
+    this.assertEqual(await this.order(), this.initial_order);
     this.assertEqual(this.labels(second), ["Agent-0", "Agent-1", "Agent-2"]);
     await first.input(mouse(0, 6, 21, true));
     this.assertEqual(await this.order(), [{ pane: b }, { pane: c }, { pane: a }]);
@@ -105,21 +110,21 @@ class AgentReorder extends Viewers {
     const begin = () => viewer.input(mouse(0, 6, 16) + mouse(32, 6, 21));
     await begin();
     await viewer.input(mouse(0, 50, 21, true));
-    this.assertEqual(await this.order(), []);
+    this.assertEqual(await this.order(), this.initial_order);
     await begin();
     await viewer.input("\x1b");
     await viewer.input(mouse(0, 6, 21, true));
-    this.assertEqual(await this.order(), []);
+    this.assertEqual(await this.order(), this.initial_order);
     this.assertNotIn("\x1b]22;grabbing\x1b\\", viewer.state.data);
     await begin();
     await viewer.request({ op: "size", cols: 100, rows: 32 });
     await viewer.input(mouse(0, 6, 22, true));
-    this.assertEqual(await this.order(), []);
+    this.assertEqual(await this.order(), this.initial_order);
     await viewer.request({ op: "size", cols: 100, rows: 30 });
     await begin();
     await this.command("pane.close", { target: b });
     await viewer.input(mouse(0, 6, 21, true));
-    this.assertEqual(await this.order(), []);
+    this.assertEqual(await this.order(), this.initial_order);
     this.assertEqual(
       (await this.session()).panes.map((p: any) => p.id),
       [a, c],
@@ -133,7 +138,7 @@ class AgentReorder extends Viewers {
     this.assertEqual(this.labels(viewer), ["Agent-0", "Agent-1", "Agent-2"]);
     await viewer.input(mouse(32, 6, 21));
     this.assertEqual(this.labels(viewer), ["Agent-1", "Agent-2", "Agent-0"]);
-    this.assertEqual(await this.order(), []);
+    this.assertEqual(await this.order(), this.initial_order);
     const screen = screen_text(viewer.state.data, 100, 30);
     this.assertFalse(screen.slice(1, -1).some(row => row.slice(28).includes("Agent-")));
     await viewer.input(mouse(32, 65, 22));
@@ -148,7 +153,7 @@ class AgentReorder extends Viewers {
     });
     this.assertEqual(this.labels(viewer), ["Agent-0", "Agent-1", "Agent-2"]);
     await viewer.input(mouse(0, 6, 19, true));
-    this.assertEqual(await this.order(), []);
+    this.assertEqual(await this.order(), this.initial_order);
     this.assertNotIn("\x1b]22;grabbing\x1b\\", viewer.state.data);
   }
 
@@ -169,6 +174,52 @@ class AgentReorder extends Viewers {
     this.assertEqual(viewer.state.pane, ids[0]);
   }
 
+  async test_drag_edges_scroll_gradually_and_drop_into_the_scrolled_list() {
+    const ids = await this.agents(7),
+      viewer = await this.newViewer(100, 20);
+    await viewer.focus(ids[0]);
+    await viewer.input(mouse(0, 6, 11) + mouse(32, 6, 18));
+    await viewer.advance(1);
+    this.assertEqual(this.labels(viewer, 20), ["Agent-1", "Agent-2", "Agent-3", "Agent-0", "Agent-4"]);
+    await viewer.input(mouse(32, 6, 19));
+    await viewer.advance(0.4);
+    this.assertEqual(this.labels(viewer, 20), ["Agent-2", "Agent-3", "Agent-4", "Agent-0", "Agent-5"]);
+    await viewer.advance(0.18);
+    this.assertEqual(this.labels(viewer, 20), ["Agent-3", "Agent-4", "Agent-5", "Agent-0", "Agent-6"]);
+    // Returning to the last visible slot stops the clock.
+    await viewer.input(mouse(32, 6, 18));
+    await viewer.advance(1);
+    this.assertEqual(this.labels(viewer, 20), ["Agent-3", "Agent-4", "Agent-5", "Agent-0", "Agent-6"]);
+    await viewer.input(mouse(32, 6, 19));
+    await viewer.advance(0.4);
+    this.assertEqual(this.labels(viewer, 20), ["Agent-4", "Agent-5", "Agent-6", "Agent-0"]);
+    await viewer.input(mouse(0, 6, 19, true));
+    await viewer.advance(1);
+    this.assertEqual(
+      await this.order(),
+      [...ids.slice(1), ids[0]].map(pane => ({ pane })),
+    );
+    this.assertEqual(this.labels(viewer, 20), ["Agent-4", "Agent-5", "Agent-6", "Agent-0"]);
+    // The first slot stays still too; the gap above it scrolls upward.
+    await viewer.input(mouse(0, 6, 17) + mouse(32, 6, 11));
+    await viewer.advance(1);
+    this.assertEqual(this.labels(viewer, 20), ["Agent-0", "Agent-4", "Agent-5", "Agent-6"]);
+    await viewer.input(mouse(32, 6, 10));
+    await viewer.advance(0.4);
+    this.assertEqual(this.labels(viewer, 20), ["Agent-0", "Agent-3", "Agent-4", "Agent-5", "Agent-6"]);
+    await viewer.advance(0.18);
+    await viewer.advance(0.18);
+    await viewer.input(mouse(0, 6, 10, true));
+    this.assertEqual(await this.order(), this.initial_order);
+    this.assertEqual(this.labels(viewer, 20), ["Agent-0", "Agent-1", "Agent-2", "Agent-3", "Agent-4"]);
+    await viewer.input(mouse(0, 6, 11) + mouse(32, 6, 19));
+    await viewer.input("\x1b[O");
+    await viewer.advance(1);
+    this.assertEqual(this.labels(viewer, 20), ["Agent-0", "Agent-1", "Agent-2", "Agent-3", "Agent-4"]);
+    await viewer.input(mouse(0, 6, 19, true));
+    this.assertEqual(await this.order(), this.initial_order);
+  }
+
   async test_headless_agents_share_order_and_cold_recovery_preserves_it() {
     const [a, b] = await this.agents(2);
     const workspace = (await this.session()).workspaces[0].id;
@@ -182,19 +233,24 @@ class AgentReorder extends Viewers {
       })
     ).session;
     const viewer = await this.newViewer();
-    await viewer.input(mouse(0, 6, 20) + mouse(32, 6, 16) + mouse(0, 6, 16, true));
     const handle = (await this.session()).headless_sessions.find((s: any) => s.session === headless).id;
     const order = [{ headless: handle }, { pane: a }, { pane: b }];
     this.assertEqual(await this.order(), order);
     this.assertIn("Codex", screen_text(viewer.state.data, 100, 30)[16]);
     const added = await this.new();
     await this.mark_agent(added, "Agent-3");
-    await viewer.poll();
-    this.assertEqual(this.labels(viewer), ["Agent-0", "Agent-1", "Agent-3"]);
+    await this.until(async () => {
+      await viewer.poll();
+      return this.labels(viewer).join(",") === "Agent-3,Agent-0,Agent-1";
+    });
+    this.assertEqual(await this.order(), [{ pane: added }, ...order]);
     await this.rpc({ op: "recovery.save" });
     await viewer.close();
     await this.restart_runtime();
-    this.assertEqual(await this.order(), order);
+    // Recovery adds a pane for the running headless session; saved rows keep their order.
+    const recovered = (await this.session()).panes.find((p: any) => ![a, b, added].includes(p.id));
+    this.assertTrue(recovered);
+    this.assertEqual(await this.order(), [{ pane: recovered.id }, { pane: added }, ...order]);
   }
 
   async test_grouped_drag_stays_within_workspace_and_rpc_rejects_other_workspaces() {
@@ -210,7 +266,7 @@ class AgentReorder extends Viewers {
     await viewer.input(mouse(0, 8, 17) + mouse(0, 8, 17, true));
     this.assertIn("agents: all", screen_text(viewer.state.data, 100, 30)[14]);
     await viewer.input(mouse(0, 6, 17) + mouse(32, 6, 23) + mouse(0, 6, 23, true));
-    this.assertEqual(await this.order(), []);
+    this.assertEqual(await this.order(), this.initial_order);
     await viewer.input(mouse(0, 6, 17) + mouse(32, 6, 20));
     this.assertEqual(this.labels(viewer), ["Agent-1", "Agent-0", "Agent-2"]);
     this.assertIn("Elsewhere", screen_text(viewer.state.data, 100, 30)[21]);

@@ -6,6 +6,7 @@ import { Workspace } from "./workspace";
 import { Theme } from "./theme";
 import { ResumeHint } from "./resume_hint";
 import { Text } from "./providers";
+import { parseInventory } from "./trackers/worktrees";
 class LocalRuntime extends Runtime {
   override async create(opts: Create) {
     const ws = this.getWorkspace(opts.workspace);
@@ -148,7 +149,10 @@ test("an agent that enters another activity section, or is new, goes first in it
     const a = await r.create(opts),
       b = await r.create(opts),
       shell = await r.create(opts);
-    for (const id of [a, b]) Object.assign(r.pane(id)!.agent(), { provider: "claude", state: "idle" });
+    for (const id of [a, b]) {
+      Object.assign(r.pane(id)!.agent(), { provider: "claude", state: "idle" });
+      r.pane(id)!.agent().observation.completed = 1n;
+    }
     const agents = () => ws.activity_order.slice().filter(t => "pane" in t && t.pane !== shell);
     expect(r.raiseEntered()).toBe(true);
     expect(ws.activity_order.has({ pane: shell })).toBe(true);
@@ -163,6 +167,77 @@ test("an agent that enters another activity section, or is new, goes first in it
     // After a restore, agents already placed keep their place.
     ws.sections.clear();
     expect(r.raiseEntered()).toBe(false);
+  } finally {
+    r.destroy();
+  }
+});
+test("a new agent waits on top of working until its first turn", async () => {
+  const { r, ws, opts } = fixture();
+  try {
+    const a = await r.create(opts),
+      b = await r.create(opts);
+    for (const id of [a, b]) {
+      Object.assign(r.pane(id)!.agent(), { provider: "claude", state: "working" });
+      r.pane(id)!.agent().observation.completed = 1n;
+    }
+    r.raiseEntered();
+    const c = await r.create(opts),
+      agent = r.pane(c)!.agent(),
+      order = () => ws.activity_order.slice().filter(t => "pane" in t && [a, b, c].includes(t.pane));
+    // Listed once its provider shows, it goes first, held in working through startup and idle.
+    agent.provider = "claude";
+    for (const state of ["unknown", "initializing", "idle"] as const) {
+      agent.state = state;
+      r.raiseEntered();
+      expect(order()[0]).toEqual({ pane: c });
+      expect(r.startingAgents(ws)).toEqual([{ pane: c }]);
+    }
+    // Others that start work go above it; its first turn lets it go where it is.
+    Object.assign(r.pane(a)!.agent(), { state: "idle" });
+    r.raiseEntered();
+    Object.assign(r.pane(a)!.agent(), { state: "working" });
+    r.raiseEntered();
+    agent.state = "working";
+    expect(r.raiseEntered()).toBe(false);
+    expect(order()[0]).toEqual({ pane: a });
+    expect(r.startingAgents(ws)).toEqual([]);
+    // Finished, it goes on as any other agent.
+    Object.assign(agent, { state: "idle", attention: "finished" });
+    expect(r.raiseEntered()).toBe(true);
+    expect(r.startingAgents(ws)).toEqual([]);
+  } finally {
+    r.destroy();
+  }
+});
+test("a completed turn ends the wait even when its working state went unseen", async () => {
+  const { r, ws, opts } = fixture();
+  try {
+    const a = await r.create(opts),
+      agent = r.pane(a)!.agent();
+    Object.assign(agent, { provider: "claude", state: "initializing" });
+    r.raiseEntered();
+    expect(r.startingAgents(ws)).toEqual([{ pane: a }]);
+    agent.state = "idle";
+    agent.observation.completed = 1n;
+    expect(r.raiseEntered()).toBe(true);
+    expect(r.startingAgents(ws)).toEqual([]);
+    expect(ws.sections.get(`pane:${a}`)).toBe("idle");
+  } finally {
+    r.destroy();
+  }
+});
+test("after a restore, only agents still starting up wait in working", async () => {
+  const { r, ws, opts } = fixture();
+  try {
+    const a = await r.create(opts),
+      b = await r.create(opts);
+    for (const id of [a, b]) Object.assign(r.pane(id)!.agent(), { provider: "claude", state: "idle" });
+    r.raiseEntered();
+    ws.sections.clear();
+    ws.starting.clear();
+    r.pane(b)!.agent().state = "initializing";
+    r.raiseEntered();
+    expect(r.startingAgents(ws)).toEqual([{ pane: b }]);
   } finally {
     r.destroy();
   }
@@ -187,6 +262,133 @@ test("a snapshot shows an agent's new section with its place at the top of it", 
       .snapshot(r)
       .workspaces[0].activity_order.filter((t: any) => "pane" in t && (t.pane === a || t.pane === b));
     expect(shown[0]).toEqual(last);
+  } finally {
+    r.destroy();
+  }
+});
+test("new agents lead manual order without moving tabs or following activity changes", async () => {
+  const { r, ws, opts } = fixture();
+  try {
+    const a = await r.create(opts),
+      b = await r.create(opts);
+    for (const id of [a, b]) r.pane(id)!.agent().provider = "claude";
+    expect(r.raiseEntered()).toBe(true);
+    expect(ws.agent_order.slice()).toEqual([{ pane: b }, { pane: a }]);
+    ws.agent_order.move(r.agentTargets(ws), { pane: a }, { pane: b });
+    const c = await r.create(opts);
+    r.pane(c)!.agent().provider = "claude";
+    const snapshot = session.snapshot(r);
+    expect(snapshot.workspaces[0].agent_order).toEqual([{ pane: c }, { pane: a }, { pane: b }]);
+    expect([a, b, c].map(id => ws.model.tabForPane(id))).toEqual([0, 1, 2]);
+    r.pane(b)!.agent().state = "working";
+    r.raiseEntered();
+    expect(ws.agent_order.slice()).toEqual([{ pane: c }, { pane: a }, { pane: b }]);
+    ws.sections.clear();
+    expect(r.raiseEntered()).toBe(false);
+    expect(ws.agent_order.slice()).toEqual([{ pane: c }, { pane: a }, { pane: b }]);
+  } finally {
+    r.destroy();
+  }
+});
+test("an existing shell goes first when it becomes an agent", async () => {
+  const { r, ws, opts } = fixture();
+  try {
+    const shell = await r.create(opts),
+      agent = await r.create(opts);
+    r.pane(agent)!.agent().provider = "claude";
+    r.raiseEntered();
+    expect(ws.agent_order.slice()).toEqual([{ pane: shell }, { pane: agent }]);
+    ws.agent_order.move(r.agentTargets(ws), { pane: shell }, null);
+    r.pane(shell)!.agent().provider = "codex";
+    expect(r.raiseEntered()).toBe(true);
+    expect(ws.agent_order.slice()).toEqual([{ pane: shell }, { pane: agent }]);
+  } finally {
+    r.destroy();
+  }
+});
+test("new agents lead the first matching worktree group, keeping that group in place", async () => {
+  const { r, ws, opts } = fixture();
+  ws.worktrees = {
+    common_dir: "/repo/.git",
+    base: null,
+    agents: [],
+    stale: false,
+    entries: parseInventory(
+      "worktree /repo\0branch refs/heads/main\0\0worktree /repo/one\0branch refs/heads/one\0\0worktree /repo/two\0branch refs/heads/two\0\0",
+    ),
+  };
+  const add = async (cwd: string) => {
+    const pane = await r.create({ ...opts, cwd });
+    r.pane(pane)!.agent().provider = "claude";
+    return { pane };
+  };
+  try {
+    const main = await add("/repo"),
+      one = await add("/repo/one"),
+      middle = await add("/repo"),
+      later = await add("/repo/one");
+    ws.agent_order.items = [main, one, middle, later];
+    r.raiseEntered();
+    // The first matching run wins, including agents associated by writes.
+    r.pane(one.pane)!.cwd = "/repo";
+    ws.worktrees.agents = [{ target: one, path: "/repo/one", source: "write", stale: false }];
+    const added = await add("/repo/one/src");
+    r.raiseEntered();
+    expect(ws.agent_order.slice()).toEqual([main, added, one, middle, later]);
+    // A new worktree goes first; several arrivals in one snapshot stay together.
+    const two = await add("/repo/two"),
+      newer = await add("/repo/two/src");
+    r.raiseEntered();
+    expect(ws.agent_order.slice()).toEqual([newer, two, main, added, one, middle, later]);
+    // The main checkout does not pull new agents below linked worktrees.
+    const direct = await add("/repo");
+    r.raiseEntered();
+    expect(ws.agent_order.slice()).toEqual([direct, newer, two, main, added, one, middle, later]);
+  } finally {
+    r.destroy();
+  }
+});
+test("a fork keeps its explicit place below its source in manual order", async () => {
+  const { r, ws, opts } = fixture();
+  try {
+    const source = await r.create(opts),
+      other = await r.create(opts),
+      actor = r.conversations.get("claude", "12345678-1234-1234-1234-123456789abc");
+    r.pane(source)!.attachment.select(actor);
+    r.pane(other)!.agent().provider = "codex";
+    r.raiseEntered();
+    const fork = await r.forkAgent(opts, source, null);
+    r.raiseEntered();
+    expect(ws.agent_order.slice()).toEqual([{ pane: other }, { pane: source }, { pane: fork }]);
+  } finally {
+    r.destroy();
+  }
+});
+test("an agent that briefly loses its provider keeps its manual place", async () => {
+  const { r, ws, opts } = fixture();
+  try {
+    const a = await r.create(opts),
+      b = await r.create(opts);
+    for (const id of [a, b]) r.pane(id)!.agent().provider = "claude";
+    r.raiseEntered();
+    ws.agent_order.move(r.agentTargets(ws), { pane: b }, null);
+    expect(ws.agent_order.slice()).toEqual([{ pane: a }, { pane: b }]);
+    r.pane(b)!.agent().provider = null;
+    r.raiseEntered();
+    r.pane(b)!.agent().provider = "claude";
+    r.raiseEntered();
+    expect(ws.agent_order.slice()).toEqual([{ pane: a }, { pane: b }]);
+  } finally {
+    r.destroy();
+  }
+});
+test("unstarring an agent that is gone does nothing", async () => {
+  const { r, ws, opts } = fixture();
+  try {
+    const a = await r.create(opts);
+    r.pane(a)!.agent().provider = "claude";
+    expect(() => r.starAgent(ws, { pane: a + 100 }, false)).not.toThrow();
+    expect(() => r.starAgent(ws, { pane: a + 100 }, true)).toThrow("NoAgent");
   } finally {
     r.destroy();
   }

@@ -1454,6 +1454,23 @@ test("badges count agents scrolled out of sight and point at the farthest, so th
   expect(searching.lists().badge("below")).toBeNull();
 });
 
+test("a badge scrolls no farther than keeps the nearest it counts in view", () => {
+  const working = new Set([2, 25, 40, 60]);
+  const entries = Array.from({ length: 64 }, (_, i) =>
+    entry({ target: { pane: i + 1 }, name: `agent ${i}`, state: working.has(i) ? "working" : "idle" }),
+  );
+  const view = View.init(80, 21, true, 30, entries.length).withEntries(entries);
+  const above = view.lists().badge("above")!,
+    below = view.lists().badge("below")!;
+  expect(above.offset).toBe(25);
+  // The farthest, 60, would scroll 40 out of sight above; 40 goes to the bottom.
+  const scrolled = View.init(80, 21, true, below.offset, entries.length).withEntries(entries);
+  const shown = hostText(draw(scrolled, entries, []), 80, 21);
+  expect(shown).toContain("agent 40");
+  expect(shown).not.toContain("agent 60");
+  expect(scrolled.lists().badge("below")).not.toBeNull();
+});
+
 test("a focused agent list scrolls its last agent fully into view", () => {
   const entries = Array.from({ length: 10 }, (_, i) => entry({ target: { pane: i + 1 }, name: `agent ${i}` }));
   const view = View.init(80, 22, true, 99, entries.length);
@@ -1535,10 +1552,10 @@ test("activity sections draw centered headers, worktree labels over their rows",
         .join("")
         .trimEnd(),
     );
-  const start = lines.findIndex(line => line.includes("pinned"));
+  const start = lines.findIndex(line => line.includes("starred"));
   // Second lines with a corgi on them vary with its animation.
   expect(lines.slice(start, start + 20)).toEqual([
-    "  ━━━━━ ⇅ pinned 1 ━━━━━━ ▾",
+    "  ━━━━━ ★ starred 1 ━━━━━ ▾",
     "  ○  Zig bump",
     expect.any(String),
     // A blank row parts each section from the one above.

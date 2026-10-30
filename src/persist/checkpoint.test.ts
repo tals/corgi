@@ -356,6 +356,7 @@ test("sidebar order survives live and recovery checkpoints and defaults for old 
     order = [{ headless: 1 }, { pane: 2 }, { pane: 1 }];
   r.workspaces.items[0].agent_order = Order.restore(order);
   r.workspaces.items[0].pinned_agents = Pins.restore([{ pane: 2 }]);
+  r.workspaces.items[0].starred_sessions.set("claude", "saved-star", true);
   r.workspaces.items[0].activity_order = Order.restore([...order].reverse());
   try {
     for (const live of [true, false]) {
@@ -364,16 +365,18 @@ test("sidebar order survives live and recovery checkpoints and defaults for old 
       const ws = next.workspaces.get(id)!;
       expect(ws.agent_order.slice()).toEqual(order);
       expect(ws.pinned_agents.slice()).toEqual([{ pane: 2 }]);
+      expect(ws.starred_sessions.slice()).toEqual([{ provider: "claude", session: "saved-star" }]);
       expect(ws.activity_order.slice()).toEqual([...order].reverse());
     }
     const state = cp.capture(r, true);
-    for (const key of ["agent_order", "pinned_agents", "activity_order"])
+    for (const key of ["agent_order", "pinned_agents", "starred_sessions", "activity_order"])
       Reflect.deleteProperty(state.workspaces[0], key);
     using next = new Runtime();
     await restore(next, state, true);
     const ws = next.workspaces.get(id)!;
     expect(ws.agent_order.len).toBe(0);
     expect(ws.pinned_agents.slice()).toEqual([]);
+    expect(ws.starred_sessions.slice()).toEqual([]);
     expect(ws.activity_order.len).toBe(0);
     // State from before the sections starts them in the dragged order.
     const sorted = cp.capture(r, true);

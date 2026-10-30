@@ -1,44 +1,33 @@
-//! The agent list by activity: the agents pinned to the top, in the order they
+//! The agent list by activity: the starred agents at the top, in the order they
 //! were put there, then a section for each activity, in the order the user
 //! put it in, the agent that entered it last on top. Neighbours in one linked
 //! worktree share a subhead, as do neighbours in one workspace in "all"; the
 //! subheads follow the order rather than making it.
 import * as sidebar from "./sidebar";
-import { section, type Section, type Target } from "./agent_order";
+import * as agentOrder from "./agent_order";
+import type { Section, Target } from "./agent_order";
 
 // Ready follows working, which most of its agents just left, and leads idle,
 // where they go once read.
-const order: Section[] = ["pinned", "working", "ready", "idle", "done"];
+const order: Section[] = ["starred", "working", "ready", "idle", "done"];
 
 /** An agent's key in `Since` and `Item`. */
 export function key(target: Target): string {
   return "pane" in target ? `pane:${target.pane}` : `headless:${target.headless}`;
 }
 
+/** The section an agent's row belongs in; the daemon holds a new one in working. */
+export function section(e: sidebar.Entry): Exclude<Section, "starred"> {
+  return e.starting ? "working" : agentOrder.section(e.state, e.attention, e.paused);
+}
+
 /** When each agent entered its section, in ms. */
 export class Since {
   private seen = new Map<string, { kind: Section; at: number }>();
-  /** New agents wait in working until their first turn, through startup and idle. */
-  private starting = new Map<string, boolean>();
   /** Each agent's last place in its workspace's section order. */
   private ranks = new Map<string, number>();
   /** A held agent's neighbours in its section when it was opened. */
   private anchors = new Map<string, { above: string | null; below: string | null }>();
-  /** Tracks every snapshot, including agents outside the current list. */
-  track(
-    key: string,
-    agent: { state: sidebar.State; attention: sidebar.Attention; paused?: boolean; observation: { completed: bigint } },
-    added: boolean,
-  ): void {
-    const waiting = this.starting.get(key) ?? (added || agent.state === "unknown" || agent.state === "initializing");
-    this.starting.set(
-      key,
-      waiting && agent.observation.completed === 0n && section(agent.state, agent.attention, agent.paused) === "idle",
-    );
-  }
-  isStarting(key: string): boolean {
-    return this.starting.get(key) === true;
-  }
   /** An agent first seen dates from `start`, the daemon's word for when its state began. */
   observe(key: string, kind: Section, start: number, now: number): number {
     const last = this.seen.get(key);
@@ -47,13 +36,12 @@ export class Since {
     this.seen.set(key, { kind, at });
     return at;
   }
-  /** New agents wait in working; one read while focused stays ready until left. */
-  shown(key: string, kind: Exclude<Section, "pinned">, focused: boolean): Exclude<Section, "pinned"> {
-    if (this.isStarting(key)) return "working";
+  /** One read while focused stays ready until left. */
+  shown(key: string, kind: Exclude<Section, "starred">, focused: boolean): Exclude<Section, "starred"> {
     return focused && kind === "idle" && this.seen.get(key)?.kind === "ready" ? "ready" : kind;
   }
-  /** Settles each item's place in the section order. One `held` during
-   * startup or among the ready stays between its neighbours. */
+  /** Settles each item's place in the section order. One `held` among the
+   * ready stays between its neighbours. */
   place(items: Item[], held: ReadonlySet<string>): void {
     const now = new Map(items.map(item => [item.key, item.rank]));
     for (const item of items) {
@@ -89,7 +77,7 @@ export class Since {
   }
   /** Forgets agents that are gone. */
   keep(keys: ReadonlySet<string>): void {
-    for (const map of [this.seen, this.starting, this.ranks, this.anchors])
+    for (const map of [this.seen, this.ranks, this.anchors])
       for (const key of map.keys()) if (!keys.has(key)) map.delete(key);
   }
 }
@@ -102,12 +90,12 @@ export interface Item {
   /** The linked worktree it's listed under; null in the workspace's own checkout. */
   checkout: string | null;
   since: number;
-  /** Its place among its workspace's pins, or null. */
+  /** Its place among its workspace's stars, or null. */
   pin: number | null;
   /** Its place in its workspace's activity order; one not there yet goes last. */
   rank: number;
-  /** The section it shows in, unless pinned. */
-  section: Exclude<Section, "pinned">;
+  /** The section it shows in, unless starred. */
+  section: Exclude<Section, "starred">;
 }
 export interface Options {
   /** Every workspace is listed, each named in its subheads. */
@@ -141,7 +129,7 @@ function header(
 }
 function row(item: Item, kind: Section): sidebar.Entry {
   const worktree = item.checkout === null ? null : { workspace: item.workspace, path: item.checkout, ghost: false };
-  return { ...item.entry, section: kind, since_ms: item.since, worktree };
+  return { ...item.entry, section: kind, worktree };
 }
 /** Your order, then the newest first among those it doesn't place. */
 const before = (a: Item, b: Item) => a.rank - b.rank || b.since - a.since;
@@ -154,7 +142,7 @@ export function arrange(items: Item[], o: Options): sidebar.Entry[] {
     };
   for (const kind of order) {
     const members = items.filter(item =>
-      kind === "pinned" ? item.pin !== null : item.pin === null && item.section === kind,
+      kind === "starred" ? item.pin !== null : item.pin === null && item.section === kind,
     );
     if (!members.length) continue;
     const folded = o.folded.has(kind);
@@ -165,12 +153,12 @@ export function arrange(items: Item[], o: Options): sidebar.Entry[] {
     // place is among its workspace's agents, so in "all" each workspace's
     // agents keep together, in the workspace list's order.
     members.sort(
-      (a, b) => place(a.workspace) - place(b.workspace) || (kind === "pinned" ? a.pin! - b.pin! : before(a, b)),
+      (a, b) => place(a.workspace) - place(b.workspace) || (kind === "starred" ? a.pin! - b.pin! : before(a, b)),
     );
     const placed = members.map(item => ({
       entry: row(item, kind),
       workspace: item.workspace,
-      checkout: kind === "pinned" ? null : item.checkout,
+      checkout: kind === "starred" ? null : item.checkout,
     }));
     out.push(...labelled(placed, kind, o.all, o.label));
   }

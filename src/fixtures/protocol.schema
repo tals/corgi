@@ -627,9 +627,14 @@ $.snapshot.workspaces[].agent_order[]|headless: u32
 $.snapshot.workspaces[].pinned_agents[]: one of
 $.snapshot.workspaces[].pinned_agents[]|pane: u32
 $.snapshot.workspaces[].pinned_agents[]|headless: u32
+$.snapshot.workspaces[].starred_sessions[].provider: provider
+$.snapshot.workspaces[].starred_sessions[].session: string
 $.snapshot.workspaces[].activity_order[]: one of
 $.snapshot.workspaces[].activity_order[]|pane: u32
 $.snapshot.workspaces[].activity_order[]|headless: u32
+$.snapshot.workspaces[].starting_agents[]: one of
+$.snapshot.workspaces[].starting_agents[]|pane: u32
+$.snapshot.workspaces[].starting_agents[]|headless: u32
 $.snapshot.workspaces[].last_agent: optional
 $.snapshot.workspaces[].last_agent?: provider
 $.snapshot.workspaces[].launcher_hidden[]: string

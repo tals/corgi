@@ -1,12 +1,12 @@
-import { groupEnd, isAgent, isGroup, isSection, isSubhead, type Sort, type View, type Target } from "./sidebar";
+import { isAgent, isGroup, isSection, isSubhead, type Sort, type View, type Target } from "./sidebar";
 import { sameTarget } from "./agent_navigation";
-/** What a drop does: reorder the hand-sorted list, pin or unpin an agent,
- * or reorder its activity section. */
-export type Action = "move" | "pin" | "unpin" | "place";
+
+const scroll_delay_ms = 400;
+const scroll_step_ms = 180;
+/** Reorder the manual list, starred agents, or an activity section. */
+export type Action = "move" | "starred" | "place";
 /** An agent row dragged in the list. Hand-sorted, it moves within its workspace.
- * By activity, dropped among the pinned agents, or above the first section
- * while none are, it pins the agent there; anywhere else in its own run of
- * rows it reorders its section; a pinned agent dropped elsewhere comes unpinned. */
+ * By activity, it stays in its section. Dragging never changes its star. */
 export class Drag {
   dragging = false;
   cancelled = false;
@@ -23,17 +23,12 @@ export class Drag {
    * its section's by activity, past the worktree labels in either. */
   first: number;
   end: number;
-  /** Where a drop pins: from the first pinned row to just past the last. */
-  pins: { first: number; end: number };
-  /** The pinned section's header, which takes drops as its first row. */
-  header: number | null;
-  /** Whether the agent was pinned when picked up. */
-  pinned: boolean;
+  starred: boolean;
   /** Each row's workspace, by the subhead over it; null where none says. */
   owners: (number | null)[];
-  /** In "all", where a drop among the pins pins an agent whose workspace has
-   * none yet: where that workspace's run will show, by the workspace list. */
-  slot: number | null = null;
+  private pointer: { x: number; y: number } | null = null;
+  private scroll_direction: -1 | 0 | 1 = 0;
+  private scroll_at = 0;
   constructor(
     view: View,
     public source: number,
@@ -42,8 +37,6 @@ export class Drag {
     public workspace: number,
     public current: number,
     public sort: Sort = "manual",
-    /** Workspace ids in the workspace list's order. */
-    workspaces: number[] = [],
   ) {
     this.cols = view.cols;
     this.rows = view.rows;
@@ -57,38 +50,16 @@ export class Drag {
     while (this.first > 0 && !bound(view.entries[this.first - 1].target)) this.first--;
     this.end = source + 1;
     while (this.end < view.entries.length && !bound(view.entries[this.end].target)) this.end++;
-    const header = view.entries.findIndex(e => isSection(e.target) && e.target.section === "pinned");
-    this.header = header < 0 ? null : header;
-    this.pins = header < 0 ? { first: 0, end: 0 } : { first: header + 1, end: groupEnd(view.entries, header) };
-    this.pinned = view.entries[source].section === "pinned";
+    this.starred = view.entries[source].section === "starred";
     let owner: number | null = null;
     this.owners = view.entries.map(e => {
       if (isSection(e.target) || isGroup(e.target)) owner = null;
       else if (isSubhead(e.target)) owner = e.target.workspace;
       return owner;
     });
-    const mine = this.owners[source],
-      rows = Array.from({ length: this.pins.end - this.pins.first }, (_, i) => this.pins.first + i);
-    if (this.header !== null && mine !== null && !rows.some(i => this.owners[i] === mine)) {
-      const place = (id: number) => workspaces.indexOf(id);
-      this.slot =
-        rows.find(i => {
-          const t = this.ids[i];
-          return isSubhead(t) && place(t.workspace) > place(mine);
-        }) ?? this.pins.end;
-    }
   }
-  static init(
-    view: View,
-    source: number,
-    x: number,
-    y: number,
-    workspace: number,
-    current: number,
-    sort?: Sort,
-    workspaces?: number[],
-  ) {
-    return new Drag(view, source, x, y, workspace, current, sort, workspaces);
+  static init(view: View, source: number, x: number, y: number, workspace: number, current: number, sort?: Sort) {
+    return new Drag(view, source, x, y, workspace, current, sort);
   }
   valid(view: View, current: number) {
     if (
@@ -105,13 +76,21 @@ export class Drag {
     if (this.cancelled) {
       this.drop = null;
       this.preview = null;
+      this.scroll_direction = 0;
     }
     return !this.cancelled;
   }
-  update(view: View, current: number, x: number, y: number) {
+  update(view: View, current: number, x: number, y: number, now = 0) {
+    this.pointer = { x, y };
     this.drop = null;
     this.preview = null;
     if (!this.valid(view, current) || !this.dragging) return;
+    const edge = view.agentDragEdge(x, y);
+    if (edge !== this.scroll_direction) {
+      this.scroll_direction = edge;
+      this.scroll_at = now + scroll_delay_ms;
+    }
+    if (edge !== 0) y = Math.max(view.middle() + 2, Math.min(y, view.listEnd() - 1));
     let drop = view.agentDrop(x, y);
     if (!drop) return;
     if (this.sort === "manual") {
@@ -119,14 +98,27 @@ export class Drag {
       this.reorder(drop, "move");
       return;
     }
-    if (drop.index === this.header) drop = { index: drop.index + 1, y: drop.y + 1 };
-    if (drop.index >= this.pins.first && drop.index <= this.pins.end) {
-      if (this.slot !== null) this.reorder({ index: this.slot, y: drop.y }, "pin");
-      else if (this.own(drop.index)) this.reorder(drop, "pin");
-    } else if (this.pinned) {
-      this.action = "unpin";
-      this.drop = drop;
-    } else if (drop.index >= this.first && drop.index <= this.end && this.own(drop.index)) this.reorder(drop, "place");
+    if (drop.index === this.first - 1 && isSection(this.ids[drop.index])) drop = { index: this.first, y: drop.y + 1 };
+    if (drop.index >= this.first && drop.index <= this.end && this.own(drop.index))
+      this.reorder(drop, this.starred ? "starred" : "place");
+  }
+  /** Whether the pointer rests at an edge of the list mid-drag. */
+  scrolling(): boolean {
+    return this.dragging && this.scroll_direction !== 0;
+  }
+  /** One entry per tick, even after a stalled frame. A stationary pointer
+   * keeps scrolling; re-entering an edge starts the pause again. */
+  scroll(view: View, current: number, now: number): number | null {
+    if (!this.pointer) return null;
+    this.update(view, current, this.pointer.x, this.pointer.y, now);
+    if (this.scroll_direction === 0 || now < this.scroll_at) return null;
+    this.scroll_at = now + scroll_step_ms;
+    const offset = Math.max(0, Math.min(view.offset + this.scroll_direction, view.maxOffset()));
+    return offset === view.offset ? null : offset;
+  }
+  /** Recompute the drop after the viewport moves beneath the pointer. */
+  scrolled(view: View, current: number, now: number): void {
+    if (this.pointer) this.update(view, current, this.pointer.x, this.pointer.y, now);
   }
   /** Whether a drop above row `index` lands among the agent's own workspace's
    * rows: the order it changes is that workspace's, so it can go nowhere else. */
@@ -139,15 +131,15 @@ export class Drag {
   /** Previews the row at `drop`, unless that leaves it where it is. */
   private reorder(drop: { index: number; y: number }, action: Action) {
     this.preview = drop.index - Number(drop.index > this.source);
-    if (this.preview === this.source && (action !== "pin" || this.pinned)) return;
+    if (this.preview === this.source) return;
     this.action = action;
     this.drop = drop;
   }
   /** The agent the dragged one lands above, past any subhead there; null
    * when it goes last. */
   before(): number | null {
-    if (!this.drop || this.action === "unpin") return null;
-    const end = this.action === "pin" ? this.pins.end : this.end;
+    if (!this.drop) return null;
+    const end = this.end;
     let at = this.drop.index;
     while (at < end && !isAgent(this.ids[at])) at += 1;
     return at < end ? at : null;
