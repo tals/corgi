@@ -73,13 +73,42 @@ function transmit(loaded: Loaded): string {
     out += chunks(`a=f,t=d,f=100,i=${image_id},x=${f.x},y=${f.y},c=${f.base},z=${f.delay}`, f.png);
   return out + `\x1b_Ga=a,i=${image_id},r=1,z=${loaded.delay},q=2\x1b\\\x1b_Ga=a,i=${image_id},s=3,v=1,q=2\x1b\\`;
 }
+/** The Kitty frame each GIF frame after the first is drawn over (0 for a
+ * clear canvas), following the frame before's disposal; null when that
+ * would clear part of a picture, which Kitty can't compose. */
+export function bases(a: gif.Animation): number[] | null {
+  // Kitty numbers frames from 1, so GIF frame `i` is Kitty frame `i + 1`.
+  const under = [0];
+  for (let i = 1; i < a.frames.length; i++) {
+    const before = a.frames[i - 1];
+    switch (before.disposal) {
+      case 2:
+        // Clearing its rectangle leaves a clear canvas only if the canvas was clear or it covered it all.
+        if (under[i - 1] !== 0 && (before.width !== a.width || before.height !== a.height)) return null;
+        under.push(0);
+        break;
+      case 3:
+        under.push(under[i - 1]);
+        break;
+      default:
+        under.push(i);
+    }
+  }
+  return under.slice(1);
+}
 /** The frames of the GIF at `path` shrunk to fit `box`, or null to show it
- * still: a single frame, or a first frame that leaves part of the canvas
- * blank, which a host that can't animate would show as it is. */
-async function animate(path: string, box: { width: number; height: number }): Promise<Loaded | null> {
+ * still: a single frame, a first frame that leaves part of the canvas blank,
+ * which a host that can't animate would show as it is, frames Kitty can't
+ * compose, or a GIF no longer `wanted`. */
+async function animate(
+  path: string,
+  box: { width: number; height: number },
+  wanted: () => boolean,
+): Promise<Loaded | null> {
   const a = gif.animation(new Uint8Array(await Bun.file(path).arrayBuffer()));
-  const first = a?.frames[0];
-  if (!a || !first || first.width !== a.width || first.height !== a.height) return null;
+  const first = a?.frames[0],
+    under = a && bases(a);
+  if (!a || !first || !under || first.width !== a.width || first.height !== a.height) return null;
   const scale = Math.min(
       box.width / a.width,
       box.height / a.height,
@@ -91,16 +120,13 @@ async function animate(path: string, box: { width: number; height: number }): Pr
   const shrink = (still: Uint8Array, w: number, h: number) => new Bun.Image(still).resize(w, h).png().buffer();
   const frames: Frame[] = [];
   for (const [i, f] of a.frames.entries()) {
+    if (!wanted()) return null;
     if (i === 0) continue;
     const x = Math.floor(f.left * scale),
       y = Math.floor(f.top * scale),
       w = Math.max(1, Math.min(width, Math.ceil((f.left + f.width) * scale)) - x),
       h = Math.max(1, Math.min(height, Math.ceil((f.top + f.height) * scale)) - y);
-    const before = a.frames[i - 1],
-      cleared = before.width === a.width && before.height === a.height;
-    // Kitty numbers frames from 1, so GIF frame `i` is Kitty frame `i + 1`.
-    const base = before.disposal === 3 ? i - 1 : before.disposal === 2 && cleared ? 0 : i;
-    frames.push({ png: await shrink(f.still, w, h), x, y, base, delay: f.delay });
+    frames.push({ png: await shrink(f.still, w, h), x, y, base: under[i - 1], delay: f.delay });
   }
   const png = await shrink(first.still, width, height);
   return { thumbnail: { width, height, cell: { width: 0, height: 0 } }, png, delay: first.delay, frames };
@@ -130,7 +156,9 @@ export class Loader {
     const box = { width: max_cols * cell.width, height: max_rows * cell.height };
     let loaded: Loaded;
     try {
-      const animated = /\.gif$/i.test(path) ? await animate(path, box).catch(() => null) : null;
+      const wanted = () => this.key === key,
+        animated = /\.gif$/i.test(path) ? await animate(path, box, wanted).catch(() => null) : null;
+      if (!wanted()) return;
       if (animated) loaded = { ...animated, thumbnail: { ...animated.thumbnail, cell } };
       else {
         const png = await new Bun.Image(path, { maxPixels: 100_000_000 })

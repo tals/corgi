@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { png_base64 } from "./assets/corgi_badge";
 import { blink } from "./gif.test";
 import { Rect } from "./layout";
-import { Loader, imagePath, place, remove } from "./link_thumbnail";
+import { Loader, bases, imagePath, place, remove } from "./link_thumbnail";
 import { fit } from "./link_tooltip";
 
 const cell = { width: 10, height: 20 };
@@ -116,4 +116,24 @@ test("an animated GIF is sent as a Kitty animation that loops", async () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("each GIF frame is drawn over the picture its disposal leaves", () => {
+  const frame = (disposal: number, whole = false) => ({
+    still: new Uint8Array(),
+    left: whole ? 0 : 4,
+    top: whole ? 0 : 2,
+    width: whole ? 20 : 4,
+    height: whole ? 10 : 4,
+    delay: 100,
+    disposal,
+  });
+  const of = (...frames: ReturnType<typeof frame>[]) => bases({ width: 20, height: 10, frames });
+  // Kept frames build on the last; a restored one is undone, back to what it was drawn over.
+  expect(of(frame(1, true), frame(1), frame(3), frame(3), frame(0))).toEqual([1, 2, 2, 2]);
+  expect(of(frame(1, true), frame(0), frame(3), frame(1), frame(3), frame(1))).toEqual([1, 2, 2, 4, 4]);
+  // A cleared whole frame, or a part of a clear canvas, leaves it clear.
+  expect(of(frame(2, true), frame(2), frame(1))).toEqual([0, 0]);
+  // Clearing part of a picture can't be composed.
+  expect(of(frame(1, true), frame(2), frame(1))).toBeNull();
 });
