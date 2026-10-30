@@ -203,6 +203,7 @@ export function capture(r: Runtime, live: boolean) {
       activity_order: w.activity_order.slice(),
       last_agent: w.last_agent,
       launcher_hidden: w.launcher_hidden,
+      launcher_order: w.launcher_order,
       focus: w.focus,
     })),
     panes: r.panes.map(p => {
@@ -349,6 +350,7 @@ export async function restore(
     item.activity_order = Order.restore(w.activity_order ?? w.agent_order ?? []);
     item.last_agent = w.last_agent ?? null;
     item.launcher_hidden = w.launcher_hidden ?? [];
+    item.launcher_order = w.launcher_order ?? [];
     item.focus = w.focus ?? 0;
     item.away = hydrate(item.away, w.away);
     for (const tab of item.model.tabs)

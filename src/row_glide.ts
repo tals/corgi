@@ -19,8 +19,12 @@ const strength = 0.2,
   /** The row's text fades in from halfway through the glide, over this long. */
   reveal_ms = 170;
 const image_id = 730120;
+export const manager_image_id = 730121;
 /** Hides the tint. Freeing it also discards unrelated unplaced images on old Kitty. */
-export const hide = `\x1b7\x1b[1;1H\x1b_Ga=d,d=i,i=${image_id},q=2\x1b\\\x1b8`;
+export function hideImage(id: number): string {
+  return `\x1b7\x1b[1;1H\x1b_Ga=d,d=i,i=${id},q=2\x1b\\\x1b8`;
+}
+export const hide = hideImage(image_id);
 
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 function ease(x: number) {
@@ -96,6 +100,7 @@ export function place(
   clip: { top: number; bottom: number },
   alpha: number,
   cell: Cell,
+  id = image_id,
 ): string {
   const width = cols * cell.width,
     height = rows * cell.height,
@@ -107,7 +112,7 @@ export function place(
   if (width <= 0 || to <= from || level === 0) return "";
   const shown = top + from,
     row = Math.floor(shown / cell.height);
-  const keys = `a=T,f=100,i=${image_id},p=1,Y=${shown - row * cell.height},y=${from},h=${to - from},z=-1,C=1,q=2`;
+  const keys = `a=T,f=100,i=${id},p=1,Y=${shown - row * cell.height},y=${from},h=${to - from},z=-1,C=1,q=2`;
   const data = pixels(width, height, level);
   let out = `\x1b7\x1b[${row + 1};${x + 1}H`;
   for (let offset = 0; offset < data.length; offset += 4096) {

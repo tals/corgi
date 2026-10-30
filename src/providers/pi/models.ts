@@ -1,3 +1,4 @@
+import * as effort from "../effort";
 import type { InferenceModel } from "../adapter";
 import { Stdio } from "../stdio";
 import { field, str } from "../common";
@@ -32,6 +33,8 @@ export function parse(value: unknown, auth: unknown, ready?: ReadonlySet<string>
       !input.includes("text")
     )
       return [];
+    const efforts = field(v, "reasoning") === true ? effort.list(field(field(v, "thinking"), "efforts")) : [];
+    const default_effort = effort.parse(field(field(v, "thinking"), "defaultLevel"));
     const key = provider + "/" + id;
     if (Buffer.byteLength(key) > 512 || seen.has(key)) return [];
     seen.add(key);
@@ -56,6 +59,8 @@ export function parse(value: unknown, auth: unknown, ready?: ReadonlySet<string>
     return [
       {
         id: key,
+        ...(efforts.length ? { efforts } : {}),
+        ...(default_effort && efforts.includes(default_effort) ? { default_effort } : {}),
         ...(user ? { user } : {}),
         ...(plan ? { plan } : {}),
         name:
@@ -92,6 +97,8 @@ export async function read(account: string, quit: Quit): Promise<InferenceModel[
     ],
     { cwd: "/tmp", env },
   );
+  const abort = () => io.close();
+  quit.abortSignal.addEventListener("abort", abort, { once: true });
   try {
     io.write({ id: "corgi-models", type: "get_available_models" });
     const deadline = Date.now() + 5000;
@@ -127,6 +134,7 @@ export async function read(account: string, quit: Quit): Promise<InferenceModel[
     }
     throw Error("ModelsUnavailable");
   } finally {
+    quit.abortSignal.removeEventListener("abort", abort);
     io.close();
   }
 }

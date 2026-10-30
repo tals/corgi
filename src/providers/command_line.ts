@@ -124,3 +124,16 @@ export function cached(root: string, name: string, limit = 65536): any {
     return null;
   }
 }
+/** An explicit picker choice wins over model flags in an entry's extra arguments. */
+export function withoutModel(args: string[], qualified = false): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const word = args[i],
+      name = word.split("=")[0];
+    if (word === "--") return [...out, ...args.slice(i)];
+    if (name === "--model" || name === "-m" || (qualified && name === "--provider")) {
+      if (!word.includes("=") && args[i + 1] !== undefined) i++;
+    } else out.push(word);
+  }
+  return out;
+}

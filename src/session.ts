@@ -10,6 +10,8 @@ import { Text, adapter } from "./providers";
 import { logicalKey } from "./keys";
 import * as viewerNative from "./viewer_native";
 import * as accounts from "./accounts";
+import * as profiles from "./agent_profiles";
+import * as launcherOrder from "./launch/order";
 import * as integration from "./integration";
 import * as worktreeAgents from "./worktree_agents";
 import { Row } from "./launch/row";
@@ -152,6 +154,36 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
       ws.launcher_hidden = [...ws.launcher_hidden.filter(h => h !== row), ...(shown ? [] : [row])];
       r.changed();
       return {};
+    }
+    case "agent.launcher.move": {
+      const q = request.payload,
+        ws = r.getWorkspace(q.workspace),
+        row = Row.parse(q.row),
+        before = q.before === null ? null : Row.parse(q.before);
+      if (!row || (q.before !== null && !before) || q.order.length > 4096 || q.order.some(r => Row.parse(r) === null))
+        throw Error("InvalidRow");
+      ws.launcher_order = launcherOrder.move(
+        launcherOrder.arrange(q.order as Row[], ws.launcher_order as Row[]),
+        row,
+        before,
+      );
+      ws.launcher_hidden = [...ws.launcher_hidden.filter(h => h !== row), ...(q.shown ? [] : [row])];
+      r.changed();
+      return {};
+    }
+    case "agent.profile.create": {
+      const profile = profiles.find(request.payload.id);
+      if (!profile) throw Error("InvalidAgent");
+      if (profile.account && !accounts.find(profile.provider, profile.account)) throw Error("AccountNotFound");
+      const chosen = await account(profile.provider, profile.account),
+        launch = Launch.in(profile.provider, chosen, profile.yolo, profile.options),
+        pane = await r.create({
+          ...spawnOptions(r, ctx, request.payload.workspace, null, request.payload.cwd),
+          ...launch.run(ctx.executable, launch.typed()),
+        });
+      r.pane(pane)!.launch = launch;
+      r.rememberAgent(pane, profile.provider);
+      return location(r, pane);
     }
     case "agent.yolo": {
       const { provider } = request.payload,
@@ -599,6 +631,7 @@ function build(r: Runtime, viewer: boolean) {
       starting_agents: r.startingAgents(w),
       last_agent: w.last_agent,
       launcher_hidden: w.launcher_hidden,
+      launcher_order: w.launcher_order,
       closed_agents: r.closedCount(w.id),
       git_commits:
         w.git_commits.items?.slice(0, w.git_commits.len).map((c: any) => ({

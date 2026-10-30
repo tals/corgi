@@ -1,3 +1,4 @@
+import * as rowGlide from "./row_glide";
 import { expect, test } from "bun:test";
 import * as agentManager from "./agent_manager";
 import * as palette from "./palette";
@@ -46,6 +47,7 @@ function screen(v: agentManager.View, m: agentManager.Model, now?: number) {
   const b = new Rect(0, 0, 82, v.height(m)),
     w = new Writer();
   v.draw(w, b, m, now);
+  w.write(v.glideImage(b, m));
   const host = new Terminal(90, 30);
   host.feed(w.s);
   const lines = host.text().split("\n");
@@ -53,37 +55,27 @@ function screen(v: agentManager.View, m: agentManager.Model, now?: number) {
   return { lines, b, raw: w.s };
 }
 const type = (v: agentManager.View, m: agentManager.Model, text: string) => {
+  if (v.page === "list" && v.focus === "list") v.key(47, m);
   let action: agentManager.Action | null = null;
   for (const ch of text) action = v.key(ch.charCodeAt(0), m) ?? action;
   return action;
 };
 
-test("it lists what there is, then what can be added, and opens on the account it's given", () => {
+test("Active, Hidden and Add agent share a model column and preserve the opening selection", () => {
   const m = model(),
     v = new agentManager.View();
   v.open(agentManager.agentKey("claude", "/a/2"));
-  expect(v.focus).toBe("search");
-  expect(screen(v, m).raw).toContain("\x1b[?25h");
-  v.key(9, m);
-  const { lines, b } = screen(v, m);
-  expect(screen(v, m).raw).toContain("\x1b[?25l");
-  expect(lines[0]).toMatch(/^╭─ ← New tab ─ Manage agents ─+ +esc +close ─╮/);
-  expect(lines[4]).toMatch(/│ +Agent +Account +Show in corgi +│/);
-  expect(lines.slice(6, 11)).toEqual([
-    expect.stringMatching(/│ +Codex +me@example.com +✓ +│/),
-    expect.stringMatching(/│ +Claude Code +me@example.com +✓ +│/),
-    expect.stringMatching(/│› +Claude Code · work +me@acme.com +✓ +│/),
-    expect.stringMatching(/│ +Claude Code · side +Not signed in +✓ +│/),
-    expect.stringMatching(/│ +review-bot +claude --model opus -p "review th… +✓ +│/),
-  ]);
-  expect(lines.slice(12, 16)).toEqual([
-    expect.stringMatching(/│  Available to add +│/),
-    expect.stringMatching(/│ +\+ New Codex account +│/),
-    expect.stringMatching(/│ +\+ New Claude Code account +│/),
-    expect.stringMatching(/│ +\+ Custom command +│/),
-  ]);
-  expect(lines[b.h - 2]).toMatch(/↵ +edit +space +hide in corgi +hold ⌫ +delete/);
-  expect(b.h).toBe(19);
+  expect(v.focus).toBe("list");
+  const { lines, b, raw } = screen(v, m);
+  expect(raw).toContain("\x1b[?25l");
+  expect(lines[4]).toMatch(/Agent +Account +Model/);
+  expect(lines[6]).toContain("Active · 5 · corgi");
+  expect(lines[9]).toMatch(/› ≡ Claude Code · work +me@acme.com +Auto \(last chosen\) +▾/);
+  expect(lines[13]).toContain("Hidden · 0");
+  expect(lines[14]).toContain("Drop an agent here");
+  expect(lines[16]).toContain("Add agent");
+  expect(lines[b.h - 3]).toContain("Clone");
+  expect(lines[b.h - 2].replaceAll("│", "").trim()).toBe("");
 });
 
 test("typing searches names, accounts and commands, and the selection stays while it's listed", () => {
@@ -92,10 +84,10 @@ test("typing searches names, accounts and commands, and the selection stays whil
   v.open(agentManager.agentKey("claude", "/a/2"));
   type(v, m, "acme");
   let { lines } = screen(v, m);
-  expect(lines[2]).toMatch(/│  acme +│/);
-  expect(lines[6]).toMatch(/│ +Claude Code · work +me@acme.com/);
+  expect(lines[2]).toMatch(/│   \/  acme +│/);
+  expect(lines[7]).toMatch(/│  ≡ Claude Code · work +me@acme.com/);
   // Nothing to add says "acme", so that section goes.
-  expect(lines.some(l => l.includes("Available to add"))).toBe(false);
+  expect(lines.some(l => l.includes("Add agent"))).toBe(false);
   // Space and Backspace belong to search, including when it becomes empty.
   v.key(127, m);
   v.key(127, m);
@@ -103,31 +95,30 @@ test("typing searches names, accounts and commands, and the selection stays whil
   v.key(127, m);
   type(v, m, "codex");
   ({ lines } = screen(v, m));
-  expect(lines[6]).toMatch(/│ +Codex /);
-  expect(lines.find(l => l.includes("Available to add"))).toBeDefined();
+  expect(lines[7]).toMatch(/│  ≡ Codex /);
+  expect(lines.find(l => l.includes("Add agent"))).toBeDefined();
   expect(v.key(32, m)).toBeNull();
   expect(v.query.raw()).toBe("codex ");
   type(v, m, "zz");
-  expect(screen(v, m).lines[6]).toContain('No added agents match "codex zz".');
+  expect(screen(v, m).lines.join("\n")).toContain("No matching agents");
 });
 
 test("Enter edits an account, preserving drafts on failure and suggesting an empty name", () => {
   const m = model(),
     v = new agentManager.View();
   v.open(agentManager.agentKey("claude", "/a/2"));
-  v.key(9, m);
   expect(v.key(13, m)).toBeNull();
   expect(v.page).toBe("agent");
   expect(v.agent_form.name.name()).toBe("work");
   expect(screen(v, m).lines.join("\n")).toContain("Extra flags");
   type(v, m, "big");
-  v.sequence("\x1b[Z", m);
+  v.sequence("\x1b[A", m);
   expect(v.key(13, m)).toEqual({ kind: "configure", agent: work, name: "big", options: { flags: "", env: [] } });
   v.fail("There's an account by that name already.");
   expect(screen(v, m).lines.join("\n")).toContain("There's an account by that name already.");
-  v.key(9, m);
+  v.sequence("\x1b[B", m);
   for (let i = 0; i < 3; i++) v.key(127, m);
-  v.sequence("\x1b[Z", m);
+  v.sequence("\x1b[A", m);
   expect(v.key(13, m)).toEqual({ kind: "configure", agent: work, name: "acme", options: { flags: "", env: [] } });
   v.configured();
   expect(v.page).toBe("list");
@@ -141,13 +132,12 @@ test("an empty default name goes by its agent's name, without replacing it with 
     v = new agentManager.View(),
     claude = m.agents[1];
   v.open(agentManager.agentKey("claude", ""));
-  v.key(9, m);
   expect(v.key(13, m)).toBeNull();
-  v.sequence("\x1b[Z", m);
+  v.sequence("\x1b[A", m);
   expect(v.key(13, m)).toEqual({ kind: "configure", agent: claude, name: "", options: { flags: "", env: [] } });
-  v.key(9, m);
+  v.sequence("\x1b[B", m);
   type(v, m, "example");
-  v.sequence("\x1b[Z", m);
+  v.sequence("\x1b[A", m);
   expect(v.key(13, m)).toEqual({ kind: "configure", agent: claude, name: "example", options: { flags: "", env: [] } });
   v.configured();
   m.agents[1] = { ...claude, name: "example", label: "Claude Code · example" };
@@ -181,44 +171,37 @@ test("clearing search and continuing to hold Backspace never starts removal", ()
   expect(v.query.raw()).toBe(" ");
 });
 
-test("Tab and Down leave search on the current result, and arrows wrap inside the list", () => {
+test("arrows cycle through search and list rows, while Tab toggles focus", () => {
   const m = model(),
     v = new agentManager.View();
   v.open();
-  type(v, m, "work");
-  const selected = v.at;
-  v.sequence("\x1b[B", m);
-  expect([v.focus, v.at]).toEqual(["list", selected]);
-  expect(v.key(32, m)).toEqual({ kind: "here", agent: work, shown: false });
-  expect(v.query.name()).toBe("work");
+  expect(v.selected(m)?.kind).toBe("agent");
   v.sequence("\x1b[A", m);
-  expect([v.focus, v.at]).toEqual(["list", selected]);
+  expect(v.focus).toBe("search");
+  v.sequence("\x1b[A", m);
+  expect([v.focus, v.at]).toEqual(["list", "custom"]);
+  v.sequence("\x1b[B", m);
+  expect(v.focus).toBe("search");
+  v.sequence("\x1b[B", m);
+  expect([v.focus, v.at]).toEqual(["list", agentManager.agentKey("codex", "")]);
   v.key(9, m);
+  type(v, m, "work");
+  v.sequence("\x1b[B", m);
+  expect([v.focus, v.at]).toEqual(["list", agentManager.agentKey("claude", work.account)]);
+  v.sequence("\x1b[B", m);
   expect(v.focus).toBe("search");
   v.sequence("\x1b[Z", m);
   expect(v.focus).toBe("list");
-  v.key(9, m);
-  v.key(13, m);
-  expect(v.focus).toBe("list");
-  expect(v.page).toBe("list");
-  v.open();
-  v.sequence("\x1b[A", m);
-  expect([v.focus, v.at]).toEqual(["list", "custom"]);
-  v.sequence("\x1b[B", m);
-  expect(v.at).toBe(agentManager.agentKey("codex", ""));
-  v.sequence("\x1b[A", m);
-  expect([v.focus, v.at]).toEqual(["list", "custom"]);
 });
 
 test("holding Backspace buries only the selected account and keeps its ending after removal", () => {
   const m = model(),
     v = new agentManager.View();
   v.open(agentManager.agentKey("claude", "/a/2"));
-  v.key(9, m);
   v.key(127, m, 0);
   expect(screen(v, m, 0).lines.join("\n")).toContain("Signs out and deletes its folder");
   for (let now = 400; now <= 650; now += 50) v.key(127, m, now);
-  expect(screen(v, m, 650).lines[8]).toContain("‹o");
+  expect(screen(v, m, 650).lines[9]).toContain("‹o");
   // Release restores the row and performs nothing.
   v.tick(m, 1400);
   expect(v.removal).toBeNull();
@@ -239,7 +222,6 @@ test.each([50, 125, 250])("continuous repeats every %i ms cannot remove a second
   m.commands = [];
   m.add = [];
   v.open(agentManager.agentKey("claude", work.account));
-  v.key(9, m);
   const removed: string[] = [];
   for (let now = 0; now <= 10000; now += interval) {
     const action = v.key(127, m, now);
@@ -256,19 +238,16 @@ test("forward Delete holds on the list, and external accounts and commands say w
   const m = model(),
     v = new agentManager.View();
   v.open(agentManager.agentKey("claude", "/o/side"));
-  v.key(9, m);
   v.sequence("\x1b[3~", m, 0);
   expect(screen(v, m, 0).lines.join("\n")).toContain("Removes account; keeps its folder");
   expect(hold(v, m, 2000, true)).toEqual([{ kind: "remove", agent: m.agents[3] }]);
   v.open("command:0");
-  v.key(9, m);
   expect(hold(v, m)).toEqual([{ kind: "remove_command", index: 0 }]);
   expect(screen(v, m, 1700).lines.join("\n")).toContain("Deletes the saved command");
   v.removed("Could not save");
   expect(v.removal).toBeNull();
   expect(screen(v, m).lines.join("\n")).toContain("Could not save");
   v.open(agentManager.agentKey("claude", ""));
-  v.key(9, m);
   expect(hold(v, m)).toEqual([{ kind: "remove", agent: m.agents[1] }]);
 });
 
@@ -307,15 +286,13 @@ test("clicking search restores its caret, and list focus ignores paste", () => {
   expect(v.query.name()).toBe("xodex");
 });
 
-test("Available to add's agents sign in to a new account, and Custom command opens the form", () => {
+test("Add agent's agents sign in to a new account, and Custom command opens the form", () => {
   const m = model(),
     v = new agentManager.View();
   v.open("add:codex");
-  v.key(9, m);
   expect(screen(v, m).lines[b(v, m).h - 2]).toMatch(/↵ +sign in to a new Codex account/);
   expect(v.key(13, m)).toEqual({ kind: "add", provider: "codex" });
   v.open("add:claude");
-  v.key(9, m);
   v.key(14, m);
   expect(v.key(13, m)).toBeNull();
   expect(v.page).toBe("command");
@@ -329,11 +306,70 @@ test("Available to add's agents sign in to a new account, and Custom command ope
   expect([v.page, v.at]).toEqual(["list", "command:3"]);
   // A saved command's row edits it.
   v.open("command:0");
-  v.key(9, m);
   v.key(13, m);
   expect([v.page, v.form.edit_index, v.form.name_editor.name()]).toEqual(["command", 0, "review-bot"]);
 });
 const b = (v: agentManager.View, m: agentManager.Model) => new Rect(0, 0, 82, v.height(m));
+
+test("dragging and keyboard reorder use stable rows, and crossing sections leaves source focus", () => {
+  const m = model(),
+    v = new agentManager.View();
+  v.open(agentManager.agentKey("claude", work.account));
+  expect(v.sequence("\x1b[1;2A", m)).toMatchObject({ kind: "move", row: "claude:/a/2", before: "claude", shown: true });
+  const box = b(v, m);
+  v.pointer(box, 3, 9, 0, false, m);
+  v.pointer(box, 3, 7, 32, false, m);
+  expect(v.pointer(box, 3, 7, 0, true, m)).toMatchObject({
+    kind: "move",
+    row: "claude:/a/2",
+    before: "codex",
+    shown: true,
+  });
+  expect(v.at).toBe(agentManager.agentKey("claude", work.account));
+  v.pointer(box, 3, 9, 0, false, m);
+  v.pointer(box, 3, 14, 32, false, m);
+  expect(v.pointer(box, 3, 14, 0, true, m)).toMatchObject({
+    kind: "move",
+    row: "claude:/a/2",
+    before: null,
+    shown: false,
+  });
+  expect(v.at).toBe(agentManager.agentKey("claude", "/o/side"));
+  v.pointer(box, 3, 9, 0, false, m);
+  v.pointer(box, 3, 14, 32, false, m);
+  v.key(27, m);
+  expect(v.pointer(box, 3, 14, 0, true, m)).toBeNull();
+  v.pointer(box, 3, 7, 0, false, m);
+  v.pointer(box, 3, 12, 32, false, m);
+  expect(v.pointer(box, 3, 12, 0, true, m)).toMatchObject({ kind: "move", row: "codex", before: null, shown: true });
+});
+
+test("clone is an unsaved draft with a native model picker and independent fields", () => {
+  const m = model(),
+    v = new agentManager.View();
+  m.options = () => ({ flags: "--verbose", env: [["A", "one"]], model: "opus" });
+  v.open(agentManager.agentKey("claude", work.account));
+  expect(v.key(99, m)).toBeNull();
+  expect(v.page).toBe("agent");
+  expect(v.agent_form.cloning).toBe(true);
+  expect(v.agent_form.label()).toBe("work copy");
+  v.agent_form.focus = { kind: "model" };
+  const read = v.key(13, m);
+  expect(read?.kind).toBe("models");
+  v.picker!.view.received([
+    { id: "opus", name: "Opus" },
+    { id: "sonnet", name: "Sonnet" },
+  ]);
+  v.sequence("\x1b[B", m);
+  expect(v.key(13, m)).toBeNull();
+  expect(v.agent_form.model).toBe("sonnet");
+  v.agent_form.focus = { kind: "save" };
+  expect(v.key(13, m)).toMatchObject({ kind: "clone", name: "work copy", options: { model: "sonnet" } });
+  expect(m.options(work).model).toBe("opus");
+  v.key(27, m);
+  expect(v.page).toBe("list");
+  expect(m.agents).toHaveLength(4);
+});
 
 test("Esc returns from a command and cancels a rename or hold before closing the list", () => {
   const m = model(),
@@ -342,14 +378,12 @@ test("Esc returns from a command and cancels a rename or hold before closing the
   type(v, m, "wo");
   expect(v.key(27, m)).toEqual({ kind: "close" });
   v.open(agentManager.agentKey("claude", "/a/2"));
-  v.key(9, m);
   v.key(13, m);
   expect(v.key(27, m)).toBeNull();
   v.key(127, m);
   expect(v.key(27, m)).toBeNull();
   expect(v.key(27, m)).toEqual({ kind: "close" });
   v.open("custom");
-  v.key(9, m);
   v.key(13, m);
   v.form.save_requested = true;
   expect(screen(v, m).lines[0]).toMatch(/esc +back/);
@@ -364,22 +398,21 @@ test("arrows move past the sections, and clicks select, act again, and close", (
   const m = model(),
     v = new agentManager.View();
   v.open("command:0");
-  v.key(9, m);
   expect(v.sequence("\x1b[B", m)).toBeNull();
   expect(v.at).toBe("add:codex");
   v.sequence("\x1b[A", m);
   v.sequence("\x1b[A", m);
   expect(v.at).toBe(agentManager.agentKey("claude", "/o/side"));
   const box = b(v, m);
-  expect(v.click(box, 20, 8, m)).toBeNull();
+  expect(v.click(box, 20, 9, m)).toBeNull();
   expect(v.at).toBe(agentManager.agentKey("claude", "/a/2"));
-  v.click(box, 20, 8, m);
+  v.click(box, 20, 9, m);
   expect(v.agent_form.name.name()).toBe("work");
   v.key(27, m);
-  expect(v.click(box, 4, 6, m)).toBeNull();
+  expect(v.click(box, 4, 7, m)).toBeNull();
   expect(v.at).toBe(agentManager.agentKey("codex", ""));
-  expect(v.click(box, 20, 14, m)).toBeNull();
-  expect(v.click(box, 20, 14, m)).toEqual({ kind: "add", provider: "claude" });
+  expect(v.click(box, 20, 18, m)).toBeNull();
+  expect(v.click(box, 20, 18, m)).toEqual({ kind: "add", provider: "claude" });
   expect(v.click(box, box.w - 8, 0, m)).toEqual({ kind: "close" });
 });
 
@@ -426,88 +459,75 @@ test("a short host scrolls to the selected row and clicks the same visible row",
   }
 });
 
-test("default accounts and previously hidden commands stay searchable and Enter adds them back", () => {
+test("Hidden contains hidden defaults and commands, and Space activates them", () => {
   const m = model(),
     v = new agentManager.View();
   m.agents[0].shown = false;
   m.commands[0].hidden = true;
   v.open();
-  const items = v.items(m);
-  expect(items.have).toHaveLength(3);
-  expect(items.add.slice(0, 2)).toEqual([
+  expect(v.items(m).have).toHaveLength(3);
+  expect(v.items(m).hidden).toEqual([
     { kind: "agent", agent: m.agents[0] },
     { kind: "command", index: 0 },
   ]);
-  const { lines } = screen(v, m),
-    text = lines.join("\n");
-  expect(text.indexOf("Codex")).toBeGreaterThan(text.indexOf("Available to add"));
-  // Rows out of the launcher have no workspace toggle.
-  expect(lines.find(line => line.includes("+ Codex"))).not.toMatch(/[✓·]/);
-  expect(v.key(9, m)).toBeNull();
   v.at = agentManager.agentKey("codex", "");
-  expect(v.key(32, m)).toBeNull();
+  expect(v.key(32, m)).toEqual({ kind: "show", agent: m.agents[0] });
+  expect(v.at).toBe("command:0");
   v.key(9, m);
   type(v, m, "review-bot");
   v.key(9, m);
-  expect(v.key(13, m)).toEqual({ kind: "show_command", index: 0 });
-  expect(v.page).toBe("list");
+  expect(v.key(32, m)).toEqual({ kind: "show_command", index: 0 });
+  expect(v.empty_section).toBe("hidden");
   m.commands[0].hidden = false;
   expect(v.items(m).have).toEqual([{ kind: "command", index: 0 }]);
-  expect(v.items(m).add).toEqual([]);
+  expect(v.items(m).hidden).toEqual([]);
 });
 
-test("space and the Show column hide a row in this workspace only, which then reads dimmed", () => {
+test("hiding keeps focus below, then above, then on the source section's empty drop area", () => {
   const m = model(),
     v = new agentManager.View();
-  m.here = index => index !== 0;
+  v.open(agentManager.agentKey("claude", work.account));
+  expect(v.key(32, m)).toEqual({ kind: "here", agent: work, shown: false });
+  expect(v.at).toBe(agentManager.agentKey("claude", "/o/side"));
   m.agents[2] = { ...work, here: false };
-  v.open(agentManager.agentKey("claude", "/a/2"));
-  v.key(9, m);
-  expect(v.key(32, m)).toEqual({ kind: "here", agent: m.agents[2], shown: true });
-  const { lines, b, raw } = screen(v, m);
-  expect(lines[8]).toMatch(/│› +Claude Code · work +me@acme.com +· +│/);
-  expect(lines[10]).toMatch(/│ +review-bot +claude .* +· +│/);
-  expect(lines[b.h - 2]).toMatch(/space +show in corgi/);
-  expect(raw).toContain(palette.fg("muted") + "\x1b[9;6HClaude Code · work");
-  // A click on the toggle selects its row and flips it; elsewhere on the row only selects.
-  const x = lines[4].indexOf("Show in corgi");
-  expect(v.click(b, x, 6, m)).toEqual({ kind: "here", agent: m.agents[0], shown: false });
-  expect(v.at).toBe(agentManager.agentKey("codex", ""));
-  expect(v.click(b, x, 10, m)).toEqual({ kind: "here_command", index: 0, shown: true });
-  expect(v.click(b, 8, 7, m)).toBeNull();
-  // Narrow, the heading is the workspace's name alone; Esc still closes.
-  m.workspace = "personal-projects";
-  const narrow = new Rect(0, 0, 50, v.height(m)),
-    w = new Writer();
-  v.draw(w, narrow, m);
-  expect(w.s).toContain("Account\x1b[5;35Hpersonal-pr…");
-  expect(w.s).not.toContain("Show in");
-  expect(v.key(27, m)).toEqual({ kind: "close" });
+  v.at = "command:0";
+  expect(v.key(32, m)).toEqual({ kind: "here_command", index: 0, shown: false });
+  expect(v.at).toBe(agentManager.agentKey("claude", "/o/side"));
+  m.here = () => false;
+  m.agents = m.agents.map(a => ({ ...a, here: false }));
+  m.agents[0].here = true;
+  v.at = agentManager.agentKey("codex", "");
+  v.key(32, m);
+  m.agents[0].here = false;
+  expect(v.selected(m)).toBeNull();
+  expect(v.empty_section).toBe("have");
+  const text = screen(v, m).lines.join("\n");
+  expect(text).toContain("Active · 0");
+  expect(text).toContain("Drop an agent here");
+  expect(v.key(32, m)).toBeNull();
 });
 
-test("only default accounts move to Available after removal", () => {
+test("default accounts remain Hidden after removal", () => {
   const m = model(),
     v = new agentManager.View();
   v.open(agentManager.agentKey("claude", ""));
-  v.key(9, m);
   expect(hold(v, m)).toEqual([{ kind: "remove", agent: m.agents[1] }]);
-  expect(screen(v, m, 1700).lines.join("\n")).toContain("Default account stays available to add");
+  expect(screen(v, m, 1700).lines.join("\n")).toContain("Default account stays in Hidden");
   m.agents[1] = { ...m.agents[1], shown: false };
   v.removed();
   v.tick(m, 4000);
   expect(v.items(m).have.some(i => i.kind === "agent" && i.agent === m.agents[1])).toBe(false);
-  expect(v.items(m).add[0]).toEqual({ kind: "agent", agent: m.agents[1] });
+  expect(v.items(m).hidden[0]).toEqual({ kind: "agent", agent: m.agents[1] });
   expect(hold(v, m, 5000)).toEqual([]);
-  expect(v.key(13, m)).toEqual({ kind: "show", agent: m.agents[1] });
+  expect(v.key(32, m)).toEqual({ kind: "show", agent: m.agents[1] });
 });
 
-test.each(["agent", "command"])("previously hidden %s can be permanently deleted in Available", kind => {
+test.each(["agent", "command"])("previously hidden %s can be permanently deleted in Hidden", kind => {
   const m = model(),
     v = new agentManager.View();
   m.agents[2] = { ...work, shown: false };
   m.commands[0].hidden = true;
   v.open(kind === "agent" ? agentManager.agentKey("claude", work.account) : "command:0");
-  v.key(9, m);
   expect(hold(v, m)).toEqual([
     kind === "agent" ? { kind: "remove", agent: m.agents[2] } : { kind: "remove_command", index: 0 },
   ]);
@@ -515,22 +535,21 @@ test.each(["agent", "command"])("previously hidden %s can be permanently deleted
   else m.commands[0] = new CommandEntry();
   v.removed();
   expect(v.items(m).have).toHaveLength(3);
-  expect(v.items(m).add).toHaveLength(5);
+  expect(v.items(m).hidden).toHaveLength(2);
   v.tick(m, 4000);
-  expect(v.items(m).add).toHaveLength(4);
+  expect(v.items(m).hidden).toHaveLength(1);
 });
 
 test("slow cleanup shows the moving worktree deletion bar after the corgi leaves", () => {
   const m = model(),
     v = new agentManager.View();
   v.open(agentManager.agentKey("claude", work.account));
-  v.key(9, m);
   expect(hold(v, m)).toEqual([{ kind: "remove", agent: work }]);
   expect(screen(v, m, 1800).lines.join("\n")).not.toContain("Deleting...");
   v.tick(m, 4000);
   const first = screen(v, m, 4000).lines;
-  expect(first[8]).toMatch(/Deleting\.\.\. +[━─]+/);
-  expect(screen(v, m, 4300).lines[8]).not.toBe(first[8]);
+  expect(first[9]).toMatch(/Deleting\.\.\. +[━─]+/);
+  expect(screen(v, m, 4300).lines[9]).not.toBe(first[9]);
   m.agents.splice(2, 1);
   v.removed();
   v.tick(m, 4500);
@@ -542,7 +561,6 @@ test("the edit transition preserves its first frame, reverses smoothly and settl
     v = new agentManager.View();
   m.options = () => ({ flags: "--verbose", env: [["TIMEOUT", "60000"]] });
   v.open(agentManager.agentKey("claude", work.account));
-  v.key(9, m, 0);
   const before = screen(v, m, 0).lines;
   v.key(13, m, 0);
   expect(v.transition.active).toBe(true);
@@ -568,4 +586,110 @@ test("the edit transition preserves its first frame, reverses smoothly and settl
   expect(settled).toContain("--verbose");
   expect(settled).toContain("TIMEOUT");
   expect(v.tick(m, 800)).toBe(false);
+});
+
+test("whole-row dragging previews the same shifted rows and bar as the sidebar", () => {
+  const m = model(),
+    v = new agentManager.View();
+  v.open(agentManager.agentKey("claude", work.account));
+  const box = b(v, m);
+  v.pointer(box, 16, 9, 0, false, m);
+  v.pointer(box, 16, 7, 32, false, m);
+  const preview = screen(v, m).lines;
+  expect(preview[7]).toContain("▌");
+  expect(preview[7]).toContain("Claude Code · work");
+  expect(preview[8]).toContain("Codex");
+  expect(v.pointer(box, 16, 7, 0, true, m)).toMatchObject({ kind: "move", row: "claude:/a/2", before: "codex" });
+  v.pointer(box, 16, 9, 0, false, m);
+  v.pointer(box, 16, 7, 32, false, m);
+  expect(v.pointer(box, 90, 7, 0, true, m)).toBeNull();
+  v.pointer(box, 16, 9, 0, false, m);
+  m.agents.reverse();
+  expect(v.pointer(box, 16, 7, 32, false, m)).toBeNull();
+  expect(v.drag).toBeNull();
+});
+
+test("slash focuses search without inserting the shortcut", () => {
+  const m = model(),
+    v = new agentManager.View();
+  v.open();
+  v.key(47, m);
+  expect(v.focus).toBe("search");
+  expect(v.query.name()).toBe("");
+  expect(screen(v, m).lines[2]).toContain(" /  Search");
+});
+
+test("list typing never starts search, and the visible action keys operate on its row", () => {
+  const m = model(),
+    v = new agentManager.View();
+  v.open();
+  for (const ch of "xyz") v.key(ch.charCodeAt(0), m);
+  expect(v.focus).toBe("list");
+  expect(v.query.name()).toBe("");
+  const text = screen(v, m).lines.join("\n");
+  for (const key of ["e Edit", "c Clone", "h Hide", "m Model", "Shift+↑ Up", "Shift+↓ Down"])
+    expect(text).toContain(key);
+  expect(v.key(104, m)).toMatchObject({ kind: "here", shown: false });
+  expect(v.key(109, m)?.kind).toBe("models");
+  v.key(27, m);
+  v.key(101, m);
+  expect(v.page).toBe("agent");
+  v.key(27, m);
+  v.key(99, m);
+  expect(v.agent_form.cloning).toBe(true);
+  v.key(27, m);
+  v.key(47, m);
+  v.key(122, m);
+  expect(v.query.name()).toBe("z");
+});
+
+test.each([104, 32])("keyboard visibility moves glide into their new group without moving focus (%s)", key => {
+  const m = model(),
+    v = new agentManager.View();
+  v.open(agentManager.agentKey("claude", work.account));
+  v.cell = { width: 10, height: 20 };
+  expect(v.key(key, m, 1000)).toMatchObject({ kind: "here", shown: false });
+  const focus = v.at;
+  expect(v.tick(m, 1010)).toBe(false);
+  m.agents[2] = { ...work, here: false };
+  v.tick(m, 1020);
+  v.tick(m, 1170);
+  expect(screen(v, m, 1170).raw).toContain("a=T,f=100,i=730121");
+  expect(v.at).toBe(focus);
+  const settled = 1020 + rowGlide.total_ms;
+  v.tick(m, settled);
+  expect(screen(v, m, settled).raw).not.toContain("a=T,f=100,i=730121");
+  v.at = agentManager.agentKey("claude", work.account);
+  expect(v.key(key, m, settled + 80)).toMatchObject({ kind: "here", shown: true });
+  m.agents[2] = { ...work, here: true };
+  v.tick(m, settled + 100);
+  v.tick(m, settled + 250);
+  expect(screen(v, m, settled + 250).raw).toContain("a=T,f=100,i=730121");
+  v.key(47, m, settled + 250);
+  v.key(122, m, settled + 250);
+  v.tick(m, settled + 250);
+  expect(screen(v, m, settled + 250).raw).not.toContain("a=T,f=100,i=730121");
+});
+
+test("dragging between groups skips the visibility glide and uses a grab cursor", () => {
+  const m = model(),
+    v = new agentManager.View();
+  v.open();
+  v.cell = { width: 10, height: 20 };
+  const box = b(v, m);
+  expect(v.pointerShape(box, m, 10, 7)).toBe("grab");
+  expect(v.pointerShape(box, m, box.w - 8, 7)).toBe("pointer");
+  expect(v.pointerShape(box, m, 10, 2)).toBe("text");
+  const selected = v.at;
+  v.pointer_at = { x: 10, y: 9 };
+  screen(v, m);
+  expect(v.at).toBe(selected);
+  v.pointer(box, 10, 9, 0, false, m);
+  v.pointer(box, 10, 14, 32, false, m);
+  expect(v.pointerShape(box, m, 90, 14)).toBe("grabbing");
+  expect(v.pointer(box, 10, 14, 0, true, m)).toMatchObject({ kind: "move", shown: false });
+  m.agents[2] = { ...work, here: false };
+  v.tick(m, 1000);
+  v.tick(m, 1150);
+  expect(screen(v, m, 1150).raw).not.toContain("a=T,f=100,i=730121");
 });

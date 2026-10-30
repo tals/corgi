@@ -1630,12 +1630,14 @@ test("Manage agents shares the launcher's view inside wide and narrow settings",
     expect(menu.managing()).toBe(true);
     let rows = draw(menu, cols, 24);
     expect(rows.join("\n")).toContain("Search");
-    expect(rows.join("\n")).toContain("Available to add");
+    expect(rows.join("\n")).toContain("Active ·");
+    expect(rows.join("\n")).toContain("Hidden ·");
     expect(rows.join("\n")).not.toContain("New tab");
     const searchY = rows.findIndex(row => row.includes("Search")),
       searchX = rows[searchY].indexOf("Search"),
       hit = menu.hit(cols, 24, searchX, searchY, s, prefs);
     expect(hit).toHaveProperty("manager");
+    launch.manager.key(47, launch.manageModel());
     for (const ch of "custom") menu.paste(ch.charCodeAt(0));
     expect(launch.manager.query.name()).toBe("custom");
     launch.manager.key(9, launch.manageModel());
@@ -1673,7 +1675,7 @@ test("Manage agents expands and returns with Keymap's easing, keeping visible po
   const y = middle.findIndex(row => row.includes("Search")),
     x = middle[y].indexOf("Search");
   const hit = menu.hit(160, 36, x, y, s, prefs);
-  expect(hit && "manager" in hit ? hit.manager.x + 3 : null).toBe(x);
+  expect(hit && "manager" in hit ? hit.manager.x + 7 : null).toBe(x);
   expect(width(draw(menu, 160, 36, 1280))).toBe(preferred_width + 2);
   menu.back();
   expect(width(draw(menu, 160, 36, 1300))).toBe(preferred_width + 2);

@@ -1,3 +1,4 @@
+import type { Effort } from "./effort";
 import type { Hook, Text } from "./common";
 import type { Quit } from "../subprocess";
 import type { Info as Account } from "../usage/account";
@@ -303,6 +304,8 @@ export type Kept = { args: string[]; env: [string, string][] };
 export type Inference = { instructions: string; model: string | null; schema: string | null };
 /** An authenticated chat model; prices are catalog dollars per million tokens. */
 export type InferenceModel = {
+  efforts?: Effort[];
+  default_effort?: Effort;
   id: string;
   name: string;
   /** The signed-in user for this model's provider, when available. */

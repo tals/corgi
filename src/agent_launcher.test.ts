@@ -16,6 +16,22 @@ const menu = (fields: Partial<Menu> = {}) => {
   return value;
 };
 const now = () => Math.floor(Date.now() / 1000);
+test("an explicit clone model uses its display name in the launcher", () => {
+  const m = menu({
+    profiles: [
+      {
+        id: "astra",
+        provider: "codex",
+        account: "",
+        name: "Codex Astra",
+        options: { flags: "", env: [], model: "gpt-6-astra" },
+        yolo: false,
+      },
+    ],
+  });
+  expect(m.cells(Row.ofProfile("astra"))).toContain("GPT-6 Astra");
+  expect(m.cells(Row.ofProfile("astra"))).not.toContain("gpt-6-astra");
+});
 test("each agent has a launcher key of its own, apart from the launcher's", () => {
   // The controller's own launcher keys: all, move, manage, terminal, usage, worktrees, YOLO, search, help.
   const taken = "aAjkmtuwy/?";
@@ -617,18 +633,17 @@ test("Manage agents takes the card with its own selection", () => {
   const before = m.bounds(120, 40, SidebarView.init(120, 40, true, 0, 0));
   m.manage();
   expect(m.managing).toBe(true);
-  expect(m.manager.focus).toBe("search");
-  m.manager.sequence("\x1b[B", m.manageModel());
+  expect(m.manager.focus).toBe("list");
   const side = SidebarView.init(120, 40, true, 0, 0),
     b = m.bounds(120, 40, side),
     lines = screen(m, 120, 40, side);
   expect(b.w).toBe(before.w);
   expect(lines[b.y]).toMatch(/╭─ ← New tab ─ Manage agents ─+ +esc +close ─╮/);
-  expect(lines[b.y + 6]).toMatch(/│› +Codex /);
-  expect(lines[b.y + 8]).toMatch(/│ +Claude Code · work +work@example.com +(— +)?✓ +│/);
+  expect(lines[b.y + 7]).toMatch(/│› ≡ Codex /);
+  expect(lines[b.y + 9]).toMatch(/│  ≡ Claude Code · work +work@example.com +Auto \(last chosen\) +▾ +│/);
   // The picker's rows don't answer clicks under it.
   expect(m.hit(120, 40, side, b.x + 6, b.y + 8)).toBeNull();
-  expect(lines[b.y + b.h - 2]).toMatch(/↵ +edit +space +hide in workspace +hold ⌫ +remove/);
+  expect(lines[b.y + b.h - 2].replaceAll("│", "").trim()).toBe("");
   m.back();
   expect(m.selected).toBe(work);
 });
@@ -659,7 +674,7 @@ test("Manage agents shows hidden accounts' own usage, keeps zero, and omits miss
   expect(a.usage.windows.map(w => w?.used)).toEqual([82, 0]);
   const side = SidebarView.init(150, 40, true, 0, 0);
   const text = screen(m, 150, 40, side).join("\n");
-  expect(text).toContain("Usage (used)");
+  expect(text).toContain("Usage · resets in");
   expect(text).toContain("0%");
   expect(text).toContain("82%");
   expect(text).not.toContain("no usage returned");
@@ -782,5 +797,33 @@ test("a command for a provider this viewer doesn't know runs no provider", () =>
   for (const provider of ["codex", null]) {
     const known = commandEntry({ command: "x", semantics: { provider } }).semantics;
     expect(returned(known)).toBe(known);
+  }
+});
+
+test("launcher leaves room for model and compact effort without an ellipsis", () => {
+  const m = menu({
+    profiles: [
+      {
+        id: "astra",
+        provider: "codex",
+        account: "",
+        name: "Codex Astra",
+        options: { flags: "", env: [], model: "gpt-6-astra", effort: "xhigh" },
+        yolo: false,
+      },
+      {
+        id: "sol",
+        provider: "codex",
+        account: "",
+        name: "Codex Sol",
+        options: { flags: "", env: [], model: "gpt-6.1-sol", effort: "xhigh" },
+        yolo: false,
+      },
+    ],
+  });
+  for (const cols of [120, 146, 160]) {
+    const rows = screen(m, cols, 30, SidebarView.init(cols, 30, true, 0, 0));
+    expect(rows.some(row => row.includes("GPT-6 Astra XHigh"))).toBe(true);
+    expect(rows.some(row => row.includes("GPT-6.1 Sol XHigh"))).toBe(true);
   }
 });

@@ -13,6 +13,7 @@ import * as launcherResume from "./launcher_resume";
 import * as clock from "./clock";
 import { Menu as LauncherMenu } from "./agent_launcher";
 import * as agentManager from "./agent_manager";
+import * as agentModels from "./agent_models";
 import * as accounts from "./accounts";
 import * as signin from "./signin";
 import * as signinExit from "./signin_exit";
@@ -33,12 +34,17 @@ import * as sidebar from "./sidebar";
 
 /** A controller with no daemon: these tests send no requests. */
 function controller(): any {
-  return new Controller({
+  const s: any = new Controller({
     socket: "",
     request: transport(async () => {
       throw Error("UnexpectedRequest");
     }).request,
   });
+  s.model_cache = new agentModels.Cache(
+    () => {},
+    async () => [],
+  );
+  return s;
 }
 const bytes = (text: string) => new TextEncoder().encode(text);
 
@@ -412,6 +418,8 @@ test("a paste goes to the field that owned the keyboard when it began", async ()
   // The launcher takes keys before a dialog it was opened over.
   s.agent_launcher = new LauncherMenu({ workspace: 1, last: "codex", pinned: true });
   s.agent_launcher.manage();
+  expect(s.pasteTarget()).toBe("discard");
+  s.agent_launcher.manager.key(47, s.agent_launcher.manageModel());
   expect(s.pasteTarget()).toBe("launcher");
   s.agent_launcher.managing = false;
   expect(s.pasteTarget()).toBe("discard");
@@ -1364,6 +1372,10 @@ function recording(snapshot: any) {
       return { result: { pane: 1 } };
     }).request,
   });
+  s.model_cache = new agentModels.Cache(
+    () => {},
+    async () => [],
+  );
   s.receiveSnapshot(snapshot);
   s.input_state.attached = true;
   return { s, sent };
@@ -1444,9 +1456,9 @@ test.each(["launcher", "settings"] as const)(
       const { s, sent } = recording(folders("/src/app"));
       const launch = await openManagement(s, source);
       launch.manager.at = agentManager.agentKey("claude", "");
-      await s.key(9);
       await s.key(13);
       for (const ch of "home") await s.key(ch.charCodeAt(0));
+      await s.key(9);
       await s.key(9);
       for (const ch of "--model sonnet") await s.key(ch.charCodeAt(0));
       await s.key(9);
@@ -1502,6 +1514,7 @@ test.each(["launcher", "settings"] as const)(
       expect(s.corgi_setup).toBeNull();
       const launch = await openManagement(s, source),
         setup = s.corgi_setup;
+      await s.key(47);
       for (const ch of "claude") await s.key(ch.charCodeAt(0));
       launch.manager.at = "add:claude";
       await s.key(9);
@@ -1634,9 +1647,10 @@ test.each([false, true])(
       s.runtime.panes[0].agent.provider = "claude";
       s.runtime.panes[0].account = account.dir;
       s.agent_launcher.preview.accounts[0].account = account.dir;
-      await s.key(109);
+      await s.input(bytes("\x1b[C"));
       const manager = s.agent_launcher.manager;
       manager.at = agentManager.agentKey("claude", account.dir);
+      await s.key(47);
       for (const ch of "work") await s.key(ch.charCodeAt(0));
       for (let now = 1000; now <= 3000; now += 50) {
         setSystemTime(new Date(now));
@@ -1645,7 +1659,7 @@ test.each([false, true])(
       expect(manager.removal).toBeNull();
       expect(accounts.named("work")).not.toBeNull();
       expect(s.textField()).toBe(manager.query.area);
-      await s.input(bytes("\x1b[B"));
+      await s.key(9);
       expect(manager.focus).toBe("list");
       expect(s.textField()).toBeNull();
       await s.input(bytes("\x1b[200~ignore me\x1b[201~"));
@@ -1663,7 +1677,6 @@ test.each([false, true])(
       expect(signOut).not.toHaveBeenCalled();
       s.runtime.panes[0].agent.provider = null;
       manager.open(agentManager.agentKey("claude", account.dir));
-      await s.key(9);
       for (let now = 9000; now <= 12000; now += 50) {
         setSystemTime(new Date(now));
         await s.key(127);
@@ -1714,9 +1727,8 @@ test("a signed-out account's row signs in to it over the panes instead of starti
 test("space in Manage hides a row in the current workspace's picker only", async () => {
   const { s, sent } = withWork(),
     id = s.current().id;
-  await s.key("m".charCodeAt(0));
+  await s.input(bytes("\x1b[C"));
   s.agent_launcher.manager.at = agentManager.agentKey("claude", "/accounts/work");
-  await s.key(9);
   await s.key(32);
   expect(sent.at(-1)).toEqual({ "agent.workspace_visibility": { workspace: id, row: work, shown: false } });
   expect(s.agent_launcher.shown(work)).toBe(false);
@@ -1728,6 +1740,8 @@ test("space in Manage hides a row in the current workspace's picker only", async
   s.current().launcher_hidden = [work];
   await s.pollLauncher(false);
   expect(s.agent_launcher.shown(work)).toBe(false);
+  expect(s.agent_launcher.manager.at).toBe(agentManager.agentKey("pi", ""));
+  s.agent_launcher.manager.at = agentManager.agentKey("claude", "/accounts/work");
   await s.key(32);
   expect(sent.at(-1)).toEqual({ "agent.workspace_visibility": { workspace: id, row: work, shown: true } });
   expect(s.agent_launcher.shown(work)).toBe(true);
@@ -1743,18 +1757,18 @@ test("an account's row has a YOLO and launcher membership of its own, apart from
   // An older daemon refuses an account, so the default's row sends none.
   await s.key("y".charCodeAt(0));
   expect(sent.at(-1)).toEqual({ "agent.yolo": { provider: "claude", enabled: true } });
-  await s.key("m".charCodeAt(0));
+  await s.input(bytes("\x1b[C"));
   s.agent_launcher.manager.at = agentManager.agentKey("claude", "/accounts/work");
-  await s.key(9);
   s.runtime.account_hidden = ["/accounts/work"];
   s.agent_launcher.account_hidden = ["/accounts/work"];
   await s.manageAction({
     kind: "show",
     agent: s.agent_launcher.manageModel().agents.find((a: agentManager.Agent) => a.account === "/accounts/work"),
   });
-  expect(sent.at(-1)).toEqual({
+  expect(sent.at(-2)).toEqual({
     "agent.visibility": { hidden: byProvider(() => false), hidden_accounts: [] },
   });
+  expect(sent.at(-1)).toEqual({ "agent.workspace_visibility": { workspace: s.current().id, row: work, shown: true } });
   expect([s.agent_launcher.hiddenOf(work), s.agent_launcher.hiddenOf("claude")]).toEqual([false, false]);
   s.agent_launcher.manager.at = agentManager.agentKey("claude", "");
   await s.manageAction({
@@ -2133,7 +2147,7 @@ test("the About spaceship responds to a click and the game back button restores 
 async function openManagement(s: any, source: "launcher" | "settings"): Promise<LauncherMenu> {
   if (source === "launcher") {
     s.openLauncher(true);
-    await s.key(109);
+    await s.input(bytes("\x1b[C"));
     return s.agent_launcher;
   }
   s.openSetup();
@@ -2148,7 +2162,6 @@ test("settings routes manager paste, command saving, visibility and Back through
     setup = s.corgi_setup;
   expect(s.agent_launcher).toBeNull();
   launch.manager.at = agentManager.agentKey("claude", "");
-  await s.key(9);
   await s.manageAction({
     kind: "remove",
     agent: launch.manageModel().agents.find((a: agentManager.Agent) => a.provider === "claude"),
@@ -2158,7 +2171,7 @@ test("settings routes manager paste, command saving, visibility and Back through
   expect(setup.focus).toBe("list");
   expect(s.corgi_setup).toBe(setup);
   await s.key(13);
-  await s.key(9);
+  await s.key(47);
   await s.input(bytes("\x1b[200~custom\x1b[201~"));
   expect(launch.manager.query.name()).toBe("custom");
   expect(s.textField()).toBe(launch.manager.query.area);
@@ -2209,11 +2222,10 @@ test.each([false, true])(
       remove = spyOn(accounts, "remove").mockResolvedValue(true);
     let pending: Promise<void> | null = null;
     try {
-      await s.key(109);
+      await s.input(bytes("\x1b[C"));
       const launch = s.agent_launcher,
         manager = launch.manager;
       manager.at = agentManager.agentKey("claude", known.dir);
-      await s.key(9);
       manager.key(127, launch.manageModel(), 0);
       let returned = false;
       pending = s.manageAction({
@@ -2270,7 +2282,7 @@ test("a failed background logout restores the account row and reports the failur
     signOut = spyOn(signin, "signOut").mockRejectedValue(Error("LogoutFailed")),
     remove = spyOn(accounts, "remove").mockResolvedValue(true);
   try {
-    await s.key(109);
+    await s.input(bytes("\x1b[C"));
     const launch = s.agent_launcher,
       manager = launch.manager;
     manager.at = agentManager.agentKey("claude", known.dir);

@@ -336,18 +336,22 @@ test("a workspace's hidden launcher rows survive checkpoints and default for old
   for (const live of [true, false]) {
     using original = fresh();
     original.workspaces.items[0].launcher_hidden = ["claude:/accounts/side", "custom2"];
+    original.workspaces.items[0].launcher_order = ["custom2", "profile:copy", "claude:/accounts/side"];
     const state = roundtrip(cp.capture(original, live));
     validateCheckpoint(state);
     using restored = new Runtime();
     await restore(restored, state, live);
     expect(restored.workspaces.items[0].launcher_hidden).toEqual(["claude:/accounts/side", "custom2"]);
+    expect(restored.workspaces.items[0].launcher_order).toEqual(["custom2", "profile:copy", "claude:/accounts/side"]);
     expect(() =>
       validateCheckpoint({ ...state, workspaces: [{ ...state.workspaces[0], launcher_hidden: [3] }] }),
     ).toThrow();
     delete state.workspaces[0].launcher_hidden;
+    delete state.workspaces[0].launcher_order;
     using old = new Runtime();
     await restore(old, state, live);
     expect(old.workspaces.items[0].launcher_hidden).toEqual([]);
+    expect(old.workspaces.items[0].launcher_order).toEqual([]);
   }
 });
 test("sidebar order survives live and recovery checkpoints and defaults for old state", async () => {

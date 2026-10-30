@@ -272,9 +272,7 @@ export function renameDefault(provider: Provider, name: string) {
 /** Extra launch settings for an account, shared by every workspace and environment. */
 export function launchOptions(provider: Provider, account: string): agentOptions.Options {
   const options = load().launch.find(a => a.provider === provider && a.account === account)?.options;
-  return options
-    ? { flags: options.flags, env: options.env.map(([key, value]) => [key, value]) }
-    : agentOptions.empty();
+  return options ? { ...options, env: options.env.map(([key, value]) => [key, value]) } : agentOptions.empty();
 }
 /** Save the edit form as one private, atomic accounts.json update. */
 export function configure(provider: Provider, account: string, name: string, options: agentOptions.Options): void {
@@ -296,7 +294,9 @@ export function configure(provider: Provider, account: string, name: string, opt
     defaults: account ? value.defaults : { ...value.defaults, [provider]: name || undefined },
     launch: [
       ...value.launch.filter(a => a.provider !== provider || a.account !== account),
-      ...(clean.flags || clean.env.length ? [{ provider, account, options: clean }] : []),
+      ...(clean.flags || clean.env.length || clean.model || clean.effort
+        ? [{ provider, account, options: clean }]
+        : []),
     ],
   });
 }

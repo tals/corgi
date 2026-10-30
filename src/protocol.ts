@@ -220,6 +220,14 @@ const commands = {
   "agent.command.create": { workspace: "u32", cwd: ["string", ""], index: "u64" },
   "agent.visibility": { hidden: "visibility", hidden_accounts: ["?[]string", null] },
   "agent.workspace_visibility": { workspace: "u32", row: "string", shown: "bool" },
+  "agent.launcher.move": {
+    workspace: "u32",
+    row: "string",
+    before: ["?string", null],
+    order: "[]string",
+    shown: "bool",
+  },
+  "agent.profile.create": { workspace: "u32", cwd: ["string", ""], id: "string" },
   "agent.yolo": { provider: "provider", enabled: "bool", account: ["string", ""] },
   "agent.create": { workspace: "u32", cwd: ["string", ""], provider: ["?provider", null], account: ["string", ""] },
   "agent.resume": {
