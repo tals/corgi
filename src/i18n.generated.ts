@@ -505,6 +505,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Corgi\'s own"]': () => `Corgi 配色`,
     '["Could not create that folder."]': () => `无法创建此文件夹。`,
     '["Could not load workspace activity. Close and try again."]': () => `无法加载工作区活动。请关闭后重试。`,
+    '["Could not rename this workspace"]': () => `无法重命名此工作区`,
     '["Could not resolve shorthand. Paste its underlying command."]': () => `无法解析简写。请粘贴完整命令。`,
     '["Could not save command; max 2048 bytes."]': () => `无法保存命令；上限为 2048 字节。`,
     '["Could not save. Check folder or capacity."]': () => `无法保存。请检查文件夹或容量限制。`,
@@ -1904,6 +1905,7 @@ ${v1} 使用该账号。
     '["Could not create that folder."]': () => `フォルダーを作成できませんでした。`,
     '["Could not load workspace activity. Close and try again."]': () =>
       `ワークスペースの稼働状況を読み込めませんでした。閉じてから再試行してください。`,
+    '["Could not rename this workspace"]': () => `このワークスペースの名前を変更できませんでした`,
     '["Could not resolve shorthand. Paste its underlying command."]': () =>
       `省略形を解決できませんでした。元のコマンドを貼り付けてください。`,
     '["Could not save command; max 2048 bytes."]': () => `コマンドを保存できません。上限は2048バイトです。`,
@@ -3322,6 +3324,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Could not create that folder."]': () => `폴더를 만들 수 없습니다.`,
     '["Could not load workspace activity. Close and try again."]': () =>
       `워크스페이스 활동을 불러오지 못했습니다. 닫고 다시 시도하세요.`,
+    '["Could not rename this workspace"]': () => `이 작업 공간의 이름을 변경할 수 없습니다`,
     '["Could not resolve shorthand. Paste its underlying command."]': () =>
       `축약형을 해석할 수 없습니다. 전체 명령을 붙여넣으세요.`,
     '["Could not save command; max 2048 bytes."]': () => `명령을 저장할 수 없습니다. 최대 2048바이트입니다.`,
@@ -5144,6 +5147,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Could not create that folder."]': () => `Не удалось создать эту папку.`,
     '["Could not load workspace activity. Close and try again."]': () =>
       `Не удалось загрузить активность рабочего пространства. Закройте окно и повторите попытку.`,
+    '["Could not rename this workspace"]': () => `Не удалось переименовать это рабочее пространство`,
     '["Could not resolve shorthand. Paste its underlying command."]': () =>
       `Не удалось распознать сокращение. Вставьте полную команду.`,
     '["Could not save command; max 2048 bytes."]': () => `Не удалось сохранить команду; максимум 2048 байт.`,
