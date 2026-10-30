@@ -1,6 +1,6 @@
 // Mirrors the tests in name_dialog.zig.
 import { expect, test } from "bun:test";
-import { Dialog, View, selection } from "./name_dialog";
+import { Dialog, View, selection, writeField } from "./name_dialog";
 import { Writer } from "./text";
 
 const c = (s: string) => s.charCodeAt(0);
@@ -116,4 +116,13 @@ test("a workspace name keeps its spaces until it is edited", () => {
   expect(d.name()).toBe("foo");
   expect(Dialog.init({ workspace_name: 1 }, "  ").name()).toBe("  ");
   expect(Dialog.init({ rename: 1 }, "tab ").name()).toBe("tab");
+});
+
+test("an agent's name shows its C0 and C1 controls as spaces, one column each", () => {
+  const d = Dialog.init({ agent: 1 }, "a\u009b2Jb\u0007c");
+  expect(d.shown(0, d.len)).toBe("a 2Jb c");
+  const w = new Writer();
+  d.position(d.len);
+  expect(writeField(w, d, 0, 20, "")).toBe(7);
+  expect(w.buffered()).toBe("a 2Jb c\x1b[27m");
 });
