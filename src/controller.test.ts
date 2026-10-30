@@ -581,6 +581,42 @@ test("keys stay on the name while the folder field doesn't fit", async () => {
   expect(d.browser.field.raw()).toBe("/a/y");
 });
 
+test("the ↵ held to create a workspace doesn't reach its pane until it is let go", async () => {
+  const s = controller();
+  s.input_state.attached = true;
+  const d = new newWorkspace.Dialog(newWorkspace.Browser.init("/a", "/home", () => ["b"]));
+  d.confirm = () => "/a";
+  s.name_dialog = d;
+  const sent: number[] = [];
+  let created = 0;
+  s.focused = () => ({ terminal: {}, agent: { observation: {}, attention: "none", provider: null } });
+  s.sendInput = (_: unknown, b: number[]) => sent.push(...b);
+  try {
+    let now = 1000;
+    setSystemTime(new Date(now));
+    // Starting a shell takes longer than the gap between repeats.
+    s.newWorkspace = async () => {
+      created += 1;
+      setSystemTime(new Date((now += 400)));
+      s.dismissName();
+      return 2;
+    };
+    await s.input(bytes("\r"));
+    for (let held = 0; held <= newWorkspace.create_hold_ms + 300; held += 30) {
+      setSystemTime(new Date((now += 30)));
+      await s.input(bytes("\r"));
+    }
+    expect(created).toBe(1);
+    expect(sent).toEqual([]);
+    // Let go, a press is the shell's again.
+    setSystemTime(new Date((now += 500)));
+    await s.input(bytes("\r"));
+    expect(sent).toEqual([13]);
+  } finally {
+    setSystemTime();
+  }
+});
+
 test("a paste read from the host clipboard goes where a paste would", async () => {
   const clipboard = Object.assign(new hostClipboard.State(), { support: "on" });
   const s = controller();
