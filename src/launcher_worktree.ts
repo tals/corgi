@@ -53,6 +53,8 @@ export class Chooser {
   hovered: number | null = null;
   /** The search before browsing, kept while arrows write choices into Branch. */
   typed = "";
+  /** Opening keeps a planned name in Branch without filtering the checkouts. */
+  filtering = false;
   highlight: number | null = null;
   create = new KeyHold(create_hold_ms, 220, 150, 80);
   /** The checkouts' first shown row, when they're more than fit. */
@@ -84,13 +86,14 @@ export class Chooser {
     this.scroll = 0;
     this.field = Dialog.init({ rename: 0 }, planned?.branch ?? "");
     this.typed = this.field.name();
+    this.filtering = false;
     this.create.reset();
     this.base = planned ? { ref: planned.base, name: planned.base_name } : (bases(snapshot, cwd)[0] ?? null);
     this.error = "";
   }
   /** Matching checkouts, prefixes first; browsing doesn't change the search. */
   entries(snapshot: worktrees.Snapshot | null): worktrees.Checkout[] {
-    const query = this.typed.toLowerCase();
+    const query = this.filtering ? this.typed.toLowerCase() : "";
     const all = checkouts(snapshot).filter(e => worktrees.label(e).toLowerCase().includes(query));
     return [
       ...all.filter(e => worktrees.label(e).toLowerCase().startsWith(query)),
@@ -119,6 +122,7 @@ export class Chooser {
     this.create.reset();
     if (this.field.raw() === before) return;
     this.typed = this.field.name();
+    this.filtering = true;
     this.highlight = this.hovered = null;
     this.scroll = 0;
     this.error = "";
@@ -405,7 +409,7 @@ export function boxHeight(shown: number, error: boolean, picks: number | null): 
 }
 /** The choices shown, scrolled to keep the keyboard selection in view. */
 export function visible(c: Chooser, all: dropdown.Choice[], shown: number): dropdown.Choice[] {
-  const selected = c.highlight ?? all.findIndex(e => e.hovered);
+  const selected = c.highlight ?? -1;
   if (selected >= 0) c.scroll = Math.max(Math.min(c.scroll, selected), selected - shown + 1, 0);
   c.scroll = Math.min(c.scroll, Math.max(0, all.length - shown));
   return all.slice(c.scroll, c.scroll + shown);
