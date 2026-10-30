@@ -170,7 +170,9 @@ export class Runtime extends TestCase {
     Object.assign(this.env, this.extraEnv);
     const preferences = join(this.env.XDG_STATE_HOME!, "corgi/viewer.json");
     mkdirSync(join(preferences, ".."), { recursive: true });
-    writeFileSync(preferences, JSON.stringify({ onboarding_complete: true }));
+    // Suites read the agent list by its rows; most expect it as sorted by hand.
+    // Those about activity sections ask for them.
+    writeFileSync(preferences, JSON.stringify({ onboarding_complete: true, agent_sort: "manual" }));
     this.client = null;
     this.viewers = [];
     this.proc = null;

@@ -18,7 +18,7 @@ import * as keys from "./keys";
 import * as trackers from "./trackers";
 import { Model as AgentModel } from "./providers/model";
 import { Status as InferenceStatus } from "./inference/setup";
-import type { Target } from "./agent_order";
+import { section, type Target } from "./agent_order";
 import type { Session } from "./headless";
 import { Briefs } from "./worktree_briefs";
 import * as breadcrumbs from "./breadcrumbs";
@@ -681,7 +681,10 @@ export class Runtime {
         ws.model.moveTab(ws.model.tabs[ws.model.count - 1].id, Math.min(saved.tab_index, ws.model.count - 1));
         ws.model.revision = BigInt.asUintN(64, ws.model.revision + 1n);
       }
-      ws.agent_order.items = ws.agent_order.items.map(t => ("pane" in t && t.pane === saved.pane ? { pane: id } : t));
+      const reopened = (t: Target) => ("pane" in t && t.pane === saved.pane ? { pane: id } : t);
+      ws.agent_order.items = ws.agent_order.items.map(reopened);
+      ws.activity_order.items = ws.activity_order.items.map(reopened);
+      ws.pinned_agents.items = ws.pinned_agents.items.map(reopened);
     }
     this.pane(id)!.label = saved.label;
     this.closed.splice(index, 1);
@@ -852,6 +855,13 @@ export class Runtime {
       this.wanted_names.push(new WantedName(created, name, clock.milliTimestamp() + WantedName.wait_ms));
     ws.model.moveTab(ws.model.tabs[ws.model.count - 1].id, ws.model.tabIndex(sourceTab)! + 1);
     ws.model.revision = BigInt.asUintN(64, ws.model.revision + 1n);
+    if (ws.pinned_agents.has({ pane: id })) {
+      try {
+        ws.pinned_agents.pinAfter(this.agentTargets(ws), { pane: created }, { pane: id });
+      } catch (error) {
+        console.warn("pinning a fork:", error);
+      }
+    }
     if (ws.agent_order.len) {
       try {
         ws.agent_order.moveAfter(this.agentTargets(ws), { pane: created }, { pane: id });
@@ -860,6 +870,37 @@ export class Runtime {
       }
     }
     return created;
+  }
+  /** Puts each agent that entered another activity section, or is new to
+   * the list, first in its workspace's activity order. */
+  raiseEntered(): boolean {
+    let changed = false;
+    for (const ws of this.workspaces.items) {
+      const live = this.agentTargets(ws, []),
+        seen = new Set<string>();
+      for (const target of live) {
+        const kind = this.agentSection(target);
+        if (kind === null) continue;
+        const key = "pane" in target ? `pane:${target.pane}` : `headless:${target.headless}`,
+          last = ws.sections.get(key);
+        seen.add(key);
+        ws.sections.set(key, kind);
+        // A restored agent keeps its place until it moves on.
+        if (last === kind || (last === undefined && ws.activity_order.has(target))) continue;
+        ws.activity_order.raise(live, target);
+        changed = true;
+      }
+      for (const key of ws.sections.keys()) if (!seen.has(key)) ws.sections.delete(key);
+    }
+    return changed;
+  }
+  private agentSection(target: Target) {
+    if ("pane" in target) {
+      const agent = this.pane(target.pane)?.agent();
+      return agent?.provider ? section(agent.state, agent.attention, agent.paused) : null;
+    }
+    const s = this.sessions.find(s => s.id === target.headless);
+    return s ? section(s.status(), s.attention()) : null;
   }
   agentTargets(ws: Workspace, out: Target[] = []) {
     out.length = 0;

@@ -39,8 +39,17 @@ to create it. Missing folders can be created from the folder picker.
 
 Click a tab, pane or sidebar agent to focus it. Drag split dividers to resize.
 Right-click tabs, panes and agents for their actions; hold Shift when an
-application captures the mouse. Drag workspace or agent rows to reorder them.
-Workspace and agent order is shared; rearranging agents does not move panes.
+application captures the mouse. Drag workspace rows to reorder them.
+
+The agent list groups agents by what they are doing: working (including
+those waiting on you, in warm, and paused ones), ready to read, idle and
+done. Each section keeps the order you drag it into; an agent that enters
+one goes on top, with how long it has been there. Agents next to each
+other in a linked worktree share a ⌥ label, and ⌥ main marks where they
+stop. Click a section's header to fold it; done starts folded. Drag an
+agent to the top to pin it, or back into the sections to unpin it. Pins
+and order are shared and saved with the workspace; they don't move panes.
+Sort: Manual in the "agents: … ▾" menu lists agents in the order dragged.
 
 Use **prefix w** to choose a workspace, **prefix a** to choose an agent, and
 **prefix g** to search agents in the Corgi preset; in the focused agent list,

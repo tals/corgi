@@ -2,7 +2,7 @@ import { isAbsolute } from "node:path";
 import { Runtime, Pane, ClosedAgent, Launch, closed_per_workspace } from "../runtime";
 import { Workspace, Store } from "../workspace";
 import { Model, Tab, max_workspaces } from "../layout";
-import { Order } from "../agent_order";
+import { Order, Pins } from "../agent_order";
 import { Agent, Provider, Text } from "../agents";
 import { Attachment, Registry, max_actors } from "../conversations";
 import { ResumeHint } from "../resume_hint";
@@ -191,6 +191,8 @@ export function capture(r: Runtime, live: boolean) {
       worktrees: live ? w.worktrees : null,
       model: w.model,
       agent_order: w.agent_order.slice(),
+      pinned_agents: w.pinned_agents.slice(),
+      activity_order: w.activity_order.slice(),
       last_agent: w.last_agent,
       launcher_hidden: w.launcher_hidden,
       focus: w.focus,
@@ -328,6 +330,8 @@ export async function restore(
     item.rename(w.name);
     item.model = Model.fromData(w.model);
     item.agent_order = Order.restore(w.agent_order ?? []);
+    item.pinned_agents = Pins.restore(w.pinned_agents ?? []);
+    item.activity_order = Order.restore(w.activity_order ?? []);
     item.last_agent = w.last_agent ?? null;
     item.launcher_hidden = w.launcher_hidden ?? [];
     item.focus = w.focus ?? 0;

@@ -205,6 +205,8 @@ export function exclusion(op: string): "none" | "layout" | "import" | "push" | "
 }
 const commands = {
   "agent.move": { workspace: "u32", target: "target", before: ["?target", null] },
+  "agent.pin": { workspace: "u32", target: "target", before: ["?target", null], pinned: ["bool", true] },
+  "agent.place": { workspace: "u32", target: "target", before: ["?target", null] },
   "agent.command": {
     index: "u64",
     command: "string",

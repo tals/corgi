@@ -9,6 +9,7 @@ const ghost = `\x1b[0;38;2;${PALETTE.strong};48;2;${PALETTE.selected}m▌\x1b[0m
 const mouse = (button: number, x: number, y: number, release = false) =>
   `\x1b[<${button};${x + 1};${y + 1}${release ? "m" : "M"}`;
 
+// The list sorted by hand, the integration suites' default.
 class AgentReorder extends Viewers {
   async agents(count = 3) {
     const ids: number[] = [];

@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { State } from "./sidebar_rows";
+import { State, outOfOrder } from "./sidebar_rows";
 import { entry as sidebarEntry, type Entry } from "./sidebar";
 import * as rowGlide from "./row_glide";
 import type { Provider } from "./providers";
@@ -153,4 +153,47 @@ test("an agent listed under two checkouts keeps a row under each", () => {
   expect(shown[1].exit).not.toBeNull();
   expect(shown[3].exit).toBeNull();
   expect(shown[3].moved).toBeNull();
+});
+test("the rows that moved are those outside the longest run that kept its order", () => {
+  expect(outOfOrder([0, 1, 2, 3])).toEqual([]);
+  // One row dragged from the bottom to the top.
+  expect(outOfOrder([3, 0, 1, 2])).toEqual([0]);
+  // One from the top to the bottom.
+  expect(outOfOrder([1, 2, 3, 0])).toEqual([3]);
+  expect(outOfOrder([])).toEqual([]);
+});
+test("a row reordered within its group glides there, and rows it passes come back from 60%", () => {
+  const rows = new State(),
+    out: Entry[] = [],
+    [a, b, c] = [entry(1), entry(2), entry(3)];
+  rows.update(1, [a, b, c], out, 0);
+  const shown = rows.update(1, [c, a, b], out, 10);
+  expect(shown.map(paneOf)).toEqual([3, 1, 2]);
+  expect(shown[0].moved).toEqual({ from: 4, ms: 0 });
+  expect(shown[1].moved).toBeNull();
+  expect(shown[1].enter).toBe(State.shift_enter);
+  expect(shown[2].enter).toBe(State.shift_enter);
+});
+test("an unfolding group's rows fade in; folding, they fade out", () => {
+  const rows = new State(),
+    out: Entry[] = [],
+    [a, b] = [entry(1), entry(2)];
+  rows.update(1, [a], out, 0);
+  rows.reveal = true;
+  let shown = rows.update(1, [a, b], out, 10);
+  expect(shown[1].enter).toBe(0);
+  expect(rows.reveal).toBe(false);
+  shown = rows.update(1, [a], out, 300);
+  expect(shown.map(paneOf)).toEqual([1, 2]);
+  expect(shown[1].exit).not.toBeNull();
+});
+test("a row that changes groups but lands where it was doesn't glide", () => {
+  const rows = new State(),
+    out: Entry[] = [],
+    a = entry(1);
+  // One agent at work becomes the one idle: its header changes, its row stays put.
+  rows.update(1, [{ ...a, section: "working" }], out, 0);
+  const shown = rows.update(1, [{ ...a, section: "idle" }], out, 10);
+  expect(shown[0].moved).toBeNull();
+  expect(rows.moving(10)).toBe(false);
 });

@@ -14,6 +14,7 @@ import { url as portUrl } from "./trackers/ports";
 import { cpuText, memoryText } from "./trackers/resources";
 import { View as ContextView } from "./usage/context_window";
 import { rank, type Target as OrderTarget } from "./agent_order";
+import type { Section as SectionKind } from "./agent_order";
 import { Rect } from "./layout";
 import {
   Writer,
@@ -115,9 +116,22 @@ export type Target =
   | { worktree: string; workspace: number }
   /** A conversation a browsed worktree's ghost shows, which entering it
    * brings back as a hibernated agent. */
-  | { asleep: string; provider: Provider };
+  | { asleep: string; provider: Provider }
+  /** An activity section's header in the agent list. */
+  | { section: SectionKind }
+  /** Neighbouring rows in one checkout: a linked worktree's, or in "all", a
+   * workspace's own; in a section, or a hand-sorted list's null. `run` tells
+   * apart two runs of one checkout. */
+  | { section: SectionKind | null; workspace: number; checkout: string | null; run: number };
 export const isAgent = (t: Target): t is OrderTarget => "pane" in t || "headless" in t;
-export const isHeading = (t: Target): boolean => "group" in t || "worktree" in t;
+export const isHeading = (t: Target): boolean => "group" in t || "worktree" in t || "section" in t;
+export const isSection = (t: Target): t is { section: SectionKind } => "section" in t && !("workspace" in t);
+export const isSubhead = (
+  t: Target,
+): t is { section: SectionKind | null; workspace: number; checkout: string | null; run: number } =>
+  "section" in t && "workspace" in t;
+/** A header that starts a run of rows: a workspace's in "all", or a section's. */
+const isOuter = (t: Target): boolean => isGroup(t) || isSection(t);
 export function sameTarget(a: Target | null | undefined, b: Target | null | undefined): boolean {
   if (!a || !b) return !a && !b;
   if ("pane" in a) return "pane" in b && a.pane === b.pane;
@@ -133,7 +147,8 @@ export const isGroup = (t: Target): t is { group: number } => "group" in t;
 export function groupEnd(entries: Entry[], index: number): number {
   const header = entries[index]?.target;
   let end = index + 1;
-  if (header && isGroup(header)) while (end < entries.length && !isGroup(entries[end].target)) end += 1;
+  if (header && isOuter(header)) while (end < entries.length && !isOuter(entries[end].target)) end += 1;
+  else if (header && isSubhead(header)) while (end < entries.length && !isHeading(entries[end].target)) end += 1;
   else if (header && "worktree" in header)
     while (
       end < entries.length &&
@@ -153,6 +168,8 @@ export interface Search {
 }
 /** Viewer-local agent list filter. `workspace` follows the selected workspace. */
 export type Scope = "workspace" | "all";
+/** How the agent list orders agents: in activity sections, or as dragged. */
+export type Sort = "activity" | "manual";
 /** One of the sidebar's two lists. */
 export type Section = "workspaces" | "agents";
 /** Header totals for a group entry; `current` marks the selected workspace. */
@@ -162,6 +179,10 @@ export interface Group {
   attention: number;
   folded: boolean;
   current: boolean;
+  /** An activity section's header has a blank row above it. */
+  gap?: boolean;
+  /** A subhead names a branch, under ⌥, rather than a workspace. */
+  branch?: boolean;
 }
 export interface Subagents {
   running: number;
@@ -202,6 +223,10 @@ export interface Entry {
   context: ContextView;
   /** Review notes written on its pane and not sent yet. */
   notes: number;
+  /** The activity section listing it, or null in a list without them. */
+  section: SectionKind | null;
+  /** When it entered its section, in ms. */
+  since_ms: number;
 }
 export function entry(fields: Partial<Entry> & { target: Target }): Entry {
   return {
@@ -228,6 +253,8 @@ export function entry(fields: Partial<Entry> & { target: Target }): Entry {
     subagents: { running: 0, blocked: 0, waiting: false },
     context: new ContextView(),
     notes: 0,
+    section: null,
+    since_ms: 0,
     ...fields,
   };
 }
@@ -257,6 +284,14 @@ export function indicator(e: Entry, selected: boolean): { icon: string; color: s
   if (e.state === "idle") return { icon: "○", color: fg("muted"), unread: false };
   return { icon: "·", color: quiet, unread: false };
 }
+/** Each activity section's header: the glyph its rows would show, and its name. */
+export const sections: Record<SectionKind, { glyph: string; token: palette.Token; label: string }> = {
+  pinned: { glyph: "⇅", token: "strong", label: "pinned" },
+  ready: { glyph: "●", token: "accent", label: "ready" },
+  working: { glyph: "▶", token: "accent", label: "working" },
+  idle: { glyph: "○", token: "muted", label: "idle" },
+  done: { glyph: "○", token: "faint", label: "done" },
+};
 /** A group's agents: how many work, how many need input; the rest idle. */
 export type Tally = Pick<Group, "agents" | "working" | "attention">;
 /** Counts an agent under the glyph its row shows. */
@@ -627,7 +662,8 @@ export class View {
     if (side === "above") {
       if (prev[this.offset] < 0) return null;
       found = counts[this.offset];
-      offset = prev[this.offset];
+      // Scrolls to the farthest, the list's first, so the rest come into view with it.
+      offset = next[0];
     } else {
       // It shows for an agent past the list's end, then also counts one it covers.
       const y = sat(this.rows, 1);
@@ -640,8 +676,10 @@ export class View {
         attention: total.attention - counts[covered].attention,
         unread: total.unread - counts[covered].unread,
       };
+      // Scrolls the farthest, the list's last, to the bottom, so the rest come into view with it.
+      const last = prev[this.count];
       offset = this.offset;
-      while (offset < next[covered] && this.entryEnd(offset, next[covered]) > y) offset += 1;
+      while (offset < last && this.entryEnd(offset, last) > y) offset += 1;
       offset = Math.min(offset, this.maxOffset());
     }
     const badge: Badge = {
@@ -673,7 +711,7 @@ export class View {
     }
   }
   static height(e: Entry): number {
-    const content = isHeading(e.target) ? 1 : 2;
+    const content = isHeading(e.target) ? 1 + Number(e.group.gap === true) : 2;
     return content + (e.worktree?.ghost ? Number("worktree" in e.target) + Number(e.worktree.end === true) : 0);
   }
   /** The headers of the groups the entry at `from` belongs to, which stay
@@ -682,12 +720,18 @@ export class View {
    * give up rows, outermost first, so the last entries fill it. */
   pinned(from: number): number[] {
     const first = this.entries[from];
-    if (!first || isGroup(first.target)) return [];
+    if (!first || isOuter(first.target)) return [];
     const index = this.index;
     const out: number[] = [];
     if (index.group[from] >= 0) out.push(index.group[from]);
     const checkout = first.worktree;
-    if (checkout && !checkout.ghost && !("worktree" in first.target) && index.worktree[from] >= 0)
+    if (
+      checkout &&
+      !checkout.ghost &&
+      !("worktree" in first.target) &&
+      !isSubhead(first.target) &&
+      index.worktree[from] >= 0
+    )
       out.push(index.worktree[from]);
     const room = this.listRows() - (this.rowsBefore(this.entries.length) - this.rowsBefore(from));
     return room >= 0 && room < out.length ? out.slice(out.length - room) : out;
@@ -739,10 +783,11 @@ export class View {
         while (next.length <= i) next.push(i);
         last = i;
       }
-      if (isGroup(e.target)) {
+      if (isOuter(e.target)) {
         header = i;
         checkouts = new Map();
       } else if ("worktree" in e.target) checkouts.set(e.target.worktree, i);
+      else if (isSubhead(e.target) && e.target.checkout !== null) checkouts.set(e.target.checkout, i);
     });
     prev.push(last);
     while (next.length <= entries.length) next.push(-1);
@@ -772,6 +817,13 @@ export class View {
    * fits, but never past its header on top. */
   revealGroup(index: number): number {
     return Math.min(this.reveal(Math.max(index, groupEnd(this.entries, index) - 1)), index);
+  }
+  /** The scroll that shows a section as it opens: all of it when it fits;
+   * otherwise as little as shows its first agent, its header above it. */
+  revealSection(index: number): number {
+    const end = groupEnd(this.entries, index);
+    if (this.rowsBefore(end) - this.rowsBefore(index) <= this.listRows()) return this.revealGroup(index);
+    return Math.min(this.reveal(Math.min(index + 1, end - 1)), index);
   }
   /** The smallest scroll change that shows entry `index`. */
   reveal(index: number): number {
@@ -871,7 +923,8 @@ export class View {
     const end = Math.min(v.count, v.offset + v.capacity);
     for (let i = v.offset; i < end; i++) {
       const h = View.height(v.entries[i]);
-      if (y < top + Math.floor(h / 2)) return { index: i, y: top - 1 };
+      // A one-row header takes drops above it.
+      if (y < top + Math.ceil(h / 2)) return { index: i, y: top - 1 };
       top += h;
     }
     return { index: end, y: top - 1 };
@@ -1127,6 +1180,8 @@ export class View {
     };
     const heading = (out: Writer, i: number, y: number, stuck: boolean) => {
       const e = entries[i];
+      if (isSection(e.target)) return v.drawSection(out, e, e.target.section, y, stuck);
+      if (isSubhead(e.target)) return v.drawSubhead(out, e, y, stuck);
       const lead = isGroup(e.target) ? "" : e.worktree?.ghost ? " " : !nested(i) ? "" : lastInGroup(i) ? "╰" : "├";
       v.drawHeader(out, e, y, lead, stuck);
     };
@@ -1178,7 +1233,7 @@ export class View {
       };
       const frame_ms = e.exit ? e.exit.frame_ms : now_ms;
       const top = next_y;
-      const y = top + Number(e.worktree?.ghost === true && "worktree" in e.target);
+      const y = top + Number(e.worktree?.ghost === true && "worktree" in e.target) + Number(e.group.gap === true);
       next_y += View.height(e);
       if (gliding) {
         const from = list_top + moved.from - v.rowsBefore(v.offset);
@@ -1198,9 +1253,12 @@ export class View {
         finish();
         return;
       }
-      const in_group = grouped || e.worktree !== null;
+      // Rails run down a workspace in "all" and a browsed worktree's ghost;
+      // worktree labels elsewhere need none, and a rule parts two agents in a row.
+      const in_group = e.section === null && (grouped || e.worktree?.ghost === true);
       const last_in_group = in_group && lastInGroup(absolute);
-      const divider = !in_group && index + 1 < visible.length;
+      const divider =
+        !in_group && index + 1 < visible.length && (e.section === null || isAgent(visible[index + 1].target));
       v.drawAgent(
         row_writer,
         // Emoji keep their colors, so a mostly faded row shows the spinner.
@@ -1271,6 +1329,8 @@ export class View {
       w.write(`\x1b[0m${row_bg}`);
     }
     const dot = indicator(e, selected);
+    // At work but waiting on the user: its name takes the needs-input color.
+    const waits = e.section !== null && (e.state === "blocked" || e.attention === "needs_input");
     w.write(`\x1b[${y + 1};${x + 2}H\x1b[22m${dot.color}${dot.icon}`);
     const room = v.width - 6;
     // Within a group, a dotted line under the text separates agents. Only
@@ -1297,7 +1357,13 @@ export class View {
     const notes = e.notes > 0 ? `${e.notes} note${e.notes === 1 ? "" : "s"}` : "";
     const right = figure_width + (figure_width > 0 ? 1 : 0) + (notes.length > 0 ? notes.length + 1 : 0);
     w.write(
-      `\x1b[${y + 1};${x + 5}H${dot.unread || (grouped && e.focused) ? "\x1b[1m" + fg("strong") : "\x1b[22m" + fg("text")}`,
+      `\x1b[${y + 1};${x + 5}H${
+        waits
+          ? "\x1b[1m" + fg("warm")
+          : dot.unread || (grouped && e.focused)
+            ? "\x1b[1m" + fg("strong")
+            : "\x1b[22m" + fg("text")
+      }`,
     );
     writeEllipsis(w, name, sat(room, right));
     w.write("\x1b[22m");
@@ -1438,6 +1504,45 @@ export class View {
       w.write(`\x1b[${y + 1};${name_end + 2}H\x1b[22m` + (lead.length > 0 ? fg("line") : fg("muted")));
       w.write((lead.length > 0 ? "─" : "━").repeat(Math.max(0, status_x - 1 - (name_end + 1))));
     }
+    w.write("\x1b[22;24;59m");
+  }
+  /** An activity section's header, its glyph, name and count centered
+   * between two rules: " ━━━━━ ▶ working 3 ━━━━━ ▾". */
+  drawSection(w: Writer, e: Entry, kind: SectionKind, y: number, stuck: boolean): void {
+    const v = this;
+    const look = sections[kind];
+    const row_bg = e.focused ? selected_bg : bg("bg");
+    w.write(`\x1b[${y + 1};1H\x1b[0m${row_bg}${stuck ? rule_underline : ""}`);
+    w.splat(" ", v.width - 1);
+    // The rules run from column 1 to just before the caret, a space apart from the middle.
+    const caret_x = sat(v.width, 2),
+      room = sat(caret_x, 2),
+      count = compactCount(e.group.agents),
+      label_room = sat(room, displayWidth(count) + 8),
+      label = Math.min(displayWidth(look.label), label_room),
+      middle = 2 + label + 1 + displayWidth(count),
+      left = Math.floor(sat(room, middle + 2) / 2),
+      right = sat(room, middle + 2) - left;
+    w.write(`\x1b[${y + 1};2H\x1b[22m${fg("line")}${"━".repeat(left)} `);
+    w.write(`\x1b[1m${fg(look.token)}${look.glyph} ${e.focused ? fg("strong") : fg("text")}`);
+    writeEllipsis(w, look.label, label_room);
+    w.write(`\x1b[22m ${fg("muted")}${count} ${fg("line")}${"━".repeat(right)}`);
+    w.write(`\x1b[${y + 1};${caret_x + 1}H${fg("faint")}${e.group.folded ? "▸" : "▾"}`);
+    w.write("\x1b[22;24;59m");
+  }
+  /** A worktree's rows in a section, or a workspace's in "all": " ⌥  release ┄┄┄┄". */
+  drawSubhead(w: Writer, e: Entry, y: number, stuck: boolean): void {
+    const v = this;
+    const row_bg = e.focused ? selected_bg : bg("bg");
+    w.write(`\x1b[${y + 1};1H\x1b[0m${row_bg}${stuck ? rule_underline : ""}`);
+    w.splat(" ", v.width - 1);
+    if (e.group.branch) w.write(`\x1b[${y + 1};2H${fg("faint")}⌥`);
+    w.write(`\x1b[${y + 1};5H${e.focused ? fg("muted") : fg("faint")}`);
+    const room = sat(v.width, 8);
+    const text = directoryLabel(e.name, null, 160);
+    writeEllipsis(w, text, room);
+    const end = 4 + Math.min(displayWidth(text), room);
+    if (v.width - 2 > end + 1) w.write(`\x1b[${y + 1};${end + 2}H${fg("line")}${"┄".repeat(v.width - 2 - end - 1)}`);
     w.write("\x1b[22;24;59m");
   }
   drawGhost(w: Writer, e: Entry, y: number): void {
@@ -1931,27 +2036,40 @@ function portLine(
 }
 
 /** Hover popover under the agents header for choosing which agents are listed. */
+/** A row of the agent list's menu: which agents it lists, or how it orders them. */
+export type ScopeChoice = Scope | Sort;
+/** The menu's rows, top to bottom: the choices, a blank row and the sort heading. */
+const scope_rows: (ScopeChoice | "gap" | "sort")[] = ["workspace", "all", "gap", "sort", "activity", "manual"];
 export class ScopeMenu {
   pinned = false;
-  hovered: Scope | null = null;
+  hovered: ScopeChoice | null = null;
   constructor(fields: Partial<ScopeMenu> = {}) {
     Object.assign(this, fields);
   }
   static bounds(side: View, cols: number, rows: number): Rect {
     const y = side.middle() + 1;
     const width = Math.min(sat(cols, 1 + lists_x), Math.max(sat(side.width, 2 + lists_x), 26));
-    const height = Math.min(4, sat(sat(rows, 1), y));
+    const height = Math.min(scope_rows.length + 2, sat(sat(rows, 1), y));
     return new Rect(1 + lists_x, y, width, height);
   }
-  static hit(side: View, cols: number, rows: number, x: number, y: number): Scope | null {
+  static hit(side: View, cols: number, rows: number, x: number, y: number): ScopeChoice | null {
     const b = ScopeMenu.bounds(side, cols, rows);
-    if (b.h < 4) return null;
-    const index = dropdown.hit(b, scopes.length, x, y);
-    return index === null ? null : scopes[index];
+    if (b.h < scope_rows.length + 2) return null;
+    const index = dropdown.hit(b, scope_rows.length, x, y),
+      row = index === null ? null : scope_rows[index];
+    return row === null || row === "gap" || row === "sort" ? null : row;
   }
-  draw(w: Writer, side: View, cols: number, rows: number, workspaces: WorkspaceEntry[], scope: Scope): void {
+  draw(
+    w: Writer,
+    side: View,
+    cols: number,
+    rows: number,
+    workspaces: WorkspaceEntry[],
+    scope: Scope,
+    sort: Sort,
+  ): void {
     const b = ScopeMenu.bounds(side, cols, rows);
-    if (b.h < 4 || b.w < 16) return;
+    if (b.h < scope_rows.length + 2 || b.w < 16) return;
     let total = 0;
     let current = 0;
     for (const ws of workspaces) {
@@ -1961,17 +2079,40 @@ export class ScopeMenu {
     dropdown.draw(
       w,
       b,
-      scopes.map(option => ({
-        text: option === "workspace" ? "This workspace" : "All",
-        note: compactCount(option === "workspace" ? current : total),
-        current: option === scope,
-        hovered: this.hovered === option,
-      })),
+      scope_rows.map(option =>
+        option === "gap" || option === "sort"
+          ? { text: option === "sort" ? "Sort" : "", note: "", heading: true, current: false, hovered: false }
+          : {
+              text: scope_labels[option],
+              note: option === "workspace" ? compactCount(current) : option === "all" ? compactCount(total) : "",
+              ...scope_notes[option],
+              current: option === scope || option === sort,
+              hovered: this.hovered === option,
+            },
+      ),
     );
   }
 }
-/** The scope menu's rows, top to bottom. */
-const scopes: Scope[] = ["workspace", "all"];
+/** What each sort does, at a glance: activity's sections by their glyphs. */
+const scope_notes: Partial<Record<ScopeChoice, { note: string; runs?: dropdown.Run[] }>> = {
+  activity: {
+    note: "▶ ● ○",
+    runs: [
+      [sections.working.glyph, sections.working.token],
+      [" ", "faint"],
+      [sections.ready.glyph, sections.ready.token],
+      [" ", "faint"],
+      [sections.idle.glyph, sections.idle.token],
+    ],
+  },
+  manual: { note: "as dragged" },
+};
+const scope_labels: Record<ScopeChoice, string> = {
+  workspace: "This workspace",
+  all: "All",
+  activity: "By activity",
+  manual: "Manual",
+};
 
 export class PortMenu {
   selected = 0;

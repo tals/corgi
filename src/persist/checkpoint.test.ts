@@ -10,7 +10,7 @@ import { Terminal } from "../pane/terminal";
 import { claim } from "../detection";
 import { adapter } from "../providers";
 import { n, ptr, symbols, waitpid } from "../native_bridge";
-import { Order } from "../agent_order";
+import { Order, Pins } from "../agent_order";
 import { Workspace } from "../workspace";
 import { Text } from "../agents";
 import { Attachment, type Actor } from "../conversations";
@@ -355,17 +355,26 @@ test("sidebar order survives live and recovery checkpoints and defaults for old 
     id = r.workspaces.items[0].id,
     order = [{ headless: 1 }, { pane: 2 }, { pane: 1 }];
   r.workspaces.items[0].agent_order = Order.restore(order);
+  r.workspaces.items[0].pinned_agents = Pins.restore([{ pane: 2 }]);
+  r.workspaces.items[0].activity_order = Order.restore([...order].reverse());
   try {
     for (const live of [true, false]) {
       using next = new Runtime();
       await restore(next, cp.capture(r, live), live);
-      expect(next.workspaces.get(id)!.agent_order.slice()).toEqual(order);
+      const ws = next.workspaces.get(id)!;
+      expect(ws.agent_order.slice()).toEqual(order);
+      expect(ws.pinned_agents.slice()).toEqual([{ pane: 2 }]);
+      expect(ws.activity_order.slice()).toEqual([...order].reverse());
     }
     const state = cp.capture(r, true);
-    Reflect.deleteProperty(state.workspaces[0], "agent_order");
+    for (const key of ["agent_order", "pinned_agents", "activity_order"])
+      Reflect.deleteProperty(state.workspaces[0], key);
     using next = new Runtime();
     await restore(next, state, true);
-    expect(next.workspaces.get(id)!.agent_order.len).toBe(0);
+    const ws = next.workspaces.get(id)!;
+    expect(ws.agent_order.len).toBe(0);
+    expect(ws.pinned_agents.slice()).toEqual([]);
+    expect(ws.activity_order.len).toBe(0);
   } finally {
     r.destroy();
   }

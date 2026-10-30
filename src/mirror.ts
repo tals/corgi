@@ -302,6 +302,8 @@ export interface Workspace {
   cwd: string;
   model: Model;
   agent_order: ({ pane: number } | { headless: number })[];
+  pinned_agents: ({ pane: number } | { headless: number })[];
+  activity_order: ({ pane: number } | { headless: number })[];
   last_agent: Provider | null;
   /** The launcher rows hidden in this workspace only. */
   launcher_hidden: Row[];
@@ -325,6 +327,8 @@ function workspace(value: any): Workspace {
     cwd: value.cwd ?? "",
     model: Model.fromData(value.model),
     agent_order: value.agent_order ?? [],
+    pinned_agents: value.pinned_agents ?? [],
+    activity_order: value.activity_order ?? [],
     last_agent: Provider.parse(value.last_agent),
     launcher_hidden: strings(value.launcher_hidden).flatMap(text => Row.parse(text) ?? []),
     closed_agents: Number(value.closed_agents ?? 0),

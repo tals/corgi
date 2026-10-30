@@ -4,20 +4,26 @@ import * as rowGlide from "./row_glide";
 import { colors } from "./palette";
 import { Terminal } from "./pane/terminal";
 const cell = { width: 10, height: 20 };
-test("the tint glides to where the row lands and fades there, and the row shows as it arrives", () => {
+test("the tint glides to where the row lands, lingers, then fades, and the row shows as it arrives", () => {
   expect(rowGlide.position(4, 9, 0)).toBe(4);
   expect(rowGlide.position(4, 9, rowGlide.glide_ms / 2)).toBe(6.5);
   expect(rowGlide.position(4, 9, rowGlide.glide_ms * 2)).toBe(9);
   expect(rowGlide.opacity(0)).toBe(0);
   expect(rowGlide.opacity(rowGlide.glide_ms)).toBeCloseTo(0.2);
-  expect(rowGlide.opacity(rowGlide.glide_ms + rowGlide.land_ms)).toBe(0);
+  // It stays at full strength a while where it lands, then eases out.
+  expect(rowGlide.opacity(rowGlide.glide_ms + rowGlide.linger_ms)).toBeCloseTo(0.2);
+  expect(rowGlide.opacity(rowGlide.glide_ms + rowGlide.linger_ms + rowGlide.land_ms / 2)).toBeCloseTo(0.1);
+  expect(rowGlide.opacity(rowGlide.glide_ms + rowGlide.linger_ms + rowGlide.land_ms)).toBe(0);
   expect(rowGlide.fade(0)).toBe(1);
   expect(rowGlide.fade(rowGlide.glide_ms / 2)).toBe(1);
   expect(rowGlide.fade(rowGlide.glide_ms)).toBeGreaterThan(0);
   expect(rowGlide.fade(rowGlide.glide_ms)).toBeLessThan(1);
   expect(rowGlide.fade(rowGlide.glide_ms + 200)).toBeNull();
   expect(rowGlide.tint(0)).toBeCloseTo(0.2);
-  expect(rowGlide.tint(rowGlide.tint_ms)).toBe(0);
+  expect(rowGlide.tint(rowGlide.linger_ms)).toBeCloseTo(0.2);
+  expect(rowGlide.tint(rowGlide.linger_ms + rowGlide.tint_ms / 2)).toBeCloseTo(0.1);
+  expect(rowGlide.tint(rowGlide.linger_ms + rowGlide.tint_ms)).toBe(0);
+  expect(rowGlide.total_ms).toBe(rowGlide.glide_ms + rowGlide.linger_ms + rowGlide.land_ms);
 });
 test("the tint is placed by the pixel under the text and cut to the list", () => {
   const clip = { top: 3, bottom: 20 };

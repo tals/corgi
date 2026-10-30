@@ -107,10 +107,11 @@ export class TabMenu {
   /** An agent row's menu; `tab` is the agent's pane. */
   agent = false;
   /** A worktree group's checkout path; `tab` is its workspace, `title` its
-   * heading, and `folded` whether the group is folded. */
+   * heading, and `folded` whether the group is folded, or null for a
+   * section's subhead, which has nothing to fold. */
   worktree: string | null = null;
   title = "";
-  folded = false;
+  folded: boolean | null = false;
   source: number | null = null;
   highlighted = 0;
   /** Rows shown crossed out, which neither keys nor clicks run. */
@@ -135,7 +136,7 @@ export class TabMenu {
         row("review", "e", "Review changes"),
         row("open-folder", "o", "Open folder", { rule: true }),
         row("copy-path", "c", "Copy full path"),
-        row("fold", "f", this.folded ? "Unfold" : "Fold", { rule: true }),
+        ...(this.folded === null ? [] : [row("fold", "f", this.folded ? "Unfold" : "Fold", { rule: true })]),
         row("close-all", "x", `Close all agents for ${this.title}`, { rule: true }),
       ];
     if (this.pane) return this.source !== null ? pane_actions : pane_actions.slice(1);

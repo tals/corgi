@@ -1,5 +1,6 @@
 import { test, expect, spyOn } from "bun:test";
 import { Runtime, Pane, Launch, type Create } from "./runtime";
+import * as session from "./session";
 import { Terminal } from "./pane/terminal";
 import { Workspace } from "./workspace";
 import { Theme } from "./theme";
@@ -137,6 +138,55 @@ test("fork names trim ASCII spaces while tabs remain invalid", async () => {
   const { r, opts } = fixture();
   try {
     await expect(r.forkAgent(opts, 99, " \tname ")).rejects.toThrow("InvalidName");
+  } finally {
+    r.destroy();
+  }
+});
+test("an agent that enters another activity section, or is new, goes first in its order", async () => {
+  const { r, ws, opts } = fixture();
+  try {
+    const a = await r.create(opts),
+      b = await r.create(opts),
+      shell = await r.create(opts);
+    for (const id of [a, b]) Object.assign(r.pane(id)!.agent(), { provider: "claude", state: "idle" });
+    const agents = () => ws.activity_order.slice().filter(t => "pane" in t && t.pane !== shell);
+    expect(r.raiseEntered()).toBe(true);
+    expect(ws.activity_order.has({ pane: shell })).toBe(true);
+    const [first, second] = agents();
+    // Nothing moved on: nothing changes, even after the user reorders.
+    ws.activity_order.move(r.agentTargets(ws), second, first);
+    expect(r.raiseEntered()).toBe(false);
+    expect(agents()).toEqual([second, first]);
+    Object.assign(r.pane((first as { pane: number }).pane)!.agent(), { state: "working" });
+    expect(r.raiseEntered()).toBe(true);
+    expect(agents()).toEqual([first, second]);
+    // After a restore, agents already placed keep their place.
+    ws.sections.clear();
+    expect(r.raiseEntered()).toBe(false);
+  } finally {
+    r.destroy();
+  }
+});
+test("a snapshot shows an agent's new section with its place at the top of it", async () => {
+  const { r, ws, opts } = fixture();
+  try {
+    const a = await r.create(opts),
+      b = await r.create(opts);
+    for (const id of [a, b]) Object.assign(r.pane(id)!.agent(), { provider: "claude", state: "idle" });
+    r.raiseEntered();
+    const order = () => ws.activity_order.slice().filter(t => "pane" in t && (t.pane === a || t.pane === b));
+    const last = order().at(-1) as { pane: number };
+    // Restored at work, it keeps its place at the bottom of the order.
+    Object.assign(r.pane(last.pane)!.agent(), { state: "working" });
+    ws.sections.clear();
+    r.raiseEntered();
+    expect(order().at(-1)).toEqual(last);
+    // Interrupted, it moves on between the daemon's ticks; the next snapshot has it first.
+    Object.assign(r.pane(last.pane)!.agent(), { state: "idle", attention: "finished" });
+    const shown = session
+      .snapshot(r)
+      .workspaces[0].activity_order.filter((t: any) => "pane" in t && (t.pane === a || t.pane === b));
+    expect(shown[0]).toEqual(last);
   } finally {
     r.destroy();
   }

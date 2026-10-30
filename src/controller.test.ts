@@ -817,15 +817,18 @@ test("prefixed arrows walk the panes into the sidebar, which opens the agent und
     await s.input(bytes("\x1b[D"));
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 1 } });
     expect(s.frame()).toContain("SIDEBAR");
-    // Plain arrows stay in the agent list and wrap, inside the repeat window too.
+    // Plain arrows stay in the agent list and wrap, past its section's
+    // header, inside the repeat window too.
     await s.input(bytes("\x1b[B"));
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 2 } });
+    await s.input(bytes("\x1b[B"));
+    expect(s.sidebar_focus.cursor).toEqual({ entry: { section: "idle" } });
     await s.input(bytes("\x1b[B"));
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 1 } });
     // A prefixed arrow crosses to the workspaces, and back to the agent it left.
     await s.input(bytes("\x02\x1b[A"));
     expect(s.sidebar_focus.cursor).toEqual({ workspace: 1 });
-    await s.input(bytes("\x02\x1b[B\x1b[A"));
+    await s.input(bytes("\x02\x1b[B\x1b[A\x1b[A"));
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 2 } });
     await s.key(13);
     expect(s.sidebar_focus).toBeNull();
@@ -997,7 +1000,7 @@ test("the sidebar's cursor ghosts an agent no pane shows, where entering it puts
     // Pane 2 is on screen, so nothing is ghosted.
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 2 } });
     expect(s.sidebarGhost()).toBeNull();
-    await s.input(bytes("\x1b[B\x1b[B"));
+    await s.input(bytes("\x1b[B"));
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 3 } });
     const ghost = s.sidebarGhost();
     expect(ghost.pane.id).toBe(3);
@@ -1010,7 +1013,7 @@ test("the sidebar's cursor ghosts an agent no pane shows, where entering it puts
     s.focusPane(1);
     s.pane(3).dormant = true;
     s.sidebar_open = false;
-    // Up passes workspace 1's header, then wraps.
+    // Up passes the section's header, then wraps.
     await s.input(bytes("\x02a\x1b[A\x1b[A"));
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 3 } });
     expect(s.sidebarGhost().area.x).toBe(0);
@@ -1794,8 +1797,9 @@ test("a worktree's menu shows its diff line and opens its folder in a waiting sh
   s.width = 120;
   s.height = 40;
   s.receiveSnapshot(snapshot);
-  const heading = s.sidebarEntries().find((e: sidebar.Entry) => "worktree" in e.target);
-  expect(heading.target).toEqual({ worktree: "/src/app-topic", workspace: 1 });
+  // Its agent's section names the worktree in a subhead, which opens its menu.
+  const heading = s.sidebarEntries().find((e: sidebar.Entry) => sidebar.isSubhead(e.target));
+  expect(heading.target).toMatchObject({ workspace: 1, checkout: "/src/app-topic" });
   s.openWorktreeMenu(heading, 5, 5);
   expect(s.tab_menu.highlightedItem()).toBe("review");
   expect(s.tab_menu.details.get("review").runs).toBeNull();

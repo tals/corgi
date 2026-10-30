@@ -1,7 +1,7 @@
 import { basename, dirname, join, isAbsolute } from "node:path";
 import { mkdir, open, rename, readFile, realpath, stat } from "node:fs/promises";
 import { Model, cleanLabel, max_workspaces } from "./layout";
-import { Order } from "./agent_order";
+import { Order, Pins, type Section } from "./agent_order";
 import { Ref, State } from "./trackers/git_push";
 import { Commits } from "./trackers/git_status";
 import { Window } from "./usage/tokens";
@@ -12,6 +12,13 @@ export class Workspace {
   name_len = 0;
   model = new Model();
   agent_order = new Order();
+  /** Agents pinned above the activity sections. */
+  pinned_agents = new Pins();
+  /** The order inside each activity section: the user's, with an agent
+   * that enters a section put first. */
+  activity_order = new Order();
+  /** The section each agent was last seen in, by `pane:N` or `headless:N`. */
+  sections = new Map<string, Section>();
   last_agent: string | null = null;
   /** The launcher rows hidden in this workspace only. */
   launcher_hidden: string[] = [];

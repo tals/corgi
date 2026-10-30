@@ -7,6 +7,8 @@ import * as corgiFrames from "./corgi_frames";
 import { Terminal } from "./pane/terminal";
 import { View as ContextView } from "./usage/context_window";
 import * as sim from "./providers/sim";
+import * as agentSections from "./agent_sections";
+import { section } from "./agent_order";
 import { Writer, displayWidth, writeClipped, directoryLabel } from "./text";
 import {
   View,
@@ -719,19 +721,28 @@ test("scope menu offers only the current workspace and all agents", () => {
   ];
   const view = View.init(100, 30, true, 0, 0).withWorkspaces(3, 0);
   const b = ScopeMenu.bounds(view, 100, 30);
-  expect(b.h).toBe(4);
+  expect(b.h).toBe(8);
   expect(ScopeMenu.hit(view, 100, 30, 5, b.y + 1)).toBe("workspace");
   expect(ScopeMenu.hit(view, 100, 30, 5, b.y + 2)).toBe("all");
+  // The blank row and the sort heading are no choices.
   expect(ScopeMenu.hit(view, 100, 30, 5, b.y + 3)).toBeNull();
-  expect(ScopeMenu.hit(view, 100, 30, 5, b.y + 5)).toBeNull();
+  expect(ScopeMenu.hit(view, 100, 30, 5, b.y + 4)).toBeNull();
+  expect(ScopeMenu.hit(view, 100, 30, 5, b.y + 5)).toBe("activity");
+  expect(ScopeMenu.hit(view, 100, 30, 5, b.y + 6)).toBe("manual");
+  expect(ScopeMenu.hit(view, 100, 30, 5, b.y + 7)).toBeNull();
   expect(ScopeMenu.hit(view, 100, 30, b.x, b.y + 1)).toBeNull();
   const w = new Writer();
-  new ScopeMenu().draw(w, view, 100, 30, workspaces, "all");
+  new ScopeMenu().draw(w, view, 100, 30, workspaces, "all", "manual");
   const text = hostText(w.s);
   const lines = text.split("\n");
   expect(lines[b.y + 1].trimEnd()).toBe("  │   This workspace     3 │");
   expect(lines[b.y + 2].trimEnd()).toBe("  │ ✓ All                4 │");
-  expect(lines[b.y + 3].trimEnd()).toBe("  ╰────────────────────────╯");
+  expect(lines[b.y + 3].trimEnd()).toBe("  │                        │");
+  expect(lines[b.y + 4].trimEnd()).toBe("  │   Sort                 │");
+  // Each sort says what it does: activity by its sections' glyphs.
+  expect(lines[b.y + 5].trimEnd()).toBe("  │   By activity    ▶ ● ○ │");
+  expect(lines[b.y + 6].trimEnd()).toBe("  │ ✓ Manual    as dragged │");
+  expect(lines[b.y + 7].trimEnd()).toBe("  ╰────────────────────────╯");
   for (const ws of workspaces) expect(text).not.toContain(ws.name);
 });
 
@@ -1383,7 +1394,7 @@ test("the agent list draws into the bottom row and cuts off the entry that runs 
   expect(hostText(draw(focused, entries, []), 80, 20).split("\n")[19]).not.toContain("agent 4");
 });
 
-test("badges count agents scrolled out of sight and point at the nearest", () => {
+test("badges count agents scrolled out of sight and point at the farthest, so the rest show with it", () => {
   const working = new Set([0, 1, 7]);
   const entries = Array.from({ length: 10 }, (_, i) =>
     entry({
@@ -1399,8 +1410,13 @@ test("badges count agents scrolled out of sight and point at the nearest", () =>
   expect(lines[20]).toContain(" 1 ▶ 1 ● 1 ● ↓ ");
   const above = view.lists().badge("above")!,
     below = view.lists().badge("below")!;
-  expect(view.hit(above.x + lists_x + 1, above.y)).toEqual({ tag: "active", offset: 1 });
-  expect(view.hit(below.x + lists_x + 1, below.y)).toEqual({ tag: "active", offset: 4 });
+  expect(view.hit(above.x + lists_x + 1, above.y)).toEqual({ tag: "active", offset: 0 });
+  expect(view.hit(below.x + lists_x + 1, below.y)).toEqual({ tag: "active", offset: 6 });
+  // There, the three it counted all show, and nothing is left below.
+  const scrolled = View.init(80, 21, true, 6, entries.length).withEntries(entries);
+  const shown = hostText(draw(scrolled, entries, []), 80, 21);
+  for (const n of [7, 8, 9]) expect(shown).toContain(`agent ${n}`);
+  expect(scrolled.lists().badge("below")).toBeNull();
   const top = View.init(80, 21, true, 0, entries.length).withEntries(entries);
   expect(top.lists().badge("above")).toBeNull();
   const searching = view.withSearch({ text: "", cursor: 0, selection: null });
@@ -1447,4 +1463,107 @@ test("the agent list stops scrolling once its last entry shows", () => {
   expect(end.offset).toBe(10);
   expect(end.pinned(end.offset)).toEqual([8]);
   expect(hostText(draw(end, grouped, []), 80, 29).split("\n")[28]).toContain("~");
+});
+
+test("activity sections draw centered headers, worktree labels over their rows", () => {
+  const now = 100_000_000;
+  const item = (
+    pane: number,
+    name: string,
+    state: string,
+    minutes: number,
+    fields: Partial<agentSections.Item> = {},
+  ) => ({
+    entry: entry({ target: { pane }, name, provider: "claude", state, attention: "none", paused: pane === 5 }),
+    workspace: 1,
+    checkout: null,
+    since: now - minutes * 60_000,
+    pin: null,
+    rank: 0,
+    section: section(state, "none", pane === 5),
+    ...fields,
+  });
+  const entries = agentSections.arrange(
+    [
+      item(1, "Zig bump", "idle", 180, { pin: 0 }),
+      item(2, "Fix ssh test", "blocked", 2),
+      item(3, "Linux build", "blocked", 9, { checkout: "/repo/release" }),
+      item(4, "Sidebar", "working", 0),
+      item(5, "Docs", "idle", 40),
+      item(6, "Old idea", "idle", 300),
+    ],
+    { all: false, folded: new Set(), workspaces: [1], label: (_, checkout) => checkout?.slice(6) ?? "main" },
+  );
+  const view = View.init(100, 44, true, 0, entries.length).withEntries(entries);
+  const lines = hostText(draw(view, entries, [], now), 100, 44)
+    .split("\n")
+    .map(line =>
+      [...line]
+        .slice(0, view.width - 1)
+        .join("")
+        .trimEnd(),
+    );
+  const start = lines.findIndex(line => line.includes("pinned"));
+  // Second lines with a corgi on them vary with its animation.
+  expect(lines.slice(start, start + 20)).toEqual([
+    "  ━━━━━ ⇅ pinned 1 ━━━━━━ ▾",
+    "  ○  Zig bump",
+    expect.any(String),
+    // A blank row parts each section from the one above.
+    "",
+    "  ━━━━━ ▶ working 4 ━━━━━ ▾",
+    "  ▶  Sidebar",
+    expect.any(String),
+    // Waiting on the user, or paused, an agent stays at work, with its own glyph.
+    "  ●  Fix ssh test",
+    "     Needs input",
+    // A worktree labels the rows that sit together, without moving them.
+    "  ⌥  release ┄┄┄┄┄┄┄┄┄┄┄┄┄",
+    "  ●  Linux build",
+    "     Needs input",
+    // After a worktree's rows, the workspace's own checkout is named too.
+    "  ⌥  main ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄",
+    "  ‖  Docs",
+    expect.any(String),
+    "",
+    "  ━━━━━━ ○ idle 1 ━━━━━━━ ▾",
+    "  ○  Old idea",
+    expect.any(String),
+    "",
+  ]);
+  // Its name takes the needs-input color.
+  expect(draw(view, entries, [], now)).toContain("\x1b[1m" + fg("warm") + "Fix ssh test");
+});
+test("an opening section scrolls to show all of it, or when too long, just its first agent", () => {
+  const rows = (n: number, from: number) =>
+    Array.from({ length: n }, (_, i) =>
+      entry({
+        target: { pane: from + i },
+        name: `agent ${from + i}`,
+        provider: "claude",
+        state: "idle",
+        section: "idle",
+      }),
+    );
+  const head = (section: "working" | "idle") =>
+    entry({
+      target: { section },
+      name: section,
+      group: { agents: 0, working: 0, attention: 0, folded: false, current: false, gap: section === "idle" },
+    });
+  const short = [head("working"), ...rows(4, 1), head("idle"), ...rows(2, 10)];
+  let view = View.init(100, 30, true, 0, short.length).withEntries(short);
+  // It fits: the list scrolls just enough to show all of it.
+  const fit = view.revealSection(5);
+  const shown = View.init(100, 30, true, fit, short.length).withEntries(short);
+  expect(fit).toBeLessThanOrEqual(5);
+  expect(shown.reveal(short.length - 1)).toBe(fit);
+  expect(shown.reveal(5)).toBe(fit);
+  const long = [head("working"), ...rows(4, 1), head("idle"), ...rows(19, 10)];
+  view = View.init(100, 30, true, 0, long.length).withEntries(long);
+  // Too long to fit: the header and its first agent show, without the header jumping to the top.
+  const offset = view.revealSection(5);
+  expect(offset).toBeLessThan(5);
+  const scrolled = View.init(100, 30, true, offset, long.length).withEntries(long);
+  expect(scrolled.reveal(6)).toBe(offset);
 });

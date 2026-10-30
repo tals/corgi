@@ -158,7 +158,12 @@ class ViewerScenarios extends Viewers {
     this.assertIn("✓", rows[16]);
     this.assertIn("All", rows[17]);
     this.assertIn("2", rows[17]);
-    this.assertTrue(rows[18].trim().startsWith("╰"));
+    // A row below them, how the list is sorted.
+    this.assertIn("Sort", rows[19]);
+    this.assertIn("By activity", rows[20]);
+    this.assertIn("▶ ● ○", rows[20]);
+    this.assertIn("✓ Manual", rows[21]);
+    this.assertTrue(rows[22].trim().startsWith("╰"));
     this.assertFalse(rows.slice(15).some(row => row.includes("Other")));
     await a.input("\x1b[<35;60;5M");
     await this.until(async () => !(await a.poll()).data.includes("This workspace"));
@@ -265,7 +270,7 @@ class ViewerScenarios extends Viewers {
     // A resource sample between the two screens would change the sidebar.
     writeFileSync(
       join(this.env.XDG_STATE_HOME!, "corgi/viewer.json"),
-      JSON.stringify({ onboarding_complete: true, resources: { enabled: false } }),
+      JSON.stringify({ onboarding_complete: true, agent_sort: "manual", resources: { enabled: false } }),
     );
     const a = await this.newViewer(100, 24);
     await a.focus(first);

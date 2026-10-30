@@ -6,7 +6,7 @@ import { readFileSync, mkdirSync, openSync, writeSync, fsyncSync, closeSync, ren
 import { randomUUID } from "node:crypto";
 import { supportedPreset, type Preset, type Prefix } from "./keymap";
 import * as palette from "./palette";
-import type { Scope } from "./sidebar";
+import type { Scope, Sort } from "./sidebar";
 import * as worktreeFolder from "./worktree_folder";
 
 /** Resource readings shown in the sidebar. Disabling removes the row and,
@@ -18,6 +18,8 @@ export type AgentScroll = { workspace: number | null; offset: number };
 export class Preferences {
   /** The agent scope persists across viewer restarts. */
   agents: Scope = "workspace";
+  /** How the agent list orders its agents. */
+  agent_sort: Sort = "activity";
   /** The last dragged sidebar width seeds new viewers; open ones keep their own. */
   sidebar_width = 28;
   /** The last dragged agents header row, seeding new viewers like the width;
@@ -84,6 +86,7 @@ export function read(file: string): Preferences {
 }
 const enums = {
   agents: ["workspace", "all"],
+  agent_sort: ["activity", "manual"],
   preset: ["corgi", "tmux", "herdr", "cmux"],
   prefix: ["ctrl_b", "ctrl_a"],
 } as const;

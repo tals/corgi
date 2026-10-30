@@ -7,11 +7,13 @@ import { colors } from "./palette";
 import type { Cell } from "./fork_hero";
 
 export const glide_ms = 300,
+  /** How long the tint stays where it lands, at full strength, so the eye finds it. */
+  linger_ms = 900,
   land_ms = 700,
   /** The truecolor tint's fade, where there is no image to glide. */
   tint_ms = 900;
 /** How long after a move its row still animates. */
-export const total_ms = Math.max(glide_ms + land_ms, tint_ms);
+export const total_ms = Math.max(glide_ms + linger_ms + land_ms, linger_ms + tint_ms);
 const strength = 0.2,
   appear_ms = 70,
   /** The row's text fades in from halfway through the glide, over this long. */
@@ -33,11 +35,11 @@ function smooth(x: number) {
 export function position(from: number, to: number, ms: number): number {
   return from + (to - from) * ease(clamp01(ms / glide_ms));
 }
-/** The tint's opacity `ms` after the move: it appears as it sets off, and
- * fades where it lands. */
+/** The tint's opacity `ms` after the move: it appears as it sets off,
+ * lingers where it lands, then fades. */
 export function opacity(ms: number): number {
   if (ms < glide_ms) return strength * smooth(ms / appear_ms);
-  return strength * (1 - clamp01((ms - glide_ms) / land_ms)) ** 2;
+  return strength * (1 - smooth((ms - glide_ms - linger_ms) / land_ms));
 }
 /** How faded the moved row's text is, as `writeExit` takes it: gone while
  * the tint is on its way, then in as it lands; null once it is in. */
@@ -45,9 +47,10 @@ export function fade(ms: number): number | null {
   const shown = (ms - glide_ms / 2) / reveal_ms;
   return shown >= 1 ? null : 1 - clamp01(shown);
 }
-/** How far the truecolor fallback tints the row toward accent. */
+/** How far the truecolor fallback tints the row toward accent: fully while
+ * it lingers, then fading. */
 export function tint(ms: number): number {
-  return ms >= tint_ms ? 0 : strength * (1 - ms / tint_ms) ** 2;
+  return strength * (1 - smooth((ms - linger_ms) / tint_ms));
 }
 
 function chunk(type: string, data: Uint8Array): Buffer {
