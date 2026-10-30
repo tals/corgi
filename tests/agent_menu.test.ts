@@ -6,9 +6,17 @@ import { Viewers } from "./viewers";
 import { PALETTE, screen_text } from "./runtime";
 import { registerCase, run, writeExecutable } from "./support";
 import { CodexObserver } from "./provider_sim";
+import type { Viewer } from "./viewer_client";
 
 const mouse = (button: number, x: number, y: number, release = false) =>
   `\x1b[<${button};${x + 1};${y + 1}${release ? "m" : "M"}`;
+/** Two left press+release pairs on the cell, within the double-click interval. */
+const doubleClick = async (viewer: Viewer, x: number, y: number) => {
+  for (let press = 0; press < 2; press++) {
+    await viewer.input(mouse(0, x, y));
+    await viewer.input(mouse(0, x, y, true));
+  }
+};
 const CLAUDE_ID = "11111111-1111-4111-8111-111111111111";
 const CODEX_ID = "22222222-2222-4222-8222-222222222222";
 const CODEX_FORK_ID = "44444444-4444-4444-8444-444444444444";
@@ -254,12 +262,95 @@ class AgentMenu extends Viewers {
     );
   }
 
+  async test_double_click_on_a_codex_row_renames_it_inline() {
+    const log = join(this.temp.name, "submitted.txt");
+    const script = writeExecutable(join(this.temp.name, "codex"), codexScreen(log));
+    this.codexObserver = new CodexObserver(this.env.CODEX_HOME!, [CODEX_ID]);
+    const pane = await this.new(script);
+    await this.codexConversation(pane, CODEX_ID);
+    await this.stopCodexDaemon();
+    await this.until(async () => (await this.screen(pane)).includes("Ask Codex"));
+    const viewer = await this.newViewer();
+    // The agent's row, named for its provider while it has no name of its own.
+    const row = (data: string) => screen_text(data, 100, 30)[16];
+    await this.until(async () => row((await viewer.poll()).data).includes("Codex"));
+    // Two left presses on the row within the double-click interval: the
+    // first selects it as before, the second opens the field once the
+    // daemon has said the agent takes a rename.
+    await doubleClick(viewer, 6, 16);
+    await this.until(async () => (await viewer.poll()).renaming);
+    this.assertFalse(viewer.state.dialog);
+    // The field holds the current name with nothing selected, so ctrl-c
+    // clears it; Return sends the name the way the dialog did.
+    await viewer.input("\x03typed name\r");
+    const submitted = await this.until(() => existsSync(log) && readFileSync(log, "utf8"));
+    this.assertEqual(submitted, "/rename typed name\n");
+    await this.until(
+      async () => (await this.session()).panes.find((p: any) => p.id === pane).agent.name === "typed name",
+    );
+    await this.until(async () => {
+      const state = await viewer.poll();
+      return !state.renaming && row(state.data).includes("typed name");
+    });
+  }
+
+  async test_a_busy_codex_keeps_the_inline_name_until_its_box_is_empty() {
+    const log = join(this.temp.name, "submitted.txt");
+    const script = writeExecutable(join(this.temp.name, "codex"), codexScreen(log));
+    this.codexObserver = new CodexObserver(this.env.CODEX_HOME!, [CODEX_ID]);
+    const pane = await this.new(script);
+    await this.codexConversation(pane, CODEX_ID);
+    await this.stopCodexDaemon();
+    await this.until(async () => (await this.screen(pane)).includes("Ask Codex"));
+    const viewer = await this.newViewer();
+    const screen = (data: string) => screen_text(data, 100, 30);
+    await this.until(async () => screen((await viewer.poll()).data)[16].includes("Codex"));
+    // A draft in the box is a passing state, so a double-click still opens
+    // the field; the save then fails and the field stays with its text,
+    // saying why on the line under the row.
+    await this.command("pane.input", { target: pane, data: "draft" });
+    await this.until(async () => (await this.screen(pane)).includes("› draft"));
+    await doubleClick(viewer, 6, 16);
+    await this.until(async () => (await viewer.poll()).renaming);
+    await viewer.input("\x03kept name\r");
+    this.assertTrue(viewer.state.renaming);
+    this.assertIn("kept name", screen(viewer.state.data)[16]);
+    this.assertIn("Codex is busy", screen(viewer.state.data)[17]);
+    this.assertFalse(existsSync(log));
+    // A press on the pane closes the field without saving; the name is
+    // kept for the next rename of this agent.
+    await viewer.input(mouse(0, 60, 10));
+    await viewer.input(mouse(0, 60, 10, true));
+    this.assertFalse(viewer.state.renaming);
+    this.assertIn("Codex", screen(viewer.state.data)[16]);
+    await this.command("pane.input", { target: pane, data: "\x7f".repeat(5) });
+    await this.until(async () => (await this.screen(pane)).includes("Ask Codex"));
+    this.assertFalse(existsSync(log));
+    await doubleClick(viewer, 6, 16);
+    await this.until(async () => (await viewer.poll()).renaming);
+    this.assertIn("kept name", screen(viewer.state.data)[16]);
+    await viewer.input("\r");
+    const submitted = await this.until(() => existsSync(log) && readFileSync(log, "utf8"));
+    this.assertEqual(submitted, "/rename kept name\n");
+    await this.until(
+      async () => (await this.session()).panes.find((p: any) => p.id === pane).agent.name === "kept name",
+    );
+    await this.until(async () => {
+      const state = await viewer.poll();
+      return !state.renaming && screen(state.data)[16].includes("kept name");
+    });
+  }
+
   async test_menu_crosses_out_what_the_agent_cannot_do() {
     const pane = await this.new();
     // A short session id is no conversation to fork, and no Claude session
     // record offers a rename.
     await this.mark_agent(pane, "Agent-0");
     const viewer = await this.newViewer();
+    // A double-click on its row opens no field either: the probe refuses.
+    await doubleClick(viewer, 6, 16);
+    await this.settle();
+    this.assertFalse((await viewer.poll()).renaming);
     await viewer.input(mouse(2, 6, 16));
     const struck = `\x1b[0;9;38;2;${PALETTE.faint};48;2;${PALETTE.surface}m`;
     this.assertIn(struck + "Rename", viewer.state.data);
