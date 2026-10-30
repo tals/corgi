@@ -355,6 +355,7 @@
   "Could not create that folder.": "无法创建此文件夹。",
   "Could not download ${file}: ${error}": "无法下载 ${file}：${error}",
   "Could not install corgi: ${error}": "无法安装 corgi：${error}",
+  "Could not rename this workspace": "无法重命名此工作区",
   "Could not resolve shorthand. Paste its underlying command.": "无法解析简写。请粘贴完整命令。",
   "Could not save command; max 2048 bytes.": "无法保存命令；上限为 2048 字节。",
   "Could not save. Check folder or capacity.": "无法保存。请检查文件夹或容量限制。",

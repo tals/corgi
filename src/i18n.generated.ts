@@ -417,6 +417,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     "[\"Corgi's colors, or your terminal theme's.\"]": () => `使用 Corgi 或终端主题的配色。`,
     '["Corgi\'s own"]': () => `Corgi 配色`,
     '["Could not create that folder."]': () => `无法创建此文件夹。`,
+    '["Could not rename this workspace"]': () => `无法重命名此工作区`,
     '["Could not resolve shorthand. Paste its underlying command."]': () => `无法解析简写。请粘贴完整命令。`,
     '["Could not save command; max 2048 bytes."]': () => `无法保存命令；上限为 2048 字节。`,
     '["Could not save. Check folder or capacity."]': () => `无法保存。请检查文件夹或容量限制。`,
@@ -1709,6 +1710,7 @@ Corgiのペイン、エージェント、ワークスペースを操作するに
     "[\"Corgi's colors, or your terminal theme's.\"]": () => `Corgi独自の配色か、端末のテーマの配色を選びます。`,
     '["Corgi\'s own"]': () => `Corgi標準`,
     '["Could not create that folder."]': () => `フォルダーを作成できませんでした。`,
+    '["Could not rename this workspace"]': () => `このワークスペースの名前を変更できませんでした`,
     '["Could not resolve shorthand. Paste its underlying command."]': () =>
       `省略形を解決できませんでした。元のコマンドを貼り付けてください。`,
     '["Could not save command; max 2048 bytes."]': () => `コマンドを保存できません。上限は2048バイトです。`,
@@ -3019,6 +3021,7 @@ Corgi 패널, 에이전트 또는 작업 공간 제어:
     "[\"Corgi's colors, or your terminal theme's.\"]": () => `Corgi 또는 터미널 테마의 색상을 사용합니다.`,
     '["Corgi\'s own"]': () => `Corgi 색상`,
     '["Could not create that folder."]': () => `폴더를 만들 수 없습니다.`,
+    '["Could not rename this workspace"]': () => `이 작업 공간의 이름을 변경할 수 없습니다`,
     '["Could not resolve shorthand. Paste its underlying command."]': () =>
       `축약형을 해석할 수 없습니다. 전체 명령을 붙여넣으세요.`,
     '["Could not save command; max 2048 bytes."]': () => `명령을 저장할 수 없습니다. 최대 2048바이트입니다.`,
@@ -4757,6 +4760,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     "[\"Corgi's colors, or your terminal theme's.\"]": () => `Цвета Corgi или темы вашего терминала.`,
     '["Corgi\'s own"]': () => `Цвета Corgi`,
     '["Could not create that folder."]': () => `Не удалось создать эту папку.`,
+    '["Could not rename this workspace"]': () => `Не удалось переименовать это рабочее пространство`,
     '["Could not resolve shorthand. Paste its underlying command."]': () =>
       `Не удалось распознать сокращение. Вставьте полную команду.`,
     '["Could not save command; max 2048 bytes."]': () => `Не удалось сохранить команду; максимум 2048 байт.`,

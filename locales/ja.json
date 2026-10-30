@@ -355,6 +355,7 @@
   "Could not create that folder.": "フォルダーを作成できませんでした。",
   "Could not download ${file}: ${error}": "${file}をダウンロードできませんでした: ${error}",
   "Could not install corgi: ${error}": "corgiをインストールできませんでした: ${error}",
+  "Could not rename this workspace": "このワークスペースの名前を変更できませんでした",
   "Could not resolve shorthand. Paste its underlying command.": "省略形を解決できませんでした。元のコマンドを貼り付けてください。",
   "Could not save command; max 2048 bytes.": "コマンドを保存できません。上限は2048バイトです。",
   "Could not save. Check folder or capacity.": "保存できませんでした。フォルダーや空き容量を確認してください。",
