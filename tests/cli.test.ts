@@ -382,8 +382,30 @@ class AgentCli extends Runtime {
     await this.cli(["launcher", "edit", "Echo", "--name", "bad\nname", "--workspace", 1], {
       error: "InvalidAgentName",
     });
+    const command = (await this.snapshot()).agent_commands.find((c: any) => c.name === "Echo");
+    await this.command("agent.command", {
+      index: 0,
+      command: command.command,
+      name: "Echo",
+      original: "echo hello",
+      semantics: {
+        ...command.semantics,
+        provider: "claude",
+        account: "/saved/workspace/account",
+        model_name: "Saved model",
+      },
+    });
+    const saved = (await this.snapshot()).agent_commands[0];
     await run("clone", "Echo", "--name", "Echo copy");
+    const copied = (await this.snapshot()).agent_commands.find((c: any) => c.name === "Echo copy");
+    this.assertEqual(copied.original, saved.original);
+    this.assertEqual(copied.semantics, saved.semantics);
     this.assertTrue(rows(await run("list")).some((a: any) => a.label === "Echo copy"));
+    await run("edit", "Echo copy", "--command", "/bin/echo replaced");
+    const edited = (await this.snapshot()).agent_commands.find((c: any) => c.name === "Echo copy");
+    this.assertEqual(edited.original, "/bin/echo replaced");
+    this.assertEqual(edited.semantics.provider, null);
+    this.assertEqual(edited.semantics, command.semantics);
     await run("remove", "Echo copy");
   }
   async test_command_options_launch_processes() {

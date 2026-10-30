@@ -661,6 +661,7 @@ async function launcherCommand(conn: Connection, inv: any, caller: number): Prom
               q.edit?.name ??
               q.name ??
               (inv.action === "launcher.clone" ? `${original.label} copy` : (source?.name ?? "")),
+            ...(source && q.command === undefined ? { original: source.original, semantics: source.semantics } : {}),
             resolve: q.command !== undefined,
             hidden: inv.action === "launcher.edit" ? (source?.hidden ?? false) : false,
           },
