@@ -87,7 +87,11 @@ export class Pins {
   /** Pins `target` just above the pinned `before`, or last. */
   pin(live: Target[], target: Target, before: Target | null) {
     if (index(live, target) === null) throw Error("NoAgent");
-    if (before && equal(target, before)) return;
+    // Above itself: a pinned agent stays put; one not pinned yet goes last.
+    if (before && equal(target, before)) {
+      if (this.has(target)) return;
+      before = null;
+    }
     const next = this.without(live, target);
     const at = before ? index(next, before) : next.length;
     if (at === null) throw Error("InvalidDestination");

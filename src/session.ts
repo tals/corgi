@@ -527,8 +527,9 @@ export function viewerSnapshot(r: Runtime) {
 }
 function build(r: Runtime, viewer: boolean) {
   // An agent's new state and its place at the top of its new section go out
-  // together, or a viewer would show it at its old place first.
-  r.raiseEntered();
+  // together, or a viewer would show it at its old place first. The tick
+  // would then find nothing to raise, so the change is marked here.
+  if (r.raiseEntered()) r.changed();
   const coarse = (s: number) => (s <= 0 ? s : Math.floor(s / 5000000) * 5000000);
   const conversations = r.conversations.items
     .filter(a => !viewer || r.followed(a))

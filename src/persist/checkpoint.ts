@@ -331,7 +331,8 @@ export async function restore(
     item.model = Model.fromData(w.model);
     item.agent_order = Order.restore(w.agent_order ?? []);
     item.pinned_agents = Pins.restore(w.pinned_agents ?? []);
-    item.activity_order = Order.restore(w.activity_order ?? []);
+    // A checkpoint from before the sections starts them in the dragged order.
+    item.activity_order = Order.restore(w.activity_order ?? w.agent_order ?? []);
     item.last_agent = w.last_agent ?? null;
     item.launcher_hidden = w.launcher_hidden ?? [];
     item.focus = w.focus ?? 0;

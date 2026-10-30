@@ -2035,11 +2035,12 @@ function portLine(
   return null;
 }
 
-/** Hover popover under the agents header for choosing which agents are listed. */
 /** A row of the agent list's menu: which agents it lists, or how it orders them. */
 export type ScopeChoice = Scope | Sort;
 /** The menu's rows, top to bottom: the choices, a blank row and the sort heading. */
 const scope_rows: (ScopeChoice | "gap" | "sort")[] = ["workspace", "all", "gap", "sort", "activity", "manual"];
+/** Hover popover under the agents header for choosing which agents are
+ * listed and how they're ordered. */
 export class ScopeMenu {
   pinned = false;
   hovered: ScopeChoice | null = null;

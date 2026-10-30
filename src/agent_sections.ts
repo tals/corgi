@@ -140,9 +140,12 @@ export function arrange(items: Item[], o: Options): sidebar.Entry[] {
     // A blank row parts each section from the one above.
     out.push(header({ section: kind }, kind, members, folded, null, out.length > 0));
     if (folded) continue;
-    // Each agent's own place orders the section; the subheads follow it.
-    if (kind === "pinned") members.sort((a, b) => place(a.workspace) - place(b.workspace) || a.pin! - b.pin!);
-    else members.sort(before);
+    // Each agent's own place orders the section; the subheads follow it. Its
+    // place is among its workspace's agents, so in "all" each workspace's
+    // agents keep together, in the workspace list's order.
+    members.sort(
+      (a, b) => place(a.workspace) - place(b.workspace) || (kind === "pinned" ? a.pin! - b.pin! : before(a, b)),
+    );
     const placed = members.map(item => ({
       entry: row(item, kind),
       workspace: item.workspace,

@@ -375,6 +375,12 @@ test("sidebar order survives live and recovery checkpoints and defaults for old 
     expect(ws.agent_order.len).toBe(0);
     expect(ws.pinned_agents.slice()).toEqual([]);
     expect(ws.activity_order.len).toBe(0);
+    // State from before the sections starts them in the dragged order.
+    const sorted = cp.capture(r, true);
+    Reflect.deleteProperty(sorted.workspaces[0], "activity_order");
+    using seeded = new Runtime();
+    await restore(seeded, sorted, true);
+    expect(seeded.workspaces.get(id)!.activity_order.slice()).toEqual(order);
   } finally {
     r.destroy();
   }

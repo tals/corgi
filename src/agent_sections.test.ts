@@ -121,7 +121,9 @@ test("pins keep their order above the sections, each workspace's together", () =
     ],
     options({ all: true }),
   );
-  expect(rows(all)).toEqual(["pinned 2", "· ws1", 1, "· ws2", 4, "working 2", "· ws2", 2, "· topic", 3]);
+  // A section's place is among its own workspace's agents, so each workspace's
+  // keep together, however recent another workspace's are.
+  expect(rows(all)).toEqual(["pinned 2", "· ws1", 1, "· ws2", 4, "working 2", "· topic", 3, "· ws2", 2]);
 });
 
 test("a folded section stands in for the focused agent it hides", () => {

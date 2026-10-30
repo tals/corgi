@@ -42,6 +42,12 @@ test("pins mix pane and headless identities and drop agents that are gone", () =
   expect(p.slice()).toEqual([d, c]);
   expect(() => p.pin([b, c, d], b, a)).toThrow("InvalidDestination");
   expect(() => p.pin([b, c], d, null)).toThrow("NoAgent");
+  // Above itself, a pinned agent stays put and one not pinned goes last.
+  p.pin([b, c, d], d, d);
+  expect(p.slice()).toEqual([d, c]);
+  p.pin([b, c, d], b, b);
+  expect(p.slice()).toEqual([d, c, b]);
+  p.unpin([b, c, d], b);
   p.unpin([b, c, d], d);
   expect(p.slice()).toEqual([c]);
   expect(() => Pins.restore([a, a])).toThrow("InvalidAgentOrder");
