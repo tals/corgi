@@ -82,3 +82,8 @@ export function remove(id: string): void {
     false,
   );
 }
+
+/** Accounts must outlive every saved configuration that references them. */
+export function assertAccountUnused(provider: Provider, account: string): void {
+  if (list().some(p => p.provider === provider && p.account === account)) throw Error("AccountHasProfiles");
+}

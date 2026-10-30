@@ -2575,8 +2575,11 @@ export class Controller {
       known = accounts.find(a.provider, a.account);
     if (this.account_removals.has(key)) return launch.manager.removed("This account is already being removed.");
     if (!known) return launch.manager.removed("Corgi doesn't list this account any more.");
-    if (agentProfiles.list().some(p => p.provider === a.provider && p.account === a.account))
-      return launch.manager.removed("Delete this account's cloned configurations first.");
+    try {
+      agentProfiles.assertAccountUnused(a.provider, a.account);
+    } catch (error) {
+      return launch.manager.removed(signin.problem(error));
+    }
     const running = this.runtime.panes.filter(p => p.agent.provider === a.provider && p.account === a.account).length;
     if (running > 0)
       return launch.manager.removed(

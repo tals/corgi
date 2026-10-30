@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test, spyOn } from "bun:test";
 import {
   existsSync,
   lstatSync,
@@ -16,6 +16,9 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import * as accounts from "./accounts";
+import * as profiles from "./agent_profiles";
+import * as accountCommand from "./account_command";
+import * as signin from "./signin";
 import { Launch } from "./runtime";
 
 const saved = { ...process.env },
@@ -492,4 +495,30 @@ test("provider-prefixed names resolve literally and reject ambiguous qualifiers"
   expect(() => accounts.named("claude/Review")).toThrow("AmbiguousAccount");
   expect(accounts.named("Review")?.dir).toBe(other.dir);
   expect(accounts.named("claude/claude/Review")?.dir).toBe(literal.dir);
+});
+
+test("account removal refuses referenced accounts before signing out", async () => {
+  const account = accounts.adopt(accounts.stage("claude"), "referenced"),
+    profile = profiles.save({
+      provider: "claude",
+      account: account.dir,
+      name: "Clone",
+      options: { flags: "", env: [] },
+      yolo: false,
+    }),
+    signout = spyOn(signin, "signOut").mockResolvedValue(),
+    stderr = spyOn(process.stderr, "write").mockReturnValue(true);
+  try {
+    expect(await accountCommand.command(["remove", "referenced"])).toBe(1);
+    expect(stderr).toHaveBeenCalledWith("corgi: delete this account’s cloned configurations first\n");
+    expect(signout).not.toHaveBeenCalled();
+    expect(existsSync(account.dir)).toBe(true);
+    expect(accounts.find("claude", account.dir)).not.toBeNull();
+    expect(() => profiles.assertAccountUnused("claude", account.dir)).toThrow("AccountHasProfiles");
+    profiles.remove(profile.id);
+    expect(() => profiles.assertAccountUnused("claude", account.dir)).not.toThrow();
+  } finally {
+    stderr.mockRestore();
+    signout.mockRestore();
+  }
 });

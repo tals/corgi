@@ -6,6 +6,7 @@ import { isatty } from "node:tty";
 import { Provider, adapter } from "./providers";
 import * as agentName from "./agent_name";
 import * as accounts from "./accounts";
+import * as agentProfiles from "./agent_profiles";
 import * as integration from "./integration";
 import * as signin from "./signin";
 import * as errors from "./errors";
@@ -160,6 +161,7 @@ async function run(args: string[]): Promise<number> {
     case "remove": {
       if (rest.length !== 1) throw Error("Usage");
       const account = found(rest[0]);
+      agentProfiles.assertAccountUnused(account.provider, account.dir);
       if (accounts.owns(account)) await signin.signOut(account);
       const removed = await accounts.remove(account);
       process.stdout.write(
@@ -174,6 +176,7 @@ async function run(args: string[]): Promise<number> {
   }
 }
 const messages: Record<string, string> = {
+  AccountHasProfiles: "delete this account’s cloned configurations first",
   InvalidAccountName: agentName.message + " The account name default is reserved.",
   InvalidAgentName: agentName.message,
   AccountExists: "there's an account by that name already",
