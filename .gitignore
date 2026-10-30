@@ -28,3 +28,6 @@ zig-pkg/
 
 # Local audio authoring workspace.
 /docs/sound-audition/
+
+# Python benchmark helpers.
+/tools/benchmarks/__pycache__/
