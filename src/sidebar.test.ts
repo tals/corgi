@@ -1284,8 +1284,12 @@ test("the focused list sits in a box in the focused pane's outline, sharing the 
       .split("\n")
       .map(line => line.slice(0, 28));
   const edge = (left: string, right: string) => left + "─".repeat(26) + right;
-  view.focus = "agents";
+  // Unboxed, the rule is heavy and a step brighter than the rules between rows.
   let lines = box(view);
+  expect(lines[13]).toBe("  " + "━".repeat(25) + "┥");
+  expect(has(draw(view, [], []), panel + fg("faint") + "━")).toBe(true);
+  view.focus = "agents";
+  lines = box(view);
   expect(lines[12]).toBe(" ".repeat(27) + "│");
   expect(lines[13]).toBe(edge("┌", "┤"));
   // The row its search opens in shows its key.
