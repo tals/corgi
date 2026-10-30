@@ -61,6 +61,7 @@ def main():
     parser.add_argument("--seconds", type=float, default=60)
     parser.add_argument("--nodes", default="0,1")
     parser.add_argument("--observer", type=int, default=0)
+    parser.add_argument("--cpus", help="Verify this existing eight-core placement instead of selecting another group")
     args = parser.parse_args()
     if args.seconds < 30:
         parser.error("A placement pilot must last at least30 seconds")
@@ -68,6 +69,9 @@ def main():
         parser.error("Observer CPU is not allowed")
     nodes = sorted({int(value) for value in args.nodes.split(",")})
     placements, skipped = candidates(nodes, args.observer)
+    if args.cpus:
+        selected = corgi_costs.cpu_list(args.cpus)
+        placements = [placement for placement in placements if set(placement["selected"]) == selected]
     if not placements:
         parser.error("No eligible eight-core L3 topology found")
     observed = set().union(*(set(p["selected"] + p["siblings"]) for p in placements))
@@ -78,9 +82,10 @@ def main():
     source = Path(__file__).resolve().parent
     receipt = dict(schema="corgi-host-placement-v1", started_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                    requested_seconds=args.seconds, interval_seconds=0.5, observer_cpu=args.observer,
+                   requested_cpus=args.cpus,
                    criteria={"window_mean_limit": 0.02, "windows": ["whole pilot", "final30 seconds"],
                              "includes": "each selected logical CPU and every SMT sibling",
-                             "rank": "lowest worst mean across both windows; then lowest whole aggregate; node/CPU tie-break",
+                             "rank": "fixed placement selected before the pilot" if args.cpus else "lowest worst mean across both windows; then lowest whole aggregate; node/CPU tie-break",
                              "selection_before_application_runs": True},
                    source_sha256={name: hashlib.sha256((source / name).read_bytes()).hexdigest()
                                   for name in ["cost_placement.py", "corgi_costs.py", "cost_clamp.py", "cost_host.py", "cost_calibration.py"]},

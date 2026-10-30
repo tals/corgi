@@ -239,7 +239,7 @@ async function measure(name: string, attached = false, state?: "idle" | "working
   const screensBefore = state === "idle" ? await readScreens() : [];
   await Bun.sleep(wait * 1000);
   if (!attached && state && existsSync(`/proc/${viewer!.pid}`)) throw Error("Detached viewer is still alive");
-  const idleBefore = state === "idle" ? matrixQuality.counters(providerPids) : null;
+  const idleBefore = state === "idle" ? await matrixQuality.counters(join(root, "home"), providerPids) : null;
   const streaming = name === "streaming-agents-viewer";
   const visibleBefore = streaming ? progress.sequence(screen.text()) : null;
   const producerStart = activeProducer && name.startsWith("streaming-") ? streamingFixture.now() : null;
@@ -252,9 +252,9 @@ async function measure(name: string, attached = false, state?: "idle" | "working
   const elapsed = (performance.now() - start) / 1000,
     end = usage(daemon!.pid),
     vend = attached ? usage(viewer!.pid) : null;
-  const producerEnd = producerStart !== null ? streamingFixture.now() : null;
-  const idleAfter = idleBefore ? matrixQuality.counters(providerPids) : null;
   const endBytes = bytes;
+  const producerEnd = producerStart !== null ? streamingFixture.now() : null;
+  const idleAfter = idleBefore ? await matrixQuality.counters(join(root, "home"), providerPids) : null;
   const visibleAfter = streaming ? progress.sequence(screen.text()) : null;
   let streaming_progress: ReturnType<typeof progress.reading> | null = null;
   if (streaming) {

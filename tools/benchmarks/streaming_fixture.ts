@@ -54,11 +54,13 @@ export function install(bin: string, mode: Mode) {
   const provider = richTranscript(
     ORDINARY_PROVIDER.replace(
       "const provider=basename(process.argv[1]);",
-      `import { handle } from './streaming-provider.ts';\nconst provider=basename(process.argv[1]);
+      `import { handle, observeTerminal, terminalLog } from './streaming-provider.ts';\nconst provider=basename(process.argv[1]);
 if(process.argv.includes('--version')) { console.log(provider==='codex' ? 'codex-cli 1.2.3' : '2.1.0 (Claude Code)'); process.exit(0); }
 if(process.argv.includes('app-server')) { await import('./rpc-fixture.ts'); process.exit(0); }`,
     )
       .replaceAll("'ordinary-'+provider", "'ordinary-'+provider+'-'+process.pid")
+      .replaceAll("console.log(", "terminalLog(")
+      .replace("let turn=0;", "observeTerminal();\nlet turn=0;")
       .replace(
         "if(command==='exit') break;",
         `if(handle(command,${JSON.stringify(mode)})) continue;\nif(command==='exit') break;`,
@@ -73,6 +75,7 @@ if(process.argv.includes('app-server')) { await import('./rpc-fixture.ts'); proc
     runtime_sha256: createHash("sha256").update(runtime).digest("hex"),
     provider_sha256: createHash("sha256").update(provider).digest("hex"),
     write_boundary: "one writeSync per controlled payload; pre/post CLOCK_MONOTONIC stamps",
+    terminal_io: "terminal-io-v1: counted fixture stdout/stderr writes; SIGUSR2 receipts outside CPU windows",
   };
 }
 function object(value: unknown): Record<string, unknown> {

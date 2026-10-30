@@ -74,12 +74,14 @@ def verify_source(source, contract, case, warmup=30, seconds=60):
 
 
 def report(output, directories):
-    rows, excluded, plans = {}, [], []
+    rows, excluded, plans, expected_cells = {}, [], [], set()
     for directory in directories:
         directory = directory.resolve()
         plan = read(directory / "plan.json")
         plans.append(dict(path=str(directory / "plan.json"), sha256=sha(directory / "plan.json"), plan=plan))
         for case in plan["contract"]["cases"]:
+            count, workload = case.split("-")
+            expected_cells.update((int(count), "idle" if workload == "idle" else "streaming", attached) for attached in [True, False])
             path = directory / case / "comparison.json"
             if not path.exists():
                 excluded.append(dict(case=case, source=str(path), reason="not run"))
@@ -116,8 +118,9 @@ def report(output, directories):
     if len(identities) != 1:
         raise ValueError("Cannot combine different binaries into one matrix")
     ordered = [rows[key] for key in sorted(rows, key=lambda key: (key[0], key[1] != "idle", not key[2]))]
+    missing = sorted(expected_cells - rows.keys())
     output.mkdir(parents=True, exist_ok=True)
-    save(output / "summary.json", dict(schema="corgi-agent-scale-v1", rows=ordered, excluded=excluded, plans=plans,
+    save(output / "summary.json", dict(schema="corgi-agent-scale-v1", rows=ordered, excluded=excluded, plans=plans, missing_cells=missing,
                                        cpu_unit="percent of one logical core; process user+system including all threads",
                                        excluded_cpu="live providers, harness, and waited children",
                                        preflight_excluded=True))
@@ -135,14 +138,14 @@ def report(output, directories):
     lines.extend(["", "N alternating Claude/Codex fixture providers plus one quiet shell; one visible first-agent pane.",
                   "Host geometry 160×48, provider PTYs 132×47. Streaming updates one sparse row at 20 Hz",
                   "per agent on a shared monotonic schedule with staggered phases. Idle agents stay at stable prompts",
-                  "without writes. Default animation intensity 50 and resources remain enabled. Transcripts are minimal;",
+                  "without terminal output or transcript changes. Default animation intensity 50 and resources remain enabled. Transcripts are minimal;",
                   "Codex app-server polling and real model inference are not exercised.", "",
                   "All included trials passed workload, executable/native identity, geometry, applicable cadence/animation,",
                   "affinity, utilization-clamp and cleanup checks, plus the original 2% whole-trial and measured-window",
                   "SMT-sibling mean guards. At most three noise retries per case; every attempt is preserved.", "",
                   "Waited-child CPU is separate: /proc cutime/cstime charges when a child is reaped and can include",
                   "work preceding the sample. It is not a contemporaneous subtree total.", "",
-                  f'Accepted cells: {len(ordered)}. Unrun or unaccepted cases: {len(excluded)}. Correctness-only preflight CPU is excluded.', "",
+                  f'Accepted cells: {len(ordered)}. Missing cells: {len(missing)}. Preserved unrun or unaccepted source cases: {len(excluded)}. Correctness-only preflight CPU is excluded.', "",
                   f'Frozen executable SHA256: `{next(iter(identities))}`.', "",
                   "[Exact values, raw trial paths, guards and prospective plans](summary.json)", ""])
     (output / "summary.md").write_text("\n".join(lines))

@@ -161,7 +161,7 @@ async function measure(name: string, viewer = false, state?: "idle" | "working")
   const screensBefore = state === "idle" ? await readScreens() : [];
   await Bun.sleep(wait * 1000);
   if (!viewer && state && existsSync(`/proc/${s.proc.pid}`)) throw Error("Detached viewer is still alive");
-  const idleBefore = state === "idle" ? matrixQuality.counters(providerPids) : null;
+  const idleBefore = state === "idle" ? await matrixQuality.counters(s.home, providerPids) : null;
   const telemetryBefore = telemetryDirectory
     ? await telemetrySnapshot.capture(telemetryDirectory, [daemon, ...(viewer ? [s.proc.pid] : [])])
     : null;
@@ -179,7 +179,7 @@ async function measure(name: string, viewer = false, state?: "idle" | "working")
     vend = v ? usage(s.proc.pid) : null,
     endBytes = s.bytes;
   const producerEnd = producerStart !== null ? streamingFixture.now() : null;
-  const idleAfter = idleBefore ? matrixQuality.counters(providerPids) : null;
+  const idleAfter = idleBefore ? await matrixQuality.counters(s.home, providerPids) : null;
   const visibleAfter = streaming ? progress.sequence(s.text().join("\n")) : null,
     visibleAt = performance.now();
   const telemetryAfter = telemetryDirectory

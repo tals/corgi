@@ -6,6 +6,25 @@ import { join } from "node:path";
 const time = new BigInt64Array(2);
 const address = ptr(time);
 const libc = dlopen("libc.so.6", { clock_gettime: { args: ["i32", "ptr"], returns: "i32" } });
+const terminalIo = { stdout_bytes: 0, stdout_writes: 0, stderr_bytes: 0, stderr_writes: 0 };
+export function writeTerminal(fd, data) {
+  if (fd !== 1 && fd !== 2) throw Error("Expected a terminal descriptor");
+  const written = writeSync(fd, data);
+  terminalIo[fd === 1 ? "stdout_bytes" : "stderr_bytes"] += written;
+  terminalIo[fd === 1 ? "stdout_writes" : "stderr_writes"]++;
+  return written;
+}
+export function terminalLog(value) {
+  writeTerminal(1, String(value) + "\n");
+}
+export function observeTerminal() {
+  process.on("SIGUSR2", () => {
+    writeFileSync(
+      join(process.env.HOME, `terminal-io-${process.pid}.json`),
+      JSON.stringify({ schema: "terminal-io-v1", pid: process.pid, at_ns: String(now()), ...terminalIo }),
+    );
+  });
+}
 function now() {
   if (libc.symbols.clock_gettime(1, address) !== 0) throw Error("clock_gettime failed");
   return time[0] * 1_000_000_000n + time[1];
@@ -43,7 +62,7 @@ function emit() {
   }
   const data = payload(s.index + 1, s.mode);
   const before = now();
-  const written = writeSync(1, data);
+  const written = writeTerminal(1, data);
   const after = now();
   const offset = s.count * 3;
   s.trace[offset] = BigInt(s.index);
@@ -123,7 +142,7 @@ function arm(command, mode) {
     }),
   );
   // Remove the echoed control command before starting the timed stream.
-  writeSync(1, "\x1b[2J\x1b[HWorking (esc to interrupt)");
+  writeTerminal(1, "\x1b[2J\x1b[HWorking (esc to interrupt)");
   timer = setTimeout(emit, Math.max(1, Math.ceil(Number(epoch + phase - now()) / 1e6)));
 }
 
@@ -174,8 +193,8 @@ export function handle(command, mode) {
   if (command === "stream") {
     legacy ??= setInterval(() => {
       const line = "Working (esc to interrupt) " + ++legacySequence + " " + dots;
-      if (mode === "sparse") process.stdout.write("\x1b[1;1H" + line + "\x1b[K");
-      else console.log(line);
+      if (mode === "sparse") writeTerminal(1, "\x1b[1;1H" + line + "\x1b[K");
+      else terminalLog(line);
     }, 50);
     return true;
   }

@@ -69,6 +69,10 @@ class AgentScaleTest(unittest.TestCase):
             self.assertEqual((root / "first/8-idle/comparison.json").read_bytes(), original)
             summary = agent_scale.read(root / "report/summary.json")
             self.assertEqual(len(summary["excluded"]), 1)
+            self.assertEqual(summary["missing_cells"], [])
+            agent_scale.report(root / "partial", [root / "first"])
+            self.assertEqual(agent_scale.read(root / "partial/summary.json")["missing_cells"],
+                             [[8, "idle", False], [8, "idle", True]])
 
     def test_report_rejects_duplicate_cells_and_changed_measurement_settings(self):
         with tempfile.TemporaryDirectory() as temporary:
