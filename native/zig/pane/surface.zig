@@ -154,7 +154,8 @@ pub fn captureView(allocator: std.mem.Allocator, id: PaneId, t: *terminal.Termin
     const old_offset = pages.viewport_pin_row_offset;
     const old_selection = screen.selection;
     const synchronized = t.vt.modes.get(.synchronized_output);
-    defer if (!synchronized) {
+    const borrowed = !synchronized and (offset != null or pages.viewport != .active or old_selection != null);
+    defer if (borrowed) {
         pages.viewport = old_viewport;
         pages.viewport_pin.* = old_pin;
         pages.viewport_pin_row_offset = old_offset;
@@ -162,7 +163,7 @@ pub fn captureView(allocator: std.mem.Allocator, id: PaneId, t: *terminal.Termin
         t.vt.flags.dirty.clear = true;
         t.updateRender() catch {};
     };
-    if (!synchronized) {
+    if (borrowed) {
         screen.selection = null;
         if (offset) |row| t.vt.scrollViewport(.{ .row = row }) else t.vt.scrollViewport(.bottom);
         t.vt.flags.dirty.clear = true;

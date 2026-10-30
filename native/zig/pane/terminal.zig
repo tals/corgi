@@ -407,7 +407,10 @@ pub const Terminal = struct {
     pub fn updateRender(t: *Terminal) !void {
         if (t.vt.modes.get(.synchronized_output)) return;
         try t.render.update(a, &t.vt);
-        try t.links.capture(&t.render);
+        if (t.render.dirty != .false) {
+            try t.links.capture(&t.render);
+            t.render.dirty = .false;
+        }
         try t.graphics.capture(&t.vt, t.surface_identity);
     }
     // Wait until the interactive shell has installed its line editor. No newline

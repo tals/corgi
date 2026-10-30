@@ -8,6 +8,8 @@ const term = dlopen(`${nativeRoot}/lib/libcorgi_term.${suffix}`, {
   terminal_feed: { args: ["ptr", "ptr", "usize"], returns: "void" },
   terminal_send: { args: ["ptr", "ptr", "usize"], returns: "i32" },
   terminal_pending: { args: ["ptr"], returns: "usize" },
+  terminal_surface_identity: { args: ["ptr"], returns: "u64" },
+  terminal_surface_revision: { args: ["ptr"], returns: "u64" },
   terminal_text: { args: ["ptr", "ptr", "usize"], returns: FFIType.i64_fast },
   terminal_snapshot: { args: ["ptr", "ptr", "usize"], returns: FFIType.i64_fast },
   native_log_stderr: { args: ["bool"], returns: "void" },

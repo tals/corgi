@@ -47,6 +47,12 @@ pub export fn terminal_send(t: *pane.Terminal, data: [*]const u8, len: usize) i3
 pub export fn terminal_pending(t: *pane.Terminal) usize {
     return t.pending.items.len;
 }
+pub export fn terminal_surface_identity(t: *pane.Terminal) u64 {
+    return t.surface_identity;
+}
+pub export fn terminal_surface_revision(t: *pane.Terminal) u64 {
+    return t.surface_revision;
+}
 pub export fn terminal_text(t: *pane.Terminal, out: [*]u8, cap: usize) i64 {
     const text = t.text() catch return -1;
     defer a.free(text);

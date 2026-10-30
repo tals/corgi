@@ -1184,6 +1184,7 @@ test("zero intensity cancels fetch and reveals immediately but leaves compaction
   expect(presentation.playback.active).toBe(false);
   expect(presentation.last_corgi).toBeNull();
   expect(presentation.reveal_started_ms).toBeNull();
+  expect(corgiAnimation.frameDelay()).toBe(75);
   e.compacting = true;
   e.compacting_since = 100_000;
   draw(view, [e], [], 100);

@@ -28,6 +28,11 @@ class ObserverTerminal extends Terminal {
   private observedTitle = id;
   private observedPid = 42;
   private observedRevision = 1n;
+  titleReads = 0;
+  override titleInfo() {
+    this.titleReads++;
+    return { text: this.observedTitle, pid: this.observedPid, revision: this.observedRevision };
+  }
   override get title() {
     return this.observedTitle;
   }
@@ -62,6 +67,34 @@ function fixture() {
   });
   return { server, pane, terminal, registry: server.runtime.conversations };
 }
+
+test("Codex title observation reads current identity once per reconciliation", () => {
+  const { server, pane, terminal } = fixture();
+  pane.attachment.provisional.provider = "codex";
+  const worker = new Worker();
+  worker.reconcile(server.runtime);
+  expect(terminal.titleReads).toBe(1);
+  expect(worker.requests).toMatchObject([{ pane: 1, pid: 42, title_revision: 1n }]);
+  expect(worker.requests[0].prefix.text()).toBe(id);
+  terminal.title_pid = 41;
+  worker.reconcile(server.runtime);
+  expect(worker.requests).toEqual([]);
+  terminal.title_pid = 42;
+  terminal.title_revision = 3n;
+  terminal.title = "22222222-2222-4222-8222-222222222222";
+  worker.reconcile(server.runtime);
+  expect(terminal.titleReads).toBe(3);
+  expect(worker.requests).toMatchObject([{ title_revision: 3n }]);
+  expect(worker.requests[0].prefix.text()).toBe(terminal.title);
+});
+
+test("foreground detection shares its title read with local reattachment", () => {
+  const { server, pane, terminal, registry } = fixture();
+  const actor = registry.get("codex", id);
+  detectPane(server, pane, { provider: "codex", pid: 42 });
+  expect(pane.attachment.actor).toBe(actor);
+  expect(terminal.titleReads).toBe(1);
+});
 
 test("a bridge claim runs the existing screen watcher without a local agent or conversation", () => {
   const { server, pane, terminal, registry } = fixture();

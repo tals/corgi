@@ -8,7 +8,7 @@
 import type { Counters, Host, Inventory } from "../../src/trackers/resource_os";
 
 export function inventory(_roots?: number[]): Inventory {
-  return { items: [], truncated: false };
+  return { items: [], truncated: false, counters };
 }
 export function counters(_pid: number): Counters | null {
   return null;

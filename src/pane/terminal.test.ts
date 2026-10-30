@@ -4,6 +4,23 @@ import { Theme } from "../theme";
 import { n } from "../native_bridge";
 const info = (t: Terminal) => t.native({ op: "info" });
 const pending = (t: Terminal) => t.native({ op: "takePending" }) as string;
+test("title observations contain one current identity and retain prior revisions", () => {
+  const t = Terminal.create(20, 4),
+    title = "11111111-1111-4111-8111-111111111111";
+  try {
+    t.restore(Buffer.from(`\x1b]2;${title}\x07`), 42);
+    const first = t.titleInfo();
+    expect(first).toMatchObject({ text: title, pid: 42 });
+    expect(typeof first.revision).toBe("bigint");
+    t.feed("\x1b]2;Second\x07");
+    const second = t.titleInfo();
+    expect(second.text).toBe("Second");
+    expect(second.revision).toBeGreaterThan(first.revision);
+    expect(first.text).toBe(title);
+  } finally {
+    t.destroy();
+  }
+});
 test("user input and terminal replies share an ordered bounded queue", () => {
   const t = Terminal.create(20, 4);
   try {

@@ -118,6 +118,7 @@ export class Worker {
   every = idle_every;
   private checked = 0;
   private sampling = false;
+  private installs: { at: number; installed: Preview["installed"]; outdated: Preview["outdated"] } | null = null;
   /** The folder of each file a launcher reads, watched by file. */
   watching = new Map<string, FSWatcher>();
   private settle: ReturnType<typeof setTimeout> | null = null;
@@ -193,6 +194,7 @@ export class Worker {
   request(cwd: string, access: boolean, refresh = false) {
     if (Buffer.byteLength(cwd) > 4096) return new Preview();
     const now = Date.now();
+    if (refresh) this.installs = null;
     // A new subscriber reads sign-in again; asking for usage fetches it too.
     if (refresh || access)
       for (const login of this.logins.values()) {
@@ -213,7 +215,7 @@ export class Worker {
               a.managed !== listed.accounts[i].managed,
           ) ||
           Provider.all.some(p => job!.preview.names[p] !== listed.names[p]);
-      if (moved) job.preview = listed;
+      job.preview = listed;
       if (
         moved ||
         ((refresh || now - job.updated > 60000) && !job.preview.pending) ||
@@ -248,8 +250,17 @@ export class Worker {
   /** Account rows come from local state, independently of provider reads. */
   private list(previous: Preview): Preview {
     const result = Object.assign(new Preview(), previous);
-    result.installed = installed();
-    result.outdated = byProvider(p => (result.installed[p] ? "" : (discovery.outdated(p) ?? "")));
+    const now = Date.now();
+    if (!this.installs || now - this.installs.at >= 5000) {
+      const found = installed();
+      this.installs = {
+        at: now,
+        installed: found,
+        outdated: byProvider(p => (found[p] ? "" : (discovery.outdated(p) ?? ""))),
+      };
+    }
+    result.installed = this.installs.installed;
+    result.outdated = this.installs.outdated;
     result.names = byProvider(p => accounts.defaultName(p));
     result.accounts = accounts
       .known()
@@ -300,6 +311,7 @@ export class Worker {
     job.request_access = false;
     await discovery.check();
     if (this.stopping) return;
+    this.installs = null;
     job.preview = this.list(job.preview);
     job.preview.pending = true;
     // Launchers keep a provider process each, so those of accounts gone close.

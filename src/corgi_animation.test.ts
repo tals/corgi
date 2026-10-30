@@ -501,6 +501,37 @@ test("content reveal paints over a corgi that keeps playing and cancels when a c
   x.update("content", 1100);
   expect(x.reveal_started_ms).toBeNull();
 });
+test("only visible throws, digging and reveals need faster animation frames", () => {
+  a.beginFrame();
+  const row = a.observe(999999n, "awake", 0)!;
+  a.observe(999998n, "asleep", 0);
+  row.playback.enter("idle", 0);
+  a.endFrame();
+  expect(a.frameDelay()).toBe(75);
+  for (const routine of ["fetch", "bone"] as const) {
+    row.playback.enter(routine, 0);
+    a.endFrame();
+    expect(a.frameDelay()).toBe(30);
+  }
+  row.playback.enter("idle", 100);
+  a.observe(999999n, "content", 200);
+  a.endFrame();
+  expect(a.frameDelay()).toBe(30);
+  a.observe(999999n, "content", 650);
+  a.endFrame();
+  expect(a.frameDelay()).toBe(75);
+  a.observe(999999n, "awake", 700);
+  row.playback.enter("fetch", 700);
+  a.observe(999999n, "content", 750);
+  row.skipReveal();
+  a.endFrame();
+  expect(a.frameDelay()).toBe(75);
+  a.observe(999999n, "awake", 800);
+  row.playback.enter("fetch", 800);
+  a.beginFrame();
+  a.endFrame();
+  expect(a.frameDelay()).toBe(75);
+});
 test("the corgi digs the word out from the left, then turns and wags", () => {
   for (const [ms, text] of [
     [0, "        ⠄~[\\/]o› ⣤⣿⣷⣾⣿⣶⣷⣿⣾⣶"],

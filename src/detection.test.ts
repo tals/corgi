@@ -1,10 +1,12 @@
 import { Terminal, closeReadiness } from "./pane/terminal";
 import { n, ptr } from "./native_bridge";
-import { test, expect } from "bun:test";
-import { identify, backgroundJob, foreground, Tracker, interruptKey, type Job } from "./detection";
+import { test, expect, spyOn } from "bun:test";
+import { identify, backgroundJob, foreground, foregrounds, Tracker, interruptKey, type Job } from "./detection";
 import { Agent } from "./agents";
 import { adapter } from "./providers";
 import { screen as claudeScreen, interrupted } from "./providers/claude/screen";
+import * as os from "./os";
+import * as nativeBridge from "./native_bridge";
 /** A tick of a pane's detection: follow its process, then show what its watcher confirms. */
 function look(tracker: Tracker, agent: Agent, job: Job | null, title: string, text: string, watched: boolean) {
   const speaks = tracker.claim ? true : tracker.update(agent, job);
@@ -33,6 +35,39 @@ test("identify actual executables and scripts, not arguments or shell text", () 
   ])
     expect(identify(args)).toBeNull();
 });
+test.skipIf(process.platform !== "linux")(
+  "a known agent must still belong to the foreground group and run an agent",
+  () => {
+    let group = 100,
+      program = "codex";
+    const front = spyOn(n, "probe_foreground").mockReturnValue(100),
+      args = spyOn(nativeBridge, "processArgs").mockImplementation(pid => ({
+        argv: [pid === 101 ? program : pid === 102 ? "claude" : "sh"],
+        complete: true,
+      })),
+      job = spyOn(os, "processJob").mockImplementation(pid => ({
+        ppid: 100,
+        pgid: pid === 101 ? group : 100,
+        tpgid: 100,
+      })),
+      tree = spyOn(os, "processTree").mockReturnValue([100, 101, 102]);
+    try {
+      const read = () => foregrounds([{ fd: 3, pid: 100, agent: 101 }]).get(3);
+      expect(read()?.job).toEqual({ pid: 101, provider: "codex" });
+      expect(tree).not.toHaveBeenCalled();
+      group = 200;
+      expect(read()?.job).toEqual({ pid: 102, provider: "claude" });
+      group = 100;
+      program = "sleep";
+      expect(read()?.job).toEqual({ pid: 102, provider: "claude" });
+    } finally {
+      front.mockRestore();
+      args.mockRestore();
+      job.mockRestore();
+      tree.mockRestore();
+    }
+  },
+);
 test("claude interrupts need a stable idle title without an interrupt hint", () => {
   const tracker = new Tracker(),
     idle = "> \n  ? for shortcuts",

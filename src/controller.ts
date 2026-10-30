@@ -11,6 +11,7 @@ import * as bindings from "./bindings";
 import * as onboarding from "./onboarding";
 import * as shortcutHelp from "./shortcut_help";
 import * as palette from "./palette";
+import * as corgiAnimation from "./corgi_animation";
 import type { Colors as TerminalColors } from "./terminal_palette";
 import type { Snapshot as TerminalSnapshot } from "./terminal_info";
 import {
@@ -823,6 +824,7 @@ export class Controller {
     return now - this.menu_hover.since >= 150 ? target : null;
   }
   private pollScopeMenu(hover: boolean): void {
+    if (!this.scope_menu && !hover) return;
     const side = this.sidebarView([]);
     const on_label = this.pointer !== null && side.hit(this.pointer.x, this.pointer.y).tag === "agent_scope";
     if (this.scope_menu) {
@@ -923,9 +925,14 @@ export class Controller {
       }
       const first_agent = entries.length,
         starts: number[] = [];
-      for (let tab_index = 0; tab_index < ws.model.count; tab_index++) {
-        for (const p of this.runtime.panes) {
-          if (p.agent.provider === null || ws.model.tabForPane(p.id) !== tab_index) continue;
+      const tabs: Pane[][] = Array.from({ length: ws.model.count }, () => []);
+      for (const p of this.runtime.panes) {
+        if (p.agent.provider === null) continue;
+        const tab = ws.model.tabForPane(p.id);
+        if (tab !== null) tabs[tab].push(p);
+      }
+      for (const panes of tabs) {
+        for (const p of panes) {
           entries.push(
             sidebar.entry({
               conversation: p.agent.conversation,
@@ -1728,13 +1735,14 @@ export class Controller {
   }
   /** How long the viewer waits between frames: 120 a second while a hold to
    * create fills or springs back, a display frame while a sidebar row glides
-   * to another group. */
+   * to another group, and otherwise as often as the sidebar's corgis move. */
   frameDelay(): number {
     const now = milliTimestamp(),
       d = this.name_dialog;
     const own = d?.frame() ?? null;
     if (own !== null) return own;
-    return this.sidebar_rows.moving(now) ? 16 : 30;
+    if (this.sidebar_rows.moving(now)) return 16;
+    return this.overlayOpen() || this.signin_exit || this.coversPanes() ? 30 : corgiAnimation.frameDelay();
   }
   private async renamePane(id: number, name: string): Promise<void> {
     await this.edit({ "pane.rename": { target: id, name } });
@@ -3076,10 +3084,11 @@ export class Controller {
     const model = this.launcherModel(),
       form = model?.managing ? model.manager.form : null;
     if (form && form.save_requested && !form.resolution.pending) await this.saveInlineCommand();
+    const launch = this.launcherModel();
+    if (!launch && !hover) return;
     const side = this.sidebarView([]);
     const hit = this.pointer ? side.hit(this.pointer.x, this.pointer.y).tag : "none";
     const on_button = hit === "agent_new" || hit === "agent_options";
-    const launch = this.launcherModel();
     if (launch) {
       launch.yolo = { ...this.runtime.agent_yolo };
       launch.hidden = { ...this.runtime.agent_hidden };

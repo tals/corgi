@@ -632,7 +632,7 @@ export class Tracker {
       const work = works.find(w => w.id === root.workspace);
       if (!work) continue;
       work.count++;
-      const value = native.counters(identity.pid);
+      const value = inventory.counters(identity.pid);
       if (!value) {
         work.partial = true;
         continue;

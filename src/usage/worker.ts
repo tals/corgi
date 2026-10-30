@@ -128,13 +128,23 @@ export class Tail {
     return found;
   }
   async poll(req: Request, reader: TranscriptReader) {
+    const current = await lstat(req.agent.transcriptPath());
+    // At EOF, historical counts survive revoked read access until more bytes need reading.
+    if (
+      this.inode !== 0 &&
+      current.isFile() &&
+      current.ino === this.inode &&
+      current.dev === this.device &&
+      current.size === this.offset
+    )
+      return new Counts();
     const file = await open(
       req.agent.transcriptPath(),
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
     );
     try {
       const stat = await file.stat(),
-        named = await lstat(req.agent.transcriptPath());
+        named = current;
       if (!stat.isFile()) throw Error("NotRegular");
       const resumed =
         this.inode !== 0 && stat.ino === this.inode && stat.dev === this.device && stat.size >= this.offset;
@@ -240,12 +250,13 @@ export class Worker {
   }
   reconcile(runtime: Runtime) {
     this.requests = [];
-    for (const id of this.watchers.keys()) if (!runtime.conversations.byId(id)) this.watchers.delete(id);
+    const actors = new Set<number>(runtime.conversations.items.map(actor => actor.id)),
+      followed = runtime.followed();
+    for (const id of this.watchers.keys()) if (!actors.has(id)) this.watchers.delete(id);
     for (const actor of runtime.conversations.items) {
       const agent = actor.state,
         reader = agent.provider ? this.reader(agent.provider) : null;
-      if (!reader || !agent.session.len || (!agent.transcript.len && !reader.name) || !runtime.followed(actor))
-        continue;
+      if (!reader || !agent.session.len || (!agent.transcript.len && !reader.name) || !followed.has(actor)) continue;
       const ws = runtime.workspaces.get(actor.workspace);
       if (!ws) continue;
       this.requests.push({

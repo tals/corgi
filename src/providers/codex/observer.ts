@@ -294,11 +294,12 @@ export class Worker implements Observer {
         p.agent().provider !== "codex" ||
         p.account() !== this.account ||
         p.detection.pid <= 0 ||
-        p.detection.missing ||
-        p.terminal.title_pid !== p.detection.pid
+        p.detection.missing
       )
         continue;
-      const prefix = titleSession(p.terminal.title),
+      const title = p.terminal.titleInfo();
+      if (title.pid !== p.detection.pid) continue;
+      const prefix = titleSession(title.text),
         actor = p.attachment.actor;
       if (!prefix) continue;
       // Behind a side conversation, follow the conversation it forked.
@@ -318,7 +319,7 @@ export class Worker implements Observer {
           prefix,
           actor: 0,
           generation: p.attachment.generation,
-          title_revision: p.terminal.title_revision,
+          title_revision: title.revision,
         });
       if (this.requests.length === 64) break;
     }
