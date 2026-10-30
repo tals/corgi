@@ -65,7 +65,11 @@ export function stamp(t: Terminal, offset: number | null = null): Stamp {
   return { identity: t.surface_identity, revision: t.surface_revision, offset };
 }
 
-export function view(value: Wire<View>): View {
+type NativeView = Omit<View, "stamp"> & {
+  stamp: { identity: string; revision: string; offset: number | null };
+};
+
+export function view(value: Wire<View> | NativeView): View {
   return {
     ...value,
     stamp: {

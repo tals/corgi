@@ -6,6 +6,20 @@ import { codepointWidths } from "./viewer_native";
 /** An output buffer standing in for Zig's `*std.Io.Writer`. */
 export class Writer {
   s = "";
+  constructor(public column = 0) {}
+  /** A one-based terminal position relative to this writer's column origin. */
+  cup(row: number, column: number): string {
+    return `\x1b[${row};${column + this.column}H`;
+  }
+  withColumns<T>(columns: number, draw: () => T): T {
+    const previous = this.column;
+    this.column += columns;
+    try {
+      return draw();
+    } finally {
+      this.column = previous;
+    }
+  }
   write(text: string): void {
     this.s += text;
   }

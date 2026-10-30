@@ -1,6 +1,7 @@
 import * as launcherConfig from "./launcher_config";
 import * as agentModels from "./agent_models";
 import { Quit as ModelQuit } from "./subprocess";
+import * as telemetry from "./telemetry";
 import type { Worker as SummaryWorker } from "./activity/worker";
 import type { Worker as UsageWorker } from "./usage/worker";
 import { chmodSync } from "node:fs";
@@ -191,17 +192,22 @@ export class Server {
       }
   }
   private publish(): void {
-    if (this.subscribedRevision === this.runtime.revision && !this.dirty) return;
-    if (this.subscribedRevision !== this.runtime.revision) {
-      const subscribers = this.clients.filter(c => c.subscribed && !c.dead);
-      if (subscribers.length) {
-        const snapshot = session.snapshot(this.runtime);
-        for (const c of subscribers) c.queue(snapshot);
+    const telemetry_started = telemetry.begin();
+    try {
+      if (this.subscribedRevision === this.runtime.revision && !this.dirty) return;
+      if (this.subscribedRevision !== this.runtime.revision) {
+        const subscribers = this.clients.filter(c => c.subscribed && !c.dead);
+        if (subscribers.length) {
+          const snapshot = session.snapshot(this.runtime);
+          for (const c of subscribers) c.queue(snapshot);
+        }
+        this.subscribedRevision = this.runtime.revision;
       }
-      this.subscribedRevision = this.runtime.revision;
+      this.wakeViewers();
+      this.dirty = false;
+    } finally {
+      telemetry.end("daemon.publish", telemetry_started);
     }
-    this.wakeViewers();
-    this.dirty = false;
   }
   async run(): Promise<void> {
     this.runtime.ports.configure(settings.smartLinks(settings.path(this.socket)));
@@ -352,6 +358,7 @@ export class Server {
     }
   }
   private async collect(): Promise<void> {
+    const telemetry_started = telemetry.begin();
     if (this.stopped || this.frozen) return;
     if (this.owner && Date.now() - this.ownerChecked >= 1000) {
       this.ownerChecked = Date.now();
@@ -360,13 +367,15 @@ export class Server {
         return;
       }
     }
+    const import_started = telemetry.begin();
     await importer.tick(this);
+    telemetry.end("daemon.import", import_started);
     const now = Date.now();
     for (const p of [...this.runtime.panes]) {
       // Panes read their output as it comes; the tick follows up on a pane
       // that printed, and keeps time for one waiting on more than output.
       if (p.terminal.due()) {
-        if (p.terminal.read()) {
+        if (p.terminal.maintain()) {
           const copied = p.terminal.takeCopied();
           if (copied !== null) viewer.copy(this, p.id, copied);
           const cwd = p.cwd;
@@ -388,11 +397,14 @@ export class Server {
     this.runtime.reapStopped();
     if (this.runtime.raiseEntered()) this.runtime.changed();
     await this.runtime.advanceRenames(clock.milliTimestamp());
+    const observers_started = telemetry.begin();
     await observers.tick(this);
+    telemetry.end("daemon.observers", observers_started);
     if (this.clients.some(c => c.headless_start)) {
       const headless = await import("./headless");
       headless.finishStarts(this);
     }
+    const trackers_started = telemetry.begin();
     const gitStatusChanged = this.runtime.git_status.tick(this.runtime.workspaces);
     const gitPushChanged = this.runtime.git_push.tick(this.runtime.workspaces, this.runtime.git_status);
     const portsChanged = this.runtime.ports.tick(this.runtime);
@@ -419,6 +431,7 @@ export class Server {
           viewers.some(c => c.watched && c.resource_detail !== null),
         ) || tracked;
     else tracked = this.runtime.resources.stop() || tracked;
+    telemetry.end("daemon.trackers.schedule", trackers_started);
     if (tracked) this.runtime.refreshed();
     this.flushBell(now);
     launch.sample(this);
@@ -426,13 +439,16 @@ export class Server {
     if (this.savedDurable !== this.runtime.durable) {
       if (!this.durableAt) this.durableAt = now;
       if (now - this.durableAt >= 2000 || now - this.lastRecovery >= 10000) {
+        const recovery_started = telemetry.begin();
         await recovery.save(this.runtime, this.socket);
+        telemetry.end("daemon.recovery", recovery_started);
         this.savedDurable = this.runtime.durable;
         this.lastRecovery = now;
         this.durableAt = 0;
       }
     }
     this.publish();
+    telemetry.end("daemon.collect", telemetry_started);
   }
   async request(cl: Client, value: unknown): Promise<void | "deferred"> {
     const op = protocol.parse(value);

@@ -59,6 +59,24 @@ test("selection survives reordered tabs and closed neighbor", () => {
   expect(s.tab().focus).toBe(a);
   expect(m.tabForPane(c)).toBe(0);
 });
+test("selection notices a closed focused pane even when the tab order and count stay the same", () => {
+  const model = new Model(),
+    first = model.newTab(""),
+    second = model.split(first, "horizontal"),
+    selection = new Selection();
+  selection.reconcile(model);
+  selection.focus(model, second);
+  selection.tab().zoom = true;
+  model.close(second);
+  selection.reconcile(model);
+  expect(selection.tab().focus).toBe(first);
+  expect(selection.tab().zoom).toBe(false);
+  selection.tab().zoom = true;
+  model.split(first, "vertical");
+  selection.reconcile(model);
+  expect(selection.tab().focus).toBe(first);
+  expect(selection.tab().zoom).toBe(true);
+});
 test("framed split geometry and divider agree", () => {
   const m = new Model(),
     a = m.newTab(""),

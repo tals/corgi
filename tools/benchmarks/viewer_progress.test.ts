@@ -1,5 +1,14 @@
 import { test, expect } from "bun:test";
-import { sequence, reading, validate, cadence, validateCadence } from "./viewer_progress";
+import {
+  sequence,
+  reading,
+  validate,
+  cadence,
+  validateCadence,
+  spinners,
+  animationCadence,
+  validateAnimation,
+} from "./viewer_progress";
 
 test("stream progress ignores status rows and follows the latest visible fixture sequence", () => {
   expect(
@@ -41,4 +50,24 @@ test("cadence traces distinguish steady presentation from equal-throughput batch
   const stalledTail = cadence(trace(ms => Math.floor(Math.min(ms, 2700) / 50)));
   expect(stalledTail.max_observed_gap_ms).toBe(300);
   expect(() => validateCadence(stalledTail)).toThrow();
+});
+
+test("animation receipts inspect sidebar glyphs independently of streaming pane text", () => {
+  const frame = (glyph: string) =>
+    ` ⠋ workspace\n agents: project │⠋ pane output\n ▌${glyph}  ~ᐯ•.•ᐯ │Working (esc to interrupt) 12`;
+  expect(spinners(frame("⠹"))).toEqual([{ row: 2, column: 2, glyph: "⠹" }]);
+  const trace = (period: number) =>
+    Array.from({ length: 121 }, (_, index) => ({
+      at_ms: index * 25,
+      spinners: spinners(frame([..."⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"][Math.floor((index * 25) / period) % 10])),
+    }));
+  const normal = animationCadence(trace(80));
+  expect(normal.minimum_visible_spinners).toBe(1);
+  expect(normal.visible_changes_per_second).toBeCloseTo(37 / 3);
+  expect(() => validateAnimation(normal)).not.toThrow();
+  expect(() => validateAnimation(animationCadence(trace(500)))).toThrow();
+  expect(() => validateAnimation(animationCadence(trace(Infinity)))).toThrow();
+  const missing = trace(80);
+  missing[40].spinners = [];
+  expect(() => validateAnimation(animationCadence(missing))).toThrow();
 });

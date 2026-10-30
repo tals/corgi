@@ -45,11 +45,7 @@ test.skipIf(process.platform !== "linux")(
         argv: [pid === 101 ? program : pid === 102 ? "claude" : "sh"],
         complete: true,
       })),
-      job = spyOn(os, "processJob").mockImplementation(pid => ({
-        ppid: 100,
-        pgid: pid === 101 ? group : 100,
-        tpgid: 100,
-      })),
+      membership = spyOn(os, "processGroup").mockImplementation(pid => (pid === 101 ? group : 100)),
       tree = spyOn(os, "processTree").mockReturnValue([100, 101, 102]);
     try {
       const read = () => foregrounds([{ fd: 3, pid: 100, agent: 101 }]).get(3);
@@ -59,15 +55,39 @@ test.skipIf(process.platform !== "linux")(
       expect(read()?.job).toEqual({ pid: 102, provider: "claude" });
       group = 100;
       program = "sleep";
+      args.mockClear();
       expect(read()?.job).toEqual({ pid: 102, provider: "claude" });
+      expect(args.mock.calls.some(([pid]) => pid === 101)).toBe(true);
     } finally {
       front.mockRestore();
       args.mockRestore();
-      job.mockRestore();
+      membership.mockRestore();
       tree.mockRestore();
     }
   },
 );
+test.skipIf(process.platform !== "linux")("foreground discovery reads argv only for live group members", () => {
+  const front = spyOn(n, "probe_foreground").mockReturnValue(100),
+    tree = spyOn(os, "processTree").mockReturnValue([100, 101, 102, 103]),
+    membership = spyOn(os, "processGroup").mockImplementation(pid => (pid === 101 ? 200 : pid === 102 ? null : 100)),
+    job = spyOn(os, "processJob"),
+    args = spyOn(nativeBridge, "processArgs").mockImplementation(pid => ({
+      argv: [pid === 100 ? "sh" : pid === 103 ? "claude" : "codex"],
+      complete: true,
+    }));
+  try {
+    expect(foregrounds([{ fd: 3, pid: 100 }]).get(3)?.job).toEqual({ pid: 103, provider: "claude" });
+    expect(membership.mock.calls).toEqual([[100], [101], [102], [103]]);
+    expect(args.mock.calls).toEqual([[100], [103]]);
+    expect(job).not.toHaveBeenCalled();
+  } finally {
+    front.mockRestore();
+    tree.mockRestore();
+    membership.mockRestore();
+    job.mockRestore();
+    args.mockRestore();
+  }
+});
 test("claude interrupts need a stable idle title without an interrupt hint", () => {
   const tracker = new Tracker(),
     idle = "> \n  ? for shortcuts",

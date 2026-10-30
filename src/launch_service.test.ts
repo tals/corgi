@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, test, expect } from "bun:test";
+import { afterAll, beforeAll, test, expect, spyOn } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -209,5 +209,45 @@ test("accounts are read often while someone uses a viewer and rarely otherwise",
     expect(asked).toEqual([idle_every, idle_every, active_every]);
   } finally {
     stop(server);
+  }
+});
+
+test("unchanged preview identities skip serialization and equal replacements become the new baseline", async () => {
+  const server: any = {},
+    messages: any[] = [],
+    s = service(server);
+  let preview = new Preview().with({ pending: false });
+  const client: any = {
+    dead: false,
+    output: Buffer.alloc(0),
+    queue: (value: any) => messages.push(value),
+    launch_preview: { cwd: "/tmp", preview, checked: 0, history_asked: false, history_epoch: 0n, history_sent: 0n },
+  };
+  s.launch_previews.preview = () => preview;
+  const serialize = spyOn(preview.options.codex, "toJSON"),
+    check = () => {
+      client.launch_preview.checked = 0;
+      publish(server, client);
+    };
+  try {
+    check();
+    expect(serialize).not.toHaveBeenCalled();
+    preview = preview.with({});
+    check();
+    expect(serialize).toHaveBeenCalled();
+    expect(messages).toHaveLength(0);
+    expect(client.launch_preview.preview).toBe(preview);
+    const calls = serialize.mock.calls.length;
+    check();
+    expect(serialize.mock.calls).toHaveLength(calls);
+    const previous = preview;
+    preview = preview.with({ names: { ...preview.names, codex: "work" } });
+    check();
+    expect(messages).toHaveLength(1);
+    expect(messages[0].preview.names.codex).toBe("work");
+    expect(previous.names.codex).toBe("");
+  } finally {
+    serialize.mockRestore();
+    await stop(server);
   }
 });

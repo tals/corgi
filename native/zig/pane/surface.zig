@@ -21,6 +21,7 @@ pub const Surface = struct {
 pub fn capture(allocator: std.mem.Allocator, id: PaneId, t: *terminal.Terminal) !Surface {
     try t.updateRender();
     const state = &t.render;
+    try t.surface_rows.prepare(@intFromEnum(id), state.cols, state.rows);
     const lines = try allocator.alloc([]const u8, state.rows);
     var used: usize = 0;
     errdefer {
@@ -28,10 +29,14 @@ pub fn capture(allocator: std.mem.Allocator, id: PaneId, t: *terminal.Terminal) 
         allocator.free(lines);
     }
     for (lines, 0..) |*line, row| {
-        var out: std.Io.Writer.Allocating = .init(allocator);
-        defer out.deinit();
-        try writeRow(&out.writer, state, t.hyperlinks(), id, row, state.cols, false);
-        line.* = try out.toOwnedSlice();
+        const cached = &t.surface_rows.rows[row];
+        if (!cached.valid) {
+            cached.out.clearRetainingCapacity();
+            try writeRow(&cached.out.writer, state, t.hyperlinks(), id, row, state.cols, false);
+            cached.valid = true;
+            t.surface_rows.formatted +%= 1;
+        } else t.surface_rows.reused +%= 1;
+        line.* = try allocator.dupe(u8, cached.out.written());
         used += 1;
     }
     return .{
@@ -137,11 +142,50 @@ pub const Modes = struct {
 };
 /// A receipt for a particular terminal and requested viewport. It is independent
 /// of Ghostty's dirty flags, which other render consumers are allowed to clear.
-pub const Stamp = struct { identity: u64, revision: u64, offset: ?usize };
+pub const Stamp = struct {
+    identity: u64,
+    revision: u64,
+    offset: ?usize,
+
+    // Native JSON keeps receipts exact without a JavaScript reviver per field.
+    pub fn jsonStringify(value: Stamp, writer: *std.json.Stringify) !void {
+        try writer.beginObject();
+        try writer.objectField("identity");
+        try writer.print("\"{d}\"", .{value.identity});
+        try writer.objectField("revision");
+        try writer.print("\"{d}\"", .{value.revision});
+        try writer.objectField("offset");
+        try writer.write(value.offset);
+        try writer.endObject();
+    }
+};
 pub fn stamp(t: *const terminal.Terminal, offset: ?usize) Stamp {
     return .{ .identity = t.surface_identity, .revision = t.surface_revision, .offset = offset };
 }
 pub const View = struct { surface: Surface, bottom: usize, offset: usize, modes: Modes, stamp: Stamp };
+
+test "native surface receipts serialize exactly as decimal strings" {
+    const allocator = std.testing.allocator;
+    for ([_]u64{ 0, (1 << 53) - 1, 1 << 53, std.math.maxInt(u64) }) |number| {
+        for ([_]?usize{ null, (1 << 53) - 1 }) |offset| {
+            const bytes = try std.json.Stringify.valueAlloc(allocator, Stamp{
+                .identity = number,
+                .revision = number,
+                .offset = offset,
+            }, .{});
+            defer allocator.free(bytes);
+            const parsed = try std.json.parseFromSlice(struct {
+                identity: []const u8,
+                revision: []const u8,
+                offset: ?usize,
+            }, allocator, bytes, .{});
+            defer parsed.deinit();
+            try std.testing.expectEqual(number, try std.fmt.parseInt(u64, parsed.value.identity, 10));
+            try std.testing.expectEqual(number, try std.fmt.parseInt(u64, parsed.value.revision, 10));
+            try std.testing.expectEqual(offset, parsed.value.offset);
+        }
+    }
+}
 
 /// Borrow a viewport for a synchronous capture; never change another viewer's
 /// scroll or selection. A pending synchronized redraw keeps its completed frame.
@@ -248,6 +292,15 @@ test "plain web links map Unicode cells, trim punctuation and preserve explicit 
     try std.testing.expectEqualStrings("https://explicit.example/", t.hyperlinks()[1].uri);
 }
 
+test "plain image paths survive link prefiltering without web links" {
+    const t = try terminal.Terminal.create(40, 2);
+    defer t.destroy();
+    t.feed("Image: /tmp/photo.PNG plain.txt");
+    try t.updateRender();
+    try std.testing.expectEqual(@as(usize, 1), t.hyperlinks().len);
+    try std.testing.expectEqualStrings("file:///tmp/photo.PNG", t.hyperlinks()[0].uri);
+}
+
 test "plain links span soft wraps but not hard newlines and remain snapshot owned" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
@@ -265,4 +318,144 @@ test "plain links span soft wraps but not hard newlines and remain snapshot owne
     t.feed("\x1b[?2026l\x1b[2J\x1b[Hhttp://\r\nexample.com");
     _ = try capture(arena.allocator(), @enumFromInt(9), t);
     try std.testing.expectEqual(@as(usize, 0), t.hyperlinks().len);
+}
+
+fn expectCanonical(id: PaneId, t: *terminal.Terminal, captured: Surface) !void {
+    try t.updateRender();
+    try std.testing.expectEqual(t.render.cols, captured.cols);
+    try std.testing.expectEqual(t.render.rows, captured.rows);
+    for (captured.lines, 0..) |line, row| {
+        var fresh: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer fresh.deinit();
+        try writeRow(&fresh.writer, &t.render, t.hyperlinks(), id, row, t.render.cols, false);
+        try std.testing.expectEqualStrings(fresh.written(), line);
+    }
+}
+
+test "canonical cache is lazy and retains row damage across other render consumers" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const t = try terminal.Terminal.create(20, 6);
+    defer t.destroy();
+    t.feed("\x1b[?7lFIRST\x1b[3;1HTHIRD\x1b[5;1HFIFTH\x1b[H");
+    try t.updateRender();
+    try std.testing.expectEqual(@as(usize, 0), t.surface_rows.rows.len);
+    const before = try capture(arena.allocator(), @enumFromInt(1), t);
+    try expectCanonical(@enumFromInt(1), t, before);
+    t.feed("\x1b[3;1HX");
+    try t.updateRender();
+    t.feed("\x1b[5;1HY");
+    const text = try t.text();
+    defer @import("../os.zig").allocator.free(text);
+    try t.updateRender();
+    for (t.surface_rows.rows, 0..) |row, i| try std.testing.expectEqual(i % 2 == 1, row.valid);
+    const after = try capture(arena.allocator(), @enumFromInt(1), t);
+    try expectCanonical(@enumFromInt(1), t, after);
+    try std.testing.expect(!std.mem.eql(u8, before.lines[2], after.lines[2]));
+    try std.testing.expect(!std.mem.eql(u8, before.lines[4], after.lines[4]));
+    for ([_]usize{ 0, 1, 3, 5 }) |row| try std.testing.expectEqualStrings(before.lines[row], after.lines[row]);
+    t.feed("\x1b[?2026h\x1b[2J\x1b[HMID_REDRAW");
+    const during = try capture(arena.allocator(), @enumFromInt(1), t);
+    for (after.lines, during.lines) |old, current| try std.testing.expectEqualStrings(old, current);
+    t.feed("\x1b[?2026l");
+    try expectCanonical(@enumFromInt(1), t, try capture(arena.allocator(), @enumFromInt(1), t));
+}
+
+test "canonical cache refreshes cross-row link identities and owns old snapshots" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const t = try terminal.Terminal.create(40, 5);
+    defer t.destroy();
+    t.feed("ascii\r\nhttps://example.com/path\x1b[H");
+    const before = try capture(arena.allocator(), @enumFromInt(3), t);
+    t.feed("界");
+    try t.updateRender();
+    for (t.surface_rows.rows) |row| try std.testing.expect(!row.valid);
+    const after = try capture(arena.allocator(), @enumFromInt(3), t);
+    try expectCanonical(@enumFromInt(3), t, after);
+    // A preceding UTF-8 byte offset changes an automatic link's identity.
+    try std.testing.expect(!std.mem.eql(u8, before.lines[1], after.lines[1]));
+    for ([_][]const u8{
+        "\x1b[2J\x1b[Hhttps://example.com/a-very-long-path-that-wraps-around ",
+        "\x1b[2;3HX",
+        "\x1b[2J\x1b[H\x1b]8;id=docs;https://explicit.example/\x1b\\界e\xcc\x81\x1b]8;;\x1b\\",
+        "\x1b[H\x1b[8mhttps://hidden.example/\x1b[0m",
+        "\x1b[2J\x1b[HNO_LINKS",
+    }) |update| {
+        t.feed(update);
+        try expectCanonical(@enumFromInt(3), t, try capture(arena.allocator(), @enumFromInt(3), t));
+    }
+    t.feed("\x1b[2J\x1b[Hhttps://example.com/");
+    const one = try capture(arena.allocator(), @enumFromInt(3), t);
+    const two = try capture(arena.allocator(), @enumFromInt(4), t);
+    try std.testing.expect(!std.mem.eql(u8, one.lines[0], two.lines[0]));
+    try expectCanonical(@enumFromInt(4), t, two);
+}
+
+test "canonical cache follows selection colors geometry and alternate screens" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const t = try terminal.Terminal.create(20, 4);
+    defer t.destroy();
+    t.feed("\x1b[31mCOLORED\x1b[0m plain");
+    _ = try capture(arena.allocator(), @enumFromInt(1), t);
+    try t.select(1, 0, 4, 0);
+    try expectCanonical(@enumFromInt(1), t, try capture(arena.allocator(), @enumFromInt(1), t));
+    try t.clearSelection();
+    t.applyTheme(.{ .foreground = .{ .r = 120, .g = 130, .b = 140 }, .background = .{ .r = 1, .g = 2, .b = 3 } });
+    try expectCanonical(@enumFromInt(1), t, try capture(arena.allocator(), @enumFromInt(1), t));
+    for ([_][]const u8{
+        "\x1b]4;1;rgb:44/55/66\x1b\\",
+        "\x1b[?5h",
+        "\x1b[?1049hALTERNATE",
+        "\x1b[?1049l\x1b[?5l",
+    }) |update| {
+        t.feed(update);
+        try expectCanonical(@enumFromInt(1), t, try capture(arena.allocator(), @enumFromInt(1), t));
+    }
+    try t.resize(27, 7);
+    try expectCanonical(@enumFromInt(1), t, try capture(arena.allocator(), @enumFromInt(1), t));
+}
+
+test "canonical cache keeps borrowed viewports independent and snapshots owned" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const t = try terminal.Terminal.create(20, 4);
+    defer t.destroy();
+    const reference = try terminal.Terminal.create(20, 4);
+    defer reference.destroy();
+    const input = "one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix\r\nseven\r\neight";
+    t.feed(input);
+    reference.feed(input);
+    _ = try capture(arena.allocator(), @enumFromInt(1), t);
+    t.vt.scrollViewport(.{ .row = 1 });
+    try t.select(0, 0, 2, 1);
+    const viewport = t.vt.screens.active.pages.viewport;
+    const selection = t.vt.screens.active.selection;
+    for ([_]?usize{ 0, null, 2, 0 }) |offset| {
+        const view = try captureView(arena.allocator(), @enumFromInt(1), t, offset);
+        if (offset) |row| reference.vt.scrollViewport(.{ .row = row }) else reference.vt.scrollViewport(.bottom);
+        try expectCanonical(@enumFromInt(1), reference, view.surface);
+        try std.testing.expectEqualDeep(viewport, t.vt.screens.active.pages.viewport);
+        try std.testing.expect(t.vt.screens.active.selection.?.eql(selection.?));
+    }
+}
+
+test "canonical cache retries failed formatting and snapshot allocation" {
+    var failing: std.testing.FailingAllocator = .init(std.testing.allocator, .{});
+    const t = try terminal.Terminal.create(20, 4);
+    defer t.destroy();
+    t.surface_rows = .init(failing.allocator());
+    try t.surface_rows.prepare(1, 20, 4);
+    failing.fail_index = failing.alloc_index;
+    t.feed("RETRY");
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    try std.testing.expectError(error.WriteFailed, capture(arena.allocator(), @enumFromInt(1), t));
+    try std.testing.expect(!t.surface_rows.rows[0].valid);
+    failing.fail_index = std.math.maxInt(usize);
+    try expectCanonical(@enumFromInt(1), t, try capture(arena.allocator(), @enumFromInt(1), t));
+    var snapshot_failure: std.testing.FailingAllocator = .init(std.testing.allocator, .{ .fail_index = 1 });
+    try std.testing.expectError(error.OutOfMemory, capture(snapshot_failure.allocator(), @enumFromInt(1), t));
+    try expectCanonical(@enumFromInt(1), t, try capture(arena.allocator(), @enumFromInt(1), t));
 }

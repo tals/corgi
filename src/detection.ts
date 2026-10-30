@@ -4,7 +4,7 @@ import { Agent, Provider, Text, type State } from "./agents";
 import type { PaneMemory, PromptMemory } from "./providers/adapter";
 import { n, ptr, processArgs } from "./native_bridge";
 import { adapter } from "./providers";
-import { processJob, processPath, processTree } from "./os";
+import { processGroup, processJob, processPath, processTree } from "./os";
 import * as processName from "./process_name";
 import { getLogger } from "./log";
 export type Job = { pid: number; provider: Provider };
@@ -187,7 +187,7 @@ export function foreground(fd: number): Foreground | null {
  * with getpgid across the host where the kernel can't list children. */
 function groupMembers(pgid: number, roots: number[]): number[] | null {
   const tree = processTree(roots);
-  if (tree) return tree.filter(pid => processJob(pid)?.pgid === pgid).sort((a, b) => a - b);
+  if (tree) return tree.filter(pid => processGroup(pid) === pgid).sort((a, b) => a - b);
   const pids = new Int32Array(4096);
   const count = n.probe_group_pids(pgid, ptr(pids), pids.length);
   if (count < 0 || count === pids.length) return null;
@@ -214,7 +214,7 @@ export function foregrounds(terminals: { fd: number; pid: number; agent?: number
       front = { pgid, program: null, job: null };
       fronts.set(pgid, front);
       inspect(front, pgid);
-      if (!front.job && agent && agent !== pgid && processJob(agent)?.pgid === pgid) inspect(front, agent);
+      if (!front.job && agent && agent !== pgid && processGroup(agent) === pgid) inspect(front, agent);
       if (!front.job) groups.set(pgid, []);
     }
     result.set(fd, front);

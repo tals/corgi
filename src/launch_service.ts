@@ -1,6 +1,6 @@
 import { isAbsolute } from "node:path";
 import { Worker as CommandWorker } from "./launch/command";
-import { Worker as PreviewWorker, Preview, Option, active_every, idle_every } from "./launch/preview";
+import { Worker as PreviewWorker, Option, active_every, idle_every, type Preview } from "./launch/preview";
 import { byProvider } from "./providers";
 import { Worker as HistoryWorker } from "./launch/history";
 import { stringify } from "./json";
@@ -110,12 +110,13 @@ export function publish(server: Server, client: Client) {
     }
   }
   let preview = s.launch_previews.preview(subscription.cwd);
+  if (preview === subscription.preview) return;
   if (preview.pending) {
     // A restored subscription can have readings its new worker has not read yet.
     const previous = subscription.preview,
       keep = (next: Option, old: Option | undefined) =>
         next.pending && old ? Object.assign(new Option(), old, { pending: true }) : next;
-    preview = Object.assign(new Preview(), preview, {
+    preview = preview.with({
       options: byProvider(p => keep(preview.options[p], previous.options[p])),
       accounts: preview.accounts.map(a => ({
         ...a,
@@ -126,7 +127,10 @@ export function publish(server: Server, client: Client) {
       })),
     });
   }
-  if (stringify(preview) === stringify(subscription.preview)) return;
+  if (stringify(preview) === stringify(subscription.preview)) {
+    subscription.preview = preview;
+    return;
+  }
   client.queue({ type: "agent.preview", cwd: subscription.cwd, preview });
   subscription.preview = preview;
 }

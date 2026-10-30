@@ -107,7 +107,11 @@ test("unaltered surface rows preserve native rendering without another row conve
     direct = new Terminal(40, 8),
     rendered = new Terminal(40, 8);
   try {
-    source.feed("\x1b[31;1mRed 界 é 🐕\x1b[0m\r\n\x1b]8;id=docs;https://example.com/\x1b\\Docs\x1b]8;;\x1b\\ plain");
+    source.feed(
+      "\x1b[31;1mRed 界 é 🐕\x1b[0m\r\n\x1b]8;id=docs;https://example.com/\x1b\\Docs\x1b]8;;\x1b\\ plain " +
+        "\x1b]8;id=docs;https://example.com/\x1b\\More\x1b]8;;\x1b\\ " +
+        "\x1b]8;id=other;https://example.com/\x1b\\Other\x1b]8;;\x1b\\",
+    );
     pane.receive(source.surface(1));
     const reference = viewerNative.rows(pane.handle, 1, 3, 2, 32, 3, false, null),
       rows = spyOn(viewerNative, "rows"),
@@ -118,8 +122,27 @@ test("unaltered surface rows preserve native rendering without another row conve
       expect(links).not.toHaveBeenCalled();
       direct.feed(output + "\x1b[1;1H");
       rendered.feed(reference + "\x1b[1;1H");
-      expect(direct.snapshot()).toEqual(rendered.snapshot());
-      expect(pane.hyperlinks()).toHaveLength(1);
+      // A native redraw namespaces the mirror's IDs again. Compare the complete
+      // snapshot with a bijective rename, retaining link grouping and targets.
+      const snapshot = (terminal: Terminal) => {
+        const ids = new Map<string, number>();
+        return terminal
+          .snapshot()
+          .toString()
+          .replace(/\x1b\]8;id=([^;]*);/g, (_, id: string) => {
+            if (!ids.has(id)) ids.set(id, ids.size);
+            return `\x1b]8;id=${ids.get(id)};`;
+          });
+      };
+      expect(snapshot(direct)).toBe(snapshot(rendered));
+      for (const terminal of [direct, rendered]) {
+        const captured = terminal.hyperlinks();
+        expect(captured).toHaveLength(3);
+        expect(captured[0].id).toBe(captured[1].id);
+        expect(captured[0].id).not.toBe(captured[2].id);
+        expect(captured.map(link => link.uri)).toEqual(Array(3).fill("https://example.com/"));
+      }
+      expect(pane.hyperlinks()).toHaveLength(3);
       expect(links).toHaveBeenCalledTimes(1);
       pane.hyperlinks();
       expect(links).toHaveBeenCalledTimes(1);

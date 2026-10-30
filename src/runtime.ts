@@ -1,4 +1,5 @@
 import * as clock from "./clock";
+import * as telemetry from "./telemetry";
 import * as os from "./os";
 import { Model, Tab } from "./layout";
 import type { Axis } from "./layout";
@@ -13,7 +14,7 @@ import { Attachment, Registry, type Actor, type ActorId } from "./conversations"
 import { Tracker, locate, process_buffer, type Foreground } from "./detection";
 import type { Brand } from "./process_name";
 import { ResumeHint } from "./resume_hint";
-import { waitpid, tcgetpgrp, systemCall } from "./native_bridge";
+import { waitpid, tcgetpgrp } from "./native_bridge";
 import * as keys from "./keys";
 import * as trackers from "./trackers";
 import { Model as AgentModel } from "./providers/model";
@@ -380,18 +381,26 @@ export class Pane {
     return tcgetpgrp(t.fd) === t.pid;
   }
   refreshCwd() {
-    if (this.terminal.exited) return;
-    const pgid = tcgetpgrp(this.terminal.fd);
-    for (const pid of [this.detection.pid, pgid, this.terminal.pid]) {
-      if (pid <= 0) continue;
-      try {
-        const cwd = systemCall({ op: "process.cwd", pid });
-        if (typeof cwd === "string") {
-          this.cwd = cwd;
-          return;
-        }
-      } catch {}
+    const telemetry_started = telemetry.begin();
+    try {
+      if (this.terminal.exited) return;
+      if (this.refreshCwdFrom(this.detection.pid)) return;
+      if (this.refreshCwdFrom(tcgetpgrp(this.terminal.fd))) return;
+      this.refreshCwdFrom(this.terminal.pid);
+    } finally {
+      telemetry.end("agent.cwd", telemetry_started);
     }
+  }
+  private refreshCwdFrom(pid: number): boolean {
+    if (pid <= 0) return false;
+    try {
+      const cwd = os.processCwd(pid);
+      if (typeof cwd === "string") {
+        this.cwd = cwd;
+        return true;
+      }
+    } catch {}
+    return false;
   }
 }
 export function ending(status: number) {
@@ -455,6 +464,7 @@ export class Runtime {
   resources = new trackers.resources.Tracker();
   link_labels = new trackers.link_labels.Cache();
   changed() {
+    telemetry.count("runtime.changed");
     this.revision = BigInt.asUintN(64, this.revision + 1n);
     this.durable = BigInt.asUintN(64, this.durable + 1n);
     this.shown = BigInt.asUintN(64, this.shown + 1n);
