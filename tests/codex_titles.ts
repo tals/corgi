@@ -117,6 +117,37 @@ export class Titles extends Runtime {
   title(value: string) {
     return this.attachment.send(value);
   }
+  async test_standalone_identity_accepts_hooks_without_shared_server_ownership() {
+    const standalone = "01921234-1234-1234-1234-123456789abc";
+    const file = join(this.env.CODEX_HOME!, "sessions", "2026", "10", "30", `rollout-date-${standalone}.jsonl`);
+    await Bun.write(
+      file,
+      JSON.stringify({ type: "session_meta", payload: { id: standalone, cwd: this.temp.name } }) + "\n",
+    );
+    const attachment = await this.create_attachment(standalone);
+    await this.until(async () => (await attachment.state())?.session === standalone);
+    const send = (session: string, name: string) =>
+      this.rpc({
+        op: "hook",
+        pane: attachment.pane,
+        provider: "codex",
+        pid: 0,
+        event: { hook_event_name: name, session_id: session, turn_id: "standalone-turn", transcript_path: file },
+      });
+    await send(standalone, "UserPromptSubmit");
+    await this.until(async () => (await attachment.state()).state === "working");
+    // Repeated metadata reads cannot settle a turn owned by hooks.
+    await this.settle();
+    this.assertEqual((await attachment.state()).state, "working");
+    await send("01931234-1234-1234-1234-123456789abc", "Stop");
+    this.assertEqual((await attachment.state()).session, standalone);
+    this.assertEqual((await attachment.state()).state, "working");
+    // Losing the shared server still permits discovering a fresh local pane.
+    await this.sim.close();
+    const second = await this.create_attachment(standalone);
+    await this.until(async () => (await second.state())?.session === standalone);
+    this.assertEqual((await second.state()).state, "working");
+  }
   async test_resume_passthrough_and_focus_completion() {
     const text = (await this.command("pane.read", { target: this.pane, view: "screen" })).text;
     this.assertIn('ARGS:["--dangerously-bypass-approvals-and-sandbox", "resume"]', text);

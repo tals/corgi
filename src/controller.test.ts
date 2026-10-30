@@ -626,6 +626,20 @@ test("Copy details names the harness, session, id and paths, leaving out what is
   );
 });
 
+test("Copy details stays available before the session is identified", async () => {
+  const s = controller();
+  s.receiveSnapshot(pair());
+  s.review_summaries.ask = () => {};
+  try {
+    expect(s.pane(1).agent.session).toBe("");
+    await s.openAgentMenu(1, 0, 0);
+    expect(s.tab_menu.off.has("copy-details")).toBe(false);
+    expect(breadcrumbs(s.pane(1))).toBe("harness: Claude Code\nsession: agent 1");
+  } finally {
+    viewer.close(s);
+  }
+});
+
 test("an agent marked unread stays unread in view until focus moves onto it", async () => {
   const sent: [string, any][] = [];
   const s: any = new Controller({

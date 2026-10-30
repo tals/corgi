@@ -32,6 +32,12 @@ function backgroundTerminals(text: string) {
 }
 export function screen(title: string, text: string): Reading | null {
   if (title.includes("Action Required")) return "blocked";
+  const full = sharedPrompt(text);
+  if (full === "blocked" || full === "initializing") return full;
+  // The composer and footer can push the live status out of the screen tail.
+  const rows = text.trimEnd().split("\n");
+  const prompt = rows.findLastIndex(row => row.trimStart().startsWith("›"));
+  if (prompt >= 0) text = rows.slice(0, prompt + 1).join("\n");
   const shared = sharedPrompt(text);
   if (shared === "working") {
     const row = status(text);
