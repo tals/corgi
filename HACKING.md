@@ -109,6 +109,11 @@ If a parallel integration suite fails, rerun it with `--jobs 1` first.
 deterministic waiting. [evals/README.md](evals/README.md) covers activity-summary
 evals; live model checks consume provider usage.
 
+The landing page's “Works with” badges live in `site/index.html`, with icons
+in `site/icons/`. Keep them on one row on mobile; `omp` uses the short command
+name. Build with `bun run landingpage:build` and preview with
+`bun run landingpage:start`.
+
 ## Try the UI
 
 ```sh

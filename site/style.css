@@ -255,7 +255,7 @@ h1 { margin: 0; font-size: 48px; line-height: 1.05; font-weight: 700; color: var
 /* Its box's padding takes the ground beside it: the sidebar's, then the
    pane's from --split on, so there's no bezel. */
 .band[data-feature="agents"] > .stage { background: linear-gradient(to right, var(--bg) var(--split, 50%), var(--pane) var(--split, 50%)); }
-.works-with { --r: 10px; --gap: 3.5ch; position: relative; z-index: 2; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px var(--gap); margin: -8px 0 0; padding: 7px 2ch 9px; list-style: none; font-size: 13px; background: var(--bg); border: 1px solid var(--surface); border-top: 0; border-radius: 0 0 var(--r) var(--r); }
+.works-with { --r: 10px; --gap: 3.5ch; position: relative; z-index: 2; display: flex; flex-wrap: nowrap; justify-content: center; gap: 4px var(--gap); margin: -8px 0 0; padding: 7px 2ch 9px; list-style: none; font-size: 13px; background: var(--bg); border: 1px solid var(--surface); border-top: 0; border-radius: 0 0 var(--r) var(--r); }
 .works-with::before, .works-with::after { content: ""; position: absolute; top: 0; width: var(--r); height: var(--r); pointer-events: none; }
 .works-with::before { left: calc(-1 * var(--r)); background: radial-gradient(circle at 0 100%, transparent calc(var(--r) - 1px), var(--surface) calc(var(--r) - 1px) var(--r), var(--bg) var(--r)); }
 .works-with::after { right: calc(-1 * var(--r)); background: radial-gradient(circle at 100% 100%, transparent calc(var(--r) - 1px), var(--surface) calc(var(--r) - 1px) var(--r), var(--bg) var(--r)); }
@@ -266,8 +266,9 @@ h1 { margin: 0; font-size: 48px; line-height: 1.05; font-weight: 700; color: var
 .works-with a:hover { color: var(--strong); }
 .works-with img { width: 14px; height: 14px; object-fit: contain; }
 @media (max-width: 600px) {
-  .works-with { --gap: 2.25ch; padding-inline: 1.5ch; font-size: 11px; }
-  .works-with img { width: 12px; height: 12px; }
+  .works-with { --gap: 1ch; padding-inline: 1ch; font-size: clamp(9px, 3.2vw, 11px); }
+  .works-with a { gap: 0.5ch; }
+  .works-with img { width: 1em; height: 1em; }
 }
 .band > .legend { font-size: inherit; color: var(--muted); }
 @media (max-width: 600px) {
