@@ -210,9 +210,9 @@ exec ${quote(agent)} "$@"`,
     writeFileSync(this.path + ".viewer.json", JSON.stringify({ onboarding_complete: true }));
     const view = await Viewer.create(this, 160, 40);
     await view.input("\x02A");
-    await view.input("m");
+    await view.input("\x1b[C");
     await view.advance(0.3);
-    await view.input("add claude\t\r");
+    await view.input("/add claude\t\r");
     await this.until(async () => (await view.poll()).data.includes("Select login method"));
     await view.input("\r");
     await this.until(async () => (await view.poll()).data.includes("paste it here"));
@@ -264,10 +264,10 @@ exec ${quote(agent)} "$@"`,
     this.env.CORGI_CLAUDE_BIN = this.first_run;
     writeFileSync(this.path + ".viewer.json", JSON.stringify({ onboarding_complete: true }));
     const view = await Viewer.create(this, 160, 40);
-    await view.input("\x02Am");
+    await view.input("\x02A\x1b[C");
     await view.advance(0.3);
     await this.until(async () => (await view.poll()).data.includes("Manage agents"));
-    await view.input("add claude\t");
+    await view.input("/add claude\t");
     const before = screen_text((await view.poll()).data, 160, 40),
       row = before.findIndex(row => /›\s+\+ New Claude Code account/.test(row)),
       col = before[row].indexOf("Claude Code");
@@ -303,10 +303,10 @@ exec ${quote(agent)} "$@"`,
     writeFileSync(this.path + ".viewer.json", JSON.stringify({ onboarding_complete: true }));
     const view = await Viewer.create(this, 160, 40);
     await view.input("\x02A");
-    await view.input("m");
+    await view.input("\x1b[C");
     await view.advance(0.3);
     await this.until(async () => (await view.poll()).data.includes("Manage agents"));
-    await view.input("add claude\t");
+    await view.input("/add claude\t");
     const before = screen_text((await view.poll()).data, 160, 40);
     this.assertTrue(
       before.some(row => /›\s+\+ New Claude Code account/.test(row)),
@@ -360,7 +360,7 @@ exec ${quote(agent)} "$@"`,
     await click(settings[y].indexOf("Manage agents"), y);
     await view.input("\r");
     await this.until(async () => (await rows()).some(row => row.includes("me@work.com")));
-    await view.input("work\t\x7f");
+    await view.input("/work\t\x7f");
     await view.advance(0.4);
     for (let i = 0; i < 30; i++) {
       await view.input("\x7f");
@@ -383,7 +383,7 @@ exec ${quote(agent)} "$@"`,
     await this.until(async () => !(await view.poll()).data.includes("Corgi setup"));
     await view.input("\x02A");
     this.assertFalse((await rows()).some(row => row.includes("me@work.com")));
-    await view.input("m");
+    await view.input("\x1b[C");
     await view.advance(0.3);
     await this.until(async () => (await rows()).some(row => row.includes("claude --model opus")));
     // The account stays removed after reopening the manager.
@@ -425,10 +425,10 @@ exec ${quote(agent)} "$@"`,
     const view = await Viewer.create(this, 160, 40);
     let holding: Promise<void> | null = null;
     try {
-      await view.input("\x02Am");
+      await view.input("\x02A\x1b[C");
       await view.advance(0.3);
       await this.until(async () => (await view.poll()).data.includes("slow"));
-      await view.input("slow\t");
+      await view.input("/slow\t");
       holding = (async () => {
         await view.input("\x7f");
         await view.advance(0.4);

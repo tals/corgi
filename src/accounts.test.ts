@@ -118,7 +118,7 @@ test("a new account's numbered folder waits in a private temporary folder until 
   expect(accounts.known()).toEqual([work]);
   expect(() => accounts.stage("claude", "work")).toThrow("AccountExists");
   expect(() => accounts.stage("claude", "default")).toThrow("InvalidAccountName");
-  expect(() => accounts.stage("claude", "a b")).toThrow("InvalidAccountName");
+  expect(() => accounts.stage("claude", " ")).toThrow("InvalidAccountName");
 });
 
 test("links its sign-in made to the staging folder lead into the folder once it moves in", () => {
@@ -455,7 +455,7 @@ test("invalid account edits are atomic, and old account files need no migration"
   expect(() => accounts.configure("claude", "", "new", { flags: "", env: [["CLAUDE_CONFIG_DIR", "/other"]] })).toThrow(
     "AccountEnvironmentOverride",
   );
-  expect(() => accounts.configure("claude", "", "not a name", { flags: "", env: [] })).toThrow("InvalidAccountName");
+  expect(() => accounts.configure("claude", "", "bad\nname", { flags: "", env: [] })).toThrow("InvalidAccountName");
   expect(readFileSync(accounts.path(), "utf8")).toBe(before);
   expect(accounts.defaultName("claude")).toBe("home");
   writeFileSync(accounts.path(), JSON.stringify({ accounts: [], forgotten: [], defaults: { claude: "legacy" } }));
@@ -464,4 +464,32 @@ test("invalid account edits are atomic, and old account files need no migration"
   expect(accounts.launchOptions("claude", "")).toEqual({ flags: "", env: [] });
   accounts.configure("claude", "", "legacy", { flags: "--verbose", env: [] });
   expect(accounts.launchOptions("claude", "").flags).toBe("--verbose");
+});
+
+test("display names allow spaces, punctuation and Unicode without changing account folders", () => {
+  const name = "Claude / Review 🤖 (work)",
+    staged = accounts.stage("claude", name);
+  signIn(staged.dir, "me@work.com");
+  const account = accounts.adopt(staged);
+  expect(basename(account.dir)).toBe("1");
+  expect(accounts.named(name)?.dir).toBe(account.dir);
+  expect(accounts.named("claude/" + name)?.dir).toBe(account.dir);
+  accounts.rename(account, "Review: é / 中文");
+  accounts.configure("codex", "", "Codex Astra (XHigh)", { flags: "", env: [] });
+  accounts.reset();
+  expect(accounts.known()[0]).toMatchObject({ name: "Review: é / 中文", dir: account.dir });
+  expect(accounts.defaultName("codex")).toBe("Codex Astra (XHigh)");
+  for (const invalid of [" ", "a\nb", "a\x1bb", "a\x85b", "é".repeat(81)])
+    expect(() => accounts.rename(account, invalid)).toThrow("InvalidAccountName");
+  expect(accounts.known()[0].name).toBe("Review: é / 中文");
+});
+
+test("provider-prefixed names resolve literally and reject ambiguous qualifiers", () => {
+  const literal = accounts.adopt(accounts.stage("claude", "claude/Review"));
+  expect(accounts.named("claude/Review")?.dir).toBe(literal.dir);
+  expect(accounts.named("claude/claude/Review")?.dir).toBe(literal.dir);
+  const other = accounts.adopt(accounts.stage("claude", "Review"));
+  expect(() => accounts.named("claude/Review")).toThrow("AmbiguousAccount");
+  expect(accounts.named("Review")?.dir).toBe(other.dir);
+  expect(accounts.named("claude/claude/Review")?.dir).toBe(literal.dir);
 });

@@ -10,6 +10,7 @@ import { Text, adapter } from "./providers";
 import { logicalKey } from "./keys";
 import * as viewerNative from "./viewer_native";
 import * as accounts from "./accounts";
+import * as agentName from "./agent_name";
 import * as launcherConfig from "./launcher_config";
 import * as profiles from "./agent_profiles";
 import * as launcherOrder from "./launch/order";
@@ -103,6 +104,8 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
       break;
     }
     case "agent.command": {
+      if (request.payload.name !== null && request.payload.name !== undefined)
+        agentName.check(request.payload.name, true);
       if (request.payload.index < 0 || request.payload.index >= r.agent_commands.length) throw Error("InvalidCommand");
       const source =
           request.payload.resolve && request.payload.command

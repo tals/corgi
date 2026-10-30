@@ -355,6 +355,11 @@ class AgentCli extends Runtime {
     this.assertEqual(clone.options.effort, "high");
     this.assertEqual(clone.options.env, [["TEST_MODE", "1"]]);
     this.assertEqual(result.find((a: any) => a.agent === "codex").options, { flags: "", env: [] });
+    await run("edit", "codex", "--name", "Codex / Astra 🤖");
+    this.assertEqual(rows(await run("list")).find((a: any) => a.agent === "codex").label, "Codex / Astra 🤖");
+    await this.cli(["launcher", "edit", "codex", "--name", "bad\nname", "--workspace", 1], {
+      error: "InvalidAccountName",
+    });
     await run("move", "Review bot", "--first");
     await run("hide", "claude");
     await this.cli(["launcher", "copy", "--from", 1, "--workspace", other]);
@@ -374,6 +379,9 @@ class AgentCli extends Runtime {
     await run("remove", clone.agent);
     this.assertTrue(!rows(await run("list")).some((a: any) => a.agent === clone.agent));
     await run("add", "--command", "/bin/echo hello", "--name", "Echo");
+    await this.cli(["launcher", "edit", "Echo", "--name", "bad\nname", "--workspace", 1], {
+      error: "InvalidAgentName",
+    });
     await run("clone", "Echo", "--name", "Echo copy");
     this.assertTrue(rows(await run("list")).some((a: any) => a.label === "Echo copy"));
     await run("remove", "Echo copy");

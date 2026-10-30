@@ -49,7 +49,7 @@ test("clones persist independent options while sharing an account", () => {
 });
 
 test("profile writes reject invalid settings and account overrides", () => {
-  expect(() => profiles.save({ ...source(), name: "" })).toThrow("InvalidAgentOptions");
+  expect(() => profiles.save({ ...source(), name: "" })).toThrow("InvalidAgentName");
   expect(() => profiles.save({ ...source(), account: "/missing-profile-account" })).toThrow("AccountNotFound");
   expect(() =>
     profiles.save({ ...source(), options: { flags: "", env: [["CLAUDE_CONFIG_DIR", "/different"]] } }),

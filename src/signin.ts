@@ -4,6 +4,7 @@
 //! only moves in once its sign-in worked out; cancelling signs it out and
 //! deletes it. The viewer shows it over its panes; `corgi account add` and
 //! `corgi account login` show it in the terminal they run in.
+import * as agentName from "./agent_name";
 import * as accounts from "./accounts";
 import * as build_id from "./build_id";
 import * as corgiAnimation from "./corgi_animation";
@@ -713,7 +714,8 @@ export class Signin {
 const keycap = (k: string) => `${palette.keycap} ${k} ${reset}`;
 const problems: Record<string, string> = {
   AccountManagementUnsupported: "Manage this agent's login in the agent itself.",
-  InvalidAccountName: "A name is letters, digits, dots, dashes and underscores, up to 32.",
+  InvalidAccountName: agentName.message + " The account name default is reserved.",
+  InvalidAgentName: agentName.message,
   AccountExists: "There's an account by that name already.",
   AccountNotFound: "Corgi doesn't list this account any more.",
   InvalidAgentOptions: "Check the extra flags and environment variables.",

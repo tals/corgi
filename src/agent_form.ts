@@ -1,5 +1,6 @@
 //! The per-account launch editor. Geometry is stable while environment rows change.
 import type { Agent } from "./agent_manager";
+import * as agentName from "./agent_name";
 import * as agentOptions from "./agent_options";
 import * as palette from "./palette";
 import { Dialog, View as DialogView, writeField, printable } from "./name_dialog";
@@ -24,7 +25,7 @@ const at = (x: number, y: number) => `\x1b[${y + 1};${x + 1}H`;
 
 export class Form {
   agent: Agent | null = null;
-  name = Dialog.init({ rename: 0 }, "");
+  name = Dialog.init({ agent_name: null }, "");
   flags = editor("");
   variables: Variable[] = [];
   focus: Focus = { kind: "name" };
@@ -38,7 +39,7 @@ export class Form {
 
   open(agent: Agent, options: agentOptions.Options, suggestion: string): void {
     this.agent = agent;
-    this.name = Dialog.init({ rename: 0 }, agent.name);
+    this.name = Dialog.init({ agent_name: null }, agent.name);
     this.flags = editor(options.flags);
     this.model = options.model || "";
     this.effort = options.effort;
@@ -82,7 +83,8 @@ export class Form {
   }
   validate(): boolean {
     this.error = agentOptions.problem(this.options()) ?? "";
-    if ((this.cloning || this.agent?.profile) && !this.label()) this.error = "Give this agent a name.";
+    if (this.label() ? !agentName.valid(this.label()) : this.cloning || this.agent?.profile)
+      this.error = agentName.message;
     if ([this.name, this.flags, ...this.variables.flatMap(v => [v.key, v.value])].some(d => d.overflow))
       this.error = "A field is too long; shorten it before saving.";
     return !this.error;

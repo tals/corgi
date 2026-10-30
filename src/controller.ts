@@ -431,9 +431,13 @@ export class Controller {
   layoutView(): LayoutView {
     return new LayoutView(this.model(), this.nav());
   }
-  private async execute(command: CommandInput): Promise<{ pane: number; workspace: number }> {
+  private async execute(command: CommandInput): Promise<{ pane: number; workspace: number; text: string | null }> {
     const response = await call(this.connection, "session.command", { command });
-    const result = { pane: Number(response.result?.pane ?? 0), workspace: Number(response.result?.workspace ?? 0) };
+    const result = {
+      pane: Number(response.result?.pane ?? 0),
+      workspace: Number(response.result?.workspace ?? 0),
+      text: response.result?.text ?? null,
+    };
     await this.refresh();
     this.dirty = true;
     return result;
@@ -2421,12 +2425,17 @@ export class Controller {
         return this.setWorkspaceShown(Row.ofCommand(action.index), action.shown);
       case "configure":
         try {
-          if (action.agent.profile) {
-            const profile = agentProfiles.find(action.agent.profile);
-            if (!profile) throw Error("InvalidAgent");
-            agentProfiles.save({ ...profile, name: action.name, options: action.options });
-            launch.profiles = agentProfiles.list();
-          } else accounts.configure(action.agent.provider, action.agent.account, action.name, action.options);
+          await this.execute({
+            "agent.launcher.configure": {
+              row: agentManager.agentRow(action.agent),
+              name: action.name,
+              model: action.options.model ?? "auto",
+              effort: action.options.effort ?? "default",
+              flags: action.options.flags,
+              env: JSON.stringify(Object.fromEntries(action.options.env)),
+            },
+          });
+          launch.profiles = agentProfiles.list();
           launch.manager.configured();
           if (action.agent.profile) return;
           if (!action.agent.account) launch.preview.names[action.agent.provider] = action.name;
@@ -2440,15 +2449,14 @@ export class Controller {
         return;
       case "model":
         try {
-          const options = { ...launch.manageModel().options(action.agent), model: action.model };
-          if (action.effort) options.effort = action.effort;
-          else delete options.effort;
-          if (action.agent.profile) {
-            const profile = agentProfiles.find(action.agent.profile);
-            if (!profile) throw Error("InvalidAgent");
-            agentProfiles.save({ ...profile, options });
-            launch.profiles = agentProfiles.list();
-          } else accounts.configure(action.agent.provider, action.agent.account, action.agent.name, options);
+          await this.execute({
+            "agent.launcher.configure": {
+              row: agentManager.agentRow(action.agent),
+              model: action.model || "auto",
+              effort: action.effort ?? "default",
+            },
+          });
+          launch.profiles = agentProfiles.list();
         } catch (error) {
           launch.manager.fail(signin.problem(error));
         }
@@ -2462,24 +2470,30 @@ export class Controller {
         try {
           const source = agentManager.agentRow(action.agent),
             rows = launch.rows().filter(r => r !== "terminal"),
-            profile = agentProfiles.save({
-              provider: action.agent.provider,
-              account: action.agent.account,
-              name: action.name,
-              options: action.options,
-              yolo: launch.yoloOf(source),
-            });
+            saved = await this.execute({
+              "agent.launcher.configure": {
+                row: source,
+                clone: true,
+                name: action.name,
+                model: action.options.model ?? "auto",
+                effort: action.options.effort ?? "default",
+                flags: action.options.flags,
+                env: JSON.stringify(Object.fromEntries(action.options.env)),
+              },
+            }),
+            row = Row.parse(saved.text ?? "");
+          if (!row) throw Error("InvalidAgent");
           const move = {
             workspace: launch.workspace,
-            row: Row.ofProfile(profile.id),
+            row,
             before: rows[rows.findIndex(r => r === source) + 1] ?? null,
-            order: [...rows, Row.ofProfile(profile.id)],
+            order: [...rows, row],
             shown: action.agent.shown && action.agent.here,
           };
           try {
             await this.execute({ "agent.launcher.move": move });
           } catch (error) {
-            agentProfiles.remove(profile.id);
+            await this.execute({ "agent.launcher.remove": { row } });
             throw error;
           }
           launch.profiles = agentProfiles.list();
@@ -2490,8 +2504,8 @@ export class Controller {
           );
           launch.workspace_hidden = toggled(launch.workspace_hidden, move.row, !move.shown);
           launch.manager.configured();
-          launch.manager.at = `profile:${profile.id}`;
-          this.addedAgent(profile.name);
+          launch.manager.at = row;
+          this.addedAgent(action.name);
         } catch (error) {
           launch.manager.fail(signin.problem(error));
         }
@@ -2525,7 +2539,7 @@ export class Controller {
       case "remove":
         if (action.agent.profile) {
           try {
-            agentProfiles.remove(action.agent.profile);
+            await this.execute({ "agent.launcher.remove": { row: agentManager.agentRow(action.agent) } });
             launch.profiles = agentProfiles.list();
             launch.manager.removed();
           } catch (error) {
@@ -3040,7 +3054,7 @@ export class Controller {
     if (profile) {
       const value = agentProfiles.find(profile);
       if (value) {
-        agentProfiles.save({ ...value, yolo: !value.yolo });
+        await this.execute({ "agent.launcher.configure": { row, yolo: !value.yolo } });
         if (this.agent_launcher) this.agent_launcher.profiles = agentProfiles.list();
       }
       this.dirty = true;

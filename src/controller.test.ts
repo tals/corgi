@@ -1470,15 +1470,22 @@ test.each(["launcher", "settings"] as const)(
       expect(accounts.launchOptions("claude", "")).toEqual({ flags: "", env: [] });
       await s.input(bytes("\x1b[B"));
       await s.key(13);
-      expect(accounts.launchOptions("claude", "")).toEqual({
-        flags: "--model sonnet",
-        env: [["API_TIMEOUT_MS", "60000"]],
-      });
-      expect(accounts.defaultName("claude")).toBe("home");
+      expect(sent).toEqual([
+        {
+          "agent.launcher.configure": {
+            row: "claude",
+            name: "home",
+            model: "auto",
+            effort: "default",
+            flags: "--model sonnet",
+            env: '{"API_TIMEOUT_MS":"60000"}',
+          },
+        },
+      ]);
+      // The viewer sends one save; only the daemon writes shared configuration.
+      expect(accounts.launchOptions("claude", "")).toEqual({ flags: "", env: [] });
       expect(launch.label("claude")).toBe("Claude Code · home");
       expect(launch.manager.page).toBe("list");
-      // It asks the daemon for nothing: the preview reads the name again.
-      expect(sent).toEqual([]);
     } finally {
       if (saved === undefined) delete process.env.CORGI_ENV_BASE;
       else process.env.CORGI_ENV_BASE = saved;

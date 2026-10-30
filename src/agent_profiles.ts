@@ -6,7 +6,7 @@ import { Provider, adapter } from "./providers";
 import * as accounts from "./accounts";
 import * as options from "./agent_options";
 import * as os from "./os";
-import { byteLength } from "./text";
+import * as agentName from "./agent_name";
 
 export type Profile = {
   id: string;
@@ -35,7 +35,7 @@ export function list(): Profile[] {
         typeof entry.account !== "string" ||
         (entry.account && !entry.account.startsWith("/")) ||
         typeof entry.name !== "string" ||
-        !validName(entry.name)
+        !agentName.valid(entry.name)
       )
         return [];
       seen.add(entry.id);
@@ -55,12 +55,10 @@ export function list(): Profile[] {
   }
 }
 export const find = (id: string) => list().find(p => p.id === id) ?? null;
-function validName(name: string) {
-  return !!name.trim() && byteLength(name) <= 160 && !/[\x00-\x1f\x7f-\x9f]/.test(name);
-}
 export function save(profile: Omit<Profile, "id"> & { id?: string }): Profile {
   const settings = options.read(profile.options);
-  if (!validName(profile.name) || !settings || (profile.id && !validId(profile.id))) throw Error("InvalidAgentOptions");
+  agentName.check(profile.name);
+  if (!settings || (profile.id && !validId(profile.id))) throw Error("InvalidAgentOptions");
   if (settings.env.some(([key]) => key === adapter(profile.provider).accounts.env))
     throw Error("AccountEnvironmentOverride");
   if (profile.account && !accounts.find(profile.provider, profile.account)) throw Error("AccountNotFound");

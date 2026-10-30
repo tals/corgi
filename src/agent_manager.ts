@@ -130,7 +130,7 @@ type Removal = {
 /** A saved command's form: its command line and name, as Corgi resolves them. */
 export class Form {
   editor = Object.assign(Dialog.init({ agent_command: 0 }, ""), { selected: false });
-  name_editor = Object.assign(Dialog.init({ rename: 0 }, ""), { selected: false });
+  name_editor = Object.assign(Dialog.init({ agent_name: null }, ""), { selected: false });
   name_focused = false;
   show_command = false;
   name_customized = false;
@@ -157,7 +157,7 @@ export class Form {
     this.name_focused = false;
     this.show_command = false;
     this.name_customized = index !== null;
-    this.name_editor = Dialog.init({ rename: 0 }, index !== null ? commands[index].label() : "");
+    this.name_editor = Dialog.init({ agent_name: null }, index !== null ? commands[index].label() : "");
     if (index !== null) {
       try {
         this.draft.set(source);
@@ -312,7 +312,7 @@ export class View {
   back_label = "New tab";
   private first = 0;
   focus: "search" | "list" = "list";
-  query = Dialog.init({ rename: 0 }, "");
+  query = Dialog.init({ agent_name: null }, "");
   /** The selected row's key. */
   at = "";
   /** The row being buried, kept until the corgi has left. */
@@ -341,7 +341,7 @@ export class View {
     this.glide = null;
     this.first = 0;
     this.focus = "list";
-    this.query = Dialog.init({ rename: 0 }, "");
+    this.query = Dialog.init({ agent_name: null }, "");
     this.at = at;
     this.transition = new Slide();
     this.removal = null;
@@ -549,7 +549,7 @@ export class View {
     if (item.kind === "command") {
       this.command(item.index, model);
       this.form.edit_index = null;
-      this.form.name_editor = Dialog.init({ rename: 0 }, model.commands[item.index].label() + " copy");
+      this.form.name_editor = Dialog.init({ agent_name: null }, model.commands[item.index].label() + " copy");
       this.form.name_customized = true;
       return;
     }
@@ -560,7 +560,7 @@ export class View {
       n = 2;
     while (names.has(name)) name = base + " copy " + n++;
     this.agent_form.open(item.agent, model.options(item.agent), name);
-    this.agent_form.name = Dialog.init({ rename: 0 }, name);
+    this.agent_form.name = Dialog.init({ agent_name: null }, name);
     this.agent_form.cloning = true;
     this.transition.start(1, milliTimestamp());
     this.page = "agent";
