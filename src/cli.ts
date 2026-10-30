@@ -9,13 +9,107 @@ import * as launcherOrder from "./launch/order";
 import * as effort from "./providers/effort";
 import { Row } from "./launch/row";
 import { Entry as CommandEntry } from "./launch/command";
-import * as cli_args from "./cli_args";
-import * as cli_help from "./cli_help";
-const { flags, options } = cli_args;
-const { groups, nested } = cli_help;
-const actions = new Map(Object.keys(cli_help.controls).map(name => [name, name as keyof typeof cli_help.controls]));
+import helpText from "../assets/cli-help.txt" with { type: "text" };
+import skill from "../assets/corgi-skill.md" with { type: "text" };
+export const help = helpText;
+const groups = new Set(["tab", "pane", "workspace", "launcher", "claim", "current", "list", "focus", "--skill"]);
+const nested = new Set(["tab", "pane", "workspace", "launcher"]);
+const flags = new Set(["json", "clear", "stdin", "enter", "new-tab", "first", "left", "right", "up", "down"]);
+const options = new Set([
+  ...flags,
+  "model",
+  "effort",
+  "flags",
+  "env",
+  "yolo",
+  "from",
+  "viewer",
+  "pane",
+  "owner",
+  "workspace",
+  "name",
+  "command",
+  "cwd",
+  "before",
+  "after",
+  "width",
+  "height",
+  "lines",
+  "left-of",
+  "right-of",
+  "above",
+  "below",
+]);
+const actions = new Set([
+  "list",
+  "current",
+  "focus",
+  "tab.new",
+  "tab.rename",
+  "tab.move",
+  "tab.merge",
+  "tab.close",
+  "pane.split",
+  "pane.move",
+  "pane.swap",
+  "pane.resize",
+  "pane.close",
+  "pane.read",
+  "pane.send",
+  "pane.keys",
+  "pane.idle",
+  "claim",
+  "workspace.new",
+  "workspace.edit",
+  "workspace.close",
+  "workspace.switch",
+  "launcher.edit",
+  "launcher.clone",
+  "launcher.move",
+  "launcher.copy",
+  "launcher.models",
+  "launcher.remove",
+  "launcher.add",
+  "launcher.list",
+  "launcher.hide",
+  "launcher.show",
+]);
 export function handles(args: string[]): boolean {
   return groups.has(args[0]);
+}
+/** Help flags before `--`, excluding option values. */
+export function asksHelp(args: string[]): boolean {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--") return false;
+    if (arg === "--help" || arg === "-h") return true;
+    const name = arg.startsWith("--") ? arg.slice(2) : "";
+    if (!flags.has(name) && (options.has(name) || name === "account" || name === "dir")) i++;
+  }
+  return false;
+}
+/** The lines of a help text that show the command a line names, matched by
+ * its longest run of leading words: `pane split 3` finds `corgi pane split`. */
+export function usage(text: string, args: string[]): string[] {
+  const end = args.findIndex((arg, i) => i > 0 && arg.startsWith("-")),
+    words = end === -1 ? args : args.slice(0, end);
+  for (let n = words.length; n > 0; n--) {
+    let matched = false;
+    const prefix = ["corgi", ...words.slice(0, n)].join(" "),
+      lines = text.split("\n").filter(line => {
+        if (matched && line.startsWith("    ")) return true;
+        const shown = line.trimStart();
+        matched = shown.startsWith(prefix) && [undefined, " ", "|"].includes(shown[prefix.length]);
+        return matched;
+      });
+    if (lines.length) return lines;
+  }
+  return [];
+}
+/** A command's usage, or the full reference when no command was named. */
+export function helpFor(text: string, args: string[]): string {
+  const lines = usage(text, args);
+  return lines.length ? `Usage:\n${lines.join("\n")}\n` : text;
 }
 export function id(value: string): number {
   if (!/^\+?\d+$/.test(value)) throw Error("InvalidCharacter");
@@ -101,8 +195,8 @@ export async function parse(words: string[], caller = 0, input?: () => Promise<s
   if (!groups.has(group)) throw Error("Usage");
   let start = nested.has(group) ? 2 : 1;
   const raw = nested.has(group) ? `${group}.${words[1]}` : group;
-  const action = actions.get(raw === "workspace.list" ? "list" : raw);
-  if (!action) throw Error("Usage");
+  const action = raw === "workspace.list" ? "list" : raw;
+  if (!actions.has(action)) throw Error("Usage");
   let current = false,
     target = 0;
   if (group !== "launcher" && !["list", "current", "tab.new", "workspace.new", "pane.idle", "claim"].includes(action)) {
@@ -624,6 +718,15 @@ export function read(text: string, lines: number, agent = false): string {
  * the daemon sent it. */
 export async function run(path: string, args: string[], agent = false): Promise<void> {
   const group = args[0];
+  if ((nested.has(group) && args.length === 1) || asksHelp(args.slice(1))) {
+    process.stdout.write(helpFor(help, args));
+    return;
+  }
+  if (group === "--skill") {
+    if (args.length !== 1) throw Error("Usage");
+    process.stdout.write(skill);
+    return;
+  }
   const caller = Number(process.env.CORGI_PANE) || 0,
     inv = await parse(args, caller),
     conn = new Connection(path);
@@ -675,7 +778,7 @@ export async function run(path: string, args: string[], agent = false): Promise<
 /** Writes a failed command line's error, as JSON when it asked for `--json`;
  * a usage error lists the command's help lines. */
 export function failure(code: string, status = 1, args: string[] = []): void {
-  const lines = code === "Usage" ? cli_help.usage(args).map(line => line.trim()) : [],
+  const lines = code === "Usage" ? usage(help, args).map(line => line.trim()) : [],
     end = args.indexOf("--");
   if ((end === -1 ? args : args.slice(0, end)).includes("--json"))
     process.stderr.write(stringify({ ok: false, err: code, ...(lines.length ? { usage: lines } : {}) }) + "\n");

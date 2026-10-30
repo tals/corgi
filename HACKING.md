@@ -31,7 +31,6 @@ scroll position and selection. CLI and viewer mutations use the same commands.
 | --- | --- |
 | Daemon and shared state | [server.ts](src/server.ts), [runtime.ts](src/runtime.ts), [session.ts](src/session.ts) |
 | Viewer and actions | [controller.ts](src/controller.ts), [action.ts](src/action.ts), [viewer_protocol.ts](src/viewer_protocol.ts) |
-| CLI entry, help and execution | [main.ts](src/main.ts), [cli_args.ts](src/cli_args.ts), [cli_help.ts](src/cli_help.ts), [app.ts](src/app.ts) |
 | Provider observations | [agents guide](docs/agents.md), [conversations.ts](src/conversations.ts) |
 | Native terminal, PTYs and rendering | [native/](native/), [native_bridge.ts](src/native_bridge.ts) |
 | Persistence and handoff | [persist/](src/persist/) |

@@ -28,3 +28,19 @@ export function enabled(flag: boolean | null, env: Record<string, string | undef
   if (env.CORGI_AGENT_MODE === "0") return false;
   return !terminal && agent(env) !== null;
 }
+/** A command line without its `--agent`/`--no-agent` flags, and the last one
+ * given. Words after `--` are text, not flags. */
+export function flags(args: string[]): { flag: boolean | null; args: string[] } {
+  let flag: boolean | null = null,
+    literal = false;
+  const rest: string[] = [];
+  for (const arg of args) {
+    if (!literal && arg === "--agent") flag = true;
+    else if (!literal && arg === "--no-agent") flag = false;
+    else {
+      if (arg === "--") literal = true;
+      rest.push(arg);
+    }
+  }
+  return { flag, args: rest };
+}

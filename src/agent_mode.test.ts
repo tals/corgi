@@ -19,3 +19,10 @@ test("the agent comes from its variable or, for AI_AGENT and AGENT, the value", 
   expect(agent_mode.agent({ CLAUDECODE: "1", AGENT: "amp" })).toBe("claude-code");
   expect(agent_mode.agent({})).toBeNull();
 });
+test("agent flags are taken out before --, the last one winning", () => {
+  expect(agent_mode.flags(["--agent", "list", "--no-agent"])).toEqual({ flag: false, args: ["list"] });
+  expect(agent_mode.flags(["pane", "send", "3", "--", "--agent"])).toEqual({
+    flag: null,
+    args: ["pane", "send", "3", "--", "--agent"],
+  });
+});

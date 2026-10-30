@@ -10,8 +10,26 @@ import * as agentProfiles from "./agent_profiles";
 import * as integration from "./integration";
 import * as signin from "./signin";
 import * as errors from "./errors";
-import * as cli_help from "./cli_help";
+import * as cli from "./cli";
 
+const managed = Provider.all.filter(p => adapter(p).accounts.signin !== null);
+export const help = `Usage: corgi account COMMAND
+
+  list                          the accounts Corgi knows and who signed in
+  add [PROVIDER] [NAME]         make a new account and sign in to it; it's
+                                named from the login unless you name it
+  add PROVIDER NAME --dir DIR   use an account folder you already have
+  login NAME                    sign in to an account again
+  rename NAME NEW               call an account something else; NAME can be
+                                default, or claude/default, for the default
+  remove NAME                   remove an account: one Corgi made is signed
+                                out and deleted, another forgotten
+
+PROVIDER is ${managed.join(" or ")}. Name an account claude/work when two
+providers both have one called work. Signing in runs the agent's own sign-in
+in the account's folder; agents then start there from the launcher, or with
+${managed.map(p => adapter(p).accounts.env).join(" or ")} set.
+`;
 /** `path` from `~` when it is under HOME, as typed or with links resolved. */
 const tilde = (path: string) => {
   const home = process.env.HOME ?? homedir();
@@ -172,13 +190,15 @@ const messages: Record<string, string> = {
 };
 /** `corgi account …`: the exit status. */
 export async function command(args: string[]): Promise<number> {
+  if (args[0] === "help" || cli.asksHelp(args)) {
+    process.stdout.write(help);
+    return 0;
+  }
   try {
     return await run(args);
   } catch (error) {
     const name = errors.name(error) ?? String(error);
-    process.stderr.write(
-      name === "Usage" ? cli_help.render(["account", ...args]) : `corgi: ${messages[name] ?? name}\n`,
-    );
+    process.stderr.write(name === "Usage" ? help : `corgi: ${messages[name] ?? name}\n`);
     return name === "Usage" ? 2 : 1;
   }
 }
