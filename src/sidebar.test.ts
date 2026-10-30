@@ -8,6 +8,7 @@ import { Terminal } from "./pane/terminal";
 import { View as ContextView } from "./usage/context_window";
 import * as sim from "./providers/sim";
 import * as agentSections from "./agent_sections";
+import * as sidebarRows from "./sidebar_rows";
 import { section } from "./agent_order";
 import { Writer, displayWidth, writeClipped, directoryLabel } from "./text";
 import {
@@ -1663,4 +1664,26 @@ test("a row stepping aside draws off its place, never over the list's header", (
   const pushed = lines();
   expect(row("Alpha", pushed)).toBe(-1);
   expect(pushed.slice(0, row("Alpha", settled))).toEqual(settled.slice(0, row("Alpha", settled)));
+});
+test("clicks follow the top row when successive reorders overlap animations", () => {
+  const base = [1, 2, 3, 4].map(pane =>
+    entry({ target: { pane }, name: `Agent ${pane}`, provider: "claude", state: "idle" }),
+  );
+  for (const graphics of [false, true]) {
+    const state = new sidebarRows.State();
+    state.update(1, base, [], 1000);
+    state.update(1, [base[0], base[1], base[3], base[2]], [], 2000);
+    for (const now of [2070, 2090, 2110, 2140, 2300]) {
+      const entries = state.update(1, [base[0], base[2], base[1], base[3]], [], now),
+        view = View.init(100, 30, true, 0, entries.length).withEntries(entries);
+      view.supports_kitty_graphics = graphics;
+      view.cell = graphics ? { width: 10, height: 20 } : null;
+      const lines = hostText(draw(view, entries, [], now)).split("\n");
+      expect(lines.some(line => line.includes("Agent 4"))).toBe(true);
+      for (let y = 0; y < lines.length; y++) {
+        const shown = entries.findIndex(e => lines[y].includes(e.name));
+        if (shown >= 0) expect(view.hit(8, y)).toEqual({ tag: "entry", entry: shown });
+      }
+    }
+  }
 });

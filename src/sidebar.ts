@@ -932,7 +932,7 @@ export class View {
       const e = v.entries.length > 0 ? v.entries[index] : null,
         h = e ? View.height(e) : 2,
         at = top + (e?.slide ?? 0);
-      if (y >= at && y < at + h && (e ? v.layer(e) : 2) > layer) {
+      if (y >= at && y < at + h && (e ? v.layer(e) : 2) >= layer) {
         found = index;
         layer = e ? v.layer(e) : 2;
       }
