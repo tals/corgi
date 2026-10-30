@@ -642,3 +642,14 @@ test("idle shells come by workspace then tab, narrowed to a workspace or folder"
     r.destroy();
   }
 });
+
+test("resume without a reported model leaves the conversation's saved model alone", () => {
+  const launch = Launch.in("claude", "", false, { flags: "--verbose", env: [], model: "sonnet" }),
+    hint = new ResumeHint();
+  expect(launch.typed()).toBe("claude --model sonnet --verbose");
+  expect(launch.typed(["--resume", "s1"], hint)).toBe("claude --verbose --resume s1");
+  const agent = new Agent({ provider: "claude", session: new Text("s1") });
+  agent.model = new Text("opus");
+  hint.observe(agent);
+  expect(launch.typed(["--resume", "s1"], hint)).toBe("claude --model opus --verbose --resume s1");
+});

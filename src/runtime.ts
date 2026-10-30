@@ -168,7 +168,7 @@ export class Launch {
             agent.provider,
             ...adapter(agent.provider).launch.start({
               permissions: live?.permissions ?? (agent.yolo ? "bypass" : "default"),
-              model: live?.model.len ? live.model.text() : agent.model || null,
+              model: live ? (live.model.len ? live.model.text() : null) : agent.model || null,
               args: agent.args ?? [],
             }),
           ])
