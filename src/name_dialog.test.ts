@@ -1,6 +1,6 @@
 // Mirrors the tests in name_dialog.zig.
 import { expect, test } from "bun:test";
-import { Dialog, View, selection } from "./name_dialog";
+import { Dialog, View, selection, writeField } from "./name_dialog";
 import { Writer } from "./text";
 
 const c = (s: string) => s.charCodeAt(0);
@@ -105,4 +105,13 @@ test("a press in the field places the caret, and a drag selects from it", () => 
   d.release(0);
   d.drag(v, v.text_x + 9);
   expect(d.selection()).toEqual([0, 6]);
+});
+
+test("an agent's name shows its C0 and C1 controls as spaces, one column each", () => {
+  const d = Dialog.init({ agent: 1 }, "a\u009b2Jb\u0007c");
+  expect(d.shown(0, d.len)).toBe("a 2Jb c");
+  const w = new Writer();
+  d.position(d.len);
+  expect(writeField(w, d, 0, 20, "")).toBe(7);
+  expect(w.buffered()).toBe("a 2Jb c\x1b[27m");
 });

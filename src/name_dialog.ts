@@ -40,14 +40,12 @@ export type Result = "none" | "save" | "cancel";
 /** The longest name, in bytes, outside launch commands. */
 export const name_limit = 80;
 const max_length = 2048;
-/** C0 and C1 controls and DEL, which a folder's name may hold and the
- * terminal would act on. */
+/** C0 and C1 controls and DEL, which a folder's or an agent's name may hold
+ * and the terminal would act on. */
 const controls = /[\x00-\x1f\x7f-\x9f]/g;
-/** The columns `cp` takes in `t`'s field, where the controls it shows take one. */
-function fieldWidth(t: Target, cp: number): number {
-  return ("agent_command" in t && cp < 32) || ("folder" in t && (cp < 32 || (cp >= 127 && cp <= 159)))
-    ? 1
-    : codepointWidth(cp);
+/** The columns `cp` takes in a field, where each control it shows takes one. */
+function fieldWidth(cp: number): number {
+  return cp < 32 || (cp >= 127 && cp <= 159) ? 1 : codepointWidth(cp);
 }
 /** `text` with each control shown as "?", one column wide. */
 export function printable(text: string): string {
@@ -80,7 +78,7 @@ export function writeField(
     w.write((chosen ? selection : plain) + (caret && from === at ? "\x1b[7m" : "") + d.shown(from, to) + "\x1b[27m");
   }
   let column = 0;
-  for (const ch of d.bytes(offset, Math.min(at, end))) column += fieldWidth(d.target, ch.codePointAt(0)!);
+  for (const ch of d.bytes(offset, Math.min(at, end))) column += fieldWidth(ch.codePointAt(0)!);
   if (caret && at >= end && column < columns) w.write(plain + "\x1b[7m \x1b[27m");
   return column;
 }
@@ -269,7 +267,7 @@ export class Dialog {
       const piece = text.subarray(pos, pos + n);
       if (!validUtf8(piece)) break;
       const cp = Buffer.from(piece).toString().codePointAt(0)!;
-      used += fieldWidth(this.target, cp);
+      used += fieldWidth(cp);
       if (used > columns) break;
       pos += n;
     }
@@ -279,7 +277,7 @@ export class Dialog {
    * as spaces, or as "?" for a folder. */
   shown(from: number, to: number): string {
     const s = this.bytes(from, to);
-    return "folder" in this.target ? printable(s) : s.replace(/[\x00-\x1f\x7f]/g, " ");
+    return "folder" in this.target ? printable(s) : s.replace(controls, " ");
   }
   sequence(seq: string): void {
     const key = keys.parse(seq),
@@ -655,7 +653,7 @@ export class View {
     let cursor_width = 0;
     for (const ch of d.bytes(offset, d.cursor)) {
       const cp = ch.codePointAt(0)!;
-      cursor_width += fieldWidth(d.target, cp);
+      cursor_width += fieldWidth(cp);
     }
     w.write(`\x1b[0m\x1b[${y + 1};${this.text_x + 1 + cursor_width}H\x1b[?25h`);
   }
