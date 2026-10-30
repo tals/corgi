@@ -31,6 +31,9 @@ export class Drag {
   pinned: boolean;
   /** Each row's workspace, by the subhead over it; null where none says. */
   owners: (number | null)[];
+  /** In "all", where a drop among the pins pins an agent whose workspace has
+   * none yet: where that workspace's run will show, by the workspace list. */
+  slot: number | null = null;
   constructor(
     view: View,
     public source: number,
@@ -39,6 +42,8 @@ export class Drag {
     public workspace: number,
     public current: number,
     public sort: Sort = "manual",
+    /** Workspace ids in the workspace list's order. */
+    workspaces: number[] = [],
   ) {
     this.cols = view.cols;
     this.rows = view.rows;
@@ -62,9 +67,28 @@ export class Drag {
       else if (isSubhead(e.target)) owner = e.target.workspace;
       return owner;
     });
+    const mine = this.owners[source],
+      rows = Array.from({ length: this.pins.end - this.pins.first }, (_, i) => this.pins.first + i);
+    if (this.header !== null && mine !== null && !rows.some(i => this.owners[i] === mine)) {
+      const place = (id: number) => workspaces.indexOf(id);
+      this.slot =
+        rows.find(i => {
+          const t = this.ids[i];
+          return isSubhead(t) && place(t.workspace) > place(mine);
+        }) ?? this.pins.end;
+    }
   }
-  static init(view: View, source: number, x: number, y: number, workspace: number, current: number, sort?: Sort) {
-    return new Drag(view, source, x, y, workspace, current, sort);
+  static init(
+    view: View,
+    source: number,
+    x: number,
+    y: number,
+    workspace: number,
+    current: number,
+    sort?: Sort,
+    workspaces?: number[],
+  ) {
+    return new Drag(view, source, x, y, workspace, current, sort, workspaces);
   }
   valid(view: View, current: number) {
     if (
@@ -97,7 +121,8 @@ export class Drag {
     }
     if (drop.index === this.header) drop = { index: drop.index + 1, y: drop.y + 1 };
     if (drop.index >= this.pins.first && drop.index <= this.pins.end) {
-      if (this.own(drop.index)) this.reorder(drop, "pin");
+      if (this.slot !== null) this.reorder({ index: this.slot, y: drop.y }, "pin");
+      else if (this.own(drop.index)) this.reorder(drop, "pin");
     } else if (this.pinned) {
       this.action = "unpin";
       this.drop = drop;

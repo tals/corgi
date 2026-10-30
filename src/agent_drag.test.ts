@@ -145,3 +145,36 @@ test("in all, an agent drops only among its own workspace's rows, where its plac
   drag.update(view, 1, 5, yOf(view, 5));
   expect(drag.drop).toBeNull();
 });
+test("in all, an agent whose workspace has no pins pins where its workspace's run will show", () => {
+  const entries = [
+      row({ section: "pinned" }, null),
+      row({ section: "pinned", workspace: 1, checkout: null, run: 0 }, null),
+      row({ pane: 1 }, "pinned"),
+      row({ section: "pinned", workspace: 3, checkout: null, run: 0 }, null),
+      row({ pane: 3 }, "pinned"),
+      row({ section: "idle" }, null),
+      row({ section: "idle", workspace: 2, checkout: null, run: 0 }, null),
+      row({ pane: 2 }, "idle"),
+    ],
+    view = View.init(100, 30, true, 0, entries.length).withEntries(entries);
+  // Between workspaces 1 and 3, wherever it drops among the pins.
+  const drag = Drag.init(view, 7, 5, yOf(view, 7), 2, 2, "activity", [1, 2, 3]);
+  drag.dragging = true;
+  for (const at of [0, 2, 4]) {
+    drag.update(view, 2, 5, yOf(view, at));
+    expect(drag.action).toBe("pin");
+    expect(drag.preview).toBe(3);
+  }
+  // First of all, ahead of workspace 1's.
+  const first = Drag.init(view, 7, 5, yOf(view, 7), 2, 2, "activity", [2, 1, 3]);
+  first.dragging = true;
+  first.update(view, 2, 5, yOf(view, 4));
+  expect(first.action).toBe("pin");
+  expect(first.preview).toBe(1);
+  // Last of all, after workspace 3's.
+  const last = Drag.init(view, 7, 5, yOf(view, 7), 2, 2, "activity", [1, 3, 2]);
+  last.dragging = true;
+  last.update(view, 2, 5, yOf(view, 2));
+  expect(last.preview).toBe(5);
+  expect(last.before()).toBeNull();
+});

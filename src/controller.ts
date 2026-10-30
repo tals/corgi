@@ -5456,7 +5456,16 @@ export class Controller {
               if (at !== null && view.offset === side.offset) {
                 const owner = this.agentWorkspace(target);
                 if (owner !== null)
-                  this.agent_drag = AgentDrag.init(view, at, x, y, owner, this.current().id, this.prefs.agent_sort);
+                  this.agent_drag = AgentDrag.init(
+                    view,
+                    at,
+                    x,
+                    y,
+                    owner,
+                    this.current().id,
+                    this.prefs.agent_sort,
+                    this.runtime.workspaces.items.map(ws => ws.id),
+                  );
               }
             }
             break;
