@@ -72,7 +72,7 @@ import type { Signal } from "./trackers/resources";
 import * as worktreeTooltip from "./worktree_tooltip";
 import * as worktreeAgents from "./worktree_agents";
 import * as agentSections from "./agent_sections";
-import { section, type Section, type Target as OrderTarget } from "./agent_order";
+import { key as agentKey, section, type Section, type Target as OrderTarget } from "./agent_order";
 import * as worktrees from "./worktrees";
 import * as worktreeRemoval from "./worktree_removal";
 import * as rpc from "./rpc";
@@ -1001,7 +1001,7 @@ export class Controller {
       }
       entries.slice(first_agent).forEach((entry, i) => {
         const target = entry.target as OrderTarget,
-          key = agentSections.key(target),
+          key = agentKey(target),
           pin = ws.pinned_agents.findIndex(t => sidebar.sameTarget(t, target)),
           rank = ws.activity_order.findIndex(t => sidebar.sameTarget(t, target));
         // Opening an unread agent reads it; it stays among the ready until left.
@@ -5013,6 +5013,7 @@ export class Controller {
                   ? { "agent.place": place }
                   : { "agent.pin": { ...place, pinned: true } },
             );
+            if (drag.action === "place") this.agent_since.move(agentKey(drag.target), before ? agentKey(before) : null);
             // Nor step back from the order shown before the daemon took the drop.
             this.sidebar_rows.discard();
           } catch (error) {
@@ -5737,11 +5738,11 @@ export class Controller {
     const live = new Set<string>();
     for (const p of this.runtime.panes) {
       if (p.agent.provider === null) continue;
-      const key = agentSections.key({ pane: p.id });
+      const key = agentKey({ pane: p.id });
       live.add(key);
     }
     for (const session of this.runtime.sessions) {
-      const key = agentSections.key({ headless: session.id });
+      const key = agentKey({ headless: session.id });
       live.add(key);
     }
     this.agent_since.keep(live);
@@ -6170,7 +6171,7 @@ export class Controller {
       const target = e.target as OrderTarget;
       if (worktreeAgents.listedWorktree(ws?.worktrees ?? null, target, e.cwd) !== selection.path) continue;
       const pinned = ws?.pinned_agents.some(t => sidebar.sameTarget(t, target)) ?? false,
-        key = agentSections.key(target);
+        key = agentKey(target);
       this.folded_sections.delete(
         pinned ? "starred" : this.agent_since.shown(key, agentSections.section(e), e.focused),
       );

@@ -818,6 +818,46 @@ test("an agent the daemon holds as starting shows dimmed in working until it let
   }
 });
 
+test("dropping an opened ready agent keeps its new position", async () => {
+  const snapshot: any = pair();
+  snapshot.workspaces[0].activity_order = [{ pane: 1 }, { pane: 2 }];
+  for (const pane of snapshot.panes.slice(0, 2)) {
+    pane.agent.attention = "finished";
+    pane.agent.observation.completed = 1;
+  }
+  const { s, sent } = recording(snapshot),
+    ready = () => (s.agentEntries() as sidebar.Entry[]).filter(e => e.section === "ready").map(e => e.target),
+    mouse = (button: number, y: number, release = false) => `\x1b[<${button};6;${y + 1}${release ? "m" : "M"}`;
+  s.prefs.agent_sort = "activity";
+  s.width = 100;
+  s.height = 30;
+  try {
+    expect(ready()).toEqual([{ pane: 1 }, { pane: 2 }]);
+    s.focusPane(2);
+    snapshot.panes[1].agent.attention = "none";
+    snapshot.panes[1].agent.observation.read = 1;
+    snapshot.workspaces[0].activity_order = [{ pane: 2 }, { pane: 1 }];
+    s.receiveSnapshot(snapshot);
+    expect(ready()).toEqual([{ pane: 1 }, { pane: 2 }]);
+    const entries: sidebar.Entry[] = s.sidebarEntries(),
+      side: sidebar.View = s.sidebarView(entries),
+      ys = Array.from({ length: s.height }, (_, y) => y),
+      from = ys.find(y => {
+        const hit = side.hit(5, y);
+        return hit.tag === "entry" && sidebar.sameTarget(entries[hit.entry].target, { pane: 2 });
+      })!,
+      to = ys.find(y => side.agentDrop(5, y)?.index === 1)!;
+    expect(from).toBeDefined();
+    expect(to).toBeDefined();
+    await s.input(bytes(mouse(0, from) + mouse(32, to) + mouse(0, to, true)));
+    expect(sent).toContainEqual({ "agent.place": { workspace: 1, target: { pane: 2 }, before: { pane: 1 } } });
+    expect(ready()).toEqual([{ pane: 2 }, { pane: 1 }]);
+    expect(s.focused().id).toBe(2);
+  } finally {
+    viewer.close(s);
+  }
+});
+
 /** A controller on `pair()` that records what panes are sent. */
 function steering() {
   const s = controller();

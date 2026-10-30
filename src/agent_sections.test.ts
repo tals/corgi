@@ -186,3 +186,117 @@ test("an agent held among the ready stays between its neighbours while others mo
   // Left, B takes the place the daemon gave it.
   expect(ready({ 4: 0, 2: 1, 1: 2, 3: 3 }, [])).toEqual([4, 2, 1, 3]);
 });
+test("a held ready agent keeps to the next neighbour when one leaves", () => {
+  const since = new agentSections.Since(),
+    ready = (ranks: Record<number, number>, held: number[], working: number[] = []) => {
+      const items = Object.entries(ranks).map(([pane, rank]) =>
+        working.includes(Number(pane))
+          ? item(Number(pane), "working", { rank })
+          : item(Number(pane), "idle", { attention: "finished", rank }),
+      );
+      since.place(items, new Set(held.map(pane => `pane:${pane}`)));
+      return agentSections
+        .arrange(items, options())
+        .filter(e => e.section === "ready")
+        .flatMap(e => ("pane" in e.target ? [e.target.pane] : []));
+    };
+  // Ready: C, A, B.
+  expect(ready({ 3: 0, 1: 1, 2: 2 }, [])).toEqual([3, 1, 2]);
+  // Opening B raises it; it stays below A.
+  expect(ready({ 2: 0, 3: 1, 1: 2 }, [2])).toEqual([3, 1, 2]);
+  // A goes to work and is raised; B stays below C.
+  expect(ready({ 1: 0, 2: 1, 3: 2 }, [2], [1])).toEqual([3, 2]);
+});
+test("dragging a held ready agent replaces its neighbours until focus leaves", () => {
+  const since = new agentSections.Since(),
+    ready = (order: number[], held: boolean) => {
+      const items = order.map((pane, rank) => item(pane, "idle", { attention: "finished", rank }));
+      since.place(items, new Set(held ? ["pane:2"] : []));
+      return agentSections.arrange(items, options()).flatMap(e => ("pane" in e.target ? [e.target.pane] : []));
+    };
+  expect(ready([1, 2, 3], false)).toEqual([1, 2, 3]);
+  expect(ready([2, 1, 3], true)).toEqual([1, 2, 3]);
+  since.move("pane:2", null);
+  expect(ready([1, 3, 2], true)).toEqual([1, 3, 2]);
+  // Another arrival stays above the reader's new place.
+  expect(ready([4, 1, 3, 2], true)).toEqual([4, 1, 3, 2]);
+  since.move("pane:2", "pane:1");
+  expect(ready([4, 2, 1, 3], true)).toEqual([4, 2, 1, 3]);
+  since.move("pane:2", "pane:4");
+  expect(ready([2, 4, 1, 3], true)).toEqual([2, 4, 1, 3]);
+  expect(ready([4, 1, 3, 2], false)).toEqual([4, 1, 3, 2]);
+});
+test("a held ready agent starred and unstarred keeps its place", () => {
+  const since = new agentSections.Since(),
+    ready = (ranks: Record<number, number>, starred: number[] = []) => {
+      const items = Object.entries(ranks).map(([pane, rank]) =>
+        item(Number(pane), "idle", { attention: "finished", rank, pin: starred.includes(Number(pane)) ? 0 : null }),
+      );
+      since.place(items, new Set(["pane:2"]));
+      return agentSections
+        .arrange(items, options())
+        .filter(e => e.section === "ready")
+        .flatMap(e => ("pane" in e.target ? [e.target.pane] : []));
+    };
+  since.place(
+    [1, 2, 3].map(pane => item(pane, "idle", { attention: "finished", rank: pane - 1 })),
+    new Set(),
+  );
+  expect(ready({ 2: 0, 1: 1, 3: 2 })).toEqual([1, 2, 3]);
+  expect(ready({ 2: 0, 1: 1, 3: 2 }, [2])).toEqual([1, 3]);
+  expect(ready({ 2: 0, 1: 1, 3: 2 })).toEqual([1, 2, 3]);
+});
+test("a held ready agent stops following a neighbour that leaves its section", () => {
+  for (const change of ["working", "starred", "workspace", "closed"] as const) {
+    const since = new agentSections.Since(),
+      ready = (pane: number, rank: number) => item(pane, "idle", { attention: "finished", rank }),
+      place = (items: agentSections.Item[], held: boolean) => {
+        since.place(items, new Set(held ? ["pane:2"] : []));
+        return agentSections
+          .arrange(
+            items.filter(i => i.workspace === 1),
+            options(),
+          )
+          .filter(e => e.section === "ready")
+          .map(e => e.target);
+      };
+    expect(place([ready(1, 0), ready(2, 1), ready(3, 2)], false)).toEqual([{ pane: 1 }, { pane: 2 }, { pane: 3 }]);
+    expect(place([ready(1, 1), ready(2, 0), ready(3, 2)], true)).toEqual([{ pane: 1 }, { pane: 2 }, { pane: 3 }]);
+    const neighbour = ready(3, 0);
+    switch (change) {
+      case "working":
+        neighbour.section = "working";
+        break;
+      case "starred":
+        neighbour.pin = 0;
+        break;
+      case "workspace":
+        neighbour.workspace = 2;
+        break;
+      case "closed":
+        break;
+    }
+    expect(place([ready(1, 2), ready(2, 1), ...(change === "closed" ? [] : [neighbour])], true)).toEqual([
+      { pane: 1 },
+      { pane: 2 },
+    ]);
+    // Returning at the top must not pull the reader up with it.
+    expect(place([ready(1, 2), ready(2, 1), ready(3, 0)], true)).toEqual([{ pane: 3 }, { pane: 1 }, { pane: 2 }]);
+  }
+});
+test("a held ready agent alone in its section lets one that enters go on top", () => {
+  const since = new agentSections.Since(),
+    place = (items: agentSections.Item[], held: number[]) => {
+      since.place(items, new Set(held.map(pane => `pane:${pane}`)));
+      return agentSections
+        .arrange(items, options())
+        .filter(e => e.section === "ready")
+        .flatMap(e => ("pane" in e.target ? [e.target.pane] : []));
+    },
+    ready = (pane: number, rank: number) => item(pane, "idle", { attention: "finished", rank });
+  // B is read and held, alone in ready; A works below where B was.
+  expect(place([ready(2, 0), item(1, "working", { rank: 1 })], [2])).toEqual([2]);
+  // A finishes and is raised; it goes above B, though it was below B in working.
+  expect(place([ready(1, 0), ready(2, 1)], [2])).toEqual([1, 2]);
+  expect(place([ready(1, 0), ready(2, 1)], [2])).toEqual([1, 2]);
+});
