@@ -718,6 +718,7 @@ test("browsing an offscreen group scrolls the existing sidebar without a duplica
 test("a section header folds its agents on click; a worktree's subhead opens its first agent", async () => {
   const { view } = browsing(),
     path = "/repo/.worktrees/1";
+  view.prefs.agent_sort = "activity";
   await view.input(Buffer.from("\x1b[27u"));
   const rows = () => (view as any).sidebarEntries();
   const header = rows().findIndex((e: any) => e.target.section === "idle" && !("workspace" in e.target));
@@ -735,6 +736,7 @@ test("a section header folds its agents on click; a worktree's subhead opens its
 test("entering a worktree whose agents are in a folded section opens it and focuses them", async () => {
   const { view } = browsing(),
     path = "/repo/.worktrees/1";
+  view.prefs.agent_sort = "activity";
   await view.input(Buffer.from("\x1b[27u"));
   await (view as any).selectAgent({ section: "idle" });
   expect((view as any).sidebarEntries().some((e: any) => e.name === "Search agent" && e.exit === null)).toBe(false);

@@ -810,6 +810,7 @@ function steering() {
 test("prefixed arrows walk the panes into the sidebar, which opens the agent under its cursor", async () => {
   const { s, sent } = steering();
   try {
+    s.prefs.agent_sort = "activity";
     s.focusPane(2);
     await s.input(bytes("\x02\x1b[D"));
     expect(s.focused().id).toBe(1);
@@ -994,6 +995,7 @@ test("a folded sidebar takes focus only as a drawer, which a prefixed command pu
 test("the sidebar's cursor ghosts an agent no pane shows, where entering it puts it", async () => {
   const { s } = steering();
   try {
+    s.prefs.agent_sort = "activity";
     s.prefs.agents = "all";
     s.focusPane(1);
     await s.input(bytes("\x02\x1b[D\x1b[B"));

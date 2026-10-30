@@ -890,9 +890,9 @@ export class Controller {
   agentEntries(workspace?: number): Entry[] {
     let entries: Entry[] = [];
     const focus = this.model().count > 0 ? this.nav().tab().focus : 0;
-    // The sidebar's list goes by activity unless sorted by hand; a single
-    // workspace's, for its worktrees, keeps the hand-sorted order.
-    const sectioned = workspace === undefined && this.prefs.agent_sort === "activity";
+    // Activity sorting sections the sidebar's list; a single workspace's,
+    // for its worktrees, keeps the hand-sorted order.
+    const sectioned = workspace === undefined && this.prefs.agentSort() === "activity";
     // A hand-sorted "All" groups agents under a header per workspace that has any.
     const grouped = workspace === undefined && !sectioned && this.prefs.agents === "all";
     const totals = grouped ? this.workspaceEntries() : [];
@@ -5463,7 +5463,7 @@ export class Controller {
                     y,
                     owner,
                     this.current().id,
-                    this.prefs.agent_sort,
+                    this.prefs.agentSort(),
                     this.runtime.workspaces.items.map(ws => ws.id),
                   );
               }

@@ -51,6 +51,28 @@ test("preferences round trip and fall back to defaults", async () => {
   }
 });
 
+test("agent sorting follows the default until explicitly saved", async () => {
+  const root = await mkdtemp(join(tmpdir(), "corgi-agent-sort-"));
+  const file = join(root, "viewer.json");
+  try {
+    expect(read(file).agentSort()).toBe("manual");
+    write(file, new Preferences());
+    expect(JSON.parse(await readFile(file, "utf8"))).not.toHaveProperty("agent_sort");
+    updateFile(file, { sidebar_width: 44 });
+    expect(JSON.parse(await readFile(file, "utf8"))).not.toHaveProperty("agent_sort");
+    expect(read(file).agentSort()).toBe("manual");
+
+    for (const agent_sort of ["activity", "manual"] as const) {
+      updateFile(file, { agent_sort });
+      updateFile(file, { agents: "all" });
+      expect(JSON.parse(await readFile(file, "utf8"))).toHaveProperty("agent_sort", agent_sort);
+      expect(read(file).agentSort()).toBe(agent_sort);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("corgi intensity migrates the old toggle without losing unrelated preferences", async () => {
   const root = await mkdtemp(join(tmpdir(), "corgi-intensity-"));
   const file = join(root, "viewer.json");
@@ -83,7 +105,8 @@ test("corgi intensity migrates the old toggle without losing unrelated preferenc
       updateFile(file, { agents: "all" });
       const written = JSON.parse(await readFile(file, "utf8"));
       expect(written).not.toHaveProperty("sleeping_corgis");
-      expect(read(file)).toEqual({ ...migrated, agents: "all" });
+      migrated.agents = "all";
+      expect(read(file)).toEqual(migrated);
     }
   } finally {
     await rm(root, { recursive: true, force: true });

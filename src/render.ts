@@ -974,7 +974,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
     NameView.init(width, height, dialog).draw(dialog, w, number);
   }
   if (u.scope_menu) {
-    u.scope_menu.draw(w, side, width, height, u.workspaces, u.prefs.agents as Scope, u.prefs.agent_sort);
+    u.scope_menu.draw(w, side, width, height, u.workspaces, u.prefs.agents as Scope, u.prefs.agentSort());
     cover(ScopeMenu.bounds(side, width, height));
   }
   if (u.agent_launcher) u.agent_launcher.draw(w, width, height, side);
