@@ -1,3 +1,4 @@
+import * as effort from "../effort";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { lstatSync } from "node:fs";
@@ -77,6 +78,7 @@ export const adapter: Adapter = {
   origin: hookOrigin,
   unnest,
   launch: {
+    options: (args, model, value) => effort.apply("--effort", model ? commandLine.withoutModel(args) : args, value),
     start: s => [
       ...(s.permissions === "bypass" ? [vocabulary.yolo] : []),
       ...(s.model ? ["--model", s.model] : []),

@@ -311,6 +311,7 @@ export interface Workspace {
   last_agent: Provider | null;
   /** The launcher rows hidden in this workspace only. */
   launcher_hidden: Row[];
+  launcher_order: Row[];
   closed_agents: number;
   git_commits: GitCommit[];
   git_diff: GitDiff;
@@ -345,6 +346,7 @@ function workspace(value: any): Workspace {
     starting_agents: value.starting_agents ?? [],
     last_agent: Provider.parse(value.last_agent),
     launcher_hidden: strings(value.launcher_hidden).flatMap(text => Row.parse(text) ?? []),
+    launcher_order: strings(value.launcher_order).flatMap(text => Row.parse(text) ?? []),
     closed_agents: Number(value.closed_agents ?? 0),
     git_commits: (value.git_commits ?? []).map((c: any) => ({
       hash: c.hash ?? "",

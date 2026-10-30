@@ -777,3 +777,27 @@ test("a workspace ghost dims the top half with its tabs, each row where switchin
   expect(testVisible(text)).toContain("┄┄ ↑ alpha ↑ ┄");
   expect(covered).toEqual(new Rect(28, 0, 72, 12));
 });
+
+test("Manage rows advertise grab, model-pointer and search-text cursors without moving keyboard focus", () => {
+  const view = emptyView(),
+    launch = new LauncherMenu({ workspace: 1, selected: "codex", last: "codex", pinned: true });
+  launch.preview.installed.codex = true;
+  launch.manage();
+  launch.transition.tick(Date.now() + 1000);
+  const u = ui({ agent_launcher: launch, message: "", copy_mode: false, pointer: null });
+  frame(view, [], 120, 34, u);
+  const box = launch.manager.last_box!,
+    selected = launch.manager.at;
+  for (const [x, y, shape] of [
+    [box.x + 10, box.y + 7, "grab"],
+    [box.x + box.w - 8, box.y + 7, "pointer"],
+    [box.x + 8, box.y + 2, "text"],
+  ] as const) {
+    u.pointer = { x, y };
+    expect(frame(view, [], 120, 34, u)).toContain(`\x1b]22;${shape}\x1b\\`);
+    expect(launch.manager.at).toBe(selected);
+  }
+  u.iterm2_pointer = true;
+  u.pointer = { x: box.x + 10, y: box.y + 7 };
+  expect(frame(view, [], 120, 34, u)).toContain("\x1b]22;fleur\x1b\\");
+});

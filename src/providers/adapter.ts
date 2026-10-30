@@ -1,3 +1,4 @@
+import type { Effort } from "./effort";
 import type { Hook, Text } from "./common";
 import type { Quit } from "../subprocess";
 import type { Info as Account } from "../usage/account";
@@ -303,6 +304,8 @@ export type Kept = { args: string[]; env: [string, string][] };
 export type Inference = { instructions: string; model: string | null; schema: string | null };
 /** An authenticated chat model; prices are catalog dollars per million tokens. */
 export type InferenceModel = {
+  efforts?: Effort[];
+  default_effort?: Effort;
   id: string;
   name: string;
   /** The signed-in user for this model's provider, when available. */
@@ -375,6 +378,10 @@ export interface Adapter extends Info {
    * the pane then shows the conversation its title names. */
   titleSession?(title: string): Text | null;
   launch: {
+    /** Merge configured model and effort overrides with extra flags. */
+    options(args: string[], model?: string, effort?: Effort): string[];
+    /** Read-only launcher catalog, when inference discovery would probe access. */
+    models?(account: string, quit: Quit): Promise<InferenceModel[]>;
     /** Prepares a terminal session before exec, reporting its identity when
      * the provider's UI cannot report it itself, and variables the session
      * needs that the pane's shell does not set. */

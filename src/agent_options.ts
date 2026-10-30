@@ -1,8 +1,9 @@
 //! Extra launch arguments and literal environment overrides for an agent account.
+import * as effort from "./providers/effort";
 import { Tokens, max_length } from "./launch/tokens";
 import { byteLength } from "./text";
 
-export type Options = { flags: string; env: [string, string][] };
+export type Options = { flags: string; env: [string, string][]; model?: string; effort?: effort.Effort };
 export const empty = (): Options => ({ flags: "", env: [] });
 export const max_variables = 64;
 
@@ -20,6 +21,9 @@ export function args(flags: string): string[] {
 }
 
 export function problem(options: Options): string | null {
+  if (options.effort !== undefined && !effort.parse(options.effort)) return "Choose a valid effort.";
+  if (options.model && (!/^[^\s\x00-\x1f\x7f]+$/.test(options.model) || byteLength(options.model) > 512))
+    return "Choose a valid model ID.";
   try {
     args(options.flags);
   } catch {
@@ -48,6 +52,13 @@ export function read(value: unknown): Options | null {
       return null;
     env.push([pair[0], pair[1]]);
   }
-  const options = { flags: value.flags, env };
+  if ("model" in value && typeof value.model !== "string") return null;
+  if ("effort" in value && !effort.parse(value.effort)) return null;
+  const options: Options = {
+    ...("effort" in value ? { effort: effort.parse(value.effort)! } : {}),
+    flags: value.flags,
+    env,
+    ...("model" in value && value.model ? { model: value.model as string } : {}),
+  };
   return problem(options) === null ? options : null;
 }

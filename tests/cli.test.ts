@@ -321,7 +321,7 @@ class AgentCli extends Runtime {
     this.assertEqual(await shown(other), Provider.all);
     this.assertEqual((await this.snapshot()).workspaces[0].launcher_hidden, Provider.all);
     this.assertEqual((await this.cli(["launcher", "show", "codex", "--workspace", 1])).workspaces[0].agents, [
-      { agent: "codex", label: "Codex", launcher: true, hidden: false },
+      { agent: "codex", label: "Codex", launcher: true, hidden: false, options: { flags: "", env: [] }, yolo: false },
     ]);
     this.assertRegex(await this.run_cli("launcher", "list", "--workspace", "1"), /claude +Claude Code +hidden/);
     await this.cli(["launcher", "hide", "codex", "nobody", "--workspace", 1], { error: "UnknownAgent" });
@@ -330,6 +330,83 @@ class AgentCli extends Runtime {
     this.assertEqual(await shown(1), ["codex"]);
     await this.cli(["launcher", "show", "pi", "--workspace", 1]);
     this.assertEqual(await shown(1), ["codex", "pi"]);
+  }
+  async test_launcher_configures_clones_and_copies_layout() {
+    const other = (await this.command("workspace.create", { name: "other", cwd: this.temp.name })).workspace;
+    const run = (...args: (string | number)[]) => this.cli(["launcher", ...args, "--workspace", 1]);
+    const rows = (reply: any) => reply.workspaces[0].agents;
+    let result = rows(
+      await run(
+        "clone",
+        "codex",
+        "--name",
+        "Review bot",
+        "--model",
+        "gpt-test",
+        "--effort",
+        "high",
+        "--env",
+        '{"TEST_MODE":"1"}',
+      ),
+    );
+    const clone = result.find((a: any) => a.label === "Review bot");
+    this.assertTrue(clone.agent.startsWith("profile/"));
+    this.assertEqual(clone.options.model, "gpt-test");
+    this.assertEqual(clone.options.effort, "high");
+    this.assertEqual(clone.options.env, [["TEST_MODE", "1"]]);
+    this.assertEqual(result.find((a: any) => a.agent === "codex").options, { flags: "", env: [] });
+    await run("edit", "codex", "--name", "Codex / Astra 🤖");
+    this.assertEqual(rows(await run("list")).find((a: any) => a.agent === "codex").label, "Codex / Astra 🤖");
+    await this.cli(["launcher", "edit", "codex", "--name", "bad\nname", "--workspace", 1], {
+      error: "InvalidAccountName",
+    });
+    await run("move", "Review bot", "--first");
+    await run("hide", "claude");
+    await this.cli(["launcher", "copy", "--from", 1, "--workspace", other]);
+    const snap = await this.snapshot(),
+      one = snap.workspaces.find((w: any) => w.id === 1),
+      two = snap.workspaces.find((w: any) => w.id === other);
+    this.assertEqual(one.launcher_order, two.launcher_order);
+    this.assertEqual(one.launcher_hidden, two.launcher_hidden);
+    this.assertEqual(rows(await run("list"))[0].agent, clone.agent);
+    await run("edit", "Review bot", "--model", "auto", "--effort", "default", "--env", "{}");
+    this.assertEqual(rows(await run("list"))[0].options, { flags: "", env: [] });
+    await this.cli(["launcher", "copy", "--from", 999, "--workspace", other], { error: "NoWorkspace" });
+    this.assertEqual(
+      (await this.snapshot()).workspaces.find((w: any) => w.id === other).launcher_order,
+      two.launcher_order,
+    );
+    await run("remove", clone.agent);
+    this.assertTrue(!rows(await run("list")).some((a: any) => a.agent === clone.agent));
+    await run("add", "--command", "/bin/echo hello", "--name", "Echo");
+    await this.cli(["launcher", "edit", "Echo", "--name", "bad\nname", "--workspace", 1], {
+      error: "InvalidAgentName",
+    });
+    const command = (await this.snapshot()).agent_commands.find((c: any) => c.name === "Echo");
+    await this.command("agent.command", {
+      index: 0,
+      command: command.command,
+      name: "Echo",
+      original: "echo hello",
+      semantics: {
+        ...command.semantics,
+        provider: "claude",
+        account: "/saved/workspace/account",
+        model_name: "Saved model",
+      },
+    });
+    const saved = (await this.snapshot()).agent_commands[0];
+    await run("clone", "Echo", "--name", "Echo copy");
+    const copied = (await this.snapshot()).agent_commands.find((c: any) => c.name === "Echo copy");
+    this.assertEqual(copied.original, saved.original);
+    this.assertEqual(copied.semantics, saved.semantics);
+    this.assertTrue(rows(await run("list")).some((a: any) => a.label === "Echo copy"));
+    await run("edit", "Echo copy", "--command", "/bin/echo replaced");
+    const edited = (await this.snapshot()).agent_commands.find((c: any) => c.name === "Echo copy");
+    this.assertEqual(edited.original, "/bin/echo replaced");
+    this.assertEqual(edited.semantics.provider, null);
+    this.assertEqual(edited.semantics, command.semantics);
+    await run("remove", "Echo copy");
   }
   async test_command_options_launch_processes() {
     const one = (

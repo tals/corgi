@@ -342,15 +342,22 @@ test("launcher names each agent and says where it shows", () => {
   const agents = lines.filter(line => line.startsWith("  "));
   for (const column of [1, 2])
     expect(new Set(agents.map(line => line.indexOf(line.trim().split(/ {2,}/)[column]))).size).toBe(1);
-  // Its own name comes first; another name must fit one agent.
+  // Every spelling must fit one agent, including aliases of canonical names.
   const named = (...names: string[]) => launcher(snapshot, 1, names)[0].agents.map(a => a.agent);
-  expect(named("codex", "work", "review-bot", "command/3", "claude/default", "work")).toEqual([
+  expect(named("codex/default", "work", "review-bot", "command/3", "claude/default", "work")).toEqual([
     "codex",
     "claude/work",
     "command/2",
     "command/3",
     "claude",
   ]);
+  expect(() => named("codex")).toThrow("AmbiguousAgent");
+  const colliding = {
+    ...snapshot,
+    accounts: [...snapshot.accounts, { provider: "claude", account: "/literal", name: "claude/work" }],
+  };
+  expect(() => launcher(colliding, 1, ["claude/work"])).toThrow("AmbiguousAgent");
+  expect(launcher(colliding, 1, ["claude/claude/work"])[0].agents[0].agent).toBe("claude/claude/work");
   expect(() => named("default")).toThrow("UnknownAgent");
   expect(() => named("terminal")).toThrow("UnknownAgent");
   expect(() => launcher(snapshot, 2)).toThrow("NoWorkspace");

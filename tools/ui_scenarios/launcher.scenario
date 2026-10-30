@@ -9,7 +9,7 @@ key up up
 snap back-to-top
 key tab
 snap tab-wraps
-key m
+key right
 snap manage
 key esc
 snap manage-closed

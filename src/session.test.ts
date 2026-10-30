@@ -25,6 +25,31 @@ function pane(r: Runtime, w: Workspace, split: number | null = null) {
   return id;
 }
 const topology = (r: Runtime) => stringify(r.workspaces.items.map(w => w.model));
+test("moving launcher rows atomically persists order and visibility only in the selected workspace", async () => {
+  const { r, home, away } = setup();
+  try {
+    const command = {
+      workspace: home.id,
+      row: "codex",
+      before: "claude",
+      order: ["claude", "codex", "profile:copy"],
+      shown: false,
+    };
+    await execute(r, ctx, protocol.decodeCommand({ "agent.launcher.move": command }));
+    expect(home.launcher_order).toEqual(["codex", "claude", "profile:copy"]);
+    expect(home.launcher_hidden).toEqual(["codex"]);
+    expect(away.launcher_order).toEqual([]);
+    await execute(r, ctx, protocol.decodeCommand({ "agent.launcher.move": { ...command, before: null, shown: true } }));
+    expect(home.launcher_order).toEqual(["claude", "profile:copy", "codex"]);
+    expect(home.launcher_hidden).toEqual([]);
+    await expect(
+      execute(r, ctx, protocol.decodeCommand({ "agent.launcher.move": { ...command, row: "bogus" } })),
+    ).rejects.toThrow("InvalidRow");
+    expect(home.launcher_order).toEqual(["claude", "profile:copy", "codex"]);
+  } finally {
+    r.destroy();
+  }
+});
 test("pane keys and send follow the destination's current keyboard modes", async () => {
   const { r, home } = setup();
   const id = pane(r, home),

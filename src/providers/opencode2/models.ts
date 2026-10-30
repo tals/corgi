@@ -94,6 +94,22 @@ export async function read(
   return (await API.peek("/tmp", api => discover(api, quit, subscription))) ?? [];
 }
 
+/** Launcher choices only; listing models must never probe them with a prompt. */
+export async function catalog(quit: Quit): Promise<InferenceModel[]> {
+  if (quit.aborted) throw Error("Cancelled");
+  return (
+    (await API.peek("/tmp", async api => {
+      const location = "?location%5Bdirectory%5D=" + encodeURIComponent(api.cwd);
+      const [models, providers, credentials] = await Promise.all(
+        ["/api/model" + location, "/api/provider" + location, "/api/credential"].map(path =>
+          api.call("GET", path, undefined, quit),
+        ),
+      );
+      return parse(models, providers, credentials);
+    })) ?? []
+  );
+}
+
 async function discover(api: API, quit: Quit, subscription?: account.Subscription) {
   const location = "?location%5Bdirectory%5D=" + encodeURIComponent(api.cwd);
   const [models, providers, credentials] = await Promise.all(

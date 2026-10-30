@@ -829,7 +829,8 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
     side.hovered = sidebar.agentIndexAt(side, entries, u.pointer.x, u.pointer.y);
   side.spotlight = u.worktree_spotlight;
   // A moving row's tint and a link's thumbnail are placed again by each frame that shows them.
-  if (u.supports_kitty_graphics) w.write(rowGlide.hide + linkThumbnail.hide);
+  if (u.supports_kitty_graphics)
+    w.write(rowGlide.hide + rowGlide.hideImage(rowGlide.manager_image_id) + linkThumbnail.hide);
   side.draw(w, entries, workspaces);
   if (u.git_hover !== null) sidebar.drawGitAction(w, side, u.workspaces, u.git_hover);
   if (u.review_draw) u.review_draw(w);
@@ -977,8 +978,19 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
     u.scope_menu.draw(w, side, width, height, u.workspaces, u.prefs.agents as Scope, u.prefs.agentSort());
     cover(ScopeMenu.bounds(side, width, height));
   }
+  const managed = u.corgi_setup?.managing()
+    ? u.corgi_setup.agents
+    : u.agent_launcher?.managing
+      ? u.agent_launcher
+      : null;
+  if (managed) {
+    managed.manager.cell = u.supports_kitty_graphics ? u.cell_pixels : null;
+    managed.manager.pointer_at = u.pointer;
+  }
   if (u.agent_launcher) u.agent_launcher.draw(w, width, height, side);
   if (u.corgi_setup) u.corgi_setup.draw(w, u.inference, u.prefs, width, height);
+  if (managed?.manager.last_box && !managed.transition.active)
+    w.write(managed.manager.glideImage(managed.manager.last_box, managed.manageModel()));
   cover(signinExit.draw(w, u.added_feedback, width, height, u.signin_exit));
   // A sign-in takes the whole screen, its cursor included.
   if (u.signin_draw) {
@@ -1011,21 +1023,38 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   // iTerm2 has a pointing hand and an open hand, but no closed-hand shape.
   // "default" also clears its override because unrecognized names reset it.
   const axis = u.resizing ?? resize_hover;
-  const shape = dragging
-    ? u.iterm2_pointer
-      ? "fleur"
-      : "grabbing"
-    : axis !== null
-      ? axis === "horizontal"
-        ? u.iterm2_pointer
-          ? "sb_h_double_arrow"
-          : "ew-resize"
-        : u.iterm2_pointer
-          ? "sb_v_double_arrow"
-          : "ns-resize"
-      : link_pointer || hovered_uri !== null
+  const manager_box = managed?.manager.last_box,
+    manager_shape =
+      managed &&
+      manager_box &&
+      u.pointer &&
+      (manager_box.contains(u.pointer.x, u.pointer.y) || managed.manager.drag?.active)
+        ? managed.manager.pointerShape(manager_box, managed.manageModel(), u.pointer.x, u.pointer.y)
+        : null;
+  const shape =
+    manager_shape !== null
+      ? manager_shape === "pointer"
         ? handShape(u.iterm2_pointer)
-        : "default";
+        : (manager_shape === "grab" || manager_shape === "grabbing") && u.iterm2_pointer
+          ? "fleur"
+          : manager_shape === "text" && u.iterm2_pointer
+            ? "xterm"
+            : manager_shape
+      : dragging
+        ? u.iterm2_pointer
+          ? "fleur"
+          : "grabbing"
+        : axis !== null
+          ? axis === "horizontal"
+            ? u.iterm2_pointer
+              ? "sb_h_double_arrow"
+              : "ew-resize"
+            : u.iterm2_pointer
+              ? "sb_v_double_arrow"
+              : "ns-resize"
+          : link_pointer || hovered_uri !== null
+            ? handShape(u.iterm2_pointer)
+            : "default";
   w.write(`\x1b]22;${shape}\x1b\\`);
   w.write("\x1b[?2026l");
   return w.buffered();

@@ -20,7 +20,23 @@ for await (const line of createInterface({ input: process.stdin })) {
     method = value.method,
     ident = value.id;
   if (method === "initialize") emit({ id: ident, result: {} });
-  else if (method === "thread/list") emit({ id: ident, result: { data: [], nextCursor: null } });
+  else if (method === "model/list") {
+    if (process.env.CORGI_TEST_MODEL_LOG) appendFileSync(process.env.CORGI_TEST_MODEL_LOG, "models\n");
+    emit({
+      id: ident,
+      result: {
+        data: [
+          {
+            model: "fixture-fast",
+            displayName: "Fixture Fast",
+            supportedReasoningEfforts: [{ reasoningEffort: "low" }, { reasoningEffort: "high" }],
+          },
+          { model: "fixture-careful", displayName: "Fixture Careful" },
+        ],
+        nextCursor: null,
+      },
+    });
+  } else if (method === "thread/list") emit({ id: ident, result: { data: [], nextCursor: null } });
   else if (method === "config/read")
     emit({
       id: ident,

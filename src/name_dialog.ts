@@ -2,6 +2,7 @@
 //! name_dialog.zig: fields count the text in bytes, and the cursor is a byte
 //! offset; the editing itself is a single-line text area's.
 import { basename } from "node:path";
+import * as agentName from "./agent_name";
 import * as palette from "./palette";
 import { Style, keycap, fgRgb, bgRgb, mix, colors, selection } from "./palette";
 export { selection } from "./palette";
@@ -17,6 +18,7 @@ export type Target =
   | { rename: number }
   | { workspace_name: number | null }
   | { agent_command: number }
+  | { agent_name: null }
   /** The conversation an agent pane shows, named in its agent's own records. */
   | { agent: number }
   /** The name a copy of an agent pane's conversation starts with. */
@@ -27,11 +29,11 @@ export type Target =
   | { folder: null };
 export const targetKind = (
   t: Target,
-): "pane" | "rename" | "workspace_name" | "agent_command" | "agent" | "fork" | "shell" | "folder" =>
+): "pane" | "rename" | "workspace_name" | "agent_command" | "agent_name" | "agent" | "fork" | "shell" | "folder" =>
   Object.keys(t)[0] as any;
 /** Whether names keep non-ASCII text, which the agents' own names carry. */
 function unicodeTarget(t: Target): boolean {
-  return "agent_command" in t || "agent" in t || "fork" in t || "folder" in t;
+  return "agent_name" in t || "agent_command" in t || "agent" in t || "fork" in t || "folder" in t;
 }
 export type Result = "none" | "save" | "cancel";
 /** The longest name, in bytes, outside launch commands. */
@@ -83,7 +85,7 @@ export function writeField(
 }
 /** The longest text, in bytes, a target takes. */
 function limit(t: Target): number {
-  return "agent_command" in t || "folder" in t ? max_length : name_limit;
+  return "agent_name" in t ? agentName.limit : "agent_command" in t || "folder" in t ? max_length : name_limit;
 }
 export type Hit =
   | { tag: "none" }
@@ -576,7 +578,7 @@ export class View {
           ? "Rename tab"
           : kind === "pane"
             ? "Rename pane"
-            : kind === "agent"
+            : kind === "agent" || kind === "agent_name"
               ? "Rename agent"
               : kind === "fork"
                 ? "Fork this agent"

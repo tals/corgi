@@ -11,6 +11,8 @@
     "pane": 1
   },
   "session.list": {},
+  "launcher.catalog": {},
+  "launcher.models": { "row": "codex" },
   "session.snapshot": {},
   "session.subscribe": {},
   "viewer.watch": {

@@ -25,13 +25,25 @@ Agent controls (--json prints the daemon's reply as JSON):
   corgi focus ID|current --viewer ID  select in exactly one viewer
   corgi launcher list [--workspace ID] [--json]  agents each launcher shows
   corgi launcher hide|show AGENT... [--workspace ID]  in one workspace only
+  corgi launcher move AGENT [--before AGENT|--after AGENT|--first] [--workspace ID]
+  corgi launcher edit AGENT [--name NAME] [--model ID|auto] [--effort LEVEL|default]
+    [--flags FLAGS] [--env JSON_OBJECT] [--yolo on|off] [--workspace ID]
+  corgi launcher clone AGENT [--name NAME] [edit options] [--workspace ID]
+  corgi launcher models AGENT [--json]  native model IDs, efforts and defaults
+  corgi launcher add --command COMMAND [--name NAME] [--workspace ID]
+  corgi launcher edit AGENT --command COMMAND [--name NAME] [--workspace ID]
+  corgi launcher remove AGENT [--workspace ID]  delete a clone or saved command
+  corgi launcher copy --from ID --workspace ID  replace destination order and visibility
   corgi --skill                      print bundled agent instructions
 
 Tab new and pane split accept --command SHELL_COMMAND.
 IDs come from list; current means CORGI_PANE, never UI focus.
-New tabs outside Corgi require --workspace, as do launcher hide and show.
+New tabs and launcher mutations outside Corgi require --workspace.
+Agent settings are shared; order and visibility belong to each workspace.
+Move without a position appends. Env replaces overrides, e.g. '{"KEY":"value"}'.
+Auto uses the agent CLI's last model; default leaves effort to the agent CLI.
 AGENT is codex, claude, an account (claude/work or work), a saved command's
-name, or command/N, as launcher list names them.
+name, profile/ID, a clone name, or command/N, as launcher list names them.
 Operations never auto-start a server.
 Layout changes preserve processes and do not select another pane in a viewer.
 

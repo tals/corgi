@@ -55,6 +55,9 @@ import { State as SidebarRows } from "./sidebar_rows";
 import * as agentLauncher from "./agent_launcher";
 import { Menu as LauncherMenu, Row, keyAgent, type Row as LauncherRow } from "./agent_launcher";
 import * as agentManager from "./agent_manager";
+import * as agentModels from "./agent_models";
+import * as agentProfiles from "./agent_profiles";
+import * as launcherOrder from "./launch/order";
 import * as accounts from "./accounts";
 import { Stream as LaunchPreviewStream } from "./launch_preview_stream";
 import * as launcherResume from "./launcher_resume";
@@ -239,6 +242,10 @@ type AccountRemoval = {
 };
 
 export class Controller {
+  readonly model_cache = new agentModels.Cache(() => {
+    this.dirty = true;
+    this.wake();
+  });
   connection: Transport;
   runtime = new Runtime();
   navigation = new Navigation();
@@ -424,9 +431,13 @@ export class Controller {
   layoutView(): LayoutView {
     return new LayoutView(this.model(), this.nav());
   }
-  private async execute(command: CommandInput): Promise<{ pane: number; workspace: number }> {
+  private async execute(command: CommandInput): Promise<{ pane: number; workspace: number; text: string | null }> {
     const response = await call(this.connection, "session.command", { command });
-    const result = { pane: Number(response.result?.pane ?? 0), workspace: Number(response.result?.workspace ?? 0) };
+    const result = {
+      pane: Number(response.result?.pane ?? 0),
+      workspace: Number(response.result?.workspace ?? 0),
+      text: response.result?.text ?? null,
+    };
     await this.refresh();
     this.dirty = true;
     return result;
@@ -1734,7 +1745,9 @@ export class Controller {
       d = this.name_dialog;
     const own = d?.frame() ?? null;
     if (own !== null) return own;
-    return this.sidebar_rows.moving(now) ? 16 : 30;
+    const launch = this.launcherModel(),
+      moving = launch?.managing && (!this.corgi_setup || this.corgi_setup.managing()) && launch.manager.moving();
+    return this.sidebar_rows.moving(now) || moving ? 16 : 30;
   }
   private async renamePane(id: number, name: string): Promise<void> {
     await this.edit({ "pane.rename": { target: id, name } });
@@ -2338,6 +2351,20 @@ export class Controller {
       launch.selected = row;
       const signing = launch.signsIn(row);
       if (signing) return this.signIn(signing);
+      const profile = Row.profile(row);
+      if (profile) {
+        const dir = await this.launcherDir();
+        if (dir === null) return;
+        const created = await this.execute({
+          "agent.profile.create": { workspace: launch.workspace, cwd: dir, id: profile },
+        });
+        this.rememberLauncherRow(launch.workspace, row);
+        this.closeMenu();
+        this.focusPane(created.pane);
+        this.launched = created.pane;
+        this.dirty = true;
+        return;
+      }
       const index = Row.custom(row);
       if (index !== null) {
         const dir = await this.launcherDir();
@@ -2384,20 +2411,33 @@ export class Controller {
         return;
       case "show":
         await this.setLauncherShown(action.agent, true);
+        await this.setWorkspaceShown(agentManager.agentRow(action.agent), true);
         this.addedAgent(action.agent.label);
         return;
       case "show_command":
         await this.setCommandShown(action.index, true);
+        await this.setWorkspaceShown(Row.ofCommand(action.index), true);
         this.addedAgent(launch.commands[action.index].label());
         return;
       case "here":
-        return this.setWorkspaceShown(Row.of(action.agent.provider, action.agent.account), action.shown);
+        return this.setWorkspaceShown(agentManager.agentRow(action.agent), action.shown);
       case "here_command":
         return this.setWorkspaceShown(Row.ofCommand(action.index), action.shown);
       case "configure":
         try {
-          accounts.configure(action.agent.provider, action.agent.account, action.name, action.options);
+          await this.execute({
+            "agent.launcher.configure": {
+              row: agentManager.agentRow(action.agent),
+              name: action.name,
+              model: action.options.model ?? "auto",
+              effort: action.options.effort ?? "default",
+              flags: action.options.flags,
+              env: JSON.stringify(Object.fromEntries(action.options.env)),
+            },
+          });
+          launch.profiles = agentProfiles.list();
           launch.manager.configured();
+          if (action.agent.profile) return;
           if (!action.agent.account) launch.preview.names[action.agent.provider] = action.name;
           else
             for (const option of launch.preview.accounts)
@@ -2407,7 +2447,106 @@ export class Controller {
           launch.manager.fail(signin.problem(error));
         }
         return;
+      case "model":
+        try {
+          await this.execute({
+            "agent.launcher.configure": {
+              row: agentManager.agentRow(action.agent),
+              model: action.model || "auto",
+              effort: action.effort ?? "default",
+            },
+          });
+          launch.profiles = agentProfiles.list();
+        } catch (error) {
+          launch.manager.fail(signin.problem(error));
+        }
+        return;
+      case "models": {
+        const entry = this.model_cache.get(action.agent.provider, action.agent.account);
+        action.picker.received(entry.values, entry.failed, entry.pending);
+        return;
+      }
+      case "clone":
+        try {
+          const source = agentManager.agentRow(action.agent),
+            rows = launch.rows().filter(r => r !== "terminal"),
+            saved = await this.execute({
+              "agent.launcher.configure": {
+                row: source,
+                clone: true,
+                name: action.name,
+                model: action.options.model ?? "auto",
+                effort: action.options.effort ?? "default",
+                flags: action.options.flags,
+                env: JSON.stringify(Object.fromEntries(action.options.env)),
+              },
+            }),
+            row = Row.parse(saved.text ?? "");
+          if (!row) throw Error("InvalidAgent");
+          const move = {
+            workspace: launch.workspace,
+            row,
+            before: rows[rows.findIndex(r => r === source) + 1] ?? null,
+            order: [...rows, row],
+            shown: action.agent.shown && action.agent.here,
+          };
+          try {
+            await this.execute({ "agent.launcher.move": move });
+          } catch (error) {
+            await this.execute({ "agent.launcher.remove": { row } });
+            throw error;
+          }
+          launch.profiles = agentProfiles.list();
+          launch.workspace_order = launcherOrder.move(
+            launcherOrder.arrange(move.order, launch.workspace_order),
+            move.row,
+            move.before,
+          );
+          launch.workspace_hidden = toggled(launch.workspace_hidden, move.row, !move.shown);
+          launch.manager.configured();
+          launch.manager.at = row;
+          this.addedAgent(action.name);
+        } catch (error) {
+          launch.manager.fail(signin.problem(error));
+        }
+        return;
+      case "move":
+        try {
+          const target = launch.manageModel().agents.find(a => agentManager.agentRow(a) === action.row);
+          if (action.shown && target && !target.shown) await this.setLauncherShown(target, true);
+          const command = Row.custom(action.row);
+          if (action.shown && command !== null && launch.commands[command].hidden)
+            await this.setCommandShown(command, true);
+          await this.execute({
+            "agent.launcher.move": {
+              workspace: launch.workspace,
+              row: action.row,
+              before: action.before,
+              order: action.order,
+              shown: action.shown,
+            },
+          });
+          launch.workspace_order = launcherOrder.move(
+            launcherOrder.arrange(action.order, launch.workspace_order),
+            action.row,
+            action.before,
+          );
+          launch.workspace_hidden = toggled(launch.workspace_hidden, action.row, !action.shown);
+        } catch (error) {
+          launch.manager.fail(signin.problem(error));
+        }
+        return;
       case "remove":
+        if (action.agent.profile) {
+          try {
+            await this.execute({ "agent.launcher.remove": { row: agentManager.agentRow(action.agent) } });
+            launch.profiles = agentProfiles.list();
+            launch.manager.removed();
+          } catch (error) {
+            launch.manager.removed(signin.problem(error));
+          }
+          return;
+        }
         if (action.agent.account) return this.removeAccount(action.agent, launch);
         try {
           await this.setLauncherShown(action.agent, false);
@@ -2436,6 +2575,11 @@ export class Controller {
       known = accounts.find(a.provider, a.account);
     if (this.account_removals.has(key)) return launch.manager.removed("This account is already being removed.");
     if (!known) return launch.manager.removed("Corgi doesn't list this account any more.");
+    try {
+      agentProfiles.assertAccountUnused(a.provider, a.account);
+    } catch (error) {
+      return launch.manager.removed(signin.problem(error));
+    }
     const running = this.runtime.panes.filter(p => p.agent.provider === a.provider && p.account === a.account).length;
     if (running > 0)
       return launch.manager.removed(
@@ -2909,6 +3053,16 @@ export class Controller {
   }
   /** Toggles YOLO for a provider's or an account's row. */
   private async toggleLauncherYolo(row: LauncherRow): Promise<void> {
+    const profile = Row.profile(row);
+    if (profile) {
+      const value = agentProfiles.find(profile);
+      if (value) {
+        await this.execute({ "agent.launcher.configure": { row, yolo: !value.yolo } });
+        if (this.agent_launcher) this.agent_launcher.profiles = agentProfiles.list();
+      }
+      this.dirty = true;
+      return;
+    }
     const target = Row.launch(row);
     if (!target || adapter(target.provider).bypass === false) return;
     const { provider, account } = target,
@@ -3025,6 +3179,8 @@ export class Controller {
       account_yolo: this.runtime.account_yolo,
       account_hidden: this.runtime.account_hidden,
       workspace_hidden: this.current().launcher_hidden,
+      workspace_order: this.current().launcher_order,
+      profiles: agentProfiles.list(),
       workspace_name: this.current().name,
       commands: this.runtime.agent_commands,
       accounts: this.runtime.accounts,
@@ -3086,9 +3242,26 @@ export class Controller {
       launch.account_yolo = this.runtime.account_yolo;
       launch.account_hidden = this.runtime.account_hidden;
       const i = this.runtime.workspaces.index(launch.workspace);
-      if (i !== null) launch.workspace_hidden = this.runtime.workspaces.items[i].launcher_hidden;
+      if (i !== null) {
+        launch.workspace_hidden = this.runtime.workspaces.items[i].launcher_hidden;
+        launch.workspace_order = this.runtime.workspaces.items[i].launcher_order;
+      }
+      launch.profiles = agentProfiles.list();
       launch.commands = this.runtime.agent_commands;
       launch.accounts = this.runtime.accounts;
+      if (launch.managing && (!this.corgi_setup || this.corgi_setup.managing())) {
+        for (const agent of launch.manageModel().agents)
+          if (launch.preview.installed[agent.provider]) this.model_cache.get(agent.provider, agent.account);
+        const picker = launch.manager.picker;
+        if (picker) {
+          const entry = this.model_cache.get(picker.agent.provider, picker.agent.account),
+            view = picker.view;
+          if (view.values !== entry.values || view.pending !== entry.pending || view.failed !== entry.failed) {
+            view.received(entry.values, entry.failed, entry.pending);
+            this.dirty = true;
+          }
+        }
+      }
       launch.normalize();
       if (this.corgi_setup) return;
       if (launch.workspace !== this.current().id || (side.width === 0 && !launch.pinned)) {
@@ -3251,8 +3424,7 @@ export class Controller {
         case 16:
           this.moveResume(rows, -1);
           break;
-        case 109:
-          return this.openManager();
+
         case 116:
           return this.launchRow("terminal");
         default:
@@ -3860,9 +4032,7 @@ export class Controller {
           case 116:
             await this.launchRow("terminal");
             break;
-          case 109:
-            if (!launch.managing) await this.openManager();
-            break;
+
           case 119:
             this.openWorktrees();
             break;
@@ -4620,9 +4790,12 @@ export class Controller {
           this.dirty = true;
         } else if (launch.resume_view.focused && !launch.managing) {
           launch.pinned = true;
-          this.resumeSequence(text, parsed_key);
+          if (parsed_key === "right" && !launch.resume_view.searching) await this.openManager();
+          else this.resumeSequence(text, parsed_key);
         } else if (launch.managing) {
           await this.manageAction(launch.manager.sequence(text, launch.manageModel()));
+        } else if (parsed_key === "right") {
+          await this.openManager();
         } else if (parsed_key === "up") {
           this.moveLauncher(false, false);
         } else if (parsed_key === "down") {
@@ -5171,6 +5344,28 @@ export class Controller {
     }
     const tabs_x = this.sidebarView([]).tabX();
     const tabs_width = this.width - tabs_x;
+    const managerLaunch = this.launcherModel();
+    if (managerLaunch?.managing && (!this.corgi_setup || this.corgi_setup.managing())) {
+      this.pointer = { x, y };
+      if (moved) this.dirty = true;
+      const setup = this.corgi_setup,
+        hit = setup?.hit(this.width, this.height, x, y, this.runtime.inference, this.prefs),
+        b = setup
+          ? hit && "manager" in hit
+            ? hit.manager
+            : managerLaunch.manager.drag || managerLaunch.manager.picker
+              ? managerLaunch.manager.last_box
+              : null
+          : managerLaunch.bounds(this.width, this.height, this.sidebarView([]));
+      if (b && (b.contains(x, y) || managerLaunch.manager.drag || managerLaunch.manager.picker)) {
+        this.ui_mouse_down = false;
+        if (setup && !release && (button === 0 || button === 64 || button === 65))
+          setup.openOptions(this.runtime.inference, this.prefs);
+        await this.manageAction(managerLaunch.manager.pointer(b, x, y, button, release, managerLaunch.manageModel()));
+        this.dirty = true;
+        return;
+      }
+    }
     if (this.ui_mouse_down) {
       if (release) {
         this.ui_mouse_down = false;
@@ -5875,7 +6070,12 @@ export class Controller {
       this.dirty = true;
     }
     const model = this.launcherModel();
-    if (model?.managing && model.manager.tick(model.manageModel())) this.dirty = true;
+    if (
+      model?.managing &&
+      (!this.corgi_setup || this.corgi_setup.managing()) &&
+      model.manager.tick(model.manageModel())
+    )
+      this.dirty = true;
     // A brief being written glimmers.
     if (
       this.worktreeDetail() !== null &&

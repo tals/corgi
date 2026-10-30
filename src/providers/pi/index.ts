@@ -1,3 +1,4 @@
+import * as effort from "../effort";
 import path from "node:path";
 import type { Adapter } from "../adapter";
 import { Hooks, field, str, type Hook } from "../common";
@@ -90,6 +91,8 @@ export const adapter: Adapter = {
     delete env.CORGI_PI_OWNER;
   },
   launch: {
+    options: (args, model, value) =>
+      effort.apply("--thinking", model ? commandLine.withoutModel(args, true) : args, value),
     start: s => [...(s.model ? ["--model", s.model] : []), ...s.args],
     resume: (session, account) => ["--session", locations.locate(session, account)],
     fork: ({ session, transcript }, name) =>

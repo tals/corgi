@@ -110,9 +110,35 @@ corgi launcher show review-bot --workspace 2
 ```
 
 Name agents as `list` does: `codex`, `claude`, an account such as `claude/work`
-(or `work` when no other agent answers to it), a saved command's name, or
-`command/N`. An agent "not in the launcher" was removed in Manage agents for
-every workspace; showing it in one workspace doesn't add it back.
+(or `work` when unambiguous), `profile/ID`, a clone's name, a saved command's
+name, or `command/N`. Showing a globally hidden entry also restores it to the
+shared catalog, matching Manage agents.
+
+Manage agent setups without launching processes:
+
+```sh
+corgi launcher models codex --json
+corgi launcher clone codex --name Reviewer --model MODEL_ID --effort high --workspace 2
+corgi launcher edit Reviewer --model auto --effort default --workspace 2
+corgi launcher edit Reviewer --flags '--verbose' --env '{"REVIEW":"1"}' --yolo off --workspace 2
+corgi launcher move Reviewer --before codex --workspace 2
+corgi launcher copy --from 2 --workspace 3
+corgi launcher add --name Checks --command 'bun test' --workspace 2
+corgi launcher remove Reviewer --workspace 2
+```
+
+`models` reports the native catalog, supported efforts and known defaults.
+`auto` leaves the model to the agent CLI's last choice; `default` removes the
+effort override. `--env` replaces environment overrides (`{}` clears them).
+Native entries and clones support name, model, effort, flags, environment and
+YOLO settings. Saved commands support name and `--command`.
+
+`move` accepts `--before`, `--after`, `--first`, or appends without a position.
+`copy` replaces the destination workspace's order and Active/Hidden choices.
+Agent definitions and model settings are shared across workspaces, so editing
+a named entry affects every workspace using it; clone it for independent settings.
+`remove` deletes a clone or saved command globally. Hide native accounts instead.
+None of these operations launch, move or terminate running agents.
 
 ## Scope and safety
 

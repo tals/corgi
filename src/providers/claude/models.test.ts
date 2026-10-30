@@ -1,4 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
+import * as commandLine from "../command_line";
 import { Client } from "./account";
 import { read } from "./models";
 import { Quit } from "../../subprocess";
@@ -54,5 +55,30 @@ test("Claude inference starts with the same account directory used for its catal
     client.close();
   } finally {
     spawn.mockRestore();
+  }
+});
+
+test("Claude catalogs label the saved native default effort only for supported models", async () => {
+  const info = new Info();
+  info.signed_in = true;
+  const models = spyOn(Client.prototype, "models").mockResolvedValue({
+      info,
+      models: [
+        { value: "opus", resolvedModel: "claude-opus", supportedEffortLevels: ["low", "high"] },
+        { value: "haiku", resolvedModel: "claude-haiku" },
+      ],
+    }),
+    settings = spyOn(commandLine, "cached").mockImplementation((root, name) => {
+      expect(root).toBe("/claude/effort");
+      expect(name).toBe("settings.json");
+      return { effortLevel: "high" };
+    });
+  try {
+    const values = await read("/claude/effort", new Quit());
+    expect(values[0].default_effort).toBe("high");
+    expect(values[1].default_effort).toBeUndefined();
+  } finally {
+    models.mockRestore();
+    settings.mockRestore();
   }
 });

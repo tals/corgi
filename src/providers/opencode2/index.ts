@@ -47,6 +47,8 @@ export const adapter: Adapter = {
   watch: () => new ScreenWatcher(() => null),
   hook: v => hooks.decode(v),
   launch: {
+    models: (_account, quit) => import("./models").then(m => m.catalog(quit)),
+    options: (args, model) => (model ? commandLine.withoutModel(args) : args),
     prepare,
     start: s => [
       ...(s.permissions === "bypass" ? ["--auto"] : []),

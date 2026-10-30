@@ -7,10 +7,16 @@ export const customs = ["custom0", "custom1", "custom2", "custom3", "custom4", "
 type AccountRow = `${Provider}:${string}`;
 /** Launcher rows: each provider's and its accounts', saved commands and a
  * plain terminal. */
-export type Row = Provider | AccountRow | (typeof customs)[number] | "terminal";
+export type Row = Provider | AccountRow | `profile:${string}` | (typeof customs)[number] | "terminal";
 /** What a row starts: a provider's agent in one of its accounts, "" the default. */
 export type Launch = { provider: Provider; account: string };
 export const Row = {
+  profile(row: string): string | null {
+    return /^profile:[a-z0-9-]{1,64}$/.test(row) ? row.slice(8) : null;
+  },
+  ofProfile(id: string): Row {
+    return `profile:${id}`;
+  },
   /** `provider`'s row, or the row of its `account`. */
   of(provider: Provider, account = ""): Row {
     return account.length > 0 ? `${provider}:${account}` : provider;
@@ -25,6 +31,7 @@ export const Row = {
   },
   /** A provider's, an account's or a saved command's row, or null. */
   parse(text: string): Row | null {
+    if (Row.profile(text) !== null) return text as Row;
     const row = text as Row,
       l = Row.launch(row);
     if (l) return l.account.length === 0 || l.account.startsWith("/") ? row : null;
@@ -42,6 +49,6 @@ export const Row = {
   },
   /** Rows with a digit and the agent columns: a provider's, an account's or a saved command's. */
   starts(row: Row): boolean {
-    return Row.launch(row) !== null || Row.custom(row) !== null;
+    return Row.launch(row) !== null || Row.profile(row) !== null || Row.custom(row) !== null;
   },
 };

@@ -26,6 +26,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { Provider, adapter } from "./providers";
 import type { Login } from "./providers/adapter";
 import { atomicWrite } from "./os";
+import * as agentName from "./agent_name";
 import * as agentOptions from "./agent_options";
 
 /** An account Corgi knows. `managed` when Corgi made its folder. */
@@ -144,7 +145,7 @@ function store(value: Saved) {
 
 /** Names the CLI and the launcher can spell. */
 export function valid(name: unknown): name is string {
-  return typeof name === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/.test(name) && name !== "default";
+  return agentName.valid(name) && name !== "default";
 }
 /** What `dir` is called when nobody named it: `.claude-work` is "work". */
 function nameOf(provider: Provider, dir: string) {
@@ -197,11 +198,15 @@ export function known(): Known[] {
 export function find(provider: Provider, account: string): Known | null {
   return account ? (known().find(a => a.provider === provider && a.dir === account) ?? null) : null;
 }
-/** The account the CLI names: `work`, or `claude/work` when two providers share it. */
+/** Match a literal display name or its provider-qualified spelling. */
+export function matchesName(spelled: string, provider: Provider, name: string): boolean {
+  return spelled === name || spelled === `${provider}/${name}`;
+}
+/** The account the CLI names, rejecting collisions between names and qualifiers. */
 export function named(spelled: string, provider: Provider | null = null): Known | null {
-  const [first, rest] = spelled.includes("/") ? spelled.split("/", 2) : [null, spelled],
-    only = first ? Provider.parse(first) : provider,
-    matches = known().filter(a => a.name === rest && (!only || a.provider === only));
+  const matches = known().filter(
+    a => (!provider || a.provider === provider) && matchesName(spelled, a.provider, a.name),
+  );
   if (matches.length > 1) throw Error("AmbiguousAccount");
   return matches[0] ?? null;
 }
@@ -272,9 +277,7 @@ export function renameDefault(provider: Provider, name: string) {
 /** Extra launch settings for an account, shared by every workspace and environment. */
 export function launchOptions(provider: Provider, account: string): agentOptions.Options {
   const options = load().launch.find(a => a.provider === provider && a.account === account)?.options;
-  return options
-    ? { flags: options.flags, env: options.env.map(([key, value]) => [key, value]) }
-    : agentOptions.empty();
+  return options ? { ...options, env: options.env.map(([key, value]) => [key, value]) } : agentOptions.empty();
 }
 /** Save the edit form as one private, atomic accounts.json update. */
 export function configure(provider: Provider, account: string, name: string, options: agentOptions.Options): void {
@@ -296,7 +299,9 @@ export function configure(provider: Provider, account: string, name: string, opt
     defaults: account ? value.defaults : { ...value.defaults, [provider]: name || undefined },
     launch: [
       ...value.launch.filter(a => a.provider !== provider || a.account !== account),
-      ...(clean.flags || clean.env.length ? [{ provider, account, options: clean }] : []),
+      ...(clean.flags || clean.env.length || clean.model || clean.effort
+        ? [{ provider, account, options: clean }]
+        : []),
     ],
   });
 }

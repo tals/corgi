@@ -16,6 +16,8 @@ export async function read(account: string, quit: Quit): Promise<InferenceModel[
   delete env.CORGI_PANE;
   delete env.CORGI_SOCKET;
   const io = Stdio.spawn([executable, ...bare], { cwd: "/tmp", env });
+  const abort = () => io.close();
+  quit.abortSignal.addEventListener("abort", abort, { once: true });
   try {
     io.write({ id: "corgi-models", type: "get_available_models" });
     const deadline = Date.now() + 15000;
@@ -34,6 +36,7 @@ export async function read(account: string, quit: Quit): Promise<InferenceModel[
     }
     throw Error("ModelsUnavailable");
   } finally {
+    quit.abortSignal.removeEventListener("abort", abort);
     io.close();
   }
 }

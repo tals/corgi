@@ -1802,10 +1802,12 @@ export function agentIndexAt(v: View, entries: Entry[], x: number, y: number): n
 
 // Fade both the card background and its foreground/underline colors into the
 // sidebar panel. All cursor positions and glyphs stay fixed until removal.
-export function writeExit(w: Writer, frame: string, progress: number): void {
+export function writeExit(w: Writer, frame: string, progress: number, background: palette.Token = "bg"): void {
   const t = clamp(progress, 0, 1);
   const opacity = 1 - t * t * (3 - 2 * t);
-  w.write(recolor(frame, (_, value, n) => Math.round(colors.bg[n] + (value - colors.bg[n]) * opacity)));
+  w.write(
+    recolor(frame, (_, value, n) => Math.round(colors[background][n] + (value - colors[background][n]) * opacity)),
+  );
 }
 /** Tints the backgrounds in `frame` toward accent, as far as `amount`. */
 export function writeTint(w: Writer, frame: string, amount: number): void {

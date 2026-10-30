@@ -3,6 +3,10 @@ import { Connection } from "./rpc";
 import { stringify } from "./json";
 import { logicalKey } from "./keys";
 import { Provider, adapter } from "./providers";
+import type { CommandInput } from "./protocol";
+import type { Agent as ConfiguredAgent } from "./launcher_config";
+import * as launcherOrder from "./launch/order";
+import * as effort from "./providers/effort";
 import { Row } from "./launch/row";
 import { Entry as CommandEntry } from "./launch/command";
 import helpText from "../assets/cli-help.txt" with { type: "text" };
@@ -13,6 +17,12 @@ const nested = new Set(["tab", "pane", "workspace", "launcher"]);
 const flags = new Set(["json", "clear", "stdin", "enter", "new-tab", "first", "left", "right", "up", "down"]);
 const options = new Set([
   ...flags,
+  "model",
+  "effort",
+  "flags",
+  "env",
+  "yolo",
+  "from",
   "viewer",
   "pane",
   "owner",
@@ -53,6 +63,13 @@ const actions = new Set([
   "workspace.edit",
   "workspace.close",
   "workspace.switch",
+  "launcher.edit",
+  "launcher.clone",
+  "launcher.move",
+  "launcher.copy",
+  "launcher.models",
+  "launcher.remove",
+  "launcher.add",
   "launcher.list",
   "launcher.hide",
   "launcher.show",
@@ -191,7 +208,17 @@ export async function parse(words: string[], caller = 0, input?: () => Promise<s
         : null;
   let command: Record<string, any> | null = null,
     idle: { workspace: number; cwd: string; first: boolean } | null = null,
-    launcher: { workspace: number; agents: string[] } | null = null,
+    launcher: {
+      workspace: number;
+      agents: string[];
+      before?: string | null;
+      after?: string | null;
+      first?: boolean;
+      from?: number;
+      edit?: Record<string, string | boolean | null>;
+      command?: string;
+      name?: string;
+    } | null = null,
     claim: { pane: number; provider: Provider | null; owner: number } | null = null;
   const set = (op: string, payload: any) => {
     command = { [op]: payload };
@@ -213,12 +240,48 @@ export async function parse(words: string[], caller = 0, input?: () => Promise<s
     case "launcher.list":
     case "launcher.hide":
     case "launcher.show":
-      launcher = {
-        workspace: args.options.has("workspace") ? id(args.required("workspace")) : 0,
-        agents: action === "launcher.list" ? [] : args.positional.splice(0),
-      };
-      if (action !== "launcher.list" && !launcher.agents.length) throw Error("Usage");
+    case "launcher.edit":
+    case "launcher.clone":
+    case "launcher.move":
+    case "launcher.copy":
+    case "launcher.models":
+    case "launcher.remove":
+    case "launcher.add": {
+      launcher = { workspace: args.options.has("workspace") ? id(args.required("workspace")) : 0, agents: [] };
+      if (action === "launcher.copy") launcher.from = id(args.required("from"));
+      else if (action === "launcher.add") {
+        launcher.command = args.required("command");
+        launcher.name = args.option("name") ?? "";
+      } else if (action !== "launcher.list") {
+        launcher.agents =
+          action === "launcher.hide" || action === "launcher.show" ? args.positional.splice(0) : [args.next()];
+        if (!launcher.agents.length) throw Error("Usage");
+      }
+      if (action === "launcher.move") {
+        launcher.before = args.option("before");
+        launcher.after = args.option("after");
+        launcher.first = args.flag("first");
+        if (Number(launcher.before !== null) + Number(launcher.after !== null) + Number(launcher.first) > 1)
+          throw Error("Usage");
+      }
+      if (action === "launcher.edit" || action === "launcher.clone") {
+        const yolo = args.option("yolo"),
+          level = args.option("effort");
+        if (yolo !== null && yolo !== "on" && yolo !== "off") throw Error("Usage");
+        if (level !== null && level !== "default" && !effort.parse(level)) throw Error("Usage");
+        launcher.edit = {
+          name: args.option("name"),
+          model: args.option("model"),
+          effort: level,
+          flags: args.option("flags"),
+          env: args.option("env"),
+          yolo: yolo === null ? null : yolo === "on",
+        };
+        const command = args.option("command");
+        if (command !== null) launcher.command = command;
+      }
       break;
+    }
     case "claim": {
       const clear = args.flag("clear");
       const provider = clear ? null : Provider.parse(args.next());
@@ -322,7 +385,8 @@ export async function parse(words: string[], caller = 0, input?: () => Promise<s
   if (action === "current" && !caller) throw Error("NoCallerPane");
   const created = (command as Record<string, any> | null)?.["pane.create"];
   if (created?.workspace === 0 && !caller) throw Error("MissingWorkspace");
-  if (launcher?.agents.length && !launcher.workspace && !caller) throw Error("MissingWorkspace");
+  if (launcher && action !== "launcher.list" && action !== "launcher.models" && !launcher.workspace && !caller)
+    throw Error("MissingWorkspace");
   return { action, target, current, json, viewer, command, idle, launcher, ...(claim ? { claim } : {}) };
 }
 /** A tab's split tree from the layout's node array, in words: `3 left of (4
@@ -381,16 +445,32 @@ export function idle(reply: any): string {
 /** A launcher row as `launcher` commands name it, `codex`, `claude/work` or
  * `command/2`, with the other names it answers to and whether it's in the
  * launcher at all. */
-type LauncherAgent = { agent: string; names: string[]; label: string; row: Row; launcher: boolean };
+type LauncherAgent = {
+  agent: string;
+  names: string[];
+  label: string;
+  row: Row;
+  launcher: boolean;
+  options?: ConfiguredAgent["options"];
+  yolo?: boolean;
+};
 /** Whether each agent shows in one workspace's launcher. */
 export type LauncherWorkspace = {
   id: number;
   name: string;
-  agents: { agent: string; label: string; launcher: boolean; hidden: boolean }[];
+  agents: {
+    agent: string;
+    label: string;
+    launcher: boolean;
+    hidden: boolean;
+    options?: ConfiguredAgent["options"];
+    yolo?: boolean;
+  }[];
 };
 const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter(v => typeof v === "string") : []);
 /** The launcher's rows in a snapshot, but the terminal's. */
 function launcherAgents(snapshot: any): LauncherAgent[] {
+  if (snapshot.launcher_agents) return snapshot.launcher_agents;
   const accounts: any[] = Array.isArray(snapshot?.accounts) ? snapshot.accounts : [],
     hidden = strings(snapshot?.account_hidden);
   const agents = Provider.all.flatMap((provider): LauncherAgent[] => [
@@ -428,11 +508,9 @@ function launcherAgents(snapshot: any): LauncherAgent[] {
   );
   return [...agents, ...commands];
 }
-/** The agent `name` spells: one by that name, else the one other agent that answers to it. */
+/** A canonical name and an alias must identify the same single agent. */
 function launcherAgent(agents: LauncherAgent[], name: string): LauncherAgent {
-  const own = agents.find(a => a.agent === name);
-  if (own) return own;
-  const matches = agents.filter(a => a.names.includes(name));
+  const matches = agents.filter(a => a.agent === name || a.names.includes(name));
   if (matches.length > 1) throw Error("AmbiguousAgent");
   if (!matches.length) throw Error("UnknownAgent");
   return matches[0];
@@ -447,12 +525,19 @@ export function launcher(snapshot: any, workspace = 0, names: string[] = []): La
   return workspaces.map(w => ({
     id: w.id,
     name: w.name ?? "",
-    agents: picked.map(a => ({
-      agent: a.agent,
-      label: a.label,
-      launcher: a.launcher,
-      hidden: strings(w.launcher_hidden).includes(a.row),
-    })),
+    agents: launcherOrder
+      .arrange(
+        picked.map(a => a.row),
+        strings(w.launcher_order) as Row[],
+      )
+      .map(row => picked.find(a => a.row === row)!)
+      .map(a => ({
+        agent: a.agent,
+        label: a.label,
+        launcher: a.launcher,
+        hidden: strings(w.launcher_hidden).includes(a.row),
+        ...(a.options ? { options: a.options, yolo: a.yolo } : {}),
+      })),
   }));
 }
 /** `launcher` replies as an outline: each workspace, then its agents and whether each shows there. */
@@ -465,7 +550,7 @@ export function launcherText(workspaces: LauncherWorkspace[]): string {
     out.push(`workspace ${w.id}${quote(w.name)}`);
     for (const a of w.agents)
       out.push(
-        `  ${a.agent.padEnd(names)}  ${a.label.padEnd(labels)}  ${!a.launcher ? "not in the launcher" : a.hidden ? "hidden" : "shown"}`,
+        `  ${a.agent.padEnd(names)}  ${a.label.padEnd(labels)}  ${!a.launcher ? "not in the launcher" : a.hidden ? "hidden" : "shown"}${a.options ? `  ${a.options.model ?? "Auto (last chosen)"} / ${a.options.effort ?? "Default"}` : ""}`,
       );
   }
   return out.join("\n") + "\n";
@@ -473,17 +558,127 @@ export function launcherText(workspaces: LauncherWorkspace[]): string {
 /** Runs `launcher list`, or `hide` or `show`, which change one workspace and
  * then read back what it shows of the agents they name. */
 async function launcherCommand(conn: Connection, inv: any, caller: number): Promise<LauncherWorkspace[]> {
-  const { agents: names } = inv.launcher,
-    before = (await conn.call("session.list")).result;
-  if (inv.action === "launcher.list") return launcher(before, inv.launcher.workspace);
-  const workspace = inv.launcher.workspace || (await conn.call("session.locate", { pane: caller })).result.workspace,
-    agents = launcherAgents(before),
-    rows = names.map((name: string) => launcherAgent(agents, name).row);
-  for (const row of rows)
-    await conn.call("session.command", {
-      command: { "agent.workspace_visibility": { workspace, row, shown: inv.action === "launcher.show" } },
-    });
-  return launcher((await conn.call("session.list")).result, workspace, names);
+  const q = inv.launcher,
+    before = (await conn.call("session.list")).result,
+    agents = (await conn.call("launcher.catalog")).agents;
+  const read = async (workspace: number) =>
+    launcher(
+      { ...(await conn.call("session.list")).result, launcher_agents: (await conn.call("launcher.catalog")).agents },
+      workspace,
+    );
+  if (inv.action === "launcher.list") return launcher({ ...before, launcher_agents: agents }, q.workspace);
+  const chosen: LauncherAgent[] = q.agents.map((name: string) => launcherAgent(agents, name));
+  if (inv.action === "launcher.models") {
+    const { models } = await conn.call("launcher.models", { row: chosen[0].row });
+    process.stdout.write(
+      inv.json
+        ? stringify({ ok: true, models }) + "\n"
+        : models
+            .map(
+              m =>
+                `${m.id}  ${m.name}  ${m.efforts?.join(", ") ?? ""}${m.default_effort ? ` (default: ${m.default_effort})` : ""}`,
+            )
+            .join("\n") + "\n",
+    );
+    return [];
+  }
+  const workspace = q.workspace || (await conn.call("session.locate", { pane: caller })).result.workspace;
+  launcher(before, workspace);
+  const send = (command: CommandInput) => conn.call("session.command", { command });
+  switch (inv.action) {
+    case "launcher.copy":
+      await send({ "agent.launcher.copy": { from: q.from, workspace } });
+      break;
+    case "launcher.move": {
+      const ordered = launcherOrder.arrange(
+          agents.map(a => a.row),
+          before.workspaces.find(w => w.id === workspace)!.launcher_order as Row[],
+        ),
+        row = chosen[0].row,
+        others = ordered.filter(r => r !== row);
+      let target = q.before ? launcherAgent(agents, q.before).row : null;
+      if (q.after) {
+        const after = launcherAgent(agents, q.after).row;
+        if (after === row) throw Error("Usage");
+        target = others[others.indexOf(after) + 1] ?? null;
+      }
+      if (q.first) target = others[0] ?? null;
+      await send({
+        "agent.launcher.move": {
+          workspace,
+          row,
+          before: target,
+          order: ordered,
+          shown: !before.workspaces.find(w => w.id === workspace)!.launcher_hidden.includes(row),
+        },
+      });
+      break;
+    }
+    case "launcher.hide":
+    case "launcher.show":
+      for (const agent of chosen) {
+        if (inv.action === "launcher.show" && !agent.launcher) {
+          const native = Row.launch(agent.row),
+            index = Row.custom(agent.row);
+          if (native) {
+            if (!native.account) before.agent_hidden[native.provider] = false;
+            before.account_hidden = before.account_hidden.filter(a => a !== native.account);
+            await send({
+              "agent.visibility": {
+                hidden: { ...before.agent_hidden, ...(!native.account ? { [native.provider]: false } : {}) },
+                hidden_accounts: before.account_hidden.filter(a => a !== native.account),
+              },
+            });
+          } else if (index !== null)
+            await send({
+              "agent.command": { index, command: before.agent_commands[index].command, hidden: false, resolve: false },
+            });
+        }
+        await send({
+          "agent.workspace_visibility": { workspace, row: agent.row, shown: inv.action === "launcher.show" },
+        });
+      }
+      break;
+    case "launcher.remove":
+      await send({ "agent.launcher.remove": { row: chosen[0].row } });
+      break;
+    case "launcher.add":
+    case "launcher.edit":
+    case "launcher.clone": {
+      const original = chosen[0],
+        index = original ? Row.custom(original.row) : null;
+      if (inv.action === "launcher.add" || index !== null) {
+        if (q.edit && ["model", "effort", "flags", "env", "yolo"].some(k => q.edit[k] !== null))
+          throw Error("CustomCommandOptions");
+        const slot = inv.action === "launcher.edit" ? index : before.agent_commands.findIndex(e => !e.command);
+        if (slot === null || slot < 0) throw Error("NoCommandSlots");
+        const source = index !== null ? before.agent_commands[index] : null;
+        await send({
+          "agent.command": {
+            index: slot,
+            command: q.command ?? source?.command ?? "",
+            name:
+              q.edit?.name ??
+              q.name ??
+              (inv.action === "launcher.clone" ? `${original.label} copy` : (source?.name ?? "")),
+            ...(source && q.command === undefined ? { original: source.original, semantics: source.semantics } : {}),
+            resolve: q.command !== undefined,
+            hidden: inv.action === "launcher.edit" ? (source?.hidden ?? false) : false,
+          },
+        });
+      } else {
+        if (q.command !== undefined) throw Error("Usage");
+        await send({
+          "agent.launcher.configure": { row: original.row, clone: inv.action === "launcher.clone", ...q.edit },
+        });
+      }
+      break;
+    }
+  }
+  const result = await read(workspace);
+  return inv.action === "launcher.hide" || inv.action === "launcher.show"
+    ? result.map(w => ({ ...w, agents: w.agents.filter(a => chosen.some(c => c.agent === a.agent)) }))
+    : result;
 }
 /** A reply other than `list`, `pane idle` and `pane read`, in words. */
 export function words(reply: any): string {
@@ -535,6 +730,7 @@ export async function run(path: string, args: string[], agent = false): Promise<
     }
     if (inv.launcher) {
       const workspaces = await launcherCommand(conn, inv, caller);
+      if (inv.action === "launcher.models") return;
       process.stdout.write(inv.json ? stringify({ ok: true, workspaces }) + "\n" : launcherText(workspaces));
       return;
     }

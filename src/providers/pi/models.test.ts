@@ -116,3 +116,20 @@ test("API credentials are not subscriptions and zero or missing prices aren't gu
   expect(result.map(m => m.input_cost)).toEqual([1, null, null, 0, null]);
   expect(() => parse({}, {})).toThrow("InvalidModels");
 });
+
+test("native thinking metadata supplies the supported ladder and default effort", () => {
+  const values = parse(
+    {
+      models: [
+        {
+          ...model("custom", "thinking"),
+          reasoning: true,
+          thinking: { efforts: ["low", "high"], defaultLevel: "high" },
+        },
+      ],
+    },
+    {},
+  );
+  expect(values[0].efforts).toEqual(["low", "high"]);
+  expect(values[0].default_effort).toBe("high");
+});

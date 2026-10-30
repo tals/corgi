@@ -4,7 +4,9 @@ import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { isatty } from "node:tty";
 import { Provider, adapter } from "./providers";
+import * as agentName from "./agent_name";
 import * as accounts from "./accounts";
+import * as agentProfiles from "./agent_profiles";
 import * as integration from "./integration";
 import * as signin from "./signin";
 import * as errors from "./errors";
@@ -86,11 +88,11 @@ function list() {
 /** The provider whose default account `spelled` names: `default`,
  * `claude/default`, or the name it was given. */
 function defaultOf(spelled: string): Provider | null {
-  const [first, rest] = spelled.includes("/") ? spelled.split("/", 2) : [null, spelled],
-    only = first ? Provider.parse(first) : null,
-    matches = Provider.all.filter(
-      p => (!first || p === only) && (rest === "default" || rest === accounts.defaultName(p)),
-    );
+  const matches = Provider.all.filter(
+    p =>
+      accounts.matchesName(spelled, p, "default") ||
+      (accounts.defaultName(p) && accounts.matchesName(spelled, p, accounts.defaultName(p))),
+  );
   if (matches.length > 1) throw Error("AmbiguousAccount");
   return matches[0] ?? null;
 }
@@ -139,7 +141,9 @@ async function run(args: string[]): Promise<number> {
     }
     case "rename": {
       if (rest.length !== 2) throw Error("Usage");
-      const provider = defaultOf(rest[0]);
+      const provider = defaultOf(rest[0]),
+        account = accounts.named(rest[0]);
+      if (provider && account) throw Error("AmbiguousAccount");
       if (provider) {
         accounts.renameDefault(provider, rest[1]);
         process.stdout.write(
@@ -149,7 +153,7 @@ async function run(args: string[]): Promise<number> {
         );
         return 0;
       }
-      const account = found(rest[0]);
+      if (!account) throw Error("UnknownAccount");
       accounts.rename(account, rest[1]);
       process.stdout.write(`Renamed ${account.name} to ${rest[1]}.\n`);
       return 0;
@@ -157,6 +161,7 @@ async function run(args: string[]): Promise<number> {
     case "remove": {
       if (rest.length !== 1) throw Error("Usage");
       const account = found(rest[0]);
+      agentProfiles.assertAccountUnused(account.provider, account.dir);
       if (accounts.owns(account)) await signin.signOut(account);
       const removed = await accounts.remove(account);
       process.stdout.write(
@@ -171,7 +176,9 @@ async function run(args: string[]): Promise<number> {
   }
 }
 const messages: Record<string, string> = {
-  InvalidAccountName: "an account name is letters, digits, dots, dashes and underscores, up to 32",
+  AccountHasProfiles: "delete this account’s cloned configurations first",
+  InvalidAccountName: agentName.message + " The account name default is reserved.",
+  InvalidAgentName: agentName.message,
   AccountExists: "there's an account by that name already",
   UnknownAccount: "no account by that name; `corgi account list` shows them",
   AmbiguousAccount: "two providers have an account by that name; say claude/NAME or codex/NAME",

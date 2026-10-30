@@ -8,9 +8,7 @@ import { EXE, registerCase, run, shellJoin } from "./support";
 const session = "01901234-1234-1234-1234-123456789abc";
 class WorktreeReload extends Runtime {
   async configure() {
-    this.env.CORGI_CODEX_BIN = write_codex_terminal(join(this.temp.name, "codex"), session);
-  }
-  async test_idle_worktree_agent_survives_reload_and_observation_resumes_without_new_title() {
+    // Finish the repository before the daemon can cache a partially created worktree.
     const root = realpathSync(this.temp.name),
       child = join(root, "linked");
     const git = (...args: string[]) => run(["git", "-C", root, ...args], { env: this.env });
@@ -19,7 +17,12 @@ class WorktreeReload extends Runtime {
     await git("config", "user.email", "test@example.invalid");
     await git("-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "base");
     await git("worktree", "add", "-b", "feature", child);
-    const terminal = write_codex_terminal(join(root, "codex"), session);
+    this.env.CORGI_CODEX_BIN = write_codex_terminal(join(root, "codex"), session);
+  }
+  async test_idle_worktree_agent_survives_reload_and_observation_resumes_without_new_title() {
+    const root = realpathSync(this.temp.name),
+      child = join(root, "linked"),
+      terminal = join(root, "codex");
     await this.command("workspace.edit", { target: 1, cwd: root });
     let pane = (await this.command("pane.create", { workspace: 1, cwd: root, command: shellJoin([terminal]) })).pane;
     const viewer = await Viewer.create(this, 120, 38);

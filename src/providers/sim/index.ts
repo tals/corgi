@@ -63,6 +63,7 @@ export const adapter: Adapter = {
   watch: () => new ScreenWatcher((_title, text) => sharedPrompt(text)),
   hook: v => hooks.decode(v),
   launch: {
+    options: args => args,
     start: s => [
       ...(s.permissions === "bypass" ? ["--unattended"] : []),
       ...(s.model ? ["--model", s.model] : []),
