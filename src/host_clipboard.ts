@@ -71,7 +71,7 @@ export class Notice {
     this.add("text", ".");
   }
 }
-export const nightly_url = "https://github.com/ghostty-org/ghostty/releases/tag/tip";
+export const download_url = "https://ghostty.org/download";
 export const enable = "\x1b[?5522h";
 export const disable = "\x1b[?5522l";
 const max_bytes = 32 * 1024 * 1024,
@@ -204,13 +204,10 @@ export class State {
         if (this.multiplexer()) {
           body(`${program} sits between Corgi and your terminal.`);
           n.enable(`Run Corgi outside ${program}`, paste);
-        } else if (linux) {
-          body(`${capitalized(program)} on Linux can't send images over SSH yet.`);
-          n.add("text", "Only Ghostty Nightly on macOS can, for now.");
         } else {
           body(`${this.displayName()} can't send images over SSH.`);
           n.add("text", "Use ");
-          n.add("link", "Ghostty Nightly");
+          n.add("link", "Ghostty 1.4");
           n.add("text", " to enable paste with ");
           n.add("key", paste);
           n.add("text", ".");

@@ -195,11 +195,11 @@ process.stdin.on("data", () => process.stdout.write("\\x1b_Ga=d,d=I,i=730140,q=2
     this.assertIn("⇧⌘-click opens · click copies", pty.output);
     this.assertRegex(
       pty.output,
-      /\x1b\]8;;https:\/\/github\.com\/ghostty-org\/ghostty\/releases\/tag\/tip\x1b\\(?:\x1b\[[0-9;:]*m)*\x1b\[4m(?:\x1b\[[0-9;:]*m)*Ghostty Nightly/,
+      /\x1b\]8;;https:\/\/ghostty\.org\/download\x1b\\(?:\x1b\[[0-9;:]*m)*\x1b\[4m(?:\x1b\[[0-9;:]*m)*Ghostty 1\.4/,
     );
     // A plain click on the download link copies it; the card stays open.
     // (Cmd+Shift-click opens it in the terminal, which never tells Corgi.)
-    const url = "https://github.com/ghostty-org/ghostty/releases/tag/tip";
+    const url = "https://ghostty.org/download";
     // The row may be redrawn from its border: count what precedes the label.
     const link = /\x1b\[(\d+);(\d+)H((?:(?!\x1b\[\d+;\d+H)[^])*?)Download: /.exec(pty.output)!;
     const before = [...link[3].replace(/\x1b\[[0-9;:]*m|\x1b\]8;[^\x1b]*\x1b\\/g, "")].length;

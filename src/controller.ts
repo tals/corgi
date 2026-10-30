@@ -4152,7 +4152,7 @@ export class Controller {
       if (!card.pressed) return "keep";
       card.pressed = false;
       if (on_link) {
-        this.copyQuietly(hostClipboard.nightly_url);
+        this.copyQuietly(hostClipboard.download_url);
         card.copied = true;
         this.dirty = true;
       }
