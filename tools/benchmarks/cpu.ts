@@ -4,6 +4,7 @@
  * CPU_IDLE_ONLY=viewer measures only a quiet shell with an attached viewer.
  * CPU_MATRIX_ONLY=1 selects the four idle/streaming, attached/detached phases.
  * CPU_INITIAL_WARMUP_SECONDS overrides the first agent phase's warmup.
+ * CPU_STREAM_ONLY=1 with CPU_MATRIX_ONLY=1 measures just attached streaming.
  * CPU includes all process threads; 100% is one core. Provider CPU is excluded.
  * Streaming produces one approximately 130-byte line per agent every 50 ms.
  * Every phase shares a private UI-driver runtime and fake provider accounts.
@@ -13,11 +14,16 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Session } from "../ui_driver";
-import { ORDINARY_PROVIDER, NATIVE_PROVIDER, write_executable } from "../../tests/provider_sim";
 import * as benchmark from "./cpu_lock";
 import * as progress from "./viewer_progress";
+import * as geometry from "./cost_matrix_geometry";
+import * as memory from "./cpu_memory";
+import * as telemetrySnapshot from "./telemetry_snapshot";
+import * as streamingFixture from "./streaming_fixture";
+import * as matrixQuality from "./matrix_quality";
 
 const release = await benchmark.acquire();
+const producerSchedule = streamingFixture.schedule(process.env.CPU_STREAM_PHASE);
 const binary = resolve(process.argv[2] ?? "dist/corgi"),
   output = resolve(process.argv[3] ?? "dist/cpu"),
   seconds = Number(process.argv[4] ?? 15),
@@ -25,6 +31,10 @@ const binary = resolve(process.argv[2] ?? "dist/corgi"),
   initialWarmup = Number(process.env.CPU_INITIAL_WARMUP_SECONDS ?? warmup),
   count = Number(process.env.CPU_AGENTS ?? 8),
   matrix = !!process.env.CPU_MATRIX_ONLY,
+  workload = matrixQuality.workload(process.env.CPU_MATRIX_WORKLOAD),
+  streamOnly = process.env.CPU_STREAM_ONLY === "1",
+  streamMode = streamingFixture.mode(process.env.CPU_STREAM_MODE),
+  matchGeometry = !!process.env.CPU_MATCH_GEOMETRY,
   idle = process.env.CPU_IDLE_ONLY === "viewer" ? "viewer" : process.env.CPU_IDLE_ONLY ? "daemon" : null;
 if (
   process.platform !== "linux" ||
@@ -38,9 +48,29 @@ if (
   count < 1
 )
   throw Error("Needs Linux, a positive sample duration and agent count, and a nonnegative warmup");
+if (streamOnly && (!matrix || idle)) throw Error("Streaming-only requires the agent matrix");
+if (workload !== "all" && (!matrix || streamOnly || idle))
+  throw Error("Workload selector requires the full agent matrix");
+if (streamMode !== "scroll" && streamMode !== "sparse") throw Error("Unknown streaming fixture mode");
 if (existsSync(join(output, "results.json"))) throw Error("Use a fresh output directory");
 mkdirSync(output, { recursive: true });
 const s = new Session(binary, binary, 160, 48);
+const intensity = Number(process.env.CPU_CORGI_INTENSITY ?? 50);
+if (!Number.isInteger(intensity) || intensity < 0 || intensity > 100) throw Error("Invalid corgi intensity");
+const resources = process.env.CPU_RESOURCES !== "0";
+writeFileSync(
+  join(s.home, ".local/state/corgi/viewer.json"),
+  JSON.stringify({
+    onboarding_complete: true,
+    preset: "corgi",
+    prefix: "ctrl_b",
+    corgi_intensity: intensity,
+    resources: { enabled: resources },
+  }),
+);
+const telemetryDirectory = process.env.CPU_TELEMETRY ? join(output, "telemetry-live") : null;
+s.env.CORGI_TELEMETRY_DIR = telemetryDirectory ?? "";
+s.env.CORGI_TELEMETRY_TRACE = process.env.CPU_TELEMETRY_TRACE ?? "";
 const ticks = Number(Bun.spawnSync(["getconf", "CLK_TCK"]).stdout.toString());
 function usage(pid: number) {
   const raw = readFileSync(`/proc/${pid}/stat`, "utf8"),
@@ -48,11 +78,15 @@ function usage(pid: number) {
   return {
     cpu: (Number(stat[11]) + Number(stat[12])) / ticks,
     children: (Number(stat[13]) + Number(stat[14])) / ticks,
+    user: Number(stat[11]) / ticks,
+    system: Number(stat[12]) / ticks,
+    children_user: Number(stat[13]) / ticks,
+    children_system: Number(stat[14]) / ticks,
   };
 }
 async function cli(...args: string[]) {
   const p = Bun.spawn([binary, ...args, ...(args[0] === "rpc" || args.includes("--json") ? [] : ["--json"])], {
-    env: { ...s.env, BUN_OPTIONS: "" },
+    env: { ...s.env, BUN_OPTIONS: "", CORGI_TELEMETRY_DIR: "" },
     cwd: s.cwd,
     stdout: "pipe",
     stderr: "pipe",
@@ -68,7 +102,32 @@ async function cli(...args: string[]) {
 let daemon = 0;
 const results: object[] = [];
 const panes: number[] = [];
+let activeProducer: streamingFixture.Active<number> | null = null;
+let producerSource: ReturnType<typeof streamingFixture.install> | null = null;
+const sendProducer = (pane: number, command: string) => cli("pane", "send", String(pane), command, "--enter");
 let shell = 0;
+let providerPids: number[] = [];
+const readScreens = async () => {
+  const screens: string[] = [];
+  for (const pane of panes) {
+    const reply = await cli(
+      "rpc",
+      JSON.stringify({
+        op: "session.command",
+        protocol: 3,
+        command: { "pane.read": { target: pane, view: "screen", lines: 100 } },
+      }),
+    );
+    if (typeof reply.result?.text !== "string") throw Error("Missing native pane screen");
+    screens.push(reply.result.text);
+  }
+  return screens;
+};
+async function detachViewer() {
+  s.write("\x02q");
+  await s.proc.exited;
+  if (existsSync(`/proc/${s.proc.pid}`)) throw Error("Viewer remains alive after detach");
+}
 function checkAgents(snapshot: any, state: "idle" | "working") {
   const agents = snapshot.panes.filter((p: { id: number }) => panes.includes(p.id));
   const claude = agents.filter((p: any) => p.agent.provider === "claude");
@@ -99,9 +158,16 @@ async function measure(name: string, viewer = false, state?: "idle" | "working")
   if (state) await until(async () => checkAgents((await cli("list")).result, state), `${count} ${state} agents`);
   const wait = name === "idle-agents-viewer" ? initialWarmup : warmup;
   console.log(JSON.stringify({ warming: name, seconds: wait }));
+  const screensBefore = state === "idle" ? await readScreens() : [];
   await Bun.sleep(wait * 1000);
+  if (!viewer && state && existsSync(`/proc/${s.proc.pid}`)) throw Error("Detached viewer is still alive");
+  const idleBefore = state === "idle" ? matrixQuality.counters(providerPids) : null;
+  const telemetryBefore = telemetryDirectory
+    ? await telemetrySnapshot.capture(telemetryDirectory, [daemon, ...(viewer ? [s.proc.pid] : [])])
+    : null;
   const streaming = name === "streaming-agents-viewer",
     visibleBefore = streaming ? progress.sequence(s.text().join("\n")) : null;
+  const producerStart = activeProducer && name.startsWith("streaming-") ? streamingFixture.now() : null;
   const startedAt = new Date().toISOString(),
     start = performance.now(),
     d = usage(daemon),
@@ -112,8 +178,18 @@ async function measure(name: string, viewer = false, state?: "idle" | "working")
     end = usage(daemon),
     vend = v ? usage(s.proc.pid) : null,
     endBytes = s.bytes;
+  const producerEnd = producerStart !== null ? streamingFixture.now() : null;
+  const idleAfter = idleBefore ? matrixQuality.counters(providerPids) : null;
   const visibleAfter = streaming ? progress.sequence(s.text().join("\n")) : null,
     visibleAt = performance.now();
+  const telemetryAfter = telemetryDirectory
+    ? await telemetrySnapshot.capture(telemetryDirectory, [daemon, ...(viewer ? [s.proc.pid] : [])])
+    : null;
+  if (telemetryBefore && telemetryAfter)
+    writeFileSync(
+      join(output, `${name}-telemetry.json`),
+      JSON.stringify({ before: telemetryBefore, after: telemetryAfter }),
+    );
   let streaming_progress: (ReturnType<typeof progress.reading> & { source_read_delay_ms: number }) | null = null;
   if (streaming) {
     const source = await cli("pane", "read", String(panes[0]), "--lines", "100");
@@ -123,19 +199,47 @@ async function measure(name: string, viewer = false, state?: "idle" | "working")
     };
   }
   const streaming_quality = streaming ? await progress.probe(() => s.text().join("\n")) : null;
+  const memoryAfter = { daemon: memory.read(daemon), viewer: viewer ? memory.read(s.proc.pid) : null };
+  const producer_phase =
+    activeProducer && producerStart !== null && producerEnd !== null
+      ? await streamingFixture.collect(activeProducer, sendProducer, producerStart, producerEnd, name)
+      : null;
+  const idle_quality =
+    idleBefore && idleAfter ? matrixQuality.idle(idleBefore, idleAfter, screensBefore, await readScreens()) : null;
   const row = {
     name,
+    viewer_attached: viewer,
+    viewer_pid: viewer ? s.proc.pid : null,
+    idle_quality,
     warmup: wait,
     started_at: startedAt,
     seconds: elapsed,
     daemon_cpu: (100 * (end.cpu - d.cpu)) / elapsed,
     daemon_child_cpu: (100 * (end.children - d.children)) / elapsed,
     viewer_cpu: v && vend ? (100 * (vend.cpu - v.cpu)) / elapsed : null,
+    daemon_user_cpu: (100 * (end.user - d.user)) / elapsed,
+    daemon_system_cpu: (100 * (end.system - d.system)) / elapsed,
+    daemon_child_user_cpu: (100 * (end.children_user - d.children_user)) / elapsed,
+    daemon_child_system_cpu: (100 * (end.children_system - d.children_system)) / elapsed,
+    viewer_user_cpu: v && vend ? (100 * (vend.user - v.user)) / elapsed : null,
+    viewer_system_cpu: v && vend ? (100 * (vend.system - v.system)) / elapsed : null,
     viewer_bytes_per_second: (endBytes - bytes) / elapsed,
     streaming_progress,
     streaming_quality,
+    producer_phase,
+    memory_after: memoryAfter,
   };
   const snapshot = (await cli("list")).result;
+  if (state)
+    writeFileSync(
+      join(output, `geometry-${name}.json`),
+      JSON.stringify(
+        geometry.read(
+          snapshot.panes.map((p: { pid: number }) => p.pid),
+          matchGeometry,
+        ),
+      ) + "\n",
+    );
   if (state && !checkAgents(snapshot, state)) throw Error(`${name}: expected ${count} ${state} agents`);
   writeFileSync(join(output, `${name}.json`), JSON.stringify(snapshot, null, 2) + "\n");
   results.push(row);
@@ -144,6 +248,7 @@ async function measure(name: string, viewer = false, state?: "idle" | "working")
     join(output, "results.json"),
     JSON.stringify(
       {
+        cpu_accounting: "proc-stat-user-system-v1",
         binary,
         daemon,
         viewer: s.proc?.pid,
@@ -151,8 +256,17 @@ async function measure(name: string, viewer = false, state?: "idle" | "working")
         warmup,
         initialWarmup,
         matrix,
+        workload,
+        stream_only: streamOnly,
+        stream_mode: streamMode,
+        producer_schedule: producerSchedule,
+        producer_source: producerSource,
         agents: count,
         profiled: !!process.env.CPU_PROFILE,
+        telemetry: !!telemetryDirectory,
+        rich_transcripts: process.env.CPU_RICH_TRANSCRIPTS === "1",
+        corgi_intensity: intensity,
+        resources,
         results,
       },
       null,
@@ -162,26 +276,13 @@ async function measure(name: string, viewer = false, state?: "idle" | "working")
   if (viewer) writeFileSync(join(output, `${name}.txt`), s.text().join("\n") + "\n");
   if (streaming_progress) progress.validate(streaming_progress);
   if (streaming_quality) progress.validateCadence(streaming_quality);
+  if (streaming_quality) progress.validateAnimation(streaming_quality.animation);
+  if (producer_phase) streamingFixture.validate(producer_phase);
+  if (idle_quality) matrixQuality.validate(idle_quality);
 }
 async function run() {
   try {
-    // Distinct fixture IDs, plus bounded terminal output controlled through stdin.
-    write_executable(join(s.home, "bin", "rpc-fixture.ts"), NATIVE_PROVIDER);
-    const provider = ORDINARY_PROVIDER.replace(
-      "const provider=basename(process.argv[1]);",
-      `const provider=basename(process.argv[1]);
-if(process.argv.includes('--version')) { console.log(provider==='codex' ? 'codex-cli 1.2.3' : '2.1.0 (Claude Code)'); process.exit(0); }
-if(process.argv.includes('app-server')) { await import('./rpc-fixture.ts'); process.exit(0); }`,
-    )
-      .replaceAll("'ordinary-'+provider", "'ordinary-'+provider+'-'+process.pid")
-      .replace("let loading=", "let stream=null; let seq=0;\nlet loading=")
-      .replace(
-        "if(command==='exit') break;",
-        `if(command==='stream') { stream ??= setInterval(()=>console.log('Working (esc to interrupt) '+(++seq)+' '+'.'.repeat(100)),50); continue; }
-if(command==='quiet') { clearInterval(stream); stream=null; continue; }
-if(command==='exit') break;`,
-      );
-    for (const name of ["claude", "codex"]) write_executable(join(s.home, "bin", name), provider);
+    producerSource = streamingFixture.install(join(s.home, "bin"), streamMode);
     if (process.env.CPU_PROFILE) s.env.BUN_OPTIONS = `--cpu-prof --cpu-prof-dir=${output}`;
     await s.seed(`'${binary.replaceAll("'", "'\\''")}' start`);
     daemon = (await cli("rpc", '{"op":"ping"}')).pid;
@@ -191,6 +292,7 @@ if(command==='exit') break;`,
     if (!matrix && idle !== "viewer") await measure("empty-daemon");
     if (idle === "daemon") return;
     await s.start();
+    writeFileSync(join(output, "runtime.json"), JSON.stringify({ ...runtime, viewer: s.proc.pid }) + "\n");
     if (matrix) {
       shell = await until(async () => {
         const snapshot = (await cli("list")).result;
@@ -219,16 +321,52 @@ if(command==='exit') break;`,
       );
       panes.push(created.result.pane);
     }
-    if (matrix) await cli("focus", String(shell), "--viewer", "1");
-    await measure("idle-agents-viewer", true, "idle");
+    if (matchGeometry) {
+      for (const pane of panes) {
+        await cli("focus", String(pane), "--viewer", "1");
+        await until(async () => {
+          const snapshot = (await cli("list")).result;
+          return snapshot.panes.some(
+            (p: { id: number; cols: number; rows: number }) => p.id === pane && p.cols === 132 && p.rows === 47,
+          );
+        }, `pane ${pane} geometry`);
+      }
+      const snapshot = (await cli("list")).result;
+      writeFileSync(
+        join(output, "geometry-setup.json"),
+        JSON.stringify(
+          geometry.read(
+            snapshot.panes.map((p: { pid: number }) => p.pid),
+            true,
+          ),
+        ) + "\n",
+      );
+    }
+    await until(async () => checkAgents((await cli("list")).result, "idle"), "all providers ready");
+    providerPids = matrixQuality.providers(s.home, count);
+    if (matrix) await cli("focus", String(panes[0]), "--viewer", "1");
+    if (!streamOnly && workload !== "busy") await measure("idle-agents-viewer", true, "idle");
+    if (workload === "idle") {
+      await detachViewer();
+      await measure("idle-agents-detached", false, "idle");
+      return;
+    }
     for (const pane of panes) await cli("pane", "send", String(pane), "work", "--enter");
     if (!matrix) await measure("working-agents-viewer", true, "working");
-    for (const pane of panes) await cli("pane", "send", String(pane), "stream", "--enter");
+    activeProducer = await streamingFixture.start(
+      panes,
+      sendProducer,
+      producerSchedule,
+      output,
+      (streamOnly ? 1 : 2) * (warmup + seconds) + 60,
+      streamMode,
+    );
     await cli("focus", String(panes[0]), "--viewer", "1");
     await measure("streaming-agents-viewer", true, "working");
-    s.write("\x02q");
-    await s.proc.exited;
+    if (streamOnly) return;
+    await detachViewer();
     await measure("streaming-agents-detached", false, "working");
+    if (workload === "busy") return;
     for (const pane of panes) {
       await cli("pane", "send", String(pane), "quiet", "--enter");
       await cli("pane", "send", String(pane), "stop", "--enter");

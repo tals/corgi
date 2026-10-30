@@ -1,6 +1,7 @@
 //! One complete frame of the viewer: tabs, panes, sidebar and overlays.
 //! Mirrors render.zig.
 import * as palette from "./palette";
+import { cursorBytes, type Cursor, type Frame } from "./composition";
 import { Style, keycap } from "./palette";
 import { Rect, View as LayoutView, cleanLabel, type Axis, type Border } from "./layout";
 import * as sidebar from "./sidebar";
@@ -600,7 +601,16 @@ function drawTabs(
   w.write(button_edge + "▐" + button + "+" + button_edge + "▌");
   w.write("\x1b[0m");
 }
-export function frame(view: LayoutView, panes: Pane[], width: number, height: number, u: Ui): string {
+export function frame(
+  view: LayoutView,
+  panes: Pane[],
+  width: number,
+  height: number,
+  u: Ui,
+  retained?: Frame,
+  sidebarEntries?: () => Entry[],
+  sidebarSettled?: () => boolean,
+): string {
   const model = view.model;
   const w = new Writer();
   const entries = u.dragged_agent ? u.dragged_agent.apply(u.agents) : u.agents;
@@ -811,7 +821,19 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
       u.corgi_setup !== null ||
       u.sidebar_drawer !== null ||
       u.review_keys;
-    w.write(p.terminal.rows(p.id, r.x, r.y, r.w, r.h, dim, hovered));
+    if (
+      retained &&
+      noOverlay(u) &&
+      !dim &&
+      hovered === null &&
+      !p.terminal.selection &&
+      p.restoring.length === 0 &&
+      p.terminal.images.length === 0 &&
+      r.w === p.terminal.inner.cols &&
+      r.h === p.terminal.inner.rows
+    )
+      retained.pane(w, p.terminal, p.id, r);
+    else w.write(p.terminal.rows(p.id, r.x, r.y, r.w, r.h, dim, hovered));
     w.write("\x1b[0m");
     if (p.restoring.length > 0) {
       drawRestoring(
@@ -843,7 +865,27 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   // A moving row's tint and a link's thumbnail are placed again by each frame that shows them.
   if (u.supports_kitty_graphics)
     w.write(rowGlide.hide + rowGlide.hideImage(rowGlide.manager_image_id) + linkThumbnail.hide);
-  side.draw(w, entries, workspaces);
+  const sidebar_at = w.s.length;
+  const paint =
+    retained && sidebarEntries && sidebarSettled?.() !== false
+      ? side.prepare(w, entries, workspaces, Date.now())
+      : null;
+  if (!paint) side.draw(w, entries, workspaces);
+  if (retained && sidebarEntries)
+    retained.sidebar = {
+      at: sidebar_at,
+      length: w.s.length - sidebar_at,
+      paint,
+      draw: previous => {
+        if (previous) return previous.next(Date.now());
+        const out = new Writer(),
+          next = sidebarEntries();
+        const current = side.withEntries(next),
+          paint = sidebarSettled?.() !== false ? current.prepare(out, next, workspaces, Date.now()) : null;
+        if (!paint) current.draw(out, next, workspaces);
+        return paint ?? out.s;
+      },
+    };
   if (u.git_hover !== null) sidebar.drawGitAction(w, side, u.workspaces, u.git_hover);
   if (u.review_draw) u.review_draw(w);
   if (u.corgi_badge === "image") {
@@ -877,14 +919,17 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   }
   // The prefix bar covers the area's last row.
   const cursor_rows = area.y + area.h - (u.prefix && area.h > 0 ? 1 : 0);
-  if (model.count > 0 && !u.copy_mode && !u.link_tooltip && !u.review_focused && noOverlay(u)) {
+  const pane_cursor_owned = model.count > 0 && !u.copy_mode && !u.link_tooltip && !u.review_focused && noOverlay(u);
+  let pane_cursor: Cursor = null;
+  if (pane_cursor_owned) {
     for (const place of view.placements(area)) {
       if (place.id !== view.selection.tabs[view.selection.active].focus || place.rect.h === 0) continue;
       const p = panes.find(pane => pane.id === place.id && pane.restoring.length === 0);
       if (!p) continue;
       const cursor = p.terminal.cursor();
-      if (cursor && cursor.x < place.rect.w && cursor.y < place.rect.h && place.rect.y + cursor.y < cursor_rows)
-        w.write(`\x1b[${place.rect.y + cursor.y + 1};${place.rect.x + cursor.x + 1}H\x1b[?25h`);
+      if (cursor && cursor.x < place.rect.w && cursor.y < place.rect.h && place.rect.y + cursor.y < cursor_rows) {
+        pane_cursor = { x: place.rect.x + cursor.x, y: place.rect.y + cursor.y };
+      }
     }
   }
   if (paste_at) w.write(pasteCard.draw(u.paste_card!, paste_at, u.paste_copied));
@@ -1032,6 +1077,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   if (u.signin_exit) w.write("\x1b[?25l");
   if (u.link_card && link_rect && u.pointer) {
     w.write("\x1b[?25l");
+    pane_cursor = null;
     linkTooltip.draw(w, link_rect, u.link_card, linkTooltip.copyAt(link_rect, u.pointer.x, u.pointer.y));
     if (u.link_card.thumbnail) w.write(linkThumbnail.place(link_rect, u.link_card.thumbnail));
     cover(link_rect);
@@ -1048,7 +1094,16 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
     for (const { brand, x } of marks)
       if (!covered.some(box => box.y === 0 && box.h > 0 && box.x < x + tabIcons.cols && box.x + box.w > x))
         w.write(u.tab_icons.place(brand, x, 0, u.cell_pixels));
-  if (dragging) w.write("\x1b[?25l");
+  if (dragging) {
+    w.write("\x1b[?25l");
+    pane_cursor = null;
+  }
+  if (pane_cursor_owned) {
+    if (retained?.panes.length) {
+      retained.cursor = pane_cursor;
+      retained.cursor_at = w.s.length;
+    } else w.write(cursorBytes(pane_cursor));
+  } else if (retained?.panes.length) retained.reusable = false;
   // Include the shape in each complete frame so reconnects and overlay changes
   // cannot leave the host pointer stuck on a previously hovered link.
   // iTerm2 has a pointing hand and an open hand, but no closed-hand shape.
@@ -1088,6 +1143,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
             : "default";
   w.write(`\x1b]22;${shape}\x1b\\`);
   w.write("\x1b[?2026l");
+  if (retained) for (const rect of covered) retained.cover(rect);
   return w.buffered();
 }
 

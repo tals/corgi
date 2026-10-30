@@ -61,15 +61,60 @@ export function validateCadence(value: ReturnType<typeof cadence>) {
   if (value.max_observed_gap_ms > 250)
     throw Error(`Visible streaming sequence stayed unchanged for ${value.max_observed_gap_ms.toFixed(1)} ms`);
 }
+export type Spinner = { row: number; column: number; glyph: string };
+export type AnimationSample = { at_ms: number; spinners: Spinner[] };
+/** The working glyph occupies the first few sidebar cells, outside pane output. */
+export function spinners(screen: string): Spinner[] {
+  const lines = screen.split("\n"),
+    first = lines.findIndex(line => line.includes("agents:")),
+    found: Spinner[] = [];
+  if (first < 0) return found;
+  for (let row = first + 1; row < lines.length; row++) {
+    const cells = [...lines[row]].slice(0, 8);
+    const column = cells.findIndex(cell => "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏".includes(cell));
+    if (column >= 0) found.push({ row, column, glyph: cells[column] });
+  }
+  return found;
+}
+export function animationCadence(samples: AnimationSample[]) {
+  let last = "",
+    sequence = 0;
+  const positions = (sample: AnimationSample) => sample.spinners.map(cell => `${cell.row}:${cell.column}`).join(","),
+    first = samples[0] ? positions(samples[0]) : "",
+    trace = samples.map(sample => {
+      const glyphs = sample.spinners.map(cell => cell.glyph).join("");
+      if (glyphs !== last) sequence++;
+      last = glyphs;
+      return { at_ms: sample.at_ms, sequence };
+    });
+  return {
+    ...cadence(trace),
+    nominal_glyph_period_ms: 80,
+    minimum_visible_spinners: Math.min(...samples.map(sample => sample.spinners.length)),
+    stable_positions: !!first && samples.every(sample => positions(sample) === first),
+    samples,
+  };
+}
+export function validateAnimation(value: ReturnType<typeof animationCadence>) {
+  if (!value.stable_positions || value.minimum_visible_spinners < 1)
+    throw Error("Missing or unstable working-spinner cells in the sidebar");
+  if (value.visible_changes_per_second < 10 || value.visible_changes_per_second > 16)
+    throw Error(`Unexpected visible UI animation cadence: ${value.visible_changes_per_second.toFixed(2)} changes/s`);
+  if (value.max_observed_gap_ms > 250)
+    throw Error(`Visible UI animation stayed unchanged for ${value.max_observed_gap_ms.toFixed(1)} ms`);
+}
 /** A separate presentation check, never included in the CPU utilization sample. */
 export async function probe(read: () => string) {
   const started_at = new Date().toISOString(),
     start = performance.now(),
-    samples: Sample[] = [];
+    samples: Sample[] = [],
+    animation: AnimationSample[] = [];
   for (;;) {
-    const visible = sequence(read()),
+    const screen = read(),
+      visible = sequence(screen),
       at_ms = performance.now() - start;
     samples.push({ at_ms, sequence: visible });
+    animation.push({ at_ms, spinners: spinners(screen) });
     if (at_ms >= 3000) break;
     await Bun.sleep(Math.min(25, 3000 - at_ms));
   }
@@ -79,6 +124,7 @@ export async function probe(read: () => string) {
     sample_interval_ms: 25,
     outside_cpu_window: true,
     ...cadence(samples),
+    animation: animationCadence(animation),
     samples,
   };
 }

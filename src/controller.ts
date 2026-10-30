@@ -27,6 +27,8 @@ import {
   type Divider,
 } from "./layout";
 import * as render from "./render";
+import * as composition from "./composition";
+import * as telemetry from "./telemetry";
 import { ResizeView, TabMenu, type Item as TabMenuItem } from "./commands";
 import { Dialog, View as NameView, name_limit } from "./name_dialog";
 import * as sidebar from "./sidebar";
@@ -244,6 +246,27 @@ type AccountRemoval = {
   result: { deleted: boolean; error: string | null } | null;
 };
 
+interface CompositionCache {
+  frame: composition.Frame;
+  deadline: number;
+  metadata_deadline: number;
+  snapshot: unknown;
+  resources: Runtime["resources"];
+  panes: Pane[];
+  workspaces: Workspace[];
+  prefs: Preferences;
+  colors: TerminalColors | null;
+  width: number;
+  height: number;
+  sidebar: boolean;
+  intensity: number;
+  theme: Preferences["theme"];
+  graphics: boolean;
+  badge: corgiBadge.Mode;
+  cell_width: number | null;
+  cell_height: number | null;
+}
+
 export class Controller {
   readonly model_cache = new agentModels.Cache(() => {
     this.dirty = true;
@@ -259,6 +282,7 @@ export class Controller {
   width = 100;
   height = 30;
   dirty = true;
+  private composition_cache: CompositionCache | null = null;
   prefix = false;
   /** Until when a repeatable prefixed key, pressed again, runs without the prefix. */
   repeat_until = 0;
@@ -688,7 +712,18 @@ export class Controller {
     this.rememberAgent();
   }
   area(): Rect {
-    return this.sidebarView([]).area();
+    const width = sidebar.View.fitWidth(
+      this.width,
+      sidebar.View.widthFor(this.width, this.sidebar_open, this.height, this.agent_picker !== null),
+      this.prefs.sidebar_width,
+    );
+    return sidebar.View.paneArea(
+      this.width,
+      this.height,
+      width,
+      this.reviewWidth(width),
+      this.sidebar_focus?.drawer ?? null,
+    );
   }
   sidebarView(entries: Entry[]): sidebar.View {
     const offset = this.agent_picker ? this.agent_picker.offset : this.agentOffset().get();
@@ -1118,9 +1153,11 @@ export class Controller {
     const primary = !all && ws?.worktrees ? ws.worktrees.entries.find(e => e.primary) : null;
     return primary ? worktreeAgents.label(primary) : (ws?.name ?? "");
   }
-  private sidebarEntries(): Entry[] {
-    const list = this.prefs.agents === "workspace" ? this.current().id : 0xffffffff;
-    let entries = this.sidebar_rows.update(list, this.agentEntries(), [], milliTimestamp());
+  private sidebarEntries(retain?: (list: number, entries: Entry[]) => void): Entry[] {
+    const list = this.prefs.agents === "workspace" ? this.current().id : 0xffffffff,
+      live = this.agentEntries();
+    retain?.(list, live);
+    let entries = this.sidebar_rows.update(list, live, [], milliTimestamp());
     const spot = this.spotlight(),
       selected = spot?.path != null ? { workspace: spot.workspace, path: spot.path } : null;
     if (!selected) {
@@ -1958,16 +1995,14 @@ export class Controller {
     this.copy_mode = false;
   }
   /** A dormant agent resumes once its pane has focus. */
-  private async wakeFocused(): Promise<void> {
+  private wakeFocused(): Promise<void> | void {
     const p = this.focused();
     if (p?.id !== this.wake_failed) this.wake_failed = null;
     if (!p?.dormant || this.wake_failed !== null) return;
-    try {
-      await this.edit({ "pane.wake": { target: p.id } });
-    } catch {
+    return this.edit({ "pane.wake": { target: p.id } }).catch(() => {
       this.wake_failed = p.id;
       this.notice(" Could not resume this agent");
-    }
+    });
   }
   private attention(): void {
     for (const priority of ["needs_input", "finished"]) {
@@ -3363,8 +3398,12 @@ export class Controller {
     this.launch_previews.pending(launch.cwd);
     this.dirty = true;
   }
-  private async pollLauncher(hover: boolean): Promise<void> {
+  private pollLauncher(hover: boolean): Promise<void> | void {
     this.updateLaunchPreview();
+    if (!this.launcherModel() && !hover) return;
+    return this.pollOpenLauncher(hover);
+  }
+  private async pollOpenLauncher(hover: boolean): Promise<void> {
     await this.previewInlineCommand(false);
     const model = this.launcherModel(),
       form = model?.managing ? model.manager.form : null;
@@ -6191,7 +6230,8 @@ export class Controller {
     this.dirty = true;
   }
   async expireInput(): Promise<void> {
-    await this.wakeFocused();
+    const waking = this.wakeFocused();
+    if (waking) await waking;
     if (this.agent_drag?.scrolling()) {
       const entries = this.sidebarEntries(),
         now = milliTimestamp(),
@@ -6205,7 +6245,8 @@ export class Controller {
     if (this.onboarding && (await this.onboarding.poll(this.rpc()))) this.dirty = true;
     if (this.corgi_setup && (await this.corgi_setup.poll(this.rpc(), this.width, this.height))) this.dirty = true;
     const hover = this.pollMenuHover();
-    await this.pollLauncher(hover === "launcher");
+    const launcher = this.pollLauncher(hover === "launcher");
+    if (launcher) await launcher;
     this.pollScopeMenu(hover === "scope");
     if (this.link_tooltip.due(milliTimestamp())) this.dirty = true;
     if (this.link_tooltip.copied_until !== 0 && milliTimestamp() >= this.link_tooltip.copied_until) {
@@ -6248,7 +6289,7 @@ export class Controller {
       if (dialog.tick(milliTimestamp()) === "save") await this.finishName(true);
       this.dirty = true;
     }
-    await this.finishAccountRemovals();
+    if (this.account_removals.size > 0) await this.finishAccountRemovals();
     const removal = this.worktree_card.removal;
     if (removal.phase !== "idle") {
       this.followRemoval();
@@ -6964,13 +7005,164 @@ export class Controller {
     return this.link_tooltip.ready(target, milliTimestamp());
   }
   frame(): string {
+    const frame = this.compose(false);
+    return typeof frame === "string" ? frame : frame.text();
+  }
+  compositionDeadline(): number {
+    return this.composition_cache?.deadline ?? Infinity;
+  }
+  private sidebarMetadataDeadline(): number {
+    const now = microTimestamp();
+    let next = Infinity;
+    for (const conversation of this.runtime.conversations)
+      for (const observed of [conversation.observed_at, conversation.children_observed_at]) {
+        if (observed <= 0) continue;
+        if (observed > now) next = Math.min(next, observed);
+        const expires = observed + subagentTooltip.fresh_window + 1;
+        if (expires > now) next = Math.min(next, expires);
+      }
+    return Date.now() + (next - now) / 1000;
+  }
+  private compositionPane(): { pane: Pane; rect: Rect } | null {
+    if (
+      this.runtime.workspaces.items.length === 0 ||
+      this.pointer !== null ||
+      this.overlayOpen() ||
+      this.keyboard !== "pane" ||
+      this.copy_mode ||
+      this.search_mode ||
+      this.selection !== null ||
+      this.agent_drag !== null ||
+      this.workspace_drag !== null ||
+      this.sidebar_drag !== null ||
+      this.input_state.tab_drag !== null ||
+      this.input_state.divider !== null ||
+      this.review.open ||
+      this.review.ghosted ||
+      this.signin_exit !== null ||
+      this.message.length > 0 ||
+      this.added_feedback !== null ||
+      this.link_tooltip.shown ||
+      this.link_tooltip.target !== null
+    )
+      return null;
+    const places = this.layoutView()
+      .placements(this.area())
+      .filter(place => place.rect.w > 0 && place.rect.h > 0);
+    if (places.length !== 1) return null;
+    const place = places[0],
+      pane = this.focused();
+    if (
+      !pane ||
+      pane.id !== place.id ||
+      pane.restoring.length > 0 ||
+      pane.terminal.selection !== null ||
+      pane.terminal.holding_selection ||
+      pane.terminal.images.length > 0 ||
+      pane.terminal.inner.cols !== place.rect.w ||
+      pane.terminal.inner.rows !== place.rect.h
+    )
+      return null;
+    return { pane, rect: place.rect };
+  }
+  private reuseComposition(now: number): composition.Frame | null {
+    const cached = this.composition_cache;
+    if (
+      !cached ||
+      this.dirty ||
+      now >= cached.metadata_deadline ||
+      cached.snapshot !== this.runtime.snapshot ||
+      cached.resources !== this.runtime.resources ||
+      cached.panes !== this.runtime.panes ||
+      cached.workspaces !== this.runtime.workspaces.items ||
+      cached.prefs !== this.prefs ||
+      cached.colors !== this.terminal_colors ||
+      cached.width !== this.width ||
+      cached.height !== this.height ||
+      cached.sidebar !== this.sidebar_open ||
+      cached.intensity !== this.prefs.corgi_intensity ||
+      cached.theme !== this.prefs.theme ||
+      cached.graphics !== this.supports_kitty_graphics ||
+      cached.badge !== this.corgi_badge ||
+      cached.cell_width !== (this.cell_pixels?.width ?? null) ||
+      cached.cell_height !== (this.cell_pixels?.height ?? null)
+    )
+      return null;
+    const current = this.compositionPane(),
+      previous = cached.frame.panes[0];
+    if (
+      !current ||
+      current.pane.id !== previous.id ||
+      current.pane.terminal !== previous.terminal ||
+      current.rect.x !== previous.x ||
+      current.rect.y !== previous.y ||
+      current.rect.w !== previous.w ||
+      current.rect.h !== previous.h
+    )
+      return null;
+    current.pane.terminal.updateRender();
+    const cursor = current.pane.terminal.cursor(),
+      absolute =
+        cursor && cursor.x < previous.w && cursor.y < previous.h
+          ? { x: previous.x + cursor.x, y: previous.y + cursor.y }
+          : null;
+    if (now >= cached.deadline) {
+      const repainted = cached.frame.repaintSidebar(absolute);
+      if (!repainted) return null;
+      cached.frame = repainted;
+      cached.deadline = now + this.frameDelay();
+      telemetry.count("viewer.compose_sidebar");
+      return repainted;
+    }
+    telemetry.count("viewer.compose_cached");
+    return cached.frame.refreshed(absolute);
+  }
+  compose(retain = true): composition.Output {
+    const now = Date.now(),
+      cached = retain ? this.reuseComposition(now) : null;
+    if (cached) return cached;
+    this.composition_cache = null;
+    const effects = this.effects.length;
     const hide = this.images.begin() + this.tab_icons.begin();
-    const frame = this.renderFrame();
+    const retained = retain ? new composition.Frame() : undefined;
+    const frame = this.renderFrame(retained);
     const writes = this.images.end() + this.tab_icons.end();
     if (writes) this.queueEffect({ write_terminal: writes });
-    return hide ? "\x1b[?2026h" + hide + frame + "\x1b[?2026l" : frame;
+    const prefix = hide ? "\x1b[?2026h" + hide : "",
+      suffix = hide ? "\x1b[?2026l" : "";
+    if (!retained?.panes.length) return prefix + frame + suffix;
+    retained.finish(frame, prefix, suffix);
+    if (
+      retained.reusable &&
+      retained.panes.length === 1 &&
+      !writes &&
+      this.effects.length === effects &&
+      this.compositionPane()
+    ) {
+      this.composition_cache = {
+        frame: retained,
+        deadline: now + this.frameDelay(),
+        metadata_deadline: this.sidebarMetadataDeadline(),
+        snapshot: this.runtime.snapshot,
+        resources: this.runtime.resources,
+        panes: this.runtime.panes,
+        workspaces: this.runtime.workspaces.items,
+        prefs: this.prefs,
+        colors: this.terminal_colors,
+        width: this.width,
+        height: this.height,
+        sidebar: this.sidebar_open,
+        intensity: this.prefs.corgi_intensity,
+        theme: this.prefs.theme,
+        graphics: this.supports_kitty_graphics,
+        badge: this.corgi_badge,
+        cell_width: this.cell_pixels?.width ?? null,
+        cell_height: this.cell_pixels?.height ?? null,
+      };
+    }
+    return retained;
   }
-  private renderFrame(): string {
+  private renderFrame(retained?: composition.Frame): string {
     palette.use(
       this.onboarding ? this.onboarding.theme : (this.corgi_setup?.previewTheme(this.prefs) ?? this.prefs.theme),
       this.terminal_colors,
@@ -6994,11 +7186,23 @@ export class Controller {
       );
     }
     this.rememberAgent();
+    const retainSidebar = retained !== undefined && this.compositionPane() !== null;
+    let sidebarEntries: (() => Entry[]) | undefined;
     const entries = this.agent_picker
       ? this.pickerEntries()
       : this.sidebar_focus
         ? this.focusEntries()
-        : this.sidebarEntries();
+        : this.sidebarEntries(
+            retainSidebar
+              ? (list, live) => {
+                  sidebarEntries = () => {
+                    const entries = this.sidebar_rows.update(list, live, [], milliTimestamp());
+                    this.readAhead(entries);
+                    return entries;
+                  };
+                }
+              : undefined,
+          );
     if (!this.agent_picker) this.revealLaunched(entries);
     this.readAhead(entries);
     this.revealTab();
@@ -7158,6 +7362,9 @@ export class Controller {
             : null,
         signin_draw: this.signin ? (w: Writer, pointer: render.Pointer | null) => this.drawSignin(w, pointer) : null,
       }),
+      retained,
+      sidebarEntries,
+      () => this.sidebar_rows.settled(milliTimestamp()),
     );
   }
   /** A ghost's columns while the panel is closed: what is left right of the

@@ -376,7 +376,11 @@ export interface Pty {
 const size_query = "\x1b[14t\x1b[16t";
 
 function valid(cell: Cell | null): cell is Cell {
-  return cell !== null && [cell.width, cell.height].every(n => Number.isSafeInteger(n) && n > 0 && n <= 1024);
+  return cell !== null && validDimension(cell.width) && validDimension(cell.height);
+}
+
+function validDimension(n: number): boolean {
+  return Number.isSafeInteger(n) && n > 0 && n <= 1024;
 }
 
 function divided(p: Pty | null): Cell | null {
@@ -386,16 +390,23 @@ function divided(p: Pty | null): Cell | null {
 }
 
 export class Size {
-  private key = "";
+  private previous: Pty | null = null;
   private asked = false;
   private cell: Cell | null = null;
   private window: Cell | null = null;
 
   /** Ask again after a resize, including a font change with the same grid. */
   update(pty: Pty | null, resized = false): string {
-    const key = JSON.stringify(pty);
-    if (this.asked && key === this.key && !resized) return "";
-    this.key = key;
+    if (
+      this.asked &&
+      !resized &&
+      pty?.cols === this.previous?.cols &&
+      pty?.rows === this.previous?.rows &&
+      pty?.width === this.previous?.width &&
+      pty?.height === this.previous?.height
+    )
+      return "";
+    this.previous = pty === null ? null : { ...pty };
     this.asked = true;
     this.cell = this.window = null;
     return size_query;

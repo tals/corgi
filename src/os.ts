@@ -214,6 +214,12 @@ export function processTree(roots: number[], limit = 16384): number[] | null {
   return [...seen];
 }
 export type ProcessJob = { ppid: number; pgid: number; tpgid: number };
+export function processGroup(pid: number): number | null {
+  if (!Number.isInteger(pid) || pid <= 0 || pid > 2147483647) return null;
+  if (process.platform !== "linux") return processJob(pid)?.pgid ?? null;
+  const group = n.probe_getpgid(pid);
+  return group > 0 ? group : null;
+}
 export function processJob(pid: number): ProcessJob | null {
   if (process.platform === "darwin") {
     const fields = new Int32Array(3);

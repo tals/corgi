@@ -1,3 +1,4 @@
+import * as telemetry from "../telemetry";
 import { existsSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { dirname } from "node:path";
@@ -6,11 +7,13 @@ import * as launch_command from "../launch/command";
 import { Provider, adapter } from "../providers";
 import * as surface from "./surface";
 import type { Link } from "./hyperlinks";
-import type { Pointer } from "bun:ffi";
+import { toBuffer, type Pointer } from "bun:ffi";
 import type { Wire } from "../protocol";
 export type Title = { text: string; pid: number; revision: bigint };
 let readiness: ReadyLoop | null = null;
 const loop = () => (readiness ??= new ReadyLoop());
+const bytes_length = new BigUint64Array(1);
+const title_info = new BigUint64Array(3);
 export function closeReadiness(): void {
   readiness?.close();
   readiness = null;
@@ -34,9 +37,10 @@ export class Terminal extends EventEmitter {
   child?: Bun.Subprocess;
   private watch?: ReturnType<ReadyLoop["watch"]>;
   private destroyed = false;
-  private output = Buffer.alloc(65536);
+  private output: Buffer | null = null;
   private paused = false;
   private dirty = false;
+  private live_text: { revision: bigint; text: string } | null = null;
   // A launch command or synchronized output waiting on time, not output.
   private waiting = false;
   /** An adopted pane's redraw nudge is under way. */
@@ -66,17 +70,31 @@ export class Terminal extends EventEmitter {
     return n.terminal_surface_revision(this.handle);
   }
   titleInfo(): Title {
-    const info = this.native({ op: "info" });
-    return { text: info.title, pid: info.title_pid, revision: BigInt(info.title_revision) };
+    const address = this.titleAddress(),
+      length = Number(title_info[0]),
+      pid = Number(BigInt.asIntN(64, title_info[1])),
+      revision = title_info[2];
+    return { text: address ? toBuffer(address, 0, length).toString() : "", pid, revision };
   }
   get title_pid(): number {
-    return this.native({ op: "info" }).title_pid;
+    this.titleAddress();
+    return Number(BigInt.asIntN(64, title_info[1]));
   }
   get title_revision(): bigint {
-    return BigInt(this.native({ op: "info" }).title_revision);
+    this.titleAddress();
+    return title_info[2];
   }
   get title(): string {
-    return this.native({ op: "info" }).title;
+    const address = this.titleAddress();
+    return address ? toBuffer(address, 0, Number(title_info[0])).toString() : "";
+  }
+  /** Copy title bytes before any further terminal mutation can invalidate them. */
+  private titleAddress() {
+    if (this.destroyed) throw Error("TerminalClosed");
+    const started = telemetry.begin(),
+      address = n.terminal_title(this.handle, ptr(title_info));
+    telemetry.end("native.title", started, Number(title_info[0]));
+    return address;
   }
   get bracketed_paste(): boolean {
     return this.native({ op: "info" }).modes.bracketed_paste;
@@ -183,38 +201,53 @@ export class Terminal extends EventEmitter {
     if (!this.paused && !this.exited && !this.hung_up && this.watch) this.watch.arm(READ | (this.pendingBytes ? 4 : 0));
   }
   private drain(): void {
-    if (this.paused || this.fd < 0 || this.destroyed) return;
-    for (let i = 0; i < 8; i++) {
-      const count = n.probe_read(this.fd, ptr(this.output), this.output.length);
-      if (count > 0) this.feed(this.output.subarray(0, count));
-      else if (count === 0 || count === -5) {
-        this.hung_up = true;
-        if (!this.child) this.exited = true;
-        this.emit("change");
-        break;
-      } else if (count === -4) continue;
-      else if (count === -11 || count === -35) break;
-      else {
-        this.emit("ioError", Error(`ReadFailed:${count}`));
-        break;
+    const telemetry_started = telemetry.begin();
+    try {
+      if (this.paused || this.fd < 0 || this.destroyed) return;
+      const output = (this.output ??= Buffer.alloc(65536));
+      for (let i = 0; i < 8; i++) {
+        const count = n.probe_read(this.fd, ptr(output), output.length);
+        if (count > 0) this.feed(output.subarray(0, count));
+        else if (count === 0 || count === -5) {
+          this.hung_up = true;
+          if (!this.child) this.exited = true;
+          this.emit("change");
+          break;
+        } else if (count === -4) continue;
+        else if (count === -11 || count === -35) break;
+        else {
+          this.emit("ioError", Error(`ReadFailed:${count}`));
+          break;
+        }
       }
+    } finally {
+      telemetry.end("pty.drain", telemetry_started);
     }
   }
   feed(bytes: Uint8Array | string): void {
     const data = typeof bytes === "string" ? Buffer.from(bytes) : bytes;
+    const feed_started = telemetry.begin();
     if (data.length) n.terminal_feed(this.handle, ptr(data), data.length);
+    telemetry.end("terminal.feed", feed_started, data.length);
     this.dirty = true;
     this.emit("change");
   }
   read(): boolean {
     this.drain();
+    return this.maintain();
+  }
+  /** Follow up on output already consumed by the readiness callback. */
+  maintain(): boolean {
     const dirty = this.dirty || false;
     this.dirty = false;
     let changed = false;
     if (!this.paused) {
-      const tick = this.native({ op: "tick", exited: this.exited });
-      changed = tick.changed;
-      this.waiting = tick.expecting;
+      if (this.destroyed) throw Error("TerminalClosed");
+      const started = telemetry.begin();
+      const tick = n.terminal_maintain(this.handle, this.exited);
+      telemetry.end("native.tick", started);
+      changed = (tick & 1) !== 0;
+      this.waiting = (tick & 2) !== 0;
     }
     this.arm();
     return changed || dirty;
@@ -236,7 +269,8 @@ export class Terminal extends EventEmitter {
     this.send(bytes);
   }
   private flushWrites(): void {
-    this.native({ op: "flush" });
+    if (this.destroyed) throw Error("TerminalClosed");
+    n.terminal_flush(this.handle);
   }
   flush(): void {
     this.flushWrites();
@@ -254,10 +288,41 @@ export class Terminal extends EventEmitter {
     return this.native({ op: "history" });
   }
   liveText(): string {
-    return this.native({ op: "liveText" });
+    const revision = this.surface_revision;
+    if (this.live_text?.revision === revision) return this.live_text.text;
+    const telemetry_started = telemetry.begin();
+    try {
+      const text = this.readBytes("text", bytes => bytes.toString());
+      this.live_text = { revision, text };
+      return text;
+    } finally {
+      telemetry.end("agent.screen", telemetry_started);
+    }
   }
   snapshot(): Buffer {
-    return Buffer.from(this.native({ op: "snapshot" }));
+    return this.readBytes("snapshot", bytes => Buffer.from(bytes));
+  }
+  snapshotBase64(): string {
+    return this.readBytes("snapshot", bytes => bytes.toString("base64"));
+  }
+  /** Borrow the native allocation only until this synchronous read finishes. */
+  private readBytes<T>(kind: "snapshot" | "text", read: (bytes: Buffer) => T): T {
+    if (this.destroyed) throw Error("TerminalClosed");
+    const started = telemetry.begin();
+    const address =
+      kind === "snapshot"
+        ? n.terminal_recovery_snapshot(this.handle, ptr(bytes_length))
+        : n.terminal_live_text(this.handle, ptr(bytes_length));
+    if (address === null) throw Error(kind === "snapshot" ? "SnapshotFailed" : "NativeOperationFailed");
+    const length = Number(bytes_length[0]);
+    try {
+      if (length > 64 * 1024 * 1024) throw Error("NativeMessageTooLarge");
+      const bytes = length ? toBuffer(address, 0, length) : Buffer.alloc(0);
+      return read(bytes);
+    } finally {
+      n.terminal_bytes_free(address, length);
+      telemetry.end(kind === "snapshot" ? "terminal.snapshot" : "native.live_text", started, length);
+    }
   }
   liveSnapshot(): Buffer {
     let out = Buffer.alloc(16 * 1024 * 1024);
@@ -269,7 +334,12 @@ export class Terminal extends EventEmitter {
     return Buffer.from(this.native({ op: "fadedSnapshot" }));
   }
   surface(pane: number, offset: number | null = null): surface.View {
-    return surface.view(this.native({ op: "surface", pane, offset }));
+    const telemetry_started = telemetry.begin();
+    try {
+      return surface.view(this.native({ op: "surface", pane, offset }));
+    } finally {
+      telemetry.end("surface.capture", telemetry_started);
+    }
   }
   hyperlinks(): Link[] {
     return this.native({ op: "links" }).map((link: Wire<Link>) => ({ ...link, id: BigInt(link.id) }));
@@ -307,7 +377,8 @@ export class Terminal extends EventEmitter {
     });
   }
   takeCopied(): string | null {
-    return this.native({ op: "takeCopied" });
+    if (this.destroyed) throw Error("TerminalClosed");
+    return n.terminal_has_copied(this.handle) ? this.native({ op: "takeCopied" }) : null;
   }
   /** Discards input the program has not read yet. */
   dropPending(): void {
@@ -382,6 +453,8 @@ export class Terminal extends EventEmitter {
     this.stop();
     n.terminal_free(this.handle);
     this.destroyed = true;
+    this.live_text = null;
+    this.output = null;
     this.removeAllListeners();
   }
   close(): void {

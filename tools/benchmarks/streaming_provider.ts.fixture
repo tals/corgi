@@ -1,0 +1,191 @@
+import { dlopen, ptr } from "bun:ffi";
+import { writeFileSync, writeSync } from "node:fs";
+import { join } from "node:path";
+
+// CLOCK_MONOTONIC is host-wide. Bun 1.4.4 hrtime is VM-relative.
+const time = new BigInt64Array(2);
+const address = ptr(time);
+const libc = dlopen("libc.so.6", { clock_gettime: { args: ["i32", "ptr"], returns: "i32" } });
+function now() {
+  if (libc.symbols.clock_gettime(1, address) !== 0) throw Error("clock_gettime failed");
+  return time[0] * 1_000_000_000n + time[1];
+}
+const period = 50_000_000n;
+const dots = ".".repeat(100);
+let timer = null;
+let legacy = null;
+let legacySequence = 0;
+let state = null;
+
+function payload(sequence, mode) {
+  const line = "Working (esc to interrupt) " + sequence + " " + dots;
+  return Buffer.from(mode === "sparse" ? "\x1b[1;1H" + line + "\x1b[K" : line + "\n");
+}
+function emit() {
+  const s = state;
+  if (!s || s.stopped) return;
+  let deadline = s.epoch + s.phase + BigInt(s.index) * period;
+  let at = now();
+  if (at < deadline) {
+    timer = setTimeout(emit, Math.max(1, Math.ceil(Number(deadline - at) / 1e6)));
+    return;
+  }
+  if (at - deadline >= period) {
+    const skipped = Number((at - deadline) / period);
+    s.dropped += skipped;
+    s.index += skipped;
+    deadline += BigInt(skipped) * period;
+  }
+  if (s.count >= s.capacity) {
+    s.overflow = true;
+    s.stopped = true;
+    return;
+  }
+  const data = payload(s.index + 1, s.mode);
+  const before = now();
+  const written = writeSync(1, data);
+  const after = now();
+  const offset = s.count * 3;
+  s.trace[offset] = BigInt(s.index);
+  s.trace[offset + 1] = before;
+  s.trace[offset + 2] = after;
+  s.bytes[s.count] = written;
+  s.count++;
+  if (written !== data.length) {
+    s.shortWrites++;
+    s.stopped = true;
+    return;
+  }
+  if (before - deadline > 2_000_000n) s.late++;
+  s.index++;
+  deadline = s.epoch + s.phase + BigInt(s.index) * period;
+  timer = setTimeout(emit, Math.max(1, Math.ceil(Number(deadline - now()) / 1e6)));
+}
+
+function arm(command, mode) {
+  const cfg = JSON.parse(command.slice("bench-stream-arm ".length));
+  if (
+    !cfg ||
+    typeof cfg.token !== "string" ||
+    !/^[a-z0-9-]+$/.test(cfg.token) ||
+    typeof cfg.directory !== "string" ||
+    typeof cfg.epoch_ns !== "string" ||
+    !/^\d+$/.test(cfg.epoch_ns) ||
+    !Number.isInteger(cfg.lane) ||
+    !Number.isInteger(cfg.lanes) ||
+    cfg.lane < 0 ||
+    cfg.lane >= cfg.lanes ||
+    cfg.lanes < 1 ||
+    cfg.lanes > 128 ||
+    !Number.isInteger(cfg.capacity) ||
+    cfg.capacity < 1 ||
+    cfg.capacity > 100000 ||
+    !["aligned", "staggered"].includes(cfg.schedule)
+  )
+    throw Error("Invalid stream arm");
+  if ((state && !state.stopped) || legacy) throw Error("Stream already active");
+  const epoch = BigInt(cfg.epoch_ns);
+  const phase = cfg.schedule === "aligned" ? 0n : (BigInt(cfg.lane) * period) / BigInt(cfg.lanes);
+  const armed = now();
+  if (armed > epoch - 1_000_000_000n) throw Error("Late stream arm");
+  state = {
+    ...cfg,
+    epoch,
+    phase,
+    mode,
+    armed,
+    index: 0,
+    count: 0,
+    dropped: 0,
+    late: 0,
+    shortWrites: 0,
+    overflow: false,
+    stopped: false,
+    trace: new BigInt64Array(cfg.capacity * 3),
+    bytes: new Uint32Array(cfg.capacity),
+  };
+  writeFileSync(
+    join(cfg.directory, `${cfg.token}-${cfg.lane}-armed.json`),
+    JSON.stringify({
+      schema: "stream-phase-v1",
+      pid: process.pid,
+      token: cfg.token,
+      lane: cfg.lane,
+      lanes: cfg.lanes,
+      schedule: cfg.schedule,
+      mode,
+      epoch_ns: cfg.epoch_ns,
+      phase_ns: String(phase),
+      armed_ns: String(armed),
+      period_ns: String(period),
+      capacity: cfg.capacity,
+      clock: "CLOCK_MONOTONIC",
+    }),
+  );
+  // Remove the echoed control command before starting the timed stream.
+  writeSync(1, "\x1b[2J\x1b[HWorking (esc to interrupt)");
+  timer = setTimeout(emit, Math.max(1, Math.ceil(Number(epoch + phase - now()) / 1e6)));
+}
+
+function flush(command) {
+  const token = command.slice("bench-stream-flush ".length);
+  const s = state;
+  if (!s || token !== s.token) throw Error("Unknown stream trace");
+  const records = Array.from({ length: s.count }, (_, i) => [
+    Number(s.trace[i * 3]),
+    String(s.trace[i * 3 + 1]),
+    String(s.trace[i * 3 + 2]),
+    s.bytes[i],
+  ]);
+  writeFileSync(
+    join(s.directory, `${s.token}-${s.lane}-trace.json`),
+    JSON.stringify({
+      schema: "stream-phase-v1",
+      token: s.token,
+      lane: s.lane,
+      lanes: s.lanes,
+      pid: process.pid,
+      schedule: s.schedule,
+      epoch_ns: String(s.epoch),
+      phase_ns: String(s.phase),
+      period_ns: String(period),
+      armed_ns: String(s.armed),
+      flushed_ns: String(now()),
+      dropped_total: s.dropped,
+      late_over_2ms_total: s.late,
+      short_writes: s.shortWrites,
+      overflow: s.overflow,
+      capacity: s.capacity,
+      mode: s.mode,
+      records,
+    }),
+  );
+}
+
+export function handle(command, mode) {
+  if (command.startsWith("bench-stream-arm ")) {
+    arm(command, mode);
+    return true;
+  }
+  if (command.startsWith("bench-stream-flush ")) {
+    flush(command);
+    return true;
+  }
+  if (command === "stream") {
+    legacy ??= setInterval(() => {
+      const line = "Working (esc to interrupt) " + ++legacySequence + " " + dots;
+      if (mode === "sparse") process.stdout.write("\x1b[1;1H" + line + "\x1b[K");
+      else console.log(line);
+    }, 50);
+    return true;
+  }
+  if (command === "quiet") {
+    clearInterval(legacy);
+    legacy = null;
+    clearTimeout(timer);
+    timer = null;
+    if (state) state.stopped = true;
+    return true;
+  }
+  return false;
+}

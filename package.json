@@ -15,6 +15,7 @@
     "landingpage:publish": "bun site/publish.ts"
   },
   "browser": {
+    "./src/telemetry.ts": "./site/browser/telemetry.ts",
     "./src/review/git.ts": "./site/browser/git.ts",
     "./src/launch/command.ts": "./site/browser/command.ts",
     "./src/providers.ts": "./site/browser/providers.ts",

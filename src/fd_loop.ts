@@ -14,11 +14,13 @@ export const native = dlopen(`${nativeRoot}/lib/libcorgi_system.${suffix}`, {
 export const READ = 1,
   WRITE = 4;
 export const wouldBlock = (result: number) => result === -11 || result === -35;
+type Interest = { token: number; events: number | null };
 export class ReadyLoop {
   private handle: Pointer | bigint | null;
   private socket: Socket;
   private next = 1;
   private callbacks = new Map<number, (events: number) => void>();
+  private armed = new Map<number, Interest>();
   constructor() {
     const fd = new Int32Array(1);
     this.handle = native.fd_loop_new(ptr(fd))!;
@@ -46,16 +48,29 @@ export class ReadyLoop {
     assert.equal(n.probe_nonblock(fd), 0);
     const token = this.next++;
     assert(token < 0xffffffff);
-    this.callbacks.set(token, callback);
+    const interest: Interest = { token, events: null };
+    this.callbacks.set(token, events => {
+      // A queued event may predate a different watch or interest on this fd.
+      const current = this.armed.get(fd);
+      if (current) current.events = null;
+      callback(events);
+    });
     let active = true;
     return {
       arm: (events: number) => {
         assert(active && this.handle, "arming a closed registration");
+        const current = this.armed.get(fd);
+        if (current === interest && current.events === events) return;
+        if (current) current.events = null;
         assert.equal(native.fd_loop_arm(this.handle, fd, token, events), 0);
+        interest.events = events;
+        this.armed.set(fd, interest);
       },
       close: () => {
         if (!active) return;
         active = false;
+        interest.events = null;
+        this.armed.delete(fd);
         this.callbacks.delete(token);
         if (this.handle) assert.equal(native.fd_loop_arm(this.handle, fd, token, 0), 0);
       },
@@ -63,6 +78,7 @@ export class ReadyLoop {
   }
   close() {
     if (!this.handle) return;
+    this.armed.clear();
     this.callbacks.clear();
     native.fd_loop_free(this.handle);
     this.handle = null;

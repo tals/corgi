@@ -5,6 +5,7 @@ const c = os.c;
 const a = os.allocator;
 const hyperlink = @import("hyperlinks.zig");
 const graphics = @import("graphics.zig");
+const surface_rows = @import("surface_rows.zig");
 const detection = @import("../detection.zig");
 const BoundedText = @import("../bounded_text.zig").BoundedText;
 
@@ -24,7 +25,11 @@ pub const Terminal = struct {
     // New terminal instances (including handoff imports) invalidate viewer receipts.
     surface_identity: u64,
     surface_revision: u64 = 0,
+    viewer_rows: std.ArrayList(u64) = .empty,
+    viewer_epoch: u64 = 0,
+    viewer_installed_revision: ?u64 = null,
     links: hyperlink.Snapshot = .{},
+    surface_rows: surface_rows.Cache = .init(a),
     fd: c_int = -1,
     pid: c_int = -1,
     /// A handoff candidate holds duplicates of fds and pids the source daemon
@@ -238,6 +243,8 @@ pub const Terminal = struct {
         t.initial_input = null;
     }
     pub fn destroy(t: *Terminal) void {
+        t.surface_rows.deinit();
+        t.viewer_rows.deinit(a);
         t.graphics.deinit();
         t.stop();
         t.pending.deinit(a);
@@ -391,6 +398,25 @@ pub const Terminal = struct {
             t.synchronized_since = null;
         }
     }
+    /// Derived presentation receipts, independent of other render consumers.
+    pub fn installedRows(t: *Terminal, dirty: ?[]const u16) !void {
+        const resized = t.viewer_rows.items.len != t.vt.rows;
+        try t.viewer_rows.resize(a, t.vt.rows);
+        t.viewer_epoch +%= 1;
+        if (dirty == null or resized) {
+            @memset(t.viewer_rows.items, t.viewer_epoch);
+        } else {
+            for (dirty.?) |row| {
+                if (row < t.viewer_rows.items.len) t.viewer_rows.items[row] = t.viewer_epoch;
+            }
+        }
+        t.viewer_installed_revision = t.surface_revision;
+    }
+    pub fn presentationRows(t: *Terminal) ![]const u64 {
+        if (t.viewer_installed_revision == null or t.viewer_installed_revision.? != t.surface_revision or t.viewer_rows.items.len != t.vt.rows)
+            try t.installedRows(null);
+        return t.viewer_rows.items;
+    }
     fn endSynchronizedOutput(t: *Terminal) void {
         t.vt.modes.set(.synchronized_output, false);
         t.surface_revision +%= 1;
@@ -406,12 +432,24 @@ pub const Terminal = struct {
     // another pane, UI event, or text capture requests a refresh mid-redraw.
     pub fn updateRender(t: *Terminal) !void {
         if (t.vt.modes.get(.synchronized_output)) return;
+        errdefer {
+            t.surface_rows.invalidate();
+            t.vt.flags.dirty.clear = true;
+        }
+        const foreground = t.render.colors.foreground;
+        const background = t.render.colors.background;
         try t.render.update(a, &t.vt);
+        // Reverse-video mode updates these defaults without marking rows dirty.
+        if (!std.meta.eql(foreground, t.render.colors.foreground) or !std.meta.eql(background, t.render.colors.background))
+            t.surface_rows.invalidate();
         if (t.render.dirty != .false) {
+            const had_links = t.links.links.len != 0;
             try t.links.capture(&t.render);
-            t.render.dirty = .false;
+            // Plain link identities depend on the flattened screen's byte offsets.
+            t.surface_rows.damage(t.render.row_data.items(.dirty), t.render.dirty == .full or had_links or t.links.links.len != 0);
         }
         try t.graphics.capture(&t.vt, t.surface_identity);
+        t.render.clean();
     }
     // Wait until the interactive shell has installed its line editor. No newline
     // is sent: this is editable input, and only the user can execute it.
@@ -442,10 +480,14 @@ pub const Terminal = struct {
             t.pending.items.len -= used;
         }
     }
-    /// Work `read` does without new output: a launch command waiting for
+    /// Work pending without new output: a launch command waiting for
     /// the shell's line editor, or synchronized output that may time out.
     pub fn expecting(t: *const Terminal) bool {
         return t.initial_input != null or t.synchronized_since != null;
+    }
+    pub fn maintain(t: *Terminal) bool {
+        if (!t.exited) t.fillInput();
+        return t.expireSynchronizedOutput(os.milliTimestamp());
     }
     pub fn read(t: *Terminal) bool {
         var bytes: [16384]u8 = undefined;
@@ -460,9 +502,7 @@ pub const Terminal = struct {
             t.feed(bytes[0..@intCast(n)]);
             dirty = true;
         }
-        if (!t.exited) t.fillInput();
-        if (t.expireSynchronizedOutput(os.milliTimestamp())) dirty = true;
-        return dirty;
+        return t.maintain() or dirty;
     }
     /// True once, when the shell exits. Only this reaps our own shell; an
     /// imported shell belongs to another parent and is probed instead.
@@ -628,6 +668,47 @@ test "unfinished synchronized output expires or releases on process exit" {
     t.feed("\x1b[?2026hEXIT");
     t.exited = true;
     try std.testing.expect(t.expireSynchronizedOutput(t.synchronized_since.?));
+    try std.testing.expect(!t.vt.modes.get(.synchronized_output));
+}
+
+test "maintenance leaves PTY output unread while advancing prefill and sync deadlines" {
+    const t = try Terminal.create(20, 4);
+    defer t.destroy();
+    var master: c_int = -1;
+    var slave: c_int = -1;
+    try std.testing.expectEqual(@as(c_int, 0), c.openpty(&master, &slave, null, null, null));
+    t.fd = master;
+    defer _ = c.close(slave);
+    _ = c.fcntl(master, c.F_SETFL, @as(c_int, c.O_NONBLOCK));
+    _ = c.fcntl(slave, c.F_SETFL, @as(c_int, c.O_NONBLOCK));
+    var attrs: c.struct_termios = undefined;
+    try std.testing.expectEqual(@as(c_int, 0), c.tcgetattr(slave, &attrs));
+    attrs.c_lflag |= c.ICANON;
+    try std.testing.expectEqual(@as(c_int, 0), c.tcsetattr(slave, c.TCSANOW, &attrs));
+    try t.prefill("make");
+    try std.testing.expect(c.write(slave, "OUTPUT", 6) == 6);
+    var ready: c.struct_pollfd = .{ .fd = master, .events = c.POLLIN, .revents = 0 };
+    try std.testing.expect(c.poll(&ready, 1, 2000) > 0);
+    try std.testing.expect(!t.maintain());
+    try std.testing.expect(t.expecting());
+    var bytes: [32]u8 = undefined;
+    try std.testing.expect(c.read(master, &bytes, bytes.len) == 6);
+    try std.testing.expectEqualStrings("OUTPUT", bytes[0..6]);
+    c.cfmakeraw(&attrs);
+    try std.testing.expectEqual(@as(c_int, 0), c.tcsetattr(slave, c.TCSANOW, &attrs));
+    try std.testing.expect(!t.maintain());
+    try std.testing.expect(!t.expecting());
+    ready = .{ .fd = slave, .events = c.POLLIN, .revents = 0 };
+    try std.testing.expect(c.poll(&ready, 1, 2000) > 0);
+    try std.testing.expect(c.read(slave, &bytes, bytes.len) == 4);
+    try std.testing.expectEqualStrings("make", bytes[0..4]);
+    t.feed("\x1b[?2026hTIMEOUT");
+    t.synchronized_since = os.milliTimestamp() - Terminal.synchronized_timeout_ms;
+    try std.testing.expect(t.maintain());
+    try std.testing.expect(!t.expecting());
+    t.feed("\x1b[?2026hEXIT");
+    t.exited = true;
+    try std.testing.expect(t.maintain());
     try std.testing.expect(!t.vt.modes.get(.synchronized_output));
 }
 

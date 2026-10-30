@@ -38,6 +38,7 @@ static void *run(void *context) {
         int count = epoll_wait(loop->epoll, events, 64, -1);
 #endif
         if (count < 0) { if (errno == EINTR) continue; break; }
+        struct notification batch[64];
         for (int i = 0; i < count; i++) {
 #ifdef __APPLE__
             uint32_t token = (uint32_t)(uintptr_t)events[i].udata;
@@ -47,15 +48,15 @@ static void *run(void *context) {
             uint32_t token = events[i].data.u32, ready = events[i].events;
 #endif
             if (!token || atomic_load(&loop->stop)) return NULL;
-            struct notification event = {token, ready};
-            const char *data = (const char *)&event;
-            size_t offset = 0;
-            while (offset < sizeof(event)) {
-                ssize_t n = send(loop->notify, data + offset, sizeof(event) - offset, MSG_NOSIGNAL);
-                if (n < 0 && errno == EINTR) continue;
-                if (n <= 0) return NULL;
-                offset += n;
-            }
+            batch[i] = (struct notification){token, ready};
+        }
+        const char *data = (const char *)batch;
+        size_t offset = 0, length = (size_t)count * sizeof(batch[0]);
+        while (offset < length) {
+            ssize_t n = send(loop->notify, data + offset, length - offset, MSG_NOSIGNAL);
+            if (n < 0 && errno == EINTR) continue;
+            if (n <= 0) return NULL;
+            offset += n;
         }
     }
     return NULL;

@@ -1,0 +1,681 @@
+/** Run from exact frozen V14 sources/native assets; helper is benchmark-only. */
+import * as assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { Socket, type SocketConnectOpts } from "node:net";
+import { join, resolve } from "node:path";
+import { dlopen, ptr, type Pointer } from "bun:ffi";
+import { n, symbols, nativeRoot, sysconf } from "../../src/native_bridge";
+import { ReadyLoop, READ, WRITE, wouldBlock } from "../../src/fd_loop";
+import { Terminal } from "../../src/pane/terminal";
+import * as benchmark from "./cpu_lock";
+
+const helperPath = resolve(process.argv[2]),
+  mode = process.argv[3],
+  schedule = process.argv[4],
+  verifyOnly = process.argv.includes("--verify-only"),
+  levelTriggered = process.argv.includes("--level-triggered"),
+  warmup = verifyOnly ? 0 : Number(process.env.ACTOR_WARMUP ?? 3),
+  seconds = verifyOnly ? 1 : Number(process.env.ACTOR_SECONDS ?? 10),
+  lanes = 16,
+  recordSize = 256,
+  records = Math.ceil((warmup + seconds) * 20) + 6,
+  bytesPerLane = records * recordSize,
+  reverseCapacity = verifyOnly ? 2 * 1024 * 1024 : 65536,
+  helper = dlopen(helperPath, {
+    actor_new: { args: ["cstring", "ptr", "ptr", "u32", "ptr", "i32"], returns: "ptr" },
+    actor_start: { args: ["ptr"], returns: "i32" },
+    actor_lock: { args: ["ptr", "u32"], returns: "void" },
+    actor_unlock: { args: ["ptr", "u32"], returns: "void" },
+    actor_notify_mask: { args: ["ptr", "u64"], returns: "void" },
+    actor_take_dirty: { args: ["ptr"], returns: "u64" },
+    actor_fixture_notifications: { args: ["ptr", "u32"], returns: "i32" },
+    actor_fed: { args: ["ptr", "u32"], returns: "u64" },
+    actor_kick: { args: ["ptr"], returns: "void" },
+    actor_pause_join: { args: ["ptr"], returns: "void" },
+    actor_stats: { args: ["ptr", "ptr"], returns: "void" },
+    actor_wait_stats: { args: ["ptr", "ptr"], returns: "void" },
+    actor_free: { args: ["ptr"], returns: "void" },
+    actor_pty: { args: ["ptr"], returns: "i32" },
+    actor_now_ns: { args: [], returns: "u64" },
+    actor_main_cpu_ns: { args: [], returns: "u64" },
+    actor_producer: { args: ["ptr", "u32", "ptr", "u32", "u32", "i32", "u32", "u32"], returns: "ptr" },
+    actor_producer_start: { args: ["ptr"], returns: "u64" },
+    actor_producer_receive: { args: ["ptr", "i32"], returns: "void" },
+    actor_producer_stats: { args: ["ptr", "ptr"], returns: "void" },
+    actor_producer_join: { args: ["ptr"], returns: "void" },
+    actor_producer_reverse: { args: ["ptr", "u32", "ptr", "usize"], returns: "usize" },
+    actor_producer_schedule: { args: ["ptr", "ptr", "usize"], returns: "usize" },
+    actor_producer_free: { args: ["ptr"], returns: "void" },
+  }).symbols,
+  release = await benchmark.acquire();
+assert.ok(["ready", "actor-all", "actor-visible"].includes(mode));
+assert.ok(["aligned", "staggered"].includes(schedule));
+assert.ok(warmup >= 0 && seconds > 0);
+type Handle = Pointer | bigint;
+type Capture = { prefix: number; view: ReturnType<Terminal["surface"]>; title: string };
+const sha = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex"),
+  terminals: Terminal[] = [],
+  masters = new Int32Array(lanes),
+  slaves = new Int32Array(lanes),
+  handles = new BigUint64Array(lanes),
+  offsets = new Float64Array(lanes),
+  handoffOffsets = new Float64Array(lanes),
+  accepted = Buffer.alloc(lanes * bytesPerLane),
+  inputs: { prefix: number; bytes: Buffer }[][] = Array.from({ length: lanes }, () => []),
+  captures: Capture[] = [],
+  actorCounts = new BigUint64Array(14),
+  waitCounts = new BigUint64Array(3),
+  producerCounts = new BigUint64Array(4 + lanes * 2),
+  watches: ReturnType<ReadyLoop["watch"]>[] = [];
+masters.fill(-1);
+slaves.fill(-1);
+let actor: Handle | null = null,
+  producer: Handle | null = null,
+  loop: ReadyLoop | null = null,
+  socket: Socket | null = null,
+  failure: unknown = null,
+  stopped = false,
+  dirty = 0n,
+  callbacks = 0,
+  notificationChunks = 0,
+  notifications = 0,
+  reads = 0,
+  feeds = 0,
+  eagain = 0,
+  observations = 0,
+  maintenance = 0,
+  surfaceReads = 0,
+  sink = 0;
+const lifecycle: Record<string, unknown> = {};
+function locked<T>(lane: number, operation: () => T): T {
+  if (actor) helper.actor_lock(actor, lane);
+  try {
+    return operation();
+  } finally {
+    if (actor) helper.actor_unlock(actor, lane);
+  }
+}
+function fed(lane: number) {
+  return actor ? Number(helper.actor_fed(actor, lane)) + handoffOffsets[lane] : offsets[lane];
+}
+function producerStats() {
+  helper.actor_producer_stats(producer!, ptr(producerCounts));
+  assert.equal(producerCounts[1], 0n, "PTY producer failed");
+  return Array.from(producerCounts, Number);
+}
+function stats() {
+  if (actor) {
+    helper.actor_stats(actor, ptr(actorCounts));
+    helper.actor_wait_stats(actor, ptr(waitCounts));
+    assert.equal(actorCounts[9], 0n, "actor error/notification overflow");
+  }
+  if (failure) throw failure;
+  return {
+    actor: Array.from(actorCounts, Number),
+    wait: Array.from(waitCounts, Number),
+    producer: producerStats(),
+    callbacks,
+    notificationChunks,
+    notifications,
+    reads,
+    feeds,
+    eagain,
+    observations,
+    maintenance,
+    surfaceReads,
+    sink,
+  };
+}
+function threads() {
+  return Object.fromEntries(
+    readdirSync("/proc/self/task").flatMap(tid => {
+      try {
+        const raw = readFileSync(`/proc/self/task/${tid}/stat`, "utf8"),
+          values = raw.slice(raw.lastIndexOf(")") + 2).split(/\s+/);
+        return [
+          [
+            tid,
+            {
+              name: raw.slice(raw.indexOf("(") + 1, raw.lastIndexOf(")")),
+              user: Number(values[11]),
+              system: Number(values[12]),
+            },
+          ],
+        ];
+      } catch {
+        return [];
+      }
+    }),
+  );
+}
+async function until(deadline: bigint) {
+  for (;;) {
+    if (failure) throw failure;
+    const left = Number(deadline - helper.actor_now_ns()) / 1e6;
+    if (left <= 0) return;
+    await Bun.sleep(Math.min(left, 50));
+  }
+}
+function arm(lane: number) {
+  if (!stopped) watches[lane]?.arm(READ | (terminals[lane].pendingBytes ? WRITE : 0));
+}
+function send(lane: number, bytes: Buffer) {
+  locked(lane, () => {
+    inputs[lane].push({ prefix: fed(lane), bytes });
+    assert.equal(n.terminal_send(terminals[lane].handle, ptr(bytes), bytes.length), 0);
+  });
+  if (actor) helper.actor_kick(actor);
+  else arm(lane);
+}
+function receipt() {
+  const changed = dirty | (actor ? helper.actor_take_dirty(actor) : 0n);
+  dirty = 0n;
+  return changed;
+}
+function jobs(tick: number) {
+  const changed = receipt();
+  if (mode === "actor-visible")
+    for (let lane = 1; lane < lanes; lane++) if (changed & (1n << BigInt(lane))) terminals[lane].emit("change");
+  for (let lane = 0; lane < lanes; lane++)
+    locked(lane, () => {
+      n.terminal_maintain(terminals[lane].handle, false);
+      maintenance++;
+      if (tick % 5 === 0) {
+        sink += terminals[lane].liveText().length;
+        // The lock spans terminal_title's borrowed pointer and the actual string copy.
+        sink += terminals[lane].titleInfo().text.length;
+        observations++;
+      }
+    });
+  locked(0, () => {
+    const prefix = fed(0),
+      view = terminals[0].surface(1);
+    surfaceReads++;
+    sink += view.surface.lines[0].length;
+    if (verifyOnly) captures.push({ prefix, view, title: terminals[0].titleInfo().text });
+  });
+  if (tick % 10 === 0) send(0, Buffer.from(`input-${tick}\n`));
+}
+function fillCorpus() {
+  for (let lane = 0; lane < lanes; lane++)
+    for (let tick = 0; tick < records; tick++) {
+      const content =
+        `\x1b[1;1H\x1b[36mWorking lane${lane} seq${tick} 界 é\x1b[0m` +
+        (tick % 4 === 0 ? `\x1b]2;actor-${lane}-${tick}\x1b\\` : "") +
+        (tick % 6 === 0 ? "\x1b[5n" : "") +
+        (tick % 9 === 0 ? "\x1b]52;c;Y2xpcGJvYXJk\x07" : "") +
+        (tick % 7 === 0 ? "\x1b]8;;https://example.invalid\x1b\\link\x1b]8;;\x1b\\" : "") +
+        (tick % 5 === 0 ? "\x1b[?2004h" : "\x1b[?2004l") +
+        (tick % 11 === 0 ? "\x1b[47;1Hscroll\r\n" : "") +
+        "\x1b[2;3H";
+      const bytes = Buffer.from(content);
+      assert.ok(bytes.length < recordSize);
+      // NUL padding preserves a fixed deterministic schedule without extra cells.
+      bytes.copy(accepted, (lane * records + tick) * recordSize);
+    }
+}
+function startBaseline() {
+  loop = new ReadyLoop();
+  loop["socket"].on("data", (chunk: Buffer) => {
+    notificationChunks++;
+    notifications += chunk.length / 8;
+  });
+  for (let lane = 0; lane < lanes; lane++) {
+    const scratch = Buffer.alloc(65536);
+    watches.push(
+      loop.watch(masters[lane], () => {
+        try {
+          callbacks++;
+          for (let i = 0; i < 8; i++) {
+            const count = n.probe_read(masters[lane], ptr(scratch), scratch.length);
+            reads++;
+            if (count > 0) {
+              terminals[lane].feed(scratch.subarray(0, count));
+              offsets[lane] += count;
+              feeds++;
+              dirty |= 1n << BigInt(lane);
+            } else if (count === -4) continue;
+            else if (wouldBlock(count)) {
+              eagain++;
+              break;
+            } else if (count === 0 || count === -5) {
+              watches[lane].close();
+              return;
+            } else throw Error(`Read ${count}`);
+          }
+          n.terminal_flush(terminals[lane].handle);
+          arm(lane);
+        } catch (error) {
+          failure = error;
+        }
+      }),
+    );
+    arm(lane);
+  }
+}
+function startActor() {
+  const receiver = new Int32Array(1),
+    path = Buffer.from(join(nativeRoot, "lib/libcorgi_term.so") + "\0");
+  actor = helper.actor_new(ptr(path), ptr(handles), ptr(masters), lanes, ptr(receiver), levelTriggered ? 0 : 1);
+  assert.ok(actor);
+  helper.actor_notify_mask(actor, mode === "actor-visible" ? 1n : 0xffffn);
+  socket = new Socket().connect({ fd: receiver[0] } as unknown as SocketConnectOpts);
+  let carry: Buffer = Buffer.alloc(0);
+  socket.on("error", error => {
+    if (!stopped) failure = error;
+  });
+  socket.on("data", (chunk: Buffer) => {
+    if (stopped) return;
+    notificationChunks++;
+    const bytes = carry.length ? Buffer.concat([carry, chunk]) : chunk;
+    let offset = 0;
+    while (offset + 8 <= bytes.length) {
+      const mask = bytes.readBigUInt64LE(offset);
+      notifications++;
+      callbacks++;
+      const lane = 31 - Math.clz32(Number(mask));
+      if (lane < 0 || lane >= lanes || mask !== 1n << BigInt(lane)) {
+        failure = Error("Invalid actor receipt");
+        return;
+      }
+      terminals[lane].emit("change");
+      offset += 8;
+    }
+    carry = bytes.subarray(offset);
+    // A visible wake may also carry hidden dirty bits. Keep them until the
+    // ordinary maintenance pass consumes its own receipt.
+    dirty |= helper.actor_take_dirty(actor!);
+  });
+  assert.equal(helper.actor_start(actor), 0);
+}
+async function verifyLifecycle(tick: number) {
+  if (!verifyOnly) return;
+  if (tick === 2) {
+    helper.actor_producer_receive(producer, 0);
+    const tooLarge = Buffer.alloc(1024 * 1024 + 1);
+    locked(0, () => assert.equal(n.terminal_send(terminals[0].handle, ptr(tooLarge), tooLarge.length), -2));
+    send(0, Buffer.alloc(1024 * 1024 - 4096, 85));
+    const pending = locked(0, () => terminals[0].pendingBytes);
+    assert.ok(pending > 0, "forced PTY backpressure should leave queued input");
+    lifecycle.backpressure_bytes = pending;
+    helper.actor_producer_receive(producer, 1);
+    if (actor) helper.actor_kick(actor);
+  }
+  if (tick === 5 && actor) {
+    const began = performance.now();
+    helper.actor_pause_join(actor);
+    lifecycle.pause_join_ms = performance.now() - began;
+    const before = locked(0, () => fed(0));
+    await Bun.sleep(30);
+    assert.equal(
+      locked(0, () => fed(0)),
+      before,
+      "no feed after synchronous join",
+    );
+    const buffer = Buffer.alloc(65536),
+      deadline = Date.now() + 100;
+    let consumed = 0;
+    while (!consumed && Date.now() < deadline) {
+      const count = n.probe_read(masters[0], ptr(buffer), buffer.length);
+      if (count > 0) {
+        locked(0, () => {
+          terminals[0].feed(buffer.subarray(0, count));
+          handoffOffsets[0] += count;
+        });
+        consumed = count;
+      } else {
+        assert.ok(wouldBlock(count));
+        await Bun.sleep(1);
+      }
+    }
+    assert.ok(consumed > 0, "original descriptor remains readable for handoff");
+    lifecycle.original_fd_handoff_bytes = consumed;
+    // Simulate a later transfer step failing: resume the same actor and FDs.
+    assert.equal(helper.actor_start(actor), 0);
+    lifecycle.rollback_restart = true;
+  }
+}
+async function verifyNotificationRestart() {
+  assert.ok(verifyOnly && actor && !producer);
+  helper.actor_pause_join(actor);
+  const count = 4096,
+    before = notifications;
+  assert.equal(helper.actor_fixture_notifications(actor, count), 0);
+  // Let Bun see the deliberately incomplete record before the worker supplies
+  // its remaining five bytes. No producer exists to provide another wake.
+  await Bun.sleep(1);
+  assert.equal(notifications, before, "partial record dispatched early");
+  assert.equal(helper.actor_start(actor), 0);
+  const deadline = Date.now() + 2000;
+  while (notifications < before + count) {
+    if (failure) throw failure;
+    assert.ok(Date.now() < deadline, "queued receipts stalled after restart");
+    await Bun.sleep(1);
+  }
+  assert.equal(notifications, before + count, "restart lost or duplicated a receipt");
+  // A receiver can observe the last bytes before the worker updates counters.
+  helper.actor_pause_join(actor);
+  helper.actor_stats(actor, ptr(actorCounts));
+  assert.equal(actorCounts[9], 0n);
+  assert.equal(actorCounts[7], BigInt(count * 8), "partial-record byte accounting");
+  lifecycle.notification_restart = {
+    records: count,
+    prefix_bytes: 3,
+    send_calls: Number(actorCounts[6]),
+    EAGAIN: Number(actorCounts[8]),
+  };
+  assert.equal(helper.actor_start(actor), 0);
+}
+async function verifyFinal() {
+  // Stop joins before creating reference VTs: creation writes process-global decoder state.
+  if (actor) helper.actor_pause_join(actor);
+  else {
+    for (const watch of watches) watch.close();
+    loop!.close();
+    loop = null;
+  }
+  stopped = true;
+  const reverse = Array.from({ length: lanes }, () => Buffer.alloc(0)),
+    final = [];
+  for (let lane = 0; lane < lanes; lane++) {
+    const bytes = accepted.subarray(lane * bytesPerLane, (lane + 1) * bytesPerLane),
+      source = terminals[lane],
+      reference = new Terminal(132, 47);
+    let offset = 0,
+      input = 0;
+    const replay = (end: number) => {
+      while (input < inputs[lane].length && inputs[lane][input].prefix <= end) {
+        const event = inputs[lane][input++];
+        reference.feed(bytes.subarray(offset, event.prefix));
+        offset = event.prefix;
+        assert.equal(n.terminal_send(reference.handle, ptr(event.bytes), event.bytes.length), 0);
+      }
+      reference.feed(bytes.subarray(offset, end));
+      offset = end;
+    };
+    try {
+      if (lane === 0)
+        for (const capture of captures) {
+          replay(capture.prefix);
+          const want = reference.surface(1);
+          assert.deepEqual(capture.view.surface, want.surface, `feed-prefix ${capture.prefix} cells/cursor`);
+          assert.deepEqual(capture.view.modes, want.modes);
+          assert.equal(capture.title, reference.titleInfo().text);
+        }
+      const prefix = locked(lane, () => fed(lane));
+      assert.equal(prefix, bytesPerLane, "all accepted bytes eventually fed");
+      replay(prefix);
+      const view = locked(lane, () => source.surface(lane + 1)),
+        want = reference.surface(lane + 1);
+      assert.deepEqual(view.surface, want.surface);
+      assert.deepEqual(view.modes, want.modes);
+      assert.equal(
+        locked(lane, () => source.titleInfo().text),
+        reference.titleInfo().text,
+      );
+      assert.equal(
+        locked(lane, () => source.takeCopied()),
+        reference.takeCopied(),
+      );
+      reverse[lane] = Buffer.from(reference.native({ op: "takePending" }));
+      final.push(sha(JSON.stringify(view.surface)));
+    } finally {
+      reference.destroy();
+    }
+  }
+  // The producer is still draining slave input. Wait for all ordered replies/input.
+  const deadline = Date.now() + 2000;
+  while (
+    producerStats()
+      .slice(4 + lanes)
+      .some((count, lane) => count < reverse[lane].length)
+  ) {
+    assert.ok(Date.now() < deadline, "input/protocol reply drain deadline");
+    await Bun.sleep(1);
+  }
+  helper.actor_producer_join(producer);
+  for (let lane = 0; lane < lanes; lane++) {
+    const data = Buffer.alloc(reverseCapacity),
+      size = Number(helper.actor_producer_reverse(producer, lane, ptr(data), data.length));
+    assert.ok(size <= data.length);
+    assert.ok(data.subarray(0, size).equals(reverse[lane]), `lane${lane} serialized user-input/protocol-reply order`);
+  }
+  return { exact_final_surfaces: final, exact_prefix_captures: captures.length, ordered_duplex_lanes: lanes };
+}
+
+function scheduleQuality(start: bigint) {
+  const times = new BigUint64Array(lanes * records * 2);
+  assert.equal(Number(helper.actor_producer_schedule(producer!, ptr(times), times.length)), times.length);
+  const first = Math.ceil(warmup * 20),
+    limit = first + Math.round(seconds * 20),
+    errors: number[] = [],
+    intervals: number[] = [],
+    spans: number[] = [],
+    rates: number[] = [];
+  let count = 0;
+  for (let lane = 0; lane < lanes; lane++) {
+    for (let tick = first; tick < limit; tick++) {
+      const index = (lane * records + tick) * 2,
+        actual = times[index],
+        due =
+          start +
+          BigInt(tick) * 50000000n +
+          (schedule === "staggered" ? (BigInt(lane) * 50000000n) / BigInt(lanes) : 0n);
+      assert.ok(actual > 0n && times[index + 1] >= actual, "missing producer event");
+      errors.push(Number(actual - due) / 1e6);
+      if (tick > first) intervals.push(Number(actual - times[index - 2]) / 1e6);
+      count++;
+    }
+    rates.push(
+      ((limit - first - 1) * 1e9) /
+        Number(times[(lane * records + limit - 1) * 2] - times[(lane * records + first) * 2]),
+    );
+  }
+  for (let tick = first; tick < limit; tick++) {
+    let a = times[tick * 2],
+      b = a;
+    for (let lane = 0; lane < lanes; lane++) {
+      const value = times[(lane * records + tick) * 2];
+      if (value < a) a = value;
+      if (value > b) b = value;
+    }
+    spans.push(Number(b - a) / 1e6);
+  }
+  const quantiles = (values: number[]) => {
+    values.sort((a, b) => a - b);
+    return {
+      min: values[0],
+      median: values[Math.floor(values.length / 2)],
+      p95: values[Math.floor((values.length - 1) * 0.95)],
+      max: values.at(-1)!,
+    };
+  };
+  const error = quantiles(errors),
+    gap = quantiles(intervals),
+    hz = quantiles(rates);
+  return {
+    origin_ns: start.toString(),
+    pairs_ns: Array.from(times, value => Number(value - start)),
+    intended: {
+      period_ns: 50000000,
+      phase_ns_per_lane: schedule === "staggered" ? 50000000 / lanes : 0,
+      records_per_lane: records,
+    },
+    first_timed_record: first,
+    timed_records_per_lane: limit - first,
+    timed_events: count,
+    phase_error_ms: error,
+    same_lane_gap_ms: gap,
+    per_tick_lane_spread_ms: quantiles(spans),
+    cadence_hz: hz,
+    accepted:
+      count === lanes * (limit - first) &&
+      error.max <= 25 &&
+      error.min >= 0 &&
+      gap.min >= 25 &&
+      hz.min >= 19.6 &&
+      hz.max <= 20.4,
+  };
+}
+
+function closeTransports() {
+  loop?.close();
+  socket?.destroy();
+}
+
+try {
+  assert.ok(process.env.PTY_ACTOR_REFERENCE, "Require frozen V14 build receipt");
+  const reference = JSON.parse(readFileSync(process.env.PTY_ACTOR_REFERENCE!, "utf8")),
+    root = resolve(import.meta.dir, "../.."),
+    sourceHash = createHash("sha256"),
+    nativeHash = createHash("sha256");
+  for (const path of [...new Bun.Glob("{src,assets}/**/*").scanSync({ cwd: root, onlyFiles: true })].sort())
+    sourceHash.update(path).update(readFileSync(join(root, path)));
+  for (const path of ["lib/libcorgi_term.so", "lib/libcorgi_system.so", "bin/pty-exec", "bin/corgi-hook"])
+    nativeHash.update(readFileSync(join(nativeRoot, path)));
+  assert.equal(sourceHash.digest("hex"), reference.sourceSHA256);
+  assert.equal(nativeHash.digest("hex"), reference.nativeSHA256);
+  assert.equal(Bun.version, reference.bunVersion);
+  assert.ok(!process.env.CORGI_TELEMETRY_DIR);
+  const outputPath = process.env.ACTOR_OUTPUT;
+  if (outputPath) writeFileSync(join(outputPath, "runtime.json"), JSON.stringify({ daemon: process.pid }));
+  fillCorpus();
+  for (let lane = 0; lane < lanes; lane++) {
+    const pair = new Int32Array(2),
+      terminal = new Terminal(132, 47);
+    terminals.push(terminal);
+    assert.equal(helper.actor_pty(ptr(pair)), 0);
+    masters[lane] = pair[0];
+    slaves[lane] = pair[1];
+    handles[lane] = BigInt(terminal.handle);
+    symbols.app_terminal_fd(terminal.handle, masters[lane], -1);
+  }
+  if (mode === "ready") startBaseline();
+  else startActor();
+  if (verifyOnly && actor) await verifyNotificationRestart();
+  producer = helper.actor_producer(
+    ptr(slaves),
+    lanes,
+    ptr(accepted),
+    records,
+    recordSize,
+    schedule === "staggered" ? 1 : 0,
+    verifyOnly ? 7 : 0,
+    reverseCapacity,
+  );
+  assert.ok(producer);
+  const start = helper.actor_producer_start(producer);
+  let tick = 0;
+  while (tick < warmup * 20) {
+    await until(start + BigInt(tick) * 50000000n);
+    jobs(tick++);
+  }
+  await until(start + BigInt(Math.ceil(warmup * 20)) * 50000000n);
+  const before = stats(),
+    beforeThreads = threads(),
+    beforeMain = helper.actor_main_cpu_ns(),
+    beforeCpu = process.cpuUsage(),
+    beforeWall = performance.now(),
+    startedAt = new Date().toISOString();
+  const end = helper.actor_now_ns() + BigInt(Math.round(seconds * 1e9));
+  while (helper.actor_now_ns() < end) {
+    jobs(tick);
+    if (verifyOnly) await verifyLifecycle(tick);
+    tick++;
+    await until(start + BigInt(tick) * 50000000n);
+  }
+  const wall = performance.now() - beforeWall,
+    cpu = process.cpuUsage(beforeCpu),
+    main = helper.actor_main_cpu_ns() - beforeMain,
+    afterThreads = threads(),
+    after = stats();
+  // Accepted slave writes may still be in tty flip queues after the last write.
+  const deadline = Date.now() + 3000;
+  while (
+    producerStats()[0] !== 1 ||
+    terminals.some((terminal, lane) => locked(lane, () => fed(lane) < bytesPerLane || terminal.pendingBytes > 0))
+  ) {
+    assert.ok(Date.now() < deadline, "PTY trailing output timeout");
+    await Bun.sleep(1);
+  }
+  const verified = await verifyFinal(),
+    producerTiming = scheduleQuality(start);
+  const result = {
+    mode,
+    schedule,
+    verifyOnly,
+    levelTriggered,
+    wait_backend: after.wait[2] === 1 ? "poll" : "epoll",
+    wait_metric_names: ["calls", "ready_events", "backend_poll"],
+    warmup,
+    seconds: wall / 1000,
+    started_at: startedAt,
+    producer_timing: producerTiming,
+    lanes,
+    recordSize,
+    records,
+    fixture:
+      "16rawPTYs,20Hzproducer,20Hzvisiblecapture,20Hzall-lane maintenance,4Hzall-lane liveText/title;256Brecords withNULpadding;verification fragments writes to7B",
+    native: { path: nativeRoot, combined_sha256: reference.nativeSHA256 },
+    reference,
+    helper_sha256: sha(readFileSync(helperPath)),
+    helper_source_sha256: sha(readFileSync(join(import.meta.dir, "pty_actor.c"))),
+    harness_sha256: sha(readFileSync(import.meta.path)),
+    corpus_sha256: sha(accepted),
+    before,
+    after,
+    beforeThreads,
+    afterThreads,
+    clock_ticks_per_second: sysconf(false),
+    actor_metric_names: [
+      "reads",
+      "bytes",
+      "feeds",
+      "EAGAIN",
+      "services",
+      "notifications",
+      "send_calls",
+      "notification_bytes",
+      "notification_EAGAIN",
+      "error",
+      "worker_cpu_ns",
+      "worker_tid",
+      "dirty_mask",
+      "lane_epoll_ctl",
+    ],
+    cpu: {
+      process_us: cpu,
+      main_us: Number(main) / 1000,
+      producer_us: (after.producer[2] - before.producer[2]) / 1000,
+      consumer_total_us: cpu.user + cpu.system - (after.producer[2] - before.producer[2]) / 1000,
+      actor_worker_us: (after.actor[10] - before.actor[10]) / 1000,
+    },
+    verified,
+    lifecycle,
+    limitations:
+      "Component ownership/coalescing ceiling, not wholeapp. NativeCPU counts as consumer work. Noimage/thread-global safety claim. Notification mask is supplied byBun. Comparesemantic surfaces, never chunk-dependent revisions. Additional lifecycle tests required beforeproduction.",
+  };
+  if (outputPath) {
+    writeFileSync(join(outputPath, "actor.json"), JSON.stringify(result));
+    writeFileSync(
+      join(outputPath, "results.json"),
+      JSON.stringify({ results: [{ name: `${mode}-${schedule}`, started_at: startedAt, seconds: wall / 1000 }] }),
+    );
+  }
+  console.log(JSON.stringify(result, null, 2));
+} finally {
+  stopped = true;
+  if (producer) helper.actor_producer_join(producer);
+  if (actor) helper.actor_pause_join(actor);
+  for (const watch of watches) watch.close();
+  closeTransports();
+  if (producer) helper.actor_producer_free(producer);
+  if (actor) helper.actor_free(actor);
+  for (const terminal of terminals) {
+    symbols.app_terminal_fd(terminal.handle, -1, -1);
+    terminal.destroy();
+  }
+  for (const fd of [...masters, ...slaves]) if (fd >= 0) n.probe_close(fd);
+  await release();
+}

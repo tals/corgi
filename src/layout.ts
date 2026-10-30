@@ -298,6 +298,24 @@ export class Selection {
   count = 0;
   active = 0;
   reconcile(m: Model) {
+    if (
+      this.count === m.count &&
+      this.tabs.length === m.count &&
+      Number.isInteger(this.active) &&
+      this.active >= 0 &&
+      this.active < Math.max(1, m.count)
+    ) {
+      let current = true;
+      for (let i = 0; i < m.count; i++) {
+        const tab = m.tabs[i],
+          selected = this.tabs[i];
+        if (selected.id !== tab.id || !m.contains(tab.root, selected.focus)) {
+          current = false;
+          break;
+        }
+      }
+      if (current) return;
+    }
     const old = this.tabs.slice(),
       active = this.active;
     let selected = this.count ? old[active].id : 0;

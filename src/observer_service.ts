@@ -1,3 +1,4 @@
+import * as telemetry from "./telemetry";
 import { Worker as TranscriptWorker } from "./transcript";
 import { Worker as UsageWorker } from "./usage/worker";
 import { Worker as SummaryWorker } from "./activity/worker";
@@ -230,10 +231,11 @@ export function claimPane(server: Server, query: Request<"pane.agent">) {
   changed(server);
 }
 export function detectPane(server: Server, pane: Pane, observedJob?: detection.Job | null) {
+  const telemetry_started = telemetry.begin();
   const runtime = server.runtime,
     workers = start(server),
     worker = workers.summaries;
-  const before = stringify(pane.agent());
+  const before = pane.agent().comparison();
   const generation = pane.attachment.generation;
   if (pane.detection.claim && (pane.terminal.exited || !detection.claimAlive(pane.detection.claim))) {
     pane.releaseDetection();
@@ -318,8 +320,9 @@ export function detectPane(server: Server, pane: Pane, observedJob?: detection.J
     }
   }
   if (!claim) pane.resume_hint.observe(pane.agent());
-  if (generation !== pane.attachment.generation || before !== stringify(pane.agent())) changed(server);
+  if (generation !== pane.attachment.generation || !Bun.deepEquals(before, pane.agent().comparison())) changed(server);
   attention(server, ding, pane.agent().state);
+  telemetry.end("agent.detect", telemetry_started);
 }
 /** The live pane that shows `provider`'s `session`, if one does. */
 function showing(runtime: Runtime, provider: Provider, session: string) {
@@ -375,11 +378,13 @@ export async function tick(server: Server) {
   if (workers.settling || now - workers.detected >= 250) {
     workers.detected = now;
     const panes = runtime.panes.filter(pane => !pane.terminal.exited && (workers.settling || pane.detectionDue(now)));
+    const foregrounds_started = telemetry.begin();
     const fronts = detection.foregrounds(
       panes
         .filter(pane => !pane.detection.claim)
         .map(pane => ({ fd: pane.terminal.fd, pid: pane.terminal.pid, agent: pane.detection.pid })),
     );
+    telemetry.end("agent.foregrounds", foregrounds_started);
     for (const pane of panes) {
       const front = fronts.get(pane.terminal.fd);
       detectPane(server, pane, front && front.job);
@@ -395,6 +400,7 @@ export async function tick(server: Server) {
       observer.reconcile(runtime);
       for (const request of observer.takeMissed()) missed(server, provider, request);
       for (const snapshot of observer.take()) {
+        telemetry.count("agent.provider.results");
         const actor = snapshotActor(server, provider, snapshot);
         if (!actor) continue;
         attention(
@@ -458,6 +464,7 @@ export async function tick(server: Server) {
       if (result && runtime.link_labels.apply(result, now)) changed(server);
     workers.usage.reconcile(runtime);
     for (const result of workers.usage.take()) {
+      telemetry.count("agent.usage.results");
       const actor = runtime.conversations.byId(result.actor);
       if (!actor) continue;
       if (result.checklist) actor.observeChecklist(result.checklist);

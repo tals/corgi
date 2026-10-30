@@ -68,6 +68,43 @@ test("a launch preview names the model it shows and where it came from", () => {
   expect(o.source.text()).toBe("Project");
 });
 
+test("unchanged launch previews retain identity across polling and installation refreshes", async () => {
+  const worker = new Worker();
+  worker.launcher = async () => ({
+    account: async () => new Info(),
+    model: async () => ({ model: "stable", source: "test" }),
+    close() {},
+  });
+  try {
+    const start = 1_000_000_000;
+    setSystemTime(new Date(start));
+    worker.preview(root);
+    await worker.pump();
+    const first = worker.preview(root);
+    expect(first.pending).toBe(false);
+    for (let ms = 100; ms <= 10000; ms += 100) {
+      setSystemTime(new Date(start + ms));
+      expect(worker.preview(root)).toBe(first);
+    }
+    accounts.renameDefault("codex", "work");
+    const renamed = worker.preview(root);
+    expect(renamed).not.toBe(first);
+    expect(renamed.names.codex).toBe("work");
+    expect(first.names.codex).toBe("");
+    await worker.pump();
+    const settled = worker.preview(root);
+    expect(settled.pending).toBe(false);
+    expect(worker.preview(root)).toBe(settled);
+    // Starting a fresh read must not change the already-published snapshot.
+    const pending = worker.preview(root, true);
+    expect(pending.pending).toBe(true);
+    expect(settled.pending).toBe(false);
+  } finally {
+    await worker.stop();
+    setSystemTime();
+  }
+});
+
 test("install discovery expires and an explicit refresh sees changes immediately", async () => {
   let available = true;
   const found = spyOn(discovery, "installed").mockImplementation(() => available),
