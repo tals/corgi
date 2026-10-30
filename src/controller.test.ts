@@ -9,6 +9,7 @@ import { TabMenu, type Row } from "./commands";
 import { Dialog } from "./name_dialog";
 import * as newWorkspace from "./new_workspace";
 import * as agentLauncher from "./agent_launcher";
+import * as launcherResume from "./launcher_resume";
 import * as clock from "./clock";
 import { Menu as LauncherMenu } from "./agent_launcher";
 import * as agentManager from "./agent_manager";
@@ -1492,6 +1493,52 @@ test("the launcher's history leaves out conversations from a provider the viewer
   s.launch_previews.history = { pending: false, entries: [entry("future", "a"), entry("codex", "b")] as any };
   s.openLauncher(true);
   expect(s.agent_launcher.history.entries.map((e: any) => [e.provider, e.session])).toEqual([["codex", "b"]]);
+});
+test("history stars follow the current workspace and refresh while the launcher stays open", () => {
+  const base = folders("/a", "/b"),
+    snapshot = {
+      ...base,
+      workspaces: base.workspaces.map(ws => ({
+        ...ws,
+        starred_sessions: [{ provider: "claude", session: ws.id === 1 ? "first" : "second" }],
+      })),
+    },
+    { s } = recording(snapshot),
+    stars = () => (s.agent_launcher.history.entries as launcherResume.Entry[]).map(e => [e.session, e.starred]);
+  s.launch_previews.history = {
+    pending: false,
+    entries: ["first", "second"].map(session =>
+      launcherResume.historyEntry({ provider: "claude", session, cwd: "/a", updated_at: 1 }),
+    ),
+  };
+  try {
+    s.openLauncher(true);
+    expect(stars()).toEqual([
+      ["first", true],
+      ["second", false],
+    ]);
+    s.switchWorkspace(2);
+    s.openLauncher(true);
+    expect(stars()).toEqual([
+      ["first", false],
+      ["second", true],
+    ]);
+    snapshot.workspaces[0].starred_sessions.push({ provider: "claude", session: "second" });
+    snapshot.workspaces[1].starred_sessions = [];
+    s.receiveSnapshot(snapshot);
+    expect(stars()).toEqual([
+      ["first", false],
+      ["second", false],
+    ]);
+    s.switchWorkspace(1);
+    s.openLauncher(true);
+    expect(stars()).toEqual([
+      ["first", true],
+      ["second", true],
+    ]);
+  } finally {
+    viewer.close(s);
+  }
 });
 
 /** The launcher over a preview that lists Claude Code's `work` account. */

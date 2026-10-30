@@ -48,6 +48,17 @@ test("a snapshot's sessions and last agents from a provider the viewer doesn't k
     runtime.destroy();
   }
 });
+test("a snapshot whose stars the viewer can't read shows none", () => {
+  const runtime = new mirror.Runtime();
+  try {
+    runtime.receive(null as any, {
+      workspaces: [{ id: 1, model: { nodes: [], tabs: [], revision: 0 }, starred_sessions: [{ provider: "claude" }] }],
+    });
+    expect(runtime.workspaces.items[0].starred_sessions).toEqual([]);
+  } finally {
+    runtime.destroy();
+  }
+});
 test("viewer scalars retain their bigint type after small and large wire replies", async () => {
   let value = 1n;
   const requests: any[] = [];

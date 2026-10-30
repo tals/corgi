@@ -323,6 +323,14 @@ export interface Workspace {
   worktree_briefs: Brief[];
   stats: any;
 }
+/** A daemon's stars; a list it can't read shows none. */
+function starredSessions(value: unknown): StarredSession[] {
+  try {
+    return Stars.restore(value ?? []).slice();
+  } catch {
+    return [];
+  }
+}
 function workspace(value: any): Workspace {
   return {
     id: value.id,
@@ -332,7 +340,7 @@ function workspace(value: any): Workspace {
     model: Model.fromData(value.model),
     agent_order: value.agent_order ?? [],
     pinned_agents: value.pinned_agents ?? [],
-    starred_sessions: Stars.restore(value.starred_sessions ?? []).slice(),
+    starred_sessions: starredSessions(value.starred_sessions),
     activity_order: value.activity_order ?? [],
     starting_agents: value.starting_agents ?? [],
     last_agent: Provider.parse(value.last_agent),

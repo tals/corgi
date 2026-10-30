@@ -191,6 +191,11 @@ $.workspaces[].pinned_agents[]|pane: u32
 $.workspaces[].pinned_agents[]|headless: u32
 $.workspaces[].starred_sessions[].provider: provider
 $.workspaces[].starred_sessions[].session: string
+$.workspaces[].star_bindings[].target: one of
+$.workspaces[].star_bindings[].target|pane: u32
+$.workspaces[].star_bindings[].target|headless: u32
+$.workspaces[].star_bindings[].provider: provider
+$.workspaces[].star_bindings[].session: string
 $.workspaces[].activity_order[]: one of
 $.workspaces[].activity_order[]|pane: u32
 $.workspaces[].activity_order[]|headless: u32

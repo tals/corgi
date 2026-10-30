@@ -58,6 +58,91 @@ test("stars follow conversations after closing and reopening, until explicitly r
     r.destroy();
   }
 });
+test("an explicit star during replacement startup follows the new conversation", () => {
+  const { r, w } = setup();
+  try {
+    const p = add(r, w),
+      target = { pane: p.id };
+    p.attachment.select(r.conversations.get("claude", "previous"));
+    r.raiseEntered();
+    p.attachment.deselect();
+    p.agent().provider = "claude";
+    r.raiseEntered();
+    r.starAgent(w, target, true);
+    r.raiseEntered();
+    expect(w.pinned_agents.has(target)).toBe(true);
+    expect(w.starred_sessions.slice()).toEqual([]);
+    p.attachment.select(r.conversations.get("claude", "replacement"));
+    r.raiseEntered();
+    expect(w.pinned_agents.has(target)).toBe(true);
+    expect(w.starred_sessions.slice()).toEqual([{ provider: "claude", session: "replacement" }]);
+    r.starAgent(w, target, false);
+    r.raiseEntered();
+    expect(w.pinned_agents.has(target)).toBe(false);
+    expect(w.starred_sessions.slice()).toEqual([]);
+  } finally {
+    r.destroy();
+  }
+});
+test("a star does not pass to a replacement through an unidentified startup", () => {
+  const { r, w } = setup();
+  try {
+    const p = add(r, w),
+      target = { pane: p.id };
+    p.attachment.select(r.conversations.get("claude", "previous"));
+    r.starAgent(w, target, true);
+    r.raiseEntered();
+    p.attachment.deselect();
+    p.agent().provider = "claude";
+    r.raiseEntered();
+    p.attachment.select(r.conversations.get("claude", "replacement"));
+    r.raiseEntered();
+    expect(w.pinned_agents.has(target)).toBe(false);
+    expect(w.starred_sessions.slice()).toEqual([{ provider: "claude", session: "previous" }]);
+  } finally {
+    r.destroy();
+  }
+});
+test("unstarring during an unidentified startup forgets the last conversation's star", () => {
+  const { r, w } = setup();
+  try {
+    const p = add(r, w),
+      target = { pane: p.id };
+    p.attachment.select(r.conversations.get("claude", "previous"));
+    r.starAgent(w, target, true);
+    r.raiseEntered();
+    p.attachment.deselect();
+    p.agent().provider = "claude";
+    r.raiseEntered();
+    r.starAgent(w, target, false);
+    r.raiseEntered();
+    expect(w.starred_sessions.slice()).toEqual([]);
+    p.attachment.select(r.conversations.get("claude", "previous"));
+    r.raiseEntered();
+    expect(w.pinned_agents.has(target)).toBe(false);
+  } finally {
+    r.destroy();
+  }
+});
+test("a star dropped just after the conversation changes stays where it was dropped", () => {
+  const { r, w } = setup();
+  try {
+    const first = add(r, w),
+      p = add(r, w),
+      target = { pane: p.id };
+    first.attachment.select(r.conversations.get("claude", "first"));
+    p.attachment.select(r.conversations.get("claude", "previous"));
+    r.starAgent(w, { pane: first.id }, true);
+    r.raiseEntered();
+    p.attachment.select(r.conversations.get("claude", "replacement"));
+    r.starAgent(w, target, true, { pane: first.id });
+    expect(r.raiseEntered()).toBe(false);
+    expect(w.pinned_agents.slice()).toEqual([target, { pane: first.id }]);
+    expect(w.starred_sessions.has("claude", "replacement")).toBe(true);
+  } finally {
+    r.destroy();
+  }
+});
 test("stopping a Bun-owned shell leaves child collection to Bun", async () => {
   const r = new Runtime(),
     terminal = Terminal.create(20, 4);

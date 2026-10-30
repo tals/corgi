@@ -34,6 +34,30 @@ function fixture() {
   };
   return { r, ws, opts };
 }
+test("resuming elsewhere leaves the star in its workspace until the conversation returns", async () => {
+  const { r, ws, opts } = fixture(),
+    elsewhere = new Workspace(2, "/tmp"),
+    id = "12345678-1234-1234-1234-123456789abc";
+  r.workspaces.items.push(elsewhere);
+  try {
+    const first = await r.create(opts);
+    r.pane(first)!.attachment.select(r.conversations.get("claude", id));
+    r.starAgent(ws, { pane: first }, true);
+    r.raiseEntered();
+    r.close(first);
+    const other = await r.reopenClosed(r.closedConversation("claude", id)!, { ...opts, workspace: elsewhere.id });
+    r.raiseEntered();
+    expect(elsewhere.pinned_agents.has({ pane: other })).toBe(false);
+    expect(elsewhere.starred_sessions.slice()).toEqual([]);
+    expect(ws.starred_sessions.has("claude", id)).toBe(true);
+    r.close(other);
+    const back = await r.reopenClosed(r.closedConversation("claude", id)!, opts);
+    r.raiseEntered();
+    expect(ws.pinned_agents.has({ pane: back })).toBe(true);
+  } finally {
+    r.destroy();
+  }
+});
 test("all wrapping runtime revisions retain u64 bounds", () => {
   const r = new Runtime(),
     max = 0xffffffffffffffffn;

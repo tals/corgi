@@ -18,7 +18,7 @@ import * as keys from "./keys";
 import * as trackers from "./trackers";
 import { Model as AgentModel } from "./providers/model";
 import { Status as InferenceStatus } from "./inference/setup";
-import { index, section, type Section, type Target } from "./agent_order";
+import { index, key as agentKey, section, type Section, type Target } from "./agent_order";
 import type { Session } from "./headless";
 import { Briefs } from "./worktree_briefs";
 import * as worktreeAgents from "./worktree_agents";
@@ -883,11 +883,21 @@ export class Runtime {
     if (starred) ws.pinned_agents.pin(live, target, before);
     else ws.pinned_agents.unpin(live, target);
     const agent = this.targetAgent(target);
-    if (!agent?.provider || !agent.session.len) return;
-    ws.starred_sessions.set(agent.provider, agent.sessionId(), starred);
+    const key = agentKey(target);
+    let conversation =
+      agent?.provider && agent.session.len ? { provider: agent.provider, session: agent.sessionId() } : null;
+    // Bound now, so a conversation that just changed doesn't move the star again.
+    if (conversation) ws.star_bindings.set(key, conversation);
+    else {
+      // Between conversations, an unstar still clears the one it was bound to.
+      if (!starred) conversation = ws.star_bindings.get(key) ?? null;
+      ws.star_bindings.delete(key);
+      if (!conversation) return;
+    }
+    ws.starred_sessions.set(conversation.provider, conversation.session, starred);
     for (const other of live) {
       const state = this.targetAgent(other);
-      if (state?.provider !== agent.provider || state.sessionId() !== agent.sessionId()) continue;
+      if (state?.provider !== conversation.provider || state.sessionId() !== conversation.session) continue;
       if (starred && !ws.pinned_agents.has(other)) ws.pinned_agents.pin(live, other, null);
       else if (!starred) ws.pinned_agents.unpin(live, other);
     }
@@ -901,11 +911,15 @@ export class Runtime {
   private syncStar(ws: Workspace, live: Target[], target: Target, key: string): boolean {
     const agent = this.targetAgent(target);
     if (!agent?.provider || !agent.session.len) return false;
-    const identity = `${agent.provider}:${agent.sessionId()}`,
+    const conversation = { provider: agent.provider, session: agent.sessionId() },
       previous = ws.star_bindings.get(key);
-    ws.star_bindings.set(key, identity);
+    ws.star_bindings.set(key, conversation);
     let changed = false;
-    if (previous !== undefined && previous !== identity && ws.pinned_agents.has(target)) {
+    if (
+      previous !== undefined &&
+      (previous.provider !== conversation.provider || previous.session !== conversation.session) &&
+      ws.pinned_agents.has(target)
+    ) {
       ws.pinned_agents.unpin(live, target);
       changed = true;
     }
@@ -925,7 +939,7 @@ export class Runtime {
         placed = ws.agent_order.slice(),
         seen = new Set<string>();
       for (const target of live) {
-        const key = "pane" in target ? `pane:${target.pane}` : `headless:${target.headless}`,
+        const key = agentKey(target),
           last = ws.sections.get(key),
           kind = this.startingSection(ws, target, key, last);
         seen.add(key);
@@ -989,9 +1003,7 @@ export class Runtime {
   }
   /** The agents waiting in working for their first turn. */
   startingAgents(ws: Workspace): Target[] {
-    return this.agentTargets(ws).filter(t =>
-      ws.starting.has("pane" in t ? `pane:${t.pane}` : `headless:${t.headless}`),
-    );
+    return this.agentTargets(ws).filter(t => ws.starting.has(agentKey(t)));
   }
   private agentSection(target: Target) {
     if ("pane" in target) {

@@ -1,4 +1,8 @@
 export type Target = { pane: number } | { headless: number };
+/** An agent's key in per-agent maps: `pane:N` or `headless:N`. */
+export function key(target: Target): string {
+  return "pane" in target ? `pane:${target.pane}` : `headless:${target.headless}`;
+}
 /** The agent list's activity sections, in the order it shows them. */
 export type Section = "starred" | "working" | "ready" | "idle" | "done";
 /** The section an agent's state puts it in. One waiting on the user, or

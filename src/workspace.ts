@@ -2,7 +2,7 @@ import { basename, dirname, join, isAbsolute } from "node:path";
 import { mkdir, open, rename, readFile, realpath, stat } from "node:fs/promises";
 import { Model, cleanLabel, max_workspaces } from "./layout";
 import { Order, Pins, type Section } from "./agent_order";
-import { Stars } from "./agent_stars";
+import { Stars, type Session as StarredSession } from "./agent_stars";
 import { Ref, State } from "./trackers/git_push";
 import { Commits } from "./trackers/git_status";
 import { Window } from "./usage/tokens";
@@ -17,7 +17,7 @@ export class Workspace {
   pinned_agents = new Pins();
   starred_sessions = new Stars();
   /** The conversation last seen in each live starred slot. */
-  star_bindings = new Map<string, string>();
+  star_bindings = new Map<string, StarredSession>();
   /** The order inside each activity section: the user's, with an agent
    * that enters a section put first. */
   activity_order = new Order();

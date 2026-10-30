@@ -54,7 +54,8 @@ done starts folded. Right-click an agent and choose **Star** or **Unstar**
 section as their activity changes. Dragging only reorders agents within
 their section; it never stars or unstars them. Stars and order are shared
 and saved with the workspace; they don't move panes. Stars follow conversations
-when closed and resumed, and show beside their titles in the new-tab history.
+when closed and resumed in that workspace, and show beside their titles in
+its new-tab history.
 Sort: Manual in the "agents: … ▾" menu keeps the dragged order and marks starred
 agents with ★. Starring does not change the selected sort.
 The default sort stays out of the preferences file until you choose a sort.
