@@ -1587,6 +1587,10 @@ test("a row stepping aside draws off its place, never over the list's header", (
   const settled = lines();
   entries[1].slide = 2;
   expect(row("Beta", lines())).toBe(row("Beta", settled) + 2);
+  // A click finds the row where it shows.
+  const beta = row("Beta", settled) + 2;
+  expect(view.withEntries(entries).hit(5, beta)).toEqual({ tag: "entry", entry: 1 });
+  expect(view.withEntries(entries).hit(5, row("Beta", settled))).toEqual({ tag: "none" });
   entries[0].slide = -2;
   const pushed = lines();
   expect(row("Alpha", pushed)).toBe(-1);

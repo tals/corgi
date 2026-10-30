@@ -911,12 +911,28 @@ export class View {
       top += 1;
       if (y < top) return { tag: "entry", entry: index };
     }
+    // Where rows are drawn, the one on top: a row stepping aside isn't where it lands yet.
     const shown = Math.min(v.count, v.offset + v.shown(end));
+    let found: number | null = null,
+      layer = -1;
     for (let index = v.offset; index < shown; index++) {
-      top += v.entries.length > 0 ? View.height(v.entries[index]) : 2;
-      if (y < top) return { tag: "entry", entry: index };
+      const e = v.entries.length > 0 ? v.entries[index] : null,
+        h = e ? View.height(e) : 2,
+        at = top + (e?.slide ?? 0);
+      if (y >= at && y < at + h && (e ? v.layer(e) : 2) > layer) {
+        found = index;
+        layer = e ? v.layer(e) : 2;
+      }
+      top += h;
     }
-    return hit("none");
+    return found === null ? hit("none") : { tag: "entry", entry: found };
+  }
+  /** Which rows draw over which: a moved row still hidden while its tint
+   * glides in goes under rows stepping aside, and those under rows in place. */
+  layer(e: Entry): number {
+    const hidden =
+      e.moved !== null && this.supports_kitty_graphics && this.cell !== null && (rowGlide.fade(e.moved.ms) ?? 0) > 0.5;
+    return hidden ? 0 : e.slide !== 0 ? 1 : 2;
   }
   /** Use the same row heights and viewport as hit testing. The marker sits
    * just above the destination row, including the gap after the last row. */
@@ -1216,14 +1232,7 @@ export class View {
       lands.push(next_y);
       next_y += View.height(e);
     }
-    // Rows stepping aside go under the rows in place, and over a moved row
-    // still hidden while its tint glides in.
-    const layer = (e: Entry) => {
-      const hidden =
-        e.moved !== null && v.supports_kitty_graphics && v.cell !== null && (rowGlide.fade(e.moved.ms) ?? 0) > 0.5;
-      return hidden ? 0 : e.slide !== 0 ? 1 : 2;
-    };
-    const order = visible.map((_, i) => i).sort((a, b) => layer(visible[a]) - layer(visible[b]));
+    const order = visible.map((_, i) => i).sort((a, b) => v.layer(visible[a]) - v.layer(visible[b]));
     order.forEach(index => {
       const e = visible[index];
       const absolute = v.offset + index;
