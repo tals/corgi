@@ -19,6 +19,8 @@ import {
   manifests,
   signCommands,
   debugTools,
+  tagRelease,
+  requirePushed,
   type Store,
 } from "../scripts/release.ts";
 import { mkdtemp, mkdir, readFile, writeFile, chmod, rm, stat, symlink } from "node:fs/promises";
@@ -307,6 +309,43 @@ test("resume uses the saved commit after HEAD moves and retains artifacts", asyn
     expect(await Bun.file(join(out, "artifact")).text()).toBe("signed bytes");
     await writeFile(join(out, "prepared.json"), JSON.stringify({ commit: "../../invalid", version }));
     await expect(releaseCommit(dir, options, paths.releases)).rejects.toThrow("Invalid prepared");
+  });
+});
+
+test("published releases are tagged on origin, and the tag never moves", async () => {
+  await releaseFixture(async (dir, git) => {
+    const remote = join(dir, ".git/origin.git");
+    git("init", "--bare", remote);
+    git("remote", "add", "origin", remote);
+    const commit = git("rev-parse", "HEAD");
+    const version = timestampVersion(commit);
+    const tags = () => git("ls-remote", "--tags", "origin");
+    tagRelease(dir, version, commit, true);
+    expect(tags()).toBe("");
+    tagRelease(dir, version, commit);
+    expect(tags()).toBe(`${commit}\trefs/tags/${version}`);
+    tagRelease(dir, version, commit);
+    git("commit", "--allow-empty", "-m", "next");
+    const next = git("rev-parse", "HEAD");
+    expect(() => tagRelease(dir, version, next, true)).toThrow("Git push failed");
+    expect(() => tagRelease(dir, version, next)).toThrow("Git push failed");
+    expect(tags()).toBe(`${commit}\trefs/tags/${version}`);
+  });
+});
+
+test("only commits on origin's main are published", async () => {
+  await releaseFixture(async (dir, git) => {
+    const remote = join(dir, ".git/origin.git");
+    git("init", "--bare", remote);
+    git("remote", "add", "origin", remote);
+    const commit = git("rev-parse", "HEAD");
+    git("push", "origin", "HEAD:refs/heads/main");
+    git("commit", "--allow-empty", "-m", "unpushed");
+    const unpushed = git("rev-parse", "HEAD");
+    requirePushed(dir, commit);
+    expect(() => requirePushed(dir, unpushed)).toThrow(`Push ${unpushed.slice(0, 12)} to origin main`);
+    git("push", "origin", "HEAD:refs/heads/main");
+    requirePushed(dir, unpushed);
   });
 });
 

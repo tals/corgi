@@ -1,7 +1,8 @@
 # Releases
 
 The publisher builds committed HEAD for macOS arm64 and Linux amd64 and arm64 in
-an isolated checkout. Pending edits are excluded; Git tags and remotes are untouched.
+an isolated checkout. Pending edits are excluded. Once the release is live, it
+tags the commit on `origin` with the version; local branches and tags are untouched.
 
 Linux arm64 has its own manifest and channel (`manifest-linux-aarch64.json`,
 `channels/stable-linux-aarch64.json`): releases before it reject a manifest that
@@ -12,7 +13,9 @@ keep only macOS arm64 and Linux amd64. A new target gets its own the same way.
 
 Use an Apple Silicon Mac (or Linux, [below](#publishing-from-linux)) with Bun, the [pinned Zig toolchain](../AGENTS.md#zig-toolchain),
 Xcode's SDK and a persistent macOS signing identity. Keep signing keys and storage
-credentials outside the repository. Use one publishing host at a time.
+credentials outside the repository. Use one publishing host at a time. The host
+needs push access to `origin` on GitHub, and the release commit must already be on
+origin's `main`; both are checked before building.
 
 Create and back up the release signing key:
 
@@ -80,11 +83,12 @@ signature (and Apple's notarization), not run.
 
 ## Release checklist
 
-1. Commit the changes to ship. Review compatibility changes using
+1. Commit and push the changes to ship. Review compatibility changes using
    [HACKING.md](../HACKING.md).
 2. Check the selected commit and output paths with `./publish.sh --dry-run`.
 3. Run `./publish.sh`. It tests, builds, signs and verifies the public downloads
-   before advancing the stable channel. Wait for the final `Published Corgi` message.
+   before advancing the stable channel, then tags the commit on GitHub. Wait for the
+   final `Published Corgi` message.
 4. From an installed copy, run `corgi update --check` to confirm the offered release.
 
 Versions are immutable; never reuse a version for different bytes or casually

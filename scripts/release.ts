@@ -132,6 +132,21 @@ async function locked<T>(lock: string, run: () => Promise<T>) {
     await rm(lock, { recursive: true });
   }
 }
+// The tag names the version, so a retry finds it in place and a different
+// commit is refused rather than moving it.
+export function tagRelease(cwd: string, version: string, commit: string, dryRun = false) {
+  git(cwd, "push", ...(dryRun ? ["--dry-run"] : []), "origin", `${commit}:refs/tags/${version}`);
+}
+// The tag would upload a commit origin lacks, and a later rewrite would leave
+// it off main, so only commits already on origin's main are published.
+export function requirePushed(cwd: string, commit: string) {
+  git(cwd, "fetch", "--quiet", "origin", "+refs/heads/main:refs/remotes/origin/main");
+  const p = Bun.spawnSync(["git", "--no-optional-locks", "merge-base", "--is-ancestor", commit, "origin/main"], {
+    cwd,
+    stderr: "pipe",
+  });
+  if (p.exitCode) throw new Error(`Push ${commit.slice(0, 12)} to origin main before publishing it.`);
+}
 // Release checkouts still registered after their run was killed.
 export function abandonedCheckouts(cwd: string) {
   return git(cwd, "worktree", "list", "--porcelain")
@@ -544,7 +559,7 @@ async function main() {
   const argv = process.argv.slice(2);
   if (argv[0] === "--help") {
     console.log(
-      "Usage: ./scripts/release [VERSION] [--dry-run | --build-only | --publish-only] [--skip-tests]\n       ./scripts/release --init-key PATH\n       ./scripts/release --clean\n\nBuilds macOS arm64 + Linux amd64 and arm64, signs the macOS binary (keychain on a Mac, or rcodesign with\ncodesignP12 anywhere), then publishes to an S3-compatible bucket. Config: ~/.config/corgi/release.json or CORGI_RELEASE_CONFIG.\nCredentials: private credentialsFile in config, or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (R2/S3).\nBuilds committed HEAD in an isolated checkout, leaving pending edits and development build outputs alone.\nOmit VERSION for UTC datetime + Git hash. --build-only does not upload, and runs on Linux too.\n--publish-only requires VERSION and resumes the saved commit without rebuilding/signing, even if HEAD has moved.\n--skip-tests builds without running the typecheck and test suites.\n--clean deletes every saved release, published or not, and checkouts left by interrupted runs.",
+      "Usage: ./scripts/release [VERSION] [--dry-run | --build-only | --publish-only] [--skip-tests]\n       ./scripts/release --init-key PATH\n       ./scripts/release --clean\n\nBuilds macOS arm64 + Linux amd64 and arm64, signs the macOS binary (keychain on a Mac, or rcodesign with\ncodesignP12 anywhere), then publishes to an S3-compatible bucket and tags the commit on origin. Config: ~/.config/corgi/release.json or CORGI_RELEASE_CONFIG.\nCredentials: private credentialsFile in config, or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (R2/S3).\nBuilds committed HEAD in an isolated checkout, leaving pending edits and development build outputs alone.\nOmit VERSION for UTC datetime + Git hash. --build-only does not upload, and runs on Linux too.\n--publish-only requires VERSION and resumes the saved commit without rebuilding/signing, even if HEAD has moved.\n--skip-tests builds without running the typecheck and test suites.\n--clean deletes every saved release, published or not, and checkouts left by interrupted runs.",
     );
     return;
   }
@@ -580,7 +595,7 @@ async function main() {
   const out = join(releases, version);
   if (mode === "--dry-run") {
     console.log(
-      `Release ${version}: ${options.skipTests ? "" : "test → "}build Linux amd64 and arm64 and macOS arm64 → sign macOS → smoke-test → sign manifests → upload debug files to Sentry → upload/verify assets → publish channels last.\nSource: ${commit} (isolated committed tree; pending edits excluded)\nArtifacts: ${out}\nConfig: ${process.env.CORGI_RELEASE_CONFIG || join(homedir(), ".config/corgi/release.json")}\nNo builds, tags, uploads, or remote changes performed.`,
+      `Release ${version}: ${options.skipTests ? "" : "test → "}build Linux amd64 and arm64 and macOS arm64 → sign macOS → smoke-test → sign manifests → upload debug files to Sentry → upload/verify assets → publish channels → tag on origin.\nSource: ${commit} (isolated committed tree; pending edits excluded)\nArtifacts: ${out}\nConfig: ${process.env.CORGI_RELEASE_CONFIG || join(homedir(), ".config/corgi/release.json")}\nNo builds, tags, uploads, or remote changes performed.`,
     );
     return;
   }
@@ -633,6 +648,11 @@ async function main() {
       throw new Error("Install sentry-cli to upload debug files: brew install getsentry/tools/sentry-cli");
   }
   const credentials = mode === "--build-only" ? undefined : await loadCredentials(config);
+  // Publishing ends with the tag, so a push GitHub would refuse stops it before the build.
+  if (mode !== "--build-only") {
+    requirePushed(repo, commit);
+    tagRelease(repo, version, commit, true);
+  }
   const key = createPrivateKey(await readFile(config.signingKey));
   if (key.asymmetricKeyType !== "ed25519") throw new Error("The release signing key must be Ed25519.");
   const publicKey = Buffer.from(createPublicKey(key).export({ type: "spki", format: "der" }))
@@ -887,8 +907,16 @@ async function main() {
       })),
     );
     await publish(store, assets, channels, await readFile(join(out, "install.sh")));
+    step(`Tagging ${version} on origin`);
+    try {
+      tagRelease(repo, version, commit);
+    } catch (error) {
+      throw new Error(
+        `Published Corgi ${version}, but tagging it failed: ${(error as Error).message}\nTag it with: git push origin ${commit}:refs/tags/${version}`,
+      );
+    }
     console.log(
-      `Published Corgi ${version} for macOS arm64 and Linux amd64 and arm64.\nInstall: curl -fsSL ${config.publicBaseUrl}/install.sh | bash\nSource: ${commit}\nNo Git tags or remotes were changed.`,
+      `Published Corgi ${version} for macOS arm64 and Linux amd64 and arm64.\nInstall: curl -fsSL ${config.publicBaseUrl}/install.sh | bash\nSource: ${commit}, tagged ${version} on origin.`,
     );
   };
   await locked(paths.lock, () => withReleaseCheckout(repo, commit, run));
