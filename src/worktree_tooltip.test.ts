@@ -5,9 +5,10 @@ import { worktreeSnapshot } from "./mirror";
 import { State, between, columnsFor, displayPath, draw, geometry, listing, sortAt } from "./worktree_tooltip";
 import * as worktreeRemoval from "./worktree_removal";
 import { View, workspaceEntry, worktreeAt, worktreeLabel, worktreeBadge, writeExit, spotlight_dim } from "./sidebar";
-import { bgRgb, colors, fg, fgRgb } from "./palette";
+import { bg, bgRgb, colors, fg, fgRgb, outline } from "./palette";
 import * as launcherResume from "./launcher_resume";
 import { Writer } from "./text";
+import { Rect } from "./layout";
 import { Terminal } from "./pane/terminal";
 import { parseInventory } from "./trackers/worktrees";
 import * as clock from "./clock";
@@ -862,4 +863,102 @@ test("callout geometry keeps the agent pane and source badge uncovered", () => {
   expect(rect.x).toBeGreaterThan(side.width);
   expect(rect.contains(badge.x, badge.y)).toBe(false);
   expect(rect.h).toBe(10);
+});
+test("an open overview draws the line from its badge to the card on the ground it crosses", () => {
+  const state = new State(),
+    w = new Writer(),
+    terminal = new Terminal(100, 30),
+    badge = new Rect(15, 3, 11, 1),
+    rect = geometry(100, 30, 28, badge.y, 3)!,
+    at = (x: number, y: number) => `\x1b[${y + 1};${x + 1}H\x1b[0m${fg("line")}`;
+  try {
+    draw(w, rect, "repo", "/repo", snapshot(3), state, badge, Date.UTC(2026, 9, 11), x => (x >= 28 ? [1, 2, 3] : null));
+    terminal.feed(w.buffered());
+    expect(terminal.text().split("\n")[3].slice(26, 31)).toBe("╶┼──┤");
+    // In the card's border color, on the panel's own `bg` where nothing else is.
+    expect(w.buffered()).toContain(`${at(26, 3)}${bg("bg")}╶`);
+    expect(w.buffered()).toContain(`${at(27, 3)}${bg("bg")}┼`);
+    expect(w.buffered()).toContain(`${at(28, 3)}${bgRgb([1, 2, 3])}─`);
+    expect(w.buffered()).toContain(`${at(29, 3)}${bgRgb([1, 2, 3])}─`);
+  } finally {
+    terminal.destroy();
+  }
+});
+test("the line bends to a card clamped away from its badge, and crosses a thumb on the border", () => {
+  const state = new State(),
+    w = new Writer(),
+    terminal = new Terminal(100, 30),
+    badge = new Rect(15, 29, 11, 1),
+    rect = geometry(100, 30, 28, badge.y, 3)!,
+    port = rect.y + rect.h - 2;
+  expect(port).toBeLessThan(badge.y - 1);
+  try {
+    draw(
+      w,
+      rect,
+      "repo",
+      "/repo",
+      snapshot(3),
+      state,
+      badge,
+      Date.UTC(2026, 9, 11),
+      (x, y) => (x === 28 ? [x, y, 0] : null),
+      () => ({ heavy: true, color: colors.faint }),
+    );
+    terminal.feed(w.buffered());
+    const rows = terminal.text().split("\n");
+    expect(rows[badge.y].slice(26, 29)).toBe("╶╂╯");
+    for (let y = port + 1; y < badge.y; y++) expect(rows[y][28]).toBe("│");
+    expect(rows[port].slice(28, 31)).toBe("╭─┤");
+    // The border keeps its color, and each cell of the bend its own ground.
+    expect(w.buffered()).toContain(`${fgRgb(colors.faint)}${bg("bg")}╂`);
+    expect(w.buffered()).toContain(`${bgRgb([28, port + 1, 0])}│`);
+    expect(w.buffered()).toContain(`${bgRgb([28, port, 0])}╭`);
+  } finally {
+    terminal.destroy();
+  }
+});
+test("the line keeps the sidebar's ground: the badge's row lit only for the active workspace", () => {
+  const data = snapshot(1),
+    line = (current: number) => {
+      const view = new Controller({ request: (async () => ({})) as any });
+      view.width = 140;
+      view.height = 30;
+      view.receiveSnapshot({
+        workspaces: [1, 2].map(id => ({
+          id,
+          name: `repo${id}`,
+          cwd: "/repo",
+          worktrees: data,
+          model: { nodes: [{ pane: id }], tabs: [{ id, root: 0 }], revision: 0 },
+        })),
+        panes: [1, 2].map(id => ({ id, workspace: id, tab: id, cols: 80, rows: 24, cwd: "/repo" })),
+      } as any);
+      view.switchWorkspace(current);
+      view.input_state.attached = true;
+      view.worktree_card.workspace = 1;
+      view.worktree_card.pinned = true;
+      const frame = view.frame(),
+        side = (view as any).sidebarView([]),
+        badge = worktreeBadge(side, view.workspaceEntries(), 1)!,
+        cell = (x: number) =>
+          frame.slice(frame.indexOf(`\x1b[${badge.y + 1};${x + 1}H\x1b[0m${fg("line")}`)).slice(0, 60);
+      return { active: view.workspaceEntries()[0].active, lead: cell(badge.x + badge.w), cross: cell(side.width - 1) };
+    };
+  const lit = line(1),
+    plain = line(2);
+  expect(lit.active).toBe(true);
+  expect(lit.lead).toContain(`${bgRgb(colors.selected)}╶`);
+  expect(lit.cross).toContain(`${bg("bg")}┼`);
+  expect(plain.active).toBe(false);
+  expect(plain.lead).toContain(`${bg("bg")}╶`);
+});
+test("a line crossing the sidebar's border takes the border's weight and color", () => {
+  const side = View.init(120, 30, true, 0, 0).withWorkspaces(30, 0),
+    thumb = side.workspaceThumb()!;
+  expect(side.border(2 + thumb.start)).toEqual({ heavy: true, color: colors.faint });
+  expect(side.border(2 + thumb.start + thumb.len)).toEqual({ heavy: false, color: colors.line });
+  side.focus = "workspaces";
+  expect(side.border(2 + thumb.start)).toEqual({ heavy: true, color: outline });
+  expect(side.border(2 + thumb.start + thumb.len)).toEqual({ heavy: false, color: outline });
 });

@@ -537,6 +537,26 @@ export class View {
     if (this.focus === null) return false;
     return this.focus === "workspaces" ? y >= 1 && y < this.middle() : y >= this.middle() - 1;
   }
+  /** Whether workspace `index` sits on the selected tint: the active one,
+   * or the one being dragged. */
+  tinted(ws: WorkspaceEntry, index: number): boolean {
+    return ws.active || this.dragged_workspace === index;
+  }
+  /** The right border at row `y`, for a line crossing it: heavy on a
+   * scrollbar thumb, in the outline's color while it edges the focused list. */
+  border(y: number): { heavy: boolean; color: palette.Rgb } {
+    const v = this.lists(),
+      on = (t: { start: number; len: number } | null, top: number) =>
+        t !== null && y >= top + t.start && y < top + t.start + t.len;
+    const thumb: Section | null =
+      v.drawer !== "agents" && on(v.workspaceThumb(), 2)
+        ? "workspaces"
+        : v.drawer !== "workspaces" && on(v.thumb(), v.middle() + 2)
+          ? "agents"
+          : null;
+    if (thumb !== null) return { heavy: true, color: v.focus === thumb ? palette.outline : colors.faint };
+    return { heavy: false, color: v.outlines(y) ? palette.outline : colors.line };
+  }
   /** The focused list's box: its top and bottom rows. */
   box(): { top: number; bottom: number } | null {
     if (this.focus === null || this.width === 0) return null;
@@ -1023,7 +1043,7 @@ export class View {
     shown.forEach((ws, index) => {
       const y = 2 + index * v.workspaceRows();
       const ghost = v.dragged_workspace === v.workspace_offset + index;
-      const tinted = ws.active || ghost;
+      const tinted = v.tinted(ws, v.workspace_offset + index);
       const style = tinted ? active_name : panel;
       const meta = tinted ? active_meta : panel;
       // The dragged workspace takes the selected tint and a strong bar, like a dragged agent row.

@@ -19,6 +19,7 @@ import {
   drawPrefixBar,
   untitledTab,
   tabBrand,
+  paneGround,
   type Pointer,
   type Ui,
   type Restoring,
@@ -776,4 +777,22 @@ test("a workspace ghost dims the top half with its tabs, each row where switchin
   expect(text).toContain("\x1b[12;29H");
   expect(testVisible(text)).toContain("┄┄ ↑ alpha ↑ ┄");
   expect(covered).toEqual(new Rect(28, 0, 72, 12));
+});
+test("a pane's ground is the background its drawn row gives the cell", () => {
+  const rect = new Rect(28, 1, 10, 3),
+    cell = (fg: string, bg: string) => `\x1b[0;38;2;${fg};48;2;${bg}m`,
+    rows =
+      `\x1b[2;29H${cell("1;2;3", "0;0;0")}a界${cell("48;2;9", "55;55;55")}❯ x\x1b[0m` +
+      `\x1b[3;29H${cell("1;2;3", "7;7;7")}  \x1b[0m`;
+  expect(paneGround(rows, rect, 28, 1)).toEqual([0, 0, 0]);
+  // A wide character's second column.
+  expect(paneGround(rows, rect, 30, 1)).toEqual([0, 0, 0]);
+  expect(paneGround(rows, rect, 31, 1)).toEqual([55, 55, 55]);
+  expect(paneGround(rows, rect, 29, 2)).toEqual([7, 7, 7]);
+  expect(paneGround(rows, rect, 36, 1)).toBeNull();
+  expect(paneGround(rows, rect, 28, 3)).toBeNull();
+  // A link's own escapes take no columns.
+  const linked = `\x1b[2;29H${cell("1;2;3", "4;4;4")}ab\x1b]8;id=corgi-1-a;https://x.example\x1b\\cd\x1b]8;;\x1b\\${cell("1;2;3", "9;9;9")}e`;
+  expect(paneGround(linked, rect, 31, 1)).toEqual([4, 4, 4]);
+  expect(paneGround(linked, rect, 32, 1)).toEqual([9, 9, 9]);
 });

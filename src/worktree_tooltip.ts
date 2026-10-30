@@ -12,6 +12,12 @@ import { milliTimestamp } from "./clock";
 import { ageLabel } from "./launcher_resume";
 import { pulse, histogram, type Tally } from "./sidebar";
 
+/** The background at a screen cell, for the line drawn over it; null for
+ * the panel's own `bg`. */
+export type Ground = (x: number, y: number) => palette.Rgb | null;
+/** The sidebar's border at row `y`, which the line crosses: heavy on a
+ * scrollbar thumb, and its color. */
+export type Crossing = (y: number) => { heavy: boolean; color: palette.Rgb };
 /** The card for `count` worktrees of `lines` each, `closed` lines shorter
  * while a removed row closes. */
 export function geometry(
@@ -273,6 +279,8 @@ export function draw(
   state: State,
   badge: Rect | null = null,
   now = milliTimestamp(),
+  ground: Ground = () => null,
+  crossing: Crossing = () => ({ heavy: false, color: palette.colors.line }),
 ) {
   const c = palette.colors,
     grid = new Grid(rect.w, rect.h, c.text);
@@ -481,19 +489,34 @@ export function draw(
   if (cursor !== null) grid.put(1, cursor, "›", c.strong, true);
   line(rect.h - 1, 0, "╰" + "─".repeat(rect.w - 2) + "╯", rect.w, "line");
   const port = badge ? Math.max(rect.y + 1, Math.min(badge.y, rect.y + rect.h - 2)) : 0;
-  if (badge) grid.put(0, port - rect.y, "├", c.muted);
+  if (badge) grid.put(0, port - rect.y, "┤", c.line);
   w.write("\x1b7\x1b[?25l");
   grid.write(w, rect.x, rect.y, new palette.Style({ fg: "text", bg: "surface" }).sgr());
   if (badge) {
-    const bend = rect.x - 2;
-    const cell = (x: number, y: number, text: string) =>
-      w.write(`\x1b[${y + 1};${x + 1}H${new palette.Style({ fg: "muted", bg: "bg" }).sgr()}${text}`);
-    cell(badge.x + badge.w, badge.y, "╶" + "─".repeat(Math.max(0, bend - badge.x - badge.w - 1)));
+    const bend = rect.x - 2,
+      // The sidebar's border, as `geometry` places the card.
+      divider = rect.x - 3;
+    // In the card's border color, on whatever it crosses.
+    const cell = (x: number, y: number, text: string, color = palette.fg("line")) => {
+      const under = ground(x, y);
+      w.write(`\x1b[${y + 1};${x + 1}H\x1b[0m${color}`);
+      w.write((under ? palette.bgRgb(under) : palette.bg("bg")) + text);
+    };
+    cell(badge.x + badge.w, badge.y, "╶");
+    for (let x = badge.x + badge.w + 1; x < bend; x++) {
+      if (x !== divider) cell(x, badge.y, "─");
+      else {
+        // The border keeps its own weight and color through the crossing.
+        const border = crossing(badge.y);
+        cell(x, badge.y, border.heavy ? "╂" : "┼", palette.fgRgb(border.color));
+      }
+    }
     if (port !== badge.y) {
       cell(bend, badge.y, port > badge.y ? "╮" : "╯");
       for (let y = Math.min(port, badge.y) + 1; y < Math.max(port, badge.y); y++) cell(bend, y, "│");
     }
-    cell(bend, port, (port === badge.y ? "─" : port > badge.y ? "╰" : "╭") + "─");
+    cell(bend, port, port === badge.y ? "─" : port > badge.y ? "╰" : "╭");
+    for (let x = bend + 1; x < rect.x; x++) cell(x, port, "─");
   }
   w.write("\x1b[0m\x1b8");
 }
