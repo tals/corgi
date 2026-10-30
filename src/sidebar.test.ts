@@ -1576,3 +1576,19 @@ test("the agent list's menu moves up to fit when the header sits low", () => {
   expect(b.y).toBeLessThan(view.middle() + 1);
   expect(ScopeMenu.hit(view, 100, 16, 5, b.y + 5)).toBe("activity");
 });
+test("a row stepping aside draws off its place, never over the list's header", () => {
+  const view = View.init(100, 30, true, 0, 2),
+    entries = ["Alpha", "Beta"].map((name, i) =>
+      entry({ target: { pane: i + 1 }, name, provider: "claude", state: "idle", attention: "none" }),
+    );
+  const lines = () =>
+    hostText(draw(view, entries, [workspaceEntry({ id: 1, name: "ws", cwd: "", active: true })], 0)).split("\n");
+  const row = (text: string, screen: string[]) => screen.findIndex(line => line.includes(text));
+  const settled = lines();
+  entries[1].slide = 2;
+  expect(row("Beta", lines())).toBe(row("Beta", settled) + 2);
+  entries[0].slide = -2;
+  const pushed = lines();
+  expect(row("Alpha", pushed)).toBe(-1);
+  expect(pushed.slice(0, row("Alpha", settled))).toEqual(settled.slice(0, row("Alpha", settled)));
+});

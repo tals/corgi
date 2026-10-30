@@ -56,14 +56,16 @@ export const lists_x = 1;
 function shiftColumns(bytes: string, dx: number): string {
   return bytes.replace(/\x1b\[(\d+);(\d+)H/g, (_, row, col) => `\x1b[${row};${Number(col) + dx}H`);
 }
-/** Drops what `bytes` writes from row `end` (0-based) down, keeping its
- * colors so the writes after it start in the same style. */
-function clipRows(bytes: string, end: number): string {
+/** Drops what `bytes` writes from row `end` (0-based) down and above row
+ * `start`, keeping its colors so the writes after it start in the same style. */
+function clipRows(bytes: string, end: number, start = 0): string {
   return bytes
     .split(/(?=\x1b\[\d+;\d+H)/)
     .map(part => {
       const row = /^\x1b\[(\d+);\d+H/.exec(part);
-      return row && Number(row[1]) > end ? (part.match(/\x1b\[[\d;:]*m/g) ?? []).join("") : part;
+      return row && (Number(row[1]) > end || Number(row[1]) <= start)
+        ? (part.match(/\x1b\[[\d;:]*m/g) ?? []).join("")
+        : part;
     })
     .join("");
 }
@@ -202,6 +204,9 @@ export interface Entry {
   /** A row that just moved to another group: the rows above it in the list
    * it left, and how long ago it moved. */
   moved: { from: number; ms: number } | null;
+  /** Rows below where it lands (above, when negative) a row pushed aside
+   * shows while it steps there. */
+  slide: number;
   name: string;
   target: Target;
   /** Null for workspace group headers. */
@@ -237,6 +242,7 @@ export function entry(fields: Partial<Entry> & { target: Target }): Entry {
     reopened: false,
     enter: null,
     moved: null,
+    slide: 0,
     name: "",
     provider: null,
     state: "idle",
@@ -1222,17 +1228,17 @@ export class View {
             : null;
       const fade = dimmed[absolute] ? Math.max(fading ?? 0, spotlight_dim) : fading;
       const tint = moved !== null && !gliding && fade === null ? rowGlide.tint(moved.ms) : 0;
-      // A row cut off at the end draws whole, then loses its lower rows.
-      const cut = next_y + View.height(e) > end;
+      // A row cut off at either end draws whole, then loses the rows outside.
+      const top = next_y + e.slide;
+      const cut = top + View.height(e) > end || top < list_top;
       const row_writer = fade !== null || tint > 0 || cut ? exit_writer : w;
       const finish = () => {
-        const bytes = cut ? clipRows(exit_writer.buffered(), end) : exit_writer.buffered();
+        const bytes = cut ? clipRows(exit_writer.buffered(), end, list_top) : exit_writer.buffered();
         if (fade !== null) writeExit(w, bytes, fade);
         else if (tint > 0) writeTint(w, bytes, tint);
         else if (cut) w.write(bytes);
       };
       const frame_ms = e.exit ? e.exit.frame_ms : now_ms;
-      const top = next_y;
       const y = top + Number(e.worktree?.ghost === true && "worktree" in e.target) + Number(e.group.gap === true);
       next_y += View.height(e);
       if (gliding) {

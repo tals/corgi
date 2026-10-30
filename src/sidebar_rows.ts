@@ -38,14 +38,14 @@ interface Stored {
   top: number;
   /** When it last changed groups, and its `top` before that. */
   moved: { at_ms: number; from: number } | null;
-  /** When another row's move pushed it up or down. */
-  shifted_ms: number | null;
+  /** When rows above it came or went, and where it showed then. */
+  slid: { at_ms: number; from: number } | null;
 }
+const ease = (x: number) => (x < 0.5 ? 2 * x * x : 1 - (-2 * x + 2) ** 2 / 2);
 export class State {
   static duration_ms = 240;
-  /** Rows a move pushes aside come back from about 60%. */
-  static shift_ms = 200;
-  static shift_enter = 0.57;
+  /** Rows pushed up or down step there a row at a time. */
+  static slide_ms = 220;
   workspace: number | null = null;
   /** The next update's new rows fade in, as a group unfolds. */
   reveal = false;
@@ -71,9 +71,8 @@ export class State {
       };
     if (slot.opening_ms !== null && now - slot.opening_ms < State.duration_ms)
       entry.enter = Math.max(now - slot.opening_ms, 0) / State.duration_ms;
-    else if (slot.shifted_ms !== null && now - slot.shifted_ms < State.shift_ms)
-      entry.enter = State.shift_enter + ((1 - State.shift_enter) * Math.max(now - slot.shifted_ms, 0)) / State.shift_ms;
     else entry.enter = null;
+    entry.slide = this.slide(slot, now);
     const moved = slot.moved;
     entry.moved =
       moved !== null && now - moved.at_ms < rowGlide.total_ms
@@ -81,11 +80,20 @@ export class State {
         : null;
     return entry;
   }
-  /** Whether a row is still moving to another group. */
+  /** Rows below or above where it lands a pushed row shows, `now`. */
+  private slide(slot: Stored, now: number): number {
+    const slid = slot.slid;
+    if (slid === null || now - slid.at_ms >= State.slide_ms) return 0;
+    return Math.round((slid.from - slot.top) * (1 - ease(Math.max(now - slid.at_ms, 0) / State.slide_ms)));
+  }
+  /** Whether a row is still moving to another group or stepping aside. */
   moving(now: number): boolean {
     return this.order.some(i => {
-      const moved = this.slots[i].moved;
-      return moved !== null && now - moved.at_ms < rowGlide.total_ms;
+      const { moved, slid } = this.slots[i];
+      return (
+        (moved !== null && now - moved.at_ms < rowGlide.total_ms) ||
+        (slid !== null && now - slid.at_ms < State.slide_ms)
+      );
     });
   }
   update(workspace: number, live: Entry[], out: Entry[] = [], now = 0): Entry[] {
@@ -126,7 +134,7 @@ export class State {
           seen: false,
           top: 0,
           moved: null,
-          shifted_ms: null,
+          slid: null,
         });
       }
       const slot = this.slots[index],
@@ -146,7 +154,7 @@ export class State {
         arrivals.add(index);
         slot.opening_ms = entry.reopened || this.reveal ? now : null;
         slot.moved = null;
-        slot.shifted_ms = null;
+        slot.slid = null;
         if (isHeading(entry.target)) headers.push(slot);
       }
       if (regrouped && slot.closing_ms === null && sameGroup(slot.entry, entry)) {
@@ -171,6 +179,7 @@ export class State {
       slot.moved = { at_ms: now, from: slot.top };
       moved = true;
     }
+    const reveal = this.reveal;
     this.reveal = false;
     // A group the move opens fades in; one it empties goes at once.
     if (moved) for (const slot of headers) slot.opening_ms = now;
@@ -187,11 +196,15 @@ export class State {
     for (const slot of this.slots)
       if (slot.occupied && !slot.seen && (slot.closing_ms === null || now - slot.closing_ms >= State.duration_ms))
         slot.occupied = false;
-    const shown = moved ? new Set(this.order) : null;
+    const shown = new Set(this.order);
     let rows = 0;
     for (const index of next) {
       const slot = this.slots[index];
-      if (shown?.has(index) && slot.moved?.at_ms !== now && slot.top !== rows) slot.shifted_ms = now;
+      // A row pushed more than a row's height steps there; less, it just lands.
+      if (shown.has(index) && !arrivals.has(index) && slot.moved?.at_ms !== now && slot.top !== rows) {
+        const from = slot.top + this.slide(slot, now);
+        slot.slid = Math.abs(rows - from) > 1 && !reveal ? { at_ms: now, from } : null;
+      }
       // A row that changed groups but lands about where it was has nowhere to glide.
       if (slot.moved?.at_ms === now && Math.abs(rows - slot.moved.from) <= 1) slot.moved = null;
       slot.top = rows;
