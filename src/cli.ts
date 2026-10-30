@@ -508,11 +508,9 @@ function launcherAgents(snapshot: any): LauncherAgent[] {
   );
   return [...agents, ...commands];
 }
-/** The agent `name` spells: one by that name, else the one other agent that answers to it. */
+/** A canonical name and an alias must identify the same single agent. */
 function launcherAgent(agents: LauncherAgent[], name: string): LauncherAgent {
-  const own = agents.find(a => a.agent === name);
-  if (own) return own;
-  const matches = agents.filter(a => a.names.includes(name));
+  const matches = agents.filter(a => a.agent === name || a.names.includes(name));
   if (matches.length > 1) throw Error("AmbiguousAgent");
   if (!matches.length) throw Error("UnknownAgent");
   return matches[0];
