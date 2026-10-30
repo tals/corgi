@@ -10,6 +10,7 @@ import { Text, adapter } from "./providers";
 import { logicalKey } from "./keys";
 import * as viewerNative from "./viewer_native";
 import * as accounts from "./accounts";
+import * as launcherConfig from "./launcher_config";
 import * as profiles from "./agent_profiles";
 import * as launcherOrder from "./launch/order";
 import * as integration from "./integration";
@@ -168,6 +169,30 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
         before,
       );
       ws.launcher_hidden = [...ws.launcher_hidden.filter(h => h !== row), ...(q.shown ? [] : [row])];
+      r.changed();
+      return {};
+    }
+    case "agent.launcher.copy": {
+      launcherConfig.copy(r, request.payload.from, request.payload.workspace);
+      r.changed();
+      return {};
+    }
+    case "agent.launcher.configure": {
+      const row = launcherConfig.configure(r, request.payload);
+      r.changed();
+      return { text: row };
+    }
+    case "agent.launcher.remove": {
+      const agent = launcherConfig.get(r, request.payload.row),
+        id = Row.profile(agent.row),
+        index = Row.custom(agent.row);
+      if (id) profiles.remove(id);
+      else if (index !== null) r.agent_commands[index] = new Entry();
+      else throw Error("UseLauncherHide");
+      for (const ws of r.workspaces.items) {
+        ws.launcher_order = ws.launcher_order.filter(row => row !== agent.row);
+        ws.launcher_hidden = ws.launcher_hidden.filter(row => row !== agent.row);
+      }
       r.changed();
       return {};
     }

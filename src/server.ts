@@ -1,3 +1,6 @@
+import * as launcherConfig from "./launcher_config";
+import * as agentModels from "./agent_models";
+import { Quit as ModelQuit } from "./subprocess";
 import type { Worker as SummaryWorker } from "./activity/worker";
 import type { Worker as UsageWorker } from "./usage/worker";
 import { chmodSync } from "node:fs";
@@ -456,6 +459,22 @@ export class Server {
           result: { ...protocol.emptyResult(), ...session.location(this.runtime, request.payload.pane) },
         });
         return;
+      case "launcher.catalog":
+        cl.reply(op, { agents: launcherConfig.catalog(this.runtime) });
+        return;
+      case "launcher.models": {
+        const agent = launcherConfig.get(this.runtime, request.payload.row);
+        if (!agent.provider) throw Error("CustomCommandOptions");
+        const quit = new ModelQuit(),
+          timeout = setTimeout(() => quit.signal(), 15000);
+        try {
+          cl.reply(op, { models: await agentModels.read(agent.provider, agent.account, quit) });
+        } finally {
+          clearTimeout(timeout);
+          quit.signal();
+        }
+        return;
+      }
       case "session.list":
         cl.queue({ ok: true, result: session.snapshot(this.runtime), viewers: viewer.viewers(this) });
         return;

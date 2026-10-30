@@ -89,6 +89,8 @@ export const operations = [
   "session.command",
   "session.locate",
   "session.list",
+  "launcher.catalog",
+  "launcher.models",
   "session.snapshot",
   "session.subscribe",
   "viewer.watch",
@@ -227,6 +229,18 @@ const commands = {
     order: "[]string",
     shown: "bool",
   },
+  "agent.launcher.copy": { from: "u32", workspace: "u32" },
+  "agent.launcher.configure": {
+    row: "string",
+    clone: ["bool", false],
+    name: ["?string", null],
+    model: ["?string", null],
+    effort: ["?string", null],
+    flags: ["?string", null],
+    env: ["?string", null],
+    yolo: ["?bool", null],
+  },
+  "agent.launcher.remove": { row: "string" },
   "agent.profile.create": { workspace: "u32", cwd: ["string", ""], id: "string" },
   "agent.yolo": { provider: "provider", enabled: "bool", account: ["string", ""] },
   "agent.create": { workspace: "u32", cwd: ["string", ""], provider: ["?provider", null], account: ["string", ""] },
@@ -539,6 +553,7 @@ const structures = {
 } as const satisfies Record<string, Fields>;
 const launch = { workspace: "u32", cwd: ["string", ""] } as const satisfies Fields;
 const requests = {
+  "launcher.models": { row: "string" },
   "session.locate": { pane: "u32" },
   "viewer.watch": { viewer: "u32" },
   "agent.subscribe": launch,
@@ -657,6 +672,8 @@ export interface ReplyPayloads {
   ping: Ok & { pid: number };
   "session.command": Ok & { result: Result };
   "session.locate": Ok & { result: Result };
+  "launcher.catalog": Ok & { agents: import("./launcher_config").Agent[] };
+  "launcher.models": Ok & { models: import("./agent_models").Choice[] };
   "session.list": Ok & { result: SessionSnapshot; viewers: ViewerInfo[] };
   "session.snapshot": SessionSnapshot;
   "session.subscribe": SessionSnapshot;
