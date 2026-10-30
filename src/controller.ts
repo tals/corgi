@@ -4927,6 +4927,8 @@ export class Controller {
       }
       if (cl.paste === null) {
         const key_event = keyboard.decode(latin1(seq)) ?? alt_key;
+        // Keys sent as sequences skip `key`, but they too let go of a held ↵.
+        if (key_event && viewerNative.encodeKey(null, key_event) !== "\r") this.held_enter = null;
         if (key_event && (await this.helpKey(key_event))) {
           used += len;
           continue;

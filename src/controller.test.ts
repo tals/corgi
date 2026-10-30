@@ -617,6 +617,36 @@ test("the ↵ held to create a workspace doesn't reach its pane until it is let 
   }
 });
 
+test("another key lets go of the ↵ held to create a workspace, even one sent as a sequence", async () => {
+  const s = controller();
+  s.input_state.attached = true;
+  const d = new newWorkspace.Dialog(newWorkspace.Browser.init("/a", "/home", () => ["b"]));
+  d.confirm = () => "/a";
+  s.name_dialog = d;
+  const sent: string[] = [];
+  s.focused = () => ({ terminal: { handle: null }, agent: { observation: {}, attention: "none", provider: null } });
+  s.sendInput = (_: unknown, b: number[] | string) => sent.push(typeof b === "string" ? b : String.fromCharCode(...b));
+  s.newWorkspace = async () => {
+    s.dismissName();
+    return 2;
+  };
+  try {
+    let now = 1000;
+    for (let held = 0; held <= newWorkspace.create_hold_ms + 60; held += 30) {
+      setSystemTime(new Date((now += 30)));
+      await s.input(bytes("\r"));
+    }
+    expect(s.name_dialog).toBeNull();
+    // Up recalls a command, and ↵ runs it, both before the repeats' gap is over.
+    setSystemTime(new Date((now += 30)));
+    await s.input(bytes("\x1b[A"));
+    await s.input(bytes("\r"));
+    expect(sent.join("").endsWith("\r")).toBe(true);
+  } finally {
+    setSystemTime();
+  }
+});
+
 test("a paste read from the host clipboard goes where a paste would", async () => {
   const clipboard = Object.assign(new hostClipboard.State(), { support: "on" });
   const s = controller();
