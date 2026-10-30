@@ -299,6 +299,18 @@ $.requests|headless.send.input: any
 $.requests|headless.events.provider: provider
 $.requests|headless.events.session: string
 $.requests|headless.events.after: u64
+$.requests|voice.watch.pane: optional
+$.requests|voice.watch.pane?: u32
+$.requests|voice.watch.muted: bool
+$.requests|voice.watch.available: bool
+$.requests|voice.set.voice_id: string
+$.requests|voice.set.muted: optional
+$.requests|voice.set.muted?: bool
+$.requests|voice.set.available: optional
+$.requests|voice.set.available?: bool
+$.requests|voice.type.voice_id: string
+$.requests|voice.type.text: string
+$.requests|voice.toggle: {}
 $.requests|theme.theme: optional
 $.requests|theme.theme?.foreground: optional
 $.requests|theme.theme?.foreground?.r: u8
@@ -362,6 +374,8 @@ $.snapshot.shell.source: enum setting env account fallback
 $.snapshot.shell.default: string
 $.snapshot.shell.default_source: enum env account fallback
 $.snapshot.smart_links: bool
+$.snapshot.voice: optional
+$.snapshot.voice?.state: enum listening muted
 $.snapshot.system_working: bool
 $.snapshot.system_usage.tokens.input: u64
 $.snapshot.system_usage.tokens.cached_input: u64

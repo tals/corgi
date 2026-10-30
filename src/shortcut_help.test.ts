@@ -116,3 +116,18 @@ test("the pointer is a hand over what a click acts on", () => {
 test("the corgi's secret key shadows no shortcut", () => {
   for (const preset of available_presets) expect(bindings.lookup(preset, true, 0x74, {})).toBeNull();
 });
+
+test("voice mute sits under sounds, and 112 × 36 still shows every row", () => {
+  for (const preset of available_presets) {
+    const column = new Column(47, preset);
+    navigation(column);
+    const rows = column.rows.map(row => row.map(part => part.text).join(" "));
+    expect(rows.findIndex(r => r.includes("Mute / unmute voice"))).toBe(
+      rows.findIndex(r => r.includes("Mute / unmute") && !r.includes("voice")) + 1,
+    );
+    const help = new State();
+    help.frame(112, 36, preset, "ctrl_b", 0);
+    // cmux's extra Cmd rows already scrolled before voice.
+    if (preset !== "cmux") expect(help.max_scroll).toBe(0);
+  }
+});

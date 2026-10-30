@@ -385,6 +385,16 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       if (!(await integration.command(op, name === undefined ? null : provider(name), account))) process.exitCode = 1;
       return;
     }
+    case "voice": {
+      const voice = await import("./voice/main");
+      process.exitCode = await voice.command(args.slice(1));
+      return;
+    }
+    case "__voice-bridge": {
+      const bridge = await import("./voice/bridge");
+      process.exitCode = await bridge.serve(path, args.slice(1));
+      return;
+    }
     case "account": {
       const account = await import("./account_command");
       process.exitCode = await account.command(args.slice(1));

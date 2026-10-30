@@ -38,7 +38,8 @@ export class Output {
     return "exited" in this.term && this.term.exited === 0;
   }
 }
-function spawnError(error: any): Error {
+/** A spawn failure by name, such as `FileNotFound` for a missing program. */
+export function spawnError(error: any): Error {
   const name = (
     {
       ENOENT: "FileNotFound",
