@@ -78,9 +78,10 @@ An utterance ends after 2.5 seconds of silence and is capped at 30 seconds.
 Short peaks under 0.1 seconds, such as music below your voice, don't keep it
 open. An utterance that follows another in the same pane is joined to it with
 one space; after anything else you type, it starts fresh.
-Filler words (um, uh, hmm, ah, er) are removed from the text. Non-speech
-markers such as `[BLANK_AUDIO]`, and lines Whisper invents from silence
-("Thank you."), are not typed at all.
+Filler words (um, uh, hmm, ah, er) are removed from the text. Sounds Whisper
+describes, such as `*clap*` or `[BLANK_AUDIO]`, are removed too, alone or
+beside speech, and lines it invents from silence ("Thank you.") are not typed
+at all.
 
 If voice mode runs in a Corgi pane and that pane has focus, nothing is typed:
 the history says "focused pane is the voice pane".
