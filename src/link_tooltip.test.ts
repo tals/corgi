@@ -402,9 +402,9 @@ test("an image link's popover shows a thumbnail on Kitty hosts and frees it when
     setSystemTime(new Date(1150));
     const frame = s.frame();
     expect(frame).toContain("Copy path");
-    expect(frame).toContain("├" + "─".repeat(28) + "┤");
+    expect(frame).toContain("├" + "─".repeat(64) + "┤");
     // 1000×400 shrinks to 280×112: 28 cells by 6, centered in the rows.
-    expect(frame).toContain("\x1b[6;4H\x1b_Ga=p,i=730140,p=1,X=0,Y=4,z=1,C=1,q=2\x1b\\");
+    expect(frame).toContain("\x1b[6;4H\x1b_Ga=p,i=730140,p=1,X=0,Y=2,z=1,C=1,q=2\x1b\\");
     const sent = s.effects.map(e => ("write_terminal" in e ? e.write_terminal : "")).join("");
     expect(sent.startsWith("\x1b_Ga=t,t=d,f=100,i=730140,q=2,m=")).toBe(true);
     s.clearEffects();

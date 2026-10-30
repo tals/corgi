@@ -50,6 +50,19 @@ test("plain web links map Unicode cells, trim punctuation and preserve explicit 
     t.destroy();
   }
 });
+test("plain image paths link to their file, and other paths stay plain", () => {
+  const t = Terminal.create(100, 4);
+  try {
+    t.feed("GIF: /tmp/a-1/fleas.GIF (31 KB). /tmp/n.txt, src/b.png, https://x.example/c.png (/c/d.webp).");
+    expect(links(t)).toEqual([
+      expect.objectContaining({ uri: "file:///tmp/a-1/fleas.GIF", start: 5, end: 23 }),
+      expect.objectContaining({ uri: "https://x.example/c.png" }),
+      expect.objectContaining({ uri: "file:///c/d.webp" }),
+    ]);
+  } finally {
+    t.destroy();
+  }
+});
 test("plain links span soft wraps but not hard newlines and remain snapshot owned", () => {
   const t = Terminal.create(20, 5);
   try {

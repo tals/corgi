@@ -28,11 +28,13 @@ export function sameLink(a: Link | null | undefined, b: Link | null | undefined)
   return a?.source === b?.source && a?.id === b?.id && a?.uri === b?.uri;
 }
 /** A picture of a linked image, `width` by `height` pixels on a host whose
- * cells measure `cell`. */
+ * cells measure `cell`. One shrunk to fit the screen keeps the picture it
+ * shrinks as `of`, and covers whole cells. */
 export interface Thumbnail {
   width: number;
   height: number;
   cell: Cell;
+  of?: Thumbnail;
 }
 export interface Card {
   link: Link;
@@ -91,6 +93,19 @@ export function geometry(
   const below = anchor.y + h < height;
   if (thumbnail && !below && anchor.y < h) return null;
   return new Rect(Math.max(0, Math.min(anchor.x, width - w)), below ? anchor.y + 1 : Math.max(0, anchor.y - h), w, h);
+}
+/** `t`, shrunk if it must be for its card to fit beside `anchor` on a
+ * `width` by `height` screen; null when even a small one wouldn't. */
+export function fit(width: number, height: number, anchor: { x: number; y: number }, t: Thumbnail): Thumbnail | null {
+  if (geometry(width, height, anchor, t)) return t;
+  // The card adds a border, a copy row and a rule to the picture's rows.
+  const space = { cols: width - 2, rows: Math.max(height - anchor.y - 5, anchor.y - 4) };
+  const scale = Math.min((space.cols * t.cell.width) / t.width, (space.rows * t.cell.height) / t.height),
+    cols = Math.min(space.cols, Math.max(1, Math.round((t.width * scale) / t.cell.width))),
+    rows = Math.min(space.rows, Math.max(1, Math.round((t.height * scale) / t.cell.height)));
+  if (rows < 3) return null;
+  const shrunk = { width: cols * t.cell.width, height: rows * t.cell.height, cell: t.cell, of: t };
+  return geometry(width, height, anchor, shrunk) ? shrunk : null;
 }
 export function copyAt(rect: Rect, x: number, y: number): boolean {
   return y === rect.y + 1 && x > rect.x && x < rect.x + rect.w - 1;

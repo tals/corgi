@@ -72,7 +72,6 @@ fn detectPlain(allocator: std.mem.Allocator, state: *const vt.RenderState, links
     var scratch: std.heap.ArenaAllocator = .init(a);
     defer scratch.deinit();
     const temporary = scratch.allocator();
-    const Position = struct { row: usize, col: usize, end: usize };
     var text: std.ArrayList(u8) = .empty;
     var positions: std.ArrayList(Position) = .empty;
     for (state.row_data.items(.raw), state.row_data.items(.cells), 0..) |row, cells, y| {
@@ -100,7 +99,11 @@ fn detectPlain(allocator: std.mem.Allocator, state: *const vt.RenderState, links
     var i: usize = 0;
     while (i < bytes.len) {
         const prefix: usize = if (std.mem.startsWith(u8, bytes[i..], "https://")) 8 else if (std.mem.startsWith(u8, bytes[i..], "http://")) 7 else {
-            i += 1;
+            if (imagePath(bytes, i)) |end| {
+                const uri = try std.mem.concat(allocator, u8, &.{ "file://", bytes[i..end] });
+                try append(allocator, links, positions.items, uri, i, end);
+                i = end;
+            } else i += 1;
             continue;
         };
         var end = i + prefix;
@@ -126,21 +129,38 @@ fn detectPlain(allocator: std.mem.Allocator, state: *const vt.RenderState, links
             }
             break;
         }
-        if (trimmed > i + prefix and bytes[i + prefix] != '/' and safeUri(bytes[i..trimmed])) {
-            const uri = try allocator.dupe(u8, bytes[i..trimmed]);
-            var hash = std.hash.Wyhash.init(0);
-            hash.update(uri);
-            hash.update(std.mem.asBytes(&i));
-            const id = hash.final();
-            var at = i;
-            while (at < trimmed) {
-                const first = positions.items[at];
-                var last = first;
-                at += 1;
-                while (at < trimmed and positions.items[at].row == first.row) : (at += 1) last = positions.items[at];
-                try links.append(allocator, .{ .row = first.row, .start = first.col, .end = last.end, .uri = uri, .id = id });
-            }
-        }
+        if (trimmed > i + prefix and bytes[i + prefix] != '/' and safeUri(bytes[i..trimmed]))
+            try append(allocator, links, positions.items, try allocator.dupe(u8, bytes[i..trimmed]), i, trimmed);
         i = end;
     }
+}
+const Position = struct { row: usize, col: usize, end: usize };
+/// Adds the link over text bytes `start..end`, one span per row it covers.
+fn append(allocator: std.mem.Allocator, links: *std.ArrayList(Link), positions: []const Position, uri: []const u8, start: usize, end: usize) !void {
+    var hash = std.hash.Wyhash.init(0);
+    hash.update(uri);
+    hash.update(std.mem.asBytes(&start));
+    const id = hash.final();
+    var at = start;
+    while (at < end) {
+        const first = positions[at];
+        var last = first;
+        at += 1;
+        while (at < end and positions[at].row == first.row) : (at += 1) last = positions[at];
+        try links.append(allocator, .{ .row = first.row, .start = first.col, .end = last.end, .uri = uri, .id = id });
+    }
+}
+const image_extensions = [_][]const u8{ ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".avif" };
+/// The end of an absolute path to an image file starting at `start`, or null.
+/// Its bytes need no escaping in a file:// URI.
+fn imagePath(bytes: []const u8, start: usize) ?usize {
+    if (bytes[start] != '/' or start + 1 >= bytes.len or bytes[start + 1] == '/') return null;
+    if (start > 0 and std.mem.indexOfScalar(u8, " \n(['\"`<", bytes[start - 1]) == null) return null;
+    var end = start;
+    while (end < bytes.len and (std.ascii.isAlphanumeric(bytes[end]) or std.mem.indexOfScalar(u8, "/._-+@~=,", bytes[end]) != null)) : (end += 1) {}
+    while (end > start and std.mem.indexOfScalar(u8, ".,", bytes[end - 1]) != null) end -= 1;
+    for (image_extensions) |extension| {
+        if (end - start > extension.len and std.ascii.endsWithIgnoreCase(bytes[start..end], extension)) return end;
+    }
+    return null;
 }

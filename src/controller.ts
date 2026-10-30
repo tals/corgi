@@ -6212,7 +6212,7 @@ export class Controller {
     const source = this.linkAt(link.x, link.y);
     if (!linkTooltip.sameLink(source, link)) return null;
     let thumbnail = this.linkThumbnail(link.uri);
-    if (thumbnail && !linkTooltip.geometry(this.width, this.height, link, thumbnail)) thumbnail = null;
+    if (thumbnail) thumbnail = linkTooltip.fit(this.width, this.height, link, thumbnail);
     return { link, copied: this.link_tooltip.copied_until > milliTimestamp(), thumbnail };
   }
   /** The thumbnail of the image `uri` links to, where the host shows Kitty
