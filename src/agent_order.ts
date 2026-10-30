@@ -5,7 +5,7 @@ export type Section = "pinned" | "working" | "ready" | "idle" | "done";
  * paused until its background work wakes it, is still at work; its row says so. */
 export function section(state: string, attention: string, paused = false): Exclude<Section, "pinned"> {
   if (state === "done") return "done";
-  // One just starting waits among the idle rather than passing through work.
+  // Startup has no work yet; the viewer holds new agents until their first prompt.
   if (state === "working" || state === "blocked" || attention === "needs_input" || paused) return "working";
   if (attention === "finished") return "ready";
   return "idle";

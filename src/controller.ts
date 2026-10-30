@@ -897,7 +897,6 @@ export class Controller {
     const grouped = workspace === undefined && !sectioned && this.prefs.agents === "all";
     const totals = grouped ? this.workspaceEntries() : [];
     const items: agentSections.Item[] = [],
-      seen = new Set<string>(),
       held = new Set<string>(),
       now_ms = milliTimestamp();
     this.runtime.workspaces.items.forEach((ws, ws_index) => {
@@ -998,13 +997,13 @@ export class Controller {
       }
       entries.slice(first_agent).forEach((entry, i) => {
         const target = entry.target as OrderTarget,
-          key = "pane" in target ? `pane:${target.pane}` : `headless:${target.headless}`,
+          key = agentSections.key(target),
           pin = ws.pinned_agents.findIndex(t => sidebar.sameTarget(t, target)),
           rank = ws.activity_order.findIndex(t => sidebar.sameTarget(t, target));
-        seen.add(key);
         // Opening an unread agent reads it; it stays among the ready until left.
         const kind = section(entry.state, entry.attention, entry.paused),
           shown = this.agent_since.shown(key, kind, entry.focused);
+        entry.starting = this.agent_since.isStarting(key);
         items.push({
           key,
           entry,
@@ -1019,7 +1018,6 @@ export class Controller {
       });
     });
     if (sectioned) {
-      this.agent_since.keep(seen);
       this.agent_since.place(items, held);
       const all = this.prefs.agents === "all";
       entries = agentSections.arrange(items, {
@@ -5689,6 +5687,19 @@ export class Controller {
     const previous_token = had ? this.model().revision : 0n;
     this.runtime.receive(this.connection, snapshot);
     this.trackRunning();
+    const live = new Set<string>();
+    for (const p of this.runtime.panes) {
+      if (p.agent.provider === null) continue;
+      const key = agentSections.key({ pane: p.id });
+      live.add(key);
+      this.agent_since.track(key, p.agent, had);
+    }
+    for (const session of this.runtime.sessions) {
+      const key = agentSections.key({ headless: session.id });
+      live.add(key);
+      this.agent_since.track(key, session, had);
+    }
+    this.agent_since.keep(live);
     if (previous_workspace !== this.current().id || previous_token !== this.model().revision) this.cancelDividers();
     if (previous_focus !== 0 && previous_focus !== (this.focused()?.id ?? 0)) {
       this.copy_mode = false;

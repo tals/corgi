@@ -4,19 +4,41 @@
 //! worktree share a subhead, as do neighbours in one workspace in "all"; the
 //! subheads follow the order rather than making it.
 import * as sidebar from "./sidebar";
-import type { Section } from "./agent_order";
+import { section, type Section, type Target } from "./agent_order";
 
 // Ready follows working, which most of its agents just left, and leads idle,
 // where they go once read.
 const order: Section[] = ["pinned", "working", "ready", "idle", "done"];
 
+/** An agent's key in `Since` and `Item`. */
+export function key(target: Target): string {
+  return "pane" in target ? `pane:${target.pane}` : `headless:${target.headless}`;
+}
+
 /** When each agent entered its section, in ms. */
 export class Since {
   private seen = new Map<string, { kind: Section; at: number }>();
+  /** New agents wait in working until their first turn, through startup and idle. */
+  private starting = new Map<string, boolean>();
   /** Each agent's last place in its workspace's section order. */
   private ranks = new Map<string, number>();
   /** A held agent's neighbours in its section when it was opened. */
   private anchors = new Map<string, { above: string | null; below: string | null }>();
+  /** Tracks every snapshot, including agents outside the current list. */
+  track(
+    key: string,
+    agent: { state: sidebar.State; attention: sidebar.Attention; paused?: boolean; observation: { completed: bigint } },
+    added: boolean,
+  ): void {
+    const waiting = this.starting.get(key) ?? (added || agent.state === "unknown" || agent.state === "initializing");
+    this.starting.set(
+      key,
+      waiting && agent.observation.completed === 0n && section(agent.state, agent.attention, agent.paused) === "idle",
+    );
+  }
+  isStarting(key: string): boolean {
+    return this.starting.get(key) === true;
+  }
   /** An agent first seen dates from `start`, the daemon's word for when its state began. */
   observe(key: string, kind: Section, start: number, now: number): number {
     const last = this.seen.get(key);
@@ -25,14 +47,13 @@ export class Since {
     this.seen.set(key, { kind, at });
     return at;
   }
-  /** The section an agent shows in: the one its state puts it in, except
-   * that one read while focused stays ready until focus leaves it. */
+  /** New agents wait in working; one read while focused stays ready until left. */
   shown(key: string, kind: Exclude<Section, "pinned">, focused: boolean): Exclude<Section, "pinned"> {
+    if (this.isStarting(key)) return "working";
     return focused && kind === "idle" && this.seen.get(key)?.kind === "ready" ? "ready" : kind;
   }
-  /** Settles each item's place in the section order. The daemon puts an
-   * agent it sees go idle first; one `held` among the ready instead stays
-   * between the neighbours it had in its section, however the rest move. */
+  /** Settles each item's place in the section order. One `held` during
+   * startup or among the ready stays between its neighbours. */
   place(items: Item[], held: ReadonlySet<string>): void {
     const now = new Map(items.map(item => [item.key, item.rank]));
     for (const item of items) {
@@ -68,7 +89,7 @@ export class Since {
   }
   /** Forgets agents that are gone. */
   keep(keys: ReadonlySet<string>): void {
-    for (const map of [this.seen, this.ranks, this.anchors])
+    for (const map of [this.seen, this.starting, this.ranks, this.anchors])
       for (const key of map.keys()) if (!keys.has(key)) map.delete(key);
   }
 }

@@ -44,9 +44,10 @@ application captures the mouse. Drag workspace rows to reorder them.
 The agent list defaults to manual order, as dragged. Choose Sort: By activity
 in the "agents: … ▾" menu to group agents by what they are doing: working
 (including those waiting on you, in warm, and paused ones), ready to read,
-idle and done. Each section keeps the order you drag it into; an agent that
-enters one goes on top, with how long it has been there. Agents next to each
-other in a linked worktree share a ⌥ label, and ⌥ main marks where they
+idle and done. A new agent stays dimmed in working through startup and idle,
+until its first prompt starts work. Each section keeps the order you drag it
+into; an agent that enters one goes on top, with how long it has been there.
+Agents next to each other in a linked worktree share a ⌥ label, and ⌥ main marks where they
 stop. Click a section's header to fold it; done starts folded. Drag an
 agent to the top to pin it, or back into the sections to unpin it. Pins
 and order are shared and saved with the workspace; they don't move panes.

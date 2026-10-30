@@ -693,6 +693,37 @@ test("idle face replaces stale activity while working activity remains useful", 
   expect(has(out, "\x1b[1m" + fg("accent") + "▶")).toBe(true);
 });
 
+test("a startup ghost stays dimmed in working through its first idle prompt", () => {
+  const e = entry({ target: { pane: 1 }, name: "New agent", provider: "codex", starting: true }),
+    view = View.init(100, 30, true, 0, 1),
+    dim = fgRgb(mix(colors.bg, colors.text, 50));
+  for (const focused of [false, true]) {
+    e.focused = focused;
+    e.section = "working";
+    let out = "";
+    for (const state of ["unknown", "initializing", "idle"]) {
+      e.state = state;
+      out = draw(view, [e], []);
+      expect(out).toContain(dim + "New agent");
+      if (state === "initializing") expect(out).toContain(dim + "Starting session");
+    }
+    // Manual order and the other sections keep their usual appearance.
+    for (const section of [null, "ready", "idle", "done"] as const) {
+      e.section = section;
+      out = draw(view, [e], []);
+      expect(out).toContain(fg("text") + "New agent");
+    }
+    e.section = "working";
+    e.state = "working";
+    e.starting = false;
+    e.activity = "Reading files";
+    out = draw(view, [e], []);
+    expect(out).toContain(fg("text") + "New agent");
+    expect(out).not.toContain("Starting session");
+    e.starting = true;
+  }
+});
+
 test("agents header names its scope and opens the scope menu left of New", () => {
   for (const width of [20, 28, 40]) {
     const view = View.init(100, 30, true, 0, 0).withWidth(width);

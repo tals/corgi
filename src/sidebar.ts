@@ -230,6 +230,8 @@ export interface Entry {
   notes: number;
   /** The activity section listing it, or null in a list without them. */
   section: SectionKind | null;
+  /** A new agent waiting for its first prompt, held in working. */
+  starting: boolean;
   /** When it entered its section, in ms. */
   since_ms: number;
 }
@@ -260,6 +262,7 @@ export function entry(fields: Partial<Entry> & { target: Target }): Entry {
     context: new ContextView(),
     notes: 0,
     section: null,
+    starting: false,
     since_ms: 0,
     ...fields,
   };
@@ -1249,7 +1252,10 @@ export class View {
           : gliding
             ? rowGlide.fade(moved.ms)
             : null;
-      const fade = dimmed[absolute] ? Math.max(fading ?? 0, spotlight_dim) : fading;
+      // Startup and its first idle prompt share one ghost in working.
+      const starting = e.section === "working" && e.starting;
+      const fade =
+        dimmed[absolute] || starting ? Math.max(fading ?? 0, dimmed[absolute] ? spotlight_dim : 0.5) : fading;
       const tint = moved !== null && !gliding && fade === null ? rowGlide.tint(moved.ms) : 0;
       // A row cut off at either end draws whole, then loses the rows outside.
       const top = lands[index] + e.slide;

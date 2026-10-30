@@ -47,6 +47,37 @@ class AgentPins extends Viewers {
     return (await this.session()).workspaces[index].pinned_agents;
   }
 
+  async test_new_agent_waits_in_working_until_its_first_prompt() {
+    await this.agents(1);
+    const viewer = await this.newViewer(),
+      pane = await this.new();
+    await this.mark_agent(pane, "Agent-1");
+    await this.until(async () => {
+      await viewer.poll();
+      const working = this.row(viewer, "working"),
+        added = this.row(viewer, "Agent-1"),
+        idle = this.row(viewer, "idle");
+      return working > 0 && added > working && idle > added;
+    });
+    this.assertEqual((await this.session()).panes.find((p: any) => p.id === pane).agent.state, "idle");
+    const row = this.row(viewer, "Agent-1");
+    await viewer.focus(pane);
+    await viewer.advance(1);
+    this.assertEqual(this.row(viewer, "Agent-1"), row);
+    await this.rpc({
+      op: "hook",
+      pane,
+      provider: "claude",
+      seq: 2,
+      event: { hook_event_name: "UserPromptSubmit", session_id: String(pane) },
+    });
+    await this.until(async () => {
+      await viewer.poll();
+      return (await this.session()).panes.find((p: any) => p.id === pane).agent.state === "working";
+    });
+    this.assertEqual(this.row(viewer, "Agent-1"), row);
+  }
+
   async test_iterm2_drag_uses_open_hand_and_resets_after_release() {
     await this.agents();
     this.env.TERM_PROGRAM = "iTerm.app";
