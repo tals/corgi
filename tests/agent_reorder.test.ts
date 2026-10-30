@@ -77,7 +77,11 @@ class AgentReorder extends Viewers {
         .map(row => row.slice(28))
         .join("\n"),
     );
-    await second.poll();
+    // The other rows step aside after a move; read the list once they land.
+    await this.until(async () => {
+      await second.poll();
+      return JSON.stringify(this.labels(second)) === JSON.stringify(this.labels(first));
+    });
     this.assertEqual(this.labels(second), this.labels(first));
     this.assertEqual(second.state.pane, b);
     this.assertEqual((await this.session()).workspaces[0].model.tabs, tabs);

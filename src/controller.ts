@@ -4969,6 +4969,8 @@ export class Controller {
                   ? { "agent.place": place }
                   : { "agent.pin": { ...place, pinned: drag.action === "pin" } },
             );
+            // Nor step back from the order shown before the daemon took the drop.
+            this.sidebar_rows.discard();
           } catch (error) {
             this.notice((error as Error).message);
           }

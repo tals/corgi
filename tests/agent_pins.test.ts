@@ -80,7 +80,11 @@ class AgentPins extends Viewers {
     this.assertEqual(await this.pins(), [{ pane: a }]);
     this.assertIn("pinned", screen_text(first.state.data, 100, 30)[16].slice(0, 27));
     this.assertEqual(this.labels(first), ["Agent-0", "Agent-2", "Agent-1"]);
-    await second.poll();
+    // The other rows step aside after a move; read the list once they land.
+    await this.until(async () => {
+      await second.poll();
+      return JSON.stringify(this.labels(second)) === JSON.stringify(this.labels(first));
+    });
     this.assertEqual(this.labels(second), this.labels(first));
     this.assertEqual(second.state.pane, b);
     this.assertEqual((await this.session()).workspaces[0].model.tabs, tabs);
@@ -195,7 +199,11 @@ class AgentPins extends Viewers {
     this.assertIn("Codex", screen_text(viewer.state.data, 100, 30)[17]);
     const added = await this.new();
     await this.mark_agent(added, "Agent-3");
-    await viewer.poll();
+    // The rows below step down as one arrives; read the list once they land.
+    await this.until(async () => {
+      await viewer.poll();
+      return JSON.stringify(this.labels(viewer).sort()) === JSON.stringify(["Agent-0", "Agent-1", "Agent-3"]);
+    });
     this.assertEqual(this.labels(viewer).sort(), ["Agent-0", "Agent-1", "Agent-3"]);
     await this.rpc({ op: "recovery.save" });
     await viewer.close();

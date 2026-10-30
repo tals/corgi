@@ -1251,9 +1251,14 @@ process.stdin.resume();
     const closing = screen_text((await viewer.poll()).data, 100, 30);
     this.assertIn("Departing-agent", closing[16].slice(0, 27));
     this.assertEqual((await viewer.input("\x1b[<0;6;17M\x1b[<0;6;17m")).pane, second);
+    // It fades, then the row below steps up into its place.
     await sleep(0.3);
+    await this.until(async () =>
+      screen_text((await viewer.poll()).data, 100, 30)[16]
+        .slice(0, 27)
+        .includes("Surviving-agent"),
+    );
     const closed = screen_text((await viewer.poll()).data, 100, 30);
-    this.assertIn("Surviving-agent", closed[16].slice(0, 27));
     this.assertNotIn(
       "Departing-agent",
       closed

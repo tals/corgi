@@ -1211,7 +1211,21 @@ export class View {
       sleepers.push(animationKey(e));
     }
     const dream = v.corgi_intensity > 0 ? corgiAnimation.dreamer(sleepers, now_ms) : null;
-    visible.forEach((e, index) => {
+    const lands: number[] = [];
+    for (const e of visible) {
+      lands.push(next_y);
+      next_y += View.height(e);
+    }
+    // Rows stepping aside go under the rows in place, and over a moved row
+    // still hidden while its tint glides in.
+    const layer = (e: Entry) => {
+      const hidden =
+        e.moved !== null && v.supports_kitty_graphics && v.cell !== null && (rowGlide.fade(e.moved.ms) ?? 0) > 0.5;
+      return hidden ? 0 : e.slide !== 0 ? 1 : 2;
+    };
+    const order = visible.map((_, i) => i).sort((a, b) => layer(visible[a]) - layer(visible[b]));
+    order.forEach(index => {
+      const e = visible[index];
       const absolute = v.offset + index;
       const exit_writer = new Writer();
       // A row that moved to another group rides a tint from where it was
@@ -1229,7 +1243,7 @@ export class View {
       const fade = dimmed[absolute] ? Math.max(fading ?? 0, spotlight_dim) : fading;
       const tint = moved !== null && !gliding && fade === null ? rowGlide.tint(moved.ms) : 0;
       // A row cut off at either end draws whole, then loses the rows outside.
-      const top = next_y + e.slide;
+      const top = lands[index] + e.slide;
       const cut = top + View.height(e) > end || top < list_top;
       const row_writer = fade !== null || tint > 0 || cut ? exit_writer : w;
       const finish = () => {
@@ -1240,7 +1254,6 @@ export class View {
       };
       const frame_ms = e.exit ? e.exit.frame_ms : now_ms;
       const y = top + Number(e.worktree?.ghost === true && "worktree" in e.target) + Number(e.group.gap === true);
-      next_y += View.height(e);
       if (gliding) {
         const from = list_top + moved.from - v.rowsBefore(v.offset);
         glide = rowGlide.place(
