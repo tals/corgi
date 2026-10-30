@@ -26,6 +26,7 @@ import {
 import * as render from "./render";
 import { ResizeView, TabMenu, type Item as TabMenuItem } from "./commands";
 import { Dialog, View as NameView, name_limit } from "./name_dialog";
+import { ClickHistory, InlineRename, type RenameTarget } from "./inline_rename";
 import * as sidebar from "./sidebar";
 import type { Entry, Target, WorkspaceEntry, Scope } from "./sidebar";
 import * as agentNavigation from "./agent_navigation";
@@ -337,6 +338,12 @@ export class Controller {
   resize_mode = false;
   copy_mode = false;
   name_dialog: Dialog | null = null;
+  /** The sidebar row whose name is being typed in place. */
+  inline_rename: InlineRename | null = null;
+  /** The last left press on a sidebar row, which tells a double-click. */
+  clicks = new ClickHistory();
+  /** Agent names whose rename failed, by pane, for the next try. */
+  remembered_names = new Map<number, string>();
   /** An account signing in over the panes, and a selection being dragged in
    * its agent's screen. */
   signin: signin.Signin | null = null;
@@ -789,7 +796,7 @@ export class Controller {
       target === null ||
       this.launcher_hover_blocked ||
       this.hasMenu() ||
-      this.name_dialog !== null ||
+      this.editingName() ||
       this.ui_mouse_down ||
       this.copy_mode
     ) {
@@ -1168,7 +1175,12 @@ export class Controller {
   /** Open UI that can change with no input, such as the launcher's preview
    * arriving; the viewer keeps drawing at full rate while it shows. */
   overlayOpen(): boolean {
+    // A row's rename field changes only with input, which redraws it anyway.
     return this.hasMenu() || this.name_dialog !== null || this.paste_card !== null || this.copy_feedback_until !== 0;
+  }
+  /** A name is being typed, in the centered dialog or on a sidebar row. */
+  private editingName(): boolean {
+    return this.name_dialog !== null || this.inline_rename !== null;
   }
   private tabIndex(id: number): number | null {
     const i = this.model()
@@ -1208,11 +1220,7 @@ export class Controller {
     this.review_summaries.ask(this.reviewCwd(p));
     if (p.agent.session.length === 0) opened.off.add("copy-details");
     if (p.agent.observation.completed === 0n || unread(p.agent.observation)) opened.off.add("mark-unread");
-    try {
-      await call(this.connection, "session.command", { command: { "agent.rename": { target: id } } });
-    } catch {
-      opened.off.add("rename");
-    }
+    if (!(await this.renamable(id))) opened.off.add("rename");
     try {
       await call(this.connection, "session.command", { command: { "agent.fork": { target: id, check: true } } });
     } catch {
@@ -1347,7 +1355,8 @@ export class Controller {
       if (!p) return;
       switch (item) {
         case "rename":
-          this.name_dialog = Dialog.init({ agent: pane_id }, p.label.length > 0 ? p.label : p.agent.name);
+          if (this.beginInlineRename({ agent: pane_id })) break;
+          this.name_dialog = Dialog.init({ agent: pane_id }, this.renameText(p));
           this.prepareName();
           break;
         case "fork": {
@@ -1544,7 +1553,10 @@ export class Controller {
     this.menu_page = next ? (view.page + 1) % view.pages : (view.page + view.pages - 1) % view.pages;
     this.dirty = true;
   }
+  /** Names a new workspace in the centered dialog; renames one on its
+   * sidebar row, in the dialog only when no sidebar can show the row. */
   private beginWorkspace(id: number | null): void {
+    if (id !== null && this.beginInlineRename({ workspace: id })) return;
     this.dismissName();
     let initial = "";
     if (id !== null) {
@@ -1610,6 +1622,8 @@ export class Controller {
   private async finishName(save: boolean): Promise<void> {
     this.dirty = true;
     const dialog = this.name_dialog;
+    // Escape drops an agent's name kept from a failed rename, as on its row.
+    if (!save && dialog && "agent" in dialog.target) this.remembered_names.delete(dialog.target.agent);
     if (save && dialog) {
       const target = dialog.target;
       if ("agent_command" in target) {
@@ -1635,9 +1649,7 @@ export class Controller {
           }
           return;
         }
-        try {
-          await this.edit({ "workspace.edit": { target: target.workspace_name, name } });
-        } catch {
+        if ((await this.applyName({ workspace: target.workspace_name }, name)) !== null) {
           dialog.failed = true;
           return;
         }
@@ -1650,15 +1662,14 @@ export class Controller {
         }
       } else if ("agent" in target) {
         if (dialog.name().length > 0) {
-          try {
-            await this.edit({ "agent.rename": { target: target.agent, name: dialog.name() } });
-          } catch (error) {
+          const failure = await this.applyName({ agent: target.agent }, dialog.name());
+          if (failure !== null) {
+            this.remembered_names.set(target.agent, dialog.name());
             this.dismissName();
-            this.notice(
-              agentMessage((error as Error).message, " Could not rename this agent", this.pane(target.agent)?.agent),
-            );
+            this.notice(" " + failure);
             return;
           }
+          this.remembered_names.delete(target.agent);
         }
       } else if ("shell" in target) {
         if (!(await this.configureShell(dialog.name()))) {
@@ -1685,6 +1696,141 @@ export class Controller {
     }
     this.dismissName();
     this.message = "";
+  }
+  /** Renames a sidebar row's agent or workspace as the centered dialog does:
+   * null once the name took, else what to tell the user. */
+  private async applyName(target: RenameTarget, name: string): Promise<string | null> {
+    if ("workspace" in target) {
+      try {
+        await this.edit({ "workspace.edit": { target: target.workspace, name } });
+        return null;
+      } catch {
+        return "Could not rename this workspace";
+      }
+    }
+    try {
+      await this.edit({ "agent.rename": { target: target.agent, name } });
+      return null;
+    } catch (error) {
+      return agentMessage(
+        (error as Error).message,
+        " Could not rename this agent",
+        this.pane(target.agent)?.agent,
+      ).trim();
+    }
+  }
+  /** Opens the field on `target`'s row, in place of its name. A folded
+   * sidebar shows its workspaces drawer for a workspace, which goes away with
+   * the field. False when no sidebar can show the row. */
+  private beginInlineRename(target: RenameTarget): boolean {
+    this.dismissName();
+    this.closeInlineRename();
+    this.prepareName();
+    let drawer = false;
+    let text: string, fallback: string;
+    if ("workspace" in target) {
+      const index = this.runtime.workspaces.index(target.workspace);
+      if (index === null) return false;
+      if (!this.sidebar_open) {
+        this.enterSidebar("workspaces");
+        drawer = this.sidebar_focus?.drawer === "workspaces";
+        if (drawer) this.sidebar_focus!.cursor = { workspace: target.workspace };
+      }
+      this.revealWorkspace(index);
+      const ws = this.runtime.workspaces.items[index];
+      text = ws.custom_name;
+      fallback = basename(ws.cwd) || "/";
+    } else {
+      const p = this.pane(target.agent);
+      const entries = this.sidebarEntries();
+      const index = agentNavigation.indexOf(entries, { pane: target.agent });
+      if (!p || index === null) return false;
+      this.agentOffset().set(this.sidebarView(entries).reveal(index));
+      text = this.renameText(p);
+      fallback = providerName(p.agent);
+    }
+    if (this.sidebarView(this.sidebarEntries()).fieldRect(target, this.workspaceEntries()) === null) {
+      if (drawer) this.leaveSidebar();
+      return false;
+    }
+    const open = InlineRename.open(target, text, fallback);
+    open.drawer = drawer;
+    this.inline_rename = open;
+    this.dirty = true;
+    return true;
+  }
+  /** Puts the field away without saving, and the drawer it opened with it. */
+  private closeInlineRename(): void {
+    const open = this.inline_rename;
+    if (open === null) return;
+    this.inline_rename = null;
+    if (open.drawer) this.leaveSidebar();
+    this.dirty = true;
+  }
+  /** A byte for the open field: Esc cancels, Return saves, the rest edits. */
+  private async inlineKey(byte: number): Promise<void> {
+    const open = this.inline_rename!;
+    const before = open.field.raw();
+    this.dirty = true;
+    switch (open.field.key(byte)) {
+      case "cancel":
+        if ("agent" in open.target) this.remembered_names.delete(open.target.agent);
+        this.closeInlineRename();
+        break;
+      case "save":
+        await this.saveInlineRename(open);
+        break;
+      default:
+        this.inlineEdited(open, before);
+    }
+  }
+  /** After input to the field: a changed text ends the last notice, and a
+   * refused insert says why. */
+  private inlineEdited(open: InlineRename, before: string): void {
+    if (open.field.raw() !== before) open.edited();
+    if (open.field.overflow) open.message = "Names fit in 80 characters";
+    this.dirty = true;
+  }
+  /** Return in the field: the name is applied as the centered dialog applies
+   * it. A failure keeps the field with its text and says why; an agent's
+   * name is then kept for the next try. */
+  private async saveInlineRename(open: InlineRename): Promise<void> {
+    if (open.saving) return;
+    const name = open.field.name();
+    if ("agent" in open.target && name.length === 0) return this.closeInlineRename();
+    open.saving = true;
+    const failure = await this.applyName(open.target, name);
+    open.saving = false;
+    if (this.inline_rename !== open) return;
+    if (failure === null) {
+      if ("agent" in open.target) this.remembered_names.delete(open.target.agent);
+      this.closeInlineRename();
+      return;
+    }
+    open.message = failure;
+    open.field.overflow = false;
+    if ("agent" in open.target) this.remembered_names.set(open.target.agent, name);
+    this.dirty = true;
+  }
+  /** The text an agent's rename starts with: a name whose rename failed,
+   * else the pane label, else the agent name, never the provider's. */
+  private renameText(p: Pane): string {
+    return this.remembered_names.get(p.id) ?? (p.label.length > 0 ? p.label : p.agent.name);
+  }
+  /** Whether the daemon says agent pane `id` takes a rename, as its menu
+   * offers one. A full input box passes: the rename says so on Return. */
+  private async renamable(id: number): Promise<boolean> {
+    try {
+      await call(this.connection, "session.command", { command: { "agent.rename": { target: id } } });
+      return true;
+    } catch (error) {
+      return errors.is(error, "AgentBusy");
+    }
+  }
+  /** The second press of a double-click on agent pane `id`'s row: true once
+   * the field opens there, false when the agent takes no rename. */
+  private async doubleClickAgent(id: number): Promise<boolean> {
+    return (await this.renamable(id)) && this.pane(id) !== null && this.beginInlineRename({ agent: id });
   }
   private async create(split: Axis | null, cwd: string, command: string | null, title: string): Promise<number> {
     const operation: CommandInput = split
@@ -3756,6 +3902,8 @@ export class Controller {
       this.dirty = true;
       return;
     }
+    // Before the sidebar's keys: the workspaces drawer keeps the sidebar focused while its field is open.
+    if (this.inline_rename) return this.inlineKey(byte);
     if (this.sidebar_focus && !this.prefix) {
       switch (byte) {
         case 27:
@@ -3801,6 +3949,7 @@ export class Controller {
       return;
     }
     this.sidebar_drag = null;
+    this.clicks.reset();
     if (this.workspace_drag) {
       this.workspace_drag.cancelled = true;
       this.workspace_drag.drop = null;
@@ -4003,7 +4152,7 @@ export class Controller {
     if (this.corgi_setup?.managing()) return this.corgi_setup.agents!.manager.typing() ? "setup" : "discard";
     if (this.corgi_setup?.editing || this.corgi_setup?.modelSearch()) return "setup";
     if (this.agent_picker) return "picker";
-    if (this.name_dialog) return "name";
+    if (this.editingName()) return "name";
     if (this.reviewKeys() && this.review.typing) return "review";
     if (this.hasMenu() || this.reviewKeys()) return "discard";
     const p = this.focused();
@@ -4032,6 +4181,7 @@ export class Controller {
         : (this.corgi_setup.modelSearch()?.area ?? this.corgi_setup.editing?.area ?? null);
     }
     if (this.agent_picker) return this.agent_picker.query.area;
+    if (this.inline_rename) return this.inline_rename.field.area;
     if (this.name_dialog) {
       const d = this.name_dialog;
       return d instanceof newWorkspace.Dialog && d.browser.focused ? d.browser.field.area : d.area;
@@ -4204,7 +4354,12 @@ export class Controller {
         if (this.agent_picker && byte >= 32 && byte < 127) await this.key(byte);
         break;
       case "name":
-        if (this.name_dialog) {
+        if (this.inline_rename) {
+          const open = this.inline_rename,
+            before = open.field.raw();
+          open.field.pasteByte(byte);
+          this.inlineEdited(open, before);
+        } else if (this.name_dialog) {
           this.fitNameDialog();
           this.name_dialog.pasteByte(byte);
         }
@@ -4256,7 +4411,7 @@ export class Controller {
         this.dirty = true;
         break;
       }
-      if (cl.paste === null && rest[1] !== 0x5b && rest[1] !== 0x4f && (this.hasMenu() || this.name_dialog !== null)) {
+      if (cl.paste === null && rest[1] !== 0x5b && rest[1] !== 0x4f && (this.hasMenu() || this.editingName())) {
         await this.key(27);
         used += 1;
         continue;
@@ -4324,7 +4479,7 @@ export class Controller {
             continue;
           }
           if (repeated === null) this.repeat_until = 0;
-          if (this.onboarding === null && this.name_dialog === null && (this.prefix || !this.hasMenu())) {
+          if (this.onboarding === null && !this.editingName() && (this.prefix || !this.hasMenu())) {
             const act = bindings.chord(this.prefs.preset, this.prefix, key_event);
             if (act) {
               if (this.prefix) await this.runPrefixed(act, repeated !== null);
@@ -4335,8 +4490,7 @@ export class Controller {
           }
           // Resolve Corgi shortcuts before encoding for the child. A
           // Kitty Ctrl-B/Ctrl-T are otherwise invisible to the byte handlers.
-          const owned =
-            this.hasMenu() || this.name_dialog !== null || this.copy_mode || this.search_mode || this.reviewKeys();
+          const owned = this.hasMenu() || this.editingName() || this.copy_mode || this.search_mode || this.reviewKeys();
           // Corgi's own text boxes read some keys in sequences legacy encoding can't make.
           const edit = owned ? keyboard.editSequence(key_event) : null;
           const legacy = Array.from(
@@ -4421,6 +4575,11 @@ export class Controller {
         if (act) await this.runPrefixed(act, again !== null);
         else if (this.help_visible) this.help.sequence(text);
         this.dirty = true;
+      } else if (this.inline_rename) {
+        const open = this.inline_rename,
+          before = open.field.raw();
+        open.field.sequence(text);
+        this.inlineEdited(open, before);
       } else if (this.sidebar_focus) {
         if (parsed_key === "up" || parsed_key === "down" || parsed_key === "left" || parsed_key === "right")
           await this.steerSidebar(parsed_key);
@@ -4541,7 +4700,7 @@ export class Controller {
       drag.count !== m.count ||
       drag.first !== render.tabStart(this.layoutView(), this.tabSpace()) ||
       this.hasMenu() ||
-      this.name_dialog !== null
+      this.editingName()
     )
       drag.cancelled = true;
     m.tabs.slice(0, m.count).forEach((tab, i) => {
@@ -4570,6 +4729,12 @@ export class Controller {
     const y = sat(ys, 1);
     const release = seq[seq.length - 1] === "m";
     if (!release && (button & 32) === 0) this.endSigninExit();
+    // A double-click needs two left presses on one sidebar row with the
+    // pointer still between them; any other press starts over. The sidebar's
+    // own presses reset it for what isn't a row.
+    if (!release && button === 32) this.clicks.motion(x, y);
+    else if (!release && (button & 0xe0) === 0 && (button !== 0 || x >= this.sidebarView([]).width))
+      this.clicks.reset();
     if (this.signin) {
       if (await this.linkMouse(button, x, y, release)) return;
       this.moveHover(button, x, y, release);
@@ -4616,6 +4781,22 @@ export class Controller {
       if (release) this.ui_mouse_down = false;
       this.dirty = true;
       return;
+    }
+    // A press in the open rename field changes nothing; anywhere else it
+    // closes the field unsaved and then does what it would have done.
+    if (this.inline_rename && !release && (button & 0xe0) === 0) {
+      const open = this.inline_rename,
+        rect = this.sidebarView(this.sidebarEntries()).fieldRect(open.target, this.workspaceEntries());
+      if (rect && y === rect.y && x >= rect.x && x < rect.x + rect.width) {
+        this.ui_mouse_down = true;
+        return;
+      }
+      // The drawer the field opened takes the press as it does without one:
+      // the row under it opens, or the drawer goes away.
+      if (open.drawer && this.sidebar_focus?.drawer) {
+        this.inline_rename = null;
+        this.dirty = true;
+      } else this.closeInlineRename();
     }
     // A drawer covers the panes: a press opens its row as Enter would, or puts the drawer away.
     if (this.sidebar_focus?.drawer && !release && (button & 0xe0) === 0) {
@@ -4837,6 +5018,7 @@ export class Controller {
         this.agentOffset().set(button === 64 ? sat(side.offset, 1) : Math.min(side.offset + 1, side.maxOffset()));
         side = this.sidebarView(live);
         drag.dragging = true;
+        this.clicks.move();
       }
       if (!release && button === 32 && (x !== drag.start_x || y !== drag.start_y)) drag.dragging = true;
       drag.update(side, this.current().id, x, y);
@@ -4868,6 +5050,7 @@ export class Controller {
             : Math.min(side.workspace_offset + 1, sat(ids.length, side.workspaceCapacity()));
         side = this.sidebarView([]);
         drag.dragging = true;
+        this.clicks.move();
       }
       if (!release && button === 32 && (x !== drag.start_x || y !== drag.start_y)) drag.dragging = true;
       drag.update(side, ids, x, y);
@@ -4904,7 +5087,7 @@ export class Controller {
       review_rect !== null &&
       (review_rect.contains(x, y) || this.review_pressed) &&
       !this.hasMenu() &&
-      this.name_dialog === null
+      !this.editingName()
     ) {
       this.pointer = { x, y };
       if (!release && (button & 0xe0) === 0) this.giveKeyboard("review");
@@ -5165,7 +5348,7 @@ export class Controller {
         this.closeMenu();
       } else return;
     }
-    if (!release && button === 2 && y === 0 && this.name_dialog === null && x >= tabs_x) {
+    if (!release && button === 2 && y === 0 && !this.editingName() && x >= tabs_x) {
       const index = render.tabAt(this.layoutView(), tabs_width, x - tabs_x);
       if (index !== null) {
         this.ui_mouse_down = true;
@@ -5301,22 +5484,40 @@ export class Controller {
         this.dirty = true;
       } else if (!release && (button === 0 || button === 2)) {
         this.ui_mouse_down = true;
-        if (corgiBadge.hit(this.corgi_badge, side.width, x, y)) return this.openSetup();
+        if (corgiBadge.hit(this.corgi_badge, side.width, x, y)) {
+          this.clicks.reset();
+          return this.openSetup();
+        }
         const found = side.hit(x, y);
+        if (found.tag !== "entry" && found.tag !== "workspace") this.clicks.reset();
         switch (found.tag) {
           case "toggle":
             await this.perform({ name: "sidebar" });
             break;
           case "entry": {
             const index = found.entry;
-            if (entries[index].exit !== null) break;
+            if (entries[index].exit !== null) {
+              this.clicks.reset();
+              break;
+            }
             const target = entries[index].target;
             if (!sidebar.isAgent(target) && !("group" in target)) {
+              this.clicks.reset();
               if (button === 2 && "worktree" in target && !entries[index].worktree?.ghost)
                 this.openWorktreeMenu(entries[index], x, y);
               else await this.perform({ name: "worktree-agent", value: index });
               break;
             }
+            // A second left press on the same pane agent's row renames it; the
+            // first already selected it, so this one neither selects nor drags.
+            // An agent that takes no rename gets a plain press instead.
+            if (button === 0 && "pane" in target) {
+              if (
+                this.clicks.press({ agent: target.pane }, milliTimestamp(), x, y) &&
+                (await this.doubleClickAgent(target.pane))
+              )
+                break;
+            } else this.clicks.reset();
             this.selectAgent(target);
             if (button === 2 && "pane" in target) await this.openAgentMenu(target.pane, x, y);
             if (button === 0 && sidebar.isAgent(target) && !entries[index].worktree) {
@@ -5354,9 +5555,14 @@ export class Controller {
           case "workspace": {
             const index = found.workspace;
             if (button === 2) {
+              this.clicks.reset();
               this.openWorkspaceMenu(this.runtime.workspaces.items[index].id, x, y);
             } else {
               const id = this.runtime.workspaces.items[index].id;
+              if (this.clicks.press({ workspace: id }, milliTimestamp(), x, y)) {
+                this.beginInlineRename({ workspace: id });
+                break;
+              }
               const ws_entries = this.workspaceEntries();
               const jump = !resource_workspace_press && side.unreadHit(ws_entries[index], x, y);
               const target = jump ? this.firstUnreadAgent(index) : null;
@@ -5591,6 +5797,15 @@ export class Controller {
                 : false;
       if (stale) this.dismissName();
     }
+    const open = this.inline_rename;
+    if (open) {
+      const gone =
+        "agent" in open.target
+          ? this.pane(open.target.agent) === null
+          : this.runtime.workspaces.index(open.target.workspace) === null;
+      if (gone) this.closeInlineRename();
+    }
+    for (const id of this.remembered_names.keys()) if (this.pane(id) === null) this.remembered_names.delete(id);
     this.dirty = true;
   }
   async expireInput(): Promise<void> {
@@ -5677,7 +5892,7 @@ export class Controller {
         const p = this.pastePane();
         if (p) this.sendInput(p.terminal, cl.keybuf);
       } else if (cl.keybuf.length === 1 && cl.keybuf[0] === 27) await this.key(27);
-      else if (!this.hasMenu() && this.name_dialog === null) {
+      else if (!this.hasMenu() && !this.editingName()) {
         const p = this.focused();
         if (p) this.sendInput(p.terminal, cl.keybuf);
       }
@@ -6178,7 +6393,7 @@ export class Controller {
       this.signin_exit === null &&
       !this.hasMenu() &&
       this.menu() === null &&
-      this.name_dialog === null &&
+      !this.editingName() &&
       !this.copy_mode &&
       this.selection === null &&
       this.workspace_drag === null
@@ -6393,6 +6608,13 @@ export class Controller {
     } else this.git_hover = null;
     if (this.agent_drag) this.agent_drag.valid(this.sidebarView(entries), this.current().id);
     if (this.workspace_drag) this.workspace_drag.valid(this.sidebarView(entries), this.workspaceIds());
+    // The field goes with its row: off screen, out of the list, or under a menu or dialog.
+    if (this.inline_rename) {
+      const open = this.inline_rename,
+        covered = this.name_dialog !== null || (this.hasMenu() && this.sidebar_focus === null);
+      if (covered || this.sidebarView(entries).fieldRect(open.target, this.workspaceEntries()) === null)
+        this.closeInlineRename();
+    }
     const tooltip_ready = this.linkTooltipReady();
     const link_card = tooltip_ready ? this.linkCard() : null;
     const thumbnail = this.thumbnails.sync(link_card?.thumbnail ?? null);
@@ -6472,6 +6694,7 @@ export class Controller {
         inference: this.runtime.inference,
         tab_drop_x: this.tabDropX(),
         dialog: this.name_dialog,
+        inline_rename: this.inline_rename,
         sidebar_open: this.sidebar_open,
         sidebar_drawer: this.sidebar_focus?.drawer ?? null,
         corgi_badge: this.corgi_badge,

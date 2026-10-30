@@ -182,6 +182,7 @@ test("the daemon and the viewer never import each other", () => {
       "frame_diff",
       "ghostty_integration",
       "host_clipboard",
+      "inline_rename",
       "keymap",
       "launch_preview_stream",
       "launcher_resume",

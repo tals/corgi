@@ -702,8 +702,12 @@ class ViewerScenarios extends Viewers {
     await b.request({ op: "workspace", workspace: ws });
     await a.input("\x1b[<2;5;6M\x1b[<2;5;6m");
     this.assertIn("Rename", a.state.data);
+    // The menu's Rename puts the field on that row, prefilled with its name.
     await a.input("\r");
-    await a.input("Renamed\r");
+    this.assertTrue(a.state.renaming);
+    this.assertFalse(a.state.dialog);
+    await a.input("\x03Renamed\r");
+    this.assertFalse(a.state.renaming);
     this.assertEqual((await this.session()).workspaces.find((w: any) => w.id === ws).custom_name, "Renamed");
     await a.input("\x1b[<2;5;6M\x1b[<2;5;6m");
     await a.input("\x1b[B\r");
@@ -749,12 +753,19 @@ class ViewerScenarios extends Viewers {
         .trim(),
       "two",
     );
+    // Prefix W r puts the field on the workspace's row; its prefill is not
+    // selected, so ctrl-c clears it before the new name.
     await b.input("\x02Wr");
-    await b.input("Custom\r");
+    this.assertTrue(b.state.renaming);
+    this.assertFalse(b.state.dialog);
+    await b.input("\x03Custom\r");
+    this.assertFalse(b.state.renaming);
     this.assertIn("Custom", (await a.poll()).data);
     this.assertIn("Custom", (await b.poll()).data);
     await b.input("\x02Wr");
+    this.assertTrue(b.state.renaming);
     await b.input("\x03\r");
+    this.assertFalse(b.state.renaming);
     this.assertEqual((await this.session()).workspaces[0].custom_name, "");
     this.assertEqual(
       screen_text((await a.poll()).data, 100, 30)[2]
@@ -812,12 +823,34 @@ class ViewerScenarios extends Viewers {
     await a.request({ op: "workspace", workspace: before[0].id });
     this.assertEqual(a.state.pane, first);
     await a.input("\x02Wr");
-    this.assertTrue(a.state.dialog);
-    this.assertFalse((await b.poll()).dialog);
+    this.assertTrue(a.state.renaming);
+    this.assertFalse(a.state.dialog);
+    this.assertFalse((await b.poll()).renaming);
     await b.input("\x02");
     this.assertTrue(b.state.prefix);
-    this.assertTrue((await a.poll()).dialog);
+    this.assertTrue((await a.poll()).renaming);
     this.assertEqual((await this.session()).workspaces, before);
+  }
+
+  async test_keyboard_workspace_rename_with_the_sidebar_closed_opens_the_drawer() {
+    const first = await this.new("sleep 60", "First");
+    const ws = (await this.session()).workspaces[0].id;
+    const a = await this.newViewer();
+    await a.focus(first);
+    // Prefix b folds the sidebar away. Prefix W r then opens the workspaces
+    // drawer with the field on the current workspace's row.
+    await a.input("\x02b");
+    this.assertEqual(a.state.drawer, null);
+    await a.input("\x02Wr");
+    this.assertTrue(a.state.renaming);
+    this.assertFalse(a.state.dialog);
+    this.assertEqual(a.state.drawer, "workspaces");
+    // Return saves and takes the drawer away with the field.
+    await a.input("\x03Drawer\r");
+    this.assertFalse(a.state.renaming);
+    this.assertEqual(a.state.drawer, null);
+    const renamed = (await this.session()).workspaces.find((w: any) => w.id === ws);
+    this.assertEqual([renamed.name, renamed.custom_name], ["Drawer", "Drawer"]);
   }
 
   async test_arrangement_is_shared_and_close_reconciles_selection() {

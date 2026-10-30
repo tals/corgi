@@ -689,7 +689,9 @@ test("edit workspace opens the current workspace's menu centered in its row, and
     expect([s.tab_menu?.anchor_x, s.tab_menu?.anchor_y]).toEqual([4, 6]);
     await s.key(114);
     expect(s.tab_menu).toBeNull();
-    expect(s.name_dialog?.target).toEqual({ workspace_name: 2 });
+    expect(s.name_dialog).toBeNull();
+    expect(s.inline_rename?.target).toEqual({ workspace: 2 });
+    expect(s.inline_rename.drawer).toBe(false);
   } finally {
     viewer.close(s);
   }
@@ -1269,15 +1271,17 @@ test("the launcher names a new worktree, then adds it before starting the agent 
   }
 });
 
-/** An attached controller whose session commands land in `sent`, each making pane 1. */
-function recording(snapshot: any) {
+/** An attached controller whose session commands land in `sent`, each making
+ * pane 1, unless `fail` names the error one gets instead. */
+function recording(snapshot: any, fail?: (command: any) => string | undefined) {
   const sent: any[] = [];
   const s: any = new Controller({
     socket: "",
     request: transport(async (op, fields: any) => {
       if (op !== "session.command") return snapshot;
       sent.push(fields.command);
-      return { result: { pane: 1 } };
+      const err = fail?.(fields.command);
+      return err === undefined ? { result: { pane: 1 } } : { err };
     }).request,
   });
   s.receiveSnapshot(snapshot);
@@ -2158,5 +2162,694 @@ test("a failed background logout restores the account row and reports the failur
   } finally {
     await Promise.all([...s.account_removals.values()].map((job: any) => job.task));
     for (const mock of [find, owns, signOut, remove]) mock.mockRestore();
+  }
+});
+
+/** A recording controller on `pair()` whose sidebar rows take presses at
+ * their field's cell, and whose pane input lands in `typed`. */
+function renaming(fail?: (command: any) => string | undefined, snapshot: any = pair()) {
+  const { s, sent } = recording(snapshot, fail);
+  const typed: string[] = [];
+  s.sendInput = (_term: any, data: any) => typed.push(Buffer.from(data).toString());
+  const rect = (target: any) => s.sidebarView(s.sidebarEntries()).fieldRect(target, s.workspaceEntries());
+  const press = (x: number, y: number, button = 0) =>
+    s.input(bytes(`\x1b[<${button};${x + 1};${y + 1}M\x1b[<${button};${x + 1};${y + 1}m`));
+  const twice = async (target: any) => {
+    const at = rect(target);
+    await press(at.x, at.y);
+    await press(at.x, at.y);
+  };
+  return { s, sent, typed, rect, press, twice };
+}
+const probe = (pane: number) => ({ "agent.rename": { target: pane } });
+
+test("a double-click on an agent row renames it in place, with the dialog's outcome", async () => {
+  const { s, sent, typed, twice } = renaming();
+  try {
+    setSystemTime(new Date(1000));
+    await twice({ agent: 2 });
+    expect(s.focused().id).toBe(2);
+    expect(s.inline_rename.target).toEqual({ agent: 2 });
+    expect(s.inline_rename.field.raw()).toBe("agent 2");
+    expect(s.inline_rename.field.cursor).toBe(s.inline_rename.field.len);
+    expect(s.inline_rename.field.selection()).toBeNull();
+    expect(sent).toEqual([probe(2)]);
+    expect(s.frame()).toContain("agent 2");
+    await s.input(bytes("\x03Fix API\r"));
+    expect(sent.at(-1)).toEqual({ "agent.rename": { target: 2, name: "Fix API" } });
+    expect(s.inline_rename).toBeNull();
+    expect(typed).toEqual([]);
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a double-click on a workspace row edits its custom name; Escape keeps the old one", async () => {
+  const { s, sent, twice } = renaming();
+  try {
+    setSystemTime(new Date(1000));
+    await twice({ workspace: 1 });
+    expect(s.inline_rename.target).toEqual({ workspace: 1 });
+    expect(s.inline_rename.field.raw()).toBe("");
+    expect(s.inline_rename.fallback).toBe("a");
+    await s.input(bytes("Edited"));
+    await s.key(27);
+    expect(s.inline_rename).toBeNull();
+    expect(sent).toEqual([]);
+    await twice({ workspace: 1 });
+    await s.input(bytes("Edited\r"));
+    expect(sent).toEqual([{ "workspace.edit": { target: 1, name: "Edited" } }]);
+    expect(s.inline_rename).toBeNull();
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("the open field takes every key: nothing reaches the pane and no binding runs", async () => {
+  const { s, sent, typed, twice } = renaming();
+  try {
+    setSystemTime(new Date(1000));
+    await twice({ agent: 1 });
+    const count = s.model().count;
+    await s.input(bytes("\x02c"));
+    expect(s.prefix).toBe(false);
+    expect(s.model().count).toBe(count);
+    expect(s.inline_rename.field.raw()).toBe("agent 1c");
+    await s.input(bytes("\x1b[D\x1b[Dx"));
+    expect(s.inline_rename.field.raw()).toBe("agent x1c");
+    await s.input(bytes("\x1b[200~a\nb\x1b[201~"));
+    expect(s.inline_rename.field.raw()).toBe("agent xab1c");
+    expect(sent).toEqual([probe(1)]);
+    expect(typed).toEqual([]);
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a press outside the field closes it unsaved and still acts; one inside changes nothing", async () => {
+  const { s, sent, rect, press, twice } = renaming();
+  try {
+    setSystemTime(new Date(1000));
+    await twice({ agent: 1 });
+    const inside = rect({ agent: 1 });
+    await press(inside.x + 2, inside.y);
+    expect(s.inline_rename.target).toEqual({ agent: 1 });
+    expect(s.inline_rename.field.cursor).toBe(s.inline_rename.field.len);
+    await s.input(bytes("x"));
+    const other = rect({ agent: 2 });
+    await press(other.x, other.y);
+    expect(s.inline_rename).toBeNull();
+    expect(s.focused().id).toBe(2);
+    // The message line counts as outside.
+    await twice({ agent: 1 });
+    s.inline_rename.message = "busy";
+    const at = rect({ agent: 1 });
+    await press(at.x, at.message_y);
+    expect(s.inline_rename).toBeNull();
+    expect(sent).toEqual([probe(1), probe(1)]);
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a field starts with the label, else the agent name, else empty; a workspace's with its custom name", async () => {
+  const snapshot = pair();
+  (snapshot.panes[0] as any).name = "tag";
+  snapshot.panes[1].agent.name = "";
+  (snapshot.workspaces[1] as any).custom_name = "Custom";
+  const { s, sent, twice } = renaming(undefined, snapshot);
+  try {
+    setSystemTime(new Date(1000));
+    await twice({ agent: 1 });
+    expect(s.inline_rename.field.raw()).toBe("tag");
+    await s.key(27);
+    await twice({ agent: 2 });
+    expect(s.inline_rename.field.raw()).toBe("");
+    expect(s.inline_rename.fallback).toBe("Claude");
+    // Return on an empty agent field sends nothing, as the dialog does.
+    await s.key(13);
+    expect(s.inline_rename).toBeNull();
+    expect(sent).toEqual([probe(1), probe(2)]);
+    await twice({ workspace: 2 });
+    expect(s.inline_rename.field.raw()).toBe("Custom");
+    expect(s.inline_rename.fallback).toBe("b");
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a refused double-click is a plain press: the second one still starts a drag", async () => {
+  const { s, rect } = renaming(c => (c["agent.rename"]?.name === undefined ? "RenameUnavailable" : undefined));
+  try {
+    setSystemTime(new Date(1000));
+    const at = rect({ agent: 2 });
+    const down = (x: number, y: number) => s.input(bytes(`\x1b[<0;${x + 1};${y + 1}M`));
+    await down(at.x, at.y);
+    await s.input(bytes(`\x1b[<0;${at.x + 1};${at.y + 1}m`));
+    await down(at.x, at.y);
+    expect(s.inline_rename).toBeNull();
+    expect(s.focused().id).toBe(2);
+    expect(s.agent_drag).not.toBeNull();
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a modified or middle press outside the field closes it too; one inside keeps it", async () => {
+  const { s, sent, rect, press, twice } = renaming();
+  try {
+    setSystemTime(new Date(1000));
+    await twice({ agent: 1 });
+    const inside = rect({ agent: 1 });
+    await press(inside.x + 1, inside.y, 4);
+    expect(s.inline_rename.target).toEqual({ agent: 1 });
+    await press(60, 10, 4);
+    expect(s.inline_rename).toBeNull();
+    await twice({ agent: 1 });
+    await press(60, 10, 1);
+    expect(s.inline_rename).toBeNull();
+    expect(sent).toEqual([probe(1), probe(1)]);
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("Kitty-encoded keys go to the open field, not to the pane or a binding", async () => {
+  const { s, sent, typed, twice } = renaming();
+  try {
+    setSystemTime(new Date(1000));
+    await twice({ agent: 1 });
+    const count = s.model().count;
+    // "x", then Ctrl-B and c as the prefix and its new-tab key.
+    await s.input(bytes("\x1b[120u\x1b[98;5u\x1b[99u"));
+    expect(s.model().count).toBe(count);
+    expect(s.inline_rename.field.raw()).toBe("agent 1xc");
+    expect(sent).toEqual([probe(1)]);
+    expect(typed).toEqual([]);
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a double-click on row B while A's field is open edits B", async () => {
+  const { s, twice } = renaming();
+  try {
+    setSystemTime(new Date(1000));
+    await twice({ agent: 1 });
+    await twice({ agent: 2 });
+    expect(s.inline_rename.target).toEqual({ agent: 2 });
+    expect(s.inline_rename.field.raw()).toBe("agent 2");
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a double-click opens no field on a headless row or an agent that refuses the rename probe", async () => {
+  const {
+    s: refused,
+    sent,
+    twice,
+  } = renaming(c => (c["agent.rename"]?.name === undefined ? "RenameUnavailable" : undefined));
+  try {
+    setSystemTime(new Date(1000));
+    await twice({ agent: 1 });
+    expect(refused.inline_rename).toBeNull();
+    expect(refused.focused().id).toBe(1);
+    expect(sent).toEqual([probe(1)]);
+  } finally {
+    viewer.close(refused);
+  }
+  const snapshot = {
+    ...pair(),
+    headless_sessions: [{ id: 7, workspace: 1, provider: "codex", cwd: "/a", state: "working" }],
+  };
+  const { s } = recording(snapshot);
+  try {
+    const entries = s.sidebarEntries();
+    const index = entries.findIndex((e: any) => "headless" in e.target);
+    expect(index).toBeGreaterThan(-1);
+    const view = s.sidebarView(entries);
+    let y = view.middle() + 2;
+    while (y < s.height) {
+      const hit = view.hit(6, y);
+      if (hit.tag === "entry" && hit.entry === index) break;
+      y++;
+    }
+    expect(y).toBeLessThan(s.height);
+    for (let i = 0; i < 2; i++) await s.input(bytes(`\x1b[<0;7;${y + 1}M\x1b[<0;7;${y + 1}m`));
+    expect(s.inline_rename).toBeNull();
+    expect(s.clicks.target).toBeNull();
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a double-click on a workspace's unread badge renames the workspace", async () => {
+  const snapshot = pair();
+  snapshot.panes[2].agent.observation = { completed: 2, read: 0 };
+  const { s, sent } = recording(snapshot);
+  try {
+    setSystemTime(new Date(1000));
+    const ws = s.workspaceEntries()[1];
+    expect(ws.unread).toBe(1);
+    const view = s.sidebarView(s.sidebarEntries());
+    const range = view.unreadRange(ws),
+      y = 2 + 1 * view.workspaceRows() + 1;
+    expect(view.unreadHit(ws, range.start, y)).toBe(true);
+    for (let i = 0; i < 2; i++)
+      await s.input(bytes(`\x1b[<0;${range.start + 1};${y + 1}M\x1b[<0;${range.start + 1};${y + 1}m`));
+    expect(s.current().id).toBe(2);
+    expect(s.inline_rename?.target).toEqual({ workspace: 2 });
+    expect(sent).toEqual([]);
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("the field closes when its item goes, scrolls away or is covered, and follows a reorder", async () => {
+  const { s, twice } = renaming();
+  try {
+    setSystemTime(new Date(1000));
+    await twice({ agent: 2 });
+    // The same rows in another order keep the field on its item.
+    const reordered = pair();
+    reordered.panes.reverse();
+    s.receiveSnapshot(reordered);
+    expect(s.inline_rename.target).toEqual({ agent: 2 });
+    // The pane goes.
+    const without = pair();
+    without.workspaces[0].model = { nodes: [{ pane: 1 }], tabs: [{ id: 1, root: 0, title: "" }], revision: 1 };
+    without.panes = without.panes.filter(p => p.id !== 2);
+    s.receiveSnapshot(without);
+    expect(s.inline_rename).toBeNull();
+    s.receiveSnapshot(pair());
+    // The workspace goes.
+    expect(s.beginInlineRename({ workspace: 2 })).toBe(true);
+    const one = pair();
+    one.workspaces.pop();
+    one.panes.pop();
+    s.receiveSnapshot(one);
+    expect(s.inline_rename).toBeNull();
+    s.receiveSnapshot(pair());
+    // The sidebar hides, or a menu opens over it.
+    await twice({ agent: 1 });
+    s.sidebar_open = false;
+    s.frame();
+    expect(s.inline_rename).toBeNull();
+    s.sidebar_open = true;
+    await twice({ agent: 1 });
+    s.openLauncher(true);
+    s.frame();
+    expect(s.inline_rename).toBeNull();
+    s.closeMenu();
+    await twice({ agent: 1 });
+    s.beginRename();
+    s.frame();
+    expect(s.inline_rename).toBeNull();
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("the field closes when its row scrolls out of the agent list", async () => {
+  const snapshot = pair();
+  const ids = Array.from({ length: 30 }, (_, i) => i + 10);
+  snapshot.workspaces[0].model = {
+    nodes: ids.map(id => ({ pane: id })),
+    tabs: ids.map((id, i) => ({ id, root: i, title: "" })),
+    revision: 0,
+  };
+  snapshot.panes = ids.map(id => ({
+    id,
+    workspace: 1,
+    tab: id,
+    cols: 40,
+    rows: 24,
+    agent: {
+      provider: "claude",
+      name: `agent ${id}`,
+      state: "idle",
+      attention: "none",
+      observation: { completed: 0, read: 0 },
+    },
+  }));
+  const { s } = recording(snapshot);
+  try {
+    setSystemTime(new Date(1000));
+    const at = s.sidebarView(s.sidebarEntries()).fieldRect({ agent: 10 }, s.workspaceEntries());
+    for (let i = 0; i < 2; i++)
+      await s.input(bytes(`\x1b[<0;${at.x + 1};${at.y + 1}M\x1b[<0;${at.x + 1};${at.y + 1}m`));
+    expect(s.inline_rename?.target).toEqual({ agent: 10 });
+    const view = s.sidebarView(s.sidebarEntries());
+    for (let i = 0; i < 3; i++) await s.input(bytes(`\x1b[<65;3;${view.middle() + 4}M`));
+    expect(s.sidebarView(s.sidebarEntries()).fieldRect({ agent: 10 }, s.workspaceEntries())).toBeNull();
+    s.frame();
+    expect(s.inline_rename).toBeNull();
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a single press selects or switches at once, and only a second press on the same row renames", async () => {
+  const { s, rect, press } = renaming();
+  try {
+    setSystemTime(new Date(1000));
+    const agent = rect({ agent: 2 });
+    await press(agent.x, agent.y);
+    expect(s.focused().id).toBe(2);
+    expect(s.inline_rename).toBeNull();
+    const ws = rect({ workspace: 2 });
+    await press(ws.x, ws.y);
+    expect(s.current().id).toBe(2);
+    expect(s.inline_rename).toBeNull();
+    // Too late for a double-click.
+    setSystemTime(new Date(1500));
+    await press(ws.x, ws.y);
+    expect(s.inline_rename).toBeNull();
+    // The rows reorder between the presses: the second lands on another workspace.
+    setSystemTime(new Date(1600));
+    const swapped = pair();
+    swapped.workspaces.reverse();
+    s.receiveSnapshot(swapped);
+    expect(s.workspaceEntries()[0].id).toBe(2);
+    await press(ws.x, ws.y);
+    expect(s.inline_rename).toBeNull();
+    expect(s.current().id).toBe(1);
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a drag between two presses is no double-click, and still reorders", async () => {
+  const { s, sent, rect } = renaming();
+  try {
+    setSystemTime(new Date(1000));
+    const first = rect({ agent: 1 }),
+      second = rect({ agent: 2 });
+    await s.input(bytes(`\x1b[<0;${first.x + 1};${first.y + 1}M`));
+    // Past the second row's middle, so the drop lands below it.
+    await s.input(bytes(`\x1b[<32;${first.x + 1};${second.y + 3}M`));
+    expect(s.agent_drag?.dragging).toBe(true);
+    await s.input(bytes(`\x1b[<0;${first.x + 1};${second.y + 3}m`));
+    expect(sent.at(-1)["agent.move"]).toBeDefined();
+    const moved = rect({ agent: 1 });
+    await s.input(bytes(`\x1b[<0;${moved.x + 1};${moved.y + 1}M\x1b[<0;${moved.x + 1};${moved.y + 1}m`));
+    expect(s.inline_rename).toBeNull();
+    // Motion within the pressed cell keeps the double-click; to another cell ends it.
+    await s.input(bytes(`\x1b[<32;${moved.x + 1};${moved.y + 1}M`));
+    await s.input(bytes(`\x1b[<0;${moved.x + 1};${moved.y + 1}m`));
+    await s.input(bytes(`\x1b[<0;${moved.x + 1};${moved.y + 1}M\x1b[<0;${moved.x + 1};${moved.y + 1}m`));
+    expect(s.inline_rename?.target).toEqual({ agent: 1 });
+    await s.key(27);
+    await s.input(bytes(`\x1b[<0;${moved.x + 1};${moved.y + 1}M\x1b[<32;${moved.x + 2};${moved.y + 1}M`));
+    await s.input(bytes(`\x1b[<0;${moved.x + 2};${moved.y + 1}m`));
+    await s.input(bytes(`\x1b[<0;${moved.x + 1};${moved.y + 1}M\x1b[<0;${moved.x + 1};${moved.y + 1}m`));
+    expect(s.inline_rename).toBeNull();
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("Rename in a row's menu edits the row in place", async () => {
+  const { s, sent } = renaming();
+  try {
+    s.tab_menu = new TabMenu({ tab: 1, agent: true, anchor_x: 0 });
+    await s.tabMenuAction("rename");
+    expect(s.name_dialog).toBeNull();
+    expect(s.inline_rename?.target).toEqual({ agent: 1 });
+    expect(s.inline_rename.field.raw()).toBe("agent 1");
+    s.tab_menu = new TabMenu({ tab: 2, workspace: true, anchor_x: 0 });
+    await s.tabMenuAction("rename");
+    expect(s.name_dialog).toBeNull();
+    expect(s.inline_rename?.target).toEqual({ workspace: 2 });
+    expect(sent).toEqual([]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("with the sidebar closed, prefix W then r renames the current workspace in its drawer", async () => {
+  const { s, sent } = renaming();
+  const rename = async () => {
+    await s.perform({ name: "edit-workspace" });
+    await s.key(114);
+    expect(s.name_dialog).toBeNull();
+    expect(s.sidebar_open).toBe(true);
+    expect(s.sidebar_focus?.drawer).toBe("workspaces");
+    expect(s.inline_rename?.target).toEqual({ workspace: s.current().id });
+    expect(s.inline_rename.drawer).toBe(true);
+  };
+  const away = () => {
+    expect(s.inline_rename).toBeNull();
+    expect(s.sidebar_open).toBe(false);
+    expect(s.sidebar_focus).toBeNull();
+  };
+  try {
+    s.sidebar_open = false;
+    await rename();
+    // The field's keys never move the drawer's cursor.
+    await s.input(bytes("\x1b[B\x1b[A"));
+    expect(s.sidebar_focus.cursor).toEqual({ workspace: 1 });
+    await s.key(27);
+    away();
+    await rename();
+    await s.input(bytes("Drawer\r"));
+    expect(sent).toEqual([{ "workspace.edit": { target: 1, name: "Drawer" } }]);
+    away();
+    // A press off the drawer puts both away.
+    await rename();
+    await s.input(bytes("\x1b[<0;70;12M\x1b[<0;70;12m"));
+    away();
+    // A press on another drawer row opens it, as the drawer does without a field.
+    await rename();
+    const at = s.sidebarView(s.sidebarEntries()).fieldRect({ workspace: 2 }, s.workspaceEntries());
+    await s.input(bytes(`\x1b[<0;${at.x + 1};${at.y + 1}M\x1b[<0;${at.x + 1};${at.y + 1}m`));
+    away();
+    expect(s.current().id).toBe(2);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a failed workspace rename in the drawer keeps the field and the drawer, with the message", async () => {
+  const { s } = renaming(c => ("workspace.edit" in c ? "Boom" : undefined));
+  try {
+    s.sidebar_open = false;
+    await s.perform({ name: "edit-workspace" });
+    await s.key(114);
+    await s.input(bytes("Nope\r"));
+    expect(s.inline_rename?.message).toBe("Could not rename this workspace");
+    expect(s.inline_rename.field.raw()).toBe("Nope");
+    expect(s.sidebar_open).toBe(true);
+    expect(s.sidebar_focus?.drawer).toBe("workspaces");
+    // Clipped to the drawer's width.
+    expect(s.frame()).toContain("Could not rename this w…");
+    await s.input(bytes("!"));
+    expect(s.inline_rename.message).toBeNull();
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("too narrow for any sidebar, r opens the centered rename dialog as before", async () => {
+  const { s } = renaming();
+  try {
+    s.height = 12;
+    s.sidebar_open = false;
+    expect(s.sidebarView([]).width).toBe(0);
+    await s.perform({ name: "edit-workspace" });
+    await s.key(114);
+    expect(s.inline_rename).toBeNull();
+    expect(s.sidebar_open).toBe(false);
+    expect(s.sidebar_focus).toBeNull();
+    expect(s.name_dialog?.target).toEqual({ workspace_name: 1 });
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test.each([
+  ["AgentBusy", "Claude is busy: rename it once its input box is empty"],
+  ["RenameUnavailable", "This agent can't be renamed from outside"],
+  ["NoConversation", "This agent has no conversation yet"],
+  ["InvalidName", "Names are one line of up to 80 characters"],
+  ["Whatever", "Could not rename this agent"],
+])("a rename refused with %s keeps the field, says why, and retries on Return", async (err, message) => {
+  let failing = true;
+  const { s, sent, twice } = renaming(c => (failing && c["agent.rename"]?.name !== undefined ? err : undefined));
+  try {
+    setSystemTime(new Date(1000));
+    await twice({ agent: 1 });
+    await s.input(bytes("\x03New name\r"));
+    expect(s.inline_rename?.field.raw()).toBe("New name");
+    expect(s.inline_rename.message).toBe(message);
+    expect(s.remembered_names.get(1)).toBe("New name");
+    expect(s.frame()).toContain(message.slice(0, 12));
+    // Typing clears the message; Return tries again with the current text.
+    await s.input(bytes("!"));
+    expect(s.inline_rename.message).toBeNull();
+    await s.key(13);
+    expect(s.inline_rename.message).toBe(message);
+    expect(sent.filter(c => c["agent.rename"]?.name !== undefined)).toEqual([
+      { "agent.rename": { target: 1, name: "New name" } },
+      { "agent.rename": { target: 1, name: "New name!" } },
+    ]);
+    failing = false;
+    await s.key(13);
+    expect(s.inline_rename).toBeNull();
+    expect(s.remembered_names.size).toBe(0);
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a failed workspace rename keeps the field with its explanation", async () => {
+  const { s, twice } = renaming(c => ("workspace.edit" in c ? "Boom" : undefined));
+  try {
+    setSystemTime(new Date(1000));
+    await twice({ workspace: 1 });
+    await s.input(bytes("Nope\r"));
+    expect(s.inline_rename?.field.raw()).toBe("Nope");
+    expect(s.inline_rename.message).toBe("Could not rename this workspace");
+    expect(s.remembered_names.size).toBe(0);
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a remembered name prefills the next rename until Escape, success or the pane going drops it", async () => {
+  const { s, rect, press, twice } = renaming(c => (c["agent.rename"]?.name !== undefined ? "AgentBusy" : undefined));
+  try {
+    setSystemTime(new Date(1000));
+    await twice({ agent: 1 });
+    await s.input(bytes("\x03Kept\r"));
+    expect(s.inline_rename?.message).toContain("busy");
+    // Click-away keeps it for the next rename.
+    const other = rect({ agent: 2 });
+    await press(other.x, other.y);
+    expect(s.inline_rename).toBeNull();
+    expect(s.remembered_names.get(1)).toBe("Kept");
+    await twice({ agent: 1 });
+    expect(s.inline_rename?.field.raw()).toBe("Kept");
+    s.closeInlineRename();
+    s.tab_menu = new TabMenu({ tab: 1, agent: true, anchor_x: 0 });
+    await s.tabMenuAction("rename");
+    expect(s.inline_rename?.field.raw()).toBe("Kept");
+    // Escape drops it.
+    await s.key(27);
+    expect(s.remembered_names.size).toBe(0);
+    await twice({ agent: 1 });
+    expect(s.inline_rename?.field.raw()).toBe("agent 1");
+    await s.input(bytes("\x03Gone\r"));
+    expect(s.remembered_names.get(1)).toBe("Gone");
+    // The pane going drops it.
+    const without = pair();
+    without.workspaces[0].model = { nodes: [{ pane: 2 }], tabs: [{ id: 1, root: 0, title: "" }], revision: 1 };
+    without.panes = without.panes.filter(p => p.id !== 1);
+    s.receiveSnapshot(without);
+    expect(s.inline_rename).toBeNull();
+    expect(s.remembered_names.size).toBe(0);
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("input past 80 bytes is refused and says so until the next edit", async () => {
+  const { s, twice } = renaming();
+  try {
+    setSystemTime(new Date(1000));
+    await twice({ agent: 1 });
+    await s.input(bytes("a".repeat(73)));
+    expect(s.inline_rename.field.len).toBe(80);
+    expect(s.inline_rename.message).toBeNull();
+    await s.input(bytes("a"));
+    expect(s.inline_rename.field.len).toBe(80);
+    expect(s.inline_rename.message).toBe("Names fit in 80 characters");
+    await s.input(bytes("\x1b[200~bb\x1b[201~"));
+    expect(s.inline_rename.message).toBe("Names fit in 80 characters");
+    await s.key(127);
+    expect(s.inline_rename.field.len).toBe(79);
+    expect(s.inline_rename.message).toBeNull();
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("Escape while a save is in flight closes the field; the late failure neither reopens it nor remembers", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => (release = resolve));
+  const s: any = new Controller({
+    socket: "",
+    request: transport(async (op, fields: any) => {
+      if (op !== "session.command") return pair();
+      if (fields.command["agent.rename"]?.name !== undefined) {
+        await gate;
+        return { err: "AgentBusy" };
+      }
+      return { result: { pane: 1 } };
+    }).request,
+  });
+  s.receiveSnapshot(pair());
+  s.input_state.attached = true;
+  try {
+    setSystemTime(new Date(1000));
+    const at = s.sidebarView(s.sidebarEntries()).fieldRect({ agent: 1 }, s.workspaceEntries());
+    for (let i = 0; i < 2; i++)
+      await s.input(bytes(`\x1b[<0;${at.x + 1};${at.y + 1}M\x1b[<0;${at.x + 1};${at.y + 1}m`));
+    await s.input(bytes("\x03Late"));
+    const saving = s.key(13);
+    expect(s.inline_rename?.saving).toBe(true);
+    await s.key(13);
+    await s.key(27);
+    expect(s.inline_rename).toBeNull();
+    release();
+    await saving;
+    expect(s.inline_rename).toBeNull();
+    expect(s.remembered_names.size).toBe(0);
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a full input box still opens the field on a double-click and keeps Rename in the menu", async () => {
+  const busy = (c: any) => (c["agent.rename"]?.name === undefined ? "AgentBusy" : undefined);
+  const { s, twice } = renaming(busy);
+  try {
+    setSystemTime(new Date(1000));
+    await twice({ agent: 1 });
+    expect(s.inline_rename?.target).toEqual({ agent: 1 });
+    s.closeInlineRename();
+    await s.openAgentMenu(1, 0, 0);
+    expect(s.tab_menu?.off.has("rename")).toBe(false);
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+  const { s: refused } = renaming(c => (c["agent.rename"]?.name === undefined ? "RenameUnavailable" : undefined));
+  try {
+    await refused.openAgentMenu(1, 0, 0);
+    expect(refused.tab_menu?.off.has("rename")).toBe(true);
+  } finally {
+    viewer.close(refused);
   }
 });

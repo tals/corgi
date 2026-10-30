@@ -14,6 +14,8 @@ import { url as portUrl } from "./trackers/ports";
 import { cpuText, memoryText } from "./trackers/resources";
 import { View as ContextView } from "./usage/context_window";
 import { rank, type Target as OrderTarget } from "./agent_order";
+import { writeField, View as NameView, type Dialog } from "./name_dialog";
+import { sameRenameTarget, type RenameTarget } from "./inline_rename";
 import { Rect } from "./layout";
 import {
   Writer,
@@ -84,9 +86,15 @@ let selected_bg: string,
   button_glyph: string,
   button_warm: string,
   ghost_underline: string,
-  outline: string;
+  outline: string,
+  /** The inline rename field's fill, as the agent search's, so it stands out
+   * on a selected row too, and its hint. */
+  rename_field: string,
+  rename_hint: string;
 palette.derived(() => {
   selected_bg = bg("selected");
+  rename_field = new Style({ fg: "text", bg: "surface" }).sgr();
+  rename_hint = new Style({ fg: "muted", bg: "surface" }).sgr();
   panel = new Style({ fg: "muted", bg: "bg" }).sgr();
   outline = new Style({ bg: "bg" }).sgr() + fgRgb(palette.outline);
   button = new Style({ fg: "strong", bg: "surface", bold: true }).sgr();
@@ -427,6 +435,16 @@ export type Hit =
   | { tag: "workspace_new" }
   | { tag: "workspace"; workspace: number };
 const hit = <T extends Hit["tag"]>(tag: T): Hit => ({ tag }) as Hit;
+/** A row renamed in place: its field drawn over the name, the notice from
+ * its last try, and the name the row falls back to while the text is empty. */
+export type RenameState = { target: RenameTarget; field: Dialog; message: string | null; fallback: string };
+/** Where a row's rename field sits, in screen columns, and the line its message takes. */
+export interface FieldRect {
+  x: number;
+  y: number;
+  width: number;
+  message_y: number;
+}
 
 /** Render the prospective order without changing shared state or the stable
  * row geometry used by the captured gesture's hit testing. */
@@ -491,6 +509,8 @@ export class View {
   inner = false;
   /** Columns the review panel takes at the right edge. */
   panel = 0;
+  /** The row being renamed in place, if any. */
+  rename: RenameState | null = null;
 
   clone(): View {
     return Object.assign(Object.create(View.prototype), this) as View;
@@ -811,6 +831,78 @@ export class View {
     result.panel = width;
     return result;
   }
+  withRename(state: RenameState | null): View {
+    const result = this.clone();
+    result.rename = state;
+    return result;
+  }
+  /** The rename open on `target`'s row, or null. */
+  private renaming(target: RenameTarget): RenameState | null {
+    return this.rename !== null && sameRenameTarget(this.rename.target, target) ? this.rename : null;
+  }
+  /** The name columns of `target`'s row, as `hit` finds it, and the line
+   * below it for a message, or the one above when the row is the last
+   * visible line of its list. Null while the row is not on screen. */
+  fieldRect(target: RenameTarget, workspaces: WorkspaceEntry[]): FieldRect | null {
+    if (this.framed()) {
+      const rect = this.lists().fieldRect(target, workspaces);
+      return rect && { ...rect, x: rect.x + lists_x };
+    }
+    const v = this;
+    if (v.width === 0) return null;
+    if ("workspace" in target) {
+      if (v.drawer === "agents") return null;
+      const index = workspaces.findIndex(ws => ws.id === target.workspace);
+      const slot = index - v.workspace_offset;
+      if (index < 0 || slot < 0 || slot >= v.workspaceCapacity()) return null;
+      const y = 2 + slot * v.workspaceRows();
+      return { x: 1, y, width: sat(linkRange(v, workspaces[index], workspaces).start, 2), message_y: y + 1 };
+    }
+    if (v.drawer === "workspaces") return null;
+    const index = v.entries.findIndex(e => "pane" in e.target && e.target.pane === target.agent);
+    if (index < 0 || index < v.offset) return null;
+    const end = v.drawEnd(v.badge("below"));
+    const y = v.middle() + 2 + v.pinned(v.offset).length + v.rowsBefore(index) - v.rowsBefore(v.offset);
+    if (y >= end) return null;
+    return { x: 4, y, width: v.nameRoom(v.entries[index]), message_y: y + 1 < end ? y + 1 : y - 1 };
+  }
+  /** The columns an agent row's name has, before its context figure and notes. */
+  nameRoom(e: Entry): number {
+    return sat(this.width - 6, nameRight(e, contextFigure(e, false, colors.bg)));
+  }
+  /** Shows the terminal caret in the rename field, as `searchCursor` does
+   * for the search; nothing while no renamed row is on screen. */
+  renameCursor(w: Writer, workspaces: WorkspaceEntry[]): void {
+    const state = this.rename;
+    if (state === null) return;
+    const rect = this.fieldRect(state.target, workspaces);
+    if (rect === null) return;
+    const column = writeField(new Writer(), state.field, NameView.scroll(state.field, rect.width), rect.width, "");
+    w.write(`\x1b[0m\x1b[${rect.y + 1};${rect.x + column + 1}H\x1b[?25h`);
+  }
+  /** The rename field over `width` columns of the name line from `x`: its
+   * text scrolled so the caret shows, or the fallback name, muted, while
+   * the text is empty. */
+  private drawField(w: Writer, state: RenameState, x: number, y: number, width: number): void {
+    const field = state.field;
+    w.write(`\x1b[${y + 1};${x + 1}H${rename_field}`);
+    w.splat(" ", width);
+    w.write(`\x1b[${y + 1};${x + 1}H`);
+    if (field.len > 0) writeField(w, field, NameView.scroll(field, width), width, rename_field);
+    else if (state.fallback.length > 0) {
+      w.write(rename_hint);
+      writeEllipsis(w, directoryLabel(state.fallback, null, 160), width);
+    }
+  }
+  /** A rename's notice on line `y` over `fill`, in the error style and
+   * clipped to the sidebar; it takes the line. */
+  private drawMessage(w: Writer, message: string, y: number, fill: string): void {
+    if (y < 0 || y >= this.rows) return;
+    w.write(`\x1b[${y + 1};2H\x1b[0m${fill}`);
+    w.splat(" ", this.width - 2);
+    w.write(`\x1b[${y + 1};2H${fg("hot")}`);
+    writeEllipsis(w, message, this.width - 3);
+  }
   area(): Rect {
     const x = this.drawer !== null ? 0 : this.width;
     return new Rect(x, 1, sat(this.cols - x, this.panel), sat(this.rows, 1));
@@ -1032,9 +1124,13 @@ export class View {
       w.splat(" ", v.width - 1);
       const badge = gitLabel(ws, false);
       const badge_width = displayWidth(badge);
-      w.write(`\x1b[${y + 1};2H${style}`);
       const link = linkRange(v, ws, workspaces);
-      writeClipped(w, directoryLabel(ws.name, null, 4097), sat(link.start, 2));
+      const rename = v.renaming({ workspace: ws.id });
+      w.write(`\x1b[${y + 1};2H${style}`);
+      if (rename !== null) {
+        v.drawField(w, rename, 1, y, sat(link.start, 2));
+        w.write(style);
+      } else writeClipped(w, directoryLabel(ws.name, null, 4097), sat(link.start, 2));
       if (link.end > link.start) {
         w.write(`\x1b[${y + 1};${link.start + 1}H`);
         drawPorts(w, ws, link.end - link.start, false);
@@ -1098,6 +1194,8 @@ export class View {
         w.write(panel);
         if (tinted) w.write(`\x1b[${y + 3};1H${bar}${panel}`);
       }
+      if (rename !== null && rename.message !== null)
+        v.drawMessage(w, rename.message, y + 1, tinted ? selected_bg : bg("bg"));
     });
     const ws_thumb = v.workspaceThumb();
     if (ws_thumb)
@@ -1294,12 +1392,16 @@ export class View {
     const name = e.name.length > 0 ? directoryLabel(e.name, null, 160) : e.provider ? adapter(e.provider).name : "";
     const figure = contextFigure(e, compacting, background);
     const figure_width = figure ? displayWidth(figure.text) : 0;
-    const notes = e.notes > 0 ? `${e.notes} note${e.notes === 1 ? "" : "s"}` : "";
-    const right = figure_width + (figure_width > 0 ? 1 : 0) + (notes.length > 0 ? notes.length + 1 : 0);
+    const notes = noteLabel(e);
+    const right = nameRight(e, figure);
+    const rename = "pane" in e.target ? v.renaming({ agent: e.target.pane }) : null;
     w.write(
       `\x1b[${y + 1};${x + 5}H${dot.unread || (grouped && e.focused) ? "\x1b[1m" + fg("strong") : "\x1b[22m" + fg("text")}`,
     );
-    writeEllipsis(w, name, sat(room, right));
+    if (rename !== null) {
+      v.drawField(w, rename, x + 4, y, sat(room, right));
+      w.write(row_bg);
+    } else writeEllipsis(w, name, sat(room, right));
     w.write("\x1b[22m");
     // Unsent review notes wait for the user, so they take warm.
     if (notes.length > 0 && room > right + 4)
@@ -1398,6 +1500,10 @@ export class View {
     // Without the group rail, the focused agent takes the active workspace's bar.
     const bar = ghost ? ghost_bar : e.focused && !grouped ? active_bar : "";
     if (bar.length > 0) for (let row = 0; row < 2; row++) w.write(`\x1b[${y + row + 1};${x + 1}H${bar}\x1b[0m`);
+    if (rename !== null && rename.message !== null) {
+      const below = y + 1 < v.drawEnd(v.badge("below"));
+      v.drawMessage(w, rename.message, below ? y + 1 : y - 1, below ? row_bg : bg("bg"));
+    }
   }
   /** A workspace or worktree group's header. A worktree's under a workspace
    * branches off the workspace's rail with `lead`; a ghost's leaves that
@@ -1525,6 +1631,16 @@ function contextFigure(
   const percent = BigInt(e.context.percent());
   const text = `${percent < 999n ? percent : 999n}%`;
   return { text, color: contextColor(band, compacting, background) };
+}
+/** Unsent review notes on the name line, as "2 notes". */
+function noteLabel(e: Entry): string {
+  return e.notes > 0 ? `${e.notes} note${e.notes === 1 ? "" : "s"}` : "";
+}
+/** The columns the context figure and the notes take at the name line's right. */
+function nameRight(e: Entry, figure: { text: string } | null): number {
+  const figure_width = figure ? displayWidth(figure.text) : 0;
+  const notes = noteLabel(e);
+  return figure_width + (figure_width > 0 ? 1 : 0) + (notes.length > 0 ? notes.length + 1 : 0);
 }
 export function animationKey(e: Entry): bigint {
   if ("pane" in e.target) return BigInt(e.target.pane) * 17n;

@@ -67,6 +67,8 @@ export async function runTest(connection: Transport, cwd = process.cwd()): Promi
           pane: view.focused()?.id ?? 0,
           prefix: view.prefix,
           dialog: view.name_dialog !== null,
+          renaming: view.inline_rename !== null,
+          drawer: view.sidebar_focus?.drawer ?? null,
           detached: !active,
           effects: view.effects,
         }) + "\n",
