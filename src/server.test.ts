@@ -179,7 +179,7 @@ test("pending model discovery releases the shared request queue", async () => {
     pending.resolve([{ id: "test", name: "Test" }]);
     await (server as any).jobs;
     await pending.promise;
-    expect(messages).toEqual([{ models: [{ id: "test", name: "Test" }] }]);
+    expect(messages).toEqual([{ ok: true, models: [{ id: "test", name: "Test" }] }]);
   } finally {
     pending.resolve([]);
     await (server as any).jobs;
@@ -233,6 +233,54 @@ for (const failure of [false, true]) {
       reader.mockRestore();
       cl.close();
       dispose();
+    }
+  });
+}
+
+for (const failure of [false, true]) {
+  test(`handoff saves a cancelled model reply and ignores late ${failure ? "failure" : "success"}`, async () => {
+    const source = fixture(),
+      target = fixture(),
+      pending = Promise.withResolvers<agentModels.Choice[]>(),
+      reader = spyOn(agentModels, "read").mockReturnValue(pending.promise),
+      cl = source.server.addClient(-1, false);
+    try {
+      cl.pending.push(
+        { op: "launcher.models", row: "codex", protocol: protocol.version },
+        { op: "ping", protocol: protocol.version },
+      );
+      (cl as any).paused = false;
+      spyOn(cl, "flush").mockImplementation(() => {});
+      (cl as any).dispatch();
+      await (source.server as any).jobs;
+      source.server.pause();
+      expect(reader.mock.calls[0][2].aborted).toBe(true);
+      const saved = captureManifest(source.server, cl),
+        restored = restoreClient(target.server, saved.clients[0]);
+      expect(restored.output.toString()).toBe('{"err":"Cancelled"}\n');
+      expect(restored.pending.map(r => r.op)).toEqual(["ping"]);
+      if (failure) pending.reject(Error("LateFailure"));
+      else pending.resolve([{ id: "late", name: "Late" }]);
+      await pending.promise.catch(() => {});
+      expect(cl.output.toString()).toBe('{"err":"Cancelled"}\n');
+      // A failed handoff resumes the old client without an extra reply or a stuck busy flag.
+      (cl as any).paused = false;
+      (cl as any).dispatch();
+      await (source.server as any).jobs;
+      const replies = cl.output
+        .toString()
+        .trim()
+        .split("\n")
+        .map(line => JSON.parse(line));
+      expect(replies).toHaveLength(2);
+      expect(replies[1].ok).toBe(true);
+      restored.close();
+    } finally {
+      pending.resolve([]);
+      reader.mockRestore();
+      cl.close();
+      source.dispose();
+      target.dispose();
     }
   });
 }

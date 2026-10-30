@@ -51,6 +51,7 @@ export class Server {
   private loop = new ReadyLoop();
   private registration?: ReturnType<ReadyLoop["watch"]>;
   private jobs: Promise<void> = Promise.resolve();
+  private modelReads = new Map<Client, () => void>();
   private timer?: ReturnType<typeof setInterval>;
   private stopped = false;
   private subscribedRevision = -1n;
@@ -276,6 +277,8 @@ export class Server {
     this.registration?.close();
     this.registration = undefined;
     for (const c of this.clients) c.pause();
+    // Queue cancellation before handoff captures output; paused clients keep later input queued.
+    for (const cancel of this.modelReads.values()) cancel();
     for (const p of this.runtime.panes) p.terminal.pause();
     for (const s of this.runtime.sessions) s.pause();
   }
@@ -308,6 +311,7 @@ export class Server {
         });
       },
       () => {
+        this.modelReads.get(client)?.();
         if (client.headless_start) {
           const session = this.runtime.sessions.find(s => s.id === client.headless_start!.id);
           if (session && !session.session) {
@@ -466,19 +470,23 @@ export class Server {
       case "launcher.models": {
         const agent = launcherConfig.get(this.runtime, request.payload.row);
         if (!agent.provider) throw Error("CustomCommandOptions");
-        const quit = new ModelQuit(),
-          timeout = setTimeout(() => quit.signal(), 15000);
-        void agentModels
-          .read(agent.provider, agent.account, quit)
-          .then(
-            models => cl.reply(op, { models }),
-            error => cl.queue({ err: error instanceof Error ? error.message : String(error) }),
-          )
-          .finally(() => {
-            clearTimeout(timeout);
-            quit.signal();
-            cl.done();
-          });
+        const quit = new ModelQuit();
+        let settled = false;
+        const finish = (reply: { ok: true; models: agentModels.Choice[] } | { err: string }) => {
+          if (settled) return;
+          settled = true;
+          this.modelReads.delete(cl);
+          clearTimeout(timeout);
+          quit.signal();
+          cl.queue(reply);
+          cl.done();
+        };
+        const timeout = setTimeout(() => finish({ err: "TimedOut" }), 15000);
+        this.modelReads.set(cl, () => finish({ err: "Cancelled" }));
+        void agentModels.read(agent.provider, agent.account, quit).then(
+          models => finish({ ok: true, models }),
+          error => finish({ err: error instanceof Error ? error.message : String(error) }),
+        );
         return "deferred";
       }
       case "session.list":
