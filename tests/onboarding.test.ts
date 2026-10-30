@@ -64,17 +64,19 @@ class Onboarding extends Runtime {
   }
   async test_escape_from_fresh_manager_opens_a_terminal() {
     const view = await this.start();
-    await view.input("m");
-    this.assertIn("Manage agents", view.state.data);
+    await view.input("\x1b[C");
+    await view.advance(0.3);
+    this.assertIn("Active ·", view.state.data);
+    this.assertIn("Hidden ·", view.state.data);
     await view.input("\x1b[27u");
     await this.terminal(view);
   }
   async test_fresh_manager_removes_and_restores_agents_without_detaching() {
     const view = await this.start();
-    await view.input("m");
+    await view.input("\x1b[C");
     await view.advance(0.3);
     for (const provider of ["codex", "claude"]) {
-      await view.input(provider + "\t");
+      await view.input("/" + provider + "\t");
       for (const hidden of [true, false]) {
         if (hidden) {
           await view.input("\x7f");
@@ -84,7 +86,14 @@ class Onboarding extends Runtime {
             await view.advance(0.05);
           }
           await view.advance(2);
-        } else await view.input("\r");
+        } else {
+          const label = provider === "codex" ? "Codex" : "Claude Code",
+            rows = screen_text(view.state.data, 100, 30),
+            row = rows.find(line => line.includes(label) && line.includes("≡"));
+          this.assertTrue(!!row, `Missing hidden ${label}`);
+          if (!row!.includes("│›")) await this.clickText(view, label);
+          await view.input("h");
+        }
         this.assertFalse(view.state.detached);
         this.assertIn("Manage agents", view.state.data);
         const session = await this.session();

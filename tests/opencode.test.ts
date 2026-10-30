@@ -189,7 +189,7 @@ else console.log('{}');
       x = rows[y].indexOf("Manage agents");
     await view.input(`\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`);
     await view.advance(0.3);
-    await this.until(async () => (await view.poll()).data.includes("Available to add"));
+    await this.until(async () => (await view.poll()).data.includes("Add agent"));
     const managed = screen_text((await view.poll()).data, 180, 40).join("\n");
     this.assertIn("OpenCode", managed);
     this.assertFalse(managed.split("\n").some(row => row.includes("New ") && row.includes("OpenCode")));
