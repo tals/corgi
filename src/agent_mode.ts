@@ -1,5 +1,4 @@
-/** Agent mode: when a coding agent runs Corgi through a pipe, help lists only
- * the commands an agent uses and `pane read` compacts the screen's text. */
+/** Agent mode compacts pane output when a coding agent reads through a pipe. */
 
 /** Variables coding agents set in their commands' environments, and the agent
  * each names. `AI_AGENT` and `AGENT` name the agent in their value. */
@@ -29,21 +28,3 @@ export function enabled(flag: boolean | null, env: Record<string, string | undef
   if (env.CORGI_AGENT_MODE === "0") return false;
   return !terminal && agent(env) !== null;
 }
-/** A command line without its `--agent`/`--no-agent` flags, and the last one
- * given. Words after `--` are text, not flags. */
-export function flags(args: string[]): { flag: boolean | null; args: string[] } {
-  let flag: boolean | null = null,
-    literal = false;
-  const rest: string[] = [];
-  for (const arg of args) {
-    if (!literal && arg === "--agent") flag = true;
-    else if (!literal && arg === "--no-agent") flag = false;
-    else {
-      if (arg === "--") literal = true;
-      rest.push(arg);
-    }
-  }
-  return { flag, args: rest };
-}
-
-export const helpNote = "\n\nAgent mode is on: `corgi --no-agent --help` also lists the viewer's commands.\n";

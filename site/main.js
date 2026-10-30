@@ -27,7 +27,8 @@ import * as brandIcons from "../src/assets/brand_icons";
 import { Rect } from "../src/layout";
 import { Writer } from "../src/text";
 import { cpuText, memoryText } from "../src/trackers/resources";
-import CLI_HELP from "../assets/cli-help.txt" with { type: "text" };
+import * as cliHelp from "../src/cli_help";
+import * as cliOptions from "../src/cli_args";
 import CLI_SKILL from "../assets/corgi-skill.md" with { type: "text" };
 
 const WAG = corgiFrames.wag;
@@ -2730,15 +2731,9 @@ function cliArgs(args) {
   }
   return { pos, opt };
 }
-// The help lines for the command `args` names, as src/cli.ts's usage().
+// Use the same usage definitions as the real CLI.
 function usage(args) {
-  const end = args.findIndex((a) => a.startsWith("-")), names = end < 0 ? args : args.slice(0, end);
-  for (let n = names.length; n > 0; n--) {
-    const prefix = ["corgi", ...names.slice(0, n)].join(" ");
-    const lines = CLI_HELP.split("\n").map((l) => l.trim()).filter((l) => l.startsWith(prefix) && [undefined, " ", "|"].includes(l[prefix.length]));
-    if (lines.length) return lines;
-  }
-  return [];
+  return cliHelp.usage(args).map((line) => line.trim());
 }
 const holds = (node, id) => (node.id ? node.id === id : holds(node.a, id) || holds(node.b, id));
 const leafIds = (node) => (node.id ? [node.id] : [...leafIds(node.a), ...leafIds(node.b)]);
@@ -2818,15 +2813,19 @@ function interrupt(S, p, id) {
 const wantsJson = (args) => args.slice(0, args.includes("--") ? args.indexOf("--") : args.length).includes("--json");
 // What `corgi ARGS` prints, run from the pane `from` (null outside Corgi).
 function corgi(s, from, args) {
-  const S = s.S, [group, verb] = args;
   const lines = (text) => text.trimEnd().split("\n").map((line) => [[line, A.text]]);
+  const invocation = cliOptions.parse(args);
+  if (invocation.kind === "help") return lines(cliHelp.render(invocation.topic));
+  if (invocation.kind === "skill") return lines(CLI_SKILL);
+  if (invocation.kind !== "command") throw Error("UnknownCommand");
+  args = invocation.args;
+  const S = s.S, [group, verb] = args;
   const ok = (result) => {
     const r = { pane: 0, tab: 0, workspace: 0, text: null, closed_panes: [], ...result };
     if (wantsJson(args)) return [[[JSON.stringify({ ok: true, result: r }), JSON_OUT]]];
     return lines(r.closed_panes.length ? `closed pane ${r.closed_panes.join(", ")}` : r.pane ? `pane ${r.pane} (tab ${r.tab}, workspace ${r.workspace})` : "ok");
   };
-  if (group === "--skill") return lines(CLI_SKILL);
-  if (!group || group === "help" || args.includes("--help") || args.includes("-h") || (["pane", "tab", "workspace"].includes(group) && args.length === 1)) return lines(CLI_HELP);
+  if (!group) return lines(cliHelp.render());
   if (group === "current") { if (!from) throw Error("NoCallerPane"); return ok(locate(S, from)); }
   if (group === "list" || (group === "workspace" && verb === "list")) {
     if (args.slice(group === "list" ? 1 : 2).some((a) => a !== "--json")) throw Error("Usage");

@@ -1,27 +1,7 @@
 import { test, expect } from "bun:test";
 import { realpathSync } from "node:fs";
-import { asksHelp, handles, help, idle, launcher, launcherText, layout, list, parse, read, usage, words } from "./cli";
+import { handles, idle, launcher, launcherText, layout, list, parse, read, words } from "./cli";
 import { Provider, adapter } from "./providers";
-
-test("help is asked for only before --", () => {
-  expect(asksHelp(["move", "3", "--help"])).toBe(true);
-  expect(asksHelp(["read", "-h"])).toBe(true);
-  expect(asksHelp(["send", "3", "--", "--help"])).toBe(false);
-  expect(asksHelp(["send", "3", "help"])).toBe(false);
-});
-test("usage finds the lines for the longest command a line names", () => {
-  expect(usage(help, ["pane", "split", "3", "--righ"]).map(line => line.trim())).toEqual([
-    "corgi pane split ID|current --right|--left|--up|--down [--cwd DIR]",
-  ]);
-  expect(usage(help, ["pane", "move"])).toHaveLength(2);
-  expect(usage(help, ["workspace", "new", "X"]).every(line => line.includes("corgi workspace"))).toBe(true);
-  expect(usage(help, ["tab", "bogus"]).every(line => line.trim().startsWith("corgi tab "))).toBe(true);
-  expect(usage(help, ["bogus"])).toEqual([]);
-  expect(usage(help, ["claim", "--clear"]).map(line => line.trim())).toEqual([
-    "corgi claim PROVIDER [--pane ID|current] [--owner PID]",
-    "corgi claim --clear [--pane ID|current] [--owner PID]",
-  ]);
-});
 
 test("command lines are rejected before connecting", async () => {
   const cases: [string[], string?, number?][] = [

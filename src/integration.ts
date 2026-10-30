@@ -177,15 +177,6 @@ function mark(line: Line, op: Op): string {
   if (line.outcome === "failed" || line.outcome === "partial" || ("todo" in line && line.todo)) return "✗";
   return line.outcome === (op === "status" ? "present" : "added") || line.outcome === "removed" ? "✓" : "·";
 }
-export const help = `Usage: corgi integration COMMAND [${Provider.all.join("|")}] [--account NAME]
-
-  status      show what Corgi has added to each agent's settings
-  install     add what each agent needs to report to Corgi
-  uninstall   remove everything Corgi added; startup won't add it back
-
-Without an agent, a command covers ${Provider.all.map(p => adapter(p).label).join(" and ")}, in
-every account Corgi knows; --account picks one ("default" for your own).
-`;
 /** `corgi integration status|install|uninstall [PROVIDER] [--account NAME]`:
  * one line per thing Corgi adds. False when any step failed. */
 export async function command(op: Op, only: Provider | null, named: string | null = null): Promise<boolean> {
