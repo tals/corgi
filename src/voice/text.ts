@@ -20,10 +20,15 @@ export function clean(raw: string): string | null {
     .replace(/[\x00-\x1f\x7f-\x9f]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  if (/^(?:\[.*\]|\(.*\)|\*\*.*\*\*)$/s.test(text) || /[♪♫]/.test(text)) return null;
-  if (hallucinations.has(normalized(text))) return null;
+  // Sounds Whisper describes, as *clap* or [music], alone or beside speech.
+  const spoken = text
+    .replace(/\*+\S(?:[^*]*\S)?\*+|\[[^\]]*\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (/^\(.*\)$/s.test(spoken) || /[♪♫]/.test(spoken)) return null;
+  if (hallucinations.has(normalized(spoken))) return null;
   const words: string[] = [];
-  for (const word of text.split(" ")) {
+  for (const word of spoken.split(" ")) {
     const parts = /^(\p{L}+)([,.!?;:]*)$/u.exec(word);
     if (parts && fillers.has(parts[1].toLowerCase())) {
       // "add tests, um." keeps its full stop.
