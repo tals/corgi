@@ -7,7 +7,7 @@
 import * as palette from "./palette";
 import { Style } from "./palette";
 import { Rect, View as LayoutView } from "./layout";
-import { nightly_url, type Notice } from "./host_clipboard";
+import { download_url, type Notice } from "./host_clipboard";
 import type { Pane } from "./mirror";
 import { Writer, displayWidth, writeEllipsis, sat } from "./text";
 
@@ -68,7 +68,7 @@ function frameWidth(inner: number): number {
  * shortens the download link; null when even the rest doesn't fit. */
 export function place(notice: Notice, pane: Rect, caret: Caret | null): Placement | null {
   const lines = Math.max(displayWidth(notice.body.text()), fixWidth(notice));
-  const full = hasLink(notice) ? Math.max(lines, download.length + nightly_url.length) : lines;
+  const full = hasLink(notice) ? Math.max(lines, download.length + download_url.length) : lines;
   const w = Math.min(frameWidth(full), pane.w);
   const h = height(notice);
   if (w < frameWidth(lines) || pane.h < h) return null;
@@ -94,7 +94,7 @@ export function locate(view: LayoutView, panes: Pane[], area: Rect, notice: Noti
   }
   return null;
 }
-/** Whether (`x`, `y`) is on one of the card's links: "Ghostty Nightly" in
+/** Whether (`x`, `y`) is on one of the card's links: "Ghostty 1.4" in
  * the fix, or the download URL under it. */
 export function linkAt(notice: Notice, at: Placement, x: number, y: number): boolean {
   if (!hasLink(notice)) return false;
@@ -110,7 +110,7 @@ export function linkAt(notice: Notice, at: Placement, x: number, y: number): boo
   }
   if (y === at.y + 5) {
     const start = left + download.length;
-    return x >= start && x < start + Math.min(nightly_url.length, urlRoom(at));
+    return x >= start && x < start + Math.min(download_url.length, urlRoom(at));
   }
   return false;
 }
@@ -152,16 +152,16 @@ export function draw(notice: Notice, at: Placement, copied: boolean): string {
   }
   if (hasLink(notice)) {
     w.write(`\x1b[${at.y + 6};${at.x + 2 + pad}H${text}` + download);
-    writeLink(w, nightly_url, urlRoom(at));
+    writeLink(w, download_url, urlRoom(at));
   }
   if (at.arrow) w.write(`\x1b[${at.arrow.y + 1};${at.arrow.x + 1}H${pointer}${at.arrow.glyph}`);
   w.write("\x1b[0m\x1b8");
   return w.buffered();
 }
-/** A terminal hyperlink to Ghostty's nightly release, which the host opens
+/** A terminal hyperlink to Ghostty's download page, which the host opens
  * on the user's machine. */
 function writeLink(w: Writer, label: string, room: number): void {
-  w.write(text + "\x1b]8;;" + nightly_url + "\x1b\\\x1b[4m");
+  w.write(text + "\x1b]8;;" + download_url + "\x1b\\\x1b[4m");
   writeEllipsis(w, label, room);
   w.write("\x1b[24m\x1b]8;;\x1b\\");
 }

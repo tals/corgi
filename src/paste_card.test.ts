@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { keycap } from "./palette";
 import { Rect } from "./layout";
 import { place, draw, linkAt, styles } from "./paste_card";
-import { State, nightly_url } from "./host_clipboard";
+import { State, download_url } from "./host_clipboard";
 
 function sample() {
   const s = new State();
@@ -26,8 +26,9 @@ test("the card opens above the caret, or below it when the pane has no room", ()
   expect(below.arrow!.glyph).toBe("▴");
   // Near the right edge the card stays inside the pane.
   expect(place(notice, pane, { x: 94, y: 10 })!.x).toBe(pane.x + pane.w - above.w);
-  // A narrow pane shortens the download link before giving up.
-  expect(place(notice, new Rect(0, 0, 60, 14), { x: 3, y: 10 })!.w).toBe(60);
+  // The download link fits in the text's width; a narrower pane gives up.
+  expect(place(notice, new Rect(0, 0, 49, 14), { x: 3, y: 10 })!.w).toBe(49);
+  expect(place(notice, new Rect(0, 0, 48, 14), { x: 3, y: 10 })).toBeNull();
   expect(place(notice, new Rect(0, 0, 30, 14), { x: 3, y: 9 })).toBeNull();
   expect(place(notice, new Rect(0, 0, 80, 8), { x: 3, y: 4 })).toBeNull();
   expect(place(notice, pane, null)!.arrow).toBeNull();
@@ -44,9 +45,9 @@ test("the card shows its title, close key, reason and fix with a link", () => {
     keycap + " esc ",
     " close ",
     "Ghostty 1.3.1 can't send images over SSH.",
-    "\x1b]8;;" + nightly_url + "\x1b\\\x1b[4mGhostty Nightly\x1b[24m",
+    "\x1b]8;;" + download_url + "\x1b\\\x1b[4mGhostty 1.4\x1b[24m",
     styles.heading + "⌘+V",
-    "Download: " + styles.text + "\x1b]8;;" + nightly_url + "\x1b\\\x1b[4m" + nightly_url,
+    "Download: " + styles.text + "\x1b]8;;" + download_url + "\x1b\\\x1b[4m" + download_url,
     "\x1b[10;30H" + styles.pointer + "▾",
   ])
     expect(drawn).toContain(part);
@@ -61,11 +62,11 @@ test("both links answer the pointer, and nothing else on the card does", () => {
   const notice = sample();
   const at = place(notice, new Rect(26, 1, 80, 14), { x: 29, y: 10 })!;
   const left = at.x + 1 + 3;
-  // "Use " then "Ghostty Nightly" on the fix row.
+  // "Use " then "Ghostty 1.4" on the fix row.
   expect(linkAt(notice, at, left + 3, at.y + 4)).toBe(false);
   expect(linkAt(notice, at, left + 4, at.y + 4)).toBe(true);
-  expect(linkAt(notice, at, left + 18, at.y + 4)).toBe(true);
-  expect(linkAt(notice, at, left + 19, at.y + 4)).toBe(false);
+  expect(linkAt(notice, at, left + 14, at.y + 4)).toBe(true);
+  expect(linkAt(notice, at, left + 15, at.y + 4)).toBe(false);
   expect(linkAt(notice, at, left + 9, at.y + 5)).toBe(false);
   expect(linkAt(notice, at, left + 10, at.y + 5)).toBe(true);
   expect(linkAt(notice, at, left + 10, at.y + 2)).toBe(false);
