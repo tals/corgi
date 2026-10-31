@@ -64,16 +64,16 @@ export class Queue {
         a.state.transcript.len &&
         adapter(a.provider()).transcript?.naming,
     );
-    for (const [id, slot] of this.slots)
+    const current = new Map<number, Actor>(eligible.map(actor => [actor.id, actor]));
+    for (const [id, slot] of this.slots) {
+      const actor = current.get(id);
       if (
-        !eligible.some(
-          a =>
-            a.id === id &&
-            a.provider() === slot.request.agent.provider &&
-            a.state.sessionId() === slot.request.agent.sessionId(),
-        )
+        !actor ||
+        actor.provider() !== slot.request.agent.provider ||
+        actor.state.sessionId() !== slot.request.agent.sessionId()
       )
         this.slots.delete(id);
+    }
     for (const actor of eligible)
       if (!this.slots.has(actor.id))
         this.slots.set(actor.id, { request: { actor: actor.id, agent: actor.state.snapshot() }, next: 0 });

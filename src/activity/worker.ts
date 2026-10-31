@@ -450,7 +450,8 @@ export class Worker {
     slot?.observeTools(progress, clock.milliTimestamp());
   }
   reconcile(actors: Actor[], panes: readonly Pane[] = []) {
-    this.names.reconcile(actors.filter(actor => panes.some(p => !p.terminal.exited && p.attachment.actor === actor)));
+    const shown = new Set(panes.filter(p => !p.terminal.exited).map(p => p.attachment.actor));
+    this.names.reconcile(actors.filter(actor => shown.has(actor)));
     this.slots = this.slots.map(slot => {
       if (!slot) return null;
       const actor = actors.find(

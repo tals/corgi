@@ -1,3 +1,4 @@
+import * as telemetry from "../../telemetry";
 import path from "node:path";
 import { Path } from "../../bounded_text";
 import { Text, field, str } from "../common";
@@ -128,129 +129,134 @@ export async function location(client: Pick<Client, "call">, session: string, cw
   return turn ? { cwd: named || cwd, writes: edited, ran: [...ran], basis: named ? "named" : "default" } : null;
 }
 export async function snapshot(client: Client, req: Request, session: string) {
-  const meta = await client.call("thread/read", {
-      threadId: session,
-      includeTurns: false,
-    }),
-    thread = field(field(meta, "result"), "thread");
-  if (str(thread, "id") !== session) throw Error("WrongThread");
-  let state = threadState(field(thread, "status"));
-  if (state === "unknown") state = "initializing";
-  const out = new Snapshot(req, session, state);
-  // Codex lists no turns or items of an ephemeral thread.
-  out.ephemeral = field(thread, "ephemeral") === true;
-  if (out.ephemeral) return out;
-  if (path.isAbsolute(str(thread, "cwd"))) out.cwd = transcriptPath(str(thread, "cwd"));
-  if (Number.isInteger(field(thread, "updatedAt")) && field(thread, "updatedAt") > 0)
-    out.updated_at = field(thread, "updatedAt");
-  out.name = new Name(str(thread, "name"));
-  if (path.isAbsolute(str(thread, "path"))) out.transcript = transcriptPath(str(thread, "path"));
-  if (str(field(thread, "status"), "type") === "notLoaded") {
-    out.lifecycle = false;
-    out.state = "unknown";
-    return out;
-  }
-  const turns = await client.call("thread/turns/list", {
-      threadId: session,
-      limit: 1,
-      sortDirection: "desc",
-      itemsView: "summary",
-    }),
-    data = field(field(turns, "result"), "data");
-  if (Array.isArray(data) && data.length) {
-    out.evidence = evidence(data[0]);
-    const id = str(data[0], "id");
-    if (id && Buffer.byteLength(id) <= 128) {
-      out.turn = new Turn(id);
-      const status = str(data[0], "status");
-      if (status === "completed" || status === "interrupted" || status === "failed") out.outcome = status;
-    }
-  }
+  const telemetry_started = telemetry.begin();
   try {
-    out.location = await location(client, session, out.cwd.text());
-  } catch {}
-  try {
-    const reply = await client.call("thread/backgroundTerminals/list", {
+    const meta = await client.call("thread/read", {
         threadId: session,
-        limit: capacity,
+        includeTurns: false,
       }),
-      body = field(reply, "result"),
-      data = field(body, "data");
-    if (!Array.isArray(data)) throw Error("BadResponse");
-    out.background_tasks.observed_at = out.observed_at;
-    out.background_tasks.live = true;
-    for (const item of data) out.background_tasks.append(str(item, "processId"), "", str(item, "command"));
-    out.background_tasks.truncated ||= field(body, "nextCursor") !== null;
-    if (out.background_tasks.len)
-      out.evidence = new SummaryText(
-        (
-          "Currently running background tasks:\n" +
-          out.background_tasks.items
-            .slice(0, 4)
-            .map(t => t.label.text() + "\n")
-            .join("") +
-          out.evidence.text()
-        ).slice(0, 2048),
-      );
-  } catch {
-    out.background_tasks = new Inventory();
-  }
-  let any = false;
-  try {
-    await pages(
-      client,
-      "thread/list",
-      {
-        parentThreadId: session,
-        sourceKinds: ["subAgent"],
-        useStateDbOnly: true,
-        limit: 100,
-      },
-      thread => {
-        if (str(thread, "parentThreadId") !== session) return;
-        any = true;
-        const id = str(thread, "id");
-        if (out.children.some(c => c.session === id)) return;
-        if (str(field(thread, "status"), "type") === "active") {
-          if (needsInput(field(thread, "status"))) out.subagents.blocked++;
-          else out.subagents.running++;
-        }
-        const prefix = titleSession(id);
-        if (prefix?.len !== 36 || id === session) return;
-        if (out.children.length >= 1024) throw Error("TooManyThreads");
-        const child = new Child();
-        child.session = id;
-        child.state = threadState(field(thread, "status"));
-        child.name = Name.ascii(childName(thread));
-        child.role = Role.ascii(str(thread, "agentRole"));
-        if (path.isAbsolute(str(thread, "path"))) child.transcript = transcriptPath(str(thread, "path"));
-        if (Number.isInteger(field(thread, "updatedAt"))) child.updated_at = field(thread, "updatedAt");
-        out.children.push(child);
-      },
-      "TooManyThreads",
-    );
-    out.children_complete = true;
-  } catch {
-    out.children = [];
-    out.subagents = { running: 0, blocked: 0, waiting: false };
-    return out;
-  }
-  if (any && state === "working" && out.turn.len && !out.outcome)
+      thread = field(field(meta, "result"), "thread");
+    if (str(thread, "id") !== session) throw Error("WrongThread");
+    let state = threadState(field(thread, "status"));
+    if (state === "unknown") state = "initializing";
+    const out = new Snapshot(req, session, state);
+    // Codex lists no turns or items of an ephemeral thread.
+    out.ephemeral = field(thread, "ephemeral") === true;
+    if (out.ephemeral) return out;
+    if (path.isAbsolute(str(thread, "cwd"))) out.cwd = transcriptPath(str(thread, "cwd"));
+    if (Number.isInteger(field(thread, "updatedAt")) && field(thread, "updatedAt") > 0)
+      out.updated_at = field(thread, "updatedAt");
+    out.name = new Name(str(thread, "name"));
+    if (path.isAbsolute(str(thread, "path"))) out.transcript = transcriptPath(str(thread, "path"));
+    if (str(field(thread, "status"), "type") === "notLoaded") {
+      out.lifecycle = false;
+      out.state = "unknown";
+      return out;
+    }
+    const turns = await client.call("thread/turns/list", {
+        threadId: session,
+        limit: 1,
+        sortDirection: "desc",
+        itemsView: "summary",
+      }),
+      data = field(field(turns, "result"), "data");
+    if (Array.isArray(data) && data.length) {
+      out.evidence = evidence(data[0]);
+      const id = str(data[0], "id");
+      if (id && Buffer.byteLength(id) <= 128) {
+        out.turn = new Turn(id);
+        const status = str(data[0], "status");
+        if (status === "completed" || status === "interrupted" || status === "failed") out.outcome = status;
+      }
+    }
     try {
-      out.subagents.waiting = await pages(
-        client,
-        "thread/items/list",
-        {
-          threadId: session,
-          turnId: out.turn.text(),
-          limit: 100,
-          sortDirection: "desc",
-        },
-        e => isActiveWait(e, out.turn.text(), session),
-        "TooManyItems",
-      );
+      out.location = await location(client, session, out.cwd.text());
     } catch {}
-  return out;
+    try {
+      const reply = await client.call("thread/backgroundTerminals/list", {
+          threadId: session,
+          limit: capacity,
+        }),
+        body = field(reply, "result"),
+        data = field(body, "data");
+      if (!Array.isArray(data)) throw Error("BadResponse");
+      out.background_tasks.observed_at = out.observed_at;
+      out.background_tasks.live = true;
+      for (const item of data) out.background_tasks.append(str(item, "processId"), "", str(item, "command"));
+      out.background_tasks.truncated ||= field(body, "nextCursor") !== null;
+      if (out.background_tasks.len)
+        out.evidence = new SummaryText(
+          (
+            "Currently running background tasks:\n" +
+            out.background_tasks.items
+              .slice(0, 4)
+              .map(t => t.label.text() + "\n")
+              .join("") +
+            out.evidence.text()
+          ).slice(0, 2048),
+        );
+    } catch {
+      out.background_tasks = new Inventory();
+    }
+    let any = false;
+    try {
+      await pages(
+        client,
+        "thread/list",
+        {
+          parentThreadId: session,
+          sourceKinds: ["subAgent"],
+          useStateDbOnly: true,
+          limit: 100,
+        },
+        thread => {
+          if (str(thread, "parentThreadId") !== session) return;
+          any = true;
+          const id = str(thread, "id");
+          if (out.children.some(c => c.session === id)) return;
+          if (str(field(thread, "status"), "type") === "active") {
+            if (needsInput(field(thread, "status"))) out.subagents.blocked++;
+            else out.subagents.running++;
+          }
+          const prefix = titleSession(id);
+          if (prefix?.len !== 36 || id === session) return;
+          if (out.children.length >= 1024) throw Error("TooManyThreads");
+          const child = new Child();
+          child.session = id;
+          child.state = threadState(field(thread, "status"));
+          child.name = Name.ascii(childName(thread));
+          child.role = Role.ascii(str(thread, "agentRole"));
+          if (path.isAbsolute(str(thread, "path"))) child.transcript = transcriptPath(str(thread, "path"));
+          if (Number.isInteger(field(thread, "updatedAt"))) child.updated_at = field(thread, "updatedAt");
+          out.children.push(child);
+        },
+        "TooManyThreads",
+      );
+      out.children_complete = true;
+    } catch {
+      out.children = [];
+      out.subagents = { running: 0, blocked: 0, waiting: false };
+      return out;
+    }
+    if (any && state === "working" && out.turn.len && !out.outcome)
+      try {
+        out.subagents.waiting = await pages(
+          client,
+          "thread/items/list",
+          {
+            threadId: session,
+            turnId: out.turn.text(),
+            limit: 100,
+            sortDirection: "desc",
+          },
+          e => isActiveWait(e, out.turn.text(), session),
+          "TooManyItems",
+        );
+      } catch {}
+    return out;
+  } finally {
+    telemetry.end("agent.codex.snapshot", telemetry_started);
+  }
 }
 export class Worker implements Observer {
   stopping = false;
@@ -302,11 +308,12 @@ export class Worker implements Observer {
         p.agent().provider !== "codex" ||
         p.account() !== this.account ||
         p.detection.pid <= 0 ||
-        p.detection.missing ||
-        p.terminal.title_pid !== p.detection.pid
+        p.detection.missing
       )
         continue;
-      const prefix = titleSession(p.terminal.title),
+      const title = p.terminal.titleInfo();
+      if (title.pid !== p.detection.pid) continue;
+      const prefix = titleSession(title.text),
         actor = p.attachment.actor;
       if (!prefix) continue;
       // Behind a side conversation, follow the conversation it forked.
@@ -326,7 +333,7 @@ export class Worker implements Observer {
           prefix,
           actor: 0,
           generation: p.attachment.generation,
-          title_revision: p.terminal.title_revision,
+          title_revision: title.revision,
         });
       if (this.requests.length === 64) break;
     }

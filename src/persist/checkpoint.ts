@@ -77,7 +77,7 @@ export class Screen {
     return {
       cols: t.cols,
       rows: t.rows,
-      data: binary.encode(live ? t.liveSnapshot() : t.snapshot()),
+      data: live ? binary.encode(t.liveSnapshot()) : t.snapshotBase64(),
       pid: live ? t.pid : -1,
       title_pid: live ? t.title_pid : 0,
       fd: live ? t.fd : -1,

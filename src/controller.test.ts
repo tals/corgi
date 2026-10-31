@@ -934,6 +934,25 @@ test("dropping an opened ready agent keeps its new position", async () => {
   }
 });
 
+test("agent entries keep tab order and pane order within splits after a new snapshot", () => {
+  const s = controller(),
+    snapshot = pair();
+  snapshot.workspaces[0].model.nodes.push({ pane: 4 });
+  snapshot.workspaces[0].model.tabs.unshift({ id: 3, root: 3, title: "first" });
+  snapshot.panes.push({ ...snapshot.panes[0], id: 4, tab: 3 });
+  snapshot.panes.reverse();
+  const targets = () => (s.agentEntries(1) as sidebar.Entry[]).map(e => e.target);
+  try {
+    s.receiveSnapshot(snapshot);
+    expect(targets()).toEqual([{ pane: 4 }, { pane: 2 }, { pane: 1 }]);
+    snapshot.workspaces[0].model.tabs.reverse();
+    snapshot.workspaces[0].model.revision++;
+    s.receiveSnapshot(snapshot);
+    expect(targets()).toEqual([{ pane: 2 }, { pane: 1 }, { pane: 4 }]);
+  } finally {
+    viewer.close(s);
+  }
+});
 /** A controller on `pair()` that records what panes are sent. */
 function steering() {
   const s = controller();

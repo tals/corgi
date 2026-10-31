@@ -28,6 +28,8 @@ test("an ended agent's row stays live until it goes, then fades once without cha
   expect(shown[0].exit?.progress).toBe(0);
   shown = rows.update(1, live.slice(1), out, 250);
   expect(shown[0].exit?.progress).toBe(0.5);
+  expect(rows.fading(250)).toBe(true);
+  expect(rows.fading(370)).toBe(false);
   shown = rows.update(1, live.slice(1), out, 370);
   expect(shown.length).toBe(1);
   expect(paneOf(shown[0])).toBe(2);
@@ -59,6 +61,8 @@ test("a reopened row fades in as long as a closing one fades out; other new rows
   expect(shown[0].enter).toBeNull();
   expect(shown[1].enter).toBe(0);
   expect(shown[2].enter).toBeNull();
+  expect(rows.fading(130)).toBe(true);
+  expect(rows.fading(250)).toBe(false);
   reopened.reopened = false;
   shown = rows.update(1, [before, reopened, launched], out, 130);
   expect(shown[1].enter).toBe(0.5);

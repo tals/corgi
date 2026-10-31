@@ -62,6 +62,9 @@ export class Preview {
   names = byProvider(() => "");
   /** The accounts besides each default, with what their option reads. */
   accounts: Account[] = [];
+  with(fields: Partial<Preview>): Preview {
+    return Object.assign(Object.create(Preview.prototype), this, fields);
+  }
 }
 /** An account Corgi knows, as the launcher lists it. */
 export type Account = { provider: Provider; account: string; name: string; managed: boolean; option: Option };
@@ -118,6 +121,7 @@ export class Worker {
   every = idle_every;
   private checked = 0;
   private sampling = false;
+  private installs: { at: number; installed: Preview["installed"]; outdated: Preview["outdated"] } | null = null;
   /** The folder of each file a launcher reads, watched by file. */
   watching = new Map<string, FSWatcher>();
   private settle: ReturnType<typeof setTimeout> | null = null;
@@ -164,7 +168,7 @@ export class Worker {
       job.updated = 0;
       if (now - job.used > 60000) continue;
       job.queued = true;
-      job.preview = Object.assign(new Preview(), job.preview, { pending: true });
+      job.preview = job.preview.with({ pending: true });
     }
     void this.pump();
   }
@@ -193,6 +197,7 @@ export class Worker {
   request(cwd: string, access: boolean, refresh = false) {
     if (Buffer.byteLength(cwd) > 4096) return new Preview();
     const now = Date.now();
+    if (refresh) this.installs = null;
     // A new subscriber reads sign-in again; asking for usage fetches it too.
     if (refresh || access)
       for (const login of this.logins.values()) {
@@ -213,7 +218,7 @@ export class Worker {
               a.managed !== listed.accounts[i].managed,
           ) ||
           Provider.all.some(p => job!.preview.names[p] !== listed.names[p]);
-      if (moved) job.preview = listed;
+      job.preview = listed;
       if (
         moved ||
         ((refresh || now - job.updated > 60000) && !job.preview.pending) ||
@@ -221,7 +226,7 @@ export class Worker {
       ) {
         job.queued = true;
         job.request_access ||= access;
-        job.preview = Object.assign(new Preview(), job.preview, { pending: true });
+        job.preview = job.preview.with({ pending: true });
         void this.pump();
       }
       return job.preview;
@@ -247,22 +252,48 @@ export class Worker {
   }
   /** Account rows come from local state, independently of provider reads. */
   private list(previous: Preview): Preview {
-    const result = Object.assign(new Preview(), previous);
-    result.installed = installed();
-    result.outdated = byProvider(p => (result.installed[p] ? "" : (discovery.outdated(p) ?? "")));
-    result.names = byProvider(p => accounts.defaultName(p));
-    result.accounts = accounts
-      .known()
-      .filter(a => result.installed[a.provider])
-      .map(a => ({
+    const now = performance.now();
+    if (!this.installs || now - this.installs.at >= 5000) {
+      const found = installed();
+      this.installs = {
+        at: now,
+        installed: found,
+        outdated: byProvider(p => (found[p] ? "" : (discovery.outdated(p) ?? ""))),
+      };
+    }
+    const { installed: available, outdated } = this.installs,
+      names = byProvider(p => accounts.defaultName(p)),
+      listed = accounts.known().filter(a => available[a.provider]);
+    if (
+      Provider.all.every(
+        p =>
+          previous.installed[p] === available[p] &&
+          previous.outdated[p] === outdated[p] &&
+          previous.names[p] === names[p],
+      ) &&
+      previous.accounts.length === listed.length &&
+      previous.accounts.every(
+        (a, i) =>
+          a.provider === listed[i].provider &&
+          a.account === listed[i].dir &&
+          a.name === listed[i].name &&
+          a.managed === listed[i].managed,
+      )
+    )
+      return previous;
+    return previous.with({
+      installed: available,
+      outdated,
+      names,
+      accounts: listed.map(a => ({
         provider: a.provider,
         account: a.dir,
         name: a.name,
         managed: a.managed,
         option:
           previous.accounts.find(old => old.provider === a.provider && old.account === a.dir)?.option ?? new Option(),
-      }));
-    return result;
+      })),
+    });
   }
   pump(): Promise<void> {
     if (this.stopping) return Promise.resolve();
@@ -300,8 +331,8 @@ export class Worker {
     job.request_access = false;
     await discovery.check();
     if (this.stopping) return;
-    job.preview = this.list(job.preview);
-    job.preview.pending = true;
+    this.installs = null;
+    job.preview = this.list(job.preview).with({ pending: true });
     // Launchers keep a provider process each, so those of accounts gone close.
     const live = new Set([...Provider.all.map(p => p + "\0"), ...accounts.known().map(a => a.provider + "\0" + a.dir)]);
     for (const [key, launcher] of this.launchers)
@@ -323,9 +354,7 @@ export class Worker {
         }
         option.pending = false;
         if (this.stopping || !this.jobs.includes(job)) return;
-        job.preview = Object.assign(
-          new Preview(),
-          job.preview,
+        job.preview = job.preview.with(
           account
             ? {
                 accounts: job.preview.accounts.map(a =>
@@ -338,7 +367,7 @@ export class Worker {
     );
     if (this.stopping) return;
     if (this.jobs.includes(job)) {
-      job.preview = Object.assign(new Preview(), job.preview, { pending: job.queued });
+      job.preview = job.preview.with({ pending: job.queued });
       job.accessing = false;
       job.updated = Date.now();
     }
@@ -366,7 +395,7 @@ export class Worker {
     await Promise.all(this.groups(this.rows(this.list(new Preview()))).map(group => this.read(group)));
     if (this.stopping || [...this.logins].every(([key, login]) => before.get(key) === login.read_at)) return;
     for (const job of this.jobs)
-      job.preview = Object.assign(new Preview(), job.preview, {
+      job.preview = job.preview.with({
         options: byProvider(p => this.shown(p, "", job.preview.options[p])),
         accounts: job.preview.accounts.map(a => ({ ...a, option: this.shown(a.provider, a.account, a.option) })),
       });

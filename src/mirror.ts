@@ -4,7 +4,6 @@
 import { Terminal as NativeTerminal } from "./pane/terminal";
 import * as viewerNative from "./viewer_native";
 import { Model, max_workspaces } from "./layout";
-import { stringify } from "./json";
 import * as surface from "./pane/surface";
 import * as resources from "./trackers/resources";
 import * as protocol from "./protocol";
@@ -65,7 +64,8 @@ interface Selection {
 }
 
 export class Terminal {
-  inner: NativeTerminal;
+  private native: NativeTerminal | null = null;
+  private closed = false;
   offset: number | null = null;
   bottom = 0;
   selection: Selection | null = null;
@@ -73,33 +73,82 @@ export class Terminal {
   known: Stamp | null = null;
   images: surface.ImagePlacement[] = [];
   render_dirty = true;
+  render_revision = 0;
   /** Bytes for the program, sent with the next sync. */
   pending: number[] = [];
-  private links: Link[] = [];
+  private links: Link[] | null = null;
+  private installed: surface.View | null = null;
+  private changed_rows = new Uint16Array(0);
+  private rendered: { key: string; rows: string } | null = null;
 
   constructor(
     public conn: Transport,
     public id: number,
-    cols: number,
-    rows: number,
+    private initial_cols: number,
+    private initial_rows: number,
   ) {
-    this.inner = NativeTerminal.create(Math.max(1, cols), Math.max(1, rows));
+    this.initial_cols = Math.max(1, initial_cols);
+    this.initial_rows = Math.max(1, initial_rows);
+  }
+  private ensure(cols = this.initial_cols, rows = this.initial_rows): NativeTerminal {
+    if (this.closed) throw Error("TerminalClosed");
+    if (this.native) return this.native;
+    const view = this.installed,
+      native = NativeTerminal.create(view?.surface.cols ?? cols, view?.surface.rows ?? rows);
+    try {
+      if (view) {
+        viewerNative.receiveFrame(native.handle, view);
+        viewerNative.updateRender(native.handle);
+        this.render_dirty = false;
+        this.render_revision++;
+      }
+      return (this.native = native);
+    } catch (error) {
+      native.destroy();
+      throw error;
+    }
+  }
+  get inner(): NativeTerminal {
+    return this.ensure();
   }
   get handle() {
     return this.inner.handle;
   }
   hyperlinks(): Link[] {
-    return this.links;
+    this.updateRender();
+    return (this.links ??= this.inner.hyperlinks());
   }
   updateRender(): void {
     if (!this.render_dirty) return;
-    viewerNative.updateRender(this.handle);
-    this.links = this.inner.hyperlinks();
+    const native = this.ensure();
+    if (!this.render_dirty) return;
+    this.rendered = null;
+    this.links = null;
+    viewerNative.updateRender(native.handle);
     this.render_dirty = false;
+    this.render_revision++;
+  }
+  /** Keep the received screen and modes while an uninterested pane releases its VT. */
+  release(): boolean {
+    if (this.closed || !this.native || !this.installed || this.selection || this.holding_selection) return false;
+    this.native.destroy();
+    this.native = null;
+    this.rendered = null;
+    this.links = null;
+    this.render_dirty = true;
+    return true;
   }
   destroy(): void {
-    this.inner.destroy();
+    if (this.closed) return;
+    this.closed = true;
+    this.native?.destroy();
+    this.native = null;
     this.pending = [];
+    this.installed = null;
+    this.rendered = null;
+    this.links = null;
+    this.images = [];
+    this.changed_rows = new Uint16Array(0);
   }
   atBottom(): boolean {
     return this.offset === null;
@@ -107,7 +156,7 @@ export class Terminal {
   clearSelection(): void {
     this.selection = null;
     this.holding_selection = false;
-    this.inner.clearSelection();
+    this.native?.clearSelection();
     this.render_dirty = true;
   }
   scrollViewport(scroll: "bottom" | "top" | { row: number } | { delta: number }): void {
@@ -161,16 +210,42 @@ export class Terminal {
     this.pending = [];
   }
   receive(value: protocol.Reply<"viewer.sync">["surfaces"][number]): void {
+    if (this.closed) throw Error("TerminalClosed");
     // Keep the displayed text stable for the entire mouse gesture. The
     // runtime continues collecting output; release resumes the live surface.
     if (this.holding_selection) return;
     const view = surface.view(value);
     const frame = view.surface;
     if (!frame || frame.cols === 0 || frame.rows === 0) return;
-    this.render_dirty = true;
-    viewerNative.receive(this.handle, stringify(view));
-    this.inner.cols = frame.cols;
-    this.inner.rows = frame.rows;
+    const previous = this.installed;
+    let changed: Uint16Array | undefined;
+    if (
+      previous &&
+      !this.selection &&
+      previous.stamp.identity === view.stamp.identity &&
+      previous.stamp.offset === view.stamp.offset &&
+      previous.surface.pane === frame.pane &&
+      previous.surface.cols === frame.cols &&
+      previous.surface.rows === frame.rows
+    ) {
+      if (this.changed_rows.length < frame.rows) this.changed_rows = new Uint16Array(frame.rows);
+      let count = 0;
+      for (let row = 0; row < frame.rows; row++)
+        if ((previous.surface.lines[row] ?? "") !== (frame.lines[row] ?? "")) this.changed_rows[count++] = row;
+      changed = this.changed_rows.subarray(0, count);
+    }
+    const inner = this.ensure(frame.cols, frame.rows);
+    // Input modes and receipts can advance without changing the visible surface.
+    this.render_dirty ||=
+      changed === undefined ||
+      changed.length > 0 ||
+      previous?.surface.cursor?.x !== frame.cursor?.x ||
+      previous?.surface.cursor?.y !== frame.cursor?.y ||
+      (previous?.surface.images?.length ?? 0) > 0 ||
+      (frame.images?.length ?? 0) > 0;
+    viewerNative.receiveFrame(inner.handle, view, changed);
+    inner.cols = frame.cols;
+    inner.rows = frame.rows;
     this.bottom = view.bottom;
     if (this.offset !== null) this.offset = view.offset;
     const sel = this.selection;
@@ -180,6 +255,7 @@ export class Terminal {
     // hold the old display while the daemon continues collecting output.
     this.known = view.stamp ?? null;
     this.images = frame.images ?? [];
+    this.installed = view;
   }
   async image(id: string, offset: number): Promise<string | null> {
     return (await call(this.conn, "viewer.image", { pane: this.id, image: id, offset })).data;
@@ -203,7 +279,11 @@ export class Terminal {
     return viewerNative.cursor(this.handle, false);
   }
   rows(pane: number, x: number, y: number, w: number, h: number, dimmed: boolean, hovered: bigint | null): string {
-    return viewerNative.rows(this.handle, pane, x, y, w, h, dimmed, hovered);
+    this.updateRender();
+    const key = `${pane}:${x}:${y}:${w}:${h}:${dimmed}:${hovered}`;
+    if (this.rendered?.key !== key)
+      this.rendered = { key, rows: viewerNative.rows(this.handle, pane, x, y, w, h, dimmed, hovered) };
+    return this.rendered.rows;
   }
 }
 

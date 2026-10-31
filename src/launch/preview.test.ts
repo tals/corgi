@@ -1,4 +1,4 @@
-import { test, expect, beforeEach, afterEach, setSystemTime } from "bun:test";
+import { test, expect, beforeEach, afterEach, setSystemTime, spyOn } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import type { FSWatcher } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,6 +7,7 @@ import { Option, Worker, active_every, idle_every } from "./preview";
 import { Info, Window } from "../usage/account";
 import { Provider, Text } from "../providers";
 import * as accounts from "../accounts";
+import * as discovery from "../discovery";
 
 const bin = (p: Provider) => `CORGI_${p.toUpperCase()}_BIN`;
 /** The providers these tests find installed. */
@@ -65,6 +66,78 @@ test("a launch preview names the model it shows and where it came from", () => {
   expect(o.model.text()).toBe("opus");
   expect(o.modelLabel()).toBe("Opus");
   expect(o.source.text()).toBe("Project");
+});
+
+test("unchanged launch previews retain identity across polling and installation refreshes", async () => {
+  const worker = new Worker(),
+    monotonic = spyOn(performance, "now").mockReturnValue(0);
+  worker.launcher = async () => ({
+    account: async () => new Info(),
+    model: async () => ({ model: "stable", source: "test" }),
+    close() {},
+  });
+  try {
+    const start = 1_000_000_000;
+    setSystemTime(new Date(start));
+    worker.preview(root);
+    await worker.pump();
+    const first = worker.preview(root);
+    expect(first.pending).toBe(false);
+    for (let ms = 100; ms <= 10000; ms += 100) {
+      setSystemTime(new Date(start + ms));
+      monotonic.mockReturnValue(ms);
+      expect(worker.preview(root)).toBe(first);
+    }
+    accounts.renameDefault("codex", "work");
+    const renamed = worker.preview(root);
+    expect(renamed).not.toBe(first);
+    expect(renamed.names.codex).toBe("work");
+    expect(first.names.codex).toBe("");
+    await worker.pump();
+    const settled = worker.preview(root);
+    expect(settled.pending).toBe(false);
+    expect(worker.preview(root)).toBe(settled);
+    // Starting a fresh read must not change the already-published snapshot.
+    const pending = worker.preview(root, true);
+    expect(pending.pending).toBe(true);
+    expect(settled.pending).toBe(false);
+  } finally {
+    await worker.stop();
+    monotonic.mockRestore();
+    setSystemTime();
+  }
+});
+
+test("install discovery expires despite wall-clock rollback and refresh sees changes immediately", async () => {
+  let available = true;
+  const found = spyOn(discovery, "installed").mockImplementation(() => available),
+    monotonic = spyOn(performance, "now").mockReturnValue(0),
+    worker = new Worker();
+  worker.launcher = async () => ({
+    account: async () => new Info(),
+    model: async () => ({ model: "", source: "test" }),
+    close() {},
+  });
+  try {
+    setSystemTime(new Date(1_000_000_000));
+    worker.preview(root);
+    await worker.pump();
+    expect(worker.preview(root).installed.codex).toBe(true);
+    available = false;
+    monotonic.mockReturnValue(4000);
+    setSystemTime(new Date(999_999_000));
+    expect(worker.preview(root).installed.codex).toBe(true);
+    monotonic.mockReturnValue(5000);
+    setSystemTime(new Date(999_998_000));
+    expect(worker.preview(root).installed.codex).toBe(false);
+    available = true;
+    expect(worker.preview(root, true).installed.codex).toBe(true);
+  } finally {
+    await worker.stop();
+    found.mockRestore();
+    monotonic.mockRestore();
+    setSystemTime();
+  }
 });
 
 test("a launch preview prefers the provider's model name and keeps its launch id", async () => {

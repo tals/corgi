@@ -1,9 +1,11 @@
 //! The viewer's terminal-protocol mechanics behind the native boundary:
 //! Corgi's own Zig with Ghostty, as the Zig viewer runs them. See
 //! native/viewer_bridge.zig.
+import * as telemetry from "./telemetry";
 import type { Pointer } from "bun:ffi";
 import { n, ptr } from "./native_ffi";
 import type { Key, Mods } from "./keyboard";
+import type { View } from "./pane/surface";
 
 function take(size: number): Buffer {
   if (size < 0) throw Error("NativeViewerFailed");
@@ -15,10 +17,68 @@ const bytes = (text: string | Uint8Array) => (typeof text === "string" ? Buffer.
 // FFI pointers to an empty buffer are invalid; pass one spare byte.
 const nonEmpty = (data: Uint8Array) => (data.length > 0 ? data : Buffer.alloc(1));
 
-export function receive(handle: Pointer | bigint, view: string): void {
-  const data = Buffer.from(view);
-  const status = n.viewer_receive(handle as Pointer, ptr(nonEmpty(data)), data.length);
-  if (status < 0) throw Error(status === -1 ? "InvalidSurface" : "OutOfMemory");
+const mouseEventsByName = new Map(["none", "x10", "normal", "button", "any"].map((name, id) => [name, id]));
+const mouseFormatsByName = new Map(["x10", "utf8", "sgr", "urxvt", "sgr_pixels"].map((name, id) => [name, id]));
+const u16 = (value: number) => Number.isInteger(value) && value >= 0 && value <= 65535;
+const spare_row = new Uint16Array(1);
+
+/** Install already-decoded rows and scalar modes without a JSON round trip. */
+export function receiveFrame(handle: Pointer | bigint, view: View, changed?: Uint16Array): void {
+  const started = telemetry.begin();
+  let transferred = 0;
+  try {
+    const { surface: frame, modes } = view;
+    if (
+      !u16(frame.cols) ||
+      !u16(frame.rows) ||
+      !Number.isInteger(modes.kitty) ||
+      modes.kitty < 0 ||
+      modes.kitty > 31 ||
+      (frame.cursor && (!u16(frame.cursor.x) || !u16(frame.cursor.y)))
+    )
+      throw Error("InvalidSurface");
+    let rows = "";
+    if (changed) {
+      for (const row of changed) {
+        if (row >= frame.rows) throw Error("InvalidSurface");
+        rows += `\x1b[0m\x1b[${row + 1};1H\x1b[2K${frame.lines[row] ?? ""}`;
+      }
+    } else {
+      for (let row = 0; row < frame.lines.length; row++) rows += `\x1b[${row + 1};1H${frame.lines[row]}`;
+    }
+    rows += frame.cursor ? `\x1b[${frame.cursor.y + 1};${frame.cursor.x + 1}H\x1b[?25h` : "\x1b[?25l";
+    const data = Buffer.from(rows);
+    transferred = data.length;
+    const flags =
+      Number(modes.bracketed_paste) |
+      (Number(modes.cursor_keys) << 1) |
+      (Number(modes.keypad_keys) << 2) |
+      (Number(modes.backarrow) << 3) |
+      (Number(modes.numlock) << 4) |
+      (Number(modes.alt_escape) << 5) |
+      (Number(modes.modify_other) << 6) |
+      (Number(modes.paste_events) << 7);
+    const event = mouseEventsByName.get(modes.mouse_event),
+      format = mouseFormatsByName.get(modes.mouse_format);
+    if (event === undefined || format === undefined) throw Error("InvalidSurface");
+    const status = n.viewer_receive_frame(
+      handle as Pointer,
+      ptr(data),
+      data.length,
+      frame.cols,
+      frame.rows,
+      flags,
+      modes.kitty,
+      event,
+      format,
+      changed === undefined,
+      ptr(changed?.length ? changed : spare_row),
+      changed?.length ?? 0,
+    );
+    if (status < 0) throw Error(status === -1 ? "InvalidSurface" : "OutOfMemory");
+  } finally {
+    telemetry.end("surface.receive", started, transferred);
+  }
 }
 export function updateRender(handle: Pointer | bigint): void {
   if (n.viewer_update_render(handle as Pointer) < 0) throw Error("OutOfMemory");

@@ -1,3 +1,4 @@
+import * as telemetry from "./telemetry";
 import { dlopen, ptr, suffix, FFIType, type Pointer } from "bun:ffi";
 import { processArgs as readProcessArgs, processCwd } from "./os";
 import { n } from "./native_ffi";
@@ -47,7 +48,10 @@ export function processArgs(pid: number): { argv: string[]; complete: boolean } 
 // Replies land here; a larger one gets a buffer of its own.
 const reply = Buffer.allocUnsafe(65536);
 export function call(handle: Pointer | bigint, request: object): any {
+  const encode_started = telemetry.begin();
   const input = Buffer.from(json.stringify(request));
+  telemetry.end("native.encode", encode_started, input.length);
+  const execute_started = telemetry.begin();
   let output = reply;
   let size = Number(symbols.app_terminal_json(handle, ptr(input), input.length, ptr(output), output.length));
   if (size < -1) {
@@ -56,7 +60,12 @@ export function call(handle: Pointer | bigint, request: object): any {
     size = Number(symbols.app_terminal_json(handle, ptr(input), input.length, ptr(output), output.length));
   }
   if (size < 0) throw Error("NativeOperationFailed");
-  const result = json.parse(output.toString("utf8", 0, size));
+  telemetry.end("native.execute", execute_started, size);
+  const decode_started = telemetry.begin();
+  const bytes = output.toString("utf8", 0, size);
+  const result = "op" in request && request.op === "surface" ? JSON.parse(bytes) : json.parse(bytes);
+  telemetry.end("native.decode", decode_started, size);
+  telemetry.native(request, encode_started, size);
   if (result.err) throw Error(result.err);
   return result.value;
 }

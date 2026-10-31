@@ -1,5 +1,6 @@
 import { createConnection, type Socket } from "node:net";
 import * as json from "./json";
+import * as telemetry from "./telemetry";
 import * as protocol from "./protocol";
 export class Connection {
   readonly socket: Socket;
@@ -23,8 +24,10 @@ export class Connection {
         this.buffer = this.buffer.slice(newline + 1);
         if (!line) continue;
         try {
+          const decode_started = telemetry.begin();
           const message = json.parse(line),
             pending = this.pending.shift();
+          telemetry.end("wire.decode", decode_started, telemetry.enabled ? Buffer.byteLength(line) : 0);
           if (pending) pending.resolve(message);
         } catch (error) {
           this.fail(error as Error);

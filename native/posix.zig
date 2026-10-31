@@ -112,6 +112,10 @@ pub export fn probe_getpgrp() c_int {
     return c.getpgrp();
 }
 
+pub export fn probe_getpgid(pid: c_int) c_int {
+    return c.getpgid(pid);
+}
+
 pub export fn probe_dup_above(fd: c_int, minimum: c_int) c_int {
     return c.fcntl(fd, c.F_DUPFD_CLOEXEC, minimum);
 }

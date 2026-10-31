@@ -94,6 +94,26 @@ readiness and crash reporting. Loading the system library does not initialize
 crash reporting; the application enables it explicitly. `pty-exec` and
 `corgi-hook` remain separate helper executables.
 
+The viewer's [composition](src/composition.ts) keeps pane surfaces as native
+terminal references while TypeScript draws the surrounding UI. The native
+differ combines that UI with retained pane cells and emits changed cell spans.
+TypeScript redraws the current UI for each presentation; exact byte comparison
+lets unchanged chrome skip native replay. The differ tracks pane identity,
+geometry and row revisions, compares damaged cells exactly, and owns the previous
+displayed rows, including graphemes and links. Current Ghostty cells are borrowed
+only during the synchronous call; no borrowed pane page pins survive it. Overlaps,
+selections, pane images and unsupported clipping use the complete ANSI frame
+as a fallback.
+
+Surface rows cross the in-process FFI boundary as positioned ANSI bytes and
+scalar input modes, avoiding another JSON encode/decode. The mirror compares
+canonical incoming row strings and installs only changed rows; cursor and input
+modes travel separately. Per-terminal row revisions accumulate across updates,
+and each differ keeps its own receipts. The daemon/viewer wire format and saved
+terminal formats remain unchanged. Screen observers reuse a
+terminal's live text until its native revision changes, while their status
+confirmation and time-based transitions continue on every observation pass.
+
 ## Build, test and format
 
 ```sh

@@ -1,6 +1,6 @@
 import { isAbsolute } from "node:path";
 import { Worker as CommandWorker } from "./launch/command";
-import { Worker as PreviewWorker, Preview, Option, active_every, idle_every } from "./launch/preview";
+import { Worker as PreviewWorker, Option, active_every, idle_every, type Preview } from "./launch/preview";
 import { byProvider } from "./providers";
 import { Worker as HistoryWorker } from "./launch/history";
 import { stringify } from "./json";
@@ -19,6 +19,8 @@ export type Subscription = {
   history_epoch: bigint;
   history_sent: bigint;
 };
+/** The worker preview each subscription last published from; kept out of handoffs. */
+const sources = new WeakMap<Subscription, Preview>();
 export class Service {
   command_previews = CommandWorker.start();
   launch_previews = PreviewWorker.start();
@@ -92,6 +94,14 @@ export function sample(server: Server) {
     active = server.clients.some(c => c.viewer && !c.dead && now - c.input_at < active_ms);
   service(server).launch_previews.sample(active ? active_every : idle_every);
 }
+/** Whether the worker holds a preview this subscription wasn't sent; reads nothing. */
+export function due(server: Server, client: Client): boolean {
+  const subscription = client.launch_preview,
+    s = services.get(server);
+  if (!subscription || !s) return false;
+  const job = s.launch_previews.jobs.find(j => j.cwd === subscription.cwd);
+  return job !== undefined && job.preview !== (sources.get(subscription) ?? subscription.preview);
+}
 export function publish(server: Server, client: Client) {
   const subscription = client.launch_preview;
   if (!subscription) return;
@@ -109,13 +119,16 @@ export function publish(server: Server, client: Client) {
       subscription.history_sent = update.revision;
     }
   }
-  let preview = s.launch_previews.preview(subscription.cwd);
+  const source = s.launch_previews.preview(subscription.cwd);
+  if (source === (sources.get(subscription) ?? subscription.preview)) return;
+  sources.set(subscription, source);
+  let preview = source;
   if (preview.pending) {
     // A restored subscription can have readings its new worker has not read yet.
     const previous = subscription.preview,
       keep = (next: Option, old: Option | undefined) =>
         next.pending && old ? Object.assign(new Option(), old, { pending: true }) : next;
-    preview = Object.assign(new Preview(), preview, {
+    preview = preview.with({
       options: byProvider(p => keep(preview.options[p], previous.options[p])),
       accounts: preview.accounts.map(a => ({
         ...a,
@@ -126,7 +139,10 @@ export function publish(server: Server, client: Client) {
       })),
     });
   }
-  if (stringify(preview) === stringify(subscription.preview)) return;
+  if (stringify(preview) === stringify(subscription.preview)) {
+    subscription.preview = preview;
+    return;
+  }
   client.queue({ type: "agent.preview", cwd: subscription.cwd, preview });
   subscription.preview = preview;
 }

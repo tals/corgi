@@ -1,3 +1,4 @@
+import * as telemetry from "../telemetry";
 import { milliTimestamp } from "../clock";
 import { run as subprocessRun } from "../subprocess";
 import { access, realpath, stat } from "node:fs/promises";
@@ -172,14 +173,19 @@ export class Tracker {
     return changed;
   }
   async run() {
-    const now = milliTimestamp();
-    for (const [k, v] of this.cache) if (now - v.seen > 60000) this.cache.delete(k);
-    for (const job of this.jobs) {
-      if (this.stopping) break;
-      try {
-        const result = await this.refreshInto(job.cwd, now);
-        Object.assign(job, result);
-      } catch {}
+    const telemetry_started = telemetry.begin();
+    try {
+      const now = milliTimestamp();
+      for (const [k, v] of this.cache) if (now - v.seen > 60000) this.cache.delete(k);
+      for (const job of this.jobs) {
+        if (this.stopping) break;
+        try {
+          const result = await this.refreshInto(job.cwd, now);
+          Object.assign(job, result);
+        } catch {}
+      }
+    } finally {
+      telemetry.end("workspace.git", telemetry_started);
     }
   }
   async refresh(cwd: string, now: number) {

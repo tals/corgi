@@ -96,6 +96,16 @@ export class State {
       );
     });
   }
+  /** Whether a row is still fading in or out. */
+  fading(now: number): boolean {
+    return this.order.some(i => {
+      const { opening_ms, closing_ms } = this.slots[i];
+      return (
+        (opening_ms !== null && now - opening_ms < State.duration_ms) ||
+        (closing_ms !== null && now - closing_ms < State.duration_ms)
+      );
+    });
+  }
   update(workspace: number, live: Entry[], out: Entry[] = [], now = 0): Entry[] {
     if (this.workspace !== workspace) {
       this.slots = [];

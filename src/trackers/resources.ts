@@ -1,3 +1,4 @@
+import * as telemetry from "../telemetry";
 import * as native from "./resource_os";
 import * as gpu from "./gpu";
 import { Provider } from "../providers";
@@ -447,6 +448,7 @@ export class Tracker {
   private failure = new Failure();
   close() {
     this.stopping = true;
+    telemetry.detach(this.worker);
     this.worker?.terminate();
     this.worker = null;
     this.complete?.();
@@ -530,6 +532,7 @@ export class Tracker {
         // A compiled bundle's import.meta.url belongs to the main entrypoint.
         const entry = nativeFiles ? "./trackers/resources_worker.js" : "./resources_worker.ts";
         this.worker = new Worker(new URL(entry, import.meta.url)) as Worker & { unref(): void };
+        telemetry.attach(this.worker);
         this.worker.onmessage = (event: MessageEvent<SampleResult | { error: string }>) => {
           if ("error" in event.data) this.sampleFailed(event.data.error);
           else {
@@ -540,6 +543,7 @@ export class Tracker {
           }
         };
         this.worker.onerror = event => {
+          telemetry.detach(this.worker);
           this.worker?.terminate();
           this.worker = null;
           this.sampleFailed(event.message);
@@ -589,8 +593,11 @@ export class Tracker {
     return true;
   }
   sample(now = clock.milliTimestamp()) {
-    const inventory = native.inventory(this.roots.map(r => r.pid)),
-      index = new Map(inventory.items.map((p, i) => [p.pid, i])),
+    const telemetry_started = telemetry.begin();
+    const inventory_started = telemetry.begin();
+    const inventory = native.inventory(this.roots.map(r => r.pid));
+    telemetry.end("workspace.resources.inventory", inventory_started);
+    const index = new Map(inventory.items.map((p, i) => [p.pid, i])),
       roots = this.roots.map(r => ({ ...r }));
     for (const k of this.origins.keys()) if (!roots.some(r => r.key === k)) this.origins.delete(k);
     for (const root of roots) {
@@ -604,9 +611,11 @@ export class Tracker {
         }
       }
     }
-    const previous = new Map(this.batch.readings.map(r => [r.pid, r])),
-      host = native.host(),
-      host_cpu =
+    const previous = new Map(this.batch.readings.map(r => [r.pid, r]));
+    const host_started = telemetry.begin();
+    const host = native.host();
+    telemetry.end("workspace.resources.host", host_started);
+    const host_cpu =
         this.batch.host.total > 0n && host.total > this.batch.host.total && host.busy >= this.batch.host.busy
           ? Math.min(100, (100 * Number(host.busy - this.batch.host.busy)) / Number(host.total - this.batch.host.total))
           : null,
@@ -632,7 +641,7 @@ export class Tracker {
       const work = works.find(w => w.id === root.workspace);
       if (!work) continue;
       work.count++;
-      const value = native.counters(identity.pid);
+      const value = inventory.counters(identity.pid);
       if (!value) {
         work.partial = true;
         continue;
@@ -653,7 +662,9 @@ export class Tracker {
       if (identity.pid === root.agent_pid) proc.provider = root.provider;
       work.processes.push(proc);
     }
+    const graphics_started = telemetry.begin();
     const graphics = this.sampleGpu(works);
+    telemetry.end("workspace.resources.gpu", graphics_started);
     for (const work of works) for (const proc of work.processes) work.add(proc);
     works.forEach((work, i) => {
       for (const root of roots)
@@ -702,6 +713,7 @@ export class Tracker {
       host,
       health,
     };
+    telemetry.end("workspace.resources.sample", telemetry_started);
   }
   /** Fills in each workspace process's GPU usage; null without a GPU source. */
   private sampleGpu(works: Work[]) {
