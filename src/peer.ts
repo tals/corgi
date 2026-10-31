@@ -69,6 +69,7 @@ export class Client {
     readonly receive: (client: Client, value: any) => void,
     readonly disconnected: () => void,
     start = true,
+    readonly drained: (client: Client) => void = () => {},
   ) {
     this.paused = !start;
     if (start) this.resume();
@@ -113,10 +114,11 @@ export class Client {
         return;
       }
     }
-    if (this.sent === this.output.length) {
+    if (this.output.length > 0 && this.sent === this.output.length) {
       this.output = Buffer.alloc(0);
       this.sent = 0;
       if (this.http === "replied") this.close();
+      else this.drained(this);
     }
   }
   private read(): void {

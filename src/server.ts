@@ -169,15 +169,16 @@ export class Server {
       }
     return BigInt.asUintN(64, seq);
   }
+  private wakeViewer(c: Client): void {
+    if (!c.watching || c.dead || c.output.length > 0) return;
+    const next = this.wakeSeq(c.watch_viewer);
+    if (c.woken !== next) {
+      c.woken = next;
+      c.queue({ type: "viewer.wake" });
+    }
+  }
   private wakeViewers(): void {
-    for (const c of this.clients)
-      if (c.watching && !c.dead && c.output.length === 0) {
-        const next = this.wakeSeq(c.watch_viewer);
-        if (c.woken !== next) {
-          c.woken = next;
-          c.queue({ type: "viewer.wake" });
-        }
-      }
+    for (const c of this.clients) this.wakeViewer(c);
   }
   private publish(): void {
     const telemetry_started = telemetry.begin();
@@ -349,6 +350,7 @@ export class Server {
         void viewer.resize(this);
       },
       start,
+      cl => this.wakeViewer(cl),
     );
     this.clients.push(client);
     return client;

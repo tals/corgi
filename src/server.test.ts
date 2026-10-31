@@ -10,6 +10,7 @@ import * as json from "./json";
 import * as protocol from "./protocol";
 import * as session from "./session";
 import { n } from "./native_bridge";
+import * as native_ffi from "./native_ffi";
 function fixture() {
   const server = new Server("", "", "0".repeat(64));
   return {
@@ -230,6 +231,55 @@ test("one client's or pane's error must not end the daemon loop", async () => {
     expect(report).toHaveBeenCalledTimes(1);
   } finally {
     report.mockRestore();
+    dispose();
+  }
+});
+test("a buffered data reply delivers the latest wake when it drains", async () => {
+  const { server, dispose } = fixture(),
+    [fd, reader] = native_ffi.pair(),
+    control = server.addClient(-1, false),
+    data = server.addClient(fd),
+    scratch = Buffer.alloc(65536);
+  control.viewer = true;
+  control.viewer_id = 1;
+  const received: string[] = [];
+  const read = () => {
+    for (;;) {
+      const count = native_ffi.n.probe_read(reader, native_ffi.ptr(scratch), scratch.length);
+      if (count <= 0) break;
+      received.push(scratch.toString("utf8", 0, count));
+    }
+  };
+  try {
+    native_ffi.n.probe_nonblock(fd);
+    native_ffi.n.probe_nonblock(reader);
+    await server.request(data, protocol.envelope("viewer.watch", { viewer: 1 }));
+    data.queue({ request_id: 1, ok: true, data: "x".repeat(3 * 1024 * 1024) });
+    expect(data.output.length).toBeGreaterThan(0);
+    for (let i = 0; i < 2; i++) {
+      server.runtime.refreshed();
+      server.dirty = true;
+      Reflect.get(server, "publish").call(server);
+    }
+    expect(server.dirty).toBe(false);
+    while (data.output.length > 0) {
+      read();
+      data.flush();
+    }
+    read();
+    const replies = received.join("").trim().split("\n").map(json.parse);
+    expect(replies.map(reply => reply.type ?? reply.request_id ?? reply.ok)).toEqual([true, 1, "viewer.wake"]);
+    expect(replies[1].data.length).toBe(3 * 1024 * 1024);
+    received.length = 0;
+    data.flush();
+    server.dirty = true;
+    Reflect.get(server, "publish").call(server);
+    read();
+    expect(received).toEqual([]);
+  } finally {
+    data.close();
+    control.close();
+    native_ffi.n.probe_close(reader);
     dispose();
   }
 });
