@@ -1,6 +1,24 @@
 import { test, expect } from "bun:test";
+import { ChildProcess } from "node:child_process";
 import { run, Quit } from "./subprocess";
 const sh = (script: string, extra: any = {}) => run(["/bin/sh", "-c", script], { timeout_ms: 5000, ...extra });
+/** Runs `body` while children never deliver "exit" to a listener, as when Bun
+ * emits it inside spawn() (oven-sh/bun#45483); `reported` fakes the status
+ * Bun has set by then. */
+async function lostExit(reported: number | null, body: () => unknown) {
+  const proto = ChildProcess.prototype as any,
+    once = proto.once;
+  proto.once = function (this: { exitCode: number | null }, event: string, listener: (...args: any[]) => void) {
+    if (event !== "exit") return once.call(this, event, listener);
+    if (reported !== null) this.exitCode = reported;
+    return this;
+  };
+  try {
+    await body();
+  } finally {
+    delete proto.once;
+  }
+}
 test("exit codes and signals come back as terms", async () => {
   const done = await sh("printf done");
   expect(done.ok()).toBe(true);
@@ -16,6 +34,12 @@ test("exit, not the end of the output, ends a run", async () => {
 });
 test("the deadline kills the whole group", async () => {
   await expect(sh("sleep 20 & wait", { timeout_ms: 30 })).rejects.toThrow("TimedOut");
+});
+test("an exit reported before the run listens still ends it", async () => {
+  await lostExit(7, async () => expect((await sh("exit 7")).term).toEqual({ exited: 7 }));
+});
+test("the deadline ends a run whose exit never arrives", async () => {
+  await lostExit(null, () => expect(sh("sleep 20", { timeout_ms: 30 })).rejects.toThrow("TimedOut"));
 });
 test("a child that exits leaves what it started running", async () => {
   const out = await sh("sleep 20 & printf %s $!");
