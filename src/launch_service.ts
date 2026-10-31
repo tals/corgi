@@ -19,6 +19,8 @@ export type Subscription = {
   history_epoch: bigint;
   history_sent: bigint;
 };
+/** The worker preview each subscription last published from; kept out of handoffs. */
+const sources = new WeakMap<Subscription, Preview>();
 export class Service {
   command_previews = CommandWorker.start();
   launch_previews = PreviewWorker.start();
@@ -109,8 +111,10 @@ export function publish(server: Server, client: Client) {
       subscription.history_sent = update.revision;
     }
   }
-  let preview = s.launch_previews.preview(subscription.cwd);
-  if (preview === subscription.preview) return;
+  const source = s.launch_previews.preview(subscription.cwd);
+  if (source === (sources.get(subscription) ?? subscription.preview)) return;
+  sources.set(subscription, source);
+  let preview = source;
   if (preview.pending) {
     // A restored subscription can have readings its new worker has not read yet.
     const previous = subscription.preview,

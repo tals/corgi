@@ -251,3 +251,42 @@ test("unchanged preview identities skip serialization and equal replacements bec
     await stop(server);
   }
 });
+
+test("a pending preview the worker hasn't replaced skips serialization", async () => {
+  const server: any = {},
+    messages: any[] = [],
+    s = service(server);
+  const sent = new Preview().with({ pending: false }),
+    pending = new Preview().with({ pending: true });
+  const client: any = {
+    dead: false,
+    output: Buffer.alloc(0),
+    queue: (value: any) => messages.push(value),
+    launch_preview: {
+      cwd: "/tmp",
+      preview: sent,
+      checked: 0,
+      history_asked: false,
+      history_epoch: 0n,
+      history_sent: 0n,
+    },
+  };
+  s.launch_previews.preview = () => pending;
+  const check = () => {
+    client.launch_preview.checked = 0;
+    publish(server, client);
+  };
+  try {
+    check();
+    expect(client.launch_preview.preview).not.toBe(pending);
+    const serialize = spyOn(client.launch_preview.preview.options.codex, "toJSON");
+    try {
+      check();
+      expect(serialize).not.toHaveBeenCalled();
+    } finally {
+      serialize.mockRestore();
+    }
+  } finally {
+    await stop(server);
+  }
+});
