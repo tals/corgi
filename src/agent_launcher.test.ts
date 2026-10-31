@@ -248,7 +248,7 @@ test("single-line limit groups survive narrow terminal rendering", () => {
         expect(line).toContain("6d 18h");
         expect(line).not.toContain("5h");
       }
-      if (line.includes("Claude Code")) {
+      if (/\* Claude/.test(line)) {
         found[1] += 1;
         rows[1] = line;
         for (const value of ["7d", "35%", "1d 15h", " │ 5h", "17%", "1h 39m"]) expect(line).toContain(value);
@@ -527,7 +527,8 @@ test("an account's row reads its own account and has its own YOLO and launcher m
   const side = SidebarView.init(120, 24, true, 0, 0);
   const b = m.bounds(120, 24, side);
   const line = screen(m, 120, 24, side)[b.y + 4];
-  for (const value of [" 2 ", "Claude Code · work", "✓", "Opus", "work@example.com", "Team", "5h", "17%"])
+  // The brand mark has its own space before the full name.
+  for (const value of [" 2 ", "* Claude Code · work", "✓", "Opus", "work@example.com", "Team", "5h", "17%"])
     expect(line).toContain(value);
   expect(m.hit(120, 24, side, b.x + 2, b.y + 4)).toBe(work);
   const widths = m.columns(b.w);
@@ -575,7 +576,7 @@ test("a signed-out account's row stays listed and offers to sign in", () => {
   const side = SidebarView.init(120, 24, true, 0, 0);
   const b = m.bounds(120, 24, side);
   const lines = screen(m, 120, 24, side);
-  expect(lines[b.y + 3]).toMatch(/ 1 +Claude Code · work .* — +— +Sign in +│/);
+  expect(lines[b.y + 3]).toMatch(/ 1 +\* Claude Code · work .* — +— +Sign in +│/);
   expect(lines[b.y + b.h - 2]).toMatch(/a +sign in +y +YOLO/);
   m.account_hidden = ["/accounts/work"];
   expect(m.shown(work)).toBe(false);
@@ -826,4 +827,48 @@ test("launcher leaves room for model and compact effort without an ellipsis", ()
     expect(rows.some(row => row.includes("GPT-6 Astra XHigh"))).toBe(true);
     expect(rows.some(row => row.includes("GPT-6.1 Sol XHigh"))).toBe(true);
   }
+});
+
+/** Conversations in `cwd`, alternating agents, newest first. */
+function conversations(cwd: string, n: number) {
+  return Array.from({ length: n }, (_, i) => ({
+    provider: (i % 3 === 2 ? "codex" : "claude") as Provider,
+    account: "",
+    session: `s${i}`,
+    title: `Conversation ${i}`,
+    first: "",
+    last: "said something",
+    cwd,
+    branch: "",
+    updated_at: now() - i * 3600,
+    interrupted: false,
+    starred: false,
+  }));
+}
+
+test("each agent and conversation row leads with its brand mark", () => {
+  const side = SidebarView.init(120, 40, true, 0, 0),
+    m = menu({ cwd: "/w", workspace_cwd: "/w" });
+  m.history = { pending: false, entries: conversations("/w", 3) };
+  const placed: [Provider, number, number][] = [];
+  m.marks = (provider, col, row) => {
+    placed.push([provider, col, row]);
+    return "<mark>";
+  };
+  const b = m.bounds(120, 40, side);
+  m.draw(new Writer(), 120, 40, side);
+  // The agent rows: Codex, Claude Code and Pi, in the name column.
+  expect(placed.filter(([, , row]) => row < b.y + 2 + m.count())).toEqual([
+    ["codex", b.x + 7, b.y + 2],
+    ["claude", b.x + 7, b.y + 3],
+    ["pi", b.x + 7, b.y + 4],
+  ]);
+  // The conversations: a mark wherever a run of one agent starts.
+  const resume = placed.filter(([, , row]) => row >= b.y + 2 + m.count());
+  expect(resume.map(([provider]) => provider)).toEqual(["claude", "codex"]);
+  expect(new Set(resume.map(([, col]) => col))).toEqual(new Set([b.x + 3]));
+  // Without image support, each shows its glyph in the same cells.
+  m.marks = null;
+  const lines = screen(m, 120, 40, side);
+  expect(lines[b.y + 3].slice(b.x + 7, b.x + 9)).toBe("* ");
 });

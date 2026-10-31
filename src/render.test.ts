@@ -295,6 +295,7 @@ test("an agent's tab wears its provider's mark", () => {
   expect(tabBrand(pane({ agent: agent({ provider: "codex" }) }))).toBe("openai");
   expect(tabBrand(pane({ agent: agent({ provider: "claude" }), brand: "node" }))).toBe("claude");
   expect(tabBrand(pane({ agent: agent({ provider: "omp" }), brand: "bun" }))).toBe("omp");
+  expect(tabBrand(pane({ agent: agent({ provider: "opencode2" }), brand: "bun" }))).toBe("opencode");
   expect(tabBrand(pane({ agent: agent({ provider: "pi" }), brand: "node" }))).toBe("node");
   expect(tabBrand(pane({ brand: "bun" }))).toBe("bun");
 });
@@ -800,4 +801,34 @@ test("Manage rows advertise grab, model-pointer and search-text cursors without 
   u.iterm2_pointer = true;
   u.pointer = { x: box.x + 10, y: box.y + 7 };
   expect(frame(view, [], 120, 34, u)).toContain("\x1b]22;fleur\x1b\\");
+});
+
+test("the launcher places provider marks with host images and falls back to glyphs", () => {
+  const launch = new LauncherMenu({ workspace: 1, selected: "codex", last: "codex", pinned: true }),
+    icons = new Icons(),
+    shown = (fields: Partial<Ui> = {}) =>
+      frame(emptyView(), [], 120, 40, ui({ message: "", copy_mode: false, agent_launcher: launch, ...fields }));
+  // Codex's glyph stands in for its mark.
+  expect(shown()).not.toContain("\x1b_Ga=p");
+  expect(shown()).toContain("†");
+  expect(launch.marks).toBeNull();
+  const graphics = { tab_icons: icons, cell_pixels: { width: 9, height: 18 } };
+  launch.preview.installed.opencode2 = true;
+  expect(shown(graphics)).not.toContain("\x1b_Ga=p");
+  const uploaded = icons.end();
+  expect(uploaded).toContain("\x1b_Ga=t");
+  expect(uploaded).toContain("i=730324,");
+  icons.begin();
+  const placed = shown(graphics);
+  expect(placed).toContain("\x1b_Ga=p");
+  expect(placed).toContain("\x1b_Ga=p,i=730324,");
+  expect(placed).not.toMatch(/\x1b\[1;\d+H\x1b_Ga=p/);
+  // A sign-in over the launcher leaves its marks as glyphs.
+  icons.begin();
+  const signin = shown({ ...graphics, signin_draw: () => null });
+  expect(signin).not.toContain("\x1b_Ga=p");
+  expect(signin).toContain("†");
+  icons.begin();
+  expect(shown()).not.toContain("\x1b_Ga=p");
+  expect(launch.marks).toBeNull();
 });

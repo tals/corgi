@@ -27,10 +27,11 @@ import { writeKey } from "./launcher_resume";
 import * as launcherWorktree from "./launcher_worktree";
 import * as worktreeFolder from "./worktree_folder";
 import * as dropdown from "./dropdown";
-import type * as worktrees from "./worktrees";
+import * as worktrees from "./worktrees";
 import type { View as SidebarView, Spotlight } from "./sidebar";
 import { Writer, displayWidth, ellipsis, writeEllipsis, sat } from "./text";
 import { Row, customs, type Launch } from "./launch/row";
+import { writeMark, type Marks } from "./provider_mark";
 export { Row, type Launch };
 
 const providers = Provider.all;
@@ -142,8 +143,10 @@ export function resolution(value: any = {}): Resolution {
   return result;
 }
 const headings = ["Agent", "YOLO", "Model", "Account", "Plan", "Usage (used) · resets in"];
+/** Columns for a row's brand mark. */
+const mark_w = 2;
 // Reserve metadata and two usage windows before their readings arrive.
-const column_widths = [26, 6, 24, 28, 12, 50];
+const column_widths = [26 + mark_w, 6, 24 - mark_w, 28, 12, 50];
 export const preferred_width = 4 + column_widths.reduce((sum, size) => sum + size, 0);
 type Hint = { key: string; label: string };
 const manage_label = " Manage agents ";
@@ -188,6 +191,8 @@ export class Menu {
   worktree = new launcherWorktree.Chooser();
   /** Where a new worktree goes, as the viewer's preferences say. */
   worktree_folder = worktreeFolder.default_template;
+  /** Places brand marks where the host shows images; the glyph otherwise. */
+  marks: Marks | null = null;
 
   constructor(fields: Partial<Menu> = {}) {
     Object.assign(this, fields);
@@ -200,6 +205,12 @@ export class Menu {
   }
   launchOf(row: Row): Launch | null {
     return this.profileOf(row) ?? Row.launch(row);
+  }
+  /** The agent a row starts, for its brand mark; null for a terminal or a
+   * saved command that runs something else. */
+  providerOf(row: Row): Provider | null {
+    const custom = Row.custom(row);
+    return custom !== null ? this.commands[custom].semantics.provider : (this.launchOf(row)?.provider ?? null);
   }
   accountOf(row: Row): AccountOption | null {
     const profile = this.profileOf(row);
@@ -242,7 +253,7 @@ export class Menu {
     const l = this.launchOf(row)!,
       name = l.account ? (this.accountOf(row)?.name ?? "") : this.preview.names[l.provider],
       p = adapter(l.provider);
-    if (!name) return p.label;
+    if (!name) return displayWidth(p.label) <= room ? p.label : p.name;
     const suffix = ` · ${name}`;
     if (displayWidth(p.label + suffix) <= room) return p.label + suffix;
     const short = ellipsis(p.name, sat(room, displayWidth(suffix)));
@@ -436,7 +447,7 @@ export class Menu {
   columns(width: number): number[] {
     const widths = column_widths.slice();
     const available = sat(width, 4);
-    const minimum = [width >= 100 ? 26 : 17, 6, width >= 120 ? 22 : 9, 18, 6, 36];
+    const minimum = [width >= 100 ? 26 + mark_w : 17, 6, width >= 120 ? 24 - mark_w : 9, 18, 6, 36];
     if (width < 64) {
       widths[1] = 3; // A one-cell Y heading and toggle, plus its gutter.
       minimum[1] = 3;
@@ -516,6 +527,13 @@ export class Menu {
       now(),
       this.accounts,
       this.preview.names,
+      cwd => {
+        const at = launcherWorktree.containing(this.worktrees, cwd);
+        return {
+          label: launcherWorktree.place(this.worktrees, cwd, null).label,
+          branch: at?.branch != null ? worktrees.label(at) : null,
+        };
+      },
     );
   }
   /** Where agents start: the new worktree named for them, else `cwd`. */
@@ -767,13 +785,15 @@ export class Menu {
       w.write(row === 0 ? "╮" : row === b.h - 1 ? "╯" : "│");
     }
     m.drawTitle(w, b, panel);
+    // Images can't follow the card as it slides; its glyphs can.
+    const marks = m.transition.active ? null : m.marks;
     const widths = m.columns(b.w);
     let heading_x = b.x + 4;
     headings.forEach((heading, column) => {
       const width = widths[column];
       if (width === 0) return;
-      w.write(`\x1b[${b.y + 2};${heading_x + (column === 0 ? 4 : 0)}H${panel}`);
-      const room = sat(width, column === 0 ? 6 : column === 5 ? 1 : 2);
+      w.write(`\x1b[${b.y + 2};${heading_x + (column === 0 ? 4 + mark_w : 0)}H${panel}`);
+      const room = sat(width, column === 0 ? 6 + mark_w : column === 5 ? 1 : 2);
       const label =
         column === 1 && room < 4
           ? "Y"
@@ -810,14 +830,21 @@ export class Menu {
       let x = b.x + 4;
       const custom = Row.custom(current);
       const values = custom !== null ? m.customCells(custom) : m.cells(current);
-      if (custom === null) values[0] = m.label(current, sat(widths[0], 6));
       const yolo = custom !== null ? m.commands[custom].semantics.yolo : m.yoloOf(current);
+      // The agent's brand mark leads its name.
+      const provider = m.providerOf(current);
+      if (provider && widths[0] > 0) {
+        // This card writes 1-based positions; marks take 0-based cells.
+        writeMark(w, provider, x + 3, row - 1, marks);
+        w.write(style);
+      }
+      if (custom === null) values[0] = m.label(current, sat(widths[0], 6 + mark_w));
       widths.forEach((width, column) => {
         if (width === 0) return;
-        w.write(`\x1b[${row};${x + (column === 0 ? 4 : 0)}H`);
+        w.write(`\x1b[${row};${x + (column === 0 ? 4 + mark_w : 0)}H`);
         if (column === 5 && m.trackable(current)) w.write("\x1b[4m");
         if (column === 1 && yolo) w.write("\x1b[1m" + palette.fg("strong"));
-        const room = sat(width, column === 0 ? 6 : column === 5 ? 1 : 2);
+        const room = sat(width, column === 0 ? 6 + mark_w : column === 5 ? 1 : 2);
         if (column === 5) m.usageCell(current).write(w, grid, room, style, selected);
         else if (column === 2 && custom === null) {
           const model = m.modelCell(current);
@@ -832,8 +859,8 @@ export class Menu {
       // A rule across the gap between the agents and the conversations.
       w.write(`\x1b[${m.resumeTop(b) - 1};${b.x + 4}H${rule}`);
       w.write("─".repeat(b.w - 6));
-      if (m.resume_view.expanded) m.resume_view.draw(w, m.resumeContext(), m.resumeArea(cols, rowsCount, side));
-      else m.resume_view.drawCollapsed(w, m.resumeContext(), b.x + 1, m.resumeTop(b), b.w);
+      if (m.resume_view.expanded) m.resume_view.draw(w, m.resumeContext(), m.resumeArea(cols, rowsCount, side), marks);
+      else m.resume_view.drawCollapsed(w, m.resumeContext(), b.x + 1, m.resumeTop(b), b.w, marks);
     }
     const view = m.resume_view;
     const c = m.resumeContext();

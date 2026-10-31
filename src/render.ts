@@ -41,6 +41,7 @@ import * as bindings from "./bindings";
 import { Preferences } from "./preferences";
 import { providerName, type Pane } from "./mirror";
 import type { Notice } from "./host_clipboard";
+import type { Marks } from "./provider_mark";
 import {
   Writer,
   codepointWidth,
@@ -459,6 +460,7 @@ function badgeCovered(u: Ui, side: SidebarView, width: number, height: number): 
   // The agents drawer has no title row for the badge.
   if (u.sidebar_drawer === "agents") return true;
   const boxes = menuBoxes(u, width, height);
+  if (u.agent_launcher) boxes.push(u.agent_launcher.bounds(width, height, side));
   if (u.agent_search) boxes.push(new Rect(0, side.middle() + 1, side.width, 1));
   if (u.dialog) {
     const d = NameView.init(width, height, u.dialog);
@@ -987,7 +989,23 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
     managed.manager.cell = u.supports_kitty_graphics ? u.cell_pixels : null;
     managed.manager.pointer_at = u.pointer;
   }
-  if (u.agent_launcher) u.agent_launcher.draw(w, width, height, side);
+  if (u.agent_launcher) {
+    const icons = u.tab_icons,
+      cell = u.cell_pixels;
+    // Marks sit above text: none under the setup or a sign-in drawn over
+    // the launcher, and none under a link card.
+    const card = u.link_card && u.pointer ? link_rect : null;
+    const marks: Marks | null =
+      icons && cell && !u.corgi_setup && !u.signin_draw && !u.signin_exit
+        ? (provider, col, row) => {
+            const brand = brandOf(provider);
+            if (!brand || card?.contains(col, row) || card?.contains(col + tabIcons.cols - 1, row)) return "";
+            return icons.place(brand, col, row, cell);
+          }
+        : null;
+    u.agent_launcher.marks = marks;
+    u.agent_launcher.draw(w, width, height, side);
+  }
   if (u.corgi_setup) u.corgi_setup.draw(w, u.inference, u.prefs, width, height);
   if (managed?.manager.last_box && !managed.transition.active)
     w.write(managed.manager.glideImage(managed.manager.last_box, managed.manageModel()));

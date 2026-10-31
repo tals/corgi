@@ -8,6 +8,7 @@ import { Style, keycap } from "./palette";
 import { Dialog, View as DialogView, writeField } from "./name_dialog";
 import { Writer, displayWidth, writeEllipsis, truncatedText, sat } from "./text";
 import * as scrollThumb from "./scroll_thumb";
+import { writeMark, type Marks } from "./provider_mark";
 
 export type Scope = "folder" | "workspace" | "everywhere";
 const scopes: Scope[] = ["folder", "workspace", "everywhere"];
@@ -59,6 +60,11 @@ export const max_open = 64;
 const session_capacity = 160;
 /** An account besides a provider's default, by the name Corgi knows it. */
 export type Account = { provider: Provider; account: string; name: string };
+/** A conversation's place in the Where column, and its checkout's branch
+ * as history records branches; null outside a branch. */
+export type Location = { label: string; branch: string | null };
+/** Leads a branch in the Where column, as in the sidebar's headers. */
+const branch_icon = "⌥ ";
 
 /** Where the launcher is, and what is already open. */
 export class Context {
@@ -73,6 +79,8 @@ export class Context {
     public accounts: readonly Account[] = [],
     /** What each provider's default account is called, if anything. */
     public names: Readonly<Record<string, string>> = {},
+    /** What Where says for a folder: its checkout's branch, else its name. */
+    public location: (cwd: string) => Location = cwd => ({ label: basename(cwd) || cwd, branch: null }),
   ) {}
   /** The name of the account `e` ran in, while there are accounts to tell
    * apart; "" for a default without a name. */
@@ -196,6 +204,8 @@ export class Area {
     return sat(this.height, 2);
   }
 }
+/** Brand mark, provider name and the gap before the title. */
+const provider_width = 11;
 interface Columns {
   title: number;
   folder: number;
@@ -395,14 +405,23 @@ export class View {
   /** Keep the selection in view after it moves. */
   reveal(c: Context, area: Area): void {
     const rows = this.lines(c);
-    this.scroll = this.firstRow(rows, this.index(c, rows), area.listHeight());
+    this.scroll = this.viewport(c, rows, area.listHeight()).first;
+  }
+  /** The pinned provider and date replace the first day's heading. */
+  private viewport(c: Context, rows: Line[], height: number): { first: number; height: number; context: Entry | null } {
+    const pinned = this.search().length === 0 && rows.length > 0 && height > 1;
+    const body = sat(height, pinned ? 1 : 0);
+    let first = this.firstRow(rows, this.index(c, rows), body);
+    if (pinned && rows[first] && "day" in rows[first]) first += 1;
+    const line = rows[first];
+    return { first, height: body, context: pinned && line && "entry" in line ? c.history.entries[line.entry] : null };
   }
   /** Title, folder and last-message widths for an inner width; the last
    * message goes first when space runs out. */
   columns(inner: number): Columns {
     // Marker, provider and their gaps, the gap after the title, and the age.
-    const room = sat(inner, 16);
-    const folder = this.expanded && this.scope !== "folder" && room >= 60 ? 15 : 0;
+    const room = sat(inner, provider_width + 7);
+    const folder = this.expanded && this.scope !== "folder" && room >= 60 ? Math.min(24, Math.floor(room / 4)) : 0;
     const title =
       sat(room, folder) >= 70
         ? Math.max(30, Math.floor(((room - folder) * 2) / 5))
@@ -416,7 +435,7 @@ export class View {
   }
   /** The collapsed list from terminal row `y`, inside a border at column
    * `x` that is `width` wide. */
-  drawCollapsed(w: Writer, c: Context, x: number, y: number, width: number): void {
+  drawCollapsed(w: Writer, c: Context, x: number, y: number, width: number, marks: Marks | null = null): void {
     const rows = this.lines(c);
     const cols = this.columns(sat(width, 4));
     let total = 0;
@@ -425,26 +444,26 @@ export class View {
     // The launcher's title names the folder.
     writeEllipsis(w, total > 0 ? ` · ${total} here` : " · none here", cols.title + 3);
     if (cols.last > 12) {
-      w.write(`\x1b[${y};${x + 3 + 9 + cols.title + 2}H`);
+      w.write(`\x1b[${y};${x + 3 + provider_width + cols.title + 2}H`);
       writeEllipsis(w, "You last said", cols.last);
     }
     w.write(`\x1b[${y};${x + width - 3 - 6}HActive`);
     const at = this.index(c, rows);
     rows.forEach((line, k) => {
       const row = y + 1 + k + ("more" in line ? 1 : 0);
-      this.drawLine(w, c, line, rows, this.focused && at === k, startsRun(c, rows, k, 0), x, row, width, cols);
+      this.drawLine(w, c, rows, k, this.focused && at === k, startsRun(c, rows, k, 0), x, row, width, cols, marks);
     });
   }
   /** The expanded list in `area`, terminal coordinates inside the border. */
-  draw(w: Writer, c: Context, area: Area): void {
+  draw(w: Writer, c: Context, area: Area, marks: Marks | null = null): void {
     const rows = this.lines(c);
     const at = this.index(c, rows);
     const x = area.x;
     const y = area.y;
     const width = area.width;
-    const list_top = area.listTop();
-    const list_height = area.listHeight();
-    const first = this.firstRow(rows, at, list_height);
+    const viewport = this.viewport(c, rows, area.listHeight());
+    const { first, height: list_height, context } = viewport;
+    const list_top = area.listTop() + (context ? 1 : 0);
     const cols = this.columns(sat(width, 4));
     // Search line and scope.
     w.write(`\x1b[${y};${x + 3}H${panel}`);
@@ -466,36 +485,47 @@ export class View {
     w.write(" ");
     writeKey(w, scope, panel);
     // Column headings.
-    w.write(`\x1b[${y + 1};${x + 3 + 9}H${panel}`);
+    w.write(`\x1b[${y + 1};${x + 3 + provider_width}H${panel}`);
     writeEllipsis(w, "Title", cols.title);
     if (cols.folder > 0) {
-      w.write(`\x1b[${y + 1};${x + 3 + 9 + cols.title + 2}H`);
-      w.write("Folder");
+      w.write(`\x1b[${y + 1};${x + 3 + provider_width + cols.title + 2}H`);
+      w.write("Where");
     }
     if (cols.last > 12) {
-      w.write(`\x1b[${y + 1};${x + 3 + 9 + cols.title + 2 + cols.folder}H`);
+      w.write(`\x1b[${y + 1};${x + 3 + provider_width + cols.title + 2 + cols.folder}H`);
       writeEllipsis(w, "You last said", cols.last);
     }
     w.write(`\x1b[${y + 1};${x + width - 3 - 6}HActive`);
+    if (context) {
+      const date = dayLabel(context.updated_at, c.now);
+      w.write(`\x1b[${area.listTop()};${x + 3}H${row_style}`);
+      writeMark(w, context.provider, x + 2, area.listTop() - 1, marks);
+      w.write(`\x1b[${area.listTop()};${x + 5}H${row_style}`);
+      w.write(adapter(context.provider).name);
+      w.write(`\x1b[${area.listTop()};${x + 3 + provider_width}H${panel}`);
+      writeEllipsis(w, date, sat(width, 6 + provider_width));
+      w.write(rule + " " + "─".repeat(sat(width, 6 + provider_width + displayWidth(date))));
+    }
     if (rows.length === 0 || (rows.length === 1 && "heading" in rows[0])) {
-      w.write(`\x1b[${list_top + (rows.length === 1 ? 1 : 0)};${x + 3 + 9}H${panel}`);
+      w.write(`\x1b[${list_top + (rows.length === 1 ? 1 : 0)};${x + 3 + provider_width}H${panel}`);
       w.write(this.search().length > 0 ? "No matches." : "Nothing closed here. Tab widens the scope.");
     }
-    rows.slice(first, Math.min(rows.length, first + list_height)).forEach((line, k) => {
+    for (let k = 0; k < Math.min(rows.length - first, list_height); k++) {
       const row = list_top + k;
       this.drawLine(
         w,
         c,
-        line,
         rows,
+        first + k,
         this.focused && at === first + k,
-        startsRun(c, rows, first + k, first),
+        !(context && k === 0) && startsRun(c, rows, first + k, first),
         x,
         row,
         width,
         cols,
+        marks,
       );
-    });
+    }
     const bar = scrollThumb.thumb(list_height, rows.length, first);
     if (bar)
       for (let k = 0; k < list_height; k++)
@@ -507,22 +537,27 @@ export class View {
   private drawLine(
     w: Writer,
     c: Context,
-    line: Line,
     rows: Line[],
+    at: number,
     selected: boolean,
     named: boolean,
     x: number,
     row: number,
     width: number,
     cols: Columns,
+    marks: Marks | null = null,
   ): void {
-    const style = selected ? selected_style : row_style;
+    const line = rows[at],
+      style = selected ? selected_style : row_style;
     if ("day" in line) {
-      w.write(`\x1b[${row};${x + 3}H${panel}`);
+      const before = at > 0 ? agentOf(c, rows[at - 1]) : null,
+        after = rows[at + 1];
+      if (before !== null && after && before === agentOf(c, after)) w.write(`\x1b[${row};${x + 3}H${panel}│`);
+      w.write(`\x1b[${row};${x + 3 + provider_width}H${panel}`);
       const text = dayLabel(line.day, c.now);
       w.write(text);
       w.write(" " + palette.fg("line"));
-      w.write("─".repeat(sat(width, 6 + Buffer.byteLength(text))));
+      w.write("─".repeat(sat(width, 6 + provider_width + displayWidth(text))));
       return;
     }
     if ("heading" in line) {
@@ -532,7 +567,7 @@ export class View {
       return;
     }
     if ("elsewhere" in line) {
-      w.write(`\x1b[${row};${x + 3 + 9}H${panel}`);
+      w.write(`\x1b[${row};${x + 3 + provider_width}H${panel}`);
       w.write(`${line.elsewhere} more outside ${scopeLabel(this.scope)} · tab widens`);
       return;
     }
@@ -555,9 +590,12 @@ export class View {
     w.write(`\x1b[${row};${x + 1}H${style}`);
     w.splat(" ", sat(width, 3));
     w.write(`\x1b[${row};${x + 1}H${selected ? "›" : " "}`);
-    if (named) w.write(`\x1b[${row};${x + 3}H${adapter(e.provider).name}`);
-    else w.write(`\x1b[${row};${x + 3}H${rail(selected)}│${style}`);
-    let col = x + 3 + 9;
+    if (named) {
+      // This list writes 1-based positions; marks take 0-based cells.
+      writeMark(w, e.provider, x + 2, row - 1, marks);
+      w.write(`\x1b[${row};${x + 5}H${style}${adapter(e.provider).name}`);
+    } else w.write(`\x1b[${row};${x + 3}H${rail(selected)}│${style}`);
+    let col = x + 3 + provider_width;
     // The branch, then the account, end the title's column.
     let room = cols.title;
     const tag = (text: string, width: number, color: string) => {
@@ -565,20 +603,22 @@ export class View {
       w.write(`\x1b[${row};${col + room + 1}H` + color);
       writeEllipsis(w, text, width);
     };
+    const where = cols.folder > 0 ? c.location(e.cwd) : null;
     if (cols.title > 16) {
-      const account = c.accountName(e);
+      const account = e.account ? c.accountName(e) : "";
       if (account.length > 0)
         tag(account, Math.min(displayWidth(account), Math.floor(cols.title / 3)), selected ? palette.fg("muted") : dim);
+      // Where names the checkout's branch now; this is the one it ran on.
       const branch = "entry" in line ? otherBranch(c, e) : "";
-      if (branch.length > 0)
+      if (branch.length > 0 && where?.branch !== branch)
         tag(branch, Math.min(Buffer.byteLength(branch), Math.floor(room / 2)), palette.fg("muted"));
     }
     w.write(`\x1b[${row};${col}H` + style);
     writeEllipsis(w, (e.starred ? "★ " : "") + (e.title.length > 0 ? e.title : e.first), room);
     col += cols.title + 2;
-    if (cols.folder > 0) {
+    if (where) {
       w.write(`\x1b[${row};${col}H` + palette.fg("muted"));
-      writeEllipsis(w, basename(e.cwd), cols.folder - 1);
+      writeEllipsis(w, (where.branch !== null ? branch_icon : "") + where.label, cols.folder - 1);
       w.write(style);
       col += cols.folder;
     }
@@ -602,10 +642,11 @@ export class View {
   hit(c: Context, area: Area, x: number, y: number): Hit | null {
     if (x <= area.x || x >= area.x + area.width - 1) return null;
     if (y === area.y && x >= area.x + area.width - 2 - (scopeLabel(this.scope).length + 8)) return "scope";
-    const top = area.listTop();
-    if (y < top || y >= top + area.listHeight()) return null;
     const rows = this.lines(c);
-    const row = this.firstRow(rows, this.index(c, rows), area.listHeight()) + (y - top);
+    const viewport = this.viewport(c, rows, area.listHeight());
+    const top = area.listTop() + (viewport.context ? 1 : 0);
+    if (y < top || y >= top + viewport.height) return null;
+    const row = viewport.first + (y - top);
     return row < rows.length && keyOf(c, rows[row]) !== null ? { row } : null;
   }
   /** The collapsed list's row at `line`, counted from its first row. */
@@ -631,15 +672,16 @@ function agentOf(c: Context, line: Line): Provider | null {
   if ("open" in line) return c.history.entries[line.open].provider;
   return null;
 }
-/** Whether conversation row `i` names its agent: the first row shown from
- * `first`, and wherever the agent differs from the row above. */
+/** Names the first visible conversation and each change of agent. Day
+ * headings continue the run; search section headings start another. */
 export function startsRun(c: Context, rows: Line[], i: number, first: number): boolean {
   const agent = agentOf(c, rows[i]);
   if (agent === null) return false;
-  if (i === first) return true;
-  const above = agentOf(c, rows[i - 1]);
-  if (above === null) return true;
-  return above !== agent;
+  for (let k = i - 1; k >= first; k--) {
+    if ("day" in rows[k]) continue;
+    return agentOf(c, rows[k]) !== agent;
+  }
+  return true;
 }
 /** Draw a keycap, then restore the surrounding style. */
 export function writeKey(w: Writer, key: string, after: string): void {

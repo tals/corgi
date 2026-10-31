@@ -307,13 +307,13 @@ test("an inline CLI config the user set is left alone", async () => {
     else process.env.OPENCODE_CLI_CONFIG_CONTENT = saved;
   }
 });
-test("history excludes children and invalid identities", () => {
-  expect(entry(info)).toMatchObject({
+test("history normalizes milliseconds and excludes children and invalid identities", () => {
+  expect(entry({ ...info, time: { updated: 1792775115335 } })).toMatchObject({
     provider: "opencode2",
     session: id,
     title: "Test",
     cwd: "/tmp",
-    updated_at: 1000,
+    updated_at: 1792775115,
   });
   expect(entry({ ...info, parentID: "ses_parent" })).toBeNull();
   expect(entry({ ...info, id: "../bad" })).toBeNull();

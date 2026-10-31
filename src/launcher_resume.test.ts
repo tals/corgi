@@ -2,6 +2,7 @@
 import { expect, test } from "bun:test";
 import {
   Context,
+  Area,
   View,
   merge,
   startsRun,
@@ -10,6 +11,7 @@ import {
   ageLabel,
   collapsed_rows,
   type Account,
+  type Location,
   type Entry,
 } from "./launcher_resume";
 import * as sim from "./providers/sim";
@@ -117,7 +119,8 @@ test("a run of one agent names it once", () => {
   entries[2].provider = "codex";
   entries[3].provider = "codex";
   const c = new Context({ pending: false, entries }, "/w/corgi", "/w/corgi", [], 1000);
-  const rows = new View().lines(c);
+  const view = new View(),
+    rows = view.lines(c);
   expect(Array.from({ length: collapsed_rows }, (_, i) => startsRun(c, rows, i, 0))).toEqual([
     true,
     false,
@@ -129,21 +132,91 @@ test("a run of one agent names it once", () => {
   expect(startsRun(c, rows, 1, 1)).toBe(true);
   // Show more.
   expect(startsRun(c, rows, rows.length - 1, 0)).toBe(false);
+  // Day headings do not repeat a provider's name.
+  entries.forEach((e, i) => (e.updated_at = 900 - i * 86400));
+  view.expand();
+  const expanded = view.lines(c),
+    conversations = expanded.flatMap((line, i) => ("entry" in line ? [i] : []));
+  expect(expanded.filter(line => "day" in line)).toHaveLength(5);
+  expect(conversations.map(i => startsRun(c, expanded, i, 0))).toEqual([true, false, true, false, true]);
+  // The first visible conversation carries the label, whether a day heading
+  // is at the top or the original label has scrolled away.
+  for (const i of conversations) {
+    expect(startsRun(c, expanded, i, i)).toBe(true);
+    expect(startsRun(c, expanded, i, i - 1)).toBe(true);
+  }
+  // Open and closed search results still have separate provider runs.
+  expect(startsRun(c, [{ open: 0 }, { heading: "results" }, { entry: 1 }], 2, 0)).toBe(true);
 });
 
 test("a run is named after its provider", () => {
   const remove = sim.register();
   try {
-    const entries = [testEntry("a", "/w/corgi", "Sticky agent", 900), testEntry("b", "/w/corgi", "Review", 800)];
+    const entries = [
+      testEntry("a", "/w/corgi", "Sticky agent", 900),
+      testEntry("b", "/w/corgi", "Review", 800),
+      testEntry("c", "/w/corgi", "OpenCode title", 700),
+    ];
     entries[1].provider = sim.sim;
+    entries[2].provider = "opencode2";
     const c = new Context({ pending: false, entries }, "/w/corgi", "/w/corgi", [], 1000);
     const w = new Writer();
     new View().drawCollapsed(w, c, 0, 1, 100);
-    expect(w.buffered()).toContain("HClaude");
-    expect(w.buffered()).toContain("HSim");
+    // Each run starts with its brand mark (here its glyph), then its name.
+    expect(w.buffered()).toMatch(/\x1b\[2;3H[^*]*\* \x1b\[2;5H\x1b\[[\d;]*mClaude/);
+    expect(w.buffered()).toMatch(/\x1b\[3;3H[^§]*§ \x1b\[3;5H\x1b\[[\d;]*mSim/);
     expect(w.buffered()).not.toContain("Codex");
+    for (const width of [44, 100]) {
+      const writer = new Writer(),
+        terminal = new Terminal(width, 10);
+      try {
+        new View().drawCollapsed(writer, c, 0, 1, width);
+        terminal.feed(writer.s);
+        const row = terminal.text().split("\n")[3];
+        expect(row).toContain("o OpenCode OpenCode title");
+        expect(row).not.toContain("OpenC…");
+      } finally {
+        terminal.destroy();
+      }
+    }
   } finally {
     remove();
+  }
+});
+
+test("the pinned provider and date follow the first visible conversation without stealing its hit target", () => {
+  const entries = Array.from({ length: 10 }, (_, i) =>
+    testEntry(String(i), "/w/corgi", `Conversation ${i}`, 900 - Math.floor(i / 2) * 86400),
+  );
+  entries[6].provider = "codex";
+  const c = new Context({ pending: false, entries }, "/w/corgi", "/w/corgi", [], 1000),
+    view = new View({ expanded: true, focused: true }),
+    area = new Area(0, 1, 100, 6),
+    rows = view.lines(c);
+  for (const entry of [0, 4, 5, 6]) {
+    const at = rows.findIndex(line => "entry" in line && line.entry === entry);
+    view.select(c, at);
+    view.scroll = at;
+    view.reveal(c, area);
+    const writer = new Writer(),
+      terminal = new Terminal(100, 10);
+    try {
+      view.draw(writer, c, area);
+      terminal.feed(writer.s);
+      const lines = terminal.text().split("\n"),
+        provider = entry === 6 ? "Codex" : "Claude",
+        heading = lines[area.listTop() - 1],
+        date = dayLabel(entries[entry].updated_at, c.now);
+      expect(heading).toContain(provider);
+      expect(heading).not.toContain("·");
+      expect(heading.indexOf(provider)).toBe(4);
+      expect(heading.indexOf(date)).toBe(lines[area.listTop()].indexOf(`Conversation ${entry}`));
+      expect(lines[area.listTop()]).toContain(`│          Conversation ${entry}`);
+      expect(view.hit(c, area, 20, area.listTop())).toBeNull();
+      expect(view.hit(c, area, 20, area.listTop() + 1)).toEqual({ row: at });
+    } finally {
+      terminal.destroy();
+    }
   }
 });
 
@@ -202,6 +275,53 @@ test('stars sit inside history titles without moving columns or changing order; 
   }
 });
 
+test("Where marks branches, and a title still names the branch a conversation ran on", () => {
+  const entries = [
+    testEntry("a", "/w/corgi", "On main", 900),
+    testEntry("b", "/w/corgi", "On feature", 800),
+    testEntry("c", "/w/corgi-wt", "In the worktree", 700),
+    testEntry("e", "/w/corgi-wt", "Before the worktree", 650),
+    testEntry("d", "/x/plain", "Outside git", 600),
+  ];
+  entries[0].branch = "main";
+  entries[1].branch = "feature";
+  // Where drops the worktree- prefix the branch keeps.
+  entries[2].branch = "main";
+  entries[3].branch = "worktree-wt";
+  const places: Record<string, Location> = {
+    "/w/corgi": { label: "main", branch: "main" },
+    "/w/corgi-wt": { label: "wt", branch: "worktree-wt" },
+  };
+  const c = new Context(
+      { pending: false, entries },
+      "/w/corgi",
+      "/w",
+      [],
+      1000,
+      [],
+      {},
+      cwd => places[cwd] ?? { label: "plain", branch: null },
+    ),
+    view = new View({ expanded: true, focused: true }),
+    area = new Area(0, 1, 140, 10);
+  view.scope = "everywhere";
+  const w = new Writer(),
+    host = new Terminal(140, 12);
+  view.draw(w, c, area);
+  host.feed(w.s);
+  const lines = host.text().split("\n");
+  host.destroy();
+  const line = (title: string) => lines.find(l => l.includes(title))!;
+  expect(line("On main")).toContain("⌥ main");
+  expect(line("On main")).not.toContain("feature");
+  expect(line("On feature")).toMatch(/On feature +feature +⌥ main/);
+  expect(line("In the worktree")).toMatch(/In the worktree +⌥ wt/);
+  expect(line("Before the worktree")).toMatch(/Before the worktree +⌥ wt/);
+  expect(line("Before the worktree")).not.toContain("worktree-wt");
+  expect(line("Outside git")).toContain(" plain");
+  expect(line("Outside git")).not.toContain("⌥");
+});
+
 test("a conversation from another account ends its title with the account's name, dimmed", () => {
   const entries = [testEntry("a", "/w/corgi", "Fix login", 900), testEntry("b", "/w/corgi", "Review", 800)];
   entries[0].account = "/accounts/claude-work";
@@ -224,6 +344,6 @@ test("a conversation from another account ends its title with the account's name
   host.destroy();
   // At the end of the title's column, where a branch goes.
   expect(lines[1]).toContain("Fix login");
-  expect(lines[1].indexOf("work") + 4).toBe(11 + v.columns(96).title);
+  expect(lines[1].indexOf("work") + 4).toBe(13 + v.columns(96).title);
   expect(lines[2]).not.toContain("work");
 });

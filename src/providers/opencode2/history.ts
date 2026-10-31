@@ -15,7 +15,7 @@ export function entry(value: unknown): Entry | null {
     last: "",
     cwd,
     branch: "",
-    updated_at: Number(field(field(value, "time"), "updated") ?? 0),
+    updated_at: Math.floor(Number(field(field(value, "time"), "updated") ?? 0) / 1000),
     interrupted: str(value, "outcome") === "interrupted",
   };
 }
