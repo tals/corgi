@@ -2,6 +2,7 @@
   "hello": {},
   "tricks.list": {},
   "tricks.reload": {},
+  "tricks.configure": { "autoreload": false },
   "tricks.press": { "action": "instance.1", "viewer": 1 },
   "session.command": {
     "command": {

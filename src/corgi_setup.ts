@@ -10,6 +10,7 @@ import * as i18n from "./i18n";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import * as palette from "./palette";
+import * as trickConfig from "./trick_config";
 import { Style, colors, bgRgb, mix, selection, type Token } from "./palette";
 import { Rect } from "./layout";
 import { Provider, byProvider, adapter } from "./providers";
@@ -112,6 +113,7 @@ export type Item =
   | "shell"
   | "keyboard"
   | "agents"
+  | "tricks"
   | "source_control"
   | "terminal"
   | "about"
@@ -139,6 +141,7 @@ const list = (): ListRow[] => [
   "source_control",
   null,
   "agents",
+  "tricks",
   null,
   "terminal",
   null,
@@ -162,6 +165,7 @@ const labels = (): Record<Item, string> => ({
   keyboard: i18n.t`Keymap`,
   source_control: i18n.t`Source control`,
   agents: i18n.t`Manage agents`,
+  tricks: i18n.t`Tricks`,
   terminal: i18n.t`Terminal capabilities`,
   about: i18n.t`About`,
   report_bug: i18n.t`Report a bug`,
@@ -190,6 +194,9 @@ function reportSettings(s: Status, prefs: Preferences): bugReport.Settings {
 }
 /** What Enter or a click asks the controller to do. */
 export type Apply =
+  | { kind: "trick"; id: string; enabled: boolean }
+  | { kind: "trick_autoreload"; on: boolean }
+  | { kind: "tricks_reload" }
   | { kind: "summaries"; choice: Summarizer; model?: string; account?: string }
   | { kind: "inference_use"; use: Use; on: boolean }
   | { kind: "readings" | "smart_links" | "ghostty"; on: boolean }
@@ -531,6 +538,11 @@ export class Menu {
   shells: string[] = [];
   /** Whether the daemon probes the ports servers print, for Open ↗ buttons. */
   smart_links = true;
+  tricks: trickConfig.Info | null = null;
+  tricks_error: string | null = null;
+  private tricks_poll = 0;
+  private tricks_loading = false;
+  private closed = false;
   /** The worktree folder template being typed, while Source control edits it. */
   editing: Dialog | null = null;
   /** A project the worktree folder's preview places a branch in; an example when null. */
@@ -600,6 +612,7 @@ export class Menu {
     return new Menu();
   }
   close(): void {
+    this.closed = true;
     this.clearAim();
     this.intensity_drag = null;
     this.import_picker.close();
@@ -680,6 +693,35 @@ export class Menu {
       visible = this.item === "clever_corgi" && l !== null && !(l.single && this.focus === "list");
     if (visible && !this.models_visible) void conn.call("inference.configure", {}).catch(() => {});
     this.models_visible = visible;
+    if (
+      this.item === "tricks" &&
+      l !== null &&
+      !(l.single && this.focus === "list") &&
+      !this.tricks_loading &&
+      now >= this.tricks_poll
+    ) {
+      this.tricks_loading = true;
+      this.tricks_poll = now + 1000;
+      void conn
+        .call("tricks.list")
+        .then(reply => {
+          const next = trickConfig.info(reply);
+          if (!this.closed && (JSON.stringify(next) !== JSON.stringify(this.tricks) || this.tricks_error !== null)) {
+            this.tricks = next;
+            this.tricks_error = null;
+            this.changed();
+          }
+        })
+        .catch(error => {
+          if (!this.closed && this.tricks_error !== String(error)) {
+            this.tricks_error = String(error);
+            this.changed();
+          }
+        })
+        .finally(() => {
+          this.tricks_loading = false;
+        });
+    }
     const picker = this.importing();
     return (picker !== null && (await picker.poll(conn))) || hovered;
   }
@@ -1744,6 +1786,64 @@ export class Menu {
     switch (this.item) {
       case "agents":
         return [];
+      case "tricks": {
+        const info = this.tricks;
+        return [
+          title(i18n.t`Tricks`),
+          lead(i18n.t`Small programs that customize Corgi.`),
+          ...(this.tricks_error ? [{ tag: "warn" as const, text: directoryLabel(this.tricks_error, null, 512) }] : []),
+          ...(info
+            ? [
+                option({
+                  label: i18n.t`Reload on save`,
+                  detail: "",
+                  mark: info.autoreload ? "on" : "off",
+                  toggle: true,
+                  apply: { kind: "trick_autoreload", on: !info.autoreload },
+                  action: info.autoreload ? i18n.t`turn off` : i18n.t`turn on`,
+                }),
+                ...(info.watch_error ? [{ tag: "warn" as const, text: info.watch_error }] : []),
+                blank,
+                ...info.tricks.flatMap(trick => [
+                  option({
+                    label: directoryLabel(trick.id, null, 160),
+                    detail: trick.error
+                      ? i18n.t`Error`
+                      : trick.running
+                        ? i18n.t`Running`
+                        : trick.enabled
+                          ? i18n.t`Starting`
+                          : i18n.t`Off`,
+                    mark: trick.enabled ? "on" : "off",
+                    toggle: true,
+                    warn: trick.error !== null,
+                    apply: { kind: "trick", id: trick.id, enabled: !trick.enabled },
+                    action: trick.enabled ? i18n.t`turn off` : i18n.t`turn on`,
+                  }),
+                  ...(trick.error ? [{ tag: "warn" as const, text: directoryLabel(trick.error, null, 512) }] : []),
+                ]),
+                ...(!info.tricks.length ? [lead(i18n.t`No tricks installed yet.`)] : []),
+                blank,
+                option({
+                  label: i18n.t`Reload`,
+                  detail: i18n.t`Restart installed tricks`,
+                  mark: "none",
+                  apply: { kind: "tricks_reload" },
+                  action: i18n.t`reload`,
+                }),
+                option({
+                  label: i18n.t`Copy tricks folder`,
+                  detail: "",
+                  mark: "none",
+                  apply: { kind: "copy", text: info.directory },
+                  action: i18n.t`copy`,
+                }),
+                { tag: "note" as const, text: directoryLabel(info.directory, null, 1024) },
+                { tag: "note" as const, text: i18n.t`Authoring help: corgi --skill tricks` },
+              ]
+            : [lead(this.tricks_error ? i18n.t`Tricks are unavailable.` : i18n.t`Loading installed tricks…`)]),
+        ];
+      }
       case "about":
         return [
           title(i18n.t`About Corgi`),
@@ -2159,6 +2259,13 @@ export class Menu {
         return prefs.worktree_folder === worktreeFolder.default_template
           ? { text: "", tone: "faint" }
           : { text: i18n.t`custom`, tone: "muted" };
+      case "tricks": {
+        const count = this.tricks?.tricks.filter(t => t.running).length ?? 0;
+        return {
+          text: this.tricks ? i18n.t`${count} on` : "",
+          tone: this.tricks?.tricks.some(t => t.error) ? "warm" : "muted",
+        };
+      }
       case "terminal":
       case "about":
       case "report_bug":

@@ -1,4 +1,13 @@
-import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { Runtime, screen_text } from "./runtime";
 import { EXE, ROOT, registerCase, quote } from "./support";
@@ -101,6 +110,98 @@ class Tricks extends Runtime {
     writeFileSync(join(path, "label.ts"), 'export const label: string = "Sketch alive";\n');
     writeFileSync(join(path, "main.ts"), source);
     await this.run_cli("tricks", "reload");
+  }
+
+  async test_autoreload_preserves_store_and_restarts_only_changed_tricks() {
+    await this.agent("Autoreload");
+    const code = `import { label } from "./label.ts";
+export async function register(on, corgi) {
+  const boots = await corgi.get("boots", 0) + 1;
+  await corgi.set("boots", boots);
+  corgi.draw("counter", { kind: "overlay", anchor: "top-left", text: label + ":" + boots });
+}`;
+    await this.sketch(code);
+    await this.shown("Sketch alive:1");
+    const stable = join(this.root, "stable");
+    mkdirSync(stable);
+    writeFileSync(join(stable, "trick.toml"), 'version = 1\nid = "stable"\nentry = "main.mjs"\n');
+    writeFileSync(
+      join(stable, "main.mjs"),
+      `export async function register(on, corgi) {
+      const boots = await corgi.get("boots", 0) + 1;
+      await corgi.set("boots", boots);
+      corgi.draw("stable", { kind: "overlay", anchor: "bottom-left", text: "Stable:" + boots });
+    }`,
+    );
+    await this.shown("Stable:1");
+    const helper = join(this.root, "probe", "label.ts");
+    writeFileSync(helper + ".save", 'export const label = "Edited";');
+    renameSync(helper + ".save", helper);
+    await this.shown("Edited:2");
+    await this.shown("Stable:1");
+    const entry = join(this.root, "probe", "main.ts");
+    writeFileSync(entry, "export function register( broken");
+    await this.until(async () =>
+      (await this.rpc({ op: "tricks.list" })).tricks.some((t: any) => t.id === "probe" && t.error),
+    );
+    await this.until(
+      async () =>
+        !screen_text((await this.client!.poll()).data)
+          .join("\n")
+          .includes("Edited:2"),
+    );
+    writeFileSync(entry, code);
+    await this.shown("Edited:3");
+    await this.shown("Stable:1");
+    rmSync(stable, { recursive: true });
+    await this.until(async () => !(await this.rpc({ op: "tricks.list" })).tricks.some((t: any) => t.id === "stable"));
+    await this.until(
+      async () =>
+        !screen_text((await this.client!.poll()).data)
+          .join("\n")
+          .includes("Stable:1"),
+    );
+  }
+
+  async test_settings_toggle_tricks_and_autoreload_persist_across_restart() {
+    await this.agent("Settings");
+    await this.shown("0 tasks finished");
+    await this.client!.request({ op: "size", cols: 120, rows: 40 });
+    await this.client!.action("setup");
+    await this.click_text(screen_text(await this.shown("Manage agents")), "Tricks");
+    await this.shown("Reload on save");
+    await this.click_text(screen_text(await this.shown("completion-jar")), "completion-jar");
+    await this.until(async () =>
+      (await this.rpc({ op: "tricks.list" })).tricks.some(
+        (t: any) => t.id === "completion-jar" && !t.enabled && !t.running,
+      ),
+    );
+    await this.click_text(screen_text(await this.shown("Reload on save")), "Reload on save");
+    await this.until(async () => (await this.rpc({ op: "tricks.list" })).autoreload === false);
+    await this.client!.input("\x1b\x1b");
+    await this.restart_runtime();
+    [this.client] = await this.viewer();
+    let info = await this.rpc({ op: "tricks.list" });
+    this.assertEqual(info.autoreload, false);
+    this.assertTrue(info.tricks.some((t: any) => t.id === "completion-jar" && !t.enabled));
+    writeFileSync(
+      join(this.root, "completion-jar", "main.mjs"),
+      'export function register(on, corgi) { corgi.draw("x", { kind: "overlay", text: "Enabled again" }); }',
+    );
+    await this.rpc({ op: "tricks.configure", id: "completion-jar", enabled: true });
+    await this.shown("Enabled again");
+    await this.rpc({ op: "tricks.configure", autoreload: true });
+    writeFileSync(
+      join(this.root, "completion-jar", "main.mjs"),
+      'export function register(on, corgi) { corgi.draw("x", { kind: "overlay", text: "Watching again" }); }',
+    );
+    await this.shown("Watching again");
+    this.assertTrue((await this.raw_rpc({ op: "server.reload", executable: EXE })).ok);
+    writeFileSync(
+      join(this.root, "completion-jar", "main.mjs"),
+      'export function register(on, corgi) { corgi.draw("x", { kind: "overlay", text: "Watching after handoff" }); }',
+    );
+    await this.shown("Watching after handoff");
   }
 
   async test_typescript_entries_transcripts_opt_in_and_handler_failure_cleanup() {

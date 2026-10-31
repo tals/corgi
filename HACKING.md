@@ -127,6 +127,10 @@ Corgi Tricks run as daemon-owned subprocesses. `trick_runner.ts` calls their
 JSONL contract.
 `trick_host.ts` owns discovery, subscriptions and atomic per-runtime KV;
 `trick_budget.ts` bounds CPU and memory, and `trick_ui.ts` draws views.
+`trick_watch.ts` watches installed source folders with bounded, debounced native
+watchers and restarts only changed tricks. Settings → Tricks controls autoreload
+and per-runtime enablement; `trick_config.ts` normalizes its status and preferences.
+`corgi --skill tricks` serves the bundled authoring skill.
 `trick_runner.ts` caches patches from named UI hooks on agent metadata changes;
 terminal frames never run trick callbacks. `trick_elements.ts` builds bounded
 rows, columns and buttons; functions stay in the runner. The viewer lays out

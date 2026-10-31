@@ -500,11 +500,15 @@ export class Server {
         });
         return;
       case "tricks.list":
-        cl.reply("tricks.list", { tricks: this.tricks.status() });
+        cl.reply("tricks.list", this.tricks.info());
         return;
       case "tricks.reload":
         await this.tricks.reload();
-        cl.reply("tricks.reload", { tricks: this.tricks.status() });
+        cl.reply("tricks.reload", this.tricks.info());
+        return;
+      case "tricks.configure":
+        await this.tricks.configure(request.payload);
+        cl.reply("tricks.configure", this.tricks.info());
         return;
       case "tricks.press":
         viewer.targetViewer(this, request.payload.viewer);

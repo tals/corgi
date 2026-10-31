@@ -25,6 +25,12 @@ focused. Change the code to choose colors by account, provider, state, or any
 combination. Corgi removes a patch when its agent disappears or its callback
 stops drawing. Returning early is enough when a condition stops matching.
 
+The flat-list marker uses the same `▌` as Corgi's normal focus bar. Here are the
+bundled examples running with seeded personal and company agents; the popover's
+color picker saves a choice for that account:
+
+![Account-colored sidebar markers and a trick's color picker](images/tricks-account-colors.png)
+
 The accompanying `trick.toml` only identifies and launches the code:
 
 ```toml
@@ -52,9 +58,30 @@ corgi tricks reload
 corgi tricks list
 ```
 
-Edit the copied code and reload. `CORGI_TRICKS_DIR` on the daemon overrides
+Edit the copied code: saves automatically restart only that trick, keeping its
+KV store. Atomic editor saves and nested relative imports work. Native file
+watchers debounce bursts and reload at most once per second; there is no polling.
+Source (`.js`, `.mjs`, `.cjs`, `.ts`, `.mts`, `.cts`, `.jsx`, `.tsx`), JSON and TOML
+files trigger reloads. Dependency/build folders, hidden directories and nested
+directory symlinks are excluded. Watches are capped at 128 directories and eight
+levels. Changes outside this scope require `corgi tricks reload`.
+
+Open **Settings → Tricks** (`prefix i`) to see installed tricks and errors,
+enable or disable each trick, toggle **Reload on save**, reload manually, or
+copy the install folder. These choices persist per runtime in `settings.json`
+and override a manifest's `enabled` value. Disabling immediately clears a trick's
+UI but keeps its saved values. A failed trick stays stopped until its source is
+edited or it is explicitly restarted. Autoreload errors appear in Settings.
+
+![The Tricks section in Corgi settings](images/tricks-settings.png)
+
+For an agent writing a trick, `corgi --skill tricks` prints the bundled authoring
+instructions and examples without connecting to a daemon. The base `corgi --skill`
+points agents there for UI customization.
+
+`CORGI_TRICKS_DIR` on the daemon overrides
 this directory. Corgi discovers explicitly installed folders, never code in
-repositories. Set `enabled = false` in a manifest to disable a trick.
+repositories. Set `enabled = false` in a manifest to start disabled unless Settings overrides it.
 Each trick runs once per daemon with its folder as the working directory.
 
 The default account is `""`; other accounts use their canonical config folder.

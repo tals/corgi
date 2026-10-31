@@ -1,6 +1,9 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
+import * as trickConfig from "./trick_config";
+import type { Status } from "./trick_config";
+import * as trickWatch from "./trick_watch";
 import * as tricks from "./tricks";
 import * as settings from "./settings";
 import * as os from "./os";
@@ -86,12 +89,6 @@ export function snapshot(r: Runtime): tricks.Snapshot {
   }
   return { agents, workspaces: r.workspaces.items.map(w => ({ id: w.id, name: w.name(), cwd: w.cwd })) };
 }
-export interface Status {
-  id: string;
-  path: string;
-  running: boolean;
-  error: string | null;
-}
 interface Running {
   instance: string;
   status: Status;
@@ -113,6 +110,12 @@ export class Host {
   private sequence = 0n;
   private next_publish = 0;
   private timer?: ReturnType<typeof setInterval>;
+  private config: trickConfig.Config = { autoreload: true, enabled: {} };
+  private root = directory();
+  private watcher: trickWatch.Watcher | null = null;
+  private watch_error: string | null = null;
+  private work: Promise<void> = Promise.resolve();
+  private epoch = 0;
   revision = 0n;
   constructor(
     readonly socket: string,
@@ -121,6 +124,58 @@ export class Host {
     private changed: () => void,
     private focus?: (viewer: number, agent: string) => void,
   ) {}
+  info(): trickConfig.Info {
+    return {
+      directory: this.root,
+      autoreload: this.config.autoreload,
+      watch_error: this.watcher?.error ?? this.watch_error,
+      tricks: this.status(),
+    };
+  }
+  private enqueue(run: () => Promise<void>): Promise<void> {
+    const next = this.work.then(run);
+    this.work = next.catch(() => {});
+    return next;
+  }
+  private unwatch() {
+    this.watcher?.close();
+    this.watcher = null;
+    this.watch_error = null;
+  }
+  private watch() {
+    if (!this.config.autoreload || this.watcher) return;
+    try {
+      const watcher = new trickWatch.Watcher(this.root, names => {
+        void this.enqueue(async () => {
+          if (this.watcher === watcher) await this.restart(names);
+        }).catch(error => log.warn("Cannot reload tricks", { error }));
+      });
+      this.watcher = watcher;
+    } catch {
+      this.watch_error = "Cannot watch trick files; use Reload to retry.";
+    }
+  }
+  async configure(q: Request<"tricks.configure">) {
+    return this.enqueue(async () => {
+      if ((q.id === null) !== (q.enabled === null)) throw Error("InvalidTrickSetting");
+      const current = trickConfig.config(settings.read(settings.path(this.socket)).tricks);
+      if (q.id !== null) {
+        tricks.key(q.id);
+        if (this.statuses.filter(s => s.id === q.id).length !== 1) throw Error("NoTrick");
+        current.enabled = { ...current.enabled, [q.id]: q.enabled! };
+      }
+      if (q.autoreload !== null) current.autoreload = q.autoreload;
+      settings.update(settings.path(this.socket), { tricks: current });
+      this.config = current;
+      if (!current.autoreload) this.unwatch();
+      if (q.id !== null) {
+        const found = this.statuses.find(s => s.id === q.id)!;
+        await this.restart(new Set([basename(dirname(found.path))]));
+      }
+      this.watch();
+      this.invalidate();
+    });
+  }
   status(): Status[] {
     return this.statuses.map(s => ({ ...s }));
   }
@@ -228,7 +283,10 @@ export class Host {
   private kill(r: Running) {
     if (!r.status.running) return;
     r.status.running = false;
-    if (!this.running.some(r => r.status.running)) clearInterval(this.timer);
+    if (!this.running.some(r => r.status.running)) {
+      clearInterval(this.timer);
+      this.timer = undefined;
+    }
     r.views.clear();
     this.invalidate();
     if (r.child.pid) {
@@ -239,39 +297,61 @@ export class Host {
       }
     }
   }
-  async stop() {
-    clearInterval(this.timer);
-    const running = this.running;
+  private async stopProcesses(selected: Set<string> | null = null) {
+    const running = this.running.filter(r => !selected || selected.has(basename(dirname(r.status.path))));
     for (const r of running) this.kill(r);
     await Promise.all(running.map(r => r.exited));
-    this.running = [];
+    this.running = this.running.filter(r => !running.includes(r));
   }
-  async reload(root = directory()) {
-    await this.stop();
-    this.statuses = [];
+  stop() {
+    this.epoch++;
+    this.unwatch();
+    return this.enqueue(() => this.stopProcesses());
+  }
+  reload(root = directory()) {
+    const epoch = ++this.epoch;
+    this.unwatch();
+    return this.enqueue(async () => {
+      if (epoch !== this.epoch) return;
+      this.root = resolve(root);
+      this.config = trickConfig.config(settings.read(settings.path(this.socket)).tricks);
+      this.watch();
+      await this.restart(null);
+    });
+  }
+  private async restart(selected: Set<string> | null) {
+    await this.stopProcesses(selected);
+    this.statuses = this.statuses.filter(s => selected && !selected.has(basename(dirname(s.path))));
     this.previous = this.source();
     this.next_publish = 0;
     let names: string[];
     try {
-      names = readdirSync(root, { withFileTypes: true })
-        .filter(entry => entry.isDirectory() || entry.isSymbolicLink())
-        .map(entry => entry.name)
-        .sort();
+      names = trickWatch.folders(this.root);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") log.warn("Cannot read tricks", { root, error });
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT")
+        log.warn("Cannot read tricks", { root: this.root, error });
+      await this.stopProcesses();
+      this.statuses = [];
+      this.invalidate();
       return;
     }
-    const ids = new Set<string>();
-    for (const name of names.slice(0, 16)) {
-      const path = join(root, name, "trick.toml");
-      const status: Status = { id: name, path, running: false, error: null };
+    const missing = new Set(
+      this.statuses.filter(s => !names.includes(basename(dirname(s.path)))).map(s => basename(dirname(s.path))),
+    );
+    await this.stopProcesses(missing);
+    this.statuses = this.statuses.filter(s => !missing.has(basename(dirname(s.path))));
+    const ids = new Set(this.statuses.map(s => s.id));
+    for (const name of names.filter(name => !this.statuses.some(s => s.path === join(this.root, name, "trick.toml")))) {
+      const path = join(this.root, name, "trick.toml");
+      const status: Status = { id: name, path, enabled: true, running: false, error: null };
       this.statuses.push(status);
       try {
         const m = manifest(readFileSync(path, "utf8"));
         status.id = m.id;
         if (ids.has(m.id)) throw Error("DuplicateTrickId");
         ids.add(m.id);
-        if (!m.enabled) continue;
+        status.enabled = Object.hasOwn(this.config.enabled, m.id) ? this.config.enabled[m.id] : m.enabled;
+        if (!status.enabled) continue;
         const file = join(settings.path(this.socket) + ".tricks", m.id + ".json");
         let kv: Record<string, unknown> = {};
         try {
@@ -283,7 +363,7 @@ export class Host {
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         }
-        const cwd = resolve(root, name),
+        const cwd = resolve(this.root, name),
           command = m.entry ? [this.executable, "__trick", resolve(cwd, m.entry)] : [...m.command!];
         if (command[0].includes("/")) command[0] = resolve(cwd, command[0]);
         const child = spawn(command[0], command.slice(1), {
@@ -364,7 +444,9 @@ export class Host {
         log.warn("Cannot start trick", { path, error });
       }
     }
-    if (this.running.some(r => r.status.running))
+    this.statuses.sort((a, b) => a.path.localeCompare(b.path));
+    this.invalidate();
+    if (!this.timer && this.running.some(r => r.status.running))
       this.timer = setInterval(() => {
         for (const r of this.running) {
           if (!r.status.running || !r.child.pid) continue;

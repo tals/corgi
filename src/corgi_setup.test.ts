@@ -14,6 +14,7 @@ import { Worker, pane, workspace } from "./import/catalog";
 import { Writer } from "./text";
 import * as releaseLabel from "./release_label";
 import type { Connection } from "./rpc";
+import { transport } from "./fixtures/transport";
 import { Style } from "./palette";
 
 /** The screen's text after replaying the cursor moves in `ansi`. */
@@ -1903,4 +1904,73 @@ test("a setup choice or provider the viewer doesn't know reads as auto and none"
     "off",
     "codex",
   ]);
+});
+
+test("Tricks settings show statuses, errors and durable toggle actions", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status();
+  menu.item = "tricks";
+  menu.tricks = {
+    directory: "/tmp/tricks",
+    autoreload: true,
+    watch_error: null,
+    tricks: [
+      {
+        id: "account-colors",
+        path: "/tmp/tricks/account-colors/trick.toml",
+        enabled: true,
+        running: true,
+        error: null,
+      },
+      { id: "broken", path: "/tmp/tricks/broken/trick.toml", enabled: true, running: false, error: "HandlerDeadline" },
+    ],
+  };
+  expect(draw(menu, 120, 40).join("\n")).toContain("Reload on save");
+  expect(draw(menu, 120, 40).join("\n")).toContain("HandlerDeadline");
+  menu.openOptions(s, prefs);
+  menu.cursor = 0;
+  expect(menu.enter(s, prefs)).toEqual({ kind: "trick_autoreload", on: false });
+  menu.cursor = 1;
+  expect(menu.enter(s, prefs)).toEqual({ kind: "trick", id: "account-colors", enabled: false });
+  menu.tricks.tricks[0].enabled = false;
+  expect(menu.enter(s, prefs)).toEqual({ kind: "trick", id: "account-colors", enabled: true });
+  menu.cursor = 3;
+  expect(menu.enter(s, prefs)).toEqual({ kind: "tricks_reload" });
+  menu.cursor = 4;
+  expect(menu.enter(s, prefs)).toEqual({ kind: "copy", text: "/tmp/tricks" });
+  menu.tricks.tricks = [];
+  expect(draw(menu, 120, 40).join("\n")).toContain("No tricks installed yet.");
+});
+
+test("Tricks status refreshes only while visible and never overlaps pending requests", async () => {
+  const menu = Menu.open(),
+    requests: string[] = [];
+  let finish!: (value: unknown) => void;
+  const conn = {
+    call: transport(async op => {
+      requests.push(op);
+      return new Promise<unknown>(resolve => {
+        finish = resolve;
+      });
+    }).request as Connection["call"],
+  };
+  menu.item = "theme";
+  await menu.poll(conn, 100, 30, 0);
+  expect(requests).toEqual([]);
+  menu.item = "tricks";
+  await menu.poll(conn, 100, 30, 0);
+  await menu.poll(conn, 100, 30, 2000);
+  expect(requests).toEqual(["tricks.list"]);
+  finish({ directory: "/tmp/tricks", tricks: [] });
+  await Bun.sleep(0);
+  expect(menu.tricks?.directory).toBe("/tmp/tricks");
+  await menu.poll(conn, 100, 30, 500);
+  expect(requests).toHaveLength(1);
+  await menu.poll(conn, 100, 30, 2000);
+  expect(requests).toHaveLength(2);
+  menu.close();
+  finish({ directory: "/changed", tricks: [] });
+  await Bun.sleep(0);
+  expect(menu.tricks?.directory).toBe("/tmp/tricks");
 });

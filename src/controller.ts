@@ -3,6 +3,7 @@
 //! are async and run one at a time from the viewer loop.
 import * as trickUi from "./trick_ui";
 import * as tricks from "./tricks";
+import * as trickConfig from "./trick_config";
 import { hostname } from "node:os";
 import { existsSync } from "node:fs";
 import { basename, isAbsolute } from "node:path";
@@ -2141,7 +2142,7 @@ export class Controller {
         const controls = this.trick_controls,
           hits = controls.hits;
         if (!hits.length) {
-          this.notice(" No trick buttons visible");
+          this.notice(i18n.t` No trick buttons visible`);
           break;
         }
         const before = hits.findIndex(hit => hit.slot === controls.focus);
@@ -4120,6 +4121,27 @@ export class Controller {
           this.notice((error as Error).message);
         }
         return;
+      case "trick":
+      case "trick_autoreload":
+      case "tricks_reload": {
+        const setup = this.corgi_setup;
+        if (!setup) return;
+        try {
+          const reply =
+            apply.kind === "tricks_reload"
+              ? await call(this.connection, "tricks.reload", {})
+              : await call(
+                  this.connection,
+                  "tricks.configure",
+                  apply.kind === "trick" ? { id: apply.id, enabled: apply.enabled } : { autoreload: apply.on },
+                );
+          setup.tricks = trickConfig.info(reply);
+          setup.tricks_error = null;
+        } catch (error) {
+          setup.tricks_error = String(error);
+        }
+        return;
+      }
       case "moonlander":
         return this.perform({ name: "moonlander" });
       case "shell":
