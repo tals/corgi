@@ -414,6 +414,29 @@ test("Claude's worktree tools move its location past earlier writes", () => {
   expect(worktrees.observedDirectory(agent)).toBe("/repo");
   expect(worktrees.writtenPaths(agent)).toEqual([]);
 });
+test("Claude's cd moves its location past earlier edits; Codex's cwd doesn't", () => {
+  const hooks = new Hooks(),
+    agent = new Agent(),
+    finish = (tool: string, cwd: string, tool_input: object) =>
+      hooks.decode({ hook_event_name: "PostToolUse", session_id: "s", tool_name: tool, cwd, tool_input });
+  observe(agent, "claude", { kind: "prompt", session: "s", cwd: "/repo" }, 1n, false, 1);
+  observe(agent, "claude", finish("Edit", "/repo", { file_path: "src/a.ts" }), 2n, false, 2);
+  observe(agent, "claude", finish("Bash", "/repo", { command: "bun test" }), 3n, false, 3);
+  expect(worktrees.writtenPaths(agent)).toEqual(["/repo/src/a.ts"]);
+  const review = "/repo/.claude/worktrees/review";
+  observe(agent, "claude", finish("Bash", review, { command: `cd ${review}` }), 4n, false, 4);
+  expect([agent.directory(), worktrees.observed(agent)]).toEqual([review, null]);
+  observe(agent, "claude", finish("Edit", review, { file_path: "src/b.ts" }), 5n, false, 5);
+  observe(agent, "claude", finish("Bash", review, { command: "bun test" }), 6n, false, 6);
+  expect(worktrees.writtenPaths(agent)).toEqual([`${review}/src/b.ts`]);
+
+  const where: worktrees.Location = { cwd: "/repo/.worktrees/one", writes: [], ran: ["/repo"], basis: "named" },
+    other = new Agent();
+  observe(other, "codex", { kind: "prompt", session: "c", cwd: "/repo" }, 1n, false, 1);
+  worktrees.recordLocation(other, where);
+  observe(other, "codex", { kind: "tool_finish", session: "c", cwd: "/elsewhere" }, 2n, false, 2);
+  expect(worktrees.observed(other)).toEqual(where);
+});
 test("a session ends only where nothing shows it; a shown one that starts again keeps its place", () => {
   const one = "/repo/.worktrees/one",
     where: worktrees.Location = { cwd: one, writes: [], ran: [one], basis: "named" },
