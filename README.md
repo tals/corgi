@@ -66,8 +66,8 @@ curl -fsSL https://corgi.computer/install.sh | bash -s uninstall
 ## Tricks
 
 [Corgi Tricks](docs/tricks.md) are small JavaScript or TypeScript programs with
-`setup` and `loop` functions. Subscribe to metadata events, paint sidebar
-colors and flourishes, draw text overlays, and save small values in KV.
+`register(on, corgi)` and event callbacks. Paint sidebar colors and brand
+icons, draw overlays with the theme palette, and save small values in KV.
 Transcripts are opt-in. A tiny TOML manifest just names the entry file.
 Try the account-color, provider-flair, attention-radar and completion-jar
 examples together with `./go.ts --sandbox tricks`.

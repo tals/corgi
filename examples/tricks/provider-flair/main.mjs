@@ -1,10 +1,6 @@
-export function setup(corgi) {
-  corgi.subscribe("agent.changed");
-}
-
-export function loop(corgi, { agent }) {
-  const flair = { claude: ["✦", "warm"], codex: ["◇", "accent"], pi: ["π", "hot"] }[agent.provider];
-  if (!flair) return corgi.paint(agent, null);
-  const [glyph, color] = flair;
-  corgi.paint(agent, { color, suffix: [{ text: ` ${glyph}`, color }] });
+export function register(on, corgi) {
+  on("agent.changed", ({ agent }) => {
+    const brand = corgi.brand.of(agent.provider);
+    corgi.paint(agent, { color: brand.color, suffix: [{ text: " " }, brand.icon] });
+  });
 }

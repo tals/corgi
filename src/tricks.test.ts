@@ -21,7 +21,7 @@ test("a sketch manifest only names its entry point", () => {
   );
   expect(() =>
     trickHost.manifest('version = 1\nid = "test"\nentry = "main.mjs"\n[subscribe]\nevents = ["snapshot"]'),
-  ).toThrow("SubscribeInSetup");
+  ).toThrow("SubscribeInRegister");
 });
 
 test("selectors distinguish default accounts and validate subscription names", () => {

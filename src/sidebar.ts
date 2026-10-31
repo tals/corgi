@@ -523,6 +523,7 @@ export class Preview {
 }
 
 export class View {
+  trick_icons: trickUi.Icon[] | null = null;
   search: Search | null = null;
   /** Header scope: "all" or the workspace whose agents are listed. */
   scope_label = "";
@@ -1377,6 +1378,7 @@ export class View {
         v.hovered === absolute,
         frame_ms,
         dream,
+        row_writer === w ? v.trick_icons : null,
       );
       v.drawGhost(row_writer, e, top);
       finish();
@@ -1410,6 +1412,7 @@ export class View {
     hovered: boolean,
     now_ms: number,
     dream: corgiAnimation.Dream | null,
+    icons = this.trick_icons,
   ): void {
     const v = this;
     // Focused and dragged rows take the selected tint, and a hovered one
@@ -1483,7 +1486,12 @@ export class View {
         sat(room, right + suffixRoom),
       );
       w.write(`\x1b[${y + 1};${x + 5 + nameWidth}H\x1b[22m`);
-      trickUi.write(w, e.decoration.suffix, suffixRoom);
+      trickUi.write(
+        w,
+        e.decoration.suffix,
+        suffixRoom,
+        icons ? { icons, x: x + 4 + nameWidth, y, covered: 0 } : undefined,
+      );
     }
     w.write("\x1b[22m");
     // Unsent review notes wait for the user, so they take warm.

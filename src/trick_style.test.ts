@@ -1,0 +1,82 @@
+import { expect, test } from "bun:test";
+import * as style from "./trick_style";
+import * as palette from "./palette";
+import * as terminalPalette from "./terminal_palette";
+import * as tricks from "./tricks";
+import * as trickUi from "./trick_ui";
+import * as process_name from "./process_name";
+import { Provider, adapter } from "./providers";
+import { Writer } from "./text";
+import { Rect } from "./layout";
+
+test("brand helpers share provider names, glyphs and the existing logo aliases", () => {
+  for (const provider of Provider.all) {
+    const brand = style.brand.of(provider);
+    expect(brand.name).toBe(adapter(provider).name);
+    expect(brand.icon.text).toBe(adapter(provider).glyph);
+    expect(tricks.view({ kind: "decorate", color: brand.color, suffix: [brand.icon] })).toMatchObject({
+      color: brand.color,
+    });
+  }
+  expect(style.brand.of("codex").icon.icon).toBe("openai");
+  expect(style.brand.of("claude").icon.icon).toBe("claude");
+  expect(style.brand.of("python3").icon.icon).toBe("python");
+  expect(style.brand.of("missing")).toMatchObject({ name: "Unknown", color: "text", icon: { text: "?" } });
+});
+
+test("palette references and brand colors resolve in each viewer's theme", () => {
+  const mixed = style.palette.mix(style.palette.accent, style.palette.bg, 25);
+  const before: palette.Rgb = [...style.rgb(mixed)];
+  try {
+    for (const background of [
+      [24, 27, 32],
+      [250, 250, 250],
+    ] as palette.Rgb[]) {
+      palette.use("animal_style", {
+        background,
+        foreground: background[0] > 100 ? [20, 20, 20] : [230, 230, 230],
+        ansi: Array(16).fill(null),
+      });
+      expect(style.rgb(mixed)).toEqual(palette.mix(palette.colors.accent, palette.colors.bg, 25));
+      for (const name of process_name.brands)
+        for (const token of ["bg", "surface", "selected"] as const)
+          expect(
+            terminalPalette.contrast(style.rgb(style.brand.of(name).color), palette.colors[token]),
+          ).toBeGreaterThanOrEqual(4.5);
+    }
+    expect(style.rgb(mixed)).not.toEqual(before);
+    expect(tricks.color(JSON.parse(JSON.stringify(mixed)))).toEqual(mixed);
+  } finally {
+    palette.use("corgi");
+  }
+  expect(style.rgb(mixed)).toEqual(before);
+});
+
+test("color recipes reject invalid brands, weights and excessive nesting", () => {
+  expect(() => tricks.color({ brand: "missing" })).toThrow("InvalidBrand");
+  expect(() => style.palette.mix("accent", "bg", NaN)).toThrow("InvalidMix");
+  expect(() => style.palette.mix("accent", "bg", 101)).toThrow("InvalidMix");
+  let value: unknown = "accent";
+  for (let i = 0; i < 7; i++) value = { mix: [value, "bg"], amount: 50 };
+  expect(() => tricks.color(value)).toThrow("ColorTooDeep");
+  expect(() => tricks.view({ kind: "decorate", suffix: [{ text: "x", icon: "missing" }] })).toThrow("InvalidBrand");
+});
+
+test("brand spans reserve two cells, fall back to text, and clip as a unit", () => {
+  const icon = style.brand.of("claude").icon;
+  const spans = [{ text: "猫" }, icon, { text: "!" }];
+  expect(trickUi.width(spans)).toBe(5);
+  const fallback = new Writer();
+  trickUi.write(fallback, spans, 5);
+  expect(fallback.s).toContain("* ");
+  const icons: trickUi.Icon[] = [],
+    w = new Writer();
+  trickUi.write(w, spans, 5, { icons, x: 3, y: 2, covered: 0 });
+  expect(icons).toEqual([{ brand: "claude", x: 5, y: 2, covered: 0 }]);
+  icons.length = 0;
+  trickUi.write(w, spans, 3, { icons, x: 3, y: 2, covered: 0 });
+  expect(icons).toEqual([]);
+  const views = tricks.views([{ kind: "overlay", lines: [[icon]] }]);
+  const boxes = trickUi.overlays(w, views, new Rect(10, 1, 40, 20), icons, 3);
+  expect(icons).toEqual([{ brand: "claude", x: boxes[0].x + 1, y: boxes[0].y, covered: 4 }]);
+});

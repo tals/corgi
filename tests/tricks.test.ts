@@ -104,23 +104,23 @@ class Tricks extends Runtime {
   }
 
   async test_typescript_entries_transcripts_opt_in_and_handler_failure_cleanup() {
-    await this.sketch(`import { appendFileSync } from "node:fs";
+    await this.sketch(`import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { label } from "./label.ts";
-export async function setup(corgi) {
-  const boots: number = await corgi.get("boots", 0);
-  await corgi.set("boots", boots + 1);
+export async function register(on, corgi) {
+  const boots: number = (await corgi.get("boots", 0)) + 1;
+  await corgi.set("boots", boots);
   corgi.draw("status", { kind: "overlay", lines: [[{ text: label }]] });
-}
-export function loop(corgi, event) {
-  appendFileSync("events.jsonl", JSON.stringify(event) + "\\n");
-  if (event.event === "hook" && event.tool === "Watch") {
-    corgi.subscribe(["metadata:*", "transcript"], { provider: "claude" });
-    appendFileSync("events.jsonl", '{"watching":true}\\n');
-  }
-  if (event.event === "hook" && event.tool === "Crash") {
-    setInterval(() => {}, 1000);
-    throw Error("TestFailure");
-  }
+  on(existsSync("watch") ? ["metadata:*", "transcript"] : "metadata:*", event => {
+    appendFileSync("events.jsonl", JSON.stringify({ ...event, boots }) + "\\n");
+    if (event.event === "hook" && event.tool === "Watch") {
+      writeFileSync("watch", "");
+      appendFileSync("events.jsonl", '{"watching":true}\\n');
+    }
+    if (event.event === "hook" && event.tool === "Crash") {
+      setInterval(() => {}, 1000);
+      throw Error("TestFailure");
+    }
+  });
 }`);
     const pane = await this.agent("Transcript");
     await this.shown("Sketch alive");
@@ -137,6 +137,8 @@ export function loop(corgi, event) {
     this.assertTrue(!this.records().some(e => e.event === "transcript"));
     await this.hook(pane, "PreToolUse", "claude", { tool_name: "Watch" });
     await this.until(() => this.records().some(e => e.watching));
+    await this.run_cli("tricks", "reload");
+    await this.until(() => this.records().some(e => e.event === "snapshot" && e.boots === 2));
     append("After subscription");
     await this.until(() =>
       this.records().some(e => e.event === "transcript" && e.record?.customTitle === "After subscription"),
@@ -166,9 +168,9 @@ export function loop(corgi, event) {
   async test_cpu_and_memory_budgets_stop_runaway_sketches() {
     [this.client] = await this.viewer();
     for (const [source, error] of [
-      ["while (true) {} export function setup() {}", "CpuLimit"],
+      ["while (true) {} export function register() {}", "CpuLimit"],
       [
-        "const held = Buffer.alloc(192 * 1024 * 1024, 1); export function setup() { globalThis.held = held; }",
+        "const held = Buffer.alloc(192 * 1024 * 1024, 1); export function register() { globalThis.held = held; }",
         "MemoryLimit",
       ],
     ]) {
@@ -182,6 +184,14 @@ export function loop(corgi, event) {
     }
   }
 
+  async test_brand_icons_reach_a_graphics_viewer() {
+    await this.agent("Brand");
+    await this.shown("Brand *");
+    await this.client!.request({ op: "size", cols: 100, rows: 30, cell: { width: 9, height: 18 } });
+    await this.client!.request({ op: "badge", visible: true });
+    await this.until(async () => (await this.client!.poll()).data.includes("a=p,i=730320,"));
+  }
+
   async test_examples_draw_account_colors_flair_attention_and_durable_completions() {
     const personal = await this.agent("Personal"),
       company = await this.agent("Company", true);
@@ -192,11 +202,12 @@ export function loop(corgi, event) {
       list.tricks.every((t: any) => t.running),
       JSON.stringify(list),
     );
-    await this.shown("Company ✦");
+    await this.shown("Company *");
     const panes = (await this.session()).panes;
     this.assertEqual(panes.find((p: any) => p.id === company).account, this.company);
     const data = await this.shown("0 tasks finished");
     this.assertIn(palette.fgRgb(palette.mix(trickUi.rgb("#83b6ef"), palette.colors.bg, 45)), data);
+    this.assertIn(trickUi.fg({ brand: "claude" }), data);
     await this.hook(company, "UserPromptSubmit");
     await this.hook(company, "PermissionRequest", "claude", { tool_name: "Bash" });
     await this.shown("1 waiting for you");
@@ -219,7 +230,7 @@ export function loop(corgi, event) {
     // The new daemon restarts trick processes after committing the handoff.
     this.assertTrue((await this.raw_rpc({ op: "server.reload", executable: EXE })).ok);
     await this.shown("1 tasks finished");
-    await this.shown("Company ✦");
+    await this.shown("Company *");
     await this.restart_runtime();
     [this.client] = await this.viewer();
     await this.shown("1 tasks finished");
@@ -303,7 +314,7 @@ createInterface({ input: process.stdin }).on("line", line => {
     const status = (await this.rpc({ op: "tricks.list" })).tricks.find((t: any) => t.id === "completion-jar");
     this.assertTrue(!status.running && status.error);
     this.assertEqual(readFileSync(store, "utf8"), "{corrupt");
-    await this.shown("Personal ✦");
+    await this.shown("Personal *");
   }
 
   async test_a_noisy_trick_is_stopped_without_affecting_other_tricks() {
@@ -312,7 +323,7 @@ createInterface({ input: process.stdin }).on("line", line => {
       (await this.rpc({ op: "tricks.list" })).tricks.some((t: any) => t.id === "probe" && t.error === "OutputLimit"),
     );
     await this.agent("Still works");
-    await this.shown("Still works ✦");
+    await this.shown("Still works *");
     await this.shown("0 tasks finished");
   }
 }

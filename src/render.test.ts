@@ -36,11 +36,41 @@ import { Menu as SetupMenu } from "./corgi_setup";
 import { Writer } from "./text";
 import { Terminal } from "./pane/terminal";
 import type { Prefix } from "./keymap";
+import * as trickStyle from "./trick_style";
+import * as tricks from "./tricks";
 
 function emptyView() {
   return new View(new Model(), new Selection());
 }
 const count = (haystack: string, needle: string) => haystack.split(needle).length - 1;
+
+test("trick brand icons share the image cache and stay beneath later overlays", () => {
+  const view = emptyView(),
+    icons = new Icons(),
+    brand = trickStyle.brand.of("claude");
+  const u = ui({
+    message: "",
+    copy_mode: false,
+    sidebar_open: true,
+    tab_icons: icons,
+    cell_pixels: { width: 9, height: 18 },
+    agents: [
+      sidebar.entry({ target: { pane: 1 }, name: "Brand", provider: "claude", decoration: { suffix: [brand.icon] } }),
+    ],
+    tricks: tricks.views([{ kind: "overlay", anchor: "top-right", lines: [[brand.icon]] }]),
+  });
+  frame(view, [], 100, 30, u);
+  expect(icons.end()).toContain("i=730320,");
+  icons.begin();
+  expect(count(frame(view, [], 100, 30, u), "a=p,i=730320,")).toBe(2);
+  expect(icons.end()).toBe("");
+  icons.begin();
+  u.copy_feedback = true;
+  expect(count(frame(view, [], 100, 30, u), "a=p,i=730320,")).toBe(1);
+  icons.begin();
+  u.agent_launcher = new LauncherMenu({ workspace: 1, selected: "claude", last: "claude", pinned: true });
+  expect(frame(view, [], 100, 30, u)).not.toContain("a=p,i=730320,");
+});
 
 test("unread pointer follows the clickable workspace and respects overlays", () => {
   const view = emptyView();

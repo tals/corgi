@@ -1,11 +1,13 @@
 import * as palette from "./palette";
 import { Provider } from "./providers";
 import type { State, Attention } from "./agents";
+import * as process_name from "./process_name";
 
 export const version = 1;
 export const max_bytes = 65536;
 export const max_views = 256;
-export type Color = palette.Token | `#${string}`;
+export type Color =
+  palette.Token | `#${string}` | { brand: process_name.Brand } | { mix: [Color, Color]; amount: number };
 export interface Agent {
   id: string;
   provider: Provider;
@@ -40,6 +42,7 @@ export interface Subscription {
 export interface Span {
   text: string;
   color?: Color;
+  icon?: process_name.Brand;
 }
 export interface Decoration {
   kind: "decorate";
@@ -122,8 +125,32 @@ export function subscription(value: unknown): Subscription {
     where: selector(source.where),
   };
 }
-function color(value: unknown): Color | undefined {
+export function color(value: unknown, depth = 0): Color | undefined {
   if (value === undefined) return undefined;
+  if (depth > 4) throw Error("ColorTooDeep");
+  if (value && typeof value === "object") {
+    const source = object(value);
+    if (source.brand !== undefined) {
+      fields(source, ["brand"]);
+      const brand = process_name.brand(source.brand);
+      if (!brand) throw Error("InvalidBrand");
+      return { brand };
+    }
+    fields(source, ["mix", "amount"]);
+    if (
+      !Array.isArray(source.mix) ||
+      source.mix.length !== 2 ||
+      typeof source.amount !== "number" ||
+      !Number.isFinite(source.amount) ||
+      source.amount < 0 ||
+      source.amount > 100
+    )
+      throw Error("InvalidMix");
+    const a = color(source.mix[0], depth + 1),
+      b = color(source.mix[1], depth + 1);
+    if (!a || !b) throw Error("InvalidColor");
+    return { mix: [a, b], amount: source.amount };
+  }
   if (typeof value !== "string" || (!Object.hasOwn(palette.colors, value) && !/^#[0-9a-fA-F]{6}$/.test(value)))
     throw Error("InvalidColor");
   return value as Color;
@@ -132,10 +159,12 @@ function spans(value: unknown): Span[] {
   if (!Array.isArray(value) || value.length > 16) throw Error("InvalidSpans");
   return value.map(v => {
     const s = object(v);
-    fields(s, ["text", "color"]);
+    fields(s, ["text", "color", "icon"]);
     const text = string(s.text, 512);
     if (/[\x00-\x1f\x7f-\x9f\u2028\u2029]/u.test(text)) throw Error("ControlCharacter");
-    return { text, ...(s.color === undefined ? {} : { color: color(s.color) }) };
+    const icon = s.icon === undefined ? undefined : process_name.brand(s.icon);
+    if (icon === null) throw Error("InvalidBrand");
+    return { text, ...(s.color === undefined ? {} : { color: color(s.color) }), ...(icon ? { icon } : {}) };
   });
 }
 export function view(value: unknown): View {

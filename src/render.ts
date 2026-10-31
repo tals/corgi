@@ -663,6 +663,8 @@ export function frame(
   const thumb = over_tabs ? tabThumb(view, width - side.tabX() - side.panel) : null;
   // Marks take room in their tabs only where the host can show them.
   const marks: TabMark[] | null = u.tab_icons && u.cell_pixels ? [] : null;
+  const trick_icons: trickUi.Icon[] | null = marks ? [] : null;
+  side.trick_icons = trick_icons;
   drawTabs(w, view, panes, u.prefs.preset, side.tabX(), tab_space, thumb, marks);
   if (u.tab_drop_x !== null)
     w.write(`\x1b[1;${side.tabX() + u.tab_drop_x + 1}H\x1b[1m` + palette.fg("strong") + "│\x1b[0m");
@@ -877,7 +879,7 @@ export function frame(
   side.draw(w, entries, workspaces);
   if (u.git_hover !== null) sidebar.drawGitAction(w, side, u.workspaces, u.git_hover);
   if (u.review_draw) u.review_draw(w);
-  for (const rect of trickUi.overlays(w, u.tricks, area)) cover(rect);
+  for (const rect of trickUi.overlays(w, u.tricks, area, trick_icons, covered.length)) cover(rect);
   if (u.corgi_badge === "image") {
     w.write(side.width > 0 && !badgeCovered(u, side, width, height) ? corgiBadge.place() : corgiBadge.hide);
   }
@@ -1084,6 +1086,18 @@ export function frame(
     for (const { brand, x } of marks)
       if (!covered.some(box => box.y === 0 && box.h > 0 && box.x < x + tabIcons.cols && box.x + box.w > x))
         w.write(u.tab_icons.place(brand, x, 0, u.cell_pixels));
+  if (
+    trick_icons &&
+    u.tab_icons &&
+    u.cell_pixels &&
+    !u.agent_launcher &&
+    !u.corgi_setup &&
+    !u.signin_draw &&
+    !u.signin_exit
+  )
+    for (const { brand, x, y, covered: from } of trick_icons)
+      if (!covered.slice(from).some(box => box.y <= y && box.y + box.h > y && box.x < x + 2 && box.x + box.w > x))
+        w.write(u.tab_icons.place(brand, x, y, u.cell_pixels));
   if (dragging) {
     w.write("\x1b[?25l");
     pane_cursor = null;

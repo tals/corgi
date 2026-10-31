@@ -1,6 +1,8 @@
 import * as tricks from "./tricks";
 import * as palette from "./palette";
 import * as text from "./text";
+import * as trickStyle from "./trick_style";
+import type { Brand } from "./process_name";
 import { Rect } from "./layout";
 
 export type Decoration = Pick<tricks.Decoration, "color" | "marker" | "suffix">;
@@ -17,27 +19,57 @@ export function decoration(
   }
   return result;
 }
-export function rgb(color: tricks.Color): palette.Rgb {
-  if (color.startsWith("#")) return [1, 3, 5].map(i => parseInt(color.slice(i, i + 2), 16)) as palette.Rgb;
-  return palette.colors[color as palette.Token];
-}
+export const rgb = trickStyle.rgb;
 export function fg(color: tricks.Color) {
   return palette.fgRgb(rgb(color));
 }
 export function width(spans: tricks.Span[]) {
-  return spans.reduce((n, s) => n + text.displayWidth(s.text), 0);
+  return spans.reduce((n, s) => n + (s.icon ? 2 : text.displayWidth(s.text)), 0);
 }
-export function write(w: text.Writer, spans: tricks.Span[], room: number) {
+export interface Icon {
+  brand: Brand;
+  x: number;
+  y: number;
+  covered: number;
+}
+export function write(
+  w: text.Writer,
+  spans: tricks.Span[],
+  room: number,
+  at?: { icons: Icon[]; x: number; y: number; covered: number },
+) {
+  let used = 0;
   for (const span of spans) {
     if (room <= 0) break;
+    if (span.icon) {
+      if (room < 2) break;
+      if (at) {
+        at.icons.push({ brand: span.icon, x: at.x + used, y: at.y, covered: at.covered });
+        w.splat(" ", 2);
+      } else {
+        const fallback = text.clipped(span.text, 2);
+        w.write(fg(span.color ?? "text") + fallback);
+        w.splat(" ", 2 - text.displayWidth(fallback));
+      }
+      room -= 2;
+      used += 2;
+      continue;
+    }
     const clipped = text.clipped(span.text, room);
     w.write(fg(span.color ?? "text") + clipped);
     room -= text.displayWidth(clipped);
+    used += text.displayWidth(clipped);
     if (clipped.length < span.text.length) break;
   }
 }
 /** Read-only cards, inside the panes and below Corgi's dialogs. */
-export function overlays(w: text.Writer, views: tricks.View[], area: Rect): Rect[] {
+export function overlays(
+  w: text.Writer,
+  views: tricks.View[],
+  area: Rect,
+  icons: Icon[] | null = null,
+  covered = 0,
+): Rect[] {
   const result: Rect[] = [],
     offsets = new Map<string, number>();
   if (area.w < 4 || area.h < 3) return result;
@@ -53,7 +85,12 @@ export function overlays(w: text.Writer, views: tricks.View[], area: Rect): Rect
       w.write(`\x1b[${y + row + 1};${x + 1}H\x1b[0m${palette.bg("surface")}`);
       w.splat(" ", cols);
       w.write(`\x1b[${y + row + 1};${x + 2}H`);
-      write(w, view.lines[row], cols - 2);
+      write(
+        w,
+        view.lines[row],
+        cols - 2,
+        icons ? { icons, x: x + 1, y: y + row, covered: covered + result.length + 1 } : undefined,
+      );
     }
     w.write("\x1b[0m");
     result.push(new Rect(x, y, cols, height));

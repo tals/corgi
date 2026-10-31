@@ -27,7 +27,7 @@ export function manifest(source: string): Manifest {
   if (m.entry !== undefined) {
     if (typeof m.entry !== "string" || !m.entry || m.entry.includes("\0") || m.command !== undefined)
       throw Error("InvalidEntry");
-    if (m.subscribe !== undefined) throw Error("SubscribeInSetup");
+    if (m.subscribe !== undefined) throw Error("SubscribeInRegister");
   } else if (
     !Array.isArray(m.command) ||
     !m.command.length ||

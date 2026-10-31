@@ -1,13 +1,15 @@
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import * as tricks from "./tricks";
+import * as style from "./trick_style";
 
 export type Paint = Partial<Pick<tricks.Decoration, "marker" | "color" | "suffix">>;
 export type Drawing =
   | (Omit<tricks.Overlay, "anchor"> & { anchor?: tricks.Overlay["anchor"] })
   | (Paint & { kind: "decorate"; where?: tricks.Selector });
 export interface Corgi {
-  subscribe(events: tricks.EventPattern | tricks.EventPattern[], where?: tricks.Selector): void;
+  readonly palette: typeof style.palette;
+  readonly brand: typeof style.brand;
   paint(agent: tricks.Agent, style: Paint | null): void;
   draw(key: string, view: Drawing): void;
   clear(key: string): void;
@@ -15,9 +17,17 @@ export interface Corgi {
   set(key: string, value: unknown): Promise<void>;
   delete(key: string): Promise<void>;
 }
-export interface Sketch {
-  setup?(corgi: Corgi): void | Promise<void>;
-  loop?(corgi: Corgi, event: tricks.Event): void | Promise<void>;
+type Selected<P extends tricks.EventPattern> = Extract<
+  tricks.Event,
+  { event: P extends "metadata:*" ? (typeof tricks.metadata_events)[number] : P }
+>;
+export type Handler<E = tricks.Event> = (event: E) => void | Promise<void>;
+export interface On {
+  <P extends tricks.EventPattern>(events: P | P[], handler: Handler<Selected<P>>): void;
+  (handler: Handler<Selected<"metadata:*">>): void;
+}
+export interface Trick {
+  register(on: On, corgi: Corgi): void | Promise<void>;
 }
 type Message = tricks.Event | { event: "ready" } | { id: string | null; error?: string; result?: unknown };
 /** This pipe has one writer: the daemon running the same protocol. */
@@ -42,22 +52,27 @@ export class Runner {
   private ready = false;
   private stopped = false;
   private painted = new Map<string, string>();
-  private subscription: tricks.Subscription;
+  private handlers: { events: tricks.EventName[]; run: Handler }[] = [];
+  private on: On;
   readonly corgi: Corgi;
   constructor(
-    private sketch: Sketch,
+    private trick: Trick,
     private send: (value: object) => void,
     private fail: (error: Error) => void,
   ) {
-    this.subscription = tricks.subscription({ events: sketch.loop ? "metadata:*" : [] });
+    this.on = ((events: tricks.EventPattern | tricks.EventPattern[] | Handler, handler?: Handler) => {
+      if (this.stopped) throw Error("TrickStopped");
+      if (this.started) throw Error("RegistrationClosed");
+      if (this.handlers.length >= 256) throw Error("TooManyHandlers");
+      const run = typeof events === "function" ? events : handler;
+      if (typeof run !== "function") throw Error("ExpectedHandler");
+      const subscription = tricks.subscription({ events: typeof events === "function" ? "metadata:*" : events });
+      this.handlers.push({ events: subscription.events, run });
+    }) as On;
     const clear = (key: string) => this.write({ op: "ui.remove", key });
     this.corgi = {
-      subscribe: (events, where = {}) => {
-        this.subscription = tricks.subscription({ events, where });
-        for (const key of this.painted.values()) clear(key);
-        this.painted.clear();
-        if (this.started) this.subscribe();
-      },
+      palette: style.palette,
+      brand: style.brand,
       paint: (agent, style) => {
         const key = "agent-" + agent.id.replaceAll(":", "-");
         if (style === null) {
@@ -100,10 +115,9 @@ export class Runner {
     });
   }
   private subscribe() {
-    const events = [...this.subscription.events];
-    if (events.length)
-      for (const event of ["agent.changed", "agent.removed"] as const) if (!events.includes(event)) events.push(event);
-    this.write({ op: "subscribe", events, where: this.subscription.where });
+    const events = [...new Set(this.handlers.flatMap(h => h.events))];
+    if (events.length) if (!events.includes("agent.removed")) events.push("agent.removed");
+    this.write({ op: "subscribe", events });
   }
   receive(line: string) {
     if (this.stopped) return;
@@ -131,16 +145,13 @@ export class Runner {
             if (value.event === "ready") {
               if (this.ready) throw Error("AlreadyStarted");
               this.ready = true;
-              await this.sketch.setup?.(this.corgi);
+              await this.trick.register(this.on, this.corgi);
               this.started = true;
               this.subscribe();
             } else {
               if (!this.started) throw Error("NotStarted");
-              if (this.subscription.events.includes(value.event)) await this.sketch.loop?.(this.corgi, value);
-              if (
-                value.event === "agent.removed" ||
-                (value.event === "agent.changed" && !tricks.matches(this.subscription.where, value.agent))
-              ) {
+              for (const handler of this.handlers) if (handler.events.includes(value.event)) await handler.run(value);
+              if (value.event === "agent.removed") {
                 const key = this.painted.get(value.agent.id);
                 if (key) this.corgi.clear(key);
                 this.painted.delete(value.agent.id);
@@ -170,13 +181,8 @@ export class Runner {
 export async function run(entry: string): Promise<void> {
   // stdout is the protocol; a sketch's ordinary logging belongs on stderr.
   console.log = console.error;
-  const module: Sketch = await import(pathToFileURL(entry).href);
-  if (
-    (module.setup !== undefined && typeof module.setup !== "function") ||
-    (module.loop !== undefined && typeof module.loop !== "function") ||
-    (!module.setup && !module.loop)
-  )
-    throw Error("ExpectedSetupOrLoop");
+  const module: Trick = await import(pathToFileURL(entry).href);
+  if (typeof module.register !== "function") throw Error("ExpectedRegister");
   await new Promise<void>((_resolve, reject) => {
     const input = createInterface({ input: process.stdin });
     const runner = new Runner(
