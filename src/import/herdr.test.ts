@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { realpathSync } from "node:fs";
 import * as herdr from "./herdr";
 import * as runtime from "../runtime";
 import * as checkpoint from "../persist/checkpoint";
@@ -41,6 +42,15 @@ function staged(sessions = ["imported-session"]) {
   return { job, manager };
 }
 
+test("live Herdr import roots a workspace at the folder its panes report", () => {
+  const { job, manager } = staged();
+  try {
+    // /tmp is a link to /private/tmp on macOS, which is what panes report there.
+    expect(job.staged.workspaces.items[0].cwd).toBe(realpathSync("/tmp"));
+  } finally {
+    manager.cancel();
+  }
+});
 test("live Herdr import survives pruning between preparation and adoption", async () => {
   using r = new runtime.Runtime();
   const { job, manager } = staged();

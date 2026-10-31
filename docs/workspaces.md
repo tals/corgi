@@ -1,7 +1,10 @@
 # Workspaces, activity and worktrees
 
 A workspace groups tabs and agents around a folder. Its sidebar shows activity,
-optional resource readings and linked Git worktrees.
+optional resource readings and linked Git worktrees. Its root stays at the folder
+chosen when creating or editing it; changing directories inside a tab, reordering
+tabs or deleting a linked worktree a tab is in does not change that root.
+`corgi workspace edit ID --cwd DIR` moves it.
 
 ## Follow activity
 

@@ -186,6 +186,7 @@ libc.symbols.lseek(fd, 0n, 0);
       folder = join(this.temp.name, "project");
     mkdirSync(folder);
     const ws = (await this.session()).workspaces[0].id;
+    await this.command("workspace.edit", { target: ws, cwd: folder });
     await this.reload();
     await this.command("pane.input", {
       target: first,
@@ -199,7 +200,7 @@ libc.symbols.lseek(fd, 0n, 0);
     await this.until(async () => (await this.session()).panes[0].cwd === "/");
     this.assertEqual((await this.session()).workspaces[0].name, "Override");
     await this.command("workspace.edit", { name: "", target: ws });
-    await this.until(async () => (await this.session()).workspaces[0].name === "/");
+    await this.until(async () => (await this.session()).workspaces[0].name === "project");
   }
   async test_handoff_preserves_processes_viewers_and_queued_controls() {
     const first = await this.new(),

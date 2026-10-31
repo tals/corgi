@@ -48,6 +48,7 @@ class GitTooltip extends Runtime {
         "-m",
         `Change ${String(i).padStart(2, "0")} — tooltip metadata`,
       );
+    await this.command("workspace.edit", { target: (await this.session()).workspaces[0].id, cwd: this.repo });
     await this.new();
     await this.until(async () => (await this.session()).workspaces[0].git_ahead === 14);
     const a = await Viewer.create(this),

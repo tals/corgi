@@ -1,5 +1,5 @@
 /** Real PTY/socket regressions. Provider doubles never make inference requests. */
-import { existsSync, mkdirSync, readFileSync, writeFileSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, realpathSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { Runtime, EXE, PALETTE, screen_text, scrollbar, layout_tree, tab_row } from "./runtime";
 import { registerCase, run, sleep, quote, shellJoin, writeExecutable, JsonSocket, versioned } from "./support";
@@ -258,43 +258,45 @@ class Smoke extends Runtime {
     const explicit = (await this.split_pane("right", { cwd: two })).pane;
     this.assertEqual((await this.pane(explicit)).cwd, realpathSync(two));
   }
-  async test_workspace_name_follows_first_tab_and_custom_name_can_be_cleared() {
-    const one = this.folder("one"),
-      two = this.folder("two"),
-      three = this.folder("three");
-    const first = (await this.open_pane({ cwd: one, command: "exec /bin/sh" })).pane;
-    await this.until(async () => (await this.workspaces())[0].name === "one");
-    const second = (await this.open_pane({ cwd: two, command: "exec /bin/sh" })).pane;
-    this.assertEqual((await this.workspaces())[0].name, "one");
-    await this.command("pane.input", {
-      target: first,
-      data: `cd ${quote(three)}\r`,
-    });
-    await this.until(async () => (await this.workspaces())[0].name === "three");
-    this.assertEqual((await this.workspaces())[0].cwd, realpathSync(three));
-    await this.rpc({ op: "action", name: "move-tab", value: "left" });
-    await this.until(async () => (await this.workspaces())[0].name === "two");
-    const ws = (await this.workspaces())[0].id;
-    await this.command("workspace.edit", { name: "Custom", target: ws });
-    await this.command("pane.input", {
-      target: second,
-      data: `cd ${quote(one)}\r`,
-    });
-    await this.until(async () => (await this.workspaces())[0].cwd === realpathSync(one));
-    this.assertEqual((await this.workspaces())[0].name, "Custom");
+  async test_workspace_keeps_chosen_folder_when_tabs_change_or_disappear() {
+    const root = this.folder("project"),
+      one = this.folder("one"),
+      two = this.folder("two");
     await this.attach();
-    this.assertNotIn("📌", (await this.frame_with("Custom")).join("\n"));
-    await this.input("\x02Wr");
-    await this.frame_with("Rename workspace");
-    await this.input("\x03\r");
-    await this.frame_with("one");
-    await this.until(async () => (await this.workspaces())[0].name === "one");
+    const ws = (await this.new_workspace({ name: "", cwd: root })).workspace;
+    const first = (await this.focused()).id;
+    await this.command("pane.input", { target: first, data: `cd ${quote(one)}\r` });
+    await this.until(async () => (await this.pane(first)).cwd === realpathSync(one));
+    this.assertEqual((await this.workspaces()).find((w: any) => w.id === ws).cwd, realpathSync(root));
+    const second = (await this.open_pane({ cwd: two, command: "exec /bin/sh" })).pane;
+    await this.rpc({ op: "action", name: "move-tab", value: "left" });
+    this.assertEqual((await this.workspaces()).find((w: any) => w.id === ws).name, "project");
+    rmSync(two, { recursive: true });
+    // A rename keeps a root whose folder is gone, saved as it was.
+    const chosen = realpathSync(root);
+    rmSync(root, { recursive: true });
+    await this.command("workspace.edit", { name: "Custom", target: ws });
+    const renamed = (await this.workspaces()).find((w: any) => w.id === ws);
+    this.assertEqual([renamed.cwd, renamed.name], [chosen, "Custom"]);
+    this.assertEqual(
+      JSON.parse(readFileSync(this.path + ".workspaces.json", "utf8")).workspaces.find((w: any) => w.id === ws).cwd,
+      chosen,
+    );
+    await this.command("workspace.edit", { name: "Custom", target: ws, cwd: one });
+    await this.command("workspace.edit", { name: "", target: ws });
+    this.assertEqual((await this.workspaces()).find((w: any) => w.id === ws).cwd, realpathSync(one));
+    this.assertEqual((await this.workspaces()).find((w: any) => w.id === ws).name, "one");
+    const created = await this.command("pane.create", { workspace: ws });
+    this.assertEqual((await this.pane(created.pane)).cwd, realpathSync(one));
     await this.command("pane.close", { target: second });
-    await this.until(async () => (await this.workspaces())[0].name === "three");
     await this.restart_runtime();
-    this.assertEqual((await this.workspaces())[0].name, "three");
-    this.assertNotIn("pinned", (await this.workspaces())[0]);
-    this.assertEqual(JSON.parse(readFileSync(this.path + ".workspaces.json", "utf8")).workspaces[0].name, "");
+    const restored = (await this.workspaces()).find((w: any) => w.id === ws);
+    this.assertEqual(restored.cwd, realpathSync(one));
+    this.assertEqual(restored.name, "one");
+    this.assertEqual(
+      JSON.parse(readFileSync(this.path + ".workspaces.json", "utf8")).workspaces.find((w: any) => w.id === ws).cwd,
+      realpathSync(one),
+    );
   }
   async test_workspace_metadata_survives_restart() {
     const folder = this.folder("项目 café"),
@@ -790,7 +792,7 @@ process.stdin.on('data',data=>appendFileSync(log,data));process.stdin.resume();`
     await this.choose_terminal();
     await this.until(async () => (await this.tab_count()) === 3);
     this.assertEqual(await this.tab_count(), 3);
-    this.assertEqual(realpathSync((await this.focused()).cwd), realpathSync(one));
+    this.assertEqual(realpathSync((await this.focused()).cwd), realpathSync((await this.workspaces())[0].cwd));
     this.assertFalse(existsSync(join(one, "CONTEXT_LEAK")));
     this.assertFalse(existsSync(join(two, "CONTEXT_LEAK")));
   }

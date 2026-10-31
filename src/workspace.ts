@@ -50,8 +50,9 @@ export class Workspace {
   name() {
     return this.name_len ? this.customName() : basename(this.cwd) || "/";
   }
-  follow(cwd: string) {
-    if (!cwd || cwd === this.cwd) return false;
+  /** Points the workspace at another folder; false when it's already there. */
+  move(cwd: string) {
+    if (cwd === this.cwd) return false;
     this.cwd = cwd;
     this.resetGit();
     return true;
@@ -184,11 +185,12 @@ export class Store {
     if (!w) throw Error("NoWorkspace");
     w.rename(name);
   }
-  async edit(id: number, name: string, cwd: string) {
+  /** Renames a workspace, and moves it unless `cwd` is null: a rename
+   * keeps a folder that has since disappeared. */
+  async edit(id: number, name: string, cwd: string | null) {
     const w = this.get(id);
     if (!w) throw Error("NoWorkspace");
-    w.cwd = await Store.directory(cwd);
-    w.resetGit();
+    if (cwd !== null) w.move(await Store.directory(cwd));
     w.rename(name);
   }
 }

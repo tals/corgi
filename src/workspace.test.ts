@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Store } from "./workspace";
@@ -9,10 +9,10 @@ test("automatic workspace names follow folders while overrides survive save and 
     const s = new Store(),
       id = await s.add("", "."),
       w = s.items[0];
-    w.follow("/tmp/项目");
+    w.move("/tmp/项目");
     expect(w.name()).toBe("项目");
     s.rename(id, "My project");
-    w.follow("/tmp/next");
+    w.move("/tmp/next");
     expect(w.name()).toBe("My project");
     const file = join(root, "workspaces.json");
     await s.save(file, id);
@@ -22,7 +22,7 @@ test("automatic workspace names follow folders while overrides survive save and 
     s.rename(id, "");
     await s.save(file, id);
     await restored.load(file);
-    restored.items[0].follow("/");
+    restored.items[0].move("/");
     expect(restored.items[0].name()).toBe("/");
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -48,8 +48,27 @@ test("old workspace state drops pins and preserves all existing names", async ()
     await s.load(file);
     expect(s.items.map(w => w.name())).toEqual(["Default", "Custom"]);
     s.rename(1, "");
-    s.items[0].follow("/tmp/moved");
+    s.items[0].move("/tmp/moved");
     expect(s.items[0].name()).toBe("moved");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+test("a rename keeps a folder that disappeared and its Git state; moving there fails", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "corgi-ws-")));
+  try {
+    const gone = join(root, "gone"),
+      s = new Store();
+    await mkdir(gone);
+    const id = await s.add("", gone),
+      w = s.items[0];
+    await rm(gone, { recursive: true });
+    const epoch = w.git_epoch;
+    await s.edit(id, "Renamed", null);
+    expect([w.cwd, w.name(), w.git_epoch]).toEqual([gone, "Renamed", epoch]);
+    await expect(s.edit(id, "Renamed", gone)).rejects.toThrow();
+    await s.edit(id, "", root);
+    expect([w.cwd, w.git_epoch]).toEqual([root, epoch + 1]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
