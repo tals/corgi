@@ -1,5 +1,9 @@
 # CPU matrix after rebasing on main
 
+The [final comparison against unmodified main](main_baseline_comparison.md)
+supersedes this candidate-only matrix. It measures the simpler implementation
+after removing brittle UI caches, with all eight main/candidate pairs accepted.
+
 All 16 requested cells have accepted observations. No preflight or rejected timing is included.
 
 The effort is rebased onto main `815313769575425029472d24479334d741f90452`.

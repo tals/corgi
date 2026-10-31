@@ -1,5 +1,9 @@
 # Retained-surface validation
 
+The [final comparison against unmodified main](main_baseline_comparison.md)
+records the cache simplification, current validation, exact screenshot parity,
+and the complete matched CPU matrix. The measurements below are historical.
+
 ## Rebased on main
 
 The effort is now rebased onto main `8153137`. The [post-rebase CPU matrix](main_rebase_matrix.md)
