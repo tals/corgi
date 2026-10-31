@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, renameSync, mkdirSync, openSync, closeSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, renameSync, mkdirSync, openSync, closeSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import * as preferences from "./preferences";
@@ -50,6 +50,37 @@ test("saving shortcut changes preserves other preferences and rejects stale or m
     expect(() => preferences.updateFile(file, { sidebar_width: 36 })).toThrow();
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("live reload distinguishes inaccessible paths from deleted preferences and recovers", async () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-keys-unreadable-")),
+    dir = join(root, "state"),
+    file = join(dir, "viewer.json");
+  mkdirSync(dir);
+  writeFileSync(file, JSON.stringify({ keys: { new: "prefix+y" } }));
+  const events: (preferences.Preferences | null)[] = [];
+  const close = observe(file, p => events.push(p));
+  const until = async (count: number) => {
+    const deadline = Date.now() + 2500;
+    while (events.length < count && Date.now() < deadline) await Bun.sleep(20);
+    expect(events).toHaveLength(count);
+  };
+  try {
+    renameSync(dir, join(root, "old"));
+    symlinkSync("state", dir);
+    await until(1);
+    expect(events[0]).toBeNull();
+    rmSync(dir);
+    renameSync(join(root, "old"), dir);
+    await until(2);
+    expect(events[1]?.keys.new).toBe("prefix+y");
+    rmSync(file);
+    await until(3);
+    expect(events[2]).toEqual(new preferences.Preferences());
+  } finally {
+    close();
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
