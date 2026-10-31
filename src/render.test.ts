@@ -32,6 +32,7 @@ import { TabMenu } from "./commands";
 import { agent, type Pane } from "./mirror";
 import { Icons } from "./tab_icons";
 import { Menu as LauncherMenu } from "./agent_launcher";
+import { Menu as SetupMenu } from "./corgi_setup";
 import { Writer } from "./text";
 import { Terminal } from "./pane/terminal";
 import type { Prefix } from "./keymap";
@@ -831,4 +832,22 @@ test("the launcher places provider marks with host images and falls back to glyp
   icons.begin();
   expect(shown()).not.toContain("\x1b_Ga=p");
   expect(launch.marks).toBeNull();
+});
+
+test("settings' Manage agents places the same provider marks as the launcher's", () => {
+  const setup = SetupMenu.open(),
+    launch = new LauncherMenu({ workspace: 1 }),
+    icons = new Icons(),
+    shown = (fields: Partial<Ui> = {}) =>
+      frame(emptyView(), [], 160, 44, ui({ message: "", copy_mode: false, corgi_setup: setup, ...fields }));
+  Object.assign(setup, { agents: launch, item: "agents", focus: "options" });
+  expect(setup.managing()).toBe(true);
+  expect(shown()).not.toContain("\x1b_Ga=p");
+  expect(launch.manager.marks).toBeNull();
+  const graphics = { tab_icons: icons, cell_pixels: { width: 9, height: 18 } };
+  shown(graphics);
+  expect(icons.end()).toContain("\x1b_Ga=t");
+  icons.begin();
+  expect(shown(graphics)).toContain("\x1b_Ga=p");
+  expect(launch.manager.marks).not.toBeNull();
 });

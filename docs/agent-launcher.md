@@ -62,27 +62,33 @@ with an error leaves its last output and exit code visible until its tab closes.
 
 Choose **Manage agents** or press `m` in the picker, or open its section in
 **Corgi setup** (**prefix i**). Both show the same controls. The view lists the
-accounts and saved commands in the launcher, followed by **Available to add**:
-removed default accounts, previously hidden items, new account sign-in, and
-**+ Custom command**.
+accounts and saved commands in the launcher, **Active** and then **Hidden** in
+this workspace, followed by **Add agent**: a strip of agents, each with its
+brand mark, and **+ Custom command**. Selecting the strip opens the focused
+agent's list: every account Corgi finds for it, ✓ those in the list and +
+those out of it, whether removed with their folders still there or hidden
+from the launcher, then **+ New … account** where Corgi can sign in to it.
+**←** and **→** move along the strip and **↓** into the list. Once opened,
+the strip keeps the room its longest list needs, so moving between agents
+doesn't resize it; a search still can.
 The search starts focused. **Tab** or **↓** moves into the list; **↑** enters
 at the last row. Arrows wrap around the list; **Tab** or **Shift-Tab** returns
 to search. On a row,
-**↵** renames an account or edits a command; under **Available to add**, it
-adds the selected account or saved command back to the launcher.
+**↵** renames an account or edits a command; under **Add agent**, it adds a
+removed account back, goes to the row of one in the list, or signs in to a new
+one.
 **Space**, or a click on its check, toggles **Show in** *workspace*: the row
 leaves or rejoins the picker in the current workspace only, and reads dimmed
 in Manage agents while hidden there. A narrow card heads that column with the
 workspace's name. `corgi launcher hide AGENT` and `corgi launcher show AGENT`
 do the same from a script, and `corgi launcher list` says what each workspace
 shows.
-Hold **⌫** or **Delete** for 1.5 seconds to remove it while the corgi buries
-the row; releasing early restores it. Saved commands are deleted. Secondary
-accounts are removed from Corgi; only folders Corgi explicitly created are
-signed out and deleted. External folders and their sign-in stay intact. Close
-any agents using a secondary account before deleting it. Default accounts
-are the exception: they move to **Available to add**, keeping their files and
-sign-in, and **↵** adds them back.
+Hold **⌫** or **Delete** for 1.5 seconds to remove any row while the corgi
+buries it; releasing early restores it. Saved commands are deleted. Folders
+Corgi created are signed out and deleted. A default account, or a folder Corgi
+didn't create, leaves the list with its files and sign-in intact and waits
+under its agent in **Add agent**, where **↵** adds it back. Close any agents
+using a secondary account before removing it.
 In search, those keys only edit text.
 **Esc** returns from the command editor to Manage agents without saving,
 cancels a rename or hold, or closes the list.
@@ -139,8 +145,8 @@ another account.
 An account is the provider's settings folder, the one `CLAUDE_CONFIG_DIR` or
 `CODEX_HOME` picks. Corgi knows:
 
-- accounts it adds: an agent under **Add account** in Manage agents, or
-  `corgi account add`;
+- accounts it adds: **+ New … account** under **Add agent** in Manage agents,
+  or `corgi account add`;
 - folders you add with `corgi account add claude work --dir FOLDER`;
 - the accounts Omarchy keeps (`omarchy agent account add`), under Omarchy's
   labels;

@@ -307,7 +307,11 @@ exec ${quote(agent)} "$@"`,
     await view.advance(0.3);
     await this.until(async () => (await view.poll()).data.includes("Manage agents"));
     await view.input("/add claude\t");
-    const before = screen_text((await view.poll()).data, 160, 40);
+    // Add agent shows its accounts' readings; compare once they've arrived.
+    const before = await this.until(async () => {
+      const rows = screen_text((await view.poll()).data, 160, 40);
+      return rows.some(row => row.includes("Reading…")) ? null : rows;
+    });
     this.assertTrue(
       before.some(row => /›\s+\+ New Claude Code account/.test(row)),
       before.join("\n"),

@@ -87,12 +87,16 @@ class Onboarding extends Runtime {
           }
           await view.advance(2);
         } else {
+          // A removed default waits under its agent in Add agent: down to
+          // the strip, into its list, and Enter adds it back.
+          await view.input("\x1b[B\r");
           const label = provider === "codex" ? "Codex" : "Claude Code",
-            rows = screen_text(view.state.data, 100, 30),
-            row = rows.find(line => line.includes(label) && line.includes("≡"));
-          this.assertTrue(!!row, `Missing hidden ${label}`);
-          if (!row!.includes("│›")) await this.clickText(view, label);
-          await view.input("h");
+            rows = screen_text(view.state.data, 100, 30);
+          this.assertTrue(
+            rows.some(line => line.includes(`› + ${label} `) && line.includes("Removed")),
+            rows.join("\n"),
+          );
+          await view.input("\r");
         }
         this.assertFalse(view.state.detached);
         this.assertIn("Manage agents", view.state.data);

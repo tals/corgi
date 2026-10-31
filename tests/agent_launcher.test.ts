@@ -101,17 +101,22 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       rows.join("\n"),
     );
   }
-  /** The last account or command named `name`, excluding new-account actions. */
+  /** The last account or command named `name`, excluding new-account actions:
+   * a row that starts at the card's left border with its handle or a +. */
   async managerLine(view: Viewer, name: string) {
     const rows = screen_text((await view.poll()).data, 120, 30),
-      y = rows.findLastIndex(row => row.includes(name) && /│[› ] [≡+] /.test(row) && !row.includes("New "));
+      y = rows.findLastIndex(
+        row => row.includes(name) && /^│[› ] [≡+] /.test(row.slice(row.indexOf("│"))) && !row.includes("New "),
+      );
     this.assertGreaterEqual(y, 0, `missing ${name}`);
     return { rows, y };
   }
-  /** Deletes a row (defaults stay available), or restores an available row. */
+  /** Deletes a row, or adds back one Add agent offers under the agent on
+   * its strip that's open. */
   async managerRemoveOrRestore(view: Viewer, name: string) {
     const { rows, y } = await this.managerLine(view, name);
     await this.managerSelect(view, name);
+    if (rows.slice(0, y).some(row => row.includes("Add agent"))) return view.input("\r");
     if (rows.slice(0, y).some(row => row.includes("Hidden ·"))) return view.input(" ");
     await view.input("\x7f");
     await view.advance(0.4);
@@ -120,6 +125,14 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       await view.advance(0.05);
     }
     await view.advance(2);
+  }
+  /** Opens `agent`'s accounts on Add agent's strip. */
+  async managerStrip(view: Viewer, agent: string) {
+    const rows = screen_text((await view.poll()).data, 120, 30),
+      y = rows.findIndex(row => row.includes("Custom command"));
+    this.assertGreaterEqual(y, 0, rows.join("\n"));
+    await this.clickViewer(view, rows[y].indexOf(agent) + 1, y + 1);
+    await view.advance(0.2);
   }
   /** Selects `name`'s row: a click on the row that has it already opens it. */
   async managerSelect(view: Viewer, name: string) {
@@ -132,7 +145,8 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await view.input("\r");
     await this.until(async () => !(await view.poll()).data.includes("Manage agents"));
   }
-  /** Opens the form for a new saved command, from Available to add's last row. */
+  /** Opens the form for a new saved command: Custom command on Add agent's
+   * strip, then again. */
   async newCommand(view: Viewer) {
     await this.clickText(view, "Custom command");
     await this.clickText(view, "Custom command");
@@ -255,7 +269,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await this.until(async () => (await this.session()).workspaces[0].launcher_hidden.includes(row));
     const text = screen_text((await view.poll()).data, 120, 30);
     this.assertTrue(
-      text.some(line => /│› ≡ Codex/.test(line)),
+      text.some(line => /│› ≡ † Codex/.test(line)),
       text.join("\n"),
     );
     await this.rpc({ op: "server.reload", executable: EXE });
@@ -306,6 +320,8 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     const entry = (await this.session()).agent_commands[0];
     this.assertEqual(entry.command, changed);
     this.assertFalse(entry.hidden);
+    // A removed default waits under its agent in Add agent.
+    await this.managerStrip(view, "Codex");
     await this.managerRemoveOrRestore(view, "Codex");
     this.assertFalse((await this.session()).agent_hidden.codex);
     await this.managerOpen(view, "Claude Code");
@@ -355,7 +371,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     this.assertEqual((await this.session()).agent_commands[0].command, "codex");
     this.assertNotIn("Hold ⌫ to remove", (await view.poll()).data);
     await view.input("hold-test\x1b[B");
-    this.assertTrue(screen_text((await view.poll()).data, 120, 30).some(row => /│› ≡ hold-test/.test(row)));
+    this.assertTrue(screen_text((await view.poll()).data, 120, 30).some(row => /│› ≡ (?:\S )?hold-test/.test(row)));
     await view.input("\x7f");
     await view.advance(0.4);
     await view.input("\x7f");
@@ -372,7 +388,7 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await this.until(async () => (await this.session()).agent_commands[0].command === "");
     await view.advance(2);
     const rows = screen_text((await view.poll()).data, 120, 30);
-    this.assertFalse(rows.some(row => /│[› ] [≡+] hold-test/.test(row)));
+    this.assertFalse(rows.some(row => /│[› ] [≡+] (?:\S )?hold-test/.test(row)));
     const removed = (await this.session()).agent_commands[0];
     this.assertEqual(removed.name, "");
     this.assertEqual(removed.original, "");
@@ -815,17 +831,18 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
         return [rows[y].indexOf("╭"), y, rows[y].indexOf("╮"), bottom];
       };
       const pickerBounds = frame(shown);
-      this.assertIn("Claude Code · slow", shown);
-      this.assertIn("Claude Code · fast", shown);
+      // Each account reads by its name beside Claude's mark.
+      this.assertIn("* slow ", shown);
+      this.assertIn("* fast ", shown);
       await this.clickText(view, "Manage agents", 160);
       const managed = screen_text((await view.poll()).data, 160, 30).join("\n");
-      this.assertIn("Claude Code · slow", managed);
-      this.assertIn("Claude Code · fast", managed);
+      this.assertIn("* slow ", managed);
+      this.assertIn("* fast ", managed);
       this.assertIn("fast@example.com", managed);
       const managerBounds = frame(managed);
       await this.until(async () => {
         const lines = screen_text((await view.poll()).data, 160, 30);
-        return lines.some(line => line.includes("Claude Code · slow") && !line.includes("Reading"));
+        return lines.some(line => line.includes("* slow ") && !line.includes("Reading"));
       }, 12);
       this.assertEqual(frame(screen_text((await view.poll()).data, 160, 30).join("\n")), managerBounds);
       await this.clickText(view, "← New tab", 160);
