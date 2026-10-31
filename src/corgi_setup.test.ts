@@ -1170,8 +1170,8 @@ test("Command keys turn on and off under the keymap", () => {
   expect(text).toMatch(/New tab +⌘T/);
   expect(text).toMatch(/Select tab +⌘1–9/);
   // Where Ghostty isn't local, the cursor passes the switch by.
-  // The presets, Prefix, then All keys; cmux is a preset only on macOS.
-  const all_keys = km.available_presets.length + 1;
+  // The presets, Prefix, Customize, then All keys; cmux is macOS-only.
+  const all_keys = km.available_presets.length + 2;
   menu.openOptions(s, prefs);
   for (let i = 0; i < 10; i++) menu.move(true, s, prefs, false);
   expect(menu.cursor).toBe(all_keys);
@@ -1391,7 +1391,7 @@ test("shortcuts grow the frame into onboarding's preset detail", () => {
   menu.move(true, s, prefs);
   text = draw(menu, 140, 36, 2100, s, prefs).join("\n");
   expect(text).toContain("% Right");
-  expect(text).toContain("○ tmux       Classic splits");
+  expect(text).toMatch(/○ tmux +Classic splits/);
   expect(menu.enter(s, prefs)).toEqual({ kind: "preset", preset: "tmux" });
   // Clicks land on the grown frame's options.
   expect(hits(menu, 140, 36, s, prefs).filter(hit => "item" in hit)).toEqual([]);

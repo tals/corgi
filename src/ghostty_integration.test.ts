@@ -69,3 +69,18 @@ test("Command keys list what they bind, as a Mac menu writes them", () => {
   expect(macLabel("cmd+digit_1")).toBe("⌘1");
   expect(macLabel("cmd+shift+left_bracket")).toBe("⌘⇧[");
 });
+
+test("custom bindings update host aliases and unbound actions remove them", async () => {
+  const custom = await import("./keybindings");
+  const bindings = custom.resolve("corgi", {
+    new: "prefix+ctrl+y",
+    "close-tab": [],
+    tab: { keys: ["prefix+é", "prefix+f12"] },
+  });
+  const block = transform("", { preset: "corgi", prefix: "ctrl_b", bindings });
+  expect(block).toContain("cmd+t=text:\\x02\\x1b[121;5u");
+  expect(block).not.toContain("cmd+w=");
+  expect(block).toContain("cmd+1=text:\\x02\\x1b[233;1u");
+  expect(block).toContain("cmd+2=text:\\x02\\x1b[57375;1u");
+  expect(block).not.toContain("cmd+3=");
+});

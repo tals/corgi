@@ -119,7 +119,91 @@ const named: Record<string, number> = {
   pageup: 57354,
   pagedown: 57355,
   space: 32,
+  insert: 57348,
+  comma: 44,
+  minus: 45,
+  plus: 43,
+  backtick: 96,
+  ampersand: 38,
 };
+const modifiers: Record<string, "ctrl" | "alt" | "shift" | "super"> = {
+  ctrl: "ctrl",
+  control: "ctrl",
+  alt: "alt",
+  opt: "alt",
+  option: "alt",
+  shift: "shift",
+  cmd: "super",
+  command: "super",
+  super: "super",
+};
+/** A logical key, independent of the protocol the terminal used to send it. */
+export function normalize(key: LogicalKey): LogicalKey {
+  let codepoint = key.codepoint;
+  const mods = { ctrl: !!key.mods.ctrl, alt: !!key.mods.alt, shift: !!key.mods.shift, super: !!key.mods.super };
+  if (codepoint === 57344) codepoint = 27;
+  if (codepoint === 57345) codepoint = 13;
+  if (codepoint === 57346) codepoint = 9;
+  if (codepoint === 57347) codepoint = 127;
+  if (codepoint >= 65 && codepoint <= 90) {
+    codepoint += 32;
+    if (!mods.ctrl && !mods.alt && !mods.super) mods.shift = true;
+  }
+  if (codepoint < 27 && codepoint !== 9 && codepoint !== 13) {
+    codepoint = codepoint === 0 ? 32 : codepoint + 96;
+    mods.ctrl = true;
+  }
+  return { codepoint, mods };
+}
+export function same(a: LogicalKey, b: LogicalKey): boolean {
+  a = normalize(a);
+  b = normalize(b);
+  return (
+    a.codepoint === b.codepoint &&
+    ["ctrl", "alt", "shift", "super"].every(
+      k => !!a.mods[k as keyof LogicalKey["mods"]] === !!b.mods[k as keyof LogicalKey["mods"]],
+    )
+  );
+}
+/** Human-editable chord spelling. Prefix scope belongs to the binding. */
+export function parseChord(value: string): LogicalKey | null {
+  const parts = value.trim().split("+");
+  const last = parts.pop();
+  if (!last) return null;
+  const mods: LogicalKey["mods"] = {};
+  for (const part of parts) {
+    const mod = modifiers[part.toLowerCase()];
+    if (!mod || mods[mod]) return null;
+    mods[mod] = true;
+  }
+  const name = last.toLowerCase();
+  const functionKey = /^f([1-9]|1\d|2[0-5])$/.exec(name);
+  const char = last.normalize("NFC");
+  const codepoint =
+    named[name] ?? (functionKey ? 57363 + Number(functionKey[1]) : [...char].length === 1 ? char.codePointAt(0)! : -1);
+  if (
+    codepoint < 0 ||
+    (codepoint >= 128 && codepoint <= 159) ||
+    (codepoint >= 57344 && codepoint <= 63743 && named[name] === undefined && !functionKey) ||
+    (codepoint < 32 && ![9, 13, 27].includes(codepoint)) ||
+    (codepoint >= 0xd800 && codepoint <= 0xdfff)
+  )
+    return null;
+  return normalize({ codepoint, mods });
+}
+export function chordName(key: LogicalKey): string {
+  const { codepoint, mods } = normalize(key);
+  const name =
+    Object.entries(named).find(([, value]) => value === codepoint)?.[0] ??
+    (codepoint >= 57364 && codepoint <= 57388 ? `f${codepoint - 57363}` : String.fromCodePoint(codepoint));
+  return (
+    (mods.ctrl ? "ctrl+" : "") +
+    (mods.alt ? "alt+" : "") +
+    (mods.super ? "cmd+" : "") +
+    (mods.shift ? "shift+" : "") +
+    name
+  );
+}
 export function logicalKey(name: string): LogicalKey {
   const parts = name.split("+");
   const key = parts.pop()!;

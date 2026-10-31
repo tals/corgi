@@ -193,6 +193,7 @@ export type Apply =
   | { kind: "preset"; preset: km.Preset }
   | { kind: "prefix" }
   | { kind: "keymap" }
+  | { kind: "keybindings" }
   /** Where the launcher puts new worktrees. */
   | { kind: "worktree_folder"; template: string }
   /** Copy the import picker's choice into Corgi. */
@@ -676,8 +677,7 @@ export class Menu {
   prefixKey(byte: number, prefs: Preferences): "detach" | "taken" | null {
     if (this.after_prefix) {
       this.after_prefix = false;
-      const b = bindings.find(prefs.preset, action("detach"));
-      return b && b.prefixed && b.key === byte && !Object.values(b.mods).some(Boolean) ? "detach" : "taken";
+      return bindings.lookup(prefs.bindings(), true, byte)?.name === "detach" ? "detach" : "taken";
     }
     if (byte !== km.prefixByte(prefs.prefix)) return null;
     this.after_prefix = true;
@@ -1900,6 +1900,14 @@ export class Menu {
             action: `switch to ${km.prefixName(other)}`,
           }),
           option({
+            label: "Customize",
+            detail: "",
+            mark: "none",
+            apply: { kind: "keybindings" },
+            action: "edit",
+            arrow: true,
+          }),
+          option({
             label: "All keys",
             detail: "",
             mark: "none",
@@ -2204,7 +2212,7 @@ function onOff(enabled: boolean, kind: "readings", details: [string, string]): O
 const action = (name: string, value?: string) => (value === undefined ? { name } : { name, value }) as Action;
 /** The key that detaches under the saved preset, with its prefix. */
 function detachKey(prefs: Preferences): string {
-  const b = bindings.find(prefs.preset, action("detach"));
+  const b = bindings.find(prefs.bindings(), action("detach"));
   if (!b) return "";
   return b.prefixed ? `${km.prefixName(prefs.prefix)} ${bindings.compact(b)}` : bindings.compact(b);
 }

@@ -2355,3 +2355,65 @@ test("Add agent adds a removed account back, its row there at once and shown in 
     restore.mockRestore();
   }
 });
+
+test("custom keys resolve legacy, CSI-u, Alt and fragmented UTF-8 input", async () => {
+  const s = controller();
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  s.prefs.keys = { sidebar: ["ctrl+y", "alt+é", "prefix+é", "ctrl+alt+k"] };
+  const perform = spyOn(s, "perform").mockResolvedValue(undefined);
+  try {
+    for (const input of ["\x19", "\x1b[121;5u", "\x1bé", "\x1b[107;7u"]) {
+      await s.input(bytes(input));
+      expect(perform).toHaveBeenLastCalledWith({ name: "sidebar" });
+    }
+    expect(perform).toHaveBeenCalledTimes(4);
+    await s.input(Uint8Array.of(2, 195));
+    expect(perform).toHaveBeenCalledTimes(4);
+    await s.input(Uint8Array.of(169));
+    expect(perform).toHaveBeenCalledTimes(5);
+    expect(s.prefix).toBe(false);
+    await s.input(bytes("\x02b"));
+    expect(perform).toHaveBeenCalledTimes(5);
+  } finally {
+    perform.mockRestore();
+    viewer.close(s);
+  }
+});
+
+test("the shortcut recorder owns direct commands and ignores bracketed paste", async () => {
+  const s = controller();
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  try {
+    await s.perform({ name: "keybindings" });
+    s.frame();
+    await s.input(bytes("\r\r"));
+    expect(s.help.edit.listening).toBe(true);
+    await s.input(bytes("\x1b[200~do not bind this\x1b[201~"));
+    expect(s.help.edit.recorded).toHaveLength(0);
+    await s.input(bytes("\x1b[116;5u"));
+    expect(s.help.edit.recorded).toHaveLength(1);
+    expect(s.agent_launcher).toBeNull();
+    expect(s.help.edit.recorded[0].mods.ctrl).toBe(true);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("UTF-8 continuation bytes do not trigger character shortcuts", async () => {
+  const s = controller();
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  s.prefs.keys = { sidebar: "Ã" };
+  const perform = spyOn(s, "perform").mockResolvedValue(undefined);
+  try {
+    await s.input(bytes("é"));
+    await s.input(bytes("\x02é"));
+    expect(perform).not.toHaveBeenCalled();
+    expect(s.prefix).toBe(false);
+  } finally {
+    perform.mockRestore();
+    viewer.close(s);
+  }
+});

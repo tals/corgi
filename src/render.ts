@@ -507,18 +507,21 @@ function writeChip(
 }
 /** A bar over the pane area's bottom row while the prefix waits for its key.
  * A narrow bar drops "send prefix", then "cancel". */
-export function drawPrefixBar(w: Writer, area: Rect, preset: keymap.Preset, prefix: keymap.Prefix): void {
+export function drawPrefixBar(w: Writer, area: Rect, preset: bindings.Source, prefix: keymap.Prefix): void {
   if (area.w === 0 || area.h === 0) return;
+  const help = bindings.first(preset, { name: "help" }, true);
   const hints = [
     { key: "Esc", label: "cancel" },
     { key: keymap.prefixName(prefix), label: "send prefix" },
-    { key: bindings.format(bindings.first(preset, { name: "help" }, true)!), label: "shortcuts" },
+    { key: help ? bindings.format(help) : "", label: help ? "shortcuts" : "" },
   ];
   const hintWidth = (h: { key: string; label: string }) => displayWidth(h.key) + h.label.length + 3;
   const label = " PREFIX ";
-  let shown = [true, true, true];
+  let shown = [true, true, help !== null];
   let used = label.length;
-  for (const hint of hints) used += hintWidth(hint);
+  hints.forEach((hint, i) => {
+    if (shown[i]) used += hintWidth(hint);
+  });
   for (const i of [1, 0]) {
     if (used <= area.w) break;
     shown[i] = false;
@@ -637,7 +640,14 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
     w.write(`\x1b[1;${side.tabX() + u.tab_drop_x + 1}H\x1b[1m` + palette.fg("strong") + "│\x1b[0m");
   if (model.count === 0) {
     const prefix_key = keymap.prefixName(u.prefs.prefix);
-    const empty = ` No panes. ${prefix_key} ${bindings.format(bindings.first(u.prefs.preset, { name: "new" }, true)!)}: agent picker | ${prefix_key} ${bindings.format(bindings.first(u.prefs.preset, { name: "help" }, true)!)}: shortcuts`;
+    const hint = (name: string, label: string) => {
+      const binding =
+        bindings.first(u.prefs.bindings(), { name }, true) ?? bindings.first(u.prefs.bindings(), { name }, false);
+      return binding
+        ? `${binding.prefixed ? prefix_key + " " : ""}${bindings.format(binding)}: ${label}`
+        : `corgi action ${name}: ${label}`;
+    };
+    const empty = ` No panes. ${hint("new", "agent picker")} | ${hint("help", "shortcuts")}`;
     w.write(`\x1b[2;${side.area().x + 1}H`);
     w.write(byteSlice(empty, side.area().w));
   }
@@ -846,7 +856,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
     if (paste_at.arrow) cover(new Rect(paste_at.arrow.x, paste_at.arrow.y, 1, 1));
   }
   if (u.prefix) {
-    drawPrefixBar(w, area, u.prefs.preset, u.prefs.prefix);
+    drawPrefixBar(w, area, u.prefs.bindings(), u.prefs.prefix);
     if (area.h > 0) cover(new Rect(area.x, area.y + area.h - 1, area.w, 1));
   } else {
     // A card that doesn't fit its pane says why in the status line instead.

@@ -74,12 +74,13 @@ export const specs: Record<string, string> = {
   setup: "void",
   moonlander: "void",
   help: "void",
+  keybindings: "void",
   onboard: "void",
   relaunch: "[]const u8",
 };
 export function parse(name: string, value = ""): Action {
   const type = specs[name];
-  if (!type) throw new Error("UnknownAction");
+  if (!Object.hasOwn(specs, name)) throw new Error("UnknownAction");
   if (type === "void") return { name };
   if (type === "usize") {
     if ((name === "worktrees" || name === "resources") && !value) return { name, value: 0 };
@@ -127,6 +128,7 @@ export function needsPane(action: Action): boolean {
 export function title(action: Action): string {
   const titles: Record<string, string> = {
     onboard: "Onboarding",
+    keybindings: "Customize shortcuts",
     new: "New tab (agent picker)",
     zoom: "Zoom / unzoom pane",
     close: "Close pane",
