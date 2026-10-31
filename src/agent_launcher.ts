@@ -143,14 +143,10 @@ export function resolution(value: any = {}): Resolution {
   return result;
 }
 const headings = ["Agent", "YOLO", "Model", "Account", "Plan", "Usage (used) · resets in"];
-/** Columns a row's brand mark and the space after it take, before its name.
- * The name gives them up, its provider's name shortening first. */
+/** Columns for a row's brand mark and the space after it. */
 const mark_w = 3;
-/** Rows for the longest collapsed conversation list, including its heading
- * and the gap above "more". */
-const resume_rows = launcherResume.collapsed_rows + 4;
 // Reserve metadata and two usage windows before their readings arrive.
-const column_widths = [26, 6, 24, 28, 12, 50];
+const column_widths = [26 + mark_w, 6, 24 - mark_w, 28, 12, 50];
 export const preferred_width = 4 + column_widths.reduce((sum, size) => sum + size, 0);
 type Hint = { key: string; label: string };
 const manage_label = " Manage agents ";
@@ -257,7 +253,7 @@ export class Menu {
     const l = this.launchOf(row)!,
       name = l.account ? (this.accountOf(row)?.name ?? "") : this.preview.names[l.provider],
       p = adapter(l.provider);
-    if (!name) return p.label;
+    if (!name) return displayWidth(p.label) <= room ? p.label : p.name;
     const suffix = ` · ${name}`;
     if (displayWidth(p.label + suffix) <= room) return p.label + suffix;
     const short = ellipsis(p.name, sat(room, displayWidth(suffix)));
@@ -404,15 +400,20 @@ export class Menu {
    * conversations and a gap, footer and border. */
   rowsHeight(): number {
     if (this.managing) return this.manager.height(this.manageModel());
-    const conversations = !this.hasResume() ? 0 : this.resume_view.expanded ? 8 : resume_rows;
+    const conversations = !this.hasResume()
+      ? 0
+      : this.resume_view.expanded
+        ? 8
+        : this.resume_view.collapsedHeight(this.resumeContext()) + 1;
     // The worktree box hangs from the title above the footer.
+    const c = this.worktree;
     const hanging =
-      this.worktree.mode !== "open"
+      c.mode !== "open"
         ? 0
         : launcherWorktree.boxHeight(
-            Math.min(launcherWorktree.checkouts(this.worktrees).length + 1, launcherWorktree.list_rows),
-            this.worktree.error.length > 0,
-            launcherWorktree.pick_rows,
+            Math.min(c.count(this.worktrees), launcherWorktree.list_rows),
+            c.error.length > 0,
+            c.focus === "from" ? launcherWorktree.pickChoices(c, now()).length : null,
           );
     return Math.max(5 + this.count() + conversations, hanging);
   }
@@ -446,7 +447,7 @@ export class Menu {
   columns(width: number): number[] {
     const widths = column_widths.slice();
     const available = sat(width, 4);
-    const minimum = [width >= 100 ? 26 : 17, 6, width >= 120 ? 22 : 9, 18, 6, 36];
+    const minimum = [width >= 100 ? 26 + mark_w : 17, 6, width >= 120 ? 21 : 9, 18, 6, 36];
     if (width < 64) {
       widths[1] = 3; // A one-cell Y heading and toggle, plus its gutter.
       minimum[1] = 3;
@@ -870,12 +871,17 @@ export class Menu {
         ...(m.worktree.creating(m.worktrees) ? [{ key: "tab", label: "from" }] : []),
         { key: "esc", label: "close" },
       ];
-    else if (view.searching)
+    else if (view.searching && view.query.len > 0)
       hints = [
-        { key: "↑↓", label: "pick" },
         { key: "↵", label: "resume" },
         { key: "tab", label: "scope" },
-        { key: "esc", label: "back" },
+        { key: "esc", label: "clear" },
+      ];
+    else if (view.searching)
+      hints = [
+        { key: "↵", label: "resume" },
+        { key: "tab", label: "scope" },
+        { key: "esc", label: "close" },
       ];
     else if (view.focused && view.expanded)
       hints = [

@@ -527,8 +527,8 @@ test("an account's row reads its own account and has its own YOLO and launcher m
   const side = SidebarView.init(120, 24, true, 0, 0);
   const b = m.bounds(120, 24, side);
   const line = screen(m, 120, 24, side)[b.y + 4];
-  // The brand mark leads the name, which shortens its provider's name to make room.
-  for (const value of [" 2 ", "*  Claude · work", "✓", "Opus", "work@example.com", "Team", "5h", "17%"])
+  // The brand mark has its own space before the full name.
+  for (const value of [" 2 ", "*  Claude Code · work", "✓", "Opus", "work@example.com", "Team", "5h", "17%"])
     expect(line).toContain(value);
   expect(m.hit(120, 24, side, b.x + 2, b.y + 4)).toBe(work);
   const widths = m.columns(b.w);
@@ -576,7 +576,7 @@ test("a signed-out account's row stays listed and offers to sign in", () => {
   const side = SidebarView.init(120, 24, true, 0, 0);
   const b = m.bounds(120, 24, side);
   const lines = screen(m, 120, 24, side);
-  expect(lines[b.y + 3]).toMatch(/ 1 +\*  Claude · work .* — +— +Sign in +│/);
+  expect(lines[b.y + 3]).toMatch(/ 1 +\*  Claude Code · work .* — +— +Sign in +│/);
   expect(lines[b.y + b.h - 2]).toMatch(/a +sign in +y +YOLO/);
   m.account_hidden = ["/accounts/work"];
   expect(m.shown(work)).toBe(false);
@@ -845,65 +845,6 @@ function conversations(cwd: string, n: number) {
     starred: false,
   }));
 }
-
-test("the launcher grows for conversation search and returns to its compact bounds when search ends", () => {
-  for (const [cols, rows] of [
-    [120, 40],
-    [90, 30],
-    [200, 50],
-    [80, 20],
-  ])
-    for (const count of [2, 40]) {
-      const side = SidebarView.init(cols, rows, true, 0, 0),
-        m = menu({ cwd: "/w", workspace_cwd: "/w" });
-      m.history = { pending: false, entries: conversations("/w", count) };
-      const opened = m.bounds(cols, rows, side);
-      m.resume_view.focused = true;
-      m.resume_view.startSearch();
-      const expanded = m.bounds(cols, rows, side),
-        same = () => expect(m.bounds(cols, rows, side)).toEqual(expanded);
-      expect([expanded.x, expanded.w]).toEqual([opened.x, opened.w]);
-      expect(expanded.h).toBe(Math.min(rows, 30));
-      expect(expanded.y).toBeLessThanOrEqual(opened.y);
-      if (rows > opened.h) expect(expanded.h).toBeGreaterThan(opened.h);
-      for (const ch of "conv 1") m.resume_view.query.key(ch.charCodeAt(0));
-      same();
-      m.resume_view.nextScope(true);
-      same();
-      m.resume_view.leaveSearch();
-      expect(m.bounds(cols, rows, side)).toEqual(opened);
-      m.resume_view.expand();
-      same();
-      m.resume_view.startSearch();
-      same();
-      m.resume_view.leaveSearch();
-      same();
-      m.resume_view.collapse();
-      expect(m.bounds(cols, rows, side)).toEqual(opened);
-      // The expanded card still fits inside short terminals.
-      m.resume_view.startSearch();
-      const lines = screen(m, cols, rows, side);
-      expect(lines[expanded.y]).toContain("╭");
-      expect(lines[expanded.y + expanded.h - 1]).toContain("╰");
-    }
-});
-
-test("the launcher's search looks like the picker's: the / field, the query and how many match", () => {
-  const side = SidebarView.init(120, 40, true, 0, 0),
-    m = menu({ cwd: "/w", workspace_cwd: "/w" });
-  m.history = { pending: false, entries: conversations("/w", 12) };
-  m.resume_view.focused = true;
-  m.resume_view.startSearch();
-  const b = m.bounds(120, 40, side),
-    search = b.y + 3 + m.count();
-  let lines = screen(m, 120, 40, side);
-  expect(lines[search]).toMatch(/│ +\/ +Search titles and what was said +tab +this workspace +│/);
-  for (const ch of "conversation 1") m.resume_view.query.key(ch.charCodeAt(0));
-  lines = screen(m, 120, 40, side);
-  // "Conversation 1", 10 and 11 match.
-  expect(lines[search]).toMatch(/│ +\/ +conversation 1 +3 of 12 +tab +this workspace +│/);
-  expect(lines.slice(search + 2, b.y + b.h - 2).filter(l => /Conversation 1\d?\b/.test(l)).length).toBe(3);
-});
 
 test("each agent and conversation row leads with its brand mark", () => {
   const side = SidebarView.init(120, 40, true, 0, 0),

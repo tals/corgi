@@ -3362,11 +3362,10 @@ export class Controller {
     launch.manage();
     this.dirty = true;
   }
-  /** Move within the conversations; up from the first returns to the agents.
-   * A search keeps the keyboard even when there is nothing to pick. */
+  /** Move within the conversations; up from the first returns to the agents. */
   private moveResume(rows: launcherResume.Line[], delta: number): void {
     const launch = this.agent_launcher!;
-    if (launch.resume_view.move(launch.resumeContext(), rows, delta) || launch.resume_view.searching) return;
+    if (launch.resume_view.move(launch.resumeContext(), rows, delta)) return;
     launch.resume_view.focused = false;
     launch.selected = launch.lastRow();
   }
@@ -3377,17 +3376,11 @@ export class Controller {
     const rows = view.lines(c);
     if (view.searching) {
       switch (byte) {
-        // Esc, and Backspace with nothing typed, return to the list before the search.
         case 27:
-          view.leaveSearch();
-          break;
-        case 127:
-        case 8:
-          if (view.query.len === 0) view.leaveSearch();
-          else {
-            view.query.key(byte);
+          if (view.query.len > 0) {
+            view.query.clear();
             view.home();
-          }
+          } else return this.dismissLauncher();
           break;
         case 13:
           return this.resumeSelected();

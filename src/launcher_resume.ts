@@ -197,23 +197,15 @@ export class Area {
     return sat(this.height, 2);
   }
 }
+/** Brand mark, provider name and the gap before the title. */
+const provider_width = 12;
 interface Columns {
   title: number;
   folder: number;
   last: number;
 }
-let panel: string,
-  rule: string,
-  row_style: string,
-  selected_style: string,
-  dim: string,
-  field: string,
-  field_strong: string,
-  field_muted: string;
+let panel: string, rule: string, row_style: string, selected_style: string, dim: string;
 palette.derived(() => {
-  field = new Style({ fg: "text", bg: "selected" }).sgr();
-  field_strong = new Style({ fg: "strong", bg: "selected" }).sgr();
-  field_muted = new Style({ fg: "muted", bg: "selected" }).sgr();
   panel = new Style({ fg: "faint", bg: "surface" }).sgr();
   rule = new Style({ fg: "line", bg: "surface" }).sgr();
   row_style = new Style({ fg: "text", bg: "surface" }).sgr();
@@ -230,8 +222,6 @@ export class View {
   /** The keyboard is in this list rather than on the agent rows. */
   focused = false;
   searching = false;
-  /** The list was expanded before the search began, so leaving it goes back there. */
-  searched_expanded = false;
   query = Dialog.init({ pane: 0 }, "");
   scope: Scope = "workspace";
   /** Kept by identity, so a refreshed list keeps the selection. */
@@ -382,19 +372,8 @@ export class View {
     this.scope = "workspace";
   }
   startSearch(): void {
-    if (this.searching) return;
-    this.searched_expanded = this.expanded;
     this.expand();
     this.searching = true;
-  }
-  /** Leaves the search for where it began: all the conversations, or the newest few. */
-  leaveSearch(): void {
-    const expanded = this.searched_expanded;
-    this.stopSearch();
-    if (!expanded) {
-      this.expanded = false;
-      this.scope = "workspace";
-    }
   }
   stopSearch(): void {
     this.searching = false;
@@ -425,7 +404,7 @@ export class View {
    * message goes first when space runs out. */
   columns(inner: number): Columns {
     // Marker, provider and their gaps, the gap after the title, and the age.
-    const room = sat(inner, 16);
+    const room = sat(inner, provider_width + 7);
     const folder = this.expanded && this.scope !== "folder" && room >= 60 ? 15 : 0;
     const title =
       sat(room, folder) >= 70
@@ -449,7 +428,7 @@ export class View {
     // The launcher's title names the folder.
     writeEllipsis(w, total > 0 ? ` · ${total} here` : " · none here", cols.title + 3);
     if (cols.last > 12) {
-      w.write(`\x1b[${y};${x + 3 + 9 + cols.title + 2}H`);
+      w.write(`\x1b[${y};${x + 3 + provider_width + cols.title + 2}H`);
       writeEllipsis(w, "You last said", cols.last);
     }
     w.write(`\x1b[${y};${x + width - 3 - 6}HActive`);
@@ -470,48 +449,39 @@ export class View {
     const list_height = area.listHeight();
     const first = this.firstRow(rows, at, list_height);
     const cols = this.columns(sat(width, 4));
-    // The search line, as the model picker draws its search: a field with
-    // the / keycap, the query and its caret, and how many match; then the scope.
-    const scope = scopeLabel(this.scope),
-      keys_x = x + width - 2 - (scope.length + 2 + 6),
-      field_x = x + 3,
-      field_w = sat(keys_x - 1, field_x),
-      found = rows.filter(line => "entry" in line || "open" in line).length,
-      count =
-        this.search().length > 0 ? `${found} of ${c.history.entries.filter(e => c.inScope(e, this.scope)).length}` : "",
-      room = sat(field_w, 4 + (count ? count.length + 2 : 0));
-    w.write(`\x1b[${y};${field_x}H${field}`);
-    w.splat(" ", field_w);
-    w.write(`\x1b[${y};${field_x}H${keycap} / ${field} `);
+    // Search line and scope.
+    w.write(`\x1b[${y};${x + 3}H${panel}`);
+    writeKey(w, "/", panel);
+    w.write(" ");
+    const scope = scopeLabel(this.scope);
+    const field = sat(width, scope.length + 19);
     if (this.searching) {
-      writeField(w, this.query, DialogView.scroll(this.query, room), room, field_strong, { caret: true });
-      if (this.query.len === 0 && room > 2) {
-        w.write(field_muted);
-        writeEllipsis(w, "Search titles and what was said", room - 1);
-      }
+      const room = sat(field, 1);
+      writeField(w, this.query, DialogView.scroll(this.query, room), room, panel + palette.fg("strong"), {
+        caret: true,
+      });
     } else {
-      w.write(field_muted);
-      writeEllipsis(w, "Search titles and what was said", room);
+      w.write(dim);
+      writeEllipsis(w, "search titles and what was said", field);
     }
-    if (count) w.write(`\x1b[${y};${field_x + field_w - 1 - count.length}H${field_muted}${count}`);
-    w.write(`\x1b[${y};${keys_x}H${panel}`);
+    w.write(`\x1b[${y};${x + width - 2 - (scope.length + 2 + 6)}H`);
     writeKey(w, "tab", panel);
     w.write(" ");
     writeKey(w, scope, panel);
     // Column headings.
-    w.write(`\x1b[${y + 1};${x + 3 + 9}H${panel}`);
+    w.write(`\x1b[${y + 1};${x + 3 + provider_width}H${panel}`);
     writeEllipsis(w, "Title", cols.title);
     if (cols.folder > 0) {
-      w.write(`\x1b[${y + 1};${x + 3 + 9 + cols.title + 2}H`);
+      w.write(`\x1b[${y + 1};${x + 3 + provider_width + cols.title + 2}H`);
       w.write("Folder");
     }
     if (cols.last > 12) {
-      w.write(`\x1b[${y + 1};${x + 3 + 9 + cols.title + 2 + cols.folder}H`);
+      w.write(`\x1b[${y + 1};${x + 3 + provider_width + cols.title + 2 + cols.folder}H`);
       writeEllipsis(w, "You last said", cols.last);
     }
     w.write(`\x1b[${y + 1};${x + width - 3 - 6}HActive`);
     if (rows.length === 0 || (rows.length === 1 && "heading" in rows[0])) {
-      w.write(`\x1b[${list_top + (rows.length === 1 ? 1 : 0)};${x + 3 + 9}H${panel}`);
+      w.write(`\x1b[${list_top + (rows.length === 1 ? 1 : 0)};${x + 3 + provider_width}H${panel}`);
       w.write(this.search().length > 0 ? "No matches." : "Nothing closed here. Tab widens the scope.");
     }
     rows.slice(first, Math.min(rows.length, first + list_height)).forEach((line, k) => {
@@ -567,7 +537,7 @@ export class View {
       return;
     }
     if ("elsewhere" in line) {
-      w.write(`\x1b[${row};${x + 3 + 9}H${panel}`);
+      w.write(`\x1b[${row};${x + 3 + provider_width}H${panel}`);
       w.write(`${line.elsewhere} more outside ${scopeLabel(this.scope)} · tab widens`);
       return;
     }
@@ -591,12 +561,11 @@ export class View {
     w.splat(" ", sat(width, 3));
     w.write(`\x1b[${row};${x + 1}H${selected ? "›" : " "}`);
     if (named) {
-      // Its brand mark, then its name; this list writes 1-based positions, marks take 0-based cells.
+      // This list writes 1-based positions; marks take 0-based cells.
       writeMark(w, e.provider, x + 2, row - 1, marks);
-      w.write(`\x1b[${row};${x + 5}H${style}`);
-      writeEllipsis(w, adapter(e.provider).name, 6);
+      w.write(`\x1b[${row};${x + 6}H${style}${adapter(e.provider).name}`);
     } else w.write(`\x1b[${row};${x + 3}H${rail(selected)}│${style}`);
-    let col = x + 3 + 9;
+    let col = x + 3 + provider_width;
     // The branch, then the account, end the title's column.
     let room = cols.title;
     const tag = (text: string, width: number, color: string) => {
