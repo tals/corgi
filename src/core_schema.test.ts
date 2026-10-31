@@ -143,6 +143,7 @@ function fixture() {
   };
   client.launch_preview = {
     cwd: "/tmp",
+    all: false,
     preview,
     checked: 0,
     history_asked: false,
@@ -164,7 +165,7 @@ test("the runtime wire matches protocol.version", () => {
   // `hello` and `server.reload` stay on 1 so new clients find old daemons; see HACKING.md.
   expect(protocol.management_version).toBe(1);
   expect(createHash("sha256").update(schemas.protocol).digest("hex")).toBe(
-    "c6584fbb641d97469ba77c557413c9af731f34179472948f38a74197efd42328",
+    "38c114a4d80e4057aaefeb0bd306a3c0cd5c065b0bc2edd1d9a98c01ea03e86a",
   );
   const { server, client, dispose } = fixture();
   try {
@@ -239,7 +240,7 @@ test("saved handoff format matches its version", async () => {
   expect(handoff_version).toBe(6);
   expect(checkpoint_version).toBe(6);
   expect(createHash("sha256").update(schemas.handoff).digest("hex")).toBe(
-    "c0896d7fabe5d29dd71b51bb11a5c8df82d9334bf37f58e93156ecf0f78818d8",
+    "a7b71d1462d308f73df972bfd6536e8b9b7777a0fbf32fe93874e9fa01382fff",
   );
   const { server, client, dispose } = fixture();
   const summaries = new Worker();

@@ -556,7 +556,7 @@ const requests = {
   "launcher.models": { row: "string" },
   "session.locate": { pane: "u32" },
   "viewer.watch": { viewer: "u32" },
-  "agent.subscribe": launch,
+  "agent.subscribe": { ...launch, all: ["bool", false] },
   "agent.preview": launch,
   "agent.track_usage": launch,
   "viewer.open": { cwd: ["string", ""], onboarding: ["bool", false], theme: ["theme", null] },

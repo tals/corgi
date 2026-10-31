@@ -1,9 +1,11 @@
 import { afterAll, beforeAll, test, expect } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { service, publish, request, sample, stop } from "./launch_service";
-import { Preview, Worker as PreviewWorker, active_every, idle_every } from "./launch/preview";
+import { Preview, Worker as PreviewWorker, active_every, idle_every, key, type Uses } from "./launch/preview";
+import { Runtime } from "./runtime";
+import { Workspace } from "./workspace";
 import { Text } from "./providers";
 import * as protocol from "./protocol";
 import * as accounts from "./accounts";
@@ -196,7 +198,7 @@ test("restored preview subscriptions restart their workers without a new request
   }
 });
 test("accounts are read often while someone uses a viewer and rarely otherwise", () => {
-  const server: any = { clients: [] },
+  const server: any = { clients: [], runtime: new Runtime() },
     asked: number[] = [];
   service(server).launch_previews.sample = every => void asked.push(every);
   try {
@@ -209,5 +211,43 @@ test("accounts are read often while someone uses a viewer and rarely otherwise",
     expect(asked).toEqual([idle_every, idle_every, active_every]);
   } finally {
     stop(server);
+    server.runtime.destroy();
+  }
+});
+test("a Manage agents subscriber has every account read while it stays", async () => {
+  mkdirSync(dirname(accounts.path()), { recursive: true });
+  writeFileSync(
+    accounts.path(),
+    JSON.stringify({ accounts: [{ provider: "claude", dir: join(home, "spare"), name: "spare", managed: false }] }),
+  );
+  accounts.reset();
+  const spare = accounts.known()[0].dir,
+    r = new Runtime(),
+    server: any = { runtime: r, clients: [] },
+    s = service(server),
+    seen: Uses[] = [],
+    client: any = { dead: false, output: Buffer.alloc(0), queue: () => {}, launch_preview: null };
+  r.workspaces.items = [new Workspace(1, "/tmp")];
+  r.account_hidden = [spare];
+  s.launch_previews.use = uses => void seen.push(uses);
+  s.launch_previews.pump = async () => {};
+  server.clients.push(client);
+  try {
+    sample(server);
+    expect(seen.at(-1)?.has(key("claude", spare))).toBe(false);
+    await request(server, client, {
+      op: "agent.subscribe",
+      payload: protocol.decode("agent.subscribe", { workspace: 1, cwd: "/tmp", all: true }),
+    });
+    expect(seen.at(-1)?.get(key("claude", spare))).toBe("account");
+    // Its viewer closes Manage agents, which ends that subscription.
+    client.dead = true;
+    s.used_at = 0;
+    sample(server);
+    expect(seen.at(-1)?.has(key("claude", spare))).toBe(false);
+  } finally {
+    r.destroy();
+    accounts.reset();
+    await stop(server);
   }
 });

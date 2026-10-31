@@ -12,6 +12,8 @@ export class Stream {
   input = "";
   cwd = "";
   workspace = 0;
+  /** It asks for every account's reading, as Manage agents lists them all. */
+  all = false;
   preview: Preview = previewValue();
   received = false;
   retry_at = 0;
@@ -47,13 +49,14 @@ export class Stream {
   pending(cwd: string) {
     if (cwd === this.cwd) this.preview.pending = true;
   }
-  poll(workspace: number, cwd: string) {
+  poll(workspace: number, cwd: string, all = false) {
     if (!this.socket) return false;
-    if (this.workspace !== workspace || this.cwd !== cwd) {
+    if (this.workspace !== workspace || this.cwd !== cwd || this.all !== all) {
       const initial = this.current(cwd);
       this.disconnect();
       this.cwd = cwd;
       this.workspace = workspace;
+      this.all = all;
       this.preview = initial;
       this.received = false;
       this.retry_at = 0;
@@ -64,7 +67,7 @@ export class Stream {
       const connection = createConnection(this.socket);
       this.fd = connection;
       connection.once("connect", () => {
-        connection.write(stringify(protocol.envelope("agent.subscribe", { workspace, cwd })) + "\n");
+        connection.write(stringify(protocol.envelope("agent.subscribe", { workspace, cwd, all })) + "\n");
         connection.write(stringify(protocol.envelope("agent.history", { follow: true })) + "\n");
       });
       connection.on("data", chunk => {

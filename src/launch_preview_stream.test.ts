@@ -1,4 +1,8 @@
 import { test, expect } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Stream } from "./launch_preview_stream";
 import { preview } from "./agent_launcher";
 test("preview stream handles partial and consecutive messages and ignores old directories", () => {
@@ -151,4 +155,35 @@ test("the first frame has snapshot accounts and partial previews update while an
   sent.accounts = [];
   expect(receive()).toBe(true);
   expect(stream.preview.accounts).toEqual([]);
+});
+test("the stream subscribes again when Manage agents opens or closes", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-stream-")),
+    socket = join(dir, "s"),
+    asked: boolean[] = [],
+    server = createServer(connection =>
+      connection.on("data", chunk => {
+        for (const line of chunk.toString().split("\n"))
+          if (line.includes('"agent.subscribe"')) asked.push(JSON.parse(line).all);
+      }),
+    );
+  await new Promise<void>(resolve => server.listen(socket, resolve));
+  const stream = new Stream(),
+    subscribed = async (count: number) => {
+      for (let i = 0; i < 200 && asked.length < count; i++) await new Promise(r => setTimeout(r, 5));
+    };
+  stream.socket = socket;
+  try {
+    stream.poll(1, "/tmp");
+    await subscribed(1);
+    stream.poll(1, "/tmp", true);
+    await subscribed(2);
+    stream.poll(1, "/tmp", true);
+    stream.poll(1, "/tmp");
+    await subscribed(3);
+    expect(asked).toEqual([false, true, false]);
+  } finally {
+    stream.disconnect();
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -497,6 +497,11 @@ export class Menu {
   item: Item = "clever_corgi";
   /** The same model and manager the new-tab picker uses. */
   agents: LauncherMenu | null = null;
+  /** Whether the pane in view lists every account: Manage agents, or the
+   * models Clever Corgi can run on. */
+  listsAccounts(): boolean {
+    return this.agents !== null && (this.item === "agents" || this.item === "clever_corgi");
+  }
   managing(): boolean {
     return this.item === "agents" && this.focus === "options" && this.agents !== null;
   }

@@ -179,6 +179,7 @@ $.requests|session.subscribe: {}
 $.requests|viewer.watch.viewer: u32
 $.requests|agent.subscribe.workspace: u32
 $.requests|agent.subscribe.cwd: string
+$.requests|agent.subscribe.all: bool
 $.requests|viewer.open: versioned protocol.Request.Open
 $.requests|viewer.sync: versioned protocol.Request.Sync
 $.requests|viewer.search.pane: u32
