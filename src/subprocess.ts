@@ -115,12 +115,19 @@ export async function run(argv: string[], options: Options): Promise<Output> {
     close(outWrite);
     if (errWrite >= 0) close(errWrite);
     const exited = new Promise<Term>((resolve, reject) => {
+      const ended = (code: number | null, signal: string | null) =>
+        resolve(signal ? { signal: signal.replace(/^SIG/, "") } : { exited: code ?? 0 });
       child!.once("error", error => reject(spawnError(error)));
-      child!.once("exit", (code, signal) =>
-        resolve(signal ? { signal: signal.replace(/^SIG/, "") } : { exited: code ?? 0 }),
-      );
+      child!.once("exit", ended);
+      // Bun can report a quick child's exit inside spawn(), before there is a
+      // listener (oven-sh/bun#45483); its status is set by then.
+      if (child!.exitCode !== null || child!.signalCode !== null) ended(child!.exitCode, child!.signalCode);
+      // Nor does a lost exit outlive the deadline.
+      timer = setTimeout(() => {
+        stop("TimedOut");
+        reject(failure);
+      }, options.timeout_ms);
     });
-    timer = setTimeout(() => stop("TimedOut"), options.timeout_ms);
     options.quit?.abortSignal.addEventListener("abort", abort, { once: true });
     if (options.quit?.aborted) abort();
     for (const [fd, error] of [
