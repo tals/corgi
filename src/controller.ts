@@ -2,6 +2,7 @@
 //! are RPC operations. Mirrors controller.zig; methods that call the daemon
 //! are async and run one at a time from the viewer loop.
 import { hostname } from "node:os";
+import { existsSync } from "node:fs";
 import { basename, isAbsolute } from "node:path";
 import * as keys from "./keys";
 import * as keyboard from "./keyboard";
@@ -9,7 +10,8 @@ import * as textArea from "./text_area";
 import * as keymap from "./keymap";
 import * as bindings from "./bindings";
 import * as onboarding from "./onboarding";
-import * as shortcutHelp from "./shortcut_help";
+import * as shortcutHelp from "./keybinding_help";
+import * as keybindingFile from "./keybinding_file";
 import * as palette from "./palette";
 import type { Colors as TerminalColors } from "./terminal_palette";
 import type { Snapshot as TerminalSnapshot } from "./terminal_info";
@@ -267,8 +269,9 @@ export class Controller {
   /** Saved preferences as this viewer last loaded or set them. The sidebar
    * width is live while dragging and saved on release. */
   prefs = new Preferences();
+  closePreferences: (() => void) | null = null;
   onboarding: onboarding.State | null = null;
-  help = Object.assign(new shortcutHelp.State(), { command_mode: true });
+  help = new shortcutHelp.State();
   help_visible = false;
   moonlander: moonlanderTerminal.State | null = null;
   clipboard: string | null = null;
@@ -653,10 +656,15 @@ export class Controller {
     }
     this.prefix = false;
     if (byte === prefix_byte) return false;
-    const act = key_event
-      ? bindings.chord(this.prefs.preset, true, key_event)
-      : bindings.lookup(this.prefs.preset, true, byte, {});
+    const act = bindings.lookup(this.prefs.bindings(), true, key_event?.codepoint ?? byte, key_event?.mods ?? {});
     if (act?.name === "detach") await this.perform(act);
+    return true;
+  }
+  private async setupPrefix(key: keyboard.Key): Promise<boolean> {
+    const chord = this.corgi_setup?.prefixKey(key.codepoint, this.prefs, key);
+    if (chord == null) return false;
+    if (chord === "detach") await this.applySetup({ kind: "detach" });
+    this.dirty = true;
     return true;
   }
   /** Whether a repeatable key came again inside its window, which it
@@ -755,6 +763,46 @@ export class Controller {
   }
   loadPreferences(): void {
     this.prefs = preferences.load();
+    this.closePreferences?.();
+    try {
+      if (existsSync(preferences.path()) && preferences.readExisting(preferences.path()) === null)
+        this.notice("Invalid viewer.json; using default preferences until the file is repaired.");
+      this.closePreferences = keybindingFile.observe(preferences.path(), saved => {
+        if (!saved) {
+          this.help.error = "Invalid viewer.json; keeping the working shortcuts.";
+          this.notice(this.help.error);
+        } else if (
+          saved.preset !== this.prefs.preset ||
+          saved.prefix !== this.prefs.prefix ||
+          JSON.stringify(saved.keys) !== JSON.stringify(this.prefs.keys)
+        ) {
+          this.prefs.preset = saved.preset;
+          this.prefs.prefix = saved.prefix;
+          this.prefs.keys = saved.keys;
+          this.repeat_until = 0;
+          if (this.help_visible) {
+            const editing = this.help.edit !== null;
+            this.help.configure(saved.preset, saved.prefix, saved.keys);
+            this.help.accept(saved.keys);
+            if (editing) this.help.error = "Shortcuts changed on disk. Reopen the shortcut to edit it.";
+          } else this.prefix = false;
+          if (!this.remote_links && ghosttyIntegration.available()) {
+            try {
+              if (
+                ghosttyIntegration.refresh({ preset: saved.preset, prefix: saved.prefix, bindings: saved.bindings() })
+              )
+                this.notice("Shortcuts reloaded. Reload Ghostty to update its menu shortcuts.");
+            } catch {
+              this.notice("Shortcuts reloaded; could not update the Ghostty integration.");
+            }
+          }
+          this.dirty = true;
+        }
+        this.wake?.();
+      });
+    } catch {
+      this.notice("Could not watch viewer.json for shortcut changes.");
+    }
     this.review.tree_rows = this.prefs.review_tree_rows;
     if (!this.prefs.onboarding_complete)
       this.onboarding = Object.assign(new onboarding.State(), {
@@ -1626,7 +1674,7 @@ export class Controller {
     this.cancelDividers();
     this.selection = null;
     this.prefix = true;
-    this.help = Object.assign(new shortcutHelp.State(), { command_mode: true });
+    this.help = new shortcutHelp.State();
   }
   /** Whether a full-screen view hides every pane, so nothing on them was seen. */
   coversPanes(): boolean {
@@ -1635,6 +1683,45 @@ export class Controller {
   private openHelp(): void {
     this.beginPrefix();
     this.help_visible = true;
+    this.help.configure(this.prefs.preset, this.prefs.prefix, this.prefs.keys);
+  }
+  private async helpResult(result: shortcutHelp.Result): Promise<void> {
+    this.dirty = true;
+    if (!result) return;
+    switch (result.name) {
+      case "close":
+        this.closeMenu();
+        break;
+      case "action":
+        if (this.model().count > 0 || !needsPane(result.action)) {
+          this.closeMenu();
+          await this.perform(result.action);
+        }
+        break;
+      case "save":
+        try {
+          preferences.updateKeys(this.prefs, result.config);
+          this.prefs.keys = result.config;
+          this.help.accept(result.config);
+          if (
+            !this.remote_links &&
+            (await ghosttyIntegration.refresh({
+              preset: this.prefs.preset,
+              prefix: this.prefs.prefix,
+              bindings: this.prefs.bindings(),
+            }))
+          )
+            this.help.error = "Saved. Reload Ghostty to update its menu shortcuts.";
+        } catch (error) {
+          this.help.error = (error as Error).message;
+        }
+        break;
+    }
+  }
+  private async helpKey(key: keyboard.Key): Promise<boolean> {
+    if (!this.prefix || !this.help_visible || !this.help.owns(key)) return false;
+    await this.helpResult(this.help.event(key));
+    return true;
   }
   private openMoonlander(): void {
     const setup = this.corgi_setup;
@@ -2231,6 +2318,10 @@ export class Controller {
         break;
       case "moonlander":
         this.openMoonlander();
+        break;
+      case "keybindings":
+        this.openHelp();
+        this.help.customizing = true;
         break;
       case "help":
         this.openHelp();
@@ -3642,6 +3733,8 @@ export class Controller {
         this.switchWorkspace(apply.workspace);
         if (this.model().count === 0) this.openLauncher(true);
         return;
+      case "keybindings":
+        return this.perform({ name: "keybindings" });
       case "keymap":
         return this.openHelp();
       case "preset":
@@ -3712,7 +3805,9 @@ export class Controller {
     }
     try {
       await ghosttyIntegration.sync(
-        integration_state === "enabled" ? null : { preset: this.prefs.preset, prefix: this.prefs.prefix },
+        integration_state === "enabled"
+          ? null
+          : { preset: this.prefs.preset, prefix: this.prefs.prefix, bindings: this.prefs.bindings() },
       );
     } catch (error) {
       this.notice(` Ghostty integration: ${(error as Error).message}`);
@@ -3845,7 +3940,7 @@ export class Controller {
     // An enabled Ghostty block types the old prefix and keys until re-rendered.
     if (this.remote_links) return false;
     try {
-      return await ghosttyIntegration.refresh({ preset, prefix });
+      return await ghosttyIntegration.refresh({ preset, prefix, bindings: this.prefs.bindings() });
     } catch {
       return false;
     }
@@ -3880,10 +3975,11 @@ export class Controller {
     if (index < 0) index = 0;
     this.focusPane(list[next ? (index + 1) % list.length : (index + list.length - 1) % list.length].id);
   }
-  private async key(byte: number): Promise<void> {
+  private async key(byte: number, literal = false): Promise<void> {
     this.endSigninExit();
     const cl = this.input_state;
     this.repeat_until = 0;
+    if (await this.helpKey({ codepoint: byte, mods: {} })) return;
     // A sign-in has the keyboard; what its agent is sent passes through it.
     if (this.signin) {
       if (await this.signinPrefix(byte, null)) return;
@@ -3948,13 +4044,8 @@ export class Controller {
     if (this.corgi_setup) {
       const setup = this.corgi_setup,
         s = this.runtime.inference,
-        shortcuts = setup.item === "keyboard" && setup.focus === "options",
-        chord = setup.prefixKey(byte, this.prefs);
-      if (chord !== null) {
-        if (chord === "detach") await this.applySetup({ kind: "detach" });
-        this.dirty = true;
-        return;
-      }
+        shortcuts = setup.item === "keyboard" && setup.focus === "options";
+      if (await this.setupPrefix({ codepoint: byte, mods: {} })) return;
       if (setup.managing()) {
         const launch = setup.agents!;
         return this.manageAction(launch.manager.key(byte, launch.manageModel()));
@@ -4256,7 +4347,7 @@ export class Controller {
         if (p) this.sendInput(p.terminal, [byte]);
         return;
       }
-      const act = bindings.lookup(this.prefs.preset, true, byte, {});
+      const act = bindings.lookup(this.prefs.bindings(), true, byte, {});
       if (act) await this.runPrefixed(act, false);
       return;
     }
@@ -4264,8 +4355,8 @@ export class Controller {
       this.beginPrefix();
       return;
     }
-    if (!this.copy_mode) {
-      const act = bindings.lookup(this.prefs.preset, false, byte, {});
+    if (!this.copy_mode && !literal) {
+      const act = bindings.lookup(this.prefs.bindings(), false, byte, {});
       if (act) return this.perform(act);
     }
     if (this.reviewKeys() && !this.copy_mode) {
@@ -4590,6 +4681,42 @@ export class Controller {
       }
       const rest = cl.keybuf.slice(used);
       if (rest[0] !== 27) {
+        if (cl.paste === null && rest[0] >= 128) {
+          const decoded = keyboard.textKey(rest);
+          if (decoded.length === 0) break;
+          if (decoded.key && (await this.helpKey(decoded.key))) {
+            used += decoded.length;
+            continue;
+          }
+          if (
+            decoded.key &&
+            ((this.signin && (await this.signinPrefix(decoded.key.codepoint, decoded.key))) ||
+              (!this.signin && (await this.setupPrefix(decoded.key))))
+          ) {
+            this.dirty = true;
+            used += decoded.length;
+            continue;
+          }
+          if (
+            decoded.key &&
+            !this.onboarding &&
+            !this.name_dialog &&
+            !this.copy_mode &&
+            (this.prefix || !this.hasMenu())
+          ) {
+            const act = bindings.lookup(this.prefs.bindings(), this.prefix, decoded.key.codepoint, decoded.key.mods);
+            if (act) {
+              if (this.prefix) await this.runPrefixed(act, false);
+              else await this.perform(act);
+              used += decoded.length;
+              continue;
+            }
+          }
+          if (this.prefix) this.prefix = false;
+          else for (const byte of rest.slice(0, decoded.length)) await this.key(byte, true);
+          used += decoded.length;
+          continue;
+        }
         this.closePasteCard();
         this.pinWorktreeInput(String.fromCharCode(rest[0]));
         const opened =
@@ -4611,7 +4738,15 @@ export class Controller {
         this.dirty = true;
         break;
       }
-      if (cl.paste === null && rest[1] !== 0x5b && rest[1] !== 0x4f && (this.hasMenu() || this.name_dialog !== null)) {
+      if (
+        cl.paste === null &&
+        rest[1] !== 0x5b &&
+        rest[1] !== 0x4f &&
+        !this.help_visible &&
+        !this.corgi_setup?.after_prefix &&
+        !(this.signin && this.prefix) &&
+        (this.hasMenu() || this.name_dialog !== null)
+      ) {
         await this.key(27);
         used += 1;
         continue;
@@ -4621,6 +4756,17 @@ export class Controller {
         while (len < rest.length && !(rest[len] >= 0x40 && rest[len] <= 0x7e)) len += 1;
         if (len === rest.length) break;
         len += 1;
+      }
+      let alt_key: keyboard.Key | null = null;
+      if (rest[1] !== 0x5b && rest[1] !== 0x4f) {
+        const decoded = keyboard.textKey(rest.slice(1));
+        if (decoded.length === 0) break;
+        len = 1 + decoded.length;
+        if (decoded.key)
+          alt_key = {
+            ...decoded.key,
+            mods: { alt: true, shift: decoded.key.codepoint >= 65 && decoded.key.codepoint <= 90 },
+          };
       }
       let seq: number[] = rest.slice(0, len);
       if (this.paste_card !== null) {
@@ -4647,12 +4793,16 @@ export class Controller {
         }
       }
       if (cl.paste === null) {
-        const key_event = keyboard.decode(latin1(seq));
+        const key_event = keyboard.decode(latin1(seq)) ?? alt_key;
+        if (key_event && (await this.helpKey(key_event))) {
+          used += len;
+          continue;
+        }
         if (key_event && this.signin) {
           // Its agent gets keys as its terminal asked for them; the frame reads them plain.
           const s = this.signin,
             plain = viewerNative.encodeKey(null, key_event);
-          if (plain.length === 1 && (await this.signinPrefix(plain.charCodeAt(0), key_event))) {
+          if (await this.signinPrefix(plain.length === 1 ? plain.charCodeAt(0) : key_event.codepoint, key_event)) {
             this.dirty = true;
             used += len;
             continue;
@@ -4665,6 +4815,10 @@ export class Controller {
           continue;
         }
         if (key_event) {
+          if (await this.setupPrefix(key_event)) {
+            used += len;
+            continue;
+          }
           // Ghostty passes its paste key on only when it had no text
           // to paste. Over SSH it can't be pasted here: say why.
           const pressed = pasteKey(key_event);
@@ -4672,15 +4826,19 @@ export class Controller {
             used += len;
             continue;
           }
-          const repeated = bindings.repeat(this.prefs.preset, key_event);
+          const repeated = bindings.repeat(this.prefs.bindings(), key_event);
           if (this.repeats(repeated)) {
             await this.perform(repeated);
             used += len;
             continue;
           }
           if (repeated === null) this.repeat_until = 0;
-          if (this.onboarding === null && this.name_dialog === null && (this.prefix || !this.hasMenu())) {
-            const act = bindings.chord(this.prefs.preset, this.prefix, key_event);
+          if (
+            this.onboarding === null &&
+            this.name_dialog === null &&
+            (this.prefix || (!this.hasMenu() && !this.copy_mode && !this.search_mode))
+          ) {
+            const act = bindings.chord(this.prefs.bindings(), this.prefix, key_event);
             if (act) {
               if (this.prefix) await this.runPrefixed(act, repeated !== null);
               else await this.perform(act);
@@ -4701,7 +4859,7 @@ export class Controller {
             owned ||
             (legacy.length === 1 &&
               (legacy[0] === keymap.prefixByte(this.prefs.prefix) ||
-                bindings.lookup(this.prefs.preset, false, legacy[0], {}) !== null))
+                bindings.lookup(this.prefs.bindings(), false, legacy[0], {}) !== null))
           ) {
             seq = legacy;
           } else {
@@ -4727,7 +4885,7 @@ export class Controller {
         const copied = this.textField()?.selectedText();
         if (copied) this.copyText(copied);
       }
-      const again = cl.paste === null ? bindings.repeatSequence(this.prefs.preset, text) : null;
+      const again = cl.paste === null ? bindings.repeatSequence(this.prefs.bindings(), text) : null;
       if (parsed_key === "paste_start" || parsed_key === "paste_end") {
         if (parsed_key === "paste_start") cl.paste = this.pasteTarget();
         // The markers reach only an application that asked for them.
@@ -4773,9 +4931,9 @@ export class Controller {
         if (done) await this.finishOnboarding();
         this.dirty = true;
       } else if (this.prefix) {
-        const act = bindings.prefixedSequence(this.prefs.preset, text);
+        const act = bindings.prefixedSequence(this.prefs.bindings(), text);
         if (act) await this.runPrefixed(act, again !== null);
-        else if (this.help_visible) this.help.sequence(text);
+        else if (this.help_visible) await this.helpResult(this.help.sequence(text));
         this.dirty = true;
       } else if (this.sidebar_focus) {
         if (parsed_key === "up" || parsed_key === "down" || parsed_key === "left" || parsed_key === "right")
@@ -4961,16 +5119,7 @@ export class Controller {
       this.pointer = { x, y };
       if (!release && button === 0) {
         this.ui_mouse_down = true;
-        const hit = this.help.hit(this.width, this.height, x, y, this.prefs.preset);
-        if (hit.name === "close") this.closeMenu();
-        else if (hit.name === "play") this.help.play(Date.now());
-        else if (hit.name === "action") {
-          const act = hit.action;
-          if (this.model().count > 0 || !needsPane(act)) {
-            this.prefix = false;
-            await this.perform(act);
-          }
-        }
+        await this.helpResult(this.help.click(x, y));
       } else if (!release && (button === 64 || button === 65)) this.help.move(button === 65, 3);
       if (release) this.ui_mouse_down = false;
       this.dirty = true;
@@ -6811,9 +6960,8 @@ export class Controller {
     }
     if (this.onboarding) return this.onboarding.frame(this.width, this.height);
     if (this.prefix && this.help_visible) {
-      const hand =
-        this.pointer !== null &&
-        this.help.pointsAt(this.width, this.height, this.pointer.x, this.pointer.y, this.prefs.preset);
+      const hand = this.pointer !== null && this.help.pointsAt(this.pointer.x, this.pointer.y);
+      this.help.configure(this.prefs.preset, this.prefs.prefix, this.prefs.keys);
       return this.help.frame(
         this.width,
         this.height,

@@ -85,9 +85,99 @@ sessions return dormant and resume when their pane gets focus; other panes
 start new shells. Recovery cannot restore arbitrary process memory. See
 [reload and recovery details](../HACKING.md).
 
+### Customize shortcuts
+
+Open **prefix ?**, then **Ctrl+E**, or **Corgi setup → Keymap → Customize**.
+Use `/` to filter by action or key, arrows or Tab to select a shortcut, and
+Enter to edit it. Click an alternate to edit that exact binding; `+` adds
+another. **Ctrl+L** hides or shows alternatives. The `◇` symbol means your
+prefix; direct bindings have no diamond. All text uses ordinary terminal
+cells, including the stacked Focus and Swap keycaps.
+
+Help caps at 112 columns and adapts to the available space. Focus and Swap
+stack when necessary while keeping their directional arrangement. In very
+narrow terminals, Panes follows Tabs before the remaining sections. Long
+bindings wrap, and a scroll indicator marks content outside the visible area.
+
+Every edit opens a compact dialog. Controls use unfilled outlines, color,
+and bold, with a green focus marker. Short or narrow terminals use a denser
+layout. Arrows move between controls; Enter chooses. Select a binding chip
+to edit that alternative, or `+` to add another. **Use prefix** toggles whether
+the shortcut follows the prefix or runs directly. Record a shortcut to capture
+its modifiers. `◇` denotes the prefix and `⇧` denotes Shift.
+
+For **Select tab** and **Select workspace**, the Keys dropdown offers numeric
+and function-key ranges (`[1..9]`, `[F1..F9]`), or an arbitrary ordered set recorded one key at a
+time. Enter finishes recording a set; Backspace removes its last key. Only
+key sets have a separate modifier dropdown: Ctrl, Alt and Shift toggle
+independently with Space, Enter or a click. The menu stays open for multiple
+changes. A dash means only some keys have that modifier; toggling it applies
+it to the whole set. Dropdowns open below their fields; Esc closes a dropdown
+first, otherwise it cancels the entire edit.
+
+**Remove** or Backspace deletes the selected binding and selects the next
+remaining binding. Keep pressing Backspace to clear the action. Ctrl+Z or
+Cmd+Z undoes removals one at a time. **Save** applies all edits to the action;
+**Cancel** discards them. **Use defaults** restores the action's preset bindings;
+Save applies the restoration. The defaults row stays hidden when the bindings
+already match the preset, without moving the controls or resizing the dialog.
+A conflicting key
+shows its current owner before **Move** saves it. A member of an indexed set
+cannot be reassigned separately.
+
+Overrides live in `$XDG_STATE_HOME/corgi/viewer.json`, normally
+`~/.local/state/corgi/viewer.json`. Add a `keys` object to the existing file:
+
+```json
+{
+  "preset": "corgi",
+  "prefix": "ctrl_b",
+  "keys": {
+    "new": ["prefix+y", "ctrl+alt+n"],
+    "split:right": "prefix+v",
+    "tab": "prefix+1..9",
+    "close": []
+  }
+}
+```
+
+An omitted action inherits the preset. A string replaces all its shortcuts;
+an array supplies alternatives; `[]` unbinds it. Action names are those used
+by `corgi action`; append an argument with a colon, such as `focus:left`.
+`tab` and `goto-workspace` each describe a complete indexed set. Numeric and
+function-key ranges expand in order. For another layout, use an explicit set:
+
+```json
+{ "tab": { "keys": ["prefix+&", "prefix+é", "prefix+'"] } }
+```
+
+Each key in that set selects the corresponding tab, starting with tab one.
+Use a literal single character, or `space`, `enter`, `tab`, `backspace`,
+`insert`, `delete`, `home`, `end`, `pageup`, `pagedown`, an arrow name, or
+`f1` through `f25`. Spell a literal plus as `plus`. Modifiers are `ctrl`,
+`alt` (`opt`), `shift`, and `cmd` (`super`). Unmodified uppercase ASCII letters imply
+Shift. Escape and the configured prefix key are reserved.
+
+Bindings follow the logical characters received from the terminal, so a set
+can use the characters on your keyboard instead of assuming a US number row.
+They do not track physical key positions after changing layouts. Some key
+combinations require terminal forwarding or an enhanced keyboard protocol;
+for example, legacy terminals cannot distinguish Ctrl+I from Tab or Ctrl+M
+from Enter. The recorder shows what Corgi actually receives. Command/Super
+also requires host forwarding. Its toggle appears only for an existing or
+recorded Command binding; ordinary modifier choices do not assume support.
+
+Valid edits reload in open viewers. Invalid JSON, unknown actions and
+conflicting custom shortcuts leave the working bindings active. A custom shortcut
+replaces an ordinary preset binding only when both its chord (key and modifiers)
+and prefix mode match. Direct and prefixed shortcuts coexist. Indexed sets must be
+changed as a whole. Viewers refuse to save over a malformed file or a stale
+editor. If you unbind help, run `corgi action keybindings` from a pane to reopen
+the editor. Remove an action's override to inherit its preset again.
+
 ### All shortcuts
 
-This is the table printed by `corgi keys`. Keys without `prefix` are held
+These are the preset defaults printed by `corgi keys`; the interactive help shows your active overrides. Keys without `prefix` are held
 with their modifiers. In resize mode, `h/j/k/l` resize and another key exits.
 tmux tab numbering starts at zero; other presets start at one.
 

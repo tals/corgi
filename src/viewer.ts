@@ -83,6 +83,8 @@ function incompatible(error: Error): Error {
     : error;
 }
 export function close(view: Controller): void {
+  view.closePreferences?.();
+  view.closePreferences = null;
   view.model_cache.close();
   view.closeMoonlander();
   view.launch_previews.disconnect();

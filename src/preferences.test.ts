@@ -1,8 +1,88 @@
 import { test, expect } from "bun:test";
-import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
+import { openSync, closeSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Preferences, read, write, updateFile } from "./preferences";
+import { Preferences, read, write, updateFile, load } from "./preferences";
+import { flock } from "./native_bridge";
+
+test.each([false, true])(
+  "legacy migration retains setup while the shared file is locked (existing: %s)",
+  async existing => {
+    const root = await mkdtemp(join(tmpdir(), "corgi-migrate-lock-")),
+      file = join(root, "corgi", "viewer.json"),
+      socket = join(root, "old.sock");
+    const old = Object.assign(new Preferences(), { preset: "tmux", prefix: "ctrl_a", onboarding_complete: true });
+    const shared = Object.assign(new Preferences(), { sidebar_width: 45, keys: { new: "prefix+y" } });
+    await mkdir(join(root, "corgi"));
+    write(socket + ".viewer.json", old);
+    if (existing) write(file, shared);
+    const fd = openSync(file + ".lock", "a", 0o600);
+    const attempt = () => {
+      const module = new URL("./preferences.ts", import.meta.url).href;
+      const child = Bun.spawnSync(
+        [
+          process.execPath,
+          "-e",
+          `import { load } from ${JSON.stringify(module)}; console.log(JSON.stringify(load()));`,
+        ],
+        {
+          env: { ...process.env, XDG_STATE_HOME: root, CORGI_SOCKET: socket },
+        },
+      );
+      expect(child.exitCode).toBe(0);
+      return JSON.parse(child.stdout.toString());
+    };
+    try {
+      expect(flock(fd)).toBe(true);
+      const expected = { ...(existing ? shared : old), preset: "tmux", prefix: "ctrl_a", onboarding_complete: true };
+      expect(attempt()).toEqual(JSON.parse(JSON.stringify(expected)));
+      if (existing) expect(read(file)).toEqual(shared);
+      else expect(existsSync(file)).toBe(false);
+      flock(fd, false);
+      expect(attempt()).toEqual(JSON.parse(JSON.stringify(expected)));
+      expect(read(file)).toEqual(Object.assign(new Preferences(), expected));
+    } finally {
+      closeSync(fd);
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+test("legacy migration keeps valid shared shortcuts when the old keymap conflicts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "corgi-migrate-"));
+  const file = join(root, "corgi", "viewer.json"),
+    socket = join(root, "old.sock");
+  const previous = { XDG_STATE_HOME: process.env.XDG_STATE_HOME, CORGI_SOCKET: process.env.CORGI_SOCKET };
+  try {
+    for (const [preset, prefix, chord] of [
+      ["corgi", "ctrl_a", "ctrl+a"],
+      ["tmux", "ctrl_b", "prefix+0"],
+      ["corgi", "ctrl_a", "prefix+y"],
+    ] as const) {
+      const shared = Object.assign(new Preferences(), { keys: { new: chord }, sidebar_width: 45 });
+      write(file, shared);
+      write(socket + ".viewer.json", Object.assign(new Preferences(), { preset, prefix, onboarding_complete: true }));
+      process.env.XDG_STATE_HOME = root;
+      process.env.CORGI_SOCKET = socket;
+      const migrated = load();
+      expect(() => migrated.bindings()).not.toThrow();
+      expect(migrated.keys).toEqual(shared.keys);
+      expect(migrated.sidebar_width).toBe(45);
+      if (chord === "prefix+y") {
+        expect(migrated.prefix).toBe("ctrl_a");
+        expect(migrated.onboarding_complete).toBe(true);
+      } else expect(migrated).toEqual(shared);
+      expect(read(file)).toEqual(migrated);
+    }
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("preferences round trip and fall back to defaults", async () => {
   const root = await mkdtemp(join(tmpdir(), "corgi-preferences-"));
   try {

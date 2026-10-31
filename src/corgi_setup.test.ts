@@ -1170,8 +1170,8 @@ test("Command keys turn on and off under the keymap", () => {
   expect(text).toMatch(/New tab +⌘T/);
   expect(text).toMatch(/Select tab +⌘1–9/);
   // Where Ghostty isn't local, the cursor passes the switch by.
-  // The presets, Prefix, then All keys; cmux is a preset only on macOS.
-  const all_keys = km.available_presets.length + 1;
+  // The presets, Prefix, Customize, then All keys; cmux is macOS-only.
+  const all_keys = km.available_presets.length + 2;
   menu.openOptions(s, prefs);
   for (let i = 0; i < 10; i++) menu.move(true, s, prefs, false);
   expect(menu.cursor).toBe(all_keys);
@@ -1188,6 +1188,27 @@ test("Command keys turn on and off under the keymap", () => {
   expect(text).not.toContain("Reload Ghostty");
   menu.reload_ghostty = true;
   expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("Reload Ghostty with ⌘⇧, to apply.");
+});
+
+test("Command keys omit unbound actions and show customized cmux keys", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status();
+  menu.item = "keyboard";
+  menu.integration = "enabled";
+  prefs.keys = { new: [] };
+  let text = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  expect(text).not.toMatch(/New tab +⌘T/);
+  expect(text).toMatch(/Close tab +⌘W/);
+  prefs.keys = { tab: "prefix+1..2" };
+  text = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  expect(text).toMatch(/Select tab +⌘1–2/);
+  expect(text).not.toMatch(/Select tab +⌘1–9/);
+  prefs.preset = "cmux";
+  prefs.keys = { new: "cmd+f1" };
+  text = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  expect(text).toMatch(/New tab +⌘F1/);
+  expect(text).not.toMatch(/New tab +⌘T/);
 });
 
 test("visual flourishes preview working and idle corgis with a keyboard slider", () => {
@@ -1391,7 +1412,7 @@ test("shortcuts grow the frame into onboarding's preset detail", () => {
   menu.move(true, s, prefs);
   text = draw(menu, 140, 36, 2100, s, prefs).join("\n");
   expect(text).toContain("% Right");
-  expect(text).toContain("○ tmux       Classic splits");
+  expect(text).toMatch(/○ tmux +Classic splits/);
   expect(menu.enter(s, prefs)).toEqual({ kind: "preset", preset: "tmux" });
   // Clicks land on the grown frame's options.
   expect(hits(menu, 140, 36, s, prefs).filter(hit => "item" in hit)).toEqual([]);

@@ -2,6 +2,7 @@ import { specs as actionSpecs, title as actionTitle } from "./action";
 import type { Action } from "./action";
 import type { Preset } from "./keymap";
 import type { Mods, Key } from "./keyboard";
+import * as keys from "./keys";
 export type { Mods };
 export interface Binding {
   key: number;
@@ -11,6 +12,7 @@ export interface Binding {
   /** Pressed again soon after, it runs without the prefix, like tmux's `bind -r`. */
   repeat?: boolean;
 }
+export type Source = Preset | readonly Binding[];
 /** How long a repeatable binding waits for its next press, like tmux's
  * `repeat-time` but twice its default. */
 export const repeat_ms = 1000;
@@ -651,16 +653,20 @@ const tables: Record<Preset, Binding[]> = {
     ...corgiPrefix,
   ],
 };
-export function table(preset: Preset): Binding[] {
-  return tables[preset];
+export function table(preset: Source): readonly Binding[] {
+  return typeof preset === "string" ? tables[preset] : preset;
 }
 function sameMods(a: Mods, b: Mods): boolean {
   return ["shift", "alt", "ctrl", "super"].every(k => !!a[k as keyof Mods] === !!b[k as keyof Mods]);
 }
-export function lookup(preset: Preset, prefixed: boolean, key: number, mods: Mods = {}): Action | null {
-  return table(preset).find(b => b.key === key && b.prefixed === prefixed && sameMods(b.mods, mods))?.action ?? null;
+export function lookup(preset: Source, prefixed: boolean, key: number, mods: Mods = {}): Action | null {
+  return (
+    table(preset).find(
+      b => b.prefixed === prefixed && keys.same({ codepoint: b.key, mods: b.mods }, { codepoint: key, mods }),
+    )?.action ?? null
+  );
 }
-export function chord(preset: Preset, prefixed: boolean, k: Key): Action | null {
+export function chord(preset: Source, prefixed: boolean, k: Key): Action | null {
   let cp = k.codepoint;
   if (cp >= 65 && cp <= 90) cp += 32;
   if (k.mods.shift && cp === 125) cp = 93;
@@ -681,24 +687,24 @@ function sequenceKey(seq: string): Key | null {
     mods: { shift: !!(bits & 1), alt: !!(bits & 2), ctrl: !!(bits & 4), super: !!(bits & 8) },
   };
 }
-export function prefixedSequence(preset: Preset, seq: string): Action | null {
+export function prefixedSequence(preset: Source, seq: string): Action | null {
   const k = sequenceKey(seq);
   return k ? lookup(preset, true, k.codepoint, k.mods) : null;
 }
 /** The prefixed action `k` runs without the prefix while its repeat window is open. */
-export function repeat(preset: Preset, k: Key): Action | null {
+export function repeat(preset: Source, k: Key): Action | null {
   return (
-    table(preset).find(b => b.repeat && b.prefixed && b.key === k.codepoint && sameMods(b.mods, k.mods))?.action ?? null
+    table(preset).find(b => b.repeat && b.prefixed && keys.same({ codepoint: b.key, mods: b.mods }, k))?.action ?? null
   );
 }
-export function repeatSequence(preset: Preset, seq: string): Action | null {
+export function repeatSequence(preset: Source, seq: string): Action | null {
   const k = sequenceKey(seq);
   return k ? repeat(preset, k) : null;
 }
-export function find(preset: Preset, action: Action): Binding | null {
+export function find(preset: Source, action: Action): Binding | null {
   return table(preset).find(b => b.action.name === action.name && b.action.value === action.value) ?? null;
 }
-export function first(preset: Preset, action: Action, prefixed: boolean): Binding | null {
+export function first(preset: Source, action: Action, prefixed: boolean): Binding | null {
   return (
     table(preset).find(
       b => b.prefixed === prefixed && b.action.name === action.name && b.action.value === action.value,
@@ -711,18 +717,7 @@ export function format(b: Binding): string {
     (b.mods.alt ? "Opt+" : "") +
     (b.mods.ctrl ? "Ctrl+" : "") +
     (b.mods.shift ? "Shift+" : "");
-  const names: Record<number, string> = {
-    9: "Tab",
-    13: "Enter",
-    57350: "←",
-    57351: "→",
-    57352: "↑",
-    57353: "↓",
-  };
-  if (names[b.key]) return text + names[b.key];
-  if (b.key < 27) return text + "Ctrl+" + String.fromCharCode(b.key + 64);
-  if (b.key >= 57364 && b.key <= 57388) return text + "F" + (b.key - 57363);
-  return text + String.fromCodePoint(!sameMods(b.mods, {}) && b.key >= 97 && b.key <= 122 ? b.key - 32 : b.key);
+  return text + keys.displayName(!sameMods(b.mods, {}) && b.key >= 97 && b.key <= 122 ? b.key - 32 : b.key);
 }
 export function compact(b: Binding): string {
   return (

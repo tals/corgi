@@ -123,7 +123,7 @@ test("keys that arrive as sequences", () => {
     ["tmux", true, 57352, { ctrl: true }, { name: "resize", value: "up" }],
     ["tmux", false, 57350, {}, null],
     ["herdr", true, 57346, { shift: true }, { name: "prev-pane" }],
-    ["corgi", false, 116, { ctrl: true }, null],
+    ["corgi", false, 116, { ctrl: true }, { name: "new" }],
     ["corgi", true, 99, {}, null],
     ["corgi", false, 57364, {}, { name: "attention" }],
     ["corgi", true, 57364, {}, { name: "attention" }],

@@ -17,6 +17,30 @@ export interface Key {
   codepoint: number;
   mods: Mods;
 }
+/** One logical text key. A split UTF-8 character waits for the next read. */
+export function textKey(bytes: readonly number[]): { key: Key | null; length: number } {
+  if (!bytes.length) return { key: null, length: 0 };
+  const first = bytes[0];
+  const length =
+    first < 128
+      ? 1
+      : first >= 194 && first <= 223
+        ? 2
+        : first <= 239 && first >= 224
+          ? 3
+          : first >= 240 && first <= 244
+            ? 4
+            : 1;
+  if (bytes.length < length) return { key: null, length: 0 };
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+      Uint8Array.from(bytes.slice(0, length)),
+    );
+    return { key: { codepoint: text.codePointAt(0)!, mods: {} }, length };
+  } catch {
+    return { key: null, length: 1 };
+  }
+}
 /** Kitty's functional key codes Ghostty encodes; others stay unparsed. */
 function functional(cp: number): boolean {
   return (

@@ -115,6 +115,60 @@ test("a sign-in takes the prefix only to detach or to type it", async () => {
   }
 });
 
+test.each([
+  ["prefix+alt+d", "\x1bd"],
+  ["prefix+ctrl+d", "\x1b[100;5u"],
+  ["prefix+ctrl+d", "\x04"],
+  ["prefix+f3", "\x1bOR"],
+  ["prefix+é", "é"],
+  ["prefix+alt+é", "\x1bé"],
+])("Setup recognizes %s as one decoded detach chord", async (chord, input) => {
+  const s = controller();
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  s.prefs.keys = { detach: chord, sidebar: "prefix+alt+y" };
+  s.corgi_setup = SetupMenu.open();
+  try {
+    await s.input(bytes("\x02\x1by"));
+    expect(s.input_state.attached).toBe(true);
+    expect(s.corgi_setup).not.toBeNull();
+    await s.input(bytes("\x02" + input));
+    expect(s.input_state.attached).toBe(false);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test.each([
+  ["prefix+ø", "ø"],
+  ["prefix+alt+d", "\x1bd"],
+  ["prefix+f3", "\x1bOR"],
+])("sign-in restricts Unicode and modified prefix shortcuts to detach (%s)", async (chord, input) => {
+  const s = controller(),
+    open = spyOn(signin.Signin.prototype, "open").mockResolvedValue(undefined);
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  s.prefs.keys = { sidebar: ["prefix+é", "prefix+alt+é", "prefix+f2"], detach: chord };
+  let flow: signin.Signin | null = null;
+  try {
+    s.openSignin((host: signin.Host) => (flow = new signin.Signin(true, false, host)));
+    const typed = spyOn(flow!, "input").mockResolvedValue(undefined),
+      perform = spyOn(s, "perform");
+    for (const key of ["é", "\x1b[233u", "\x1bé", "\x1bOQ"]) await s.input(bytes("\x02" + key));
+    expect(s.prefix).toBe(false);
+    expect(s.signin).toBe(flow);
+    expect(typed).not.toHaveBeenCalled();
+    expect(perform).not.toHaveBeenCalled();
+    await s.input(bytes("\x02" + input));
+    expect(s.input_state.attached).toBe(false);
+    expect(perform).toHaveBeenCalledWith({ name: "detach" });
+  } finally {
+    s.signin?.close(1);
+    open.mockRestore();
+    viewer.close(s);
+  }
+});
+
 test.each([0, 50])(
   "account completion holds the old frame and starts immediately at flourish intensity %i",
   async intensity => {
@@ -2353,5 +2407,67 @@ test("Add agent adds a removed account back, its row there at once and shown in 
     expect(launch.manager.error).toBe("Corgi doesn't list this account any more.");
   } finally {
     restore.mockRestore();
+  }
+});
+
+test("custom keys resolve legacy, CSI-u, Alt and fragmented UTF-8 input", async () => {
+  const s = controller();
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  s.prefs.keys = { sidebar: ["ctrl+y", "alt+é", "prefix+é", "ctrl+alt+k"] };
+  const perform = spyOn(s, "perform").mockResolvedValue(undefined);
+  try {
+    for (const input of ["\x19", "\x1b[121;5u", "\x1bé", "\x1b[107;7u"]) {
+      await s.input(bytes(input));
+      expect(perform).toHaveBeenLastCalledWith({ name: "sidebar" });
+    }
+    expect(perform).toHaveBeenCalledTimes(4);
+    await s.input(Uint8Array.of(2, 195));
+    expect(perform).toHaveBeenCalledTimes(4);
+    await s.input(Uint8Array.of(169));
+    expect(perform).toHaveBeenCalledTimes(5);
+    expect(s.prefix).toBe(false);
+    await s.input(bytes("\x02b"));
+    expect(perform).toHaveBeenCalledTimes(5);
+  } finally {
+    perform.mockRestore();
+    viewer.close(s);
+  }
+});
+
+test("the shortcut recorder owns direct commands and ignores bracketed paste", async () => {
+  const s = controller();
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  try {
+    await s.perform({ name: "keybindings" });
+    s.frame();
+    await s.input(bytes("\r\r"));
+    expect(s.help.edit.listening).toBe(true);
+    await s.input(bytes("\x1b[200~do not bind this\x1b[201~"));
+    expect(s.help.edit.recorded).toHaveLength(0);
+    await s.input(bytes("\x1b[116;5u"));
+    expect(s.help.edit.recorded).toHaveLength(1);
+    expect(s.agent_launcher).toBeNull();
+    expect(s.help.edit.recorded[0].mods.ctrl).toBe(true);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("UTF-8 continuation bytes do not trigger character shortcuts", async () => {
+  const s = controller();
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  s.prefs.keys = { sidebar: "Ã" };
+  const perform = spyOn(s, "perform").mockResolvedValue(undefined);
+  try {
+    await s.input(bytes("é"));
+    await s.input(bytes("\x02é"));
+    expect(perform).not.toHaveBeenCalled();
+    expect(s.prefix).toBe(false);
+  } finally {
+    perform.mockRestore();
+    viewer.close(s);
   }
 });

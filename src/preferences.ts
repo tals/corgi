@@ -2,12 +2,26 @@
 //! file; the daemon never reads it. Unreadable files fall back to defaults.
 //! Mirrors preferences.zig, synchronously like it.
 import { join, dirname } from "node:path";
-import { readFileSync, mkdirSync, openSync, writeSync, fsyncSync, closeSync, renameSync, statSync } from "node:fs";
+import {
+  readFileSync,
+  mkdirSync,
+  openSync,
+  writeSync,
+  fsyncSync,
+  closeSync,
+  renameSync,
+  statSync,
+  existsSync,
+} from "node:fs";
 import { randomUUID } from "node:crypto";
 import { supportedPreset, type Preset, type Prefix } from "./keymap";
 import * as palette from "./palette";
 import type { Scope, Sort } from "./sidebar";
 import * as worktreeFolder from "./worktree_folder";
+import * as keybindings from "./keybindings";
+import * as ghosttyIntegration from "./ghostty_integration";
+import type { Binding } from "./bindings";
+import { flock } from "./native_bridge";
 
 /** Resource readings shown in the sidebar. Disabling removes the row and,
  * once every attached viewer is off, stops the daemon's sampling. Settings
@@ -29,6 +43,8 @@ export class Preferences {
   agent_scroll: AgentScroll | null = null;
   preset: Preset = "corgi";
   prefix: Prefix = "ctrl_b";
+  /** Action overrides; omitted actions inherit the selected preset. */
+  keys: keybindings.Config = {};
   onboarding_complete = false;
   resources: Resources = { enabled: true };
   /** Decorative sidebar corgi brightness, from off (0) to full (100). */
@@ -46,7 +62,26 @@ export class Preferences {
   agentSort(): Sort {
     return this.agent_sort ?? "manual";
   }
+  bindings(): readonly Binding[] {
+    let cached = binding_cache.get(this);
+    if (!cached || cached.preset !== this.preset || cached.keys !== this.keys || cached.prefix !== this.prefix) {
+      keybindings.validatePrefix(this.keys, this.prefix);
+      cached = {
+        preset: this.preset,
+        prefix: this.prefix,
+        keys: this.keys,
+        table: keybindings.resolve(this.preset, this.keys),
+      };
+      if (this.preset === "cmux") ghosttyIntegration.validate(cached.table);
+      binding_cache.set(this, cached);
+    }
+    return cached.table;
+  }
 }
+const binding_cache = new WeakMap<
+  Preferences,
+  { preset: Preset; prefix: Prefix; keys: keybindings.Config; table: Binding[] }
+>();
 export function path(): string {
   if (process.env.XDG_STATE_HOME) return join(process.env.XDG_STATE_HOME, "corgi", "viewer.json");
   if (!process.env.HOME) throw Error("NoHome");
@@ -61,29 +96,70 @@ export function load(): Preferences {
   }
   let saved = readExisting(file);
   if (saved?.onboarding_complete) return saved;
+  if (saved === null && existsSync(file)) return new Preferences();
   // Older builds kept preferences beside an overridden socket. Carry a
   // completed setup forward once; the shared file then takes precedence.
   if (process.env.CORGI_SOCKET) {
     const old = readExisting(`${process.env.CORGI_SOCKET}.viewer.json`);
     if (old?.onboarding_complete) {
-      const migrated = saved ?? old;
-      migrated.preset = old.preset;
-      migrated.prefix = old.prefix;
-      migrated.onboarding_complete = true;
       try {
-        write(file, migrated);
-      } catch {}
-      saved = migrated;
+        // Keep the legacy setup in memory even if another viewer is saving it.
+        saved = migrate(saved, old);
+        locked(file, () => {
+          const current = readExisting(file);
+          saved = current;
+          if (current?.onboarding_complete) {
+            return;
+          }
+          if (!current && existsSync(file)) return;
+          saved = migrate(current, old);
+          atomicWrite(file, saved);
+        });
+      } catch {
+        const current = readExisting(file);
+        if (current?.onboarding_complete) saved = current;
+      }
     }
   }
   return saved ?? new Preferences();
+}
+function migrate(current: Preferences | null, old: Preferences): Preferences {
+  const migrated = Object.assign(new Preferences(), current ?? old);
+  migrated.preset = old.preset;
+  migrated.prefix = old.prefix;
+  migrated.onboarding_complete = true;
+  migrated.bindings();
+  return migrated;
 }
 /** Saves the given fields and keeps the rest as another viewer may have left them. */
 export function update(changes: Partial<Preferences>): void {
   updateFile(path(), changes);
 }
+/** An editor must not overwrite shortcuts changed by another viewer. */
+export function updateKeys(expected: Preferences, keys: keybindings.Config, file = path()): void {
+  locked(file, () => {
+    const saved = readExisting(file);
+    if (!saved && existsSync(file)) throw Error("Invalid viewer.json; repair the file before saving shortcuts.");
+    const current = saved ?? new Preferences();
+    if (
+      current.preset !== expected.preset ||
+      current.prefix !== expected.prefix ||
+      JSON.stringify(current.keys) !== JSON.stringify(expected.keys)
+    )
+      throw Error("Shortcuts changed on disk. Reopen the editor before saving.");
+    current.keys = keybindings.parse(keys);
+    current.bindings();
+    atomicWrite(file, current);
+  });
+}
 export function updateFile(file: string, changes: Partial<Preferences>): void {
-  write(file, Object.assign(read(file), changes));
+  locked(file, () => {
+    const saved = readExisting(file);
+    if (!saved && existsSync(file)) throw Error("InvalidPreferences");
+    const next = Object.assign(saved ?? new Preferences(), changes);
+    next.bindings();
+    atomicWrite(file, next);
+  });
 }
 export function read(file: string): Preferences {
   return readExisting(file) ?? new Preferences();
@@ -159,13 +235,28 @@ export function readExisting(file: string): Preferences | null {
     }
     v.sidebar_width = Math.max(v.sidebar_width, 20);
     v.preset = supportedPreset(v.preset);
+    v.keys = keybindings.parse(d.keys);
+    v.bindings();
     return v;
   } catch {
     return null;
   }
 }
 export function write(file: string, value: Preferences): void {
+  locked(file, () => atomicWrite(file, value));
+}
+/** Lock a stable sibling: atomic replacement changes viewer.json's inode. */
+function locked(file: string, save: () => void): void {
   mkdirSync(dirname(file), { recursive: true });
+  const fd = openSync(`${file}.lock`, "a", 0o600);
+  try {
+    if (!flock(fd)) throw Error("Preferences are being saved by another viewer. Try again.");
+    save();
+  } finally {
+    closeSync(fd);
+  }
+}
+function atomicWrite(file: string, value: Preferences): void {
   // Every viewer uses this file, so each writer needs its own temporary file.
   const temp = `${file}.${randomUUID()}.tmp`;
   const fd = openSync(temp, "wx", 0o600);

@@ -17,7 +17,7 @@ import * as keymap from "./keymap";
 import * as bindings from "./bindings";
 import type { Action } from "./action";
 export type State = "unavailable" | "disabled" | "enabled" | "failed";
-export type Keys = { preset: keymap.Preset; prefix: keymap.Prefix };
+export type Keys = { preset: keymap.Preset; prefix: keymap.Prefix; bindings?: readonly bindings.Binding[] };
 const begin = "# BEGIN CORGI GHOSTTY INTEGRATION\n",
   end = "# END CORGI GHOSTTY INTEGRATION\n";
 export function available() {
@@ -85,57 +85,94 @@ const host_keys: { host: string; action: Action }[] = [
 ];
 /** The Ghostty keys Corgi binds under `preset`, as triggers ("cmd+t") with
  * the action each sends. */
-export function commandKeys(preset: keymap.Preset): { host: string; action: Action }[] {
+export function commandKeys(
+  preset: keymap.Preset,
+  source: bindings.Source = preset,
+): { host: string; action: Action }[] {
   if (preset === "cmux")
     return bindings
-      .table("cmux")
+      .table(source)
       .filter(b => !b.prefixed)
-      .map(b => ({ host: trigger(b), action: b.action }));
+      .flatMap(b => {
+        const host = trigger(b);
+        return host === null ? [] : [{ host, action: b.action }];
+      });
   return host_keys.filter(host => {
-    const b = bindings.first(preset, host.action, true);
-    return b && !Object.values(b.mods).some(Boolean) && b.key < 128;
+    return bindings.first(source, host.action, true) !== null || bindings.first(source, host.action, false) !== null;
   });
 }
+const key_names: Record<number, readonly [string, string]> = {
+  9: ["tab", "Tab"],
+  13: ["enter", "↩"],
+  32: ["space", "Space"],
+  39: ["quote", "'"],
+  44: ["comma", ","],
+  45: ["minus", "-"],
+  46: ["period", "."],
+  47: ["slash", "/"],
+  59: ["semicolon", ";"],
+  61: ["equal", "="],
+  91: ["left_bracket", "["],
+  92: ["backslash", "\\"],
+  93: ["right_bracket", "]"],
+  96: ["backquote", "`"],
+  127: ["backspace", "⌫"],
+  57348: ["insert", "Insert"],
+  57349: ["delete", "⌦"],
+  57350: ["left", "←"],
+  57351: ["right", "→"],
+  57352: ["up", "↑"],
+  57353: ["down", "↓"],
+  57354: ["page_up", "⇞"],
+  57355: ["page_down", "⇟"],
+  57356: ["home", "↖"],
+  57357: ["end", "↘"],
+};
 /** A trigger as a Mac menu writes it: "cmd+shift+t" is ⌘⇧T. */
 export function macLabel(host: string): string {
   const symbols: Record<string, string> = { cmd: "⌘", ctrl: "⌃", alt: "⌥", shift: "⇧" },
-    named: Record<string, string> = {
-      tab: "Tab",
-      enter: "↩",
-      comma: ",",
-      left_bracket: "[",
-      right_bracket: "]",
-      left: "←",
-      right: "→",
-      up: "↑",
-      down: "↓",
-    },
     parts = host.split("+"),
-    key = parts.pop()!;
+    key = parts.pop()!,
+    label = Object.values(key_names).find(([name]) => name === key)?.[1];
   return (
     parts.map(mod => symbols[mod] ?? mod).join("") +
-    (named[key] ?? (key.startsWith("digit_") ? key.slice(6) : key.toUpperCase()))
+    (label ?? (key.startsWith("digit_") ? key.slice(6) : key.toUpperCase()))
   );
 }
 function trigger(binding: bindings.Binding) {
   const m = binding.mods;
-  const special: Record<number, string> = {
-    13: "enter",
-    44: "comma",
-    91: "left_bracket",
-    93: "right_bracket",
-    57350: "left",
-    57351: "right",
-    57352: "up",
-    57353: "down",
-  };
+  // These characters delimit Ghostty's keybind syntax.
+  const shifted: Record<number, number> = { 43: 61, 58: 59, 62: 46 };
+  const name =
+    key_names[shifted[binding.key] ?? binding.key]?.[0] ??
+    (binding.key >= 57364 && binding.key <= 57388
+      ? `f${binding.key - 57363}`
+      : binding.key >= 33 && !(binding.key >= 57344 && binding.key <= 63743)
+        ? String.fromCodePoint(binding.key)
+        : null);
+  if (name === null) return null;
   return (
     (m.super ? "cmd+" : "") +
     (m.ctrl ? "ctrl+" : "") +
     (m.alt ? "alt+" : "") +
-    (m.shift ? "shift+" : "") +
-    (special[binding.key] ?? String.fromCodePoint(binding.key))
+    (m.shift || shifted[binding.key] ? "shift+" : "") +
+    name
   );
+}
+/** Ghostty aliases must not turn distinct Corgi chords into the same trigger. */
+export function validate(source: bindings.Source): void {
+  const seen = new Map<string, bindings.Binding>();
+  for (const binding of bindings.table(source)) {
+    if (binding.prefixed) continue;
+    const host = trigger(binding);
+    if (host === null) continue;
+    const previous = seen.get(host);
+    if (previous)
+      throw Error(
+        `${bindings.format(previous)} and ${bindings.format(binding)} both use ${macLabel(host)} in Ghostty; choose another shortcut.`,
+      );
+    seen.set(host, binding);
+  }
 }
 export function transform(bytes: string, keys: Keys | null): string {
   const existing = block(bytes);
@@ -143,24 +180,32 @@ export function transform(bytes: string, keys: Keys | null): string {
   if (!keys) return out;
   if (out && !out.endsWith("\n")) out += "\n";
   out += begin;
+  const source = keys.bindings ?? keys.preset;
   if (keys.preset === "cmux") {
+    validate(source);
     out += "# cmux preset; applies throughout Ghostty. Reload with Cmd+Shift+comma.\n";
-    for (const b of bindings.table("cmux"))
+    for (const b of bindings.table(source))
       if (!b.prefixed) {
+        const host = trigger(b);
+        if (host === null) continue;
         const m = b.mods,
           mods = Number(!!m.shift) + 2 * Number(!!m.alt) + 4 * Number(!!m.ctrl) + 8 * Number(!!m.super);
-        out += `keybind = ${trigger(b)}=text:\\x1b[${b.key};${mods + 1}u\n`;
+        out += `keybind = ${host}=text:\\x1b[${b.key};${mods + 1}u\n`;
       }
   } else {
     out += "# Applies throughout Ghostty. Reload with Cmd+Shift+comma.\n";
-    for (const host of commandKeys(keys.preset)) {
-      const b = bindings.first(keys.preset, host.action, true)!;
-      out +=
-        `keybind = ${host.host}=text:\\x${keymap.prefixByte(keys.prefix).toString(16).padStart(2, "0")}` +
-        (b.key > 32 && b.key < 127 && b.key !== 92
-          ? String.fromCodePoint(b.key)
-          : "\\x" + b.key.toString(16).padStart(2, "0")) +
-        "\n";
+    for (const host of commandKeys(keys.preset, source)) {
+      const b = bindings.first(source, host.action, true) ?? bindings.first(source, host.action, false)!;
+      const mods =
+        Number(!!b.mods.shift) + 2 * Number(!!b.mods.alt) + 4 * Number(!!b.mods.ctrl) + 8 * Number(!!b.mods.super);
+      const key =
+        mods || b.key >= 128
+          ? `\\x1b[${b.key};${mods + 1}u`
+          : b.key > 32 && b.key < 127 && b.key !== 92
+            ? String.fromCodePoint(b.key)
+            : "\\x" + b.key.toString(16).padStart(2, "0");
+      const prefix = b.prefixed ? `\\x${keymap.prefixByte(keys.prefix).toString(16).padStart(2, "0")}` : "";
+      out += `keybind = ${host.host}=text:${prefix}${key}\n`;
     }
   }
   return out + end;

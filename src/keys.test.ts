@@ -1,6 +1,13 @@
 import { test, expect } from "bun:test";
-import { parse, logicalKey, mouseReport, paste_start, paste_end } from "./keys";
+import { parse, logicalKey, mouseReport, paste_start, paste_end, parseChord } from "./keys";
 import { decode } from "./keyboard";
+test("chords reject inherited names as keys and modifiers", () => {
+  for (const name of Object.getOwnPropertyNames(Object.prototype)) {
+    expect(parseChord(name)).toBeNull();
+    expect(parseChord(`ctrl+${name}`)).toBeNull();
+    expect(parseChord(`${name}+a`)).toBeNull();
+  }
+});
 test("parse recognizes CSI and SS3 forms, and rejects the unmapped", () => {
   for (const [seq, key] of [
     ["\x1b[A", "up"],
