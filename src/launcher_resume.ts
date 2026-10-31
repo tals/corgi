@@ -8,6 +8,7 @@ import { Style, keycap } from "./palette";
 import { Dialog, View as DialogView, writeField } from "./name_dialog";
 import { Writer, displayWidth, writeEllipsis, truncatedText, sat } from "./text";
 import * as scrollThumb from "./scroll_thumb";
+import { writeMark, type Marks } from "./provider_mark";
 
 export type Scope = "folder" | "workspace" | "everywhere";
 const scopes: Scope[] = ["folder", "workspace", "everywhere"];
@@ -201,8 +202,18 @@ interface Columns {
   folder: number;
   last: number;
 }
-let panel: string, rule: string, row_style: string, selected_style: string, dim: string;
+let panel: string,
+  rule: string,
+  row_style: string,
+  selected_style: string,
+  dim: string,
+  field: string,
+  field_strong: string,
+  field_muted: string;
 palette.derived(() => {
+  field = new Style({ fg: "text", bg: "selected" }).sgr();
+  field_strong = new Style({ fg: "strong", bg: "selected" }).sgr();
+  field_muted = new Style({ fg: "muted", bg: "selected" }).sgr();
   panel = new Style({ fg: "faint", bg: "surface" }).sgr();
   rule = new Style({ fg: "line", bg: "surface" }).sgr();
   row_style = new Style({ fg: "text", bg: "surface" }).sgr();
@@ -219,6 +230,8 @@ export class View {
   /** The keyboard is in this list rather than on the agent rows. */
   focused = false;
   searching = false;
+  /** The list was expanded before the search began, so leaving it goes back there. */
+  searched_expanded = false;
   query = Dialog.init({ pane: 0 }, "");
   scope: Scope = "workspace";
   /** Kept by identity, so a refreshed list keeps the selection. */
@@ -369,8 +382,19 @@ export class View {
     this.scope = "workspace";
   }
   startSearch(): void {
+    if (this.searching) return;
+    this.searched_expanded = this.expanded;
     this.expand();
     this.searching = true;
+  }
+  /** Leaves the search for where it began: all the conversations, or the newest few. */
+  leaveSearch(): void {
+    const expanded = this.searched_expanded;
+    this.stopSearch();
+    if (!expanded) {
+      this.expanded = false;
+      this.scope = "workspace";
+    }
   }
   stopSearch(): void {
     this.searching = false;
@@ -416,7 +440,7 @@ export class View {
   }
   /** The collapsed list from terminal row `y`, inside a border at column
    * `x` that is `width` wide. */
-  drawCollapsed(w: Writer, c: Context, x: number, y: number, width: number): void {
+  drawCollapsed(w: Writer, c: Context, x: number, y: number, width: number, marks: Marks | null = null): void {
     const rows = this.lines(c);
     const cols = this.columns(sat(width, 4));
     let total = 0;
@@ -432,11 +456,11 @@ export class View {
     const at = this.index(c, rows);
     rows.forEach((line, k) => {
       const row = y + 1 + k + ("more" in line ? 1 : 0);
-      this.drawLine(w, c, line, rows, this.focused && at === k, startsRun(c, rows, k, 0), x, row, width, cols);
+      this.drawLine(w, c, line, rows, this.focused && at === k, startsRun(c, rows, k, 0), x, row, width, cols, marks);
     });
   }
   /** The expanded list in `area`, terminal coordinates inside the border. */
-  draw(w: Writer, c: Context, area: Area): void {
+  draw(w: Writer, c: Context, area: Area, marks: Marks | null = null): void {
     const rows = this.lines(c);
     const at = this.index(c, rows);
     const x = area.x;
@@ -446,22 +470,31 @@ export class View {
     const list_height = area.listHeight();
     const first = this.firstRow(rows, at, list_height);
     const cols = this.columns(sat(width, 4));
-    // Search line and scope.
-    w.write(`\x1b[${y};${x + 3}H${panel}`);
-    writeKey(w, "/", panel);
-    w.write(" ");
-    const scope = scopeLabel(this.scope);
-    const field = sat(width, scope.length + 19);
+    // The search line, as the model picker draws its search: a field with
+    // the / keycap, the query and its caret, and how many match; then the scope.
+    const scope = scopeLabel(this.scope),
+      keys_x = x + width - 2 - (scope.length + 2 + 6),
+      field_x = x + 3,
+      field_w = sat(keys_x - 1, field_x),
+      found = rows.filter(line => "entry" in line || "open" in line).length,
+      count =
+        this.search().length > 0 ? `${found} of ${c.history.entries.filter(e => c.inScope(e, this.scope)).length}` : "",
+      room = sat(field_w, 4 + (count ? count.length + 2 : 0));
+    w.write(`\x1b[${y};${field_x}H${field}`);
+    w.splat(" ", field_w);
+    w.write(`\x1b[${y};${field_x}H${keycap} / ${field} `);
     if (this.searching) {
-      const room = sat(field, 1);
-      writeField(w, this.query, DialogView.scroll(this.query, room), room, panel + palette.fg("strong"), {
-        caret: true,
-      });
+      writeField(w, this.query, DialogView.scroll(this.query, room), room, field_strong, { caret: true });
+      if (this.query.len === 0 && room > 2) {
+        w.write(field_muted);
+        writeEllipsis(w, "Search titles and what was said", room - 1);
+      }
     } else {
-      w.write(dim);
-      writeEllipsis(w, "search titles and what was said", field);
+      w.write(field_muted);
+      writeEllipsis(w, "Search titles and what was said", room);
     }
-    w.write(`\x1b[${y};${x + width - 2 - (scope.length + 2 + 6)}H`);
+    if (count) w.write(`\x1b[${y};${field_x + field_w - 1 - count.length}H${field_muted}${count}`);
+    w.write(`\x1b[${y};${keys_x}H${panel}`);
     writeKey(w, "tab", panel);
     w.write(" ");
     writeKey(w, scope, panel);
@@ -494,6 +527,7 @@ export class View {
         row,
         width,
         cols,
+        marks,
       );
     });
     const bar = scrollThumb.thumb(list_height, rows.length, first);
@@ -515,6 +549,7 @@ export class View {
     row: number,
     width: number,
     cols: Columns,
+    marks: Marks | null = null,
   ): void {
     const style = selected ? selected_style : row_style;
     if ("day" in line) {
@@ -555,8 +590,12 @@ export class View {
     w.write(`\x1b[${row};${x + 1}H${style}`);
     w.splat(" ", sat(width, 3));
     w.write(`\x1b[${row};${x + 1}H${selected ? "›" : " "}`);
-    if (named) w.write(`\x1b[${row};${x + 3}H${adapter(e.provider).name}`);
-    else w.write(`\x1b[${row};${x + 3}H${rail(selected)}│${style}`);
+    if (named) {
+      // Its brand mark, then its name; this list writes 1-based positions, marks take 0-based cells.
+      writeMark(w, e.provider, x + 2, row - 1, marks);
+      w.write(`\x1b[${row};${x + 5}H${style}`);
+      writeEllipsis(w, adapter(e.provider).name, 6);
+    } else w.write(`\x1b[${row};${x + 3}H${rail(selected)}│${style}`);
     let col = x + 3 + 9;
     // The branch, then the account, end the title's column.
     let room = cols.title;

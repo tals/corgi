@@ -95,7 +95,9 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
   async assertSelected(view: Viewer, label: string, cols = 120) {
     const rows = screen_text((await view.poll()).data, cols, 30);
     this.assertTrue(
-      rows.some(row => new RegExp("› +(?:≡ +)?([0-9t→] +)?" + label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(row)),
+      rows.some(row =>
+        new RegExp("› +(?:≡ +)?([0-9t→] +)?(?:[†*§] +)?" + label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(row),
+      ),
       rows.join("\n"),
     );
   }
@@ -813,8 +815,8 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
         return [rows[y].indexOf("╭"), y, rows[y].indexOf("╮"), bottom];
       };
       const pickerBounds = frame(shown);
-      this.assertIn("Claude Code · slow", shown);
-      this.assertIn("Claude Code · fast", shown);
+      this.assertIn("Claude · slow", shown);
+      this.assertIn("Claude · fast", shown);
       await this.clickText(view, "Manage agents", 160);
       const managed = screen_text((await view.poll()).data, 160, 30).join("\n");
       this.assertIn("Claude Code · slow", managed);
@@ -948,8 +950,8 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     const view = await Viewer.create(this, 120, 30);
     await view.input("\x02A");
     let rows = screen_text((await view.poll()).data, 120, 30);
-    this.assertTrue(rows.some(row => /0 +Codex/.test(row)));
-    this.assertTrue(rows.some(row => /1 +Claude Code/.test(row)));
+    this.assertTrue(rows.some(row => /0 +† +Codex/.test(row)));
+    this.assertTrue(rows.some(row => /1 +\* +Claude Code/.test(row)));
     this.assertTrue(rows.some(row => /t +New terminal/.test(row)));
     let before = (await this.session()).panes.length;
     await view.input("1");
@@ -966,7 +968,7 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
     });
     await view.input("\x02A");
     rows = screen_text((await view.poll()).data, 120, 30);
-    this.assertTrue(rows.some(row => /0 +Claude Code/.test(row)));
+    this.assertTrue(rows.some(row => /0 +\* +Claude Code/.test(row)));
     this.assertTrue(rows.some(row => /1 +Custom sleeper/.test(row)));
     before = (await this.session()).panes.length;
     await view.input("9");

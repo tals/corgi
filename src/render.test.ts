@@ -801,3 +801,22 @@ test("Manage rows advertise grab, model-pointer and search-text cursors without 
   u.pointer = { x: box.x + 10, y: box.y + 7 };
   expect(frame(view, [], 120, 34, u)).toContain("\x1b]22;fleur\x1b\\");
 });
+
+test("the launcher places provider marks with host images and falls back to glyphs", () => {
+  const launch = new LauncherMenu({ workspace: 1, selected: "codex", last: "codex", pinned: true }),
+    icons = new Icons(),
+    shown = (fields: Partial<Ui> = {}) =>
+      frame(emptyView(), [], 120, 40, ui({ message: "", copy_mode: false, agent_launcher: launch, ...fields }));
+  expect(shown()).not.toContain("\x1b_Ga=p");
+  expect(launch.marks).toBeNull();
+  const graphics = { tab_icons: icons, cell_pixels: { width: 9, height: 18 } };
+  expect(shown(graphics)).not.toContain("\x1b_Ga=p");
+  expect(icons.end()).toContain("\x1b_Ga=t");
+  icons.begin();
+  const placed = shown(graphics);
+  expect(placed).toContain("\x1b_Ga=p");
+  expect(placed).not.toMatch(/\x1b\[1;\d+H\x1b_Ga=p/);
+  icons.begin();
+  expect(shown()).not.toContain("\x1b_Ga=p");
+  expect(launch.marks).toBeNull();
+});

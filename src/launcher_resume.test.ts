@@ -139,8 +139,9 @@ test("a run is named after its provider", () => {
     const c = new Context({ pending: false, entries }, "/w/corgi", "/w/corgi", [], 1000);
     const w = new Writer();
     new View().drawCollapsed(w, c, 0, 1, 100);
-    expect(w.buffered()).toContain("HClaude");
-    expect(w.buffered()).toContain("HSim");
+    // Each run starts with its brand mark (here its glyph), then its name.
+    expect(w.buffered()).toMatch(/\x1b\[2;3H[^*]*\* \x1b\[2;5H\x1b\[[\d;]*mClaude/);
+    expect(w.buffered()).toMatch(/\x1b\[3;3H[^§]*§ \x1b\[3;5H\x1b\[[\d;]*mSim/);
     expect(w.buffered()).not.toContain("Codex");
   } finally {
     remove();

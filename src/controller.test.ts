@@ -481,19 +481,45 @@ test("esc closes the paste card and does nothing else; a click or another key al
   expect(s.paste_card).toBeNull();
 });
 
-test("escape in the launcher's search clears the query, then closes the launcher", async () => {
+test("Esc or Backspace with nothing typed leaves the launcher's search, then Esc closes the launcher", async () => {
   const s = controller();
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
   s.agent_launcher = new LauncherMenu({ workspace: 1, selected: "codex", last: "codex", pinned: true });
-  // Collapsed, so the test needs no sidebar to scroll the list.
-  Object.assign(s.agent_launcher.resume_view, {
-    focused: true,
-    searching: true,
-    query: Dialog.init({ pane: 0 }, "ab"),
-  });
+  const view = s.agent_launcher.resume_view;
+  // A conversation elsewhere: the search here finds nothing to pick.
+  s.agent_launcher.history = {
+    pending: false,
+    entries: [launcherResume.historyEntry({ provider: "claude", session: "x", title: "Elsewhere", cwd: "/b" })],
+  };
+  view.focused = true;
+  view.startSearch();
+  view.query = Dialog.init({ pane: 0 }, "ab");
   await s.key(27);
+  // Esc leaves the search, query and all, for the newest few it began from.
   expect(s.agent_launcher).not.toBeNull();
-  expect(s.agent_launcher.resume_view.searching).toBe(true);
-  expect(s.agent_launcher.resume_view.query.name()).toBe("");
+  expect([view.searching, view.expanded, view.query.name()]).toEqual([false, false, ""]);
+  // Backspace edits the query, and with nothing left leaves the search.
+  view.startSearch();
+  await s.key(120);
+  expect(view.query.name()).toBe("x");
+  await s.key(127);
+  expect(view.searching).toBe(true);
+  await s.key(127);
+  expect([view.searching, view.expanded]).toEqual([false, false]);
+  // Moving with nothing to pick keeps the keyboard in the search.
+  view.startSearch();
+  await s.input(bytes("\x1b[B"));
+  await s.input(bytes("\x1b[A"));
+  expect([view.searching, view.focused]).toEqual([true, true]);
+  await s.key(27);
+  // From the expanded list, leaving the search goes back to it.
+  view.expand();
+  view.startSearch();
+  await s.key(27);
+  expect([view.searching, view.expanded]).toEqual([false, true]);
+  await s.key(27);
+  expect(view.expanded).toBe(false);
   await s.key(27);
   expect(s.agent_launcher).toBeNull();
 });

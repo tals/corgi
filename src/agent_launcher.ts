@@ -1,7 +1,8 @@
 //! The agent launcher popover: rows, keys, hit areas and drawing. The daemon
 //! fills the preview; this file only shows it, and the shared runtime
 //! remembers the choice. Its Manage agents is agent_manager.ts, in its card.
-//! Mirrors agent_launcher.zig.
+//! It keeps its size and place while its conversations expand or are
+//! searched. Mirrors agent_launcher.zig.
 import * as palette from "./palette";
 import { Style, keycap } from "./palette";
 import { Provider, byProvider, adapter } from "./providers";
@@ -31,6 +32,7 @@ import type * as worktrees from "./worktrees";
 import type { View as SidebarView, Spotlight } from "./sidebar";
 import { Writer, displayWidth, ellipsis, writeEllipsis, sat } from "./text";
 import { Row, customs, type Launch } from "./launch/row";
+import { writeMark, type Marks } from "./provider_mark";
 export { Row, type Launch };
 
 const providers = Provider.all;
@@ -142,6 +144,13 @@ export function resolution(value: any = {}): Resolution {
   return result;
 }
 const headings = ["Agent", "YOLO", "Model", "Account", "Plan", "Usage (used) · resets in"];
+/** Columns a row's brand mark and the space after it take, before its name.
+ * The name gives them up, its provider's name shortening first. */
+const mark_w = 3;
+/** Rows under the agents for the conversations, their heading and the
+ * gap above "more" included: the longest collapsed list. Expanding or
+ * searching them scrolls within these rows. */
+const resume_rows = launcherResume.collapsed_rows + 4;
 // Reserve metadata and two usage windows before their readings arrive.
 const column_widths = [26, 6, 24, 28, 12, 50];
 export const preferred_width = 4 + column_widths.reduce((sum, size) => sum + size, 0);
@@ -188,6 +197,8 @@ export class Menu {
   worktree = new launcherWorktree.Chooser();
   /** Where a new worktree goes, as the viewer's preferences say. */
   worktree_folder = worktreeFolder.default_template;
+  /** Places brand marks where the host shows images; the glyph otherwise. */
+  marks: Marks | null = null;
 
   constructor(fields: Partial<Menu> = {}) {
     Object.assign(this, fields);
@@ -200,6 +211,12 @@ export class Menu {
   }
   launchOf(row: Row): Launch | null {
     return this.profileOf(row) ?? Row.launch(row);
+  }
+  /** The agent a row starts, for its brand mark; null for a terminal or a
+   * saved command that runs something else. */
+  providerOf(row: Row): Provider | null {
+    const custom = Row.custom(row);
+    return custom !== null ? this.commands[custom].semantics.provider : (this.launchOf(row)?.provider ?? null);
   }
   accountOf(row: Row): AccountOption | null {
     const profile = this.profileOf(row);
@@ -386,33 +403,27 @@ export class Menu {
     )!;
   }
   /** Rows the menu needs: border, headings, agent rows and a gap, the
-   * conversations and a gap, footer and border. */
+   * conversations and a gap, footer and border. The conversations take the
+   * rows of the longest collapsed list whether they show a few, all of them
+   * or a search, and the worktree box the rows of every checkout and From's
+   * list, so nothing a user types or expands resizes the launcher. */
   rowsHeight(): number {
     if (this.managing) return this.manager.height(this.manageModel());
-    const conversations = !this.hasResume()
-      ? 0
-      : this.resume_view.expanded
-        ? 8
-        : this.resume_view.collapsedHeight(this.resumeContext()) + 1;
+    const conversations = this.hasResume() ? resume_rows : 0;
     // The worktree box hangs from the title above the footer.
-    const c = this.worktree;
     const hanging =
-      c.mode !== "open"
+      this.worktree.mode !== "open"
         ? 0
         : launcherWorktree.boxHeight(
-            Math.min(c.count(this.worktrees), launcherWorktree.list_rows),
-            c.error.length > 0,
-            c.focus === "from" ? launcherWorktree.pickChoices(c, now()).length : null,
+            Math.min(launcherWorktree.checkouts(this.worktrees).length + 1, launcherWorktree.list_rows),
+            this.worktree.error.length > 0,
+            launcherWorktree.pick_rows,
           );
     return Math.max(5 + this.count() + conversations, hanging);
   }
   bounds(cols: number, rowsCount: number, side: SidebarView): Rect {
-    const width = Math.min(cols, preferred_width);
-    let height = Math.min(rowsCount, this.rowsHeight());
-    // Expanded conversations take the room a table of them needs.
-    if (this.resume_view.expanded && this.history.entries.length > 0) {
-      if (!this.managing) height = Math.min(rowsCount, Math.max(30, height));
-    }
+    const width = Math.min(cols, preferred_width),
+      height = Math.min(rowsCount, this.rowsHeight());
     return new Rect(
       Math.min(sat(side.width, 10), cols - width),
       Math.min(side.middle() + 1, rowsCount - height),
@@ -767,13 +778,15 @@ export class Menu {
       w.write(row === 0 ? "╮" : row === b.h - 1 ? "╯" : "│");
     }
     m.drawTitle(w, b, panel);
+    // Images can't follow the card as it slides; its glyphs can.
+    const marks = m.transition.active ? null : m.marks;
     const widths = m.columns(b.w);
     let heading_x = b.x + 4;
     headings.forEach((heading, column) => {
       const width = widths[column];
       if (width === 0) return;
-      w.write(`\x1b[${b.y + 2};${heading_x + (column === 0 ? 4 : 0)}H${panel}`);
-      const room = sat(width, column === 0 ? 6 : column === 5 ? 1 : 2);
+      w.write(`\x1b[${b.y + 2};${heading_x + (column === 0 ? 4 + mark_w : 0)}H${panel}`);
+      const room = sat(width, column === 0 ? 6 + mark_w : column === 5 ? 1 : 2);
       const label =
         column === 1 && room < 4
           ? "Y"
@@ -810,14 +823,21 @@ export class Menu {
       let x = b.x + 4;
       const custom = Row.custom(current);
       const values = custom !== null ? m.customCells(custom) : m.cells(current);
-      if (custom === null) values[0] = m.label(current, sat(widths[0], 6));
       const yolo = custom !== null ? m.commands[custom].semantics.yolo : m.yoloOf(current);
+      // The agent's brand mark leads its name.
+      const provider = m.providerOf(current);
+      if (provider && widths[0] > 0) {
+        // This card writes 1-based positions; marks take 0-based cells.
+        writeMark(w, provider, x + 3, row - 1, marks);
+        w.write(style);
+      }
+      if (custom === null) values[0] = m.label(current, sat(widths[0], 6 + mark_w));
       widths.forEach((width, column) => {
         if (width === 0) return;
-        w.write(`\x1b[${row};${x + (column === 0 ? 4 : 0)}H`);
+        w.write(`\x1b[${row};${x + (column === 0 ? 4 + mark_w : 0)}H`);
         if (column === 5 && m.trackable(current)) w.write("\x1b[4m");
         if (column === 1 && yolo) w.write("\x1b[1m" + palette.fg("strong"));
-        const room = sat(width, column === 0 ? 6 : column === 5 ? 1 : 2);
+        const room = sat(width, column === 0 ? 6 + mark_w : column === 5 ? 1 : 2);
         if (column === 5) m.usageCell(current).write(w, grid, room, style, selected);
         else if (column === 2 && custom === null) {
           const model = m.modelCell(current);
@@ -832,8 +852,8 @@ export class Menu {
       // A rule across the gap between the agents and the conversations.
       w.write(`\x1b[${m.resumeTop(b) - 1};${b.x + 4}H${rule}`);
       w.write("─".repeat(b.w - 6));
-      if (m.resume_view.expanded) m.resume_view.draw(w, m.resumeContext(), m.resumeArea(cols, rowsCount, side));
-      else m.resume_view.drawCollapsed(w, m.resumeContext(), b.x + 1, m.resumeTop(b), b.w);
+      if (m.resume_view.expanded) m.resume_view.draw(w, m.resumeContext(), m.resumeArea(cols, rowsCount, side), marks);
+      else m.resume_view.drawCollapsed(w, m.resumeContext(), b.x + 1, m.resumeTop(b), b.w, marks);
     }
     const view = m.resume_view;
     const c = m.resumeContext();
@@ -851,17 +871,12 @@ export class Menu {
         ...(m.worktree.creating(m.worktrees) ? [{ key: "tab", label: "from" }] : []),
         { key: "esc", label: "close" },
       ];
-    else if (view.searching && view.query.len > 0)
-      hints = [
-        { key: "↵", label: "resume" },
-        { key: "tab", label: "scope" },
-        { key: "esc", label: "clear" },
-      ];
     else if (view.searching)
       hints = [
+        { key: "↑↓", label: "pick" },
         { key: "↵", label: "resume" },
         { key: "tab", label: "scope" },
-        { key: "esc", label: "close" },
+        { key: "esc", label: "back" },
       ];
     else if (view.focused && view.expanded)
       hints = [
