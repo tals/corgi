@@ -199,13 +199,13 @@ says what each workspace shows.
 Commands do not implicitly start a missing runtime.
 
 When a coding agent (Claude Code, Codex, Cursor, Gemini CLI, Copilot, or one
-that sets `AI_AGENT`) runs these commands through a pipe, Corgi compacts what
-the agent reads: `--help` lists only these commands, and `pane read` trims line
-ends, shortens rules and collapses blank runs. `--agent` and `--no-agent` force
-it either way, as does `CORGI_AGENT_MODE=1` or `0`.
+that sets `AI_AGENT`) runs these commands through a pipe, `pane read` trims
+line ends, shortens rules and collapses blank runs. `--agent` and `--no-agent`
+force it either way, as does `CORGI_AGENT_MODE=1` or `0`.
 
-Use `corgi --help` and each command's `--help` for syntax, or `corgi --skill`
-for the [bundled scripting guide](../assets/corgi-skill.md).
+`corgi --help` always lists all commands. Use `corgi pane read --help` or
+`corgi help pane read` for a command's syntax, or `corgi --skill` for the
+[bundled scripting guide](../assets/corgi-skill.md).
 [Agent internals](agents.md) covers hooks and headless provider sessions.
 
 ### Agents behind a bridge

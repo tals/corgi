@@ -170,14 +170,34 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     controls = !alias && (cli.handles(choice.args) || ["help", "--help", "-h"].includes(choice.args[0]));
   if (controls) args = choice.args;
   const agent = controls && agent_mode.enabled(choice.flag, process.env, process.stdout.isTTY === true);
+  const command = args[0] ?? "attach";
+  // A provider owns its flags; help returns before Corgi starts any command.
+  const own = alias || command.startsWith("__") ? [] : command === "agent" ? args.slice(0, 2) : args;
+  if (!alias && (cli.asksHelp(own) || command === "help")) {
+    const topic = (command === "help" ? args.slice(1) : args).filter(arg => arg !== "--help" && arg !== "-h");
+    switch (topic[0]) {
+      case "account":
+        process.stdout.write((await import("./account_command")).help);
+        break;
+      case "integration":
+        process.stdout.write((await import("./integration")).help);
+        break;
+      default:
+        process.stdout.write(
+          topic.length ? cli.helpFor(cli.handles(topic) ? cli.help : help, topic) : help + "\n" + cli.help,
+        );
+        if (topic[0] === "action") process.stdout.write("\n" + actionNames + "\n");
+        break;
+    }
+    return;
+  }
   const asJson = replies.includes(args[0]) && asksJson(args);
   if (asJson) args = args.filter(arg => arg !== "--json");
   const print = async <K extends protocol.Op>(path: string, op: K, ...rest: protocol.Arguments<K>) => {
     const reply = await rpc.request(path, op, ...rest);
     process.stdout.write(asJson ? json.stringify(reply) + "\n" : say(op, reply));
   };
-  const command = args[0] ?? "attach",
-    path = os.socketPath();
+  const path = os.socketPath();
   log.configure(alias ? "agent" : command);
   quietExecveWarning();
   // Daemon only: native messages go to server.log, and terminals learn the providers' programs.
@@ -202,17 +222,6 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     } catch (error) {
       cli.failure(error instanceof Error ? error.message : String(error), 2, args);
     }
-    return;
-  }
-  // `agent` hands the rest of its line to the agent; `integration` and `account` print their own help.
-  const own =
-    command === "agent"
-      ? args.slice(0, 2)
-      : command === "integration" || command === "account" || command.startsWith("__")
-        ? []
-        : args;
-  if (cli.asksHelp(own) || command === "help") {
-    process.stdout.write(agent ? cli.help.trimEnd() + agent_mode.helpNote : help + cli.help);
     return;
   }
   switch (command) {
@@ -370,8 +379,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
         account = at >= 0 ? (words[at + 1] ?? "") : null;
       if (at >= 0) words.splice(at, 2);
       const [op, name, ...rest] = words;
-      if (op === undefined || ["help", "--help", "-h"].includes(op) || args.includes("--help") || args.includes("-h"))
-        return void process.stdout.write(integration.help);
+      if (op === undefined || op === "help" || cli.asksHelp(args)) return void process.stdout.write(integration.help);
       if (
         (op !== "status" && op !== "install" && op !== "uninstall") ||
         rest.length ||
