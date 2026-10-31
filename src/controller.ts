@@ -1844,7 +1844,8 @@ export class Controller {
   }
   /** How long the viewer waits between frames: 120 a second while a hold to
    * create fills or springs back, a display frame while a sidebar row glides
-   * to another group. */
+   * to another group, 30 ms while overlays, fades or drag scrolling run, and
+   * otherwise the corgi's own pace. */
   frameDelay(): number {
     const now = milliTimestamp(),
       d = this.name_dialog;
@@ -1853,7 +1854,9 @@ export class Controller {
     const launch = this.launcherModel(),
       moving = launch?.managing && (!this.corgi_setup || this.corgi_setup.managing()) && launch.manager.moving();
     if (this.sidebar_rows.moving(now) || moving) return 16;
-    return this.overlayOpen() || this.signin_exit ? 30 : corgiAnimation.frameDelay();
+    const smooth =
+      this.overlayOpen() || this.signin_exit || this.sidebar_rows.fading(now) || this.agent_drag?.scrolling();
+    return smooth ? 30 : corgiAnimation.frameDelay();
   }
   private async renamePane(id: number, name: string): Promise<void> {
     await this.edit({ "pane.rename": { target: id, name } });
