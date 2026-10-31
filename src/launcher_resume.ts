@@ -398,7 +398,16 @@ export class View {
   /** Keep the selection in view after it moves. */
   reveal(c: Context, area: Area): void {
     const rows = this.lines(c);
-    this.scroll = this.firstRow(rows, this.index(c, rows), area.listHeight());
+    this.scroll = this.viewport(c, rows, area.listHeight()).first;
+  }
+  /** The pinned provider and date replace the first day's heading. */
+  private viewport(c: Context, rows: Line[], height: number): { first: number; height: number; context: Entry | null } {
+    const pinned = this.search().length === 0 && rows.length > 0 && height > 1;
+    const body = sat(height, pinned ? 1 : 0);
+    let first = this.firstRow(rows, this.index(c, rows), body);
+    if (pinned && rows[first] && "day" in rows[first]) first += 1;
+    const line = rows[first];
+    return { first, height: body, context: pinned && line && "entry" in line ? c.history.entries[line.entry] : null };
   }
   /** Title, folder and last-message widths for an inner width; the last
    * message goes first when space runs out. */
@@ -445,9 +454,9 @@ export class View {
     const x = area.x;
     const y = area.y;
     const width = area.width;
-    const list_top = area.listTop();
-    const list_height = area.listHeight();
-    const first = this.firstRow(rows, at, list_height);
+    const viewport = this.viewport(c, rows, area.listHeight());
+    const { first, height: list_height, context } = viewport;
+    const list_top = area.listTop() + (context ? 1 : 0);
     const cols = this.columns(sat(width, 4));
     // Search line and scope.
     w.write(`\x1b[${y};${x + 3}H${panel}`);
@@ -480,6 +489,16 @@ export class View {
       writeEllipsis(w, "You last said", cols.last);
     }
     w.write(`\x1b[${y + 1};${x + width - 3 - 6}HActive`);
+    if (context) {
+      const date = dayLabel(context.updated_at, c.now);
+      w.write(`\x1b[${area.listTop()};${x + 3}H${row_style}`);
+      writeMark(w, context.provider, x + 2, area.listTop() - 1, marks);
+      w.write(`\x1b[${area.listTop()};${x + 5}H${row_style}`);
+      w.write(adapter(context.provider).name);
+      w.write(`\x1b[${area.listTop()};${x + 3 + provider_width}H${panel}`);
+      writeEllipsis(w, date, sat(width, 6 + provider_width));
+      w.write(rule + " " + "─".repeat(sat(width, 6 + provider_width + displayWidth(date))));
+    }
     if (rows.length === 0 || (rows.length === 1 && "heading" in rows[0])) {
       w.write(`\x1b[${list_top + (rows.length === 1 ? 1 : 0)};${x + 3 + provider_width}H${panel}`);
       w.write(this.search().length > 0 ? "No matches." : "Nothing closed here. Tab widens the scope.");
@@ -492,7 +511,7 @@ export class View {
         line,
         rows,
         this.focused && at === first + k,
-        startsRun(c, rows, first + k, first),
+        !(context && k === 0) && startsRun(c, rows, first + k, first),
         x,
         row,
         width,
@@ -523,11 +542,15 @@ export class View {
   ): void {
     const style = selected ? selected_style : row_style;
     if ("day" in line) {
-      w.write(`\x1b[${row};${x + 3}H${panel}`);
+      const at = rows.indexOf(line),
+        before = at > 0 ? agentOf(c, rows[at - 1]) : null,
+        after = rows[at + 1];
+      if (before !== null && after && before === agentOf(c, after)) w.write(`\x1b[${row};${x + 3}H${panel}│`);
+      w.write(`\x1b[${row};${x + 3 + provider_width}H${panel}`);
       const text = dayLabel(line.day, c.now);
       w.write(text);
       w.write(" " + palette.fg("line"));
-      w.write("─".repeat(sat(width, 6 + Buffer.byteLength(text))));
+      w.write("─".repeat(sat(width, 6 + provider_width + displayWidth(text))));
       return;
     }
     if ("heading" in line) {
@@ -610,10 +633,11 @@ export class View {
   hit(c: Context, area: Area, x: number, y: number): Hit | null {
     if (x <= area.x || x >= area.x + area.width - 1) return null;
     if (y === area.y && x >= area.x + area.width - 2 - (scopeLabel(this.scope).length + 8)) return "scope";
-    const top = area.listTop();
-    if (y < top || y >= top + area.listHeight()) return null;
     const rows = this.lines(c);
-    const row = this.firstRow(rows, this.index(c, rows), area.listHeight()) + (y - top);
+    const viewport = this.viewport(c, rows, area.listHeight());
+    const top = area.listTop() + (viewport.context ? 1 : 0);
+    if (y < top || y >= top + viewport.height) return null;
+    const row = viewport.first + (y - top);
     return row < rows.length && keyOf(c, rows[row]) !== null ? { row } : null;
   }
   /** The collapsed list's row at `line`, counted from its first row. */
@@ -639,15 +663,16 @@ function agentOf(c: Context, line: Line): Provider | null {
   if ("open" in line) return c.history.entries[line.open].provider;
   return null;
 }
-/** Whether conversation row `i` names its agent: the first row shown from
- * `first`, and wherever the agent differs from the row above. */
+/** Names the first visible conversation and each change of agent. Day
+ * headings continue the run; search section headings start another. */
 export function startsRun(c: Context, rows: Line[], i: number, first: number): boolean {
   const agent = agentOf(c, rows[i]);
   if (agent === null) return false;
-  if (i === first) return true;
-  const above = agentOf(c, rows[i - 1]);
-  if (above === null) return true;
-  return above !== agent;
+  for (let k = i - 1; k >= first; k--) {
+    if ("day" in rows[k]) continue;
+    return agentOf(c, rows[k]) !== agent;
+  }
+  return true;
 }
 /** Draw a keycap, then restore the surrounding style. */
 export function writeKey(w: Writer, key: string, after: string): void {

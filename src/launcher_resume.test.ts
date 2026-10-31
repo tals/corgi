@@ -2,6 +2,7 @@
 import { expect, test } from "bun:test";
 import {
   Context,
+  Area,
   View,
   merge,
   startsRun,
@@ -117,7 +118,8 @@ test("a run of one agent names it once", () => {
   entries[2].provider = "codex";
   entries[3].provider = "codex";
   const c = new Context({ pending: false, entries }, "/w/corgi", "/w/corgi", [], 1000);
-  const rows = new View().lines(c);
+  const view = new View(),
+    rows = view.lines(c);
   expect(Array.from({ length: collapsed_rows }, (_, i) => startsRun(c, rows, i, 0))).toEqual([
     true,
     false,
@@ -129,6 +131,21 @@ test("a run of one agent names it once", () => {
   expect(startsRun(c, rows, 1, 1)).toBe(true);
   // Show more.
   expect(startsRun(c, rows, rows.length - 1, 0)).toBe(false);
+  // Day headings do not repeat a provider's name.
+  entries.forEach((e, i) => (e.updated_at = 900 - i * 86400));
+  view.expand();
+  const expanded = view.lines(c),
+    conversations = expanded.flatMap((line, i) => ("entry" in line ? [i] : []));
+  expect(expanded.filter(line => "day" in line)).toHaveLength(5);
+  expect(conversations.map(i => startsRun(c, expanded, i, 0))).toEqual([true, false, true, false, true]);
+  // The first visible conversation carries the label, whether a day heading
+  // is at the top or the original label has scrolled away.
+  for (const i of conversations) {
+    expect(startsRun(c, expanded, i, i)).toBe(true);
+    expect(startsRun(c, expanded, i, i - 1)).toBe(true);
+  }
+  // Open and closed search results still have separate provider runs.
+  expect(startsRun(c, [{ open: 0 }, { heading: "results" }, { entry: 1 }], 2, 0)).toBe(true);
 });
 
 test("a run is named after its provider", () => {
@@ -163,6 +180,42 @@ test("a run is named after its provider", () => {
     }
   } finally {
     remove();
+  }
+});
+
+test("the pinned provider and date follow the first visible conversation without stealing its hit target", () => {
+  const entries = Array.from({ length: 10 }, (_, i) =>
+    testEntry(String(i), "/w/corgi", `Conversation ${i}`, 900 - Math.floor(i / 2) * 86400),
+  );
+  entries[6].provider = "codex";
+  const c = new Context({ pending: false, entries }, "/w/corgi", "/w/corgi", [], 1000),
+    view = new View({ expanded: true, focused: true }),
+    area = new Area(0, 1, 100, 6),
+    rows = view.lines(c);
+  for (const entry of [0, 4, 5, 6]) {
+    const at = rows.findIndex(line => "entry" in line && line.entry === entry);
+    view.select(c, at);
+    view.scroll = at;
+    view.reveal(c, area);
+    const writer = new Writer(),
+      terminal = new Terminal(100, 10);
+    try {
+      view.draw(writer, c, area);
+      terminal.feed(writer.s);
+      const lines = terminal.text().split("\n"),
+        provider = entry === 6 ? "Codex" : "Claude",
+        heading = lines[area.listTop() - 1],
+        date = dayLabel(entries[entry].updated_at, c.now);
+      expect(heading).toContain(provider);
+      expect(heading).not.toContain("·");
+      expect(heading.indexOf(provider)).toBe(4);
+      expect(heading.indexOf(date)).toBe(lines[area.listTop()].indexOf(`Conversation ${entry}`));
+      expect(lines[area.listTop()]).toContain(`│          Conversation ${entry}`);
+      expect(view.hit(c, area, 20, area.listTop())).toBeNull();
+      expect(view.hit(c, area, 20, area.listTop() + 1)).toEqual({ row: at });
+    } finally {
+      terminal.destroy();
+    }
   }
 });
 
