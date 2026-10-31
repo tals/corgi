@@ -6,6 +6,7 @@ import * as surface from "./pane/surface";
 import * as session from "./session";
 import { microTimestamp } from "./clock";
 import { stringify } from "./json";
+import * as launch from "./launch_service";
 import { version as wire_version, type View as WireView, type Control, type Request } from "./protocol";
 import type { Server } from "./server";
 import type { Client } from "./peer";
@@ -65,6 +66,8 @@ export async function open(s: Server, cl: Client, q: Open) {
   cl.view_workspace = s.initialWorkspace().id;
   cl.protocol_version = wire_version;
   if (first) s.updateTheme(q.theme ?? null);
+  // Each agent is asked its model anew; a lookup starts it, so it's kept between.
+  launch.service(s).launch_previews.entered();
   const ws = s.initialWorkspace();
   cl.reply("viewer.open", {
     viewer_protocol: version,

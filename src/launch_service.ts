@@ -4,15 +4,29 @@ import { Worker as PreviewWorker, Preview, Option, active_every, idle_every } fr
 import { byProvider } from "./providers";
 import { Worker as HistoryWorker } from "./launch/history";
 import { stringify } from "./json";
+import * as launcherConfig from "./launcher_config";
+import * as accounts from "./accounts";
+import * as profiles from "./agent_profiles";
+import * as discovery from "./discovery";
 import type { Server } from "./server";
 import type { Client } from "./peer";
 import type { DecodedRequest } from "./protocol";
 type Request = Extract<
   DecodedRequest,
-  { op: "agent.history" | "agent.command.preview" | "agent.subscribe" | "agent.preview" | "agent.track_usage" }
+  {
+    op:
+      | "agent.history"
+      | "agent.command.preview"
+      | "agent.subscribe"
+      | "agent.preview"
+      | "agent.track_usage"
+      | "agent.refresh";
+  }
 >;
 export type Subscription = {
   cwd: string;
+  /** Manage agents is open, which lists every account, shown or not. */
+  all: boolean;
   preview: Preview;
   checked: number;
   history_asked: boolean;
@@ -23,6 +37,15 @@ export class Service {
   command_previews = CommandWorker.start();
   launch_previews = PreviewWorker.start();
   launch_history: HistoryWorker | null = null;
+  /** When the daemon last checked what the preview worker's rows are used
+   * for, and when it last worked that out, in ms. */
+  checked_at = 0;
+  used_at = 0;
+  /** What it worked that out from: the runtime's revision and the files
+   * that list accounts and profiles. */
+  used_from = "";
+  /** When a subscriber last asked for every account, in ms. */
+  all_at = 0;
   startHistory() {
     return (this.launch_history ??= HistoryWorker.start());
   }
@@ -67,13 +90,29 @@ export async function request(server: Server, client: Client, request: Request) 
     });
     return;
   }
-  const subscribe = request.op === "agent.subscribe";
+  const subscribe = request.op === "agent.subscribe",
+    all = request.op === "agent.subscribe" && request.payload.all;
   if (subscribe && (client.viewer || client.subscribed)) throw Error("AlreadyAttached");
+  if (subscribe && client.launch_preview?.cwd === cwd) {
+    // Opening or closing Manage agents keeps the readings and history sent.
+    client.launch_preview.all = all;
+    use(server, s, true);
+    return;
+  }
+  if (all) {
+    s.all_at = Date.now();
+    use(server, s, true);
+  }
   const preview =
-    request.op === "agent.track_usage" ? s.launch_previews.trackUsage(cwd) : s.launch_previews.preview(cwd, subscribe);
+    request.op === "agent.track_usage"
+      ? s.launch_previews.trackUsage(cwd)
+      : request.op === "agent.refresh"
+        ? s.launch_previews.refresh(cwd)
+        : s.launch_previews.preview(cwd, subscribe);
   if (subscribe) {
     client.launch_preview = {
       cwd,
+      all,
       preview,
       checked: Date.now(),
       history_asked: false,
@@ -85,12 +124,40 @@ export async function request(server: Server, client: Client, request: Request) 
 }
 /** Input this recent in any viewer reads accounts every `active_every`. */
 const active_ms = 5 * 60 * 1000;
+/** How often the daemon checks whether what the preview worker's rows are
+ * used for may have changed, and how often it works that out regardless,
+ * for what its revision and files miss, in ms. */
+const use_ms = 1000,
+  reuse_ms = 15000;
+/** Every account is read this long after the last subscriber asking for
+ * them all let go, so moving through Settings doesn't start and stop them. */
+export const all_grace_ms = 60000;
+/** Tells the preview worker which rows its launchers, agents and Manage
+ * agents use, so it reads no others. */
+function use(server: Server, s: Service, force = false) {
+  const now = Date.now();
+  s.checked_at = now;
+  if (server.clients.some(c => !c.dead && c.launch_preview?.all)) s.all_at = now;
+  const all = s.all_at > 0 && now - s.all_at < all_grace_ms,
+    from = JSON.stringify([
+      server.runtime.revision.toString(),
+      all,
+      discovery.stamp(accounts.path()),
+      discovery.stamp(profiles.path()),
+    ]);
+  if (!force && from === s.used_from && now - s.used_at < reuse_ms) return;
+  s.used_from = from;
+  s.used_at = now;
+  s.launch_previews.use(launcherConfig.uses(server.runtime, all));
+}
 /** Lets the preview worker read accounts on its own schedule, often while
  * someone uses a viewer and rarely when no one does or none is attached. */
 export function sample(server: Server) {
   const now = Date.now(),
+    s = service(server),
     active = server.clients.some(c => c.viewer && !c.dead && now - c.input_at < active_ms);
-  service(server).launch_previews.sample(active ? active_every : idle_every);
+  if (now - s.checked_at >= use_ms) use(server, s);
+  s.launch_previews.sample(active ? active_every : idle_every);
 }
 export function publish(server: Server, client: Client) {
   const subscription = client.launch_preview;

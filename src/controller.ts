@@ -3252,6 +3252,19 @@ export class Controller {
     this.launch_previews.pending(launch.cwd);
     this.dirty = true;
   }
+  /** Asks each agent its model anew and reads every account again. */
+  private async refreshLauncher(): Promise<void> {
+    const launch = this.agent_launcher;
+    if (!launch) return;
+    try {
+      await call(this.connection, "agent.refresh", { workspace: launch.workspace, cwd: launch.cwd });
+    } catch {
+      return;
+    }
+    launch.preview.pending = true;
+    this.launch_previews.pending(launch.cwd);
+    this.dirty = true;
+  }
   private async pollLauncher(hover: boolean): Promise<void> {
     this.updateLaunchPreview();
     await this.previewInlineCommand(false);
@@ -3306,9 +3319,10 @@ export class Controller {
     }
   }
   updateLaunchPreview(): void {
-    const cwd = this.launcherModel()?.cwd ?? this.launcherCwd();
-    if (!this.launch_previews.poll(this.current().id, cwd)) return;
-    const launch = this.launcherModel();
+    const launch = this.launcherModel(),
+      cwd = launch?.cwd ?? this.launcherCwd(),
+      all = this.agent_launcher ? this.agent_launcher.managing : this.corgi_setup?.listsAccounts() === true;
+    if (!this.launch_previews.poll(this.current().id, cwd, all)) return;
     if (launch) {
       launch.preview = this.launch_previews.current(launch.cwd, this.runtime.accounts);
       // An open launcher keeps its list, unless it had none yet.
@@ -4027,7 +4041,7 @@ export class Controller {
         return this.resumeKey(byte);
       }
       const recognized =
-        [27, 13, 9, 14, 16, 97, 65, 1, 121, 116, 109, 47, 119].includes(byte) ||
+        [27, 13, 9, 14, 16, 97, 65, 1, 121, 116, 109, 47, 119, 114].includes(byte) ||
         (byte === 117
           ? launch.trackable(launch.selected) || launch.shortcutRow(byte) !== null
           : launch.shortcutRow(byte) !== null);
@@ -4070,6 +4084,9 @@ export class Controller {
             break;
           case 117:
             await this.trackLauncherUsage(launch.selected);
+            break;
+          case 114:
+            await this.refreshLauncher();
             break;
           default:
             if (byte >= 48 && byte <= 57) {
@@ -6965,6 +6982,7 @@ export class Controller {
           accounts: this.launch_previews.preview.accounts,
           panes: this.runtime.panes,
           system: this.runtime.inference.provider,
+          system_account: this.runtime.inference.account,
         }),
         workspaces: this.sidebar_focus
           ? this.sidebar_focus.markWorkspaces(this.workspaceEntries())

@@ -637,6 +637,12 @@ test("agents in another account sit under its own rule with its limits", () => {
   );
   expect(only).toContain("Limits");
   expect(only).toContain("Claude side · tal@side.dev");
+
+  // Corgi's own usage sits under the account its inference runs in.
+  const system = new Accounts({ now, system: "claude", system_account: side, accounts: [sideAccount(now)] });
+  const own = unstyled(render(w => drawOverview(w, [], new UsageView(), false, "opus", "Opus", {}, system, 130, 40)));
+  expect(own.indexOf("Claude side · tal@side.dev")).toBeLessThan(own.indexOf("Corgi (Activity summarizer)"));
+  expect(own).not.toContain("Reading…");
 });
 
 test("accounts without agents keep their limits and short terminals fall back", () => {

@@ -179,6 +179,7 @@ $.requests|session.subscribe: {}
 $.requests|viewer.watch.viewer: u32
 $.requests|agent.subscribe.workspace: u32
 $.requests|agent.subscribe.cwd: string
+$.requests|agent.subscribe.all: bool
 $.requests|viewer.open: versioned protocol.Request.Open
 $.requests|viewer.sync: versioned protocol.Request.Sync
 $.requests|viewer.search.pane: u32
@@ -316,6 +317,8 @@ $.requests|agent.preview.workspace: u32
 $.requests|agent.preview.cwd: string
 $.requests|agent.track_usage.workspace: u32
 $.requests|agent.track_usage.cwd: string
+$.requests|agent.refresh.workspace: u32
+$.requests|agent.refresh.cwd: string
 $.requests|agent.history.follow: bool
 $.requests|viewer.list: {}
 $.requests|action.name: string

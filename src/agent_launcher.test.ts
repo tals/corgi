@@ -33,8 +33,8 @@ test("an explicit clone model uses its display name in the launcher", () => {
   expect(m.cells(Row.ofProfile("astra"))).not.toContain("gpt-6-astra");
 });
 test("each agent has a launcher key of its own, apart from the launcher's", () => {
-  // The controller's own launcher keys: all, move, manage, terminal, usage, worktrees, YOLO, search, help.
-  const taken = "aAjkmtuwy/?";
+  // The controller's own launcher keys: all, move, manage, refresh, terminal, usage, worktrees, YOLO, search, help.
+  const taken = "aAjkmrtuwy/?";
   const keys = Provider.all.map(p => adapter(p).launcher_key);
   expect(new Set(keys).size).toBe(keys.length);
   for (const [i, key] of keys.entries()) {
@@ -67,6 +67,19 @@ test("Pi's default and account rows do not offer a permission bypass", () => {
     expect(m.yoloHit(120, 32, side, b.x + 3 + m.columns(b.w)[0], b.y + 2 + index)).toBeNull();
   }
   expect(screen(m, 120, 32, side)[b.y + b.h - 2]).not.toContain("YOLO");
+});
+
+test("the footer offers a refresh where it fits beside the card's label", () => {
+  const m = menu();
+  m.preview = preview({ pending: false, options: { codex: { usage_needs_consent: true, signed_in: true } } });
+  const footer = (cols: number) => {
+    const side = SidebarView.init(cols, 32, true, 0, 0),
+      b = m.bounds(cols, 32, side);
+    return screen(m, cols, 32, side)[b.y + b.h - 2];
+  };
+  expect(footer(100)).toMatch(/new tab .* u {2}Track usage {3}a {2}launch {3}y {2}YOLO {3}r {2}refresh │$/);
+  expect(footer(60)).toContain("new tab");
+  expect(footer(60)).not.toContain("refresh");
 });
 
 test("OpenCode stays manageable without offering unsupported account sign-in", () => {

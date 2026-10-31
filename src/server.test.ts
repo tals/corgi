@@ -123,6 +123,7 @@ test("handoff restoration normalizes small and wide viewer counters before wakin
       ];
       original.launch_preview = {
         cwd: "/",
+        all: true,
         preview: new Preview(),
         checked: 10,
         history_asked: true,
@@ -143,6 +144,7 @@ test("handoff restoration normalizes small and wide viewer counters before wakin
       expect(restored.interests[0].known).toEqual({ identity: seq + 1n, revision: seq, offset: 2 });
       expect(restored.launch_preview?.history_epoch).toBe(seq + 1n);
       expect(restored.launch_preview?.history_sent).toBe(seq);
+      expect(restored.launch_preview?.all).toBe(true);
       expect(Reflect.get(target.server, "wakeSeq").call(target.server, 1)).toBe(
         target.server.runtime.shown + seq + seq + 1n,
       );

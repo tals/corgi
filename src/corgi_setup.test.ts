@@ -397,6 +397,24 @@ test("the top border says when the build was made and links its commit", () => {
   expect(rows.join("\n")).not.toContain("be82c7b");
 });
 
+test("Settings asks for every account only while a pane lists them all", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status({ choice: "omp" });
+  menu.agents = new LauncherMenu();
+  // Clever Corgi shows first, its model list closed.
+  expect(menu.item).toBe("clever_corgi");
+  expect(menu.listsAccounts()).toBe(false);
+  menu.enter(s, prefs);
+  menu.enter(s, prefs);
+  expect(menu.listsAccounts()).toBe(true);
+  menu.back();
+  expect(menu.listsAccounts()).toBe(false);
+  menu.back();
+  menu.item = "agents";
+  expect(menu.listsAccounts()).toBe(true);
+});
+
 test("Model opens a dropdown on the choice in use, and Left closes it", () => {
   const menu = Menu.open(),
     prefs = new Preferences(),

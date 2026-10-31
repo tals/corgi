@@ -125,6 +125,7 @@ export const operations = [
   "agent.command.preview",
   "agent.preview",
   "agent.track_usage",
+  "agent.refresh",
   "agent.history",
   "viewer.list",
   "action",
@@ -556,9 +557,10 @@ const requests = {
   "launcher.models": { row: "string" },
   "session.locate": { pane: "u32" },
   "viewer.watch": { viewer: "u32" },
-  "agent.subscribe": launch,
+  "agent.subscribe": { ...launch, all: ["bool", false] },
   "agent.preview": launch,
   "agent.track_usage": launch,
+  "agent.refresh": launch,
   "viewer.open": { cwd: ["string", ""], onboarding: ["bool", false], theme: ["theme", null] },
   "viewer.sync": {
     interests: "[]interest",
@@ -708,6 +710,7 @@ export interface ReplyPayloads {
   "agent.command.preview": Ok & { resolution: import("./launch/command").Resolution };
   "agent.preview": Ok & { preview: import("./launch/preview").Preview };
   "agent.track_usage": Ok & { preview: import("./launch/preview").Preview };
+  "agent.refresh": Ok & { preview: import("./launch/preview").Preview };
   "agent.subscribe": { type: "agent.preview"; cwd: string; preview: import("./launch/preview").Preview };
   "agent.history": Ok & { history: import("./launch/history").History };
   action: Ok & { viewer: number; queued: true };

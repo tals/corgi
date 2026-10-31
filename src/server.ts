@@ -624,6 +624,7 @@ export class Server {
         return;
       case "agent.preview":
       case "agent.track_usage":
+      case "agent.refresh":
       case "agent.subscribe":
       case "agent.history": {
         const launch = await import("./launch_service");

@@ -12,6 +12,8 @@ export class Stream {
   input = "";
   cwd = "";
   workspace = 0;
+  /** It asks for every account's reading, as Manage agents lists them all. */
+  all = false;
   preview: Preview = previewValue();
   received = false;
   retry_at = 0;
@@ -47,7 +49,7 @@ export class Stream {
   pending(cwd: string) {
     if (cwd === this.cwd) this.preview.pending = true;
   }
-  poll(workspace: number, cwd: string) {
+  poll(workspace: number, cwd: string, all = false) {
     if (!this.socket) return false;
     if (this.workspace !== workspace || this.cwd !== cwd) {
       const initial = this.current(cwd);
@@ -59,12 +61,18 @@ export class Stream {
       this.retry_at = 0;
       this.changed = true;
     }
+    if (this.all !== all) {
+      this.all = all;
+      // The subscription takes it in place, keeping its readings and history;
+      // a connection still opening subscribes with it.
+      if (this.fd && !this.fd.connecting) this.subscribe(this.fd, workspace, cwd);
+    }
     if (!this.fd && milliTimestamp() >= this.retry_at) {
       this.retry_at = milliTimestamp() + 1000;
       const connection = createConnection(this.socket);
       this.fd = connection;
       connection.once("connect", () => {
-        connection.write(stringify(protocol.envelope("agent.subscribe", { workspace, cwd })) + "\n");
+        this.subscribe(connection, workspace, cwd);
         connection.write(stringify(protocol.envelope("agent.history", { follow: true })) + "\n");
       });
       connection.on("data", chunk => {
@@ -84,6 +92,9 @@ export class Stream {
     const changed = this.changed;
     this.changed = false;
     return changed;
+  }
+  private subscribe(connection: Socket, workspace: number, cwd: string) {
+    connection.write(stringify(protocol.envelope("agent.subscribe", { workspace, cwd, all: this.all })) + "\n");
   }
   feed(bytes: string) {
     this.input += bytes;

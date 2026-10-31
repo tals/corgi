@@ -1,9 +1,11 @@
-import { afterAll, beforeAll, test, expect } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { afterAll, beforeAll, test, expect, setSystemTime } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { service, publish, request, sample, stop } from "./launch_service";
-import { Preview, Worker as PreviewWorker, active_every, idle_every } from "./launch/preview";
+import { dirname, join } from "node:path";
+import { all_grace_ms, service, publish, request, sample, stop } from "./launch_service";
+import { Preview, Worker as PreviewWorker, active_every, idle_every, key, type Uses } from "./launch/preview";
+import { Runtime } from "./runtime";
+import { Workspace } from "./workspace";
 import { Text } from "./providers";
 import * as protocol from "./protocol";
 import * as accounts from "./accounts";
@@ -94,6 +96,27 @@ test("new preview subscribers refresh cached sign-in asynchronously and share pe
     expect(reads).toBe(1);
   } finally {
     finish();
+    await stop(server);
+  }
+});
+test("a refresh reads the folder again for whoever asked", async () => {
+  const server: any = { runtime: { getWorkspace: () => ({ cwd: "/tmp" }) } },
+    messages: any[] = [],
+    client: any = { dead: false, output: Buffer.alloc(0), queue: (v: any) => messages.push(v), launch_preview: null },
+    s = service(server),
+    asked: string[] = [];
+  s.launch_previews.refresh = cwd => {
+    asked.push(cwd);
+    return new Preview();
+  };
+  try {
+    await request(server, client, {
+      op: "agent.refresh",
+      payload: protocol.decode("agent.refresh", { workspace: 1, cwd: "/work" }),
+    });
+    expect(asked).toEqual(["/work"]);
+    expect(messages).toEqual([{ ok: true, preview: new Preview() }]);
+  } finally {
     await stop(server);
   }
 });
@@ -196,7 +219,7 @@ test("restored preview subscriptions restart their workers without a new request
   }
 });
 test("accounts are read often while someone uses a viewer and rarely otherwise", () => {
-  const server: any = { clients: [] },
+  const server: any = { clients: [], runtime: new Runtime() },
     asked: number[] = [];
   service(server).launch_previews.sample = every => void asked.push(every);
   try {
@@ -209,5 +232,63 @@ test("accounts are read often while someone uses a viewer and rarely otherwise",
     expect(asked).toEqual([idle_every, idle_every, active_every]);
   } finally {
     stop(server);
+    server.runtime.destroy();
+  }
+});
+test("a Manage agents subscriber has every account read while it stays, and a while after", async () => {
+  mkdirSync(dirname(accounts.path()), { recursive: true });
+  writeFileSync(
+    accounts.path(),
+    JSON.stringify({ accounts: [{ provider: "claude", dir: join(home, "spare"), name: "spare", managed: false }] }),
+  );
+  accounts.reset();
+  const spare = accounts.known()[0].dir,
+    r = new Runtime(),
+    server: any = { runtime: r, clients: [] },
+    s = service(server),
+    seen: Uses[] = [],
+    messages: any[] = [],
+    client: any = { dead: false, output: Buffer.alloc(0), queue: (v: any) => messages.push(v), launch_preview: null };
+  r.workspaces.items = [new Workspace(1, "/tmp")];
+  r.account_hidden = [spare];
+  s.launch_previews.use = uses => void seen.push(uses);
+  s.launch_previews.pump = async () => {};
+  server.clients.push(client);
+  try {
+    sample(server);
+    expect(seen.at(-1)?.has(key("claude", spare))).toBe(false);
+    await request(server, client, {
+      op: "agent.subscribe",
+      payload: protocol.decode("agent.subscribe", { workspace: 1, cwd: "/tmp", all: true }),
+    });
+    expect(seen.at(-1)?.get(key("claude", spare))).toBe("account");
+    // Closing Manage agents changes the subscription in place: it reads no
+    // sign-in again and keeps its history.
+    const subscription = client.launch_preview;
+    subscription.history_asked = true;
+    subscription.history_epoch = 7n;
+    const read_at = [...s.launch_previews.logins.values()].map(login => login.read_at);
+    messages.length = 0;
+    await request(server, client, {
+      op: "agent.subscribe",
+      payload: protocol.decode("agent.subscribe", { workspace: 1, cwd: "/tmp", all: false }),
+    });
+    expect(client.launch_preview).toBe(subscription);
+    expect(subscription).toMatchObject({ all: false, history_asked: true, history_epoch: 7n });
+    expect([...s.launch_previews.logins.values()].map(login => login.read_at)).toEqual(read_at);
+    expect(messages).toEqual([]);
+    // Every account stays read a while, so moving through Settings doesn't churn them.
+    s.checked_at = 0;
+    sample(server);
+    expect(seen.at(-1)?.get(key("claude", spare))).toBe("account");
+    setSystemTime(new Date(Date.now() + all_grace_ms + 1000));
+    s.checked_at = 0;
+    sample(server);
+    expect(seen.at(-1)?.has(key("claude", spare))).toBe(false);
+  } finally {
+    setSystemTime();
+    r.destroy();
+    accounts.reset();
+    await stop(server);
   }
 });

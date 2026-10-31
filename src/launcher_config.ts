@@ -2,6 +2,7 @@
 import type { Runtime } from "./runtime";
 import { Provider, adapter } from "./providers";
 import { Row } from "./launch/row";
+import * as preview from "./launch/preview";
 import * as accounts from "./accounts";
 import * as profiles from "./agent_profiles";
 import * as options from "./agent_options";
@@ -74,6 +75,35 @@ export function catalog(r: Runtime): Agent[] {
         : [],
     ),
   ];
+}
+/** What the launcher preview reads of each provider's and account's row: the
+ * model and account of those a workspace's launcher shows, directly or
+ * through a profile or a saved command, and the account alone of those an
+ * agent is running in or Corgi's own inference uses, or with `all`, of every
+ * other. */
+export function uses(r: Runtime, all = false): preview.Uses {
+  const out: preview.Uses = new Map(),
+    add = (provider: Provider, account: string, use: preview.Use) => {
+      const k = preview.key(provider, account);
+      if (out.get(k) !== "launcher") out.set(k, use);
+    };
+  for (const a of catalog(r)) {
+    const command = Row.custom(a.row),
+      semantics = command === null ? null : r.agent_commands[command].semantics,
+      // A saved command in its agent's default account shows that row's reading.
+      provider = a.provider ?? (semantics?.default_account ? semantics.provider : null);
+    if (!provider) continue;
+    if (a.launcher && r.workspaces.items.some(ws => !ws.launcher_hidden.includes(a.row)))
+      add(provider, a.account, "launcher");
+    else if (all) add(provider, a.account, "account");
+  }
+  for (const pane of r.panes) {
+    const provider = pane.agent().provider;
+    if (provider && !pane.dormant && !pane.terminal.exited) add(provider, pane.account(), "account");
+  }
+  for (const session of r.sessions) if (!session.exited) add(session.provider, "", "account");
+  if (r.inference.provider) add(r.inference.provider, r.inference.account, "account");
+  return out;
 }
 export function get(r: Runtime, row: string): Agent {
   const agent = catalog(r).find(a => a.row === row);

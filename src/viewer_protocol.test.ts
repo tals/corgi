@@ -17,6 +17,7 @@ import {
 import { Pane } from "./runtime";
 import { Terminal } from "./pane/terminal";
 import { Workspace } from "./workspace";
+import * as launch from "./launch_service";
 import { version, compatible, require as requireVersion } from "./viewer_version";
 const servers: Server[] = [];
 afterEach(() => {
@@ -181,7 +182,10 @@ test("a new viewer opens on the pane last used in the preferred workspace", asyn
   await use(idle, first);
   expect(ws.focus).toBe(second);
   const next = s.addClient(-1, false),
-    reply = spyOn(next, "reply").mockImplementation(() => {});
+    reply = spyOn(next, "reply").mockImplementation(() => {}),
+    entered = spyOn(launch.service(s).launch_previews, "entered");
   await open(s, next, protocol.decode("viewer.open", {}));
   expect(reply.mock.calls[0][1]).toMatchObject({ workspace: 1, focus: second });
+  // Entering asks each agent its model anew.
+  expect(entered).toHaveBeenCalledTimes(1);
 });

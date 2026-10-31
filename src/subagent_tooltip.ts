@@ -720,8 +720,9 @@ export class Accounts {
   accounts: AccountOption[] = [];
   /** The panes agents run in, which name their accounts. */
   panes: readonly Pick<Pane, "id" | "agent" | "account">[] = [];
-  /** The provider the activity summarizer runs on. */
+  /** The provider the activity summarizer runs on, and the account. */
   system: Provider | null = null;
+  system_account = "";
   /** Unix seconds; zero reads the clock. */
   now = 0;
   /** The card only grows to hold the pane in terminals this wide. */
@@ -856,7 +857,7 @@ export function drawOverview(
   let ranked: Ranked[] = [
     {
       conversation: null,
-      account: "",
+      account: accounts.system_account,
       value: system_usage,
       model: system_model,
       model_name: system_model_name,
