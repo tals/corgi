@@ -2,7 +2,16 @@ import { expect, test } from "bun:test";
 import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Tracker, changedPaths, parseBase, parseChanges, parseInventory, parseNumstat, reflogStart } from "./worktrees";
+import {
+  Tracker,
+  changedPaths,
+  holder,
+  parseBase,
+  parseChanges,
+  parseInventory,
+  parseNumstat,
+  reflogStart,
+} from "./worktrees";
 import * as worktrees from "../worktrees";
 import { Store, Workspace } from "../workspace";
 import type { Runtime } from "../runtime";
@@ -43,6 +52,27 @@ test("line counts, changed paths and reflog times parse from Git's records", () 
   const reflog = "0000 2b2f Test <test@example.com> 1791744624 -0400\treset: moving to HEAD\nmore";
   expect(reflogStart(reflog)).toBe(1791744624);
   expect(reflogStart("")).toBeNull();
+});
+test("a lock's holder runs while its pid does, and a Claude lock's while Claude Code has it", () => {
+  const lock = "claude session topic (pid 20579 start Sat Oct 31 20:02:56 2026)";
+  const alive = (pid: number) => pid === 20579;
+  expect(holder("on a USB disk", alive, () => true)).toBeNull();
+  expect(holder(lock, alive, () => true)).toBe("running");
+  expect(holder(lock, alive, () => false)).toBe("exited");
+  expect(
+    holder(
+      lock,
+      () => false,
+      () => true,
+    ),
+  ).toBe("exited");
+  expect(holder("backup job (pid 20579)", alive, () => false)).toBe("running");
+  expect(worktrees.lockNote(lock)).toEqual({
+    by: "claude session topic",
+    pid: 20579,
+    start: "Sat Oct 31 20:02:56 2026",
+  });
+  expect(worktrees.lockNote("(pid 4)")).toEqual({ by: "(pid 4)", pid: null, start: null });
 });
 test("NUL worktree and status records retain odd paths, flags and rename counts", () => {
   const entries = parseInventory(
@@ -314,7 +344,7 @@ async function finished(tracker: Tracker, workspace: number) {
   }
   throw Error("Timeout");
 }
-test("removal deletes a worktree and its uncommitted work but keeps the branch; locked and lived-in ones are refused", async () => {
+test("removal deletes a worktree and its uncommitted work but keeps the branch; lived-in ones and unconfirmed locks are refused", async () => {
   const f = await fixture();
   try {
     const topic = join(f.root, "topic"),
@@ -334,6 +364,7 @@ test("removal deletes a worktree and its uncommitted work but keeps the branch; 
     workspace.worktrees = await tracker.refresh(f.repo, true);
     await expect(tracker.remove(runtime, 1, join(f.root, "nowhere"))).rejects.toThrow("NoWorktree");
     await expect(tracker.remove(runtime, 1, locked)).rejects.toThrow("WorktreeLocked");
+    await expect(tracker.remove(runtime, 1, locked, "on another disk")).rejects.toThrow("WorktreeLocked");
     await expect(tracker.remove(runtime, 1, lived)).rejects.toThrow("WorktreeInUse");
     await expect(tracker.remove(runtime, 3, topic)).rejects.toThrow("NoWorkspace");
     const id = await tracker.remove(runtime, 1, topic);
@@ -341,13 +372,16 @@ test("removal deletes a worktree and its uncommitted work but keeps the branch; 
     expect(await finished(tracker, 1)).toMatchObject({ id, path: topic, phase: "done" });
     expect(await Bun.file(join(topic, "draft")).exists()).toBe(false);
     expect((await git(f.repo, "branch", "--list", "topic")).trim()).toBe("topic");
+    // The lock the user saw, confirmed, removes it.
+    const unlocked = await tracker.remove(runtime, 1, locked, "on a USB disk");
+    expect(await finished(tracker, 1)).toMatchObject({ id: unlocked, path: locked, phase: "done" });
     const after = await tracker.refresh(f.repo, false);
     expect(
       worktrees
         .linked(after)
         .map(e => e.path)
         .sort(),
-    ).toEqual([lived, locked]);
+    ).toEqual([lived]);
     tracker.close();
   } finally {
     await f.close();

@@ -442,6 +442,7 @@ test("the title names the worktree once, on a button that drops the checkouts an
     bare: false,
     detached: false,
     locked: null,
+    holder: null,
     prunable: null,
     available: true,
     comparison: null,

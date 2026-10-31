@@ -456,6 +456,52 @@ test("a big worktree shows Git still deleting it once the ending has played, and
     clock.reset();
   }
 });
+test("holding ⌫ on a locked worktree ends on its band; Esc keeps it and Enter removes it", async () => {
+  const { view, requests, report, screen } = await removing();
+  const lock = "claude session topic-0 (pid 20579 start Sat Oct 31 20:02:56 2026)";
+  try {
+    const data = snapshot(2);
+    data.entries[1].locked = lock;
+    data.entries[1].holder = "exited";
+    report(data, null);
+    expect(screen()).toContain("› topic-0  locked  ./…/0");
+    const hold = async () => {
+      await (view as any).key(127);
+      clock.advance(300);
+      for (let i = 0; i < 60 && view.worktree_card.removal.phase === "held"; i++) {
+        await (view as any).key(127);
+        if (i === 10) expect(screen()).toContain("Removing topic-0 · locked · branch kept");
+        clock.advance(50);
+      }
+    };
+    await hold();
+    expect(view.worktree_card.removal.phase).toBe("confirm");
+    clock.advance(1000);
+    const text = screen();
+    expect(text).toContain("› topic-0  locked");
+    expect(text).toMatch(/▎  LOCKED .* Enter  remove/);
+    expect(text).toContain("▎  claude session topic-0 · exited");
+    expect(text).toContain("Removing topic-0 · locked · branch kept");
+    expect(requests.some(r => r.op === "worktree.remove")).toBe(false);
+    // Esc keeps it: the row comes back, and the overview stays open.
+    await (view as any).key(27);
+    expect(view.worktreeDetail()).toBe(1);
+    clock.advance(1000);
+    await view.expireInput();
+    expect(view.worktree_card.removal.phase).toBe("idle");
+    expect(screen()).toContain("› topic-0  locked");
+    expect(screen()).not.toContain("LOCKED");
+    // Held again, Enter removes it, naming the lock it showed.
+    await hold();
+    await (view as any).key(13);
+    expect(requests.filter(r => r.op === "worktree.remove")).toEqual([
+      { op: "worktree.remove", workspace: 1, path: "/repo/.worktrees/0", locked: lock },
+    ]);
+    expect(view.worktree_card.removal.phase).toBe("removing");
+  } finally {
+    clock.reset();
+  }
+});
 test("after a removal the cursor stays on its line while the row below moves up to it", () => {
   const before = snapshot(3),
     after = { ...before, entries: before.entries.filter(e => e.path !== "/repo/.worktrees/1") },

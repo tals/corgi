@@ -4,7 +4,9 @@ import * as palette from "./palette";
 import * as corgiAnimation from "./corgi_animation";
 import * as worktrees from "./worktrees";
 import * as sidebar from "./sidebar";
-import type { Grid } from "./cell_grid";
+import { Grid } from "./cell_grid";
+import { ellipsis, displayWidth } from "./text";
+import { clean } from "./trackers/git_status";
 import { KeyHold } from "./key_hold";
 
 export type Effect = "dust" | "burn" | "bury";
@@ -28,6 +30,7 @@ export interface Target {
   name: string;
   branch: boolean;
   locked: string | null;
+  holder: worktrees.Holder | null;
   /** Files with uncommitted changes, when known. */
   changes: number | null;
   /** Commits a detached HEAD holds that nothing else does. */
@@ -44,6 +47,7 @@ export function target(workspace: number, checkout: worktrees.Checkout, index: n
     name: worktrees.label(checkout),
     branch: checkout.branch !== null,
     locked: checkout.locked,
+    holder: checkout.holder,
     changes: checkout.changes?.total ?? null,
     detached: checkout.detached ? Number(checkout.comparison?.ahead ?? 0n) : 0,
     agents,
@@ -52,7 +56,8 @@ export function target(workspace: number, checkout: worktrees.Checkout, index: n
   };
 }
 
-export type Phase = "idle" | "held" | "removing" | "removed" | "stopped" | "failed" | "locked";
+/** A locked worktree's hold ends in `confirm`, its lock shown, until Enter removes it anyway. */
+export type Phase = "idle" | "held" | "confirm" | "removing" | "removed" | "stopped" | "failed";
 export class Hold {
   phase: Phase = "idle";
   target: Target | null = null;
@@ -72,30 +77,41 @@ export class Hold {
   }
 
   /** One press of the key, or one repeat. True when it completes the hold:
-   * the key is still down once the row is gone. A new hold plays `effect`. */
+   * the key is still down once the row is gone. A locked worktree's hold
+   * completes to `confirm` instead. A new hold plays `effect`, a locked
+   * worktree's one that clears the row for its note. */
   press(now: number, target: Target, effect: Effect): boolean {
     this.advance(now);
-    if (this.key.quieted(now) || this.phase === "removing") {
-      this.key.quiet(now);
-      if (this.phase === "locked") this.settled_at = now;
-      return false;
-    }
-    if (target.locked !== null) {
-      this.reset();
-      this.phase = "locked";
-      this.target = target;
-      this.settled_at = now;
+    if (this.key.quieted(now) || this.phase === "removing" || this.phase === "confirm") {
       this.key.quiet(now);
       return false;
     }
     if (this.phase !== "held" || this.target?.path !== target.path) {
       this.key.reset();
-      this.effect = effect;
+      this.effect = target.locked !== null && effect === "bury" ? "dust" : effect;
       this.report = null;
     }
     this.phase = "held";
     this.target = target;
     if (!this.key.press(now)) return false;
+    if (target.locked !== null) {
+      this.phase = "confirm";
+      this.settled_at = now;
+      return false;
+    }
+    return this.commit(now);
+  }
+  /** Enter on a locked worktree's note: removes it anyway. */
+  confirm(now: number): boolean {
+    return this.phase === "confirm" && this.commit(now);
+  }
+  /** Keeps a locked worktree: its row comes back the way a let-go hold does. */
+  cancel(now: number): void {
+    if (this.phase !== "confirm") return;
+    this.phase = "held";
+    this.key.letGo(now);
+  }
+  private commit(now: number): boolean {
     this.phase = "removing";
     this.job = 0;
     this.committed_at = now;
@@ -107,7 +123,13 @@ export class Hold {
     if (this.phase === "held") {
       this.key.advance(now);
       if (!this.key.active) this.reset();
-    } else if (this.phase !== "idle" && this.phase !== "removing" && now - this.settled_at >= message_ms) this.reset();
+    } else if (
+      this.phase !== "idle" &&
+      this.phase !== "removing" &&
+      this.phase !== "confirm" &&
+      now - this.settled_at >= message_ms
+    )
+      this.reset();
   }
   /** The daemon's answer: removed, or why not. */
   settle(now: number, reason: string | null): void {
@@ -134,7 +156,32 @@ export class Hold {
   }
   /** Whether `path`'s row is drawn coming apart. */
   covers(path: string): boolean {
-    return this.target?.path === path && (this.phase === "held" || this.committed());
+    return this.target?.path === path && (this.phase === "held" || this.phase === "confirm" || this.committed());
+  }
+  /** Whether the frame still moves: a note waiting on Enter stops once settled. */
+  animating(now: number): boolean {
+    return this.phase !== "confirm" || this.settling(now) < 1;
+  }
+  /** How far the other worktrees fade while a locked one's band is up, 0 to 1:
+   * with the hold, all the way while it waits, and back as it comes apart. */
+  dimming(now: number): number {
+    if (this.target?.locked == null) return 0;
+    switch (this.phase) {
+      case "held":
+        return this.progress;
+      case "confirm":
+        return 1;
+      case "removing":
+      case "removed":
+        return 1 - this.finale(now);
+      default:
+        return 0;
+    }
+  }
+  /** How far a completed hold on a locked worktree has settled, 0 to 1. */
+  settling(now: number): number {
+    if (this.phase !== "confirm") return 0;
+    return Math.max(0.0001, Math.min(1, (now - this.settled_at) / finale_ms[this.effect]));
   }
   /** How far the effect's ending has played, 0 before the hold completes. */
   finale(now: number): number {
@@ -170,18 +217,22 @@ export const close_step_ms = 70;
 
 export type Segment = { text: string; color: palette.Token; bold?: boolean };
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
-/** The footer while a hold is on: what goes and what stays. A removal that
- * worked needs no word; one that didn't, or a refusal, says why. */
+/** The footer while a hold is on: what goes and what stays, still while a
+ * locked worktree's band asks first. A removal that worked needs no word;
+ * one that didn't says why. */
 export function footer(hold: Hold): Segment[] | null {
   const t = hold.target;
   if (!t || hold.phase === "idle" || hold.phase === "removed") return null;
   const dot = { text: " · ", color: "faint" as const };
+  const losses = (out: Segment[]) => {
+    const add = (text: string, color: palette.Token) => out.push(dot, { text, color });
+    if (t.changes) add(`${plural(t.changes, "uncommitted file")} lost`, "hot");
+    if (t.detached) add(`${plural(t.detached, "detached commit")} lost`, "hot");
+    if (t.agents) add(`${plural(t.agents, "agent")} close`, "muted");
+    if (t.branch) add("branch kept", "faint");
+    return out;
+  };
   switch (hold.phase) {
-    case "locked":
-      return [
-        { text: `${t.name} is locked`, color: "muted" },
-        ...(t.locked ? [dot, { text: t.locked, color: "faint" as const }] : []),
-      ];
     case "failed":
       return [{ text: `Couldn't remove ${t.name}`, color: "hot" }, dot, { text: hold.reason, color: "muted" }];
     case "stopped":
@@ -192,16 +243,88 @@ export function footer(hold: Hold): Segment[] | null {
       ];
     case "removing":
       return [{ text: `Removing ${t.name}`, color: "strong", bold: true }, dot, { text: "Esc stop", color: "faint" }];
-    default: {
-      const out: Segment[] = [{ text: `Removing ${t.name}`, color: "strong", bold: true }];
-      const add = (text: string, color: palette.Token) => out.push(dot, { text, color });
-      if (t.changes) add(`${plural(t.changes, "uncommitted file")} lost`, "hot");
-      if (t.detached) add(`${plural(t.detached, "detached commit")} lost`, "hot");
-      if (t.agents) add(`${plural(t.agents, "agent")} close`, "muted");
-      if (t.branch) add("branch kept", "faint");
-      return out;
-    }
+    default:
+      return losses([
+        { text: `Removing ${t.name}`, color: "strong", bold: true },
+        ...(t.locked !== null ? [dot, { text: "locked", color: "warm" as const }] : []),
+      ]);
   }
+}
+/** Where a locked worktree's band goes: over its row's columns, `left` to
+ * `right` inclusive, from its first line `y` for `lines` lines. */
+export interface Band {
+  y: number;
+  lines: number;
+  left: number;
+  right: number;
+}
+/** Who holds a lock, and whether they still run, faded under the pill. */
+function holderSegments(t: Target): Segment[] {
+  if (!t.locked) return [{ text: "no reason given", color: "faint" }];
+  const n = worktrees.lockNote(t.locked),
+    dot = { text: " · ", color: "faint" as const };
+  if (n.pid === null) return [{ text: t.locked, color: "muted" }];
+  return [
+    { text: n.by, color: "muted" },
+    ...(t.holder === "running" ? [dot, { text: "still running", color: "hot" as const, bold: true }] : []),
+    ...(t.holder === "exited" ? [dot, { text: "exited", color: "muted" as const }] : []),
+  ];
+}
+/** The keys, widest first: the first that fits beside the pill is drawn.
+ * `gap` sets Esc's pair apart, past a rule. */
+const key_sets: { label: string; gap: string | null }[] = [
+  { label: " remove anyway", gap: "  " },
+  { label: " remove", gap: "  " },
+  { label: " remove", gap: " " },
+  { label: " remove", gap: null },
+];
+/** A locked worktree's band, in a grid `w` by `h`, for its row's columns to
+ * come apart onto: a warm band with the LOCKED pill and its keys on the
+ * first line, who holds the lock under them, or between them on a row of
+ * one line. Only the band's cells have a fill. */
+export function underlay(w: number, h: number, band: Band, t: Target): Grid {
+  const c = palette.colors,
+    grid = new Grid(w, h, c.text),
+    tint = palette.mix(c.selected, c.warm, 16),
+    { y, left, right } = band;
+  const write = (x: number, row: number, text: string, fg: palette.Rgb, bold = false, bg = tint) => {
+    grid.text(x, row, text, fg, bold);
+    grid.fill(x, row, displayWidth(text), bg);
+    return x + displayWidth(text);
+  };
+  /** Segments from `x`, ending before `end`: the first is cut to keep the rest whole. */
+  const segments = (x: number, row: number, end: number, list: Segment[]) => {
+    const rest = list.slice(1).reduce((n, s) => n + displayWidth(s.text), 0);
+    list.forEach((s, i) => {
+      const text = ellipsis(clean(s.text), end - x - (i ? 0 : rest));
+      if (text) x = write(x, row, text, c[s.color], s.bold ?? false);
+    });
+  };
+  for (let i = 0; i < Math.max(1, band.lines); i++) {
+    grid.fill(left, y + i, right - left + 1, tint);
+    grid.put(left, y + i, "▎", c.warm);
+  }
+  const pill = write(left + 2, y, " LOCKED ", c.bg, true, c.warm);
+  // The keys end a cell in from the band's edge; Enter's pair is bold, Esc's past a rule.
+  let keys = right;
+  for (const set of key_sets) {
+    const width = 7 + displayWidth(set.label) + (set.gap === null ? 0 : 2 * set.gap.length + 11);
+    if (pill + 2 + width > right) continue;
+    keys = right - width;
+    let x = write(keys, y, " Enter ", c.strong, true, c.line);
+    x = write(x, y, set.label, c.strong, true);
+    if (set.gap !== null) {
+      x = write(x, y, set.gap, c.text);
+      x = write(x, y, "│", c.faint);
+      x = write(x, y, set.gap, c.text);
+      x = write(x, y, " Esc ", c.text, false, c.line);
+      write(x, y, " keep", c.text);
+    }
+    break;
+  }
+  if (band.lines > 1) segments(left + 3, y + 1, right, holderSegments(t));
+  else segments(pill + 2, y, keys - 2, holderSegments(t));
+  return grid;
 }
 
 /** Where a row comes apart, in the grid's cells. */
@@ -235,8 +358,34 @@ const dots = [
 ];
 
 /** Draws the row in `area` coming apart: `progress` while the key is held,
- * then `finale` from 0 to 1 once it's gone. Every effect runs right to left. */
-export function paint(grid: Grid, area: Area, effect: Effect, progress: number, finale: number, now: number): void {
+ * then `finale` from 0 to 1 once it's gone. Every effect runs right to left.
+ * A locked worktree's columns come apart onto `under`, its band (the cells
+ * it fills), which waits there, `settle` from 0 to 1; once confirmed, the
+ * whole row comes apart, the band's tint fading as it goes. */
+export function paint(
+  grid: Grid,
+  area: Area,
+  effect: Effect,
+  progress: number,
+  finale: number,
+  now: number,
+  under: Grid | null = null,
+  settle = 0,
+): void {
+  const tail = effect === "dust" ? 0.42 : 0.3;
+  let v = finale > 0 ? 1 + finale * tail : progress + settle * tail;
+  if (under && finale > 0 && effect !== "bury") {
+    for (const y of lines(area))
+      for (let x = area.left; x <= area.right; x++) {
+        const u = under.at(x, y),
+          cell = grid.at(x, y);
+        if (!u?.bg || !cell) continue;
+        grid.put(x, y, u.ch, u.fg, u.bold);
+        cell.bg = palette.mix(u.bg, cell.bg ?? palette.colors.surface, Math.round(finale * 100));
+      }
+    v = finale * (1 + tail);
+    under = null;
+  }
   const letters: Letter[] = [];
   for (const y of lines(area))
     for (let x = area.left; x <= area.right; x++) {
@@ -247,21 +396,30 @@ export function paint(grid: Grid, area: Area, effect: Effect, progress: number, 
     tick = Math.floor(now / tick_ms);
   switch (effect) {
     case "dust":
-      return dust(grid, area, letters, along, finale > 0 ? 1 + finale * 0.42 : progress);
+      return dust(grid, area, letters, along, v, under);
     case "burn":
-      return burn(grid, area, along, finale > 0 ? 1 + finale * 0.3 : progress, tick);
+      return burn(grid, area, along, v, tick, under);
     case "bury":
       return bury(grid, area, progress, finale, tick);
   }
 }
 
-/** The row crumbles into braille dots that drift right, into the part already gone. */
-function dust(grid: Grid, area: Area, letters: Letter[], along: (x: number) => number, v: number): void {
+/** The row crumbles into braille dots that drift right, into the part
+ * already gone, where `under` shows through. */
+function dust(
+  grid: Grid,
+  area: Area,
+  letters: Letter[],
+  along: (x: number) => number,
+  v: number,
+  under: Grid | null,
+): void {
   if (v <= 0) return;
   const c = palette.colors,
-    found = new Map<number, { bits: number; age: number }>();
+    found = new Map<number, { bits: number; age: number }>(),
+    begins = (x: number, y: number) => along(x) * 0.86 + hash(x, y, 1) * 0.05 + (y === area.y ? 0.02 : 0);
   for (const l of letters) {
-    const start = along(l.x) * 0.86 + hash(l.x, l.y, 1) * 0.05 + (l.y === area.y ? 0.02 : 0),
+    const start = begins(l.x, l.y),
       age = v - start;
     if (age < -0.035) continue;
     if (age < 0) grid.put(l.x, l.y, l.ch, c.faint, l.bold);
@@ -284,6 +442,17 @@ function dust(grid: Grid, area: Area, letters: Letter[], along: (x: number) => n
       found.set(key, speck);
     }
   }
+  // The band shows once its cell has crumbled, faint at first; dust drifts around it.
+  if (under)
+    for (const y of lines(area))
+      for (let x = area.left; x <= area.right; x++) {
+        const u = under.at(x, y),
+          cell = grid.at(x, y),
+          age = v - begins(x, y);
+        if (!u?.bg || !cell || age < 0.016) continue;
+        grid.put(x, y, u.ch, age < 0.06 ? c.faint : u.fg, u.bold);
+        cell.bg = age < 0.06 ? palette.mix(u.bg, cell.bg ?? c.surface, 50) : u.bg;
+      }
   for (const [key, speck] of found) {
     const x = key % 4096,
       y = Math.floor(key / 4096),
@@ -294,8 +463,9 @@ function dust(grid: Grid, area: Area, letters: Letter[], along: (x: number) => n
   }
 }
 
-/** A fire front: letters ahead of it warm up, behind it they glow, then go to ash. */
-function burn(grid: Grid, area: Area, along: (x: number) => number, v: number, tick: number): void {
+/** A fire front: letters ahead of it warm up, behind it they glow, then go
+ * to ash, or to `under`, glowing as it shows. */
+function burn(grid: Grid, area: Area, along: (x: number) => number, v: number, tick: number, under: Grid | null): void {
   if (v <= 0) return;
   const c = palette.colors,
     ember = palette.mix(c.hot, c.surface, 45);
@@ -304,8 +474,14 @@ function burn(grid: Grid, area: Area, along: (x: number) => number, v: number, t
       const cell = grid.at(x, y);
       if (!cell) continue;
       const a = v - (along(x) * 0.8 + hash(x, y, 0) * 0.04 + (y === area.y ? 0.035 : 0)),
-        text = cell.ch !== " ";
+        text = cell.ch !== " ",
+        u = under?.at(x, y);
       if (a < -0.07) continue;
+      if (u?.bg && a >= 0.12) {
+        grid.put(x, y, u.ch, a < 0.2 && u.ch !== " " ? ember : u.fg, u.bold);
+        cell.bg = a < 0.2 ? palette.mix(u.bg, cell.bg ?? c.surface, 50) : u.bg;
+        continue;
+      }
       if (a < 0) {
         if (text) cell.fg = c.warm;
         continue;

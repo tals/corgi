@@ -937,6 +937,7 @@ function checkout(path: string, branch: string, fields: Partial<worktrees.Checko
     bare: false,
     detached: false,
     locked: null,
+    holder: null,
     prunable: null,
     available: true,
     comparison: { ahead: 0n, behind: 0n },

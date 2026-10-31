@@ -16,6 +16,7 @@ const target = (fields: Partial<Target> = {}): Target => ({
   name: "topic",
   branch: true,
   locked: null,
+  holder: null,
   changes: 3,
   detached: 0,
   agents: 2,
@@ -115,18 +116,145 @@ test("the key still down after a removal doesn't start on the next worktree", ()
   expect(h.target?.name).toBe("next");
   expect(h.effect).toBe("bury");
 });
-test("a locked worktree refuses and says so", () => {
+const claudeLock = "claude session topic (pid 20579 start Sat Oct 31 20:02:56 2026)";
+const footerText = (h: Hold) =>
+  removal
+    .footer(h)
+    ?.map(s => s.text)
+    .join("");
+test("a locked worktree's hold ends on its band, which Enter removes", () => {
   const h = new Hold();
-  expect(hold(h, 0, 5000, 300, 50, target({ locked: "on a USB disk" }))).toBeNull();
-  expect(h.phase).toBe("locked");
-  expect(
-    removal
-      .footer(h)
-      ?.map(s => s.text)
-      .join(""),
-  ).toBe("topic is locked · on a USB disk");
-  h.advance(5000 + message_ms);
+  const locked = target({ locked: claudeLock, holder: "exited" });
+  expect(hold(h, 0, 5000, 300, 50, locked)).toBeNull();
+  expect(h.phase).toBe("confirm");
+  expect(h.covers(locked.path)).toBe(true);
+  expect(h.committed()).toBe(false);
+  // The keys are in the band; the footer keeps the hold's line.
+  expect(footerText(h)).toBe("Removing topic · locked · 3 uncommitted files lost · 2 agents close · branch kept");
+  // It waits, still once settled, and the key let go and pressed again leaves it.
+  h.advance(60000);
+  expect(h.phase).toBe("confirm");
+  expect(h.animating(60000)).toBe(false);
+  expect(h.press(60000, locked, "dust")).toBe(false);
+  expect(h.phase).toBe("confirm");
+  expect(h.confirm(60010)).toBe(true);
+  expect(h.phase).toBe("removing");
+  expect(h.confirm(60020)).toBe(false);
+});
+test("keeping a locked worktree puts its row back the way letting go does", () => {
+  const h = new Hold();
+  hold(h, 0, 5000, 300, 50, target({ locked: "on a USB disk" }));
+  const done = 5000;
+  expect(h.progress).toBe(1);
+  h.cancel(done);
+  expect(h.phase).toBe("held");
+  h.advance(done + removal.heal_ms / 2);
+  expect(h.progress).toBeGreaterThan(0);
+  expect(h.progress).toBeLessThan(1);
+  h.advance(done + removal.heal_ms + 10);
   expect(h.phase).toBe("idle");
+});
+test("a locked worktree's columns clear for its band, never under dirt", () => {
+  const h = new Hold();
+  h.press(0, target({ locked: "on a USB disk" }), "bury");
+  expect(h.effect).toBe("dust");
+  h.reset();
+  h.press(0, target(), "bury");
+  expect(h.effect).toBe("bury");
+  h.reset();
+  h.press(0, target({ locked: "on a USB disk" }), "burn");
+  expect(h.effect).toBe("burn");
+});
+/** The band's lines over a 100-cell card's columns, from 42 to 97. */
+function bandText(fields: Partial<Target>, lines = 2, left = 42) {
+  const g = removal.underlay(100, 8, { y: 2, lines, left, right: 97 }, target(fields));
+  return Array.from({ length: lines }, (_, i) =>
+    row(g, 2 + i)
+      .slice(left, 98)
+      .trimEnd(),
+  );
+}
+test("a locked worktree's band: the pill and its keys, then who holds the lock", () => {
+  expect(bandText({ locked: claudeLock, holder: "exited" })).toEqual([
+    "▎  LOCKED           Enter  remove anyway  │   Esc  keep",
+    "▎  claude session topic · exited",
+  ]);
+  expect(bandText({ locked: claudeLock, holder: "running" })[1]).toBe("▎  claude session topic · still running");
+  expect(bandText({ locked: claudeLock, holder: null })[1]).toBe("▎  claude session topic");
+  expect(bandText({ locked: "on a USB disk" })[1]).toBe("▎  on a USB disk");
+  expect(bandText({ locked: "" })[1]).toBe("▎  no reason given");
+  // On one line, who holds it goes between the pill and the keys, cut to keep whether they run.
+  expect(bandText({ locked: claudeLock, holder: "exited" }, 1, 30)).toEqual([
+    "▎  LOCKED   claude … · exited   Enter  remove anyway  │   Esc  keep",
+  ]);
+  // A narrow band closes up the gap before it gives up Esc.
+  expect(bandText({ locked: "on a USB disk" }, 2, 58)[0]).toBe("▎  LOCKED    Enter  remove │  Esc  keep");
+  // A narrow band gives up "anyway", then Esc.
+  expect(bandText({ locked: "on a USB disk" }, 2, 54)[0]).toBe("▎  LOCKED      Enter  remove  │   Esc  keep");
+  expect(bandText({ locked: "on a USB disk" }, 2, 60)[0]).toBe("▎  LOCKED               Enter  remove");
+  // The band is tinted warm; the pill is warm, Enter's pair bold, Esc's not.
+  const c = palette.colors,
+    g = removal.underlay(100, 8, { y: 2, lines: 2, left: 42, right: 97 }, target({ locked: claudeLock }));
+  expect(g.at(42, 3)?.bg).toEqual(palette.mix(c.selected, c.warm, 16));
+  expect(g.at(45, 2)).toMatchObject({ ch: "L", bg: c.warm, bold: true });
+  expect(g.at(row(g, 2).indexOf("remove") + 1, 2)?.bold).toBe(true);
+  expect(g.at(row(g, 2).indexOf("Esc"), 2)?.bold).toBe(false);
+  expect(g.at(20, 2)?.bg).toBeNull();
+});
+/** A 100-cell card with one two-line row at `y` 2: its name, its columns, and its brief. */
+function wide() {
+  const g = new Grid(100, 8, palette.colors.text);
+  g.text(1, 2, "› topic", palette.colors.strong, true);
+  g.text(43, 2, "0        ↑2 ↓4     1h    50m ago    1 file", palette.colors.text);
+  g.text(3, 3, "╰ Track Claude cd past edits", palette.colors.faint);
+  g.text(3, 5, "other-row", palette.colors.text);
+  return g;
+}
+test("the columns come apart onto the band, then the whole row once confirmed", () => {
+  const t = target({ locked: claudeLock, holder: "exited" }),
+    band = { y: 2, lines: 2, left: 42, right: 97 },
+    held = { ...band, right: 98, top: 1, bottom: 6 },
+    whole = { ...held, left: 1 };
+  for (const effect of ["dust", "burn"] as const) {
+    const under = removal.underlay(100, 8, band, t);
+    const early = wide();
+    removal.paint(early, held, effect, 0.3, 0, 1000, under);
+    expect(row(early, 2)).toContain("› topic");
+    expect(row(early, 2)).toContain("↑2 ↓4");
+    expect(row(early, 2)).not.toContain("1 file");
+    const settled = wide();
+    removal.paint(settled, held, effect, 1, 0, 5000, under, 1);
+    expect(row(settled, 2)).toBe(
+      " › topic                                  ▎  LOCKED           Enter  remove anyway  │   Esc  keep   ",
+    );
+    expect(row(settled, 3)).toContain("╰ Track Claude cd past edits");
+    expect(row(settled, 3)).toContain("▎  claude session topic · exited");
+    expect(row(settled, 5)).toContain("other-row");
+    const gone = wide();
+    removal.paint(gone, whole, effect, 1, 1, 6000, under);
+    expect(row(gone, 2).trim()).toBe("");
+    expect(row(gone, 3).trim()).toBe("");
+    // The band's tint is gone with it.
+    expect(gone.at(60, 3)?.bg).toEqual(palette.colors.surface);
+  }
+});
+test("the other worktrees fade with a locked worktree's hold, and come back as it goes", () => {
+  const h = new Hold(),
+    locked = target({ locked: claudeLock });
+  expect(h.dimming(0)).toBe(0);
+  h.press(0, locked, "dust");
+  h.advance(300);
+  expect(h.dimming(300)).toBeGreaterThan(0);
+  hold(h, 300, 5000, 300, 50, locked);
+  expect(h.dimming(5000)).toBe(1);
+  h.confirm(6000);
+  expect(h.dimming(6000)).toBeCloseTo(1);
+  expect(h.dimming(6000 + finale_ms.dust)).toBe(0);
+  // Not for a worktree without a lock.
+  const plain = new Hold();
+  plain.press(0, target(), "dust");
+  plain.advance(500);
+  expect(plain.dimming(500)).toBe(0);
 });
 test("the footer says what goes and what stays", () => {
   const h = new Hold();

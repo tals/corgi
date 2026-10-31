@@ -135,6 +135,8 @@ export class State {
   select(path: string | null) {
     if (this.selected === path) return;
     this.selected = path;
+    // Moving off a locked worktree's note keeps it.
+    this.removal.cancel(milliTimestamp());
   }
   hit(snapshot: worktrees.Snapshot | null, rect: Rect, x: number, y: number) {
     const { entries, closed } = listing(snapshot, this),
@@ -361,6 +363,7 @@ export function draw(
   let removing: number | null = null,
     cursor: number | null = null,
     y = 5;
+  const others: number[] = [];
   for (const entry of entries.slice(offset, offset + state.capacity(rect, shown.closed))) {
     const ending = entry.path === shown.removing;
     if (ending && hold.finale(now) >= 1) {
@@ -372,17 +375,24 @@ export function draw(
       continue;
     }
     if (hold.covers(entry.path)) removing = y;
+    else others.push(y);
     const chosen = entry.path === selected?.path && (shown.removing === null || ending);
     // The chosen worktree's lines are filled, and faint text on the fill steps up to muted.
     const tone = (token: palette.Token): palette.Token => (chosen && token === "faint" ? "muted" : token);
     if (chosen) for (let row = y; row < y + state.lines(); row++) grid.fill(1, row, rect.w - 2, c.selected);
     const label = (chosen ? "› " : "  ") + worktrees.label(entry);
     line(y, 1, label, layout.room + 1, chosen ? "strong" : "text", true);
-    // The path, if it fits with its last directory whole; the name says the rest.
+    // A lock, then the path, if it fits with its last directory whole; the name says the rest.
+    const end = layout.room + 2;
+    let after = displayWidth(label) + 3;
+    if (entry.locked !== null && after + 6 <= end) {
+      line(y, after, "locked", 6, tone("muted"));
+      after += 8;
+    }
     const path = displayPath(entry.path, main),
-      short = shortPath(path, layout.room - displayWidth(label) - 1);
+      short = shortPath(path, end - after);
     if (short && short.endsWith(path.slice(path.lastIndexOf("/") + 1)))
-      line(y, displayWidth(label) + 3, short, displayWidth(short), tone("faint"));
+      line(y, after, short, displayWidth(short), tone("faint"));
     if (x.agents !== undefined) {
       const associations = snapshot?.agents.filter(a => a.path === entry.path) ?? [],
         counted = agentsAt(snapshot, state, entry.path),
@@ -471,13 +481,34 @@ export function draw(
     );
   }
   if (removing !== null) {
-    const area = { y: removing, lines: state.lines(), left: 1, right: rect.w - 2, top: 1, bottom: rect.h - 3 },
-      report = hold.report;
-    worktreeRemoval.paint(grid, area, hold.effect, hold.progress, hold.finale(now), now);
+    const t = hold.target,
+      locked = t !== null && t.locked !== null,
+      // A locked worktree keeps its name while its columns come apart onto its band.
+      band = { y: removing, lines: state.lines(), left: layout.room + 3, right: rect.w - 3 },
+      area = {
+        y: removing,
+        lines: state.lines(),
+        left: locked && !hold.committed() ? band.left : 1,
+        right: rect.w - 2,
+        top: 1,
+        bottom: rect.h - 3,
+      },
+      report = hold.report,
+      under = locked ? worktreeRemoval.underlay(rect.w, rect.h, band, t) : null;
+    worktreeRemoval.paint(grid, area, hold.effect, hold.progress, hold.finale(now), now, under, hold.settling(now));
     // A big worktree is still being deleted once the ending has played.
     if (hold.phase === "removing" && hold.finale(now) >= 1 && report?.phase === "deleting")
       worktreeRemoval.progress(grid, area, now);
   }
+  // The other worktrees fade while a locked one's band is up.
+  const dim = Math.round(hold.dimming(now) * 58);
+  if (dim > 0)
+    for (const top of others)
+      for (let row = top; row < top + state.lines(); row++)
+        for (let x = 1; x < rect.w - 1; x++) {
+          const cell = grid.at(x, row);
+          if (cell) cell.fg = palette.mix(cell.fg, c.surface, dim);
+        }
   if (cursor !== null) grid.put(1, cursor, "›", c.strong, true);
   line(rect.h - 1, 0, "╰" + "─".repeat(rect.w - 2) + "╯", rect.w, "line");
   const port = badge ? Math.max(rect.y + 1, Math.min(badge.y, rect.y + rect.h - 2)) : 0;

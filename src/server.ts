@@ -665,6 +665,7 @@ export class Server {
           this.runtime,
           request.payload.workspace,
           request.payload.path,
+          request.payload.locked,
         );
         this.runtime.changed();
         this.dirty = true;

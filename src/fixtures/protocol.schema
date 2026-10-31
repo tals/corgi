@@ -243,6 +243,8 @@ $.requests|git.push.ref.remote: string
 $.requests|git.push.ref.destination: string
 $.requests|worktree.remove.workspace: u32
 $.requests|worktree.remove.path: string
+$.requests|worktree.remove.locked: optional
+$.requests|worktree.remove.locked?: string
 $.requests|worktree.stop.workspace: u32
 $.requests|worktree.brief.workspace: u32
 $.requests|worktree.add.workspace: u32
@@ -699,6 +701,8 @@ $.snapshot.workspaces[].worktrees?.entries[].available: bool
 $.snapshot.workspaces[].worktrees?.entries[].stale: bool
 $.snapshot.workspaces[].worktrees?.entries[].locked: optional
 $.snapshot.workspaces[].worktrees?.entries[].locked?: string
+$.snapshot.workspaces[].worktrees?.entries[].holder: optional
+$.snapshot.workspaces[].worktrees?.entries[].holder?: enum running exited
 $.snapshot.workspaces[].worktrees?.entries[].prunable: optional
 $.snapshot.workspaces[].worktrees?.entries[].prunable?: string
 $.snapshot.workspaces[].worktrees?.entries[].comparison: optional
