@@ -63,13 +63,10 @@ export class Connection {
     const message = json.object(value);
     const id = this.requestIds ? protocol.requestId(message) : 0;
     if (id === null) {
-      switch (message.type) {
-        case "viewer.wake":
-        case "agent.history":
-        case "session":
-        case "agent.preview":
-          for (const listener of this.listeners) listener(message as protocol.Event);
-          return;
+      const event = protocol.event(message);
+      if (event) {
+        for (const listener of this.listeners) listener(event);
+        return;
       }
       // An untagged error (a rejected version, a line the daemon could not
       // parse) answers no one request; it fails the connection under its name.

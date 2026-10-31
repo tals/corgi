@@ -771,6 +771,13 @@ export type Event =
   | Wire<SessionSnapshot>
   | Reply<"agent.subscribe">
   | { type: "agent.history"; update: Wire<import("./launch/history").Update> };
+/** What arrives without a request id; anything else untagged fails the connection. */
+export const event_types = ["viewer.wake", "session", "agent.preview", "agent.history"] as const;
+// Fails to compile while an `Event` type is missing from the list.
+true satisfies Exclude<Event["type"], (typeof event_types)[number]> extends never ? true : false;
+export function event(message: { type?: unknown }): Event | null {
+  return (event_types as readonly unknown[]).includes(message.type) ? (message as Event) : null;
+}
 export type ErrorReply = { err: string; viewer_protocol?: number };
 export type Response<K extends Op> = Reply<K> | ErrorReply;
 export type Arguments<K extends Op> =

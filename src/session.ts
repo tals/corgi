@@ -624,7 +624,7 @@ function build(r: Runtime, viewer: boolean) {
       return out;
     });
   return {
-    type: "session",
+    type: "session" as const,
     protocol: protocol.version,
     conversations,
     release_version: "",
