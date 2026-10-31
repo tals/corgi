@@ -39,6 +39,14 @@ download() {
     trap - EXIT
 }
 
+# Finds the main checkout's copy, when this is a linked worktree of it.
+find_shared() {
+    common=$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
+    case $common in */.git) ;; *) return 1 ;; esac
+    shared=${common%/.git}/.tools/$name/zig
+    [ "$shared" != "$project" ] && [ -x "$shared" ] && [ "$("$shared" version 2>/dev/null)" = "$version" ]
+}
+
 if [ -n "${ZIG:-}" ]; then
     found=$("$ZIG" version 2>/dev/null || echo 'not runnable')
     if [ "$found" != "$version" ]; then
@@ -51,6 +59,8 @@ elif command -v zig >/dev/null 2>&1 && [ "$(zig version)" = "$version" ]; then
     compiler=zig
 elif [ -x "$project" ]; then
     compiler=$project
+elif find_shared; then
+    compiler=$shared
 elif [ -n "$sum" ]; then
     download
     compiler=$project
