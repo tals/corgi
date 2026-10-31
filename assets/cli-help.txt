@@ -1,16 +1,17 @@
 Agent controls (--json prints the daemon's reply as JSON):
   corgi list [--json]                 layout, panes, agents, viewers
-  corgi workspace list|new NAME [--cwd DIR]
+  corgi workspace list
+  corgi workspace new NAME [--cwd DIR]
   corgi workspace edit ID [--name NAME|--clear] [--cwd DIR]
   corgi workspace close ID          requires an empty workspace
   corgi workspace switch ID [--viewer ID]
   corgi current                      calling pane's live location
-  corgi tab new [--name NAME] [--cwd DIR] [--workspace ID]
+  corgi tab new [--name NAME] [--cwd DIR] [--workspace ID] [--command SHELL_COMMAND]
   corgi tab rename ID|current NAME|--clear
   corgi tab move ID|current --before ID|--after ID|--workspace ID
   corgi tab merge ID|current --right-of ID|--left-of ID|--above ID|--below ID
   corgi tab close ID|current
-  corgi pane split ID|current --right|--left|--up|--down [--cwd DIR]
+  corgi pane split ID|current --right|--left|--up|--down [--cwd DIR] [--command SHELL_COMMAND]
   corgi pane move ID|current --right-of ID|--left-of ID|--above ID|--below ID
   corgi pane move ID|current --new-tab [--name NAME]
   corgi pane swap ID|current ID
@@ -24,11 +25,13 @@ Agent controls (--json prints the daemon's reply as JSON):
   corgi claim --clear [--pane ID|current] [--owner PID]
   corgi focus ID|current --viewer ID  select in exactly one viewer
   corgi launcher list [--workspace ID] [--json]  agents each launcher shows
-  corgi launcher hide|show AGENT... [--workspace ID]  in one workspace only
+  corgi launcher hide AGENT... [--workspace ID]  in one workspace only
+  corgi launcher show AGENT... [--workspace ID]  in one workspace only
   corgi launcher move AGENT [--before AGENT|--after AGENT|--first] [--workspace ID]
   corgi launcher edit AGENT [--name NAME] [--model ID|auto] [--effort LEVEL|default]
     [--flags FLAGS] [--env JSON_OBJECT] [--yolo on|off] [--workspace ID]
-  corgi launcher clone AGENT [--name NAME] [edit options] [--workspace ID]
+  corgi launcher clone AGENT [--name NAME] [--model ID|auto] [--effort LEVEL|default]
+    [--flags FLAGS] [--env JSON_OBJECT] [--yolo on|off] [--workspace ID]
   corgi launcher models AGENT [--json]  native model IDs, efforts and defaults
   corgi launcher add --command COMMAND [--name NAME] [--workspace ID]
   corgi launcher edit AGENT --command COMMAND [--name NAME] [--workspace ID]
@@ -36,7 +39,6 @@ Agent controls (--json prints the daemon's reply as JSON):
   corgi launcher copy --from ID --workspace ID  replace destination order and visibility
   corgi --skill                      print bundled agent instructions
 
-Tab new and pane split accept --command SHELL_COMMAND.
 IDs come from list; current means CORGI_PANE, never UI focus.
 New tabs and launcher mutations outside Corgi require --workspace.
 Agent settings are shared; order and visibility belong to each workspace.
@@ -49,5 +51,3 @@ Layout changes preserve processes and do not select another pane in a viewer.
 
 Control Corgi panes, agents, or workspaces:
   SKIP if a Corgi skill is already in your context. Otherwise run: corgi --skill
-
-

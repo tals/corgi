@@ -6,7 +6,9 @@ corgi — a small Ghostty-powered agent terminal
   corgi dev                     reload if changed; attach or relaunch viewer
   corgi --no-update             attach without activating a staged update
   corgi update                  download and safely apply an update
-  corgi update status|rollback|--check|--download-only
+  corgi update status           show update status
+  corgi update rollback         return to the previous release
+  corgi update --check|--download-only
   corgi update auto on|off      control automatic updates
   corgi start                   start detached runtime
   corgi action NAME [VALUE]     run a viewer action, named below
@@ -27,6 +29,9 @@ corgi — a small Ghostty-powered agent terminal
   corgi shutdown                terminate runtime and its panes
   corgi bugreport [--full]      details for a bug report, and a link to file it
   corgi licenses                Corgi's license and the software it includes
+  corgi help [COMMAND ...]      show help for a command or group
+  corgi --help                  list all commands (also -h)
+  corgi --version               print the version and commit
 
 Keys: Ctrl+B opens a clickable command menu; `corgi keys` lists every shortcut.
 
@@ -35,4 +40,3 @@ Keys: Ctrl+B opens a clickable command menu; `corgi keys` lists every shortcut.
 
 CORGI_SOCKET selects a runtime. Workspaces group tabs and panes; no worktrees.
 Commands print text; --json prints the daemon's reply as JSON instead.
-

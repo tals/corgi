@@ -77,28 +77,52 @@ const actions = new Set([
 export function handles(args: string[]): boolean {
   return groups.has(args[0]);
 }
-/** Whether a command line asks for help: `--help` or `-h` before any `--`. */
+/** Help flags in a full command line before `--`, excluding its option values. */
 export function asksHelp(args: string[]): boolean {
-  for (const arg of args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
     if (arg === "--") return false;
     if (arg === "--help" || arg === "-h") return true;
+    const name = arg.startsWith("--") ? arg.slice(2) : "";
+    switch (args[0]) {
+      case "account":
+        if (args[1] === "add" && name === "dir") i++;
+        break;
+      case "integration":
+        if (name === "account") i++;
+        break;
+      case "headless":
+        if (args[1] === "start" && i === 4 && name === "workspace") i++;
+        break;
+      default:
+        if (handles(args) && args[0] !== "--skill" && options.has(name) && !flags.has(name)) i++;
+        break;
+    }
   }
   return false;
 }
 /** The lines of a help text that show the command a line names, matched by
  * its longest run of leading words: `pane split 3` finds `corgi pane split`. */
 export function usage(text: string, args: string[]): string[] {
-  const end = args.findIndex(arg => arg.startsWith("-")),
+  const end = args.findIndex((arg, i) => i > 0 && arg.startsWith("-")),
     words = end === -1 ? args : args.slice(0, end);
   for (let n = words.length; n > 0; n--) {
+    let matched = false;
     const prefix = ["corgi", ...words.slice(0, n)].join(" "),
       lines = text.split("\n").filter(line => {
+        if (matched && line.startsWith("    ")) return true;
         const shown = line.trimStart();
-        return shown.startsWith(prefix) && [undefined, " ", "|"].includes(shown[prefix.length]);
+        matched = shown.startsWith(prefix) && [undefined, " ", "|"].includes(shown[prefix.length]);
+        return matched;
       });
     if (lines.length) return lines;
   }
   return [];
+}
+/** A command's usage, or the full reference when no command was named. */
+export function helpFor(text: string, args: string[]): string {
+  const lines = usage(text, args);
+  return lines.length ? `Usage:\n${lines.join("\n")}\n` : text;
 }
 export function id(value: string): number {
   if (!/^\+?\d+$/.test(value)) throw Error("InvalidCharacter");
@@ -707,13 +731,13 @@ export function read(text: string, lines: number, agent = false): string {
  * the daemon sent it. */
 export async function run(path: string, args: string[], agent = false): Promise<void> {
   const group = args[0];
+  if ((nested.has(group) && args.length === 1) || asksHelp(args)) {
+    process.stdout.write(helpFor(help, args));
+    return;
+  }
   if (group === "--skill") {
     if (args.length !== 1) throw Error("Usage");
     process.stdout.write(skill);
-    return;
-  }
-  if ((nested.has(group) && args.length === 1) || asksHelp(args.slice(1))) {
-    process.stdout.write(help);
     return;
   }
   const caller = Number(process.env.CORGI_PANE) || 0,

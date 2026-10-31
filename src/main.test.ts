@@ -2,6 +2,9 @@ import { test, expect, spyOn } from "bun:test";
 import { actionNames, failure, providerAlias, paneId, run, say } from "./main";
 import { specs } from "./action";
 import * as rpc from "./rpc";
+import * as crash from "./crash";
+import * as updates from "./updates";
+import * as integration from "./integration";
 import * as protocol from "./protocol";
 import { readFileSync, realpathSync } from "node:fs";
 import { resolve, dirname, relative } from "node:path";
@@ -59,16 +62,51 @@ test("open inside a pane quietly sends its viewer the folder's real path", async
 test("--help prints help instead of running the command", async () => {
   const request = spyOn(rpc, "request").mockResolvedValue({ ok: true });
   const output = spyOn(process.stdout, "write").mockReturnValue(true);
+  const init = spyOn(crash, "init").mockImplementation(() => {});
+  const update = spyOn(updates, "internal").mockResolvedValue(false);
+  try {
+    for (const [args, expected] of [
+      [["shutdown", "--help"], "corgi shutdown"],
+      [["reload", "-h"], "corgi reload"],
+      [["--no-agent", "-h"], "corgi shutdown"],
+      [["agent", "--help"], "corgi agent"],
+      [["serve", "--help"], "corgi shutdown"],
+      [["--skill", "--help"], "corgi --skill"],
+      [["pane", "send", "--stdin", "--help"], "corgi pane send"],
+      [["help", "pane", "read"], "corgi pane read"],
+      [["--help", "pane", "read"], "corgi pane read"],
+      [["help", "tab", "new"], "[--command SHELL_COMMAND]"],
+      [["pane", "split", "--help"], "[--command SHELL_COMMAND]"],
+      [["help", "account"], "Usage: corgi account"],
+      [["help", "integration"], "Usage: corgi integration"],
+    ] as const) {
+      output.mockClear();
+      await run([...args]);
+      expect(String(output.mock.calls[0]?.[0])).toContain(expected);
+    }
+    expect(request).not.toHaveBeenCalled();
+    expect(init).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+  } finally {
+    request.mockRestore();
+    output.mockRestore();
+    init.mockRestore();
+    update.mockRestore();
+  }
+});
+test("help after an unrelated option never reaches the daemon", async () => {
+  const request = spyOn(rpc, "request").mockRejectedValue(Error("UnexpectedRequest"));
+  const output = spyOn(process.stdout, "write").mockReturnValue(true);
   try {
     for (const args of [
-      ["shutdown", "--help"],
-      ["reload", "-h"],
-      ["--no-agent", "-h"],
-      ["agent", "--help"],
+      ["shutdown", "--name", "--help"],
+      ["shutdown", "--cwd", "-h"],
+      ["action", "rename", "--name", "--help"],
+      ["reload", "--flags", "--help"],
     ]) {
       output.mockClear();
       await run(args);
-      expect(String(output.mock.calls[0]?.[0])).toContain("corgi shutdown");
+      expect(String(output.mock.calls[0]?.[0])).toContain(`corgi ${args[0]}`);
     }
     expect(request).not.toHaveBeenCalled();
   } finally {
@@ -76,16 +114,39 @@ test("--help prints help instead of running the command", async () => {
     output.mockRestore();
   }
 });
-test("agent mode's help lists only the control commands", async () => {
+test("provider help remains the provider's argument", async () => {
+  const launch = spyOn(integration, "launch").mockRejectedValue(Error("ProviderHelp"));
+  try {
+    await expect(run(["agent", "codex", "--help"])).rejects.toThrow("ProviderHelp");
+    expect(launch.mock.calls[0]?.slice(0, 2)).toEqual(["codex", ["--help"]]);
+  } finally {
+    launch.mockRestore();
+  }
+});
+test("action values preserve agent mode flags", async () => {
+  const request = spyOn(rpc, "request").mockResolvedValue({ ok: true, viewer: 3, queued: true });
   const output = spyOn(process.stdout, "write").mockReturnValue(true);
   try {
-    await run(["--agent", "--help"]);
-    const text = String(output.mock.calls[0]?.[0]);
-    expect(text).toContain("corgi pane read");
-    expect(text).not.toContain("corgi shutdown");
-    expect(text).toEndWith(
-      "corgi --skill\n\nAgent mode is on: `corgi --no-agent --help` also lists the viewer's commands.\n",
-    );
+    for (const value of ["--agent", "--no-agent"]) {
+      request.mockClear();
+      await run(["action", "rename", value]);
+      expect(request.mock.calls[0]?.slice(1)).toEqual(["action", { name: "rename", value }]);
+    }
+  } finally {
+    request.mockRestore();
+    output.mockRestore();
+  }
+});
+test("agent mode does not hide commands from root help", async () => {
+  const output = spyOn(process.stdout, "write").mockReturnValue(true);
+  try {
+    for (const args of [["--help"], ["--agent", "--help"], ["--no-agent", "--help"]]) {
+      output.mockClear();
+      await run(args);
+      const text = String(output.mock.calls[0]?.[0]);
+      expect(text).toContain("corgi pane read");
+      expect(text).toContain("corgi shutdown");
+    }
   } finally {
     output.mockRestore();
   }

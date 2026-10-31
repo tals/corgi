@@ -10,6 +10,7 @@ import * as agentProfiles from "./agent_profiles";
 import * as integration from "./integration";
 import * as signin from "./signin";
 import * as errors from "./errors";
+import * as cli from "./cli";
 
 const managed = Provider.all.filter(p => adapter(p).accounts.signin !== null);
 export const help = `Usage: corgi account COMMAND
@@ -189,7 +190,7 @@ const messages: Record<string, string> = {
 };
 /** `corgi account …`: the exit status. */
 export async function command(args: string[]): Promise<number> {
-  if (args[0] === "help" || args.includes("--help") || args.includes("-h")) {
+  if (args[0] === "help" || cli.asksHelp(["account", ...args])) {
     process.stdout.write(help);
     return 0;
   }

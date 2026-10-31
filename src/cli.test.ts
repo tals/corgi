@@ -1,6 +1,20 @@
 import { test, expect } from "bun:test";
 import { realpathSync } from "node:fs";
-import { asksHelp, handles, help, idle, launcher, launcherText, layout, list, parse, read, usage, words } from "./cli";
+import {
+  asksHelp,
+  handles,
+  help,
+  helpFor,
+  idle,
+  launcher,
+  launcherText,
+  layout,
+  list,
+  parse,
+  read,
+  usage,
+  words,
+} from "./cli";
 import { Provider, adapter } from "./providers";
 
 test("help is asked for only before --", () => {
@@ -8,10 +22,37 @@ test("help is asked for only before --", () => {
   expect(asksHelp(["read", "-h"])).toBe(true);
   expect(asksHelp(["send", "3", "--", "--help"])).toBe(false);
   expect(asksHelp(["send", "3", "help"])).toBe(false);
+  expect(asksHelp(["launcher", "edit", "codex", "--flags", "--help"])).toBe(false);
+  expect(asksHelp(["account", "add", "--dir", "--help"])).toBe(false);
+  expect(asksHelp(["launcher", "edit", "codex", "--flags", "--help", "-h"])).toBe(true);
+});
+test("help only skips values consumed by the command's parser", () => {
+  for (const args of [
+    ["shutdown", "--name", "--help"],
+    ["shutdown", "--cwd", "-h"],
+    ["action", "rename", "--name", "--help"],
+    ["reload", "--flags", "--help"],
+    ["account", "remove", "--name", "--help"],
+    ["account", "remove", "--dir", "--help"],
+    ["integration", "uninstall", "--dir", "--help"],
+    ["headless", "list", "--workspace", "--help"],
+    ["headless", "start", "codex", "--workspace", "--help"],
+  ])
+    expect(asksHelp(args)).toBe(true);
+  for (const args of [
+    ["tab", "new", "--name", "--help"],
+    ["tab", "new", "--command", "--help"],
+    ["launcher", "edit", "codex", "--flags", "--help"],
+    ["account", "add", "codex", "work", "--dir", "--help"],
+    ["integration", "status", "--account", "--help"],
+    ["headless", "start", "codex", "prompt", "--workspace", "--help"],
+    ["pane", "send", "current", "--", "--help"],
+  ])
+    expect(asksHelp(args)).toBe(false);
 });
 test("usage finds the lines for the longest command a line names", () => {
   expect(usage(help, ["pane", "split", "3", "--righ"]).map(line => line.trim())).toEqual([
-    "corgi pane split ID|current --right|--left|--up|--down [--cwd DIR]",
+    "corgi pane split ID|current --right|--left|--up|--down [--cwd DIR] [--command SHELL_COMMAND]",
   ]);
   expect(usage(help, ["pane", "move"])).toHaveLength(2);
   expect(usage(help, ["workspace", "new", "X"]).every(line => line.includes("corgi workspace"))).toBe(true);
@@ -21,6 +62,16 @@ test("usage finds the lines for the longest command a line names", () => {
     "corgi claim PROVIDER [--pane ID|current] [--owner PID]",
     "corgi claim --clear [--pane ID|current] [--owner PID]",
   ]);
+  expect(usage(help, ["workspace", "new"])).toEqual(["  corgi workspace new NAME [--cwd DIR]"]);
+  expect(usage(help, ["launcher", "show"])).toEqual([
+    "  corgi launcher show AGENT... [--workspace ID]  in one workspace only",
+  ]);
+  expect(helpFor(help, ["launcher", "edit"])).toContain("[--flags FLAGS] [--env JSON_OBJECT]");
+  expect(helpFor(help, ["launcher", "clone"])).toContain("[--flags FLAGS] [--env JSON_OBJECT]");
+  expect(helpFor(help, ["pane", "read"])).not.toContain("corgi tab");
+  expect(helpFor(help, ["tab", "new"])).toContain("[--command SHELL_COMMAND]");
+  expect(helpFor(help, ["pane", "split"])).toContain("[--command SHELL_COMMAND]");
+  expect(helpFor(help, [])).toBe(help);
 });
 
 test("command lines are rejected before connecting", async () => {

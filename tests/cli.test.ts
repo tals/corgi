@@ -113,7 +113,19 @@ class AgentCli extends Runtime {
     this.assertIn(table, reference, "docs/reference.md is stale: paste in the table `corgi keys` prints");
   }
   async test_discovery_errors_and_terminal_io() {
-    for (const args of [["--help"], ["--skill"], ["tab"], ["pane"], ["pane", "move", "--help"], ["claim", "--help"]])
+    for (const args of [
+      ["--help"],
+      ["--skill"],
+      ["--skill", "--help"],
+      ["tab"],
+      ["pane"],
+      ["pane", "move", "--help"],
+      ["claim", "--help"],
+      ["shutdown", "--help"],
+      ["shutdown", "--name", "--help"],
+      ["help", "pane", "read"],
+      ["account", "remove", "--help"],
+    ])
       await run([EXE, ...args], {
         env: { ...this.env, CORGI_SOCKET: this.temp.name + "/absent.sock" },
       });
