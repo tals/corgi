@@ -456,6 +456,22 @@ function noOverlay(u: Ui): boolean {
     !u.sidebar_focus
   );
 }
+/** Whether a pane's cells can stay in its native surface. The viewer's own
+ * decorations (overlays, dimming, hover, restoring) are decided here; native
+ * composition rechecks the terminal's facts (selection, size, images) and
+ * falls back to a cell diff when they disagree. */
+function retainable(u: Ui, p: Pane, r: Rect, dim: boolean, hovered: bigint | null): boolean {
+  return (
+    noOverlay(u) &&
+    !dim &&
+    hovered === null &&
+    p.restoring.length === 0 &&
+    !p.terminal.selection &&
+    p.terminal.images.length === 0 &&
+    r.w === p.terminal.inner.cols &&
+    r.h === p.terminal.inner.rows
+  );
+}
 /** An open overlay reaches the badge. The launcher and scope menu open clear of it. */
 function badgeCovered(u: Ui, side: SidebarView, width: number, height: number): boolean {
   // The agents drawer has no title row for the badge.
@@ -819,18 +835,7 @@ export function frame(
       u.corgi_setup !== null ||
       u.sidebar_drawer !== null ||
       u.review_keys;
-    if (
-      retained &&
-      noOverlay(u) &&
-      !dim &&
-      hovered === null &&
-      !p.terminal.selection &&
-      p.restoring.length === 0 &&
-      p.terminal.images.length === 0 &&
-      r.w === p.terminal.inner.cols &&
-      r.h === p.terminal.inner.rows
-    )
-      retained.pane(w, p.terminal, p.id, r);
+    if (retained && retainable(u, p, r, dim, hovered)) retained.pane(w, p.terminal, p.id, r);
     else w.write(p.terminal.rows(p.id, r.x, r.y, r.w, r.h, dim, hovered));
     w.write("\x1b[0m");
     if (p.restoring.length > 0) {
