@@ -55,6 +55,7 @@ corgi pane send 3 'run the tests' --enter
 corgi pane read 3 --lines 50
 ```
 
+`corgi --skill tricks` prints the API for writing UI customizations.
 `corgi --help` lists the commands; `corgi --skill` prints instructions for agents.
 
 ## Uninstall

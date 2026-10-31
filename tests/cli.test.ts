@@ -116,6 +116,7 @@ class AgentCli extends Runtime {
     for (const args of [
       ["--help"],
       ["--skill"],
+      ["--skill", "tricks"],
       ["--skill", "--help"],
       ["tab"],
       ["pane"],
@@ -130,6 +131,11 @@ class AgentCli extends Runtime {
         env: { ...this.env, CORGI_SOCKET: this.temp.name + "/absent.sock" },
       });
     this.assertIn("Otherwise run: corgi --skill", await this.run_cli("--help"));
+    this.assertIn("corgi --skill tricks", await this.run_cli("--skill"));
+    const trickSkill = await this.run_cli("--skill", "tricks");
+    this.assertIn("register(on, corgi)", trickSkill);
+    this.assertIn("ui:agent.sidebar", trickSkill);
+    this.assertIn("await corgi.set", trickSkill);
     this.assertEqual(
       await this.cli(["pane", "split", "current", "--right"], {
         error: "NoCallerPane",

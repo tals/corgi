@@ -12,6 +12,7 @@ import { Entry as CommandEntry } from "./launch/command";
 import helpText from "../assets/cli-help.txt" with { type: "text" };
 import * as i18n from "./i18n";
 import skill from "../assets/corgi-skill.md" with { type: "text" };
+import trickSkill from "../assets/corgi-tricks-skill.md" with { type: "text" };
 export const help = helpText;
 export function localizedHelp(): string {
   return i18n.document(helpText);
@@ -760,8 +761,8 @@ export async function run(path: string, args: string[], agent = false): Promise<
     return;
   }
   if (group === "--skill") {
-    if (args.length !== 1) throw Error("Usage");
-    process.stdout.write(skill);
+    if (args.length > 2 || (args.length === 2 && args[1] !== "tricks")) throw Error("Usage");
+    process.stdout.write(args[1] === "tricks" ? trickSkill : skill);
     return;
   }
   const caller = Number(process.env.CORGI_PANE) || 0,
