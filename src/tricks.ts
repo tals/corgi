@@ -43,9 +43,18 @@ export interface Span {
   text: string;
   color?: Color;
   icon?: process_name.Brand;
+  bold?: boolean;
+  italic?: boolean;
+}
+export const surfaces = ["sidebar", "popover", "pane"] as const;
+export type Surface = (typeof surfaces)[number];
+export type UiEvent = `ui:agent.${Surface}`;
+export function surface(event: unknown): Surface | null {
+  return surfaces.find(name => event === `ui:agent.${name}`) ?? null;
 }
 export interface Decoration {
   kind: "decorate";
+  surface?: Surface;
   where: Selector;
   color?: Color;
   marker?: Color;
@@ -159,21 +168,31 @@ function spans(value: unknown): Span[] {
   if (!Array.isArray(value) || value.length > 16) throw Error("InvalidSpans");
   return value.map(v => {
     const s = object(v);
-    fields(s, ["text", "color", "icon"]);
+    fields(s, ["text", "color", "icon", "bold", "italic"]);
     const text = string(s.text, 512);
     if (/[\x00-\x1f\x7f-\x9f\u2028\u2029]/u.test(text)) throw Error("ControlCharacter");
     const icon = s.icon === undefined ? undefined : process_name.brand(s.icon);
     if (icon === null) throw Error("InvalidBrand");
-    return { text, ...(s.color === undefined ? {} : { color: color(s.color) }), ...(icon ? { icon } : {}) };
+    for (const key of ["bold", "italic"])
+      if (s[key] !== undefined && typeof s[key] !== "boolean") throw Error("InvalidStyle");
+    return {
+      text,
+      ...(s.color === undefined ? {} : { color: color(s.color) }),
+      ...(icon ? { icon } : {}),
+      ...(s.bold ? { bold: true } : {}),
+      ...(s.italic ? { italic: true } : {}),
+    };
   });
 }
 export function view(value: unknown): View {
   const source = object(value);
   switch (source.kind) {
     case "decorate":
-      fields(source, ["kind", "where", "color", "marker", "suffix"]);
+      fields(source, ["kind", "surface", "where", "color", "marker", "suffix"]);
+      if (source.surface !== undefined && !surfaces.includes(source.surface as Surface)) throw Error("InvalidSurface");
       return {
         kind: "decorate",
+        ...(source.surface === undefined ? {} : { surface: source.surface as Surface }),
         where: selector(source.where),
         color: color(source.color),
         marker: color(source.marker),

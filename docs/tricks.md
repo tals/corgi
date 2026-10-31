@@ -1,7 +1,8 @@
 # Corgi Tricks
 
 A trick exports `register(on, corgi)` from a JavaScript or TypeScript file.
-Register event callbacks with `on`, then draw directly through `corgi`.
+Register metadata or named UI callbacks with `on`. UI callbacks edit the existing
+drawing with shared operations; there is no component tree to declare.
 Corgi runs the file with its bundled runtime: no imports, SDK, npm install,
 or separate Node/Bun installation required.
 
@@ -9,9 +10,9 @@ For example, color Claude accounts differently in the sidebar:
 
 ```js
 export function register(on, corgi) {
-  on("agent.changed", ({ agent }) => {
-    if (agent.provider !== "claude") return corgi.paint(agent, null);
-    corgi.paint(agent, { marker: agent.account ? "#83b6ef" : corgi.palette.accent });
+  on("ui:agent.sidebar", ({ agent, ui }) => {
+    if (agent.provider !== "claude") return;
+    ui.marker(agent.account ? "#83b6ef" : corgi.palette.accent);
   });
 }
 ```
@@ -20,8 +21,8 @@ That is the complete [account-colors trick](../examples/tricks/account-colors/ma
 It implements [issue #44](https://github.com/tals/corgi/issues/44): a margin
 marker in both flat and grouped sidebars, dim when unfocused and bright when
 focused. Change the code to choose colors by account, provider, state, or any
-combination. Corgi removes an agent's paint when it disappears. Pass `null` to
-clear paint when your own condition stops matching.
+combination. Corgi removes a patch when its agent disappears or its callback
+stops drawing. Returning early is enough when a condition stops matching.
 
 The accompanying `trick.toml` only identifies and launches the code:
 
@@ -60,7 +61,7 @@ The default account is `""`; other accounts use their canonical config folder.
 Compare that exact value, including resolved symlinks. Labels can change without
 changing account identity. Moving its config folder changes its identity.
 Include the provider when matching a specific account. To color an entire
-agent type, check `agent.provider` in the callback and paint matching agents.
+agent type, check `agent.provider` in the callback and change matching drawings.
 
 ## The API
 
@@ -68,9 +69,13 @@ agent type, check `agent.provider` in the callback and paint matching agents.
 | --- | --- |
 | `on(events, callback)` | Register a callback for an event string or array |
 | `on(callback)` | Register for `"metadata:*"` |
-| `corgi.paint(agent, style)` | Set that agent's `marker`, name `color`, and/or `suffix`; pass `null` to clear |
-| `corgi.draw(key, view)` | Insert or replace a named decoration or overlay |
-| `corgi.clear(key)` | Remove a drawing |
+| `on("ui:agent.sidebar", callback)` | Edit a sidebar row; also `ui:agent.popover` and `ui:agent.pane` |
+| `ui.color(color)` | Change the primary text color |
+| `ui.marker(color)` | Color the identifying edge or marker |
+| `ui.append(text)` | Add inline Markdown; Corgi handles spacing and placement |
+| `corgi.draw(key, view)` | Insert or replace a named overlay |
+| `corgi.clear(key)` | Remove an overlay |
+| `corgi.escape(text)` | Escape literal text interpolated into Markdown |
 | `corgi.palette` | Theme colors and `mix(a, b, amount)` |
 | `corgi.brand.of(name)` | A provider or program's `{ name, color, icon }` |
 | `await corgi.get(key, fallback)` | Read saved JSON; use the fallback for an absent or null value |
@@ -82,8 +87,9 @@ await writes whose success matters. `register` may be async and finishes before
 the initial events arrive. Register all callbacks before it finishes. A trick
 with no callbacks can draw once without subscribing to any events.
 
-Callbacks receive just the event. Matching callbacks run in registration order,
-one at a time, including awaited work. Multiple registrations add listeners;
+Matching metadata callbacks run in registration order, one at a time, including
+awaited work. UI callbacks run afterward for the changed agent, receiving
+`{ event, agent, previous, ui }`. Multiple registrations add listeners;
 one registration never replaces another. An exception or rejected callback
 stops that trick and clears its drawings. `console.log` goes to diagnostics.
 
@@ -93,15 +99,17 @@ Use an event name, an array, or omit the names for the metadata default:
 
 ```js
 export function register(on, corgi) {
-  on("agent.changed", ({ agent }) => { /* paint the agent */ });
+  on("agent.changed", ({ agent }) => { /* observe the agent */ });
   on(["snapshot", "hook"], event => { /* inspect these events */ });
   on(event => { /* every metadata event */ });
 }
 ```
 
 Corgi subscribes the trick process only to the events its callbacks need, plus
-agent-removal notifications for paint cleanup. Conditions on provider, account,
-state, or other fields are ordinary code inside the callback.
+agent-removal notifications for cleanup. UI hooks automatically subscribe to
+`agent.changed` and `agent.removed`; they do not subscribe to transcripts.
+Conditions on provider, account, state, or other fields are ordinary code
+inside the callback.
 
 | Event | Contents |
 | --- | --- |
@@ -149,49 +157,77 @@ updates coalesce to at most ten batches per second; hooks and opted-in
 transcript records arrive as observed. There is no replay or exactly-once
 delivery across restarts.
 
-## Drawing
-
-Paint an agent's name and append a flourish:
+## Drawing hooks
 
 ```js
-corgi.paint(agent, {
-  color: corgi.palette.warm,
-  suffix: [{ text: " ✦", color: corgi.palette.accent }],
-});
+export function register(on, corgi) {
+  on("ui:agent.sidebar", ({ agent, ui }) => {
+    const brand = corgi.brand.of(agent.provider);
+    ui.color(brand.color);
+    ui.append(`Work !(${brand.icon})`);
+  });
+
+  on("ui:agent.popover", ({ agent, ui }) => {
+    ui.append(agent.account ? "**Work account**" : "Default account");
+  });
+
+  on("ui:agent.pane", ({ agent, ui }) => {
+    if (agent.attention !== "needs_input") return;
+    ui.color(corgi.palette.warm);
+    ui.append("**Waiting for you**");
+  });
+}
 ```
 
-Draw a card:
+Each hook starts with an empty patch over Corgi's existing drawing. `ui.color`,
+`ui.marker`, and `ui.append` record changes; they never replace the whole UI.
+Multiple handlers for the same site compose in registration order. Later colors
+win, and appended text joins with a space. Each trick owns its own patch.
+Doing nothing removes that trick's previous patch for that agent and site.
+Use `ui` only during its callback, including awaited work.
+
+| Hook | `color` | `marker` | `append` |
+| --- | --- | --- | --- |
+| `ui:agent.sidebar` | Agent name and added text | Sidebar rail | Beside the name |
+| `ui:agent.popover` | Card title and added text | Card border | Footer inside the card |
+| `ui:agent.pane` | Added text | Small marker at the pane's top left | Small overlay at the pane's top right |
+
+Headless agents have sidebar rows and popovers but no pane. A pane hook never
+reads or rewrites the terminal's own content. All drawings clip to their site;
+logos stay below later cards and menus. Drawings do not take focus or intercept
+input. Small windows may omit content that does not fit.
+
+UI hooks run once for each initial agent and again when that agent's metadata
+changes, after metadata handlers finish. Their patches are cached; a terminal
+redraw, resize, hover, or theme change never calls trick code. Identical patches
+send no update. A UI callback reading other state sees it on the next metadata
+change for that agent; use `corgi.draw` for independent event-driven overlays.
+`metadata:*` selects metadata callbacks, not UI hooks.
+
+Inline Markdown supports `**bold**`, `*italic*`, literal backtick code, backslash
+escapes, and `!(brand-reference)` icons. Formatting is deliberately shallow,
+without nested markup. Unknown or unfinished markup stays literal. Icon
+references resolve only bundled assets and provider glyphs; no files, URLs,
+HTML, or image downloads. Use `corgi.escape(agent.name)` when interpolating
+literal metadata. Inline text is limited to 512 UTF-8 bytes and 16 pieces;
+terminal controls and newlines are rejected.
+
+For an independent card, use the same text format with newlines:
 
 ```js
 corgi.draw("status", {
   kind: "overlay",
   anchor: "top-right",
-  lines: [[{ text: "2 waiting for you", color: "warm" }]],
+  color: corgi.palette.warm,
+  text: "**2 waiting for you**\nReview API changes",
 });
 ```
 
-Or install a selector in one call from `register`, without subscribing:
-
-```js
-corgi.draw("claude", {
-  kind: "decorate",
-  where: { provider: "claude" },
-  marker: "warm",
-});
-```
-
-A span has `text` and optional `color`. Colors are palette tokens (`accent`,
-`warm`, `hot`, `strong`, `text`, `muted`, etc.) or `#RRGGBB`. Tokens follow the
-theme. Text cannot contain terminal controls or newlines; use another card
-line. Overlays support all four corner anchors; `top-right` is the default.
-They stack, clip to the pane area, and sit below built-in dialogs and menus.
-They do not take focus or intercept input.
-
-Replacing a drawing preserves its position. Folders load in lexical order;
-later matching decorations override earlier color fields, while suffixes
-append. Keys are local to a trick; `agent-` keys are reserved for `paint`.
-Identical drawing updates cause no viewer wakeup. There is no animation clock
-or widget framework in this first version.
+Overlays support all four corner anchors; `top-right` is the default. They
+stack inside the pane area, below built-in dialogs and menus. Clear one with
+`corgi.clear("status")`. Replacing one preserves its position. Keys are local
+to a trick; `ui-` keys are reserved for drawing hooks. There is no animation
+clock or widget framework.
 
 ## Palette and branding
 
@@ -204,8 +240,8 @@ or widget framework in this first version.
 export function register(on, corgi) {
   const p = corgi.palette;
   const colors = { personal: p.accent, company: p.mix(p.warm, p.text, 20) };
-  on("agent.changed", ({ agent }) => {
-    corgi.paint(agent, { marker: agent.account ? colors.company : colors.personal });
+  on("ui:agent.sidebar", ({ agent, ui }) => {
+    ui.marker(agent.account ? colors.company : colors.personal);
   });
 }
 ```
@@ -216,13 +252,14 @@ changing the theme still recolors the drawing. `#RRGGBB` remains available for
 fixed custom colors.
 
 `corgi.brand.of(agent.provider)` returns a display `name`, readable `color`,
-and an `icon` span that can go straight into a suffix or overlay line:
+and an `icon` string to interpolate into inline Markdown:
 
 ```js
 export function register(on, corgi) {
-  on("agent.changed", ({ agent }) => {
+  on("ui:agent.sidebar", ({ agent, ui }) => {
     const brand = corgi.brand.of(agent.provider);
-    corgi.paint(agent, { color: brand.color, suffix: [{ text: " " }, brand.icon] });
+    ui.color(brand.color);
+    ui.append(`!(${brand.icon})`);
   });
 }
 ```
@@ -233,7 +270,7 @@ Program brands such as `git`, `docker` and `bun` work too. Brand colors adjust
 for readable contrast in each viewer's theme. Unknown names return neutral
 text and `?`; providers without a logo use their existing glyph.
 
-On terminals supporting Kitty graphics, icon spans use the same cached logos
+On terminals supporting Kitty graphics, inline icons use the same cached logos
 as tabs. Elsewhere they show text glyphs. Logos occupy two cells, clip as a
 unit, and stay beneath menus and dialogs. They share the viewer's existing
 image cache, so a trick sends only a small reference, never image bytes.
@@ -285,7 +322,8 @@ JSONL programs.
 ## More examples
 
 - [Provider flair](../examples/tricks/provider-flair/main.mjs): colors names
-  and appends its brand icon using `corgi.brand.of(agent.provider)`.
+  and appends its brand icon, adds a popover account note, and shows a pane
+  overlay while the agent waits for input.
 - [Attention radar](../examples/tricks/attention-radar/main.mjs): a snapshot
   becomes a card listing agents waiting for you, cleared when they resume.
 - [Completion jar](../examples/tricks/completion-jar/main.mjs): observes
@@ -321,6 +359,15 @@ with AND. Snapshot agents are filtered; a change matches either its current
 or previous agent so a consumer sees it leave a filter. Unassociated hooks
 match provider-only filters. Replacing a raw subscription replays its initial
 metadata. In code tricks, express these conditions directly in callbacks.
+
+Raw drawings remain structured, so other languages need no Markdown parser.
+An overlay has `kind: "overlay"`, optional `anchor`, and `lines` of spans.
+A span has `text` and optional `color`, `bold`, `italic`, or an `icon` brand name.
+An agent patch has `kind: "decorate"`, `where: { id: "pane:3" }`, optional
+`surface` (`sidebar`, `popover`, or `pane`; default `sidebar`), `color`, `marker`,
+and a `suffix` span array. The wire name `suffix` holds appended content
+on all three sites; code authors use `ui.append`. Use agent IDs for popover and
+pane patches. Raw programs replace/remove their own patches as metadata changes.
 
 The core is [trick_runner.ts](../src/trick_runner.ts) (registration and dispatch),
 [tricks.ts](../src/tricks.ts) (contract), [trick_host.ts](../src/trick_host.ts)

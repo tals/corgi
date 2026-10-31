@@ -123,14 +123,19 @@ terminal's live text until its native revision changes, while their status
 confirmation and time-based transitions continue on every observation pass.
 
 Corgi Tricks run as daemon-owned subprocesses. `trick_runner.ts` calls their
-`register(on, corgi)` and dispatches callbacks; `tricks.ts` owns the underlying JSONL contract.
+`register(on, corgi)` and dispatches callbacks; `tricks.ts` owns the underlying
+JSONL contract.
 `trick_host.ts` owns discovery, subscriptions and atomic per-runtime KV;
 `trick_budget.ts` bounds CPU and memory, and `trick_ui.ts` draws views.
-`trick_style.ts` exposes symbolic palette colors, blends and brand references;
-viewers resolve them in their own themes and reuse the tab-logo image cache.
+`trick_runner.ts` caches patches from named UI hooks on agent metadata changes;
+terminal frames never run trick callbacks. `trick_markup.ts` parses bounded inline
+text and bundled icon references. `trick_style.ts` exposes symbolic palette
+colors, blends and brand references; viewers resolve them in their own themes
+and reuse the tab-logo image cache.
 Metadata is the default stream; transcripts require explicit opt-in and tap
-the existing usage reader without another watcher. Pane content is never sent. Viewers receive an optional
-`tricks` field; protocol 3 and saved formats are unchanged. Handoff stops the
+the existing usage reader without another watcher. Pane content is never sent.
+Viewers receive an optional `tricks` field; protocol 3 and saved formats are
+unchanged. Handoff stops the
 old trick processes and the committed daemon starts fresh ones; rollback
 restarts them in the old daemon. See [Tricks](docs/tricks.md) and the
 `tricks` sandbox and integration suite.

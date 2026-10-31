@@ -109,7 +109,7 @@ import { label } from "./label.ts";
 export async function register(on, corgi) {
   const boots: number = (await corgi.get("boots", 0)) + 1;
   await corgi.set("boots", boots);
-  corgi.draw("status", { kind: "overlay", lines: [[{ text: label }]] });
+  corgi.draw("status", { kind: "overlay", text: label });
   on(existsSync("watch") ? ["metadata:*", "transcript"] : "metadata:*", event => {
     appendFileSync("events.jsonl", JSON.stringify({ ...event, boots }) + "\\n");
     if (event.event === "hook" && event.tool === "Watch") {
@@ -190,6 +190,43 @@ export async function register(on, corgi) {
     await this.client!.request({ op: "size", cols: 100, rows: 30, cell: { width: 9, height: 18 } });
     await this.client!.request({ op: "badge", visible: true });
     await this.until(async () => (await this.client!.poll()).data.includes("a=p,i=730320,"));
+  }
+
+  async test_named_ui_hooks_draw_in_their_sites_and_clear_old_patches() {
+    await this.sketch(`export function register(on, corgi) {
+  on("ui:agent.sidebar", ({ agent, ui }) => {
+    if (agent.name !== "Hooked") return;
+    ui.append("**Row**");
+  });
+  on("ui:agent.popover", ({ agent, ui }) => {
+    if (agent.name !== "Hooked") return;
+    ui.marker(corgi.palette.warm);
+    ui.append("**Popover note**");
+  });
+  on("ui:agent.pane", ({ agent, ui }) => {
+    if (agent.name !== "Hooked") return;
+    ui.color(corgi.palette.warm);
+    ui.append("**Pane note**");
+  });
+}`);
+    const pane = await this.agent("Hooked");
+    await this.rpc({ op: "focus", pane });
+    const data = await this.shown("Pane note");
+    const lines = screen_text(data);
+    const row = lines.findIndex((line, index) => index > 0 && line.includes("Hooked"));
+    this.assertTrue(row >= 0);
+    this.assertTrue(lines[row].includes("Row"));
+    this.assertTrue(!lines.join("\n").includes("Popover note"));
+    await this.client!.input(`\x1b[<35;6;${row + 1}M`);
+    await this.shown("Popover note");
+    await this.client!.input("\x1b[<35;99;29M");
+    await this.command("pane.rename", { target: pane, name: "Plain" });
+    await this.shown("Plain");
+    await this.until(async () => {
+      const text = screen_text((await this.client!.poll()).data).join("\n");
+      return !text.includes("Pane note") && !text.includes("Popover note") && !text.includes("Row");
+    });
+    this.assertTrue((await this.rpc({ op: "tricks.list" })).tricks.every((t: any) => t.running));
   }
 
   async test_examples_draw_account_colors_flair_attention_and_durable_completions() {

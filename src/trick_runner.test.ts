@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Runner, type Trick, type On } from "./trick_runner";
+import { Runner, type Trick, type On, type Ui } from "./trick_runner";
 import * as tricks from "./tricks";
 
 const agent: tricks.Agent = {
@@ -84,24 +84,129 @@ test("on defaults to metadata and dispatches only matching handlers in registrat
   expect(metadata.sent.at(-1)).toEqual({ op: "subscribe", events: [...tricks.metadata_events] });
 });
 
-test("paint is cleaned up on removal without invoking unregistered callbacks", async () => {
+test("drawing hooks subscribe to metadata and clean up on removal", async () => {
   let calls = 0;
   const h = harness((on, corgi) => {
-    on("agent.changed", ({ agent }) => {
+    on("ui:agent.sidebar", ({ agent, ui }) => {
       calls++;
       const brand = corgi.brand.of(agent.provider);
-      corgi.paint(agent, { marker: corgi.palette.accent, suffix: [brand.icon] });
+      ui.marker(corgi.palette.accent);
+      ui.append(`!(${brand.icon})`);
     });
   });
   await flush();
+  expect(h.sent).toEqual([{ op: "subscribe", events: ["agent.changed", "agent.removed"] }]);
   h.receive({ event: "agent.changed", agent, previous: null });
   await flush();
   expect(h.sent.at(-1)).toMatchObject({ op: "ui.set", view: { suffix: [{ icon: "claude", text: "*" }] } });
   h.receive({ event: "agent.removed", agent });
   await flush();
-  expect(h.sent.at(-1)).toEqual({ op: "ui.remove", key: "agent-pane-1" });
+  expect(h.sent.at(-1)).toEqual({ op: "ui.remove", key: "ui-sidebar-pane-1" });
   expect(calls).toBe(1);
   expect(h.failures).toEqual([]);
+});
+
+test("UI hooks compose per surface, cache identical patches and clear conditions that stop matching", async () => {
+  let calls = 0;
+  let later: Ui | undefined;
+  const h = harness(on => {
+    on("ui:agent.sidebar", ({ agent, ui }) => {
+      calls++;
+      later = ui;
+      if (agent.state !== "working") return;
+      ui.color("warm");
+      ui.append("**Work**");
+    });
+    on("ui:agent.sidebar", ({ agent, ui }) => {
+      if (agent.state !== "working") return;
+      ui.marker("accent");
+      ui.append("!(brand:claude)");
+    });
+    on("ui:agent.popover", ({ ui }) => ui.append("Popover"));
+    on("ui:agent.pane", ({ ui }) => ui.append("Pane"));
+  });
+  await flush();
+  expect(h.sent).toHaveLength(1);
+  h.receive({ event: "agent.changed", agent, previous: null });
+  await flush();
+  expect(h.sent).toHaveLength(4);
+  expect(h.sent[1]).toMatchObject({
+    key: "ui-sidebar-pane-1",
+    view: {
+      surface: "sidebar",
+      color: "warm",
+      marker: "accent",
+      suffix: [{ text: "Work", bold: true }, { text: " " }, { icon: "claude" }],
+    },
+  });
+  expect(h.sent[2]).toMatchObject({ view: { surface: "popover", suffix: [{ text: "Popover" }] } });
+  expect(h.sent[3]).toMatchObject({ view: { surface: "pane", suffix: [{ text: "Pane" }] } });
+  expect(() => later!.append("late")).toThrow("DrawingClosed");
+  h.receive({ event: "agent.changed", agent: { ...agent, name: "Renamed" }, previous: agent });
+  await flush();
+  expect(calls).toBe(2);
+  expect(h.sent).toHaveLength(4);
+  h.receive({ event: "snapshot", agents: [agent], workspaces: [] });
+  await flush();
+  expect(calls).toBe(2);
+  h.receive({ event: "agent.changed", agent: { ...agent, state: "idle" }, previous: agent });
+  await flush();
+  expect(h.sent.at(-1)).toEqual({ op: "ui.remove", key: "ui-sidebar-pane-1" });
+  h.receive({ event: "agent.removed", agent });
+  await flush();
+  expect(h.sent.slice(-2)).toEqual([
+    { op: "ui.remove", key: "ui-popover-pane-1" },
+    { op: "ui.remove", key: "ui-pane-pane-1" },
+  ]);
+  expect(calls).toBe(3);
+  expect(h.failures).toEqual([]);
+});
+
+test("metadata handlers finish before drawing and failing drawing hooks commit no partial patch", async () => {
+  let name = "";
+  const h = harness(on => {
+    on("ui:agent.sidebar", async ({ agent, ui }) => {
+      ui.append(name);
+      await flush();
+      if (agent.state === "blocked") throw Error("BadDrawing");
+    });
+    on("agent.changed", ({ agent }) => {
+      name = agent.name;
+    });
+  });
+  await flush();
+  h.receive({ event: "agent.changed", agent, previous: null });
+  await flush();
+  await flush();
+  expect(h.sent.at(-1)).toMatchObject({ view: { suffix: [{ text: "Agent" }] } });
+  h.receive({ event: "agent.changed", agent: { ...agent, name: "Uncommitted", state: "blocked" }, previous: agent });
+  await flush();
+  await flush();
+  expect(h.sent).toHaveLength(2);
+  expect(h.failures).toEqual(["BadDrawing"]);
+});
+
+test("drawing patches and overlays enforce their bounds before sending", async () => {
+  const h = harness(on =>
+    on("ui:agent.sidebar", ({ ui }) => {
+      for (let i = 0; i < 20; i++) ui.append("x");
+    }),
+  );
+  await flush();
+  h.receive({ event: "agent.changed", agent, previous: null });
+  await flush();
+  expect(h.failures).toEqual(["InvalidSpans"]);
+  expect(h.sent).toHaveLength(1);
+  const overlay = harness((_on, corgi) => {
+    corgi.draw("hello", { kind: "overlay", text: "**Hello**\n!(brand:claude)", color: "warm" });
+    expect(() => corgi.clear("ui-sidebar-pane-1")).toThrow("ReservedKey");
+    expect(() => corgi.draw("bad", { kind: "overlay", text: "x\n".repeat(13) })).toThrow("InvalidLines");
+  });
+  await flush();
+  expect(overlay.sent[0]).toMatchObject({
+    view: { lines: [[{ text: "Hello", bold: true, color: "warm" }], [{ icon: "claude" }]] },
+  });
+  expect(overlay.failures).toEqual([]);
 });
 
 test("failed saves stop remaining handlers and a stalled consumer has a bounded queue", async () => {

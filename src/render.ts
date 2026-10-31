@@ -864,6 +864,20 @@ export function frame(
     const hidden =
       dim || dragging || u.copy_mode || u.signin_draw !== null || u.signin_exit !== null || p.restoring.length > 0;
     if (u.supports_kitty_graphics) pictured.push({ pane: p, rect: r, hidden });
+    if (!hidden) {
+      const patch = trickUi.decoration(
+        u.tricks,
+        {
+          id: `pane:${p.id}`,
+          provider: p.agent.provider ?? undefined,
+          account: p.account,
+          session: p.agent.session,
+          state: p.agent.state,
+        },
+        "pane",
+      );
+      for (const box of trickUi.pane(w, patch, r, trick_icons, covered.length)) cover(box);
+    }
   }
   drawDividers(w, view, area, !u.sidebar_focus);
   // Under the sidebar, which covers what a drawer hides.
@@ -980,8 +994,34 @@ export function frame(
       if (git) cover(sidebar.drawGitTooltip(w, git, width, height, pointer.x, pointer.y));
       else {
         const agent = sidebar.agentAt(side, u.agents, pointer.x, pointer.y);
-        if (agent)
-          cover(subagentTooltip.draw(w, u.conversations, agent, width, height, pointer.x, pointer.y, u.accounts));
+        if (agent) {
+          const id =
+            "pane" in agent.target
+              ? `pane:${agent.target.pane}`
+              : "headless" in agent.target
+                ? `headless:${agent.target.headless}`
+                : "";
+          const patch = trickUi.decoration(
+            u.tricks,
+            { id, provider: agent.provider ?? undefined, state: agent.state },
+            "popover",
+          );
+          cover(
+            subagentTooltip.draw(
+              w,
+              u.conversations,
+              agent,
+              width,
+              height,
+              pointer.x,
+              pointer.y,
+              u.accounts,
+              patch,
+              trick_icons,
+              covered.length + 1,
+            ),
+          );
+        }
       }
     }
   }

@@ -5,6 +5,7 @@ import * as terminalPalette from "./terminal_palette";
 import * as tricks from "./tricks";
 import * as trickUi from "./trick_ui";
 import * as process_name from "./process_name";
+import * as markup from "./trick_markup";
 import { Provider, adapter } from "./providers";
 import { Writer } from "./text";
 import { Rect } from "./layout";
@@ -13,15 +14,17 @@ test("brand helpers share provider names, glyphs and the existing logo aliases",
   for (const provider of Provider.all) {
     const brand = style.brand.of(provider);
     expect(brand.name).toBe(adapter(provider).name);
-    expect(brand.icon.text).toBe(adapter(provider).glyph);
-    expect(tricks.view({ kind: "decorate", color: brand.color, suffix: [brand.icon] })).toMatchObject({
+    expect(markup.icon(brand.icon)?.text).toBe(adapter(provider).glyph);
+    expect(
+      tricks.view({ kind: "decorate", color: brand.color, suffix: markup.parse(`!(${brand.icon})`) }),
+    ).toMatchObject({
       color: brand.color,
     });
   }
-  expect(style.brand.of("codex").icon.icon).toBe("openai");
-  expect(style.brand.of("claude").icon.icon).toBe("claude");
-  expect(style.brand.of("python3").icon.icon).toBe("python");
-  expect(style.brand.of("missing")).toMatchObject({ name: "Unknown", color: "text", icon: { text: "?" } });
+  expect(style.brand.of("codex").icon).toBe("brand:openai");
+  expect(style.brand.of("claude").icon).toBe("brand:claude");
+  expect(style.brand.of("python3").icon).toBe("brand:python");
+  expect(style.brand.of("missing")).toMatchObject({ name: "Unknown", color: "text", icon: "unknown" });
 });
 
 test("palette references and brand colors resolve in each viewer's theme", () => {
@@ -63,7 +66,7 @@ test("color recipes reject invalid brands, weights and excessive nesting", () =>
 });
 
 test("brand spans reserve two cells, fall back to text, and clip as a unit", () => {
-  const icon = style.brand.of("claude").icon;
+  const icon = markup.icon(style.brand.of("claude").icon)!;
   const spans = [{ text: "猫" }, icon, { text: "!" }];
   expect(trickUi.width(spans)).toBe(5);
   const fallback = new Writer();

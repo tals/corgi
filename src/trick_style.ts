@@ -15,7 +15,7 @@ export const palette = Object.freeze({
 export interface Brand {
   readonly name: string;
   readonly color: tricks.Color;
-  readonly icon: tricks.Span;
+  readonly icon: string;
 }
 export const brand = Object.freeze({
   of(name: string): Brand {
@@ -23,11 +23,10 @@ export const brand = Object.freeze({
       info = provider ? adapter(provider) : null;
     const mark = process_name.brand(name) ?? process_name.brandOf(name);
     const color: tricks.Color = mark ? Object.freeze({ brand: mark }) : "text";
-    const text = info?.glyph ?? (mark ? mark.slice(0, 2) : "?");
     return Object.freeze({
       name: info?.name ?? mark ?? "Unknown",
       color,
-      icon: Object.freeze({ text, color, ...(mark ? { icon: mark } : {}) }),
+      icon: mark ? `brand:${mark}` : provider ? `provider:${provider}` : "unknown",
     });
   },
 });

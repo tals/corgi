@@ -1478,19 +1478,22 @@ export class View {
       }`,
     );
     if (e.decoration.color) w.write(trickUi.fg(e.decoration.color));
-    const suffixRoom = Math.min(trickUi.width(e.decoration.suffix), Math.floor(sat(room, right) / 2));
+    const suffixRoom = e.decoration.suffix.length
+      ? Math.min(1 + trickUi.width(e.decoration.suffix), Math.floor(sat(room, right) / 2))
+      : 0;
     writeEllipsis(w, (e.starred && e.section !== "starred" ? "★ " : "") + name, sat(room, right + suffixRoom));
-    if (suffixRoom > 0) {
+    if (suffixRoom > 1) {
       const nameWidth = Math.min(
         displayWidth((e.starred && e.section !== "starred" ? "★ " : "") + name),
         sat(room, right + suffixRoom),
       );
       w.write(`\x1b[${y + 1};${x + 5 + nameWidth}H\x1b[22m`);
+      w.write(" ");
       trickUi.write(
         w,
         e.decoration.suffix,
-        suffixRoom,
-        icons ? { icons, x: x + 4 + nameWidth, y, covered: 0 } : undefined,
+        suffixRoom - 1,
+        icons ? { icons, x: x + 5 + nameWidth, y, covered: 0 } : undefined,
       );
     }
     w.write("\x1b[22m");

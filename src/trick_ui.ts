@@ -9,13 +9,16 @@ export type Decoration = Pick<tricks.Decoration, "color" | "marker" | "suffix">;
 export function decoration(
   views: tricks.View[],
   agent: Partial<Omit<tricks.Agent, "state">> & { state?: string },
+  surface: tricks.Surface = "sidebar",
 ): Decoration {
   const result: Decoration = { suffix: [] };
   for (const view of views) {
-    if (view.kind !== "decorate" || !tricks.matches(view.where, agent)) continue;
+    if (view.kind !== "decorate" || (view.surface ?? "sidebar") !== surface || !tricks.matches(view.where, agent))
+      continue;
     if (view.color) result.color = view.color;
     if (view.marker) result.marker = view.marker;
-    result.suffix.push(...view.suffix);
+    if (result.suffix.length && view.suffix.length) result.suffix.push({ text: " " });
+    result.suffix.push(...view.suffix.map(span => ({ ...span, color: span.color ?? view.color })));
   }
   return result;
 }
@@ -37,10 +40,12 @@ export function write(
   spans: tricks.Span[],
   room: number,
   at?: { icons: Icon[]; x: number; y: number; covered: number },
+  color: tricks.Color = "text",
 ) {
   let used = 0;
   for (const span of spans) {
     if (room <= 0) break;
+    w.write((span.bold ? "\x1b[1m" : "\x1b[22m") + (span.italic ? "\x1b[3m" : "\x1b[23m"));
     if (span.icon) {
       if (room < 2) break;
       if (at) {
@@ -48,7 +53,7 @@ export function write(
         w.splat(" ", 2);
       } else {
         const fallback = text.clipped(span.text, 2);
-        w.write(fg(span.color ?? "text") + fallback);
+        w.write(fg(span.color ?? color) + fallback);
         w.splat(" ", 2 - text.displayWidth(fallback));
       }
       room -= 2;
@@ -56,11 +61,27 @@ export function write(
       continue;
     }
     const clipped = text.clipped(span.text, room);
-    w.write(fg(span.color ?? "text") + clipped);
+    w.write(fg(span.color ?? color) + clipped);
     room -= text.displayWidth(clipped);
     used += text.displayWidth(clipped);
     if (clipped.length < span.text.length) break;
   }
+  w.write("\x1b[22;23m");
+}
+/** A pane's appended content is a small overlay; its terminal stays opaque. */
+export function pane(w: text.Writer, patch: Decoration, area: Rect, icons: Icon[] | null, covered: number): Rect[] {
+  const boxes = overlays(
+    w,
+    patch.suffix.length ? [{ kind: "overlay", anchor: "top-right", lines: [patch.suffix] }] : [],
+    area,
+    icons,
+    covered,
+  );
+  if (patch.marker && area.w > 0 && area.h > 0) {
+    w.write(`\x1b[${area.y + 1};${area.x + 1}H\x1b[0m${fg(patch.marker)}▎\x1b[0m`);
+    boxes.push(new Rect(area.x, area.y, 1, 1));
+  }
+  return boxes;
 }
 /** Read-only cards, inside the panes and below Corgi's dialogs. */
 export function overlays(

@@ -2,15 +2,29 @@ import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import * as tricks from "./tricks";
 import * as style from "./trick_style";
+import * as markup from "./trick_markup";
 
-export type Paint = Partial<Pick<tricks.Decoration, "marker" | "color" | "suffix">>;
-export type Drawing =
-  | (Omit<tricks.Overlay, "anchor"> & { anchor?: tricks.Overlay["anchor"] })
-  | (Paint & { kind: "decorate"; where?: tricks.Selector });
+export interface Drawing {
+  kind: "overlay";
+  anchor?: tricks.Overlay["anchor"];
+  text: string;
+  color?: tricks.Color;
+}
+export interface Ui {
+  color(value: tricks.Color): void;
+  marker(value: tricks.Color): void;
+  append(text: string): void;
+}
+export interface UiContext {
+  event: tricks.UiEvent;
+  agent: tricks.Agent;
+  previous: tricks.Agent | null;
+  ui: Ui;
+}
 export interface Corgi {
   readonly palette: typeof style.palette;
   readonly brand: typeof style.brand;
-  paint(agent: tricks.Agent, style: Paint | null): void;
+  escape(text: string): string;
   draw(key: string, view: Drawing): void;
   clear(key: string): void;
   get<T>(key: string, fallback: T): Promise<T>;
@@ -23,6 +37,7 @@ type Selected<P extends tricks.EventPattern> = Extract<
 >;
 export type Handler<E = tricks.Event> = (event: E) => void | Promise<void>;
 export interface On {
+  (event: tricks.UiEvent, handler: Handler<UiContext>): void;
   <P extends tricks.EventPattern>(events: P | P[], handler: Handler<Selected<P>>): void;
   (handler: Handler<Selected<"metadata:*">>): void;
 }
@@ -51,7 +66,8 @@ export class Runner {
   private started = false;
   private ready = false;
   private stopped = false;
-  private painted = new Map<string, string>();
+  private patches = new Map<string, { agent: string; json: string }>();
+  private ui_handlers = new Map<tricks.Surface, Handler<UiContext>[]>();
   private handlers: { events: tricks.EventName[]; run: Handler }[] = [];
   private on: On;
   readonly corgi: Corgi;
@@ -60,31 +76,50 @@ export class Runner {
     private send: (value: object) => void,
     private fail: (error: Error) => void,
   ) {
-    this.on = ((events: tricks.EventPattern | tricks.EventPattern[] | Handler, handler?: Handler) => {
+    this.on = ((
+      events: tricks.EventPattern | tricks.UiEvent | tricks.EventPattern[] | Handler,
+      handler?: Handler | Handler<UiContext>,
+    ) => {
       if (this.stopped) throw Error("TrickStopped");
       if (this.started) throw Error("RegistrationClosed");
-      if (this.handlers.length >= 256) throw Error("TooManyHandlers");
+      if (this.handlers.length + [...this.ui_handlers.values()].reduce((n, h) => n + h.length, 0) >= 256)
+        throw Error("TooManyHandlers");
       const run = typeof events === "function" ? events : handler;
       if (typeof run !== "function") throw Error("ExpectedHandler");
+      const surface = tricks.surface(events);
+      if (surface) {
+        const handlers = this.ui_handlers.get(surface) ?? [];
+        handlers.push(run as Handler<UiContext>);
+        this.ui_handlers.set(surface, handlers);
+        return;
+      }
       const subscription = tricks.subscription({ events: typeof events === "function" ? "metadata:*" : events });
-      this.handlers.push({ events: subscription.events, run });
+      this.handlers.push({ events: subscription.events, run: run as Handler });
     }) as On;
-    const clear = (key: string) => this.write({ op: "ui.remove", key });
+    const key = (value: string) => {
+      if (value.startsWith("ui-")) throw Error("ReservedKey");
+      return tricks.key(value);
+    };
     this.corgi = {
       palette: style.palette,
       brand: style.brand,
-      paint: (agent, style) => {
-        const key = "agent-" + agent.id.replaceAll(":", "-");
-        if (style === null) {
-          clear(key);
-          this.painted.delete(agent.id);
-        } else {
-          this.corgi.draw(key, { ...style, kind: "decorate", where: { id: agent.id } });
-          this.painted.set(agent.id, key);
-        }
+      escape: markup.escape,
+      draw: (name, view) => {
+        if (typeof view.text !== "string" || view.text.length > 6144) throw Error("InvalidString");
+        const color = tricks.color(view.color);
+        const lines = view.text.split("\n");
+        if (lines.length > 12) throw Error("InvalidLines");
+        this.write({
+          op: "ui.set",
+          key: key(name),
+          view: tricks.view({
+            kind: view.kind,
+            anchor: view.anchor,
+            lines: lines.map(line => markup.parse(line).map(span => ({ ...span, color: span.color ?? color }))),
+          }),
+        });
       },
-      draw: (key, view) => this.write({ op: "ui.set", key, view: tricks.view(view) }),
-      clear,
+      clear: name => this.write({ op: "ui.remove", key: key(name) }),
       get: async <T>(key: string, fallback: T) => ((await this.call({ op: "kv.get", key })) as T) ?? fallback,
       set: async (key, value) => {
         await this.call({ op: "kv.set", key, value });
@@ -116,8 +151,54 @@ export class Runner {
   }
   private subscribe() {
     const events = [...new Set(this.handlers.flatMap(h => h.events))];
+    if (this.ui_handlers.size && !events.includes("agent.changed")) events.push("agent.changed");
     if (events.length) if (!events.includes("agent.removed")) events.push("agent.removed");
     this.write({ op: "subscribe", events });
+  }
+  private async draw(agent: tricks.Agent, previous: tricks.Agent | null) {
+    for (const [surface, handlers] of this.ui_handlers) {
+      const key = `ui-${surface}-${agent.id.replaceAll(":", "-")}`;
+      const patch: tricks.Decoration = { kind: "decorate", surface, where: { id: agent.id }, suffix: [] };
+      let active = true;
+      const check = () => {
+        if (!active) throw Error("DrawingClosed");
+        if (this.stopped) throw Error("TrickStopped");
+      };
+      const ui: Ui = {
+        color: value => {
+          check();
+          patch.color = tricks.color(value);
+        },
+        marker: value => {
+          check();
+          patch.marker = tricks.color(value);
+        },
+        append: text => {
+          check();
+          const spans = markup.parse(text);
+          if (!spans.length) return;
+          if (patch.suffix.length) patch.suffix.push({ text: " " });
+          patch.suffix.push(...spans);
+          if (patch.suffix.length > 16) throw Error("InvalidSpans");
+        },
+      };
+      try {
+        for (const handler of handlers) await handler({ event: `ui:agent.${surface}`, agent, previous, ui });
+      } finally {
+        active = false;
+      }
+      const old = this.patches.get(key);
+      if (!patch.color && !patch.marker && !patch.suffix.length) {
+        if (old) this.write({ op: "ui.remove", key });
+        this.patches.delete(key);
+        continue;
+      }
+      const json = JSON.stringify(patch);
+      if (old?.json === json) continue;
+      if (!old && this.patches.size >= tricks.max_views) throw Error("TooManyViews");
+      this.write({ op: "ui.set", key, view: patch });
+      this.patches.set(key, { agent: agent.id, json });
+    }
   }
   receive(line: string) {
     if (this.stopped) return;
@@ -151,10 +232,13 @@ export class Runner {
             } else {
               if (!this.started) throw Error("NotStarted");
               for (const handler of this.handlers) if (handler.events.includes(value.event)) await handler.run(value);
+              if (value.event === "agent.changed") await this.draw(value.agent, value.previous);
               if (value.event === "agent.removed") {
-                const key = this.painted.get(value.agent.id);
-                if (key) this.corgi.clear(key);
-                this.painted.delete(value.agent.id);
+                for (const [key, patch] of this.patches)
+                  if (patch.agent === value.agent.id) {
+                    this.write({ op: "ui.remove", key });
+                    this.patches.delete(key);
+                  }
               }
             }
           } finally {
@@ -175,6 +259,7 @@ export class Runner {
     this.stopped = true;
     for (const pending of this.pending.values()) pending.reject(error);
     this.pending.clear();
+    this.patches.clear();
     this.fail(error);
   }
 }

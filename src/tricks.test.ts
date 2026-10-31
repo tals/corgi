@@ -68,7 +68,7 @@ test("flat and grouped agent rows retain dim identity markers and brighter focus
   for (const grouped of [false, true])
     for (const focused of [false, true]) {
       const decoration = trickUi.decoration(
-        tricks.views([{ kind: "decorate", marker: "warm", color: "hot", suffix: [{ text: " ✦" }] }]),
+        tricks.views([{ kind: "decorate", marker: "warm", color: "hot", suffix: [{ text: "✦" }] }]),
         {},
       );
       const e = sidebar.entry({ target: { pane: 1 }, name: "Company", provider: "claude", focused, decoration });

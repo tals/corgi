@@ -1,6 +1,6 @@
 export function register(on, corgi) {
-  on("agent.changed", ({ agent }) => {
-    if (agent.provider !== "claude") return corgi.paint(agent, null);
-    corgi.paint(agent, { marker: agent.account ? "#83b6ef" : corgi.palette.accent });
+  on("ui:agent.sidebar", ({ agent, ui }) => {
+    if (agent.provider !== "claude") return;
+    ui.marker(agent.account ? "#83b6ef" : corgi.palette.accent);
   });
 }
