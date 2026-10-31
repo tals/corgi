@@ -37,6 +37,7 @@ import { Writer, clamp, directoryLabel, displayWidth, writeEllipsis, sat } from 
 import { Dialog, View as DialogView, writeField } from "./name_dialog";
 import { matches } from "./search";
 import * as keys from "./keys";
+import type { Key } from "./keyboard";
 import * as worktreeFolder from "./worktree_folder";
 import * as shellPicker from "./shell_picker";
 import * as scrollThumb from "./scroll_thumb";
@@ -545,7 +546,7 @@ export class Menu {
   /** The list's first row shown while it scrolls. */
   private list_first = 0;
   /** Whether the prefix key came last; setup runs only detach after it. */
-  private after_prefix = false;
+  after_prefix = false;
   /** The open dropdown: its setting's option, and the highlighted choice. */
   private dropdown: { option: number; at: number; top: number; visible: number[] } | null = null;
   private expanded_models = new Set<Provider>();
@@ -672,14 +673,14 @@ export class Menu {
     return (picker !== null && (await picker.poll(conn))) || hovered;
   }
   /** Prefix shortcuts in setup: the prefix waits for the next key, which
-   * detaches when it is the preset's detach key; setup drops the other
+   * detaches when it is an active detach key; setup drops the other
    * shortcuts. Null for keys setup handles itself. */
-  prefixKey(byte: number, prefs: Preferences): "detach" | "taken" | null {
+  prefixKey(byte: number, prefs: Preferences, key: Key = { codepoint: byte, mods: {} }): "detach" | "taken" | null {
     if (this.after_prefix) {
       this.after_prefix = false;
-      return bindings.lookup(prefs.bindings(), true, byte)?.name === "detach" ? "detach" : "taken";
+      return bindings.lookup(prefs.bindings(), true, key.codepoint, key.mods)?.name === "detach" ? "detach" : "taken";
     }
-    if (byte !== km.prefixByte(prefs.prefix)) return null;
+    if (!keys.same(key, { codepoint: km.prefixByte(prefs.prefix), mods: {} })) return null;
     this.after_prefix = true;
     return "taken";
   }
@@ -2035,7 +2036,7 @@ export class Menu {
         ? brief("Corgi can't read your Ghostty config.", "warm")
         : brief(works ? "In Ghostty only, these keys drive Corgi:" : "Ghostty only, on this Mac; not over SSH."),
       { tag: "blank" },
-      ...commandRows(prefs.preset).map(([job, key]): Line => ({ tag: "binding", job, key, dim: !on })),
+      ...commandRows(prefs).map(([job, key]): Line => ({ tag: "binding", job, key, dim: !on })),
     ];
   }
   /** Clever Corgi's settings, each turned on or off in the group's pane. */
@@ -2218,7 +2219,7 @@ function detachKey(prefs: Preferences): string {
 }
 /** The mini keymap's width, as wide as its longest row needs. */
 const binding_w = 30;
-/** The jobs Command keys' mini keymap shows, where the preset binds them. */
+/** The jobs Command keys' mini keymap shows, where active shortcuts bind them. */
 const command_jobs: { job: string; actions: string[] }[] = [
   { job: "New tab", actions: ["new"] },
   { job: "Close tab", actions: ["close-tab"] },
@@ -2227,14 +2228,23 @@ const command_jobs: { job: string; actions: string[] }[] = [
   { job: "Select tab", actions: ["tab"] },
   { job: "Select workspace", actions: ["goto-workspace"] },
 ];
-/** Command keys' jobs and keys under `preset`; numbered keys show as ⌘1–9. */
-function commandRows(preset: km.Preset): [string, string][] {
-  const bound = ghosttyIntegration.commandKeys(preset),
+/** Command keys' active jobs; consecutive numbered keys show as ⌘1–9. */
+function commandRows(prefs: Preferences): [string, string][] {
+  const bound = ghosttyIntegration.commandKeys(prefs.preset, prefs.bindings()),
     key = (name: string) => {
-      const found = bound.find(b => b.action.name === name && (b.action.value ?? 1) === 1);
-      if (!found) return null;
-      const label = ghosttyIntegration.macLabel(found.host);
-      return found.action.value === 1 ? `${label}–9` : label;
+      const labels = [
+        ...new Set(bound.filter(b => b.action.name === name).map(b => ghosttyIntegration.macLabel(b.host))),
+      ];
+      if (!labels.length) return null;
+      const numbered = labels.map(label => /^(.*?)(\d+)$/.exec(label)),
+        first = numbered[0];
+      if (
+        labels.length > 1 &&
+        first &&
+        numbered.every((label, i) => label?.[1] === first[1] && Number(label[2]) === Number(first[2]) + i)
+      )
+        return `${labels[0]}–${numbered.at(-1)![2]}`;
+      return labels.join(" / ");
     };
   return command_jobs.flatMap(({ job, actions }) => {
     const keys = actions.map(key);

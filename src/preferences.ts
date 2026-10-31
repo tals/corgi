@@ -20,6 +20,7 @@ import type { Scope, Sort } from "./sidebar";
 import * as worktreeFolder from "./worktree_folder";
 import * as keybindings from "./keybindings";
 import type { Binding } from "./bindings";
+import { flock } from "./native_bridge";
 
 /** Resource readings shown in the sidebar. Disabling removes the row and,
  * once every attached viewer is off, stops the daemon's sampling. Settings
@@ -99,14 +100,23 @@ export function load(): Preferences {
   if (process.env.CORGI_SOCKET) {
     const old = readExisting(`${process.env.CORGI_SOCKET}.viewer.json`);
     if (old?.onboarding_complete) {
-      const migrated = saved ?? old;
-      migrated.preset = old.preset;
-      migrated.prefix = old.prefix;
-      migrated.onboarding_complete = true;
       try {
-        write(file, migrated);
+        locked(file, () => {
+          const current = readExisting(file);
+          if (current?.onboarding_complete) {
+            saved = current;
+            return;
+          }
+          if (!current && existsSync(file)) return;
+          const migrated = Object.assign(new Preferences(), current ?? old);
+          migrated.preset = old.preset;
+          migrated.prefix = old.prefix;
+          migrated.onboarding_complete = true;
+          migrated.bindings();
+          saved = migrated;
+          atomicWrite(file, migrated);
+        });
       } catch {}
-      saved = migrated;
     }
   }
   return saved ?? new Preferences();
@@ -117,25 +127,29 @@ export function update(changes: Partial<Preferences>): void {
 }
 /** An editor must not overwrite shortcuts changed by another viewer. */
 export function updateKeys(expected: Preferences, keys: keybindings.Config, file = path()): void {
-  const saved = readExisting(file);
-  if (!saved && existsSync(file)) throw Error("Invalid viewer.json; repair the file before saving shortcuts.");
-  const current = saved ?? new Preferences();
-  if (
-    current.preset !== expected.preset ||
-    current.prefix !== expected.prefix ||
-    JSON.stringify(current.keys) !== JSON.stringify(expected.keys)
-  )
-    throw Error("Shortcuts changed on disk. Reopen the editor before saving.");
-  current.keys = keybindings.parse(keys);
-  current.bindings();
-  write(file, current);
+  locked(file, () => {
+    const saved = readExisting(file);
+    if (!saved && existsSync(file)) throw Error("Invalid viewer.json; repair the file before saving shortcuts.");
+    const current = saved ?? new Preferences();
+    if (
+      current.preset !== expected.preset ||
+      current.prefix !== expected.prefix ||
+      JSON.stringify(current.keys) !== JSON.stringify(expected.keys)
+    )
+      throw Error("Shortcuts changed on disk. Reopen the editor before saving.");
+    current.keys = keybindings.parse(keys);
+    current.bindings();
+    atomicWrite(file, current);
+  });
 }
 export function updateFile(file: string, changes: Partial<Preferences>): void {
-  const saved = readExisting(file);
-  if (!saved && existsSync(file)) throw Error("InvalidPreferences");
-  const next = Object.assign(saved ?? new Preferences(), changes);
-  next.bindings();
-  write(file, next);
+  locked(file, () => {
+    const saved = readExisting(file);
+    if (!saved && existsSync(file)) throw Error("InvalidPreferences");
+    const next = Object.assign(saved ?? new Preferences(), changes);
+    next.bindings();
+    atomicWrite(file, next);
+  });
 }
 export function read(file: string): Preferences {
   return readExisting(file) ?? new Preferences();
@@ -219,7 +233,20 @@ export function readExisting(file: string): Preferences | null {
   }
 }
 export function write(file: string, value: Preferences): void {
+  locked(file, () => atomicWrite(file, value));
+}
+/** Lock a stable sibling: atomic replacement changes viewer.json's inode. */
+function locked(file: string, save: () => void): void {
   mkdirSync(dirname(file), { recursive: true });
+  const fd = openSync(`${file}.lock`, "a", 0o600);
+  try {
+    if (!flock(fd)) throw Error("Preferences are being saved by another viewer. Try again.");
+    save();
+  } finally {
+    closeSync(fd);
+  }
+}
+function atomicWrite(file: string, value: Preferences): void {
   // Every viewer uses this file, so each writer needs its own temporary file.
   const temp = `${file}.${randomUUID()}.tmp`;
   const fd = openSync(temp, "wx", 0o600);

@@ -115,6 +115,60 @@ test("a sign-in takes the prefix only to detach or to type it", async () => {
   }
 });
 
+test.each([
+  ["prefix+alt+d", "\x1bd"],
+  ["prefix+ctrl+d", "\x1b[100;5u"],
+  ["prefix+ctrl+d", "\x04"],
+  ["prefix+f3", "\x1bOR"],
+  ["prefix+é", "é"],
+  ["prefix+alt+é", "\x1bé"],
+])("Setup recognizes %s as one decoded detach chord", async (chord, input) => {
+  const s = controller();
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  s.prefs.keys = { detach: chord, sidebar: "prefix+alt+y" };
+  s.corgi_setup = SetupMenu.open();
+  try {
+    await s.input(bytes("\x02\x1by"));
+    expect(s.input_state.attached).toBe(true);
+    expect(s.corgi_setup).not.toBeNull();
+    await s.input(bytes("\x02" + input));
+    expect(s.input_state.attached).toBe(false);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test.each([
+  ["prefix+ø", "ø"],
+  ["prefix+alt+d", "\x1bd"],
+  ["prefix+f3", "\x1bOR"],
+])("sign-in restricts Unicode and modified prefix shortcuts to detach (%s)", async (chord, input) => {
+  const s = controller(),
+    open = spyOn(signin.Signin.prototype, "open").mockResolvedValue(undefined);
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  s.prefs.keys = { sidebar: ["prefix+é", "prefix+alt+é", "prefix+f2"], detach: chord };
+  let flow: signin.Signin | null = null;
+  try {
+    s.openSignin((host: signin.Host) => (flow = new signin.Signin(true, false, host)));
+    const typed = spyOn(flow!, "input").mockResolvedValue(undefined),
+      perform = spyOn(s, "perform");
+    for (const key of ["é", "\x1b[233u", "\x1bé", "\x1bOQ"]) await s.input(bytes("\x02" + key));
+    expect(s.prefix).toBe(false);
+    expect(s.signin).toBe(flow);
+    expect(typed).not.toHaveBeenCalled();
+    expect(perform).not.toHaveBeenCalled();
+    await s.input(bytes("\x02" + input));
+    expect(s.input_state.attached).toBe(false);
+    expect(perform).toHaveBeenCalledWith({ name: "detach" });
+  } finally {
+    s.signin?.close(1);
+    open.mockRestore();
+    viewer.close(s);
+  }
+});
+
 test.each([0, 50])(
   "account completion holds the old frame and starts immediately at flourish intensity %i",
   async intensity => {

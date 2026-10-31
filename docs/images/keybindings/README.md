@@ -16,7 +16,8 @@ The range screenshot shows an unsaved edit. The narrower help captures follow
 Cancel, so they retain the preset bindings. No live accounts or personal
 configuration were used.
 
-The capture sequence uses `bun tools/ui_driver.ts run current` with:
+Save the following block as `/tmp/keybindings.scenario`, then run
+`bun tools/ui_driver.ts run current /tmp/keybindings.scenario`:
 
 ```text
 size 112x46
@@ -39,7 +40,9 @@ resize 48x28
 style help-small
 ```
 
-The mid-edit captures use a fresh viewer:
+For the mid-edit captures, save this block as `/tmp/keybindings-editing.scenario`
+and run `bun tools/ui_driver.ts run current /tmp/keybindings-editing.scenario`.
+Each invocation starts a fresh viewer:
 
 ```text
 size 112x46

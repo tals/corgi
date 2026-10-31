@@ -168,8 +168,9 @@ also requires host forwarding. Its toggle appears only for an existing or
 recorded Command binding; ordinary modifier choices do not assume support.
 
 Valid edits reload in open viewers. Invalid JSON, unknown actions and
-conflicting custom shortcuts leave the working bindings active. A custom key
-replaces an ordinary preset binding using the same key; indexed sets must be
+conflicting custom shortcuts leave the working bindings active. A custom shortcut
+replaces an ordinary preset binding only when both its chord (key and modifiers)
+and prefix mode match. Direct and prefixed shortcuts coexist. Indexed sets must be
 changed as a whole. Viewers refuse to save over a malformed file or a stale
 editor. If you unbind help, run `corgi action keybindings` from a pane to reopen
 the editor. Remove an action's override to inherit its preset again.

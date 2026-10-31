@@ -172,19 +172,21 @@ export function parseChord(value: string): LogicalKey | null {
   if (!last) return null;
   const mods: LogicalKey["mods"] = {};
   for (const part of parts) {
-    const mod = modifiers[part.toLowerCase()];
+    const name = part.toLowerCase();
+    const mod = Object.hasOwn(modifiers, name) ? modifiers[name] : null;
     if (!mod || mods[mod]) return null;
     mods[mod] = true;
   }
   const name = last.toLowerCase();
   const functionKey = /^f([1-9]|1\d|2[0-5])$/.exec(name);
   const char = last.normalize("NFC");
+  const namedKey = Object.hasOwn(named, name) ? named[name] : undefined;
   const codepoint =
-    named[name] ?? (functionKey ? 57363 + Number(functionKey[1]) : [...char].length === 1 ? char.codePointAt(0)! : -1);
+    namedKey ?? (functionKey ? 57363 + Number(functionKey[1]) : [...char].length === 1 ? char.codePointAt(0)! : -1);
   if (
     codepoint < 0 ||
     (codepoint >= 128 && codepoint <= 159) ||
-    (codepoint >= 57344 && codepoint <= 63743 && named[name] === undefined && !functionKey) ||
+    (codepoint >= 57344 && codepoint <= 63743 && namedKey === undefined && !functionKey) ||
     (codepoint < 32 && ![9, 13, 27].includes(codepoint)) ||
     (codepoint >= 0xd800 && codepoint <= 0xdfff)
   )
@@ -203,6 +205,31 @@ export function chordName(key: LogicalKey): string {
     (mods.shift ? "shift+" : "") +
     name
   );
+}
+/** A key label for terminal UI; chordName keeps configuration spellings. */
+export function displayName(codepoint: number): string {
+  const names: Record<number, string> = {
+    0: "Ctrl+Space",
+    27: "Esc",
+    32: "Space",
+    127: "Backspace",
+    57348: "Insert",
+    57349: "Delete",
+    57354: "PageUp",
+    57355: "PageDown",
+    57356: "Home",
+    57357: "End",
+    9: "Tab",
+    13: "Enter",
+    57350: "←",
+    57351: "→",
+    57352: "↑",
+    57353: "↓",
+  };
+  if (names[codepoint]) return names[codepoint];
+  if (codepoint < 27) return "Ctrl+" + String.fromCharCode(codepoint + 64);
+  if (codepoint >= 57364 && codepoint <= 57388) return "F" + (codepoint - 57363);
+  return String.fromCodePoint(codepoint);
 }
 export function logicalKey(name: string): LogicalKey {
   const parts = name.split("+");

@@ -1190,6 +1190,27 @@ test("Command keys turn on and off under the keymap", () => {
   expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("Reload Ghostty with ⌘⇧, to apply.");
 });
 
+test("Command keys omit unbound actions and show customized cmux keys", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status();
+  menu.item = "keyboard";
+  menu.integration = "enabled";
+  prefs.keys = { new: [] };
+  let text = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  expect(text).not.toMatch(/New tab +⌘T/);
+  expect(text).toMatch(/Close tab +⌘W/);
+  prefs.keys = { tab: "prefix+1..2" };
+  text = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  expect(text).toMatch(/Select tab +⌘1–2/);
+  expect(text).not.toMatch(/Select tab +⌘1–9/);
+  prefs.preset = "cmux";
+  prefs.keys = { new: "cmd+f1" };
+  text = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  expect(text).toMatch(/New tab +⌘F1/);
+  expect(text).not.toMatch(/New tab +⌘T/);
+});
+
 test("visual flourishes preview working and idle corgis with a keyboard slider", () => {
   const menu = Menu.open(),
     prefs = new Preferences(),

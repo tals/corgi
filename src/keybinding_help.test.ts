@@ -31,6 +31,44 @@ function editor(id = "new") {
   return s;
 }
 
+test.each([
+  [41, 24],
+  [80, 17],
+])("an editor hidden at %i by %i cannot change or save its draft", (cols, rows) => {
+  const s = editor();
+  s.key(13);
+  s.key(121);
+  expect(s.edit?.focus.name).toBe("save");
+  const draft = structuredClone(s.edit);
+  expect(screen(s, cols, rows).join("\n")).toContain("Shortcuts need");
+  for (const key of ["enter", "tab", "backspace", "ctrl+z", "left", "space", "a"]) {
+    expect(s.event(keys.parseChord(key)!)).toBeNull();
+    expect(s.edit).toEqual(draft);
+  }
+  expect(s.click(0, 0)).toBeNull();
+  expect(s.edit).toEqual(draft);
+  screen(s);
+  const saved = s.key(13);
+  expect(saved?.name).toBe("save");
+  if (saved?.name === "save") expect(saved.config.new).toEqual(["prefix+y", "ctrl+t"]);
+  screen(s, cols, rows);
+  s.key(27);
+  expect(s.edit).toBeNull();
+});
+
+test("Customize works while searching and keeps the filter", () => {
+  const s = new State();
+  screen(s);
+  s.key(47);
+  for (const char of "new tab") s.key(char.charCodeAt(0));
+  s.event(keys.parseChord("ctrl+e")!);
+  expect(s.customizing).toBe(true);
+  expect(s.searching).toBe(false);
+  expect(s.query).toBe("new tab");
+  s.key(13);
+  expect(s.edit?.id).toBe("new");
+});
+
 test("adaptive layouts keep keycaps intact and spatial without overlapping", () => {
   const configs: model.Config[] = [{}, { "focus:up": ["prefix+ctrl+alt+shift+up"], tab: ["ctrl+alt+shift+1..9"] }];
   for (const config of configs)

@@ -33,7 +33,9 @@ export function textKey(bytes: readonly number[]): { key: Key | null; length: nu
             : 1;
   if (bytes.length < length) return { key: null, length: 0 };
   try {
-    const text = new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(bytes.slice(0, length)));
+    const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+      Uint8Array.from(bytes.slice(0, length)),
+    );
     return { key: { codepoint: text.codePointAt(0)!, mods: {} }, length };
   } catch {
     return { key: null, length: 1 };

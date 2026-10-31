@@ -1,7 +1,33 @@
 import { test, expect } from "bun:test";
 import { commandKeys, macLabel, transform } from "./ghostty_integration";
 import type { Keys } from "./ghostty_integration";
+import * as custom from "./keybindings";
 const begin = "# BEGIN CORGI GHOSTTY INTEGRATION\n";
+test("cmux forwards customized function, editing and Unicode keys", () => {
+  for (const [chord, host, codepoint, modifiers] of [
+    ["cmd+f1", "cmd+f1", 57364, 9],
+    ["cmd+shift+f25", "cmd+shift+f25", 57388, 10],
+    ["cmd+tab", "cmd+tab", 9, 9],
+    ["cmd+space", "cmd+space", 32, 9],
+    ["cmd+backspace", "cmd+backspace", 127, 9],
+    ["cmd+insert", "cmd+insert", 57348, 9],
+    ["cmd+delete", "cmd+delete", 57349, 9],
+    ["cmd+home", "cmd+home", 57356, 9],
+    ["cmd+end", "cmd+end", 57357, 9],
+    ["cmd+pageup", "cmd+page_up", 57354, 9],
+    ["cmd+pagedown", "cmd+page_down", 57355, 9],
+    ["cmd+=", "cmd+equal", 61, 9],
+    ["cmd+plus", "cmd+shift+equal", 43, 9],
+    ["cmd+>", "cmd+shift+period", 62, 9],
+    ["cmd+é", "cmd+é", 233, 9],
+  ] as const) {
+    const bindings = custom.resolve("cmux", { new: chord });
+    expect(commandKeys("cmux", bindings)).toContainEqual({ host, action: { name: "new" } });
+    expect(transform("", { preset: "cmux", prefix: "ctrl_b", bindings })).toContain(
+      `keybind = ${host}=text:\\x1b[${codepoint};${modifiers}u\n`,
+    );
+  }
+});
 test("integration preserves custom bindings, covers physical digits, and is reversible", () => {
   const original = "# My settings\nkeybind = cmd+1=goto_tab:1\nfont-size = 14\n",
     keys: Keys = { preset: "corgi", prefix: "ctrl_b" },

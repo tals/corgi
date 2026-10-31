@@ -43,6 +43,9 @@ test("malformed, duplicate and conflicting custom bindings fail as a whole", () 
   for (const raw of [
     { new: 13 },
     { new: "prefix+bogus" },
+    { new: "constructor" },
+    { new: "ctrl+__proto__" },
+    { new: "__proto__+a" },
     { tab: { keys: ["prefix+a", "a"] } },
     { tab: { keys: ["prefix+a", "prefix+a"] } },
     { tab: "prefix+9..1" },

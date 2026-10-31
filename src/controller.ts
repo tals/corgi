@@ -656,10 +656,15 @@ export class Controller {
     }
     this.prefix = false;
     if (byte === prefix_byte) return false;
-    const act = key_event
-      ? bindings.chord(this.prefs.bindings(), true, key_event)
-      : bindings.lookup(this.prefs.bindings(), true, byte, {});
+    const act = bindings.lookup(this.prefs.bindings(), true, key_event?.codepoint ?? byte, key_event?.mods ?? {});
     if (act?.name === "detach") await this.perform(act);
+    return true;
+  }
+  private async setupPrefix(key: keyboard.Key): Promise<boolean> {
+    const chord = this.corgi_setup?.prefixKey(key.codepoint, this.prefs, key);
+    if (chord == null) return false;
+    if (chord === "detach") await this.applySetup({ kind: "detach" });
+    this.dirty = true;
     return true;
   }
   /** Whether a repeatable key came again inside its window, which it
@@ -4039,13 +4044,8 @@ export class Controller {
     if (this.corgi_setup) {
       const setup = this.corgi_setup,
         s = this.runtime.inference,
-        shortcuts = setup.item === "keyboard" && setup.focus === "options",
-        chord = setup.prefixKey(byte, this.prefs);
-      if (chord !== null) {
-        if (chord === "detach") await this.applySetup({ kind: "detach" });
-        this.dirty = true;
-        return;
-      }
+        shortcuts = setup.item === "keyboard" && setup.focus === "options";
+      if (await this.setupPrefix({ codepoint: byte, mods: {} })) return;
       if (setup.managing()) {
         const launch = setup.agents!;
         return this.manageAction(launch.manager.key(byte, launch.manageModel()));
@@ -4690,6 +4690,15 @@ export class Controller {
           }
           if (
             decoded.key &&
+            ((this.signin && (await this.signinPrefix(decoded.key.codepoint, decoded.key))) ||
+              (!this.signin && (await this.setupPrefix(decoded.key))))
+          ) {
+            this.dirty = true;
+            used += decoded.length;
+            continue;
+          }
+          if (
+            decoded.key &&
             !this.onboarding &&
             !this.name_dialog &&
             !this.copy_mode &&
@@ -4734,6 +4743,8 @@ export class Controller {
         rest[1] !== 0x5b &&
         rest[1] !== 0x4f &&
         !this.help_visible &&
+        !this.corgi_setup?.after_prefix &&
+        !(this.signin && this.prefix) &&
         (this.hasMenu() || this.name_dialog !== null)
       ) {
         await this.key(27);
@@ -4791,7 +4802,7 @@ export class Controller {
           // Its agent gets keys as its terminal asked for them; the frame reads them plain.
           const s = this.signin,
             plain = viewerNative.encodeKey(null, key_event);
-          if (plain.length === 1 && (await this.signinPrefix(plain.charCodeAt(0), key_event))) {
+          if (await this.signinPrefix(plain.length === 1 ? plain.charCodeAt(0) : key_event.codepoint, key_event)) {
             this.dirty = true;
             used += len;
             continue;
@@ -4804,6 +4815,10 @@ export class Controller {
           continue;
         }
         if (key_event) {
+          if (await this.setupPrefix(key_event)) {
+            used += len;
+            continue;
+          }
           // Ghostty passes its paste key on only when it had no text
           // to paste. Over SSH it can't be pasted here: say why.
           const pressed = pasteKey(key_event);

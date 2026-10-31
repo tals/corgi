@@ -717,28 +717,7 @@ export function format(b: Binding): string {
     (b.mods.alt ? "Opt+" : "") +
     (b.mods.ctrl ? "Ctrl+" : "") +
     (b.mods.shift ? "Shift+" : "");
-  const names: Record<number, string> = {
-    0: "Ctrl+Space",
-    27: "Esc",
-    32: "Space",
-    127: "Backspace",
-    57348: "Insert",
-    57349: "Delete",
-    57354: "PageUp",
-    57355: "PageDown",
-    57356: "Home",
-    57357: "End",
-    9: "Tab",
-    13: "Enter",
-    57350: "←",
-    57351: "→",
-    57352: "↑",
-    57353: "↓",
-  };
-  if (names[b.key]) return text + names[b.key];
-  if (b.key < 27) return text + "Ctrl+" + String.fromCharCode(b.key + 64);
-  if (b.key >= 57364 && b.key <= 57388) return text + "F" + (b.key - 57363);
-  return text + String.fromCodePoint(!sameMods(b.mods, {}) && b.key >= 97 && b.key <= 122 ? b.key - 32 : b.key);
+  return text + keys.displayName(!sameMods(b.mods, {}) && b.key >= 97 && b.key <= 122 ? b.key - 32 : b.key);
 }
 export function compact(b: Binding): string {
   return (

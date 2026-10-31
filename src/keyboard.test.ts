@@ -1,7 +1,12 @@
 import { afterEach, test, expect } from "bun:test";
-import { decode, editSequence, type Key } from "./keyboard";
+import { decode, editSequence, textKey, type Key } from "./keyboard";
 import * as viewerNative from "./viewer_native";
 import { Terminal } from "./pane/terminal";
+
+test("text keys preserve a UTF-8 BOM and wait for its complete encoding", () => {
+  expect(textKey([0xef, 0xbb])).toEqual({ key: null, length: 0 });
+  expect(textKey([0xef, 0xbb, 0xbf, 97])).toEqual({ key: { codepoint: 0xfeff, mods: {} }, length: 3 });
+});
 
 const terminals: Terminal[] = [];
 afterEach(() => {

@@ -158,6 +158,7 @@ export class State {
   private panel = new Rect(0, 0, 0, 0);
   private contentTop = 0;
   private dimmed = false;
+  private fits = true;
   configure(preset: keymap.Preset, prefix: keymap.Prefix, config: model.Config) {
     this.prefix = prefix;
     if (this.preset === preset && this.config === config) return;
@@ -472,7 +473,7 @@ export class State {
     return k ? this.event(k) : null;
   }
   event(raw: keyboard.Key): Result {
-    if (this.panel.w >= 42) {
+    if (this.fits && this.panel.w >= 42) {
       this.cells = this.content(this.panel.w - 6).cells;
       if (this.edit) this.popup(new Writer());
     }
@@ -497,6 +498,7 @@ export class State {
       }
       return { name: "close" };
     }
+    if (!this.fits) return null;
     if (this.edit) {
       const e = this.edit,
         entry = this.entry(e.id);
@@ -560,6 +562,7 @@ export class State {
       return null;
     }
     if (keys.same(raw, keys.parseChord("ctrl+l")!)) return this.activate({ name: "alts" });
+    if (keys.same(raw, keys.parseChord("ctrl+e")!)) return this.activate({ name: "customize" });
     if (this.searching) {
       if (cp === 13 || cp === keyboard.arrow_down) {
         this.searching = false;
@@ -581,10 +584,6 @@ export class State {
     }
     if (text === "/") {
       this.searching = true;
-      return null;
-    }
-    if (keys.same(raw, keys.parseChord("ctrl+e")!)) {
-      this.customizing = !this.customizing;
       return null;
     }
     if ([keyboard.arrow_up, keyboard.arrow_down, keyboard.arrow_left, keyboard.arrow_right, 9].includes(cp)) {
@@ -695,6 +694,7 @@ export class State {
       .find(h => h.rect.contains(x, y) && (!insideMenu || this.controls.some(c => sameTarget(c.target, h.target))));
   }
   click(x: number, y: number): Result {
+    if (!this.fits) return null;
     const hit = this.hitAt(x, y);
     if (hit) {
       if (this.edit) {
@@ -1231,8 +1231,11 @@ export class State {
     this.panel = b;
     const w = new Writer();
     this.hits = [];
+    this.fits = width >= 42 && height >= 18;
     w.write("\x1b[?2026h\x1b[?25l" + new Style({ fg: "text", bg: "bg" }).sgr() + "\x1b[2J");
-    if (width < 42 || height < 18) {
+    if (!this.fits) {
+      this.controls = [];
+      this.dropdown = null;
       this.draw(w, b.x, b.y, "Shortcuts need 42 × 18 · Esc back");
       return w.buffered() + "\x1b[0m\x1b[?2026l";
     }

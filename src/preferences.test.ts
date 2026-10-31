@@ -2,7 +2,42 @@ import { test, expect } from "bun:test";
 import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Preferences, read, write, updateFile } from "./preferences";
+import { Preferences, read, write, updateFile, load } from "./preferences";
+test("legacy migration keeps valid shared shortcuts when the old keymap conflicts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "corgi-migrate-"));
+  const file = join(root, "corgi", "viewer.json"),
+    socket = join(root, "old.sock");
+  const previous = { XDG_STATE_HOME: process.env.XDG_STATE_HOME, CORGI_SOCKET: process.env.CORGI_SOCKET };
+  try {
+    for (const [preset, prefix, chord] of [
+      ["corgi", "ctrl_a", "ctrl+a"],
+      ["tmux", "ctrl_b", "prefix+0"],
+      ["corgi", "ctrl_a", "prefix+y"],
+    ] as const) {
+      const shared = Object.assign(new Preferences(), { keys: { new: chord }, sidebar_width: 45 });
+      write(file, shared);
+      write(socket + ".viewer.json", Object.assign(new Preferences(), { preset, prefix, onboarding_complete: true }));
+      process.env.XDG_STATE_HOME = root;
+      process.env.CORGI_SOCKET = socket;
+      const migrated = load();
+      expect(() => migrated.bindings()).not.toThrow();
+      expect(migrated.keys).toEqual(shared.keys);
+      expect(migrated.sidebar_width).toBe(45);
+      if (chord === "prefix+y") {
+        expect(migrated.prefix).toBe("ctrl_a");
+        expect(migrated.onboarding_complete).toBe(true);
+      } else expect(migrated).toEqual(shared);
+      expect(read(file)).toEqual(migrated);
+    }
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("preferences round trip and fall back to defaults", async () => {
   const root = await mkdtemp(join(tmpdir(), "corgi-preferences-"));
   try {
