@@ -369,7 +369,7 @@ export class Tracker {
       at: 0,
     };
     this.removals.set(workspace, job);
-    void this.erase(job, ws.cwd, ws.worktrees!.common_dir, checkout.locked !== null);
+    void this.erase(job, ws.cwd, ws.worktrees!.common_dir, checkout.locked);
     return job.id;
   }
   /** Stops a removal under way; the files already deleted stay deleted. */
@@ -390,19 +390,36 @@ export class Tracker {
   private removing(workspace: number): boolean {
     return this.removals.get(workspace)?.phase === "deleting";
   }
+  /** The lock Git has on the worktree at `path` now: its reason, null when
+   * unlocked, undefined when Git doesn't list it. */
+  private async lockNow(cwd: string, path: string): Promise<string | null | undefined> {
+    const raw = await this.query(cwd, ["worktree", "list", "--porcelain", "-z"]);
+    if (raw === null) return undefined;
+    try {
+      for (const e of parseInventory(raw)) if ((await realpath(e.path).catch(() => e.path)) === path) return e.locked;
+    } catch {}
+    return undefined;
+  }
   /** Has Git delete the worktree and drop it, for as long as that takes;
-   * stopping kills Git, leaving what it had not deleted yet. */
-  private async erase(job: Removing, cwd: string, common: string, locked: boolean) {
+   * stopping kills Git, leaving what it had not deleted yet. A locked one
+   * goes only while Git still has the lock the user confirmed, `locked`. */
+  private async erase(job: Removing, cwd: string, common: string, locked: string | null) {
     let phase: Removing["phase"] = "done",
       error = "";
     // Git removes a locked worktree only when forced twice.
-    const force = locked ? ["--force", "--force"] : ["--force"];
+    const force = locked === null ? ["--force"] : ["--force", "--force"];
     try {
-      const out = await subprocess.run(["git", "-C", cwd, "worktree", "remove", ...force, job.path], {
-        timeout_ms: removal_timeout_ms,
-        quit: job.quit,
-      });
-      if (!out.ok()) [phase, error] = ["failed", "WorktreeRemoveFailed"];
+      // The snapshot the lock was checked against can be seconds old.
+      const now = locked === null ? null : await this.lockNow(cwd, job.path);
+      if (now === undefined) [phase, error] = ["failed", "WorktreeRemoveFailed"];
+      else if (now !== null && now !== locked) [phase, error] = ["failed", "WorktreeLockChanged"];
+      else {
+        const out = await subprocess.run(["git", "-C", cwd, "worktree", "remove", ...force, job.path], {
+          timeout_ms: removal_timeout_ms,
+          quit: job.quit,
+        });
+        if (!out.ok()) [phase, error] = ["failed", "WorktreeRemoveFailed"];
+      }
     } catch {
       [phase, error] = job.quit.aborted ? ["stopped", ""] : ["failed", "WorktreeRemoveFailed"];
     }

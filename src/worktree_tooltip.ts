@@ -319,9 +319,13 @@ export function draw(
   };
   /** A worktree's brief, hung under its name: a few words, a glimmer while
    * written, faded when the last try failed. */
-  const brief = (row: number, entry: worktrees.Checkout, tone: (token: palette.Token) => palette.Token) => {
+  const brief = (
+    row: number,
+    entry: worktrees.Checkout,
+    tone: (token: palette.Token) => palette.Token,
+    width = rect.w - brief_x - 3,
+  ) => {
     const b = state.briefs?.get(entry.path),
-      width = rect.w - brief_x - 3,
       hook = () => grid.put(3, row, "╰", c.line);
     if (entry.comparison?.ahead === 0n && entry.changes?.total === 0) {
       hook();
@@ -380,7 +384,11 @@ export function draw(
     // The chosen worktree's lines are filled, and faint text on the fill steps up to muted.
     const tone = (token: palette.Token): palette.Token => (chosen && token === "faint" ? "muted" : token);
     if (chosen) for (let row = y; row < y + state.lines(); row++) grid.fill(1, row, rect.w - 2, c.selected);
-    const label = (chosen ? "› " : "  ") + worktrees.label(entry);
+    // A locked worktree's name gives up room for "locked".
+    const label = ellipsis(
+      clean((chosen ? "› " : "  ") + worktrees.label(entry)),
+      layout.room + 1 - (entry.locked !== null ? 8 : 0),
+    );
     line(y, 1, label, layout.room + 1, chosen ? "strong" : "text", true);
     // A lock, then the path, if it fits with its last directory whole; the name says the rest.
     const end = layout.room + 2;
@@ -449,7 +457,9 @@ export function draw(
             : []),
         ]);
     }
-    if (state.briefs) brief(y + 1, entry, tone);
+    // A locked worktree's brief ends before its band.
+    const banded = hold.covers(entry.path) && hold.target?.locked != null;
+    if (state.briefs) brief(y + 1, entry, tone, banded ? layout.room + 2 - brief_x : undefined);
     y += state.lines();
   }
   if (!selected) line(5, 2, snapshot ? "No linked worktrees" : "Discovering worktrees…", undefined, "muted");

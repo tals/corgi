@@ -372,6 +372,14 @@ test("removal deletes a worktree and its uncommitted work but keeps the branch; 
     expect(await finished(tracker, 1)).toMatchObject({ id, path: topic, phase: "done" });
     expect(await Bun.file(join(topic, "draft")).exists()).toBe(false);
     expect((await git(f.repo, "branch", "--list", "topic")).trim()).toBe("topic");
+    // A lock that changed since the snapshot isn't the one confirmed: it stays.
+    await git(f.repo, "worktree", "unlock", locked);
+    await git(f.repo, "worktree", "lock", "--reason", "on another disk", locked);
+    const changed = await tracker.remove(runtime, 1, locked, "on a USB disk");
+    expect(await finished(tracker, 1)).toMatchObject({ id: changed, phase: "failed", error: "WorktreeLockChanged" });
+    expect(await Bun.file(join(locked, ".git")).exists()).toBe(true);
+    await git(f.repo, "worktree", "unlock", locked);
+    await git(f.repo, "worktree", "lock", "--reason", "on a USB disk", locked);
     // The lock the user saw, confirmed, removes it.
     const unlocked = await tracker.remove(runtime, 1, locked, "on a USB disk");
     expect(await finished(tracker, 1)).toMatchObject({ id: unlocked, path: locked, phase: "done" });

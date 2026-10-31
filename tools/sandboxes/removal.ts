@@ -7,9 +7,9 @@
  * - build-output: 120k ignored files, long enough to stop with Esc.
  * - docs-pass, scratch-a, scratch-b: uncommitted files; the scratch ones hold
  *   hundreds of notes, so each overview scan takes a while.
- * - usb-disk, old-session, backup: locked, so the hold ends on the lock and
- *   Enter removes it anyway; old-session's Claude Code has exited, backup's
- *   process still runs.
+ * - usb-disk, old-session, init-lock: locked, so the hold ends on the lock
+ *   and Enter removes it anyway; old-session's Claude Code has exited, and
+ *   init-lock names pid 1, the system's init, which always runs.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -50,13 +50,13 @@ export const world: World = {
       ["scratch-b", "spike/b"],
       ["usb-disk", "feature/usb"],
       ["old-session", "worktree-old-session"],
-      ["backup", "chore/backup"],
+      ["init-lock", "chore/init-lock"],
     ])
       s.git(app, "worktree", "add", "-q", "-b", branch, tree(name));
     s.git(app, "worktree", "lock", "--reason", "on a USB disk", tree("usb-disk"));
     const claude = "claude session old-session (pid 99999 start Sat Oct 31 20:02:56 2026)";
     s.git(app, "worktree", "lock", "--reason", claude, tree("old-session"));
-    s.git(app, "worktree", "lock", "--reason", "nightly backup (pid 1)", tree("backup"));
+    s.git(app, "worktree", "lock", "--reason", "init (pid 1)", tree("init-lock"));
     s.dated(40);
     s.write(join(tree("quick-fix"), "src/quick.ts"), "export const quick = true;\n");
     s.commit(tree("quick-fix"), "quick: fix it");
@@ -106,7 +106,7 @@ export const world: World = {
         ["", "build-output: long enough to press Esc and stop it"],
         ["", "docs-pass, scratch-a, scratch-b: the footer counts the files lost"],
         ["", "typo, docs-pass: their agents close first"],
-        ["", "usb-disk, old-session, backup: locked; the hold ends on the lock, Enter removes"],
+        ["", "usb-disk, old-session, init-lock: locked; the hold ends on the lock, Enter removes"],
       ]),
     ];
   },

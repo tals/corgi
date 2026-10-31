@@ -2136,6 +2136,11 @@ export class Controller {
         this.dirty = true;
         const target = confirming ? card.removal.target! : worktreeRemoval.target(ws.id, checkout, index, panes.length);
         const now = milliTimestamp();
+        // A lock that changed since its band showed isn't the one confirmed; its agents stay.
+        if (confirming && card.removal.phase === "confirm" && checkout.locked !== target.locked) {
+          card.removal.settle(now, removalReason("WorktreeLockChanged"));
+          break;
+        }
         if (!(confirming ? card.removal.confirm(now) : card.removal.press(now, target, card.removalEffect()))) break;
         try {
           for (const id of panes) await this.close(id);
@@ -7410,6 +7415,8 @@ function removalReason(err: string | null): string {
       return "it's already gone";
     case "WorktreeLocked":
       return "it's locked";
+    case "WorktreeLockChanged":
+      return "its lock changed";
     case "WorktreeInUse":
       return "a workspace is open in it";
     case "WorktreeRemoveFailed":

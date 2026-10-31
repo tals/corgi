@@ -70,6 +70,23 @@ test("the count and table hide dead worktrees but retain locked and temporarily 
     terminal.destroy();
   }
 });
+test("a locked worktree with a long name gives up room for its lock", () => {
+  const data = parseInventory(
+      "worktree /repo\0branch refs/heads/main\0\0" +
+        "worktree /repo/.worktrees/long\0branch refs/heads/worktree-a-very-long-branch-name-for-locks\0\0",
+    ),
+    state = new State(),
+    w = new Writer(),
+    terminal = new Terminal(100, 30);
+  data[1].locked = "on a USB disk";
+  try {
+    draw(w, geometry(100, 30, 28, 3, 1)!, "repo", "/repo", { ...snapshot(0), entries: data }, state);
+    terminal.feed(w.buffered());
+    expect(terminal.text()).toContain("› worktree-a-ver…  locked  0");
+  } finally {
+    terminal.destroy();
+  }
+});
 test("rows show agents at work, the comparison, age, last edit and line counts", () => {
   const data = snapshot(2),
     now = Date.UTC(2026, 9, 11),
@@ -491,6 +508,18 @@ test("holding ⌫ on a locked worktree ends on its band; Esc keeps it and Enter 
     expect(view.worktree_card.removal.phase).toBe("idle");
     expect(screen()).toContain("› topic-0  locked");
     expect(screen()).not.toContain("LOCKED");
+    // A lock that changed while its band showed isn't the one Enter confirms.
+    await hold();
+    const relocked = snapshot(2);
+    relocked.entries[1].locked = "on a USB disk";
+    report(relocked, null);
+    await (view as any).key(13);
+    expect(requests.some(r => r.op === "worktree.remove")).toBe(false);
+    expect(view.worktree_card.removal.phase).toBe("failed");
+    expect(screen()).toContain("Couldn't remove topic-0 · its lock changed");
+    report(data, null);
+    clock.advance(worktreeRemoval.message_ms + 100);
+    await view.expireInput();
     // Held again, Enter removes it, naming the lock it showed.
     await hold();
     await (view as any).key(13);
