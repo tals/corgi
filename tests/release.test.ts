@@ -380,17 +380,60 @@ test("clean removes saved releases and interrupted checkouts, but waits for a pu
   });
 });
 
-test("isolated builds reuse a local compiler with a separate local cache", () => {
+test("isolated builds keep a separate local cache and resolve ZIG from the release checkout", () => {
   const env = releaseEnvironment("/repo", "/isolated", {
     ZIG: ".tools/zig",
     ZIG_LOCAL_CACHE_DIR: "/repo/native/.zig-cache",
   });
   expect(env.ZIG).toBe("/repo/.tools/zig");
   expect(env.ZIG_LOCAL_CACHE_DIR).toBe("/isolated/native/.zig-cache");
-  const host = `${process.arch === "arm64" ? "aarch64" : "x86_64"}-${process.platform === "darwin" ? "macos" : process.platform}`;
-  expect(releaseEnvironment("/repo", "/isolated", { PATH: "/nonexistent" }).ZIG).toBe(
-    `/repo/.tools/zig-${host}-0.17.0/zig`,
-  );
+  expect(releaseEnvironment("/repo", "/isolated", { ZIG: "zig" }).ZIG).toBe("zig");
+  expect(releaseEnvironment("/repo", "/isolated", { PATH: "/nonexistent" })).toEqual({
+    PATH: "/nonexistent",
+    ZIG_LOCAL_CACHE_DIR: "/isolated/native/.zig-cache",
+  });
+});
+
+test("an isolated checkout runs the main checkout's pinned Zig", async () => {
+  await releaseFixture(async (dir, git) => {
+    await mkdir(join(dir, "scripts"));
+    await writeFile(join(dir, "scripts/zig"), await Bun.file(join(import.meta.dir, "../scripts/zig")).text());
+    await chmod(join(dir, "scripts/zig"), 0o755);
+    git("add", "scripts");
+    git("commit", "-m", "zig wrapper");
+    const host = `${process.arch === "arm64" ? "aarch64" : "x86_64"}-${process.platform === "darwin" ? "macos" : process.platform}`;
+    const pinned = join(dir, `.tools/zig-${host}-0.17.0/zig`);
+    const zig = (version: string) =>
+      `#!/bin/sh\nif [ "$1" = version ]; then echo ${version}; else echo "main checkout's zig $*"; fi\n`;
+    await mkdir(join(pinned, ".."), { recursive: true });
+    await writeFile(pinned, zig("0.17.0"));
+    await chmod(pinned, 0o755);
+    // No zig and no curl: only the main checkout's copy can answer, and a download fails at once.
+    const bin = join(dir, ".git/test-bin");
+    await mkdir(bin);
+    for (const tool of ["sh", "git", "uname", "tr", "dirname", "mkdir", "mktemp", "rm", "mv"])
+      await symlink(Bun.which(tool)!, join(bin, tool));
+    const run = (source: string) =>
+      Bun.spawnSync([join(source, "scripts/zig"), "fetch"], {
+        cwd: source,
+        env: releaseEnvironment(dir, source, { PATH: bin }),
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+    await withReleaseCheckout(dir, git("rev-parse", "HEAD"), async source => {
+      const found = run(source);
+      expect(found.stdout.toString().trim()).toBe("main checkout's zig fetch");
+      expect(await stat(join(source, ".tools")).catch(() => null)).toBeNull();
+    });
+    // A copy of another version is never used.
+    await writeFile(pinned, zig("0.16.0"));
+    await withReleaseCheckout(dir, git("rev-parse", "HEAD"), async source => {
+      const refused = run(source);
+      expect(refused.exitCode).not.toBe(0);
+      expect(refused.stdout.toString()).not.toContain("main checkout's zig");
+      expect(refused.stderr.toString()).toContain("Downloading Zig 0.17.0");
+    });
+  });
 });
 
 test("rcodesign signs for notarization and verifies, like codesign on a Mac", () => {

@@ -173,18 +173,11 @@ const os = process.platform === "darwin" ? "macos" : process.platform,
 // The release target this machine runs.
 const host = () => `${os}-${arch}`;
 export function releaseEnvironment(cwd: string, source: string, env = process.env) {
-  // Reuse the compiler (not the development build outputs) when it lives in .tools.
-  let compiler = env.ZIG;
-  if (compiler?.includes("/")) compiler = resolve(cwd, compiler);
-  if (!compiler) {
-    const zig = Bun.which("zig", { PATH: env.PATH });
-    const installed = zig && Bun.spawnSync([zig, "version"], { env, stdout: "pipe", stderr: "pipe" });
-    compiler =
-      installed && installed.exitCode === 0 && installed.stdout.toString().trim() === "0.17.0"
-        ? "zig"
-        : join(cwd, `.tools/zig-${arch}-${os}-0.17.0/zig`);
-  }
-  return { ...env, ZIG: compiler, ZIG_LOCAL_CACHE_DIR: join(source, "native/.zig-cache") };
+  // The isolated checkout is a linked worktree, so its scripts/zig finds the main checkout's compiler.
+  // It shares no build outputs.
+  const next = { ...env, ZIG_LOCAL_CACHE_DIR: join(source, "native/.zig-cache") };
+  if (next.ZIG?.includes("/")) next.ZIG = resolve(cwd, next.ZIG);
+  return next;
 }
 // The macOS SDK the native layer compiles against: Xcode's on a Mac, or a copy.
 export function macosSdk(cwd: string, config: { macosSdk?: string }, platform = process.platform) {
