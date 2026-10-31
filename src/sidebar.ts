@@ -52,6 +52,8 @@ export function unlit(entries: Entry[], spot: Spotlight | null): boolean[] {
 }
 /** The lists draw one column in: column 0 stays free for the focused list's box. */
 export const lists_x = 1;
+/** The drag grip in the middle of the rule between the lists. */
+const split_grip = " ⠶⠶⠶ ";
 /** `bytes` drawn `dx` columns further right: every cursor position moves. */
 function shiftColumns(bytes: string, dx: number): string {
   return bytes.replace(/\x1b\[(\d+);(\d+)H/g, (_, row, col) => `\x1b[${row};${Number(col) + dx}H`);
@@ -1073,11 +1075,16 @@ export class View {
       return;
     }
     if (v.drawer === null) {
-      // The rule meets the border, so an outline turns the corner. Unboxed,
-      // it's heavy and a step brighter than the rules between rows and sections.
-      const boxed = v.focus !== null;
-      w.write(`\x1b[${v.middle()};2H` + (boxed ? outline : panel + fg("faint")));
-      w.write((boxed ? "─" : "━").repeat(Math.max(0, v.width - 2)) + (boxed ? "┤" : "┥"));
+      // The rule meets the border, so an outline turns the corner. Its grip
+      // sets it apart from the section rules and the scrollbar thumb.
+      const boxed = v.focus !== null,
+        stroke = boxed ? "─" : "━",
+        run = Math.max(0, v.width - 2),
+        grip = run >= split_grip.length + 4 ? split_grip : "",
+        left = Math.floor((run - grip.length) / 2);
+      w.write(`\x1b[${v.middle()};2H` + (boxed ? outline : panel + fg("line")) + stroke.repeat(left));
+      if (grip) w.write(boxed ? grip : fg("faint") + grip + fg("line"));
+      w.write(stroke.repeat(run - left - grip.length) + (boxed ? "┤" : "┥"));
     }
     v.drawAgents(w, entries, now_ms);
   }

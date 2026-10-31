@@ -1284,14 +1284,18 @@ test("the focused list sits in a box in the focused pane's outline, sharing the 
       .split("\n")
       .map(line => line.slice(0, 28));
   const edge = (left: string, right: string) => left + "─".repeat(26) + right;
-  // Unboxed, the rule is heavy and a step brighter than the rules between rows.
+  // The rule carries a grip in its middle, unboxed or boxed.
+  const grip = " ⠶⠶⠶ ";
+  const rule = (left: string, stroke: string, right: string) =>
+    left + stroke.repeat(10) + grip + stroke.repeat(10) + right;
   let lines = box(view);
-  expect(lines[13]).toBe("  " + "━".repeat(25) + "┥");
-  expect(has(draw(view, [], []), panel + fg("faint") + "━")).toBe(true);
+  expect(lines[13]).toBe(rule("  ", "━", "┥"));
+  expect(has(draw(view, [], []), panel + fg("line") + "━")).toBe(true);
+  expect(has(draw(view, [], []), fg("faint") + grip + fg("line") + "━")).toBe(true);
   view.focus = "agents";
   lines = box(view);
   expect(lines[12]).toBe(" ".repeat(27) + "│");
-  expect(lines[13]).toBe(edge("┌", "┤"));
+  expect(lines[13]).toBe(rule("┌─", "─", "┤"));
   // The row its search opens in shows its key.
   expect(lines[15]).toBe("│ / search" + " ".repeat(17) + "│");
   expect(lines[22]).toBe("│" + " ".repeat(26) + "│");
@@ -1300,7 +1304,7 @@ test("the focused list sits in a box in the focused pane's outline, sharing the 
   view.focus = "workspaces";
   lines = box(view);
   expect(lines[1]).toBe(edge("┌", "┤"));
-  expect(lines[13]).toBe(edge("└", "┤"));
+  expect(lines[13]).toBe(rule("└─", "─", "┤"));
   expect(lines[29]).toBe(" ".repeat(27) + "│");
   expect(lines[15].trim()).toBe("│");
   expect([0, 12, 13, 29].map(y => view.outlines(y))).toEqual([false, true, true, false]);
