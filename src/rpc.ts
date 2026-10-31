@@ -18,6 +18,7 @@ export class Connection {
   private next = 1;
   private buffer = "";
   private closed: Error | null = null;
+  private listeners = new Set<(event: protocol.Event) => void>();
   constructor(path: string, init?: ConnectionInit);
   constructor(socket: Socket, init?: ConnectionInit);
   constructor(target: string | Socket, init: ConnectionInit = {}) {
@@ -67,6 +68,7 @@ export class Connection {
         case "agent.history":
         case "session":
         case "agent.preview":
+          for (const listener of this.listeners) listener(message as protocol.Event);
           return;
       }
       // An incompatible daemon can reject the version before understanding ids.
@@ -87,6 +89,12 @@ export class Connection {
     }
     const { request_id: _, ...reply } = message;
     pending.resolve(reply);
+  }
+  onEvent(listener: (event: protocol.Event) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
   request<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>> {
     // Replies are raw operation-specific JSON. Consumers normalize their model.

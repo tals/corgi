@@ -183,6 +183,7 @@ $.requests|agent.subscribe.workspace: u32
 $.requests|agent.subscribe.cwd: string
 $.requests|viewer.open: versioned protocol.Request.Open
 $.requests|viewer.sync: versioned protocol.Request.Sync
+$.requests|viewer.surfaces: {}
 $.requests|viewer.search.pane: u32
 $.requests|viewer.search.needle: string
 $.requests|viewer.search.skip: usize
@@ -856,6 +857,7 @@ $.replies.session.locate.result.closed_panes[]: u32
 $.replies.session.snapshot: any
 $.replies.viewer.open: versioned protocol.Opened
 $.replies.viewer.sync: versioned protocol.View(json.dynamic.Value,json.dynamic.Value)
+$.replies.viewer.surfaces.surfaces[]: versioned pane.surface.View
 $.replies.viewer.search.offset: optional
 $.replies.viewer.search.offset?: usize
 $.replies.viewer.search.match: optional

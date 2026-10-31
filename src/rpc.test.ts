@@ -111,6 +111,8 @@ test.each([false, true])(
         send(socket, { type: "viewer.wake" });
       } else send(socket, { request_id: message.request_id, ok: true, pid: 7 });
     });
+    const events: protocol.Event[] = [];
+    const unsubscribe = remote.conn.onEvent(event => events.push(event));
     try {
       const branches = remote.conn.call("git.branches", { workspace: 1 }).then(
         value => value,
@@ -119,7 +121,9 @@ test.each([false, true])(
       expect(await remote.conn.call("ping")).toEqual({ ok: true, pid: 7 });
       finish();
       expect(await branches).toEqual(error ? { error: "BranchesUnavailable" } : { ok: true, branches: [] });
+      expect(events.map(event => event.type)).toEqual(["session", "agent.preview", "viewer.wake"]);
     } finally {
+      unsubscribe();
       await remote.close();
     }
   },

@@ -16,6 +16,7 @@ $.open.theme?.palette[16]?.b: u8
 $.opened.viewer_protocol: u32
 $.opened.bell_seq: u64
 $.opened.workspace: u32
+$.sync.surfaces: bool
 $.sync.interests[].pane: u32
 $.sync.interests[].cols: u16
 $.sync.interests[].rows: u16

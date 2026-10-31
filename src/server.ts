@@ -548,6 +548,9 @@ export class Server {
       case "viewer.sync":
         await viewer.sync(this, cl, request.payload, reply);
         return;
+      case "viewer.surfaces":
+        viewer.surfaces(this, cl, reply);
+        return;
       case "viewer.search":
         await viewer.search(this, cl, request.payload, reply);
         return;
@@ -559,6 +562,7 @@ export class Server {
         return;
       case "viewer.watch":
         if (cl.viewer || cl.subscribed || cl.launch_preview) throw Error("AlreadyAttached");
+        viewer.targetViewer(this, request.payload.viewer);
         cl.watching = true;
         cl.watch_viewer = request.payload.viewer;
         cl.woken = this.wakeSeq(request.payload.viewer);

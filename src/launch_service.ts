@@ -72,7 +72,7 @@ export async function request(server: Server, client: Client, request: Request, 
     return;
   }
   const subscribe = request.op === "agent.subscribe";
-  if (subscribe && (client.viewer || client.subscribed)) throw Error("AlreadyAttached");
+  if (subscribe && (client.watching || client.subscribed)) throw Error("AlreadyAttached");
   const preview =
     request.op === "agent.track_usage" ? s.launch_previews.trackUsage(cwd) : s.launch_previews.preview(cwd, subscribe);
   if (subscribe) {
@@ -80,9 +80,9 @@ export async function request(server: Server, client: Client, request: Request, 
       cwd,
       preview,
       checked: Date.now(),
-      history_asked: false,
-      history_epoch: 0n,
-      history_sent: 0n,
+      history_asked: client.launch_preview?.history_asked ?? false,
+      history_epoch: client.launch_preview?.history_epoch ?? 0n,
+      history_sent: client.launch_preview?.history_sent ?? 0n,
     } satisfies Subscription;
     reply.send({ type: "agent.preview", cwd, preview });
   } else reply.send({ ok: true, preview });

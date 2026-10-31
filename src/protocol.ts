@@ -97,6 +97,7 @@ export const operations = [
   "agent.subscribe",
   "viewer.open",
   "viewer.sync",
+  "viewer.surfaces",
   "viewer.search",
   "viewer.pick",
   "viewer.image",
@@ -570,6 +571,7 @@ const requests = {
   "viewer.open": { cwd: ["string", ""], onboarding: ["bool", false], theme: ["theme", null] },
   "viewer.sync": {
     interests: "[]interest",
+    surfaces: ["bool", true],
     session_hash: ["?u64", null],
     focus: ["?u32", null],
     watched: ["bool", true],
@@ -581,6 +583,7 @@ const requests = {
     resources: ["bool", true],
     resources_hash: ["?u64", null],
   },
+  "viewer.surfaces": {},
   "viewer.search": { pane: "u32", needle: "string", skip: ["u64", 0] },
   "viewer.pick": {
     pane: "u32",
@@ -696,6 +699,7 @@ export interface ReplyPayloads {
   "session.subscribe": SessionSnapshot;
   "viewer.open": Ok & Opened;
   "viewer.sync": View<ViewerSnapshot, import("./trackers/resources").Snapshot>;
+  "viewer.surfaces": Ok & { surfaces: SurfaceView[] };
   "viewer.search": Ok & {
     offset: bigint | null;
     match?: { x: number; y: number; end_x: number; end_y: number } | null;
@@ -761,6 +765,12 @@ export type Reply<K extends Op> = WireReply<K>;
 export type PickUnit = Request<"viewer.pick">["unit"];
 /** What `viewer.pick` finds at a cell, as the native terminal and the viewer see it. */
 export type PickResult = Omit<Reply<"viewer.pick">, "ok">;
+/** Unsolicited updates share a connection with correlated replies. */
+export type Event =
+  | { type: "viewer.wake" }
+  | Wire<SessionSnapshot>
+  | Reply<"agent.subscribe">
+  | { type: "agent.history"; update: Wire<import("./launch/history").Update> };
 export type ErrorReply = { err: string; viewer_protocol?: number };
 export type Response<K extends Op> = Reply<K> | ErrorReply;
 export type Arguments<K extends Op> =

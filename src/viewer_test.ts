@@ -12,7 +12,7 @@ export async function runTest(connection: Transport, cwd = process.cwd()): Promi
   const view = new Controller(connection);
   const lines = new Lines();
   try {
-    const bell = { seq: await viewer.open(view, cwd, {}, connection.socket ?? "") };
+    const bell = { seq: await viewer.open(view, cwd, {}) };
     for (let line = await lines.next(); line !== null; line = await lines.next()) {
       const value = parse(line);
       const op = typeof value.op === "string" ? value.op : "";

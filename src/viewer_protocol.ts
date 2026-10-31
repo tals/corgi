@@ -149,15 +149,6 @@ export async function sync(s: Server, cl: Client, q: Sync, reply = new Reply(cl)
       }
     }
     await resize(s);
-    const frames: surface.View[] = [];
-    for (const interest of cl.interests) {
-      const pane = s.runtime.pane(interest.pane)!,
-        shown = pane.displayed();
-      if (interest.known && equal(interest.known, surface.stamp(shown, interest.offset ?? null))) continue;
-      const view = surface.captureView(interest.pane, shown, interest.offset ?? null);
-      if (shown !== pane.terminal) view.modes = surface.modes(pane.terminal);
-      frames.push(view);
-    }
     const bucket = Math.floor(microTimestamp() / 5e6),
       rebuild =
         cl.session_shown !== s.runtime.shown || cl.session_bucket !== bucket || q.session_hash !== cl.session_hash;
@@ -176,7 +167,7 @@ export async function sync(s: Server, cl: Client, q: Sync, reply = new Reply(cl)
       session_hash: cl.session_hash,
       resources: q.resources_hash === resourcesHash ? null : readings,
       resources_hash: resourcesHash,
-      surfaces: frames,
+      surfaces: q.surfaces ? frames(s, cl) : [],
       bell_seq: s.bell_seq,
       bell_kind: s.last_bell_kind,
       controls: cl.controls,
@@ -187,6 +178,28 @@ export async function sync(s: Server, cl: Client, q: Sync, reply = new Reply(cl)
   } finally {
     telemetry.end("daemon.viewer_sync", telemetry_started);
   }
+}
+function frames(s: Server, cl: Client): surface.View[] {
+  const frames: surface.View[] = [];
+  for (const interest of cl.interests) {
+    const pane = s.runtime.pane(interest.pane);
+    if (!pane) continue;
+    const shown = pane.displayed();
+    if (interest.known && equal(interest.known, surface.stamp(shown, interest.offset ?? null))) continue;
+    const view = surface.captureView(interest.pane, shown, interest.offset ?? null);
+    if (shown !== pane.terminal) view.modes = surface.modes(pane.terminal);
+    frames.push(view);
+  }
+  return frames;
+}
+/** The control connection owns viewer state; its data connection watches it. */
+function owner(s: Server, cl: Client): Client {
+  if (cl.viewer) return cl;
+  if (!cl.watching) throw Error("NotAttached");
+  return targetViewer(s, cl.watch_viewer);
+}
+export function surfaces(s: Server, cl: Client, reply = new Reply(cl)) {
+  reply.ok({ surfaces: frames(s, owner(s, cl)) });
 }
 export async function search(s: Server, cl: Client, q: Request<"viewer.search">, reply = new Reply(cl)) {
   const p = s.runtime.pane(q.pane);
@@ -199,9 +212,9 @@ export async function pick(s: Server, cl: Client, q: Request<"viewer.pick">, rep
   reply.ok(await p.displayed().pick(q.unit, q.x, q.y, q.to_x, q.to_y, viewport(q.offset)!));
 }
 export function image(s: Server, cl: Client, q: Request<"viewer.image">, reply = new Reply(cl)) {
-  if (!cl.viewer) throw new Error("NotAttached");
+  const viewer = owner(s, cl);
   const pane = s.runtime.pane(q.pane);
-  if (!pane || !cl.interests.some(i => i.pane === q.pane)) throw new Error("NoPane");
+  if (!pane || !viewer.interests.some(i => i.pane === q.pane)) throw new Error("NoPane");
   reply.ok({ data: pane.displayed().native({ op: "image", text: q.image, skip: q.offset }) });
 }
 /** The pane `q` names, if it still runs the agent the viewer showed. */

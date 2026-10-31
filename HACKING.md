@@ -273,6 +273,22 @@ connection on an untagged reply; subscription events remain untagged. With
 `requestIds: false` it sends one untagged request at a time, as `hello`,
 `server.reload` and `corgi rpc` do.
 
+Each viewer keeps two daemon connections in `viewer_connection.ts`. The control
+connection owns the viewer, commands, metadata and launcher/history subscriptions.
+The data connection carries pane input, surfaces, images, searches and wake
+notifications. Both use `rpc.Connection`, which delivers untagged subscription
+events separately from correlated replies. Changing folders replaces the launcher
+subscription on the control connection and keeps the history subscription.
+
+The control connection sends `viewer.sync` with `surfaces: false`; after it updates
+the viewer's interests, `viewer.surfaces` reads the corresponding frames on the
+data connection. `viewer.watch` associates that connection with the existing viewer,
+so pane sizing, focus and activity still belong to one viewer. Surface receipts
+and frame diffs keep their existing behavior. The new operation and defaulted
+`surfaces` flag are additive: runtime protocol 4 and viewer protocol 3 are unchanged,
+and older callers still receive surfaces from `viewer.sync`. Handoff already saves
+both connections and their association; no saved-format change or migration is needed.
+
 The id is optional, so a script can speak plain JSON lines or HTTP `POST`.
 Requests without one are answered in the order they were sent; a slow request
 holds that connection's later ones until it replies. Older runtime protocols
