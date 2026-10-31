@@ -4,6 +4,7 @@ PR preparation subsequently merged main `a1e9b7d`, preserving its standalone
 Codex identity handling and thicker sidebar divider. The CPU measurements and
 validation below describe the frozen `a7db85c` candidate against `8153137`;
 the full CPU matrix was not repeated after that merge.
+[Portable CPU results, updated-main validation and screenshots](evidence/terminal-costs-20261031/README.md) are included for PR review.
 
 All eight matched pairs are accepted and independently audited: 16 attached/detached cells. Compared with unmodified main, final candidate `a7db85c` uses 54.8–65.0% less daemon-plus-viewer CPU when attached and 35.0–63.9% less daemon CPU when detached. The simpler implementation retains substantial gains after removing the brittle UI caches introduced by this effort.
 
