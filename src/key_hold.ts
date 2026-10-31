@@ -23,8 +23,10 @@ export class KeyHold {
   private delay = assumed_delay_ms;
   private measured = false;
   private interval: number;
-  /** Held until then, unless the key arrives again. */
+  /** Held until then, unless the key arrives again; a key's deadline also
+   * waits out the latest `slack`. */
   private until = 0;
+  private keyed = false;
   /** Presses before this are the tail of a hold that already ended. */
   private quiet_until = -Infinity;
   /** How late the link may deliver a repeat, in ms, on top of the gaps;
@@ -55,7 +57,7 @@ export class KeyHold {
     }
     // The first repeat, even one later than the delay expected it.
     const first = this.active && !this.repeating && now - this.started <= first_repeat_ms + this.slack;
-    if (this.active && (now < this.until || first)) {
+    if (this.active && (now < this.due || first)) {
       // The key was down all along; a repeat the link held back still counts.
       this.grow(now);
       if (this.progress >= 1) {
@@ -69,12 +71,14 @@ export class KeyHold {
       }
       this.repeating = true;
       this.last = now;
-      this.until = now + this.gap + this.slack;
+      this.until = now + this.gap;
+      this.keyed = true;
       return false;
     }
     this.start(now);
     const wait = this.patient && !this.measured ? first_repeat_ms : this.delay + this.first_gap;
-    this.until = now + wait + this.slack;
+    this.until = now + wait;
+    this.keyed = true;
     return false;
   }
   /** A mouse button went down on it; it fills until `release`. */
@@ -83,6 +87,7 @@ export class KeyHold {
     this.start(now);
     this.pressed = true;
     this.until = Infinity;
+    this.keyed = false;
   }
   release(now: number): void {
     if (!this.pressed) return;
@@ -92,7 +97,7 @@ export class KeyHold {
   }
   /** Whether the key or button is still down, as far as can be told. */
   held(now: number): boolean {
-    return this.active && (this.pressed || now <= this.until);
+    return this.active && (this.pressed || now <= this.due);
   }
   /** Whether a mouse button is holding it full. */
   done(): boolean {
@@ -110,11 +115,15 @@ export class KeyHold {
   advance(now: number): void {
     if (!this.active) return;
     this.grow(this.pressed ? now : Math.min(now, this.last + (this.repeating ? this.interval : this.delay)));
-    if (now > this.until) {
-      this.progress = Math.max(0, this.progress - (now - Math.max(this.at, this.until)) / this.heal_ms);
+    const due = this.due;
+    if (now > due) {
+      this.progress = Math.max(0, this.progress - (now - Math.max(this.at, due)) / this.heal_ms);
       this.at = now;
     }
-    if (this.progress === 0 && now >= this.until) this.reset();
+    if (this.progress === 0 && now >= due) this.reset();
+  }
+  private get due(): number {
+    return this.keyed ? this.until + this.slack : this.until;
   }
   private grow(to: number): void {
     if (to <= this.at) return;
@@ -127,7 +136,7 @@ export class KeyHold {
   }
   /** Ignores the key until it has been let go. */
   quiet(now: number): void {
-    this.quiet_until = now + this.gap;
+    this.quiet_until = now + this.gap + this.slack;
   }
   reset(): void {
     this.active = false;

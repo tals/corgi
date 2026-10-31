@@ -117,3 +117,33 @@ test("repeats that arrive together count the time the key was down", () => {
   expect(stalled).toBeLessThan(0.5);
   expect(hold.progress).toBeCloseTo(0.6, 5);
 });
+
+test("a rise in slack reaches a hold already under way", () => {
+  const hold = new KeyHold(1000, 220, 150, 80);
+  hold.press(0);
+  hold.press(400);
+  expect(hold.held(600)).toBe(false);
+  hold.slack = 300;
+  expect(hold.held(600)).toBe(true);
+  hold.press(600);
+  expect(hold.progress).toBeCloseTo(0.6, 5);
+});
+
+test("a done hold stays quiet through repeats the link delivers late", () => {
+  const hold = new KeyHold(400, 220, 150, 80);
+  hold.slack = 300;
+  hold.press(0);
+  expect(hold.press(400)).toBe(true);
+  hold.reset();
+  // Held back past the gap but within the slack.
+  hold.press(800);
+  expect(hold.active).toBe(false);
+});
+
+test("a mouse release lets go at once, whatever the slack", () => {
+  const hold = new KeyHold(1000, 220);
+  hold.slack = 300;
+  hold.down(0);
+  hold.release(200);
+  expect(hold.held(201)).toBe(false);
+});
