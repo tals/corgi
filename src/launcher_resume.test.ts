@@ -11,6 +11,7 @@ import {
   ageLabel,
   collapsed_rows,
   type Account,
+  type Location,
   type Entry,
 } from "./launcher_resume";
 import * as sim from "./providers/sim";
@@ -279,14 +280,27 @@ test("Where marks branches, and a title still names the branch a conversation ra
     testEntry("a", "/w/corgi", "On main", 900),
     testEntry("b", "/w/corgi", "On feature", 800),
     testEntry("c", "/w/corgi-wt", "In the worktree", 700),
+    testEntry("e", "/w/corgi-wt", "Before the worktree", 650),
     testEntry("d", "/x/plain", "Outside git", 600),
   ];
   entries[0].branch = "main";
   entries[1].branch = "feature";
-  entries[2].branch = "wt";
-  const places: Record<string, string> = { "/w/corgi": "main", "/w/corgi-wt": "wt" };
-  const c = new Context({ pending: false, entries }, "/w/corgi", "/w", [], 1000, [], {}, cwd =>
-      places[cwd] ? { label: places[cwd], branch: true } : { label: "plain", branch: false },
+  // Where drops the worktree- prefix the branch keeps.
+  entries[2].branch = "main";
+  entries[3].branch = "worktree-wt";
+  const places: Record<string, Location> = {
+    "/w/corgi": { label: "main", branch: "main" },
+    "/w/corgi-wt": { label: "wt", branch: "worktree-wt" },
+  };
+  const c = new Context(
+      { pending: false, entries },
+      "/w/corgi",
+      "/w",
+      [],
+      1000,
+      [],
+      {},
+      cwd => places[cwd] ?? { label: "plain", branch: null },
     ),
     view = new View({ expanded: true, focused: true }),
     area = new Area(0, 1, 140, 10);
@@ -298,12 +312,14 @@ test("Where marks branches, and a title still names the branch a conversation ra
   const lines = host.text().split("\n");
   host.destroy();
   const line = (title: string) => lines.find(l => l.includes(title))!;
-  expect(line("On main")).toContain("⎇ main");
+  expect(line("On main")).toContain("⌥ main");
   expect(line("On main")).not.toContain("feature");
-  expect(line("On feature")).toMatch(/On feature +feature +⎇ main/);
-  expect(line("In the worktree")).toContain("⎇ wt");
+  expect(line("On feature")).toMatch(/On feature +feature +⌥ main/);
+  expect(line("In the worktree")).toMatch(/In the worktree +⌥ wt/);
+  expect(line("Before the worktree")).toMatch(/Before the worktree +⌥ wt/);
+  expect(line("Before the worktree")).not.toContain("worktree-wt");
   expect(line("Outside git")).toContain(" plain");
-  expect(line("Outside git")).not.toContain("⎇");
+  expect(line("Outside git")).not.toContain("⌥");
 });
 
 test("a conversation from another account ends its title with the account's name, dimmed", () => {

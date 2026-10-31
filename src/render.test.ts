@@ -808,7 +808,9 @@ test("the launcher places provider marks with host images and falls back to glyp
     icons = new Icons(),
     shown = (fields: Partial<Ui> = {}) =>
       frame(emptyView(), [], 120, 40, ui({ message: "", copy_mode: false, agent_launcher: launch, ...fields }));
+  // Codex's glyph stands in for its mark.
   expect(shown()).not.toContain("\x1b_Ga=p");
+  expect(shown()).toContain("†");
   expect(launch.marks).toBeNull();
   const graphics = { tab_icons: icons, cell_pixels: { width: 9, height: 18 } };
   launch.preview.installed.opencode2 = true;
@@ -823,7 +825,9 @@ test("the launcher places provider marks with host images and falls back to glyp
   expect(placed).not.toMatch(/\x1b\[1;\d+H\x1b_Ga=p/);
   // A sign-in over the launcher leaves its marks as glyphs.
   icons.begin();
-  expect(shown({ ...graphics, signin_draw: () => null })).not.toContain("\x1b_Ga=p");
+  const signin = shown({ ...graphics, signin_draw: () => null });
+  expect(signin).not.toContain("\x1b_Ga=p");
+  expect(signin).toContain("†");
   icons.begin();
   expect(shown()).not.toContain("\x1b_Ga=p");
   expect(launch.marks).toBeNull();

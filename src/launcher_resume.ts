@@ -60,10 +60,11 @@ export const max_open = 64;
 const session_capacity = 160;
 /** An account besides a provider's default, by the name Corgi knows it. */
 export type Account = { provider: Provider; account: string; name: string };
-/** A conversation's place in the Where column. */
-export type Location = { label: string; branch: boolean };
-/** Leads a branch name in the Where column. */
-const branch_icon = "⎇ ";
+/** A conversation's place in the Where column, and its checkout's branch
+ * as history records branches; null outside a branch. */
+export type Location = { label: string; branch: string | null };
+/** Leads a branch in the Where column, as in the sidebar's headers. */
+const branch_icon = "⌥ ";
 
 /** Where the launcher is, and what is already open. */
 export class Context {
@@ -79,7 +80,7 @@ export class Context {
     /** What each provider's default account is called, if anything. */
     public names: Readonly<Record<string, string>> = {},
     /** What Where says for a folder: its checkout's branch, else its name. */
-    public location: (cwd: string) => Location = cwd => ({ label: basename(cwd) || cwd, branch: false }),
+    public location: (cwd: string) => Location = cwd => ({ label: basename(cwd) || cwd, branch: null }),
   ) {}
   /** The name of the account `e` ran in, while there are accounts to tell
    * apart; "" for a default without a name. */
@@ -609,7 +610,7 @@ export class View {
         tag(account, Math.min(displayWidth(account), Math.floor(cols.title / 3)), selected ? palette.fg("muted") : dim);
       // Where names the checkout's branch now; this is the one it ran on.
       const branch = "entry" in line ? otherBranch(c, e) : "";
-      if (branch.length > 0 && !(where?.branch && where.label === branch))
+      if (branch.length > 0 && where?.branch !== branch)
         tag(branch, Math.min(Buffer.byteLength(branch), Math.floor(room / 2)), palette.fg("muted"));
     }
     w.write(`\x1b[${row};${col}H` + style);
@@ -617,7 +618,7 @@ export class View {
     col += cols.title + 2;
     if (where) {
       w.write(`\x1b[${row};${col}H` + palette.fg("muted"));
-      writeEllipsis(w, (where.branch ? branch_icon : "") + where.label, cols.folder - 1);
+      writeEllipsis(w, (where.branch !== null ? branch_icon : "") + where.label, cols.folder - 1);
       w.write(style);
       col += cols.folder;
     }

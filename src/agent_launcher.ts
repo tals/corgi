@@ -27,7 +27,7 @@ import { writeKey } from "./launcher_resume";
 import * as launcherWorktree from "./launcher_worktree";
 import * as worktreeFolder from "./worktree_folder";
 import * as dropdown from "./dropdown";
-import type * as worktrees from "./worktrees";
+import * as worktrees from "./worktrees";
 import type { View as SidebarView, Spotlight } from "./sidebar";
 import { Writer, displayWidth, ellipsis, writeEllipsis, sat } from "./text";
 import { Row, customs, type Launch } from "./launch/row";
@@ -527,10 +527,13 @@ export class Menu {
       now(),
       this.accounts,
       this.preview.names,
-      cwd => ({
-        label: launcherWorktree.place(this.worktrees, cwd, null).label,
-        branch: launcherWorktree.containing(this.worktrees, cwd)?.branch != null,
-      }),
+      cwd => {
+        const at = launcherWorktree.containing(this.worktrees, cwd);
+        return {
+          label: launcherWorktree.place(this.worktrees, cwd, null).label,
+          branch: at?.branch != null ? worktrees.label(at) : null,
+        };
+      },
     );
   }
   /** Where agents start: the new worktree named for them, else `cwd`. */
