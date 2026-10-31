@@ -182,6 +182,9 @@ export class Server {
     try {
       if (this.subscribedRevision === this.runtime.revision && !this.dirty) return;
       if (this.subscribedRevision !== this.runtime.revision) {
+        // Settle agent order and launch accounts before an optional snapshot.
+        if (this.runtime.raiseEntered()) this.runtime.changed();
+        for (const pane of this.runtime.panes) pane.account();
         const subscribers = this.clients.filter(c => c.subscribed && !c.dead);
         if (subscribers.length) {
           const snapshot = session.snapshot(this.runtime);
