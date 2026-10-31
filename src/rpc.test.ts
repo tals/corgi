@@ -140,6 +140,20 @@ test.each(["hello", "server.reload"] as const)("management can %s an older daemo
   }
 });
 
+test.each([false, true])("raw RPC preserves caller-supplied ids without correlation (error=%s)", async error => {
+  const query = { op: "ping", request_id: 41 };
+  const reply = { request_id: 41, ...(error ? { err: "TestFailure" } : { ok: true, pid: 7 }) };
+  const remote = await peer((message, socket) => {
+    expect(message).toEqual(query);
+    send(socket, reply);
+  }, false);
+  try {
+    expect(await remote.conn.rawRequest(query)).toEqual(reply);
+  } finally {
+    await remote.close();
+  }
+});
+
 test.each([null, "UnsupportedProtocol"])("RPC rejects the first untagged reply (%s)", async error => {
   const remote = await peer((_message, socket) => send(socket, error ? { err: error } : { ok: true }));
   try {

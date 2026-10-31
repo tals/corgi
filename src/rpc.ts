@@ -81,6 +81,10 @@ export class Connection {
     const pending = this.pending.get(id);
     if (!pending) throw Error("UnexpectedReply");
     this.pending.delete(id);
+    if (!this.requestIds) {
+      pending.resolve(message);
+      return;
+    }
     const { request_id: _, ...reply } = message;
     pending.resolve(reply);
   }
