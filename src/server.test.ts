@@ -2,8 +2,9 @@ import { test, expect, spyOn } from "bun:test";
 import { Server } from "./server";
 import * as agentModels from "./agent_models";
 import { Preview } from "./launch/preview";
-import { Pane } from "./runtime";
+import { Launch, Pane } from "./runtime";
 import { Terminal } from "./pane/terminal";
+import { Workspace } from "./workspace";
 import { captureManifest, restoreClient, restoreMetadata } from "./persist/handoff";
 import * as json from "./json";
 import * as protocol from "./protocol";
@@ -41,6 +42,81 @@ test("session snapshots are shared by subscribers and skipped without them", () 
     server.runtime.wrote();
     publish();
     expect(snapshot).toHaveBeenCalledTimes(1);
+  } finally {
+    snapshot.mockRestore();
+    dispose();
+  }
+});
+test("publishing agent entries preserves request order without snapshot subscribers", () => {
+  const { server, dispose } = fixture(),
+    snapshot = spyOn(session, "snapshot"),
+    workspace = new Workspace(1, "/tmp"),
+    publish = () => Reflect.get(server, "publish").call(server),
+    output: unknown[] = [];
+  server.runtime.workspaces.items.push(workspace);
+  const panes = ["first", "second"].map(title => {
+    const id = workspace.model.newTab(title),
+      pane = new Pane(id, new Terminal(20, 4), "/tmp");
+    server.runtime.panes.push(pane);
+    return pane;
+  });
+  const ordered = () =>
+    workspace.agent_order
+      .slice()
+      .filter(target => "pane" in target && server.runtime.pane(target.pane)!.agent().provider);
+  try {
+    publish();
+    // Hook requests arrive in the reverse of tab order, before any daemon tick.
+    for (const pane of panes.toReversed()) {
+      pane.agent().provider = "claude";
+      pane.agent().state = "working";
+      server.runtime.changed();
+      const before = server.runtime.revision;
+      publish();
+      expect(ordered()[0]).toEqual({ pane: pane.id });
+      expect(server.runtime.revision).toBe(before + 1n);
+      publish();
+      expect(server.runtime.revision).toBe(before + 1n);
+      expect(snapshot).not.toHaveBeenCalled();
+    }
+    expect(ordered()).toEqual(panes.map(pane => ({ pane: pane.id })));
+    expect(panes.map(pane => workspace.model.tabForPane(pane.id))).toEqual([0, 1]);
+
+    server.clients.push({ subscribed: true, queue: (value: unknown) => output.push(value) } as any);
+    panes[0].agent().state = "idle";
+    panes[0].agent().attention = "finished";
+    server.runtime.changed();
+    const before = server.runtime.revision;
+    publish();
+    expect(server.runtime.revision).toBe(before + 1n);
+    expect(snapshot).toHaveBeenCalledTimes(1);
+    expect(output).toHaveLength(1);
+    publish();
+    expect(server.runtime.revision).toBe(before + 1n);
+    expect(snapshot).toHaveBeenCalledTimes(1);
+  } finally {
+    snapshot.mockRestore();
+    dispose();
+  }
+});
+test("publishing resolves relative launch accounts before the pane changes directory", () => {
+  const { server, dispose } = fixture(),
+    snapshot = spyOn(session, "snapshot"),
+    workspace = new Workspace(1, "/a"),
+    pane = new Pane(workspace.model.newTab("custom agent"), new Terminal(20, 4), "/a"),
+    publish = () => Reflect.get(server, "publish").call(server);
+  server.runtime.workspaces.items.push(workspace);
+  server.runtime.panes.push(pane);
+  pane.launch = new Launch(undefined, "CLAUDE_CONFIG_DIR=acct claude");
+  try {
+    publish();
+    pane.cwd = "/b";
+    expect(pane.account()).toBe("/a/acct");
+    expect(new Launch(undefined, "CLAUDE_CONFIG_DIR=acct claude").account("claude", pane.cwd)).toBe("/b/acct");
+    server.runtime.changed();
+    publish();
+    expect(pane.account()).toBe("/a/acct");
+    expect(snapshot).not.toHaveBeenCalled();
   } finally {
     snapshot.mockRestore();
     dispose();
