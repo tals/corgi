@@ -261,13 +261,7 @@ export class Server {
     this.timer = setInterval(() => {
       if (this.collecting || this.frozen) return;
       const now = performance.now();
-      if (
-        now - this.collected < 250 &&
-        !this.dirty &&
-        !this.runtime.panes.some(p => p.terminal.due() || p.ghost !== null) &&
-        !this.runtime.sessions.some(s => !s.exited)
-      )
-        return;
+      if (now - this.collected < 250 && !this.urgent()) return;
       this.collected = now;
       this.collecting = true;
       this.enqueue(async () => {
@@ -278,6 +272,18 @@ export class Server {
         }
       });
     }, 50);
+  }
+  /** Whether the next collect can't wait for the idle cadence. */
+  private urgent(): boolean {
+    return (
+      this.dirty ||
+      this.bell ||
+      this.runtime.renames.length > 0 ||
+      this.runtime.wanted_names.length > 0 ||
+      this.clients.some(c => c.launch_preview !== null || c.headless_start !== null) ||
+      this.runtime.panes.some(p => p.terminal.due() || p.ghost !== null) ||
+      this.runtime.sessions.some(s => !s.exited)
+    );
   }
   pause(): void {
     this.frozen = true;

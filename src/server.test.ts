@@ -160,6 +160,19 @@ test("idle collection uses elapsed time and still collects on the first timer ti
     tick();
     await Reflect.get(server, "jobs");
     expect(collect).toHaveBeenCalledTimes(3);
+
+    // A pending bell doesn't wait for the idle cadence.
+    server.dirty = false;
+    monotonic.mockReturnValue(300);
+    server.bell = true;
+    tick();
+    await Reflect.get(server, "jobs");
+    expect(collect).toHaveBeenCalledTimes(4);
+    server.bell = false;
+    monotonic.mockReturnValue(350);
+    tick();
+    await Reflect.get(server, "jobs");
+    expect(collect).toHaveBeenCalledTimes(4);
   } finally {
     interval.mockRestore();
     collect.mockRestore();
