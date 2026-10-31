@@ -1,5 +1,9 @@
 // Mirrors the tests in agent_launcher.zig.
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import * as accounts from "./accounts";
 import { Menu, Row, commandEntry, keyAgent, preview, resolution, returned } from "./agent_launcher";
 import { View as SidebarView } from "./sidebar";
 import { analyze } from "./launch/command";
@@ -16,6 +20,20 @@ const menu = (fields: Partial<Menu> = {}) => {
   return value;
 };
 const now = () => Math.floor(Date.now() / 1000);
+// The user's saved accounts and launch options would change what rows show.
+let state = "";
+const base = process.env.CORGI_ENV_BASE;
+beforeEach(() => {
+  state = mkdtempSync(join(tmpdir(), "corgi-launcher-"));
+  process.env.CORGI_ENV_BASE = state;
+  accounts.reset();
+});
+afterEach(() => {
+  if (base === undefined) delete process.env.CORGI_ENV_BASE;
+  else process.env.CORGI_ENV_BASE = base;
+  accounts.reset();
+  rmSync(state, { recursive: true, force: true });
+});
 test("an explicit clone model uses its display name in the launcher", () => {
   const m = menu({
     profiles: [
