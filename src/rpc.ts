@@ -71,14 +71,9 @@ export class Connection {
           for (const listener of this.listeners) listener(message as protocol.Event);
           return;
       }
-      // An incompatible daemon can reject the version before understanding ids.
-      switch (message.err) {
-        case "UnsupportedProtocol":
-        case "UnsupportedViewerProtocol":
-        case "ProtocolRequired":
-          throw Error(message.err);
-      }
-      throw Error("UnexpectedReply");
+      // An untagged error (a rejected version, a line the daemon could not
+      // parse) answers no one request; it fails the connection under its name.
+      throw Error(typeof message.err === "string" ? message.err : "UnexpectedReply");
     }
     const pending = this.pending.get(id);
     if (!pending) throw Error("UnexpectedReply");

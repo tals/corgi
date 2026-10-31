@@ -73,9 +73,17 @@ test("a viewer shares two connections across requests, subscriptions, and pane c
     const control = received.find(r => r.op === "viewer.open")!.socket,
       data = received.find(r => r.op === "viewer.watch")!.socket;
     expect(control).not.toBe(data);
-    for (const op of ["viewer.open", "viewer.sync", "agent.subscribe", "agent.history", "git.branches", "ping"])
+    for (const op of [
+      "viewer.open",
+      "viewer.sync",
+      "agent.subscribe",
+      "agent.history",
+      "git.branches",
+      "session.command",
+      "ping",
+    ])
       expect(received.filter(r => r.op === op).every(r => r.socket === control)).toBe(true);
-    for (const op of ["viewer.watch", "viewer.surfaces", "viewer.image", "viewer.pick", "session.command"])
+    for (const op of ["viewer.watch", "viewer.surfaces", "viewer.image", "viewer.pick"])
       expect(received.filter(r => r.op === op).every(r => r.socket === data)).toBe(true);
     expect(received.find(r => r.op === "viewer.sync")!.surfaces).toBe(false);
     expect(events.map(e => e.type).sort()).toEqual(["agent.history", "agent.preview", "agent.preview", "viewer.wake"]);
@@ -83,6 +91,52 @@ test("a viewer shares two connections across requests, subscriptions, and pane c
     unsubscribe();
     connection.close();
     await syncing?.catch(() => {});
+    for (const socket of sockets) socket.destroy();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a refused watch leaves the viewer syncing and is asked again", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-viewer-rpc-")),
+    path = join(dir, "rpc.sock"),
+    sockets: Socket[] = [];
+  let watches = 0;
+  const server = createServer(socket => {
+    sockets.push(socket);
+    let buffer = "";
+    socket.setEncoding("utf8");
+    socket.on("data", chunk => {
+      buffer += chunk;
+      for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
+        const q = json.parse(buffer.slice(0, end));
+        buffer = buffer.slice(end + 1);
+        const reply = (value: object) => socket.write(json.stringify({ request_id: q.request_id, ...value }) + "\n");
+        switch (q.op) {
+          case "viewer.sync":
+            reply({ type: "view", viewer_protocol: protocol.viewer_version, viewer: 1, surfaces: [] });
+            break;
+          case "viewer.watch":
+            reply(++watches === 1 ? { err: "NoViewer" } : { ok: true });
+            break;
+          default:
+            reply({ ok: true, surfaces: [] });
+        }
+      }
+    });
+  });
+  await new Promise<void>(resolve => server.listen(path, resolve));
+  const connection = new Connection(path);
+  try {
+    expect(await connection.request("viewer.sync", { interests: [] })).toMatchObject({ viewer: 1 });
+    expect(connection.watches()).toBe(false);
+    await connection.request("viewer.sync", { interests: [] });
+    expect(watches).toBe(2);
+    expect(connection.watches()).toBe(true);
+    await connection.request("viewer.sync", { interests: [] });
+    expect(watches).toBe(2);
+  } finally {
+    connection.close();
     for (const socket of sockets) socket.destroy();
     await new Promise<void>(resolve => server.close(() => resolve()));
     rmSync(dir, { recursive: true, force: true });

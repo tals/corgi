@@ -31,6 +31,8 @@ import {
 export interface Transport {
   socket?: string;
   onEvent?(listener: (event: protocol.Event) => void): () => void;
+  /** Whether the daemon sends this viewer `viewer.wake`. */
+  watches?(): boolean;
   request<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>>;
 }
 /** An RPC call that throws the daemon's error name, as Zig's `call` does. */

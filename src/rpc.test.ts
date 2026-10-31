@@ -232,7 +232,9 @@ test.each(["unknown", "duplicate", "untagged", "view", "disconnect"])(
       expect(results.map(result => result.status)).toEqual(["rejected", "rejected"]);
       for (const result of results)
         if (result.status === "rejected")
-          expect(result.reason.message).toBe(kind === "disconnect" ? "ConnectionClosed" : "UnexpectedReply");
+          expect(result.reason.message).toBe(
+            kind === "disconnect" ? "ConnectionClosed" : kind === "untagged" ? "InvalidJson" : "UnexpectedReply",
+          );
     } finally {
       await remote.close();
     }

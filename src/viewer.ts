@@ -435,7 +435,7 @@ export async function run(
         // changed, or often enough that it still counts this viewer as watching.
         const pane_due = woken !== null && now >= wakeDue();
         if (view.dirty || now >= next_sync || pane_due || (held && ready(probe))) {
-          if (!connection.onEvent || view.dirty || pane_due || now - synced >= quiet_sync_ms) {
+          if (!connection.watches?.() || view.dirty || pane_due || now - synced >= quiet_sync_ms) {
             // A wake during the sync may be past what it brings: keep it.
             woken = null;
             synced = now;
