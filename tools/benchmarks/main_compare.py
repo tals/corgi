@@ -34,6 +34,10 @@ DIAGNOSTICS = dict(inter_leg_gap_seconds=60, window_start_separation_seconds=300
 read, save, sha = agent_scale.read, agent_scale.save, agent_scale.sha
 
 
+def timing(settings):
+    return {key: settings[key] for key in ("warmup", "seconds")}
+
+
 def now():
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
@@ -148,7 +152,7 @@ def metric(row):
 
 def report(output, directories):
     pairs, rows, excluded, plans, expected = {}, [], [], [], set()
-    identity = None
+    identity = timings = None
     for directory in directories:
         directory = directory.resolve()
         plan_path = directory / "plan.json"
@@ -156,8 +160,12 @@ def report(output, directories):
         if plan.get("schema") != "corgi-main-compare-plan-v1":
             raise ValueError("Expected a main/candidate paired plan")
         contract = plan["contract"]
-        if contract["settings"] != SETTINGS or contract["diagnostics"] != DIAGNOSTICS:
+        settings = contract["settings"]
+        if {**settings, **timing(SETTINGS)} != SETTINGS or contract["diagnostics"] != DIAGNOSTICS:
             raise ValueError("Measurement settings differ from the paired protocol")
+        if timings is not None and timing(settings) != timings:
+            raise ValueError("Cannot merge runs with different warmups or sample lengths")
+        timings = timing(settings)
         if contract["preflight"] != ["64-idle", "64-busy"]:
             raise ValueError("Required correctness preflights differ")
         current = compatibility(contract)
@@ -177,7 +185,7 @@ def report(output, directories):
             expected.add(case)
             if contract["orders"][case] != order(case):
                 raise ValueError(f"Pair order differs from prospective full-matrix indices: {case}")
-            legs = {role: load_leg(directory, contract, case, role) for role in ROLES}
+            legs = {role: load_leg(directory, contract, case, role, settings["warmup"], settings["seconds"]) for role in ROLES}
             if any(leg is None for leg in legs.values()):
                 excluded.append(dict(case=case, run=str(directory), reason="Incomplete or unaccepted pair",
                                      accepted_roles=[role for role, leg in legs.items() if leg is not None]))
@@ -236,7 +244,7 @@ def report(output, directories):
                                        frequency="Diagnostic only; reported kHz is not effective execution cycles; no frequency normalization or rejection",
                                        preflight_excluded=True))
     lines = ["# Unmodified main versus rebased candidate", "",
-             "Each row is one matched pair of 60-second observations after 30-second warmups, not a confidence interval or causal effect estimate.",
+             f"Each row is one matched pair of {timings['seconds']}-second observations after {timings['warmup']}-second warmups, not a confidence interval or causal effect estimate.",
              "CPU is percent of one logical CPU, including all daemon/viewer threads. Providers and harness are excluded; detached viewers exited (—).", "",
              "| Agents | State | Viewer | Main daemon | Candidate daemon | Main viewer | Candidate viewer | Main total | Candidate total | Total change (pp) | Total reduction | Main child* | Candidate child* |",
              "| ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
@@ -281,7 +289,8 @@ def run(args):
     cases = selection(args.counts, args.workloads)
     contract = dict(binaries=binaries, main_base=main_base,
                     head=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-                    sources={name: sha(ROOT / name) for name in SOURCES}, settings=SETTINGS, diagnostics=DIAGNOSTICS,
+                    sources={name: sha(ROOT / name) for name in SOURCES},
+                    settings={**SETTINGS, "warmup": args.warmup, "seconds": args.seconds}, diagnostics=DIAGNOSTICS,
                     node=args.node, cpus=placement["cpus"], placement_sha256=sha(args.placement_receipt),
                     cases=cases, orders={case: order(case) for case in cases}, preflight=["64-idle", "64-busy"])
     output = args.output.resolve()
@@ -300,7 +309,7 @@ def run(args):
             destination.write_bytes((ROOT / name).read_bytes())
     jobs = [(f"preflight/{case}", role, 3, 3) for case in contract["preflight"] for role in order(case)]
     if not args.preflight_only:
-        jobs.extend((case, role, 30, 60) for case in cases for role in order(case))
+        jobs.extend((case, role, args.warmup, args.seconds) for case in cases for role in order(case))
     env = dict(os.environ)
     for key in ("CORGI_NATIVE_ROOT", "BUN_OPTIONS"):
         env.pop(key, None)
@@ -350,6 +359,8 @@ def main():
     execute.add_argument("--placement-receipt", type=Path, required=True)
     execute.add_argument("--counts", default="4,8,32,64")
     execute.add_argument("--workloads", default="idle,busy")
+    execute.add_argument("--warmup", type=int, default=SETTINGS["warmup"], help="Seconds; shorter runs are noisier")
+    execute.add_argument("--seconds", type=int, default=SETTINGS["seconds"], help="Sample seconds per phase")
     execute.add_argument("--preflight-only", action="store_true")
     execute.add_argument("--resume", action="store_true")
     summary = commands.add_parser("report")

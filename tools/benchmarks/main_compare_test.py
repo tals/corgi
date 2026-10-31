@@ -225,7 +225,7 @@ class MainCompareTest(unittest.TestCase):
             paired.save(pilot, dict(status="selected", selection=dict(node=0, cpus="48-55")))
             args = argparse.Namespace(main=root / "main", candidate=root / "candidate", output=root / "run",
                                       node=0, cpus="48-55", placement_receipt=pilot, counts="8", workloads="idle,busy",
-                                      preflight_only=True, resume=False)
+                                      preflight_only=True, resume=False, warmup=30, seconds=60)
             calls, clock = [], [START]
 
             def execute(command, **_kwargs):
