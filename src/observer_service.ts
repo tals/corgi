@@ -232,6 +232,13 @@ export function claimPane(server: Server, query: Request<"pane.agent">) {
 }
 export function detectPane(server: Server, pane: Pane, observedJob?: detection.Job | null) {
   const telemetry_started = telemetry.begin();
+  try {
+    detect(server, pane, observedJob);
+  } finally {
+    telemetry.end("agent.detect", telemetry_started);
+  }
+}
+function detect(server: Server, pane: Pane, observedJob?: detection.Job | null) {
   const runtime = server.runtime,
     workers = start(server),
     worker = workers.summaries;
@@ -322,7 +329,6 @@ export function detectPane(server: Server, pane: Pane, observedJob?: detection.J
   if (!claim) pane.resume_hint.observe(pane.agent());
   if (generation !== pane.attachment.generation || !Bun.deepEquals(before, pane.agent().comparison())) changed(server);
   attention(server, ding, pane.agent().state);
-  telemetry.end("agent.detect", telemetry_started);
 }
 /** The live pane that shows `provider`'s `session`, if one does. */
 function showing(runtime: Runtime, provider: Provider, session: string) {

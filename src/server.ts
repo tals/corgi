@@ -354,8 +354,15 @@ export class Server {
     }
   }
   private async collect(): Promise<void> {
-    const telemetry_started = telemetry.begin();
     if (this.stopped || this.frozen) return;
+    const telemetry_started = telemetry.begin();
+    try {
+      await this.collectNow();
+    } finally {
+      telemetry.end("daemon.collect", telemetry_started);
+    }
+  }
+  private async collectNow(): Promise<void> {
     if (this.owner && Date.now() - this.ownerChecked >= 1000) {
       this.ownerChecked = Date.now();
       if (!running(this.owner)) {
@@ -443,7 +450,6 @@ export class Server {
       }
     }
     this.publish();
-    telemetry.end("daemon.collect", telemetry_started);
   }
   async request(cl: Client, value: unknown): Promise<void | "deferred"> {
     const op = protocol.parse(value);
