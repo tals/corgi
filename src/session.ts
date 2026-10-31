@@ -315,11 +315,7 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
     }
     case "workspace.edit": {
       const ws = r.getWorkspace(request.payload.target);
-      await r.workspaces.edit(
-        request.payload.target,
-        request.payload.name ?? ws.customName(),
-        request.payload.cwd ?? ws.cwd,
-      );
+      await r.workspaces.edit(request.payload.target, request.payload.name ?? ws.customName(), request.payload.cwd);
       break;
     }
     case "workspace.close":

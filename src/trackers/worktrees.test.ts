@@ -299,8 +299,8 @@ test("a scan cannot follow a workspace through a directory edit, even when it re
       result: { common_dir: "/project/.git", entries: [], agents: [], base: null, stale: false },
     },
   ];
-  workspace.follow("/elsewhere");
-  workspace.follow("/project");
+  workspace.move("/elsewhere");
+  workspace.move("/project");
   expect(tracker.apply(runtime)).toBe(false);
   expect(workspace.worktrees).toBeNull();
   tracker.close();

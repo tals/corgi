@@ -1,7 +1,7 @@
 //! Herdr read-only discovery and copy transactions.
 import * as breadcrumbs from "../breadcrumbs";
 import { createConnection } from "node:net";
-import { readdirSync, statSync, mkdirSync, writeFileSync, rmSync, readlinkSync } from "node:fs";
+import { readdirSync, statSync, mkdirSync, writeFileSync, rmSync, readlinkSync, realpathSync } from "node:fs";
 import { join, isAbsolute, basename } from "node:path";
 import { Runtime, Pane, Create } from "../runtime";
 import { Model, Tab, max_panes, max_workspaces } from "../layout";
@@ -204,6 +204,14 @@ export function clearTree(model: Model, index: number): void {
     clearTree(model, node.split.second);
   }
   model.nodes[index] = null;
+}
+/** A folder as the kernel reports it, or as given when it's gone. */
+function resolved(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
 }
 export function ratio(value: any): number {
   return typeof value === "number" && Number.isFinite(value)
@@ -696,7 +704,8 @@ export class Job {
     for (const snapshot of snapshots) {
       const cwd = text(snapshot, "identity_cwd");
       if (!isAbsolute(cwd)) throw Error("InvalidHerdrDirectory");
-      const ws = new Workspace(this.staged.workspaces.next_id++, cwd);
+      // Panes report resolved folders.
+      const ws = new Workspace(this.staged.workspaces.next_id++, resolved(cwd));
       ws.rename(text(snapshot, "custom_name"));
       const tabs = list(snapshot.tabs);
       if (!tabs.length) throw Error("InvalidHerdrLayout");

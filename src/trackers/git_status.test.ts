@@ -59,7 +59,7 @@ test("background result cannot follow a workspace into a different directory", (
       commits: new Commits(),
     },
   ];
-  w.follow("/after");
+  w.move("/after");
   expect(t.apply(s)).toBe(false);
   expect(w.git_ahead).toBeNull();
   expect(w.git_ref.head).toBe("");

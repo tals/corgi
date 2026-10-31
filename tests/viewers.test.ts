@@ -719,11 +719,12 @@ class ViewerScenarios extends Viewers {
     this.assertEqual((await b.poll()).pane, first);
   }
 
-  async test_workspace_name_uses_first_tab_in_both_viewers() {
+  async test_workspace_name_keeps_chosen_folder_in_both_viewers() {
     const one = join(this.temp.name, "one"),
       two = join(this.temp.name, "two");
     mkdirSync(one);
     mkdirSync(two);
+    await this.command("workspace.edit", { target: (await this.session()).workspaces[0].id, cwd: one });
     const first = (await this.open_pane({ cwd: one, command: "exec /bin/sh" })).pane;
     const second = (await this.open_pane({ cwd: two, command: "exec /bin/sh" })).pane;
     const a = await this.newViewer(),
@@ -748,13 +749,13 @@ class ViewerScenarios extends Viewers {
       screen_text((await a.poll()).data, 100, 30)[2]
         .slice(2, 27)
         .trim(),
-      "two",
+      "one",
     );
     this.assertEqual(
       screen_text((await b.poll()).data, 100, 30)[2]
         .slice(2, 27)
         .trim(),
-      "two",
+      "one",
     );
     await b.input("\x02Wr");
     await b.input("Custom\r");
@@ -767,7 +768,7 @@ class ViewerScenarios extends Viewers {
       screen_text((await a.poll()).data, 100, 30)[2]
         .slice(2, 27)
         .trim(),
-      "two",
+      "one",
     );
     await a.action("new");
     this.assertEqual((await this.session()).panes.find((p: any) => p.id === a.state.pane).cwd, realpathSync(one));

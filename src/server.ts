@@ -139,7 +139,6 @@ export class Server {
     this.bindPanes();
     this.dirty = true;
     await this.saveWorkspaces();
-    await this.followWorkspaceDirectories();
     return { ...protocol.emptyResult(), ...result };
   }
   private bindPanes(): void {
@@ -153,19 +152,6 @@ export class Server {
         });
         pane.terminal.on("ioError", error => console.error("terminal:", error));
       }
-  }
-  private async followWorkspaceDirectories(): Promise<void> {
-    let changed = false;
-    for (const w of this.runtime.workspaces.items)
-      if (w.model.count) {
-        const p = this.runtime.pane(w.model.firstPane(w.model.tabs[0].root));
-        if (p) changed = w.follow(p.cwd) || changed;
-      }
-    if (changed) {
-      this.runtime.refreshed();
-      this.dirty = true;
-      await this.saveWorkspaces();
-    }
   }
   private wakeSeq(id: number): bigint {
     let seq = this.runtime.shown + this.bell_seq;
@@ -371,7 +357,6 @@ export class Server {
         if (p.keepFailed()) this.dirty = true;
       } else if (p.terminal.exited && !p.dormant) this.runtime.close(p.id);
     }
-    await this.followWorkspaceDirectories();
     this.runtime.reapStopped();
     if (this.runtime.raiseEntered()) this.runtime.changed();
     await this.runtime.advanceRenames(clock.milliTimestamp());
