@@ -32,6 +32,17 @@ export interface Column {
   lost: boolean;
 }
 
+/** The most a slow link stretches a key hold's gaps. */
+const max_jitter_ms = 500;
+
+/** How late a key may arrive over the link to the host, as TCP sets its
+ * retransmit timeout past the mean: four deviations of the answer time.
+ * Nothing for a host that hasn't answered. */
+export function jitter(pacer: Pacer | null): number {
+  const t = pacer?.timing;
+  return t ? Math.min(max_jitter_ms, 4 * t.sd) : 0;
+}
+
 export class Pacer {
   /** When the unanswered request was written. */
   private asked: number | null = null;

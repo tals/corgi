@@ -589,14 +589,14 @@ test("the enter key stays lit while held and a moment after", () => {
   d.animate(1000);
   expect(d.lit).toBe(1);
   expect(drawn()).toContain(cap);
-  // The tap's release shows 80 ms past the assumed repeat delay; the key
-  // stays lit 200 ms more, fading over the last 80.
-  for (let now = 1016; now <= 1600; now += 16) d.animate(now);
+  // The tap's release shows after the longest repeat delay, as none has
+  // been measured; the key stays lit 200 ms more, fading over the last 80.
+  for (let now = 1016; now <= 2110; now += 16) d.animate(now);
   expect(d.lit).toBe(1);
-  d.animate(1640);
+  d.animate(2150);
   expect(d.lit).toBeGreaterThan(0);
   expect(d.lit).toBeLessThan(1);
-  d.animate(1700);
+  d.animate(2200);
   expect(d.lit).toBe(0);
   expect(drawn()).not.toContain(cap);
 });

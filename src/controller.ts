@@ -92,7 +92,7 @@ import { Drag as WorkspaceDrag } from "./workspace_drag";
 import { milliTimestamp, microTimestamp } from "./clock";
 import * as ghosttyIntegration from "./ghostty_integration";
 import * as hostClipboard from "./host_clipboard";
-import type { Pacer } from "./frame_pacing";
+import * as framePacing from "./frame_pacing";
 import * as pasteCard from "./paste_card";
 import * as panel from "./review/panel";
 import * as summaries from "./review/summaries";
@@ -301,7 +301,7 @@ export class Controller {
   /** The host terminal's clipboard, read over SSH; the paste being read goes to `paste_target`. */
   host_clipboard: hostClipboard.State | null = null;
   /** The host terminal's frame pacing, for Terminal capabilities. */
-  host_pacer: Pacer | null = null;
+  host_pacer: framePacing.Pacer | null = null;
   paste_target: Paste | null = null;
   /** Why a paste brought no image, over the pane it was meant for. */
   paste_card: PasteCard | null = null;
@@ -4350,6 +4350,8 @@ export class Controller {
     }
     if (this.name_dialog) {
       this.fitNameDialog();
+      if (this.name_dialog instanceof newWorkspace.Dialog)
+        this.name_dialog.create.slack = framePacing.jitter(this.host_pacer);
       switch (this.name_dialog.key(byte)) {
         case "save":
           await this.finishName(true);
