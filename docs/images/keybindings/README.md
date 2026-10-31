@@ -8,6 +8,9 @@ export. The editors are cropped to their actual 60 by 21-cell dialogs.
 - `help-small.png`: 48 by 28 cells, with Panes following Tabs and scrolling.
 - `shortcut-editor.png`: alternate shortcuts, prefix toggle and recorder.
 - `range-editor.png`: a direct range with combined modifiers and Use defaults.
+- `recorded-shortcut-editor.png`: New tab after recording Ctrl+Alt+N, ready to save.
+- `modifiers-open-editor.png`: Select tab mid-edit, with Ctrl and Alt checked in
+  the open modifier menu.
 
 The range screenshot shows an unsaved edit. The narrower help captures follow
 Cancel, so they retain the preset bindings. No live accounts or personal
@@ -34,4 +37,24 @@ resize 80x36
 style help-narrow
 resize 48x28
 style help-small
+```
+
+The mid-edit captures use a fresh viewer:
+
+```text
+size 112x46
+key ctrl+b ? ctrl+e
+key enter
+clicktext "Use prefix"
+clicktext Record
+key alt+ctrl+n
+style recorded-shortcut-editor
+key esc
+key /
+type Select tab
+key enter enter
+clicktext "Use prefix"
+clicktext None
+key space down space
+style modifiers-open-editor
 ```
