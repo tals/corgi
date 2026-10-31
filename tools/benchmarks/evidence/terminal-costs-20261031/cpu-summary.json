@@ -1,0 +1,1821 @@
+{
+  "schema": "corgi-main-compare-v1",
+  "rows": [
+    {
+      "agents": 4,
+      "state": "idle",
+      "attached": true,
+      "pair": "4-idle",
+      "main": {
+        "daemon_cpu": 4.849842501526425,
+        "viewer_cpu": 2.916571951089774,
+        "total_cpu": 7.766414452616198,
+        "daemon_waited_child_cpu": 0.6999772682615459,
+        "daemon_user_cpu": 2.7665768221765856,
+        "daemon_system_cpu": 2.0832656793498385,
+        "viewer_user_cpu": 2.3665898117414166,
+        "viewer_system_cpu": 0.5499821393483573,
+        "started_at": "2026-10-31T01:49:29.980Z",
+        "finished_at": "2026-10-31T01:50:29.981949+00:00",
+        "seconds": 60.001948498,
+        "selected_busy_weighted_observed_khz": 2158665.730567457
+      },
+      "candidate": {
+        "daemon_cpu": 1.566658414084583,
+        "viewer_cpu": 1.1833271000000571,
+        "total_cpu": 2.7499855140846403,
+        "daemon_waited_child_cpu": 0.6999963126760902,
+        "daemon_user_cpu": 0.7333294704225707,
+        "daemon_system_cpu": 0.8333289436620123,
+        "viewer_user_cpu": 0.9833281535211742,
+        "viewer_system_cpu": 0.19999894647888283,
+        "started_at": "2026-10-31T01:52:41.753Z",
+        "finished_at": "2026-10-31T01:53:41.753316+00:00",
+        "seconds": 60.000316058,
+        "selected_busy_weighted_observed_khz": 1972325.8269361192
+      },
+      "candidate_minus_main_percentage_points": {
+        "daemon_cpu": -3.2831840874418416,
+        "viewer_cpu": -1.7332448510897167,
+        "total_cpu": -5.016428938531558
+      },
+      "candidate_reduction_percent": {
+        "daemon_cpu": 67.69671564403386,
+        "viewer_cpu": 59.427467594005066,
+        "total_cpu": 64.59131133340072
+      },
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "window_start_separation_seconds": 191.77300000190735,
+      "observed_frequency_relative_difference": 0.09447724158274849,
+      "diagnostic_flags": [
+        "observed frequency differs by more than 5%; diagnostic only"
+      ]
+    },
+    {
+      "agents": 4,
+      "state": "idle",
+      "attached": false,
+      "pair": "4-idle",
+      "main": {
+        "daemon_cpu": 2.23323092372788,
+        "viewer_cpu": null,
+        "total_cpu": 2.23323092372788,
+        "daemon_waited_child_cpu": 0,
+        "daemon_user_cpu": 1.2332767787750971,
+        "daemon_system_cpu": 0.999954144952782,
+        "viewer_user_cpu": null,
+        "viewer_system_cpu": null,
+        "started_at": "2026-10-31T01:51:01.064Z",
+        "finished_at": "2026-10-31T01:52:01.066751+00:00",
+        "seconds": 60.00275142899999,
+        "selected_busy_weighted_observed_khz": 1959770.1749184125
+      },
+      "candidate": {
+        "daemon_cpu": 1.3499466848456423,
+        "viewer_cpu": null,
+        "total_cpu": 1.3499466848456423,
+        "daemon_waited_child_cpu": 0,
+        "daemon_user_cpu": 0.6499743297404951,
+        "daemon_system_cpu": 0.6999723551051481,
+        "viewer_user_cpu": null,
+        "viewer_system_cpu": null,
+        "started_at": "2026-10-31T01:54:12.905Z",
+        "finished_at": "2026-10-31T01:55:12.907370+00:00",
+        "seconds": 60.00236965599999,
+        "selected_busy_weighted_observed_khz": 2381510.43527225
+      },
+      "candidate_minus_main_percentage_points": {
+        "daemon_cpu": -0.8832842388822375,
+        "viewer_cpu": null,
+        "total_cpu": -0.8832842388822375
+      },
+      "candidate_reduction_percent": {
+        "daemon_cpu": 39.55185419910772,
+        "viewer_cpu": null,
+        "total_cpu": 39.55185419910772
+      },
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "window_start_separation_seconds": 191.84100008010864,
+      "observed_frequency_relative_difference": 0.21519883594074746,
+      "diagnostic_flags": [
+        "observed frequency differs by more than 5%; diagnostic only"
+      ]
+    },
+    {
+      "agents": 4,
+      "state": "streaming",
+      "attached": true,
+      "pair": "4-busy",
+      "main": {
+        "daemon_cpu": 9.149956880065705,
+        "viewer_cpu": 7.133299717063974,
+        "total_cpu": 16.28325659712968,
+        "daemon_waited_child_cpu": 0.7499964655791562,
+        "daemon_user_cpu": 5.983305136509268,
+        "daemon_system_cpu": 3.166651743556437,
+        "viewer_user_cpu": 5.983305136509268,
+        "viewer_system_cpu": 1.149994580554706,
+        "started_at": "2026-10-31T02:05:52.888Z",
+        "finished_at": "2026-10-31T02:06:52.888283+00:00",
+        "seconds": 60.00028275500001,
+        "selected_busy_weighted_observed_khz": 2321516.463645339
+      },
+      "candidate": {
+        "daemon_cpu": 4.016648325980968,
+        "viewer_cpu": 3.2499851600260956,
+        "total_cpu": 7.2666334860070645,
+        "daemon_waited_child_cpu": 0.733329984826401,
+        "daemon_user_cpu": 2.39998904125004,
+        "daemon_system_cpu": 1.6166592847309291,
+        "viewer_user_cpu": 2.633321309149349,
+        "viewer_system_cpu": 0.6166638508767462,
+        "started_at": "2026-10-31T01:55:58.060Z",
+        "finished_at": "2026-10-31T01:56:58.060274+00:00",
+        "seconds": 60.00027397,
+        "selected_busy_weighted_observed_khz": 2099646.468840876
+      },
+      "candidate_minus_main_percentage_points": {
+        "daemon_cpu": -5.133308554084737,
+        "viewer_cpu": -3.883314557037878,
+        "total_cpu": -9.016623111122614
+      },
+      "candidate_reduction_percent": {
+        "daemon_cpu": 56.1019972156183,
+        "viewer_cpu": 54.43924566562624,
+        "total_cpu": 55.37358609648155
+      },
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "window_start_separation_seconds": 594.8280000686646,
+      "observed_frequency_relative_difference": 0.10567016785780499,
+      "diagnostic_flags": [
+        "matched-window starts differ by more than 300 seconds",
+        "observed frequency differs by more than 5%; diagnostic only"
+      ]
+    },
+    {
+      "agents": 4,
+      "state": "streaming",
+      "attached": false,
+      "pair": "4-busy",
+      "main": {
+        "daemon_cpu": 4.9325554936659195,
+        "viewer_cpu": null,
+        "total_cpu": 4.9325554936659195,
+        "daemon_waited_child_cpu": 0.016664038829952453,
+        "daemon_user_cpu": 2.7495664069421513,
+        "daemon_system_cpu": 2.1829890867237687,
+        "viewer_user_cpu": null,
+        "viewer_system_cpu": null,
+        "started_at": "2026-10-31T02:07:26.752Z",
+        "finished_at": "2026-10-31T02:08:26.761462+00:00",
+        "seconds": 60.00946170400002,
+        "selected_busy_weighted_observed_khz": 2255366.901303948
+      },
+      "candidate": {
+        "daemon_cpu": 2.4829050010601916,
+        "viewer_cpu": null,
+        "total_cpu": 2.4829050010601916,
+        "daemon_waited_child_cpu": 0,
+        "daemon_user_cpu": 1.166465436739688,
+        "daemon_system_cpu": 1.3164395643205047,
+        "viewer_user_cpu": null,
+        "viewer_system_cpu": null,
+        "started_at": "2026-10-31T01:57:31.874Z",
+        "finished_at": "2026-10-31T01:58:31.884351+00:00",
+        "seconds": 60.010350753000004,
+        "selected_busy_weighted_observed_khz": 2035014.2048015092
+      },
+      "candidate_minus_main_percentage_points": {
+        "daemon_cpu": -2.449650492605728,
+        "viewer_cpu": null,
+        "total_cpu": -2.449650492605728
+      },
+      "candidate_reduction_percent": {
+        "daemon_cpu": 49.66290791358387,
+        "viewer_cpu": null,
+        "total_cpu": 49.66290791358387
+      },
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "window_start_separation_seconds": 594.8780000209808,
+      "observed_frequency_relative_difference": 0.10828066751697758,
+      "diagnostic_flags": [
+        "matched-window starts differ by more than 300 seconds",
+        "observed frequency differs by more than 5%; diagnostic only"
+      ]
+    },
+    {
+      "agents": 8,
+      "state": "idle",
+      "attached": true,
+      "pair": "8-idle",
+      "main": {
+        "daemon_cpu": 5.11646837435329,
+        "viewer_cpu": 2.9498856751157407,
+        "total_cpu": 8.06635404946903,
+        "daemon_waited_child_cpu": 0.6833068512979964,
+        "daemon_user_cpu": 3.0165497581692033,
+        "daemon_system_cpu": 2.099918616184086,
+        "viewer_user_cpu": 2.3832409691613052,
+        "viewer_system_cpu": 0.5666447059544361,
+        "started_at": "2026-10-31T02:18:59.520Z",
+        "finished_at": "2026-10-31T02:19:59.522325+00:00",
+        "seconds": 60.002325342000006,
+        "selected_busy_weighted_observed_khz": 2170263.080773065
+      },
+      "candidate": {
+        "daemon_cpu": 1.7499161838562276,
+        "viewer_cpu": 1.383267078667304,
+        "total_cpu": 3.1331832625235316,
+        "daemon_waited_child_cpu": 0.6999664735424913,
+        "daemon_user_cpu": 0.8666251577192747,
+        "daemon_system_cpu": 0.8832910261369531,
+        "viewer_user_cpu": 1.1332790524021286,
+        "viewer_system_cpu": 0.2499880262651754,
+        "started_at": "2026-10-31T02:15:43.355Z",
+        "finished_at": "2026-10-31T02:16:43.357874+00:00",
+        "seconds": 60.002873834000006,
+        "selected_busy_weighted_observed_khz": 2175226.487232118
+      },
+      "candidate_minus_main_percentage_points": {
+        "daemon_cpu": -3.366552190497062,
+        "viewer_cpu": -1.5666185964484367,
+        "total_cpu": -4.933170786945499
+      },
+      "candidate_reduction_percent": {
+        "daemon_cpu": 65.7983582459373,
+        "viewer_cpu": 53.10777328300933,
+        "total_cpu": 61.1573798607343
+      },
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "window_start_separation_seconds": 196.16499996185303,
+      "observed_frequency_relative_difference": 0.002287006816374097,
+      "diagnostic_flags": []
+    },
+    {
+      "agents": 8,
+      "state": "idle",
+      "attached": false,
+      "pair": "8-idle",
+      "main": {
+        "daemon_cpu": 2.7165318420673357,
+        "viewer_cpu": null,
+        "total_cpu": 2.7165318420673357,
+        "daemon_waited_child_cpu": 0.016665839521885502,
+        "daemon_user_cpu": 1.3999305198383807,
+        "daemon_system_cpu": 1.3166013222289534,
+        "viewer_user_cpu": null,
+        "viewer_system_cpu": null,
+        "started_at": "2026-10-31T02:20:31.594Z",
+        "finished_at": "2026-10-31T02:21:31.596978+00:00",
+        "seconds": 60.00297786899998,
+        "selected_busy_weighted_observed_khz": 2043370.4133574404
+      },
+      "candidate": {
+        "daemon_cpu": 1.7665231055146544,
+        "viewer_cpu": null,
+        "total_cpu": 1.7665231055146544,
+        "daemon_waited_child_cpu": 0.03333062463235198,
+        "daemon_user_cpu": 0.8832615527573263,
+        "daemon_system_cpu": 0.8832615527573268,
+        "viewer_user_cpu": null,
+        "viewer_system_cpu": null,
+        "started_at": "2026-10-31T02:17:15.441Z",
+        "finished_at": "2026-10-31T02:18:15.445876+00:00",
+        "seconds": 60.00487605799998,
+        "selected_busy_weighted_observed_khz": 1914961.727251569
+      },
+      "candidate_minus_main_percentage_points": {
+        "daemon_cpu": -0.9500087365526813,
+        "viewer_cpu": null,
+        "total_cpu": -0.9500087365526813
+      },
+      "candidate_reduction_percent": {
+        "daemon_cpu": 34.97138232805346,
+        "viewer_cpu": null,
+        "total_cpu": 34.97138232805346
+      },
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "window_start_separation_seconds": 196.15300011634827,
+      "observed_frequency_relative_difference": 0.06705548433605966,
+      "diagnostic_flags": [
+        "observed frequency differs by more than 5%; diagnostic only"
+      ]
+    },
+    {
+      "agents": 8,
+      "state": "streaming",
+      "attached": true,
+      "pair": "8-busy",
+      "main": {
+        "daemon_cpu": 10.78328295599202,
+        "viewer_cpu": 7.816630148933936,
+        "total_cpu": 18.599913104925957,
+        "daemon_waited_child_cpu": 0.699996729755278,
+        "daemon_user_cpu": 7.133300007982355,
+        "daemon_system_cpu": 3.6499829480096633,
+        "viewer_user_cpu": 6.616635755067746,
+        "viewer_system_cpu": 1.1999943938661908,
+        "started_at": "2026-10-31T02:22:20.877Z",
+        "finished_at": "2026-10-31T02:23:20.877280+00:00",
+        "seconds": 60.000280308,
+        "selected_busy_weighted_observed_khz": 2370334.1323714475
+      },
+      "candidate": {
+        "daemon_cpu": 5.049975495078076,
+        "viewer_cpu": 3.349983744259714,
+        "total_cpu": 8.39995923933779,
+        "daemon_waited_child_cpu": 0.699996603278149,
+        "daemon_user_cpu": 2.7666532415279232,
+        "daemon_system_cpu": 2.2833222535501534,
+        "viewer_user_cpu": 2.78331982732026,
+        "viewer_system_cpu": 0.5666639169394542,
+        "started_at": "2026-10-31T02:25:45.275Z",
+        "finished_at": "2026-10-31T02:26:45.275291+00:00",
+        "seconds": 60.000291149,
+        "selected_busy_weighted_observed_khz": 2102064.0961046815
+      },
+      "candidate_minus_main_percentage_points": {
+        "daemon_cpu": -5.733307460913943,
+        "viewer_cpu": -4.466646404674222,
+        "total_cpu": -10.199953865588167
+      },
+      "candidate_reduction_percent": {
+        "daemon_cpu": 53.16847832253235,
+        "viewer_cpu": 57.14286488639099,
+        "total_cpu": 54.838717837272235
+      },
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "window_start_separation_seconds": 204.39800000190735,
+      "observed_frequency_relative_difference": 0.1276221960899742,
+      "diagnostic_flags": [
+        "observed frequency differs by more than 5%; diagnostic only"
+      ]
+    },
+    {
+      "agents": 8,
+      "state": "streaming",
+      "attached": false,
+      "pair": "8-busy",
+      "main": {
+        "daemon_cpu": 6.282241680865636,
+        "viewer_cpu": null,
+        "total_cpu": 6.282241680865636,
+        "daemon_waited_child_cpu": 0.016663771036778893,
+        "daemon_user_cpu": 3.3327542073557757,
+        "daemon_system_cpu": 2.94948747350986,
+        "viewer_user_cpu": null,
+        "viewer_system_cpu": null,
+        "started_at": "2026-10-31T02:23:55.220Z",
+        "finished_at": "2026-10-31T02:24:55.230426+00:00",
+        "seconds": 60.010426079,
+        "selected_busy_weighted_observed_khz": 2205386.0288830847
+      },
+      "candidate": {
+        "daemon_cpu": 3.799259596490575,
+        "viewer_cpu": null,
+        "total_cpu": 3.799259596490575,
+        "daemon_waited_child_cpu": 0.016663419282853417,
+        "daemon_user_cpu": 1.832976121113875,
+        "daemon_system_cpu": 1.9662834753767016,
+        "viewer_user_cpu": null,
+        "viewer_system_cpu": null,
+        "started_at": "2026-10-31T02:27:19.514Z",
+        "finished_at": "2026-10-31T02:28:19.525693+00:00",
+        "seconds": 60.01169286000001,
+        "selected_busy_weighted_observed_khz": 2074828.4526540753
+      },
+      "candidate_minus_main_percentage_points": {
+        "daemon_cpu": -2.482982084375061,
+        "viewer_cpu": null,
+        "total_cpu": -2.482982084375061
+      },
+      "candidate_reduction_percent": {
+        "daemon_cpu": 39.52382303179601,
+        "viewer_cpu": null,
+        "total_cpu": 39.52382303179601
+      },
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "window_start_separation_seconds": 204.29399991035461,
+      "observed_frequency_relative_difference": 0.0629245160302303,
+      "diagnostic_flags": [
+        "observed frequency differs by more than 5%; diagnostic only"
+      ]
+    },
+    {
+      "agents": 32,
+      "state": "idle",
+      "attached": true,
+      "pair": "32-idle",
+      "main": {
+        "daemon_cpu": 7.966620941714663,
+        "viewer_cpu": 4.599973598144869,
+        "total_cpu": 12.566594539859533,
+        "daemon_waited_child_cpu": 0.6833294113186218,
+        "daemon_user_cpu": 4.299975320004985,
+        "daemon_system_cpu": 3.666645621709678,
+        "viewer_user_cpu": 3.4833133406241945,
+        "viewer_system_cpu": 1.1166602575206748,
+        "started_at": "2026-10-31T02:29:24.308Z",
+        "finished_at": "2026-10-31T02:30:24.308344+00:00",
+        "seconds": 60.000344373999994,
+        "selected_busy_weighted_observed_khz": 2256399.2297573215
+      },
+      "candidate": {
+        "daemon_cpu": 3.1499830862708174,
+        "viewer_cpu": 1.6166579860754993,
+        "total_cpu": 4.766641072346316,
+        "daemon_waited_child_cpu": 0.6999962413935152,
+        "daemon_user_cpu": 1.5999914088994631,
+        "daemon_system_cpu": 1.5499916773713551,
+        "viewer_user_cpu": 1.2999930197308138,
+        "viewer_system_cpu": 0.3166649663446854,
+        "started_at": "2026-10-31T02:33:12.161Z",
+        "finished_at": "2026-10-31T02:34:12.161322+00:00",
+        "seconds": 60.000322168,
+        "selected_busy_weighted_observed_khz": 2067959.43663666
+      },
+      "candidate_minus_main_percentage_points": {
+        "daemon_cpu": -4.816637855443846,
+        "viewer_cpu": -2.9833156120693696,
+        "total_cpu": -7.799953467513217
+      },
+      "candidate_reduction_percent": {
+        "daemon_cpu": 60.46023641244259,
+        "viewer_cpu": 64.85505945670027,
+        "total_cpu": 62.0689514790409
+      },
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "window_start_separation_seconds": 227.8529999256134,
+      "observed_frequency_relative_difference": 0.0911235441963702,
+      "diagnostic_flags": [
+        "observed frequency differs by more than 5%; diagnostic only"
+      ]
+    },
+    {
+      "agents": 32,
+      "state": "idle",
+      "attached": false,
+      "pair": "32-idle",
+      "main": {
+        "daemon_cpu": 5.56558649328034,
+        "viewer_cpu": null,
+        "total_cpu": 5.56558649328034,
+        "daemon_waited_child_cpu": 0,
+        "daemon_user_cpu": 2.866110409713228,
+        "daemon_system_cpu": 2.6994760835671108,
+        "viewer_user_cpu": null,
+        "viewer_system_cpu": null,
+        "started_at": "2026-10-31T02:31:01.314Z",
+        "finished_at": "2026-10-31T02:32:01.325645+00:00",
+        "seconds": 60.01164484700002,
+        "selected_busy_weighted_observed_khz": 2226553.544640966
+      },
+      "candidate": {
+        "daemon_cpu": 2.6163589302676544,
+        "viewer_cpu": null,
+        "total_cpu": 2.6163589302676544,
+        "daemon_waited_child_cpu": 0,
+        "daemon_user_cpu": 1.1998588724794326,
+        "daemon_system_cpu": 1.4165000577882199,
+        "viewer_user_cpu": null,
+        "viewer_system_cpu": null,
+        "started_at": "2026-10-31T02:34:49.147Z",
+        "finished_at": "2026-10-31T02:35:49.154057+00:00",
+        "seconds": 60.007057206,
+        "selected_busy_weighted_observed_khz": 1955077.5278991798
+      },
+      "candidate_minus_main_percentage_points": {
+        "daemon_cpu": -2.9492275630126854,
+        "viewer_cpu": null,
+        "total_cpu": -2.9492275630126854
+      },
+      "candidate_reduction_percent": {
+        "daemon_cpu": 52.990418288772645,
+        "viewer_cpu": null,
+        "total_cpu": 52.990418288772645
+      },
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "window_start_separation_seconds": 227.83300018310547,
+      "observed_frequency_relative_difference": 0.13885690611640336,
+      "diagnostic_flags": [
+        "observed frequency differs by more than 5%; diagnostic only"
+      ]
+    },
+    {
+      "agents": 32,
+      "state": "streaming",
+      "attached": true,
+      "pair": "32-busy",
+      "main": {
+        "daemon_cpu": 28.14984558261456,
+        "viewer_cpu": 10.199944047696928,
+        "total_cpu": 38.34978963031149,
+        "daemon_waited_child_cpu": 0.749995885860068,
+        "daemon_user_cpu": 14.216588680858628,
+        "daemon_system_cpu": 13.93325690175593,
+        "viewer_user_cpu": 8.883284603631475,
+        "viewer_system_cpu": 1.316659444065453,
+        "started_at": "2026-10-31T02:44:58.992Z",
+        "finished_at": "2026-10-31T02:45:58.992329+00:00",
+        "seconds": 60.00032913300001,
+        "selected_busy_weighted_observed_khz": 2799763.3660709984
+      },
+      "candidate": {
+        "daemon_cpu": 9.433290742182855,
+        "viewer_cpu": 3.9999819401482077,
+        "total_cpu": 13.433272682331063,
+        "daemon_waited_child_cpu": 0.7333300223605045,
+        "daemon_user_cpu": 4.799978328177849,
+        "daemon_system_cpu": 4.633312414005006,
+        "viewer_user_cpu": 3.283318509204987,
+        "viewer_system_cpu": 0.7166634309432206,
+        "started_at": "2026-10-31T02:37:09.371Z",
+        "finished_at": "2026-10-31T02:38:09.371271+00:00",
+        "seconds": 60.00027089899999,
+        "selected_busy_weighted_observed_khz": 2587602.1356895245
+      },
+      "candidate_minus_main_percentage_points": {
+        "daemon_cpu": -18.716554840431705,
+        "viewer_cpu": -6.1999621075487195,
+        "total_cpu": -24.916516947980426
+      },
+      "candidate_reduction_percent": {
+        "daemon_cpu": 66.48901424877127,
+        "viewer_cpu": 60.78427566422412,
+        "total_cpu": 64.97171741533239
+      },
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "window_start_separation_seconds": 469.6210000514984,
+      "observed_frequency_relative_difference": 0.08199144198222684,
+      "diagnostic_flags": [
+        "matched-window starts differ by more than 300 seconds",
+        "observed frequency differs by more than 5%; diagnostic only"
+      ]
+    },
+    {
+      "agents": 32,
+      "state": "streaming",
+      "attached": false,
+      "pair": "32-busy",
+      "main": {
+        "daemon_cpu": 21.078325799386366,
+        "viewer_cpu": null,
+        "total_cpu": 21.078325799386366,
+        "daemon_waited_child_cpu": 0,
+        "daemon_user_cpu": 8.281365946478276,
+        "daemon_system_cpu": 12.796959852908083,
+        "viewer_user_cpu": null,
+        "viewer_system_cpu": null,
+        "started_at": "2026-10-31T02:46:37.504Z",
+        "finished_at": "2026-10-31T02:47:37.518254+00:00",
+        "seconds": 60.014254074999975,
+        "selected_busy_weighted_observed_khz": 2717678.4867495755
+      },
+      "candidate": {
+        "daemon_cpu": 7.614799981960062,
+        "viewer_cpu": null,
+        "total_cpu": 7.614799981960062,
+        "daemon_waited_child_cpu": 0,
+        "daemon_user_cpu": 3.615780297779723,
+        "daemon_system_cpu": 3.9990196841803396,
+        "viewer_user_cpu": null,
+        "viewer_system_cpu": null,
+        "started_at": "2026-10-31T02:38:46.666Z",
+        "finished_at": "2026-10-31T02:39:46.680708+00:00",
+        "seconds": 60.014708342,
+        "selected_busy_weighted_observed_khz": 2569043.405403219
+      },
+      "candidate_minus_main_percentage_points": {
+        "daemon_cpu": -13.463525817426305,
+        "viewer_cpu": null,
+        "total_cpu": -13.463525817426305
+      },
+      "candidate_reduction_percent": {
+        "daemon_cpu": 63.873791237339425,
+        "viewer_cpu": null,
+        "total_cpu": 63.873791237339425
+      },
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "window_start_separation_seconds": 470.8380000591278,
+      "observed_frequency_relative_difference": 0.0578561969929144,
+      "diagnostic_flags": [
+        "matched-window starts differ by more than 300 seconds",
+        "observed frequency differs by more than 5%; diagnostic only"
+      ]
+    },
+    {
+      "agents": 64,
+      "state": "idle",
+      "attached": true,
+      "pair": "64-idle",
+      "main": {
+        "daemon_cpu": 14.482996830315923,
+        "viewer_cpu": 7.9164827323360925,
+        "total_cpu": 22.399479562652015,
+        "daemon_waited_child_cpu": 0.7333162952058695,
+        "daemon_user_cpu": 8.04981296782807,
+        "daemon_system_cpu": 6.433183862487856,
+        "viewer_user_cpu": 6.233188509249892,
+        "viewer_system_cpu": 1.6832942230862007,
+        "started_at": "2026-10-31T02:53:49.434Z",
+        "finished_at": "2026-10-31T02:54:49.435394+00:00",
+        "seconds": 60.00139406100001,
+        "selected_busy_weighted_observed_khz": 2472227.087817403
+      },
+      "candidate": {
+        "daemon_cpu": 5.5333053304739375,
+        "viewer_cpu": 2.349988107219353,
+        "total_cpu": 7.883293437693291,
+        "daemon_waited_child_cpu": 0.7499962044317083,
+        "daemon_user_cpu": 2.5666536773885134,
+        "daemon_system_cpu": 2.966651653085425,
+        "viewer_user_cpu": 1.8333240552775096,
+        "viewer_system_cpu": 0.5166640519418437,
+        "started_at": "2026-10-31T02:49:22.454Z",
+        "finished_at": "2026-10-31T02:50:22.454304+00:00",
+        "seconds": 60.00030364700001,
+        "selected_busy_weighted_observed_khz": 2208693.7484926153
+      },
+      "candidate_minus_main_percentage_points": {
+        "daemon_cpu": -8.949691499841986,
+        "viewer_cpu": -5.566494625116739,
+        "total_cpu": -14.516186124958725
+      },
+      "candidate_reduction_percent": {
+        "daemon_cpu": 61.79447254388968,
+        "viewer_cpu": 70.31525000843538,
+        "total_cpu": 64.80590803173136
+      },
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "window_start_separation_seconds": 266.9800000190735,
+      "observed_frequency_relative_difference": 0.11931637851768423,
+      "diagnostic_flags": [
+        "observed frequency differs by more than 5%; diagnostic only"
+      ]
+    },
+    {
+      "agents": 64,
+      "state": "idle",
+      "attached": false,
+      "pair": "64-idle",
+      "main": {
+        "daemon_cpu": 12.3471050872462,
+        "viewer_cpu": null,
+        "total_cpu": 12.3471050872462,
+        "daemon_waited_child_cpu": 0,
+        "daemon_user_cpu": 6.515139121610346,
+        "daemon_system_cpu": 5.8319659656358604,
+        "viewer_user_cpu": null,
+        "viewer_system_cpu": null,
+        "started_at": "2026-10-31T02:55:33.534Z",
+        "finished_at": "2026-10-31T02:56:33.548068+00:00",
+        "seconds": 60.01406765099999,
+        "selected_busy_weighted_observed_khz": 2292622.675579775
+      },
+      "candidate": {
+        "daemon_cpu": 4.882050341813588,
+        "viewer_cpu": null,
+        "total_cpu": 4.882050341813588,
+        "daemon_waited_child_cpu": 0,
+        "daemon_user_cpu": 2.1161105577144244,
+        "daemon_system_cpu": 2.7659397840991646,
+        "viewer_user_cpu": null,
+        "viewer_system_cpu": null,
+        "started_at": "2026-10-31T02:51:06.961Z",
+        "finished_at": "2026-10-31T02:52:06.976768+00:00",
+        "seconds": 60.015767861,
+        "selected_busy_weighted_observed_khz": 2135613.7903256416
+      },
+      "candidate_minus_main_percentage_points": {
+        "daemon_cpu": -7.465054745432613,
+        "viewer_cpu": null,
+        "total_cpu": -7.465054745432613
+      },
+      "candidate_reduction_percent": {
+        "daemon_cpu": 60.45995958310547,
+        "viewer_cpu": null,
+        "total_cpu": 60.45995958310547
+      },
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "window_start_separation_seconds": 266.57299995422363,
+      "observed_frequency_relative_difference": 0.07351932543486364,
+      "diagnostic_flags": [
+        "observed frequency differs by more than 5%; diagnostic only"
+      ]
+    },
+    {
+      "agents": 64,
+      "state": "streaming",
+      "attached": true,
+      "pair": "64-busy",
+      "main": {
+        "daemon_cpu": 49.816451917075476,
+        "viewer_cpu": 15.566599561909829,
+        "total_cpu": 65.38305147898531,
+        "daemon_waited_child_cpu": 0.7833299565415011,
+        "daemon_user_cpu": 27.933212918373524,
+        "daemon_system_cpu": 21.883238998701938,
+        "viewer_user_cpu": 13.749940726526349,
+        "viewer_system_cpu": 1.816658835383481,
+        "started_at": "2026-10-31T02:58:34.639Z",
+        "finished_at": "2026-10-31T02:59:34.639259+00:00",
+        "seconds": 60.00025864900001,
+        "selected_busy_weighted_observed_khz": 2938810.69138237
+      },
+      "candidate": {
+        "daemon_cpu": 18.683251576358597,
+        "viewer_cpu": 5.13331087022163,
+        "total_cpu": 23.816562446580228,
+        "daemon_waited_child_cpu": 0.7833299055208331,
+        "daemon_user_cpu": 12.04994727003324,
+        "daemon_system_cpu": 6.633304306325354,
+        "viewer_user_cpu": 4.116648652417997,
+        "viewer_system_cpu": 1.0166622178036346,
+        "started_at": "2026-10-31T03:08:05.162Z",
+        "finished_at": "2026-10-31T03:09:05.162262+00:00",
+        "seconds": 60.000262557000006,
+        "selected_busy_weighted_observed_khz": 2875973.4034114312
+      },
+      "candidate_minus_main_percentage_points": {
+        "daemon_cpu": -31.13320034071688,
+        "viewer_cpu": -10.4332886916882,
+        "total_cpu": -41.56648903240508
+      },
+      "candidate_reduction_percent": {
+        "daemon_cpu": 62.49582044209259,
+        "viewer_cpu": 67.0235567517108,
+        "total_cpu": 63.57379793716865
+      },
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "window_start_separation_seconds": 570.5230000019073,
+      "observed_frequency_relative_difference": 0.021849050445460375,
+      "diagnostic_flags": [
+        "matched-window starts differ by more than 300 seconds"
+      ]
+    },
+    {
+      "agents": 64,
+      "state": "streaming",
+      "attached": false,
+      "pair": "64-busy",
+      "main": {
+        "daemon_cpu": 39.314945353347134,
+        "viewer_cpu": null,
+        "total_cpu": 39.314945353347134,
+        "daemon_waited_child_cpu": 0.016658875149723373,
+        "daemon_user_cpu": 19.041094296133796,
+        "daemon_system_cpu": 20.273851057213328,
+        "viewer_user_cpu": null,
+        "viewer_system_cpu": null,
+        "started_at": "2026-10-31T03:00:16.703Z",
+        "finished_at": "2026-10-31T03:01:16.731063+00:00",
+        "seconds": 60.02806257999997,
+        "selected_busy_weighted_observed_khz": 2854554.082184005
+      },
+      "candidate": {
+        "daemon_cpu": 15.092974061594994,
+        "viewer_cpu": null,
+        "total_cpu": 15.092974061594994,
+        "daemon_waited_child_cpu": 0,
+        "daemon_user_cpu": 8.762587589844335,
+        "daemon_system_cpu": 6.330386471750663,
+        "viewer_user_cpu": null,
+        "viewer_system_cpu": null,
+        "started_at": "2026-10-31T03:09:46.501Z",
+        "finished_at": "2026-10-31T03:10:46.528931+00:00",
+        "seconds": 60.027930632,
+        "selected_busy_weighted_observed_khz": 2830749.7057735864
+      },
+      "candidate_minus_main_percentage_points": {
+        "daemon_cpu": -24.22197129175214,
+        "viewer_cpu": null,
+        "total_cpu": -24.22197129175214
+      },
+      "candidate_reduction_percent": {
+        "daemon_cpu": 61.610085106451685,
+        "viewer_cpu": null,
+        "total_cpu": 61.610085106451685
+      },
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "window_start_separation_seconds": 569.7979998588562,
+      "observed_frequency_relative_difference": 0.00840921271204845,
+      "diagnostic_flags": [
+        "matched-window starts differ by more than 300 seconds"
+      ]
+    }
+  ],
+  "pairs": [
+    {
+      "case": "4-idle",
+      "run": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031",
+      "order": [
+        "main",
+        "candidate"
+      ],
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "memory_node": 1,
+      "inter_leg_gap_seconds": 0.38570117950439453,
+      "legs": {
+        "main": {
+          "source": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/4-idle/main/comparison.json",
+          "source_sha256": "432a56c8c2ea9115e2042dcd12ff493cb6010564a74aaf93c268d5ca1b4cd984",
+          "attempt": "corgi-node1-try1",
+          "source_started_at": "2026-10-31T01:48:55.452754+00:00",
+          "execution": {
+            "started_at": "2026-10-31T01:48:55.399115+00:00",
+            "command": [
+              "/usr/bin/python3",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/tools/benchmarks/cost_matrix.py",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-unmodified-main-8153137-20261030",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-unmodified-main-8153137-20261030",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/4-idle/main",
+              "--single-corgi",
+              "--agents",
+              "4",
+              "--workload",
+              "idle",
+              "--stream-mode",
+              "sparse",
+              "--producer-phase",
+              "staggered",
+              "--initial-warmup",
+              "30",
+              "--warmup",
+              "30",
+              "--seconds",
+              "60",
+              "--node",
+              "1",
+              "--cpus",
+              "112,113,114,115,116,117,118,119",
+              "--placement-receipt",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/placement.json",
+              "--match-geometry",
+              "--uclamp"
+            ],
+            "role": "main",
+            "case": "4-idle",
+            "finished_at": "2026-10-31T01:52:05.483615+00:00",
+            "elapsed_seconds": 190.08427719282918,
+            "returncode": 0,
+            "source_sha256": "432a56c8c2ea9115e2042dcd12ff493cb6010564a74aaf93c268d5ca1b4cd984"
+          },
+          "max_trial_sibling_busy": 0.004987795818741377
+        },
+        "candidate": {
+          "source": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/4-idle/candidate/comparison.json",
+          "source_sha256": "832a38c200386464df7a11f6bcb673183ad841ddcd4fa3333c4045b464684e4e",
+          "attempt": "corgi-node1-try1",
+          "source_started_at": "2026-10-31T01:52:05.929192+00:00",
+          "execution": {
+            "started_at": "2026-10-31T01:52:05.869316+00:00",
+            "command": [
+              "/usr/bin/python3",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/tools/benchmarks/cost_matrix.py",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-main-simplified-final-20261031",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-main-simplified-final-20261031",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/4-idle/candidate",
+              "--single-corgi",
+              "--agents",
+              "4",
+              "--workload",
+              "idle",
+              "--stream-mode",
+              "sparse",
+              "--producer-phase",
+              "staggered",
+              "--initial-warmup",
+              "30",
+              "--warmup",
+              "30",
+              "--seconds",
+              "60",
+              "--node",
+              "1",
+              "--cpus",
+              "112,113,114,115,116,117,118,119",
+              "--placement-receipt",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/placement.json",
+              "--match-geometry",
+              "--uclamp"
+            ],
+            "role": "candidate",
+            "case": "4-idle",
+            "finished_at": "2026-10-31T01:55:17.418904+00:00",
+            "elapsed_seconds": 191.54933878593147,
+            "returncode": 0,
+            "source_sha256": "832a38c200386464df7a11f6bcb673183ad841ddcd4fa3333c4045b464684e4e"
+          },
+          "max_trial_sibling_busy": 0.0052645433008686494
+        }
+      }
+    },
+    {
+      "case": "4-busy",
+      "run": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031",
+      "order": [
+        "candidate",
+        "main"
+      ],
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "memory_node": 1,
+      "inter_leg_gap_seconds": 0.43635106086730957,
+      "legs": {
+        "main": {
+          "source": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/4-busy/main/comparison.json",
+          "source_sha256": "fb69d5efe33228ef61c60d1f4972995f012ad70276a4b14edfa2cbf38c1fc896",
+          "attempt": "corgi-node1-try3",
+          "source_started_at": "2026-10-31T01:58:36.918269+00:00",
+          "execution": {
+            "started_at": "2026-10-31T01:58:36.862051+00:00",
+            "command": [
+              "/usr/bin/python3",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/tools/benchmarks/cost_matrix.py",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-unmodified-main-8153137-20261030",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-unmodified-main-8153137-20261030",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/4-busy/main",
+              "--single-corgi",
+              "--agents",
+              "4",
+              "--workload",
+              "busy",
+              "--stream-mode",
+              "sparse",
+              "--producer-phase",
+              "staggered",
+              "--initial-warmup",
+              "30",
+              "--warmup",
+              "30",
+              "--seconds",
+              "60",
+              "--node",
+              "1",
+              "--cpus",
+              "112,113,114,115,116,117,118,119",
+              "--placement-receipt",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/placement.json",
+              "--match-geometry",
+              "--uclamp"
+            ],
+            "role": "main",
+            "case": "4-busy",
+            "finished_at": "2026-10-31T02:08:31.157866+00:00",
+            "elapsed_seconds": 594.2955342098139,
+            "returncode": 0,
+            "source_sha256": "fb69d5efe33228ef61c60d1f4972995f012ad70276a4b14edfa2cbf38c1fc896"
+          },
+          "max_trial_sibling_busy": 0.018128268928045498
+        },
+        "candidate": {
+          "source": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/4-busy/candidate/comparison.json",
+          "source_sha256": "675a8d18738ceaac9163671fa55186e252c8d930b9180376bba3db66582ddaef",
+          "attempt": "corgi-node1-try1",
+          "source_started_at": "2026-10-31T01:55:17.863797+00:00",
+          "execution": {
+            "started_at": "2026-10-31T01:55:17.801510+00:00",
+            "command": [
+              "/usr/bin/python3",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/tools/benchmarks/cost_matrix.py",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-main-simplified-final-20261031",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-main-simplified-final-20261031",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/4-busy/candidate",
+              "--single-corgi",
+              "--agents",
+              "4",
+              "--workload",
+              "busy",
+              "--stream-mode",
+              "sparse",
+              "--producer-phase",
+              "staggered",
+              "--initial-warmup",
+              "30",
+              "--warmup",
+              "30",
+              "--seconds",
+              "60",
+              "--node",
+              "1",
+              "--cpus",
+              "112,113,114,115,116,117,118,119",
+              "--placement-receipt",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/placement.json",
+              "--match-geometry",
+              "--uclamp"
+            ],
+            "role": "candidate",
+            "case": "4-busy",
+            "finished_at": "2026-10-31T01:58:36.425700+00:00",
+            "elapsed_seconds": 198.62397739384323,
+            "returncode": 0,
+            "source_sha256": "675a8d18738ceaac9163671fa55186e252c8d930b9180376bba3db66582ddaef"
+          },
+          "max_trial_sibling_busy": 0.004422079902409271
+        }
+      }
+    },
+    {
+      "case": "8-idle",
+      "run": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031",
+      "order": [
+        "candidate",
+        "main"
+      ],
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "memory_node": 1,
+      "inter_leg_gap_seconds": 0.36832404136657715,
+      "legs": {
+        "main": {
+          "source": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/8-idle/main/comparison.json",
+          "source_sha256": "17ed58c9c0a255a6b9178e8b568ad7c6989e995cd7312f99b2c132af7eeeb3fa",
+          "attempt": "corgi-node1-try1",
+          "source_started_at": "2026-10-31T02:18:20.455442+00:00",
+          "execution": {
+            "started_at": "2026-10-31T02:18:20.396099+00:00",
+            "command": [
+              "/usr/bin/python3",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/tools/benchmarks/cost_matrix.py",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-unmodified-main-8153137-20261030",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-unmodified-main-8153137-20261030",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/8-idle/main",
+              "--single-corgi",
+              "--agents",
+              "8",
+              "--workload",
+              "idle",
+              "--stream-mode",
+              "sparse",
+              "--producer-phase",
+              "staggered",
+              "--initial-warmup",
+              "30",
+              "--warmup",
+              "30",
+              "--seconds",
+              "60",
+              "--node",
+              "1",
+              "--cpus",
+              "112,113,114,115,116,117,118,119",
+              "--placement-receipt",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/placement.json",
+              "--match-geometry",
+              "--uclamp"
+            ],
+            "role": "main",
+            "case": "8-idle",
+            "finished_at": "2026-10-31T02:21:36.576798+00:00",
+            "elapsed_seconds": 196.18041492206976,
+            "returncode": 0,
+            "source_sha256": "17ed58c9c0a255a6b9178e8b568ad7c6989e995cd7312f99b2c132af7eeeb3fa"
+          },
+          "max_trial_sibling_busy": 0.0058160481754078956
+        },
+        "candidate": {
+          "source": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/8-idle/candidate/comparison.json",
+          "source_sha256": "f5b950397e00cd9faed8d3375983512bfd884b518122edefc116405ad8608e2b",
+          "attempt": "corgi-node1-try3",
+          "source_started_at": "2026-10-31T02:08:31.623545+00:00",
+          "execution": {
+            "started_at": "2026-10-31T02:08:31.560647+00:00",
+            "command": [
+              "/usr/bin/python3",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/tools/benchmarks/cost_matrix.py",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-main-simplified-final-20261031",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-main-simplified-final-20261031",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/8-idle/candidate",
+              "--single-corgi",
+              "--agents",
+              "8",
+              "--workload",
+              "idle",
+              "--stream-mode",
+              "sparse",
+              "--producer-phase",
+              "staggered",
+              "--initial-warmup",
+              "30",
+              "--warmup",
+              "30",
+              "--seconds",
+              "60",
+              "--node",
+              "1",
+              "--cpus",
+              "112,113,114,115,116,117,118,119",
+              "--placement-receipt",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/placement.json",
+              "--match-geometry",
+              "--uclamp"
+            ],
+            "role": "candidate",
+            "case": "8-idle",
+            "finished_at": "2026-10-31T02:18:20.027775+00:00",
+            "elapsed_seconds": 588.4669232210144,
+            "returncode": 0,
+            "source_sha256": "f5b950397e00cd9faed8d3375983512bfd884b518122edefc116405ad8608e2b"
+          },
+          "max_trial_sibling_busy": 0.002882437718756434
+        }
+      }
+    },
+    {
+      "case": "8-busy",
+      "run": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031",
+      "order": [
+        "main",
+        "candidate"
+      ],
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "memory_node": 1,
+      "inter_leg_gap_seconds": 0.3819708824157715,
+      "legs": {
+        "main": {
+          "source": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/8-busy/main/comparison.json",
+          "source_sha256": "7feba87b29ae9ae7e88a5dd728b96403ac9445e032c770ac926b7f9b727d20b2",
+          "attempt": "corgi-node1-try1",
+          "source_started_at": "2026-10-31T02:21:37.043700+00:00",
+          "execution": {
+            "started_at": "2026-10-31T02:21:36.987654+00:00",
+            "command": [
+              "/usr/bin/python3",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/tools/benchmarks/cost_matrix.py",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-unmodified-main-8153137-20261030",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-unmodified-main-8153137-20261030",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/8-busy/main",
+              "--single-corgi",
+              "--agents",
+              "8",
+              "--workload",
+              "busy",
+              "--stream-mode",
+              "sparse",
+              "--producer-phase",
+              "staggered",
+              "--initial-warmup",
+              "30",
+              "--warmup",
+              "30",
+              "--seconds",
+              "60",
+              "--node",
+              "1",
+              "--cpus",
+              "112,113,114,115,116,117,118,119",
+              "--placement-receipt",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/placement.json",
+              "--match-geometry",
+              "--uclamp"
+            ],
+            "role": "main",
+            "case": "8-busy",
+            "finished_at": "2026-10-31T02:25:00.161442+00:00",
+            "elapsed_seconds": 203.17357701412402,
+            "returncode": 0,
+            "source_sha256": "7feba87b29ae9ae7e88a5dd728b96403ac9445e032c770ac926b7f9b727d20b2"
+          },
+          "max_trial_sibling_busy": 0.004272442744299269
+        },
+        "candidate": {
+          "source": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/8-busy/candidate/comparison.json",
+          "source_sha256": "94e9c4015bcde854feb330b69218cf7f449b019390b6fcb93fba797c96d208bb",
+          "attempt": "corgi-node1-try1",
+          "source_started_at": "2026-10-31T02:25:00.599706+00:00",
+          "execution": {
+            "started_at": "2026-10-31T02:25:00.543413+00:00",
+            "command": [
+              "/usr/bin/python3",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/tools/benchmarks/cost_matrix.py",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-main-simplified-final-20261031",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-main-simplified-final-20261031",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/8-busy/candidate",
+              "--single-corgi",
+              "--agents",
+              "8",
+              "--workload",
+              "busy",
+              "--stream-mode",
+              "sparse",
+              "--producer-phase",
+              "staggered",
+              "--initial-warmup",
+              "30",
+              "--warmup",
+              "30",
+              "--seconds",
+              "60",
+              "--node",
+              "1",
+              "--cpus",
+              "112,113,114,115,116,117,118,119",
+              "--placement-receipt",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/placement.json",
+              "--match-geometry",
+              "--uclamp"
+            ],
+            "role": "candidate",
+            "case": "8-busy",
+            "finished_at": "2026-10-31T02:28:24.552518+00:00",
+            "elapsed_seconds": 204.00884815095924,
+            "returncode": 0,
+            "source_sha256": "94e9c4015bcde854feb330b69218cf7f449b019390b6fcb93fba797c96d208bb"
+          },
+          "max_trial_sibling_busy": 0.004349115350400316
+        }
+      }
+    },
+    {
+      "case": "32-idle",
+      "run": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031",
+      "order": [
+        "main",
+        "candidate"
+      ],
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "memory_node": 1,
+      "inter_leg_gap_seconds": 0.40632200241088867,
+      "legs": {
+        "main": {
+          "source": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/32-idle/main/comparison.json",
+          "source_sha256": "ebc43b1bf29b190ce626d6b992192923ffac5c8151a81a30e7065bc5afcc0895",
+          "attempt": "corgi-node1-try1",
+          "source_started_at": "2026-10-31T02:28:25.038858+00:00",
+          "execution": {
+            "started_at": "2026-10-31T02:28:24.975233+00:00",
+            "command": [
+              "/usr/bin/python3",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/tools/benchmarks/cost_matrix.py",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-unmodified-main-8153137-20261030",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-unmodified-main-8153137-20261030",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/32-idle/main",
+              "--single-corgi",
+              "--agents",
+              "32",
+              "--workload",
+              "idle",
+              "--stream-mode",
+              "sparse",
+              "--producer-phase",
+              "staggered",
+              "--initial-warmup",
+              "30",
+              "--warmup",
+              "30",
+              "--seconds",
+              "60",
+              "--node",
+              "1",
+              "--cpus",
+              "112,113,114,115,116,117,118,119",
+              "--placement-receipt",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/placement.json",
+              "--match-geometry",
+              "--uclamp"
+            ],
+            "role": "main",
+            "case": "32-idle",
+            "finished_at": "2026-10-31T02:32:09.072293+00:00",
+            "elapsed_seconds": 224.09686007210985,
+            "returncode": 0,
+            "source_sha256": "ebc43b1bf29b190ce626d6b992192923ffac5c8151a81a30e7065bc5afcc0895"
+          },
+          "max_trial_sibling_busy": 0.005716857978843124
+        },
+        "candidate": {
+          "source": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/32-idle/candidate/comparison.json",
+          "source_sha256": "0bd307b926afaf4d802cab1ab178628e69b43a0e42c885ef9105aa782b26a94a",
+          "attempt": "corgi-node1-try1",
+          "source_started_at": "2026-10-31T02:32:09.542030+00:00",
+          "execution": {
+            "started_at": "2026-10-31T02:32:09.478615+00:00",
+            "command": [
+              "/usr/bin/python3",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/tools/benchmarks/cost_matrix.py",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-main-simplified-final-20261031",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-main-simplified-final-20261031",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/32-idle/candidate",
+              "--single-corgi",
+              "--agents",
+              "32",
+              "--workload",
+              "idle",
+              "--stream-mode",
+              "sparse",
+              "--producer-phase",
+              "staggered",
+              "--initial-warmup",
+              "30",
+              "--warmup",
+              "30",
+              "--seconds",
+              "60",
+              "--node",
+              "1",
+              "--cpus",
+              "112,113,114,115,116,117,118,119",
+              "--placement-receipt",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/placement.json",
+              "--match-geometry",
+              "--uclamp"
+            ],
+            "role": "candidate",
+            "case": "32-idle",
+            "finished_at": "2026-10-31T02:35:56.939857+00:00",
+            "elapsed_seconds": 227.4609673859086,
+            "returncode": 0,
+            "source_sha256": "0bd307b926afaf4d802cab1ab178628e69b43a0e42c885ef9105aa782b26a94a"
+          },
+          "max_trial_sibling_busy": 0.004970487729108419
+        }
+      }
+    },
+    {
+      "case": "32-busy",
+      "run": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031",
+      "order": [
+        "candidate",
+        "main"
+      ],
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "memory_node": 1,
+      "inter_leg_gap_seconds": 0.40578699111938477,
+      "legs": {
+        "main": {
+          "source": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/32-busy/main/comparison.json",
+          "source_sha256": "29a9432e943e27f3ae35d1f02e757a50925715cd349035fa0b4f9fdc94db83f8",
+          "attempt": "corgi-node1-try2",
+          "source_started_at": "2026-10-31T02:39:55.598839+00:00",
+          "execution": {
+            "started_at": "2026-10-31T02:39:55.538811+00:00",
+            "command": [
+              "/usr/bin/python3",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/tools/benchmarks/cost_matrix.py",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-unmodified-main-8153137-20261030",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-unmodified-main-8153137-20261030",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/32-busy/main",
+              "--single-corgi",
+              "--agents",
+              "32",
+              "--workload",
+              "busy",
+              "--stream-mode",
+              "sparse",
+              "--producer-phase",
+              "staggered",
+              "--initial-warmup",
+              "30",
+              "--warmup",
+              "30",
+              "--seconds",
+              "60",
+              "--node",
+              "1",
+              "--cpus",
+              "112,113,114,115,116,117,118,119",
+              "--placement-receipt",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/placement.json",
+              "--match-geometry",
+              "--uclamp"
+            ],
+            "role": "main",
+            "case": "32-busy",
+            "finished_at": "2026-10-31T02:47:46.818813+00:00",
+            "elapsed_seconds": 471.27972640888765,
+            "returncode": 0,
+            "source_sha256": "29a9432e943e27f3ae35d1f02e757a50925715cd349035fa0b4f9fdc94db83f8"
+          },
+          "max_trial_sibling_busy": 0.005722094115637543
+        },
+        "candidate": {
+          "source": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/32-busy/candidate/comparison.json",
+          "source_sha256": "823be006d25cec7e1ad3bb7d461b6ac359361f59a859adf30d9ab5aa23052daf",
+          "attempt": "corgi-node1-try1",
+          "source_started_at": "2026-10-31T02:35:57.380865+00:00",
+          "execution": {
+            "started_at": "2026-10-31T02:35:57.324294+00:00",
+            "command": [
+              "/usr/bin/python3",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/tools/benchmarks/cost_matrix.py",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-main-simplified-final-20261031",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-main-simplified-final-20261031",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/32-busy/candidate",
+              "--single-corgi",
+              "--agents",
+              "32",
+              "--workload",
+              "busy",
+              "--stream-mode",
+              "sparse",
+              "--producer-phase",
+              "staggered",
+              "--initial-warmup",
+              "30",
+              "--warmup",
+              "30",
+              "--seconds",
+              "60",
+              "--node",
+              "1",
+              "--cpus",
+              "112,113,114,115,116,117,118,119",
+              "--placement-receipt",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/placement.json",
+              "--match-geometry",
+              "--uclamp"
+            ],
+            "role": "candidate",
+            "case": "32-busy",
+            "finished_at": "2026-10-31T02:39:55.133024+00:00",
+            "elapsed_seconds": 237.80855318089016,
+            "returncode": 0,
+            "source_sha256": "823be006d25cec7e1ad3bb7d461b6ac359361f59a859adf30d9ab5aa23052daf"
+          },
+          "max_trial_sibling_busy": 0.005569254315109259
+        }
+      }
+    },
+    {
+      "case": "64-idle",
+      "run": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031",
+      "order": [
+        "candidate",
+        "main"
+      ],
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "memory_node": 1,
+      "inter_leg_gap_seconds": 0.43523192405700684,
+      "legs": {
+        "main": {
+          "source": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/64-idle/main/comparison.json",
+          "source_sha256": "85c2308b72ef0a492ad9b85de544f9a185e0f7ccaffe77e7c8038c2cfb1ec188",
+          "attempt": "corgi-node1-try1",
+          "source_started_at": "2026-10-31T02:52:19.406354+00:00",
+          "execution": {
+            "started_at": "2026-10-31T02:52:19.342229+00:00",
+            "command": [
+              "/usr/bin/python3",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/tools/benchmarks/cost_matrix.py",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-unmodified-main-8153137-20261030",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-unmodified-main-8153137-20261030",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/64-idle/main",
+              "--single-corgi",
+              "--agents",
+              "64",
+              "--workload",
+              "idle",
+              "--stream-mode",
+              "sparse",
+              "--producer-phase",
+              "staggered",
+              "--initial-warmup",
+              "30",
+              "--warmup",
+              "30",
+              "--seconds",
+              "60",
+              "--node",
+              "1",
+              "--cpus",
+              "112,113,114,115,116,117,118,119",
+              "--placement-receipt",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/placement.json",
+              "--match-geometry",
+              "--uclamp"
+            ],
+            "role": "main",
+            "case": "64-idle",
+            "finished_at": "2026-10-31T02:56:45.222921+00:00",
+            "elapsed_seconds": 265.8805212529842,
+            "returncode": 0,
+            "source_sha256": "85c2308b72ef0a492ad9b85de544f9a185e0f7ccaffe77e7c8038c2cfb1ec188"
+          },
+          "max_trial_sibling_busy": 0.0028962310887542396
+        },
+        "candidate": {
+          "source": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/64-idle/candidate/comparison.json",
+          "source_sha256": "b215662517a8bde8f8f1aaa03435f3b8857568ca24b06c7215f3017c60e34ca6",
+          "attempt": "corgi-node1-try1",
+          "source_started_at": "2026-10-31T02:47:47.267621+00:00",
+          "execution": {
+            "started_at": "2026-10-31T02:47:47.211328+00:00",
+            "command": [
+              "/usr/bin/python3",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/tools/benchmarks/cost_matrix.py",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-main-simplified-final-20261031",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-main-simplified-final-20261031",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/64-idle/candidate",
+              "--single-corgi",
+              "--agents",
+              "64",
+              "--workload",
+              "idle",
+              "--stream-mode",
+              "sparse",
+              "--producer-phase",
+              "staggered",
+              "--initial-warmup",
+              "30",
+              "--warmup",
+              "30",
+              "--seconds",
+              "60",
+              "--node",
+              "1",
+              "--cpus",
+              "112,113,114,115,116,117,118,119",
+              "--placement-receipt",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/placement.json",
+              "--match-geometry",
+              "--uclamp"
+            ],
+            "role": "candidate",
+            "case": "64-idle",
+            "finished_at": "2026-10-31T02:52:18.906997+00:00",
+            "elapsed_seconds": 271.6954789359588,
+            "returncode": 0,
+            "source_sha256": "b215662517a8bde8f8f1aaa03435f3b8857568ca24b06c7215f3017c60e34ca6"
+          },
+          "max_trial_sibling_busy": 0.0033823966696402024
+        }
+      }
+    },
+    {
+      "case": "64-busy",
+      "run": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031",
+      "order": [
+        "main",
+        "candidate"
+      ],
+      "node": 1,
+      "cpus": "112,113,114,115,116,117,118,119",
+      "memory_node": 1,
+      "inter_leg_gap_seconds": 0.4142441749572754,
+      "legs": {
+        "main": {
+          "source": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/64-busy/main/comparison.json",
+          "source_sha256": "0222058043041772f97d22947a145192b20f4f89b4f47c5a0b460b716107ddb2",
+          "attempt": "corgi-node1-try1",
+          "source_started_at": "2026-10-31T02:56:45.693327+00:00",
+          "execution": {
+            "started_at": "2026-10-31T02:56:45.636689+00:00",
+            "command": [
+              "/usr/bin/python3",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/tools/benchmarks/cost_matrix.py",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-unmodified-main-8153137-20261030",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-unmodified-main-8153137-20261030",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/64-busy/main",
+              "--single-corgi",
+              "--agents",
+              "64",
+              "--workload",
+              "busy",
+              "--stream-mode",
+              "sparse",
+              "--producer-phase",
+              "staggered",
+              "--initial-warmup",
+              "30",
+              "--warmup",
+              "30",
+              "--seconds",
+              "60",
+              "--node",
+              "1",
+              "--cpus",
+              "112,113,114,115,116,117,118,119",
+              "--placement-receipt",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/placement.json",
+              "--match-geometry",
+              "--uclamp"
+            ],
+            "role": "main",
+            "case": "64-busy",
+            "finished_at": "2026-10-31T03:01:30.909474+00:00",
+            "elapsed_seconds": 285.2725924421102,
+            "returncode": 0,
+            "source_sha256": "0222058043041772f97d22947a145192b20f4f89b4f47c5a0b460b716107ddb2"
+          },
+          "max_trial_sibling_busy": 0.0026269080582179624
+        },
+        "candidate": {
+          "source": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/64-busy/candidate/comparison.json",
+          "source_sha256": "bd1c232fd22d0bf8300ffc41d00c33a9f0ba8d00f4c19ad9a75c8f95a6561db3",
+          "attempt": "corgi-node1-try2",
+          "source_started_at": "2026-10-31T03:01:31.382805+00:00",
+          "execution": {
+            "started_at": "2026-10-31T03:01:31.323718+00:00",
+            "command": [
+              "/usr/bin/python3",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/tools/benchmarks/cost_matrix.py",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-main-simplified-final-20261031",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-main-simplified-final-20261031",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/64-busy/candidate",
+              "--single-corgi",
+              "--agents",
+              "64",
+              "--workload",
+              "busy",
+              "--stream-mode",
+              "sparse",
+              "--producer-phase",
+              "staggered",
+              "--initial-warmup",
+              "30",
+              "--warmup",
+              "30",
+              "--seconds",
+              "60",
+              "--node",
+              "1",
+              "--cpus",
+              "112,113,114,115,116,117,118,119",
+              "--placement-receipt",
+              "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/placement.json",
+              "--match-geometry",
+              "--uclamp"
+            ],
+            "role": "candidate",
+            "case": "64-busy",
+            "finished_at": "2026-10-31T03:11:00.136855+00:00",
+            "elapsed_seconds": 568.8128596339375,
+            "returncode": 0,
+            "source_sha256": "bd1c232fd22d0bf8300ffc41d00c33a9f0ba8d00f4c19ad9a75c8f95a6561db3"
+          },
+          "max_trial_sibling_busy": 0.009918236757909704
+        }
+      }
+    }
+  ],
+  "missing_pairs": [],
+  "excluded": [],
+  "plans": [
+    {
+      "path": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/main-vs-simplified-matrix-20261031/plan.json",
+      "sha256": "46fbe3d6d6fe14ccc666b50545dad7dfbfd7f8d0abf019bf65006b4fb08f2ff3",
+      "plan": {
+        "schema": "corgi-main-compare-plan-v1",
+        "contract": {
+          "binaries": {
+            "main": {
+              "path": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-unmodified-main-8153137-20261030",
+              "sha256": "11c3752378c54eed4e5ef5087ff35c201dc82b3ab536a0e7bc0def6fb548fdb7",
+              "build": {
+                "builtAt": "2026-10-30T22:52:01.965Z",
+                "target": "linux-x64",
+                "bunVersion": "1.4.4",
+                "testBuild": false,
+                "releaseVersion": "0.1.0-dev",
+                "releaseCommit": "815313769575425029472d24479334d741f90452",
+                "sha256": "11c3752378c54eed4e5ef5087ff35c201dc82b3ab536a0e7bc0def6fb548fdb7",
+                "sourceSHA256": "e8e6f2e36c008f4bb59c9140fc66f144bcefab835169497d335808b332949b27",
+                "nativeSHA256": "6fcbadeb972c5baf1abd5bebfc7fd09fd101244dd7b2cb515a719f42f84ef4be",
+                "inputsSHA256": "fbf88739d67f9fd2c6a4f9d5d3294ec0c6e4845446668aaa9b7595bc388c1ee3"
+              },
+              "build_sha256": "01e2d37824fe5bf01355fc17c2b967769fd3299bb4b90f64966ebdddd5581354"
+            },
+            "candidate": {
+              "path": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-main-simplified-final-20261031",
+              "sha256": "5104d038b7fee234aea129812304c2b5dc834d9d1cae06d1080b967def2453a4",
+              "build": {
+                "builtAt": "2026-10-31T01:21:29.129Z",
+                "target": "linux-x64",
+                "bunVersion": "1.4.4",
+                "testBuild": false,
+                "releaseVersion": "0.1.0-dev",
+                "releaseCommit": "a7db85cbe9fe4c8af518404ff825b2c012c601c7",
+                "sha256": "5104d038b7fee234aea129812304c2b5dc834d9d1cae06d1080b967def2453a4",
+                "sourceSHA256": "843d33a014574d664071b52ffd296631b914ea8da068ed47bc27f35f2502aaf7",
+                "nativeSHA256": "ac9990a8b8707ab964b5eb936b663b43b921f928fbe10472a8d04c444a2b23f6",
+                "inputsSHA256": "b92df46b7529cf7042be34cbec517a49d25a1945cf863d15f742d75b3a32bb22"
+              },
+              "build_sha256": "4de81beb1939059ab3fd09000a980fcfee383cbd39e7ad27b26273f21e980730"
+            }
+          },
+          "main_base": "815313769575425029472d24479334d741f90452",
+          "head": "a7db85cbe9fe4c8af518404ff825b2c012c601c7",
+          "sources": {
+            "tools/benchmarks/agent_scale.py": "7f31302f5436f89655ece410714745d6b1341eccba0750b5df5ee4632cb9fcde",
+            "tools/benchmarks/cost_matrix.py": "5fbe905b96e5a528c16a3c904567e7893cbe8ac4a9f4f2f80dd2f5492baea7ff",
+            "tools/benchmarks/corgi_costs.py": "c9706850f21977a629749e77dae7a7388cbc49dee30f45ce1e99d29989de59dc",
+            "tools/benchmarks/cost_host.py": "fe3dccc70ab81e93572b5cae31180e500f16d2048e1ee28186b9955a96ab763b",
+            "tools/benchmarks/cost_clamp.py": "392fd2c20a8c6b77af0d24cdf5abaee043b719c34478eb0351d2bf17a1be6999",
+            "tools/benchmarks/cost_calibration.py": "c53738b5443159095f1411ff87894835730daca7e3ec060628a212430d441f02",
+            "tools/benchmarks/cost_blocks.py": "b0e8520ed30de327b2247beadb76d526feef620f626eb9ed39242edb939d2238",
+            "tools/benchmarks/cpu.ts": "d2bd8263742c519c3537756172d6c1420d0a14753dfd4c1badb6298bf5dba5bf",
+            "tools/benchmarks/cpu_lock.ts": "22c1a5e18bfe4623e7fb043ec5906e9ca24cc9f52423ca80f034375e87dc0fdf",
+            "tools/benchmarks/cpu_memory.ts": "add0261871aeeaa5234eda4d6707746e3f811ec7ef9448884f529cff9384c94c",
+            "tools/benchmarks/viewer_progress.ts": "80d383077129f279827dfbb351827b59ada69515b31613267948e6e435104de1",
+            "tools/benchmarks/matrix_quality.ts": "0685037630beded87ec5fbd95adc301dd3dbab4c326bcb295ae895d475ef56e8",
+            "tools/benchmarks/cost_matrix_geometry.ts": "0c166cd9512b153455a9e414e27cd652f6f56dfeaa04d5e563addc5fb5cc1b9f",
+            "tools/benchmarks/cost_matrix_herdr.ts": "7d1cba79f6ab749ace63a4f3bb8f87f983154fb523ee8360d2f796a448ea6641",
+            "tools/benchmarks/streaming_fixture.ts": "b712f77e751863252eaa42556fa632e78ff40a8d58df4dcb2fa409c6d0bf6c36",
+            "tools/benchmarks/streaming_provider.ts.fixture": "4ecbba7f958c14b4ad8659f9bebd125d883f78b45fbc68edd7674dd0517f6125",
+            "tools/benchmarks/observation_costs_fixture.ts": "8aeaad55af69cd9d88048269d45f9191f723b85012e0ebb13bbca244e10c9175",
+            "tools/benchmarks/telemetry_snapshot.ts": "8a197ce2c2ddf0b8948614232223fd88e4699f96c1cc0a880c14ace38e13c311",
+            "tools/ui_driver.ts": "dbcb40e9d32b42dd4ed7ade000e1c4b0c42e1f12907d8672fcf3dd020edca3a6",
+            "tools/ghostty_themes.ts": "844239de5b3e55703a04defb5dc98dcf51e3f0eb6d88f11f00b0e9736dce4925",
+            "tests/provider_sim.ts": "cec1fd082cdb09a24d8d6499d25f96c7ebbee80f30fdd87b3d4b72da8c98dd7a",
+            "scripts/process_scope.ts": "04e1a69bad9baa0fba1703eea553efbd5ec20c85ea33bb60d288a3f71d83fd63",
+            "tools/benchmarks/main_compare.py": "a25b1a1651c95d71f78dda7d7b3597c7dc5c4c336ea62d4c86bacba876f7d863"
+          },
+          "settings": {
+            "seconds": 60,
+            "warmup": 30,
+            "stream_mode": "sparse",
+            "producer_phase": "staggered",
+            "noise_limit": 0.02,
+            "noise_attempts": 3,
+            "preflight_seconds": 3,
+            "preflight_warmup": 3
+          },
+          "diagnostics": {
+            "inter_leg_gap_seconds": 60,
+            "window_start_separation_seconds": 300,
+            "frequency_relative_difference": 0.05
+          },
+          "node": 1,
+          "cpus": "112,113,114,115,116,117,118,119",
+          "placement_sha256": "1ef6939c11e4ed52142214f39456d454c75fe2b8108c54f61bdc90627c7a6254",
+          "cases": [
+            "4-idle",
+            "4-busy",
+            "8-idle",
+            "8-busy",
+            "32-idle",
+            "32-busy",
+            "64-idle",
+            "64-busy"
+          ],
+          "orders": {
+            "4-idle": [
+              "main",
+              "candidate"
+            ],
+            "4-busy": [
+              "candidate",
+              "main"
+            ],
+            "8-idle": [
+              "candidate",
+              "main"
+            ],
+            "8-busy": [
+              "main",
+              "candidate"
+            ],
+            "32-idle": [
+              "main",
+              "candidate"
+            ],
+            "32-busy": [
+              "candidate",
+              "main"
+            ],
+            "64-idle": [
+              "candidate",
+              "main"
+            ],
+            "64-busy": [
+              "main",
+              "candidate"
+            ]
+          },
+          "preflight": [
+            "64-idle",
+            "64-busy"
+          ]
+        },
+        "created_at": "2026-10-31T01:37:52.694509+00:00"
+      }
+    }
+  ],
+  "interpretation": "Single-pair observations, not confidence intervals or a causal effect estimate",
+  "cpu_unit": "Percent of one logical CPU; process user+system including all threads",
+  "excluded_cpu": "Live providers, harness and separately reported waited-child CPU",
+  "frequency": "Diagnostic only; reported kHz is not effective execution cycles; no frequency normalization or rejection",
+  "preflight_excluded": true
+}
