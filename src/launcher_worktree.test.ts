@@ -14,6 +14,7 @@ const checkout = (path: string, branch: string, primary = false, total = 0): wor
   bare: false,
   detached: false,
   locked: null,
+  holder: null,
   prunable: null,
   available: true,
   comparison: null,

@@ -5,6 +5,8 @@ import * as subprocess from "../subprocess";
 import * as worktrees from "../worktrees";
 import * as json from "../json";
 import { adapter } from "../providers";
+import { running } from "../os";
+import * as claude from "../providers/claude/process";
 import type { Agent } from "../agents";
 import type { Runtime } from "../runtime";
 import type { Workspace } from "../workspace";
@@ -66,6 +68,7 @@ export function parseInventory(raw: string): worktrees.Checkout[] {
         bare: false,
         detached: false,
         locked: null,
+        holder: null,
         prunable: null,
         available: false,
         comparison: null,
@@ -192,6 +195,18 @@ function evidence(target: Target, agent: Agent, folder: string): Input {
     basis: seen?.cwd ? seen.basis : agent.provider && adapter(agent.provider).caps.follows_cd ? "named" : "default",
     settled: agent.state !== "working" && agent.state !== "blocked",
   };
+}
+/** Whether the process a lock names still runs. A Claude Code lock's pid
+ * counts only while Claude Code still has it. */
+export function holder(
+  locked: string,
+  alive: (pid: number) => boolean = running,
+  isClaude: (pid: number) => boolean = claude.running,
+): worktrees.Holder | null {
+  const note = worktrees.lockNote(locked);
+  if (note.pid === null) return null;
+  const live = alive(note.pid) && (!/^claude\b/i.test(note.by) || isClaude(note.pid));
+  return live ? "running" : "exited";
 }
 async function directory(path: string): Promise<string | null> {
   if (!isAbsolute(path)) return null;
@@ -330,15 +345,16 @@ export class Tracker {
     this.next_refresh = 0;
   }
   /** Starts removing a linked worktree, uncommitted changes and all; its
-   * branch stays. A locked one, or one a workspace lives in, is refused.
+   * branch stays. A locked one is refused unless `locked` is its lock's
+   * reason, as the user saw it, and one a workspace lives in is refused.
    * Git deletes it in the background, where `removal` reports on it: a big
    * checkout takes seconds, and requests wait on each other. */
-  async remove(runtime: Runtime, workspace: number, path: string): Promise<number> {
+  async remove(runtime: Runtime, workspace: number, path: string, locked: string | null = null): Promise<number> {
     const ws = runtime.workspaces.get(workspace);
     if (!ws) throw Error("NoWorkspace");
     const checkout = worktrees.linked(ws.worktrees).find(e => e.path === path);
     if (!checkout) throw Error("NoWorktree");
-    if (checkout.locked !== null) throw Error("WorktreeLocked");
+    if (checkout.locked !== null && checkout.locked !== locked) throw Error("WorktreeLocked");
     if (this.removing(workspace)) throw Error("WorktreeRemoving");
     for (const other of runtime.workspaces.items) {
       const cwd = await realpath(other.cwd).catch(() => other.cwd);
@@ -353,7 +369,7 @@ export class Tracker {
       at: 0,
     };
     this.removals.set(workspace, job);
-    void this.erase(job, ws.cwd, ws.worktrees!.common_dir);
+    void this.erase(job, ws.cwd, ws.worktrees!.common_dir, checkout.locked);
     return job.id;
   }
   /** Stops a removal under way; the files already deleted stay deleted. */
@@ -374,17 +390,36 @@ export class Tracker {
   private removing(workspace: number): boolean {
     return this.removals.get(workspace)?.phase === "deleting";
   }
+  /** The lock Git has on the worktree at `path` now: its reason, null when
+   * unlocked, undefined when Git doesn't list it. */
+  private async lockNow(cwd: string, path: string): Promise<string | null | undefined> {
+    const raw = await this.query(cwd, ["worktree", "list", "--porcelain", "-z"]);
+    if (raw === null) return undefined;
+    try {
+      for (const e of parseInventory(raw)) if ((await realpath(e.path).catch(() => e.path)) === path) return e.locked;
+    } catch {}
+    return undefined;
+  }
   /** Has Git delete the worktree and drop it, for as long as that takes;
-   * stopping kills Git, leaving what it had not deleted yet. */
-  private async erase(job: Removing, cwd: string, common: string) {
+   * stopping kills Git, leaving what it had not deleted yet. A locked one
+   * goes only while Git still has the lock the user confirmed, `locked`. */
+  private async erase(job: Removing, cwd: string, common: string, locked: string | null) {
     let phase: Removing["phase"] = "done",
       error = "";
+    // Git removes a locked worktree only when forced twice.
+    const force = locked === null ? ["--force"] : ["--force", "--force"];
     try {
-      const out = await subprocess.run(["git", "-C", cwd, "worktree", "remove", "--force", job.path], {
-        timeout_ms: removal_timeout_ms,
-        quit: job.quit,
-      });
-      if (!out.ok()) [phase, error] = ["failed", "WorktreeRemoveFailed"];
+      // The snapshot the lock was checked against can be seconds old.
+      const now = locked === null ? null : await this.lockNow(cwd, job.path);
+      if (now === undefined) [phase, error] = ["failed", "WorktreeRemoveFailed"];
+      else if (now !== null && now !== locked) [phase, error] = ["failed", "WorktreeLockChanged"];
+      else {
+        const out = await subprocess.run(["git", "-C", cwd, "worktree", "remove", ...force, job.path], {
+          timeout_ms: removal_timeout_ms,
+          quit: job.quit,
+        });
+        if (!out.ok()) [phase, error] = ["failed", "WorktreeRemoveFailed"];
+      }
     } catch {
       [phase, error] = job.quit.aborted ? ["stopped", ""] : ["failed", "WorktreeRemoveFailed"];
     }
@@ -643,7 +678,10 @@ export class Tracker {
         snapshot = { common_dir: key, base, entries, agents: [], stale: false };
         inventory_at = now;
       }
-      snapshot = { ...snapshot, entries: snapshot.entries.map(e => ({ ...e })) };
+      snapshot = {
+        ...snapshot,
+        entries: snapshot.entries.map(e => ({ ...e, holder: e.locked === null ? null : holder(e.locked) })),
+      };
       if (detail) {
         const base = snapshot.base;
         for (const e of worktrees.linked(snapshot)) {

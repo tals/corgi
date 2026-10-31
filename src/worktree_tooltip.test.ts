@@ -70,6 +70,23 @@ test("the count and table hide dead worktrees but retain locked and temporarily 
     terminal.destroy();
   }
 });
+test("a locked worktree with a long name gives up room for its lock", () => {
+  const data = parseInventory(
+      "worktree /repo\0branch refs/heads/main\0\0" +
+        "worktree /repo/.worktrees/long\0branch refs/heads/worktree-a-very-long-branch-name-for-locks\0\0",
+    ),
+    state = new State(),
+    w = new Writer(),
+    terminal = new Terminal(100, 30);
+  data[1].locked = "on a USB disk";
+  try {
+    draw(w, geometry(100, 30, 28, 3, 1)!, "repo", "/repo", { ...snapshot(0), entries: data }, state);
+    terminal.feed(w.buffered());
+    expect(terminal.text()).toContain("› worktree-a-ver…  locked  0");
+  } finally {
+    terminal.destroy();
+  }
+});
 test("rows show agents at work, the comparison, age, last edit and line counts", () => {
   const data = snapshot(2),
     now = Date.UTC(2026, 9, 11),
@@ -452,6 +469,64 @@ test("a big worktree shows Git still deleting it once the ending has played, and
     // Esc again closes it.
     await (view as any).key(27);
     expect(view.worktreeDetail()).toBeNull();
+  } finally {
+    clock.reset();
+  }
+});
+test("holding ⌫ on a locked worktree ends on its band; Esc keeps it and Enter removes it", async () => {
+  const { view, requests, report, screen } = await removing();
+  const lock = "claude session topic-0 (pid 20579 start Sat Oct 31 20:02:56 2026)";
+  try {
+    const data = snapshot(2);
+    data.entries[1].locked = lock;
+    data.entries[1].holder = "exited";
+    report(data, null);
+    expect(screen()).toContain("› topic-0  locked  ./…/0");
+    const hold = async () => {
+      await (view as any).key(127);
+      clock.advance(300);
+      for (let i = 0; i < 60 && view.worktree_card.removal.phase === "held"; i++) {
+        await (view as any).key(127);
+        if (i === 10) expect(screen()).toContain("Removing topic-0 · locked · branch kept");
+        clock.advance(50);
+      }
+    };
+    await hold();
+    expect(view.worktree_card.removal.phase).toBe("confirm");
+    clock.advance(1000);
+    const text = screen();
+    expect(text).toContain("› topic-0  locked");
+    expect(text).toMatch(/▎  LOCKED .* Enter  remove/);
+    expect(text).toContain("▎  claude session topic-0 · exited");
+    expect(text).toContain("Removing topic-0 · locked · branch kept");
+    expect(requests.some(r => r.op === "worktree.remove")).toBe(false);
+    // Esc keeps it: the row comes back, and the overview stays open.
+    await (view as any).key(27);
+    expect(view.worktreeDetail()).toBe(1);
+    clock.advance(1000);
+    await view.expireInput();
+    expect(view.worktree_card.removal.phase).toBe("idle");
+    expect(screen()).toContain("› topic-0  locked");
+    expect(screen()).not.toContain("LOCKED");
+    // A lock that changed while its band showed isn't the one Enter confirms.
+    await hold();
+    const relocked = snapshot(2);
+    relocked.entries[1].locked = "on a USB disk";
+    report(relocked, null);
+    await (view as any).key(13);
+    expect(requests.some(r => r.op === "worktree.remove")).toBe(false);
+    expect(view.worktree_card.removal.phase).toBe("failed");
+    expect(screen()).toContain("Couldn't remove topic-0 · its lock changed");
+    report(data, null);
+    clock.advance(worktreeRemoval.message_ms + 100);
+    await view.expireInput();
+    // Held again, Enter removes it, naming the lock it showed.
+    await hold();
+    await (view as any).key(13);
+    expect(requests.filter(r => r.op === "worktree.remove")).toEqual([
+      { op: "worktree.remove", workspace: 1, path: "/repo/.worktrees/0", locked: lock },
+    ]);
+    expect(view.worktree_card.removal.phase).toBe("removing");
   } finally {
     clock.reset();
   }

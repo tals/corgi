@@ -605,7 +605,7 @@ const requests = {
   "shell.configure": { shell: "string" },
   "smart_links.configure": { enabled: "bool" },
   "git.push": { workspace: "u32", ref: "ref" },
-  "worktree.remove": { workspace: "u32", path: "string" },
+  "worktree.remove": { workspace: "u32", path: "string", locked: ["?string", null] },
   "worktree.stop": { workspace: "u32" },
   "process.signal": { workspace: "u32", pid: "u32", start: "u64", signal: "term|kill" },
   "worktree.brief": { workspace: "u32" },

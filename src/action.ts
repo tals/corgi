@@ -22,6 +22,7 @@ export const specs: Record<string, string> = {
   "worktree-agent": "usize",
   "worktree-enter": "void",
   "worktree-remove": "void",
+  "worktree-confirm": "void",
   "worktree-stop": "void",
   "worktree-refresh": "void",
   "worktree-review": "void",

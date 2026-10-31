@@ -2118,21 +2118,30 @@ export class Controller {
         }
         break;
       }
-      case "worktree-remove": {
-        // Each press or key repeat comes here; the hold decides when it's done.
+      case "worktree-remove":
+      case "worktree-confirm": {
+        // Each press or key repeat comes here; the hold decides when it's
+        // done. A locked worktree's waits for Enter, which confirms the one held.
         if (this.worktreeDetail() === null) break;
         const card = this.worktree_card,
+          confirming = act.name === "worktree-confirm",
           ws = this.runtime.workspaces.items.find(w => w.id === card.workspace),
           entries = card.entries(ws?.worktrees ?? null),
-          index = card.index(entries),
+          index = confirming ? entries.findIndex(e => e.path === card.removal.target?.path) : card.index(entries),
           checkout = entries[index];
         if (!ws || !checkout) break;
         const selection = { workspace: ws.id, path: checkout.path },
           panes = this.worktreePanes(selection);
         card.select(checkout.path);
         this.dirty = true;
-        const target = worktreeRemoval.target(ws.id, checkout, index, panes.length);
-        if (!card.removal.press(milliTimestamp(), target, card.removalEffect())) break;
+        const target = confirming ? card.removal.target! : worktreeRemoval.target(ws.id, checkout, index, panes.length);
+        const now = milliTimestamp();
+        // A lock that changed since its band showed isn't the one confirmed; its agents stay.
+        if (confirming && card.removal.phase === "confirm" && checkout.locked !== target.locked) {
+          card.removal.settle(now, removalReason("WorktreeLockChanged"));
+          break;
+        }
+        if (!(confirming ? card.removal.confirm(now) : card.removal.press(now, target, card.removalEffect()))) break;
         try {
           for (const id of panes) await this.close(id);
         } catch {
@@ -2141,7 +2150,8 @@ export class Controller {
         }
         // The daemon deletes the files in the background and reports on them.
         try {
-          const reply = await call(this.connection, "worktree.remove", selection);
+          const confirmed = target.locked === null ? {} : { locked: target.locked },
+            reply = await call(this.connection, "worktree.remove", { ...selection, ...confirmed });
           card.removal.job = Number(reply.removal) || 0;
           this.removal_next = (entries[index + 1] ?? entries[index - 1])?.path ?? null;
           // A daemon that removes before it answers sends no removal to follow.
@@ -2156,6 +2166,8 @@ export class Controller {
       }
       case "worktree-stop": {
         const t = this.worktree_card.removal.target;
+        this.worktree_card.removal.cancel(milliTimestamp());
+        this.dirty = true;
         if (this.worktree_card.removal.phase !== "removing" || !t) break;
         try {
           await call(this.connection, "worktree.stop", { workspace: t.workspace });
@@ -3993,13 +4005,14 @@ export class Controller {
       return;
     }
     if (this.worktreeDetail() !== null) {
-      // Esc stops a removal under way; otherwise it closes the overview.
+      const phase = this.worktree_card.removal.phase;
+      // Esc stops a removal under way, or keeps a locked worktree; otherwise it closes the overview.
       if (byte === 27)
         return this.perform({
-          name: this.worktree_card.removal.phase === "removing" ? "worktree-stop" : "worktree-close",
+          name: phase === "removing" || phase === "confirm" ? "worktree-stop" : "worktree-close",
         });
       if (this.worktree_card.pinned) {
-        if (byte === 13) await this.perform({ name: "worktree-enter" });
+        if (byte === 13) await this.perform({ name: phase === "confirm" ? "worktree-confirm" : "worktree-enter" });
         else if (byte === 106 || byte === 14 || byte === 9) await this.perform({ name: "worktree-next" });
         else if (byte === 107 || byte === 16) await this.perform({ name: "worktree-prev" });
         else if (byte === 127 || byte === 8) await this.perform({ name: "worktree-remove" });
@@ -6231,7 +6244,7 @@ export class Controller {
     if (removal.phase !== "idle") {
       this.followRemoval();
       removal.advance(milliTimestamp());
-      this.dirty = true;
+      if (removal.animating(milliTimestamp())) this.dirty = true;
     }
     const launch = this.agent_launcher;
     if (launch?.transition.tick(milliTimestamp())) this.dirty = true;
@@ -7402,6 +7415,8 @@ function removalReason(err: string | null): string {
       return "it's already gone";
     case "WorktreeLocked":
       return "it's locked";
+    case "WorktreeLockChanged":
+      return "its lock changed";
     case "WorktreeInUse":
       return "a workspace is open in it";
     case "WorktreeRemoveFailed":

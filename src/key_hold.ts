@@ -77,6 +77,13 @@ export class KeyHold {
     this.pressed = false;
     this.until = now;
   }
+  /** Lets go of a hold, full or not: it empties from `now`. */
+  letGo(now: number): void {
+    if (!this.active) return;
+    this.pressed = false;
+    this.at = this.until = now;
+    this.last = -Infinity;
+  }
   /** Whether the key or button is still down, as far as can be told. */
   held(now: number): boolean {
     return this.active && (this.pressed || now <= this.until);

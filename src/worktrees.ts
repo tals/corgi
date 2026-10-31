@@ -27,6 +27,8 @@ export interface Checkout {
   bare: boolean;
   detached: boolean;
   locked: string | null;
+  /** Whether the process its lock names still runs; null when it names none. */
+  holder: Holder | null;
   prunable: string | null;
   available: boolean;
   comparison: Comparison | null;
@@ -124,6 +126,7 @@ export function snapshot(value: any): Snapshot | null {
         bare: e.bare === true,
         detached: e.detached === true,
         locked: e.locked ?? null,
+        holder: e.holder === "running" || e.holder === "exited" ? e.holder : null,
         prunable: e.prunable ?? null,
         available: e.available === true,
         comparison: ahead === null || behind === null ? null : { ahead, behind },
@@ -166,6 +169,15 @@ export function label(checkout: Checkout): string {
   return (
     checkout.branch?.replace(/^refs\/heads\//, "") ?? (checkout.detached ? checkout.head.slice(0, 8) : "No commits")
   );
+}
+export type Holder = "running" | "exited";
+/** A lock's reason read for who took it: Claude Code locks the worktrees it
+ * makes with "claude session NAME (pid N start DATE)". Other reasons are
+ * free text, with no one named. */
+export function lockNote(reason: string): { by: string; pid: number | null; start: string | null } {
+  const match = reason.match(/^(.*?)\s*\(pid (\d+)(?: start ([^)]*))?\)\s*$/);
+  if (!match || !match[1]) return { by: reason, pid: null, start: null };
+  return { by: match[1], pid: Number(match[2]), start: match[3]?.trim() || null };
 }
 
 /** How an agent's directory is known: it announced moving there (Claude's
