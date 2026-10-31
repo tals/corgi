@@ -101,25 +101,33 @@ export function load(): Preferences {
     const old = readExisting(`${process.env.CORGI_SOCKET}.viewer.json`);
     if (old?.onboarding_complete) {
       try {
+        // Keep the legacy setup in memory even if another viewer is saving it.
+        saved = migrate(saved, old);
         locked(file, () => {
           const current = readExisting(file);
+          saved = current;
           if (current?.onboarding_complete) {
-            saved = current;
             return;
           }
           if (!current && existsSync(file)) return;
-          const migrated = Object.assign(new Preferences(), current ?? old);
-          migrated.preset = old.preset;
-          migrated.prefix = old.prefix;
-          migrated.onboarding_complete = true;
-          migrated.bindings();
-          saved = migrated;
-          atomicWrite(file, migrated);
+          saved = migrate(current, old);
+          atomicWrite(file, saved);
         });
-      } catch {}
+      } catch {
+        const current = readExisting(file);
+        if (current?.onboarding_complete) saved = current;
+      }
     }
   }
   return saved ?? new Preferences();
+}
+function migrate(current: Preferences | null, old: Preferences): Preferences {
+  const migrated = Object.assign(new Preferences(), current ?? old);
+  migrated.preset = old.preset;
+  migrated.prefix = old.prefix;
+  migrated.onboarding_complete = true;
+  migrated.bindings();
+  return migrated;
 }
 /** Saves the given fields and keeps the rest as another viewer may have left them. */
 export function update(changes: Partial<Preferences>): void {
