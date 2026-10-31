@@ -69,7 +69,8 @@ test("a launch preview names the model it shows and where it came from", () => {
 });
 
 test("unchanged launch previews retain identity across polling and installation refreshes", async () => {
-  const worker = new Worker();
+  const worker = new Worker(),
+    monotonic = spyOn(performance, "now").mockReturnValue(0);
   worker.launcher = async () => ({
     account: async () => new Info(),
     model: async () => ({ model: "stable", source: "test" }),
@@ -84,6 +85,7 @@ test("unchanged launch previews retain identity across polling and installation 
     expect(first.pending).toBe(false);
     for (let ms = 100; ms <= 10000; ms += 100) {
       setSystemTime(new Date(start + ms));
+      monotonic.mockReturnValue(ms);
       expect(worker.preview(root)).toBe(first);
     }
     accounts.renameDefault("codex", "work");
@@ -101,13 +103,15 @@ test("unchanged launch previews retain identity across polling and installation 
     expect(settled.pending).toBe(false);
   } finally {
     await worker.stop();
+    monotonic.mockRestore();
     setSystemTime();
   }
 });
 
-test("install discovery expires and an explicit refresh sees changes immediately", async () => {
+test("install discovery expires despite wall-clock rollback and refresh sees changes immediately", async () => {
   let available = true;
   const found = spyOn(discovery, "installed").mockImplementation(() => available),
+    monotonic = spyOn(performance, "now").mockReturnValue(0),
     worker = new Worker();
   worker.launcher = async () => ({
     account: async () => new Info(),
@@ -120,15 +124,18 @@ test("install discovery expires and an explicit refresh sees changes immediately
     await worker.pump();
     expect(worker.preview(root).installed.codex).toBe(true);
     available = false;
-    setSystemTime(new Date(1_000_004_000));
+    monotonic.mockReturnValue(4000);
+    setSystemTime(new Date(999_999_000));
     expect(worker.preview(root).installed.codex).toBe(true);
-    setSystemTime(new Date(1_000_006_000));
+    monotonic.mockReturnValue(5000);
+    setSystemTime(new Date(999_998_000));
     expect(worker.preview(root).installed.codex).toBe(false);
     available = true;
     expect(worker.preview(root, true).installed.codex).toBe(true);
   } finally {
     await worker.stop();
     found.mockRestore();
+    monotonic.mockRestore();
     setSystemTime();
   }
 });
