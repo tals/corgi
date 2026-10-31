@@ -74,6 +74,10 @@ export class Context {
     public accounts: readonly Account[] = [],
     /** What each provider's default account is called, if anything. */
     public names: Readonly<Record<string, string>> = {},
+    public location: (cwd: string) => { path: string; label: string } = cwd => ({
+      path: cwd,
+      label: basename(cwd) || cwd,
+    }),
   ) {}
   /** The name of the account `e` ran in, while there are accounts to tell
    * apart; "" for a default without a name. */
@@ -414,7 +418,7 @@ export class View {
   columns(inner: number): Columns {
     // Marker, provider and their gaps, the gap after the title, and the age.
     const room = sat(inner, provider_width + 7);
-    const folder = this.expanded && this.scope !== "folder" && room >= 60 ? 15 : 0;
+    const folder = this.expanded && this.scope !== "folder" && room >= 60 ? Math.min(24, Math.floor(room / 4)) : 0;
     const title =
       sat(room, folder) >= 70
         ? Math.max(30, Math.floor(((room - folder) * 2) / 5))
@@ -482,7 +486,7 @@ export class View {
     writeEllipsis(w, "Title", cols.title);
     if (cols.folder > 0) {
       w.write(`\x1b[${y + 1};${x + 3 + provider_width + cols.title + 2}H`);
-      w.write("Folder");
+      w.write("Where");
     }
     if (cols.last > 12) {
       w.write(`\x1b[${y + 1};${x + 3 + provider_width + cols.title + 2 + cols.folder}H`);
@@ -498,6 +502,13 @@ export class View {
       w.write(`\x1b[${area.listTop()};${x + 3 + provider_width}H${panel}`);
       writeEllipsis(w, date, sat(width, 6 + provider_width));
       w.write(rule + " " + "─".repeat(sat(width, 6 + provider_width + displayWidth(date))));
+      if (cols.folder > 0) {
+        const column = x + 3 + provider_width + cols.title + 2;
+        w.write(`\x1b[${area.listTop()};${column}H${panel}`);
+        w.splat(" ", cols.folder);
+        w.write(`\x1b[${area.listTop()};${column}H`);
+        writeEllipsis(w, c.location(context.cwd).label, cols.folder - 1);
+      }
     }
     if (rows.length === 0 || (rows.length === 1 && "heading" in rows[0])) {
       w.write(`\x1b[${list_top + (rows.length === 1 ? 1 : 0)};${x + 3 + provider_width}H${panel}`);
@@ -517,6 +528,7 @@ export class View {
         width,
         cols,
         marks,
+        !(context && k === 0) && startsRun(c, rows, first + k, first, entry => c.location(entry.cwd).path),
       );
     });
     const bar = scrollThumb.thumb(list_height, rows.length, first);
@@ -539,6 +551,7 @@ export class View {
     width: number,
     cols: Columns,
     marks: Marks | null = null,
+    named_where = true,
   ): void {
     const style = selected ? selected_style : row_style;
     if ("day" in line) {
@@ -551,6 +564,14 @@ export class View {
       w.write(text);
       w.write(" " + palette.fg("line"));
       w.write("─".repeat(sat(width, 6 + provider_width + displayWidth(text))));
+      const previous = at > 0 ? entryOf(c, rows[at - 1]) : null,
+        next = after ? entryOf(c, after) : null;
+      if (cols.folder > 0 && previous && next && c.location(previous.cwd).path === c.location(next.cwd).path) {
+        const column = x + 3 + provider_width + cols.title + 2;
+        w.write(`\x1b[${row};${column}H${panel}`);
+        w.splat(" ", cols.folder);
+        w.write(`\x1b[${row};${column}H│`);
+      }
       return;
     }
     if ("heading" in line) {
@@ -597,10 +618,10 @@ export class View {
       writeEllipsis(w, text, width);
     };
     if (cols.title > 16) {
-      const account = c.accountName(e);
+      const account = e.account ? c.accountName(e) : "";
       if (account.length > 0)
         tag(account, Math.min(displayWidth(account), Math.floor(cols.title / 3)), selected ? palette.fg("muted") : dim);
-      const branch = "entry" in line ? otherBranch(c, e) : "";
+      const branch = cols.folder === 0 && "entry" in line ? otherBranch(c, e) : "";
       if (branch.length > 0)
         tag(branch, Math.min(Buffer.byteLength(branch), Math.floor(room / 2)), palette.fg("muted"));
     }
@@ -609,7 +630,8 @@ export class View {
     col += cols.title + 2;
     if (cols.folder > 0) {
       w.write(`\x1b[${row};${col}H` + palette.fg("muted"));
-      writeEllipsis(w, basename(e.cwd), cols.folder - 1);
+      if (named_where) writeEllipsis(w, c.location(e.cwd).label, cols.folder - 1);
+      else w.write("│");
       w.write(style);
       col += cols.folder;
     }
@@ -658,19 +680,29 @@ function otherBranch(c: Context, e: Entry): string {
   return "";
 }
 /** The agent of a conversation row; null for any other row. */
-function agentOf(c: Context, line: Line): Provider | null {
-  if ("entry" in line) return c.history.entries[line.entry].provider;
-  if ("open" in line) return c.history.entries[line.open].provider;
+function entryOf(c: Context, line: Line): Entry | null {
+  if ("entry" in line) return c.history.entries[line.entry];
+  if ("open" in line) return c.history.entries[line.open];
   return null;
+}
+function agentOf(c: Context, line: Line): Provider | null {
+  return entryOf(c, line)?.provider ?? null;
 }
 /** Names the first visible conversation and each change of agent. Day
  * headings continue the run; search section headings start another. */
-export function startsRun(c: Context, rows: Line[], i: number, first: number): boolean {
-  const agent = agentOf(c, rows[i]);
-  if (agent === null) return false;
+export function startsRun(
+  c: Context,
+  rows: Line[],
+  i: number,
+  first: number,
+  key: (entry: Entry) => string = entry => entry.provider,
+): boolean {
+  const entry = entryOf(c, rows[i]);
+  if (entry === null) return false;
   for (let k = i - 1; k >= first; k--) {
     if ("day" in rows[k]) continue;
-    return agentOf(c, rows[k]) !== agent;
+    const previous = entryOf(c, rows[k]);
+    return previous === null || key(previous) !== key(entry);
   }
   return true;
 }

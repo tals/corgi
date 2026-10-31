@@ -527,6 +527,10 @@ export class Menu {
       now(),
       this.accounts,
       this.preview.names,
+      cwd => ({
+        path: launcherWorktree.containing(this.worktrees, cwd)?.path ?? cwd,
+        label: launcherWorktree.place(this.worktrees, cwd, null).label,
+      }),
     );
   }
   /** Where agents start: the new worktree named for them, else `cwd`. */
