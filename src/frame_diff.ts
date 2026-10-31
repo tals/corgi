@@ -48,28 +48,36 @@ export class Differ {
           this.rects[i * 4 + 2] = p.w;
           this.rects[i * 4 + 3] = p.h;
         }
-        const chrome = reuse ? null : Buffer.from(frame.chrome);
-        const size = Number(
-          n.frame_diff_compose(
-            this.handle,
-            chrome ? ptr(chrome) : null,
-            chrome?.length ?? 0,
-            ptr(this.sources),
-            ptr(this.rects),
-            frame.panes.length,
-            frame.cursor?.x ?? 0,
-            frame.cursor?.y ?? 0,
-            frame.cursor !== null,
-            reuse ? 1 : 0,
-          ),
-        );
-        if (size >= 0) {
-          this.previous = frame;
-          const out = this.take(size);
-          telemetry.end(reuse ? "viewer.retained" : "viewer.composite", started, chrome?.length ?? 0);
-          return out;
+        // A rejection (-2) leaves the differ as it was or marks it stale
+        // itself, so the fallback can still diff cells; a rejected reuse
+        // retries with fresh chrome. Errors may leave it half-written.
+        for (const retained of reuse ? [true, false] : [false]) {
+          const chrome = retained ? null : Buffer.from(frame.chrome);
+          const size = Number(
+            n.frame_diff_compose(
+              this.handle,
+              chrome ? ptr(chrome) : null,
+              chrome?.length ?? 0,
+              ptr(this.sources),
+              ptr(this.rects),
+              frame.panes.length,
+              frame.cursor?.x ?? 0,
+              frame.cursor?.y ?? 0,
+              frame.cursor !== null,
+              retained ? 1 : 0,
+            ),
+          );
+          if (size >= 0) {
+            this.previous = frame;
+            const out = this.take(size);
+            telemetry.end(retained ? "viewer.retained" : "viewer.composite", started, chrome?.length ?? 0);
+            return out;
+          }
+          if (size !== -2) {
+            n.frame_diff_invalidate(this.handle);
+            break;
+          }
         }
-        n.frame_diff_invalidate(this.handle);
       }
       return this.full(frame.text());
     }

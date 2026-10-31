@@ -124,6 +124,26 @@ test("retained multi-pane updates and chrome fallbacks reproduce complete styled
   }
 });
 
+test("an image write outside the frame keeps retained panes off the wire", () => {
+  const f = fixture();
+  try {
+    f.update(0, "left pane text");
+    f.update(1, "right pane text");
+    f.present(f.compose());
+    f.present(f.compose());
+    f.differ.invalidateImages();
+    const out = f.present(f.compose());
+    expect(out).not.toContain("left pane text");
+    expect(out).not.toContain("right pane text");
+    f.update(0, "left changed");
+    const next = f.present(f.compose());
+    expect(next).toContain("changed");
+    expect(next).not.toContain("right pane text");
+  } finally {
+    f.close();
+  }
+});
+
 test("retained hyperlink groups stay distinct across panes, fallback transitions and hover", () => {
   const f = fixture(),
     uri = "https://example.com/shared",
@@ -313,7 +333,7 @@ test("changed pointer controls retain the complete-frame fallback", () => {
   }
 });
 
-test("unsupported or failed native composition falls back after unpublished native state changes", () => {
+test("rejected or failed native composition falls back to a complete frame", () => {
   for (const status of [-2, -1]) {
     const f = fixture();
     try {
@@ -326,7 +346,7 @@ test("unsupported or failed native composition falls back after unpublished nati
       const drawn = f.compose(),
         original = n.frame_diff_compose;
       const reject = ((...args: Parameters<typeof original>) => {
-        expect(Number(original(...args))).toBeGreaterThanOrEqual(0);
+        if (status === -1) expect(Number(original(...args))).toBeGreaterThanOrEqual(0);
         return status;
       }) as typeof original;
       const compose = spyOn(n, "frame_diff_compose").mockImplementation(reject),
@@ -480,7 +500,7 @@ test("external image invalidation replays image controls from a retained frame",
   }
 });
 
-test("a rejected retained batch discards unpublished cell changes before full fallback", () => {
+test("a rejected retained batch retries with fresh chrome", () => {
   const f = fixture();
   try {
     f.update(0, "old left");
@@ -490,20 +510,23 @@ test("a rejected retained batch discards unpublished cell changes before full fa
     f.update(0, "NEW LEFT");
     f.update(1, "NEW RIGHT");
     const frame = f.compose(),
-      original = n.frame_diff_compose;
+      original = n.frame_diff_compose,
+      modes: number[] = [];
     const reject = ((...args: Parameters<typeof original>) => {
-      expect(args[9]).toBe(1);
-      expect(Number(original(...args))).toBeGreaterThanOrEqual(0);
-      return -2;
+      modes.push(Number(args[9]));
+      return args[9] === 1 ? -2 : original(...args);
     }) as typeof original;
-    const batch = spyOn(n, "frame_diff_compose").mockImplementation(reject);
+    const batch = spyOn(n, "frame_diff_compose").mockImplementation(reject),
+      replay = spyOn(n, "frame_diff_diff");
     try {
       const written = f.present(frame);
-      expect(batch).toHaveBeenCalledTimes(1);
+      expect(modes).toEqual([1, 0]);
+      expect(replay).not.toHaveBeenCalled();
       expect(written).toContain("NEW LEFT");
       expect(written).toContain("NEW RIGHT");
     } finally {
       batch.mockRestore();
+      replay.mockRestore();
     }
     f.update(0, "AFTER FALLBACK");
     f.present(f.compose());
