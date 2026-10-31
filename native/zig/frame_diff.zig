@@ -30,7 +30,7 @@ pub const Differ = struct {
     compared_cells: u64 = 0,
 
     pub const Cursor = struct { x: u16 = 0, y: u16 = 0, visible: bool = false };
-    pub const ChromeMode = enum(u8) { full, reuse, patch };
+    pub const ChromeMode = enum(u8) { full, reuse };
     pub const Pane = struct {
         state: *const vt.RenderState,
         identity: u64 = 0,
@@ -56,9 +56,9 @@ pub const Differ = struct {
         inline fn target(c: Cell) ?Link {
             return if (c.managed) |value| value.target else null;
         }
-        inline fn eqlSource(c: Cell, cells: std.MultiArrayList(vt.RenderState.Cell), pin: vt.Pin, col: usize) bool {
+        inline fn eqlSource(c: Cell, cells: std.MultiArrayList(vt.RenderState.Cell), pin: vt.Pin, col: usize, colors: ?*const vt.RenderState) bool {
             const original = cells.items(.raw)[col];
-            if (@as(u64, @bitCast(c.raw)) != @as(u64, @bitCast(visibleRaw(original))) or !c.style.eql(cellStyle(cells, col))) return false;
+            if (@as(u64, @bitCast(c.raw)) != @as(u64, @bitCast(visibleRaw(original, colors != null))) or !c.style.eql(cellStyle(cells, col, colors))) return false;
             if (original.content_tag == .codepoint_grapheme and !std.mem.eql(u21, c.grapheme(), cells.items(.grapheme)[col])) return false;
             if (original.hyperlink) return sameLink(c.target(), link(pin, col));
             return c.target() == null;
@@ -83,9 +83,9 @@ pub const Differ = struct {
             r.cells[col] = source;
             if (source.managed) |value| r.cells[col].managed = try r.copyManaged(col, value.grapheme, value.target);
         }
-        inline fn putSource(r: *OwnedRow, col: usize, cells: std.MultiArrayList(vt.RenderState.Cell), pin: vt.Pin, source_col: usize) !void {
+        inline fn putSource(r: *OwnedRow, col: usize, cells: std.MultiArrayList(vt.RenderState.Cell), pin: vt.Pin, source_col: usize, colors: ?*const vt.RenderState) !void {
             const original = cells.items(.raw)[source_col];
-            r.cells[col] = .{ .raw = visibleRaw(original), .style = cellStyle(cells, source_col) };
+            r.cells[col] = .{ .raw = visibleRaw(original, colors != null), .style = cellStyle(cells, source_col, colors) };
             if (original.content_tag == .codepoint_grapheme or original.hyperlink) {
                 r.cells[col].managed = try r.copyManaged(col, if (original.content_tag == .codepoint_grapheme) cells.items(.grapheme)[source_col] else &.{}, if (original.hyperlink) link(pin, source_col) else null);
             }
@@ -212,11 +212,15 @@ pub const Differ = struct {
         }
         return .{ .state = &d.render, .row = row, .col = col, .len = stop - col };
     }
-    inline fn visibleRaw(original: Raw) Raw {
+    inline fn visibleRaw(original: Raw, pane: bool) Raw {
         var raw = original;
         raw.style_id = 0;
         raw.hyperlink = false;
         raw.semantic_content = .output;
+        if (pane and raw.wide == .narrow and raw.codepoint() == 0) {
+            raw.content_tag = .codepoint;
+            raw.content = .{ .codepoint = .{ .data = ' ' } };
+        }
         return raw;
     }
     fn compareRow(d: *Differ, panes: []const Pane, row: usize) bool {
@@ -230,7 +234,7 @@ pub const Differ = struct {
                 const cells = span.state.row_data.items(.cells)[span.row];
                 const pin = span.state.row_data.items(.pin)[span.row];
                 for (0..span.len) |offset| {
-                    const unequal = !d.saved[row].valid or !d.saved[row].cells[col + offset].eqlSource(cells, pin, span.col + offset);
+                    const unequal = !d.saved[row].valid or !d.saved[row].cells[col + offset].eqlSource(cells, pin, span.col + offset, if (span.state == &d.render) null else span.state);
                     d.changed[col + offset] = unequal;
                     changed = changed or unequal;
                 }
@@ -248,7 +252,7 @@ pub const Differ = struct {
                 const span = d.sourceSpan(panes, row, col, range.end);
                 const cells = span.state.row_data.items(.cells)[span.row];
                 const pin = span.state.row_data.items(.pin)[span.row];
-                for (0..span.len) |offset| try d.scratch.putSource(col + offset, cells, pin, span.col + offset);
+                for (0..span.len) |offset| try d.scratch.putSource(col + offset, cells, pin, span.col + offset, if (span.state == &d.render) null else span.state);
                 col += span.len;
             }
         }
@@ -331,20 +335,6 @@ pub const Differ = struct {
         if (d.stale or d.image_fallback or cursor.x >= d.cols or cursor.y >= d.rows) return false;
         if (mode != .full and (!d.chrome_valid or d.images_stale or !d.defaultModes())) return false;
         if (mode != .reuse and chrome == null) return false;
-        if (mode == .patch) {
-            if (d.vt.screens.active.cursor.hyperlink_id != 0 or !validPatch(chrome.?)) return false;
-            var count: usize = 0;
-            for (d.receipts.items) |receipt| if (receipt.valid) {
-                count += 1;
-                var found = false;
-                for (panes) |pane| if (receipt.matches(pane)) {
-                    found = true;
-                    break;
-                };
-                if (!found) return false;
-            };
-            if (count != panes.len) return false;
-        }
         for (panes, 0..) |pane, i| {
             if (!d.validPane(pane)) return false;
             for (panes[0..i]) |previous| if (@as(u32, pane.x) < @as(u32, previous.x) + previous.w and @as(u32, previous.x) < @as(u32, pane.x) + pane.w and
@@ -356,12 +346,6 @@ pub const Differ = struct {
         if (mode == .full) {
             parsed = try d.parse(chrome.?);
             if (parsed.?.controls != d.controls or parsed.?.image_fallback or !d.defaultModes()) return false;
-        } else if (mode == .patch) {
-            const parsing = d.stamp();
-            d.stream.nextSlice("\x1b[0m\x1b[H");
-            d.stream.nextSlice(chrome.?);
-            d.record(.parse_ns, parsing);
-            try d.updateRender();
         }
         if (mode != .reuse) {
             for (0..d.rows) |row| if (d.render.dirty == .full or d.render.row_data.items(.dirty)[row]) {
@@ -480,13 +464,23 @@ pub const Differ = struct {
         d.cursor = cursor;
         d.stale = false;
     }
-    inline fn cellStyle(cells: anytype, col: usize) vt.Style {
+    inline fn cellStyle(cells: anytype, col: usize, colors: ?*const vt.RenderState) vt.Style {
         const cell = cells.items(.raw)[col];
-        return switch (cell.content_tag) {
+        var style: vt.Style = switch (cell.content_tag) {
             .bg_color_palette => .{ .bg_color = .{ .palette = cell.content.color_palette.data } },
             .bg_color_rgb => .{ .bg_color = .{ .rgb = .{ .r = cell.content.color_rgb.r, .g = cell.content.color_rgb.g, .b = cell.content.color_rgb.b } } },
             else => if (cell.style_id == 0) .{} else cells.items(.style)[col],
         };
+        // Pane colors belong to its terminal; chrome defaults belong to the host.
+        if (colors) |state| {
+            var fg = style.fg(.{ .default = state.colors.foreground, .palette = &state.colors.palette });
+            var bg = style.bg(&cell, &state.colors.palette) orelse state.colors.background;
+            if (style.flags.inverse) std.mem.swap(vt.color.RGB, &fg, &bg);
+            style.fg_color = .{ .rgb = fg };
+            style.bg_color = .{ .rgb = bg };
+            style.flags.inverse = false;
+        }
+        return style;
     }
     fn digits(value: usize) usize {
         var n = value;
@@ -544,48 +538,6 @@ pub const Differ = struct {
         }
     }
 };
-
-/// A patch can position styled text; controls, erases and images need a full frame.
-fn validPatch(bytes: []const u8) bool {
-    if (!std.unicode.utf8ValidateSlice(bytes)) return false;
-    var i: usize = 0;
-    var linked = false;
-    while (i < bytes.len) {
-        if (bytes[i] != 0x1b) {
-            if (bytes[i] < 0x20 or bytes[i] == 0x7f) return false;
-            i += 1;
-            continue;
-        }
-        if (i + 1 == bytes.len) return false;
-        switch (bytes[i + 1]) {
-            '[' => {
-                var end = i + 2;
-                while (end < bytes.len and ((bytes[end] >= '0' and bytes[end] <= '9') or bytes[end] == ';' or bytes[end] == ':')) : (end += 1) {}
-                if (end == bytes.len or (bytes[end] != 'm' and bytes[end] != 'H' and bytes[end] != 'f')) return false;
-                i = end + 1;
-            },
-            ']' => {
-                if (!std.mem.startsWith(u8, bytes[i + 2 ..], "8;")) return false;
-                var end = i + 4;
-                while (end < bytes.len and bytes[end] != 0x07 and bytes[end] != 0x1b) : (end += 1) {
-                    if (bytes[end] < 0x20 or bytes[end] == 0x7f) return false;
-                }
-                if (end == bytes.len) return false;
-                const body = bytes[i + 4 .. end];
-                const separator = std.mem.indexOfScalar(u8, body, ';') orelse return false;
-                linked = separator + 1 < body.len;
-                if (bytes[end] == 0x07) {
-                    i = end + 1;
-                } else {
-                    if (end + 1 == bytes.len or bytes[end + 1] != '\\') return false;
-                    i = end + 2;
-                }
-            },
-            else => return false,
-        }
-    }
-    return !linked;
-}
 
 /// Only detach graphics whose execution cannot change the text cursor.
 /// Ghostty parses the header; payload bytes are forwarded without decoding.
@@ -735,6 +687,17 @@ fn render(d: *Differ, frame: []const u8) ![]u8 {
     return out.toOwnedSlice();
 }
 
+fn paneRows(x: usize, y: usize, cols: usize, lines: []const []const u8) ![]u8 {
+    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    errdefer out.deinit();
+    for (lines, 0..) |line, row| {
+        try out.writer.print("\x1b[{d};{d}H\x1b[0;38;2;255;255;255;48;2;0;0;0m", .{ y + row + 1, x + 1 });
+        for (0..cols) |_| try out.writer.writeByte(' ');
+        try out.writer.print("\x1b[{d};{d}H{s}\x1b[0m", .{ y + row + 1, x + 1, line });
+    }
+    return out.toOwnedSlice();
+}
+
 test "composed chrome and multiple panes match complete frames" {
     const full = try Differ.create(40, 8);
     defer full.destroy();
@@ -759,7 +722,9 @@ test "composed chrome and multiple panes match complete frames" {
     for (samples, 0..) |lines, index| {
         const ordered = if (index % 2 == 0) panes else [_]Differ.Pane{ panes[1], panes[0] };
         for ([_]*Differ{ left, right }, 0..) |source, side| {
-            const pane_frame = try std.fmt.allocPrint(std.testing.allocator, "\x1b[?7l\x1b[H\x1b[0m\x1b[J{s}\x1b[2;1H{s}\x1b[0m", .{ lines[side], lines[1 - side] });
+            const rows = try paneRows(0, 0, 12, &.{ lines[side], lines[1 - side] });
+            defer std.testing.allocator.free(rows);
+            const pane_frame = try std.fmt.allocPrint(std.testing.allocator, "\x1b[?7l{s}", .{rows});
             defer std.testing.allocator.free(pane_frame);
             const ignored = try render(source, pane_frame);
             defer std.testing.allocator.free(ignored);
@@ -769,7 +734,13 @@ test "composed chrome and multiple panes match complete frames" {
         const suffix = "\x1b[0m\x1b[8;20H\x1b[?25h";
         const chrome = try std.fmt.allocPrint(std.testing.allocator, "{s}{s}", .{ prefix, suffix });
         defer std.testing.allocator.free(chrome);
-        const frame = try std.fmt.allocPrint(std.testing.allocator, "{s}\x1b[3;5H{s}\x1b[4;5H{s}\x1b[3;23H{s}\x1b[4;23H{s}{s}", .{ prefix, lines[0], lines[1], lines[1], lines[0], suffix });
+        // The pane owns palette 120; its serialized equivalent uses that RGB.
+        const canonical = [_][]const u8{ lines[0], if (index == 2) "\x1b[48;2;135;255;135;4:3munderline\x1b[0m" else lines[1] };
+        const left_rows = try paneRows(4, 2, 12, &canonical);
+        defer std.testing.allocator.free(left_rows);
+        const right_rows = try paneRows(22, 2, 12, &.{ canonical[1], canonical[0] });
+        defer std.testing.allocator.free(right_rows);
+        const frame = try std.fmt.allocPrint(std.testing.allocator, "{s}{s}{s}{s}", .{ prefix, left_rows, right_rows, suffix });
         defer std.testing.allocator.free(frame);
         const expected = try render(full, frame);
         defer std.testing.allocator.free(expected);
@@ -826,14 +797,20 @@ test "composed chrome preserves cursor-independent Kitty image batches" {
     defer composed.destroy();
     const source = try Differ.create(8, 2);
     defer source.destroy();
-    const ignored = try render(source, "\x1b[?7l\x1b[H\x1b[0m\x1b[Jpane");
+    const source_rows = try paneRows(0, 0, 8, &.{ "pane", "" });
+    defer std.testing.allocator.free(source_rows);
+    const source_frame = try std.fmt.allocPrint(std.testing.allocator, "\x1b[?7l{s}", .{source_rows});
+    defer std.testing.allocator.free(source_frame);
+    const ignored = try render(source, source_frame);
     defer std.testing.allocator.free(ignored);
     const panes = [_]Differ.Pane{.{ .state = &source.render, .x = 4, .y = 1, .w = 8, .h = 2 }};
     for (0..3) |step| {
         const prefix = "\x1b[?7l\x1b[H\x1b[0m\x1b[Jchrome";
         const suffix = try std.fmt.allocPrint(std.testing.allocator, "\x1b[1;{d}H\x1b_Ga=p,i=1,p=1,C=1\x1b\\\x1b[4;20H\x1b[?25l", .{step + 1});
         defer std.testing.allocator.free(suffix);
-        const frame = try std.fmt.allocPrint(std.testing.allocator, "{s}\x1b[2;5Hpane{s}", .{ prefix, suffix });
+        const rows = try paneRows(4, 1, 8, &.{ "pane", "" });
+        defer std.testing.allocator.free(rows);
+        const frame = try std.fmt.allocPrint(std.testing.allocator, "{s}{s}{s}", .{ prefix, rows, suffix });
         defer std.testing.allocator.free(frame);
         const chrome = try std.fmt.allocPrint(std.testing.allocator, "{s}{s}", .{ prefix, suffix });
         defer std.testing.allocator.free(chrome);
@@ -998,7 +975,11 @@ test "pane identity geometry and full replay invalidate their own receipts" {
     defer d.destroy();
     const source = try Differ.create(8, 2);
     defer source.destroy();
-    const initial = try render(source, "\x1b[?7l\x1b[H\x1b[Jpane");
+    const source_rows = try paneRows(0, 0, 8, &.{ "pane", "" });
+    defer std.testing.allocator.free(source_rows);
+    const source_frame = try std.fmt.allocPrint(std.testing.allocator, "\x1b[?7l{s}", .{source_rows});
+    defer std.testing.allocator.free(source_frame);
+    const initial = try render(source, source_frame);
     defer std.testing.allocator.free(initial);
     var pane: Differ.Pane = .{ .state = &source.render, .identity = 5, .epochs = &.{ 1, 1 }, .x = 4, .y = 1, .w = 8, .h = 2 };
     const chrome = "\x1b[?7l\x1b[H\x1b[0m\x1b[Jchrome";
@@ -1018,7 +999,10 @@ test "pane identity geometry and full replay invalidate their own receipts" {
     try std.testing.expectEqual(@as(u21, 0), d.saved[1].cells[4].raw.codepoint());
     try std.testing.expectEqual(@as(u21, 'p'), d.saved[1].cells[8].raw.codepoint());
     out.clearRetainingCapacity();
-    const full = "\x1b[?7l\x1b[H\x1b[0m\x1b[Jchrome\x1b[2;9Hpane\x1b[H\x1b[?25l";
+    const moved_rows = try paneRows(8, 1, 8, &.{ "pane", "" });
+    defer std.testing.allocator.free(moved_rows);
+    const full = try std.fmt.allocPrint(std.testing.allocator, "\x1b[?7l\x1b[H\x1b[0m\x1b[Jchrome{s}\x1b[H\x1b[?25l", .{moved_rows});
+    defer std.testing.allocator.free(full);
     try d.diff(&out.writer, full);
     try std.testing.expectEqualStrings("", out.written());
     try std.testing.expect(!try d.compose(&out.writer, null, &.{pane}, .{}, .reuse));
@@ -1040,133 +1024,4 @@ test "native retained row layout diagnostic" {
         for (d.damage) |row| ranges += row.capacity;
         std.debug.print("retained {d}x{d}: cell_bytes={d} row_descriptors={d} damage_descriptors={d} damage_capacity_bytes={d} changed_bytes={d} managed_bytes={d}\n", .{ size[0], size[1], @as(usize, size[0]) * (1 + @as(usize, size[1])) * @sizeOf(Differ.Cell), @as(usize, size[1]) * @sizeOf(Differ.OwnedRow), @as(usize, size[1]) * @sizeOf(std.ArrayList(Differ.Range)), ranges * @sizeOf(Differ.Range), size[0], d.managedCapacity() });
     }
-}
-
-test "chrome patches preserve untouched cells images and exact pane spans" {
-    for ([_][]const u8{ "", "\x1b[4;18H\x1b_Ga=p,i=1,p=1,C=1\x1b\\" }) |images| {
-        const reference = try Differ.create(20, 8);
-        defer reference.destroy();
-        const d = try Differ.create(20, 8);
-        defer d.destroy();
-        const source = try Differ.create(8, 2);
-        defer source.destroy();
-        const initial = try render(source, "\x1b[?7l\x1b[H\x1b[Jpane\x1b[2;1Hlast");
-        defer std.testing.allocator.free(initial);
-        var epochs = [_]u64{ 1, 1 };
-        const pane: Differ.Pane = .{ .state = &source.render, .identity = 9, .epochs = &epochs, .x = 5, .y = 1, .w = 8, .h = 2 };
-        var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
-        defer out.deinit();
-        const samples = [_][]const u8{ "A   ", "\x1b[31m界B ", "\x1b]8;id=side;https://side.example\x1b\\e\xcc\x81x  \x1b]8;;\x1b\\", "Z   " };
-        for (samples, 0..) |sidebar, index| {
-            if (index == 2) {
-                source.stream.nextSlice("\x1b[1;1HPANE2");
-                try source.render.update(a, &source.vt);
-                epochs[0] = 2;
-            }
-            const prefix = "\x1b[?7l\x1b[?1003h\x1b[H\x1b[0m\x1b[JSTATIC\x1b[4;15HKEPT";
-            const patch = try std.fmt.allocPrint(std.testing.allocator, "\x1b[2;1H{s}\x1b[0m\x1b[3;1H{d}   \x1b[0m", .{ sidebar, index });
-            defer std.testing.allocator.free(patch);
-            const suffix = try std.fmt.allocPrint(std.testing.allocator, "{s}\x1b[0m\x1b[H\x1b[?25l", .{images});
-            defer std.testing.allocator.free(suffix);
-            const chrome = try std.fmt.allocPrint(std.testing.allocator, "{s}{s}{s}", .{ prefix, patch, suffix });
-            defer std.testing.allocator.free(chrome);
-            const frame = try std.fmt.allocPrint(std.testing.allocator, "{s}\x1b[2;6H{s}\x1b[3;6Hlast{s}{s}", .{ prefix, if (index >= 2) "PANE2" else "pane", patch, suffix });
-            defer std.testing.allocator.free(frame);
-            const expected = try render(reference, frame);
-            defer std.testing.allocator.free(expected);
-            out.clearRetainingCapacity();
-            if (index == 0) {
-                try d.diff(&out.writer, frame);
-                try std.testing.expectEqualStrings(expected, out.written());
-                out.clearRetainingCapacity();
-                try std.testing.expect(try d.compose(&out.writer, chrome, &.{pane}, .{}, .full));
-                try std.testing.expectEqualStrings("", out.written());
-                continue;
-            }
-            const controls = d.controls;
-            const image_hash = d.images;
-            // A full frame resets rendition and cursor before drawing its chrome.
-            d.stream.nextSlice("\x1b[32m\x1b[8;20H");
-            try std.testing.expect(try d.compose(&out.writer, patch, &.{pane}, .{}, .patch));
-            try std.testing.expectEqualStrings(expected, out.written());
-            try std.testing.expectEqual(controls, d.controls);
-            try std.testing.expectEqual(image_hash, d.images);
-            try std.testing.expectEqual(images.len != 0, d.has_images);
-            // Ghostty also dirties the old/new cursor rows for ligature shaping.
-            try std.testing.expectEqual(.partial, d.render.dirty);
-            for (d.render.row_data.items(.dirty), 0..) |dirty, row|
-                try std.testing.expectEqual(row <= 2 or row == 7, dirty);
-            try std.testing.expectEqual(@as(u64, 4), d.damaged_rows);
-            try std.testing.expectEqual(@as(u64, if (index == 2) 72 else 64), d.compared_cells);
-            if (index == samples.len - 1) {
-                const replayed = try render(d, frame);
-                defer std.testing.allocator.free(replayed);
-                try std.testing.expectEqualStrings("", replayed);
-                out.clearRetainingCapacity();
-                try std.testing.expect(!try d.compose(&out.writer, patch, &.{pane}, .{}, .patch));
-            }
-        }
-    }
-}
-
-test "chrome patches reject controls incomplete sequences and changed geometry before mutation" {
-    const d = try Differ.create(20, 4);
-    defer d.destroy();
-    const source = try Differ.create(8, 2);
-    defer source.destroy();
-    const initial = try render(source, "\x1b[?7l\x1b[H\x1b[Jpane");
-    defer std.testing.allocator.free(initial);
-    const pane: Differ.Pane = .{ .state = &source.render, .identity = 10, .epochs = &.{ 1, 1 }, .x = 5, .y = 1, .w = 8, .h = 2 };
-    const chrome = "\x1b[?7l\x1b[H\x1b[0m\x1b[Jchrome";
-    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
-    defer out.deinit();
-    try d.diff(&out.writer, chrome);
-    try std.testing.expect(try d.compose(&out.writer, chrome, &.{pane}, .{}, .full));
-    out.clearRetainingCapacity();
-    for ([_][]const u8{
-        "\x1b[J", "\x1b[2K", "\x1b[?1003l",                "\x1b_Ga=d,d=A\x1b\\",            "\x1b]22;pointer\x1b\\", "new\nline", "\t", "\xff",
-        "\x1b",   "\x1b[31", "\x1b]8;;https://unfinished", "\x1b]8;;https://unclosed\x1b\\",
-    }) |patch| {
-        try std.testing.expect(!try d.compose(&out.writer, patch, &.{pane}, .{}, .patch));
-        try std.testing.expect(!d.stale);
-        try std.testing.expect(d.chrome_valid);
-        try std.testing.expectEqualStrings("", out.written());
-        try std.testing.expect(try d.compose(&out.writer, null, &.{pane}, .{}, .reuse));
-        try std.testing.expectEqualStrings("", out.written());
-    }
-    var moved = pane;
-    moved.x += 1;
-    try std.testing.expect(!try d.compose(&out.writer, "\x1b[1;1Hchanged", &.{moved}, .{}, .patch));
-    try std.testing.expect(!d.stale);
-    moved = pane;
-    moved.identity += 1;
-    try std.testing.expect(!try d.compose(&out.writer, "\x1b[1;1Hchanged", &.{moved}, .{}, .patch));
-    try std.testing.expect(!d.stale);
-    d.images_stale = true;
-    try std.testing.expect(!try d.compose(&out.writer, "\x1b[1;1Hchanged", &.{pane}, .{}, .patch));
-    try std.testing.expect(!d.stale);
-}
-
-test "a chrome patch crossing a pane wide boundary recovers through full replay" {
-    const d = try Differ.create(20, 4);
-    defer d.destroy();
-    const source = try Differ.create(8, 2);
-    defer source.destroy();
-    const initial = try render(source, "\x1b[?7l\x1b[H\x1b[Jpane");
-    defer std.testing.allocator.free(initial);
-    const pane: Differ.Pane = .{ .state = &source.render, .identity = 11, .epochs = &.{ 1, 1 }, .x = 5, .y = 1, .w = 8, .h = 2 };
-    const chrome = "\x1b[?7l\x1b[H\x1b[0m\x1b[Jchrome";
-    const frame = "\x1b[?7l\x1b[H\x1b[0m\x1b[Jchrome\x1b[2;6Hpane\x1b[H\x1b[?25l";
-    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
-    defer out.deinit();
-    try d.diff(&out.writer, frame);
-    out.clearRetainingCapacity();
-    try std.testing.expect(try d.compose(&out.writer, chrome, &.{pane}, .{}, .full));
-    try std.testing.expectEqualStrings("", out.written());
-    try std.testing.expect(!try d.compose(&out.writer, "\x1b[2;5H界", &.{pane}, .{}, .patch));
-    try std.testing.expect(d.stale);
-    try std.testing.expectEqualStrings("", out.written());
-    try d.diff(&out.writer, frame);
-    try std.testing.expectEqualStrings(frame, out.written());
-    try std.testing.expect(!d.chrome_valid);
 }

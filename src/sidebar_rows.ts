@@ -96,19 +96,6 @@ export class State {
       );
     });
   }
-  /** A stable paint plan must not bypass a pending identity hold or row transition. */
-  settled(now: number): boolean {
-    return this.order.every(index => {
-      const slot = this.slots[index];
-      return (
-        slot.closing_ms === null &&
-        slot.unbound_ms === null &&
-        (slot.opening_ms === null || now - slot.opening_ms >= State.duration_ms) &&
-        (slot.slid === null || now - slot.slid.at_ms >= State.slide_ms) &&
-        (slot.moved === null || now - slot.moved.at_ms >= rowGlide.total_ms)
-      );
-    });
-  }
   update(workspace: number, live: Entry[], out: Entry[] = [], now = 0): Entry[] {
     if (this.workspace !== workspace) {
       this.slots = [];

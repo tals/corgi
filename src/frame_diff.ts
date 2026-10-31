@@ -36,7 +36,6 @@ export class Differ {
       if (frame.reusable && frame.panes.length > 0) {
         const started = telemetry.begin();
         const reuse = previous !== null && frame.sharesChrome(previous);
-        const patch = !reuse && previous !== null ? frame.patchFrom(previous) : null;
         if (this.sources.length < frame.panes.length) {
           this.sources = new BigUint64Array(frame.panes.length);
           this.rects = new Uint16Array(frame.panes.length * 4);
@@ -49,7 +48,7 @@ export class Differ {
           this.rects[i * 4 + 2] = p.w;
           this.rects[i * 4 + 3] = p.h;
         }
-        const chrome = reuse ? null : Buffer.from(patch ?? frame.chrome);
+        const chrome = reuse ? null : Buffer.from(frame.chrome);
         const size = Number(
           n.frame_diff_compose(
             this.handle,
@@ -61,17 +60,13 @@ export class Differ {
             frame.cursor?.x ?? 0,
             frame.cursor?.y ?? 0,
             frame.cursor !== null,
-            reuse ? 1 : patch !== null ? 2 : 0,
+            reuse ? 1 : 0,
           ),
         );
         if (size >= 0) {
           this.previous = frame;
           const out = this.take(size);
-          telemetry.end(
-            reuse ? "viewer.retained" : patch !== null ? "viewer.chrome_patch" : "viewer.composite",
-            started,
-            chrome?.length ?? 0,
-          );
+          telemetry.end(reuse ? "viewer.retained" : "viewer.composite", started, chrome?.length ?? 0);
           return out;
         }
         n.frame_diff_invalidate(this.handle);

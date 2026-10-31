@@ -5,11 +5,11 @@ import { Differ } from "./frame_diff";
 import { transport } from "./fixtures/transport";
 import { Terminal } from "./pane/terminal";
 import * as mirror from "./mirror";
-import * as render from "./render";
 import * as viewer from "./viewer";
 import * as subagentTooltip from "./subagent_tooltip";
 import * as sidebar from "./sidebar";
 import { microTimestamp } from "./clock";
+import { Snapshot as Resources, Work } from "./trackers/resources";
 
 function fixture() {
   const view = new Controller(
@@ -44,7 +44,6 @@ function fixture() {
     result = new Terminal(100, 30),
     differ = Differ.create(100, 30),
     readAhead = spyOn(view.review_summaries, "want").mockImplementation(() => {}),
-    draw = spyOn(render, "frame"),
     images = [
       spyOn(view.images, "begin"),
       spyOn(view.images, "end"),
@@ -61,8 +60,8 @@ function fixture() {
     view.dirty = false;
     return output;
   };
-  const present = (frame: Frame) => {
-    reference.feed(frame.text());
+  const present = (frame: string | Frame) => {
+    reference.feed(typeof frame === "string" ? frame : frame.text());
     result.feed(differ.diff(frame));
     const normalized = (terminal: Terminal) => {
       const surface = terminal.surface(0).surface;
@@ -87,7 +86,6 @@ function fixture() {
     view,
     source,
     snapshot,
-    draw,
     images,
     at,
     update,
@@ -96,7 +94,6 @@ function fixture() {
     emit,
     close() {
       for (const image of images) image.mockRestore();
-      draw.mockRestore();
       readAhead.mockRestore();
       source.destroy();
       reference.destroy();
@@ -112,7 +109,7 @@ function retained(output: string | Frame): Frame {
   return output as Frame;
 }
 
-test("pane-only composition preserves the full-frame animation deadline and prior revisions", () => {
+test("pane composition snapshots revisions and cursor independently", () => {
   const f = fixture();
   try {
     const first = retained(f.compose()),
@@ -120,21 +117,16 @@ test("pane-only composition preserves the full-frame animation deadline and prio
     f.present(first);
     expect(f.view.runtime.panes).toHaveLength(2);
     expect(first.panes).toHaveLength(1);
-    expect(f.view.compositionDeadline()).toBe(10075);
     f.at(50);
     f.update("updated before animation");
     const second = retained(f.compose());
     f.present(second);
-    expect(f.draw).toHaveBeenCalledTimes(1);
-    for (const image of f.images) expect(image).toHaveBeenCalledTimes(1);
     expect(second).not.toBe(first);
     expect(second.panes[0]).not.toBe(first.panes[0]);
     expect(second.cursor).not.toBe(first.cursor);
     expect(first.panes[0].revision).toBe(revision);
     expect(second.panes[0].revision).toBeGreaterThan(revision);
-    expect(second.sharesChrome(first)).toBe(true);
     expect(same(first, second)).toBe(false);
-    expect(f.view.compositionDeadline()).toBe(10075);
     f.at(75);
     f.update("animation deadline", "\x1b[6;9H\x1b[?25h");
     const animated = retained(f.compose());
@@ -143,64 +135,74 @@ test("pane-only composition preserves the full-frame animation deadline and prio
     expect(first.panes[0].revision).toBe(revision);
     expect(second.cursor).toEqual(first.cursor);
     f.present(animated);
-    expect(f.draw).toHaveBeenCalledTimes(1);
-    expect(f.view.compositionDeadline()).toBe(10150);
     f.at(100);
     f.update("after animation");
     f.present(retained(f.compose()));
-    expect(f.draw).toHaveBeenCalledTimes(1);
-    for (const image of f.images) expect(image).toHaveBeenCalledTimes(1);
-    expect(f.view.compositionDeadline()).toBe(10150);
     f.at(150);
     f.update("hidden cursor at deadline", "\x1b[?25l");
     const hidden = retained(f.compose());
     expect(hidden.cursor).toBeNull();
     expect(animated.cursor).not.toBeNull();
     f.present(hidden);
-    expect(f.view.compositionDeadline()).toBe(10225);
   } finally {
     f.close();
   }
 });
 
-test("animation deadlines repaint only the sidebar while preserving the full reference", () => {
-  const f = fixture(),
-    metadata = spyOn(f.view, "agentEntries"),
-    workspaces = spyOn(f.view, "workspaceEntries"),
-    rows = spyOn(f.view.sidebar_rows, "update");
+test("animation frames match a complete redraw with unchanged pane revisions", () => {
+  const f = fixture();
   try {
     let previous = retained(f.compose());
-    expect(previous.sidebar).not.toBeNull();
-    expect(previous.sidebar!.paint).not.toBeNull();
     f.present(previous);
-    const metadata_calls = metadata.mock.calls.length,
-      workspace_calls = workspaces.mock.calls.length,
-      row_calls = rows.mock.calls.length;
     for (const at of [75, 150, 225]) {
       f.at(at);
       const current = retained(f.compose());
-      expect(current.sharesChrome(previous) || current.patchFrom(previous) !== null).toBe(true);
       expect(current.panes[0].revision).toBe(previous.panes[0].revision);
-      expect(f.view.compositionDeadline()).toBe(10000 + at + f.view.frameDelay());
+      expect(current.text()).toBe(f.view.frame());
       f.present(current);
       previous = current;
     }
-    expect(f.draw).toHaveBeenCalledTimes(1);
-    expect(metadata).toHaveBeenCalledTimes(metadata_calls);
-    expect(workspaces).toHaveBeenCalledTimes(workspace_calls);
-    expect(rows).toHaveBeenCalledTimes(row_calls);
-    for (const image of f.images) expect(image).toHaveBeenCalledTimes(1);
-    const complete = (f.view as unknown as { renderFrame(): string }).renderFrame();
-    expect(previous.text()).toBe(complete);
   } finally {
-    metadata.mockRestore();
-    workspaces.mockRestore();
-    rows.mockRestore();
     f.close();
   }
 });
 
-test("cached sidebar metadata expires when a subagent observation ages out", () => {
+test.each(["agent name", "workspace name", "sidebar width", "star"] as const)(
+  "in-place %s changes compose current UI without a dirty flag",
+  change => {
+    const f = fixture();
+    try {
+      const first = retained(f.compose()),
+        before = first.text();
+      f.present(first);
+      switch (change) {
+        case "agent name":
+          f.view.runtime.panes[0].label = "renamed agent";
+          break;
+        case "workspace name":
+          f.view.current().name = "renamed workspace";
+          break;
+        case "sidebar width":
+          f.view.prefs.sidebar_width += 4;
+          break;
+        case "star":
+          f.view.current().pinned_agents.push({ pane: 1 });
+          break;
+      }
+      expect(f.view.dirty).toBe(false);
+      const next = f.compose(),
+        bytes = typeof next === "string" ? next : next.text();
+      expect(bytes).not.toBe(before);
+      expect(bytes).toBe(f.view.frame());
+      expect(first.text()).toBe(before);
+      f.present(next);
+    } finally {
+      f.close();
+    }
+  },
+);
+
+test("subagent metadata follows observation freshness without a dirty flag", () => {
   const f = fixture(),
     metadata = spyOn(f.view, "agentEntries");
   try {
@@ -223,16 +225,13 @@ test("cached sidebar metadata expires when a subagent observation ages out", () 
       }),
     ];
     f.compose();
-    const calls = metadata.mock.calls.length;
     expect((metadata.mock.results.at(-1)!.value as ReturnType<Controller["agentEntries"]>)[0].children).toBe(1);
     f.at(20075);
     f.compose();
-    expect(metadata).toHaveBeenCalledTimes(calls);
+    expect((metadata.mock.results.at(-1)!.value as ReturnType<Controller["agentEntries"]>)[0].children).toBe(1);
     f.at(20150);
     f.compose();
-    expect(metadata).toHaveBeenCalledTimes(calls + 1);
     expect((metadata.mock.results.at(-1)!.value as ReturnType<Controller["agentEntries"]>)[0].children).toBe(0);
-    expect(f.draw).toHaveBeenCalledTimes(2);
   } finally {
     metadata.mockRestore();
     f.close();
@@ -256,51 +255,73 @@ test.each(["exit", "unbound"] as const)("retained sidebar advances the existing 
     f.compose();
     f.at(10);
     live = transition === "exit" ? [first] : [{ ...first, conversation: 0, state: "unknown", name: "unbound" }];
-    f.view.dirty = true;
-    const changed = retained(f.compose()),
-      calls = metadata.mock.calls.length;
-    expect(changed.sidebar!.paint).toBeNull();
+    expect(f.view.dirty).toBe(false);
+    const changed = retained(f.compose());
     expect(changed.chrome).toContain(transition === "exit" ? "leaves" : "stays");
     f.at(100);
     expect(retained(f.compose()).chrome).toContain(transition === "exit" ? "leaves" : "stays");
     f.at(transition === "exit" ? 260 : 700);
     const finished = retained(f.compose());
-    expect(finished.sidebar!.paint).not.toBeNull();
     if (transition === "exit") expect(finished.chrome).not.toContain("leaves");
     else expect(finished.chrome).toContain("unbound");
-    expect(metadata).toHaveBeenCalledTimes(calls);
-    expect(f.draw).toHaveBeenCalledTimes(2);
-    expect(finished.text()).toBe((f.view as unknown as { renderFrame(): string }).renderFrame());
+    expect(finished.text()).toBe(f.view.frame());
   } finally {
     metadata.mockRestore();
     f.close();
   }
 });
 
-test("resources and snapshots invalidate cached chrome even without a dirty flag", () => {
+test("resources and snapshots compose current chrome without a dirty flag", () => {
   const f = fixture();
   try {
-    f.compose();
-    f.at(20);
-    f.view.runtime.receiveResources(null);
-    f.present(retained(f.compose()));
-    expect(f.draw).toHaveBeenCalledTimes(2);
-    f.at(40);
-    f.view.receiveSnapshot(f.snapshot);
+    f.view.prefs.resources.enabled = true;
+    const initial = retained(f.compose());
+    f.present(initial);
+    const resources = new Resources();
+    resources.workspaces.push(Object.assign(new Work(1), { known: true, cpu: 182, memory: 3n * 2n ** 30n }));
+    f.view.runtime.receiveResources(resources);
+    expect(f.view.dirty).toBe(false);
+    const sampled = retained(f.compose());
+    expect(sampled.chrome).not.toBe(initial.chrome);
+    expect(sampled.chrome).toContain("CPU 182%");
+    expect(sampled.chrome).toContain("3.0G");
+    expect(sampled.text()).toBe(f.view.frame());
+    f.present(sampled);
+
+    Object.assign(f.view.runtime.resources.workspaces[0], { cpu: 37, memory: 512n * 2n ** 20n });
+    expect(f.view.dirty).toBe(false);
+    const updated = retained(f.compose());
+    expect(updated.chrome).not.toBe(sampled.chrome);
+    expect(updated.chrome).toContain("CPU 37%");
+    expect(updated.chrome).toContain("512M");
+    expect(updated.chrome).not.toContain("182%");
+    expect(updated.text()).toBe(f.view.frame());
+    f.present(updated);
+
+    f.view.receiveSnapshot({
+      ...f.snapshot,
+      workspaces: f.snapshot.workspaces.map(workspace =>
+        workspace.id === 1 ? { ...workspace, name: "snapshot workspace" } : workspace,
+      ),
+      panes: f.snapshot.panes.map(pane =>
+        pane.id === 1 ? { ...pane, agent: { ...pane.agent, name: "snapshot agent" } } : pane,
+      ),
+    });
     f.view.dirty = false;
-    f.present(retained(f.compose()));
-    expect(f.draw).toHaveBeenCalledTimes(3);
-    f.at(50);
-    f.update("new pane text");
-    f.present(retained(f.compose()));
-    expect(f.draw).toHaveBeenCalledTimes(3);
+    const received = retained(f.compose());
+    expect(received.chrome).not.toBe(updated.chrome);
+    expect(received.chrome).toContain("snapshot workspace");
+    expect(received.chrome).toContain("snapshot agent");
+    expect(received.chrome).toContain("CPU 37%");
+    expect(received.text()).toBe(f.view.frame());
+    f.present(received);
   } finally {
     f.close();
   }
 });
 
 test.each(["moved", "hidden", "shown"] as const)(
-  "a %s cursor reuses chrome without moving its animation deadline",
+  "a %s cursor retains exact chrome and its own presentation state",
   change => {
     const f = fixture();
     try {
@@ -312,37 +333,29 @@ test.each(["moved", "hidden", "shown"] as const)(
       f.view.runtime.panes[0].terminal.receive(f.source.surface(1));
       const next = retained(f.compose());
       f.present(next);
-      expect(f.draw).toHaveBeenCalledTimes(1);
-      for (const image of f.images) expect(image).toHaveBeenCalledTimes(1);
       expect(next.chrome).toBe(first.chrome);
       expect(next.cursor_at).toBe(first.cursor_at);
       expect(next.sharesChrome(first)).toBe(true);
       expect(same(first, next)).toBe(false);
       expect(next.cursor).not.toEqual(first.cursor);
-      expect(f.view.compositionDeadline()).toBe(10075);
       f.at(40);
       const unchanged = retained(f.compose());
       f.present(unchanged);
       expect(same(next, unchanged)).toBe(true);
-      expect(f.draw).toHaveBeenCalledTimes(1);
-      expect(f.view.compositionDeadline()).toBe(10075);
     } finally {
       f.close();
     }
   },
 );
 
-test.each(["dirty input", "pointer", "copy mode", "selection", "message", "prefix"] as const)(
-  "%s prevents stale chrome reuse",
+test.each(["pointer", "copy mode", "selection", "message", "prefix"] as const)(
+  "%s composes the current complete frame without a dirty flag",
   change => {
     const f = fixture();
     try {
       f.compose();
       f.at(20);
       switch (change) {
-        case "dirty input":
-          f.view.dirty = true;
-          break;
         case "pointer":
           f.view.pointer = { x: 40, y: 10 };
           break;
@@ -359,16 +372,17 @@ test.each(["dirty input", "pointer", "copy mode", "selection", "message", "prefi
           f.view.prefix = true;
           break;
       }
-      f.compose();
-      expect(f.draw).toHaveBeenCalledTimes(2);
-      if (change !== "dirty input") expect(f.view.compositionDeadline()).toBe(Infinity);
+      expect(f.view.dirty).toBe(false);
+      const next = f.compose();
+      expect(typeof next === "string" ? next : next.text()).toBe(f.view.frame());
+      f.present(next);
     } finally {
       f.close();
     }
   },
 );
 
-test("images force a complete lifecycle and cannot populate the chrome cache", () => {
+test("image appearance and removal run the complete image lifecycle", () => {
   const f = fixture();
   try {
     f.compose();
@@ -389,22 +403,19 @@ test("images force a complete lifecycle and cannot populate the chrome cache", (
       },
     ];
     f.compose();
-    expect(f.draw).toHaveBeenCalledTimes(2);
-    expect(f.view.compositionDeadline()).toBe(Infinity);
     for (const image of f.images) expect(image).toHaveBeenCalledTimes(2);
     pane.terminal.images = [];
     f.at(40);
     f.compose();
-    expect(f.view.compositionDeadline()).toBe(10115);
     f.at(50);
     f.compose();
-    expect(f.draw).toHaveBeenCalledTimes(3);
+    for (const image of f.images) expect(image).toHaveBeenCalledTimes(4);
   } finally {
     f.close();
   }
 });
 
-test("stable Kitty badge and tab placements survive cache hits and equivalent pixel-size objects", () => {
+test("stable Kitty badge and tab placements survive redraws and equivalent pixel-size objects", () => {
   const f = fixture();
   try {
     f.view.supports_kitty_graphics = true;
@@ -414,7 +425,6 @@ test("stable Kitty badge and tab placements survive cache hits and equivalent pi
     f.emit("\x1b_Ga=t,t=d,f=24,s=1,v=1,i=730031,q=2;AAAA\x1b\\");
     const first = retained(f.compose());
     f.present(first);
-    expect(f.view.compositionDeadline()).toBe(Infinity);
     const upload = f.view.effects
       .flatMap(effect => ("write_terminal" in effect ? [effect.write_terminal] : []))
       .join("");
@@ -426,49 +436,41 @@ test("stable Kitty badge and tab placements survive cache hits and equivalent pi
     f.present(placed);
     expect(placed.chrome).toContain("\x1b_Ga=d,d=i");
     expect(placed.chrome).toContain("\x1b_Ga=p");
-    expect(f.view.compositionDeadline()).toBe(10085);
     f.at(20);
     f.view.cell_pixels = { width: 8, height: 16 };
     f.update("pane changed under static graphics");
     const hit = retained(f.compose());
     f.present(hit);
     expect(hit.chrome).toBe(placed.chrome);
-    expect(f.draw).toHaveBeenCalledTimes(2);
-    for (const image of f.images) expect(image).toHaveBeenCalledTimes(2);
     expect(f.view.effects).toHaveLength(0);
-    expect(f.view.compositionDeadline()).toBe(10085);
     f.at(30);
     f.view.cell_pixels = { width: 9, height: 16 };
     f.compose();
-    expect(f.draw).toHaveBeenCalledTimes(3);
-    expect(f.view.compositionDeadline()).toBe(Infinity);
     expect(f.view.effects.some(effect => "write_terminal" in effect)).toBe(true);
     f.view.clearEffects();
     f.at(40);
     f.compose();
-    expect(f.draw).toHaveBeenCalledTimes(4);
-    expect(f.view.compositionDeadline()).toBe(10115);
   } finally {
     f.close();
   }
 });
 
-test("changed geometry and the full ANSI reference bypass the cache", () => {
+test("changed geometry uses current pane bounds and full ANSI fallback", () => {
   const f = fixture();
   try {
-    f.compose();
+    const first = retained(f.compose());
     f.at(20);
-    const reference = f.view.frame();
-    expect(typeof reference).toBe("string");
-    expect(f.view.compositionDeadline()).toBe(Infinity);
-    expect(f.draw).toHaveBeenCalledTimes(2);
-    f.compose();
-    expect(f.draw).toHaveBeenCalledTimes(3);
-    f.at(40);
+    expect(first.text()).toBe(f.view.frame());
     f.view.width++;
-    f.compose();
-    expect(f.draw).toHaveBeenCalledTimes(4);
-    expect(f.view.compositionDeadline()).toBe(Infinity);
+    const resized = f.compose();
+    expect(typeof resized).toBe("string");
+    expect(resized).toBe(f.view.frame());
+    f.source.resize(73, 29);
+    f.update("resized pane");
+    const retainedSize = retained(f.compose());
+    expect(retainedSize.panes[0].w).toBe(73);
+    expect(retainedSize.sharesChrome(first)).toBe(false);
+    expect(retainedSize.text()).toBe(f.view.frame());
   } finally {
     f.close();
   }
@@ -499,21 +501,18 @@ test("one retained pane among multiple visible panes never freezes the other pan
     f.update("retained first pane");
     const first = retained(f.compose());
     expect(first.panes).toHaveLength(1);
-    expect(f.view.compositionDeadline()).toBe(Infinity);
     f.at(20);
     const other = f.view.runtime.panes[1].terminal;
     other.inner.feed("SECOND PANE CHANGED");
     other.render_dirty = true;
     const next = retained(f.compose());
-    expect(f.draw).toHaveBeenCalledTimes(2);
     expect(next.chrome).toContain("SECOND PANE CHANGED");
-    expect(f.view.compositionDeadline()).toBe(Infinity);
   } finally {
     f.close();
   }
 });
 
-test("replacing a terminal rejects cached native references before touching the destroyed terminal", () => {
+test("replacing a terminal composes the new native owner after destroying the old terminal", () => {
   const f = fixture();
   try {
     f.compose();
@@ -526,7 +525,6 @@ test("replacing a terminal rejects cached native references before touching the 
     f.at(20);
     const frame = retained(f.compose());
     expect(frame.panes[0].terminal).toBe(replacement);
-    expect(f.draw).toHaveBeenCalledTimes(2);
     f.present(frame);
   } finally {
     f.close();
