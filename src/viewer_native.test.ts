@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
 import * as viewer_native from "./viewer_native";
 import { Terminal } from "./pane/terminal";
-import * as json from "./json";
+import * as surfaceFixture from "./fixtures/surface";
+import type { Pointer } from "bun:ffi";
 
 test("direct surface installation preserves rows, cursor and input modes", () => {
   const source = Terminal.create(32, 4),
-    reference = Terminal.create(1, 1),
     direct = Terminal.create(1, 1);
   try {
     for (const input of [
@@ -15,29 +15,30 @@ test("direct surface installation preserves rows, cursor and input modes", () =>
     ]) {
       source.feed(input);
       const view = source.surface(7);
-      viewer_native.receive(reference.handle, json.stringify(view));
       viewer_native.receiveFrame(direct.handle, view);
-      viewer_native.updateRender(reference.handle);
+      viewer_native.updateRender(source.handle);
       viewer_native.updateRender(direct.handle);
-      expect(viewer_native.rows(direct.handle, 7, 0, 0, 32, 4, false, null)).toBe(
-        viewer_native.rows(reference.handle, 7, 0, 0, 32, 4, false, null),
-      );
-      expect(viewer_native.cursor(direct.handle)).toEqual(viewer_native.cursor(reference.handle));
-      expect(viewer_native.mouseEvents(direct.handle)).toBe(viewer_native.mouseEvents(reference.handle));
-      expect(viewer_native.bracketedPaste(direct.handle)).toBe(viewer_native.bracketedPaste(reference.handle));
-      expect(viewer_native.pasteEvents(direct.handle)).toBe(viewer_native.pasteEvents(reference.handle));
+      const rows = (handle: Pointer | bigint) =>
+        surfaceFixture.renamedLinkIds({
+          ...view.surface,
+          lines: [viewer_native.rows(handle, 7, 0, 0, 32, 4, false, null)],
+        }).lines[0];
+      expect(rows(direct.handle)).toBe(rows(source.handle));
+      expect(viewer_native.cursor(direct.handle)).toEqual(viewer_native.cursor(source.handle));
+      expect(viewer_native.mouseEvents(direct.handle)).toBe(viewer_native.mouseEvents(source.handle));
+      expect(viewer_native.bracketedPaste(direct.handle)).toBe(viewer_native.bracketedPaste(source.handle));
+      expect(viewer_native.pasteEvents(direct.handle)).toBe(viewer_native.pasteEvents(source.handle));
       for (const cp of [8, 9, 13, 27, 65, 127, 0xe000])
         for (const mods of [{}, { alt: true }, { ctrl: true }, { shift: true }])
           expect(viewer_native.encodeKey(direct.handle, { codepoint: cp, mods })).toBe(
-            viewer_native.encodeKey(reference.handle, { codepoint: cp, mods }),
+            viewer_native.encodeKey(source.handle, { codepoint: cp, mods }),
           );
       expect(viewer_native.encodeMouse(direct.handle, 0, 3, 2, false)).toBe(
-        viewer_native.encodeMouse(reference.handle, 0, 3, 2, false),
+        viewer_native.encodeMouse(source.handle, 0, 3, 2, false),
       );
     }
   } finally {
     source.destroy();
-    reference.destroy();
     direct.destroy();
   }
 });

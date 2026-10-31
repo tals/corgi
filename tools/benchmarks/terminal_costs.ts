@@ -281,7 +281,7 @@ function measure(c: Corpus, check: ReturnType<typeof verify>) {
       return lazy.rows().length;
     },
     viewer_native_receive: (i: number) => {
-      viewerNative.receive(native.handle, wire[i % wire.length]);
+      viewerNative.receiveFrame(native.handle, c.views[i % c.views.length]);
       viewerNative.updateRender(native.handle);
       return 1;
     },

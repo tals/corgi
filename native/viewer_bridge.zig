@@ -20,26 +20,6 @@ pub export fn viewer_take(dst: [*]u8, cap: usize) i64 {
     return @intCast(bytes.len);
 }
 
-/// `mirror.Terminal.receive` on the terminal itself: installs a surface the
-/// daemon sent and the modes its program asked for.
-pub export fn viewer_receive(t: *pane.Terminal, data: [*]const u8, len: usize) i32 {
-    var arena = std.heap.ArenaAllocator.init(a);
-    defer arena.deinit();
-    const view = std.json.parseFromSliceLeaky(pane.surface.View, arena.allocator(), data[0..len], .{ .ignore_unknown_fields = true }) catch return -1;
-    const frame = view.surface;
-    if (frame.cols == 0 or frame.rows == 0) return 1;
-    t.resize(frame.cols, frame.rows) catch return -2;
-    t.feed("\x1b[?7l\x1b[0m\x1b[H\x1b[2J");
-    var bytes: std.Io.Writer.Allocating = .init(a);
-    defer bytes.deinit();
-    for (frame.lines, 0..) |line, row| bytes.writer.print("\x1b[{d};1H{s}", .{ row + 1, line }) catch return -3;
-    (if (frame.cursor) |cursor| bytes.writer.print("\x1b[{d};{d}H\x1b[?25h", .{ cursor.y + 1, cursor.x + 1 }) else bytes.writer.writeAll("\x1b[?25l")) catch return -3;
-    t.feed(bytes.written());
-    installModes(t, view.modes);
-    t.installedRows(null) catch return -2;
-    return 0;
-}
-
 /// Positioned row bytes and cursor controls, without a JSON round trip.
 /// Bit positions follow Modes' boolean fields, with paste_events at bit 7.
 pub export fn viewer_receive_frame(t: *pane.Terminal, data: [*]const u8, len: usize, cols: u16, rows: u16, flags: u32, kitty: u32, mouse_event: u32, mouse_format: u32, full_reset: bool, dirty_rows: [*]const u16, dirty_count: usize) i32 {

@@ -34,7 +34,6 @@ const term = dlopen(`${nativeRoot}/lib/libcorgi_term.${suffix}`, {
   frame_diff_take: { args: ["ptr", "ptr", "usize"], returns: FFIType.i64_fast },
   unicode_widths: { args: ["ptr", "usize"], returns: "void" },
   viewer_take: { args: ["ptr", "usize"], returns: FFIType.i64_fast },
-  viewer_receive: { args: ["ptr", "ptr", "usize"], returns: "i32" },
   viewer_receive_frame: {
     args: ["ptr", "ptr", "usize", "u16", "u16", "u32", "u32", "u32", "u32", "bool", "ptr", "usize"],
     returns: "i32",

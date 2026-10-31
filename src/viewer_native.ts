@@ -17,16 +17,6 @@ const bytes = (text: string | Uint8Array) => (typeof text === "string" ? Buffer.
 // FFI pointers to an empty buffer are invalid; pass one spare byte.
 const nonEmpty = (data: Uint8Array) => (data.length > 0 ? data : Buffer.alloc(1));
 
-export function receive(handle: Pointer | bigint, view: string): void {
-  const telemetry_started = telemetry.begin();
-  try {
-    const data = Buffer.from(view);
-    const status = n.viewer_receive(handle as Pointer, ptr(nonEmpty(data)), data.length);
-    if (status < 0) throw Error(status === -1 ? "InvalidSurface" : "OutOfMemory");
-  } finally {
-    telemetry.end("surface.receive", telemetry_started);
-  }
-}
 const mouseEventsByName = new Map(["none", "x10", "normal", "button", "any"].map((name, id) => [name, id]));
 const mouseFormatsByName = new Map(["x10", "utf8", "sgr", "urxvt", "sgr_pixels"].map((name, id) => [name, id]));
 const u16 = (value: number) => Number.isInteger(value) && value >= 0 && value <= 65535;

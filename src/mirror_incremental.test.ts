@@ -56,7 +56,7 @@ function fixture(cols = 32, rows = 4) {
   };
   const install = (view = source.surface(1)) => {
     pane.receive(wire(view));
-    viewerNative.receive(reference.handle, json.stringify(view));
+    viewerNative.receiveFrame(reference.handle, view);
     reference.cols = view.surface.cols;
     reference.rows = view.surface.rows;
     if (pane.selection) {
