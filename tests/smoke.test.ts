@@ -978,11 +978,11 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
     this.assertFalse((await this.client!.poll()).prefix);
     await this.input("\x02?");
     menu = await this.frame_with("Keyboard shortcuts", 100, 40);
-    const closeRow = menu.findIndex(row => row.includes("Close / reopen"));
-    await this.click(menu[closeRow].indexOf("x / u") + 1, closeRow + 1);
+    await this.click_text(menu, "◇ x");
     await this.until(async () => (await this.panes()).length === 2);
     await this.input("\x02?");
-    await this.frame_with("Keyboard shortcuts", 100, 40);
+    await this.write({ op: "size", cols: 120, rows: 40 });
+    await this.frame_with("Keyboard shortcuts", 120, 40);
     await this.click(1, 1);
     this.assertFalse((await this.client!.poll()).prefix);
     await this.input("printf '%s%s\\n' MENU_ CLOSED\r");
@@ -1110,7 +1110,7 @@ process.stdin.on('data',data=>appendFileSync('scroll-input',data));process.stdin
     await this.input("\x1b");
     await this.write({ op: "size", cols: 30, rows: 8 });
     await this.input("\x02?");
-    await this.frame_with("Help needs 32 × 12", 30, 8);
+    await this.frame_with("Shortcuts need 42 × 18", 30, 8);
     await this.input("\x1b");
     // The agent chooser needs room for its rows; retain the narrow tab strip.
     await this.write({ op: "size", cols: 30, rows: 14 });

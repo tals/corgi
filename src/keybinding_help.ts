@@ -12,6 +12,7 @@ export type Result =
   { name: "close" } | { name: "action"; action: action.Action } | { name: "save"; config: model.Config } | null;
 type Target =
   | { name: "binding"; id: string; index: number }
+  | { name: "label"; id: string }
   | { name: "alternative"; index: number }
   | { name: "modifier"; modifier: keyof keyboard.Mods }
   | { name: "range"; kind: "numbers" | "functions" }
@@ -321,6 +322,8 @@ export class State {
         this.show_alts = !this.show_alts;
         this.selected.index = 0;
         return null;
+      case "label":
+        return this.activate({ name: "binding", id: t.id, index: 0 });
       case "binding": {
         this.selected = { id: t.id, index: t.index };
         if (this.customizing) this.start(t.id, t.index);
@@ -769,9 +772,10 @@ export class State {
         separator = inline ? keyStart + bindingWidth + 1 : keyStart - 2;
       let y = ys[col];
       const firstText = tabular(first.s);
+      const labelTarget: Target | undefined = entries.length === 1 ? { name: "label", id: first.e.id } : undefined;
       if (displayWidth(label) + 2 > keyStart) {
-        for (const line of wrapped(label, colWidth - 2)) add(col, 1, y++, line, "text");
-      } else add(col, 1, y, label, label.startsWith("●") ? "warm" : "text");
+        for (const line of wrapped(label, colWidth - 2)) add(col, 1, y++, line, "text", labelTarget);
+      } else add(col, 1, y, label, label.startsWith("●") ? "warm" : "text", labelTarget);
       const primary = wrapped(firstText, bindingWidth);
       primary.forEach((line, i) =>
         add(col, keyStart, y + i, line, "text", { name: "binding", id: first.e.id, index: first.index }, bindingWidth),
@@ -872,7 +876,10 @@ export class State {
         entry = this.entry("split:" + side);
       const diagram = side === "right" ? ["┌──┬──┐", "│  │  │", "└──┴──┘"] : ["┌─────┐", "├─────┤", "└─────┘"];
       diagram.forEach((text, j) => add(col, x + 1, splitY + j, text, "faint"));
-      add(col, x + 1, splitY + 3, side === "right" ? "Right" : "Down", "text");
+      add(col, x + 1, splitY + 3, side === "right" ? "Right" : "Down", "text", {
+        name: "label",
+        id: entry.id,
+      });
       const splitCaps = (entry.shortcuts.length ? entry.shortcuts : [null])
         .slice(0, this.show_alts ? undefined : 1)
         .flatMap((s, index) =>

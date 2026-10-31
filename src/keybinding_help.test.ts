@@ -31,6 +31,14 @@ function editor(id = "new") {
   return s;
 }
 
+test.each([100, 48])("action labels remain clickable when help wraps at %i columns", cols => {
+  const s = new State();
+  expect(click(s, "New tab", cols)).toEqual({ name: "action", action: { name: "new" } });
+  s.customizing = true;
+  expect(click(s, "New tab", cols)).toBeNull();
+  expect(s.edit?.id).toBe("new");
+});
+
 test.each([
   [41, 24],
   [80, 17],
