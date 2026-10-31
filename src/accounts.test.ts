@@ -364,6 +364,15 @@ test("a removed folder, the user's or Omarchy's, is offered back until it's rest
   expect(accounts.forgotten(mine)).toBe(false);
   expect(accounts.removed().map(a => a.name)).toEqual(["Side"]);
   expect(() => accounts.restore("claude", mine)).toThrow("AccountNotFound");
+  // A long name stays a valid one with its number.
+  const long = "é".repeat(80),
+    other = mkdtempSync(join(home, "long-"));
+  await accounts.remove(accounts.add("claude", long, other));
+  accounts.add("claude", long, mkdtempSync(join(home, "taken-")));
+  const restored = accounts.restore("claude", other);
+  expect(restored.name).toBe("é".repeat(79) + "-2");
+  accounts.reset();
+  expect(accounts.known().some(a => a.dir === other && a.name === restored.name)).toBe(true);
   rmSync(side, { recursive: true });
   accounts.reset();
   expect(accounts.removed()).toEqual([]);

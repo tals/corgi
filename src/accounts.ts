@@ -622,8 +622,15 @@ export function restore(provider: Provider, dir: string): Known {
   if (!gone) throw Error("AccountNotFound");
   const taken = new Set([...known().flatMap(a => (a.provider === provider ? [a.name] : [])), defaultName(provider)]);
   let name = gone.name;
-  for (let i = 2; taken.has(name); i++) name = `${gone.name}-${i}`;
+  for (let i = 2; taken.has(name); i++) name = numbered(gone.name, i);
   return list({ ...gone, name });
+}
+/** `name` numbered `n`, cut short so the whole stays a valid name. */
+function numbered(name: string, n: number): string {
+  const suffix = `-${n}`,
+    chars = [...name];
+  while (chars.length > 1 && Buffer.byteLength(chars.join("") + suffix) > agentName.limit) chars.pop();
+  return chars.join("").trimEnd() + suffix;
 }
 /** Fills an account's folder with links to the setup the default account
  * shares; its login and conversations stay its own. A folder the default

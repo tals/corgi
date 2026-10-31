@@ -2325,15 +2325,22 @@ test("a failed background logout restores the account row and reports the failur
   }
 });
 
-test("Add agent adds a removed account back, its row there at once", async () => {
-  const { s } = withWork(),
+test("Add agent adds a removed account back, its row there at once and shown in every workspace", async () => {
+  const { s, sent } = withWork(),
     old = { provider: "claude" as const, dir: "/accounts/old", name: "old", managed: false },
-    restore = spyOn(accounts, "restore").mockReturnValue(old);
+    restore = spyOn(accounts, "restore").mockReturnValue(old),
+    row = agentLauncher.Row.of("claude", old.dir);
   try {
     await s.input(bytes("\x1b[C"));
-    const launch = s.agent_launcher;
+    const launch = s.agent_launcher,
+      ws = s.runtime.workspaces.items[0];
+    // `corgi account remove` left it hidden in a workspace.
+    ws.launcher_hidden = [row];
+    launch.workspace_hidden = [row];
     await s.manageAction({ kind: "restore", provider: "claude", account: old.dir });
     expect(restore).toHaveBeenCalledWith("claude", old.dir);
+    expect(sent).toContainEqual({ "agent.workspace_visibility": { workspace: ws.id, row, shown: true } });
+    expect(launch.workspace_hidden).toEqual([]);
     expect(launch.manageModel().agents.find((a: agentManager.Agent) => a.account === old.dir)).toMatchObject({
       label: "Claude Code · old",
       shown: true,

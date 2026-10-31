@@ -66,10 +66,11 @@ accounts and saved commands in the launcher, **Active** and then **Hidden** in
 this workspace, followed by **Add agent**: a strip of agents, each with its
 brand mark, and **+ Custom command**. Selecting the strip opens the focused
 agent's list: every account Corgi finds for it, ✓ those in the list and +
-those removed whose folders are still there, then **+ New … account** where
-Corgi can sign in to it. **←** and **→** move along the strip and **↓** into
-the list. Once opened, the strip keeps the room its longest list needs until
-Manage agents closes.
+those out of it, whether removed with their folders still there or hidden
+from the launcher, then **+ New … account** where Corgi can sign in to it.
+**←** and **→** move along the strip and **↓** into the list. Once opened,
+the strip keeps the room its longest list needs, so moving between agents
+doesn't resize it; a search still can.
 The search starts focused. **Tab** or **↓** moves into the list; **↑** enters
 at the last row. Arrows wrap around the list; **Tab** or **Shift-Tab** returns
 to search. On a row,

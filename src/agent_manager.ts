@@ -468,7 +468,9 @@ export class View {
   private tiles(model: Model): Tile[] {
     return [...model.offers.map(o => o.provider), "custom" as const].filter(t => this.details(model, t).length > 0);
   }
-  /** The agent whose accounts Add agent shows: the selected row's, else the last one focused. */
+  /** The agent whose accounts Add agent shows: that of the selected row of
+   * Add agent's, else the last one focused on its strip. The list's rows
+   * leave it where it was. */
   private current(model: Model): Tile | null {
     const tiles = this.tiles(model),
       named = this.at === "custom" ? "custom" : /^(?:tile|found|removed|add):([^:]+)/.exec(this.at)?.[1];
@@ -565,8 +567,14 @@ export class View {
       this.at = itemKey(all[delta < 0 ? all.length - 1 : 0]);
       return;
     }
-    const now = all.findIndex(i => itemKey(i) === this.at);
-    const next = Math.max(0, now) + delta;
+    // From the selected row; with none, from either end.
+    const chosen = this.selected(model),
+      now = chosen ? all.findIndex(i => itemKey(i) === itemKey(chosen)) : -1;
+    if (now < 0) {
+      this.at = itemKey(all[delta < 0 ? all.length - 1 : 0]);
+      return;
+    }
+    const next = now + delta;
     if (next < 0 || next >= all.length) this.focus = "search";
     else this.at = itemKey(all[next]);
   }

@@ -414,6 +414,11 @@ test("removing a search's last match leaves nothing selected, so Left goes back 
   expect(v.selected(m)).toBeNull();
   expect(v.key(13, m)).toBeNull();
   expect(v.sequence("\x1b[D", m)).toEqual({ kind: "back" });
+  // Down reaches its agent on the strip, and into its list adds it back.
+  v.sequence("\x1b[B", m);
+  expect(v.at).toBe("tile:claude");
+  expect(v.key(13, m)).toBeNull();
+  expect(v.key(13, m)).toEqual({ kind: "restore", provider: "claude", account: "/o/side" });
 });
 
 test("every row in the list can be removed, and only the list's rows", () => {

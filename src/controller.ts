@@ -2580,8 +2580,9 @@ export class Controller {
                   option: agentLauncher.option({ pending: true }),
                 },
               ];
-          if (launch.account_hidden.includes(a.dir))
-            await this.setLauncherShown({ provider: a.provider, account: a.dir }, true);
+          // `corgi account remove` leaves it hidden wherever it was.
+          await this.showEverywhere({ provider: a.provider, account: a.dir });
+          launch.workspace_hidden = launch.workspace_hidden.filter(r => r !== Row.of(a.provider, a.dir));
           this.addedAgent(`${adapter(a.provider).label} · ${a.name}`);
         } catch (error) {
           launch.manager.fail(signin.problem(error));
@@ -2590,6 +2591,13 @@ export class Controller {
       case "save":
         return this.saveInlineCommand();
     }
+  }
+  /** Shows an account's row in the launcher and in every workspace that hid it. */
+  private async showEverywhere(a: agentLauncher.Launch): Promise<void> {
+    const row = Row.of(a.provider, a.account);
+    if (this.runtime.account_hidden.includes(a.account)) await this.setLauncherShown(a, true);
+    for (const ws of this.runtime.workspaces.items.filter(ws => ws.launcher_hidden.includes(row)))
+      await this.execute({ "agent.workspace_visibility": { workspace: ws.id, row, shown: true } });
   }
   /** The slow logout and folder deletion must not hold up input or drawing. */
   private removeAccount(a: agentManager.Agent, launch: LauncherMenu): void {
@@ -2639,13 +2647,9 @@ export class Controller {
         for (const preview of previews)
           if (preview)
             preview.accounts = preview.accounts.filter(o => !(o.provider === a.provider && o.account === a.account));
-        const row = Row.of(a.provider, a.account),
-          hidden = this.runtime.workspaces.items.filter(ws => ws.launcher_hidden.includes(row));
         try {
-          if (this.runtime.account_hidden.includes(a.account)) await this.setLauncherShown(a, true);
           // An account added later in its folder starts shown everywhere.
-          for (const ws of hidden)
-            await this.execute({ "agent.workspace_visibility": { workspace: ws.id, row, shown: true } });
+          await this.showEverywhere(a);
         } catch (error) {
           warning = ` Removed ${a.label}, but couldn't update launcher settings: ${signin.problem(error)}`;
         }
