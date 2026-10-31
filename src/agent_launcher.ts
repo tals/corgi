@@ -259,6 +259,14 @@ export class Menu {
     const short = ellipsis(p.name, sat(room, displayWidth(suffix)));
     return short.length > 0 ? short + suffix : name;
   }
+  /** A row's name beside its brand mark, which says whose it is: the name
+   * given to it, such as `work`, or for a default account that has none,
+   * its provider's. */
+  markedLabel(row: Row, room = Infinity): string {
+    const l = this.profileOf(row) ? null : this.launchOf(row),
+      name = !l ? "" : l.account ? (this.accountOf(row)?.name ?? "") : this.preview.names[l.provider];
+    return name ? ellipsis(name, room) : this.label(row, room);
+  }
   modelCell(row: Row): { name: string; effort?: effort.Effort } {
     const target = this.launchOf(row),
       settings =
@@ -722,7 +730,13 @@ export class Menu {
       commands: this.commands,
       workspace: this.workspace_name,
       here: index => !this.workspace_hidden.includes(Row.ofCommand(index)),
-      add: providers.filter(p => this.preview.installed[p] && adapter(p).accounts.signin !== null),
+      offers: providers.map(p => ({
+        provider: p,
+        installed: this.preview.installed[p],
+        signin: adapter(p).accounts.signin !== null,
+      })),
+      removed: accounts.removed().map(a => ({ provider: a.provider, account: a.dir, name: a.name })),
+      folder: accounts.folder,
       account: info => this.account(info),
       suggest: a => accounts.suggest(a.provider, accounts.identity(a.provider, a.account), a.account),
       options: a =>
@@ -771,6 +785,7 @@ export class Menu {
     const m = this;
     const b = m.bounds(cols, rowsCount, side);
     if (m.managing) {
+      m.manager.marks = m.transition.active ? null : m.marks;
       if (b.w >= 40 && b.h >= m.manager.minimumHeight()) m.manager.draw(w, b, m.manageModel());
       return;
     }
@@ -838,7 +853,7 @@ export class Menu {
         writeMark(w, provider, x + 3, row - 1, marks);
         w.write(style);
       }
-      if (custom === null) values[0] = m.label(current, sat(widths[0], 6 + mark_w));
+      if (custom === null) values[0] = m.markedLabel(current, sat(widths[0], 6 + mark_w));
       widths.forEach((width, column) => {
         if (width === 0) return;
         w.write(`\x1b[${row};${x + (column === 0 ? 4 + mark_w : 0)}H`);

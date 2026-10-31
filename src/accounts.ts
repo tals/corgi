@@ -33,10 +33,12 @@ import * as agentOptions from "./agent_options";
 export type Known = { provider: Provider; dir: string; name: string; managed: boolean };
 /** The accounts besides the defaults, the folders the user removed, and
  * the names given to each provider's default account, whichever folder or
- * login that is. */
+ * login that is. `removed` says whose and what each removed folder was, so
+ * it can be added back. */
 type Saved = {
   accounts: (Known & { created?: string })[];
   forgotten: string[];
+  removed: { provider: Provider; dir: string; name: string }[];
   defaults: Partial<Record<Provider, string>>;
   launch: { provider: Provider; account: string; options: agentOptions.Options }[];
 };
@@ -91,6 +93,16 @@ export function of(provider: Provider, env: readonly (readonly [string, string])
 export function directory(provider: Provider, account: string) {
   return account || adapter(provider).accounts.home();
 }
+let homes: [string, string] = ["", ""];
+/** The folder `account` keeps its settings in, under `~` when it's in the
+ * user's home, as they would write it. */
+export function folder(provider: Provider, account: string) {
+  const dir = account || home(provider) || directory(provider, ""),
+    spelled = process.env.HOME ?? homedir();
+  if (homes[0] !== spelled) homes = [spelled, canonical(spelled)];
+  const user = homes[1];
+  return dir === user || dir.startsWith(user + "/") ? "~" + dir.slice(user.length) : dir;
+}
 /** The variables that pick `account`; none for the default. */
 export function env(provider: Provider, account: string): [string, string][] {
   return account ? [[adapter(provider).accounts.env, account]] : [];
@@ -108,7 +120,7 @@ function load(): Saved {
     stamp = `${s.ino}:${s.size}:${s.mtimeMs}`;
   } catch {}
   if (saved?.stamp === stamp) return saved.value;
-  const value: Saved = { accounts: [], forgotten: [], defaults: {}, launch: [] };
+  const value: Saved = { accounts: [], forgotten: [], removed: [], defaults: {}, launch: [] };
   if (stamp)
     try {
       const raw = JSON.parse(readFileSync(path(), "utf8"));
@@ -131,6 +143,11 @@ function load(): Saved {
       }
       for (const dir of Array.isArray(raw?.forgotten) ? raw.forgotten : [])
         if (typeof dir === "string") value.forgotten.push(dir);
+      for (const a of Array.isArray(raw?.removed) ? raw.removed : []) {
+        const provider = Provider.parse(a?.provider);
+        if (provider && typeof a.dir === "string" && isAbsolute(a.dir) && valid(a.name))
+          value.removed.push({ provider, dir: a.dir, name: a.name });
+      }
       for (const provider of Provider.all)
         if (valid(raw?.defaults?.[provider])) value.defaults[provider] = raw.defaults[provider];
     } catch {}
@@ -141,6 +158,7 @@ function store(value: Saved) {
   atomicWrite(path(), JSON.stringify(value, null, 2) + "\n", 0o600, false);
   saved = null;
   found = null;
+  gone = null;
 }
 
 /** Names the CLI and the launcher can spell. */
@@ -403,6 +421,7 @@ function list(account: Known, created?: string) {
       { ...account, ...(created === undefined ? {} : { created }) },
     ],
     forgotten: value.forgotten.filter(d => d !== account.dir),
+    removed: value.removed.filter(r => !(r.provider === account.provider && r.dir === account.dir)),
   });
   return account;
 }
@@ -560,9 +579,51 @@ export async function remove(account: Known): Promise<boolean> {
       a => !(a.provider === account.provider && (a.dir === account.dir || canonical(a.dir) === dir)),
     ),
     forgotten: owned || value.forgotten.includes(dir) ? value.forgotten : [...value.forgotten, dir],
+    removed: [
+      ...value.removed.filter(r => !(r.provider === account.provider && r.dir === dir)),
+      ...(owned ? [] : [{ provider: account.provider, dir, name: account.name }]),
+    ],
     launch: value.launch.filter(a => a.provider !== account.provider || a.account !== account.dir),
   });
   return owned;
+}
+/** The accounts the user removed whose folders are still there, which
+ * Manage agents offers to add back: those Corgi recorded, then those Omarchy
+ * keeps. */
+let gone: { at: number; stamp: unknown; accounts: Known[] } | null = null;
+export function removed(): Known[] {
+  const value = load(),
+    now = Date.now();
+  if (gone && gone.stamp === value && now - gone.at < 5000) return gone.accounts;
+  const out: Known[] = [];
+  for (const provider of Provider.all) {
+    if (!adapter(provider).accounts.signin) continue;
+    const add = (dir: string, name: string) => {
+      const account = canonical(dir);
+      if (
+        value.forgotten.includes(account) &&
+        account !== home(provider) &&
+        existsSync(account) &&
+        !out.some(a => a.provider === provider && a.dir === account) &&
+        !find(provider, account)
+      )
+        out.push({ provider, dir: account, name, managed: false });
+    };
+    for (const r of value.removed) if (r.provider === provider) add(r.dir, r.name);
+    for (const a of omarchy(provider)) add(a.dir, a.name);
+  }
+  gone = { at: now, stamp: value, accounts: out };
+  return out;
+}
+/** Lists a removed account again, by the name it had when there's no other
+ * account by that name. */
+export function restore(provider: Provider, dir: string): Known {
+  const gone = removed().find(a => a.provider === provider && a.dir === dir);
+  if (!gone) throw Error("AccountNotFound");
+  const taken = new Set([...known().flatMap(a => (a.provider === provider ? [a.name] : [])), defaultName(provider)]);
+  let name = gone.name;
+  for (let i = 2; taken.has(name); i++) name = `${gone.name}-${i}`;
+  return list({ ...gone, name });
 }
 /** Fills an account's folder with links to the setup the default account
  * shares; its login and conversations stay its own. A folder the default
@@ -583,4 +644,5 @@ export function reset() {
   defaults.clear();
   saved = null;
   found = null;
+  gone = null;
 }

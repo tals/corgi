@@ -1742,10 +1742,11 @@ test("expanded settings and the popup render the same account rows and usage bar
   const w = new Writer();
   launch.manager.draw(w, new Rect(0, 0, preferred_width, 30), launch.manageModel());
   const popup = screen(w.s, 180, 36);
+  // Claude's accounts, by the mark each wears.
   const accountRows = (rows: string[]) =>
     rows
-      .filter(row => row.includes("Claude Code") && row.includes("@"))
-      .map(row => row.slice(row.indexOf("Claude Code")).replace(/[│ ]+$/, ""));
+      .filter(row => row.includes("≡ * ") && row.includes("@"))
+      .map(row => row.slice(row.indexOf("≡ * ")).replace(/[│ ]+$/, ""));
   expect(accountRows(expanded)).toEqual(accountRows(popup));
   expect(accountRows(expanded)).toHaveLength(2);
   for (const row of accountRows(expanded)) expect(row).toContain("━");

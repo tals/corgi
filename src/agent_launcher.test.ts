@@ -73,7 +73,11 @@ test("OpenCode stays manageable without offering unsupported account sign-in", (
   const m = menu({ selected: "opencode2" });
   m.preview = preview({ pending: false, options: { opencode2: { account: "OpenCode provider credentials" } } });
   expect(m.shown("opencode2")).toBe(true);
-  expect(m.manageModel().add).not.toContain("opencode2");
+  expect(m.manageModel().offers.find(o => o.provider === "opencode2")).toEqual({
+    provider: "opencode2",
+    installed: true,
+    signin: false,
+  });
   expect(m.manageModel().agents.find(a => a.provider === "opencode2")).toMatchObject({
     shown: true,
     here: true,
@@ -527,8 +531,8 @@ test("an account's row reads its own account and has its own YOLO and launcher m
   const side = SidebarView.init(120, 24, true, 0, 0);
   const b = m.bounds(120, 24, side);
   const line = screen(m, 120, 24, side)[b.y + 4];
-  // The brand mark has its own space before the full name.
-  for (const value of [" 2 ", "* Claude Code · work", "✓", "Opus", "work@example.com", "Team", "5h", "17%"])
+  // The brand mark says whose account it is, beside the account's own name.
+  for (const value of [" 2 ", "* work ", "✓", "Opus", "work@example.com", "Team", "5h", "17%"])
     expect(line).toContain(value);
   expect(m.hit(120, 24, side, b.x + 2, b.y + 4)).toBe(work);
   const widths = m.columns(b.w);
@@ -576,7 +580,7 @@ test("a signed-out account's row stays listed and offers to sign in", () => {
   const side = SidebarView.init(120, 24, true, 0, 0);
   const b = m.bounds(120, 24, side);
   const lines = screen(m, 120, 24, side);
-  expect(lines[b.y + 3]).toMatch(/ 1 +\* Claude Code · work .* — +— +Sign in +│/);
+  expect(lines[b.y + 3]).toMatch(/ 1 +\* work .* — +— +Sign in +│/);
   expect(lines[b.y + b.h - 2]).toMatch(/a +sign in +y +YOLO/);
   m.account_hidden = ["/accounts/work"];
   expect(m.shown(work)).toBe(false);
@@ -640,8 +644,8 @@ test("Manage agents takes the card with its own selection", () => {
     lines = screen(m, 120, 40, side);
   expect(b.w).toBe(before.w);
   expect(lines[b.y]).toMatch(/╭─ ← New tab ─ Manage agents ─+ +esc +close ─╮/);
-  expect(lines[b.y + 7]).toMatch(/│› ≡ Codex /);
-  expect(lines[b.y + 9]).toMatch(/│  ≡ Claude Code · work +work@example.com +Auto \(last chosen\) +▾ +│/);
+  expect(lines[b.y + 7]).toMatch(/│› ≡ † Codex /);
+  expect(lines[b.y + 9]).toMatch(/│  ≡ \* work +work@example.com +▾ Auto \(last chosen\) +│/);
   // The picker's rows don't answer clicks under it.
   expect(m.hit(120, 40, side, b.x + 6, b.y + 8)).toBeNull();
   expect(lines[b.y + b.h - 2].replaceAll("│", "").trim()).toBe("");
@@ -667,11 +671,11 @@ test("Manage agents shows hidden accounts' own usage, keeps zero, and omits miss
       }),
     ],
   });
-  m.account_hidden = ["/accounts/work"];
+  m.workspace_hidden = [work];
   m.preview.options.codex.usage_error = "no usage returned";
   m.manage();
   const a = m.manageModel().agents.find(a => a.account === "/accounts/work")!;
-  expect(a.shown).toBe(false);
+  expect(a.here).toBe(false);
   expect(a.usage.windows.map(w => w?.used)).toEqual([82, 0]);
   const side = SidebarView.init(150, 40, true, 0, 0);
   const text = screen(m, 150, 40, side).join("\n");

@@ -2564,6 +2564,29 @@ export class Controller {
         return;
       case "add":
         return this.openSignin(host => signin.adding(action.provider, null, host));
+      case "restore":
+        try {
+          const a = accounts.restore(action.provider, action.account);
+          // The daemon lists it on its next read; the list shows it now.
+          for (const preview of new Set([launch.preview, this.launch_previews.preview]))
+            if (!preview.accounts.some(o => o.provider === a.provider && o.account === a.dir))
+              preview.accounts = [
+                ...preview.accounts,
+                {
+                  provider: a.provider,
+                  account: a.dir,
+                  name: a.name,
+                  managed: a.managed,
+                  option: agentLauncher.option({ pending: true }),
+                },
+              ];
+          if (launch.account_hidden.includes(a.dir))
+            await this.setLauncherShown({ provider: a.provider, account: a.dir }, true);
+          this.addedAgent(`${adapter(a.provider).label} · ${a.name}`);
+        } catch (error) {
+          launch.manager.fail(signin.problem(error));
+        }
+        return;
       case "save":
         return this.saveInlineCommand();
     }

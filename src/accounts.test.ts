@@ -339,6 +339,36 @@ test("a folder the user has joins under the name they give it, and forgetting it
   expect(existsSync(mine)).toBe(true);
 });
 
+test("a removed folder, the user's or Omarchy's, is offered back until it's restored or gone", async () => {
+  const mine = join(home, "accounts", "big-co"),
+    side = join(home, ".local", "state", "omarchy", "agents", "accounts", "claude", "side");
+  mkdirSync(mine, { recursive: true });
+  signIn(side, "me@side.com");
+  writeFileSync(
+    join(dirname(side), "..", "claude.json"),
+    JSON.stringify({ accounts: [{ id: "side", label: "Side", home: side, primary: false }] }),
+  );
+  await accounts.remove(accounts.add("claude", "bigco", mine));
+  await accounts.remove(accounts.named("Side")!);
+  // One Corgi made goes with its folder, so there's nothing to offer.
+  const s = accounts.stage("claude");
+  signIn(s.dir, "me@acme.com");
+  await accounts.remove(accounts.adopt(s));
+  expect(accounts.removed()).toEqual([
+    { provider: "claude", dir: mine, name: "bigco", managed: false },
+    { provider: "claude", dir: side, name: "Side", managed: false },
+  ]);
+  // A name taken meanwhile gets a number.
+  accounts.add("claude", "bigco", mkdtempSync(join(home, "other-")));
+  expect(accounts.restore("claude", mine)).toEqual({ provider: "claude", dir: mine, name: "bigco-2", managed: false });
+  expect(accounts.forgotten(mine)).toBe(false);
+  expect(accounts.removed().map(a => a.name)).toEqual(["Side"]);
+  expect(() => accounts.restore("claude", mine)).toThrow("AccountNotFound");
+  rmSync(side, { recursive: true });
+  accounts.reset();
+  expect(accounts.removed()).toEqual([]);
+});
+
 test("a login one account has already is found in another", () => {
   signIn(join(home, ".claude"), "me@home.com", "home-id");
   const work = join(home, "work"),
@@ -520,5 +550,20 @@ test("account removal refuses referenced accounts before signing out", async () 
   } finally {
     stderr.mockRestore();
     signout.mockRestore();
+  }
+});
+
+test("an account's folder reads from ~ when it's in the user's home, however HOME spells it", () => {
+  const mine = join(home, "accounts", "big-co"),
+    link = join(dirname(home), basename(home) + "-link");
+  mkdirSync(mine, { recursive: true });
+  symlinkSync(home, link);
+  try {
+    process.env.HOME = link;
+    expect(accounts.folder("claude", "")).toBe("~/.claude");
+    expect(accounts.folder("claude", mine)).toBe("~/accounts/big-co");
+    expect(accounts.folder("claude", "/elsewhere/x")).toBe("/elsewhere/x");
+  } finally {
+    rmSync(link);
   }
 });
