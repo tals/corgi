@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://cubic.dev/schema/cubic-repository-config.schema.json
+
+version: 1
+
+reviews:
+  enabled: true
+  sensitivity: medium
+  check_drafts: false
+  custom_rules:
+    - name: Project conventions
+      description: Flag changes that break the conventions in AGENTS.md.
+      file_paths:
+        - AGENTS.md
+  ignore:
+    files:
+      # Recorded by tools/site_frames.ts.
+      - site/frames.json
+      # Frozen checkpoints from older releases.
+      - src/fixtures/checkpoint-v*.json
+
+pr_descriptions:
+  skip_if_author_description: true
