@@ -273,43 +273,10 @@ class Poll {
   }
 }
 
-export function waitTime(
-  view: Controller,
-  probe: terminal_info.Probe,
-  active: boolean,
-  nextFrame: number,
-  paneDue: number,
-  settled: boolean,
-): number {
+export function waitTime(view: Controller, active: boolean, nextFrame: number, paneDue: number): number {
   const now = Date.now(),
     due = Math.min(Math.max(1, nextFrame - now), Math.max(1, paneDue - now));
-  if (!active) return due;
-  const frame = view.frameDelay(),
-    normal =
-      settled &&
-      frame === 75 &&
-      Number.isFinite(view.compositionDeadline()) &&
-      !view.dirty &&
-      view.pointer === null &&
-      !view.overlayOpen() &&
-      view.input_state.keybuf.length === 0 &&
-      view.input_state.paste === null &&
-      probe.info.status === "done" &&
-      (probe.badge.status === "ready" || probe.badge.status === "unavailable") &&
-      probe.clipboard.support !== "probing" &&
-      probe.clipboard.asking === "none" &&
-      probe.clipboard.reading === null &&
-      probe.clipboard.event.phase === "none" &&
-      probe.clipboard.result === null &&
-      probe.clipboard.out.length === 0 &&
-      probe.pending.length === 0 &&
-      !probe.in_packet &&
-      !probe.changed &&
-      !probe.scheme_changed &&
-      probe.graphics.length === 0;
-  // Ordinary active views still poll geometry within 75 ms without SIGWINCH.
-  // Input, host events and the pane/frame deadlines can wake the loop sooner.
-  return Math.min(normal ? 75 : 16, frame, due);
+  return active ? Math.min(16, view.frameDelay(), due) : due;
 }
 
 export async function run(
@@ -496,8 +463,6 @@ export async function run(
           const changed = !composition.same(previous, frame);
           if (changed || view.overlayOpen()) active_at = now;
           next_sync = Date.now() + (now - active_at < idle_after_ms ? view.frameDelay() : quiet_sync_ms);
-          // Pane updates must not postpone the UI's own animation deadline.
-          if (now - active_at < idle_after_ms) next_sync = Math.min(next_sync, view.compositionDeadline());
           view.dirty = false;
           held = changed && !ready(probe);
           if (!held) {
@@ -527,14 +492,7 @@ export async function run(
         }
         view.clearEffects();
         // The host's answer wakes a viewer waiting on it; only a full terminal is polled.
-        const clock = waitTime(
-          view,
-          probe,
-          Date.now() - active_at < idle_after_ms,
-          next_sync,
-          wakeDue(),
-          terminal_sent && !held && input.length === 0,
-        );
+        const clock = waitTime(view, Date.now() - active_at < idle_after_ms, next_sync, wakeDue());
         const wait_started = telemetry.begin();
         await poll.wait(clock, held && !probe.pacer.waiting(Date.now()));
         telemetry.end("viewer.wait", wait_started);

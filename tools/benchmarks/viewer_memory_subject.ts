@@ -141,7 +141,7 @@ async function setup(): Promise<State> {
     controller.dirty = true;
     draw();
   }
-  if (!controller.sidebar_rows.settled(Date.now())) throw Error("Memory fixture has an unfinished sidebar transition");
+  if (controller.sidebar_rows.moving(Date.now())) throw Error("Memory fixture has an unfinished sidebar movement");
   const initialized = controller.runtime.panes.filter(p => {
       if (!Object.hasOwn(p.terminal, "native")) throw Error("Frozen mirror allocation field changed");
       return Reflect.get(p.terminal, "native") !== null;

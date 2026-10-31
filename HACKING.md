@@ -97,10 +97,11 @@ crash reporting; the application enables it explicitly. `pty-exec` and
 The viewer's [composition](src/composition.ts) keeps pane surfaces as native
 terminal references while TypeScript draws the surrounding UI. The native
 differ combines that UI with retained pane cells and emits changed cell spans.
-Unchanged UI needs no replay. The differ tracks pane identity, geometry and row
-revisions, compares damaged cells exactly, and owns the previous displayed rows,
-including graphemes and links. Current Ghostty cells are borrowed only during
-the synchronous call; no borrowed pane page pins survive it. Overlaps,
+TypeScript redraws the current UI for each presentation; exact byte comparison
+lets unchanged chrome skip native replay. The differ tracks pane identity,
+geometry and row revisions, compares damaged cells exactly, and owns the previous
+displayed rows, including graphemes and links. Current Ghostty cells are borrowed
+only during the synchronous call; no borrowed pane page pins survive it. Overlaps,
 selections, pane images and unsupported clipping use the complete ANSI frame
 as a fallback.
 

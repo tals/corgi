@@ -96,7 +96,7 @@ test("cached pane rows follow surfaces, selection, geometry, dimming and hovered
   }
 });
 
-test("unaltered surface rows preserve native rendering without another row conversion", () => {
+test("pane rows memoize native rendering and preserve link groups", () => {
   const source = new Terminal(32, 3),
     pane = new mirror.Terminal(
       transport(async () => ({})),
@@ -118,7 +118,9 @@ test("unaltered surface rows preserve native rendering without another row conve
       links = spyOn(pane.inner, "hyperlinks");
     try {
       const output = pane.rows(1, 3, 2, 32, 3, false, null);
-      expect(rows).not.toHaveBeenCalled();
+      expect(rows).toHaveBeenCalledTimes(1);
+      expect(pane.rows(1, 3, 2, 32, 3, false, null)).toBe(output);
+      expect(rows).toHaveBeenCalledTimes(1);
       expect(links).not.toHaveBeenCalled();
       direct.feed(output + "\x1b[1;1H");
       rendered.feed(reference + "\x1b[1;1H");
@@ -149,15 +151,15 @@ test("unaltered surface rows preserve native rendering without another row conve
       pane.rows(1, 3, 2, 30, 3, false, null);
       pane.rows(1, 3, 2, 32, 3, true, null);
       pane.rows(1, 3, 2, 32, 3, false, pane.hyperlinks()[0].id);
-      expect(rows).toHaveBeenCalledTimes(3);
+      expect(rows).toHaveBeenCalledTimes(4);
       pane.select(0, 0, 2, 0);
       pane.rows(1, 3, 2, 32, 3, false, null);
-      expect(rows).toHaveBeenCalledTimes(4);
+      expect(rows).toHaveBeenCalledTimes(5);
       pane.clearSelection();
       source.feed("\x1b[2J\x1b[Hnew surface");
       pane.receive(source.surface(1));
       expect(pane.rows(1, 3, 2, 32, 3, false, null)).toContain("new surface");
-      expect(rows).toHaveBeenCalledTimes(4);
+      expect(rows).toHaveBeenCalledTimes(6);
       expect(pane.hyperlinks()).toEqual([]);
       expect(links).toHaveBeenCalledTimes(2);
     } finally {

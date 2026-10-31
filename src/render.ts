@@ -601,16 +601,7 @@ function drawTabs(
   w.write(button_edge + "▐" + button + "+" + button_edge + "▌");
   w.write("\x1b[0m");
 }
-export function frame(
-  view: LayoutView,
-  panes: Pane[],
-  width: number,
-  height: number,
-  u: Ui,
-  retained?: Frame,
-  sidebarEntries?: () => Entry[],
-  sidebarSettled?: () => boolean,
-): string {
+export function frame(view: LayoutView, panes: Pane[], width: number, height: number, u: Ui, retained?: Frame): string {
   const model = view.model;
   const w = new Writer();
   const entries = u.dragged_agent ? u.dragged_agent.apply(u.agents) : u.agents;
@@ -865,27 +856,7 @@ export function frame(
   // A moving row's tint and a link's thumbnail are placed again by each frame that shows them.
   if (u.supports_kitty_graphics)
     w.write(rowGlide.hide + rowGlide.hideImage(rowGlide.manager_image_id) + linkThumbnail.hide);
-  const sidebar_at = w.s.length;
-  const paint =
-    retained && sidebarEntries && sidebarSettled?.() !== false
-      ? side.prepare(w, entries, workspaces, Date.now())
-      : null;
-  if (!paint) side.draw(w, entries, workspaces);
-  if (retained && sidebarEntries)
-    retained.sidebar = {
-      at: sidebar_at,
-      length: w.s.length - sidebar_at,
-      paint,
-      draw: previous => {
-        if (previous) return previous.next(Date.now());
-        const out = new Writer(),
-          next = sidebarEntries();
-        const current = side.withEntries(next),
-          paint = sidebarSettled?.() !== false ? current.prepare(out, next, workspaces, Date.now()) : null;
-        if (!paint) current.draw(out, next, workspaces);
-        return paint ?? out.s;
-      },
-    };
+  side.draw(w, entries, workspaces);
   if (u.git_hover !== null) sidebar.drawGitAction(w, side, u.workspaces, u.git_hover);
   if (u.review_draw) u.review_draw(w);
   if (u.corgi_badge === "image") {

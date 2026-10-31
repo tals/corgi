@@ -5,6 +5,7 @@ import * as viewerNative from "./viewer_native";
 import { Terminal } from "./pane/terminal";
 import { n } from "./native_ffi";
 import { transport } from "./fixtures/transport";
+import * as surfaceFixture from "./fixtures/surface";
 import { Controller } from "./controller";
 import { Frame, same } from "./composition";
 import { Differ } from "./frame_diff";
@@ -209,7 +210,11 @@ test("released mirrors restore styled cells, links, cursor and input modes befor
     const after = retained(pane);
     expect(same(before, after)).toBe(false);
     host.feed(differ.diff(after));
-    expect(host.surface(1).surface).toEqual(displayed);
+    // Re-entering retained composition changes only the host's opaque namespace.
+    expect(surfaceFixture.renamedLinkIds(host.surface(1).surface)).toEqual(surfaceFixture.renamedLinkIds(displayed));
+    const retainedLinks = host.hyperlinks();
+    expect(differ.diff(retained(pane)).length).toBe(0);
+    expect(host.hyperlinks()).toEqual(retainedLinks);
   } finally {
     pane.destroy();
     source.destroy();

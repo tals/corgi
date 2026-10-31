@@ -487,92 +487,6 @@ export class Preview {
   }
 }
 
-type DetailDraw = (writer: Writer, now: number, dream: corgiAnimation.Dream | null) => void;
-
-/** Stable sidebar paint, with only agent detail rows advancing on the animation clock. */
-class PaintPlan {
-  sleepers: bigint[] = [];
-  private draws: { column: number; prefix: string; draw: DetailDraw }[] = [];
-  private ranges: { at: number; length: number }[] = [];
-  private chunks: string[] = [];
-  private static_length = 0;
-  constructor(
-    private offset: number,
-    private intensity: number,
-  ) {}
-  capture(writer: Writer, draw: DetailDraw, prefix: string, now: number, dream: corgiAnimation.Dream | null): void {
-    const out = new Writer(writer.column);
-    draw(out, now, dream);
-    this.ranges.push({ at: writer.s.length - this.offset, length: out.s.length });
-    this.draws.push({ column: writer.column, prefix, draw });
-    writer.write(out.s);
-  }
-  finish(bytes: string): Paint {
-    const fragments: string[] = [];
-    let from = 0;
-    for (const range of this.ranges) {
-      this.chunks.push(bytes.slice(from, range.at));
-      fragments.push(bytes.slice(range.at, range.at + range.length));
-      from = range.at + range.length;
-    }
-    this.chunks.push(bytes.slice(from));
-    this.static_length = this.chunks.reduce((length, chunk) => length + chunk.length, 0);
-    return new Paint(this, fragments, bytes);
-  }
-  advance(previous: Paint, now: number): Paint {
-    corgiAnimation.beginFrame();
-    try {
-      const dream = this.intensity > 0 ? corgiAnimation.dreamer(this.sleepers, now) : null;
-      const fragments = this.draws.map(({ column, draw }) => {
-        const out = new Writer(column);
-        draw(out, now, dream);
-        return out.s;
-      });
-      return fragments.every((fragment, index) => fragment === previous.fragments[index])
-        ? previous
-        : new Paint(this, fragments);
-    } finally {
-      corgiAnimation.endFrame();
-    }
-  }
-  length(fragments: readonly string[]): number {
-    return this.static_length + fragments.reduce((length, fragment) => length + fragment.length, 0);
-  }
-  text(fragments: readonly string[]): string {
-    let bytes = this.chunks[0];
-    for (let index = 0; index < fragments.length; index++) bytes += fragments[index] + this.chunks[index + 1];
-    return bytes;
-  }
-  patch(fragments: readonly string[], previous: readonly string[]): string {
-    let bytes = "";
-    for (let index = 0; index < fragments.length; index++)
-      if (fragments[index] !== previous[index]) bytes += this.draws[index].prefix + fragments[index];
-    return bytes.length > 0 ? bytes + "\x1b[0m" : "";
-  }
-}
-
-/** An immutable animation frame; its complete sidebar is joined only on demand. */
-export class Paint {
-  readonly length: number;
-  constructor(
-    private plan: PaintPlan,
-    readonly fragments: readonly string[],
-    private bytes: string | null = null,
-  ) {
-    this.length = plan.length(fragments);
-  }
-  next(now: number): Paint {
-    return this.plan.advance(this, now);
-  }
-  text(): string {
-    return (this.bytes ??= this.plan.text(this.fragments));
-  }
-  patchFrom(previous: Paint): string | null {
-    if (this.plan !== previous.plan) return null;
-    return this.plan.patch(this.fragments, previous.fragments);
-  }
-}
-
 export class View {
   search: Search | null = null;
   /** Header scope: "all" or the workspace whose agents are listed. */
@@ -1103,46 +1017,15 @@ export class View {
   draw(w: Writer, entries: Entry[], workspaces: WorkspaceEntry[]): void {
     return this.drawAt(w, entries, workspaces, Date.now());
   }
-  prepare(w: Writer, entries: Entry[], workspaces: WorkspaceEntry[], now_ms: number): Paint | null {
-    if (
-      this.search !== null ||
-      this.spotlight !== null ||
-      this.dragged !== null ||
-      this.dragged_workspace !== null ||
-      entries.some(
-        entry =>
-          entry.exit !== null ||
-          entry.enter !== null ||
-          entry.moved !== null ||
-          entry.slide !== 0 ||
-          entry.starting ||
-          entry.worktree?.ghost,
-      ) ||
-      workspaces.some(workspace => workspace.git_push.phase === "pushing" || portName(workspace) === null)
-    )
-      return null;
-    const lists = this.framed() ? this.lists() : this,
-      end = lists.drawEnd(lists.badge("below")),
-      shown = entries.slice(lists.offset, Math.min(entries.length, lists.offset + lists.shown(end)));
-    let top = lists.middle() + 2 + lists.pinned(lists.offset).length;
-    for (const entry of shown) {
-      top += View.height(entry);
-      if (top > end) return null;
-    }
-    const start = w.s.length,
-      plan = new PaintPlan(start, this.corgi_intensity);
-    this.drawAt(w, entries, workspaces, now_ms, plan);
-    return plan.finish(w.s.slice(start));
-  }
-  drawAt(w: Writer, entries: Entry[], workspaces: WorkspaceEntry[], now_ms: number, plan?: PaintPlan): void {
+  drawAt(w: Writer, entries: Entry[], workspaces: WorkspaceEntry[], now_ms: number): void {
     corgiAnimation.beginFrame();
     try {
-      this.drawFrame(w, entries, workspaces, now_ms, plan);
+      this.drawFrame(w, entries, workspaces, now_ms);
     } finally {
       corgiAnimation.endFrame();
     }
   }
-  private drawFrame(w: Writer, entries: Entry[], workspaces: WorkspaceEntry[], now_ms: number, plan?: PaintPlan): void {
+  private drawFrame(w: Writer, entries: Entry[], workspaces: WorkspaceEntry[], now_ms: number): void {
     const v = this;
     if (v.width === 0) {
       if (v.cols >= 64) w.write(`${w.cup(1, 1)}\x1b[1m` + fg("strong") + " > \x1b[0m");
@@ -1150,7 +1033,7 @@ export class View {
     }
     if (v.framed()) {
       for (let row = 0; row < v.rows; row++) w.write(`${w.cup(row + 1, 1)}${panel}` + " ".repeat(lists_x));
-      w.withColumns(lists_x, () => v.lists().drawFrame(w, entries, workspaces, now_ms, plan));
+      w.withColumns(lists_x, () => v.lists().drawFrame(w, entries, workspaces, now_ms));
       v.drawBox(w);
       w.withColumns(lists_x, () => v.lists().drawBadges(w));
       return;
@@ -1200,7 +1083,7 @@ export class View {
       if (grip) w.write(boxed ? grip : fg("faint") + grip + fg("line"));
       w.write(stroke.repeat(run - left - grip.length) + (boxed ? "┤" : "┥"));
     }
-    v.drawAgents(w, entries, now_ms, plan);
+    v.drawAgents(w, entries, now_ms);
   }
   /** The focused list's box: the lists' view draws its right edge and the
    * rule; this closes it on the left and, off the rule, on top and bottom. */
@@ -1324,7 +1207,7 @@ export class View {
         w.write(w.cup(3 + row, v.width) + v.thumbStyle("workspaces") + "┃");
   }
   /** The agent list below its header. */
-  private drawAgents(w: Writer, entries: Entry[], now_ms: number, plan?: PaintPlan): void {
+  private drawAgents(w: Writer, entries: Entry[], now_ms: number): void {
     const v = this;
     if (entries.length === 0) {
       v.line(w, v.middle() + 2, v.search !== null ? "No matching agents" : "No agents yet", panel);
@@ -1371,7 +1254,6 @@ export class View {
       sleepers.push(animationKey(e));
     }
     const dream = v.corgi_intensity > 0 ? corgiAnimation.dreamer(sleepers, now_ms) : null;
-    if (plan) plan.sleepers = sleepers;
     const lands: number[] = [];
     for (const e of visible) {
       lands.push(next_y);
@@ -1448,7 +1330,6 @@ export class View {
         v.hovered === absolute,
         frame_ms,
         dream,
-        plan,
       );
       v.drawGhost(row_writer, e, top);
       finish();
@@ -1482,7 +1363,6 @@ export class View {
     hovered: boolean,
     now_ms: number,
     dream: corgiAnimation.Dream | null,
-    plan?: PaintPlan,
   ): void {
     const v = this;
     // Focused and dragged rows take the selected tint, and a hovered one
@@ -1580,77 +1460,65 @@ export class View {
           ? "asleep"
           : "content";
     const detail_text = detail.length === 0 ? "" : directoryLabel(detail, null, 512);
-    const drawDetail: DetailDraw = (w, now_ms, dream) => {
-      const activity = View.activityGlyph(e, waiting, napping, corgiAnimation.spinner(compacting, now_ms));
-      // Underline the existing second row, including its padding, without
-      // consuming another terminal row or changing the entry hit area.
-      w.write(`${w.cup(y + 2, x + underline_x)}${line}`);
-      w.splat(" ", v.width - 1 - underline_x);
-      w.write(
-        `${w.cup(y + 2, x + 2)}${dotted ? "\x1b[24m" : ""}${activity_color}${activity}${w.cup(y + 2, x + 5)}${dotted ? line : ""}` +
-          fg("text"),
-      );
-      const presentation = corgiAnimation.observe(
-        animation_key,
-        mode,
-        now_ms,
-        e.compacting_since > 0 ? e.compacting_since / 1000 : undefined,
-      );
-      if (v.corgi_intensity === 0 && !herding) presentation?.hide();
-      // Unseen and focused naps stay bright; only the list's dreamer puffs.
-      const sleep = new corgiAnimation.Sleep({
-        background,
-        intensity: v.corgi_intensity,
-        bright: e.focused || e.attention === "finished",
-        selected,
-        puff_ms: dream && dream.key === animation_key ? dream.puff_ms : null,
-      });
-      if (mode === "herding") {
-        w.write(presentation!.writeHerding(detail_room, now_ms));
-      } else if (mode !== "content") {
-        w.write(presentation!.writeCorgi(detail_room, now_ms, e.state === "working", sleep));
-      } else {
-        // Lifecycle signals (blocked/ended/etc.) must be immediate.
-        // Interrupts already switch straight to the sleeping mode.
-        if (e.state !== "working" && presentation) presentation.skipReveal();
-        // No detail stays blank; directoryLabel would print "?" for it.
-        if (presentation !== null && presentation.reveal_started_ms !== null) {
-          w.write(presentation.writeCorgi(detail_room, now_ms, e.state === "working", sleep));
-          w.write(w.cup(y + 2, x + 5) + fg("text"));
-          writeRevealedDetail(
-            w,
-            detail_text,
-            detail_room,
-            presentation.revealedColumns(detail_room, now_ms),
-            presentation.revealPosition(detail_room, now_ms),
-          );
-        } else writeEllipsis(w, detail_text, detail_room);
-      }
-      // Once the corgi has curled up, the compaction's time so far sits at the right.
-      const took = herding && e.compacting_since > 0 ? elapsed(now_ms - e.compacting_since / 1000) : "";
-      const took_width = displayWidth(took);
-      if (
-        took_width > 0 &&
-        displayWidth(detail) + 1 + took_width <= detail_room &&
-        presentation!.herded(detail_room, now_ms)
-      )
-        w.write(`${w.cup(y + 2, x + 5 + detail_room - took_width)}${selected ? fg("muted") : fg("faint")}${took}`);
-      if (badge_width > 0) {
-        const color = e.subagents.blocked > 0 ? fg("warm") : fg("accent");
-        w.write(`${w.cup(y + 2, x + v.width - 1 - badge_width)}${color}${badge}`);
-      }
-      w.write("\x1b[24;59m");
-    };
-    if (plan) {
-      // A patch starts with the same rendition the name row left behind.
-      const foreground = figure
-        ? fgRgb(figure.color)
-        : waits || (notes.length > 0 && room > right + 4)
-          ? fg("warm")
-          : fg(dot.unread || (grouped && e.focused) ? "strong" : "text");
-      const prefix = `\x1b[0m${row_bg}${w.cup(y + 2, x + 2)}   ${foreground}`;
-      plan.capture(w, drawDetail, prefix, now_ms, dream);
-    } else drawDetail(w, now_ms, dream);
+    const activity = View.activityGlyph(e, waiting, napping, corgiAnimation.spinner(compacting, now_ms));
+    // Underline the existing second row, including its padding, without
+    // consuming another terminal row or changing the entry hit area.
+    w.write(`${w.cup(y + 2, x + underline_x)}${line}`);
+    w.splat(" ", v.width - 1 - underline_x);
+    w.write(
+      `${w.cup(y + 2, x + 2)}${dotted ? "\x1b[24m" : ""}${activity_color}${activity}${w.cup(y + 2, x + 5)}${dotted ? line : ""}` +
+        fg("text"),
+    );
+    const presentation = corgiAnimation.observe(
+      animation_key,
+      mode,
+      now_ms,
+      e.compacting_since > 0 ? e.compacting_since / 1000 : undefined,
+    );
+    if (v.corgi_intensity === 0 && !herding) presentation?.hide();
+    // Unseen and focused naps stay bright; only the list's dreamer puffs.
+    const sleep = new corgiAnimation.Sleep({
+      background,
+      intensity: v.corgi_intensity,
+      bright: e.focused || e.attention === "finished",
+      selected,
+      puff_ms: dream && dream.key === animation_key ? dream.puff_ms : null,
+    });
+    if (mode === "herding") {
+      w.write(presentation!.writeHerding(detail_room, now_ms));
+    } else if (mode !== "content") {
+      w.write(presentation!.writeCorgi(detail_room, now_ms, e.state === "working", sleep));
+    } else {
+      // Lifecycle signals (blocked/ended/etc.) must be immediate.
+      // Interrupts already switch straight to the sleeping mode.
+      if (e.state !== "working" && presentation) presentation.skipReveal();
+      // No detail stays blank; directoryLabel would print "?" for it.
+      if (presentation !== null && presentation.reveal_started_ms !== null) {
+        w.write(presentation.writeCorgi(detail_room, now_ms, e.state === "working", sleep));
+        w.write(w.cup(y + 2, x + 5) + fg("text"));
+        writeRevealedDetail(
+          w,
+          detail_text,
+          detail_room,
+          presentation.revealedColumns(detail_room, now_ms),
+          presentation.revealPosition(detail_room, now_ms),
+        );
+      } else writeEllipsis(w, detail_text, detail_room);
+    }
+    // Once the corgi has curled up, the compaction's time so far sits at the right.
+    const took = herding && e.compacting_since > 0 ? elapsed(now_ms - e.compacting_since / 1000) : "";
+    const took_width = displayWidth(took);
+    if (
+      took_width > 0 &&
+      displayWidth(detail) + 1 + took_width <= detail_room &&
+      presentation!.herded(detail_room, now_ms)
+    )
+      w.write(`${w.cup(y + 2, x + 5 + detail_room - took_width)}${selected ? fg("muted") : fg("faint")}${took}`);
+    if (badge_width > 0) {
+      const color = e.subagents.blocked > 0 ? fg("warm") : fg("accent");
+      w.write(`${w.cup(y + 2, x + v.width - 1 - badge_width)}${color}${badge}`);
+    }
+    w.write("\x1b[24;59m");
     // Without the group rail, the focused agent takes the active workspace's bar.
     const bar = ghost ? ghost_bar : e.focused && !grouped ? active_bar : "";
     if (bar.length > 0) for (let row = 0; row < 2; row++) w.write(`${w.cup(y + row + 1, x + 1)}${bar}\x1b[0m`);

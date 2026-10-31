@@ -77,7 +77,6 @@ export class Terminal {
   /** Bytes for the program, sent with the next sync. */
   pending: number[] = [];
   private links: Link[] | null = null;
-  private received: surface.Surface | null = null;
   private installed: surface.View | null = null;
   private changed_rows = new Uint16Array(0);
   private rendered: { key: string; rows: string } | null = null;
@@ -100,7 +99,6 @@ export class Terminal {
       if (view) {
         viewerNative.receiveFrame(native.handle, view);
         viewerNative.updateRender(native.handle);
-        this.received = view.surface;
         this.render_dirty = false;
         this.render_revision++;
       }
@@ -124,7 +122,6 @@ export class Terminal {
     if (!this.render_dirty) return;
     const native = this.ensure();
     if (!this.render_dirty) return;
-    this.received = null;
     this.rendered = null;
     this.links = null;
     viewerNative.updateRender(native.handle);
@@ -148,7 +145,6 @@ export class Terminal {
     this.native = null;
     this.pending = [];
     this.installed = null;
-    this.received = null;
     this.rendered = null;
     this.links = null;
     this.images = [];
@@ -259,7 +255,6 @@ export class Terminal {
     // hold the old display while the daemon continues collecting output.
     this.known = view.stamp ?? null;
     this.images = frame.images ?? [];
-    this.received = frame;
     this.installed = view;
   }
   async image(id: string, offset: number): Promise<string | null> {
@@ -286,17 +281,8 @@ export class Terminal {
   rows(pane: number, x: number, y: number, w: number, h: number, dimmed: boolean, hovered: bigint | null): string {
     this.updateRender();
     const key = `${pane}:${x}:${y}:${w}:${h}:${dimmed}:${hovered}`;
-    if (this.rendered?.key !== key) {
-      const received = this.received;
-      const rows =
-        received && pane === received.pane && w === received.cols && !dimmed && hovered === null && !this.selection
-          ? received.lines
-              .slice(0, Math.min(received.rows, h))
-              .map((line, row) => `\x1b[${y + row + 1};${x + 1}H${line}`)
-              .join("")
-          : viewerNative.rows(this.handle, pane, x, y, w, h, dimmed, hovered);
-      this.rendered = { key, rows };
-    }
+    if (this.rendered?.key !== key)
+      this.rendered = { key, rows: viewerNative.rows(this.handle, pane, x, y, w, h, dimmed, hovered) };
     return this.rendered.rows;
   }
 }

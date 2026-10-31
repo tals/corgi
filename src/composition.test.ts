@@ -8,48 +8,7 @@ import * as sidebar from "./sidebar";
 import { n } from "./native_ffi";
 import { Terminal } from "./pane/terminal";
 import { transport } from "./fixtures/transport";
-
-test("sidebar repaint preserves complete frame bytes and moves its cursor insertion anchor", () => {
-  let sidebar = "\x1b[1;1Hshort";
-  const prefix = "\x1b[?2026h\x1b[?25l",
-    suffix = "\x1b]22;default\x1b\\\x1b[?2026l",
-    frame = new Frame();
-  frame.sidebar = { at: 0, length: sidebar.length, draw: () => sidebar };
-  frame.cursor = { x: 3, y: 4 };
-  frame.cursor_at = sidebar.length;
-  frame.finish(sidebar + suffix, prefix);
-  const first = frame.text(),
-    anchor = frame.cursor_at;
-  sidebar = "\x1b[1;1H\x1b[31ma longer sidebar\x1b[0m";
-  const next = frame.repaintSidebar()!;
-  expect(frame.text()).toBe(first);
-  expect(frame.cursor_at).toBe(anchor);
-  expect(next.cursor_at).toBe(prefix.length + sidebar.length);
-  expect(next.text()).toBe(prefix + sidebar + cursorBytes(frame.cursor) + suffix);
-  expect(next.patchFrom(frame)).toBe("\x1b[0m" + sidebar + "\x1b[0m");
-  expect(next.refreshed({ x: 8, y: 4 }).patchFrom(frame)).toBe(next.patchFrom(frame));
-  expect(next.refreshed().finish(next.chrome, "", "\x1b[0m").patchFrom(frame)).toBeNull();
-  const missed = frame.refreshed();
-  missed.chrome += "different static UI";
-  expect(next.patchFrom(missed)).toBeNull();
-  missed.reusable = false;
-  expect(next.patchFrom(missed)).toBeNull();
-});
-
-test("sidebar image appearance and removal each require complete chrome composition", () => {
-  let sidebar = "\x1b[1;1Hplain";
-  const frame = new Frame();
-  frame.sidebar = { at: 0, length: sidebar.length, draw: () => sidebar };
-  frame.finish(sidebar);
-  sidebar += "\x1b_Ga=p,i=1,C=1\x1b\\";
-  const pictured = frame.repaintSidebar()!;
-  expect(pictured.patchFrom(frame)).toBeNull();
-  sidebar = "\x1b[1;1Hplain again";
-  const removed = pictured.repaintSidebar()!;
-  expect(removed.patchFrom(pictured)).toBeNull();
-  sidebar = "\x1b[1;1Hnext plain frame";
-  expect(removed.repaintSidebar()!.patchFrom(removed)).not.toBeNull();
-});
+import * as surfaceFixture from "./fixtures/surface";
 
 function fixture(split = true) {
   const width = 64,
@@ -103,7 +62,9 @@ function fixture(split = true) {
     const bytes = differ.diff(drawn.frame);
     full.feed(drawn.text);
     result.feed(bytes);
-    expect(result.surface(0).surface).toEqual(full.surface(0).surface);
+    expect(surfaceFixture.renamedLinkIds(result.surface(0).surface)).toEqual(
+      surfaceFixture.renamedLinkIds(full.surface(0).surface),
+    );
     return bytes.toString();
   };
   return {
@@ -138,7 +99,8 @@ test("retained multi-pane updates and chrome fallbacks reproduce complete styled
     f.present(previous);
     const unchanged = f.compose();
     expect(same(previous.frame, unchanged.frame)).toBe(true);
-    expect(f.present(unchanged)).toBe("");
+    f.present(unchanged);
+    expect(f.present(f.compose())).toBe("");
     for (const [left, right] of [
       ["BLUE 界 é 🐕", "changed"],
       ["  erasure", "RED"],
@@ -157,6 +119,73 @@ test("retained multi-pane updates and chrome fallbacks reproduce complete styled
     f.present(changedChrome);
     f.update(0, "after full fallback");
     f.present(f.compose({ resizing: "horizontal" }));
+  } finally {
+    f.close();
+  }
+});
+
+test("retained hyperlink groups stay distinct across panes, fallback transitions and hover", () => {
+  const f = fixture(),
+    uri = "https://example.com/shared",
+    linked = (id: string, text: string) => `\x1b]8;id=${id};${uri}\x1b\\${text}\x1b]8;;\x1b\\`;
+  try {
+    for (const index of [0, 1])
+      f.update(index, linked("shared", "A") + " " + linked("other", "B") + "\r\n" + linked("shared", "C"));
+    const first = f.compose(),
+      rects = f.panes.map(pane => first.frame.panes.find(p => p.id === pane.id)!);
+    const groups = () => {
+      const all = f.result.hyperlinks(),
+        grouped = rects.map(rect =>
+          all.filter(
+            link =>
+              link.row >= rect.y && link.row < rect.y + rect.h && link.start >= rect.x && link.end <= rect.x + rect.w,
+          ),
+        );
+      for (const [index, links] of grouped.entries()) {
+        const rect = rects[index];
+        expect(links.map(link => [link.row - rect.y, link.start - rect.x, link.end - rect.x, link.uri])).toEqual([
+          [0, 0, 1, uri],
+          [0, 2, 3, uri],
+          [1, 0, 1, uri],
+        ]);
+        expect(links[0].id).toBe(links[2].id);
+        expect(links[0].id).not.toBe(links[1].id);
+      }
+      expect(new Set(grouped.flatMap(links => links.slice(0, 2).map(link => link.id))).size).toBe(4);
+      return grouped.map(links => links.map(link => link.id));
+    };
+    f.present(first);
+    const replayIds = groups();
+    // Entering retained composition rewrites the opaque namespace once.
+    expect(f.present(f.compose())).toContain("\x1b]8;");
+    const retainedIds = groups();
+    expect(retainedIds).not.toEqual(replayIds);
+    expect(f.present(f.compose())).toBe("");
+    expect(groups()).toEqual(retainedIds);
+
+    f.sources[0].feed("\x1b[3;1Hchanged");
+    f.panes[0].terminal.receive(f.sources[0].surface(f.panes[0].id));
+    f.present(f.compose());
+    expect(groups()).toEqual(retainedIds);
+
+    const fallback = f.compose();
+    fallback.frame.reusable = false;
+    f.present(fallback);
+    expect(groups()).toEqual(replayIds);
+    expect(f.present(f.compose())).toContain("\x1b]8;");
+    expect(groups()).toEqual(retainedIds);
+    expect(f.present(f.compose())).toBe("");
+
+    const hovered = f.compose({ pointer: { x: rects[0].x, y: rects[0].y } });
+    expect(hovered.frame.panes.map(pane => pane.id)).not.toContain(f.panes[0].id);
+    f.present(hovered);
+    groups();
+    const lines = f.result.surface(0).surface.lines;
+    expect(lines.join("").match(/\x1b\[4m/g)).toHaveLength(2);
+    f.present(f.compose());
+    f.present(f.compose());
+    expect(groups()).toEqual(retainedIds);
+    expect(f.present(f.compose())).toBe("");
   } finally {
     f.close();
   }
