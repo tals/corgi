@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { open } from "./launcher";
+import { open, retry_ms } from "./launcher";
 import { Option } from "../../launch/preview";
 import { Quit } from "../../subprocess";
 
@@ -16,10 +16,11 @@ beforeEach(() => {
   writeFileSync(
     process.env.CORGI_PI_BIN,
     `#!${process.execPath}
-import { readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 const root = process.env.PI_CODING_AGENT_DIR;
+appendFileSync(join(root, "starts"), process.cwd() + "\\n");
 const settings = JSON.parse(readFileSync(join(root, "settings.json"), "utf8"));
 writeFileSync(join(root, "probe.json"), JSON.stringify({
   cwd: process.cwd(), args: process.argv.slice(2), pane: process.env.CORGI_PANE, socket: process.env.CORGI_SOCKET
@@ -38,6 +39,7 @@ createInterface({ input: process.stdin }).on("line", line => {
   );
 });
 afterEach(() => {
+  setSystemTime();
   if (executable === undefined) delete process.env.CORGI_PI_BIN;
   else process.env.CORGI_PI_BIN = executable;
   rmSync(root, { recursive: true, force: true });
@@ -45,6 +47,8 @@ afterEach(() => {
 function settings(value: object) {
   writeFileSync(join(account, "settings.json"), JSON.stringify(value));
 }
+const starts = () =>
+  existsSync(join(account, "starts")) ? readFileSync(join(account, "starts"), "utf8").trim().split("\n").length : 0;
 
 test("Pi supplies its model name without losing the provider-qualified launch id", async () => {
   settings({ defaultProvider: "custom", defaultModel: "private/model-v2", name: "Team coding model" });
@@ -126,5 +130,52 @@ test.each(["cancel", "close"])("Pi's model probe stops on %s", async mode => {
   } finally {
     clearTimeout(timer);
     launcher.close();
+  }
+});
+
+test("Pi is asked once per folder until what decides its model changes", async () => {
+  settings({ defaultProvider: "custom", defaultModel: "first" });
+  const other = join(root, "other");
+  mkdirSync(other);
+  const launcher = open(account);
+  try {
+    expect((await launcher.model(root, new Quit())).model).toBe("custom/first");
+    expect((await launcher.model(root, new Quit())).model).toBe("custom/first");
+    expect(starts()).toBe(1);
+    await launcher.model(other, new Quit());
+    expect(starts()).toBe(2);
+    settings({ defaultProvider: "custom", defaultModel: "second-choice" });
+    expect((await launcher.model(root, new Quit())).model).toBe("custom/second-choice");
+    expect(starts()).toBe(3);
+  } finally {
+    launcher.close();
+  }
+});
+
+test("a failed lookup stands for a while, and one cut short isn't kept", async () => {
+  settings({ defaultProvider: "custom", defaultModel: "saved", reject: true });
+  const launcher = open(account);
+  try {
+    expect((await launcher.model(root, new Quit())).source).toBe("Pi user settings");
+    await launcher.model(root, new Quit());
+    expect(starts()).toBe(1);
+    setSystemTime(new Date(Date.now() + retry_ms + 1000));
+    await launcher.model(root, new Quit());
+    expect(starts()).toBe(2);
+  } finally {
+    launcher.close();
+  }
+  settings({ defaultProvider: "custom", defaultModel: "saved", hang: true });
+  const next = open(account),
+    quit = new Quit(),
+    timer = setTimeout(() => quit.signal(), 50);
+  try {
+    await next.model(root, quit);
+    clearTimeout(timer);
+    settings({ defaultProvider: "custom", defaultModel: "saved" });
+    expect((await next.model(root, new Quit())).source).toBe("Effective Pi settings");
+  } finally {
+    clearTimeout(timer);
+    next.close();
   }
 });
