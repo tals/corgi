@@ -102,6 +102,13 @@ export class Actor {
   }
   observeSnapshot(snapshot: Snapshot, watched: boolean, now: number) {
     const a = this.state;
+    if (!snapshot.lifecycle) {
+      if (a.sessionId() !== snapshot.session) return false;
+      if (snapshot.transcript.len && !a.transcript.len) a.transcript = snapshot.transcript;
+      if (snapshot.cwd.len && !a.cwd.len) a.cwd = snapshot.cwd;
+      if (snapshot.name.len && !a.name.len) a.name = snapshot.name;
+      return false;
+    }
     if (snapshot.observed_at <= a.last_seq) return false;
     this.child_refresh = false;
     const binding = a.last_seq === 0n;

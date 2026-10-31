@@ -6,6 +6,7 @@ import { Child, Name, Role, Snapshot, Turn, type Request } from "../snapshot";
 import type { Observer } from "../adapter";
 import { commandDirectory, configDir, titleSession, writes } from "./index";
 import { Client } from "./socket";
+import { Local } from "./identity";
 import * as errors from "../../errors";
 import { Inventory, capacity } from "../../activity/background_tasks";
 import { Text as SummaryText } from "../../activity/summary";
@@ -147,6 +148,11 @@ export async function snapshot(client: Client, req: Request, session: string) {
       out.updated_at = field(thread, "updatedAt");
     out.name = new Name(str(thread, "name"));
     if (path.isAbsolute(str(thread, "path"))) out.transcript = transcriptPath(str(thread, "path"));
+    if (str(field(thread, "status"), "type") === "notLoaded") {
+      out.lifecycle = false;
+      out.state = "unknown";
+      return out;
+    }
     const turns = await client.call("thread/turns/list", {
         threadId: session,
         limit: 1,
@@ -260,11 +266,13 @@ export class Worker implements Observer {
   /** Pane requests whose thread the daemon doesn't have, or no daemon to ask. */
   missed: Request[] = [];
   socket: string;
+  local: Local;
   timer: ReturnType<typeof setInterval> | null = null;
   running = false;
   /** It watches the panes of `account`, through that account's daemon. */
   constructor(readonly account = "") {
     this.socket = path.join(account || configDir(), "app-server-control/app-server-control.sock");
+    this.local = new Local(account || configDir());
   }
   static start(account = "") {
     const w = new Worker(account);
@@ -368,8 +376,12 @@ export class Worker implements Observer {
       try {
         client = await Client.open(this.socket);
       } catch (error) {
-        if (errors.is(error, "ConnectFailed")) for (const req of this.requests) if (!req.actor) this.miss(req);
-        throw error;
+        for (const req of this.requests) {
+          const local = await this.local.read(req);
+          if (local) this.results.push(local);
+          else if (errors.is(error, "ConnectFailed") && !req.actor) this.miss(req);
+        }
+        return;
       }
       const ids: string[] = [];
       await pages(
@@ -385,7 +397,9 @@ export class Worker implements Observer {
         if (this.stopping) return;
         const session = req.actor ? req.prefix.text() : unique(ids, req.prefix);
         if (!session) {
-          this.miss(req);
+          const local = await this.local.read(req);
+          if (local) this.results.push(local);
+          else this.miss(req);
           continue;
         }
         try {
