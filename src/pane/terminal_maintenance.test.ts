@@ -2,41 +2,40 @@ import { expect, spyOn, test } from "bun:test";
 import { n, ptr, symbols } from "../native_bridge";
 import { closeReadiness, Terminal } from "./terminal";
 
-test("maintenance and legacy ticks preserve JSON tick state and leave clipboard data held", () => {
-  for (const tick of [n.terminal_tick, n.terminal_maintain]) {
-    const direct = new Terminal(20, 4),
-      reference = new Terminal(20, 4);
-    try {
-      for (const [input, exited] of [
-        ["text", false],
-        ["\x1b[?2026hpartial", false],
-        ["\x1b]52;c;aGVsZA==\x07", false],
-        ["", true],
-        ["\x1b[?2026hnext\x1b[?2026l", false],
-      ] as const) {
-        direct.feed(input);
-        reference.feed(input);
-        const expected = reference.native({ op: "tick", exited });
-        const flags = tick(direct.handle, exited);
-        expect((flags & 1) !== 0).toBe(expected.changed);
-        expect((flags & 2) !== 0).toBe(expected.expecting);
-        const copied = reference.takeCopied();
-        expect((flags & 4) !== 0).toBe(copied !== null);
-        expect(n.terminal_has_copied(direct.handle)).toBe(copied !== null);
-        expect(direct.takeCopied()).toBe(copied);
-        expect(n.terminal_has_copied(direct.handle)).toBe(false);
-        expect(direct.liveText()).toBe(reference.liveText());
-        expect(direct.vt.modes.get("synchronized_output")).toBe(reference.vt.modes.get("synchronized_output"));
-      }
-      direct.prefill("make");
-      reference.prefill("make");
-      const expected = reference.native({ op: "tick", exited: false });
-      expect(tick(direct.handle, false) & 3).toBe(Number(expected.changed) | (Number(expected.expecting) << 1));
-      expect(expected.expecting).toBe(true);
-    } finally {
-      direct.destroy();
-      reference.destroy();
+test("maintenance preserves JSON tick state and leaves clipboard data held", () => {
+  const tick = n.terminal_maintain;
+  const direct = new Terminal(20, 4),
+    reference = new Terminal(20, 4);
+  try {
+    for (const [input, exited] of [
+      ["text", false],
+      ["\x1b[?2026hpartial", false],
+      ["\x1b]52;c;aGVsZA==\x07", false],
+      ["", true],
+      ["\x1b[?2026hnext\x1b[?2026l", false],
+    ] as const) {
+      direct.feed(input);
+      reference.feed(input);
+      const expected = reference.native({ op: "tick", exited });
+      const flags = tick(direct.handle, exited);
+      expect((flags & 1) !== 0).toBe(expected.changed);
+      expect((flags & 2) !== 0).toBe(expected.expecting);
+      const copied = reference.takeCopied();
+      expect((flags & 4) !== 0).toBe(copied !== null);
+      expect(n.terminal_has_copied(direct.handle)).toBe(copied !== null);
+      expect(direct.takeCopied()).toBe(copied);
+      expect(n.terminal_has_copied(direct.handle)).toBe(false);
+      expect(direct.liveText()).toBe(reference.liveText());
+      expect(direct.vt.modes.get("synchronized_output")).toBe(reference.vt.modes.get("synchronized_output"));
     }
+    direct.prefill("make");
+    reference.prefill("make");
+    const expected = reference.native({ op: "tick", exited: false });
+    expect(tick(direct.handle, false) & 3).toBe(Number(expected.changed) | (Number(expected.expecting) << 1));
+    expect(expected.expecting).toBe(true);
+  } finally {
+    direct.destroy();
+    reference.destroy();
   }
 });
 

@@ -1,7 +1,7 @@
 //! One complete frame of the viewer: tabs, panes, sidebar and overlays.
 //! Mirrors render.zig.
 import * as palette from "./palette";
-import { cursorBytes, type Cursor, type Frame } from "./composition";
+import * as composition from "./composition";
 import { Style, keycap } from "./palette";
 import { Rect, View as LayoutView, cleanLabel, type Axis, type Border } from "./layout";
 import * as sidebar from "./sidebar";
@@ -601,7 +601,14 @@ function drawTabs(
   w.write(button_edge + "▐" + button + "+" + button_edge + "▌");
   w.write("\x1b[0m");
 }
-export function frame(view: LayoutView, panes: Pane[], width: number, height: number, u: Ui, retained?: Frame): string {
+export function frame(
+  view: LayoutView,
+  panes: Pane[],
+  width: number,
+  height: number,
+  u: Ui,
+  retained?: composition.Frame,
+): string {
   const model = view.model;
   const w = new Writer();
   const entries = u.dragged_agent ? u.dragged_agent.apply(u.agents) : u.agents;
@@ -891,7 +898,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   // The prefix bar covers the area's last row.
   const cursor_rows = area.y + area.h - (u.prefix && area.h > 0 ? 1 : 0);
   const pane_cursor_owned = model.count > 0 && !u.copy_mode && !u.link_tooltip && !u.review_focused && noOverlay(u);
-  let pane_cursor: Cursor = null;
+  let pane_cursor: composition.Cursor = null;
   if (pane_cursor_owned) {
     for (const place of view.placements(area)) {
       if (place.id !== view.selection.tabs[view.selection.active].focus || place.rect.h === 0) continue;
@@ -1073,7 +1080,7 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
     if (retained?.panes.length) {
       retained.cursor = pane_cursor;
       retained.cursor_at = w.s.length;
-    } else w.write(cursorBytes(pane_cursor));
+    } else w.write(composition.cursorBytes(pane_cursor));
   } else if (retained?.panes.length) retained.reusable = false;
   // Include the shape in each complete frame so reconnects and overlay changes
   // cannot leave the host pointer stuck on a previously hovered link.

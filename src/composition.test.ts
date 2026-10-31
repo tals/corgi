@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { Frame, cursorBytes, same } from "./composition";
+import { Frame, cursorBytes, same, type Cursor } from "./composition";
 import { Differ } from "./frame_diff";
 import { Model, Rect, Selection, View } from "./layout";
 import * as mirror from "./mirror";
@@ -217,11 +217,13 @@ test("cursor position and visibility stay outside chrome and survive prefixed fu
     f.update(0, "cursor reference");
     const first = f.compose();
     f.present(first);
-    const moved = first.frame.refreshed({ x: 9, y: 4 });
+    const withCursor = (frame: Frame, cursor: Cursor) =>
+      Object.assign(new Frame(), frame, { cursor, panes: frame.panes.map(p => ({ ...p })) });
+    const moved = withCursor(first.frame, { x: 9, y: 4 });
     expect(moved.sharesChrome(first.frame)).toBe(true);
     expect(moved.panes[0].revision).toBe(first.frame.panes[0].revision);
     expect(same(first.frame, moved)).toBe(false);
-    expect(same(moved, moved.refreshed(null))).toBe(false);
+    expect(same(moved, withCursor(moved, null))).toBe(false);
     for (const control of ["\x1b[5;10H\x1b[?25h", "\x1b[?25l", "\x1b[?25h"]) {
       f.sources[0].feed(control);
       f.panes[0].terminal.receive(f.sources[0].surface(f.panes[0].id));

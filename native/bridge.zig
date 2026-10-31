@@ -51,12 +51,6 @@ pub export fn terminal_flush(t: *pane.Terminal) void {
     t.flush();
 }
 /// Bit 0: output changed; bit 1: waiting on time; bit 2: clipboard text held.
-pub export fn terminal_tick(t: *pane.Terminal, exited: bool) u32 {
-    t.exited = exited;
-    const changed = t.read();
-    return @as(u32, @intFromBool(changed)) | (@as(u32, @intFromBool(t.expecting())) << 1) |
-        (@as(u32, @intFromBool(t.copied != null)) << 2);
-}
 pub export fn terminal_maintain(t: *pane.Terminal, exited: bool) u32 {
     t.exited = exited;
     const changed = t.maintain();

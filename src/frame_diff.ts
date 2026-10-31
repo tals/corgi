@@ -4,11 +4,11 @@
 //! commands travel separately, so moving an image doesn't repaint the text.
 import type { Pointer } from "bun:ffi";
 import { n, ptr } from "./native_ffi";
-import { Frame } from "./composition";
+import * as composition from "./composition";
 import * as telemetry from "./telemetry";
 
 export class Differ {
-  private previous: Frame | null = null;
+  private previous: composition.Frame | null = null;
   private sources = new BigUint64Array(0);
   private rects = new Uint16Array(0);
   private constructor(
@@ -30,8 +30,8 @@ export class Differ {
   }
   /** What to write so the host shows `frame`, which starts from a clear
    * screen. Empty when the host already shows it. */
-  diff(frame: string | Uint8Array | Frame): Buffer {
-    if (frame instanceof Frame) {
+  diff(frame: string | Uint8Array | composition.Frame): Buffer {
+    if (frame instanceof composition.Frame) {
       const previous = this.previous;
       if (frame.reusable && frame.panes.length > 0) {
         const started = telemetry.begin();

@@ -50,16 +50,6 @@ export class Frame {
     if (this.cursor_at !== null) this.cursor_at += prefix.length;
     return this;
   }
-  /** Refresh borrowed surfaces without changing an earlier frame's revision snapshot. */
-  refreshed(cursor = this.cursor): Frame {
-    const frame = new Frame();
-    frame.chrome = this.chrome;
-    frame.cursor = cursor ? { ...cursor } : null;
-    frame.cursor_at = this.cursor_at;
-    frame.reusable = this.reusable;
-    frame.panes = this.panes.map(pane => ({ ...pane, revision: pane.terminal.render_revision }));
-    return frame;
-  }
   /** The complete ANSI frame remains the reference and fallback. */
   text(): string {
     let result = "",

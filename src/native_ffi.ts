@@ -9,7 +9,6 @@ const term = dlopen(`${nativeRoot}/lib/libcorgi_term.${suffix}`, {
   terminal_send: { args: ["ptr", "ptr", "usize"], returns: "i32" },
   terminal_pending: { args: ["ptr"], returns: "usize" },
   terminal_flush: { args: ["ptr"], returns: "void" },
-  terminal_tick: { args: ["ptr", "bool"], returns: "u32" },
   terminal_maintain: { args: ["ptr", "bool"], returns: "u32" },
   terminal_has_copied: { args: ["ptr"], returns: "bool" },
   terminal_surface_identity: { args: ["ptr"], returns: "u64" },
