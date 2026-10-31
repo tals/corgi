@@ -638,9 +638,12 @@ export class Menu {
     w.write(manage_label);
   }
   private static drawFooter(w: Writer, b: Rect, panel: string, what: string, hints: Hint[]): void {
-    let hint_width = 0;
-    hints.forEach((hint, i) => (hint_width += displayWidth(hint.key) + 2 + 1 + hint.label.length + (i > 0 ? 2 : 0)));
-    const footer_row = b.y + b.h - 1;
+    const width = (shown: Hint[]) =>
+      shown.reduce((sum, hint, i) => sum + displayWidth(hint.key) + 2 + 1 + hint.label.length + (i > 0 ? 2 : 0), 0);
+    // A narrow card drops the last hints before it cuts "new tab" short.
+    while (hints.length > 1 && b.w - width(hints) - 6 < Math.min(displayWidth(what), 7)) hints = hints.slice(0, -1);
+    const hint_width = width(hints),
+      footer_row = b.y + b.h - 1;
     w.write(`\x1b[${footer_row};${b.x + 3}H${panel}`);
     writeEllipsis(w, what, sat(b.w, hint_width + 6));
     w.write(`\x1b[${footer_row};${b.x + b.w - 1 - hint_width}H`);
@@ -887,11 +890,13 @@ export class Menu {
         { key: "u", label: "Track usage" },
         { key: "a", label: "launch" },
         { key: "y", label: "YOLO" },
+        { key: "r", label: "refresh" },
       ];
     else
       hints = [
         { key: "a", label: m.signsIn(m.selected) ? "sign in" : "launch" },
         { key: "y", label: "YOLO" },
+        { key: "r", label: "refresh" },
       ];
     const launch = m.launchOf(m.selected);
     if (launch && adapter(launch.provider).bypass === false) hints = hints.filter(h => h.key !== "y");

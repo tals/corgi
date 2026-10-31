@@ -13,7 +13,15 @@ import type { Client } from "./peer";
 import type { DecodedRequest } from "./protocol";
 type Request = Extract<
   DecodedRequest,
-  { op: "agent.history" | "agent.command.preview" | "agent.subscribe" | "agent.preview" | "agent.track_usage" }
+  {
+    op:
+      | "agent.history"
+      | "agent.command.preview"
+      | "agent.subscribe"
+      | "agent.preview"
+      | "agent.track_usage"
+      | "agent.refresh";
+  }
 >;
 export type Subscription = {
   cwd: string;
@@ -96,7 +104,11 @@ export async function request(server: Server, client: Client, request: Request) 
     use(server, s, true);
   }
   const preview =
-    request.op === "agent.track_usage" ? s.launch_previews.trackUsage(cwd) : s.launch_previews.preview(cwd, subscribe);
+    request.op === "agent.track_usage"
+      ? s.launch_previews.trackUsage(cwd)
+      : request.op === "agent.refresh"
+        ? s.launch_previews.refresh(cwd)
+        : s.launch_previews.preview(cwd, subscribe);
   if (subscribe) {
     client.launch_preview = {
       cwd,

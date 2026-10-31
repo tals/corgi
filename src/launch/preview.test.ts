@@ -465,3 +465,40 @@ test("a row a launcher no longer shows stops watching its files", async () => {
     await worker.stop();
   }
 });
+
+test("a refresh asks the agents anew and fetches usage whatever its age, as a viewer entering asks", async () => {
+  const worker = new Worker(),
+    refreshed: Provider[] = [],
+    ages: number[] = [];
+  for (const p of installed)
+    worker.launchers.set(
+      key(p),
+      Promise.resolve({
+        account: async (_quit, max_age) => {
+          if (p === "claude") ages.push(max_age);
+          return new Info();
+        },
+        model: async () => ({ model: "", source: "test" }),
+        refresh: () => void refreshed.push(p),
+        close() {},
+      }),
+    );
+  try {
+    worker.preview("/project");
+    await worker.pump();
+    expect(ages).toEqual([idle_every - 15]);
+    expect(refreshed).toEqual([]);
+    expect(worker.refresh("/project").pending).toBe(true);
+    await worker.pump();
+    expect(refreshed.sort()).toEqual([...installed].sort());
+    expect(ages).toEqual([idle_every - 15, 0]);
+    // A viewer entering reads the folders shown lately again now.
+    refreshed.length = 0;
+    worker.entered();
+    expect(worker.jobs[0].preview.pending).toBe(true);
+    await worker.pump();
+    expect(refreshed.sort()).toEqual([...installed].sort());
+  } finally {
+    await worker.stop();
+  }
+});

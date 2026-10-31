@@ -75,6 +75,7 @@ export function open(account = ""): Launcher {
         return settingsModel(cwd, account);
       }
     },
+    refresh: () => models.refresh(),
     close() {
       client.close();
       models.close();

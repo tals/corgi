@@ -24,6 +24,8 @@ export interface Launcher {
   model(cwd: string, quit: Quit): Promise<{ model: string; model_name?: string; source: string }>;
   /** Files whose changes change what it reads; Corgi reads it again when one does. */
   watches?(): string[];
+  /** Drops what it keeps of each folder's model, so the next read asks anew. */
+  refresh?(): void;
   close(): void;
 }
 /** What core asks of a headless client. A prompt or interrupt without a

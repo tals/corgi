@@ -233,11 +233,26 @@ export class Worker {
         this.watching.delete(file);
       }
   }
-  preview(cwd: string, refresh = false) {
-    return this.request(cwd, false, refresh);
+  preview(cwd: string, subscriber = false) {
+    return this.request(cwd, subscriber ? "subscriber" : null);
   }
   trackUsage(cwd: string) {
-    return this.request(cwd, true);
+    return this.request(cwd, "access");
+  }
+  /** Reads `cwd` again as someone asked: each agent's model anew, and each
+   * account's sign-in and usage whatever their age. */
+  refresh(cwd: string) {
+    this.forget();
+    return this.request(cwd, "refresh");
+  }
+  /** A viewer attached: each agent is asked its model anew, in the folders
+   * shown lately now and in the others when next read. */
+  entered() {
+    this.forget();
+    this.reread();
+  }
+  private forget() {
+    for (const launcher of this.launchers.values()) void launcher.then(l => l?.refresh?.());
   }
   /** Reads the accounts due a read, whether or not anyone is subscribed.
    * The daemon calls it every tick, `every` set by how its viewers are used. */
@@ -249,14 +264,17 @@ export class Worker {
     this.sampling = true;
     void this.pump();
   }
-  request(cwd: string, access: boolean, refresh = false) {
+  /** The preview of `cwd`, which a new subscriber, a request for usage or a
+   * refresh asks for again. */
+  request(cwd: string, why: "subscriber" | "access" | "refresh" | null = null) {
     if (Buffer.byteLength(cwd) > 4096) return new Preview();
-    const now = Date.now();
-    // A new subscriber reads sign-in again; asking for usage fetches it too.
-    if (refresh || access)
+    const now = Date.now(),
+      access = why === "access";
+    // A new subscriber reads sign-in again; usage asked for is fetched too.
+    if (why !== null)
       for (const login of this.logins.values()) {
         login.read_at = 0;
-        login.forced ||= access;
+        login.forced ||= why !== "subscriber";
       }
     let job = this.jobs.find(j => j.cwd === cwd);
     if (job) {
@@ -275,7 +293,8 @@ export class Worker {
       if (moved) job.preview = listed;
       if (
         moved ||
-        ((refresh || now - job.updated > 60000) && !job.preview.pending) ||
+        why === "refresh" ||
+        ((why === "subscriber" || now - job.updated > 60000) && !job.preview.pending) ||
         (access && !job.accessing && !job.request_access)
       ) {
         job.queued = true;

@@ -317,6 +317,8 @@ $.requests|agent.preview.workspace: u32
 $.requests|agent.preview.cwd: string
 $.requests|agent.track_usage.workspace: u32
 $.requests|agent.track_usage.cwd: string
+$.requests|agent.refresh.workspace: u32
+$.requests|agent.refresh.cwd: string
 $.requests|agent.history.follow: bool
 $.requests|viewer.list: {}
 $.requests|action.name: string

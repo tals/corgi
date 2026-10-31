@@ -13,9 +13,11 @@ const max_folders = 64;
 /** Which model an agent of Pi's family would start with, asked of it in RPC
  * mode. Each lookup starts the agent, so it asks once for its agent folder,
  * and once for each folder whose own settings set a model, and keeps the
- * answer while what decides it reads the same. */
+ * answer while what decides it reads the same, until someone refreshes. */
 export class Models {
   private kept = new Map<string, { inputs: string; answer: Chosen | null }>();
+  /** Counts refreshes, so a lookup started before one isn't kept. */
+  private refreshes = 0;
   private active = new Set<Stdio>();
   private closed = false;
   constructor(
@@ -48,11 +50,12 @@ export class Models {
         ...[executable, ...this.agent.files, ...own].map(discovery.stamp),
         [...new Set(this.agent.signins())].sort(),
       ]),
-      kept = this.kept.get(scope);
+      kept = this.kept.get(scope),
+      refreshes = this.refreshes;
     if (kept && kept.inputs === inputs) return kept.answer;
     const answer = await this.ask(executable, scope || tmpdir(), quit);
     // A lookup cut short isn't kept.
-    if (stopped()) return answer;
+    if (stopped() || refreshes !== this.refreshes) return answer;
     this.kept.delete(scope);
     this.kept.set(scope, { inputs, answer });
     if (this.kept.size > max_folders) this.kept.delete(this.kept.keys().next().value!);
@@ -86,6 +89,11 @@ export class Models {
       this.active.delete(io);
       io.close();
     }
+  }
+  /** Drops every folder's answer, so each asks again when next read. */
+  refresh() {
+    this.refreshes++;
+    this.kept.clear();
   }
   close() {
     this.closed = true;
@@ -142,6 +150,7 @@ export function open(account = ""): Launcher {
         return settingsModel(cwd, account);
       }
     },
+    refresh: () => models.refresh(),
     close() {
       client.close();
       models.close();

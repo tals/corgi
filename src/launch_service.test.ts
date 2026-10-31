@@ -99,6 +99,27 @@ test("new preview subscribers refresh cached sign-in asynchronously and share pe
     await stop(server);
   }
 });
+test("a refresh reads the folder again for whoever asked", async () => {
+  const server: any = { runtime: { getWorkspace: () => ({ cwd: "/tmp" }) } },
+    messages: any[] = [],
+    client: any = { dead: false, output: Buffer.alloc(0), queue: (v: any) => messages.push(v), launch_preview: null },
+    s = service(server),
+    asked: string[] = [];
+  s.launch_previews.refresh = cwd => {
+    asked.push(cwd);
+    return new Preview();
+  };
+  try {
+    await request(server, client, {
+      op: "agent.refresh",
+      payload: protocol.decode("agent.refresh", { workspace: 1, cwd: "/work" }),
+    });
+    expect(asked).toEqual(["/work"]);
+    expect(messages).toEqual([{ ok: true, preview: new Preview() }]);
+  } finally {
+    await stop(server);
+  }
+});
 test("preview subscriptions schedule stale refreshes and publish completion without another request", () => {
   const server: any = {},
     messages: any[] = [],

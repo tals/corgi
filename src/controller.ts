@@ -3225,6 +3225,19 @@ export class Controller {
     this.launch_previews.pending(launch.cwd);
     this.dirty = true;
   }
+  /** Asks each agent its model anew and reads every account again. */
+  private async refreshLauncher(): Promise<void> {
+    const launch = this.agent_launcher;
+    if (!launch) return;
+    try {
+      await call(this.connection, "agent.refresh", { workspace: launch.workspace, cwd: launch.cwd });
+    } catch {
+      return;
+    }
+    launch.preview.pending = true;
+    this.launch_previews.pending(launch.cwd);
+    this.dirty = true;
+  }
   private async pollLauncher(hover: boolean): Promise<void> {
     this.updateLaunchPreview();
     await this.previewInlineCommand(false);
@@ -4001,7 +4014,7 @@ export class Controller {
         return this.resumeKey(byte);
       }
       const recognized =
-        [27, 13, 9, 14, 16, 97, 65, 1, 121, 116, 109, 47, 119].includes(byte) ||
+        [27, 13, 9, 14, 16, 97, 65, 1, 121, 116, 109, 47, 119, 114].includes(byte) ||
         (byte === 117
           ? launch.trackable(launch.selected) || launch.shortcutRow(byte) !== null
           : launch.shortcutRow(byte) !== null);
@@ -4044,6 +4057,9 @@ export class Controller {
             break;
           case 117:
             await this.trackLauncherUsage(launch.selected);
+            break;
+          case 114:
+            await this.refreshLauncher();
             break;
           default:
             if (byte >= 48 && byte <= 57) {

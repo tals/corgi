@@ -28,11 +28,15 @@ writeFileSync(join(root, "probe.json"), JSON.stringify({
 createInterface({ input: process.stdin }).on("line", line => {
   const request = JSON.parse(line);
   if (settings.hang) return;
-  console.log(JSON.stringify({ type: "response", id: "other", success: true }));
-  console.log(JSON.stringify({ type: "response", id: request.id, command: request.type,
-    success: !settings.reject,
-    data: { model: settings.model ?? { provider: settings.defaultProvider, id: settings.defaultModel, name: settings.name } }
-  }));
+  const respond = () => {
+    console.log(JSON.stringify({ type: "response", id: "other", success: true }));
+    console.log(JSON.stringify({ type: "response", id: request.id, command: request.type,
+      success: !settings.reject,
+      data: { model: settings.model ?? { provider: settings.defaultProvider, id: settings.defaultModel, name: settings.name } }
+    }));
+  };
+  if (settings.delay) setTimeout(respond, settings.delay);
+  else respond();
 });
 `,
     { mode: 0o755 },
@@ -134,7 +138,7 @@ test.each(["cancel", "close"])("Pi's model probe stops on %s", async mode => {
   }
 });
 
-test("Pi is asked once until what decides its model changes", async () => {
+test("Pi is asked once until what decides its model changes, or a refresh", async () => {
   settings({ defaultProvider: "custom", defaultModel: "first" });
   const other = join(root, "other");
   mkdirSync(other);
@@ -152,20 +156,24 @@ test("Pi is asked once until what decides its model changes", async () => {
     setSystemTime(new Date(Date.now() + 24 * 3600 * 1000));
     await launcher.model(other, new Quit());
     expect(starts()).toBe(2);
+    launcher.refresh!();
+    await launcher.model(root, new Quit());
+    await launcher.model(other, new Quit());
+    expect(starts()).toBe(3);
     // A folder that sets its own model is asked there, once.
     mkdirSync(join(other, ".pi"));
     writeFileSync(join(other, ".pi", "settings.json"), JSON.stringify({ defaultModel: "local" }));
     await launcher.model(other, new Quit());
     await launcher.model(other, new Quit());
     await launcher.model(root, new Quit());
-    expect(starts()).toBe(3);
+    expect(starts()).toBe(4);
     expect(JSON.parse(readFileSync(join(account, "probe.json"), "utf8")).cwd).toBe(realpathSync(other));
   } finally {
     launcher.close();
   }
 });
 
-test("a failed lookup stands too, and one cut short isn't kept", async () => {
+test("a failed lookup stands until a refresh, and one cut short isn't kept", async () => {
   settings({ defaultProvider: "custom", defaultModel: "saved", reject: true });
   const launcher = open(account);
   try {
@@ -173,6 +181,9 @@ test("a failed lookup stands too, and one cut short isn't kept", async () => {
     setSystemTime(new Date(Date.now() + 24 * 3600 * 1000));
     await launcher.model(root, new Quit());
     expect(starts()).toBe(1);
+    launcher.refresh!();
+    await launcher.model(root, new Quit());
+    expect(starts()).toBe(2);
   } finally {
     launcher.close();
   }
@@ -188,5 +199,21 @@ test("a failed lookup stands too, and one cut short isn't kept", async () => {
   } finally {
     clearTimeout(timer);
     next.close();
+  }
+});
+
+test("a lookup that a refresh overtakes isn't kept", async () => {
+  settings({ defaultProvider: "custom", defaultModel: "saved", delay: 300 });
+  const launcher = open(account);
+  try {
+    const asking = launcher.model(root, new Quit());
+    for (let i = 0; i < 200 && starts() === 0; i++) await new Promise(r => setTimeout(r, 10));
+    launcher.refresh!();
+    expect((await asking).model).toBe("custom/saved");
+    await launcher.model(root, new Quit());
+    await launcher.model(root, new Quit());
+    expect(starts()).toBe(2);
+  } finally {
+    launcher.close();
   }
 });
