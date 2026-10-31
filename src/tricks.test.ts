@@ -9,23 +9,28 @@ import { Rect } from "./layout";
 import { Writer } from "./text";
 import { Terminal } from "./pane/terminal";
 
-test("a trick manifest needs no subscription for declarative account rules", () => {
-  const m = trickHost.manifest(`version = 1
-id = "account-colors"
-command = ["node", "main.mjs"]
-[[config.rules]]
-where = { provider = "claude", account = "" }
-marker = "accent"
-`);
-  expect(m.subscribe).toEqual({ events: [], where: {} });
-  expect(m.config.rules).toEqual([{ where: { provider: "claude", account: "" }, marker: "accent" }]);
-  expect(() => trickHost.manifest('version = 99\nid = "test"\ncommand = ["node"]')).toThrow("UnsupportedTrickVersion");
-  expect(() => trickHost.manifest('version = 1\nid = "../test"\ncommand = ["node"]')).toThrow("InvalidKey");
+test("a sketch manifest only names its entry point", () => {
+  const m = trickHost.manifest('version = 1\nid = "account-colors"\nentry = "main.mjs"');
+  expect(m.entry).toBe("main.mjs");
+  expect(m.command).toBeNull();
+  expect(m.subscribe.events).toEqual([]);
+  expect(() => trickHost.manifest('version = 99\nid = "test"\nentry = "main.mjs"')).toThrow("UnsupportedTrickVersion");
+  expect(() => trickHost.manifest('version = 1\nid = "../test"\nentry = "main.mjs"')).toThrow("InvalidKey");
+  expect(() => trickHost.manifest('version = 1\nid = "test"\nentry = "main.mjs"\ncommand = ["node"]')).toThrow(
+    "InvalidEntry",
+  );
+  expect(() =>
+    trickHost.manifest('version = 1\nid = "test"\nentry = "main.mjs"\n[subscribe]\nevents = ["snapshot"]'),
+  ).toThrow("SubscribeInSetup");
 });
 
 test("selectors distinguish default accounts and validate subscription names", () => {
-  const all = tricks.subscription({ events: ["*"], where: { provider: "claude", account: "" } });
-  expect(all.events).toEqual([...tricks.events]);
+  const all = tricks.subscription({ events: ["metadata:*"], where: { provider: "claude", account: "" } });
+  expect(all.events).toEqual([...tricks.metadata_events]);
+  expect(tricks.subscription({ events: "transcript" }).events).toEqual(["transcript"]);
+  expect(tricks.subscription({ events: ["metadata:*", "transcript"] }).events).toEqual([...tricks.events]);
+  expect(() => tricks.subscription({ events: "*" })).toThrow("InvalidEvents");
+  expect(() => tricks.subscription({ events: ["*"] })).toThrow("InvalidEvents");
   expect(tricks.matches(all.where, { provider: "claude", account: "" })).toBe(true);
   expect(tricks.matches(all.where, { provider: "claude", account: "/company" })).toBe(false);
   expect(tricks.matches(all.where, { provider: "codex", account: "" })).toBe(false);

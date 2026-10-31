@@ -1,7 +1,3 @@
 version = 1
 id = "attention-radar"
-command = ["node", "main.mjs"]
-
-[subscribe]
-events = ["snapshot"]
-# Add where = { provider = "claude" } to watch only Claude agents.
+entry = "main.mjs"

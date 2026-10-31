@@ -6,15 +6,11 @@ import { table, type World } from "../sandbox";
 export const world: World = {
   seed(s) {
     accounts.seed(s);
-    const company = join(s.home, ".local/state/omarchy/agents/accounts/claude/work");
     for (const name of ["account-colors", "provider-flair", "attention-radar", "completion-jar"])
       for (const file of ["trick.toml", "main.mjs"])
         s.write(
           join(s.home, ".config/corgi/tricks", name, file),
-          readFileSync(join(s.root, `examples/tricks/${name}/${file}`), "utf8").replace(
-            "/replace/with/company/claude-config",
-            company,
-          ),
+          readFileSync(join(s.root, `examples/tricks/${name}/${file}`), "utf8"),
         );
   },
   arrange(s) {

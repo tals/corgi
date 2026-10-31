@@ -164,6 +164,14 @@ function asksJson(args: string[]): boolean {
 }
 export async function run(args = process.argv.slice(2)): Promise<void> {
   localeHost.initialize(preferences.load().language);
+  if (args[0] === "__trick") {
+    if (args.length !== 2) throw Error("Usage");
+    await (await import("./trick_runner")).run(resolve(args[1])).catch(error => {
+      process.stderr.write(`trick: ${error instanceof Error ? error.message : String(error)}\n`);
+      process.exit(1);
+    });
+    return;
+  }
   if (args[0] === "__opencode2") {
     await (await import("./providers/opencode2/worker")).run();
     return;

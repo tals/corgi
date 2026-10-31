@@ -4,6 +4,9 @@ import { join, resolve } from "node:path";
 import * as tricks from "./tricks";
 import * as settings from "./settings";
 import * as os from "./os";
+import * as budget from "./trick_budget";
+import { adapter, type Provider } from "./providers";
+import * as json from "./json";
 import { getLogger } from "./log";
 import type { Runtime } from "./runtime";
 import type { Request } from "./protocol";
@@ -11,7 +14,8 @@ import type { Request } from "./protocol";
 const log = getLogger("tricks");
 export interface Manifest {
   id: string;
-  command: string[];
+  command: string[] | null;
+  entry: string | null;
   subscribe: tricks.Subscription;
   config: Record<string, unknown>;
   enabled: boolean;
@@ -20,12 +24,21 @@ export function manifest(source: string): Manifest {
   if (Buffer.byteLength(source) > tricks.max_bytes) throw Error("ManifestTooLarge");
   const m = tricks.object(Bun.TOML.parse(source));
   if (m.version !== tricks.version) throw Error("UnsupportedTrickVersion");
-  if (!Array.isArray(m.command) || !m.command.length || m.command.some(a => typeof a !== "string" || a.includes("\0")))
+  if (m.entry !== undefined) {
+    if (typeof m.entry !== "string" || !m.entry || m.entry.includes("\0") || m.command !== undefined)
+      throw Error("InvalidEntry");
+    if (m.subscribe !== undefined) throw Error("SubscribeInSetup");
+  } else if (
+    !Array.isArray(m.command) ||
+    !m.command.length ||
+    m.command.some(a => typeof a !== "string" || a.includes("\0"))
+  )
     throw Error("InvalidCommand");
   if (m.enabled !== undefined && typeof m.enabled !== "boolean") throw Error("InvalidEnabled");
   return {
     id: tricks.key(m.id),
-    command: m.command as string[],
+    command: m.entry === undefined ? (m.command as string[]) : null,
+    entry: typeof m.entry === "string" ? m.entry : null,
     subscribe: tricks.subscription(m.subscribe ?? { events: [] }),
     config: tricks.object(m.config ?? {}),
     enabled: m.enabled !== false,
@@ -88,15 +101,21 @@ interface Running {
   views: Map<string, tricks.View>;
   kv: Record<string, unknown>;
   file: string;
+  budget: budget.Budget;
+  previous: tricks.Snapshot;
+  previous_key: string;
 }
 export class Host {
   private running: Running[] = [];
   private statuses: Status[] = [];
   private previous: tricks.Snapshot = { agents: [], workspaces: [] };
   private sequence = 0n;
+  private next_publish = 0;
+  private timer?: ReturnType<typeof setInterval>;
   revision = 0n;
   constructor(
     readonly socket: string,
+    private executable: string,
     private source: () => tricks.Snapshot,
     private changed: () => void,
   ) {}
@@ -112,7 +131,7 @@ export class Host {
   }
   private send(r: Running, value: unknown) {
     if (!r.status.running) return;
-    const line = JSON.stringify(value) + "\n";
+    const line = json.stringify(value) + "\n";
     if (r.child.stdin.writableLength + Buffer.byteLength(line) > 1024 * 1024) {
       this.fail(r, "SlowConsumer");
       return;
@@ -132,26 +151,48 @@ export class Host {
   }
   publish() {
     if (!this.running.some(r => r.status.running && r.subscription.events.length)) return;
+    const now = performance.now();
+    if (now < this.next_publish) return;
+    this.next_publish = now + 100;
     const next = this.source();
-    if (JSON.stringify(next) === JSON.stringify(this.previous)) return;
-    const before = new Map(this.previous.agents.map(a => [a.id, a]));
+    const key = JSON.stringify(next);
     const after = new Set(next.agents.map(a => a.id));
     for (const r of this.running) {
+      if (!r.status.running || r.previous_key === key) continue;
+      const before = new Map(r.previous.agents.map(a => [a.id, a]));
       this.deliver(r, { event: "snapshot", ...next });
       for (const agent of next.agents) {
         const previous = before.get(agent.id) ?? null;
         if (JSON.stringify(previous) !== JSON.stringify(agent))
           this.deliver(r, { event: "agent.changed", agent, previous });
       }
-      for (const agent of this.previous.agents)
+      for (const agent of r.previous.agents)
         if (!after.has(agent.id)) this.deliver(r, { event: "agent.removed", agent });
+      r.previous = next;
+      r.previous_key = key;
     }
     this.previous = next;
   }
   hook(q: Request<"hook">) {
     if (!this.running.some(r => r.status.running && r.subscription.events.includes("hook"))) return;
+    const hook = adapter(q.provider).hook(q.event);
+    if (!hook) return;
     const agent = this.source().agents.find(a => a.id === `pane:${q.pane}` && a.provider === q.provider) ?? null;
-    for (const r of this.running) this.deliver(r, { event: "hook", agent, provider: q.provider, data: q.event });
+    for (const r of this.running)
+      this.deliver(r, { event: "hook", agent, provider: q.provider, kind: hook.kind, tool: hook.tool.slice(0, 128) });
+  }
+  transcript(provider: Provider, session: string, record: unknown, bytes: number) {
+    const subscribers = this.running.filter(r => r.status.running && r.subscription.events.includes("transcript"));
+    if (!subscribers.length) return;
+    const agents = this.source().agents.filter(a => a.provider === provider && a.session === session);
+    for (const agent of agents)
+      for (const r of subscribers)
+        this.deliver(r, {
+          event: "transcript",
+          agent,
+          record: bytes <= 32768 ? record : null,
+          truncated: bytes > 32768,
+        });
   }
   private fail(r: Running, error: string) {
     if (!r.status.running) return;
@@ -162,6 +203,7 @@ export class Host {
   private kill(r: Running) {
     if (!r.status.running) return;
     r.status.running = false;
+    if (!this.running.some(r => r.status.running)) clearInterval(this.timer);
     r.views.clear();
     this.invalidate();
     if (r.child.pid) {
@@ -173,6 +215,7 @@ export class Host {
     }
   }
   async stop() {
+    clearInterval(this.timer);
     const running = this.running;
     for (const r of running) this.kill(r);
     await Promise.all(running.map(r => r.exited));
@@ -182,6 +225,7 @@ export class Host {
     await this.stop();
     this.statuses = [];
     this.previous = this.source();
+    this.next_publish = 0;
     let names: string[];
     try {
       names = readdirSync(root, { withFileTypes: true })
@@ -215,7 +259,7 @@ export class Host {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         }
         const cwd = resolve(root, name),
-          command = [...m.command];
+          command = m.entry ? [this.executable, "__trick", resolve(cwd, m.entry)] : [...m.command!];
         if (command[0].includes("/")) command[0] = resolve(cwd, command[0]);
         const child = spawn(command[0], command.slice(1), {
           cwd,
@@ -233,6 +277,9 @@ export class Host {
           views: new Map(),
           kv,
           file,
+          budget: new budget.Budget(),
+          previous: this.previous,
+          previous_key: JSON.stringify(this.previous),
         };
         status.running = true;
         this.running.push(r);
@@ -244,7 +291,8 @@ export class Host {
         let pending = "",
           window = Date.now(),
           count = 0,
-          stderr = false;
+          stderr = false,
+          stderr_bytes = 0;
         child.stdout.setEncoding("utf8");
         child.stdout.on("data", (chunk: string) => {
           if (!r.status.running) return;
@@ -256,6 +304,7 @@ export class Host {
             if (Date.now() - window > 1000) {
               window = Date.now();
               count = 0;
+              stderr_bytes = 0;
             }
             if (++count > 1000 || Buffer.byteLength(line) > tricks.max_bytes) {
               this.fail(r, "OutputLimit");
@@ -267,6 +316,17 @@ export class Host {
           if (Buffer.byteLength(pending) > tricks.max_bytes) this.fail(r, "OutputLimit");
         });
         child.stderr.on("data", (chunk: Buffer) => {
+          if (!r.status.running) return;
+          if (Date.now() - window > 1000) {
+            window = Date.now();
+            count = 0;
+            stderr_bytes = 0;
+          }
+          stderr_bytes += chunk.length;
+          if (stderr_bytes > tricks.max_bytes) {
+            this.fail(r, "OutputLimit");
+            return;
+          }
           if (!stderr) log.warn("Trick stderr", { trick: m.id, text: chunk.toString().slice(0, 2048) });
           stderr = true;
         });
@@ -278,6 +338,18 @@ export class Host {
         log.warn("Cannot start trick", { path, error });
       }
     }
+    if (this.running.some(r => r.status.running))
+      this.timer = setInterval(() => {
+        for (const r of this.running) {
+          if (!r.status.running || !r.child.pid) continue;
+          try {
+            const error = r.budget.check(budget.sample(r.child.pid));
+            if (error) this.fail(r, error);
+          } catch {
+            this.fail(r, "ResourceCheckFailed");
+          }
+        }
+      }, 1000).unref();
   }
   private receive(r: Running, line: string) {
     let id: string | number | null = null;
@@ -290,6 +362,7 @@ export class Host {
       let result: unknown = null;
       switch (c.op) {
         case "ui.set":
+          if (JSON.stringify(r.views.get(c.key)) === JSON.stringify(c.view)) break;
           if (!r.views.has(c.key) && r.views.size >= tricks.max_views) throw Error("TooManyViews");
           if (
             Buffer.byteLength(
@@ -305,8 +378,13 @@ export class Host {
           break;
         case "subscribe":
           r.subscription = c.subscription;
-          this.deliver(r, { event: "snapshot", ...this.source() });
-          for (const agent of this.source().agents) this.deliver(r, { event: "agent.changed", agent, previous: null });
+          if (c.subscription.events.includes("snapshot") || c.subscription.events.includes("agent.changed")) {
+            const snapshot = this.source();
+            r.previous = snapshot;
+            r.previous_key = JSON.stringify(snapshot);
+            this.deliver(r, { event: "snapshot", ...snapshot });
+            for (const agent of snapshot.agents) this.deliver(r, { event: "agent.changed", agent, previous: null });
+          }
           break;
         case "kv.get":
           result = Object.hasOwn(r.kv, c.key) ? r.kv[c.key] : null;

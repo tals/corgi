@@ -1,6 +1,3 @@
 version = 1
 id = "completion-jar"
-command = ["node", "main.mjs"]
-
-[subscribe]
-events = ["agent.changed"]
+entry = "main.mjs"

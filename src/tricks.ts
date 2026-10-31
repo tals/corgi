@@ -4,7 +4,7 @@ import type { State, Attention } from "./agents";
 
 export const version = 1;
 export const max_bytes = 65536;
-export const max_views = 32;
+export const max_views = 256;
 export type Color = palette.Token | `#${string}`;
 export interface Agent {
   id: string;
@@ -23,13 +23,16 @@ export interface Snapshot {
   agents: Agent[];
   workspaces: { id: number; name: string; cwd: string }[];
 }
-export const events = ["snapshot", "agent.changed", "agent.removed", "hook"] as const;
+export const metadata_events = ["snapshot", "agent.changed", "agent.removed", "hook"] as const;
+export const events = [...metadata_events, "transcript"] as const;
 export type EventName = (typeof events)[number];
+export type EventPattern = EventName | "metadata:*";
 export type Event =
   | ({ event: "snapshot" } & Snapshot)
   | { event: "agent.changed"; agent: Agent; previous: Agent | null }
   | { event: "agent.removed"; agent: Agent }
-  | { event: "hook"; agent: Agent | null; provider: Provider; data: unknown };
+  | { event: "hook"; agent: Agent | null; provider: Provider; kind: string; tool: string }
+  | { event: "transcript"; agent: Agent; record: unknown; truncated: boolean };
 export interface Subscription {
   events: EventName[];
   where: Selector;
@@ -112,10 +115,10 @@ export function matches(where: Selector, agent: Partial<Omit<Agent, "state">> & 
 export function subscription(value: unknown): Subscription {
   const source = object(value);
   fields(source, ["events", "where"]);
-  if (!Array.isArray(source.events) || source.events.some(e => e !== "*" && !events.includes(e)))
-    throw Error("InvalidEvents");
+  const names = typeof source.events === "string" ? [source.events] : source.events;
+  if (!Array.isArray(names) || names.some(e => e !== "metadata:*" && !events.includes(e))) throw Error("InvalidEvents");
   return {
-    events: source.events.includes("*") ? [...events] : ([...new Set(source.events)] as EventName[]),
+    events: [...new Set(names.flatMap(e => (e === "metadata:*" ? metadata_events : [e])))] as EventName[],
     where: selector(source.where),
   };
 }

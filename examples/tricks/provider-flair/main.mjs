@@ -1,13 +1,10 @@
-import { createInterface } from "node:readline";
+export function setup(corgi) {
+  corgi.subscribe("agent.changed");
+}
 
-createInterface({ input: process.stdin }).on("line", line => {
-  if (JSON.parse(line).event !== "ready") return;
-  for (const [provider, label, color] of [
-    ["claude", " ✦", "warm"],
-    ["codex", " ◇", "accent"],
-    ["pi", " π", "hot"],
-  ]) console.log(JSON.stringify({
-    op: "ui.set", key: provider,
-    view: { kind: "decorate", where: { provider }, color, suffix: [{ text: label, color }] },
-  }));
-});
+export function loop(corgi, { agent }) {
+  const flair = { claude: ["✦", "warm"], codex: ["◇", "accent"], pi: ["π", "hot"] }[agent.provider];
+  if (!flair) return corgi.paint(agent, null);
+  const [glyph, color] = flair;
+  corgi.paint(agent, { color, suffix: [{ text: ` ${glyph}`, color }] });
+}

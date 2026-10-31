@@ -1,13 +1,3 @@
 version = 1
 id = "account-colors"
-command = ["node", "main.mjs"]
-
-# The default account is "". Other accounts use their canonical config folder.
-# Find yours with `corgi rpc '{"op":"session.snapshot"}'` (panes[].account).
-[[config.rules]]
-where = { provider = "claude", account = "" }
-marker = "accent"
-
-[[config.rules]]
-where = { provider = "claude", account = "/replace/with/company/claude-config" }
-marker = "#83b6ef"
+entry = "main.mjs"

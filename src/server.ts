@@ -76,6 +76,7 @@ export class Server {
   ) {
     this.tricks = new trickHost.Host(
       socket,
+      executable,
       () => trickHost.snapshot(this.runtime),
       () => {
         this.dirty = true;

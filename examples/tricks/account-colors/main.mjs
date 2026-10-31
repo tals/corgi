@@ -1,11 +1,7 @@
-import { createInterface } from "node:readline";
+export function setup(corgi) {
+  corgi.subscribe("agent.changed", { provider: "claude" });
+}
 
-createInterface({ input: process.stdin }).on("line", line => {
-  const event = JSON.parse(line);
-  if (event.event !== "ready") return;
-  for (const [index, rule] of event.config.rules.entries())
-    console.log(JSON.stringify({
-      op: "ui.set", key: `account-${index}`,
-      view: { kind: "decorate", ...rule },
-    }));
-});
+export function loop(corgi, { agent }) {
+  corgi.paint(agent, { marker: agent.account ? "#83b6ef" : "accent" });
+}

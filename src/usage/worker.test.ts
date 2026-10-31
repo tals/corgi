@@ -79,6 +79,24 @@ test("usage reconciliation follows current attachments with one pane scan", () =
   }
 });
 
+test("transcript subscribers see complete new records without replaying history", () => {
+  const tail = new Tail(),
+    req = request("claude"),
+    seen: unknown[] = [];
+  const sink = (_req: Request, record: unknown) => seen.push(record);
+  const old = JSON.stringify({ type: "system", sessionId: "session" }) + "\n";
+  tail.initial_until = Buffer.byteLength(old);
+  tail.ingest(req, reader(req), old, 0, sink);
+  expect(seen).toEqual([]);
+  const record = { type: "user", message: { content: "opt-in text" } };
+  const next = JSON.stringify(record);
+  tail.ingest(req, reader(req), next, old.length, sink);
+  expect(seen).toEqual([]);
+  tail.ingest(req, reader(req), "\n", old.length + next.length, sink);
+  expect(seen).toEqual([record]);
+  tail.ingest(req, reader(req), "invalid\n", old.length + next.length + 1, sink);
+  expect(seen).toEqual([record]);
+});
 test("usage tail frames records, ignores history and advances baselines while watched", () => {
   const t = new Tail(),
     r = request("codex");

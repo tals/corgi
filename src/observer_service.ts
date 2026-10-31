@@ -57,6 +57,8 @@ export function start(server: Server) {
   if (!server.summaries) workers.summaries.selected = setup.loadSelection(setup.path(server.socket));
   server.summaries = workers.summaries;
   server.usage = workers.usage;
+  workers.usage.record = (req, record, bytes) =>
+    server.tricks.transcript(req.agent.provider!, req.agent.sessionId(), record, bytes);
   services.set(server, workers);
   publishInference(server, workers);
   return workers;
