@@ -658,6 +658,12 @@ export function writeFleaCycle(room: number, tick: number): string {
   return drawFleas(room, pose, fleaCycleScene(t));
 }
 export type Routine = "idle" | "sniff" | "fetch" | "bone";
+const routines: Record<Routine, { frame_ms: number; bright: boolean }> = {
+  idle: { frame_ms: 75, bright: false },
+  sniff: { frame_ms: 75, bright: false },
+  fetch: { frame_ms: 30, bright: true },
+  bone: { frame_ms: 30, bright: true },
+};
 export class Playback {
   /** Out of 100 when the corgi appears; the rest stay idle. Sniff is out of the rotation for now. */
   static odds: [Routine, number][] = [
@@ -1008,6 +1014,10 @@ export class Presentation {
       this.last_corgi = null;
     }
   }
+  frameDelay(): number {
+    if (this.reveal_started_ms !== null) return 30;
+    return this.mode === "awake" ? routines[this.playback.routine].frame_ms : 75;
+  }
   revealPosition(room: number, now: number) {
     return this.reveal_started_ms === null
       ? room + 3
@@ -1033,8 +1043,9 @@ export class Presentation {
     if (!pose || sleep.intensity === 0) return "";
     if (pose === "asleep" && !working) return idle(room, sleep);
     const playback = pose === "asleep" ? new Playback() : this.playback;
-    const playful = playback.routine === "fetch" || playback.routine === "bone";
-    const color = playful ? palette.colors.text : intensityColor(sleep.background, sleep.intensity);
+    const color = routines[playback.routine].bright
+      ? palette.colors.text
+      : intensityColor(sleep.background, sleep.intensity);
     return palette.fgRgb(color) + playback.write(room, now, sleep.background);
   }
   hide() {
@@ -1049,11 +1060,19 @@ const slots = Array.from({ length: 256 }, () => ({
   seen: false,
   presentation: new Presentation(),
 }));
+let frame_delay = 75;
 export function beginFrame() {
   for (const slot of slots) slot.seen = false;
 }
 export function endFrame() {
-  for (const slot of slots) if (!slot.seen) slot.presentation.hide();
+  frame_delay = 75;
+  for (const slot of slots) {
+    if (slot.seen) frame_delay = Math.min(frame_delay, slot.presentation.frameDelay());
+    else slot.presentation.hide();
+  }
+}
+export function frameDelay(): number {
+  return frame_delay;
 }
 export function observe(key: bigint, mode: Mode, now: number, herd_started_ms?: number): Presentation | null {
   const id = key;

@@ -1,3 +1,4 @@
+import * as telemetry from "../telemetry";
 import { access, readFile, realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import * as clock from "../clock";
@@ -473,19 +474,24 @@ export class Tracker {
     return changed;
   }
   private async run(now: number) {
-    // Bound subprocess concurrency and share inventory even across workspaces.
-    for (const job of this.jobs) {
-      if (this.stopping || job.edits !== this.edits) break;
-      const snapshot = await this.refresh(job.cwd, job.detail, now, job.workspace.worktrees);
-      job.result = snapshot
-        ? { ...snapshot, agents: await this.associate(snapshot, job.inputs, now, job.workspace.worktrees) }
-        : null;
+    const telemetry_started = telemetry.begin();
+    try {
+      // Bound subprocess concurrency and share inventory even across workspaces.
+      for (const job of this.jobs) {
+        if (this.stopping || job.edits !== this.edits) break;
+        const snapshot = await this.refresh(job.cwd, job.detail, now, job.workspace.worktrees);
+        job.result = snapshot
+          ? { ...snapshot, agents: await this.associate(snapshot, job.inputs, now, job.workspace.worktrees) }
+          : null;
+      }
+      for (const [key, cached] of this.cache) if (now - cached.seen > 60000) this.cache.delete(key);
+      for (const [key, cached] of this.locations) if (now - cached.at > 60000) this.locations.delete(key);
+      const targets = new Set(this.jobs.flatMap(job => job.inputs.map(input => JSON.stringify(input.target))));
+      for (const key of this.placed.keys()) if (!targets.has(key)) this.placed.delete(key);
+      for (const [key, cached] of this.repositories) if (now - cached.at > 60000) this.repositories.delete(key);
+    } finally {
+      telemetry.end("workspace.worktrees", telemetry_started);
     }
-    for (const [key, cached] of this.cache) if (now - cached.seen > 60000) this.cache.delete(key);
-    for (const [key, cached] of this.locations) if (now - cached.at > 60000) this.locations.delete(key);
-    const targets = new Set(this.jobs.flatMap(job => job.inputs.map(input => JSON.stringify(input.target))));
-    for (const key of this.placed.keys()) if (!targets.has(key)) this.placed.delete(key);
-    for (const [key, cached] of this.repositories) if (now - cached.at > 60000) this.repositories.delete(key);
   }
   async refresh(
     cwd: string,

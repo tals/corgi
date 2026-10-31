@@ -12,6 +12,17 @@ export type Attention = "none" | "finished" | "needs_input";
  * pane or session already did, the hook's pane is about to, or nothing does,
  * as with a session in Claude's background daemon. */
 export type Presence = "attached" | "attaching" | "detached";
+type ObjectKeys<T> = {
+  [K in keyof T]-?: NonNullable<T[K]> extends (...args: never[]) => unknown
+    ? never
+    : NonNullable<T[K]> extends object
+      ? K
+      : never;
+}[keyof T];
+type DataKeys<T> = {
+  [K in keyof T]-?: T[K] extends (...args: never[]) => unknown ? never : K;
+}[keyof T];
+type Scalar = string | number | bigint | boolean | null | undefined;
 export class Agent {
   subagents = { running: 0, blocked: 0, waiting: false };
   name = new Text();
@@ -51,6 +62,24 @@ export class Agent {
   updated_at = 0;
   constructor(fields: Partial<Agent> = {}) {
     Object.assign(this, fields);
+  }
+  /** Owned values for comparing observations without serializing them. */
+  comparison(): object {
+    const owned = {
+      subagents: { ...(this.subagents satisfies Record<DataKeys<typeof this.subagents>, Scalar>) },
+      observation: { ...(this.observation satisfies Record<DataKeys<typeof this.observation>, Scalar>) },
+      name: this.name.toJSON(),
+      transcript: this.transcript.toJSON(),
+      turn: this.turn.toJSON(),
+      last_finished_turn: this.last_finished_turn.toJSON(),
+      recent: this.recent.toJSON(),
+      session: this.session.toJSON(),
+      activity: this.activity.toJSON(),
+      tool: this.tool.toJSON(),
+      model: this.model.toJSON(),
+      cwd: this.cwd.toJSON(),
+    } satisfies Record<ObjectKeys<Agent>, unknown>;
+    return { ...this, ...owned };
   }
   snapshot() {
     const out = new Agent({ ...this });

@@ -1,0 +1,263 @@
+{
+  "source_commit": "c61e10269bd1ac0d7f94d41f124306fa26d2f2ef",
+  "main_commit": "a1e9b7d6e6f0ce8db438092358e50daeb5e2a289",
+  "unit": {
+    "passed": 2204,
+    "skipped": 1,
+    "failed": 0
+  },
+  "typecheck_and_format": "passed",
+  "integrations": {
+    "suites": [
+      "codex_titles",
+      "codex_files",
+      "observations",
+      "viewers",
+      "smoke_input"
+    ],
+    "passed": 72,
+    "skipped": 1,
+    "failed": 0,
+    "retries": 0
+  },
+  "builds": {
+    "production": "passed; --no-native",
+    "test": "passed; --no-native",
+    "native": "unchanged from the previously validated candidate"
+  },
+  "visual": {
+    "equal": true,
+    "comparisons": [
+      {
+        "name": "01-normal-unicode-colors",
+        "same": true
+      },
+      {
+        "name": "02-sparse-update",
+        "same": true
+      },
+      {
+        "name": "03-link-hover",
+        "same": true
+      },
+      {
+        "name": "04-held-selection",
+        "same": true
+      },
+      {
+        "name": "05-selection-freezes-output",
+        "same": true
+      },
+      {
+        "name": "06-selection-released",
+        "same": true
+      },
+      {
+        "name": "07-kitty-image",
+        "same": true
+      },
+      {
+        "name": "08-image-menu-overlay",
+        "same": true
+      },
+      {
+        "name": "08b-dimmed-dialog",
+        "same": true
+      },
+      {
+        "name": "08c-image-restored",
+        "same": true
+      },
+      {
+        "name": "09-copy-scrollback",
+        "same": true
+      },
+      {
+        "name": "10-copy-selection",
+        "same": true
+      },
+      {
+        "name": "11-split-panes",
+        "same": true
+      },
+      {
+        "name": "12-focus-left",
+        "same": true
+      },
+      {
+        "name": "13-zoom",
+        "same": true
+      },
+      {
+        "name": "14-help-overlay",
+        "same": true
+      },
+      {
+        "name": "15-scope-hover",
+        "same": true
+      },
+      {
+        "name": "16-resize-small",
+        "same": true
+      },
+      {
+        "name": "17-resize-large",
+        "same": true
+      }
+    ],
+    "png_comparisons": [
+      {
+        "name": "01-normal-unicode-colors",
+        "same": true,
+        "baseline_sha256": "6acdf80abbb330ab83832ca2cf4c1011dddf18afc80306e088be590c497d72b5",
+        "candidate_sha256": "6acdf80abbb330ab83832ca2cf4c1011dddf18afc80306e088be590c497d72b5"
+      },
+      {
+        "name": "02-sparse-update",
+        "same": true,
+        "baseline_sha256": "2f327b2652f285023a1d8a48690cf66fc93bceee4b731d5654bf3d6ca57e358b",
+        "candidate_sha256": "2f327b2652f285023a1d8a48690cf66fc93bceee4b731d5654bf3d6ca57e358b"
+      },
+      {
+        "name": "03-link-hover",
+        "same": true,
+        "baseline_sha256": "6053c3839b600eda670bce7e9ae3157c81302cb329cba66f17e5b7a9b65b7dec",
+        "candidate_sha256": "6053c3839b600eda670bce7e9ae3157c81302cb329cba66f17e5b7a9b65b7dec"
+      },
+      {
+        "name": "04-held-selection",
+        "same": true,
+        "baseline_sha256": "86cbd1e5976cd5628d1307063bec2baac701351922e5202986db16d558786557",
+        "candidate_sha256": "86cbd1e5976cd5628d1307063bec2baac701351922e5202986db16d558786557"
+      },
+      {
+        "name": "05-selection-freezes-output",
+        "same": true,
+        "baseline_sha256": "86cbd1e5976cd5628d1307063bec2baac701351922e5202986db16d558786557",
+        "candidate_sha256": "86cbd1e5976cd5628d1307063bec2baac701351922e5202986db16d558786557"
+      },
+      {
+        "name": "06-selection-released",
+        "same": true,
+        "baseline_sha256": "e223d7047eae04b48ae6ee0419246f13788779f58803a811e705fe954d68acd8",
+        "candidate_sha256": "e223d7047eae04b48ae6ee0419246f13788779f58803a811e705fe954d68acd8"
+      },
+      {
+        "name": "07-kitty-image",
+        "same": true,
+        "baseline_sha256": "c727ba4dc76fc053a3962378105cb324af5517580d4a9b468e08438a57297cd0",
+        "candidate_sha256": "c727ba4dc76fc053a3962378105cb324af5517580d4a9b468e08438a57297cd0"
+      },
+      {
+        "name": "08-image-menu-overlay",
+        "same": true,
+        "baseline_sha256": "dc90aa1896444600afb4a4c43bcb8976895f7aeea435bd8473675683aba0c2c8",
+        "candidate_sha256": "dc90aa1896444600afb4a4c43bcb8976895f7aeea435bd8473675683aba0c2c8"
+      },
+      {
+        "name": "08b-dimmed-dialog",
+        "same": true,
+        "baseline_sha256": "faf908c43563a0a59454b58aa921c186f1bb9230d5cccd53e9e138045fc60275",
+        "candidate_sha256": "faf908c43563a0a59454b58aa921c186f1bb9230d5cccd53e9e138045fc60275"
+      },
+      {
+        "name": "08c-image-restored",
+        "same": true,
+        "baseline_sha256": "c727ba4dc76fc053a3962378105cb324af5517580d4a9b468e08438a57297cd0",
+        "candidate_sha256": "c727ba4dc76fc053a3962378105cb324af5517580d4a9b468e08438a57297cd0"
+      },
+      {
+        "name": "09-copy-scrollback",
+        "same": true,
+        "baseline_sha256": "f551ceb125c8a4d9af5a40912f5627ef35e43ccdde7b194e2966a3e9c875d5e4",
+        "candidate_sha256": "f551ceb125c8a4d9af5a40912f5627ef35e43ccdde7b194e2966a3e9c875d5e4"
+      },
+      {
+        "name": "10-copy-selection",
+        "same": true,
+        "baseline_sha256": "7870a36e70e2dbe57327811b50fc73e22d2831e52e60993e40914f4c87be740e",
+        "candidate_sha256": "7870a36e70e2dbe57327811b50fc73e22d2831e52e60993e40914f4c87be740e"
+      },
+      {
+        "name": "11-split-panes",
+        "same": true,
+        "baseline_sha256": "c139f029a417a4ed7c0b94690fd2c34e8c20134b1ad42ec6b93ec8f186aeae6a",
+        "candidate_sha256": "c139f029a417a4ed7c0b94690fd2c34e8c20134b1ad42ec6b93ec8f186aeae6a"
+      },
+      {
+        "name": "12-focus-left",
+        "same": true,
+        "baseline_sha256": "dacff8543c1c17725330be9be72a6563daac3a2c085a9538e7cd6291e15e13fe",
+        "candidate_sha256": "dacff8543c1c17725330be9be72a6563daac3a2c085a9538e7cd6291e15e13fe"
+      },
+      {
+        "name": "13-zoom",
+        "same": true,
+        "baseline_sha256": "6acdf80abbb330ab83832ca2cf4c1011dddf18afc80306e088be590c497d72b5",
+        "candidate_sha256": "6acdf80abbb330ab83832ca2cf4c1011dddf18afc80306e088be590c497d72b5"
+      },
+      {
+        "name": "14-help-overlay",
+        "same": true,
+        "baseline_sha256": "b886171af3d8a65eed0d15a66b0bff53c28f061d224ec749d1777efbf9cc7cc8",
+        "candidate_sha256": "b886171af3d8a65eed0d15a66b0bff53c28f061d224ec749d1777efbf9cc7cc8"
+      },
+      {
+        "name": "15-scope-hover",
+        "same": true,
+        "baseline_sha256": "460cf5618a8f5df84401027e7952932a6d8280f30225e06605c88eba783c0fc2",
+        "candidate_sha256": "460cf5618a8f5df84401027e7952932a6d8280f30225e06605c88eba783c0fc2"
+      },
+      {
+        "name": "16-resize-small",
+        "same": true,
+        "baseline_sha256": "bb3c015e2e848c4681d34dc46a32a637d8161d063b6345510551ac087cea6815",
+        "candidate_sha256": "bb3c015e2e848c4681d34dc46a32a637d8161d063b6345510551ac087cea6815"
+      },
+      {
+        "name": "17-resize-large",
+        "same": true,
+        "baseline_sha256": "6a34fe81d725d20504ed8a27cf5423bd80a2b69fa69acdca6812ed55375a43e0",
+        "candidate_sha256": "6a34fe81d725d20504ed8a27cf5423bd80a2b69fa69acdca6812ed55375a43e0"
+      }
+    ],
+    "note": "Real PTY output replayed through Ghostty; exact styled cells, hyperlink destinations, cursor and decoded image placements/pixels. Opaque image/link identifiers are excluded. No timing normalization.",
+    "visually_inspected": [
+      "11-split-panes",
+      "16-resize-small"
+    ]
+  },
+  "cpu_matrix": "Not repeated after the main merge. cpu-summary.json contains a7db85c versus main 8153137.",
+  "logs": {
+    "unit": {
+      "local_path": "dist/pr-main-merge-unit-20261031.log",
+      "sha256": "f125e5cb9fb49355e561aff5a0d0c5d67cea91b4a0b9463e25defdd21a916985"
+    },
+    "typecheck": {
+      "local_path": "dist/pr-main-merge-typecheck-20261031.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "integration": {
+      "local_path": "dist/pr-main-merge-integration-20261031.log",
+      "sha256": "32889643993a34e9d5775f4f7fa7c1e43a1c290da3c7cd45f7627dc7fa16feae"
+    },
+    "test-build": {
+      "local_path": "dist/pr-main-merge-test-build-20261031.log",
+      "sha256": "16c0c18d197f94dd19eed0347d36d7fcfe437ed2229213662d06532d3e140261"
+    },
+    "production-build": {
+      "local_path": "dist/pr-main-merge-production-build-20261031.log",
+      "sha256": "7820afeb511f4b203facb71fb1120c937b5ce81ddefbaafde4e9f90e7f1d67a9"
+    },
+    "visual": {
+      "local_path": "dist/pr-main-merge-visual-20261031.log",
+      "sha256": "4f6f0d566baa42e6454aa3b4bee9f90401856baab28ae5961b285851ab1426d9"
+    }
+  },
+  "screenshots": {
+    "05-selection-freezes-output.png": "55d10d7abf563baabbd8d3edb672067c84a342ca595562b4172e489a01d7d0e3",
+    "08b-dimmed-dialog.png": "6dd01e2b3c7ce9a896193a7331c47eb2a3b246b19e8c611720b71b66fdfe867e",
+    "11-split-panes.png": "d105852dc079ecd338aa0f2dc92c4feea5e7700f8ac97a793aca311c4e2753dc",
+    "16-resize-small.png": "f4cc39a2c409df8df23aeddf33cd46b7a869c62b9ed0e707d8bf0963fe10727d"
+  }
+}

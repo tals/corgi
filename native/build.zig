@@ -20,6 +20,8 @@ pub fn build(b: *std.Build) void {
     pane.addImport("wuffs", ghostty.module("ghostty-vt").import_table.get("wuffs").?);
     pane.addOptions("corgi_options", opts);
     pane.addImport("c", c);
+    const pane_tests = b.addTest(.{ .root_module = pane });
+    b.step("test-pane", "Test native terminal surfaces and snapshots").dependOn(&b.addRunArtifact(pane_tests).step);
     const mod = b.createModule(.{ .root_source_file = b.path("bridge.zig"), .target = target, .optimize = optimize, .link_libc = true });
     mod.addImport("pane", pane);
     // Each module below roots a copy of zig/: `pane` already owns the original os.zig.
@@ -30,6 +32,8 @@ pub fn build(b: *std.Build) void {
     frame_diff.addImport("c", c);
     frame_diff.addImport("corgi_options", pane.import_table.get("corgi_options").?);
     mod.addImport("frame_diff", frame_diff);
+    const frame_tests = b.addTest(.{ .root_module = frame_diff });
+    b.step("test-frame-diff", "Test native host frame presentation").dependOn(&b.addRunArtifact(frame_tests).step);
     const keyboard = b.createModule(.{ .root_source_file = sources.getDirectory().path(b, "zig/keyboard.zig"), .target = target, .optimize = optimize });
     keyboard.addImport("ghostty-vt", ghostty.module("ghostty-vt"));
     mod.addImport("keyboard", keyboard);

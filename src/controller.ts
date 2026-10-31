@@ -11,6 +11,7 @@ import * as bindings from "./bindings";
 import * as onboarding from "./onboarding";
 import * as shortcutHelp from "./shortcut_help";
 import * as palette from "./palette";
+import * as corgiAnimation from "./corgi_animation";
 import type { Colors as TerminalColors } from "./terminal_palette";
 import type { Snapshot as TerminalSnapshot } from "./terminal_info";
 import {
@@ -24,6 +25,7 @@ import {
   type Divider,
 } from "./layout";
 import * as render from "./render";
+import * as composition from "./composition";
 import { ResizeView, TabMenu, type Item as TabMenuItem } from "./commands";
 import { Dialog, View as NameView, name_limit } from "./name_dialog";
 import * as sidebar from "./sidebar";
@@ -679,7 +681,18 @@ export class Controller {
     this.rememberAgent();
   }
   area(): Rect {
-    return this.sidebarView([]).area();
+    const width = sidebar.View.fitWidth(
+      this.width,
+      sidebar.View.widthFor(this.width, this.sidebar_open, this.height, this.agent_picker !== null),
+      this.prefs.sidebar_width,
+    );
+    return sidebar.View.paneArea(
+      this.width,
+      this.height,
+      width,
+      this.reviewWidth(width),
+      this.sidebar_focus?.drawer ?? null,
+    );
   }
   sidebarView(entries: Entry[]): sidebar.View {
     const offset = this.agent_picker ? this.agent_picker.offset : this.agentOffset().get();
@@ -834,6 +847,7 @@ export class Controller {
     return now - this.menu_hover.since >= 150 ? target : null;
   }
   private pollScopeMenu(hover: boolean): void {
+    if (!this.scope_menu && !hover) return;
     const side = this.sidebarView([]);
     const on_label = this.pointer !== null && side.hit(this.pointer.x, this.pointer.y).tag === "agent_scope";
     if (this.scope_menu) {
@@ -934,9 +948,14 @@ export class Controller {
       }
       const first_agent = entries.length,
         starts: number[] = [];
-      for (let tab_index = 0; tab_index < ws.model.count; tab_index++) {
-        for (const p of this.runtime.panes) {
-          if (p.agent.provider === null || ws.model.tabForPane(p.id) !== tab_index) continue;
+      const tabs: Pane[][] = Array.from({ length: ws.model.count }, () => []);
+      for (const p of this.runtime.panes) {
+        if (p.agent.provider === null) continue;
+        const tab = ws.model.tabForPane(p.id);
+        if (tab !== null) tabs[tab].push(p);
+      }
+      for (const panes of tabs) {
+        for (const p of panes) {
           entries.push(
             sidebar.entry({
               conversation: p.agent.conversation,
@@ -1746,7 +1765,8 @@ export class Controller {
     if (own !== null) return own;
     const launch = this.launcherModel(),
       moving = launch?.managing && (!this.corgi_setup || this.corgi_setup.managing()) && launch.manager.moving();
-    return this.sidebar_rows.moving(now) || moving ? 16 : 30;
+    if (this.sidebar_rows.moving(now) || moving) return 16;
+    return this.overlayOpen() || this.signin_exit ? 30 : corgiAnimation.frameDelay();
   }
   private async renamePane(id: number, name: string): Promise<void> {
     await this.edit({ "pane.rename": { target: id, name } });
@@ -1863,16 +1883,14 @@ export class Controller {
     this.copy_mode = false;
   }
   /** A dormant agent resumes once its pane has focus. */
-  private async wakeFocused(): Promise<void> {
+  private wakeFocused(): Promise<void> | void {
     const p = this.focused();
     if (p?.id !== this.wake_failed) this.wake_failed = null;
     if (!p?.dormant || this.wake_failed !== null) return;
-    try {
-      await this.edit({ "pane.wake": { target: p.id } });
-    } catch {
+    return this.edit({ "pane.wake": { target: p.id } }).catch(() => {
       this.wake_failed = p.id;
       this.notice(" Could not resume this agent");
-    }
+    });
   }
   private attention(): void {
     for (const priority of ["needs_input", "finished"]) {
@@ -3225,16 +3243,21 @@ export class Controller {
     this.launch_previews.pending(launch.cwd);
     this.dirty = true;
   }
-  private async pollLauncher(hover: boolean): Promise<void> {
+  private pollLauncher(hover: boolean): Promise<void> | void {
     this.updateLaunchPreview();
+    if (!this.launcherModel() && !hover) return;
+    return this.pollOpenLauncher(hover);
+  }
+  private async pollOpenLauncher(hover: boolean): Promise<void> {
     await this.previewInlineCommand(false);
     const model = this.launcherModel(),
       form = model?.managing ? model.manager.form : null;
     if (form && form.save_requested && !form.resolution.pending) await this.saveInlineCommand();
+    const launch = this.launcherModel();
+    if (!launch && !hover) return;
     const side = this.sidebarView([]);
     const hit = this.pointer ? side.hit(this.pointer.x, this.pointer.y).tag : "none";
     const on_button = hit === "agent_new" || hit === "agent_options";
-    const launch = this.launcherModel();
     if (launch) {
       launch.yolo = { ...this.runtime.agent_yolo };
       launch.hidden = { ...this.runtime.agent_hidden };
@@ -5993,7 +6016,8 @@ export class Controller {
     this.dirty = true;
   }
   async expireInput(): Promise<void> {
-    await this.wakeFocused();
+    const waking = this.wakeFocused();
+    if (waking) await waking;
     if (this.agent_drag?.scrolling()) {
       const entries = this.sidebarEntries(),
         now = milliTimestamp(),
@@ -6007,7 +6031,8 @@ export class Controller {
     if (this.onboarding && (await this.onboarding.poll(this.rpc()))) this.dirty = true;
     if (this.corgi_setup && (await this.corgi_setup.poll(this.rpc(), this.width, this.height))) this.dirty = true;
     const hover = this.pollMenuHover();
-    await this.pollLauncher(hover === "launcher");
+    const launcher = this.pollLauncher(hover === "launcher");
+    if (launcher) await launcher;
     this.pollScopeMenu(hover === "scope");
     if (this.link_tooltip.due(milliTimestamp())) this.dirty = true;
     if (this.link_tooltip.copied_until !== 0 && milliTimestamp() >= this.link_tooltip.copied_until) {
@@ -6050,7 +6075,7 @@ export class Controller {
       if (dialog.tick(milliTimestamp()) === "save") await this.finishName(true);
       this.dirty = true;
     }
-    await this.finishAccountRemovals();
+    if (this.account_removals.size > 0) await this.finishAccountRemovals();
     const removal = this.worktree_card.removal;
     if (removal.phase !== "idle") {
       this.followRemoval();
@@ -6766,13 +6791,21 @@ export class Controller {
     return this.link_tooltip.ready(target, milliTimestamp());
   }
   frame(): string {
+    const frame = this.compose(false);
+    return typeof frame === "string" ? frame : frame.text();
+  }
+  compose(retain = true): composition.Output {
     const hide = this.images.begin() + this.tab_icons.begin();
-    const frame = this.renderFrame();
+    const retained = retain ? new composition.Frame() : undefined;
+    const frame = this.renderFrame(retained);
     const writes = this.images.end() + this.tab_icons.end();
     if (writes) this.queueEffect({ write_terminal: writes });
-    return hide ? "\x1b[?2026h" + hide + frame + "\x1b[?2026l" : frame;
+    const prefix = hide ? "\x1b[?2026h" + hide : "",
+      suffix = hide ? "\x1b[?2026l" : "";
+    if (!retained?.panes.length) return prefix + frame + suffix;
+    return retained.finish(frame, prefix, suffix);
   }
-  private renderFrame(): string {
+  private renderFrame(retained?: composition.Frame): string {
     palette.use(
       this.onboarding ? this.onboarding.theme : (this.corgi_setup?.previewTheme(this.prefs) ?? this.prefs.theme),
       this.terminal_colors,
@@ -6961,6 +6994,7 @@ export class Controller {
             : null,
         signin_draw: this.signin ? (w: Writer, pointer: render.Pointer | null) => this.drawSignin(w, pointer) : null,
       }),
+      retained,
     );
   }
   /** A ghost's columns while the panel is closed: what is left right of the

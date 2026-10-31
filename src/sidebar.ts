@@ -52,10 +52,6 @@ export function unlit(entries: Entry[], spot: Spotlight | null): boolean[] {
 }
 /** The lists draw one column in: column 0 stays free for the focused list's box. */
 export const lists_x = 1;
-/** `bytes` drawn `dx` columns further right: every cursor position moves. */
-function shiftColumns(bytes: string, dx: number): string {
-  return bytes.replace(/\x1b\[(\d+);(\d+)H/g, (_, row, col) => `\x1b[${row};${Number(col) + dx}H`);
-}
 /** Drops what `bytes` writes from row `end` (0-based) down and above row
  * `start`, keeping its colors so the writes after it start in the same style. */
 function clipRows(bytes: string, end: number, start = 0): string {
@@ -489,8 +485,6 @@ export class Preview {
   }
 }
 
-/** UTF-8 byte offset into `text` as a JS string index. */
-
 export class View {
   search: Search | null = null;
   /** Header scope: "all" or the workspace whose agents are listed. */
@@ -610,8 +604,15 @@ export class View {
     result.workspace_offset = Math.min(offset, sat(count, this.workspaceCapacity()));
     return result;
   }
-  static widthFor(cols: number, open: boolean): number {
-    return open && cols >= 64 ? 28 : 0;
+  static widthFor(cols: number, open: boolean, rows = 13, searching = false): number {
+    return rows >= 13 && ((open && cols >= 64) || (searching && cols >= 40)) ? Math.min(28, cols - 20) : 0;
+  }
+  static fitWidth(cols: number, width: number, preferred: number): number {
+    return width > 0 ? clamp(preferred, 20, cols - 20) : width;
+  }
+  static paneArea(cols: number, rows: number, width: number, panel: number, drawer: Section | null): Rect {
+    const x = drawer !== null ? 0 : width;
+    return new Rect(x, 1, sat(cols - x, panel), sat(rows, 1));
   }
   static init(
     cols: number,
@@ -625,7 +626,7 @@ export class View {
     v.cols = cols;
     v.rows = rows;
     v.split = split;
-    v.width = rows >= 13 ? View.widthFor(cols, open) : 0;
+    v.width = View.widthFor(cols, open, rows);
     v.count = count;
     v.capacity = 1;
     v.offset = 0;
@@ -724,7 +725,7 @@ export class View {
       const b = this.badge(side);
       if (b === null) continue;
       const text = View.badgeText(b, (n, glyph, warm) => `${n} ${warm ? button_warm : button_glyph}${glyph}${button}`);
-      w.write(`\x1b[${b.y + 1};${b.x + 1}H${button}${text}\x1b[0m`);
+      w.write(`${w.cup(b.y + 1, b.x + 1)}${button}${text}\x1b[0m`);
     }
   }
   static height(e: Entry): number {
@@ -854,7 +855,7 @@ export class View {
   }
   withWidth(preferred: number): View {
     const result = this.clone();
-    if (result.width > 0) result.width = clamp(preferred, 20, this.cols - 20);
+    result.width = View.fitWidth(this.cols, result.width, preferred);
     return result;
   }
   withSearch(search: Search | null): View {
@@ -862,7 +863,8 @@ export class View {
     result.search = search;
     // Search opens the same sidebar on compact terminals too, while
     // preserving at least twenty columns for the terminal pane.
-    if (search !== null && this.cols >= 40 && this.rows >= 13) result.width = Math.min(28, this.cols - 20);
+    const width = View.widthFor(this.cols, false, this.rows, search !== null);
+    if (width > 0) result.width = width;
     return result;
   }
   searchOffset(): number {
@@ -875,7 +877,7 @@ export class View {
     if (!search) return;
     if (this.width === 0) return;
     const x = lists_x + 4 + search.cursor - this.lists().searchOffset();
-    w.write(`\x1b[0m\x1b[${this.middle() + 2};${x}H\x1b[?25h`);
+    w.write(`\x1b[0m${w.cup(this.middle() + 2, x)}\x1b[?25h`);
   }
   withPanel(width: number): View {
     const result = this.clone();
@@ -883,8 +885,7 @@ export class View {
     return result;
   }
   area(): Rect {
-    const x = this.drawer !== null ? 0 : this.width;
-    return new Rect(x, 1, sat(this.cols - x, this.panel), sat(this.rows, 1));
+    return View.paneArea(this.cols, this.rows, this.width, this.panel, this.drawer);
   }
   tabX(): number {
     return this.width > 0 && this.drawer === null ? this.width : this.cols >= 64 ? 3 : 0;
@@ -1025,22 +1026,18 @@ export class View {
   private drawFrame(w: Writer, entries: Entry[], workspaces: WorkspaceEntry[], now_ms: number): void {
     const v = this;
     if (v.width === 0) {
-      if (v.cols >= 64) w.write("\x1b[1;1H\x1b[1m" + fg("strong") + " > \x1b[0m");
+      if (v.cols >= 64) w.write(`${w.cup(1, 1)}\x1b[1m` + fg("strong") + " > \x1b[0m");
       return;
     }
     if (v.framed()) {
-      for (let row = 0; row < v.rows; row++) w.write(`\x1b[${row + 1};1H${panel}` + " ".repeat(lists_x));
-      const lists = new Writer();
-      v.lists().drawFrame(lists, entries, workspaces, now_ms);
-      w.write(shiftColumns(lists.buffered(), lists_x));
+      for (let row = 0; row < v.rows; row++) w.write(`${w.cup(row + 1, 1)}${panel}` + " ".repeat(lists_x));
+      w.withColumns(lists_x, () => v.lists().drawFrame(w, entries, workspaces, now_ms));
       v.drawBox(w);
-      const badges = new Writer();
-      v.lists().drawBadges(badges);
-      w.write(shiftColumns(badges.buffered(), lists_x));
+      w.withColumns(lists_x, () => v.lists().drawBadges(w));
       return;
     }
     for (let row = 0; row < v.rows; row++) {
-      w.write(`\x1b[${row + 1};1H${panel}`);
+      w.write(`${w.cup(row + 1, 1)}${panel}`);
       w.splat(" ", v.width - 1);
       w.write((v.outlines(row) ? outline : fg("line")) + "│");
     }
@@ -1049,7 +1046,7 @@ export class View {
       const search = v.search;
       v.line(w, v.middle() + 1, "/ ", new Style({ fg: "strong", bg: "surface" }).sgr());
       w.splat(" ", v.width - 5);
-      w.write(`\x1b[${v.middle() + 2};4H` + fg("text"));
+      w.write(w.cup(v.middle() + 2, 4) + fg("text"));
       if (search.text.length === 0) writeClipped(w, "type to search", v.width - 5);
       else {
         // The selection as every text box shows it.
@@ -1060,7 +1057,7 @@ export class View {
         w.write(shown.slice(0, a) + palette.selection + shown.slice(a, b) + plain + shown.slice(b));
       }
     } else if (v.drawer === null) {
-      w.write(`\x1b[${v.middle() + 1};${v.width - 9}H` + button + ` New  ▾ ${panel}`);
+      w.write(w.cup(v.middle() + 1, v.width - 9) + button + ` New  ▾ ${panel}`);
       // The focused agent list shows where `/` opens its search.
       if (v.focus === "agents") {
         v.line(w, v.middle() + 1, "/", new Style({ fg: "strong", bg: "bg", bold: true }).sgr());
@@ -1076,7 +1073,7 @@ export class View {
       // The rule meets the border, so an outline turns the corner. Unboxed,
       // it's heavy and a step brighter than the rules between rows and sections.
       const boxed = v.focus !== null;
-      w.write(`\x1b[${v.middle()};2H` + (boxed ? outline : panel + fg("faint")));
+      w.write(w.cup(v.middle(), 2) + (boxed ? outline : panel + fg("faint")));
       w.write((boxed ? "─" : "━").repeat(Math.max(0, v.width - 2)) + (boxed ? "┤" : "┥"));
     }
     v.drawAgents(w, entries, now_ms);
@@ -1090,11 +1087,11 @@ export class View {
       rule = v.drawer === null ? v.middle() - 1 : -1;
     w.write(outline);
     for (let y = box.top; y <= box.bottom; y++)
-      w.write(`\x1b[${y + 1};1H` + (y === box.top ? "┌" : y === box.bottom ? "└" : "│"));
+      w.write(w.cup(y + 1, 1) + (y === box.top ? "┌" : y === box.bottom ? "└" : "│"));
     for (const y of [box.top, box.bottom]) {
       // The rule already runs to the border from the lists' first column.
       const end = y === rule ? 1 + lists_x : v.width - 1;
-      w.write(`\x1b[${y + 1};2H` + "─".repeat(sat(end, 1)));
+      w.write(w.cup(y + 1, 2) + "─".repeat(sat(end, 1)));
       if (y !== rule) w.write(y === v.rows - 1 ? "┘" : y > 0 ? "┤" : "┐");
     }
     w.write("\x1b[0m");
@@ -1107,13 +1104,13 @@ export class View {
   /** The title row and the workspace list above the agents. */
   private drawWorkspaces(w: Writer, workspaces: WorkspaceEntry[]): void {
     const v = this;
-    w.write(`\x1b[1;${v.width - 4}H${panel} < `);
+    w.write(`${w.cup(1, v.width - 4)}${panel} < `);
     if (v.corgi_badge !== "none") {
-      if (v.corgi_badge === "emoji") w.write(`\x1b[1;2H${panel}${corgiBadge.emoji}`);
-      w.write("\x1b[1;6H\x1b[1m" + fg("strong"));
+      if (v.corgi_badge === "emoji") w.write(`${w.cup(1, 2)}${panel}${corgiBadge.emoji}`);
+      w.write(`${w.cup(1, 6)}\x1b[1m` + fg("strong"));
       writeEllipsis(w, "workspaces", sat(v.width, 17));
     } else v.line(w, 0, "workspaces", "\x1b[1m" + fg("strong"));
-    w.write(`\x1b[1;${v.width - 10}H` + button + `[ + ]${panel}`);
+    w.write(w.cup(1, v.width - 10) + button + `[ + ]${panel}`);
     const shown = workspaces.slice(
       v.workspace_offset,
       Math.min(workspaces.length, v.workspace_offset + v.workspaceCapacity()),
@@ -1126,30 +1123,30 @@ export class View {
       const meta = tinted ? active_meta : panel;
       // The dragged workspace takes the selected tint and a strong bar, like a dragged agent row.
       const bar = ghost ? ghost_bar : active_bar;
-      w.write(`\x1b[${y + 1};1H${style}`);
+      w.write(`${w.cup(y + 1, 1)}${style}`);
       w.splat(" ", v.width - 1);
       const badge = gitLabel(ws, false);
       const badge_width = displayWidth(badge);
-      w.write(`\x1b[${y + 1};2H${style}`);
+      w.write(`${w.cup(y + 1, 2)}${style}`);
       const link = linkRange(v, ws, workspaces);
       writeClipped(w, directoryLabel(ws.name, null, 4097), sat(link.start, 2));
       if (link.end > link.start) {
-        w.write(`\x1b[${y + 1};${link.start + 1}H`);
+        w.write(w.cup(y + 1, link.start + 1));
         drawPorts(w, ws, link.end - link.start, false);
       }
-      if (badge_width > 0) w.write(`\x1b[${y + 1};${v.width - 1 - badge_width}H${gitColor(ws.git_push.phase)}${badge}`);
+      if (badge_width > 0) w.write(`${w.cup(y + 1, v.width - 1 - badge_width)}${gitColor(ws.git_push.phase)}${badge}`);
       if (tinted) {
-        w.write(`\x1b[${y + 2};1H${meta}`);
+        w.write(`${w.cup(y + 2, 1)}${meta}`);
         w.splat(" ", v.width - 1);
       }
       const divider = index + 1 < Math.min(workspaces.length - v.workspace_offset, v.workspaceCapacity());
       // Without a resource row, the separator underlines the status row,
       // text included, as between agents.
       const rule = divider && v.workspaceRows() === 2 ? rule_underline : "";
-      w.write(`\x1b[${y + 2};2H${meta}${rule}`);
+      w.write(`${w.cup(y + 2, 2)}${meta}${rule}`);
       if (rule.length > 0) {
         w.splat(" ", v.width - 3);
-        w.write(`\x1b[${y + 2};2H`);
+        w.write(w.cup(y + 2, 2));
       }
       const tools = compactCount(ws.stats.tools);
       const unread = ws.unread > 0 ? `${compactCount(ws.unread)} unread →` : "";
@@ -1174,33 +1171,33 @@ export class View {
       }
       if (ws.unread > 0) {
         if (has_status) w.write(tinted ? "\x1b[22m" + fg("muted") + " · " : "\x1b[22m" + fg("faint") + " · ");
-        w.write(`\x1b[${y + 2};${v.unreadRange(ws).start + 1}H`);
+        w.write(w.cup(y + 2, v.unreadRange(ws).start + 1));
         const unread_room = { value: unread_width };
         statusPart(w, unread, "\x1b[1m" + fg("accent"), unread_room);
       }
       const worktree_label = worktreeLabel(ws);
       if (worktree_label)
-        w.write(`\x1b[${y + 2};${v.width - 1 - displayWidth(worktree_label)}H${meta}${rule}${worktree_label}`);
-      else if (ws.stats.tools > 0) w.write(`\x1b[${y + 2};${v.width - 1 - metadata_width}H${meta}${rule}${metadata}`);
-      if (tinted) for (const row of [y + 1, y + 2]) w.write(`\x1b[${row};1H${bar}`);
+        w.write(`${w.cup(y + 2, v.width - 1 - displayWidth(worktree_label))}${meta}${rule}${worktree_label}`);
+      else if (ws.stats.tools > 0) w.write(`${w.cup(y + 2, v.width - 1 - metadata_width)}${meta}${rule}${metadata}`);
+      if (tinted) for (const row of [y + 1, y + 2]) w.write(`${w.cup(row, 1)}${bar}`);
       w.write(panel);
       if (v.workspaceRows() === 3 && y + 2 < v.workspaceEnd()) {
         if (tinted) {
-          w.write(`\x1b[${y + 3};1H${meta}`);
+          w.write(`${w.cup(y + 3, 1)}${meta}`);
           w.splat(" ", v.width - 1);
         }
-        w.write(`\x1b[${y + 3};2H${meta}`);
+        w.write(`${w.cup(y + 3, 2)}${meta}`);
         if (divider) w.write(rule_underline);
         drawResources(w, ws.resources, v, v.resource_hover === ws.id, tinted);
         w.write("\x1b[24;59m");
         w.write(panel);
-        if (tinted) w.write(`\x1b[${y + 3};1H${bar}${panel}`);
+        if (tinted) w.write(`${w.cup(y + 3, 1)}${bar}${panel}`);
       }
     });
     const ws_thumb = v.workspaceThumb();
     if (ws_thumb)
       for (let row = ws_thumb.start; row < ws_thumb.start + ws_thumb.len; row++)
-        w.write(`\x1b[${3 + row};${v.width}H` + v.thumbStyle("workspaces") + "┃");
+        w.write(w.cup(3 + row, v.width) + v.thumbStyle("workspaces") + "┃");
   }
   /** The agent list below its header. */
   private drawAgents(w: Writer, entries: Entry[], now_ms: number): void {
@@ -1235,7 +1232,7 @@ export class View {
     const dimmed = unlit(entries, v.spotlight);
     const pinned = v.pinned(v.offset);
     pinned.forEach((i, n) => {
-      const out = dimmed[i] ? new Writer() : w;
+      const out = dimmed[i] ? new Writer(w.column) : w;
       heading(out, i, next_y, n === pinned.length - 1);
       if (out !== w) writeExit(w, out.buffered(), spotlight_dim);
       next_y += 1;
@@ -1259,7 +1256,7 @@ export class View {
     order.forEach(index => {
       const e = visible[index];
       const absolute = v.offset + index;
-      const exit_writer = new Writer();
+      const exit_writer = new Writer(w.column);
       // A row that moved to another group rides a tint from where it was
       // and shows as the tint lands. Without Kitty graphics, the tint stays
       // where it lands.
@@ -1292,7 +1289,7 @@ export class View {
       if (gliding) {
         const from = list_top + moved.from - v.rowsBefore(v.offset);
         glide = rowGlide.place(
-          0,
+          w.column,
           rowGlide.position(from, top, moved.ms),
           v.width - 1,
           View.height(e),
@@ -1335,7 +1332,7 @@ export class View {
     const t = v.thumb();
     if (t)
       for (let row = t.start; row < t.start + t.len; row++)
-        w.write(`\x1b[${v.middle() + 3 + row};${v.width}H` + v.thumbStyle("agents") + "┃");
+        w.write(w.cup(v.middle() + 3 + row, v.width) + v.thumbStyle("agents") + "┃");
     w.write("\x1b[0m");
   }
   /** The small glyph beside an agent's detail line: a wait clock, an active
@@ -1368,7 +1365,7 @@ export class View {
     const row_bg = selected ? selected_bg : hovered ? hover_bg : bg("bg");
     for (let row = 0; row < 2; row++) {
       if (y + row >= v.listEnd()) break;
-      w.write(`\x1b[${y + row + 1};${x + 1}H\x1b[0m${row_bg}`);
+      w.write(`${w.cup(y + row + 1, x + 1)}\x1b[0m${row_bg}`);
       w.splat(" ", v.width - 1);
     }
     if (grouped) {
@@ -1378,14 +1375,14 @@ export class View {
       const rail = e.focused ? new Style({ fg: "accent" }).sgr() : new Style({ fg: "line" }).sgr();
       const branch = e.focused ? "┣" : last_in_group ? "╰" : "├";
       const through = e.focused || !last_in_group;
-      w.write(`\x1b[${y + 1};${x + 1}H${rail}${row_bg}${branch}`);
-      if (through && y + 1 < v.listEnd()) w.write(`\x1b[${y + 2};${x + 1}H${e.focused ? "┃" : "│"}`);
+      w.write(`${w.cup(y + 1, x + 1)}${rail}${row_bg}${branch}`);
+      if (through && y + 1 < v.listEnd()) w.write(`${w.cup(y + 2, x + 1)}${e.focused ? "┃" : "│"}`);
       w.write(`\x1b[0m${row_bg}`);
     }
     const dot = indicator(e, selected);
     // At work but waiting on the user: its name takes the needs-input color.
     const waits = e.section !== null && (e.state === "blocked" || e.attention === "needs_input");
-    w.write(`\x1b[${y + 1};${x + 2}H\x1b[22m${dot.color}${dot.icon}`);
+    w.write(`${w.cup(y + 1, x + 2)}\x1b[22m${dot.color}${dot.icon}`);
     const room = v.width - 6;
     // Within a group, a dotted line under the text separates agents. Only
     // Kitty-graphics hosts get it; elsewhere the style could degrade to a
@@ -1399,7 +1396,6 @@ export class View {
     // Without sleeping corgis, a dim Z marks an idle agent; unseen ones are
     // brighter. Selected rows take muted, as faint is too dim on them.
     const napping = e.state === "idle" && v.corgi_intensity === 0;
-    const activity = View.activityGlyph(e, waiting, napping, corgiAnimation.spinner(compacting, now_ms));
     const activity_color = selected
       ? "\x1b[22m" + fg("muted")
       : napping && e.attention !== "finished"
@@ -1411,7 +1407,7 @@ export class View {
     const notes = e.notes > 0 ? `${e.notes} note${e.notes === 1 ? "" : "s"}` : "";
     const right = figure_width + (figure_width > 0 ? 1 : 0) + (notes.length > 0 ? notes.length + 1 : 0);
     w.write(
-      `\x1b[${y + 1};${x + 5}H${
+      `${w.cup(y + 1, x + 5)}${
         waits
           ? "\x1b[1m" + fg("warm")
           : dot.unread || (grouped && e.focused)
@@ -1423,20 +1419,12 @@ export class View {
     w.write("\x1b[22m");
     // Unsent review notes wait for the user, so they take warm.
     if (notes.length > 0 && room > right + 4)
-      w.write(`\x1b[${y + 1};${x + v.width - right}H\x1b[1m${fg("warm")}${notes}\x1b[22m`);
+      w.write(`${w.cup(y + 1, x + v.width - right)}\x1b[1m${fg("warm")}${notes}\x1b[22m`);
     if (figure) {
-      w.write(`\x1b[${y + 1};${x + v.width - 1 - figure_width}H`);
+      w.write(w.cup(y + 1, x + v.width - 1 - figure_width));
       w.write(fgRgb(figure.color));
       w.write(figure.text);
     }
-    // Underline the existing second row, including its padding, without
-    // consuming another terminal row or changing the entry hit area.
-    w.write(`\x1b[${y + 2};${x + underline_x}H${line}`);
-    w.splat(" ", v.width - 1 - underline_x);
-    w.write(
-      `\x1b[${y + 2};${x + 2}H${dotted ? "\x1b[24m" : ""}${activity_color}${activity}\x1b[${y + 2};${x + 5}H${dotted ? line : ""}` +
-        fg("text"),
-    );
     const detail = compacting
       ? "Compacting…"
       : waiting
@@ -1464,6 +1452,16 @@ export class View {
         : e.state === "idle" && v.corgi_intensity > 0
           ? "asleep"
           : "content";
+    const detail_text = detail.length === 0 ? "" : directoryLabel(detail, null, 512);
+    const activity = View.activityGlyph(e, waiting, napping, corgiAnimation.spinner(compacting, now_ms));
+    // Underline the existing second row, including its padding, without
+    // consuming another terminal row or changing the entry hit area.
+    w.write(`${w.cup(y + 2, x + underline_x)}${line}`);
+    w.splat(" ", v.width - 1 - underline_x);
+    w.write(
+      `${w.cup(y + 2, x + 2)}${dotted ? "\x1b[24m" : ""}${activity_color}${activity}${w.cup(y + 2, x + 5)}${dotted ? line : ""}` +
+        fg("text"),
+    );
     const presentation = corgiAnimation.observe(
       animation_key,
       mode,
@@ -1488,18 +1486,17 @@ export class View {
       // Interrupts already switch straight to the sleeping mode.
       if (e.state !== "working" && presentation) presentation.skipReveal();
       // No detail stays blank; directoryLabel would print "?" for it.
-      const text = detail.length === 0 ? "" : directoryLabel(detail, null, 512);
       if (presentation !== null && presentation.reveal_started_ms !== null) {
         w.write(presentation.writeCorgi(detail_room, now_ms, e.state === "working", sleep));
-        w.write(`\x1b[${y + 2};${x + 5}H` + fg("text"));
+        w.write(w.cup(y + 2, x + 5) + fg("text"));
         writeRevealedDetail(
           w,
-          text,
+          detail_text,
           detail_room,
           presentation.revealedColumns(detail_room, now_ms),
           presentation.revealPosition(detail_room, now_ms),
         );
-      } else writeEllipsis(w, text, detail_room);
+      } else writeEllipsis(w, detail_text, detail_room);
     }
     // Once the corgi has curled up, the compaction's time so far sits at the right.
     const took = herding && e.compacting_since > 0 ? elapsed(now_ms - e.compacting_since / 1000) : "";
@@ -1509,15 +1506,15 @@ export class View {
       displayWidth(detail) + 1 + took_width <= detail_room &&
       presentation!.herded(detail_room, now_ms)
     )
-      w.write(`\x1b[${y + 2};${x + 5 + detail_room - took_width}H${selected ? fg("muted") : fg("faint")}${took}`);
+      w.write(`${w.cup(y + 2, x + 5 + detail_room - took_width)}${selected ? fg("muted") : fg("faint")}${took}`);
     if (badge_width > 0) {
       const color = e.subagents.blocked > 0 ? fg("warm") : fg("accent");
-      w.write(`\x1b[${y + 2};${x + v.width - 1 - badge_width}H${color}${badge}`);
+      w.write(`${w.cup(y + 2, x + v.width - 1 - badge_width)}${color}${badge}`);
     }
     w.write("\x1b[24;59m");
     // Without the group rail, the focused agent takes the active workspace's bar.
     const bar = ghost ? ghost_bar : e.focused && !grouped ? active_bar : "";
-    if (bar.length > 0) for (let row = 0; row < 2; row++) w.write(`\x1b[${y + row + 1};${x + 1}H${bar}\x1b[0m`);
+    if (bar.length > 0) for (let row = 0; row < 2; row++) w.write(`${w.cup(y + row + 1, x + 1)}${bar}\x1b[0m`);
   }
   /** A workspace or worktree group's header. A worktree's under a workspace
    * branches off the workspace's rail with `lead`; a ghost's leaves that
@@ -1527,35 +1524,35 @@ export class View {
     const g = e.group;
     const row_bg = e.focused ? selected_bg : bg("bg");
     // Pinned, it underlines its row where the list scrolls beneath.
-    w.write(`\x1b[${y + 1};1H\x1b[0m${row_bg}${stuck ? rule_underline : ""}`);
+    w.write(`${w.cup(y + 1, 1)}\x1b[0m${row_bg}${stuck ? rule_underline : ""}`);
     w.splat(" ", v.width - 1);
-    if (lead.length > 0) w.write(`\x1b[${y + 1};1H` + fg("line") + lead);
+    if (lead.length > 0) w.write(w.cup(y + 1, 1) + fg("line") + lead);
     const arrow_x = lead.length;
-    w.write(`\x1b[${y + 1};${arrow_x + 1}H` + fg("muted") + (g.folded ? "▸" : "▾"));
+    w.write(w.cup(y + 1, arrow_x + 1) + fg("muted") + (g.folded ? "▸" : "▾"));
     // Its agents by state, as the worktree overview counts them.
     const bars = histogram(g);
     const status_width = bars.reduce((n, [text]) => n + displayWidth(text), 0);
     const status_x = sat(v.width, status_width > 0 ? status_width + 2 : 1);
     if (status_width > 0) {
-      w.write(`\x1b[${y + 1};${status_x + 1}H`);
+      w.write(w.cup(y + 1, status_x + 1));
       for (const [text, token, bold] of bars) w.write((bold ? "\x1b[1m" : "\x1b[22m") + fg(token) + text);
       w.write("\x1b[22m");
     }
     let name_x = arrow_x + 2;
     if ("worktree" in e.target) {
-      w.write(`\x1b[${y + 1};${name_x + 1}H` + fg("faint") + "⌥");
+      w.write(w.cup(y + 1, name_x + 1) + fg("faint") + "⌥");
       name_x += 2;
     }
     // Name, then a rule that leaves one space on each side.
     const text = directoryLabel(e.name, null, 160);
     const name_room = sat(status_x, name_x + 3);
-    w.write(`\x1b[${y + 1};${name_x + 1}H${g.current ? "\x1b[1m" + fg("strong") : "\x1b[1m" + fg("text")}`);
+    w.write(`${w.cup(y + 1, name_x + 1)}${g.current ? "\x1b[1m" + fg("strong") : "\x1b[1m" + fg("text")}`);
     writeEllipsis(w, text, name_room);
     const name_end = name_x + Math.min(displayWidth(text), name_room);
     if (status_x > name_end + 2) {
       // A heavy, bright rule so each header stands out from its agents; a
       // worktree inside a workspace takes a thin one.
-      w.write(`\x1b[${y + 1};${name_end + 2}H\x1b[22m` + (lead.length > 0 ? fg("line") : fg("muted")));
+      w.write(`${w.cup(y + 1, name_end + 2)}\x1b[22m` + (lead.length > 0 ? fg("line") : fg("muted")));
       w.write((lead.length > 0 ? "─" : "━").repeat(Math.max(0, status_x - 1 - (name_end + 1))));
     }
     w.write("\x1b[22;24;59m");
@@ -1566,7 +1563,7 @@ export class View {
     const v = this;
     const look = sections[kind];
     const row_bg = e.focused ? selected_bg : bg("bg");
-    w.write(`\x1b[${y + 1};1H\x1b[0m${row_bg}${stuck ? rule_underline : ""}`);
+    w.write(`${w.cup(y + 1, 1)}\x1b[0m${row_bg}${stuck ? rule_underline : ""}`);
     w.splat(" ", v.width - 1);
     // The rules run from column 1 to just before the caret, a space apart from the middle.
     const caret_x = sat(v.width, 2),
@@ -1577,26 +1574,26 @@ export class View {
       middle = 2 + label + 1 + displayWidth(count),
       left = Math.floor(sat(room, middle + 2) / 2),
       right = sat(room, middle + 2) - left;
-    w.write(`\x1b[${y + 1};2H\x1b[22m${fg("line")}${"━".repeat(left)} `);
+    w.write(`${w.cup(y + 1, 2)}\x1b[22m${fg("line")}${"━".repeat(left)} `);
     w.write(`\x1b[1m${fg(look.token)}${look.glyph} ${e.focused ? fg("strong") : fg("text")}`);
     writeEllipsis(w, look.label, label_room);
     w.write(`\x1b[22m ${fg("muted")}${count} ${fg("line")}${"━".repeat(right)}`);
-    w.write(`\x1b[${y + 1};${caret_x + 1}H${fg("faint")}${e.group.folded ? "▸" : "▾"}`);
+    w.write(`${w.cup(y + 1, caret_x + 1)}${fg("faint")}${e.group.folded ? "▸" : "▾"}`);
     w.write("\x1b[22;24;59m");
   }
   /** A worktree's rows in a section, or a workspace's in "all": " ⌥  release ┄┄┄┄". */
   drawSubhead(w: Writer, e: Entry, y: number, stuck: boolean): void {
     const v = this;
     const row_bg = e.focused ? selected_bg : bg("bg");
-    w.write(`\x1b[${y + 1};1H\x1b[0m${row_bg}${stuck ? rule_underline : ""}`);
+    w.write(`${w.cup(y + 1, 1)}\x1b[0m${row_bg}${stuck ? rule_underline : ""}`);
     w.splat(" ", v.width - 1);
-    if (e.group.branch) w.write(`\x1b[${y + 1};2H${fg("faint")}⌥`);
-    w.write(`\x1b[${y + 1};5H${e.focused ? fg("muted") : fg("faint")}`);
+    if (e.group.branch) w.write(`${w.cup(y + 1, 2)}${fg("faint")}⌥`);
+    w.write(`${w.cup(y + 1, 5)}${e.focused ? fg("muted") : fg("faint")}`);
     const room = sat(v.width, 8);
     const text = directoryLabel(e.name, null, 160);
     writeEllipsis(w, text, room);
     const end = 4 + Math.min(displayWidth(text), room);
-    if (v.width - 2 > end + 1) w.write(`\x1b[${y + 1};${end + 2}H${fg("line")}${"┄".repeat(v.width - 2 - end - 1)}`);
+    if (v.width - 2 > end + 1) w.write(`${w.cup(y + 1, end + 2)}${fg("line")}${"┄".repeat(v.width - 2 - end - 1)}`);
     w.write("\x1b[22;24;59m");
   }
   drawGhost(w: Writer, e: Entry, y: number): void {
@@ -1605,11 +1602,11 @@ export class View {
       height = View.height(e),
       right = this.width - 2;
     for (let row = y; row < Math.min(y + height, this.listEnd()); row++) {
-      w.write(`\x1b[${row + 1};1H${style}┊\x1b[${row + 1};${right + 1}H┊`);
+      w.write(`${w.cup(row + 1, 1)}${style}┊${w.cup(row + 1, right + 1)}┊`);
     }
-    if ("worktree" in e.target) w.write(`\x1b[${y + 1};1H${style}╭${"┄".repeat(right - 1)}╮`);
+    if ("worktree" in e.target) w.write(`${w.cup(y + 1, 1)}${style}╭${"┄".repeat(right - 1)}╮`);
     if (e.worktree.end && y + height <= this.listEnd())
-      w.write(`\x1b[${y + height};1H${style}╰${"┄".repeat(right - 1)}╯`);
+      w.write(`${w.cup(y + height, 1)}${style}╰${"┄".repeat(right - 1)}╯`);
   }
   scopeStart(): number {
     if (this.framed()) return this.lists().scopeStart() + lists_x;
@@ -1631,7 +1628,7 @@ export class View {
   drawScope(w: Writer): void {
     const v = this;
     if (v.middle() >= v.rows - 1) return;
-    w.write(`\x1b[${v.middle() + 1};2H\x1b[1m` + fg("strong"));
+    w.write(`${w.cup(v.middle() + 1, 2)}\x1b[1m` + fg("strong"));
     // Stop before the New button's leading space.
     const room = sat(v.width, 11);
     writeClipped(w, "agents", room);
@@ -1644,7 +1641,7 @@ export class View {
   }
   line(w: Writer, y: number, text: string, style: string): void {
     if (y >= this.rows) return;
-    w.write(`\x1b[${y + 1};2H${style}`);
+    w.write(`${w.cup(y + 1, 2)}${style}`);
     writeClipped(w, text, this.width - 3);
   }
 }
@@ -2199,10 +2196,10 @@ export class PortMenu {
     const rect = PortMenu.bounds(cols, rows);
     if (rect.w < 8 || rect.h < 4) return;
     for (let row = 0; row < rect.h; row++) {
-      w.write(`\x1b[${rect.y + row + 1};${rect.x + 1}H` + new Style({ fg: "muted", bg: "surface" }).sgr());
+      w.write(w.cup(rect.y + row + 1, rect.x + 1) + new Style({ fg: "muted", bg: "surface" }).sgr());
       w.splat(" ", rect.w);
     }
-    w.write(`\x1b[${rect.y + 1};${rect.x + 2}H`);
+    w.write(w.cup(rect.y + 1, rect.x + 2));
     writeClipped(w, "Links · Esc to close", rect.w - 2);
     const count = urlCount(ws);
     const selected = Math.min(this.selected, sat(count, 1));
@@ -2211,7 +2208,7 @@ export class PortMenu {
       const url = workspaceUrl(ws, index);
       if (url === null) continue;
       w.write(
-        `\x1b[${rect.y + 3 + index - offset};${rect.x + 1}H${index === selected ? fg("text") + selected_bg : fg("text") + bg("surface")} ${index === selected ? "›" : " "} \x1b]8;id=corgi-popup-${ws.id}-${index};${url}\x1b\\`,
+        `${w.cup(rect.y + 3 + index - offset, rect.x + 1)}${index === selected ? fg("text") + selected_bg : fg("text") + bg("surface")} ${index === selected ? "›" : " "} \x1b]8;id=corgi-popup-${ws.id}-${index};${url}\x1b\\`,
       );
       const name = workspaceUrlName(ws, index);
       const naming = name.length === 0 && workspaceUrlPending(ws, index);
@@ -2287,7 +2284,7 @@ export function drawGitAction(w: Writer, v: View, workspaces: WorkspaceEntry[], 
           ? new Style({ fg: "hot", bg: "selected", bold: true }).sgr()
           : new Style({ fg: "accent", bg: "selected", bold: true }).sgr();
     w.write(
-      `\x1b]8;;\x1b\\\x1b[${3 + i * v.workspaceRows()};${v.width - 1 - displayWidth(label)}H${style}${label}\x1b[0m`,
+      `\x1b]8;;\x1b\\${w.cup(3 + i * v.workspaceRows(), v.width - 1 - displayWidth(label))}${style}${label}\x1b[0m`,
     );
     return;
   }
@@ -2316,7 +2313,7 @@ class DiffColumns {
     if (diff.files === 0) return;
     const pad = (text: string, size: number) => " ".repeat(Math.max(0, size - displayWidth(text))) + text;
     w.write(
-      `\x1b[22m\x1b[${y};${x}H` +
+      `\x1b[22m${w.cup(y, x)}` +
         fg("muted") +
         pad(compactCount(diff.files), this.files) +
         (diff.files === 1 ? " file   " : " files  ") +
@@ -2357,13 +2354,13 @@ function drawGitError(w: Writer, message: string, cols: number, rows: number, px
   const y = Math.min(py + 1, rows - 1 - height);
   w.write("\x1b7\x1b]8;;\x1b\\");
   for (let row = 0; row < height; row++) {
-    w.write(`\x1b[${y + row + 1};${x + 1}H` + new Style({ fg: "hot", bg: "bg" }).sgr());
+    w.write(w.cup(y + row + 1, x + 1) + new Style({ fg: "hot", bg: "bg" }).sgr());
     w.write(row === 0 ? "╭" : row === height - 1 ? "╰" : "│");
     w.write((row === 0 || row === height - 1 ? "─" : " ").repeat(width - 2));
     w.write(row === 0 ? "╮" : row === height - 1 ? "╯" : "│");
   }
-  w.write(`\x1b[${y + 2};${x + 3}H\x1b[1mPush failed\x1b[22m`);
-  lines.forEach((line, i) => w.write(`\x1b[${y + 3 + i};${x + 3}H${line}`));
+  w.write(`${w.cup(y + 2, x + 3)}\x1b[1mPush failed\x1b[22m`);
+  lines.forEach((line, i) => w.write(`${w.cup(y + 3 + i, x + 3)}${line}`));
   w.write("\x1b[0m\x1b8");
   return new Rect(x, y, width, height);
 }
@@ -2387,7 +2384,7 @@ export function drawGitTooltip(
   const lit = (row: number) => bg(row === selected ? "selected" : "bg");
   w.write("\x1b7\x1b]8;;\x1b\\");
   for (let row = 0; row < height; row++) {
-    w.write(`\x1b[${y + row + 1};${x + 1}H` + new Style({ fg: "line", bg: "bg" }).sgr());
+    w.write(w.cup(y + row + 1, x + 1) + new Style({ fg: "line", bg: "bg" }).sgr());
     w.write(row === 0 ? "╭" : row === height - 1 ? "╰" : "│");
     const item = row === 1 ? 0 : row >= 2 && row < 2 + count * 2 ? Math.floor((row - 2) / 2) + 1 : null;
     if (item !== null) w.write(lit(item));
@@ -2397,7 +2394,7 @@ export function drawGitTooltip(
   }
   const columns = new DiffColumns([ws.git_diff, ...ws.git_commits.slice(0, count).map(item => item.diff)]);
   const header = columns.width(width - 16);
-  w.write(`\x1b[${y + 2};${x + 3}H\x1b[1m` + fg("strong") + lit(0));
+  w.write(`${w.cup(y + 2, x + 3)}\x1b[1m` + fg("strong") + lit(0));
   writeEllipsis(
     w,
     `↑ ${ws.git_ahead ?? 0} unpushed commit${ws.git_ahead === 1 ? "" : "s"}`,
@@ -2406,13 +2403,13 @@ export function drawGitTooltip(
   if (header > 0) columns.write(w, ws.git_diff, x + width - 1 - header, y + 2);
   ws.git_commits.slice(0, count).forEach((item, i) => {
     const base = new Style({ fg: "text", bg: "bg" }).sgr() + lit(i + 1);
-    w.write(`\x1b[${y + 3 + i * 2};${x + 3}H${base}` + fg("muted") + `${item.hash}  ` + fg("text"));
+    w.write(`${w.cup(y + 3 + i * 2, x + 3)}${base}` + fg("muted") + `${item.hash}  ` + fg("text"));
     writeEllipsis(w, item.subject, sat(width - 6, byteLength(item.hash)));
     const age = relativeTime(item.timestamp, Math.floor(Date.now() / 1000));
     const timing = `${item.date} · ${age}`;
     const stat = item.diff.files > 0 ? columns.width(sat(width - 8, displayWidth(timing) + 2)) : 0;
     if (stat > 0) columns.write(w, item.diff, x + width - 1 - stat, y + 4 + i * 2);
-    w.write(`\x1b[${y + 4 + i * 2};${x + 5}H` + fg("faint"));
+    w.write(w.cup(y + 4 + i * 2, x + 5) + fg("faint"));
     const author_room = Math.min(24, sat(width - 9 - (stat > 0 ? stat + 2 : 0), displayWidth(timing)));
     if (author_room > 0) {
       writeEllipsis(w, item.author, author_room);
@@ -2425,7 +2422,7 @@ export function drawGitTooltip(
     );
   });
   if (has_footer) {
-    w.write(`\x1b[${y + height - 1};${x + 3}H` + new Style({ fg: "faint", bg: "bg" }).sgr());
+    w.write(w.cup(y + height - 1, x + 3) + new Style({ fg: "faint", bg: "bg" }).sgr());
     const footer = ws.git_commits.length === 0 ? "Commit details unavailable" : `+${remaining} more`;
     writeEllipsis(w, footer, width - 4);
   }

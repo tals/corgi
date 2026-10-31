@@ -154,6 +154,27 @@ test("resizing discards old query measurements and asks again even with unchange
   expect(size.pixels(missing)).toBeNull();
 });
 
+test("size queries compare owned dimensions, including missing and mutated metadata", () => {
+  const size = new terminal_info.Size(),
+    current = { ...pty },
+    query = "\x1b[14t\x1b[16t";
+  expect(size.update(null)).toBe(query);
+  expect(size.update(null)).toBe("");
+  expect(size.update(current)).toBe(query);
+  expect(size.update({ height: current.height, width: current.width, rows: current.rows, cols: current.cols })).toBe(
+    "",
+  );
+  for (const field of ["cols", "rows", "width", "height"] as const) {
+    size.accept("\x1b[6;22;11t");
+    current[field] += 1;
+    expect(size.update(current)).toBe(query);
+    expect(size.pixels(null)).toBeNull();
+    expect(size.update({ ...current })).toBe("");
+  }
+  expect(size.update(null)).toBe(query);
+  expect(size.update(null)).toBe("");
+});
+
 test("a terminal that never answers measurement queries holds input only until it gives up", () => {
   const p = new terminal_info.Probe(),
     now = Date.now();

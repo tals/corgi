@@ -1,3 +1,4 @@
+import * as telemetry from "./telemetry";
 import { n, ptr, ReadyLoop, READ, WRITE } from "./native_bridge";
 import * as json from "./json";
 import type { Control } from "./protocol";
@@ -72,7 +73,9 @@ export class Client {
       this.arm();
       return;
     }
+    const encode_started = telemetry.begin();
     const bytes = Buffer.from(json.stringify(value) + "\n");
+    telemetry.end("wire.encode", encode_started, bytes.length);
     if (this.output.length - this.sent + bytes.length > 4 * 1024 * 1024) {
       this.close();
       return;

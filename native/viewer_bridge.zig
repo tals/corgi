@@ -35,7 +35,43 @@ pub export fn viewer_receive(t: *pane.Terminal, data: [*]const u8, len: usize) i
     for (frame.lines, 0..) |line, row| bytes.writer.print("\x1b[{d};1H{s}", .{ row + 1, line }) catch return -3;
     (if (frame.cursor) |cursor| bytes.writer.print("\x1b[{d};{d}H\x1b[?25h", .{ cursor.y + 1, cursor.x + 1 }) else bytes.writer.writeAll("\x1b[?25l")) catch return -3;
     t.feed(bytes.written());
-    const modes = view.modes;
+    installModes(t, view.modes);
+    t.installedRows(null) catch return -2;
+    return 0;
+}
+
+/// Positioned row bytes and cursor controls, without a JSON round trip.
+/// Bit positions follow Modes' boolean fields, with paste_events at bit 7.
+pub export fn viewer_receive_frame(t: *pane.Terminal, data: [*]const u8, len: usize, cols: u16, rows: u16, flags: u32, kitty: u32, mouse_event: u32, mouse_format: u32, full_reset: bool, dirty_rows: [*]const u16, dirty_count: usize) i32 {
+    if (flags > 255 or kitty > 31 or mouse_event > 4 or mouse_format > 4) return -1;
+    if (cols == 0 or rows == 0) return 1;
+    for (dirty_rows[0..dirty_count]) |row| if (row >= rows) return -1;
+    const external = t.viewer_installed_revision == null or t.viewer_installed_revision.? != t.surface_revision;
+    const resized = t.vt.cols != cols or t.vt.rows != rows;
+    if (!full_reset and resized) return -1;
+    if (full_reset) {
+        t.resize(cols, rows) catch return -2;
+        t.feed("\x1b[?7l\x1b[0m\x1b[H\x1b[2J");
+    }
+    t.feed(data[0..len]);
+    installModes(t, .{
+        .bracketed_paste = flags & 1 != 0,
+        .cursor_keys = flags & 2 != 0,
+        .keypad_keys = flags & 4 != 0,
+        .backarrow = flags & 8 != 0,
+        .numlock = flags & 16 != 0,
+        .alt_escape = flags & 32 != 0,
+        .modify_other = flags & 64 != 0,
+        .paste_events = flags & 128 != 0,
+        .kitty = @intCast(kitty),
+        .mouse_event = @enumFromInt(mouse_event),
+        .mouse_format = @enumFromInt(mouse_format),
+    });
+    t.installedRows(if (full_reset or external or resized) null else dirty_rows[0..dirty_count]) catch return -2;
+    return 0;
+}
+
+fn installModes(t: *pane.Terminal, modes: pane.surface.Modes) void {
     const screen_ = &t.vt;
     screen_.modes.set(.bracketed_paste, modes.bracketed_paste);
     screen_.modes.set(.kitty_paste_events, modes.paste_events);
@@ -48,7 +84,6 @@ pub export fn viewer_receive(t: *pane.Terminal, data: [*]const u8, len: usize) i
     screen_.screens.active.kitty_keyboard.set(.set, @bitCast(modes.kitty));
     screen_.flags.mouse_event = modes.mouse_event;
     screen_.flags.mouse_format = modes.mouse_format;
-    return 0;
 }
 
 pub export fn viewer_update_render(t: *pane.Terminal) i32 {

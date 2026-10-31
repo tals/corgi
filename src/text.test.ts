@@ -1,5 +1,40 @@
 import { expect, test } from "bun:test";
-import { shortPath } from "./text";
+import { Writer, shortPath } from "./text";
+
+test("positioned output scopes columns without changing buffer ownership", () => {
+  const writer = new Writer();
+  writer.write(writer.cup(2, 3) + "outside");
+  writer.withColumns(4, () => {
+    writer.write(writer.cup(2, 3) + "inside");
+    writer.withColumns(2, () => writer.write(writer.cup(3, 1)));
+    const faded = new Writer(writer.column);
+    faded.write(faded.cup(4, 2) + "temporary");
+    writer.write(faded.buffered());
+    writer.splat(".", 2);
+  });
+  writer.write(writer.cup(5, 1));
+  expect(writer.buffered()).toBe("\x1b[2;3Houtside\x1b[2;7Hinside\x1b[3;7H\x1b[4;6Htemporary..\x1b[5;1H");
+  expect(writer.column).toBe(0);
+  writer.withColumns(3, () => {
+    writer.clear();
+    writer.write(writer.cup(1, 1));
+  });
+  expect(writer.s).toBe("\x1b[1;4H");
+  expect(writer.column).toBe(0);
+});
+
+test("positioned output restores the origin when drawing throws", () => {
+  const writer = new Writer(7);
+  expect(() =>
+    writer.withColumns(3, () => {
+      writer.write(writer.cup(1, 1));
+      throw Error("InterruptedDraw");
+    }),
+  ).toThrow("InterruptedDraw");
+  expect(writer.column).toBe(7);
+  writer.write(writer.cup(2, 1));
+  expect(writer.s).toBe("\x1b[1;11H\x1b[2;8H");
+});
 
 test("a short path keeps its first two components, then its last, then those nearest the last", () => {
   expect(shortPath("./.claude/worktrees/bonus-round", 40)).toBe("./.claude/worktrees/bonus-round");

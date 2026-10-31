@@ -1,3 +1,4 @@
+import * as telemetry from "../telemetry";
 import type { Runtime } from "../runtime";
 import { open, lstat } from "node:fs/promises";
 import { constants } from "node:fs";
@@ -95,92 +96,112 @@ export class Tail {
     if (id && id !== "<synthetic>") this.model = Model.resolve(id);
   }
   ingest(req: Request, reader: TranscriptReader, bytes: Buffer | string, start_offset: number) {
-    if (adapter(req.agent.provider!).caps.prompt_turns) this.progress.bind(req.agent.turnId());
-    const input = typeof bytes === "string" ? Buffer.from(bytes) : bytes,
-      found = new Counts();
-    let start = 0;
-    while (start < input.length) {
-      const at = input.indexOf(10, start),
-        complete = at >= 0,
-        end = complete ? at : input.length,
-        segment = input.subarray(start, end);
-      start = end + Number(complete);
-      if (!this.discard && this.partial.length + segment.length > 1024 * 1024) {
-        this.live.meter.lose();
-        this.partial = Buffer.alloc(0);
-        this.discard = true;
-      }
-      if (!this.discard) this.partial = Buffer.concat([this.partial, segment]);
-      if (!complete) continue;
-      if (!this.discard)
-        try {
-          const value = parse(this.partial.toString()),
-            appended = start_offset + start > this.initial_until,
-            stamp = timestampMs(str(value, "timestamp")),
-            delta = reader.record(this, req, value, appended, stamp);
-          if (appended && stamp !== null && stamp > req.since) found.add(delta);
-        } catch {
+    const telemetry_started = telemetry.begin();
+    try {
+      if (adapter(req.agent.provider!).caps.prompt_turns) this.progress.bind(req.agent.turnId());
+      const input = typeof bytes === "string" ? Buffer.from(bytes) : bytes,
+        found = new Counts();
+      let start = 0;
+      while (start < input.length) {
+        const at = input.indexOf(10, start),
+          complete = at >= 0,
+          end = complete ? at : input.length,
+          segment = input.subarray(start, end);
+        start = end + Number(complete);
+        if (!this.discard && this.partial.length + segment.length > 1024 * 1024) {
           this.live.meter.lose();
+          this.partial = Buffer.alloc(0);
+          this.discard = true;
         }
-      this.partial = Buffer.alloc(0);
-      this.discard = false;
+        if (!this.discard) this.partial = Buffer.concat([this.partial, segment]);
+        if (!complete) continue;
+        if (!this.discard)
+          try {
+            const value = parse(this.partial.toString()),
+              appended = start_offset + start > this.initial_until,
+              stamp = timestampMs(str(value, "timestamp")),
+              delta = reader.record(this, req, value, appended, stamp);
+            if (appended && stamp !== null && stamp > req.since) found.add(delta);
+          } catch {
+            this.live.meter.lose();
+          }
+        this.partial = Buffer.alloc(0);
+        this.discard = false;
+      }
+      return found;
+    } finally {
+      telemetry.end("agent.usage.ingest", telemetry_started);
     }
-    return found;
   }
   async poll(req: Request, reader: TranscriptReader) {
-    const file = await open(
-      req.agent.transcriptPath(),
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-    );
+    const telemetry_started = telemetry.begin();
     try {
-      const stat = await file.stat(),
-        named = await lstat(req.agent.transcriptPath());
-      if (!stat.isFile()) throw Error("NotRegular");
-      const resumed =
-        this.inode !== 0 && stat.ino === this.inode && stat.dev === this.device && stat.size >= this.offset;
-      if (!resumed) {
-        const first = await head(file);
-        adapter(req.agent.provider!).transcript?.verify?.(first, req.agent.sessionId());
-        const carried = this.carried,
-          continues =
-            carried !== null &&
-            stat.ino === carried.inode &&
-            stat.dev === carried.device &&
-            stat.size >= carried.offset;
-        this.carried = null;
-        this.initial_until = continues ? carried.offset : stat.size;
-        this.offset = Math.max(0, this.initial_until - 256 * 1024);
-        const catch_up = req.child && !this.opened && stat.size <= 2 * 1024 * 1024;
-        if (catch_up) this.offset = 0;
-        this.catch_up = catch_up;
-        const retained = this.live.meter;
-        this.live = new Counter();
-        if (!continues) {
-          this.live.meter = retained;
-          if (this.opened) this.live.meter.lose();
+      const current = await lstat(req.agent.transcriptPath());
+      // At EOF, historical counts survive revoked read access until more bytes need reading.
+      if (
+        this.inode !== 0 &&
+        current.isFile() &&
+        current.ino === this.inode &&
+        current.dev === this.device &&
+        current.size === this.offset
+      )
+        return new Counts();
+      const file = await open(
+        req.agent.transcriptPath(),
+        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      );
+      try {
+        const stat = await file.stat(),
+          named = await lstat(req.agent.transcriptPath());
+        if (!stat.isFile()) throw Error("NotRegular");
+        const resumed =
+          this.inode !== 0 && stat.ino === this.inode && stat.dev === this.device && stat.size >= this.offset;
+        if (!resumed) {
+          const first = await head(file);
+          adapter(req.agent.provider!).transcript?.verify?.(first, req.agent.sessionId());
+          const carried = this.carried,
+            continues =
+              carried !== null &&
+              stat.ino === carried.inode &&
+              stat.dev === carried.device &&
+              stat.size >= carried.offset;
+          this.carried = null;
+          this.initial_until = continues ? carried.offset : stat.size;
+          this.offset = Math.max(0, this.initial_until - 256 * 1024);
+          const catch_up = req.child && !this.opened && stat.size <= 2 * 1024 * 1024;
+          if (catch_up) this.offset = 0;
+          this.catch_up = catch_up;
+          const retained = this.live.meter;
+          this.live = new Counter();
+          if (!continues) {
+            this.live.meter = retained;
+            if (this.opened) this.live.meter.lose();
+          }
+          this.opened = true;
+          this.partial = Buffer.alloc(0);
+          this.tracker = new Tracker();
+          this.progress = new Tools();
+          this.context = new Reading();
+          reader.open(this, req, first, catch_up);
+          // The carried count already covers the file up to initial_until; opening readies a new one.
+          if (continues) this.live.meter = retained;
+          this.discard = this.offset > 0;
         }
-        this.opened = true;
-        this.partial = Buffer.alloc(0);
-        this.tracker = new Tracker();
-        this.progress = new Tools();
-        this.context = new Reading();
-        reader.open(this, req, first, catch_up);
-        // The carried count already covers the file up to initial_until; opening readies a new one.
-        if (continues) this.live.meter = retained;
-        this.discard = this.offset > 0;
+        this.inode = stat.ino;
+        this.device = stat.dev;
+        if (!named.isFile() || named.ino !== this.inode || named.dev !== this.device || stat.size < this.offset)
+          throw Error("Replaced");
+        if (stat.size === this.offset) return new Counts();
+        const bytes = Buffer.alloc(65536),
+          start = this.offset,
+          { bytesRead } = await file.read(bytes, 0, bytes.length, this.offset);
+        this.offset += bytesRead;
+        return this.ingest(req, reader, bytes.subarray(0, bytesRead), start);
+      } finally {
+        await file.close();
       }
-      this.inode = stat.ino;
-      this.device = stat.dev;
-      if (!named.isFile() || named.ino !== this.inode || named.dev !== this.device || stat.size < this.offset)
-        throw Error("Replaced");
-      if (stat.size === this.offset) return new Counts();
-      const bytes = Buffer.alloc(65536),
-        start = this.offset,
-        { bytesRead } = await file.read(bytes, 0, bytes.length, this.offset);
-      this.offset += bytesRead;
-      return this.ingest(req, reader, bytes.subarray(0, bytesRead), start);
     } finally {
-      await file.close();
+      telemetry.end("agent.usage.poll", telemetry_started);
     }
   }
 }
@@ -239,13 +260,15 @@ export class Worker {
     return this.readers.get(p)!;
   }
   reconcile(runtime: Runtime) {
+    const telemetry_started = telemetry.begin();
     this.requests = [];
-    for (const id of this.watchers.keys()) if (!runtime.conversations.byId(id)) this.watchers.delete(id);
+    const actors = new Set<number>(runtime.conversations.items.map(actor => actor.id)),
+      followed = runtime.followed();
+    for (const id of this.watchers.keys()) if (!actors.has(id)) this.watchers.delete(id);
     for (const actor of runtime.conversations.items) {
       const agent = actor.state,
         reader = agent.provider ? this.reader(agent.provider) : null;
-      if (!reader || !agent.session.len || (!agent.transcript.len && !reader.name) || !runtime.followed(actor))
-        continue;
+      if (!reader || !agent.session.len || (!agent.transcript.len && !reader.name) || !followed.has(actor)) continue;
       const ws = runtime.workspaces.get(actor.workspace);
       if (!ws) continue;
       this.requests.push({
@@ -257,6 +280,7 @@ export class Worker {
         tracked_since: actor.tracked_since,
       });
     }
+    telemetry.end("agent.usage.reconcile", telemetry_started);
   }
   take() {
     const out = this.results;

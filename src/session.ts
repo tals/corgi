@@ -589,8 +589,9 @@ function build(r: Runtime, viewer: boolean) {
   // would then find nothing to raise, so the change is marked here.
   if (r.raiseEntered()) r.changed();
   const coarse = (s: number) => (s <= 0 ? s : Math.floor(s / 5000000) * 5000000);
+  const followed = viewer ? r.followed() : null;
   const conversations = r.conversations.items
-    .filter(a => !viewer || r.followed(a))
+    .filter(a => !followed || followed.has(a))
     .map((a: any) => {
       const usage = a.usageView?.(Date.now()) ?? {},
         out: any = {

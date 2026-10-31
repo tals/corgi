@@ -1,3 +1,4 @@
+import * as telemetry from "../telemetry";
 import { milliTimestamp } from "../clock";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -255,7 +256,8 @@ export function sockets(text: string, list: Process[], roots: Root[], all: Inter
 export async function procInventory(list: Process[], roots: Root[]): Promise<string> {
   const held: { process: Process; fds: [string, string][] }[] = [];
   for (const p of list) {
-    if (owner(p.pid, list, roots) === null) continue;
+    const root = owner(p.pid, list, roots);
+    if (!root || !workload(p, root)) continue;
     const dir = `/proc/${p.pid}/fd`;
     let entries: string[];
     try {
@@ -662,66 +664,72 @@ export class Tracker {
     return now - e.probed_at > wait;
   }
   async scan(paneText: (pane: number) => string) {
-    let list = process.platform === "linux" ? paneProcesses(this.roots) : null;
-    if (!list) {
-      const ps = await command(["ps", "-axo", "pid=,ppid=,pgid=,comm="], false, this.abort.signal);
-      if (ps === null) return;
-      list = processes(ps);
-    }
-    const all = interfaces(),
-      files =
-        process.platform === "linux"
-          ? await procInventory(list, this.roots).catch(() => null)
-          : await command(socketCommand(list, this.roots), true, this.abort.signal),
-      endpoints = files === null ? [] : sockets(files, list, this.roots, all),
-      works: Work[] = [],
-      now = milliTimestamp();
-    for (const root of this.roots) {
-      if (works.some(w => w.id === root.workspace)) continue;
-      const work: Work = { id: root.workspace, background: 0, endpoints: [] };
-      for (const p of list) {
-        const o = owner(p.pid, list, this.roots);
-        if (o?.workspace === root.workspace && workload(p, o)) work.background++;
+    const telemetry_started = telemetry.begin();
+    try {
+      if (!this.roots.length) return;
+      let list = process.platform === "linux" ? paneProcesses(this.roots) : null;
+      if (!list) {
+        const ps = await command(["ps", "-axo", "pid=,ppid=,pgid=,comm="], false, this.abort.signal);
+        if (ps === null) return;
+        list = processes(ps);
       }
-      for (const endpoint of endpoints) {
-        if (owner(endpoint.pid, list, this.roots)?.workspace !== root.workspace) continue;
-        const e = { ...endpoint },
-          old = this.current
-            .workspace(work.id)
-            .endpoints.find(
-              x =>
-                x.pid === e.pid &&
-                x.pane === e.pane &&
-                x.port === e.port &&
-                x.ipv6 === e.ipv6 &&
-                x.transport === e.transport &&
-                x.bind_address === e.bind_address,
-            );
-        if (old && this.enabled) {
-          e.scheme = old.scheme;
-          e.http_status = old.http_status;
-          e.probed_at = old.probed_at;
+      const all = interfaces(),
+        files =
+          process.platform === "linux"
+            ? await procInventory(list, this.roots).catch(() => null)
+            : await command(socketCommand(list, this.roots), true, this.abort.signal),
+        endpoints = files === null ? [] : sockets(files, list, this.roots, all),
+        works: Work[] = [],
+        now = milliTimestamp();
+      for (const root of this.roots) {
+        if (works.some(w => w.id === root.workspace)) continue;
+        const work: Work = { id: root.workspace, background: 0, endpoints: [] };
+        for (const p of list) {
+          const o = owner(p.pid, list, this.roots);
+          if (o?.workspace === root.workspace && workload(p, o)) work.background++;
         }
-        work.endpoints.push(e);
+        for (const endpoint of endpoints) {
+          if (owner(endpoint.pid, list, this.roots)?.workspace !== root.workspace) continue;
+          const e = { ...endpoint },
+            old = this.current
+              .workspace(work.id)
+              .endpoints.find(
+                x =>
+                  x.pid === e.pid &&
+                  x.pane === e.pane &&
+                  x.port === e.port &&
+                  x.ipv6 === e.ipv6 &&
+                  x.transport === e.transport &&
+                  x.bind_address === e.bind_address,
+              );
+          if (old && this.enabled) {
+            e.scheme = old.scheme;
+            e.http_status = old.http_status;
+            e.probed_at = old.probed_at;
+          }
+          work.endpoints.push(e);
+        }
+        works.push(work);
       }
-      works.push(work);
+      const listeners = this.enabled ? works.flatMap(w => w.endpoints).filter(e => e.transport === "tcp") : [];
+      await this.judge(listeners, now, paneText);
+      for (let i = 0; i < 4 && this.enabled && !this.stopping; i++) {
+        const oldest = listeners.filter(e => this.due(e, now)).sort((a, b) => a.probed_at - b.probed_at)[0],
+          lead = oldest && this.leads.get(leadKey(oldest));
+        if (!lead?.announced) break;
+        const result = await probe(oldest, lead.announced, this.abort.signal);
+        oldest.scheme = result.scheme;
+        oldest.http_status = result.status;
+        oldest.probed_at = now;
+        lead.failures = result.status === null ? lead.failures + 1 : 0;
+      }
+      this.pending = Object.assign(new Snapshot(), {
+        processes_available: true,
+        ports_available: files !== null,
+        workspaces: works,
+      });
+    } finally {
+      telemetry.end("workspace.ports", telemetry_started);
     }
-    const listeners = this.enabled ? works.flatMap(w => w.endpoints).filter(e => e.transport === "tcp") : [];
-    await this.judge(listeners, now, paneText);
-    for (let i = 0; i < 4 && this.enabled && !this.stopping; i++) {
-      const oldest = listeners.filter(e => this.due(e, now)).sort((a, b) => a.probed_at - b.probed_at)[0],
-        lead = oldest && this.leads.get(leadKey(oldest));
-      if (!lead?.announced) break;
-      const result = await probe(oldest, lead.announced, this.abort.signal);
-      oldest.scheme = result.scheme;
-      oldest.http_status = result.status;
-      oldest.probed_at = now;
-      lead.failures = result.status === null ? lead.failures + 1 : 0;
-    }
-    this.pending = Object.assign(new Snapshot(), {
-      processes_available: true,
-      ports_available: files !== null,
-      workspaces: works,
-    });
   }
 }

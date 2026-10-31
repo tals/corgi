@@ -1,10 +1,12 @@
 import { Terminal, closeReadiness } from "./pane/terminal";
 import { n, ptr } from "./native_bridge";
-import { test, expect } from "bun:test";
-import { identify, backgroundJob, foreground, Tracker, interruptKey, type Job } from "./detection";
+import { test, expect, spyOn } from "bun:test";
+import { identify, backgroundJob, foreground, foregrounds, Tracker, interruptKey, type Job } from "./detection";
 import { Agent } from "./agents";
 import { adapter } from "./providers";
 import { screen as claudeScreen, interrupted } from "./providers/claude/screen";
+import * as os from "./os";
+import * as nativeBridge from "./native_bridge";
 /** A tick of a pane's detection: follow its process, then show what its watcher confirms. */
 function look(tracker: Tracker, agent: Agent, job: Job | null, title: string, text: string, watched: boolean) {
   const speaks = tracker.claim ? true : tracker.update(agent, job);
@@ -32,6 +34,59 @@ test("identify actual executables and scripts, not arguments or shell text", () 
     ["vim", "codex"],
   ])
     expect(identify(args)).toBeNull();
+});
+test.skipIf(process.platform !== "linux")(
+  "a known agent must still belong to the foreground group and run an agent",
+  () => {
+    let group = 100,
+      program = "codex";
+    const front = spyOn(n, "probe_foreground").mockReturnValue(100),
+      args = spyOn(nativeBridge, "processArgs").mockImplementation(pid => ({
+        argv: [pid === 101 ? program : pid === 102 ? "claude" : "sh"],
+        complete: true,
+      })),
+      membership = spyOn(os, "processGroup").mockImplementation(pid => (pid === 101 ? group : 100)),
+      tree = spyOn(os, "processTree").mockReturnValue([100, 101, 102]);
+    try {
+      const read = () => foregrounds([{ fd: 3, pid: 100, agent: 101 }]).get(3);
+      expect(read()?.job).toEqual({ pid: 101, provider: "codex" });
+      expect(tree).not.toHaveBeenCalled();
+      group = 200;
+      expect(read()?.job).toEqual({ pid: 102, provider: "claude" });
+      group = 100;
+      program = "sleep";
+      args.mockClear();
+      expect(read()?.job).toEqual({ pid: 102, provider: "claude" });
+      expect(args.mock.calls.some(([pid]) => pid === 101)).toBe(true);
+    } finally {
+      front.mockRestore();
+      args.mockRestore();
+      membership.mockRestore();
+      tree.mockRestore();
+    }
+  },
+);
+test.skipIf(process.platform !== "linux")("foreground discovery reads argv only for live group members", () => {
+  const front = spyOn(n, "probe_foreground").mockReturnValue(100),
+    tree = spyOn(os, "processTree").mockReturnValue([100, 101, 102, 103]),
+    membership = spyOn(os, "processGroup").mockImplementation(pid => (pid === 101 ? 200 : pid === 102 ? null : 100)),
+    job = spyOn(os, "processJob"),
+    args = spyOn(nativeBridge, "processArgs").mockImplementation(pid => ({
+      argv: [pid === 100 ? "sh" : pid === 103 ? "claude" : "codex"],
+      complete: true,
+    }));
+  try {
+    expect(foregrounds([{ fd: 3, pid: 100 }]).get(3)?.job).toEqual({ pid: 103, provider: "claude" });
+    expect(membership.mock.calls).toEqual([[100], [101], [102], [103]]);
+    expect(args.mock.calls).toEqual([[100], [103]]);
+    expect(job).not.toHaveBeenCalled();
+  } finally {
+    front.mockRestore();
+    tree.mockRestore();
+    membership.mockRestore();
+    job.mockRestore();
+    args.mockRestore();
+  }
 });
 test("claude interrupts need a stable idle title without an interrupt hint", () => {
   const tracker = new Tracker(),

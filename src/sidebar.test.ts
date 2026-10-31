@@ -63,6 +63,23 @@ const draw = (view: View, entries: Entry[], workspaces: WorkspaceEntry[], now?: 
   else view.drawAt(w, entries, workspaces, now);
   return w.buffered();
 };
+const shifted = (bytes: string, columns: number) =>
+  bytes.replace(/\x1b\[(\d+);(\d+)H/g, (_, row, column) => `\x1b[${row};${Number(column) + columns}H`);
+/** The previous framing boundary: render a local list, then rewrite its CUPs. */
+function bufferedSidebar(view: View, entries: Entry[], workspaces: WorkspaceEntry[], now: number): string {
+  const writer = new Writer(),
+    lists = new Writer();
+  for (let row = 0; row < view.rows; row++) writer.write(`\x1b[${row + 1};1H${panel}` + " ".repeat(lists_x));
+  view.lists().drawAt(lists, entries, workspaces, now);
+  writer.write(shifted(lists.s, lists_x));
+  // Keep the outer box identical while exercising the replaced boundary independently.
+  (view as unknown as { drawBox(writer: Writer): void }).drawBox(writer);
+  const badges = new Writer();
+  (view.lists() as unknown as { drawBadges(writer: Writer): void }).drawBadges(badges);
+  writer.write(shifted(badges.s, lists_x));
+  return writer.s;
+}
+
 function hostText(bytes: string, cols = 100, rows = 30): string {
   const host = new Terminal(cols, rows);
   host.feed(bytes);
@@ -1184,6 +1201,7 @@ test("zero intensity cancels fetch and reveals immediately but leaves compaction
   expect(presentation.playback.active).toBe(false);
   expect(presentation.last_corgi).toBeNull();
   expect(presentation.reveal_started_ms).toBeNull();
+  expect(corgiAnimation.frameDelay()).toBe(75);
   e.compacting = true;
   e.compacting_since = 100_000;
   draw(view, [e], [], 100);
@@ -1690,4 +1708,128 @@ test("clicks follow the top row when successive reorders overlap animations", ()
       }
     }
   }
+});
+
+test.each(["normal", "search", "fade", "ghost", "graphics", "agents", "workspaces"] as const)(
+  "positioned sidebar matches buffered output for %s rows",
+  mode => {
+    const checkout = { workspace: 1, path: "/repo/branch", ghost: false },
+      entries = [
+        entry({
+          target: { group: 1 },
+          name: "project",
+          group: { agents: 3, working: 2, attention: 0, folded: false, current: true },
+        }),
+        entry({
+          target: { pane: 99101 },
+          name: "running 界",
+          provider: "codex",
+          state: "working",
+          activity: "editing",
+          focused: true,
+        }),
+        entry({ target: { worktree: checkout.path, workspace: 1 }, name: "branch", worktree: checkout }),
+        entry({
+          target: { pane: 99102 },
+          name: "other",
+          provider: "claude",
+          state: "working",
+          activity: "reading",
+          worktree: checkout,
+        }),
+        entry({ target: { pane: 99103 }, name: "waiting", provider: "claude", state: "blocked" }),
+      ],
+      workspaces = [
+        workspaceEntry({
+          id: 1,
+          name: "project",
+          cwd: "/repo",
+          active: true,
+          agents: 3,
+          working: 2,
+          unread: 1,
+          resources: hot,
+        }),
+      ];
+    let view = View.init(100, 40, true, 0, entries.length).withEntries(entries).withWorkspaces(1, 0);
+    view.corgi_intensity = 0;
+    view.focus = "agents";
+    if (mode === "search") view = view.withSearch({ text: "running", cursor: 5, selection: [1, 4] });
+    if (mode === "fade" || mode === "graphics") {
+      entries[1].exit = { frame_ms: 5000, progress: 0.4 };
+      entries[3].enter = 0.3;
+      entries[4].moved = { from: 0, ms: 150 };
+      view.spotlight = { workspace: 1, path: checkout.path };
+    }
+    if (mode === "graphics") {
+      view.supports_kitty_graphics = true;
+      view.cell = { width: 8, height: 16 };
+    }
+    if (mode === "ghost") {
+      entries[2].worktree = { ...checkout, ghost: true };
+      entries[3].worktree = { ...checkout, ghost: true, end: true };
+      view = view.withEntries(entries);
+    }
+    if (mode === "agents" || mode === "workspaces") view.drawer = mode;
+    for (const origin of [0, 7]) {
+      const expected = bufferedSidebar(view, entries, workspaces, 5000),
+        writer = new Writer(origin);
+      writer.write("prefix");
+      view.drawAt(writer, entries, workspaces, 5000);
+      expect(writer.s).toBe("prefix" + shifted(expected, origin));
+      expect(writer.column).toBe(origin);
+      writer.clear();
+      view.searchCursor(writer);
+      const cursor = new Writer();
+      view.searchCursor(cursor);
+      expect(writer.s).toBe(shifted(cursor.s, origin));
+    }
+  },
+);
+
+test("positioned git details keep nested columns and cursor save/restore unchanged", () => {
+  const workspace = workspaceEntry({
+    id: 1,
+    name: "repo",
+    cwd: "/repo",
+    active: true,
+    git_ahead: 1,
+    git_diff: { files: 3, insertions: 120, deletions: 4 },
+    git_commits: [
+      {
+        hash: "abc1234",
+        subject: "change",
+        author: "A",
+        date: "2026-10-23",
+        timestamp: 0,
+        diff: { files: 2, insertions: 100, deletions: 3 },
+      },
+    ],
+  });
+  const plain = new Writer(),
+    positioned = new Writer(9);
+  drawGitTooltip(plain, workspace, 100, 30, 0, 0);
+  drawGitTooltip(positioned, workspace, 100, 30, 0, 0);
+  expect(positioned.s).toBe(shifted(plain.s, 9));
+  expect(positioned.s).toContain("\x1b7");
+  expect(positioned.s).toContain("\x1b8");
+});
+
+test("positioned activity sections and overflow badges keep their column offsets", () => {
+  const entries = [
+      entry({
+        target: { section: "working" },
+        group: { agents: 12, working: 12, attention: 0, folded: false, current: false },
+      }),
+      entry({ target: { section: "working", workspace: 1, checkout: "/topic", run: 0 }, name: "topic" }),
+      ...Array.from({ length: 12 }, (_, index) =>
+        entry({ target: { pane: 99300 + index }, name: `agent ${index}`, state: "working", section: "working" }),
+      ),
+    ],
+    view = View.init(100, 30, true, 0, entries.length).withEntries(entries);
+  view.corgi_intensity = 0;
+  const expected = bufferedSidebar(view, entries, [], 5000),
+    writer = new Writer(7);
+  view.drawAt(writer, entries, [], 5000);
+  expect(writer.s).toBe(shifted(expected, 7));
 });
