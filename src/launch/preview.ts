@@ -68,7 +68,16 @@ export type Account = { provider: Provider; account: string; name: string; manag
 export function installed() {
   return byProvider(p => discovery.installed(p));
 }
-type Row = { provider: Provider; account: string };
+/** What a row is read for: a launcher shows its model and account, while an
+ * agent running in it, or Corgi's own inference, needs only its account. */
+export type Use = "launcher" | "account";
+/** The rows someone uses, by `key`. */
+export type Uses = Map<string, Use>;
+/** `account` of `provider`'s row, as `Uses` and the launchers name it. */
+export function key(provider: Provider, account = "") {
+  return provider + "\0" + account;
+}
+type Row = { provider: Provider; account: string; use: Use | null };
 /** The folders of one provider signed in to one account. */
 type Group = { provider: Provider; id: string; folders: string[] };
 /** An account, which several folders may be signed in to. Its usage is read
@@ -112,6 +121,9 @@ export class Worker {
   }[] = [];
   /** Each account's launcher, opened on first use. */
   launchers = new Map<string, Promise<Launcher | null>>();
+  /** What each row is read for, which the daemon sets from its launchers
+   * and agents. A row it leaves out reads nothing; null reads every row. */
+  uses: Uses | null = null;
   /** Accounts by provider and who signed in. */
   logins = new Map<string, Login>();
   /** Seconds between account reads, which the daemon sets from its viewers. */
@@ -169,10 +181,44 @@ export class Worker {
     void this.pump();
   }
   launcher(p: Provider, account = "") {
-    const key = p + "\0" + account;
-    let launcher = this.launchers.get(key);
-    if (!launcher) this.launchers.set(key, (launcher = adapter(p).launcher?.(account) ?? Promise.resolve(null)));
+    const k = key(p, account);
+    let launcher = this.launchers.get(k);
+    if (!launcher) this.launchers.set(k, (launcher = adapter(p).launcher?.(account) ?? Promise.resolve(null)));
     return launcher;
+  }
+  /** Takes what each row is read for now. A change reads the shown folders
+   * again, its rows newly used reading as pending, and their next pass
+   * closes the launchers of rows no one uses any more. */
+  use(uses: Uses) {
+    const before = this.uses;
+    this.uses = uses;
+    if (before && before.size === uses.size && [...uses].every(([k, use]) => before.get(k) === use)) return;
+    const rose = (p: Provider, account: string) => {
+        const k = key(p, account);
+        return uses.has(k) && (before ? before.get(k) : "launcher") !== uses.get(k);
+      },
+      pending = (option: Option) => Object.assign(new Option(), option, { pending: true });
+    for (const job of this.jobs)
+      job.preview = Object.assign(new Preview(), job.preview, {
+        options: byProvider(p => (rose(p, "") ? pending(job.preview.options[p]) : job.preview.options[p])),
+        accounts: job.preview.accounts.map(a =>
+          rose(a.provider, a.account) ? { ...a, option: pending(a.option) } : a,
+        ),
+      });
+    this.reread();
+  }
+  private useOf(p: Provider, account: string): Use | null {
+    return this.uses ? (this.uses.get(key(p, account)) ?? null) : "launcher";
+  }
+  /** Closes the launchers of accounts gone or no longer used, since each
+   * keeps a provider process. Only a pass prunes, so no read is using one. */
+  private prune() {
+    const live = new Set([...Provider.all.map(p => key(p)), ...accounts.known().map(a => key(a.provider, a.dir))]);
+    for (const [k, launcher] of this.launchers)
+      if (!live.has(k) || (this.uses && !this.uses.has(k))) {
+        void launcher.then(l => l?.close());
+        this.launchers.delete(k);
+      }
   }
   preview(cwd: string, refresh = false) {
     return this.request(cwd, false, refresh);
@@ -268,6 +314,8 @@ export class Worker {
     if (this.stopping) return Promise.resolve();
     if (this.pending) return this.pending;
     const pending = this.drain();
+    // One with nothing to do is over already, so the next pump drains again.
+    if (!this.running) return pending;
     this.pending = pending;
     void pending
       .finally(() => {
@@ -302,21 +350,15 @@ export class Worker {
     if (this.stopping) return;
     job.preview = this.list(job.preview);
     job.preview.pending = true;
-    // Launchers keep a provider process each, so those of accounts gone close.
-    const live = new Set([...Provider.all.map(p => p + "\0"), ...accounts.known().map(a => a.provider + "\0" + a.dir)]);
-    for (const [key, launcher] of this.launchers)
-      if (!live.has(key)) {
-        void launcher.then(l => l?.close());
-        this.launchers.delete(key);
-      }
+    this.prune();
     const rows = this.rows(job.preview),
-      groups = this.groups(rows);
+      groups = this.groups(rows.filter(r => r.use));
     await Promise.all(
-      rows.map(async ({ provider, account }) => {
-        let option: Option;
+      rows.map(async ({ provider, account, use }) => {
+        let option = new Option();
         try {
-          const group = groups.find(g => g.provider === provider && g.folders.includes(account))!;
-          option = (await this.option(provider, account, job.cwd, group)) ?? new Option();
+          const group = groups.find(g => g.provider === provider && g.folders.includes(account));
+          if (use && group) option = (await this.option(provider, account, job.cwd, group, use)) ?? new Option();
         } catch {
           option = new Option();
           option.usage_error = new Text("account read failed");
@@ -343,11 +385,12 @@ export class Worker {
       job.updated = Date.now();
     }
   }
+  /** Each row `preview` lists, with what it's read for. */
   private rows(preview: Preview): Row[] {
     return [
       ...Provider.all.filter(p => preview.installed[p]).map(provider => ({ provider, account: "" })),
       ...preview.accounts,
-    ];
+    ].map(({ provider, account }) => ({ provider, account, use: this.useOf(provider, account) }));
   }
   private groups(rows: Row[]): Group[] {
     const groups: Group[] = [];
@@ -362,8 +405,11 @@ export class Worker {
   /** Reads the accounts due a read, then shows what they read in every
    * folder's preview, so subscribers needn't wait for their next refresh. */
   private async round() {
+    this.prune();
     const before = new Map([...this.logins].map(([key, login]) => [key, login.read_at]));
-    await Promise.all(this.groups(this.rows(this.list(new Preview()))).map(group => this.read(group)));
+    await Promise.all(
+      this.groups(this.rows(this.list(new Preview())).filter(r => r.use)).map(group => this.read(group)),
+    );
     if (this.stopping || [...this.logins].every(([key, login]) => before.get(key) === login.read_at)) return;
     for (const job of this.jobs)
       job.preview = Object.assign(new Preview(), job.preview, {
@@ -420,7 +466,7 @@ export class Worker {
   private shown(provider: Provider, account: string, base: Option): Option {
     const login = this.logins.get(provider + "\0" + loginOf(provider, account)),
       own = login?.infos.get(account);
-    if (!login || !own) return base;
+    if (!login || !own || !this.useOf(provider, account)) return base;
     const source = login.source !== null ? login.infos.get(login.source) : undefined,
       borrowed =
         !usable(own) &&
@@ -438,14 +484,16 @@ export class Worker {
     out.spend_history = login.spend;
     return out;
   }
-  /** What `account` of `p` would start with in `cwd`. */
-  private async option(p: Provider, account: string, cwd: string, group: Group): Promise<Option | null> {
+  /** What `account` of `p` reads in `cwd`: for a launcher, the model it
+   * would start with too. */
+  private async option(p: Provider, account: string, cwd: string, group: Group, use: Use): Promise<Option | null> {
     const launcher = await this.launcher(p, account);
     if (!launcher) return null;
-    this.watch(launcher);
+    if (use === "launcher") this.watch(launcher);
     await this.read(group);
     if (this.stopping) return null;
     const out = this.shown(p, account, new Option());
+    if (use === "account") return out;
     const chosen = await launcher.model(cwd, this.quit);
     if (chosen.model) out.setModel(chosen.model, chosen.source, chosen.model_name);
     else out.source = new Text(chosen.source);
