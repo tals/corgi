@@ -289,7 +289,12 @@ export class Agent {
       this.cwd = new Path();
       worktrees.clearWrites(this);
     }
-    if (path.isAbsolute(hook.cwd)) this.cwd = new Path(hook.cwd);
+    if (path.isAbsolute(hook.cwd)) {
+      // A `cd` is newer than the edits and moves recorded before it.
+      const cd = this.cwd.len > 0 && hook.cwd !== this.directory() && hook.cwd !== worktrees.observedDirectory(this);
+      if (cd && adapter(provider).caps.follows_cd) worktrees.clearWrites(this);
+      this.cwd = new Path(hook.cwd);
+    }
     if (hook.location)
       worktrees.recordLocation(this, { cwd: hook.location, writes: [], ran: [hook.location], basis: "moved" });
     if (event === "tool_finish" && hook.writes) worktrees.recordWrites(this, hook.writes);
