@@ -846,36 +846,45 @@ function conversations(cwd: string, n: number) {
   }));
 }
 
-test("the launcher keeps its size and place while its conversations expand, are searched and filtered", () => {
+test("the launcher grows for conversation search and returns to its compact bounds when search ends", () => {
   for (const [cols, rows] of [
     [120, 40],
     [90, 30],
     [200, 50],
+    [80, 20],
   ])
     for (const count of [2, 40]) {
       const side = SidebarView.init(cols, rows, true, 0, 0),
         m = menu({ cwd: "/w", workspace_cwd: "/w" });
       m.history = { pending: false, entries: conversations("/w", count) };
-      const opened = m.bounds(cols, rows, side),
-        same = () => expect(m.bounds(cols, rows, side)).toEqual(opened);
+      const opened = m.bounds(cols, rows, side);
       m.resume_view.focused = true;
       m.resume_view.startSearch();
-      same();
+      const expanded = m.bounds(cols, rows, side),
+        same = () => expect(m.bounds(cols, rows, side)).toEqual(expanded);
+      expect([expanded.x, expanded.w]).toEqual([opened.x, opened.w]);
+      expect(expanded.h).toBe(Math.min(rows, 30));
+      expect(expanded.y).toBeLessThanOrEqual(opened.y);
+      if (rows > opened.h) expect(expanded.h).toBeGreaterThan(opened.h);
       for (const ch of "conv 1") m.resume_view.query.key(ch.charCodeAt(0));
-      same();
-      m.resume_view.leaveSearch();
-      same();
-      m.resume_view.expand();
       same();
       m.resume_view.nextScope(true);
       same();
-      m.resume_view.collapse();
+      m.resume_view.leaveSearch();
+      expect(m.bounds(cols, rows, side)).toEqual(opened);
+      m.resume_view.expand();
       same();
-      // And it draws inside those bounds every time.
+      m.resume_view.startSearch();
+      same();
+      m.resume_view.leaveSearch();
+      same();
+      m.resume_view.collapse();
+      expect(m.bounds(cols, rows, side)).toEqual(opened);
+      // The expanded card still fits inside short terminals.
       m.resume_view.startSearch();
       const lines = screen(m, cols, rows, side);
-      expect(lines[opened.y]).toContain("╭");
-      expect(lines[opened.y + opened.h - 1]).toContain("╰");
+      expect(lines[expanded.y]).toContain("╭");
+      expect(lines[expanded.y + expanded.h - 1]).toContain("╰");
     }
 });
 

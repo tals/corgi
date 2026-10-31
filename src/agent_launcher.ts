@@ -1,8 +1,7 @@
 //! The agent launcher popover: rows, keys, hit areas and drawing. The daemon
 //! fills the preview; this file only shows it, and the shared runtime
 //! remembers the choice. Its Manage agents is agent_manager.ts, in its card.
-//! It keeps its size and place while its conversations expand or are
-//! searched. Mirrors agent_launcher.zig.
+//! Mirrors agent_launcher.zig.
 import * as palette from "./palette";
 import { Style, keycap } from "./palette";
 import { Provider, byProvider, adapter } from "./providers";
@@ -147,9 +146,8 @@ const headings = ["Agent", "YOLO", "Model", "Account", "Plan", "Usage (used) · 
 /** Columns a row's brand mark and the space after it take, before its name.
  * The name gives them up, its provider's name shortening first. */
 const mark_w = 3;
-/** Rows under the agents for the conversations, their heading and the
- * gap above "more" included: the longest collapsed list. Expanding or
- * searching them scrolls within these rows. */
+/** Rows for the longest collapsed conversation list, including its heading
+ * and the gap above "more". */
 const resume_rows = launcherResume.collapsed_rows + 4;
 // Reserve metadata and two usage windows before their readings arrive.
 const column_widths = [26, 6, 24, 28, 12, 50];
@@ -403,13 +401,10 @@ export class Menu {
     )!;
   }
   /** Rows the menu needs: border, headings, agent rows and a gap, the
-   * conversations and a gap, footer and border. The conversations take the
-   * rows of the longest collapsed list whether they show a few, all of them
-   * or a search, and the worktree box the rows of every checkout and From's
-   * list, so nothing a user types or expands resizes the launcher. */
+   * conversations and a gap, footer and border. */
   rowsHeight(): number {
     if (this.managing) return this.manager.height(this.manageModel());
-    const conversations = this.hasResume() ? resume_rows : 0;
+    const conversations = !this.hasResume() ? 0 : this.resume_view.expanded ? 8 : resume_rows;
     // The worktree box hangs from the title above the footer.
     const hanging =
       this.worktree.mode !== "open"
@@ -422,8 +417,12 @@ export class Menu {
     return Math.max(5 + this.count() + conversations, hanging);
   }
   bounds(cols: number, rowsCount: number, side: SidebarView): Rect {
-    const width = Math.min(cols, preferred_width),
-      height = Math.min(rowsCount, this.rowsHeight());
+    const width = Math.min(cols, preferred_width);
+    let height = Math.min(rowsCount, this.rowsHeight());
+    // Expanded conversations take the room a table of them needs.
+    if (this.resume_view.expanded && this.history.entries.length > 0) {
+      if (!this.managing) height = Math.min(rowsCount, Math.max(30, height));
+    }
     return new Rect(
       Math.min(sat(side.width, 10), cols - width),
       Math.min(side.middle() + 1, rowsCount - height),
