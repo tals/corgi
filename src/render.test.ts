@@ -821,6 +821,9 @@ test("the launcher places provider marks with host images and falls back to glyp
   expect(placed).toContain("\x1b_Ga=p");
   expect(placed).toContain("\x1b_Ga=p,i=730324,");
   expect(placed).not.toMatch(/\x1b\[1;\d+H\x1b_Ga=p/);
+  // A sign-in over the launcher leaves its marks as glyphs.
+  icons.begin();
+  expect(shown({ ...graphics, signin_draw: () => null })).not.toContain("\x1b_Ga=p");
   icons.begin();
   expect(shown()).not.toContain("\x1b_Ga=p");
   expect(launch.marks).toBeNull();

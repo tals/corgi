@@ -528,8 +528,8 @@ export class Menu {
       this.accounts,
       this.preview.names,
       cwd => ({
-        path: launcherWorktree.containing(this.worktrees, cwd)?.path ?? cwd,
         label: launcherWorktree.place(this.worktrees, cwd, null).label,
+        branch: launcherWorktree.containing(this.worktrees, cwd)?.branch != null,
       }),
     );
   }

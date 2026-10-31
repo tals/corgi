@@ -274,6 +274,38 @@ test('stars sit inside history titles without moving columns or changing order; 
   }
 });
 
+test("Where marks branches, and a title still names the branch a conversation ran on", () => {
+  const entries = [
+    testEntry("a", "/w/corgi", "On main", 900),
+    testEntry("b", "/w/corgi", "On feature", 800),
+    testEntry("c", "/w/corgi-wt", "In the worktree", 700),
+    testEntry("d", "/x/plain", "Outside git", 600),
+  ];
+  entries[0].branch = "main";
+  entries[1].branch = "feature";
+  entries[2].branch = "wt";
+  const places: Record<string, string> = { "/w/corgi": "main", "/w/corgi-wt": "wt" };
+  const c = new Context({ pending: false, entries }, "/w/corgi", "/w", [], 1000, [], {}, cwd =>
+      places[cwd] ? { label: places[cwd], branch: true } : { label: "plain", branch: false },
+    ),
+    view = new View({ expanded: true, focused: true }),
+    area = new Area(0, 1, 140, 10);
+  view.scope = "everywhere";
+  const w = new Writer(),
+    host = new Terminal(140, 12);
+  view.draw(w, c, area);
+  host.feed(w.s);
+  const lines = host.text().split("\n");
+  host.destroy();
+  const line = (title: string) => lines.find(l => l.includes(title))!;
+  expect(line("On main")).toContain("⎇ main");
+  expect(line("On main")).not.toContain("feature");
+  expect(line("On feature")).toMatch(/On feature +feature +⎇ main/);
+  expect(line("In the worktree")).toContain("⎇ wt");
+  expect(line("Outside git")).toContain(" plain");
+  expect(line("Outside git")).not.toContain("⎇");
+});
+
 test("a conversation from another account ends its title with the account's name, dimmed", () => {
   const entries = [testEntry("a", "/w/corgi", "Fix login", 900), testEntry("b", "/w/corgi", "Review", 800)];
   entries[0].account = "/accounts/claude-work";

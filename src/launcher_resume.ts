@@ -60,6 +60,10 @@ export const max_open = 64;
 const session_capacity = 160;
 /** An account besides a provider's default, by the name Corgi knows it. */
 export type Account = { provider: Provider; account: string; name: string };
+/** A conversation's place in the Where column. */
+export type Location = { label: string; branch: boolean };
+/** Leads a branch name in the Where column. */
+const branch_icon = "⎇ ";
 
 /** Where the launcher is, and what is already open. */
 export class Context {
@@ -74,10 +78,8 @@ export class Context {
     public accounts: readonly Account[] = [],
     /** What each provider's default account is called, if anything. */
     public names: Readonly<Record<string, string>> = {},
-    public location: (cwd: string) => { path: string; label: string } = cwd => ({
-      path: cwd,
-      label: basename(cwd) || cwd,
-    }),
+    /** What Where says for a folder: its checkout's branch, else its name. */
+    public location: (cwd: string) => Location = cwd => ({ label: basename(cwd) || cwd, branch: false }),
   ) {}
   /** The name of the account `e` ran in, while there are accounts to tell
    * apart; "" for a default without a name. */
@@ -448,7 +450,7 @@ export class View {
     const at = this.index(c, rows);
     rows.forEach((line, k) => {
       const row = y + 1 + k + ("more" in line ? 1 : 0);
-      this.drawLine(w, c, line, rows, this.focused && at === k, startsRun(c, rows, k, 0), x, row, width, cols, marks);
+      this.drawLine(w, c, rows, k, this.focused && at === k, startsRun(c, rows, k, 0), x, row, width, cols, marks);
     });
   }
   /** The expanded list in `area`, terminal coordinates inside the border. */
@@ -507,13 +509,13 @@ export class View {
       w.write(`\x1b[${list_top + (rows.length === 1 ? 1 : 0)};${x + 3 + provider_width}H${panel}`);
       w.write(this.search().length > 0 ? "No matches." : "Nothing closed here. Tab widens the scope.");
     }
-    rows.slice(first, Math.min(rows.length, first + list_height)).forEach((line, k) => {
+    for (let k = 0; k < Math.min(rows.length - first, list_height); k++) {
       const row = list_top + k;
       this.drawLine(
         w,
         c,
-        line,
         rows,
+        first + k,
         this.focused && at === first + k,
         !(context && k === 0) && startsRun(c, rows, first + k, first),
         x,
@@ -522,7 +524,7 @@ export class View {
         cols,
         marks,
       );
-    });
+    }
     const bar = scrollThumb.thumb(list_height, rows.length, first);
     if (bar)
       for (let k = 0; k < list_height; k++)
@@ -534,8 +536,8 @@ export class View {
   private drawLine(
     w: Writer,
     c: Context,
-    line: Line,
     rows: Line[],
+    at: number,
     selected: boolean,
     named: boolean,
     x: number,
@@ -544,10 +546,10 @@ export class View {
     cols: Columns,
     marks: Marks | null = null,
   ): void {
-    const style = selected ? selected_style : row_style;
+    const line = rows[at],
+      style = selected ? selected_style : row_style;
     if ("day" in line) {
-      const at = rows.indexOf(line),
-        before = at > 0 ? agentOf(c, rows[at - 1]) : null,
+      const before = at > 0 ? agentOf(c, rows[at - 1]) : null,
         after = rows[at + 1];
       if (before !== null && after && before === agentOf(c, after)) w.write(`\x1b[${row};${x + 3}H${panel}│`);
       w.write(`\x1b[${row};${x + 3 + provider_width}H${panel}`);
@@ -600,20 +602,22 @@ export class View {
       w.write(`\x1b[${row};${col + room + 1}H` + color);
       writeEllipsis(w, text, width);
     };
+    const where = cols.folder > 0 ? c.location(e.cwd) : null;
     if (cols.title > 16) {
       const account = e.account ? c.accountName(e) : "";
       if (account.length > 0)
         tag(account, Math.min(displayWidth(account), Math.floor(cols.title / 3)), selected ? palette.fg("muted") : dim);
-      const branch = cols.folder === 0 && "entry" in line ? otherBranch(c, e) : "";
-      if (branch.length > 0)
+      // Where names the checkout's branch now; this is the one it ran on.
+      const branch = "entry" in line ? otherBranch(c, e) : "";
+      if (branch.length > 0 && !(where?.branch && where.label === branch))
         tag(branch, Math.min(Buffer.byteLength(branch), Math.floor(room / 2)), palette.fg("muted"));
     }
     w.write(`\x1b[${row};${col}H` + style);
     writeEllipsis(w, (e.starred ? "★ " : "") + (e.title.length > 0 ? e.title : e.first), room);
     col += cols.title + 2;
-    if (cols.folder > 0) {
+    if (where) {
       w.write(`\x1b[${row};${col}H` + palette.fg("muted"));
-      writeEllipsis(w, c.location(e.cwd).label, cols.folder - 1);
+      writeEllipsis(w, (where.branch ? branch_icon : "") + where.label, cols.folder - 1);
       w.write(style);
       col += cols.folder;
     }

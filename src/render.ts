@@ -992,11 +992,15 @@ export function frame(view: LayoutView, panes: Pane[], width: number, height: nu
   if (u.agent_launcher) {
     const icons = u.tab_icons,
       cell = u.cell_pixels;
+    // Marks sit above text: none under the setup or a sign-in drawn over
+    // the launcher, and none under a link card.
+    const card = u.link_card && u.pointer ? link_rect : null;
     const marks: Marks | null =
-      icons && cell
+      icons && cell && !u.corgi_setup && !u.signin_draw && !u.signin_exit
         ? (provider, col, row) => {
             const brand = brandOf(provider);
-            return brand ? icons.place(brand, col, row, cell) : "";
+            if (!brand || card?.contains(col, row) || card?.contains(col + tabIcons.cols - 1, row)) return "";
+            return icons.place(brand, col, row, cell);
           }
         : null;
     u.agent_launcher.marks = marks;
