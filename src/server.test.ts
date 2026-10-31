@@ -169,6 +169,16 @@ test("idle collection uses elapsed time and still collects on the first timer ti
     await Reflect.get(server, "jobs");
     expect(collect).toHaveBeenCalledTimes(4);
     server.bell = false;
+    // An attached viewer's launcher subscription waits unless it has news.
+    const viewer = server.addClient(-1, false);
+    viewer.launch_preview = {
+      cwd: "/",
+      preview: new Preview(),
+      checked: 0,
+      history_asked: false,
+      history_epoch: 0n,
+      history_sent: 0n,
+    };
     monotonic.mockReturnValue(350);
     tick();
     await Reflect.get(server, "jobs");

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, test, expect, spyOn } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { service, publish, request, sample, stop } from "./launch_service";
+import { service, publish, request, sample, stop, due } from "./launch_service";
 import { Preview, Worker as PreviewWorker, active_every, idle_every } from "./launch/preview";
 import { Text } from "./providers";
 import * as protocol from "./protocol";
@@ -286,6 +286,41 @@ test("a pending preview the worker hasn't replaced skips serialization", async (
     } finally {
       serialize.mockRestore();
     }
+  } finally {
+    await stop(server);
+  }
+});
+
+test("a subscription is due only while the worker holds a preview it wasn't sent", async () => {
+  const server: any = {},
+    messages: any[] = [],
+    s = service(server);
+  s.launch_previews.pump = async () => {};
+  const sent = new Preview().with({ pending: false }),
+    client: any = {
+      dead: false,
+      output: Buffer.alloc(0),
+      queue: (value: any) => messages.push(value),
+      launch_preview: {
+        cwd: "/tmp",
+        preview: sent,
+        checked: 0,
+        history_asked: false,
+        history_epoch: 0n,
+        history_sent: 0n,
+      },
+    },
+    job = { cwd: "/tmp", preview: sent, updated: 0, used: 0, queued: false, accessing: false, request_access: false };
+  s.launch_previews.jobs = [job];
+  s.launch_previews.preview = () => job.preview;
+  try {
+    expect(due(server, client)).toBe(false);
+    job.preview = sent.with({ names: { ...sent.names, codex: "work" } });
+    expect(due(server, client)).toBe(true);
+    publish(server, client);
+    expect(messages).toHaveLength(1);
+    expect(due(server, client)).toBe(false);
+    expect(due(server, { launch_preview: null } as any)).toBe(false);
   } finally {
     await stop(server);
   }

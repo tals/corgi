@@ -281,7 +281,7 @@ export class Server {
       this.bell ||
       this.runtime.renames.length > 0 ||
       this.runtime.wanted_names.length > 0 ||
-      this.clients.some(c => c.launch_preview !== null || c.headless_start !== null) ||
+      this.clients.some(c => c.headless_start !== null || launch.due(this, c)) ||
       this.runtime.panes.some(p => p.terminal.due() || p.ghost !== null) ||
       this.runtime.sessions.some(s => !s.exited)
     );

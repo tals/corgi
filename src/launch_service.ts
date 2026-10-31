@@ -94,6 +94,14 @@ export function sample(server: Server) {
     active = server.clients.some(c => c.viewer && !c.dead && now - c.input_at < active_ms);
   service(server).launch_previews.sample(active ? active_every : idle_every);
 }
+/** Whether the worker holds a preview this subscription wasn't sent; reads nothing. */
+export function due(server: Server, client: Client): boolean {
+  const subscription = client.launch_preview,
+    s = services.get(server);
+  if (!subscription || !s) return false;
+  const job = s.launch_previews.jobs.find(j => j.cwd === subscription.cwd);
+  return job !== undefined && job.preview !== (sources.get(subscription) ?? subscription.preview);
+}
 export function publish(server: Server, client: Client) {
   const subscription = client.launch_preview;
   if (!subscription) return;
