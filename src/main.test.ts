@@ -75,6 +75,8 @@ test("--help prints help instead of running the command", async () => {
       [["pane", "send", "--stdin", "--help"], "corgi pane send"],
       [["help", "pane", "read"], "corgi pane read"],
       [["--help", "pane", "read"], "corgi pane read"],
+      [["help", "tab", "new"], "[--command SHELL_COMMAND]"],
+      [["pane", "split", "--help"], "[--command SHELL_COMMAND]"],
       [["help", "account"], "Usage: corgi account"],
       [["help", "integration"], "Usage: corgi integration"],
     ] as const) {
@@ -92,6 +94,26 @@ test("--help prints help instead of running the command", async () => {
     update.mockRestore();
   }
 });
+test("help after an unrelated option never reaches the daemon", async () => {
+  const request = spyOn(rpc, "request").mockRejectedValue(Error("UnexpectedRequest"));
+  const output = spyOn(process.stdout, "write").mockReturnValue(true);
+  try {
+    for (const args of [
+      ["shutdown", "--name", "--help"],
+      ["shutdown", "--cwd", "-h"],
+      ["action", "rename", "--name", "--help"],
+      ["reload", "--flags", "--help"],
+    ]) {
+      output.mockClear();
+      await run(args);
+      expect(String(output.mock.calls[0]?.[0])).toContain(`corgi ${args[0]}`);
+    }
+    expect(request).not.toHaveBeenCalled();
+  } finally {
+    request.mockRestore();
+    output.mockRestore();
+  }
+});
 test("provider help remains the provider's argument", async () => {
   const launch = spyOn(integration, "launch").mockRejectedValue(Error("ProviderHelp"));
   try {
@@ -99,6 +121,20 @@ test("provider help remains the provider's argument", async () => {
     expect(launch.mock.calls[0]?.slice(0, 2)).toEqual(["codex", ["--help"]]);
   } finally {
     launch.mockRestore();
+  }
+});
+test("action values preserve agent mode flags", async () => {
+  const request = spyOn(rpc, "request").mockResolvedValue({ ok: true, viewer: 3, queued: true });
+  const output = spyOn(process.stdout, "write").mockReturnValue(true);
+  try {
+    for (const value of ["--agent", "--no-agent"]) {
+      request.mockClear();
+      await run(["action", "rename", value]);
+      expect(request.mock.calls[0]?.slice(1)).toEqual(["action", { name: "rename", value }]);
+    }
+  } finally {
+    request.mockRestore();
+    output.mockRestore();
   }
 });
 test("agent mode does not hide commands from root help", async () => {

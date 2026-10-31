@@ -190,7 +190,7 @@ const messages: Record<string, string> = {
 };
 /** `corgi account …`: the exit status. */
 export async function command(args: string[]): Promise<number> {
-  if (args[0] === "help" || cli.asksHelp(args)) {
+  if (args[0] === "help" || cli.asksHelp(["account", ...args])) {
     process.stdout.write(help);
     return 0;
   }

@@ -77,14 +77,27 @@ const actions = new Set([
 export function handles(args: string[]): boolean {
   return groups.has(args[0]);
 }
-/** Help flags before `--`, excluding option values. */
+/** Help flags in a full command line before `--`, excluding its option values. */
 export function asksHelp(args: string[]): boolean {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--") return false;
     if (arg === "--help" || arg === "-h") return true;
     const name = arg.startsWith("--") ? arg.slice(2) : "";
-    if (!flags.has(name) && (options.has(name) || name === "account" || name === "dir")) i++;
+    switch (args[0]) {
+      case "account":
+        if (args[1] === "add" && name === "dir") i++;
+        break;
+      case "integration":
+        if (name === "account") i++;
+        break;
+      case "headless":
+        if (args[1] === "start" && i === 4 && name === "workspace") i++;
+        break;
+      default:
+        if (handles(args) && args[0] !== "--skill" && options.has(name) && !flags.has(name)) i++;
+        break;
+    }
   }
   return false;
 }
@@ -718,7 +731,7 @@ export function read(text: string, lines: number, agent = false): string {
  * the daemon sent it. */
 export async function run(path: string, args: string[], agent = false): Promise<void> {
   const group = args[0];
-  if ((nested.has(group) && args.length === 1) || asksHelp(args.slice(1))) {
+  if ((nested.has(group) && args.length === 1) || asksHelp(args)) {
     process.stdout.write(helpFor(help, args));
     return;
   }

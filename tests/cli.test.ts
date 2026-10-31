@@ -122,6 +122,7 @@ class AgentCli extends Runtime {
       ["pane", "move", "--help"],
       ["claim", "--help"],
       ["shutdown", "--help"],
+      ["shutdown", "--name", "--help"],
       ["help", "pane", "read"],
       ["account", "remove", "--help"],
     ])
