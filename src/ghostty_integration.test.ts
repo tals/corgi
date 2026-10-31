@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import { commandKeys, macLabel, transform } from "./ghostty_integration";
 import type { Keys } from "./ghostty_integration";
 import * as custom from "./keybindings";
+import { Preferences } from "./preferences";
 const begin = "# BEGIN CORGI GHOSTTY INTEGRATION\n";
 test("cmux forwards customized function, editing and Unicode keys", () => {
   for (const [chord, host, codepoint, modifiers] of [
@@ -94,6 +95,43 @@ test("Command keys list what they bind, as a Mac menu writes them", () => {
   expect(corgi.slice(0, 5)).toEqual(["⌘T", "⌘W", "⌘⇧T", "⌃Tab", "⌃⇧Tab"]);
   expect(macLabel("cmd+digit_1")).toBe("⌘1");
   expect(macLabel("cmd+shift+left_bracket")).toBe("⌘⇧[");
+  for (const [key, label] of [
+    ["space", "Space"],
+    ["quote", "'"],
+    ["minus", "-"],
+    ["period", "."],
+    ["slash", "/"],
+    ["semicolon", ";"],
+    ["equal", "="],
+    ["backslash", "\\"],
+    ["backquote", "`"],
+    ["backspace", "⌫"],
+    ["insert", "Insert"],
+    ["delete", "⌦"],
+    ["page_up", "⇞"],
+    ["page_down", "⇟"],
+    ["home", "↖"],
+    ["end", "↘"],
+  ])
+    expect(macLabel("cmd+" + key)).toBe("⌘" + label);
+  const plus = commandKeys("cmux", custom.resolve("cmux", { new: "cmd+plus" })).find(b => b.action.name === "new")!;
+  expect(macLabel(plus.host)).toBe("⌘⇧=");
+});
+
+test.each([
+  ["cmd+plus", "cmd+shift+="],
+  ["cmd+:", "cmd+shift+;"],
+  ["cmd+>", "cmd+shift+."],
+])("cmux rejects Ghostty trigger collisions between %s and %s", (first, second) => {
+  const configs: custom.Config[] = [{ new: first, next: second }, { new: [first, second] }];
+  for (const keys of configs) {
+    const bindings = custom.resolve("cmux", keys);
+    expect(() => transform("font-size = 14\n", { preset: "cmux", prefix: "ctrl_b", bindings })).toThrow("in Ghostty");
+    const prefs = Object.assign(new Preferences(), { preset: "cmux", keys });
+    expect(() => prefs.bindings()).toThrow("in Ghostty");
+  }
+  const bindings = custom.resolve("cmux", { new: first, next: "prefix+" + second });
+  expect(() => transform("", { preset: "cmux", prefix: "ctrl_b", bindings })).not.toThrow();
 });
 
 test("custom bindings update host aliases and unbound actions remove them", async () => {

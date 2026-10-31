@@ -101,61 +101,50 @@ export function commandKeys(
     return bindings.first(source, host.action, true) !== null || bindings.first(source, host.action, false) !== null;
   });
 }
+const key_names: Record<number, readonly [string, string]> = {
+  9: ["tab", "Tab"],
+  13: ["enter", "↩"],
+  32: ["space", "Space"],
+  39: ["quote", "'"],
+  44: ["comma", ","],
+  45: ["minus", "-"],
+  46: ["period", "."],
+  47: ["slash", "/"],
+  59: ["semicolon", ";"],
+  61: ["equal", "="],
+  91: ["left_bracket", "["],
+  92: ["backslash", "\\"],
+  93: ["right_bracket", "]"],
+  96: ["backquote", "`"],
+  127: ["backspace", "⌫"],
+  57348: ["insert", "Insert"],
+  57349: ["delete", "⌦"],
+  57350: ["left", "←"],
+  57351: ["right", "→"],
+  57352: ["up", "↑"],
+  57353: ["down", "↓"],
+  57354: ["page_up", "⇞"],
+  57355: ["page_down", "⇟"],
+  57356: ["home", "↖"],
+  57357: ["end", "↘"],
+};
 /** A trigger as a Mac menu writes it: "cmd+shift+t" is ⌘⇧T. */
 export function macLabel(host: string): string {
   const symbols: Record<string, string> = { cmd: "⌘", ctrl: "⌃", alt: "⌥", shift: "⇧" },
-    named: Record<string, string> = {
-      tab: "Tab",
-      enter: "↩",
-      comma: ",",
-      left_bracket: "[",
-      right_bracket: "]",
-      left: "←",
-      right: "→",
-      up: "↑",
-      down: "↓",
-    },
     parts = host.split("+"),
-    key = parts.pop()!;
+    key = parts.pop()!,
+    label = Object.values(key_names).find(([name]) => name === key)?.[1];
   return (
     parts.map(mod => symbols[mod] ?? mod).join("") +
-    (named[key] ?? (key.startsWith("digit_") ? key.slice(6) : key.toUpperCase()))
+    (label ?? (key.startsWith("digit_") ? key.slice(6) : key.toUpperCase()))
   );
 }
 function trigger(binding: bindings.Binding) {
   const m = binding.mods;
-  const special: Record<number, string> = {
-    9: "tab",
-    13: "enter",
-    32: "space",
-    39: "quote",
-    44: "comma",
-    45: "minus",
-    46: "period",
-    47: "slash",
-    59: "semicolon",
-    61: "equal",
-    91: "left_bracket",
-    92: "backslash",
-    93: "right_bracket",
-    96: "backquote",
-    127: "backspace",
-    57348: "insert",
-    57349: "delete",
-    57350: "left",
-    57351: "right",
-    57352: "up",
-    57353: "down",
-    57354: "page_up",
-    57355: "page_down",
-    57356: "home",
-    57357: "end",
-  };
   // These characters delimit Ghostty's keybind syntax.
-  const shifted: Record<number, string> = { 43: "equal", 58: "semicolon", 62: "period" };
+  const shifted: Record<number, number> = { 43: 61, 58: 59, 62: 46 };
   const name =
-    special[binding.key] ??
-    shifted[binding.key] ??
+    key_names[shifted[binding.key] ?? binding.key]?.[0] ??
     (binding.key >= 57364 && binding.key <= 57388
       ? `f${binding.key - 57363}`
       : binding.key >= 33 && !(binding.key >= 57344 && binding.key <= 63743)
@@ -170,6 +159,21 @@ function trigger(binding: bindings.Binding) {
     name
   );
 }
+/** Ghostty aliases must not turn distinct Corgi chords into the same trigger. */
+export function validate(source: bindings.Source): void {
+  const seen = new Map<string, bindings.Binding>();
+  for (const binding of bindings.table(source)) {
+    if (binding.prefixed) continue;
+    const host = trigger(binding);
+    if (host === null) continue;
+    const previous = seen.get(host);
+    if (previous)
+      throw Error(
+        `${bindings.format(previous)} and ${bindings.format(binding)} both use ${macLabel(host)} in Ghostty; choose another shortcut.`,
+      );
+    seen.set(host, binding);
+  }
+}
 export function transform(bytes: string, keys: Keys | null): string {
   const existing = block(bytes);
   let out = existing ? bytes.slice(0, existing.start) + bytes.slice(existing.stop) : bytes;
@@ -178,6 +182,7 @@ export function transform(bytes: string, keys: Keys | null): string {
   out += begin;
   const source = keys.bindings ?? keys.preset;
   if (keys.preset === "cmux") {
+    validate(source);
     out += "# cmux preset; applies throughout Ghostty. Reload with Cmd+Shift+comma.\n";
     for (const b of bindings.table(source))
       if (!b.prefixed) {

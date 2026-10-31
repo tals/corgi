@@ -19,6 +19,7 @@ import * as palette from "./palette";
 import type { Scope, Sort } from "./sidebar";
 import * as worktreeFolder from "./worktree_folder";
 import * as keybindings from "./keybindings";
+import * as ghosttyIntegration from "./ghostty_integration";
 import type { Binding } from "./bindings";
 import { flock } from "./native_bridge";
 
@@ -71,6 +72,7 @@ export class Preferences {
         keys: this.keys,
         table: keybindings.resolve(this.preset, this.keys),
       };
+      if (this.preset === "cmux") ghosttyIntegration.validate(cached.table);
       binding_cache.set(this, cached);
     }
     return cached.table;
