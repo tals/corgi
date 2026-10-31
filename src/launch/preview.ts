@@ -252,7 +252,7 @@ export class Worker {
   }
   /** Account rows come from local state, independently of provider reads. */
   private list(previous: Preview): Preview {
-    const now = Date.now();
+    const now = performance.now();
     if (!this.installs || now - this.installs.at >= 5000) {
       const found = installed();
       this.installs = {

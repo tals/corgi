@@ -63,7 +63,7 @@ export class Server {
   private lastRecovery = 0;
   private workspaceWrites: Promise<void> = Promise.resolve();
   private collecting = false;
-  private collected = 0;
+  private collected = -Infinity;
   // Test builds stop with the test process that owns their runtime.
   private owner = testBuild ? Number(process.env.CORGI_TEST_OWNER) || 0 : 0;
   private ownerChecked = 0;
@@ -274,7 +274,7 @@ export class Server {
     this.registration.arm(READ);
     this.timer = setInterval(() => {
       if (this.collecting || this.frozen) return;
-      const now = Date.now();
+      const now = performance.now();
       if (
         now - this.collected < 250 &&
         !this.dirty &&

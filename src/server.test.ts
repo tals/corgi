@@ -9,6 +9,7 @@ import { captureManifest, restoreClient, restoreMetadata } from "./persist/hando
 import * as json from "./json";
 import * as protocol from "./protocol";
 import * as session from "./session";
+import { n } from "./native_bridge";
 function fixture() {
   const server = new Server("", "", "0".repeat(64));
   return {
@@ -119,6 +120,53 @@ test("publishing resolves relative launch accounts before the pane changes direc
     expect(snapshot).not.toHaveBeenCalled();
   } finally {
     snapshot.mockRestore();
+    dispose();
+  }
+});
+test("idle collection uses elapsed time and still collects on the first timer tick", async () => {
+  const { server, dispose } = fixture();
+  let tick: () => void = () => {
+    throw Error("CollectionTimerNotInstalled");
+  };
+  const monotonic = spyOn(performance, "now").mockReturnValue(0),
+    wall = spyOn(Date, "now").mockReturnValue(10000),
+    nonblock = spyOn(n, "probe_nonblock").mockReturnValue(0),
+    watch = spyOn(Reflect.get(server, "loop"), "watch").mockReturnValue({ arm() {}, close() {} }),
+    collect = spyOn(server as any, "collect").mockResolvedValue(undefined),
+    interval = spyOn(globalThis, "setInterval").mockImplementation(((callback: () => void) => {
+      tick = callback;
+      return 0;
+    }) as typeof setInterval);
+  try {
+    server.dirty = false;
+    Reflect.get(server, "startLoop").call(server);
+    tick();
+    await Reflect.get(server, "jobs");
+    expect(collect).toHaveBeenCalledTimes(1);
+
+    monotonic.mockReturnValue(249);
+    wall.mockReturnValue(5000);
+    tick();
+    await Reflect.get(server, "jobs");
+    expect(collect).toHaveBeenCalledTimes(1);
+    monotonic.mockReturnValue(250);
+    wall.mockReturnValue(1000);
+    tick();
+    await Reflect.get(server, "jobs");
+    expect(collect).toHaveBeenCalledTimes(2);
+
+    monotonic.mockReturnValue(251);
+    server.dirty = true;
+    tick();
+    await Reflect.get(server, "jobs");
+    expect(collect).toHaveBeenCalledTimes(3);
+  } finally {
+    interval.mockRestore();
+    collect.mockRestore();
+    watch.mockRestore();
+    nonblock.mockRestore();
+    wall.mockRestore();
+    monotonic.mockRestore();
     dispose();
   }
 });
