@@ -1,7 +1,34 @@
 Unmodified main versus the simplified terminal-costs branch
 
+## After rebasing onto main `e83e709`
+
+The branch was rebased onto main `e83e709` and re-measured against it with
+frozen production builds of both: candidate `6dd1078`. This run covers 8 and
+64 agents with 15-second warmups and 30-second samples, half the earlier
+durations, so it is noisier. All eight legs were accepted on their first
+attempt under the unchanged 2% sibling-load gate. [Evidence](evidence/terminal-costs-rebased-20261031/README.md).
+
+| Agents | Workload | Attached daemon, main → candidate | Attached viewer, main → candidate | Detached daemon, main → candidate |
+| ---: | --- | ---: | ---: | ---: |
+| 8 | idle | 4.77% → 2.00% | 3.73% → 1.37% | 2.70% → 1.37% |
+| 8 | streaming | 10.83% → 5.23% | 7.90% → 3.57% | 6.20% → 3.93% |
+| 64 | idle | 13.50% → 5.70% | 6.77% → 2.17% | 11.46% → 5.06% |
+| 64 | streaming | 47.13% → 17.27% | 15.93% → 5.43% | 38.10% → 14.53% |
+
+Attached daemon-plus-viewer CPU falls 53.0–64.0%; detached daemon CPU falls
+36.6–61.9%. The host was busy with unrelated work, so for this run the user's
+other processes were kept off the measured L3 group (NUMA 1, CPUs 120–127,
+siblings 248–255) and restored afterwards.
+
+A first rebased run measured an earlier candidate in which every attached
+viewer's launcher subscription made the daemon collect every 50 ms instead of
+250 ms. That raised attached idle daemon CPU at 64 agents to 9.0%. The
+candidate above includes the fix; the earlier run is not reported.
+
+## Earlier full matrix
+
 The CPU measurements and validation below describe the frozen `a7db85c`
-candidate against `8153137`.
+candidate against `8153137`, before the rebase.
 [Portable CPU results, updated-main validation and screenshots](evidence/terminal-costs-20261031/README.md) are included for PR review.
 
 All eight matched pairs are accepted and independently audited: 16 attached/detached cells. Compared with unmodified main, final candidate `a7db85c` uses 54.8–65.0% less daemon-plus-viewer CPU when attached and 35.0–63.9% less daemon CPU when detached. The simpler implementation retains substantial gains after removing the brittle UI caches introduced by this effort.

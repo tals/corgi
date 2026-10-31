@@ -1,0 +1,115 @@
+{
+  "schema": "corgi-main-compare-plan-v1",
+  "contract": {
+    "binaries": {
+      "main": {
+        "path": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-main-e83e709-20261031",
+        "sha256": "c4d4da8d1ce3430204abe020576abdb5b6c31b28fff1395936357516f3b2de08",
+        "build": {
+          "builtAt": "2026-10-31T20:45:33.819Z",
+          "target": "linux-x64",
+          "bunVersion": "1.4.4",
+          "testBuild": false,
+          "releaseVersion": "0.1.0-dev",
+          "releaseCommit": "e83e7090f241927960bf65c294ac7abaebb69dc2",
+          "sha256": "c4d4da8d1ce3430204abe020576abdb5b6c31b28fff1395936357516f3b2de08",
+          "sourceSHA256": "bae89392399276803169543c45aefca9e74ff46cefb576e13010348d4b219668",
+          "nativeSHA256": "50938216a79b73f3b94d41546a7a8f68761fc51f3080280eabe3561e0022a226",
+          "inputsSHA256": "f0b75a267d255a01dab887cb86fc19b93fb1fd40933efc68c0ed8e387775abaa"
+        },
+        "build_sha256": "6f8fed602115e269d6d53c40c84117073aeda6340d31065a0d144a0b8af77044"
+      },
+      "candidate": {
+        "path": "/home/t/dev/personal/corgi-terminal-costs-20261025/dist/corgi-candidate-6dd1078-20261031",
+        "sha256": "fab71383dababc2440af3598c33d90a7dae3094d99f081f42d4e3f18f2c5760b",
+        "build": {
+          "builtAt": "2026-10-31T22:16:49.922Z",
+          "target": "linux-x64",
+          "bunVersion": "1.4.4",
+          "testBuild": false,
+          "releaseVersion": "0.1.0-dev",
+          "releaseCommit": "6dd10789188172235a5784fb8ae06a19a89bb199",
+          "sha256": "fab71383dababc2440af3598c33d90a7dae3094d99f081f42d4e3f18f2c5760b",
+          "sourceSHA256": "a37549fa66dc8dd3fe94ee7ec4ba925d51711474f4aca6c5153561a7e96e216b",
+          "nativeSHA256": "3b5edbb30834f99a3eaece18db0361c979ccc7d2c2331319d60f9063947d9342",
+          "inputsSHA256": "b811a8f380351c45ad6f845d5f28b1dd15f7a3fd606281ec47f9ecf66f6e23c9"
+        },
+        "build_sha256": "ea2831ecdaf23eb2b215991491bd2e221bc96059546326cbd774d3895dcbb8a4"
+      }
+    },
+    "main_base": "e83e7090f241927960bf65c294ac7abaebb69dc2",
+    "head": "8b0ecb095d278b77e610da97183071cd694670c7",
+    "sources": {
+      "tools/benchmarks/agent_scale.py": "7f31302f5436f89655ece410714745d6b1341eccba0750b5df5ee4632cb9fcde",
+      "tools/benchmarks/cost_matrix.py": "5fbe905b96e5a528c16a3c904567e7893cbe8ac4a9f4f2f80dd2f5492baea7ff",
+      "tools/benchmarks/corgi_costs.py": "c9706850f21977a629749e77dae7a7388cbc49dee30f45ce1e99d29989de59dc",
+      "tools/benchmarks/cost_host.py": "fe3dccc70ab81e93572b5cae31180e500f16d2048e1ee28186b9955a96ab763b",
+      "tools/benchmarks/cost_clamp.py": "392fd2c20a8c6b77af0d24cdf5abaee043b719c34478eb0351d2bf17a1be6999",
+      "tools/benchmarks/cost_calibration.py": "c53738b5443159095f1411ff87894835730daca7e3ec060628a212430d441f02",
+      "tools/benchmarks/cost_blocks.py": "b0e8520ed30de327b2247beadb76d526feef620f626eb9ed39242edb939d2238",
+      "tools/benchmarks/cpu.ts": "d2bd8263742c519c3537756172d6c1420d0a14753dfd4c1badb6298bf5dba5bf",
+      "tools/benchmarks/cpu_lock.ts": "22c1a5e18bfe4623e7fb043ec5906e9ca24cc9f52423ca80f034375e87dc0fdf",
+      "tools/benchmarks/cpu_memory.ts": "add0261871aeeaa5234eda4d6707746e3f811ec7ef9448884f529cff9384c94c",
+      "tools/benchmarks/viewer_progress.ts": "80d383077129f279827dfbb351827b59ada69515b31613267948e6e435104de1",
+      "tools/benchmarks/matrix_quality.ts": "0685037630beded87ec5fbd95adc301dd3dbab4c326bcb295ae895d475ef56e8",
+      "tools/benchmarks/cost_matrix_geometry.ts": "0c166cd9512b153455a9e414e27cd652f6f56dfeaa04d5e563addc5fb5cc1b9f",
+      "tools/benchmarks/cost_matrix_herdr.ts": "7d1cba79f6ab749ace63a4f3bb8f87f983154fb523ee8360d2f796a448ea6641",
+      "tools/benchmarks/streaming_fixture.ts": "b712f77e751863252eaa42556fa632e78ff40a8d58df4dcb2fa409c6d0bf6c36",
+      "tools/benchmarks/streaming_provider.ts.fixture": "4ecbba7f958c14b4ad8659f9bebd125d883f78b45fbc68edd7674dd0517f6125",
+      "tools/benchmarks/observation_costs_fixture.ts": "8aeaad55af69cd9d88048269d45f9191f723b85012e0ebb13bbca244e10c9175",
+      "tools/benchmarks/telemetry_snapshot.ts": "8a197ce2c2ddf0b8948614232223fd88e4699f96c1cc0a880c14ace38e13c311",
+      "tools/ui_driver.ts": "dbcb40e9d32b42dd4ed7ade000e1c4b0c42e1f12907d8672fcf3dd020edca3a6",
+      "tools/ghostty_themes.ts": "844239de5b3e55703a04defb5dc98dcf51e3f0eb6d88f11f00b0e9736dce4925",
+      "tests/provider_sim.ts": "cec1fd082cdb09a24d8d6499d25f96c7ebbee80f30fdd87b3d4b72da8c98dd7a",
+      "scripts/process_scope.ts": "04e1a69bad9baa0fba1703eea553efbd5ec20c85ea33bb60d288a3f71d83fd63",
+      "tools/benchmarks/main_compare.py": "7ebfc553b653895969844907190d57ca02bb7e010e5ce5b35ff3c64f171f22cf"
+    },
+    "settings": {
+      "seconds": 30,
+      "warmup": 15,
+      "stream_mode": "sparse",
+      "producer_phase": "staggered",
+      "noise_limit": 0.02,
+      "noise_attempts": 3,
+      "preflight_seconds": 3,
+      "preflight_warmup": 3
+    },
+    "diagnostics": {
+      "inter_leg_gap_seconds": 60,
+      "window_start_separation_seconds": 300,
+      "frequency_relative_difference": 0.05
+    },
+    "node": 1,
+    "cpus": "120,121,122,123,124,125,126,127",
+    "placement_sha256": "59a65e11c2e0bf5b1ba16e339e0c7d5874204a850b537f061406498133d6ddb5",
+    "cases": [
+      "8-idle",
+      "8-busy",
+      "64-idle",
+      "64-busy"
+    ],
+    "orders": {
+      "8-idle": [
+        "candidate",
+        "main"
+      ],
+      "8-busy": [
+        "main",
+        "candidate"
+      ],
+      "64-idle": [
+        "candidate",
+        "main"
+      ],
+      "64-busy": [
+        "main",
+        "candidate"
+      ]
+    },
+    "preflight": [
+      "64-idle",
+      "64-busy"
+    ]
+  },
+  "created_at": "2026-10-31T22:32:53.099723+00:00"
+}
