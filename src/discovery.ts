@@ -34,7 +34,8 @@ function installs(provider: Provider) {
 /** What each candidate's `--version` said, while its file stays as it was:
  * whether it was the provider's, and its version line. */
 const verdicts = new Map<string, { stamp: string; ok: boolean; version: string }>();
-function stamp(path: string): string | null {
+/** The file a path leads to, as its inode, size and change time; null when missing. */
+export function stamp(path: string): string | null {
   try {
     const s = statSync(realpathSync(path));
     return `${s.ino}:${s.size}:${s.mtimeMs}`;

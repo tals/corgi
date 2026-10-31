@@ -54,6 +54,23 @@ export function credentials(root: string): Credential[] {
     db?.close();
   }
 }
+/** The model providers the folder has an enabled sign-in for. */
+export function providers(root: string): string[] {
+  const path = join(root, "agent.db");
+  if (!existsSync(path)) return [];
+  let db: Database | null = null;
+  try {
+    db = new Database(path, { readonly: true });
+    const rows = db
+      .query("SELECT DISTINCT provider FROM auth_credentials WHERE disabled_cause IS NULL ORDER BY provider")
+      .all() as { provider: unknown }[];
+    return rows.flatMap(r => (typeof r.provider === "string" ? [r.provider] : []));
+  } catch {
+    return [];
+  } finally {
+    db?.close();
+  }
+}
 /** The sign-in for the folder's default model, else its first. */
 export function credential(root: string): Credential | null {
   const all = credentials(root),
