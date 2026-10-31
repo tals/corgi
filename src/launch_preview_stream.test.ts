@@ -1,4 +1,8 @@
 import { test, expect } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Stream } from "./launch_preview_stream";
 import { preview } from "./agent_launcher";
 test("preview stream handles partial and consecutive messages and ignores old directories", () => {
@@ -151,4 +155,43 @@ test("the first frame has snapshot accounts and partial previews update while an
   sent.accounts = [];
   expect(receive()).toBe(true);
   expect(stream.preview.accounts).toEqual([]);
+});
+test("the stream tells its subscription when Manage agents opens or closes", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-stream-")),
+    socket = join(dir, "s"),
+    asked: boolean[] = [],
+    ops: string[] = [];
+  let connections = 0;
+  const server = createServer(connection => {
+    connections++;
+    connection.on("data", chunk => {
+      for (const line of chunk.toString().split("\n").filter(Boolean)) {
+        ops.push(JSON.parse(line).op);
+        if (line.includes('"agent.subscribe"')) asked.push(JSON.parse(line).all);
+      }
+    });
+  });
+  await new Promise<void>(resolve => server.listen(socket, resolve));
+  const stream = new Stream(),
+    subscribed = async (count: number) => {
+      for (let i = 0; i < 200 && asked.length < count; i++) await new Promise(r => setTimeout(r, 5));
+    };
+  stream.socket = socket;
+  try {
+    stream.poll(1, "/tmp");
+    await subscribed(1);
+    stream.poll(1, "/tmp", true);
+    await subscribed(2);
+    stream.poll(1, "/tmp", true);
+    stream.poll(1, "/tmp");
+    await subscribed(3);
+    expect(asked).toEqual([false, true, false]);
+    // On the same connection, so the daemon keeps its readings and history.
+    expect(connections).toBe(1);
+    expect(ops).toEqual(["agent.subscribe", "agent.history", "agent.subscribe", "agent.subscribe"]);
+  } finally {
+    stream.disconnect();
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

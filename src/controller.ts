@@ -3279,9 +3279,10 @@ export class Controller {
     }
   }
   updateLaunchPreview(): void {
-    const cwd = this.launcherModel()?.cwd ?? this.launcherCwd();
-    if (!this.launch_previews.poll(this.current().id, cwd)) return;
-    const launch = this.launcherModel();
+    const launch = this.launcherModel(),
+      cwd = launch?.cwd ?? this.launcherCwd(),
+      all = this.agent_launcher ? this.agent_launcher.managing : this.corgi_setup?.listsAccounts() === true;
+    if (!this.launch_previews.poll(this.current().id, cwd, all)) return;
     if (launch) {
       launch.preview = this.launch_previews.current(launch.cwd, this.runtime.accounts);
       // An open launcher keeps its list, unless it had none yet.
@@ -6938,6 +6939,7 @@ export class Controller {
           accounts: this.launch_previews.preview.accounts,
           panes: this.runtime.panes,
           system: this.runtime.inference.provider,
+          system_account: this.runtime.inference.account,
         }),
         workspaces: this.sidebar_focus
           ? this.sidebar_focus.markWorkspaces(this.workspaceEntries())

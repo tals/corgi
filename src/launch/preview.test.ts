@@ -2,8 +2,8 @@ import { test, expect, beforeEach, afterEach, setSystemTime } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import type { FSWatcher } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { Option, Worker, active_every, idle_every } from "./preview";
+import { basename, dirname, join } from "node:path";
+import { Option, Worker, active_every, idle_every, key } from "./preview";
 import { Info, Window } from "../usage/account";
 import { Provider, Text } from "../providers";
 import * as accounts from "../accounts";
@@ -250,6 +250,35 @@ test("folders signed in to one account share a read, through the folder that wor
     worker.trackUsage("/project");
     await worker.pump();
     expect(calls[0]).toEqual(["fresh", 0]);
+    // A folder no one uses any more lends no reading frozen when it stopped.
+    worker.use(
+      new Map([
+        [key("claude"), "launcher"],
+        [key("claude", stale), "launcher"],
+      ]),
+    );
+    await worker.pump();
+    const [own] = worker.preview("/project").accounts;
+    expect(own.option.usage_error.text()).toBe("usage unavailable for this login");
+    expect(own.option.limits).toBe("none");
+  } finally {
+    await worker.stop();
+  }
+});
+
+test("a job queued once a drain is past its last job starts the next drain", async () => {
+  const worker = new Worker();
+  worker.launcher = async () => ({
+    account: async () => new Info(),
+    model: async () => ({ model: "opus", source: "test" }),
+    close() {},
+  });
+  try {
+    // The drain before is done with its jobs, though its promise hasn't settled.
+    (worker as any).pending = new Promise(() => {});
+    worker.preview(root);
+    await worker.pump();
+    expect(worker.preview(root).options.pi.model.text()).toBe("opus");
   } finally {
     await worker.stop();
   }
@@ -287,6 +316,152 @@ test("accounts are read on the daemon's schedule with no one subscribed", async 
     expect(worker.preview("/project").options.claude.limits).toMatchObject({ windows: [null, { used: 12 }] });
   } finally {
     setSystemTime();
+    await worker.stop();
+  }
+});
+
+test("only rows someone uses are read, and the others' launchers close", async () => {
+  listed(["work", "spare"]);
+  const [work, spare] = accounts.known().map(a => a.dir),
+    worker = new Worker(),
+    reads: string[] = [],
+    models: string[] = [],
+    closed: string[] = [];
+  for (const p of installed)
+    for (const account of ["", ...(p === "claude" ? [work, spare] : [])]) {
+      const name = account ? basename(account) : p;
+      worker.launchers.set(
+        key(p, account),
+        Promise.resolve({
+          account: async () => {
+            reads.push(name);
+            return Object.assign(new Info(), { signed_in: true, account: new Text(`${name}@example.com`) });
+          },
+          model: async () => {
+            models.push(name);
+            return { model: "opus", source: "test" };
+          },
+          close: () => void closed.push(name),
+        }),
+      );
+    }
+  worker.use(
+    new Map([
+      [key("claude"), "launcher"],
+      [key("claude", work), "account"],
+      [key("claude", spare), "account"],
+    ]),
+  );
+  try {
+    worker.preview("/project");
+    await worker.pump();
+    // An agent's account reads its sign-in and usage, but no model.
+    expect(reads.sort()).toEqual(["claude", "spare", "work"]);
+    expect(models).toEqual(["claude"]);
+    expect(closed.sort()).toEqual(installed.filter(p => p !== "claude").sort());
+    expect([...worker.launchers.keys()].sort()).toEqual(
+      [key("claude"), key("claude", spare), key("claude", work)].sort(),
+    );
+    let shown = worker.preview("/project");
+    expect(shown.pending).toBe(false);
+    expect(shown.options.claude.model.text()).toBe("opus");
+    // A row no one uses shows as not read yet, should a launcher show it next.
+    expect(shown.options.codex.pending).toBe(true);
+    expect(shown.options.codex.signed_in).toBeNull();
+    expect(shown.accounts.map(a => [a.name, a.option.account.text(), a.option.model.text()])).toEqual([
+      ["work", "work@example.com", ""],
+      ["spare", "spare@example.com", ""],
+    ]);
+    // A launcher shows work now, and nothing uses spare.
+    worker.use(
+      new Map([
+        [key("claude"), "launcher"],
+        [key("claude", work), "launcher"],
+      ]),
+    );
+    expect(worker.preview("/project").accounts.map(a => a.option.pending)).toEqual([true, false]);
+    await worker.pump();
+    expect(closed).toContain("spare");
+    expect(models.sort()).toEqual(["claude", "claude", "work"]);
+    shown = worker.preview("/project");
+    expect(shown.accounts.map(a => [a.name, a.option.account.text(), a.option.model.text()])).toEqual([
+      ["work", "work@example.com", "opus"],
+      ["spare", "", ""],
+    ]);
+    // The same uses again read nothing new.
+    worker.use(
+      new Map([
+        [key("claude", work), "launcher"],
+        [key("claude"), "launcher"],
+      ]),
+    );
+    expect(worker.jobs.some(job => job.queued)).toBe(false);
+  } finally {
+    await worker.stop();
+  }
+});
+
+test("a row no one uses any more keeps its launcher until its read is over", async () => {
+  listed(["spare"]);
+  const [spare] = accounts.known().map(a => a.dir),
+    worker = new Worker(),
+    hold = Promise.withResolvers<Info>(),
+    closed: string[] = [];
+  for (const account of ["", spare])
+    worker.launchers.set(
+      key("claude", account),
+      Promise.resolve({
+        account: async () => (account ? hold.promise : new Info()),
+        model: async () => ({ model: "", source: "test" }),
+        close: () => void closed.push(account ? "spare" : "claude"),
+      }),
+    );
+  worker.use(
+    new Map([
+      [key("claude"), "launcher"],
+      [key("claude", spare), "account"],
+    ]),
+  );
+  try {
+    worker.preview("/project");
+    await turn();
+    worker.use(new Map([[key("claude"), "launcher"]]));
+    await turn();
+    expect(closed).toEqual([]);
+    hold.resolve(new Info());
+    await worker.pump();
+    expect(closed).toEqual(["spare"]);
+    expect(worker.preview("/project").accounts[0].option.pending).toBe(true);
+  } finally {
+    hold.resolve(new Info());
+    await worker.stop();
+  }
+});
+
+test("a row a launcher no longer shows stops watching its files", async () => {
+  const worker = new Worker(),
+    file = join(root, "config.yml");
+  writeFileSync(file, "");
+  for (const p of installed)
+    worker.launchers.set(
+      key(p),
+      Promise.resolve({
+        account: async () => new Info(),
+        model: async () => ({ model: "", source: "test" }),
+        watches: () => (p === "omp" ? [file] : []),
+        close() {},
+      }),
+    );
+  worker.use(new Map([[key("omp"), "launcher"]]));
+  try {
+    worker.preview(root);
+    await worker.pump();
+    expect([...worker.watching.keys()]).toEqual([file]);
+    // An agent running in it still reads its account, but no model.
+    worker.use(new Map([[key("omp"), "account"]]));
+    await worker.pump();
+    expect(worker.watching.size).toBe(0);
+  } finally {
     await worker.stop();
   }
 });
