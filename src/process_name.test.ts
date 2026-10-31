@@ -91,6 +91,8 @@ test("a program wears its own brand, or else its interpreter's", () => {
   for (const argv of [["-zsh"], ["bash", "deploy"], ["htop"]]) expect(program(argv).brand).toBeNull();
   // Agents' providers name theirs the same way.
   expect(brandOf("claude")).toBe("claude");
+  expect(brandOf("opencode")).toBe("opencode");
+  expect(brandOf("opencode2")).toBe("opencode");
   expect(brandOf("pi")).toBeNull();
   expect(brand("bun")).toBe("bun");
   expect(brand("brainfuck")).toBeNull();

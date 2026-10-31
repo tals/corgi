@@ -248,7 +248,7 @@ test("single-line limit groups survive narrow terminal rendering", () => {
         expect(line).toContain("6d 18h");
         expect(line).not.toContain("5h");
       }
-      if (/\*  Claude/.test(line)) {
+      if (/\* Claude/.test(line)) {
         found[1] += 1;
         rows[1] = line;
         for (const value of ["7d", "35%", "1d 15h", " │ 5h", "17%", "1h 39m"]) expect(line).toContain(value);
@@ -528,7 +528,7 @@ test("an account's row reads its own account and has its own YOLO and launcher m
   const b = m.bounds(120, 24, side);
   const line = screen(m, 120, 24, side)[b.y + 4];
   // The brand mark has its own space before the full name.
-  for (const value of [" 2 ", "*  Claude Code · work", "✓", "Opus", "work@example.com", "Team", "5h", "17%"])
+  for (const value of [" 2 ", "* Claude Code · work", "✓", "Opus", "work@example.com", "Team", "5h", "17%"])
     expect(line).toContain(value);
   expect(m.hit(120, 24, side, b.x + 2, b.y + 4)).toBe(work);
   const widths = m.columns(b.w);
@@ -576,7 +576,7 @@ test("a signed-out account's row stays listed and offers to sign in", () => {
   const side = SidebarView.init(120, 24, true, 0, 0);
   const b = m.bounds(120, 24, side);
   const lines = screen(m, 120, 24, side);
-  expect(lines[b.y + 3]).toMatch(/ 1 +\*  Claude Code · work .* — +— +Sign in +│/);
+  expect(lines[b.y + 3]).toMatch(/ 1 +\* Claude Code · work .* — +— +Sign in +│/);
   expect(lines[b.y + b.h - 2]).toMatch(/a +sign in +y +YOLO/);
   m.account_hidden = ["/accounts/work"];
   expect(m.shown(work)).toBe(false);

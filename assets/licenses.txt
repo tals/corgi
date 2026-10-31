@@ -39,6 +39,9 @@ These are distributed under the MIT License, whose text follows the list.
     Copyright (c) 2025-2026 Can Bölük
     Copyright (c) 2026 Stencil Labs, Inc.
 
+  OpenCode's brand mark: https://github.com/anomalyco/opencode
+    Copyright (c) 2025 opencode
+
   get-east-asian-width: https://github.com/sindresorhus/get-east-asian-width
     Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
 

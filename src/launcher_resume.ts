@@ -198,7 +198,7 @@ export class Area {
   }
 }
 /** Brand mark, provider name and the gap before the title. */
-const provider_width = 12;
+const provider_width = 11;
 interface Columns {
   title: number;
   folder: number;
@@ -563,7 +563,7 @@ export class View {
     if (named) {
       // This list writes 1-based positions; marks take 0-based cells.
       writeMark(w, e.provider, x + 2, row - 1, marks);
-      w.write(`\x1b[${row};${x + 6}H${style}${adapter(e.provider).name}`);
+      w.write(`\x1b[${row};${x + 5}H${style}${adapter(e.provider).name}`);
     } else w.write(`\x1b[${row};${x + 3}H${rail(selected)}│${style}`);
     let col = x + 3 + provider_width;
     // The branch, then the account, end the title's column.

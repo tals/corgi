@@ -295,6 +295,7 @@ test("an agent's tab wears its provider's mark", () => {
   expect(tabBrand(pane({ agent: agent({ provider: "codex" }) }))).toBe("openai");
   expect(tabBrand(pane({ agent: agent({ provider: "claude" }), brand: "node" }))).toBe("claude");
   expect(tabBrand(pane({ agent: agent({ provider: "omp" }), brand: "bun" }))).toBe("omp");
+  expect(tabBrand(pane({ agent: agent({ provider: "opencode2" }), brand: "bun" }))).toBe("opencode");
   expect(tabBrand(pane({ agent: agent({ provider: "pi" }), brand: "node" }))).toBe("node");
   expect(tabBrand(pane({ brand: "bun" }))).toBe("bun");
 });
@@ -810,11 +811,15 @@ test("the launcher places provider marks with host images and falls back to glyp
   expect(shown()).not.toContain("\x1b_Ga=p");
   expect(launch.marks).toBeNull();
   const graphics = { tab_icons: icons, cell_pixels: { width: 9, height: 18 } };
+  launch.preview.installed.opencode2 = true;
   expect(shown(graphics)).not.toContain("\x1b_Ga=p");
-  expect(icons.end()).toContain("\x1b_Ga=t");
+  const uploaded = icons.end();
+  expect(uploaded).toContain("\x1b_Ga=t");
+  expect(uploaded).toContain("i=730324,");
   icons.begin();
   const placed = shown(graphics);
   expect(placed).toContain("\x1b_Ga=p");
+  expect(placed).toContain("\x1b_Ga=p,i=730324,");
   expect(placed).not.toMatch(/\x1b\[1;\d+H\x1b_Ga=p/);
   icons.begin();
   expect(shown()).not.toContain("\x1b_Ga=p");

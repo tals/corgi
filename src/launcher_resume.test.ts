@@ -145,8 +145,8 @@ test("a run is named after its provider", () => {
     const w = new Writer();
     new View().drawCollapsed(w, c, 0, 1, 100);
     // Each run starts with its brand mark (here its glyph), then its name.
-    expect(w.buffered()).toMatch(/\x1b\[2;3H[^*]*\* \x1b\[2;6H\x1b\[[\d;]*mClaude/);
-    expect(w.buffered()).toMatch(/\x1b\[3;3H[^§]*§ \x1b\[3;6H\x1b\[[\d;]*mSim/);
+    expect(w.buffered()).toMatch(/\x1b\[2;3H[^*]*\* \x1b\[2;5H\x1b\[[\d;]*mClaude/);
+    expect(w.buffered()).toMatch(/\x1b\[3;3H[^§]*§ \x1b\[3;5H\x1b\[[\d;]*mSim/);
     expect(w.buffered()).not.toContain("Codex");
     for (const width of [44, 100]) {
       const writer = new Writer(),
@@ -155,7 +155,7 @@ test("a run is named after its provider", () => {
         new View().drawCollapsed(writer, c, 0, 1, width);
         terminal.feed(writer.s);
         const row = terminal.text().split("\n")[3];
-        expect(row).toContain("o  OpenCode OpenCode title");
+        expect(row).toContain("o OpenCode OpenCode title");
         expect(row).not.toContain("OpenC…");
       } finally {
         terminal.destroy();
@@ -243,6 +243,6 @@ test("a conversation from another account ends its title with the account's name
   host.destroy();
   // At the end of the title's column, where a branch goes.
   expect(lines[1]).toContain("Fix login");
-  expect(lines[1].indexOf("work") + 4).toBe(14 + v.columns(96).title);
+  expect(lines[1].indexOf("work") + 4).toBe(13 + v.columns(96).title);
   expect(lines[2]).not.toContain("work");
 });

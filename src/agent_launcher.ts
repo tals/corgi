@@ -143,8 +143,8 @@ export function resolution(value: any = {}): Resolution {
   return result;
 }
 const headings = ["Agent", "YOLO", "Model", "Account", "Plan", "Usage (used) · resets in"];
-/** Columns for a row's brand mark and the space after it. */
-const mark_w = 3;
+/** Columns for a row's brand mark. */
+const mark_w = 2;
 // Reserve metadata and two usage windows before their readings arrive.
 const column_widths = [26 + mark_w, 6, 24 - mark_w, 28, 12, 50];
 export const preferred_width = 4 + column_widths.reduce((sum, size) => sum + size, 0);
@@ -447,7 +447,7 @@ export class Menu {
   columns(width: number): number[] {
     const widths = column_widths.slice();
     const available = sat(width, 4);
-    const minimum = [width >= 100 ? 26 + mark_w : 17, 6, width >= 120 ? 21 : 9, 18, 6, 36];
+    const minimum = [width >= 100 ? 26 + mark_w : 17, 6, width >= 120 ? 24 - mark_w : 9, 18, 6, 36];
     if (width < 64) {
       widths[1] = 3; // A one-cell Y heading and toggle, plus its gutter.
       minimum[1] = 3;

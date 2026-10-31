@@ -28,6 +28,7 @@ export const brands = [
   "openai",
   "tmux",
   "omp",
+  "opencode",
 ] as const;
 export type Brand = (typeof brands)[number];
 export function brand(value: unknown): Brand | null {
@@ -82,6 +83,8 @@ const programs: Record<string, Brand> = {
   claude: "claude",
   codex: "openai",
   omp: "omp",
+  opencode: "opencode",
+  opencode2: "opencode",
   uv: "python",
   uvx: "python",
   tmux: "tmux",
