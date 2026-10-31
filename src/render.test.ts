@@ -76,7 +76,50 @@ test("trick brand icons share the image cache and stay beneath later overlays", 
   expect(count(frame(view, [], 100, 30, u), "a=p,i=730320,")).toBe(1);
   icons.begin();
   u.agent_launcher = new LauncherMenu({ workspace: 1, selected: "claude", last: "claude", pinned: true });
-  expect(frame(view, [], 100, 30, u)).not.toContain("a=p,i=730320,");
+  const launcher = frame(view, [], 100, 30, u);
+  u.tricks = [];
+  u.agents[0].decoration = { suffix: [] };
+  icons.begin();
+  expect(count(launcher, "a=p,i=730320,")).toBe(count(frame(view, [], 100, 30, u), "a=p,i=730320,"));
+});
+
+test("rich sidebar buttons align with their rendered cells and dialogs mask their hit areas", () => {
+  const view = new View(new Model(), new Selection());
+  const views = tricks.views([
+    { kind: "decorate", content: { kind: "button", spans: [{ text: "+" }], action: "test.1" } },
+  ]);
+  const entries = [
+    sidebar.entry({
+      target: { pane: 1 },
+      name: "Agent",
+      provider: "claude",
+      decoration: trickUi.decoration(views, {}),
+    }),
+  ];
+  const controls: trickUi.Controls = { hits: [], focus: null };
+  const state = ui({
+    sidebar_open: true,
+    agents: entries,
+    tricks: views,
+    trick_controls: controls,
+    message: "",
+    copy_mode: false,
+  });
+  const screen = new Terminal(100, 30);
+  try {
+    screen.feed(frame(view, [], 100, 30, state));
+    const lines = screen.text().split("\n"),
+      y = lines.findIndex((line, index) => index > 0 && line.includes("[ + ]"));
+    expect(y).toBeGreaterThan(0);
+    expect(controls.hits).toHaveLength(1);
+    expect(controls.hits[0].rect.x).toBe(lines[y].indexOf("[ + ]"));
+    expect(controls.hits[0].rect.y).toBe(y);
+    state.agent_launcher = new LauncherMenu({ workspace: 1, selected: "claude", last: "claude", pinned: true });
+    frame(view, [], 100, 30, state);
+    expect(controls.hits).toEqual([]);
+  } finally {
+    screen.destroy();
+  }
 });
 
 test("agent drawing hooks target their own pane and popover and keep logos above their own cards", () => {

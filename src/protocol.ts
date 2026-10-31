@@ -89,6 +89,7 @@ export const operations = [
   "hello",
   "tricks.list",
   "tricks.reload",
+  "tricks.press",
   "session.command",
   "session.locate",
   "session.list",
@@ -557,6 +558,7 @@ const structures = {
 } as const satisfies Record<string, Fields>;
 const launch = { workspace: "u32", cwd: ["string", ""] } as const satisfies Fields;
 const requests = {
+  "tricks.press": { action: "string", viewer: "u32" },
   "launcher.models": { row: "string" },
   "session.locate": { pane: "u32" },
   "viewer.watch": { viewer: "u32" },
@@ -685,6 +687,7 @@ export interface ReplyPayloads {
   ping: Ok & { pid: number };
   "tricks.list": Ok & { tricks: import("./trick_host").Status[] };
   "tricks.reload": Ok & { tricks: import("./trick_host").Status[] };
+  "tricks.press": Ok & { accepted: boolean };
   "session.command": Ok & { result: Result };
   "session.locate": Ok & { result: Result };
   "launcher.catalog": Ok & { agents: import("./launcher_config").Agent[] };

@@ -1,0 +1,3 @@
+version = 1
+id = "account-palette"
+entry = "main.mjs"

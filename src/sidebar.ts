@@ -524,6 +524,7 @@ export class Preview {
 
 export class View {
   trick_icons: trickUi.Icon[] | null = null;
+  trick_controls: trickUi.Controls | null = null;
   search: Search | null = null;
   /** Header scope: "all" or the workspace whose agents are listed. */
   scope_label = "";
@@ -1379,6 +1380,7 @@ export class View {
         frame_ms,
         dream,
         row_writer === w ? v.trick_icons : null,
+        !cut && !gliding && !e.exit ? v.trick_controls : null,
       );
       v.drawGhost(row_writer, e, top);
       finish();
@@ -1413,6 +1415,7 @@ export class View {
     now_ms: number,
     dream: corgiAnimation.Dream | null,
     icons = this.trick_icons,
+    controls = this.trick_controls,
   ): void {
     const v = this;
     // Focused and dragged rows take the selected tint, and a hovered one
@@ -1478,22 +1481,25 @@ export class View {
       }`,
     );
     if (e.decoration.color) w.write(trickUi.fg(e.decoration.color));
-    const suffixRoom = e.decoration.suffix.length
-      ? Math.min(1 + trickUi.width(e.decoration.suffix), Math.floor(sat(room, right) / 2))
-      : 0;
+    const suffixWidth = trickUi.contentSize(e.decoration).w;
+    const suffixRoom = suffixWidth ? Math.min(1 + suffixWidth, Math.floor(sat(room, right) / 2)) : 0;
     writeEllipsis(w, (e.starred && e.section !== "starred" ? "★ " : "") + name, sat(room, right + suffixRoom));
     if (suffixRoom > 1) {
       const nameWidth = Math.min(
         displayWidth((e.starred && e.section !== "starred" ? "★ " : "") + name),
         sat(room, right + suffixRoom),
       );
-      w.write(`\x1b[${y + 1};${x + 5 + nameWidth}H\x1b[22m`);
+      w.write(`${w.cup(y + 1, x + 5 + nameWidth)}\x1b[22m`);
       w.write(" ");
-      trickUi.write(
+      trickUi.draw(
         w,
-        e.decoration.suffix,
-        suffixRoom - 1,
-        icons ? { icons, x: x + 5 + nameWidth, y, covered: 0 } : undefined,
+        trickUi.content(e.decoration),
+        new Rect(x + 5 + nameWidth, y, suffixRoom - 1, 1),
+        icons,
+        0,
+        controls,
+        e.decoration.color,
+        this.inner ? lists_x : 0,
       );
     }
     w.write("\x1b[22m");

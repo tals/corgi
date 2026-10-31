@@ -58,6 +58,40 @@ test("notices keep Unicode while stripping controls and truncating at UTF-8 boun
   expect(Buffer.byteLength(s.message)).toBeLessThanOrEqual(512);
 });
 
+test("trick keyboard focus follows updated buttons, drops hidden targets and never pastes into a pane", async () => {
+  const s = controller(),
+    calls: unknown[] = [];
+  s.connection = transport(async (op, fields) => {
+    expect(op).toBe("tricks.press");
+    calls.push(fields);
+    return { ok: true, accepted: true };
+  });
+  s.receiveSnapshot(folders("/one"));
+  s.input_state.attached = true;
+  s.input_state.viewer_id = 7;
+  const button = { kind: "button", spans: [{ text: "Press" }], action: "instance.old", slot: "instance.panel.0" };
+  s.runtime.tricks = [{ kind: "overlay", anchor: "top-right", lines: [], content: button }];
+  try {
+    await s.perform({ name: "tricks" });
+    expect(s.trick_controls.focus).toBe("instance.panel.0");
+    button.action = "instance.new";
+    expect(s.frame()).toContain("\x1b[7m");
+    expect(s.trick_controls.focus).toBe("instance.panel.0");
+    await s.input(bytes("\r"));
+    expect(calls).toEqual([{ action: "instance.new", viewer: 7 }]);
+    await s.input(bytes("\x1b[200~echo should-not-run\r\x1b[201~"));
+    expect(calls).toHaveLength(1);
+    s.agent_launcher = new LauncherMenu({ workspace: 1, selected: "claude", last: "claude", pinned: true });
+    s.frame();
+    expect(s.trick_controls.hits).toEqual([]);
+    expect(s.trick_controls.focus).toBeNull();
+    await s.perform({ name: "trick-press", value: "instance.new" });
+    expect(calls).toHaveLength(1);
+  } finally {
+    viewer.close(s);
+  }
+});
+
 test.each(["typing", "kitty key", "click", "resize", "flourishes off"])(
   "%s finishes the sign-in exit without swallowing input",
   async cause => {

@@ -12,7 +12,7 @@ export function icon(reference: string): Span | null {
   if (!reference.startsWith("brand:")) return null;
   const mark = process_name.brand(reference.slice(6));
   if (!mark) return null;
-  const provider = mark === "openai" ? "codex" : Provider.parse(mark);
+  const provider = Provider.all.find(provider => process_name.brandOf(provider) === mark);
   return { text: provider ? adapter(provider).glyph : mark.slice(0, 2), icon: mark, color: { brand: mark } };
 }
 

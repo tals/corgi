@@ -229,12 +229,91 @@ export async function register(on, corgi) {
     this.assertTrue((await this.rpc({ op: "tricks.list" })).tricks.every((t: any) => t.running));
   }
 
+  async test_interactive_fragments_keep_native_ui_and_use_mouse_and_keyboard() {
+    await this.sketch(`export function register(on, corgi) {
+  let count = 0;
+  const press = async name => { await corgi.set("pressed", name + ":" + ++count); };
+  on("ui:agent.sidebar", ({ ui }) => ui.append(ui.button("!", () => press("sidebar"))));
+  on("ui:agent.popover", ({ ui }) => ui.append(ui.column("**Custom footer**", ui.button("Card", () => press("popover")))));
+  on("ui:agent.pane", ({ ui }) => ui.append(ui.row("Pane action", ui.button("Pane", () => press("pane")))));
+}`);
+    await this.agent("Controls");
+    const store = this.path + ".settings.json.tricks/probe.json";
+    const saved = () => (existsSync(store) ? JSON.parse(readFileSync(store, "utf8")).values.pressed : null);
+    let lines = screen_text(await this.shown("[ ! ]"));
+    await this.click_text(lines, "[ ! ]");
+    await this.until(() => saved() === "sidebar:1");
+    lines = screen_text(await this.shown("[ Pane ]"));
+    await this.click_text(lines, "[ Pane ]");
+    await this.until(() => saved() === "pane:2");
+    lines = screen_text((await this.client!.poll()).data);
+    const row = lines.findIndex((line, index) => index > 0 && line.includes("Controls"));
+    await this.client!.input(`\x1b[<35;6;${row + 1}M`);
+    lines = screen_text(await this.shown("[ Card ]"));
+    const y = lines.findIndex(line => line.includes("[ Card ]")),
+      x = lines[y].indexOf("[ Card ]");
+    await this.client!.input(`\x1b[<35;${x + 2};${y + 1}M`);
+    await this.shown("Custom footer");
+    await this.click(x + 2, y + 1);
+    await this.until(() => saved() === "popover:3");
+    await this.client!.input("\x1b[<35;99;29M");
+    await this.client!.input("\x02U\r");
+    await this.until(() => saved() === "pane:4");
+    await this.client!.input("\t\r");
+    await this.until(() => saved() === "sidebar:5");
+    await this.client!.input("\x1b[Z\x1b");
+    const before = await this.client!.poll(),
+      stale = before.trick_buttons[0].action;
+    await this.run_cli("tricks", "reload");
+    await this.shown("[ Pane ]");
+    this.assertEqual((await this.rpc({ op: "tricks.press", action: stale, viewer: before.viewer })).accepted, false);
+    await this.client!.action("setup");
+    await this.client!.action("trick-press", "no-such-button");
+    this.assertEqual(saved(), "sidebar:5");
+    this.assertTrue((await this.rpc({ op: "tricks.list" })).tricks.every((t: any) => t.running));
+  }
+
+  async test_account_picker_reset_and_waiting_agent_buttons_survive_reload_and_target_their_viewer() {
+    const personal = await this.agent("Personal"),
+      company = await this.agent("Company", true);
+    await this.client!.focus(personal);
+    const [other] = await this.viewer();
+    await other.focus(personal);
+    await this.hook(company, "UserPromptSubmit");
+    await this.hook(company, "PermissionRequest", "claude", { tool_name: "Bash" });
+    const waiting = screen_text(await this.shown("[ Company ]"));
+    await this.click_text(waiting, "[ Company ]");
+    await this.until(async () => (await this.client!.poll()).pane === company);
+    this.assertEqual((await other.poll()).pane, personal);
+    await this.hook(company, "PostToolUse", "claude", { tool_name: "Bash" });
+    await this.hook(company, "Stop");
+    let lines = screen_text(await this.shown("1 tasks finished"));
+    await this.click_text(lines, "[ Reset ]");
+    await this.shown("0 tasks finished");
+    lines = screen_text((await this.client!.poll()).data);
+    const row = lines.findIndex((line, index) => index > 0 && line.includes("Company"));
+    await this.client!.input(`\x1b[<35;6;${row + 1}M`);
+    lines = screen_text(await this.shown("[ Warm ]"));
+    await this.click_text(lines, "[ Warm ]");
+    const store = this.path + ".settings.json.tricks/account-palette.json";
+    const account = JSON.stringify(["claude", this.company]);
+    await this.until(
+      () => existsSync(store) && JSON.parse(readFileSync(store, "utf8")).values.colors[account] === "warm",
+    );
+    await this.client!.input("\x1b[<35;99;29M");
+    await this.run_cli("tricks", "reload");
+    await this.shown("0 tasks finished");
+    this.assertEqual(JSON.parse(readFileSync(store, "utf8")).values.colors[account], "warm");
+    this.assertIn(trickUi.fg("warm"), (await this.client!.poll()).data);
+    this.assertTrue((await this.rpc({ op: "tricks.list" })).tricks.every((t: any) => t.running));
+  }
+
   async test_examples_draw_account_colors_flair_attention_and_durable_completions() {
     const personal = await this.agent("Personal"),
       company = await this.agent("Company", true);
     await this.rpc({ op: "focus", pane: personal });
     const list = JSON.parse(await this.run_cli("tricks", "list", "--json"));
-    this.assertEqual(list.tricks.length, 4);
+    this.assertEqual(list.tricks.length, 5);
     this.assertTrue(
       list.tricks.every((t: any) => t.running),
       JSON.stringify(list),

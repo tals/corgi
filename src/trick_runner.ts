@@ -1,20 +1,23 @@
 import { createInterface } from "node:readline";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { pathToFileURL } from "node:url";
 import * as tricks from "./tricks";
 import * as style from "./trick_style";
 import * as markup from "./trick_markup";
+import * as elements from "./trick_elements";
 
 export interface Drawing {
   kind: "overlay";
   anchor?: tricks.Overlay["anchor"];
-  text: string;
+  text?: string;
+  content?: elements.Content;
   color?: tricks.Color;
 }
-export interface Ui {
+export type Ui = typeof elements.ui & {
   color(value: tricks.Color): void;
   marker(value: tricks.Color): void;
-  append(text: string): void;
-}
+  append(content: elements.Content): void;
+};
 export interface UiContext {
   event: tricks.UiEvent;
   agent: tricks.Agent;
@@ -24,9 +27,12 @@ export interface UiContext {
 export interface Corgi {
   readonly palette: typeof style.palette;
   readonly brand: typeof style.brand;
+  readonly ui: typeof elements.ui;
   escape(text: string): string;
   draw(key: string, view: Drawing): void;
   clear(key: string): void;
+  refresh(): void;
+  focus(agent: tricks.Agent | string): Promise<void>;
   get<T>(key: string, fallback: T): Promise<T>;
   set(key: string, value: unknown): Promise<void>;
   delete(key: string): Promise<void>;
@@ -44,10 +50,20 @@ export interface On {
 export interface Trick {
   register(on: On, corgi: Corgi): void | Promise<void>;
 }
-type Message = tricks.Event | { event: "ready" } | { id: string | null; error?: string; result?: unknown };
+type Message =
+  | tricks.Event
+  | { event: "ready" }
+  | { event: "ui.refresh" }
+  | { event: "ui.press"; action: string; viewer: number }
+  | { id: string | null; error?: string; result?: unknown };
 /** This pipe has one writer: the daemon running the same protocol. */
 function message(line: string): Message {
   const value = tricks.object(JSON.parse(line));
+  if (value.event === "ui.refresh") return { event: "ui.refresh" };
+  if (value.event === "ui.press") {
+    if (!Number.isSafeInteger(value.viewer) || Number(value.viewer) < 1) throw Error("InvalidViewer");
+    return { event: "ui.press", action: tricks.key(value.action), viewer: Number(value.viewer) };
+  }
   if (value.event === "ready") {
     if (value.version !== tricks.version) throw Error("UnsupportedTrickVersion");
     return { event: "ready" };
@@ -66,7 +82,11 @@ export class Runner {
   private started = false;
   private ready = false;
   private stopped = false;
-  private patches = new Map<string, { agent: string; json: string }>();
+  private patches = new Map<string, { agent?: string; json: string; actions: string[] }>();
+  private callbacks = new Map<string, elements.Press>();
+  private agents = new Map<string, tricks.Agent>();
+  private interaction = new AsyncLocalStorage<{ viewer: number; active: boolean }>();
+  private refreshing = false;
   private ui_handlers = new Map<tricks.Surface, Handler<UiContext>[]>();
   private handlers: { events: tricks.EventName[]; run: Handler }[] = [];
   private on: On;
@@ -103,23 +123,49 @@ export class Runner {
     this.corgi = {
       palette: style.palette,
       brand: style.brand,
+      ui: elements.ui,
       escape: markup.escape,
       draw: (name, view) => {
+        if (view.content !== undefined) {
+          if (view.text !== undefined) throw Error("AmbiguousDrawing");
+          const encoded = elements.encode(view.content, tricks.color(view.color));
+          this.save(
+            key(name),
+            tricks.view({ kind: view.kind, anchor: view.anchor, content: encoded.content }),
+            encoded.callbacks,
+          );
+          return;
+        }
         if (typeof view.text !== "string" || view.text.length > 6144) throw Error("InvalidString");
         const color = tricks.color(view.color);
         const lines = view.text.split("\n");
         if (lines.length > 12) throw Error("InvalidLines");
-        this.write({
-          op: "ui.set",
-          key: key(name),
-          view: tricks.view({
+        this.save(
+          key(name),
+          tricks.view({
             kind: view.kind,
             anchor: view.anchor,
             lines: lines.map(line => markup.parse(line).map(span => ({ ...span, color: span.color ?? color }))),
           }),
+          [],
+        );
+      },
+      clear: name => this.remove(key(name)),
+      refresh: () => {
+        if (this.stopped) throw Error("TrickStopped");
+        if (this.refreshing) return;
+        this.refreshing = true;
+        this.receive(JSON.stringify({ event: "ui.refresh" }));
+      },
+      focus: async agent => {
+        const interaction = this.interaction.getStore();
+        if (!interaction?.active) throw Error("NoInteraction");
+        await this.call({
+          op: "ui.focus",
+          viewer: interaction.viewer,
+          agent: tricks.agentId(typeof agent === "string" ? agent : agent.id),
         });
       },
-      clear: name => this.write({ op: "ui.remove", key: key(name) }),
       get: async <T>(key: string, fallback: T) => ((await this.call({ op: "kv.get", key })) as T) ?? fallback,
       set: async (key, value) => {
         await this.call({ op: "kv.set", key, value });
@@ -128,6 +174,36 @@ export class Runner {
         await this.call({ op: "kv.delete", key });
       },
     };
+  }
+  private remove(key: string) {
+    const old = this.patches.get(key);
+    for (const action of old?.actions ?? []) this.callbacks.delete(action);
+    this.patches.delete(key);
+    this.write({ op: "ui.remove", key });
+  }
+  private save(key: string, view: tricks.View, callbacks: elements.Press[], agent?: string) {
+    const old = this.patches.get(key),
+      json = JSON.stringify(view);
+    if (old?.json === json) {
+      old.actions.forEach((action, index) => this.callbacks.set(action, callbacks[index]));
+      return;
+    }
+    if (!old && this.patches.size >= tricks.max_views) throw Error("TooManyViews");
+    const actions = callbacks.map(() => String(++this.next));
+    const drawing = view.content
+      ? {
+          ...view,
+          content: tricks.mapActions(
+            view.content,
+            action => actions[Number(action)],
+            slot => `${key}.${slot}`,
+          ),
+        }
+      : view;
+    this.write({ op: "ui.set", key, view: drawing });
+    for (const action of old?.actions ?? []) this.callbacks.delete(action);
+    actions.forEach((action, index) => this.callbacks.set(action, callbacks[index]));
+    this.patches.set(key, { agent, json, actions });
   }
   private write(value: object) {
     if (this.stopped) throw Error("TrickStopped");
@@ -159,12 +235,14 @@ export class Runner {
     for (const [surface, handlers] of this.ui_handlers) {
       const key = `ui-${surface}-${agent.id.replaceAll(":", "-")}`;
       const patch: tricks.Decoration = { kind: "decorate", surface, where: { id: agent.id }, suffix: [] };
+      const parts: elements.Content[] = [];
       let active = true;
       const check = () => {
         if (!active) throw Error("DrawingClosed");
         if (this.stopped) throw Error("TrickStopped");
       };
       const ui: Ui = {
+        ...elements.ui,
         color: value => {
           check();
           patch.color = tricks.color(value);
@@ -173,9 +251,12 @@ export class Runner {
           check();
           patch.marker = tricks.color(value);
         },
-        append: text => {
+        append: content => {
           check();
-          const spans = markup.parse(text);
+          if (parts.length >= tricks.max_nodes) throw Error("DrawingTooLarge");
+          parts.push(content);
+          if (typeof content !== "string") return;
+          const spans = markup.parse(content);
           if (!spans.length) return;
           if (patch.suffix.length) patch.suffix.push({ text: " " });
           patch.suffix.push(...spans);
@@ -188,16 +269,18 @@ export class Runner {
         active = false;
       }
       const old = this.patches.get(key);
-      if (!patch.color && !patch.marker && !patch.suffix.length) {
-        if (old) this.write({ op: "ui.remove", key });
-        this.patches.delete(key);
+      let callbacks: elements.Press[] = [];
+      if (parts.some(part => typeof part !== "string")) {
+        const encoded = elements.encode(elements.ui.row(...parts));
+        patch.content = encoded.content;
+        patch.suffix = [];
+        callbacks = encoded.callbacks;
+      }
+      if (!patch.color && !patch.marker && !patch.suffix.length && !patch.content) {
+        if (old) this.remove(key);
         continue;
       }
-      const json = JSON.stringify(patch);
-      if (old?.json === json) continue;
-      if (!old && this.patches.size >= tricks.max_views) throw Error("TooManyViews");
-      this.write({ op: "ui.set", key, view: patch });
-      this.patches.set(key, { agent: agent.id, json });
+      this.save(key, patch, callbacks, agent.id);
     }
   }
   receive(line: string) {
@@ -229,15 +312,31 @@ export class Runner {
               await this.trick.register(this.on, this.corgi);
               this.started = true;
               this.subscribe();
+            } else if (value.event === "ui.refresh") {
+              this.refreshing = false;
+              for (const agent of this.agents.values()) await this.draw(agent, agent);
+            } else if (value.event === "ui.press") {
+              const callback = this.callbacks.get(value.action);
+              if (!callback) return;
+              const interaction = { viewer: value.viewer, active: true };
+              try {
+                await this.interaction.run(interaction, callback);
+              } finally {
+                interaction.active = false;
+              }
+              for (const agent of this.agents.values()) await this.draw(agent, agent);
             } else {
               if (!this.started) throw Error("NotStarted");
               for (const handler of this.handlers) if (handler.events.includes(value.event)) await handler.run(value);
-              if (value.event === "agent.changed") await this.draw(value.agent, value.previous);
+              if (value.event === "agent.changed" && this.ui_handlers.size) {
+                this.agents.set(value.agent.id, value.agent);
+                await this.draw(value.agent, value.previous);
+              }
               if (value.event === "agent.removed") {
+                this.agents.delete(value.agent.id);
                 for (const [key, patch] of this.patches)
                   if (patch.agent === value.agent.id) {
-                    this.write({ op: "ui.remove", key });
-                    this.patches.delete(key);
+                    this.remove(key);
                   }
               }
             }
@@ -260,6 +359,8 @@ export class Runner {
     for (const pending of this.pending.values()) pending.reject(error);
     this.pending.clear();
     this.patches.clear();
+    this.callbacks.clear();
+    this.agents.clear();
     this.fail(error);
   }
 }

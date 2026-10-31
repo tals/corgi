@@ -2,7 +2,8 @@
 
 A trick exports `register(on, corgi)` from a JavaScript or TypeScript file.
 Register metadata or named UI callbacks with `on`. UI callbacks edit the existing
-drawing with shared operations; there is no component tree to declare.
+drawing with shared operations. Start with strings; opt into rows, columns and
+buttons only for the additions that need them.
 Corgi runs the file with its bundled runtime: no imports, SDK, npm install,
 or separate Node/Bun installation required.
 
@@ -41,7 +42,7 @@ subscriptions belong in code.
 ./go.ts --sandbox tricks
 ```
 
-This opens fake agents and the four bundled examples in an isolated world.
+This opens fake agents and the five bundled examples in an isolated world.
 To install one in your normal environment:
 
 ```sh
@@ -72,7 +73,13 @@ agent type, check `agent.provider` in the callback and change matching drawings.
 | `on("ui:agent.sidebar", callback)` | Edit a sidebar row; also `ui:agent.popover` and `ui:agent.pane` |
 | `ui.color(color)` | Change the primary text color |
 | `ui.marker(color)` | Color the identifying edge or marker |
-| `ui.append(text)` | Add inline Markdown; Corgi handles spacing and placement |
+| `ui.append(content)` | Add inline Markdown or a small layout; Corgi handles placement |
+| `ui.text(text, color?)`, `ui.icon(reference)` | Styled inline text and bundled icons |
+| `ui.row(...content)`, `ui.column(...content)` | Arrange strings and elements |
+| `ui.button(label, callback)` | Run a callback when pressed |
+| `corgi.ui` | The same element builders for independent overlays |
+| `corgi.refresh()` | Coalesce a refresh of this trick's agent UI hooks |
+| `await corgi.focus(agent)` | From a button callback, select an agent in the viewer that pressed it |
 | `corgi.draw(key, view)` | Insert or replace a named overlay |
 | `corgi.clear(key)` | Remove an overlay |
 | `corgi.escape(text)` | Escape literal text interpolated into Markdown |
@@ -194,14 +201,20 @@ Use `ui` only during its callback, including awaited work.
 
 Headless agents have sidebar rows and popovers but no pane. A pane hook never
 reads or rewrites the terminal's own content. All drawings clip to their site;
-logos stay below later cards and menus. Drawings do not take focus or intercept
-input. Small windows may omit content that does not fit.
+logos stay below later cards and menus. Drawings never take focus on arrival. Buttons accept clicks and explicit
+keyboard focus; other content leaves input alone. Small windows may omit
+content that does not fit. Sidebar additions have one row, popover additions
+have up to four, and pane/global cards have up to twelve. Buttons that cannot
+fit completely are hidden and cannot be pressed.
 
 UI hooks run once for each initial agent and again when that agent's metadata
 changes, after metadata handlers finish. Their patches are cached; a terminal
 redraw, resize, hover, or theme change never calls trick code. Identical patches
-send no update. A UI callback reading other state sees it on the next metadata
-change for that agent; use `corgi.draw` for independent event-driven overlays.
+send no update. Button callbacks run in the same serial queue as metadata callbacks. After a
+button finishes, Corgi refreshes this trick's agent UI hooks, so a saved account
+color applies to every matching agent. Use `corgi.refresh()` when a metadata
+callback changes shared state that other agent drawings depend on. Requests
+coalesce. Use `corgi.draw` to update independent overlays.
 `metadata:*` selects metadata callbacks, not UI hooks.
 
 Inline Markdown supports `**bold**`, `*italic*`, literal backtick code, backslash
@@ -226,8 +239,82 @@ corgi.draw("status", {
 Overlays support all four corner anchors; `top-right` is the default. They
 stack inside the pane area, below built-in dialogs and menus. Clear one with
 `corgi.clear("status")`. Replacing one preserves its position. Keys are local
-to a trick; `ui-` keys are reserved for drawing hooks. There is no animation
-clock or widget framework.
+to a trick; `ui-` keys are reserved for drawing hooks. There is no animation clock. Layout and button hit testing run in the viewer;
+trick callbacks never run for terminal frames.
+
+## Small layouts and buttons
+
+Keep the original Corgi UI and append only what you need:
+
+```js
+export function register(on, corgi) {
+  on("ui:agent.popover", ({ agent, ui }) => {
+    const brand = corgi.brand.of(agent.provider);
+    ui.append(ui.row(
+      ui.icon(brand.icon),
+      ui.text("**Ready to inspect**", brand.color),
+      ui.button("Open", () => corgi.focus(agent)),
+    ));
+  });
+}
+```
+
+Rows put one space between children; columns stack without gaps. Strings and
+button labels use the same bounded inline Markdown as `append`. Use
+`corgi.escape` for literal metadata. Builders produce ordinary descriptions;
+there are no imports, classes, component registration, `next`, or callbacks
+running during native rendering. Text and layouts stay read-only; button
+callbacks stay inside the trick process.
+
+An independent card can compose the same elements. Update it explicitly after
+changing its state:
+
+```js
+export async function register(on, corgi) {
+  const ui = corgi.ui;
+  let count = await corgi.get("count", 0);
+  const draw = () => corgi.draw("counter", {
+    kind: "overlay", anchor: "bottom-right",
+    content: ui.row(
+      `${count} clicks`,
+      ui.button("Add", async () => {
+        await corgi.set("count", count + 1);
+        count++;
+        draw();
+      }),
+    ),
+  });
+  draw();
+}
+```
+
+Use either `text` or `content` in an overlay, not both. `color` supplies a
+default for otherwise uncolored text. Empty content can be cleared with
+`corgi.clear(key)`.
+
+Click a button, or use **prefix U** in the Corgi shortcut preset (`Ctrl+B U`
+by default), then **Tab / Shift-Tab**, **Enter / Space**, and **Esc**. The
+`corgi action tricks` command focuses buttons with any preset. Arrow keys also
+move between them. A popover with controls stays anchored while the pointer
+moves into it. Built-in menus and dialogs take precedence; covered or clipped
+buttons cannot receive input. Keyboard focus stays on the same button slot
+when its drawing updates.
+
+`corgi.focus(agent)` accepts an agent object or its `pane:N` / `headless:N` ID.
+It is only available during a button callback, including its awaited work.
+It selects that agent using Corgi's normal navigation, in the viewer that
+pressed the button. Other viewers keep their focus. Headless agents use the
+existing headless-agent selection behavior.
+
+Drawings own their callbacks. Replacement, removal, agent disappearance,
+crash or reload retires old controls; stale presses are ignored. Identical
+drawings send no update, while their callbacks receive the latest captured
+state. Each tree has at most 128 nodes and eight levels of nesting, within
+the existing total UI budget. Button work has the same five-second deadline,
+CPU, memory and queue limits as event callbacks.
+
+This version supports text, icons, rows, columns and buttons. Text inputs,
+scroll containers and replacement of whole Corgi regions are not exposed.
 
 ## Palette and branding
 
@@ -324,10 +411,13 @@ JSONL programs.
 - [Provider flair](../examples/tricks/provider-flair/main.mjs): colors names
   and appends its brand icon, adds a popover account note, and shows a pane
   overlay while the agent waits for input.
+- [Account palette](../examples/tricks/account-palette/main.mjs): adds color
+  buttons to the existing agent popover. Choices persist by provider/account
+  and recolor every matching sidebar row, including future agents.
 - [Attention radar](../examples/tricks/attention-radar/main.mjs): a snapshot
-  becomes a card listing agents waiting for you, cleared when they resume.
+  becomes a card with buttons to select agents waiting for you, cleared when they resume.
 - [Completion jar](../examples/tricks/completion-jar/main.mjs): observes
-  completion changes, saves a counter, and draws stars. Initial events do not
+  completion changes, saves a counter, and draws stars with a Reset button. Initial events do not
   double-count completions on reload. It counts observed finished turns,
   including interruptions and failures, rather than providing an audit log.
 
@@ -345,6 +435,7 @@ to no events until they subscribe.
 | `subscribe` | `events` (string or array), optional `where` |
 | `ui.set` | `key`, `view` |
 | `ui.remove` | `key` |
+| `ui.focus` | `viewer` from a press event, `agent` ID |
 | `kv.get`, `kv.delete` | `key` |
 | `kv.set` | `key`, `value` |
 
@@ -368,6 +459,18 @@ An agent patch has `kind: "decorate"`, `where: { id: "pane:3" }`, optional
 and a `suffix` span array. The wire name `suffix` holds appended content
 on all three sites; code authors use `ui.append`. Use agent IDs for popover and
 pane patches. Raw programs replace/remove their own patches as metadata changes.
+
+Both drawing kinds accept an optional `content` tree: `{kind:"text", spans}`,
+`{kind:"row"|"column", children}`, or `{kind:"button", spans, action}`. An
+optional button `slot` identifies its keyboard position across updates.
+Use unique action IDs per drawing revision: at most 80 ASCII characters,
+with slots at most 120, leaving room for the daemon's namespace. A press delivers
+`{event:"ui.press", action, viewer}` directly to the owning process, independent
+of metadata subscriptions. This is a control event, not part of `metadata:*`.
+The daemon namespaces action IDs per process instance and checks that a
+control still exists before delivering it. On the viewer wire, the optional
+rich content and the capability-advertised `tricks.press` operation are
+additive; older viewers may omit drawings they do not understand.
 
 The core is [trick_runner.ts](../src/trick_runner.ts) (registration and dispatch),
 [tricks.ts](../src/tricks.ts) (contract), [trick_host.ts](../src/trick_host.ts)

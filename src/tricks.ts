@@ -46,6 +46,13 @@ export interface Span {
   bold?: boolean;
   italic?: boolean;
 }
+export const max_nodes = 128;
+export const max_depth = 8;
+export type Element =
+  | { kind: "text"; spans: Span[] }
+  | { kind: "button"; spans: Span[]; action: string; slot?: string }
+  | { kind: "row"; children: Element[] }
+  | { kind: "column"; children: Element[] };
 export const surfaces = ["sidebar", "popover", "pane"] as const;
 export type Surface = (typeof surfaces)[number];
 export type UiEvent = `ui:agent.${Surface}`;
@@ -59,17 +66,20 @@ export interface Decoration {
   color?: Color;
   marker?: Color;
   suffix: Span[];
+  content?: Element;
 }
 export interface Overlay {
   kind: "overlay";
   anchor: "top-right" | "bottom-right" | "top-left" | "bottom-left";
   lines: Span[][];
+  content?: Element;
 }
 export type View = Decoration | Overlay;
 export type Command =
   | { op: "ui.set"; key: string; view: View }
   | { op: "ui.remove"; key: string }
   | { op: "subscribe"; subscription: Subscription }
+  | { op: "ui.focus"; viewer: number; agent: string }
   | { op: "kv.get" | "kv.delete"; key: string }
   | { op: "kv.set"; key: string; value: unknown };
 
@@ -85,7 +95,10 @@ function string(value: unknown, limit = 1024): string {
   return value;
 }
 export function key(value: unknown): string {
-  const result = string(value, 80);
+  return reference(string(value, 80));
+}
+export function reference(value: unknown): string {
+  const result = string(value, 160);
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(result)) throw Error("InvalidKey");
   return result;
 }
@@ -184,11 +197,67 @@ function spans(value: unknown): Span[] {
     };
   });
 }
-export function view(value: unknown): View {
+/** Bound both depth and total work, including trees sent by raw programs. */
+export function element(value: unknown, local = false): Element {
+  let count = 0;
+  const read = (value: unknown, depth: number): Element => {
+    if (++count > max_nodes || depth >= max_depth) throw Error("DrawingTooLarge");
+    const source = object(value);
+    switch (source.kind) {
+      case "text":
+        fields(source, ["kind", "spans"]);
+        return { kind: "text", spans: spans(source.spans) };
+      case "button":
+        fields(source, ["kind", "spans", "action", "slot"]);
+        return {
+          kind: "button",
+          spans: spans(source.spans),
+          action: local ? key(source.action) : reference(source.action),
+          ...(source.slot === undefined ? {} : { slot: reference(string(source.slot, local ? 120 : 160)) }),
+        };
+      case "row":
+      case "column":
+        fields(source, ["kind", "children"]);
+        if (!Array.isArray(source.children) || source.children.length > max_nodes) throw Error("DrawingTooLarge");
+        return { kind: source.kind, children: source.children.map(child => read(child, depth + 1)) };
+      default:
+        throw Error("InvalidElement");
+    }
+  };
+  return read(value, 0);
+}
+export function actions(node: Element | undefined): string[] {
+  if (!node) return [];
+  switch (node.kind) {
+    case "button":
+      return [node.action];
+    case "text":
+      return [];
+    default:
+      return node.children.flatMap(actions);
+  }
+}
+export function mapActions(node: Element, map: (action: string) => string, slot?: (slot: string) => string): Element {
+  switch (node.kind) {
+    case "button":
+      return { ...node, action: map(node.action), ...(slot ? { slot: slot(node.slot ?? node.action) } : {}) };
+    case "text":
+      return node;
+    default:
+      return { ...node, children: node.children.map(child => mapActions(child, map, slot)) };
+  }
+}
+export function agentId(value: unknown): string {
+  const id = string(value, 80);
+  if (!/^(pane|headless):[1-9][0-9]*$/.test(id) || !Number.isSafeInteger(Number(id.split(":")[1])))
+    throw Error("InvalidAgent");
+  return id;
+}
+export function view(value: unknown, local = false): View {
   const source = object(value);
   switch (source.kind) {
     case "decorate":
-      fields(source, ["kind", "surface", "where", "color", "marker", "suffix"]);
+      fields(source, ["kind", "surface", "where", "color", "marker", "suffix", "content"]);
       if (source.surface !== undefined && !surfaces.includes(source.surface as Surface)) throw Error("InvalidSurface");
       return {
         kind: "decorate",
@@ -197,14 +266,21 @@ export function view(value: unknown): View {
         color: color(source.color),
         marker: color(source.marker),
         suffix: spans(source.suffix ?? []),
+        ...(source.content === undefined ? {} : { content: element(source.content, local) }),
       };
     case "overlay": {
-      fields(source, ["kind", "anchor", "lines"]);
+      fields(source, ["kind", "anchor", "lines", "content"]);
       const anchor = source.anchor ?? "top-right";
       if (anchor !== "top-right" && anchor !== "bottom-right" && anchor !== "top-left" && anchor !== "bottom-left")
         throw Error("InvalidAnchor");
-      if (!Array.isArray(source.lines) || source.lines.length > 12) throw Error("InvalidLines");
-      return { kind: "overlay", anchor, lines: source.lines.map(spans) };
+      const lines = source.lines ?? [];
+      if (!Array.isArray(lines) || lines.length > 12) throw Error("InvalidLines");
+      return {
+        kind: "overlay",
+        anchor,
+        lines: lines.map(spans),
+        ...(source.content === undefined ? {} : { content: element(source.content, local) }),
+      };
     }
     default:
       throw Error("InvalidView");
@@ -220,8 +296,11 @@ export function command(value: unknown): { id: string | number | null; command: 
   )
     throw Error("InvalidId");
   switch (source.op) {
+    case "ui.focus":
+      if (!Number.isSafeInteger(source.viewer) || Number(source.viewer) < 1) throw Error("InvalidViewer");
+      return { id, command: { op: source.op, viewer: Number(source.viewer), agent: agentId(source.agent) } };
     case "ui.set":
-      return { id, command: { op: source.op, key: key(source.key), view: view(source.view) } };
+      return { id, command: { op: source.op, key: key(source.key), view: view(source.view, true) } };
     case "ui.remove":
     case "kv.get":
     case "kv.delete":

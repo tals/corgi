@@ -259,3 +259,135 @@ test("registration rejects wildcards, bad callbacks, and late or unbounded handl
   expect(() => later!("transcript", () => {})).toThrow("RegistrationClosed");
   expect(late.failures).toEqual([]);
 });
+
+test("buttons retain current closures, refresh agent drawings and discard stale callbacks", async () => {
+  const pressed: string[] = [];
+  let count = 0,
+    draws = 0;
+  const h = harness(on => {
+    on("ui:agent.sidebar", ({ agent, ui }) => {
+      draws++;
+      ui.append(
+        ui.row(
+          ui.icon("brand:claude"),
+          ui.button(`Count ${count}`, () => {
+            pressed.push(agent.name);
+            count++;
+          }),
+        ),
+      );
+    });
+  });
+  await flush();
+  h.receive({ event: "agent.changed", agent, previous: null });
+  await flush();
+  const old = tricks.view(h.sent.at(-1)!.view),
+    action = tricks.actions(old.content)[0];
+  expect(action).toBeDefined();
+  const writes = h.sent.length;
+  h.receive({ event: "agent.changed", agent: { ...agent, name: "Latest" }, previous: agent });
+  await flush();
+  expect(h.sent.length).toBe(writes);
+  h.receive({ event: "ui.press", action, viewer: 2 });
+  await flush();
+  expect(pressed).toEqual(["Latest"]);
+  expect(draws).toBe(3);
+  const next = tricks.actions(tricks.view(h.sent.at(-1)!.view).content)[0];
+  expect(next).not.toBe(action);
+  h.receive({ event: "ui.press", action, viewer: 2 });
+  h.receive({ event: "agent.removed", agent });
+  h.receive({ event: "ui.press", action: next, viewer: 2 });
+  await flush();
+  expect(pressed).toEqual(["Latest"]);
+  expect(h.failures).toEqual([]);
+});
+
+test("a button can await storage and focus only the viewer that pressed it", async () => {
+  const h = harness((_on, corgi) => {
+    corgi.draw("panel", {
+      kind: "overlay",
+      content: corgi.ui.button("Open", async () => {
+        await corgi.set("choice", agent.id);
+        await corgi.focus(agent);
+        corgi.clear("panel");
+      }),
+    });
+  });
+  await flush();
+  await expect(h.runner.corgi.focus(agent)).rejects.toThrow("NoInteraction");
+  const action = tricks.actions(tricks.view(h.sent[0].view).content)[0];
+  h.receive({ event: "ui.press", action, viewer: 7 });
+  await flush();
+  expect(h.sent.at(-1)).toMatchObject({ op: "kv.set", value: agent.id });
+  h.receive({ id: h.sent.at(-1)!.id, result: null });
+  await flush();
+  expect(h.sent.at(-1)).toMatchObject({ op: "ui.focus", viewer: 7, agent: "pane:1" });
+  h.receive({ id: h.sent.at(-1)!.id, result: null });
+  await flush();
+  expect(h.sent.at(-1)).toEqual({ op: "ui.remove", key: "panel" });
+  const before = h.sent.length;
+  h.receive({ event: "ui.press", action, viewer: 7 });
+  await flush();
+  expect(h.sent).toHaveLength(before);
+  expect(h.failures).toEqual([]);
+});
+
+test("explicit refresh coalesces and never subscribes to transcripts or runs on a terminal frame", async () => {
+  let label = "Before",
+    draws = 0;
+  const h = harness(on =>
+    on("ui:agent.popover", ({ ui }) => {
+      draws++;
+      ui.append(label);
+    }),
+  );
+  await flush();
+  h.receive({ event: "agent.changed", agent, previous: null });
+  await flush();
+  label = "After";
+  h.runner.corgi.refresh();
+  h.runner.corgi.refresh();
+  await flush();
+  expect(draws).toBe(2);
+  expect(h.sent.at(-1)).toMatchObject({ view: { suffix: [{ text: "After" }] } });
+  expect(h.sent[0]).toEqual({ op: "subscribe", events: ["agent.changed", "agent.removed"] });
+});
+
+test("unawaited button work cannot borrow the next viewer's interaction", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  const rejected: string[] = [];
+  let presses = 0;
+  const h = harness((_on, corgi) => {
+    corgi.draw("button", {
+      kind: "overlay",
+      content: corgi.ui.button("Open", async () => {
+        if (++presses === 1) {
+          void (async () => {
+            await gate;
+            try {
+              await corgi.focus(agent);
+            } catch (error) {
+              rejected.push((error as Error).message);
+            }
+          })();
+        } else await corgi.get("hold", null);
+      }),
+    });
+  });
+  await flush();
+  const action = tricks.actions(tricks.view(h.sent[0].view).content)[0];
+  h.receive({ event: "ui.press", action, viewer: 1 });
+  await flush();
+  h.receive({ event: "ui.press", action, viewer: 2 });
+  await flush();
+  release();
+  await flush();
+  expect(rejected).toEqual(["NoInteraction"]);
+  expect(h.sent.at(-1)).toMatchObject({ op: "kv.get" });
+  h.receive({ id: h.sent.at(-1)!.id, result: null });
+  await flush();
+  expect(h.failures).toEqual([]);
+});

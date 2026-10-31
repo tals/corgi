@@ -93,6 +93,7 @@ export interface Status {
   error: string | null;
 }
 interface Running {
+  instance: string;
   status: Status;
   manifest: Manifest;
   child: ChildProcessWithoutNullStreams;
@@ -118,12 +119,36 @@ export class Host {
     private executable: string,
     private source: () => tricks.Snapshot,
     private changed: () => void,
+    private focus?: (viewer: number, agent: string) => void,
   ) {}
   status(): Status[] {
     return this.statuses.map(s => ({ ...s }));
   }
   views(): tricks.View[] {
-    return this.running.flatMap(r => [...r.views.values()]);
+    return this.running.flatMap(r =>
+      [...r.views.values()].map(view =>
+        view.content
+          ? {
+              ...view,
+              content: tricks.mapActions(
+                view.content,
+                action => `${r.instance}.${action}`,
+                slot => `${r.instance}.${slot}`,
+              ),
+            }
+          : view,
+      ),
+    );
+  }
+  press(action: string, viewer: number) {
+    tricks.reference(action);
+    const at = action.indexOf("."),
+      instance = action.slice(0, at),
+      local = action.slice(at + 1);
+    const r = this.running.find(r => r.status.running && r.instance === instance);
+    if (!r || ![...r.views.values()].some(view => tricks.actions(view.content).includes(local))) return false;
+    this.send(r, { event: "ui.press", action: local, viewer });
+    return true;
   }
   private invalidate() {
     this.revision++;
@@ -269,6 +294,7 @@ export class Host {
         });
         const exited = new Promise<void>(done => child.once("close", () => done()));
         const r: Running = {
+          instance: crypto.randomUUID(),
           status,
           manifest: m,
           child,
@@ -361,6 +387,11 @@ export class Host {
       const c = parsed.command;
       let result: unknown = null;
       switch (c.op) {
+        case "ui.focus":
+          if (!this.source().agents.some(agent => agent.id === c.agent)) throw Error("NoAgent");
+          if (!this.focus) throw Error("NoViewer");
+          this.focus(c.viewer, c.agent);
+          break;
         case "ui.set":
           if (JSON.stringify(r.views.get(c.key)) === JSON.stringify(c.view)) break;
           if (!r.views.has(c.key) && r.views.size >= tricks.max_views) throw Error("TooManyViews");

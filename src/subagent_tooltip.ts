@@ -1318,6 +1318,7 @@ export function draw(
   patch: trickUi.Decoration = { suffix: [] },
   icons: trickUi.Icon[] | null = null,
   covered = 0,
+  controls: trickUi.Controls | null = null,
 ): Rect | null {
   if (cols < 40 || rows < 13) return null;
   const parent = entry.conversation;
@@ -1360,7 +1361,7 @@ export function draw(
   const todo_height = checklist_view.visible(root.checklist, microTimestamp()) ? todo_view.rows + 3 : 0;
   // Until there is a timeline, the activity takes its own line under the subtitle.
   const activity_row = timeline_nodes === 0;
-  const extra = Number(patch.suffix.length > 0);
+  const extra = Math.min(4, trickUi.contentSize(patch).h, Math.max(0, rows - 12));
   const wanted =
     extra +
     7 +
@@ -1478,8 +1479,16 @@ export function draw(
   if (footer) card.line(footer_row, footer, "", "faint", "faint");
   if (todo_budget) card.checklist(todo_top, root.checklist, fitted_todos);
   if (extra) {
-    w.write(`\x1b[${bottom + 1};${x + 4}H${base}`);
-    trickUi.write(w, patch.suffix, width - 6, icons ? { icons, x: x + 3, y: bottom, covered } : undefined, patch.color);
+    w.write(base);
+    trickUi.draw(
+      w,
+      trickUi.content(patch),
+      new Rect(x + 3, bottom, width - 6, extra),
+      icons,
+      covered,
+      controls,
+      patch.color,
+    );
   }
   w.write("\x1b[0m\x1b8");
   return new Rect(x, y, width, height);

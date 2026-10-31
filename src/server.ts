@@ -82,6 +82,10 @@ export class Server {
         this.dirty = true;
         this.wakeViewers();
       },
+      (id, agent) => {
+        viewer.queue(this, viewer.targetViewer(this, id), { kind: "action", name: "focus-agent", value: agent });
+        this.wakeViewers();
+      },
     );
   }
   initialWorkspace() {
@@ -501,6 +505,10 @@ export class Server {
       case "tricks.reload":
         await this.tricks.reload();
         cl.reply("tricks.reload", { tricks: this.tricks.status() });
+        return;
+      case "tricks.press":
+        viewer.targetViewer(this, request.payload.viewer);
+        cl.reply("tricks.press", { accepted: this.tricks.press(request.payload.action, request.payload.viewer) });
         return;
       case "ping":
         cl.queue({ ok: true, pid: process.pid });

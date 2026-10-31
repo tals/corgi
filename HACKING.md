@@ -128,7 +128,11 @@ JSONL contract.
 `trick_host.ts` owns discovery, subscriptions and atomic per-runtime KV;
 `trick_budget.ts` bounds CPU and memory, and `trick_ui.ts` draws views.
 `trick_runner.ts` caches patches from named UI hooks on agent metadata changes;
-terminal frames never run trick callbacks. `trick_markup.ts` parses bounded inline
+terminal frames never run trick callbacks. `trick_elements.ts` builds bounded
+rows, columns and buttons; functions stay in the runner. The viewer lays out
+those cached descriptions and routes visible controls through actions. Button
+presses return to their owning process, and viewer navigation returns only to
+the viewer that pressed them. `trick_markup.ts` parses bounded inline
 text and bundled icon references. `trick_style.ts` exposes symbolic palette
 colors, blends and brand references; viewers resolve them in their own themes
 and reuse the tab-logo image cache.
