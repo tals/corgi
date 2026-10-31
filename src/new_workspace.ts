@@ -18,8 +18,9 @@ import { Writer, writeEllipsis } from "./text";
 
 /** How long ↵ is held to create; letting go undoes it faster. A release
  * shows sooner than the shared default: a gap past the measured repeat
- * delay or after a repeat. */
-export const create_hold_ms = 3000;
+ * delay or after a repeat. Until a repeat has measured the delay, the
+ * first may come as late as any host's. */
+export const create_hold_ms = 1500;
 const create_heal_ms = 220;
 const create_gap_ms = 150;
 const create_first_gap_ms = 80;
@@ -350,7 +351,7 @@ export class Dialog extends nameDialog.Dialog {
   /** The name is the browser's folder's, following it until edited. */
   follows_folder = true;
   /** Creating takes a hold of ↵, or of its button. */
-  create = new KeyHold(create_hold_ms, create_heal_ms, create_gap_ms, create_first_gap_ms);
+  create = new KeyHold(create_hold_ms, create_heal_ms, create_gap_ms, create_first_gap_ms, true);
   /** The hold as the border draws it, and how lit the ↵ key is, 0 to 1. */
   ring = new Spring(ring_snap);
   lit = 0;

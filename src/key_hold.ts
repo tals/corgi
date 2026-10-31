@@ -21,19 +21,26 @@ export class KeyHold {
   private last = 0;
   /** The host's repeat delay and rate, as measured. */
   private delay = assumed_delay_ms;
+  private measured = false;
   private interval: number;
   /** Held until then, unless the key arrives again. */
   private until = 0;
   /** Presses before this are the tail of a hold that already ended. */
   private quiet_until = -Infinity;
+  /** How late the link may deliver a repeat, in ms, on top of the gaps;
+   * see `frame_pacing.jitter`. */
+  slack = 0;
 
   /** Filled in `hold_ms`; let go, emptied in `heal_ms`. A silence of `gap`
-   * after a repeat, or of `first_gap` past the host's repeat delay, is a release. */
+   * after a repeat, or of `first_gap` past the host's repeat delay, is a
+   * release; with `patient`, before a repeat has measured the delay, only
+   * one of `first_repeat_ms` is. */
   constructor(
     readonly hold_ms: number,
     readonly heal_ms: number,
     readonly gap = repeat_gap_ms,
     readonly first_gap = repeat_gap_ms,
+    readonly patient = false,
   ) {
     this.interval = gap / 2;
   }
@@ -47,21 +54,27 @@ export class KeyHold {
       return false;
     }
     // The first repeat, even one later than the delay expected it.
-    const first = this.active && !this.repeating && now - this.started <= first_repeat_ms;
+    const first = this.active && !this.repeating && now - this.started <= first_repeat_ms + this.slack;
     if (this.active && (now < this.until || first)) {
+      // The key was down all along; a repeat the link held back still counts.
+      this.grow(now);
       if (this.progress >= 1) {
         this.quiet(now);
         return true;
       }
       if (this.repeating) this.interval = Math.min(this.gap, now - this.last);
-      else this.delay = Math.max(100, Math.min(first_repeat_ms, now - this.started));
+      else {
+        this.delay = Math.max(100, Math.min(first_repeat_ms, now - this.started));
+        this.measured = true;
+      }
       this.repeating = true;
       this.last = now;
-      this.until = now + this.gap;
+      this.until = now + this.gap + this.slack;
       return false;
     }
     this.start(now);
-    this.until = now + this.delay + this.first_gap;
+    const wait = this.patient && !this.measured ? first_repeat_ms : this.delay + this.first_gap;
+    this.until = now + wait + this.slack;
     return false;
   }
   /** A mouse button went down on it; it fills until `release`. */
@@ -96,16 +109,17 @@ export class KeyHold {
    * it, and a key let go just before the end, noticed a gap later, never completes. */
   advance(now: number): void {
     if (!this.active) return;
-    const grown = this.pressed ? now : Math.min(now, this.last + (this.repeating ? this.interval : this.delay));
-    if (grown > this.at) {
-      this.progress = Math.min(1, this.progress + (grown - this.at) / this.hold_ms);
-      this.at = grown;
-    }
+    this.grow(this.pressed ? now : Math.min(now, this.last + (this.repeating ? this.interval : this.delay)));
     if (now > this.until) {
       this.progress = Math.max(0, this.progress - (now - Math.max(this.at, this.until)) / this.heal_ms);
       this.at = now;
     }
     if (this.progress === 0 && now >= this.until) this.reset();
+  }
+  private grow(to: number): void {
+    if (to <= this.at) return;
+    this.progress = Math.min(1, this.progress + (to - this.at) / this.hold_ms);
+    this.at = to;
   }
   /** Whether presses now are the tail of a hold that already ended. */
   quieted(now: number): boolean {
