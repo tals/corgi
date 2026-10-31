@@ -1602,9 +1602,7 @@ export class View {
     const bar = ghost
       ? ghost_bar
       : !grouped && e.decoration.marker
-        ? fgRgb(mix(trickUi.rgb(e.decoration.marker), background, e.focused ? 0 : 45)) +
-          row_bg +
-          (e.focused ? "┃" : "│")
+        ? fgRgb(mix(trickUi.rgb(e.decoration.marker), background, e.focused ? 0 : 45)) + row_bg + "▌"
         : e.focused && !grouped
           ? active_bar
           : "";

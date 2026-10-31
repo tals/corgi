@@ -86,7 +86,7 @@ test("flat and grouped agent rows retain dim identity markers and brighter focus
             palette.mix(palette.colors.warm, focused ? palette.colors.selected : palette.colors.bg, focused ? 0 : 45),
           ),
         );
-        expect(terminal.text()).toContain(grouped ? (focused ? "┣" : "╰") : focused ? "┃" : "│");
+        expect(terminal.text()).toContain(grouped ? (focused ? "┣" : "╰") : "▌");
       } finally {
         terminal.destroy();
       }
