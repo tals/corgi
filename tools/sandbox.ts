@@ -100,6 +100,7 @@ export class Sandbox {
     const env: Record<string, string> = { ...(process.env as Record<string, string>) };
     for (const key of [
       "CORGI_PANE",
+      "CORGI_TRICKS_DIR",
       "CORGI_APP_EXE",
       "CORGI_ENV_BASE",
       "CODEX_THREAD_ID",

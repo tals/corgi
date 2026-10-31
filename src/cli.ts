@@ -16,8 +16,19 @@ export const help = helpText;
 export function localizedHelp(): string {
   return i18n.document(helpText);
 }
-const groups = new Set(["tab", "pane", "workspace", "launcher", "claim", "current", "list", "focus", "--skill"]);
-const nested = new Set(["tab", "pane", "workspace", "launcher"]);
+const groups = new Set([
+  "tricks",
+  "tab",
+  "pane",
+  "workspace",
+  "launcher",
+  "claim",
+  "current",
+  "list",
+  "focus",
+  "--skill",
+]);
+const nested = new Set(["tricks", "tab", "pane", "workspace", "launcher"]);
 const flags = new Set(["json", "clear", "stdin", "enter", "new-tab", "first", "left", "right", "up", "down"]);
 const options = new Set([
   ...flags,
@@ -45,6 +56,8 @@ const options = new Set([
   "below",
 ]);
 const actions = new Set([
+  "tricks.list",
+  "tricks.reload",
   "list",
   "current",
   "focus",
@@ -217,7 +230,11 @@ export async function parse(words: string[], caller = 0, input?: () => Promise<s
   if (!actions.has(action)) throw Error("Usage");
   let current = false,
     target = 0;
-  if (group !== "launcher" && !["list", "current", "tab.new", "workspace.new", "pane.idle", "claim"].includes(action)) {
+  if (
+    group !== "tricks" &&
+    group !== "launcher" &&
+    !["list", "current", "tab.new", "workspace.new", "pane.idle", "claim"].includes(action)
+  ) {
     if (start === words.length) throw Error("Usage");
     current = words[start] === "current";
     if (current && group === "workspace") throw Error("Usage");
@@ -253,6 +270,8 @@ export async function parse(words: string[], caller = 0, input?: () => Promise<s
     command = { [op]: payload };
   };
   switch (action) {
+    case "tricks.list":
+    case "tricks.reload":
     case "list":
     case "current":
     case "focus":
@@ -752,6 +771,17 @@ export async function run(path: string, args: string[], agent = false): Promise<
     lines = reading?.lines;
   if (reading) reading.lines = Math.min(lines + 1, 10000);
   try {
+    if (inv.action === "tricks.list" || inv.action === "tricks.reload") {
+      const reply = await conn.call(inv.action as "tricks.list" | "tricks.reload");
+      process.stdout.write(
+        inv.json
+          ? stringify(reply) + "\n"
+          : reply.tricks.length
+            ? reply.tricks.map(t => `${t.id}  ${t.running ? "running" : (t.error ?? "disabled")}  ${t.path}\n`).join("")
+            : "No tricks installed.\n",
+      );
+      return;
+    }
     if (inv.claim) {
       const reply = await conn.call("pane.agent", inv.claim);
       process.stdout.write(inv.json ? stringify(reply) + "\n" : words(reply));

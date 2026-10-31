@@ -177,6 +177,7 @@ export async function sync(s: Server, cl: Client, q: Sync) {
       resources: q.resources_hash === resourcesHash ? null : readings,
       resources_hash: resourcesHash,
       surfaces: frames,
+      tricks: s.tricks.views(),
       bell_seq: s.bell_seq,
       bell_kind: s.last_bell_kind,
       controls: cl.controls,

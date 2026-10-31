@@ -122,6 +122,14 @@ terminal formats remain unchanged. Screen observers reuse a
 terminal's live text until its native revision changes, while their status
 confirmation and time-based transitions continue on every observation pass.
 
+Corgi Tricks run as daemon-owned subprocesses. `tricks.ts` owns their JSONL
+contract, `trick_host.ts` owns discovery, events and atomic per-runtime KV, and
+`trick_ui.ts` draws their declarative views. Viewers receive an optional
+`tricks` field; protocol 3 and saved formats are unchanged. Handoff stops the
+old trick processes and the committed daemon starts fresh ones; rollback
+restarts them in the old daemon. See [Tricks](docs/tricks.md) and the
+`tricks` sandbox and integration suite.
+
 ## Build, test and format
 
 ```sh

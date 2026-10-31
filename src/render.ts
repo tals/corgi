@@ -1,6 +1,8 @@
 import * as i18n from "./i18n";
 //! One complete frame of the viewer: tabs, panes, sidebar and overlays.
 //! Mirrors render.zig.
+import * as trickUi from "./trick_ui";
+import type { View as TrickView } from "./tricks";
 import * as palette from "./palette";
 import * as composition from "./composition";
 import { Style, keycap } from "./palette";
@@ -128,6 +130,7 @@ export interface WorkspaceGhost {
 }
 
 export interface Ui {
+  tricks: TrickView[];
   prefs: Preferences;
   pointer: Pointer | null;
   iterm2_pointer: boolean;
@@ -212,6 +215,7 @@ export interface Ui {
 }
 export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }): Ui {
   return {
+    tricks: [],
     prefs: new Preferences(),
     pointer: null,
     iterm2_pointer: false,
@@ -873,6 +877,7 @@ export function frame(
   side.draw(w, entries, workspaces);
   if (u.git_hover !== null) sidebar.drawGitAction(w, side, u.workspaces, u.git_hover);
   if (u.review_draw) u.review_draw(w);
+  for (const rect of trickUi.overlays(w, u.tricks, area)) cover(rect);
   if (u.corgi_badge === "image") {
     w.write(side.width > 0 && !badgeCovered(u, side, width, height) ? corgiBadge.place() : corgiBadge.hide);
   }

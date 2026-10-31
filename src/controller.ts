@@ -1,6 +1,7 @@
 //! Viewer-owned navigation, dialogs, input and rendering. Shared mutations
 //! are RPC operations. Mirrors controller.zig; methods that call the daemon
 //! are async and run one at a time from the viewer loop.
+import * as trickUi from "./trick_ui";
 import { hostname } from "node:os";
 import { existsSync } from "node:fs";
 import { basename, isAbsolute } from "node:path";
@@ -1098,6 +1099,14 @@ export class Controller {
         for (const p of panes) {
           entries.push(
             sidebar.entry({
+              decoration: trickUi.decoration(this.runtime.tricks, {
+                id: `pane:${p.id}`,
+                provider: p.agent.provider,
+                account: p.account,
+                workspace: ws.id,
+                session: p.agent.session,
+                state: p.agent.state,
+              }),
               conversation: p.agent.conversation,
               target: { pane: p.id },
               starred: ws.pinned_agents.some(t => sidebar.sameTarget(t, { pane: p.id })),
@@ -1124,6 +1133,14 @@ export class Controller {
       for (const session of this.runtime.sessions) {
         if (session.workspace !== ws.id) continue;
         const e = sidebar.entry({
+          decoration: trickUi.decoration(this.runtime.tricks, {
+            id: `headless:${session.id}`,
+            provider: session.provider,
+            account: "",
+            workspace: ws.id,
+            session: session.session,
+            state: session.state,
+          }),
           target: { headless: session.id },
           starred: ws.pinned_agents.some(t => sidebar.sameTarget(t, { headless: session.id })),
           starting: ws.starting_agents.some(t => sidebar.sameTarget(t, { headless: session.id })),
@@ -7471,6 +7488,7 @@ export class Controller {
       this.width,
       this.height,
       render.ui({
+        tricks: this.runtime.tricks,
         prefs: this.prefs,
         pointer: this.pointer,
         iterm2_pointer: this.iterm2_pointer,

@@ -59,6 +59,7 @@ export interface View<Session = unknown, Resources = unknown> {
   resources: Resources | null;
   resources_hash: bigint;
   surfaces: SurfaceView[];
+  tricks?: import("./tricks").View[];
   bell_seq: bigint;
   bell_kind: "none" | "finished" | "needs_input";
   controls: Control[];
@@ -86,6 +87,8 @@ export type Result = { pane: number; tab: number; workspace: number; text: strin
 export const emptyResult = (): Result => ({ pane: 0, tab: 0, workspace: 0, text: null, closed_panes: [] });
 export const operations = [
   "hello",
+  "tricks.list",
+  "tricks.reload",
   "session.command",
   "session.locate",
   "session.list",
@@ -680,6 +683,8 @@ export interface ReplyPayloads {
     update_abi: string;
   };
   ping: Ok & { pid: number };
+  "tricks.list": Ok & { tricks: import("./trick_host").Status[] };
+  "tricks.reload": Ok & { tricks: import("./trick_host").Status[] };
   "session.command": Ok & { result: Result };
   "session.locate": Ok & { result: Result };
   "launcher.catalog": Ok & { agents: import("./launcher_config").Agent[] };

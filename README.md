@@ -63,6 +63,14 @@ corgi pane read 3 --lines 50
 curl -fsSL https://corgi.computer/install.sh | bash -s uninstall
 ```
 
+## Tricks
+
+[Corgi Tricks](docs/tricks.md) are small programs that watch JSONL events and
+add sidebar colors, badges and text overlays. A TOML manifest configures each
+trick; an optional persistent KV store keeps its state across restarts.
+Try the account-color, provider-flair, attention-radar and completion-jar
+examples together with `./go.ts --sandbox tricks`.
+
 ## Development
 
 Install [Bun](https://bun.sh), then run:

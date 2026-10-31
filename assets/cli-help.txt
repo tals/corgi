@@ -39,6 +39,10 @@ Agent controls (--json prints the daemon's reply as JSON):
   corgi launcher copy --from ID --workspace ID  replace destination order and visibility
   corgi --skill                      print bundled agent instructions
 
+Corgi Tricks
+  corgi tricks list [--json]              List installed tricks and startup errors
+  corgi tricks reload [--json]            Reload manifests and restart tricks
+
 IDs come from list; current means CORGI_PANE, never UI focus.
 New tabs and launcher mutations outside Corgi require --workspace.
 Agent settings are shared; order and visibility belong to each workspace.

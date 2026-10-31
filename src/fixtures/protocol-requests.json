@@ -1,5 +1,7 @@
 {
   "hello": {},
+  "tricks.list": {},
+  "tricks.reload": {},
   "session.command": {
     "command": {
       "pane.close": {

@@ -1,0 +1,3 @@
+version = 1
+id = "provider-flair"
+command = ["node", "main.mjs"]

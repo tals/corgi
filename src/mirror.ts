@@ -582,6 +582,7 @@ export class Runtime {
   ports: any = { workspaces: [] };
   resources = new resources.Snapshot();
   resources_hash: bigint | null = null;
+  tricks: import("./tricks").View[] = [];
   last_agent: Provider = Provider.first;
   agent_yolo = byProvider(() => false);
   agent_hidden = byProvider(() => false);

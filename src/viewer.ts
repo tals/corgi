@@ -1,3 +1,4 @@
+import * as tricks from "./tricks";
 //! Each invocation owns its UI, local selections, and input parser. The daemon
 //! sends shared session organization and terminal surfaces, never Corgi frames.
 //! Mirrors viewer.zig.
@@ -168,6 +169,7 @@ export async function sync(view: Controller, bell: { seq: bigint }, play_sound: 
       view.dirty = true;
       telemetry.end("viewer.resources", resources_started);
     }
+    view.runtime.tricks = tricks.views(reply.tricks);
     view.runtime.resources_hash = reply.resources_hash == null ? null : BigInt(reply.resources_hash);
     view.input_state.viewer_id = reply.viewer ?? 0;
     for (const control of reply.controls ?? []) {

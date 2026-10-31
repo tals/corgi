@@ -163,6 +163,7 @@ export async function replace(server: Server, requester: Client, executable: str
     await Bun.sleep(5);
   }
   await server.summaries?.pause();
+  await server.tricks.stop();
   server.pause();
   breadcrumbs.record("reloading");
   const fds = new Int32Array(2);
