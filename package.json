@@ -9,6 +9,7 @@
     "test": "bun test src",
     "typecheck": "bun typecheck.ts",
     "integration": "bun integration.ts",
+    "i18n": "bun scripts/translations.ts",
     "landingpage:dev": "bun site/serve.ts --dev",
     "landingpage:build": "bun site/build.ts",
     "landingpage:start": "bun site/serve.ts",

@@ -155,8 +155,8 @@ function fail(): void {
       ...(problems.has("stale") ? ["generated files are stale"] : []),
     ];
     console.log(
-      `Translations incomplete: ${found.join(", ")}. Untranslated text shows in English.\n` +
-        "  bun scripts/translations.ts check lists them; extract, translate and generate fix them (locales/README.md).",
+      ["Translations incomplete:", ...found.map(line => `  • ${line}`)].join("\n") +
+        "\nFix these with bun run i18n. See locales/README.md for further info.",
     );
   } else for (const error of errors) console.error(error);
   process.exit(1);

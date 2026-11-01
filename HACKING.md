@@ -24,7 +24,7 @@ commands from an outer terminal; `./go.ts --help` describes the options.
 ## Architecture
 
 For user-facing text, see [the translation workflow](locales/README.md).
-`bun scripts/translations.ts extract` updates the four language catalogs;
+`bun scripts/translations.ts extract` (or `bun run i18n extract`) updates the four language catalogs;
 `generate` refreshes the committed runtime and installer output. While you
 hack, missing or stale translations are only a warning, and untranslated text
 shows in English. Handle them before you publish a PR: CI builds and

@@ -58,7 +58,7 @@ test("translation CI rejects missing, dead, stale and malformed messages", () =>
     expect(changed.text).toContain("unused translation");
     const summary = f.run("check", "--summary");
     expect(summary.code).toBe(1);
-    expect(summary.text).toContain("1 message needs translating, 1 unused translation");
+    expect(summary.text).toContain("  • 1 message needs translating\n  • 1 unused translation\n");
     expect(summary.text).not.toContain("ja.json");
   } finally {
     f.close();
