@@ -51,21 +51,27 @@ categories must be present. Installer messages use strings only.
    `i18n.document(textAsset)`. In `scripts/install.sh.in`, use
    `msg 'Installing ${version}…' "$VERSION"`; arguments follow the English
    placeholder order. Installer source messages use single-quoted literals.
-2. Run `bun scripts/translations.ts extract`. This adds blank entries and
+2. Run `bun run i18n extract`. This adds blank entries and
    removes unused ones. `.tools/i18n/messages.json` lists source locations.
 3. Translate the new entries in every language, preserving commands, flags,
    keyboard chords and placeholders. English text changes intentionally
    require new translations.
-4. Run `bun scripts/translations.ts generate` and commit both generated files:
+4. Run `bun run i18n generate` and commit both generated files:
    `src/i18n.generated.ts` and `scripts/install_i18n.generated.sh`.
 
-`bun scripts/translations.ts check` fails on missing, blank, unused or stale
-translations, invalid placeholders or plural categories, and stale generated
-files. Build and typecheck run it, so CI checks the same contract. It also
+`bun run i18n check` fails on missing, blank, unused or stale translations,
+invalid placeholders or plural categories, and stale generated files. It also
 rejects direct unmarked literals in selected UI sinks; arbitrary unmarked
 strings still need code review. Nonempty untranslated English cannot be
 identified reliably by a mechanical check (product names and commands often
 must remain English).
+
+Build and typecheck run the same check. Locally they regenerate stale output
+and summarize what's missing; `generate` leaves those messages out, so they
+show in English. With `--ci` (or `CI=1` or `CI=true`) they list every problem and fail.
+Source errors, such as an unnamed placeholder, fail either way. The scan
+caches each file's result in `.tools/i18n`, so an unchanged tree checks in
+well under a second.
 
 The compiler reads the TypeScript AST to recover placeholder names and emits
 ordinary JavaScript template functions. The runtime tag selects a function

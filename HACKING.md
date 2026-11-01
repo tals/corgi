@@ -24,9 +24,12 @@ commands from an outer terminal; `./go.ts --help` describes the options.
 ## Architecture
 
 For user-facing text, see [the translation workflow](locales/README.md).
-`bun scripts/translations.ts extract` updates the four language catalogs;
-`generate` refreshes the committed runtime and installer output. Builds and
-typecheck reject incomplete or stale translations.
+`bun run i18n extract` updates the four language catalogs; `bun run i18n
+generate` refreshes the committed runtime and installer output. While you
+hack, builds and typechecks regenerate that output themselves and only warn
+about missing translations, which show in English. Handle them before you
+publish a PR: CI builds and typechecks with `--ci` (implied by `CI=1` or `CI=true`),
+which fails on them.
 
 The daemon owns processes, PTYs, workspaces and conversations. Viewers compose
 the UI from snapshots and terminal surfaces; each keeps its own focus, menus,

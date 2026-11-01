@@ -1,4 +1,4 @@
-import { test, expect, spyOn } from "bun:test";
+import { test, expect, setSystemTime, spyOn } from "bun:test";
 import { Server } from "./server";
 import * as agentModels from "./agent_models";
 import { Preview } from "./launch/preview";
@@ -287,6 +287,8 @@ test("handoff restoration normalizes small and wide viewer counters before wakin
     const source = fixture(),
       target = fixture();
     try {
+      // Both captures record saved_at in seconds, which must not tick over between them.
+      setSystemTime(new Date(1_800_000_000_000));
       const original = source.server.addClient(-1, false);
       original.viewer = true;
       original.viewer_id = 1;
@@ -324,6 +326,7 @@ test("handoff restoration normalizes small and wide viewer counters before wakin
       );
       expect(json.stringify(captureManifest(target.server, restored))).toBe(bytes);
     } finally {
+      setSystemTime();
       source.dispose();
       target.dispose();
     }

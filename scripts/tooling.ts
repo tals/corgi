@@ -1,4 +1,4 @@
-/** Pinned build-only npm tools, installed under .tools/<name> on first use. */
+/** Build tooling: pinned npm tools installed under .tools/<name> on first use, and package.json dependencies. */
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -57,9 +57,28 @@ export async function packages(tool: string, versions: Record<string, string>): 
 
 const sources = ["*.ts", "{src,tests,evals,tools,scripts,site}/**/*.ts"];
 
+let installing: Promise<void> | null = null;
+
+/** A package from package.json, installing the locked dependencies if this checkout lacks it. */
+export async function dependency(name: string): Promise<string> {
+  const directory = join(root, "node_modules", name);
+  if (!existsSync(join(directory, "package.json"))) {
+    installing ??= (async () => {
+      const install = Bun.spawn([process.execPath, "install", "--frozen-lockfile"], {
+        cwd: root,
+        stdout: "inherit",
+        stderr: "inherit",
+      });
+      if ((await install.exited) !== 0) throw Error("bun install failed");
+    })();
+    await installing;
+  }
+  return directory;
+}
+
 /** Formats the TypeScript sources, or with "check" lists the ones that need it. */
 export async function prettier(mode: "check" | "write"): Promise<number> {
-  const [prettier] = await packages("format", { prettier: "3.9.9" });
+  const prettier = await dependency("prettier");
   const cache = join(root, ".tools", "format", ".prettier-cache");
   const flags = mode === "check" ? ["--list-different"] : ["--write", "--log-level", "warn"];
   const run = Bun.spawn(

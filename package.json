@@ -9,6 +9,7 @@
     "test": "bun test src",
     "typecheck": "bun typecheck.ts",
     "integration": "bun integration.ts",
+    "i18n": "bun scripts/translations.ts",
     "landingpage:dev": "bun site/serve.ts --dev",
     "landingpage:build": "bun site/build.ts",
     "landingpage:start": "bun site/serve.ts",
@@ -30,6 +31,7 @@
     "@earendil-works/pi-tui": "1.0.4"
   },
   "devDependencies": {
+    "prettier": "3.9.9",
     "wrangler": "^4.156.0"
   }
 }

@@ -44,10 +44,10 @@ jobs:
           else
             args+=(--target linux-x64)
           fi
-          bun build.ts --test "${args[@]}"
+          bun build.ts --test --ci "${args[@]}"
       - name: Typecheck
         if: runner.os == 'Linux' && runner.arch == 'X64'
-        run: bun typecheck.ts
+        run: bun typecheck.ts --ci
       - name: Unit tests
         run: bun test src
       - name: Pack build

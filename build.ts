@@ -1,13 +1,8 @@
 import { basename } from "node:path";
 import { mkdirSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
+import * as translations from "./scripts/translations";
 const root = import.meta.dir;
-const translations = Bun.spawn([process.execPath, `${root}/scripts/translations.ts`, "check"], {
-  cwd: root,
-  stdout: "inherit",
-  stderr: "inherit",
-});
-if (await translations.exited) process.exit(1);
 function option(name: string, fallback = ""): string {
   const args = process.argv.slice(2),
     prefix = `--${name}=`,
@@ -52,6 +47,11 @@ if (!existsSync(`${root}/node_modules/@earendil-works/pi-tui`)) {
   });
   process.exit(await again.exited);
 }
+// After the install above, so a fresh checkout reports once, and before the native build, which a
+// failure skips. Locally it may regenerate src/i18n.generated.ts; its report prints on any exit.
+const translated = await translations.verify();
+process.on("exit", () => process.stderr.write(translated.text));
+if (translated.code) process.exit(translated.code);
 const args = [`${root}/scripts/zig`, "build", "--build-file", `${root}/native/build.zig`, "-Doptimize=ReleaseFast"];
 // An explicit --target builds for the oldest systems a release supports, not this machine.
 if (process.argv.slice(2).some(arg => arg === "--target" || arg.startsWith("--target=")))

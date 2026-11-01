@@ -1,6 +1,7 @@
 import { mkdirSync, symlinkSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import * as tooling from "./scripts/tooling";
+import * as translations from "./scripts/translations";
 
 const root = import.meta.dir;
 const [compiler, bunTypes, nodeTypes] = await tooling.packages("typecheck", {
@@ -24,6 +25,12 @@ for (const [name, directory] of [
   }
   symlinkSync(directory, link, "dir");
 }
+const translated = translations.verify().then(result => {
+  process.stderr.write(result.text);
+  return result.code;
+});
+// Locally it may regenerate src/i18n.generated.ts, which tsc and Prettier read.
+if (!translations.ci()) await translated;
 const check = Bun.spawn(
   [
     process.execPath,
@@ -37,10 +44,5 @@ const check = Bun.spawn(
   ],
   { cwd: root, stdout: "inherit", stderr: "inherit" },
 );
-const translations = Bun.spawn([process.execPath, join(root, "scripts/translations.ts"), "check"], {
-  cwd: root,
-  stdout: "inherit",
-  stderr: "inherit",
-});
-const codes = await Promise.all([check.exited, tooling.prettier("check"), translations.exited]);
+const codes = await Promise.all([translated, check.exited, tooling.prettier("check")]);
 process.exitCode = codes.find(code => code !== 0) ?? 0;
