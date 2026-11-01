@@ -126,6 +126,8 @@ that produced the code.
 checked by the schema snapshots in `src/fixtures/`. A new field
 with a default only needs a refreshed snapshot. A rename, removal or change
 of meaning needs a migration step; see [HACKING.md](HACKING.md#change-protocols-or-saved-formats).
+Mark code kept only for older peers with `XXX: Remove for next protocol bump.`,
+and before bumping any version, run `git grep -n "XXX: Remove for next"`.
 
 ## Zig style (native/)
 

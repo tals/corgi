@@ -671,7 +671,7 @@ function build(r: Runtime, viewer: boolean) {
       id: w.id,
       name: w.name(),
       cwd: w.cwd,
-      // Older viewers fill their rename dialogs with it.
+      // XXX: Remove for next protocol bump. Released viewers fill their rename dialogs with it.
       custom_name: w.name(),
       git_ahead: w.git_ahead,
       worktrees: r.worktree_tracker.snapshot(r, w),

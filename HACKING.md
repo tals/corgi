@@ -246,6 +246,12 @@ version to change. Defaulted fields can be compatible, but `session.command`
 rejects unknown nested fields: changing its payload also affects old clients.
 Unversioned requests cannot rely on a version handshake for compatibility.
 
+Code kept only for older peers or saved formats until a version changes is
+marked `XXX: Remove for next protocol bump.`, with the reason after it. Before
+bumping any protocol or saved-format version, run
+`git grep -n "XXX: Remove for next"` and remove what the bump makes
+unnecessary.
+
 Adding a provider changes no version. The schemas say `provider` for a
 provider's name and `{provider}` for a record keyed by one, and each peer
 parses names at its boundary: a viewer reads a provider it doesn't know as
