@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "active": 1,
+  "next_id": 4,
+  "workspaces": [
+    { "id": 1, "name": "", "cwd": "/missing/项目 café/" },
+    { "id": 2, "name": "", "cwd": "/" },
+    { "id": 3, "name": "Custom", "cwd": "/elsewhere" }
+  ]
+}

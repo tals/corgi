@@ -3,7 +3,8 @@ import * as json from "../json";
 import * as steps from "./steps";
 export const checkpoint_version = steps.checkpoint.length + 1;
 export const handoff_version = steps.handoff.length + 1;
-export type Kind = "checkpoint" | "handoff";
+export const workspaces_version = steps.workspaces.length + 1;
+export type Kind = "checkpoint" | "handoff" | "workspaces";
 function version(value: any, current: number): number {
   const fields = steps.object(value);
   if (!("version" in fields)) throw Error("MissingStateVersion");
@@ -27,8 +28,8 @@ function migrate(list: steps.Step[], value: any): boolean {
 }
 export function decode(kind: Kind, bytes: string | Uint8Array): { value: any; from: number; migrated: boolean } {
   const value = json.parse(typeof bytes === "string" ? bytes : Buffer.from(bytes).toString());
-  const from = version(value, kind === "checkpoint" ? checkpoint_version : handoff_version);
-  let migrated = migrate(kind === "checkpoint" ? steps.checkpoint : steps.handoff, value);
+  const from = version(value, steps[kind].length + 1);
+  let migrated = migrate(steps[kind], value);
   if (kind === "handoff") {
     if (!("runtime" in value)) throw Error("MissingField");
     migrated = migrate(steps.checkpoint, value.runtime) || migrated;

@@ -1,6 +1,6 @@
 import { isAbsolute } from "node:path";
 import { Runtime, Pane, ClosedAgent, Launch, closed_per_workspace } from "../runtime";
-import { Workspace, Store } from "../workspace";
+import { Workspace, Store, label } from "../workspace";
 import { Model, Tab, max_workspaces } from "../layout";
 import { Order, Pins, key as agentKey } from "../agent_order";
 import { Stars } from "../agent_stars";
@@ -21,7 +21,7 @@ import * as breadcrumbs from "../breadcrumbs";
 import { validateCheckpoint } from "./schema";
 import { testBuild } from "../build_assets";
 
-export const version = 6;
+export const version = 7;
 /** A check the checkpoint failed. It is still named InvalidCheckpoint; `why`
  * says which check, with ids and counts only, since it goes in bug reports. */
 export class Invalid extends Error {
@@ -187,7 +187,7 @@ export function capture(r: Runtime, live: boolean) {
     workspaces: r.workspaces.items.map(w => ({
       away: w.away,
       id: w.id,
-      name: w.customName(),
+      name: w.name(),
       cwd: w.cwd,
       worktrees: live ? w.worktrees : null,
       model: w.model,
@@ -326,7 +326,8 @@ export async function restore(
     );
     check(r.workspaces.get(w.id), () => `workspace ${w.id} is saved twice`);
     check(!isAbsolute(w.cwd), () => `workspace ${w.id}'s folder isn't an absolute path`);
-    const item = new Workspace(w.id, w.cwd);
+    check(typeof w.name !== "string" || !label(w.name), () => `workspace ${w.id} has no name`);
+    const item = new Workspace(w.id, w.cwd, w.name);
     if (live && w.worktrees != null) {
       item.worktrees = worktrees.snapshot(w.worktrees);
       if (
@@ -336,7 +337,6 @@ export async function restore(
       )
         invalid(`workspace ${w.id}'s worktrees aren't absolute paths`);
     }
-    item.rename(w.name);
     item.model = Model.fromData(w.model);
     item.agent_order = Order.restore(w.agent_order ?? []);
     item.pinned_agents = Pins.restore(w.pinned_agents ?? []);

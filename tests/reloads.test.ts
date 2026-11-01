@@ -181,26 +181,26 @@ libc.symbols.lseek(fd, 0n, 0);
     return (await this.command("pane.read", { target: pane, view: "history" })).text;
   }
 
-  async test_workspace_automatic_and_custom_names_survive_handoff() {
+  async test_workspace_names_survive_handoff() {
     const first = await this.new(),
       folder = join(this.temp.name, "project");
     mkdirSync(folder);
-    const ws = (await this.session()).workspaces[0].id;
+    const ws = (await this.session()).workspaces[0].id,
+      name = (await this.session()).workspaces[0].name;
     await this.command("workspace.edit", { target: ws, cwd: folder });
     await this.reload();
-    await this.command("pane.input", {
-      target: first,
-      data: `cd ${quote(folder)}\r`,
-    });
-    await this.until(async () => (await this.session()).workspaces[0].name === "project");
-    this.assertEqual((await this.session()).workspaces[0].custom_name, "");
+    this.assertEqual((await this.session()).workspaces[0].name, name);
     await this.command("workspace.edit", { name: "Override", target: ws });
     await this.reload();
     await this.command("pane.input", { target: first, data: "cd /\r" });
     await this.until(async () => (await this.session()).panes[0].cwd === "/");
     this.assertEqual((await this.session()).workspaces[0].name, "Override");
-    await this.command("workspace.edit", { name: "", target: ws });
-    await this.until(async () => (await this.session()).workspaces[0].name === "project");
+    const empty = await this.raw_rpc({
+      op: "session.command",
+      command: { "workspace.edit": { name: "", target: ws } },
+    });
+    this.assertEqual(empty.err, "InvalidName");
+    this.assertEqual((await this.session()).workspaces[0].name, "Override");
   }
   async test_handoff_preserves_processes_viewers_and_queued_controls() {
     const first = await this.new(),
@@ -289,7 +289,7 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
     await this.until(async () => (await this.screen(first)).includes("MIGRATED_ALIVE"));
     const saved = (await this.rpc({ op: "recovery.save" })).path;
     const state = JSON.parse(readFileSync(saved, "utf8"));
-    this.assertEqual(state.version, 6);
+    this.assertEqual(state.version, 7);
     this.assertEqual(state.panes[0].binding.provisional.provider, null);
     await this.reload();
     this.assertEqual((await viewer.poll()).pane, first);
@@ -330,7 +330,7 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
     this.assertFalse(existsSync(`${saved}.v2`));
     writeFileSync(saved, JSON.stringify(original));
     await this.run_cli("start");
-    this.assertEqual(JSON.parse(readFileSync(saved, "utf8")).version, 6);
+    this.assertEqual(JSON.parse(readFileSync(saved, "utf8")).version, 7);
     this.assertEqual(statSync(saved).mode & 0o777, 0o600);
     this.assertEqual(readFileSync(`${saved}.v2`, "utf8"), JSON.stringify(original));
     this.assertEqual(statSync(`${saved}.v2`).mode & 0o777, 0o600);

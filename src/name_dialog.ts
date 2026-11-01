@@ -34,7 +34,9 @@ export const targetKind = (
   Object.keys(t)[0] as any;
 /** Whether names keep non-ASCII text, which the agents' own names carry. */
 function unicodeTarget(t: Target): boolean {
-  return "agent_name" in t || "agent_command" in t || "agent" in t || "fork" in t || "folder" in t;
+  return (
+    "agent_name" in t || "agent_command" in t || "agent" in t || "fork" in t || "folder" in t || "workspace_name" in t
+  );
 }
 export type Result = "none" | "save" | "cancel";
 /** The longest name, in bytes, outside launch commands. */
@@ -599,9 +601,11 @@ export class View {
       const msg =
         kind === "agent_command"
           ? i18n.t`Could not save command; max 2048 bytes.`
-          : kind === "shell"
-            ? i18n.t`No executable shell there.`
-            : i18n.t`Could not save. Check folder or capacity.`;
+          : kind === "workspace_name" && d.len === 0
+            ? i18n.t`Enter a workspace name.`
+            : kind === "shell"
+              ? i18n.t`No executable shell there.`
+              : i18n.t`Could not save. Check folder or capacity.`;
       w.write(
         `\x1b[${v.title_y + 2};${left + 1}H` + new Style({ fg: "hot", bg: "surface" }).sgr() + clipped(msg, room),
       );
@@ -621,7 +625,7 @@ export class View {
     w.write(`\x1b[${v.field_y + 1};${left + 1}H` + new Style({ fg: "text", bg: "selected" }).sgr());
     w.splat(" ", v.text_width + 2 * (v.padded ? 1 : 0));
     w.write(`\x1b[${v.field_y + 1};${v.text_x + 1}H`);
-    if (d.len === 0 && (kind === "rename" || kind === "workspace_name")) {
+    if (d.len === 0 && kind === "rename") {
       // This is a preview of the current position, never an editable/saved name.
       w.write(palette.fg("muted") + `${number}`);
     } else {

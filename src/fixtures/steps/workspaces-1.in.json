@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "active": 1,
+  "next_id": 3,
+  "workspaces": [
+    { "id": 1, "name": "", "cwd": "/tmp/project", "pinned": true },
+    { "id": 2, "name": "Custom", "cwd": "/tmp/other", "pinned": false }
+  ]
+}

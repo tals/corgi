@@ -724,7 +724,7 @@ class ViewerScenarios extends Viewers {
       two = join(this.temp.name, "two");
     mkdirSync(one);
     mkdirSync(two);
-    await this.command("workspace.edit", { target: (await this.session()).workspaces[0].id, cwd: one });
+    await this.command("workspace.edit", { target: (await this.session()).workspaces[0].id, name: "one", cwd: one });
     const first = (await this.open_pane({ cwd: one, command: "exec /bin/sh" })).pane;
     const second = (await this.open_pane({ cwd: two, command: "exec /bin/sh" })).pane;
     const a = await this.newViewer(),
@@ -763,12 +763,14 @@ class ViewerScenarios extends Viewers {
     this.assertIn("Custom", (await b.poll()).data);
     await b.input("\x02Wr");
     await b.input("\x03\r");
-    this.assertEqual((await this.session()).workspaces[0].custom_name, "");
+    this.assertIn("Enter a workspace name.", (await b.poll()).data);
+    await b.input("\x1b");
+    this.assertEqual((await this.session()).workspaces[0].name, "Custom");
     this.assertEqual(
       screen_text((await a.poll()).data, 100, 30)[2]
         .slice(2, 27)
         .trim(),
-      "one",
+      "Custom",
     );
     await a.action("new");
     this.assertEqual((await this.session()).panes.find((p: any) => p.id === a.state.pane).cwd, realpathSync(one));

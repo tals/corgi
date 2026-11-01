@@ -1812,7 +1812,7 @@ export class Controller {
     if (id !== null) {
       const index = this.runtime.workspaces.index(id);
       if (index === null) return;
-      initial = this.runtime.workspaces.items[index].custom_name;
+      initial = this.runtime.workspaces.items[index].name;
     }
     this.name_dialog =
       id === null
@@ -1891,8 +1891,11 @@ export class Controller {
         }
       } else if ("workspace_name" in target) {
         const fresh = dialog instanceof newWorkspace.Dialog ? dialog : null;
-        // A name that follows the folder is left empty, so the folder names the workspace.
-        const name = fresh?.follows_folder ? "" : dialog.name();
+        const name = dialog.name();
+        if (!name) {
+          dialog.failed = true;
+          return;
+        }
         if (target.workspace_name === null) {
           const cwd = fresh ? fresh.confirm() : this.currentCwd();
           if (cwd === null) return;

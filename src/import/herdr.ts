@@ -705,8 +705,11 @@ export class Job {
       const cwd = text(snapshot, "identity_cwd");
       if (!isAbsolute(cwd)) throw Error("InvalidHerdrDirectory");
       // Panes report resolved folders.
-      const ws = new Workspace(this.staged.workspaces.next_id++, resolved(cwd));
-      ws.rename(text(snapshot, "custom_name"));
+      const ws = new Workspace(
+        this.staged.workspaces.next_id++,
+        resolved(cwd),
+        text(snapshot, "custom_name") || undefined,
+      );
       const tabs = list(snapshot.tabs);
       if (!tabs.length) throw Error("InvalidHerdrLayout");
       for (const tab of tabs) {

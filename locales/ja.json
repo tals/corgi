@@ -401,6 +401,7 @@
   "Edit, delete": "編集・削除",
   "Ended": "終了",
   "Enter a command.": "コマンドを入力してください。",
+  "Enter a workspace name.": "ワークスペース名を入力してください。",
   "Enter/Y: yes · N/Esc: no": "Enter/Y: はい · N/Esc: いいえ",
   "Environment": "環境変数",
   "Esc Back": "Esc 戻る",

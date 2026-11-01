@@ -314,8 +314,8 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
       return location(r, ws.model.firstPane(ws.model.tabs[0].root));
     }
     case "workspace.edit": {
-      const ws = r.getWorkspace(request.payload.target);
-      await r.workspaces.edit(request.payload.target, request.payload.name ?? ws.customName(), request.payload.cwd);
+      r.getWorkspace(request.payload.target);
+      await r.workspaces.edit(request.payload.target, request.payload.name, request.payload.cwd);
       break;
     }
     case "workspace.close":
@@ -671,7 +671,8 @@ function build(r: Runtime, viewer: boolean) {
       id: w.id,
       name: w.name(),
       cwd: w.cwd,
-      custom_name: w.customName(),
+      // Older viewers fill their rename dialogs with it.
+      custom_name: w.name(),
       git_ahead: w.git_ahead,
       worktrees: r.worktree_tracker.snapshot(r, w),
       git_ref: w.git_ref.view?.() ?? w.git_ref,

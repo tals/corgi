@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import * as json from "../json";
 import * as steps from "./steps";
 import { decode, checkpoint_version, handoff_version } from "./migrations";
-for (const kind of ["checkpoint", "handoff"] as const)
+for (const kind of ["checkpoint", "handoff", "workspaces"] as const)
   for (const [i, step] of steps[kind].entries())
     test(`${kind} released step ${i + 1} retains golden output`, () => {
       const base = new URL(`../fixtures/steps/${kind}-${i + 1}`, import.meta.url);
@@ -203,7 +203,7 @@ test("handoff spend cells from before running totals are cleared", () => {
   expect(() => decode("handoff", handoff({ minor: 1918 }))).toThrow("InvalidCheckpoint");
 });
 test("each released step still produces its golden output", () => {
-  for (const kind of ["checkpoint", "handoff"] as const)
+  for (const kind of ["checkpoint", "handoff", "workspaces"] as const)
     for (const [i, step] of steps[kind].entries()) {
       const base = new URL(`../fixtures/steps/${kind}-${i + 1}`, import.meta.url).pathname,
         input = json.parse(readFileSync(base + ".in.json", "utf8")),
