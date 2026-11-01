@@ -68,7 +68,7 @@ must remain English).
 
 Build and typecheck run the same check. Locally they regenerate stale output
 and summarize what's missing; `generate` leaves those messages out, so they
-show in English. With `--ci` (or `CI` set) they list every problem and fail.
+show in English. With `--ci` (or `CI=1` or `CI=true`) they list every problem and fail.
 Source errors, such as an unnamed placeholder, fail either way. The scan
 caches each file's result in `.tools/i18n`, so an unchanged tree checks in
 well under a second.

@@ -28,7 +28,7 @@ For user-facing text, see [the translation workflow](locales/README.md).
 generate` refreshes the committed runtime and installer output. While you
 hack, builds and typechecks regenerate that output themselves and only warn
 about missing translations, which show in English. Handle them before you
-publish a PR: CI builds and typechecks with `--ci` (implied when `CI` is set),
+publish a PR: CI builds and typechecks with `--ci` (implied by `CI=1` or `CI=true`),
 which fails on them.
 
 The daemon owns processes, PTYs, workspaces and conversations. Viewers compose

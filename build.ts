@@ -67,7 +67,10 @@ if (!process.argv.includes("--no-native")) {
   const native = Bun.spawn(args, { stdout: "inherit", stderr: "inherit" });
   // Zig has already said why.
   const status = await native.exited;
-  if (status) process.exit(status);
+  if (status) {
+    process.stderr.write(translated.text);
+    process.exit(status);
+  }
 }
 if (process.argv.includes("--native-only")) {
   process.stderr.write(translated.text);

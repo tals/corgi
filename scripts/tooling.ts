@@ -57,9 +57,11 @@ export async function packages(tool: string, versions: Record<string, string>): 
 
 const sources = ["*.ts", "{src,tests,evals,tools,scripts,site}/**/*.ts"];
 
+export const prettierVersion = "3.9.9";
+
 /** Formats the TypeScript sources, or with "check" lists the ones that need it. */
 export async function prettier(mode: "check" | "write"): Promise<number> {
-  const [prettier] = await packages("format", { prettier: "3.9.9" });
+  const [prettier] = await packages("format", { prettier: prettierVersion });
   const cache = join(root, ".tools", "format", ".prettier-cache");
   const flags = mode === "check" ? ["--list-different"] : ["--write", "--log-level", "warn"];
   const run = Bun.spawn(

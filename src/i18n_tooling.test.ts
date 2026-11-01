@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -102,6 +103,25 @@ test("local builds regenerate stale output and summarize missing translations; C
   }
 }, 30000);
 
+test("a malformed scan cache is ignored", async () => {
+  const f = fixture();
+  try {
+    f.source('import * as i18n from "./i18n"; const name = "Corgi"; export const greeting = i18n.t`Hello ${name}`;');
+    expect(f.run("extract").code).toBe(0);
+    f.translate({ "Hello ${name}": "こんにちは ${name}" });
+    expect(f.run("generate").code).toBe(0);
+    const hash = (text: string) => createHash("sha256").update(text).digest("hex");
+    const example = hash(readFileSync(join(f.root, "src/example.ts"), "utf8"));
+    for (const files of [null, { "src/example.ts": { hash: example, found: 5 } }]) {
+      const script = hash(readFileSync(join(project, "scripts/translations.ts"), "utf8"));
+      writeFileSync(join(f.root, ".tools/i18n/scan.json"), JSON.stringify({ script, files }));
+      expect(await translations.verify(true, f.root)).toEqual({ code: 0, text: "" });
+    }
+  } finally {
+    f.close();
+  }
+}, 30000);
+
 test("generate leaves untranslated messages in English, even when only the placeholder order changed", () => {
   const f = fixture();
   try {
@@ -156,6 +176,9 @@ test("generated native templates reorder names, escape literal code, and use loc
     delete ru["${count} files"].forms.few;
     f.catalog("ru", ru);
     expect(f.run("check").text).toContain("few");
+    ru["${count} files"].forms.few = "${count} ${wrong}";
+    f.catalog("ru", ru);
+    expect(f.run("check").text.match(/placeholder mismatch/g)).toHaveLength(1);
   } finally {
     f.close();
   }

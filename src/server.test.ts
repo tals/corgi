@@ -284,11 +284,11 @@ test("provisional pane completions ring until their receipts are read", () => {
 
 test("handoff restoration normalizes small and wide viewer counters before waking", () => {
   for (const seq of [0n, 9007199254740993n]) {
-    // Both captures record saved_at in seconds, which must not tick over between them.
-    setSystemTime(new Date(1_800_000_000_000));
     const source = fixture(),
       target = fixture();
     try {
+      // Both captures record saved_at in seconds, which must not tick over between them.
+      setSystemTime(new Date(1_800_000_000_000));
       const original = source.server.addClient(-1, false);
       original.viewer = true;
       original.viewer_id = 1;

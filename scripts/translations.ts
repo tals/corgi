@@ -1,6 +1,6 @@
 //! Extract ordinary template tags, validate catalogs, and compile JS and shell messages.
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { styleText } from "node:util";
 import * as tooling from "./tooling";
@@ -147,8 +147,10 @@ async function scan(root: string): Promise<{ messages: Message[]; errors: string
   const script = hash(readFileSync(import.meta.path, "utf8"));
   let previous: Scans = { script, files: {} };
   try {
-    const cached = JSON.parse(readFileSync(scanCache(root), "utf8")) as Scans;
-    if (cached.script === script) previous = cached;
+    const cached = JSON.parse(readFileSync(scanCache(root), "utf8"));
+    // Anything else is treated as no cache; each entry is checked as it's used.
+    if (cached?.script === script && cached.files && typeof cached.files === "object" && !Array.isArray(cached.files))
+      previous = cached;
   } catch {}
   const next: Scans = { script, files: {} };
   let ts: any = null,
@@ -159,7 +161,7 @@ async function scan(root: string): Promise<{ messages: Message[]; errors: string
     if (!text.includes("i18n") && !(path in displays)) continue;
     const key = hash(text);
     let entry = previous.files[path];
-    if (entry?.hash !== key) {
+    if (entry?.hash !== key || !Array.isArray(entry.found)) {
       ts ??= await typescript();
       entry = { hash: key, found: parse(ts, root, path, text) };
       changed = true;
@@ -271,11 +273,9 @@ function validate(
         if (message.shell) problem("invalid", `${path}: installer messages cannot use plural variants`);
         const categories = new Intl.PluralRules(language).resolvedOptions().pluralCategories;
         for (const category of categories) check(entry.forms[category], category);
-        for (const [category, form] of Object.entries(entry.forms)) {
+        for (const category of Object.keys(entry.forms))
           if (!categories.includes(category as Intl.LDMLPluralRule))
             problem("invalid", `${path}: unused plural category ${category}`);
-          check(form, category);
-        }
       } else problem("invalid", `${path}: invalid translation for ${quoted}`);
       if (ok) valid[language][message.source] = entry;
     }
@@ -311,14 +311,18 @@ function shellPrint(value: string, names: string[]): string {
 /** Formats the generated JS like the rest of the tree. Prettier is slow, so its output is cached by input. */
 async function format(root: string, js: string): Promise<string> {
   const path = join(root, outputs[0]),
-    rc = join(root, ".prettierrc"),
+    config = [".prettierrc", ".editorconfig"].map(name => join(root, name)),
     cache = join(root, ".tools/i18n/format.json"),
-    key = hash(PRETTIER + "\0" + (existsSync(rc) ? readFileSync(rc, "utf8") : "") + "\0" + js);
+    key = hash(
+      [tooling.prettierVersion, ...config.map(file => (existsSync(file) ? readFileSync(file, "utf8") : "")), js].join(
+        "\0",
+      ),
+    );
   try {
     const cached = JSON.parse(readFileSync(cache, "utf8"));
     if (cached.key === key && typeof cached.text === "string") return cached.text;
   } catch {}
-  const [directory] = await tooling.packages("format", { prettier: PRETTIER });
+  const [directory] = await tooling.packages("format", { prettier: tooling.prettierVersion });
   const prettier = await import(join(directory, "index.mjs"));
   const text: string = await prettier.format(js, { ...(await prettier.resolveConfig(path)), parser: "typescript" });
   try {
@@ -326,7 +330,6 @@ async function format(root: string, js: string): Promise<string> {
   } catch {}
   return text;
 }
-const PRETTIER = "3.9.9";
 
 /** The generated files' contents. Messages without a valid translation are left out, so they show in English. */
 async function render(root: string, messages: Message[], valid: Catalogs): Promise<Record<string, string>> {
@@ -365,9 +368,12 @@ async function render(root: string, messages: Message[], valid: Catalogs): Promi
   return { [outputs[0]]: await format(root, js), [outputs[1]]: shell };
 }
 
+/** Replaces the file whole, so a build or typecheck reading it alongside never sees it half-written. */
 function write(path: string, contents: string): void {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, contents);
+  const temporary = `${path}.${process.pid}.tmp`;
+  writeFileSync(temporary, contents);
+  renameSync(temporary, path);
 }
 
 /** Scans, validates and renders once; files is null when source errors stop generation. */
