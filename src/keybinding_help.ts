@@ -1252,27 +1252,30 @@ export class State {
     this.dimmed = this.edit !== null;
     this.box(w, b);
     this.draw(w, b.x + 2, b.y, " Corgi ", "strong");
-    this.draw(w, b.x + 2, b.y + 1, b.w < 60 ? "Shortcuts" : "Keyboard shortcuts", "strong");
-    this.draw(
-      w,
-      b.x + b.w - 22,
-      b.y + 1,
-      this.customizing ? "[Done customizing]" : "[Customize Ctrl+E]",
-      "strong",
-      20,
-      { name: "customize" },
-    );
-    this.draw(w, b.x + 2, b.y + 3, "◇ Prefix = " + keymap.prefixName(prefix), "faint", 22);
-    const searchX = b.w < 65 ? b.x + 2 : b.x + b.w - 31,
-      searchY = b.y + (b.w < 65 ? 4 : 3);
+    const title = "Main Controls";
+    this.draw(w, b.x + Math.floor((b.w - displayWidth(title)) / 2), b.y + 1, title, "strong");
+    const customizeX = b.x + b.w - 27;
+    this.draw(w, customizeX, b.y + 3, " Ctrl+E ", "strong", 8, undefined, true, "line");
+    this.draw(w, customizeX + 9, b.y + 3, this.customizing ? "Done" : "Customize Keys", "muted", 14);
+    this.hits.push({ rect: new Rect(customizeX, b.y + 3, 23, 1), target: { name: "customize" } });
+    this.draw(w, b.x + 2, b.y + 3, (b.w < 48 ? "◇ " : "◇ Prefix = ") + keymap.prefixName(prefix), "faint", 22);
+    const searchHint = "to search all",
+      search = this.query || (this.searching ? "▏" : searchHint),
+      searchX = b.x + Math.floor((b.w - displayWidth(searchHint) - 4) / 2),
+      searchY = b.y + (b.w >= 75 ? 3 : 2),
+      searchWidth = Math.min(
+        (b.w >= 75 ? customizeX : b.x + b.w) - searchX - 6,
+        Math.max(displayWidth(searchHint), displayWidth(search)),
+      ),
+      searchText = ellipsis(search, searchWidth);
     this.draw(w, searchX, searchY, " / ", "strong", 3, { name: "search" }, true, "line");
     this.draw(
       w,
       searchX + 4,
       searchY,
-      this.query || (this.searching ? "▏" : "Find action or key…"),
+      searchText + " ".repeat(searchWidth - displayWidth(searchText)),
       this.searching ? "accent" : "muted",
-      24,
+      searchWidth,
       { name: "search" },
     );
     const layout = this.content(b.w - 6);
