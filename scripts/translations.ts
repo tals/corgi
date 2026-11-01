@@ -161,7 +161,7 @@ function fail(): void {
     lines.push(
       `${paint("2", "Fix these with")} bun run i18n${paint("2", ". See locales/README.md for further info.")}`,
     );
-    console.log(lines.join("\n"));
+    console.log(lines.join("\n") + "\n");
   } else for (const error of errors) console.error(error);
   process.exit(1);
 }
