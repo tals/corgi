@@ -7,7 +7,7 @@ import * as locale from "../src/locale";
 const command = process.argv[2] ?? "check";
 const rootIndex = process.argv.indexOf("--root");
 const root = rootIndex < 0 ? resolve(import.meta.dir, "..") : resolve(process.argv[rootIndex + 1]);
-const [compiler] = await tooling.packages("typecheck", { typescript: "6.0.3" });
+const [compiler] = await tooling.packages("translations", { typescript: "6.0.3" });
 const ts = await import(join(compiler, "lib/typescript.js"));
 type Message = { source: string; parts: string[]; names: string[]; locations: string[]; shell: boolean; js: boolean };
 type Plural = { plural: string; forms: Partial<Record<Intl.LDMLPluralRule, string>> };
