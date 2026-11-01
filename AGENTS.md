@@ -26,6 +26,8 @@ See [HACKING.md](HACKING.md) for development workflows and architecture.
   captures a live Ghostty window on Xvfb. Use this for documentation and UI
   screenshots so fonts, box drawing and Kitty images retain terminal fidelity.
   Do not repaint terminal cells into SVG, canvas or another terminal renderer.
+  `serve` keeps one running for an agent to drive over its socket and capture
+  on demand; see HACKING.md.
 - **Landing page:** `bun run landingpage:dev` serves `site/` and reloads on
   save; `landingpage:build` writes one self-contained `site/dist/index.html`
   (and `moonlander.html`), `landingpage:start` serves it, and

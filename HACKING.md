@@ -177,6 +177,22 @@ removes them on success or failure. `--do` steps run after the viewer attaches;
 they receive `corgi` on PATH and `DISPLAY` / `GHOSTTY_WINDOW` for xdotool. For
 repeatable screenshot sets, import `capture` with a `prepare` callback to set up
 the sandbox and a `drive` callback to send keys, move the mouse and save images.
+
+To drive a sandbox step by step and take screenshots when you want them, keep
+a session running:
+
+```sh
+bun tools/ghostty_screenshot.ts serve --sandbox review &   # prints its directory, $SESSION below
+$SESSION/bin/corgi action review       # the sandbox's corgi, over its socket
+$SESSION/bin/screenshot -o /tmp/review.png
+bun tools/ghostty_screenshot.ts stop
+```
+
+`. $SESSION/env.sh` puts `corgi` and `screenshot` on PATH and sets
+`CORGI_SOCKET`, `DISPLAY` and `GHOSTTY_WINDOW`, so xdotool can send keys and
+clicks too. `shot` and `stop` find the session from `--session`,
+`$CORGI_CAPTURE_SESSION` or, when only one is running, by themselves. The
+session cleans up when stopped, on SIGINT or SIGTERM, or when Ghostty exits.
 Inspect regenerated PNGs before committing them. This runs on Linux directly
 or in a container with the dependencies installed.
 
