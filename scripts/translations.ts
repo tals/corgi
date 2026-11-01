@@ -1,6 +1,7 @@
 //! Extract ordinary template tags, validate catalogs, and compile JS and shell messages.
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
+import { isatty } from "node:tty";
 import * as tooling from "./tooling";
 import * as locale from "../src/locale";
 
@@ -154,10 +155,13 @@ function fail(): void {
       ...count("invalid", "malformed translation", "malformed translations"),
       ...(problems.has("stale") ? ["generated files are stale"] : []),
     ];
-    console.log(
-      ["Translations incomplete:", ...found.map(line => `  • ${line}`)].join("\n") +
-        "\nFix these with bun run i18n. See locales/README.md for further info.",
+    const color = isatty(1) && !process.env.NO_COLOR;
+    const paint = (code: string, text: string) => (color ? `\x1b[${code}m${text}\x1b[0m` : text);
+    const lines = ["Translations incomplete:", ...found.map(line => `  • ${line}`)].map(line => paint("2", line));
+    lines.push(
+      `${paint("2", "Fix these with")} ${paint("1", "bun run i18n")}${paint("2", ". See locales/README.md for further info.")}`,
     );
+    console.log(lines.join("\n"));
   } else for (const error of errors) console.error(error);
   process.exit(1);
 }
