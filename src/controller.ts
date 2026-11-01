@@ -260,6 +260,8 @@ interface ClickSeries {
 interface Gesture {
   pane: number;
   unit: PickUnit;
+  /** The press time. */
+  at: number;
   anchor: { x: number; y: number };
   to: { x: number; y: number };
   w: number;
@@ -280,6 +282,12 @@ interface Picked {
 interface PendingOpen {
   url: string;
   pane: number;
+  due: number;
+}
+/** A double-click's word, copied at `due` unless a third press picks the
+ * line instead, so the clipboard only ever gets one of them. */
+interface PendingCopy {
+  text: string;
   due: number;
 }
 class InputState {
@@ -443,6 +451,7 @@ export class Controller {
   gesture: Gesture | null = null;
   picked: Picked | null = null;
   pending_open: PendingOpen | null = null;
+  pending_copy: PendingCopy | null = null;
   /** Panes marked unread from the agent menu, each with whether it had
    * focus when last shown. Showing one doesn't read it until focus moves
    * onto it, it takes input, or it leaves view. */
@@ -2429,6 +2438,7 @@ export class Controller {
         break;
       case "copy-mode":
         this.copy_mode = true;
+        this.flushPendingCopy();
         this.clearPicked();
         break;
       case "copy":
@@ -2525,9 +2535,12 @@ export class Controller {
     term.clearSelection();
     term.holding_selection = true;
     const at = { x, y };
+    // A third press picks the line in place of the word.
+    if (unit === "line") this.pending_copy = null;
     const g: Gesture = {
       pane,
       unit,
+      at: milliTimestamp(),
       anchor: at,
       to: at,
       w: rect.w,
@@ -2609,8 +2622,19 @@ export class Controller {
     if (!result?.match || result.copy.trim() === "") return term.clearSelection();
     term.pin(result.match, result.shown);
     if (!term.pinnedMatches()) return term.clearSelection();
-    this.copyText(result.copy);
     this.picked = { pane: g.pane, w: g.w, h: g.h };
+    // A dragged word ended its click series, so no third press can follow.
+    const due = g.at + double_click_ms;
+    const dragged = g.to.x !== g.anchor.x || g.to.y !== g.anchor.y;
+    if (g.unit === "word" && !dragged && milliTimestamp() < due) this.pending_copy = { text: result.copy, due };
+    else this.copyText(result.copy);
+  }
+  /** Copies a double-click's word now, as when something other than a
+   * third press follows it. */
+  private flushPendingCopy(): void {
+    const copy = this.pending_copy;
+    this.pending_copy = null;
+    if (copy) this.copyText(copy.text);
   }
   /** Whether screen cell `x`, `y` shows a pending open's link in its pane. */
   private pressesLink(open: PendingOpen, x: number, y: number): boolean {
@@ -2684,6 +2708,7 @@ export class Controller {
     if (this.pane(term.id)?.dormant) return;
     this.marked_unread.delete(term.id);
     if (bytes.length > 0) {
+      this.flushPendingCopy();
       this.clearPicked();
       this.dropGesture();
     }
@@ -5451,6 +5476,8 @@ export class Controller {
     // A link open still waiting out the double-click window goes to a press
     // that may pick it instead; any other press opens it now.
     if (!release && isButton(button)) {
+      // Only a third press on the double-click's cell keeps its copy waiting.
+      if (!continuesSeries(series, button, x, y, milliTimestamp())) this.flushPendingCopy();
       this.clearPicked();
       this.dropGesture();
       // A press on the link itself starts its own click or double-click.
@@ -6598,6 +6625,7 @@ export class Controller {
       this.added_feedback = null;
       this.dirty = true;
     }
+    if (this.pending_copy && milliTimestamp() >= this.pending_copy.due) this.flushPendingCopy();
     const open = this.pending_open;
     if (open && milliTimestamp() >= open.due) {
       this.pending_open = null;

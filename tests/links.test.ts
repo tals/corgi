@@ -218,6 +218,9 @@ class Links extends Runtime {
     // A triple-click copies the line and doesn't open the link either.
     let state = await clicks(viewer, x, y, 3);
     this.assertEqual(copied(state), "see https://example.com/a for details");
+    // Only the line: the double-click's link was never copied on the way.
+    const copies = state.effects.filter((effect: any) => effect.write_terminal?.includes("\x1b]52;c;"));
+    this.assertEqual(copies.length, 1);
     this.assertFalse(opens(state));
     this.assertFalse(opens(await viewer.advance(0.4)));
     // A press dragged off the link, onto "for", never opens it.

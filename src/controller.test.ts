@@ -2739,11 +2739,49 @@ test("a pick whose text the pane no longer shows copies nothing", async () => {
     // The same answer copies once it matches what the pane shows.
     reply.shown = "hello";
     await doubleClick();
+    clock.advance(double_click_ms);
+    await s.expireInput();
     expect(s.effects).toEqual([{ write_terminal: `\x1b]52;c;${Buffer.from("hello").toString("base64")}\x07` }]);
     expect(s.copy_feedback_until).not.toBe(0);
     expect(term.selection).toEqual({ x: 2, y: 0, end_x: 6, end_y: 0 });
     expect(term.holding_selection).toBe(false);
     expect(s.picked).toEqual({ pane: 1, w: rect.w, h: rect.h });
+  } finally {
+    done();
+  }
+});
+
+test("a double-click copies its word once a third press can no longer pick the line", async () => {
+  const { s, rect, asks, doubleClick, done } = picking();
+  const at = `${rect.x + 4};${rect.y + 1}`;
+  const copies = () => s.effects.filter((effect: any) => "write_terminal" in effect).length;
+  try {
+    await doubleClick();
+    expect(s.pending_copy).toEqual({ text: "hello", due: clock.milliTimestamp() + double_click_ms });
+    clock.advance(double_click_ms - 1);
+    await s.expireInput();
+    expect(copies()).toBe(0);
+    clock.advance(1);
+    await s.expireInput();
+    expect(copies()).toBe(1);
+    expect(s.pending_copy).toBeNull();
+    // A third press picks the line, and only the line is copied.
+    await doubleClick();
+    clock.advance(100);
+    await s.input(bytes(`\x1b[<0;${at}M\x1b[<0;${at}m`));
+    expect(asks.at(-1)?.unit).toBe("line");
+    expect(s.pending_copy).toBeNull();
+    expect(copies()).toBe(1);
+    clock.advance(double_click_ms);
+    await s.expireInput();
+    expect(copies()).toBe(1);
+    // A key or a press elsewhere copies the word at once.
+    await doubleClick();
+    await s.input(bytes("x"));
+    expect(copies()).toBe(1);
+    await doubleClick();
+    await s.input(bytes(`\x1b[<0;${rect.x + 10};${rect.y + 1}M`));
+    expect(copies()).toBe(1);
   } finally {
     done();
   }

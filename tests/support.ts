@@ -459,8 +459,19 @@ export function highlighted(
     .join("");
 }
 /** `count` presses and releases on one screen cell within the double-click
- * window, since the viewer's clock only moves when advanced. */
-export function clicks<R>(viewer: { input(data: string): R }, x: number, y: number, count: number, button = 0): R {
+ * window, since the viewer's clock only moves when advanced. A double- or
+ * triple-click then waits out the window, when a double-click's word is
+ * copied; the state carries the effects of both replies. */
+export async function clicks(
+  viewer: { input(data: string): Promise<any>; advance(seconds: number): Promise<any> },
+  x: number,
+  y: number,
+  count: number,
+  button = 0,
+): Promise<any> {
   const at = `${button};${x + 1};${y + 1}`;
-  return viewer.input(`\x1b[<${at}M\x1b[<${at}m`.repeat(count));
+  const clicked = await viewer.input(`\x1b[<${at}M\x1b[<${at}m`.repeat(count));
+  if (count < 2) return clicked;
+  const settled = await viewer.advance(0.31);
+  return { ...settled, effects: [...clicked.effects, ...settled.effects] };
 }
