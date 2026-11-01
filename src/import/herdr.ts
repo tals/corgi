@@ -1,8 +1,17 @@
 //! Herdr read-only discovery and copy transactions.
 import * as breadcrumbs from "../breadcrumbs";
 import { createConnection } from "node:net";
-import { readdirSync, statSync, mkdirSync, writeFileSync, rmSync, readlinkSync, realpathSync } from "node:fs";
-import { join, isAbsolute, basename } from "node:path";
+import {
+  readdirSync,
+  readFileSync,
+  statSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  readlinkSync,
+  realpathSync,
+} from "node:fs";
+import { join, isAbsolute, basename, dirname, resolve } from "node:path";
 import { Runtime, Pane, Create } from "../runtime";
 import { Model, Tab, max_panes, max_workspaces } from "../layout";
 import { ResumeHint } from "../resume_hint";
@@ -204,6 +213,31 @@ export function clearTree(model: Model, index: number): void {
     clearTree(model, node.split.second);
   }
   model.nodes[index] = null;
+}
+/** The name Herdr shows for a workspace it hasn't been given one: home is
+ * "~", a folder in a Git checkout takes the checkout's, others their own
+ * (Herdr's `derive_label_from_cwd`, without its bare repositories). */
+export function herdrName(cwd: string, home = process.env.HOME): string {
+  if (home && cwd === home) return "~";
+  for (let dir = cwd; ; dir = dirname(dir)) {
+    if (gitHead(dir)) return basename(dir) || basename(cwd) || cwd;
+    if (dirname(dir) === dir) return basename(cwd) || cwd;
+  }
+}
+/** Whether `root/.git`, a folder or a `gitdir:` file, leads to a HEAD. */
+function gitHead(root: string): boolean {
+  const git = join(root, ".git");
+  let dir = git;
+  try {
+    if (!statSync(git).isDirectory()) {
+      const pointer = /^gitdir:(.*)$/.exec(readFileSync(git, "utf8").trim());
+      if (!pointer) return false;
+      dir = resolve(root, pointer[1].trim());
+    }
+    return statSync(join(dir, "HEAD")).isFile();
+  } catch {
+    return false;
+  }
 }
 /** A folder as the kernel reports it, or as given when it's gone. */
 function resolved(path: string): string {
@@ -709,7 +743,7 @@ export class Job {
       const ws = new workspace.Workspace(
         this.staged.workspaces.next_id++,
         resolved(cwd),
-        workspace.label(name) ? name : undefined,
+        workspace.label(name) ? name : herdrName(cwd),
       );
       const tabs = list(snapshot.tabs);
       if (!tabs.length) throw Error("InvalidHerdrLayout");

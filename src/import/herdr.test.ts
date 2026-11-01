@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
-import { realpathSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as herdr from "./herdr";
 import * as runtime from "../runtime";
 import * as checkpoint from "../persist/checkpoint";
@@ -52,8 +54,35 @@ test("live Herdr import roots a workspace at the folder its panes report", () =>
   }
 });
 
-test("a blank Herdr workspace name takes the folder's", () => {
-  const { job, manager } = staged(undefined, "  ");
+test("an unnamed Herdr workspace takes the name Herdr shows", () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "corgi-herdr-")));
+  try {
+    const repo = join(root, "repo"),
+      nested = join(repo, "src", "deep"),
+      linked = join(root, "linked  "),
+      plain = join(root, "plain");
+    mkdirSync(join(repo, ".git"), { recursive: true });
+    writeFileSync(join(repo, ".git", "HEAD"), "ref: refs/heads/main\n");
+    mkdirSync(nested, { recursive: true });
+    mkdirSync(join(repo, ".git", "worktrees", "linked"), { recursive: true });
+    writeFileSync(join(repo, ".git", "worktrees", "linked", "HEAD"), "ref: refs/heads/topic\n");
+    mkdirSync(join(linked, "sub"), { recursive: true });
+    writeFileSync(join(linked, ".git"), `gitdir: ${join(repo, ".git", "worktrees", "linked")}\n`);
+    mkdirSync(plain);
+    // A .git without a HEAD doesn't make a checkout.
+    mkdirSync(join(plain, ".git"));
+    expect(herdr.herdrName(root, root)).toBe("~");
+    expect(herdr.herdrName(nested, "/nowhere")).toBe("repo");
+    expect(herdr.herdrName(join(linked, "sub"), "/nowhere")).toBe("linked  ");
+    expect(herdr.herdrName(plain, "/nowhere")).toBe("plain");
+    expect(herdr.herdrName("/", "/nowhere")).toBe("/");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a Herdr workspace without a name takes the folder's", () => {
+  const { job, manager } = staged(undefined, "");
   try {
     expect(job.staged.workspaces.items[0].name()).toBe("tmp");
   } finally {
