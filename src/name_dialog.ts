@@ -131,6 +131,8 @@ export class Dialog {
   private pressed_at: number | null = null;
   /** The text as UTF-8, as fields draw it, until the text changes. */
   private utf8 = { text: "", bytes: new Uint8Array() };
+  /** The text as filled in, which a workspace name keeps untrimmed until edited. */
+  private filled = "";
 
   constructor(target: Target) {
     this.target = target;
@@ -176,6 +178,7 @@ export class Dialog {
     const whole = this.selected;
     let text = unicodeTarget(this.target) ? initial : initial.replace(/[^\x20-\x7e]/gu, "_");
     while (Buffer.byteLength(text) > limit(this.target)) text = [...text].slice(0, -1).join("");
+    this.filled = text;
     this.area = new TextArea(text, false);
     if (whole) this.selected = true;
   }
@@ -186,7 +189,10 @@ export class Dialog {
   bytes(from = 0, to = this.len): string {
     return Buffer.from(this.text.subarray(from, to)).toString();
   }
+  /** The text trimmed, except a workspace name left as filled in, which
+   * keeps the spaces its folder or an earlier rename gave it. */
   name(): string {
+    if ("workspace_name" in this.target && this.area.text === this.filled) return this.filled;
     const trim = "agent_command" in this.target ? " \t\r\n" : " ";
     let start = 0;
     let end = this.area.text.length;

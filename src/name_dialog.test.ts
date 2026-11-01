@@ -106,3 +106,14 @@ test("a press in the field places the caret, and a drag selects from it", () => 
   d.drag(v, v.text_x + 9);
   expect(d.selection()).toEqual([0, 6]);
 });
+
+test("a workspace name keeps its spaces until it is edited", () => {
+  const d = Dialog.init({ workspace_name: 1 }, "foo ");
+  expect(d.name()).toBe("foo ");
+  d.sequence("\x1b[F");
+  expect(d.name()).toBe("foo ");
+  d.key(c(" "));
+  expect(d.name()).toBe("foo");
+  expect(Dialog.init({ workspace_name: 1 }, "  ").name()).toBe("  ");
+  expect(Dialog.init({ rename: 1 }, "tab ").name()).toBe("tab");
+});

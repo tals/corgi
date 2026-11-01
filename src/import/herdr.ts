@@ -749,7 +749,8 @@ export class Job {
     const pong = await rpc(this.source, "ping", {});
     if (pong?.capabilities?.live_handoff !== true) throw Error("HerdrHandoffUnsupported");
     // The manifest saves only custom names; Herdr derives the rest as it draws them.
-    const shown = (await rpc(this.source, "session.snapshot", {}))?.snapshot;
+    // Without them, workspaces take their custom names or folders'.
+    const shown = (await rpc(this.source, "session.snapshot", {}).catch(() => null))?.snapshot;
     for (const ws of list(shown?.workspaces)) this.labels.set(text(ws, "workspace_id"), text(ws, "label"));
     const dir = `/tmp/corgi-${process.getuid?.() ?? 0}/herdr-${randomBytes(8).toString("hex")}`;
     mkdirSync(dir, { recursive: true, mode: 0o700 });
