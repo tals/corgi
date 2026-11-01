@@ -153,6 +153,22 @@ test("expanded groups by day and widens; search finds open conversations and cou
   rows = v.lines(c);
   expect(rows.length).toBe(2);
   expect(v.entry(c, rows)!.title).toBe("Sidebar flicker fix");
+  entries[0].branch = "fix/rendering";
+  entries[1].branch = "feature/rendering";
+  entries[2].branch = "fix/rendering";
+  v.query.clear();
+  for (const ch of "RENDER") v.query.key(ch.charCodeAt(0));
+  expect(v.lines(c)).toEqual([
+    { heading: "open" },
+    { open: 2 },
+    { heading: "results" },
+    { entry: 0 },
+    { elsewhere: 1 },
+  ]);
+  for (const ch of " flicker") v.query.key(ch.charCodeAt(0));
+  expect(v.lines(c)).toEqual([{ heading: "results" }, { entry: 0 }]);
+  for (const ch of " missing") v.query.key(ch.charCodeAt(0));
+  expect(v.lines(c)).toEqual([{ heading: "results" }]);
   v.collapse();
   expect(!v.expanded && !v.searching).toBe(true);
   expect(v.scope).toBe("workspace");

@@ -1080,7 +1080,7 @@
   "scope": "範囲",
   "search": "検索",
   "search or create": "検索または作成",
-  "search titles and what was said": "タイトルと会話を検索",
+  "search titles, branches and messages": "タイトル、ブランチ、メッセージを検索",
   "select": "選択",
   "send": "送信",
   "send ${count}": "${count}件送信",

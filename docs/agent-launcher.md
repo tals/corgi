@@ -38,8 +38,8 @@ agent's model with its own activity-summary model.
 
 The picker lists recent closed conversations from its destination folder.
 Enter resumes one in a new tab. **Show more** or `/` opens the full history;
-search matches titles and prompts/messages. Tab broadens the scope from this
-folder to the workspace to everywhere. Esc clears search, then collapses it.
+search matches titles, branch names and prompts/messages. Tab broadens the scope
+from this folder to the workspace to everywhere. Esc clears search, then collapses it.
 Selecting a conversation already running focuses its existing pane.
 
 A recoverable recently closed agent returns with its saved command and output.

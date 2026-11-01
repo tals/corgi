@@ -246,7 +246,8 @@ export class View {
     for (const word of this.search().split(" ")) {
       if (word.length === 0) continue;
       if (e.starred && starWord(word)) continue;
-      if (!contains(e.title, word) && !contains(e.first, word) && !contains(e.last, word)) return false;
+      if (!contains(e.title, word) && !contains(e.first, word) && !contains(e.last, word) && !contains(e.branch, word))
+        return false;
     }
     return true;
   }
@@ -486,7 +487,7 @@ export class View {
       });
     } else {
       w.write(dim);
-      writeEllipsis(w, i18n.t`search titles and what was said`, field);
+      writeEllipsis(w, i18n.t`search titles, branches and messages`, field);
     }
     w.write(`\x1b[${y};${x + width - 2 - (displayWidth(scope) + 2 + 6)}H`);
     writeKey(w, "tab", panel);

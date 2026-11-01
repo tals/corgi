@@ -1376,7 +1376,7 @@
   "scope": "область",
   "search": "поиск",
   "search or create": "найти или создать",
-  "search titles and what was said": "поиск по заголовкам и сообщениям",
+  "search titles, branches and messages": "поиск по заголовкам, веткам и сообщениям",
   "select": "выбрать",
   "send": "отправить",
   "send ${count}": "отправить ${count}",
