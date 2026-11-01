@@ -94,6 +94,40 @@ process.exit(await Bun.spawn([${JSON.stringify(git)}, ...args], {
       await new Promise<void>(resolve => server.close(() => resolve()));
     }
   }
+  async test_unversioned_cli_controls_accept_older_daemon_replies() {
+    const path = join(this.temp.name, "legacy.sock"),
+      requests: object[] = [];
+    const server = createServer(socket => {
+      let buffer = "";
+      socket.setEncoding("utf8");
+      socket.on("data", chunk => {
+        buffer += chunk;
+        if (!buffer.includes("\n")) return;
+        requests.push(JSON.parse(buffer.trim()));
+        // Older daemons ignore request ids and reply without them.
+        socket.end('{"ok":true}\n');
+      });
+    });
+    await new Promise<void>(resolve => server.listen(path, resolve));
+    try {
+      for (const args of [
+        ["focus", "3", "--viewer", "9"],
+        ["workspace", "switch", "2"],
+      ]) {
+        const result = await run([EXE, ...args, "--json"], {
+          env: { ...this.env, CORGI_SOCKET: path },
+          cwd: this.temp.name,
+        });
+        this.assertEqual(JSON.parse(result.stdout), { ok: true });
+      }
+      this.assertEqual(requests, [
+        { op: "focus", pane: 3, viewer: 9 },
+        { op: "workspace.switch", workspace: 2 },
+      ]);
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  }
   async test_shared_rpc_keeps_branch_replies_errors_and_viewer_sync_separate() {
     const conn = new Connection(this.path);
     try {

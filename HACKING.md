@@ -271,7 +271,8 @@ arrive out of order: a branch listing or worktree addition answers after
 requests sent later. `rpc.Connection` tags by default and fails the
 connection on an untagged reply; subscription events remain untagged. With
 `requestIds: false` it sends one untagged request at a time, as `hello`,
-`server.reload` and `corgi rpc` do.
+`server.reload` and the CLI do. Unversioned CLI controls such as `focus` and
+`workspace.switch` still accept replies from older daemons.
 
 Each viewer keeps two daemon connections in `viewer_connection.ts`. The control
 connection owns the viewer, commands, pane input, metadata and launcher/history

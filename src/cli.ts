@@ -746,8 +746,9 @@ export async function run(path: string, args: string[], agent = false): Promise<
     return;
   }
   const caller = Number(process.env.CORGI_PANE) || 0,
-    inv = await parse(args, caller),
-    conn = new Connection(path);
+    inv = await parse(args, caller);
+  // CLI calls are serial, including unversioned controls for older daemons.
+  const conn = new Connection(path, { requestIds: false });
   const reading = inv.json ? null : inv.command?.["pane.read"],
     lines = reading?.lines;
   if (reading) reading.lines = Math.min(lines + 1, 10000);
