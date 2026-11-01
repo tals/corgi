@@ -1,5 +1,6 @@
 // The landing page on corgi.computer: an assets-only Worker routed on / and
-// /moonlander, so visits are free and uncounted. Other paths never reach it
+// /moonlander and their locale-prefixed versions. Visits are free and
+// uncounted. Other paths never reach it
 // and go straight to the release bucket (install.sh, the update channel).
 // Deployed by `bun run landingpage:publish`.
 {
@@ -12,6 +13,16 @@
   "routes": [
     { "pattern": "corgi.computer/", "zone_name": "corgi.computer" },
     { "pattern": "corgi.computer/moonlander", "zone_name": "corgi.computer" },
+    { "pattern": "corgi.computer/en", "zone_name": "corgi.computer" },
+    { "pattern": "corgi.computer/en/*", "zone_name": "corgi.computer" },
+    { "pattern": "corgi.computer/zh", "zone_name": "corgi.computer" },
+    { "pattern": "corgi.computer/zh/*", "zone_name": "corgi.computer" },
+    { "pattern": "corgi.computer/ja", "zone_name": "corgi.computer" },
+    { "pattern": "corgi.computer/ja/*", "zone_name": "corgi.computer" },
+    { "pattern": "corgi.computer/ko", "zone_name": "corgi.computer" },
+    { "pattern": "corgi.computer/ko/*", "zone_name": "corgi.computer" },
+    { "pattern": "corgi.computer/ru", "zone_name": "corgi.computer" },
+    { "pattern": "corgi.computer/ru/*", "zone_name": "corgi.computer" },
   ],
   "workers_dev": false,
   "preview_urls": false,

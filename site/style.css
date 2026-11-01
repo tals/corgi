@@ -392,3 +392,7 @@ h1 { margin: 0; font-size: 48px; line-height: 1.05; font-weight: 700; color: var
   .credits p { font-size: 13px; }
   .thanks .sleeper { font-size: 18px; }
 }
+
+/* Wide glyphs occupy two terminal columns; the trailing cell keeps its index. */
+.screen .r > span.wide { flex-basis: calc(2 * var(--cell)); width: calc(2 * var(--cell)); }
+.screen .r > span.continuation { flex-basis: 0; width: 0; overflow: hidden; }

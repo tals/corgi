@@ -1,3 +1,4 @@
+import "./language";
 import * as moonlander from "../src/moonlander/moonlander";
 import * as scene from "../src/moonlander/scene";
 import * as faces from "../src/moonlander/faces";
