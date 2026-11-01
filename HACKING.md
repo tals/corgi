@@ -182,7 +182,8 @@ To drive a sandbox step by step and take screenshots when you want them, keep
 a session running:
 
 ```sh
-bun tools/ghostty_screenshot.ts serve --sandbox review &   # prints its directory, $SESSION below
+bun tools/ghostty_screenshot.ts serve --sandbox review > /tmp/serve.log &
+SESSION=/tmp/corgi-ghostty-…           # the directory on the log's first line, "session DIR"
 $SESSION/bin/corgi action review       # the sandbox's corgi, over its socket
 $SESSION/bin/screenshot -o /tmp/review.png
 bun tools/ghostty_screenshot.ts stop
@@ -193,6 +194,7 @@ bun tools/ghostty_screenshot.ts stop
 clicks too. `shot` and `stop` find the session from `--session`,
 `$CORGI_CAPTURE_SESSION` or, when only one is running, by themselves. The
 session cleans up when stopped, on SIGINT or SIGTERM, or when Ghostty exits.
+
 Inspect regenerated PNGs before committing them. This runs on Linux directly
 or in a container with the dependencies installed.
 

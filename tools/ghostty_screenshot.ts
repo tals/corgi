@@ -82,6 +82,8 @@ interface Recipe {
 /** What `serve` leaves in session.json for `shot` and `stop`. */
 interface SessionFile {
   pid: number;
+  /** The process's start time, so a reused PID is not taken for the session. */
+  started: string;
   display: string;
   window: string;
   wait: number;
@@ -163,10 +165,15 @@ function parse(argv: string[]): [Mode, Options] {
   return [mode, o];
 }
 
+/** Set by the CLI's signal handlers; waits then throw, so startup cleans up what it started. */
+let interrupted: NodeJS.Signals | null = null;
+const signalled = Promise.withResolvers<"signal">();
+
 /** Throws on timeouts rather than silently capturing an unready screen. */
 export async function until<T>(read: () => T | Promise<T>, seconds = 20): Promise<NonNullable<T>> {
   const end = Date.now() + seconds * 1000;
   do {
+    if (interrupted) throw Error(`interrupted by ${interrupted}`);
     const value = await read();
     if (value) return value as NonNullable<T>;
     await Bun.sleep(100);
@@ -442,7 +449,14 @@ export async function capture(options: Partial<Options> = {}, recipe: Recipe = {
 async function serve(o: Options): Promise<void> {
   const session = await start(o);
   try {
-    const file: SessionFile = { pid: process.pid, display: session.display, window: session.window, wait: o.wait };
+    if (interrupted) return;
+    const file: SessionFile = {
+      pid: process.pid,
+      started: startTime(process.pid)!,
+      display: session.display,
+      window: session.window,
+      wait: o.wait,
+    };
     writeFileSync(join(session.dir, "session.json"), JSON.stringify(file));
     const bin = join(session.dir, "bin");
     console.log(
@@ -454,20 +468,20 @@ async function serve(o: Options): Promise<void> {
         `  stop:       bun ${import.meta.path} stop --session ${session.dir}`,
       ].join("\n"),
     );
-    const { promise: stopped, resolve: stop } = Promise.withResolvers<"signal">();
-    for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.on(signal, () => stop("signal"));
-    if ((await Promise.race([stopped, session.terminal.exited])) !== "signal") throw Error("Ghostty exited");
+    if ((await Promise.race([signalled.promise, session.terminal.exited])) !== "signal") throw Error("Ghostty exited");
   } finally {
     await session.close();
   }
 }
 
-function alive(pid: number): boolean {
+/** A process's start time from /proc, or null when there is no such process. */
+function startTime(pid: number): string | null {
   try {
-    process.kill(pid, 0);
-    return true;
+    // The command name in parentheses may hold spaces; the fields after it don't.
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19] ?? null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -476,7 +490,7 @@ function findSession(o: Options): [string, SessionFile] {
   const read = (dir: string): SessionFile | null => {
     try {
       const file = JSON.parse(readFileSync(join(dir, "session.json"), "utf8")) as SessionFile;
-      return alive(file.pid) ? file : null;
+      return file.started && startTime(file.pid) === file.started ? file : null;
     } catch {
       return null;
     }
@@ -517,6 +531,11 @@ async function stop(o: Options): Promise<void> {
 }
 
 if (import.meta.main) {
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const)
+    process.on(signal, () => {
+      interrupted = signal;
+      signalled.resolve("signal");
+    });
   try {
     const [mode, o] = parse(process.argv.slice(2));
     switch (mode) {
