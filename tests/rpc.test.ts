@@ -173,7 +173,10 @@ process.exit(await Bun.spawn([${JSON.stringify(git)}, ...args], {
         });
         await this.until(() => existsSync(join(this.gate, "started")));
         this.assertTrue((await deadline(conn.call("ping"), 3000)).ok);
-        this.assertEqual(await conn.request("server.reload", { executable: EXE }), { err: "ReloadBusy" });
+        this.assertEqual(await conn.request("server.reload", { executable: EXE }), {
+          err: "ReloadBusy",
+          busy: { op: "worktree.add", path },
+        });
         this.release(fail);
         this.assertEqual(await added, fail ? { err: "WorktreeAddFailed" } : { ok: true });
         this.assertEqual(existsSync(path), !fail);

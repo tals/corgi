@@ -96,7 +96,6 @@ export class Connection {
     if (this.closed) throw this.closed;
     const message = json.object(value);
     if (!this.requestIds && this.pending.size) throw Error("RequestInFlight");
-    if (!Number.isSafeInteger(this.next)) throw Error("RequestIdOverflow");
     const id = this.requestIds ? this.next++ : 0;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
@@ -109,7 +108,7 @@ export class Connection {
   }
   async call<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Reply<K>> {
     const reply = await this.request(op, ...args);
-    if ("err" in reply) throw Error(reply.err);
+    if ("err" in reply) throw errors.fromReply(reply);
     return reply;
   }
   close(): void {

@@ -54,7 +54,7 @@ export class Server {
   private jobs: Promise<void> = Promise.resolve();
   private modelReads = new Map<Client, () => void>();
   /** Deferred replies, each with whether it changes state and how to answer it early. */
-  private deferred = new Map<Promise<void>, { mutates: boolean; drop: () => void }>();
+  private deferred = new Map<Promise<void>, { busy: protocol.Busy | null; drop: () => void }>();
   private timer?: ReturnType<typeof setInterval>;
   private stopped = false;
   private subscribedRevision = -1n;
@@ -666,7 +666,11 @@ export class Server {
         return;
       case "server.reload": {
         if (!isAbsolute(request.payload.executable ?? "")) throw Error("InvalidExecutable");
-        if ([...this.deferred.values()].some(d => d.mutates)) throw Error("ReloadBusy");
+        const busy = [...this.deferred.values()].find(d => d.busy)?.busy;
+        if (busy) {
+          reply.send({ err: "ReloadBusy", busy });
+          return;
+        }
         for (const d of this.deferred.values()) d.drop();
         const handoff = await import("./persist/handoff");
         await handoff.replace(this, cl, request.payload.executable, reply.id);
@@ -757,12 +761,12 @@ export class Server {
         reply.send({ ok: true });
         return;
       case "git.branches":
-        this.defer(cl, reply, false, async () => ({
+        this.defer(cl, reply, null, async () => ({
           branches: await worktreeAdd.branches(this.runtime, request.payload.workspace),
         }));
         return;
       case "worktree.add":
-        this.defer(cl, reply, true, async () => {
+        this.defer(cl, reply, { op: "worktree.add", path: request.payload.path }, async () => {
           await worktreeAdd.add(
             this.runtime,
             request.payload.workspace,
@@ -786,8 +790,8 @@ export class Server {
   }
   /** Replies once `work` finishes, letting the client's later requests run
    * meanwhile. A request without an id holds them, so its replies stay in order.
-   * Reload refuses while work that `mutates` runs and answers the rest with `Reloading`. */
-  private defer(cl: Client, reply: Reply, mutates: boolean, work: () => Promise<object>): void {
+   * Reload refuses while `busy` work runs, saying which, and answers the rest with `Reloading`. */
+  private defer(cl: Client, reply: Reply, busy: protocol.Busy | null, work: () => Promise<object>): void {
     let held = reply.id === null;
     cl.held ||= held;
     const release = () => {
@@ -807,7 +811,7 @@ export class Server {
       error => answer({ err: error instanceof Error ? error.message : String(error) }),
     );
     this.deferred.set(pending, {
-      mutates,
+      busy,
       drop: () => {
         answer({ err: "Reloading" });
         release();

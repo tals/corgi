@@ -778,7 +778,21 @@ true satisfies Exclude<Event["type"], (typeof event_types)[number]> extends neve
 export function event(message: { type?: unknown }): Event | null {
   return (event_types as readonly unknown[]).includes(message.type) ? (message as Event) : null;
 }
-export type ErrorReply = { err: string; viewer_protocol?: number };
+/** What a `ReloadBusy` reload waits out. */
+export type Busy = { op: "worktree.add"; path: string };
+export type ErrorReply = { err: string; viewer_protocol?: number; busy?: Busy };
+/** The `busy` of an error reply, or null when it names nothing this client knows. */
+export function busy(reply: unknown): Busy | null {
+  const value = reply && typeof reply === "object" ? (reply as { busy?: unknown }).busy : null;
+  if (!value || typeof value !== "object") return null;
+  const { op, path } = value as Record<string, unknown>;
+  if (typeof path !== "string") return null;
+  switch (op) {
+    case "worktree.add":
+      return { op, path };
+  }
+  return null;
+}
 export type Response<K extends Op> = Reply<K> | ErrorReply;
 export type Arguments<K extends Op> =
   {} extends RequestInput<K> ? [fields?: RequestInput<K>] : [fields: RequestInput<K>];

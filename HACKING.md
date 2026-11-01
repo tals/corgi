@@ -306,7 +306,8 @@ unversioned requests, including `ping` and `shutdown`, and bug-report queries
 also omit ids so older daemons can answer. Management protocol 1 and viewer
 protocol 3 are unchanged.
 
-Reload returns `ReloadBusy` while a worktree addition is still running. Retry
+Reload returns `ReloadBusy` while a worktree addition is still running, with
+`busy` naming it (`{"op": "worktree.add", "path": …}`). Retry
 after it finishes; worktree mutations are never replayed. A branch listing still
 running is answered with `Reloading` and dropped. Handoff
 retains the reload request id and pending headless-start ids as optional fields

@@ -484,7 +484,11 @@ export function failure(args: string[], error: unknown): string {
   const name = errors.name(error) ?? String(error);
   if (replies.includes(args[0]) && asksJson(args)) {
     const lines = name === "Usage" ? cli.usage(help, args).map(line => line.trim()) : [];
-    return json.stringify({ ok: false, err: name, ...(lines.length ? { usage: lines } : {}) }) + "\n";
+    const busy = protocol.busy(errors.reply(error));
+    return (
+      json.stringify({ ok: false, err: name, ...(lines.length ? { usage: lines } : {}), ...(busy ? { busy } : {}) }) +
+      "\n"
+    );
   }
   switch (name) {
     case "Usage": {
@@ -502,10 +506,21 @@ export function failure(args: string[], error: unknown): string {
       return `corgi: this client uses runtime protocol ${protocol.version}, which the server does not support. Reload the server using this Corgi version, or use a matching client.\n`;
     case "UnsupportedManagementProtocol":
       return `corgi: this client uses management protocol ${protocol.management_version}, which the server does not support. Use a matching Corgi version to reload the server.\n`;
-    case "ReloadBusy":
-      return "corgi: the server is adding a worktree and reloads once Git finishes; try again in a moment.\n";
+    case "ReloadBusy": {
+      // Only the daemon knows what holds the reload; without its word, say no more than the name.
+      const busy = protocol.busy(errors.reply(error));
+      if (busy) return `corgi: the server can't reload while ${busyDoing(busy)}; try again in a moment.\n`;
+      return `corgi: ${name}\n`;
+    }
     default:
       return `corgi: ${name}\n`;
+  }
+}
+/** What a busy daemon is in the middle of, in words. */
+function busyDoing(busy: protocol.Busy): string {
+  switch (busy.op) {
+    case "worktree.add":
+      return `Git adds the worktree ${busy.path}`;
   }
 }
 if (import.meta.main) {

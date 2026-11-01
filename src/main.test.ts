@@ -7,6 +7,7 @@ import * as updates from "./updates";
 import * as integration from "./integration";
 import * as accountCommand from "./account_command";
 import * as protocol from "./protocol";
+import * as errors from "./errors";
 import { existsSync, mkdtempSync, readFileSync, realpathSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -33,8 +34,14 @@ test("runtime protocol errors are distinct from viewer incompatibility", () => {
   );
 });
 test("a busy reload says what it waits for", () => {
-  expect(failure(["reload"], Error("ReloadBusy"))).toContain("adding a worktree");
-  expect(failure(["reload", "--json"], Error("ReloadBusy"))).toBe('{"ok":false,"err":"ReloadBusy"}\n');
+  const busy = errors.fromReply({ err: "ReloadBusy", busy: { op: "worktree.add", path: "/src/feature" } });
+  expect(failure(["reload"], busy)).toBe(
+    "corgi: the server can't reload while Git adds the worktree /src/feature; try again in a moment.\n",
+  );
+  expect(failure(["reload", "--json"], busy)).toBe(
+    '{"ok":false,"err":"ReloadBusy","busy":{"op":"worktree.add","path":"/src/feature"}}\n',
+  );
+  expect(failure(["reload"], Error("ReloadBusy"))).toBe("corgi: ReloadBusy\n");
 });
 test("a daemon that rejects hello still counts as running", async () => {
   const path = join(mkdtempSync(join(tmpdir(), "corgi-main-")), "s");
