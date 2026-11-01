@@ -230,32 +230,47 @@ function figures(
 }
 /** The columns right of the worktree, each with the gap after it; the last
  * ends two cells from the card's edge. */
-const columns = (): { name: Column; header: string; width: number }[] => [
-  { name: "agents", header: i18n.t`AGENTS`, width: 9 },
-  { name: "main", header: i18n.t`VS MAIN`, width: 10 },
-  { name: "age", header: i18n.t`AGE`, width: 6 },
-  { name: "edited", header: i18n.t`EDITED`, width: 11 },
-  { name: "changes", header: i18n.t`UNCOMMITTED CHANGES`, width: 19 },
-];
+const columns = (): { name: Column; header: string; width: number }[] => {
+  const values: { name: Column; header: string; width: number }[] = [
+    { name: "agents", header: i18n.t`AGENTS`, width: 9 },
+    { name: "main", header: i18n.t`VS MAIN`, width: 10 },
+    { name: "age", header: i18n.t`AGE`, width: 6 },
+    { name: "edited", header: i18n.t`EDITED`, width: 11 },
+    { name: "changes", header: i18n.t`UNCOMMITTED CHANGES`, width: 19 },
+  ];
+  return values.map(c => ({ ...c, width: Math.max(c.width, displayWidth(c.header) + Number(c.name !== "changes")) }));
+};
 /** On a narrow card, these go first, until the worktree has room. */
 const dropped: Column[] = ["age", "main", "edited"];
 const name_room = 24;
 /** Where a brief starts: two cells in from its worktree's name, under a hook. */
 const brief_x = 5;
 /** Where each shown column starts, and the room left for the worktree. */
-export function columnsFor(width: number): { x: Partial<Record<Column, number>>; room: number } {
+export function columnsFor(width: number): {
+  x: Partial<Record<Column, number>>;
+  widths: Partial<Record<Column, number>>;
+  room: number;
+} {
   let shown = columns();
   for (const name of [null, ...dropped]) {
     if (name) shown = shown.filter(c => c.name !== name);
     if (width - 6 - shown.reduce((n, c) => n + c.width, 0) >= name_room) break;
   }
-  const x: Partial<Record<Column, number>> = {};
+  let excess = Math.max(0, 6 + name_room + shown.reduce((n, c) => n + c.width, 0) - width);
+  for (const c of [...shown].reverse()) {
+    const removed = Math.min(excess, Math.max(0, c.width - 4));
+    c.width -= removed;
+    excess -= removed;
+  }
+  const x: Partial<Record<Column, number>> = {},
+    widths: Partial<Record<Column, number>> = {};
   let at = width - 2;
   for (const c of [...shown].reverse()) {
     at -= c.width;
     x[c.name] = at;
+    widths[c.name] = c.width;
   }
-  return { x, room: at - 4 };
+  return { x, widths, room: at - 4 };
 }
 /** The heading under a cell: WORKTREE up to the first column, then each
  * column from its mark, just left of its heading. */
@@ -348,10 +363,20 @@ export function draw(
         text = b.label ?? "...";
       hook();
       // Over the old words while amended; dots while the first is written.
-      let col = brief_x;
+      let col = brief_x,
+        previous = brief_x;
       [...ellipsis(clean(text), width)].forEach((ch, i) => {
-        grid.put(col, row, ch, pulse(b.label ? i / 4 : i, since));
-        col += displayWidth(ch);
+        const size = displayWidth(ch),
+          color = pulse(b.label ? i / 4 : i, since);
+        if (size === 0) {
+          const cell = col > brief_x ? grid.at(previous, row) : null;
+          if (cell) cell.ch += ch;
+          return;
+        }
+        grid.put(col, row, ch, color);
+        if (size === 2) grid.put(col + 1, row, "", color);
+        previous = col;
+        col += size;
       });
       return;
     }
@@ -371,7 +396,13 @@ export function draw(
   };
   heading(2, "worktree", i18n.t`WORKTREE`, layout.room);
   for (const column of columns())
-    if (x[column.name] !== undefined) heading(x[column.name]!, column.name, column.header, column.width);
+    if (x[column.name] !== undefined)
+      heading(
+        x[column.name]!,
+        column.name,
+        column.header,
+        layout.widths[column.name]! - Number(column.name !== "changes"),
+      );
   // Until a removed row has closed, the cursor is its own: it goes with the
   // row, then waits on that line while the rows below move up to it, or
   // climbs to the row above when that is next.
@@ -422,7 +453,7 @@ export function draw(
         segments: [string, palette.Token, boolean?][] = histogram(counted);
       if (!counted.agents) segments.push(["0", tone("faint")]);
       if (associations.some(a => a.stale)) segments.push(["*", "text"]);
-      runs(y, x.agents, 8, segments);
+      runs(y, x.agents, layout.widths.agents! - 1, segments);
     }
     if (x.main !== undefined) {
       const vs = entry.comparison;
@@ -450,7 +481,7 @@ export function draw(
         y,
         x.edited,
         since === null ? "—" : i18n.t`${elapsed} ago`,
-        8,
+        layout.widths.edited! - 1,
         since === null ? tone("faint") : since < 3600000 ? "text" : "muted",
       );
     }
@@ -458,11 +489,12 @@ export function draw(
       const changes = entry.changes,
         count = changes?.total ?? 0,
         star = entry.stale ? "*" : "";
-      if (!entry.available) line(y, x.changes, i18n.t`Missing`, 19, "muted");
-      else if (!changes) line(y, x.changes, "…", 19, tone("faint"));
-      else if (!changes.total) line(y, x.changes, i18n.t`Clean` + star, 19, tone("faint"));
+      const room = layout.widths.changes!;
+      if (!entry.available) line(y, x.changes, i18n.t`Missing`, room, "muted");
+      else if (!changes) line(y, x.changes, "…", room, tone("faint"));
+      else if (!changes.total) line(y, x.changes, i18n.t`Clean` + star, room, tone("faint"));
       else
-        runs(y, x.changes, 19, [
+        runs(y, x.changes, room, [
           [(count === 1 ? i18n.t`${count} file` : i18n.t`${count} files`) + star, "text"],
           ...(changes.added || changes.removed
             ? ([

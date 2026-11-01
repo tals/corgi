@@ -1,12 +1,42 @@
 import { test, expect } from "bun:test";
 import { State, bounds, presetLayout } from "./onboarding";
 import * as palette from "./palette";
+import * as i18n from "./i18n";
+import { Terminal } from "./pane/terminal";
 import { Worker, workspace, pane, available_sources } from "./import/catalog";
 const conn: any = {
   call: () => {
     throw Error("UnexpectedRpc");
   },
 };
+test("translated welcome hints leave room before the continue button", () => {
+  const previous = i18n.language();
+  try {
+    for (const language of i18n.locales) {
+      i18n.setLanguage(language);
+      for (const cols of [76, 80, 112]) {
+        const state = new State(),
+          terminal = new Terminal(cols, 26);
+        try {
+          terminal.feed(state.frame(cols, 26));
+          const label = i18n.t`[ Enter Continue → ]`,
+            row = terminal
+              .text()
+              .split("\n")
+              .find(row => row.includes(label))!;
+          expect(row).toBeDefined();
+          expect(row.slice(0, row.indexOf(label))).toEndWith("  ");
+          expect(row.slice(row.indexOf(label) + label.length)).toMatch(/^\s*│\s*$/);
+        } finally {
+          terminal.destroy();
+          state.close();
+        }
+      }
+    }
+  } finally {
+    i18n.setLanguage(previous);
+  }
+});
 function attach(state: State, source: "tmux" | "herdr", items: any[], message = "") {
   const worker = new Worker(source);
   worker.done = true;

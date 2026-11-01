@@ -15,7 +15,7 @@ import * as scrollThumb from "./scroll_thumb";
 import { relativeTime } from "./sidebar";
 import { KeyHold, Spring } from "./key_hold";
 import { milliTimestamp } from "./clock";
-import { Writer, writeEllipsis } from "./text";
+import { Writer, writeEllipsis, displayWidth } from "./text";
 
 /** How long ↵ is held to create; letting go undoes it faster. A release
  * shows sooner than the shared default: a gap past the measured repeat
@@ -760,9 +760,10 @@ export class View extends nameDialog.View {
       }
       const bg = highlighted ? "selected" : "surface";
       w.write(new Style({ fg: "accent", bg, bold: true }).sgr() + "+ ");
-      w.write(new Style({ fg: highlighted ? "strong" : "muted", bg }).sgr() + i18n.t`Create `);
+      const create = i18n.t`Create `;
+      w.write(new Style({ fg: highlighted ? "strong" : "muted", bg }).sgr() + create);
       w.write(new Style({ fg: highlighted ? "strong" : "text", bg, bold: highlighted }).sgr());
-      writeEllipsis(w, printable(b.create ?? ""), text_width - 9);
+      writeEllipsis(w, printable(b.create ?? ""), Math.max(0, text_width - 2 - displayWidth(create)));
     }
     // Under the list, what stands where the field names a folder.
     const blocked = b.blocked;

@@ -20,6 +20,7 @@ type Result = "save" | "cancel" | "model" | null;
 const visible_rows = 4;
 const saveLabel = () => i18n.t` Save · Ctrl+S `;
 const cancelLabel = () => i18n.t` Cancel · Esc `;
+const addLabel = () => i18n.t`[ + Add variable ]`;
 export const row_duration_ms = 240;
 const editor = (text: string) => Dialog.init({ agent_command: 0 }, text);
 const at = (x: number, y: number) => `\x1b[${y + 1};${x + 1}H`;
@@ -350,8 +351,7 @@ export class Form {
       last = Math.min(this.first + this.room, this.variables.length),
       total = this.variables.length;
     if (this.variables.length > this.room) label(g.count, i18n.t`${first}–${last} of ${total} · tab to scroll`);
-    if (this.variables.length < agentOptions.max_variables)
-      button(g.x, g.add, i18n.t`[ + Add variable ]`, f.kind === "add");
+    if (this.variables.length < agentOptions.max_variables) button(g.x, g.add, addLabel(), f.kind === "add");
     w.write(at(g.x, b.y + g.actions - 1) + palette.fg("line") + "─".repeat(g.width));
     for (const [kind, x, label] of [
       ["save", g.save_x, saveLabel()],
@@ -404,7 +404,7 @@ export class Form {
     if (row === g.actions && x >= g.save_x && x < g.save_x + displayWidth(saveLabel()))
       return this.validate() ? "save" : null;
     if (row === g.actions && x >= g.cancel_x && x < g.cancel_x + displayWidth(cancelLabel())) return "cancel";
-    if (row === g.add && x < g.x + 18) {
+    if (row === g.add && x < g.x + displayWidth(addLabel())) {
       this.add(now);
       return null;
     }

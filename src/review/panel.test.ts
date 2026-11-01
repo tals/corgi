@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { Terminal } from "../pane/terminal";
 import { Writer } from "../text";
 import * as panel from "./panel";
+import * as i18n from "../i18n";
 
 let root = "";
 const run = (...args: string[]) =>
@@ -223,6 +224,35 @@ test("files sort by last edit, newest first, with how long ago", async () => {
   expect(back).toEqual([...back].sort((a, b) => a - b));
   expect(rows[2]).toContain("last edit ↑");
   p.hide();
+});
+
+test("last-edit ages use the current language for hours and days", async () => {
+  const now = Date.now() / 1000,
+    original = i18n.language(),
+    p = new panel.Panel();
+  utimesSync(join(root, "notes.md"), now - 2 * 86400, now - 2 * 86400);
+  utimesSync(join(root, "app.ts"), now - 3 * 3600, now - 3 * 3600);
+  try {
+    p.follow({ pane: 10, cwd: root, name: "Fix app" });
+    p.show();
+    await settle(p);
+    for (const locale of i18n.locales) {
+      i18n.setLanguage(locale);
+      const rows = screen(p),
+        hours = 3,
+        days = 2;
+      expect(rows[0]).toContain(i18n.t`Review` + " p " + i18n.t`pin`);
+      expect(rows.find(row => row.includes("app.ts"))).toContain(i18n.t`${hours} h`);
+      expect(rows.find(row => row.includes("notes.md"))).toContain(i18n.t`${days} d`);
+      if (locale !== "en") {
+        expect(rows.find(row => row.includes("app.ts"))).not.toContain("3 h");
+        expect(rows.find(row => row.includes("notes.md"))).not.toContain("2 d");
+      }
+    }
+  } finally {
+    p.hide();
+    i18n.setLanguage(original);
+  }
 });
 
 test("pinned, the review stays put and its notes go to the focused pane", async () => {

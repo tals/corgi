@@ -44,10 +44,16 @@ export class Grid {
   }
   /** Writes `text` from `x`, wide glyphs taking two cells, stopping at the edge. */
   text(x: number, y: number, text: string, fg: palette.Rgb, bold = false): void {
+    let previous: number | null = null;
     for (const ch of text) {
       const width = codepointWidth(ch.codePointAt(0)!);
-      if (width === 0) continue;
+      if (width === 0) {
+        const cell = previous === null ? null : this.at(previous, y);
+        if (cell) cell.ch += ch;
+        continue;
+      }
       if (x + width > this.w) return;
+      previous = x;
       this.put(x++, y, ch, fg, bold);
       if (width === 2) this.put(x++, y, "", fg, bold);
     }

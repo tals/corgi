@@ -987,7 +987,10 @@ export class Menu {
     launcherWorktree
       .visible(c, this.worktreeChoices(), bx.shown)
       .forEach((choice, i) => dropdown.row(w, r, bx.list - r.y + i, choice));
-    const label = (y: number, name: string) => w.write(at(bx.label_x, y) + panel + name);
+    const label = (y: number, name: string) => {
+      w.write(at(bx.label_x, y) + panel);
+      writeEllipsis(w, name, sat(bx.field_x, bx.label_x + 2));
+    };
     // The text is strong, a placeholder faint.
     const input = (d: Dialog, placeholder: string, y: number, focused: boolean) =>
       Menu.drawInput(w, d, placeholder, bx.field_x + 1, y + 1, bx.field_w, focused, d.len === 0 ? "faint" : "strong");
@@ -1009,16 +1012,20 @@ export class Menu {
           ? launcherWorktree.plannedPath(this.worktrees, this.cwd, c.field.name(), this.worktree_folder)
           : this.cwd);
     writeEllipsis(w, launcherWorktree.folderLabel(path, root), bx.field_w);
-    label(bx.footer, i18n.t`↑↓ choose`);
-    const action =
+    const action = ellipsis(
       c.focus === "from"
         ? i18n.t`↵ use branch`
         : creating
           ? i18n.t`hold ↵ to create`
           : selected
             ? i18n.t`↵ switch`
-            : i18n.t`type to search`;
-    w.write(at(r.x + r.w - displayWidth(action) - 3, bx.footer) + text + action);
+            : i18n.t`type to search`,
+      sat(r.x + r.w - 3, bx.label_x),
+    );
+    const action_x = r.x + r.w - displayWidth(action) - 3,
+      hint = i18n.t`↑↓ choose`;
+    if (displayWidth(hint) + 2 <= action_x - bx.label_x) w.write(at(bx.label_x, bx.footer) + panel + hint);
+    w.write(at(action_x, bx.footer) + text + action);
     if (c.create.progress > 0)
       w.write(
         at(r.x + 1, r.y + r.h - 1) + palette.fg("accent") + "━".repeat(Math.floor((r.w - 2) * c.create.progress)),

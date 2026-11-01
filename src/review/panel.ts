@@ -2074,7 +2074,10 @@ export class Panel {
           if (ch.dels) right.push(["−" + ch.dels.toLocaleString("en-US"), colors.hot]);
         }
         const at = edited?.get(row.path);
-        if (edited) right.push([(at === undefined ? "" : age((now - at) / 1000)).padStart(5), colors.faint]);
+        if (edited) {
+          const elapsed = at === undefined ? "" : age((now - at) / 1000);
+          right.push([" ".repeat(Math.max(0, 5 - displayWidth(elapsed))) + elapsed, colors.faint]);
+        }
         const room = c.w - 1 - right.reduce((s, p) => s + displayWidth(p[0]) + 1, 0) - (indent + 2);
         const end = c.text(indent + 2, y, row.name, on || here ? colors.strong : colors.text, bg, on, room);
         if (row.dir) c.text(end + 2, y, row.dir, colors.faint, bg, false, indent + 2 + room - end - 2);
@@ -2867,6 +2870,10 @@ function age(seconds: number): string {
   if (seconds < 90) return i18n.t`now`;
   const minutes = Math.round(seconds / 60);
   if (seconds < 3600) return i18n.t`${minutes} min`;
-  if (seconds < 86400 * 2) return `${Math.round(seconds / 3600)} h`;
-  return `${Math.round(seconds / 86400)} d`;
+  if (seconds < 86400 * 2) {
+    const hours = Math.round(seconds / 3600);
+    return i18n.t`${hours} h`;
+  }
+  const days = Math.round(seconds / 86400);
+  return i18n.t`${days} d`;
 }

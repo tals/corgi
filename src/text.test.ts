@@ -8,6 +8,8 @@ test("prose wrapping measures cells and breaks text without spaces", () => {
   expect(wrap("abcdefghijkl", 5)).toEqual(["abcde", "fghij", "kl"]);
   expect(wrap("字", 1)).toEqual(["…"]);
   expect(wrap("one\n\ntwo", Infinity)).toEqual(["one", "", "two"]);
+  expect(wrap("  abcdef", 4)).toEqual(["abcd", "ef"]);
+  expect(wrap("  日本語  \n   \n 한국어 ", 4)).toEqual(["日本", "語", "", "한국", "어"]);
   for (const line of wrap("日本語 and 한국어", 8)) expect(displayWidth(line)).toBeLessThanOrEqual(8);
 });
 

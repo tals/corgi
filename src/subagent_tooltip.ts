@@ -558,11 +558,14 @@ export class Card {
     return this.width < 70;
   }
   numbers(): number {
-    return this.tight() ? 6 : Card.number_width;
+    return Math.max(this.tight() ? 6 : Card.number_width, displayWidth(i18n.t`Tokens`), displayWidth(i18n.t`Cached`));
   }
   /** Phone-narrow cards drop the tool count. */
   counts(): number {
-    return !this.counted || this.tight() ? 0 : Card.count_width + 1;
+    return !this.counted || this.tight() ? 0 : Math.max(Card.count_width, displayWidth(i18n.t`Tools`)) + 1;
+  }
+  timeWidth(): number {
+    return Math.max(5, displayWidth(i18n.t`  now`), displayWidth(i18n.t` last`));
   }
   textWidth(): number {
     return this.width - 6 - 2 * (this.numbers() + 1) - this.counts();
@@ -578,7 +581,7 @@ export class Card {
     };
     if (this.counts()) {
       const tools = value === null ? i18n.t`Tools` : value.known ? compact(value.tools) : "—";
-      figure(text_width - this.counts() + 1, Card.count_width, tools, "faint");
+      figure(text_width - this.counts() + 1, this.counts() - 1, tools, "faint");
     }
     const tokens =
       value !== null
@@ -592,7 +595,7 @@ export class Card {
   }
   childRow(row: number, child: Conversation, now = microTimestamp()) {
     const text_width = this.textWidth();
-    const prefix_width = this.tight() ? 9 : 11;
+    const prefix_width = this.timeWidth() + (this.tight() ? 4 : 6);
     const available = sat(text_width, prefix_width);
     const label = activity(child.agent);
     const name = childName(child);
@@ -622,7 +625,7 @@ export class Card {
     this.cell(row, 0, prefix_width - 2, `${" ".repeat(prefix_width - 4)}↳`, "faint", false);
     // How long it has worked sits in the timeline's time column.
     const running = this.tight() ? "" : runningFor(child.agent, now);
-    if (running) this.cell(row, 0, 5, running, "faint", true);
+    if (running) this.cell(row, 0, this.timeWidth(), running, "faint", true);
     this.cell(row, prefix_width - 2, 1, marker.icon, marker.tone, false);
     this.cell(row, prefix_width, label_width, label, "text", false);
     if (name_width > 0) this.cell(row, text_width - name_width, name_width, name, "faint", true);
@@ -641,18 +644,20 @@ export class Card {
     this.cell(row, 0, name_width, name, tone, false);
     this.cell(row, name_width + 1, model_width, model, heading ? "faint" : "muted", false);
     columns.tokenColumns(row, value, false, heading ? "faint" : "text");
-    this.cell(row, text_width + 2 * nw + 3, nw, equivalent, heading ? "faint" : "title", true);
+    this.cell(row, this.width - 6 - nw, nw, equivalent, heading ? "faint" : "title", true);
   }
   /** One timeline step: the live one has a sage time and a bright label,
    * and past ones recede. */
   drawPoint(row: number, stamp: string, label: string, value: UsageView, live: boolean, dot: Tone) {
     const icon = live ? "●" : "○";
     const gap = this.tight() ? " " : "  ";
+    stamp = ellipsis(stamp, this.timeWidth());
+    stamp = " ".repeat(sat(this.timeWidth(), displayWidth(stamp))) + stamp;
     this.cell(row, 0, this.textWidth(), `${stamp}${gap}${icon}${gap}${label}`, live ? "strong" : "muted", false);
     this.tokenColumns(row, value, live, !value.known ? "muted" : live ? "title" : "strong");
     const time: Tone = live ? "live" : "faint";
     this.w.write(
-      `\x1b[${row + 1};${this.x + 4}H${base}${this.ink(time)}${stamp}\x1b[${row + 1};${this.x + (this.tight() ? 10 : 11)}H${base}${this.ink(dot)}${icon}`,
+      `\x1b[${row + 1};${this.x + 4}H${base}${this.ink(time)}${stamp}\x1b[${row + 1};${this.x + 4 + this.timeWidth() + displayWidth(gap)}H${base}${this.ink(dot)}${icon}`,
     );
   }
   timeline(row: number, root: Conversation, agent: Agent, nodes: number, pending: boolean) {

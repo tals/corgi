@@ -2,6 +2,8 @@
 //! The landing page bundles this module, so it uses only what browsers have.
 import * as palette from "./palette";
 import * as frames from "./corgi_frames";
+import * as i18n from "./i18n";
+import { displayWidth, ellipsis } from "./text";
 const golden = 0x9e3779b97f4a7c15n;
 /** SplitMix64's finalizer. */
 function mix(value: bigint): bigint {
@@ -755,35 +757,55 @@ export class Fetch {
     );
   }
 }
-export const herd_width = 18;
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+function wordCells(word: string) {
+  let start = 0;
+  return [...graphemes.segment(word)].map(({ segment: glyph }) => {
+    const width = displayWidth(glyph),
+      cell = { glyph, width, start };
+    start += width;
+    return cell;
+  });
+}
+export function herdWidth(): number {
+  return displayWidth(i18n.t`Compacting`) + 8;
+}
 export const walk_left = ["‹o[/\\]~", "‹o[||]~", "‹o[\\/]~", "‹o[||]~"];
-const herd_word = "Compacting",
-  curl = [
-    { after: 2, pose: "ᐯ◡ᴥ◡ᐯ" },
-    { after: 2, pose: "ᐯ◡ᴥ◡ᐯ" },
-    { after: 3, pose: "◡ᴥ◡" },
-    { after: 2, pose: "•ᴥ•" },
-    { after: 1, pose: "•.•" },
-    { after: 0, pose: "..." },
-    { after: 0, pose: "…" },
-  ];
+const curl = [
+  { after: 2, pose: "ᐯ◡ᴥ◡ᐯ" },
+  { after: 2, pose: "ᐯ◡ᴥ◡ᐯ" },
+  { after: 3, pose: "◡ᴥ◡" },
+  { after: 2, pose: "•ᴥ•" },
+  { after: 1, pose: "•.•" },
+  { after: 0, pose: "..." },
+  { after: 0, pose: "…" },
+];
 export function herdScene(width: number, step: number) {
-  const gaps = [1, 2, 0, 2, 1, 0, 2, 1, 1],
+  const word = wordCells(i18n.t`Compacting`),
+    word_width = word.reduce((sum, cell) => sum + cell.width, 0),
+    gap_pattern = [1, 2, 0, 2, 1, 0, 2, 1, 1],
+    gaps = word.slice(1).map((_, i) => gap_pattern[i % gap_pattern.length]),
+    gap_total = Math.max(
+      1,
+      gaps.reduce((sum, gap) => sum + gap, 0),
+    ),
     spread = [0];
   let sum = 0;
   for (const [i, gap] of gaps.entries()) {
     sum += gap;
-    spread.push(i + 1 + Math.floor((sum * (width - 11)) / 10));
+    spread.push(word[i + 1].start + Math.floor((sum * (width - word_width - 1)) / gap_total));
   }
-  const roundup = width - 9;
+  const roundup = width - word_width + 1;
   if (step < roundup) {
     const nose = width - step,
-      letters = [...spread];
-    letters[9] = Math.min(spread[9], nose - 1);
-    for (let i = 9; i > 0; i--) letters[i - 1] = Math.min(spread[i - 1], letters[i] - 1);
+      letters = [...spread],
+      last = word.length - 1;
+    letters[last] = Math.min(spread[last], nose - word[last].width);
+    for (let i = last; i > 0; i--) letters[i - 1] = Math.min(spread[i - 1], letters[i] - word[i - 1].width);
     return {
+      word,
       letters,
-      lit: letters.map((at, i) => at === i || at < spread[i]),
+      lit: letters.map((at, i) => at === word[i].start || at < spread[i]),
       dog: walk_left[step % 4],
       x: nose,
       finished: false,
@@ -792,14 +814,16 @@ export function herdScene(width: number, step: number) {
   const p = step - roundup,
     pose = p >= 10 ? curl[Math.min(p - 10, curl.length - 1)] : null;
   return {
-    letters: Array.from({ length: 10 }, (_, i) => i),
-    lit: Array(10).fill(true),
+    word,
+    letters: word.map(cell => cell.start),
+    lit: Array(word.length).fill(true),
     dog: pose?.pose ?? (p === 6 ? "~ᐯ◡ᴥ◡ᐯ" : "~ᐯ•ᴥ•ᐯ"),
-    x: pose ? 10 + pose.after : 11,
+    x: pose ? word_width + pose.after : word_width + 1,
     finished: p >= 10 + curl.length - 1,
   };
 }
 export function writeHerd(width: number, step: number) {
+  if (width < herdWidth()) return palette.fg("text") + ellipsis(i18n.t`Compacting…`, width);
   const scene = herdScene(width, step),
     dog = [...scene.dog];
   let at = 0,
@@ -815,8 +839,10 @@ export function writeHerd(width: number, step: number) {
     if (col >= scene.x && at < dog.length) {
       const glyph = dog[at++];
       out += tint(scene.finished ? "text" : "faint") + (glyph === "~" ? wagTail(Math.floor(step / 2)) : glyph);
-    } else if (letter < 10 && scene.letters[letter] === col) {
-      out += tint(scene.lit[letter] ? "text" : "faint") + herd_word[letter++];
+    } else if (letter < scene.word.length && scene.letters[letter] === col) {
+      const cell = scene.word[letter];
+      out += tint(scene.lit[letter++] ? "text" : "faint") + cell.glyph;
+      col += cell.width - 1;
     } else out += " ";
   }
   return out;
@@ -824,14 +850,25 @@ export function writeHerd(width: number, step: number) {
 export type Dig = "restoring" | "forking";
 export const Dig = {
   lead: 17,
-  wordWidth: (dig: Dig) => (dig === "restoring" ? 10 : 8),
-  width: (dig: Dig) => (dig === "restoring" ? 27 : 25),
+  word: (dig: Dig) => (dig === "restoring" ? i18n.t`Restoring…` : i18n.t`Forking…`),
+  wordWidth: (dig: Dig) => displayWidth(Dig.word(dig)),
+  width: (dig: Dig) => Dig.lead + Dig.wordWidth(dig),
 };
 /** An unfocused dormant pane's title: the corgi asleep where it will dig,
  * then what wakes it. */
-export const Asleep = { word: "Click to resume", wordWidth: 15, width: 32 };
+export const Asleep = {
+  get word() {
+    return i18n.t`Click to resume`;
+  },
+  get wordWidth() {
+    return displayWidth(Asleep.word);
+  },
+  get width() {
+    return Dig.lead + Asleep.wordWidth;
+  },
+};
 export function writeAsleep(width: number): string {
-  const word = "\x1b[1m" + palette.fg("accent") + Asleep.word;
+  const word = "\x1b[1m" + palette.fg("accent") + ellipsis(Asleep.word, width);
   if (width < Asleep.width) return word;
   return " ".repeat(7) + palette.fg("muted") + "~ᐯ◡ᴥ◡ᐯ " + palette.fg("faint") + "ᶻz " + word;
 }
@@ -844,9 +881,10 @@ export const dirt: palette.Rgb = [150, 126, 96],
   pile = [" ", "⣀", "⣤", "⣶", "⣿"],
   clods = ["⠄", "⠂", "⠁", "⠁", "⠂"];
 export function writeUnearth(width: number, shown_ms: number, dig: Dig): string {
-  const word = [...(dig === "restoring" ? "Restoring…" : "Forking…")],
+  const label = Dig.word(dig),
+    word = wordCells(label),
     restored = palette.colors.accent;
-  if (width < Dig.width(dig)) return "\x1b[1m" + palette.fg("accent") + word.join("");
+  if (width < Dig.width(dig)) return "\x1b[1m" + palette.fg("accent") + ellipsis(label, width);
   const step = Math.floor(Math.max(0, shown_ms) / 80),
     cells = Array.from({ length: Dig.width(dig) }, () => ({
       glyph: " ",
@@ -856,16 +894,17 @@ export function writeUnearth(width: number, shown_ms: number, dig: Dig): string 
     heights = [0, 0, 0, 0];
   for (const [i, letter] of word.entries()) {
     const age = step - i * 2;
-    cells[17 + i] =
-      age < 0
-        ? { glyph: buried[i % 10], color: dirt, bold: false }
-        : age < 2
-          ? { glyph: age === 0 ? "⣤" : "⠤", color: dirt, bold: false }
-          : {
-              glyph: letter,
-              color: age === 2 ? dirt : age === 3 ? blend(dirt, restored, 0.5) : restored,
-              bold: true,
-            };
+    for (let col = 0; col < letter.width; col++)
+      cells[Dig.lead + letter.start + col] =
+        age < 0
+          ? { glyph: buried[(letter.start + col) % buried.length], color: dirt, bold: false }
+          : age < 2
+            ? { glyph: age === 0 ? "⣤" : "⠤", color: dirt, bold: false }
+            : {
+                glyph: col === 0 ? letter.glyph : "",
+                color: age === 2 ? dirt : age === 3 ? blend(dirt, restored, 0.5) : restored,
+                bold: true,
+              };
     if (age < 0) continue;
     if (age < 5) cells[8 - age] = { glyph: clods[age], color: dirt, bold: false };
     else {
@@ -1031,8 +1070,7 @@ export class Presentation {
   }
   /** Whether the corgi has curled into the ellipsis, leaving the row past it free. */
   herded(room: number, now: number) {
-    // Rounding up takes room - 9 steps, sitting 10, then the curl.
-    return this.herdStep(now) >= room - 9 + 10 + curl.length - 1;
+    return room < herdWidth() || herdScene(room, this.herdStep(now)).finished;
   }
   private herdStep(now: number) {
     return Math.floor(Math.max(0, now - this.herd_started_ms) / 110);

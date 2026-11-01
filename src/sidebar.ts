@@ -22,6 +22,7 @@ import {
   displayWidth,
   writeClipped,
   writeEllipsis,
+  ellipsis,
   directoryLabel,
   compactCount,
   codepointWidth,
@@ -932,7 +933,12 @@ export class View {
       if (x >= v.width - 5) return hit("toggle");
       if (x >= v.width - 11 && x < v.width - 6) return hit("workspace_new");
     }
-    if (y === v.middle() && v.drawer === null && x >= v.width - displayWidth(newAgentLabel()) - 2 && x < v.width - 2)
+    if (
+      y === v.middle() &&
+      v.drawer === null &&
+      x >= v.width - displayWidth(newAgentLabel(v.width)) - 2 &&
+      x < v.width - 2
+    )
       return x >= v.width - 4 ? hit("agent_options") : hit("agent_new");
     if (y === v.middle() && x >= v.scopeStart()) {
       const qualifier = v.scopeQualifier();
@@ -1091,7 +1097,7 @@ export class View {
         w.write(shown.slice(0, a) + palette.selection + shown.slice(a, b) + plain + shown.slice(b));
       }
     } else if (v.drawer === null) {
-      const label = newAgentLabel();
+      const label = newAgentLabel(v.width);
       w.write(w.cup(v.middle() + 1, v.width - displayWidth(label) - 1) + button + label + panel);
       // The focused agent list shows where `/` opens its search.
       if (v.focus === "agents") {
@@ -1468,17 +1474,17 @@ export class View {
       w.write(figure.text);
     }
     const detail = compacting
-      ? "Compacting…"
+      ? i18n.t`Compacting…`
       : waiting
-        ? "Waiting on agents"
+        ? i18n.t`Waiting on agents`
         : e.state === "working"
           ? e.activity
           : e.state === "blocked"
-            ? "Needs input"
+            ? i18n.t`Needs input`
             : e.state === "initializing"
-              ? "Starting session"
+              ? i18n.t`Starting session`
               : e.state === "done"
-                ? "Session ended"
+                ? i18n.t`Session ended`
                 : "";
     const badge = subagentBadge(e.subagents, e.children);
     const badge_width = displayWidth(badge);
@@ -1486,7 +1492,7 @@ export class View {
     const animation_key = animationKey(e);
     const fallback = e.state === "working" && !compacting && !waiting && e.activity.length === 0;
     // Narrow rows keep the text; the pile beside it still moves.
-    const herding = compacting && detail_room >= corgiAnimation.herd_width;
+    const herding = compacting && detail_room >= corgiAnimation.herdWidth();
     const mode: corgiAnimation.Mode = herding
       ? "herding"
       : fallback && v.corgi_intensity > 0
@@ -1653,7 +1659,13 @@ export class View {
   scopeStart(): number {
     if (this.framed()) return this.lists().scopeStart() + lists_x;
     // Compact headers keep one cell for the name and one for the arrow.
-    return displayWidth(i18n.t`agents`) + (this.width >= 22 ? 3 : 2);
+    return displayWidth(this.scopeHeading()) + (this.width >= 22 ? 3 : 2);
+  }
+  private scopeHeading(): string {
+    return ellipsis(
+      i18n.t`agents`,
+      sat(this.width, displayWidth(newAgentLabel(this.width)) + (this.width >= 22 ? 7 : 5)),
+    );
   }
   scopeArrow(): string {
     if (this.framed()) return this.lists().scopeArrow();
@@ -1662,7 +1674,7 @@ export class View {
   scopeQualifier(): string {
     if (this.framed()) return this.lists().scopeQualifier();
     const room = sat(
-      sat(this.width, displayWidth(newAgentLabel()) + 3),
+      sat(this.width, displayWidth(newAgentLabel(this.width)) + 3),
       this.scopeStart() - 1 + displayWidth(this.scopeArrow()),
     );
     const out = new Writer();
@@ -1675,14 +1687,12 @@ export class View {
     if (v.middle() >= v.rows - 1) return;
     w.write(`${w.cup(v.middle() + 1, 2)}\x1b[1m` + fg("strong"));
     // Stop before the New button's leading space.
-    const room = sat(v.width, displayWidth(newAgentLabel()) + 3);
-    writeClipped(w, i18n.t`agents`, room);
+    w.write(v.scopeHeading());
     const qualifier = v.scopeQualifier();
     if (qualifier.length > 0) {
       w.write("\x1b[22m" + fg("faint") + (v.width >= 22 ? ": " : " ") + "\x1b[1m" + fg("muted"));
-      w.write(qualifier);
     }
-    w.write("\x1b[22m" + fg("faint") + v.scopeArrow());
+    w.write(w.cup(v.middle() + 1, v.scopeStart() + 1) + qualifier + "\x1b[22m" + fg("faint") + v.scopeArrow());
   }
   line(w: Writer, y: number, text: string, style: string): void {
     if (y >= this.rows) return;
@@ -2230,8 +2240,9 @@ const scope_labels: Record<ScopeChoice, string> = {
   },
 };
 
-function newAgentLabel(): string {
-  return ` ${i18n.t`New`}  ▾ `;
+function newAgentLabel(width: number): string {
+  const label = ` ${i18n.t`New`}  ▾ `;
+  return displayWidth(i18n.t`agents`) + displayWidth(label) + (width >= 22 ? 7 : 5) <= width ? label : " +  ▾ ";
 }
 
 export class PortMenu {

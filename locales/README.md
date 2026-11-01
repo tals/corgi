@@ -94,7 +94,7 @@ is an optional viewer setting; protocol and checkpoint schemas are unchanged.
 Translate app chrome, not terminal programs, provider messages, generated
 summaries, user names, paths or command syntax. Machine-oriented CLI output
 keeps its existing format. Measure and clip UI text with `text.displayWidth`,
-`text.truncatedText`, and `text.wrap`, not JavaScript string length.
+`text.clipped`, and `text.wrap`, not JavaScript string length.
 
 `bun tools/i18n_screenshots.ts` captures the main screens in every language
 through live Ghostty at wide and narrow sizes. See the

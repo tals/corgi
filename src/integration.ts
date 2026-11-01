@@ -7,6 +7,7 @@ import { atomicWrite } from "./os";
 import * as discovery from "./discovery";
 import * as rpc from "./rpc";
 import * as accounts from "./accounts";
+import * as i18n from "./i18n";
 export async function hook(provider: Provider, path: string): Promise<void> {
   const id = Number(process.env.CORGI_PANE);
   if (!Number.isInteger(id) || id < 0 || id > 0xffffffff) return;
@@ -186,6 +187,19 @@ export const help = `Usage: corgi integration COMMAND [${Provider.all.join("|")}
 Without an agent, a command covers ${Provider.all.map(p => adapter(p).label).join(" and ")}, in
 every account Corgi knows; --account picks one ("default" for your own).
 `;
+export function localizedHelp(): string {
+  const providers = Provider.all.join("|"),
+    names = new Intl.ListFormat(i18n.language()).format(Provider.all.map(p => adapter(p).label));
+  return i18n.t`Usage: corgi integration COMMAND [${providers}] [--account NAME]
+
+  status      show what Corgi has added to each agent's settings
+  install     add what each agent needs to report to Corgi
+  uninstall   remove everything Corgi added; startup won't add it back
+
+Without an agent, a command covers ${names}, in
+every account Corgi knows; --account picks one ("default" for your own).
+`;
+}
 /** `corgi integration status|install|uninstall [PROVIDER] [--account NAME]`:
  * one line per thing Corgi adds. False when any step failed. */
 export async function command(op: Op, only: Provider | null, named: string | null = null): Promise<boolean> {

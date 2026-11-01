@@ -10,7 +10,7 @@ import { Style } from "./palette";
 import { Rect, View as LayoutView } from "./layout";
 import { download_url, type Notice } from "./host_clipboard";
 import type { Pane } from "./mirror";
-import { Writer, displayWidth, writeEllipsis, sat } from "./text";
+import { Writer, displayWidth, writeEllipsis, ellipsis, wrap, sat } from "./text";
 
 const titleLabel = () => i18n.t` Image not pasted `;
 const keycap = " esc ";
@@ -22,10 +22,6 @@ const openHint = () => i18n.t` ⇧⌘-click opens · click copies `;
 const pad = 3;
 const partText = (part: { text: { text(): string } | string }) =>
   typeof part.text === "string" ? part.text : part.text.text();
-/** Border, blank, reason, blank, fix, the download link when there is one, blank, border. */
-function height(notice: Notice): number {
-  return hasLink(notice) ? 8 : 7;
-}
 function hasLink(notice: Notice): boolean {
   return notice.fix().some(part => part.kind === "link");
 }
@@ -80,15 +76,42 @@ function frameWidth(inner: number): number {
     2 + displayWidth(titleLabel()) + 1 + displayWidth(keycap) + displayWidth(closeLabel()) + 2,
   );
 }
+type Part = { kind: "text" | "key" | "link"; text: string };
+/** Wrap the sentence as a whole, retaining the key and link spans on each line. */
+function content(notice: Notice, width: number) {
+  const body = wrap(notice.body.text(), width),
+    parts = notice.fix().map(part => ({ kind: part.kind, text: partText(part) })),
+    sentence = parts.map(part => part.text).join("");
+  let offset = 0;
+  const fix = wrap(sentence, width).map(line => {
+    const start = sentence.indexOf(line, offset),
+      end = start + line.length,
+      row: Part[] = [];
+    let position = 0;
+    for (const part of parts) {
+      const next = position + part.text.length,
+        value = part.text.slice(Math.max(0, start - position), Math.min(part.text.length, end - position));
+      if (next > start && position < end && value) row.push({ kind: part.kind, text: value });
+      position = next;
+    }
+    offset = end;
+    return row;
+  });
+  const fixRow = 3 + body.length,
+    downloadRow = fixRow + fix.length,
+    height = downloadRow + (hasLink(notice) ? 1 : 0) + 2;
+  return { body, fix, fixRow, downloadRow, height };
+}
 /** Above the caret when the pane has room, else below it, else at the
  * pane's foot without an arrow when the caret is unknown. A narrow pane
- * shortens the download link; null when even the rest doesn't fit. */
+ * wraps the explanation and shortens the download link. */
 export function place(notice: Notice, pane: Rect, caret: Caret | null): Placement | null {
   const lines = Math.max(displayWidth(notice.body.text()), fixWidth(notice));
   const full = hasLink(notice) ? Math.max(lines, displayWidth(downloadLabel()) + download_url.length) : lines;
   const w = Math.min(frameWidth(full), pane.w);
-  const h = height(notice);
-  if (w < frameWidth(lines) || pane.h < h) return null;
+  if (w < 24) return null;
+  const h = content(notice, w - 2 * pad - 2).height;
+  if (pane.h < h) return null;
   if (!caret) return { x: pane.x, y: pane.y + pane.h - h, w, h, arrow: null };
   const x = Math.min(Math.max(sat(caret.x, 2), pane.x), pane.x + pane.w - w);
   if (caret.y >= pane.y + h + 1)
@@ -115,17 +138,19 @@ export function locate(view: LayoutView, panes: Pane[], area: Rect, notice: Noti
  * the fix, or the download URL under it. */
 export function linkAt(notice: Notice, at: Placement, x: number, y: number): boolean {
   if (!hasLink(notice)) return false;
-  const left = at.x + 1 + pad;
-  if (y === at.y + 4) {
+  const left = at.x + 1 + pad,
+    rows = content(notice, at.w - 2 * pad - 2),
+    row = rows.fix[y - at.y - rows.fixRow];
+  if (row) {
     let start = left;
-    for (const part of notice.fix()) {
-      const end = start + displayWidth(partText(part));
+    for (const part of row) {
+      const end = start + displayWidth(part.text);
       if (part.kind === "link" && x >= start && x < end) return true;
       start = end;
     }
     return false;
   }
-  if (y === at.y + 5) {
+  if (y === at.y + rows.downloadRow) {
     const start = left + displayWidth(downloadLabel());
     return x >= start && x < start + Math.min(download_url.length, urlRoom(at));
   }
@@ -138,11 +163,12 @@ function urlRoom(at: Placement): number {
  * border says how to open the link, or that a click copied it. */
 export function draw(notice: Notice, at: Placement, copied: boolean): string {
   const w = new Writer(),
-    title = titleLabel(),
-    close = closeLabel(),
+    close = frameWidth(0) <= at.w ? closeLabel() : "",
+    title = ellipsis(titleLabel(), at.w - displayWidth(keycap) - displayWidth(close) - 4),
     download = downloadLabel(),
     copied_label = copiedLabel(),
-    open_hint = openHint();
+    open_hint = openHint(),
+    rows = content(notice, at.w - 2 * pad - 2);
   w.write("\x1b7");
   const inner = at.w - 2;
   w.write(`\x1b[${at.y + 1};${at.x + 1}H${border}╭─${heading}${title}${border}`);
@@ -163,17 +189,17 @@ export function draw(notice: Notice, at: Placement, copied: boolean): string {
     w.write("─");
   }
   w.write("╯");
-  w.write(`\x1b[${at.y + 3};${at.x + 2 + pad}H${text}`);
-  writeEllipsis(w, notice.body.text(), inner - 2 * pad);
-  w.write(`\x1b[${at.y + 5};${at.x + 2 + pad}H`);
-  for (const part of notice.fix()) {
-    const value = partText(part);
-    if (part.kind === "text") w.write(text + value);
-    else if (part.kind === "link") writeLink(w, value, displayWidth(value));
-    else w.write(heading + value);
+  for (const [index, line] of rows.body.entries()) w.write(`\x1b[${at.y + 3 + index};${at.x + 2 + pad}H${text}` + line);
+  for (const [index, line] of rows.fix.entries()) {
+    w.write(`\x1b[${at.y + rows.fixRow + index + 1};${at.x + 2 + pad}H`);
+    for (const part of line) {
+      if (part.kind === "text") w.write(text + part.text);
+      else if (part.kind === "link") writeLink(w, part.text, displayWidth(part.text));
+      else w.write(heading + part.text);
+    }
   }
   if (hasLink(notice)) {
-    w.write(`\x1b[${at.y + 6};${at.x + 2 + pad}H${text}` + download);
+    w.write(`\x1b[${at.y + rows.downloadRow + 1};${at.x + 2 + pad}H${text}` + download);
     writeLink(w, download_url, urlRoom(at));
   }
   if (at.arrow) w.write(`\x1b[${at.arrow.y + 1};${at.arrow.x + 1}H${pointer}${at.arrow.glyph}`);

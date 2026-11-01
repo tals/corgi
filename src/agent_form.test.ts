@@ -2,10 +2,11 @@ import { expect, test } from "bun:test";
 import { Form, row_duration_ms } from "./agent_form";
 import * as agentOptions from "./agent_options";
 import * as palette from "./palette";
+import * as i18n from "./i18n";
 import type { Agent } from "./agent_manager";
 import { Cell } from "./launcher_usage";
 import { Rect } from "./layout";
-import { Writer } from "./text";
+import { Writer, displayWidth } from "./text";
 import { Terminal } from "./pane/terminal";
 
 const agent: Agent = {
@@ -48,6 +49,28 @@ const draw = (f: Form, width = 82, height = 27, now = 1000) => {
     terminal.destroy();
   }
 };
+
+test("the full translated Add variable label is clickable, without extending into blank space", () => {
+  const original = i18n.language();
+  try {
+    for (const locale of i18n.locales) {
+      i18n.setLanguage(locale);
+      const f = create(),
+        { lines, b } = draw(f),
+        label = i18n.t`[ + Add variable ]`,
+        y = lines.findIndex(line => line.includes(label)),
+        x = displayWidth(lines[y].slice(0, lines[y].indexOf(label))),
+        width = displayWidth(label);
+      expect(y).toBeGreaterThan(0);
+      f.click(b, x + width, y);
+      expect(f.variables).toHaveLength(0);
+      f.click(b, x + width - 1, y);
+      expect(f.variables).toHaveLength(1);
+    }
+  } finally {
+    i18n.setLanguage(original);
+  }
+});
 
 test("keyboard edits names, quoted flags and literal environment key/value rows", () => {
   const f = create();

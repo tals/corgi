@@ -90,6 +90,7 @@ export function wrap(value: string, width: number): string[] {
   if (width <= 0 || !value) return [];
   const lines: string[] = [];
   for (let paragraph of value.split("\n")) {
+    paragraph = paragraph.trim();
     if (!paragraph) {
       lines.push("");
       continue;

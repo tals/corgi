@@ -351,8 +351,10 @@ export function button(b: Rect, p: Place, right: number) {
 /** " New agent  in " and the button, in the launcher's top border; warm
  * off the comparison branch. */
 export function drawTitle(w: Writer, b: Rect, p: Place, right: number, open: boolean, panel: string): void {
-  w.write(`\x1b[${b.y + 1};${b.x + 3}H\x1b[1m` + palette.fg("strong") + titleLead() + panel);
   const span = button(b, p, right);
+  w.write(`\x1b[${b.y + 1};${b.x + 3}H\x1b[1m` + palette.fg("strong"));
+  writeEllipsis(w, span ? titleLead() : ` ${i18n.t`New agent`} `, sat(right, b.x + 2));
+  w.write(panel);
   if (!span) return;
   if (!p.worktree) {
     w.write(palette.fg("text"));

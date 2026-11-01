@@ -145,6 +145,7 @@ export class State {
   private preset: keymap.Preset = "corgi";
   private prefix: keymap.Prefix = "ctrl_b";
   private config: model.Config = {};
+  private locale = i18n.language();
   private entries = model.entries("corgi", {});
   private hits: Hit[] = [];
   private controls: Control[] = [];
@@ -157,9 +158,11 @@ export class State {
   private fits = true;
   configure(preset: keymap.Preset, prefix: keymap.Prefix, config: model.Config) {
     this.prefix = prefix;
-    if (this.preset === preset && this.config === config) return;
+    const locale = i18n.language();
+    if (this.preset === preset && this.config === config && this.locale === locale) return;
     this.preset = preset;
     this.config = config;
+    this.locale = locale;
     this.entries = model.entries(preset, config);
     const selected = this.entries.find(e => e.id === this.selected.id) ?? this.entries.find(e => e.id === "new")!;
     this.selected = {
@@ -1144,7 +1147,10 @@ export class State {
     }
     const ready = !blocked && (e.index < 0 || e.recorded.length > 0);
     const saving = e.listening && entry.indexed ? i18n.t`Done` : conflicts.length ? i18n.t`Move` : i18n.t`Save`;
-    const saveWidth = e.listening && entry.indexed ? 14 : 10;
+    const saveWidth = Math.max(
+      e.listening && entry.indexed ? 14 : 10,
+      displayWidth(saving) + (bordered ? 4 : 2) + (e.listening && entry.indexed ? 6 : 0),
+    );
     button(
       b.w - saveWidth - 2,
       footerY,

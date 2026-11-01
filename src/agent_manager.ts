@@ -14,7 +14,7 @@ import { Dialog, View as DialogView, writeField } from "./name_dialog";
 import { matches } from "./search";
 import { Entry as CommandEntry, Semantics, Resolution } from "./launch/command";
 import * as keys from "./keys";
-import { Writer, displayWidth, writeEllipsis, ellipsis, sat, clamp, shortPath } from "./text";
+import { Writer, displayWidth, writeEllipsis, ellipsis, sat, clamp, shortPath, byteLength, byteSlice } from "./text";
 import { Grid } from "./cell_grid";
 import { KeyHold } from "./key_hold";
 import { milliTimestamp } from "./clock";
@@ -25,6 +25,7 @@ import type { Options } from "./agent_options";
 import { Slide } from "./card_transition";
 import type { Effort } from "./providers/effort";
 import * as agentModels from "./agent_models";
+import * as agentName from "./agent_name";
 import { Row } from "./launch/row";
 import * as launcherOrder from "./launch/order";
 import { Model as AgentModel } from "./providers/model";
@@ -1780,5 +1781,6 @@ export class View {
 }
 
 function copyName(name: string, number = 1): string {
-  return number === 1 ? i18n.t`${name} copy` : i18n.t`${name} copy ${number}`;
+  const translated = (name: string) => (number === 1 ? i18n.t`${name} copy` : i18n.t`${name} copy ${number}`);
+  return translated(byteSlice(name, agentName.limit - byteLength(translated(""))));
 }

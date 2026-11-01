@@ -9,7 +9,7 @@ Regenerate the full set with Ghostty, Xvfb, xdotool, ffmpeg, and fonts covering
 the selected languages installed:
 
 ```sh
-bun build.ts --no-native
+bun build.ts
 bun tools/i18n_screenshots.ts
 # Or only selected languages:
 bun tools/i18n_screenshots.ts ja ko

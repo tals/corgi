@@ -124,9 +124,10 @@ export function usage(text: string, args: string[]): string[] {
   return [];
 }
 /** A command's usage, or the full reference when no command was named. */
-export function helpFor(text: string, args: string[]): string {
+export function helpFor(text: string, args: string[], agent = false): string {
   const lines = usage(text, args);
-  return lines.length ? `Usage:\n${lines.join("\n")}\n` : text;
+  const label = agent ? "Usage:" : i18n.t`Usage:`;
+  return lines.length ? `${label}\n${lines.join("\n")}\n` : text;
 }
 export function id(value: string): number {
   if (!/^\+?\d+$/.test(value)) throw Error("InvalidCharacter");
@@ -736,7 +737,7 @@ export function read(text: string, lines: number, agent = false): string {
 export async function run(path: string, args: string[], agent = false): Promise<void> {
   const group = args[0];
   if ((nested.has(group) && args.length === 1) || asksHelp(args)) {
-    process.stdout.write(helpFor(help, args));
+    process.stdout.write(helpFor(agent ? help : localizedHelp(), args, agent));
     return;
   }
   if (group === "--skill") {

@@ -163,6 +163,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[""," unread →"]': v0 => `${v0} 条未读 →`,
     '[""," worktree"]': v0 => `${v0} 个工作树`,
     '[""," worktrees"]': v0 => `${v0} 个工作树`,
+    '[""," d"]': v0 => `${v0}天`,
     '["","/"," done"]': (v0, v1) => `已完成 ${v0}/${v1}`,
     '["","/","+ done"]': (v0, v1) => `已完成 ${v0}/${v1}+`,
     '[""," Down"]': v0 => `${v0} 向下`,
@@ -172,6 +173,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
       `${v0} 次响应过慢，导致画面等待；${v1} 次未返回。`,
     '[""," late enough to hold frames; one never came."]': v0 => `${v0} 次响应过慢，导致画面等待；1 次未返回。`,
     '[""," late enough to hold frames; slowest ","."]': (v0, v1) => `${v0} 次响应过慢，导致画面等待；最慢 ${v1}。`,
+    '[""," h"]': v0 => `${v0}小时`,
     '[""," again"]': v0 => `再按 ${v0}`,
     '[""," Couldn\'t start the agent: ",""]': (v0, v1) => `${v0} 无法启动智能体：${v1}`,
     '[""," min"]': v0 => `${v0} 分钟`,
@@ -360,6 +362,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Clear pane name"]': () => `清除窗格名称`,
     '["Clear search to reorder agents."]': () => `清除搜索后即可调整智能体顺序。`,
     '["Clever Corgi"]': () => `聪明 Corgi`,
+    '["Click to resume"]': () => `点击继续`,
     '["Clone agent · draft"]': () => `克隆智能体 · 草稿`,
     '["Close"]': () => `关闭`,
     '["Close / reopen"]': () => `关闭 / 重开`,
@@ -483,6 +486,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Following you → "," · ",""]': (v0, v1) => `正在跟随 → ${v0} · ${v1}`,
     '["Fork"]': () => `派生`,
     '["Fork this agent"]': () => `派生此智能体`,
+    '["Forking…"]': () => `正在创建分支…`,
     '["Frame pacing"]': () => `帧调度`,
     '["Free"]': () => `免费`,
     '["From"]': () => `来自`,
@@ -733,6 +737,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Resolving command…"]': () => `正在解析命令…`,
     '["Resource readings"]': () => `资源监测`,
     '["Resources"]': () => `资源`,
+    '["Restoring…"]': () => `正在恢复…`,
     '["Resume"]': () => `恢复`,
     '["Return in each pane restarts its command"]': () => `在各窗格内按 Return 可重启其命令`,
     '["Review"]': () => `审查`,
@@ -880,6 +885,35 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Usage (used) · resets in"]': () => `已用额度 · 距离重置`,
     '["Usage · resets"]': () => `用量 · 重置时间`,
     '["Usage · resets in"]': () => `用量 · 距离重置`,
+    '["Usage:"]': () => `用法：`,
+    '["Usage: corgi account COMMAND\\n\\n  list                          the accounts Corgi knows and who signed in\\n  add [PROVIDER] [NAME]         make a new account and sign in to it; it\'s\\n                                named from the login unless you name it\\n  add PROVIDER NAME --dir DIR   use an account folder you already have\\n  login NAME                    sign in to an account again\\n  rename NAME NEW               call an account something else; NAME can be\\n                                default, or claude/default, for the default\\n  remove NAME                   remove an account: one Corgi made is signed\\n                                out and deleted, another forgotten\\n\\nPROVIDER is ",". Name an account claude/work when two\\nproviders both have one called work. Signing in runs the agent\'s own sign-in\\nin the account\'s folder; agents then start there from the launcher, or with\\n"," set.\\n"]':
+      (v0, v1) => `用法：corgi account COMMAND
+
+  list                          列出Corgi已知的账户及登录用户
+  add [PROVIDER] [NAME]         创建并登录新账户；如果不指定名称，
+                                则根据登录信息自动命名
+  add PROVIDER NAME --dir DIR   使用已有的账户文件夹
+  login NAME                    重新登录账户
+  rename NAME NEW               重命名账户；NAME可以是default，
+                                也可以用claude/default指定默认账户
+  remove NAME                   移除账户：Corgi创建的账户会退出登录并删除，
+                                其他账户则只从列表中移除
+
+PROVIDER为${v0}。如果两个提供方都有名为work的账户，
+请用claude/work这样的名称区分。登录操作会在账户文件夹中运行代理自身的登录流程；
+之后可从启动器启动代理，或通过设置
+${v1}使用该账户。
+`,
+    '["Usage: corgi integration COMMAND [","] [--account NAME]\\n\\n  status      show what Corgi has added to each agent\'s settings\\n  install     add what each agent needs to report to Corgi\\n  uninstall   remove everything Corgi added; startup won\'t add it back\\n\\nWithout an agent, a command covers ",", in\\nevery account Corgi knows; --account picks one (\\"default\\" for your own).\\n"]':
+      (v0, v1) => `用法：corgi integration COMMAND [${v0}] [--account NAME]
+
+  status      查看Corgi在各代理设置中添加的内容
+  install     添加代理向Corgi报告状态所需的设置
+  uninstall   移除Corgi添加的所有内容，之后启动时也不会重新添加
+
+未指定代理时，命令会处理${v1}，
+涵盖Corgi已知的所有账户；--account指定单个账户（default表示默认账户）。
+`,
     '["Use"]': () => `使用`,
     '["Use "," · ",""]': (v0, v1) => `使用 ${v0} · ${v1}`,
     '["Use "," to enable paste with ","."]': (v0, v1) => `使用 ${v0}，即可用 ${v1} 粘贴。`,
@@ -903,6 +937,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["WORKSPACES"]': () => `工作区`,
     '["WORKTREE"]': () => `工作树`,
     '["Waiting for activity"]': () => `等待活动`,
+    '["Waiting on agents"]': () => `等待智能体`,
     '["Waiting on subagents"]': () => `等待子智能体`,
     '["Welcome to Corgi. Enlarge the terminal to 76 × 26 to continue."]': () =>
       `欢迎使用 Corgi。请将终端扩大至 76 × 26 以继续。`,
@@ -1395,6 +1430,7 @@ CORGI_SOCKET 用于选择运行服务。工作区组织标签页和窗格，不�
     '[""," unread →"]': v0 => `未読${v0}件 →`,
     '[""," worktree"]': v0 => `${v0}ワークツリー`,
     '[""," worktrees"]': v0 => `${v0}ワークツリー`,
+    '[""," d"]': v0 => `${v0}日`,
     '["","/"," done"]': (v0, v1) => `${v0}/${v1}完了`,
     '["","/","+ done"]': (v0, v1) => `${v0}/${v1}+完了`,
     '[""," Down"]': v0 => `${v0} 下へ`,
@@ -1404,6 +1440,7 @@ CORGI_SOCKET 用于选择运行服务。工作区组织标签页和窗格，不�
       `${v0}回の遅延で描画が待機。うち${v1}回は応答なし。`,
     '[""," late enough to hold frames; one never came."]': v0 => `${v0}回の遅延で描画が待機。うち1回は応答なし。`,
     '[""," late enough to hold frames; slowest ","."]': (v0, v1) => `${v0}回の遅延で描画が待機。最長${v1}。`,
+    '[""," h"]': v0 => `${v0}時間`,
     '[""," again"]': v0 => `もう一度${v0}`,
     '[""," Couldn\'t start the agent: ",""]': (v0, v1) => `${v0} エージェントを起動できませんでした：${v1}`,
     '[""," min"]': v0 => `${v0}分`,
@@ -1599,6 +1636,7 @@ Corgiのペイン、エージェント、ワークスペースを操作するに
     '["Clear pane name"]': () => `ペイン名をクリア`,
     '["Clear search to reorder agents."]': () => `並べ替えるには検索を解除してください。`,
     '["Clever Corgi"]': () => `かしこいCorgi`,
+    '["Click to resume"]': () => `クリックして再開`,
     '["Clone agent · draft"]': () => `エージェントを複製 · 下書き`,
     '["Close"]': () => `閉じる`,
     '["Close / reopen"]': () => `閉じる / 開き直す`,
@@ -1728,6 +1766,7 @@ Corgiのペイン、エージェント、ワークスペースを操作するに
     '["Following you → "," · ",""]': (v0, v1) => `自動選択 → ${v0} · ${v1}`,
     '["Fork"]': () => `分岐`,
     '["Fork this agent"]': () => `このエージェントを分岐`,
+    '["Forking…"]': () => `分岐を作成中…`,
     '["Frame pacing"]': () => `フレームの表示間隔`,
     '["Free"]': () => `無料`,
     '["From"]': () => `元`,
@@ -1986,6 +2025,7 @@ Corgiのペイン、エージェント、ワークスペースを操作するに
     '["Resolving command…"]': () => `コマンドを解析中…`,
     '["Resource readings"]': () => `リソース使用量の表示`,
     '["Resources"]': () => `リソース`,
+    '["Restoring…"]': () => `復元中…`,
     '["Resume"]': () => `再開`,
     '["Return in each pane restarts its command"]': () => `各ペインでReturnを押すとコマンドを再実行`,
     '["Review"]': () => `レビュー`,
@@ -2139,6 +2179,35 @@ Corgiのペイン、エージェント、ワークスペースを操作するに
     '["Usage (used) · resets in"]': () => `使用量 · リセットまで`,
     '["Usage · resets"]': () => `使用量 · リセット`,
     '["Usage · resets in"]': () => `使用量 · リセットまで`,
+    '["Usage:"]': () => `使い方：`,
+    '["Usage: corgi account COMMAND\\n\\n  list                          the accounts Corgi knows and who signed in\\n  add [PROVIDER] [NAME]         make a new account and sign in to it; it\'s\\n                                named from the login unless you name it\\n  add PROVIDER NAME --dir DIR   use an account folder you already have\\n  login NAME                    sign in to an account again\\n  rename NAME NEW               call an account something else; NAME can be\\n                                default, or claude/default, for the default\\n  remove NAME                   remove an account: one Corgi made is signed\\n                                out and deleted, another forgotten\\n\\nPROVIDER is ",". Name an account claude/work when two\\nproviders both have one called work. Signing in runs the agent\'s own sign-in\\nin the account\'s folder; agents then start there from the launcher, or with\\n"," set.\\n"]':
+      (v0, v1) => `使い方：corgi account COMMAND
+
+  list                          Corgiに登録されたアカウントとログインユーザーを表示
+  add [PROVIDER] [NAME]         アカウントを作成してログイン。名前を省略すると、
+                                ログイン情報から自動で名前を付けます
+  add PROVIDER NAME --dir DIR   既存のアカウントフォルダーを使用
+  login NAME                    アカウントに再ログイン
+  rename NAME NEW               アカウント名を変更。既定のアカウントにはNAMEに
+                                defaultまたはclaude/defaultを指定できます
+  remove NAME                   アカウントを削除。Corgiが作成したものはログアウトして削除し、
+                                それ以外は登録だけを解除します
+
+PROVIDERには${v0}を指定します。複数の提供元にworkというアカウントがある場合は、
+claude/workのように指定します。ログイン時はアカウントのフォルダーでエージェント自身の
+ログイン処理を実行します。その後はランチャーから起動するか、
+${v1}を設定してそのアカウントを使います。
+`,
+    '["Usage: corgi integration COMMAND [","] [--account NAME]\\n\\n  status      show what Corgi has added to each agent\'s settings\\n  install     add what each agent needs to report to Corgi\\n  uninstall   remove everything Corgi added; startup won\'t add it back\\n\\nWithout an agent, a command covers ",", in\\nevery account Corgi knows; --account picks one (\\"default\\" for your own).\\n"]':
+      (v0, v1) => `使い方：corgi integration COMMAND [${v0}] [--account NAME]
+
+  status      Corgiが各エージェントの設定に追加した内容を表示
+  install     エージェントがCorgiに状態を報告するための設定を追加
+  uninstall   Corgiが追加した内容をすべて削除。次回起動時にも再追加しません
+
+エージェントを省略すると、${v1}の
+Corgiに登録された全アカウントが対象になります。--accountで1つに絞れます（defaultは既定のアカウント）。
+`,
     '["Use"]': () => `使用`,
     '["Use "," · ",""]': (v0, v1) => `${v0} · ${v1}を使う`,
     '["Use "," to enable paste with ","."]': (v0, v1) => `${v1}で貼り付けるには、${v0}を使ってください。`,
@@ -2163,6 +2232,7 @@ Corgiのペイン、エージェント、ワークスペースを操作するに
     '["WORKSPACES"]': () => `ワークスペース`,
     '["WORKTREE"]': () => `ワークツリー`,
     '["Waiting for activity"]': () => `作業の開始待ち`,
+    '["Waiting on agents"]': () => `エージェント待ち`,
     '["Waiting on subagents"]': () => `サブエージェント待ち`,
     '["Welcome to Corgi. Enlarge the terminal to 76 × 26 to continue."]': () =>
       `Corgiへようこそ。続行するには端末を76 × 26以上に広げてください。`,
@@ -2653,6 +2723,7 @@ CORGI_SOCKETでランタイムを選びます。ワークスペースはタブ�
     '[""," unread →"]': v0 => `읽지 않음 ${v0}개 →`,
     '[""," worktree"]': v0 => `작업 트리 ${v0}개`,
     '[""," worktrees"]': v0 => `작업 트리 ${v0}개`,
+    '[""," d"]': v0 => `${v0}일`,
     '["","/"," done"]': (v0, v1) => `${v0}/${v1} 완료`,
     '["","/","+ done"]': (v0, v1) => `${v0}/${v1}+ 완료`,
     '[""," Down"]': v0 => `${v0} 아래`,
@@ -2664,6 +2735,7 @@ CORGI_SOCKETでランタイムを選びます。ワークスペースはタブ�
       `응답 ${v0}개가 늦어 프레임이 대기했습니다. 1개는 도착하지 않았습니다.`,
     '[""," late enough to hold frames; slowest ","."]': (v0, v1) =>
       `응답 ${v0}개가 늦어 프레임이 대기했습니다. 가장 느린 응답: ${v1}.`,
+    '[""," h"]': v0 => `${v0}시간`,
     '[""," again"]': v0 => `${v0} 한 번 더`,
     '[""," Couldn\'t start the agent: ",""]': (v0, v1) => `${v0} 에이전트 시작 실패: ${v1}`,
     '[""," min"]': v0 => `${v0}분`,
@@ -2859,6 +2931,7 @@ Corgi 패널, 에이전트 또는 작업 공간 제어:
     '["Clear pane name"]': () => `패널 이름 지우기`,
     '["Clear search to reorder agents."]': () => `검색을 지우면 에이전트 순서를 바꿀 수 있습니다.`,
     '["Clever Corgi"]': () => `똑똑한 Corgi`,
+    '["Click to resume"]': () => `클릭하여 재개`,
     '["Clone agent · draft"]': () => `에이전트 복제 · 초안`,
     '["Close"]': () => `닫기`,
     '["Close / reopen"]': () => `닫기 / 다시 열기`,
@@ -2985,6 +3058,7 @@ Corgi 패널, 에이전트 또는 작업 공간 제어:
     '["Following you → "," · ",""]': (v0, v1) => `따라가는 중 → ${v0} · ${v1}`,
     '["Fork"]': () => `분기`,
     '["Fork this agent"]': () => `이 에이전트에서 분기`,
+    '["Forking…"]': () => `분기 생성 중…`,
     '["Frame pacing"]': () => `프레임 타이밍`,
     '["Free"]': () => `무료`,
     '["From"]': () => `출처`,
@@ -3239,6 +3313,7 @@ Corgi 패널, 에이전트 또는 작업 공간 제어:
     '["Resolving command…"]': () => `명령 해석 중…`,
     '["Resource readings"]': () => `리소스 표시`,
     '["Resources"]': () => `리소스`,
+    '["Restoring…"]': () => `복원 중…`,
     '["Resume"]': () => `재개`,
     '["Return in each pane restarts its command"]': () => `각 패널에서 Return을 누르면 명령을 다시 실행합니다`,
     '["Review"]': () => `리뷰`,
@@ -3392,6 +3467,35 @@ Corgi 패널, 에이전트 또는 작업 공간 제어:
     '["Usage (used) · resets in"]': () => `사용한 한도 · 초기화까지`,
     '["Usage · resets"]': () => `사용량 · 초기화`,
     '["Usage · resets in"]': () => `사용량 · 초기화까지`,
+    '["Usage:"]': () => `사용법:`,
+    '["Usage: corgi account COMMAND\\n\\n  list                          the accounts Corgi knows and who signed in\\n  add [PROVIDER] [NAME]         make a new account and sign in to it; it\'s\\n                                named from the login unless you name it\\n  add PROVIDER NAME --dir DIR   use an account folder you already have\\n  login NAME                    sign in to an account again\\n  rename NAME NEW               call an account something else; NAME can be\\n                                default, or claude/default, for the default\\n  remove NAME                   remove an account: one Corgi made is signed\\n                                out and deleted, another forgotten\\n\\nPROVIDER is ",". Name an account claude/work when two\\nproviders both have one called work. Signing in runs the agent\'s own sign-in\\nin the account\'s folder; agents then start there from the launcher, or with\\n"," set.\\n"]':
+      (v0, v1) => `사용법: corgi account COMMAND
+
+  list                          Corgi에 등록된 계정과 로그인한 사용자 표시
+  add [PROVIDER] [NAME]         새 계정을 만들고 로그인합니다. 이름을 생략하면
+                                로그인 정보를 바탕으로 이름을 정합니다
+  add PROVIDER NAME --dir DIR   기존 계정 폴더 사용
+  login NAME                    계정에 다시 로그인
+  rename NAME NEW               계정 이름 변경. 기본 계정은 NAME에 default
+                                또는 claude/default를 지정할 수 있습니다
+  remove NAME                   계정 제거. Corgi가 만든 계정은 로그아웃하고 삭제하며,
+                                그 외의 계정은 등록만 해제합니다
+
+PROVIDER는 ${v0}입니다. 두 제공업체에 모두 work라는 계정이 있으면
+claude/work처럼 지정하세요. 로그인할 때는 계정 폴더에서 에이전트 자체의 로그인 절차를
+실행합니다. 이후 런처에서 에이전트를 시작하거나,
+${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
+`,
+    '["Usage: corgi integration COMMAND [","] [--account NAME]\\n\\n  status      show what Corgi has added to each agent\'s settings\\n  install     add what each agent needs to report to Corgi\\n  uninstall   remove everything Corgi added; startup won\'t add it back\\n\\nWithout an agent, a command covers ",", in\\nevery account Corgi knows; --account picks one (\\"default\\" for your own).\\n"]':
+      (v0, v1) => `사용법: corgi integration COMMAND [${v0}] [--account NAME]
+
+  status      Corgi가 각 에이전트 설정에 추가한 항목 표시
+  install     에이전트가 Corgi에 상태를 보고하는 데 필요한 설정 추가
+  uninstall   Corgi가 추가한 항목을 모두 제거하며, 다음 시작 시에도 다시 추가하지 않음
+
+에이전트를 지정하지 않으면 ${v1}의
+모든 등록된 계정에 적용합니다. --account로 계정 하나를 선택할 수 있습니다(default는 기본 계정).
+`,
     '["Use"]': () => `사용`,
     '["Use "," · ",""]': (v0, v1) => `사용: ${v0} · ${v1}`,
     '["Use "," to enable paste with ","."]': (v0, v1) => `${v0}을 사용하면 ${v1} 키로 붙여넣을 수 있습니다.`,
@@ -3417,6 +3521,7 @@ Corgi 패널, 에이전트 또는 작업 공간 제어:
     '["WORKSPACES"]': () => `작업 공간`,
     '["WORKTREE"]': () => `작업 트리`,
     '["Waiting for activity"]': () => `활동 대기 중`,
+    '["Waiting on agents"]': () => `에이전트 대기 중`,
     '["Waiting on subagents"]': () => `하위 에이전트 대기 중`,
     '["Welcome to Corgi. Enlarge the terminal to 76 × 26 to continue."]': () =>
       `Corgi에 오신 것을 환영합니다. 계속하려면 터미널을 76 × 26으로 늘려 주세요.`,
@@ -4261,6 +4366,7 @@ CORGI_SOCKET으로 서비스를 선택합니다. 작업 공간은 탭과 패널�
           return `${v0} рабочего дерева`;
       }
     },
+    '[""," d"]': v0 => `${v0} дн.`,
     '["","/"," done"]': (v0, v1) => `готово ${v0}/${v1}`,
     '["","/","+ done"]': (v0, v1) => `готово ${v0}/${v1}+`,
     '[""," Down"]': v0 => `${v0} Вниз`,
@@ -4270,6 +4376,7 @@ CORGI_SOCKET으로 서비스를 선택합니다. 작업 공간은 탭과 패널�
     '[""," late enough to hold frames; one never came."]': v0 => `Задержано кадров: ${v0}; один не получен.`,
     '[""," late enough to hold frames; slowest ","."]': (v0, v1) =>
       `Задержано кадров: ${v0}; максимальная задержка: ${v1}.`,
+    '[""," h"]': v0 => `${v0} ч`,
     '[""," again"]': v0 => `ещё раз ${v0}`,
     '[""," Couldn\'t start the agent: ",""]': (v0, v1) => `${v0} Не удалось запустить агента: ${v1}`,
     '[""," min"]': v0 => `${v0} мин`,
@@ -4519,6 +4626,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Clear pane name"]': () => `Сбросить имя панели`,
     '["Clear search to reorder agents."]': () => `Очистите поиск для изменения порядка агентов.`,
     '["Clever Corgi"]': () => `Умный Corgi`,
+    '["Click to resume"]': () => `Нажмите, чтобы продолжить`,
     '["Clone agent · draft"]': () => `Копия агента · черновик`,
     '["Close"]': () => `Закрыть`,
     '["Close / reopen"]': () => `Закрыть / открыть снова`,
@@ -4674,6 +4782,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Following you → "," · ",""]': (v0, v1) => `Следует за вами → ${v0} · ${v1}`,
     '["Fork"]': () => `Ответвить`,
     '["Fork this agent"]': () => `Ответвить этого агента`,
+    '["Forking…"]': () => `Создание ответвления…`,
     '["Frame pacing"]': () => `Плавность кадров`,
     '["Free"]': () => `Бесплатно`,
     '["From"]': () => `Из`,
@@ -4932,6 +5041,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Resolving command…"]': () => `Распознавание команды…`,
     '["Resource readings"]': () => `Данные о ресурсах`,
     '["Resources"]': () => `Ресурсы`,
+    '["Restoring…"]': () => `Восстановление…`,
     '["Resume"]': () => `Возобновить`,
     '["Return in each pane restarts its command"]': () => `Enter в каждой панели перезапускает её команду`,
     '["Review"]': () => `Просмотр`,
@@ -5109,6 +5219,35 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Usage (used) · resets in"]': () => `Использовано · сброс через`,
     '["Usage · resets"]': () => `Использование · сброс`,
     '["Usage · resets in"]': () => `Использование · сброс через`,
+    '["Usage:"]': () => `Использование:`,
+    '["Usage: corgi account COMMAND\\n\\n  list                          the accounts Corgi knows and who signed in\\n  add [PROVIDER] [NAME]         make a new account and sign in to it; it\'s\\n                                named from the login unless you name it\\n  add PROVIDER NAME --dir DIR   use an account folder you already have\\n  login NAME                    sign in to an account again\\n  rename NAME NEW               call an account something else; NAME can be\\n                                default, or claude/default, for the default\\n  remove NAME                   remove an account: one Corgi made is signed\\n                                out and deleted, another forgotten\\n\\nPROVIDER is ",". Name an account claude/work when two\\nproviders both have one called work. Signing in runs the agent\'s own sign-in\\nin the account\'s folder; agents then start there from the launcher, or with\\n"," set.\\n"]':
+      (v0, v1) => `Использование: corgi account COMMAND
+
+  list                          показать известные Corgi аккаунты и вошедших пользователей
+  add [PROVIDER] [NAME]         создать аккаунт и войти в него; если имя не задано,
+                                оно определяется по данным входа
+  add PROVIDER NAME --dir DIR   использовать существующую папку аккаунта
+  login NAME                    повторно войти в аккаунт
+  rename NAME NEW               переименовать аккаунт; для основного аккаунта NAME
+                                может быть default или claude/default
+  remove NAME                   удалить аккаунт: созданный Corgi — с выходом и удалением папки,
+                                остальные — только из списка Corgi
+
+PROVIDER — ${v0}. Если у двух провайдеров есть аккаунт work,
+укажите его как claude/work. Вход выполняется средствами самого агента в папке аккаунта;
+затем запускайте агента из меню запуска или задайте
+${v1}, чтобы использовать этот аккаунт.
+`,
+    '["Usage: corgi integration COMMAND [","] [--account NAME]\\n\\n  status      show what Corgi has added to each agent\'s settings\\n  install     add what each agent needs to report to Corgi\\n  uninstall   remove everything Corgi added; startup won\'t add it back\\n\\nWithout an agent, a command covers ",", in\\nevery account Corgi knows; --account picks one (\\"default\\" for your own).\\n"]':
+      (v0, v1) => `Использование: corgi integration COMMAND [${v0}] [--account NAME]
+
+  status      показать, что Corgi добавил в настройки каждого агента
+  install     добавить настройки для передачи состояния агента в Corgi
+  uninstall   удалить всё, что добавил Corgi; при запуске это не восстановится
+
+Без указания агента команда охватывает ${v1}
+во всех известных Corgi аккаунтах; --account выбирает один аккаунт (default — основной).
+`,
     '["Use"]': () => `Применить`,
     '["Use "," · ",""]': (v0, v1) => `Использовать ${v0} · ${v1}`,
     '["Use "," to enable paste with ","."]': (v0, v1) => `Используйте ${v0} для вставки через ${v1}.`,
@@ -5134,6 +5273,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["WORKSPACES"]': () => `ПРОСТРАНСТВА`,
     '["WORKTREE"]': () => `РАБОЧЕЕ ДЕРЕВО`,
     '["Waiting for activity"]': () => `Ожидание активности`,
+    '["Waiting on agents"]': () => `Ожидание агентов`,
     '["Waiting on subagents"]': () => `Ожидание субагентов`,
     '["Welcome to Corgi. Enlarge the terminal to 76 × 26 to continue."]': () =>
       `Добро пожаловать в Corgi. Увеличьте терминал до 76 × 26 для продолжения.`,

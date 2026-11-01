@@ -1139,8 +1139,9 @@ export class Menu {
     const crumb = this.crumb(l);
     if (crumb !== null) {
       // The crumb stops short of a divider's corner.
-      const room = Math.min(b.w - 23, ...l.dividers.filter(x => x > b.x + 21).map(x => x - b.x - 22));
-      w.write(at(b.x + 21, b.y) + hint_key);
+      const start = this.crumbStart(l),
+        room = Math.min(b.x + b.w - 2 - start, ...l.dividers.filter(x => x > start).map(x => x - start - 1));
+      w.write(at(start, b.y) + hint_key);
       writeEllipsis(w, crumb, room);
     }
     this.drawRelease(w, l);
@@ -1217,6 +1218,9 @@ export class Menu {
   private crumb(l: Layout): string | null {
     return (l.single ? this.focus !== "list" : l.list < list_w / 2) ? `› ${fullLabel(this.item)} ` : null;
   }
+  private crumbStart(l: Layout): number {
+    return l.b.x + 2 + displayWidth(` ᐯ•ᴥ•ᐯ ${i18n.t`Corgi setup`} `);
+  }
   /** Where the release sits at the right of the top border, and where its
    * commit starts; null when the title, the crumb or a divider is in the way. */
   private releaseAt(l: Layout): { x: number; link: number } | null {
@@ -1225,7 +1229,7 @@ export class Menu {
       width = displayWidth(buildPrefix() + label) + 2,
       x = l.b.x + l.b.w - 2 - width;
     if (label.length === 0) return null;
-    if (x < l.b.x + 22 + (crumb === null ? 0 : displayWidth(crumb))) return null;
+    if (x < this.crumbStart(l) + 1 + (crumb === null ? 0 : displayWidth(crumb))) return null;
     if (l.dividers.some(d => d >= x && d < x + width)) return null;
     return { x, link: x + 1 + displayWidth(buildPrefix() + releaseLabel.parts(this.release)[0]) };
   }
@@ -1469,9 +1473,10 @@ export class Menu {
     const axis = x + chart_inset - 1,
       n = sat(right, axis + 1);
     if (row === chart_rows) {
-      const since = ` −${(n * framePacing.column_ms) / 1000} s `;
-      w.write(at(axis, y) + border + "└─" + panel + since + border + "─".repeat(sat(n, since.length + 5)));
-      w.write(panel + i18n.t` now`);
+      const since = ` −${(n * framePacing.column_ms) / 1000} s `,
+        now = i18n.t` now`;
+      w.write(at(axis, y) + border + "└─" + panel + since + border + "─".repeat(sat(n, displayWidth(since + now) + 1)));
+      w.write(panel + now);
       return;
     }
     const label = row === hold_row ? i18n.t`hold` : row % 2 === 0 ? ["1 s", "100 ms", "10 ms", "1 ms"][row / 2] : "";

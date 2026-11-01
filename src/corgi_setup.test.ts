@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import * as i18n from "./i18n";
+import { Terminal } from "./pane/terminal";
 import { Menu, items, status, type Hit } from "./corgi_setup";
 import { Menu as LauncherMenu, preferred_width, preview } from "./agent_launcher";
 import { Rect } from "./layout";
@@ -395,6 +397,45 @@ test("the top border says when the build was made and links its commit", () => {
   rows = draw(menu, 50, 30, 0, s, prefs);
   expect(rows.join("\n")).toContain("Corgi setup › Clever Corgi");
   expect(rows.join("\n")).not.toContain("be82c7b");
+});
+
+test("translated setup titles and chart labels leave their borders intact", () => {
+  const previous = i18n.language();
+  try {
+    for (const language of i18n.locales) {
+      i18n.setLanguage(language);
+      const menu = Menu.open(),
+        s = status(),
+        prefs = new Preferences();
+      menu.openOptions(s, prefs);
+      const narrow = new Terminal(50, 30),
+        chart = new Terminal(80, 40);
+      try {
+        let w = new Writer();
+        menu.drawAt(w, s, prefs, 50, 30, 0);
+        narrow.feed(w.s);
+        expect(narrow.text()).toContain(`${i18n.t`Corgi setup`} › ${i18n.t`Clever Corgi`}`);
+        menu.item = "terminal";
+        menu.pacing = new Pacer();
+        menu.pacing.stamp(1000);
+        menu.pacing.answered(1024);
+        w = new Writer();
+        menu.drawAt(w, s, prefs, 80, 40, 0);
+        chart.feed(w.s);
+        const axis = chart
+          .text()
+          .split("\n")
+          .find(row => row.includes("└─"))!;
+        expect(axis).toContain(i18n.t` now`);
+        expect(axis.slice(axis.indexOf(i18n.t` now`) + i18n.t` now`.length)).toMatch(/^\s*│\s*$/);
+      } finally {
+        narrow.destroy();
+        chart.destroy();
+      }
+    }
+  } finally {
+    i18n.setLanguage(previous);
+  }
 });
 
 test("Model opens a dropdown on the choice in use, and Left closes it", () => {

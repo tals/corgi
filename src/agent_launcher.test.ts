@@ -4,6 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as accounts from "./accounts";
+import * as i18n from "./i18n";
+import { parseInventory } from "./trackers/worktrees";
 import { Menu, Row, commandEntry, keyAgent, preview, resolution, returned } from "./agent_launcher";
 import { View as SidebarView } from "./sidebar";
 import { analyze } from "./launch/command";
@@ -517,6 +519,35 @@ test("the title names the worktree once, on a button that drops the checkouts an
       [bx.from + 1].slice(bx.field_x, bx.field_x + 4),
   ).toBe("main");
   expect(m.worktreeHit(100, 30, side, pick.x, pick.y + 1)).toEqual({ pick: 1 });
+});
+
+test("narrow worktree creation footers leave the translated action intact", () => {
+  const previous = i18n.language();
+  try {
+    i18n.setLanguage("ru");
+    const m = menu({ cwd: "/src/app" });
+    m.worktrees = {
+      common_dir: "/src/app/.git",
+      base: { ref: "refs/heads/main", name: "main", head: "base" },
+      entries: parseInventory("worktree /src/app\0branch refs/heads/main\0\0"),
+      agents: [],
+      stale: false,
+    };
+    m.worktree.open(m.worktrees, m.cwd);
+    for (const byte of Buffer.from("topic")) m.worktree.edit(field => field.key(byte));
+    for (const width of [40, 100]) {
+      const side = SidebarView.init(width, 30, true, 0, 0),
+        box = m.worktreeBox(width, 30, side)!;
+      expect(box).not.toBeNull();
+      const row = screen(m, width, 30, side)[box.footer];
+      expect(row).toContain(i18n.t`hold ↵ to create`);
+      expect(row.includes(i18n.t`↑↓ choose`)).toBe(width === 100);
+      const inside = row.slice(box.rect.x + 1, box.rect.x + box.rect.w - 1).trim();
+      if (width === 40) expect(inside).toBe(i18n.t`hold ↵ to create`);
+    }
+  } finally {
+    i18n.setLanguage(previous);
+  }
 });
 
 test("an account's row reads its own account and has its own YOLO and launcher membership", () => {

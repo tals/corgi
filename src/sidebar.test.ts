@@ -1,5 +1,6 @@
 // Mirrors the tests in sidebar.zig.
 import { expect, test } from "bun:test";
+import * as i18n from "./i18n";
 import * as palette from "./palette";
 import { Style, colors, fg, fgRgb, bgRgb, mix, underline } from "./palette";
 import * as corgiAnimation from "./corgi_animation";
@@ -711,6 +712,36 @@ test("idle face replaces stale activity while working activity remains useful", 
   expect(has(out, "\x1b[1m" + fg("accent") + "▶")).toBe(true);
 });
 
+test("agent lifecycle labels follow the viewer language while activity stays verbatim", () => {
+  const labels: Record<i18n.Locale, string[]> = {
+    en: ["Starting session", "Needs input", "Session ended", "Waiting on agents"],
+    zh: ["正在启动会话", "等待输入", "会话已结束", "等待智能体"],
+    ja: ["セッションを開始中", "入力待ち", "セッション終了", "エージェント待ち"],
+    ko: ["세션 시작 중", "입력 필요", "세션 종료됨", "에이전트 대기 중"],
+    ru: ["Запуск сеанса", "Ждёт ввода", "Сеанс завершён", "Ожидание агентов"],
+  };
+  const view = View.init(100, 30, true, 0, 1).withWidth(50),
+    e = entry({ target: { pane: 9512 }, name: "Agent", activity: "Starting session" }),
+    previous = i18n.language();
+  view.corgi_intensity = 0;
+  try {
+    for (const language of i18n.locales) {
+      i18n.setLanguage(language);
+      for (const [index, state] of ["initializing", "blocked", "done", "working"].entries()) {
+        e.state = state;
+        e.subagents.waiting = state === "working";
+        const rendered = hostText(draw(view, [e], [], 0));
+        expect(rendered).toContain(labels[language][index]);
+        if (language !== "en") for (const english of labels.en) expect(rendered).not.toContain(english);
+      }
+      e.subagents.waiting = false;
+      expect(hostText(draw(view, [e], [], 0))).toContain("Starting session");
+    }
+  } finally {
+    i18n.setLanguage(previous);
+  }
+});
+
 test("a startup ghost stays dimmed in working through its first idle prompt", () => {
   const e = entry({ target: { pane: 1 }, name: "New agent", provider: "codex", starting: true }),
     view = View.init(100, 30, true, 0, 1),
@@ -793,6 +824,31 @@ test("scope menu offers only the current workspace and all agents", () => {
   expect(lines[b.y + 6].trimEnd()).toBe("  │ ✓ Manual    as dragged │");
   expect(lines[b.y + 7].trimEnd()).toBe("  ╰────────────────────────╯");
   for (const ws of workspaces) expect(text).not.toContain(ws.name);
+});
+
+test("translated narrow headers keep scope and new-agent controls separately reachable", () => {
+  const previous = i18n.language();
+  try {
+    for (const language of i18n.locales) {
+      i18n.setLanguage(language);
+      for (const width of [20, 22, 28, 40]) {
+        const view = View.init(100, 30, true, 0, 0).withWidth(width);
+        view.scope_label = "app";
+        const row = hostText(draw(view, [], [])).split("\n")[view.middle()],
+          scope = displayWidth(row.slice(0, row.indexOf("▾"))),
+          options = displayWidth(row.slice(0, row.lastIndexOf("▾"))),
+          label = row.includes(i18n.t`New`) ? i18n.t`New` : "+",
+          create = displayWidth(row.slice(0, row.indexOf(label)));
+        expect(scope, `${language} ${width}: ${row}`).toBeLessThan(create);
+        expect(create).toBeLessThan(options);
+        expect(view.hit(scope, view.middle())).toEqual(H("agent_scope"));
+        expect(view.hit(create, view.middle())).toEqual(H("agent_new"));
+        expect(view.hit(options, view.middle())).toEqual(H("agent_options"));
+      }
+    }
+  } finally {
+    i18n.setLanguage(previous);
+  }
 });
 
 test("grouped list draws one-row headers with a margin guide and measures rows per entry", () => {

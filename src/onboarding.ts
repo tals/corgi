@@ -302,7 +302,7 @@ export class State {
       cta_x = Math.max(3, b.w - Math.max(23, displayWidth(cta)) - 4),
       skip = this.step === "import" && picker.stage === "choose" ? skipImportButton(b, this) : null;
     const hint = footerHint(this, cta_x - 5);
-    put(w, b, 3, b.h - (skip && 5 + displayWidth(hint) > skip.x - b.x ? 4 : 3), hint, dim);
+    put(w, b, 3, b.h - (skip && 5 + displayWidth(hint) > skip.x - b.x ? 4 : 3), hint, dim, cta_x - 5);
     if (skip) put(w, b, skip.x - b.x, skip.y - b.y, i18n.t`[ S Skip import ]`, text);
     put(w, b, cta_x, b.h - 3, cta, this.step === "presets" && this.focus === 0 ? palette.keycap : bright);
     put(
