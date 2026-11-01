@@ -23,6 +23,26 @@ function setup() {
   r.workspaces.items = [w];
   return { r, w };
 }
+test("agent targets follow tab order and keep creation order within split tabs", () => {
+  const { r, w } = setup(),
+    other = new Workspace(2, "/other");
+  r.workspaces.items.push(other);
+  try {
+    const first = add(r, w),
+      second = add(r, w),
+      split = add(r, w, first.id);
+    add(r, other);
+    w.model.swap(first.id, split.id);
+    w.model.moveTab(w.model.tabs[1].id, 0);
+    const targets = [{ pane: 999 }];
+    expect(r.agentTargets(w, targets)).toBe(targets);
+    expect(targets).toEqual([{ pane: second.id }, { pane: first.id }, { pane: split.id }]);
+    r.close(second.id);
+    expect(r.agentTargets(w, targets)).toEqual([{ pane: first.id }, { pane: split.id }]);
+  } finally {
+    r.destroy();
+  }
+});
 test("stars follow conversations after closing and reopening, until explicitly removed", () => {
   const { r, w } = setup();
   try {

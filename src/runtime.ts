@@ -1053,8 +1053,12 @@ export class Runtime {
   }
   agentTargets(ws: Workspace, out: Target[] = []) {
     out.length = 0;
-    for (let i = 0; i < ws.model.count; i++)
-      for (const p of this.panes) if (ws.model.tabForPane(p.id) === i) out.push({ pane: p.id });
+    const tabs: Target[][] = Array.from({ length: ws.model.count }, () => []);
+    for (const p of this.panes) {
+      const tab = ws.model.tabForPane(p.id);
+      if (tab !== null) tabs[tab].push({ pane: p.id });
+    }
+    for (const targets of tabs) out.push(...targets);
     for (const s of this.sessions) if (s.workspace_id === ws.id) out.push({ headless: s.id });
     return out;
   }
