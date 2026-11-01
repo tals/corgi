@@ -1250,7 +1250,9 @@ export class Prompt {
       } catch {}
     const loaded = this.memory.load(c?.workspace || null, now);
     let instructions =
-      this.memory.instructions(loaded.text, contextText(c), now) + "\n\n" + promptTools.instructions(this.binary);
+      this.memory.instructions(loaded.text, contextText(c), now, c?.workspace || null) +
+      "\n\n" +
+      promptTools.instructions(this.binary);
     if (this.incognito) instructions += "\n\nThis conversation is incognito: write nothing to memory or any log.";
     return {
       provider: choice.provider,

@@ -146,8 +146,14 @@ export class Memory {
     writeFileSync(join(this.dir, recalls_name), JSON.stringify(recalls));
   }
   /** The prompt's system instructions: who Corgi is, what it remembers,
-   * where it was opened, and where it may write. */
-  instructions(loaded: string, context: string, now: Date): string {
+   * where it was opened, and where it may write, `workspace`'s note among it. */
+  instructions(loaded: string, context: string, now: Date, workspace: string | null = null): string {
+    // The name goes in double quotes, so nothing in it may end them or expand.
+    const name = workspace?.replace(/["$`\\!]/g, "").trim() ?? "",
+      here = name
+        ? `Facts that hold only in this workspace (its project, conventions, people and plans) go to its ` +
+          `note instead: \`corgi memory add --workspace "${name}" "<line>"\`. `
+        : "";
     return [
       "You are Corgi, a terse, helpful assistant living in the user's terminal multiplexer. " +
         "You know the coding agents they run in it and what each is doing. " +
@@ -165,8 +171,9 @@ export class Memory {
           "supplied context fully answers the question. If low confidence after search, say you checked.",
         "# Writing memory",
         "Mental notes do not survive a restart: write concrete updates, never empty placeholders. Asked to " +
-          'remember something, add it to today\'s log with `corgi memory add "<one self-contained line>"`, ' +
-          "or to the relevant workspace's note with `--workspace NAME`. Capture decisions, context, and " +
+          'remember something, add it to today\'s log with `corgi memory add "<one self-contained line>"`. ' +
+          here +
+          "Capture decisions, context, and " +
           "things to remember. Skip secrets unless asked to keep them. When a preference or fact changes, " +
           "supersede the old line with `--replaces FILE:LINE` rather than adding one that contradicts it; " +
           "`corgi memory forget FILE:LINE` drops one.",
@@ -349,9 +356,9 @@ export class Memory {
   today(now: Date): string {
     return join(this.dir, `${day(now)}.md`);
   }
-  /** Every memory file for the viewer: MEMORY.md and today's log even
-   * while empty, so lines can be added there, then the workspace notes,
-   * then the older logs, newest first. */
+  /** Every memory file for the viewer: MEMORY.md, today's log and this
+   * workspace's note even while empty, so lines can be added there, then
+   * the other workspaces' notes, then the older logs, newest first. */
   groups(now: Date, workspace: string | null): Group[] {
     const lines = (file: string) =>
         read(file)
@@ -359,16 +366,18 @@ export class Memory {
           .flatMap((raw, at) => (raw.trim() ? [{ at, text: clean(raw) }] : [])),
       yesterday = day(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)),
       today = this.today(now),
-      note = workspace === null ? "" : noteName(workspace);
+      note = workspace === null ? "" : noteName(workspace),
+      here = note ? join(this.dir, "workspaces", note) : "";
     const out: Group[] = [
       { file: join(this.dir, long_name), title: long_name, loaded: true, lines: lines(join(this.dir, long_name)) },
       { file: today, title: "Today", loaded: true, lines: lines(today) },
+      ...(here ? [{ file: here, title: `Workspace ${workspace}`, loaded: true, lines: lines(here) }] : []),
     ];
     const notes: Group[] = [],
       logs: Group[] = [];
     for (const file of this.files()) {
       const name = basename(file);
-      if (file === today || name === long_name) continue;
+      if (file === today || file === here || name === long_name) continue;
       if (dirname(file) !== this.dir)
         notes.push({ file, title: `Workspace ${name.slice(0, -3)}`, loaded: name === note, lines: lines(file) });
       else if (daily.test(name)) {

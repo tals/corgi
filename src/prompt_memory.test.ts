@@ -235,6 +235,23 @@ test("a line edited since it was recalled stays, and moved lines stay under a ca
   expect(read("MEMORY.md")).toBe(`- ${big("b")}\n- ${big("c")}\n`);
 });
 
+test("this workspace's note has its place even while empty, and the model is told its name", () => {
+  write("workspaces/api.md", "- Uses Postgres\n");
+  expect(memory.groups(now, "corgi").map(g => [g.title, g.loaded, g.lines.length])).toEqual([
+    ["MEMORY.md", true, 0],
+    ["Today", true, 0],
+    ["Workspace corgi", true, 0],
+    ["Workspace api", false, 1],
+  ]);
+  expect(memory.instructions("", "", now, "corgi")).toContain(
+    "Facts that hold only in this workspace (its project, conventions, people and plans) go to its note " +
+      'instead: `corgi memory add --workspace "corgi" "<line>"`.',
+  );
+  // Nothing in the name can end its quotes or expand.
+  expect(memory.instructions("", "", now, 'my "ws" $(x)')).toContain('--workspace "my ws (x)"');
+  expect(memory.instructions("", "", now)).not.toContain("--workspace");
+});
+
 test("--replaces with a file named moves the line there", () => {
   write("2026-10-30.md", "- foo = bar\n- other\n");
   expect(memory.add("foo is baz", "long", now, { file: "2026-10-30.md", line: 1, moved: true })).toEqual({
