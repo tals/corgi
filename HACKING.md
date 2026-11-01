@@ -284,9 +284,11 @@ subscription on the control connection and keeps the history subscription.
 The control connection sends `viewer.sync` with `surfaces: false`; after it updates
 the viewer's interests, `viewer.surfaces` reads the corresponding frames on the
 data connection. `viewer.watch` associates that connection with the existing viewer,
-so pane sizing, focus and activity still belong to one viewer. If a watch is refused,
-surfaces and images use the control connection until a later sync attaches the
-data connection. Surface receipts and frame diffs keep their existing behavior.
+so pane sizing, focus and activity still belong to one viewer. If a watch is refused
+or the data connection closes, content reads use the control connection until a
+later sync attaches the data connection again. Interrupted content reads retry on
+control; commands are never replayed. Surface receipts and frame diffs keep their
+existing behavior.
 The new operation and defaulted `surfaces` flag are additive: runtime protocol 4
 and viewer protocol 3 are unchanged, and older callers still receive surfaces from
 `viewer.sync`. Handoff already saves

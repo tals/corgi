@@ -177,3 +177,109 @@ test("a refused watch uses control for surfaces and images until a later sync at
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test.each(["watch", "idle", "surfaces", "image"] as const)(
+  "a data socket lost during %s falls back to control and reconnects on sync",
+  async failure => {
+    const dir = mkdtempSync(join(tmpdir(), "corgi-viewer-rpc-")),
+      path = join(dir, "rpc.sock"),
+      sockets: Socket[] = [],
+      watches: Socket[] = [],
+      reads: Socket[] = [],
+      events: protocol.Event[] = [],
+      frames = [{ surface: { pane: 1 } }];
+    let control!: Socket;
+    let fail: string | null = failure === "watch" ? "viewer.watch" : null;
+    const server = createServer(socket => {
+      sockets.push(socket);
+      let buffer = "";
+      let attached = false,
+        watching = false;
+      socket.setEncoding("utf8");
+      socket.on("data", chunk => {
+        buffer += chunk;
+        for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
+          const q = json.parse(buffer.slice(0, end));
+          buffer = buffer.slice(end + 1);
+          const send = (value: object) => socket.write(json.stringify(value) + "\n"),
+            reply = (value: object) => send({ request_id: q.request_id, ...value });
+          if (q.op === "viewer.watch") watches.push(socket);
+          if (q.op === fail && !attached) {
+            fail = null;
+            socket.destroy();
+            return;
+          }
+          switch (q.op) {
+            case "viewer.open":
+              control = socket;
+              attached = true;
+              reply({ ok: true, viewer_protocol: protocol.viewer_version });
+              break;
+            case "viewer.sync":
+              reply({ type: "view", viewer_protocol: protocol.viewer_version, viewer: 1, surfaces: [] });
+              break;
+            case "viewer.watch":
+              watching = true;
+              reply({ ok: true });
+              send({ type: "viewer.wake" });
+              break;
+            case "viewer.surfaces":
+            case "viewer.image":
+              reads.push(socket);
+              reply(
+                attached || watching
+                  ? q.op === "viewer.surfaces"
+                    ? { ok: true, surfaces: frames }
+                    : { ok: true, data: "pixels" }
+                  : { err: "NotAttached" },
+              );
+              break;
+            default:
+              reply({ ok: true });
+          }
+        }
+      });
+    });
+    await new Promise<void>(resolve => server.listen(path, resolve));
+    const connection = new Connection(path),
+      unsubscribe = connection.onEvent(event => events.push(event));
+    try {
+      await connection.request("viewer.open");
+      expect(await connection.request("viewer.sync", { interests: [] })).toMatchObject({ surfaces: frames });
+      expect(connection.watches()).toBe(failure !== "watch");
+      if (failure === "idle") {
+        watches[0].destroy();
+        const until = Date.now() + 1000;
+        while (connection.watches() && Date.now() < until) await Bun.sleep(1);
+        expect(connection.watches()).toBe(false);
+      } else if (failure !== "watch") fail = `viewer.${failure}`;
+      if (failure === "image")
+        expect(await connection.request("viewer.image", { pane: 1, image: "1", offset: 0 })).toEqual({
+          ok: true,
+          data: "pixels",
+        });
+      else expect(await connection.request("viewer.surfaces")).toMatchObject({ ok: true, surfaces: frames });
+      expect(reads.at(-1)).toBe(control);
+      expect(connection.watches()).toBe(false);
+      expect(await connection.request("ping")).toMatchObject({ ok: true });
+      const before = events.length;
+      expect(await connection.request("viewer.sync", { interests: [] })).toMatchObject({ surfaces: frames });
+      expect(connection.watches()).toBe(true);
+      expect(sockets).toHaveLength(3);
+      expect(watches).toHaveLength(2);
+      expect(watches[1]).not.toBe(watches[0]);
+      expect(reads.at(-1)).toBe(watches[1]);
+      expect(events.slice(before)).toEqual([{ type: "viewer.wake" }]);
+      unsubscribe();
+      watches[1].write('{"type":"viewer.wake"}\n');
+      await connection.request("viewer.image", { pane: 1, image: "1", offset: 0 });
+      expect(events).toHaveLength(before + 1);
+    } finally {
+      unsubscribe();
+      connection.close();
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);

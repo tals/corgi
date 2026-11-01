@@ -6,20 +6,39 @@ import * as viewerVersion from "./viewer_version";
 /** One control connection and one for pane content and output notifications. */
 export class Connection implements Transport {
   private control: rpc.Connection;
-  private data: rpc.Connection;
+  private data: rpc.Connection | null = null;
   private watching: { viewer: number; ready: Promise<void> } | null = null;
   private watched = false;
+  private closed = false;
+  private listeners = new Set<(event: protocol.Event) => void>();
   constructor(readonly socket: string) {
     this.control = new rpc.Connection(socket);
-    this.data = new rpc.Connection(socket);
+    this.control.onEvent(event => this.emit(event));
+    this.connectData();
+  }
+  private emit(event: protocol.Event): void {
+    for (const listener of this.listeners) listener(event);
   }
   onEvent(listener: (event: protocol.Event) => void): () => void {
-    const control = this.control.onEvent(listener),
-      data = this.data.onEvent(listener);
+    this.listeners.add(listener);
     return () => {
-      control();
-      data();
+      this.listeners.delete(listener);
     };
+  }
+  private connectData(): rpc.Connection {
+    if (this.closed) throw Error("ConnectionClosed");
+    if (this.data) return this.data;
+    const data = (this.data = new rpc.Connection(this.socket));
+    data.onEvent(event => this.emit(event));
+    data.socket.once("close", () => this.dropData(data));
+    return data;
+  }
+  private dropData(data: rpc.Connection): void {
+    if (this.data !== data) return;
+    this.data = null;
+    this.watched = false;
+    this.watching = null;
+    data.close();
   }
   request<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>> {
     switch (op) {
@@ -27,13 +46,23 @@ export class Connection implements Transport {
         return this.sync(args[0] as protocol.RequestInput<"viewer.sync">) as Promise<protocol.Response<K>>;
       case "viewer.surfaces":
       case "viewer.image":
-        return (this.watched ? this.data : this.control).request(op, ...args);
       case "viewer.search":
       case "viewer.pick":
       case "pane.surface":
-        return this.data.request(op, ...args);
+        return this.content(op, ...args);
     }
     // Input and paste stay ordered with the commands that move or close panes.
+    return this.control.request(op, ...args);
+  }
+  private async content<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>> {
+    const data = this.watched ? this.data : null;
+    if (data)
+      try {
+        return await data.request(op, ...args);
+      } catch (error) {
+        this.dropData(data);
+        if (this.closed) throw error;
+      }
     return this.control.request(op, ...args);
   }
   private async sync(q: protocol.RequestInput<"viewer.sync">): Promise<protocol.Response<"viewer.sync">> {
@@ -48,16 +77,17 @@ export class Connection implements Transport {
   /** Until the daemon accepts, the viewer syncs every frame; a refusal is
    * asked again on the next sync. */
   private watch(viewer: number): void {
-    const watching = { viewer, ready: Promise.resolve() };
+    const data = this.connectData(),
+      watching = { viewer, ready: Promise.resolve() };
     this.watching = watching;
     this.watched = false;
-    watching.ready = this.data.call("viewer.watch", { viewer }).then(
-      () => {
-        if (this.watching === watching) this.watched = true;
+    watching.ready = data.request("viewer.watch", { viewer }).then(
+      reply => {
+        if (this.watching !== watching) return;
+        if ("err" in reply) this.watching = null;
+        else this.watched = true;
       },
-      () => {
-        if (this.watching === watching) this.watching = null;
-      },
+      () => this.dropData(data),
     );
   }
   /** Whether the daemon wakes this viewer; until then it syncs every frame. */
@@ -65,7 +95,8 @@ export class Connection implements Transport {
     return this.watched;
   }
   close(): void {
+    this.closed = true;
     this.control.close();
-    this.data.close();
+    if (this.data) this.dropData(this.data);
   }
 }
