@@ -61,11 +61,11 @@ categories must be present. Installer messages use strings only.
 
 `bun scripts/translations.ts check` fails on missing, blank, unused or stale
 translations, invalid placeholders or plural categories, and stale generated
-files. Build and typecheck run it, so CI checks the same contract. It also
-rejects direct unmarked literals in selected UI sinks; arbitrary unmarked
-strings still need code review. Nonempty untranslated English cannot be
-identified reliably by a mechanical check (product names and commands often
-must remain English).
+files. Build and typecheck run it and only warn; with `--ci`, as CI runs
+them, they fail. It also rejects direct unmarked literals in selected UI
+sinks; arbitrary unmarked strings still need code review. Nonempty
+untranslated English cannot be identified reliably by a mechanical check
+(product names and commands often must remain English).
 
 The compiler reads the TypeScript AST to recover placeholder names and emits
 ordinary JavaScript template functions. The runtime tag selects a function

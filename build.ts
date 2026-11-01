@@ -2,12 +2,16 @@ import { basename } from "node:path";
 import { mkdirSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 const root = import.meta.dir;
+// Translations may lag while hacking; --ci (as CI builds) requires them.
 const translations = Bun.spawn([process.execPath, `${root}/scripts/translations.ts`, "check"], {
   cwd: root,
   stdout: "inherit",
   stderr: "inherit",
 });
-if (await translations.exited) process.exit(1);
+if (await translations.exited) {
+  if (process.argv.includes("--ci")) process.exit(1);
+  console.error("Translations are incomplete; building anyway (--ci fails here).");
+}
 function option(name: string, fallback = ""): string {
   const args = process.argv.slice(2),
     prefix = `--${name}=`,

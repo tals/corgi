@@ -43,4 +43,9 @@ const translations = Bun.spawn([process.execPath, join(root, "scripts/translatio
   stderr: "inherit",
 });
 const codes = await Promise.all([check.exited, tooling.prettier("check"), translations.exited]);
+// Translations may lag while hacking; --ci (as CI typechecks) requires them.
+if (codes[2] !== 0 && !process.argv.includes("--ci")) {
+  console.error("Translations are incomplete; not failing without --ci.");
+  codes[2] = 0;
+}
 process.exitCode = codes.find(code => code !== 0) ?? 0;

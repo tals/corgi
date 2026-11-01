@@ -670,9 +670,9 @@ async function main() {
       if (!options.skipTests) {
         // build.ts installs the locked dependencies the checks below need.
         step("Building the test binary");
-        await runCommand([process.execPath, "build.ts", "--test"]);
+        await runCommand([process.execPath, "build.ts", "--test", "--ci"]);
         step("Typechecking");
-        await runCommand([process.execPath, "typecheck.ts"]);
+        await runCommand([process.execPath, "typecheck.ts", "--ci"]);
         step("Running unit tests");
         await runCommand([process.execPath, "test", "./src"]);
         // The updater suite runs copies of the test build as two releases.
@@ -700,6 +700,7 @@ async function main() {
         const nativeArgs = [
           process.execPath,
           "build.ts",
+          "--ci",
           "--target",
           target.bun,
           "--native-root",
@@ -720,6 +721,7 @@ async function main() {
         const args = [
           process.execPath,
           "build.ts",
+          "--ci",
           "--target",
           target.bun,
           "--native-root",
