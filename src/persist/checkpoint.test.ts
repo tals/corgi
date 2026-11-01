@@ -259,7 +259,7 @@ for (const version of [2, 3, 4, 5, 6])
           expect(decoded.value.panes[0].resume_hint.provider).toBeNull();
           await restore(r, decoded.value, true);
           expect(r.panes[0].terminal.text()).toContain("other");
-          expect(r.workspaces.items[0].customName()).toBe("other");
+          expect(r.workspaces.items[0].name()).toBe("other");
           expect(migrations.decode("checkpoint", json.stringify(decoded.value)).migrated).toBe(false);
         } else {
           await restore(r, decoded.value, false);

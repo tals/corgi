@@ -212,16 +212,16 @@ export class Server {
           } catch (error) {
             console.error("workspace load:", error);
           }
-          this.default_folder_pending = false;
         } else
           try {
             selected = await this.runtime.workspaces.load(Store.statePath(this.socket));
           } catch (error) {
             console.error("workspace load:", error);
           }
-        if (!this.runtime.workspaces.items.length) await this.runtime.workspaces.add("", process.cwd());
+        // Only a starter made now waits for the first viewer's folder and name.
+        this.default_folder_pending = !this.runtime.workspaces.items.length;
+        if (this.default_folder_pending) await this.runtime.workspaces.add("", process.cwd());
         this.preferred_workspace = selected ?? this.runtime.workspaces.items[0].id;
-        this.default_folder_pending = selected === null;
         this.listener = listen(this.socket);
         chmodSync(this.socket, 0o600);
         this.socketPath = SocketPath.claim(this.socket);

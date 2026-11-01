@@ -1,9 +1,11 @@
 //! Ordered migrations at the persistence seam.
+import { basename } from "node:path";
 import * as json from "../json";
 import * as steps from "./steps";
 export const checkpoint_version = steps.checkpoint.length + 1;
 export const handoff_version = steps.handoff.length + 1;
-export type Kind = "checkpoint" | "handoff";
+export const workspaces_version = steps.workspaces.length + 1;
+export type Kind = "checkpoint" | "handoff" | "workspaces";
 function version(value: any, current: number): number {
   const fields = steps.object(value);
   if (!("version" in fields)) throw Error("MissingStateVersion");
@@ -27,11 +29,22 @@ function migrate(list: steps.Step[], value: any): boolean {
 }
 export function decode(kind: Kind, bytes: string | Uint8Array): { value: any; from: number; migrated: boolean } {
   const value = json.parse(typeof bytes === "string" ? bytes : Buffer.from(bytes).toString());
-  const from = version(value, kind === "checkpoint" ? checkpoint_version : handoff_version);
-  let migrated = migrate(kind === "checkpoint" ? steps.checkpoint : steps.handoff, value);
+  const from = version(value, steps[kind].length + 1);
+  let migrated = migrate(steps[kind], value);
   if (kind === "handoff") {
     if (!("runtime" in value)) throw Error("MissingField");
     migrated = migrate(steps.checkpoint, value.runtime) || migrated;
   }
+  nameWorkspaces(kind === "handoff" ? value.runtime : value);
   return { value, from, migrated };
+}
+/** Older builds saved "" for a workspace named by its folder. Every
+ * workspace now keeps a name, so an empty one takes its folder's here,
+ * without a version: newer files never hold one, and older builds read the
+ * names these files hold as names. */
+function nameWorkspaces(value: any) {
+  for (const workspace of steps.items(value, "workspaces")) {
+    const fields = steps.object(workspace);
+    if (fields.name === "" && typeof fields.cwd === "string") fields.name = basename(fields.cwd) || "/";
+  }
 }

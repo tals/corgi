@@ -21,28 +21,20 @@ export class KeyHold {
   private last = 0;
   /** The host's repeat delay and rate, as measured. */
   private delay = assumed_delay_ms;
-  private measured = false;
   private interval: number;
-  /** Held until then, unless the key arrives again; a key's deadline also
-   * waits out the latest `slack`. */
+  /** Held until then, unless the key arrives again. */
   private until = 0;
-  private keyed = false;
   /** Presses before this are the tail of a hold that already ended. */
   private quiet_until = -Infinity;
-  /** How late the link may deliver a repeat, in ms, on top of the gaps;
-   * see `frame_pacing.jitter`. */
-  slack = 0;
 
   /** Filled in `hold_ms`; let go, emptied in `heal_ms`. A silence of `gap`
    * after a repeat, or of `first_gap` past the host's repeat delay, is a
-   * release; with `patient`, before a repeat has measured the delay, only
-   * one of `first_repeat_ms` is. */
+   * release. */
   constructor(
     readonly hold_ms: number,
     readonly heal_ms: number,
     readonly gap = repeat_gap_ms,
     readonly first_gap = repeat_gap_ms,
-    readonly patient = false,
   ) {
     this.interval = gap / 2;
   }
@@ -56,8 +48,8 @@ export class KeyHold {
       return false;
     }
     // The first repeat, even one later than the delay expected it.
-    const first = this.active && !this.repeating && now - this.started <= first_repeat_ms + this.slack;
-    if (this.active && (now < this.due || first)) {
+    const first = this.active && !this.repeating && now - this.started <= first_repeat_ms;
+    if (this.active && (now < this.until || first)) {
       // The key was down all along; a repeat the link held back still counts.
       this.grow(now);
       if (this.progress >= 1) {
@@ -65,20 +57,14 @@ export class KeyHold {
         return true;
       }
       if (this.repeating) this.interval = Math.min(this.gap, now - this.last);
-      else {
-        this.delay = Math.max(100, Math.min(first_repeat_ms, now - this.started));
-        this.measured = true;
-      }
+      else this.delay = Math.max(100, Math.min(first_repeat_ms, now - this.started));
       this.repeating = true;
       this.last = now;
       this.until = now + this.gap;
-      this.keyed = true;
       return false;
     }
     this.start(now);
-    const wait = this.patient && !this.measured ? first_repeat_ms : this.delay + this.first_gap;
-    this.until = now + wait;
-    this.keyed = true;
+    this.until = now + this.delay + this.first_gap;
     return false;
   }
   /** A mouse button went down on it; it fills until `release`. */
@@ -87,7 +73,6 @@ export class KeyHold {
     this.start(now);
     this.pressed = true;
     this.until = Infinity;
-    this.keyed = false;
   }
   release(now: number): void {
     if (!this.pressed) return;
@@ -104,7 +89,7 @@ export class KeyHold {
   }
   /** Whether the key or button is still down, as far as can be told. */
   held(now: number): boolean {
-    return this.active && (this.pressed || now <= this.due);
+    return this.active && (this.pressed || now <= this.until);
   }
   /** Whether a mouse button is holding it full. */
   done(): boolean {
@@ -122,15 +107,11 @@ export class KeyHold {
   advance(now: number): void {
     if (!this.active) return;
     this.grow(this.pressed ? now : Math.min(now, this.last + (this.repeating ? this.interval : this.delay)));
-    const due = this.due;
-    if (now > due) {
-      this.progress = Math.max(0, this.progress - (now - Math.max(this.at, due)) / this.heal_ms);
+    if (now > this.until) {
+      this.progress = Math.max(0, this.progress - (now - Math.max(this.at, this.until)) / this.heal_ms);
       this.at = now;
     }
-    if (this.progress === 0 && now >= due) this.reset();
-  }
-  private get due(): number {
-    return this.keyed ? this.until + this.slack : this.until;
+    if (this.progress === 0 && now >= this.until) this.reset();
   }
   private grow(to: number): void {
     if (to <= this.at) return;
@@ -143,48 +124,12 @@ export class KeyHold {
   }
   /** Ignores the key until it has been let go. */
   quiet(now: number): void {
-    this.quiet_until = now + this.gap + this.slack;
+    this.quiet_until = now + this.gap;
   }
   reset(): void {
     this.active = false;
     this.pressed = false;
     this.repeating = false;
     this.progress = 0;
-  }
-}
-
-/** Fixed steps keep a spring stable, and the same moments draw the same. */
-const spring_step_ms = 2;
-
-/** How stiff a spring is: `omega` in radians a second; `zeta` under 1 overshoots. */
-export interface Tune {
-  omega: number;
-  zeta: number;
-}
-
-/** A hold's progress as drawn: a spring chasing it. */
-export class Spring {
-  /** Below 0 while it swings back past the start. */
-  x = 0;
-  private v = 0;
-  /** Moved on to here, in whole steps; null at rest. */
-  private at: number | null = null;
-
-  constructor(readonly tune: Tune) {}
-  /** Moves it on to `now`, pulled toward `target`; false once it rests there. */
-  step(target: number, now: number, tune = this.tune): boolean {
-    const { omega, zeta } = tune;
-    // From rest, or after a long stall, it starts from here.
-    if (this.at === null || now - this.at > 500) this.at = now;
-    for (; this.at + spring_step_ms <= now; this.at += spring_step_ms) {
-      const dt = spring_step_ms / 1000;
-      this.v += (omega * omega * (target - this.x) - 2 * zeta * omega * this.v) * dt;
-      this.x += this.v * dt;
-    }
-    if (Math.abs(target - this.x) > 0.002 || Math.abs(this.v) > 0.02) return true;
-    this.x = target;
-    this.v = 0;
-    this.at = null;
-    return false;
   }
 }

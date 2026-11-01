@@ -181,26 +181,26 @@ libc.symbols.lseek(fd, 0n, 0);
     return (await this.command("pane.read", { target: pane, view: "history" })).text;
   }
 
-  async test_workspace_automatic_and_custom_names_survive_handoff() {
+  async test_workspace_names_survive_handoff() {
     const first = await this.new(),
       folder = join(this.temp.name, "project");
     mkdirSync(folder);
-    const ws = (await this.session()).workspaces[0].id;
+    const ws = (await this.session()).workspaces[0].id,
+      name = (await this.session()).workspaces[0].name;
     await this.command("workspace.edit", { target: ws, cwd: folder });
     await this.reload();
-    await this.command("pane.input", {
-      target: first,
-      data: `cd ${quote(folder)}\r`,
-    });
-    await this.until(async () => (await this.session()).workspaces[0].name === "project");
-    this.assertEqual((await this.session()).workspaces[0].custom_name, "");
+    this.assertEqual((await this.session()).workspaces[0].name, name);
     await this.command("workspace.edit", { name: "Override", target: ws });
     await this.reload();
     await this.command("pane.input", { target: first, data: "cd /\r" });
     await this.until(async () => (await this.session()).panes[0].cwd === "/");
     this.assertEqual((await this.session()).workspaces[0].name, "Override");
-    await this.command("workspace.edit", { name: "", target: ws });
-    await this.until(async () => (await this.session()).workspaces[0].name === "project");
+    const empty = await this.raw_rpc({
+      op: "session.command",
+      command: { "workspace.edit": { name: "", target: ws } },
+    });
+    this.assertEqual(empty.err, "InvalidName");
+    this.assertEqual((await this.session()).workspaces[0].name, "Override");
   }
   async test_handoff_preserves_processes_viewers_and_queued_controls() {
     const first = await this.new(),

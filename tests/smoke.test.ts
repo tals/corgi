@@ -282,17 +282,21 @@ class Smoke extends Runtime {
       JSON.parse(readFileSync(this.path + ".workspaces.json", "utf8")).workspaces.find((w: any) => w.id === ws).cwd,
       chosen,
     );
-    await this.command("workspace.edit", { name: "Custom", target: ws, cwd: one });
-    await this.command("workspace.edit", { name: "", target: ws });
+    await this.command("workspace.edit", { target: ws, cwd: one });
+    const empty = await this.raw_rpc({
+      op: "session.command",
+      command: { "workspace.edit": { name: "", target: ws } },
+    });
+    this.assertEqual(empty.err, "InvalidName");
     this.assertEqual((await this.workspaces()).find((w: any) => w.id === ws).cwd, realpathSync(one));
-    this.assertEqual((await this.workspaces()).find((w: any) => w.id === ws).name, "one");
+    this.assertEqual((await this.workspaces()).find((w: any) => w.id === ws).name, "Custom");
     const created = await this.command("pane.create", { workspace: ws });
     this.assertEqual((await this.pane(created.pane)).cwd, realpathSync(one));
     await this.command("pane.close", { target: second });
     await this.restart_runtime();
     const restored = (await this.workspaces()).find((w: any) => w.id === ws);
     this.assertEqual(restored.cwd, realpathSync(one));
-    this.assertEqual(restored.name, "one");
+    this.assertEqual(restored.name, "Custom");
     this.assertEqual(
       JSON.parse(readFileSync(this.path + ".workspaces.json", "utf8")).workspaces.find((w: any) => w.id === ws).cwd,
       realpathSync(one),
@@ -359,13 +363,7 @@ class Smoke extends Runtime {
     await this.click(21, 1);
     await this.frame_with("New workspace");
     await this.input("Project\r");
-    this.assertEqual((await this.workspaces()).length, 1);
-    // Repeat on the viewer's clock without a wait that would release the key.
-    for (let repeat = 0; repeat < 80 && (await this.workspaces()).length === 1; repeat++) {
-      await this.client!.advance(0.05);
-      await this.input("\r");
-    }
-    this.assertEqual((await this.workspaces()).length, 2);
+    await this.until(async () => (await this.workspaces()).length === 2);
     await this.frame_with("No agents yet");
     const ws = (await this.workspaces()).find((w: any) => w.active);
     this.assertEqual([ws.name, ws.cwd], ["Project", realpathSync(this.temp.name)]);

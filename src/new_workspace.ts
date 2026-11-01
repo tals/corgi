@@ -1,7 +1,7 @@
 //! The New workspace dialog: a name, and the folder it starts in, picked
 //! from the folders under a field. The field is the truth: moving through
 //! the list writes the folder into it. The name follows the folder until
-//! edited, and ↵ is held to create.
+//! edited, and ↵ creates it.
 import * as i18n from "./i18n";
 import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, statSync, type Stats } from "node:fs";
 import { homedir } from "node:os";
@@ -10,36 +10,12 @@ import * as palette from "./palette";
 import { Style, fgRgb, bgRgb, mix, colors } from "./palette";
 import * as keys from "./keys";
 import * as nameDialog from "./name_dialog";
+import * as workspace from "./workspace";
 import { printable, writeField, type Key, type KeySpec, type Result } from "./name_dialog";
 import * as scrollThumb from "./scroll_thumb";
 import { relativeTime } from "./sidebar";
-import { KeyHold, Spring } from "./key_hold";
-import { milliTimestamp } from "./clock";
 import { Writer, writeEllipsis, displayWidth } from "./text";
 
-/** How long ↵ is held to create; letting go undoes it faster. A release
- * shows sooner than the shared default: a gap past the measured repeat
- * delay or after a repeat. Until a repeat has measured the delay, the
- * first may come as late as any host's. */
-export const create_hold_ms = 1500;
-const create_heal_ms = 220;
-const create_gap_ms = 150;
-const create_first_gap_ms = 80;
-/** The border keeps up with a held key, stiff and without overshoot; let go,
- * it snaps back like a rubber band, past the start once. */
-const ring_held = { omega: 120, zeta: 1 };
-const ring_snap = { omega: 18, zeta: 0.6 };
-/** The border fills fast, half of it a third of the way in, then slows to
- * close, still moving to the end: a cubic ease-out with a share of linear. */
-const ease_linear = 0.5;
-/** An end part way into its cell: dashes that close up as it fills. */
-const dashes: Record<string, string[]> = { "─": ["┈", "┄", "╌"], "│": ["┊", "┆", "╎"] };
-export function eased(progress: number): number {
-  return ease_linear * progress + (1 - ease_linear) * (1 - (1 - progress) ** 3);
-}
-/** The ↵ key stays lit this long after the hold ends, the last part fading. */
-const lit_ms = 200;
-const lit_fade_ms = 80;
 /** The most folders the list shows at once. */
 const folder_rows = 10;
 /** A press on the folder field, a folder in the list, or out and in. */
@@ -351,14 +327,6 @@ export class Dialog extends nameDialog.Dialog {
   browser: Browser;
   /** The name is the browser's folder's, following it until edited. */
   follows_folder = true;
-  /** Creating takes a hold of ↵, or of its button. */
-  create = new KeyHold(create_hold_ms, create_heal_ms, create_gap_ms, create_first_gap_ms, true);
-  /** The hold as the border draws it, and how lit the ↵ key is, 0 to 1. */
-  ring = new Spring(ring_snap);
-  lit = 0;
-  /** The hold is drawn moving, so frames come at the display's rate. */
-  moving = false;
-  private lit_until = 0;
 
   /** Opens on the name, which follows the browser's folder. */
   constructor(browser: Browser) {
@@ -382,26 +350,20 @@ export class Dialog extends nameDialog.Dialog {
    * The name stays selected only until the keys first leave it. */
   follow(): void {
     if (this.browser.focused) this.selected = false;
-    if (this.follows_folder) this.fill(basename(this.browser.folder()));
+    if (this.follows_folder) this.fill(workspace.folderName(this.browser.folder()));
   }
   clear(): void {
     this.follows_folder = false;
     super.clear();
   }
-  key(byte: number, now = milliTimestamp()): Result {
+  key(byte: number): Result {
     const b = this.browser;
     if (byte === 9) {
       b.focused = !b.focused;
       this.follow();
       return "none";
     }
-    if (byte === 13) {
-      const done = this.create.press(now);
-      this.pressed(now);
-      if (!done) return "none";
-      this.create.reset();
-      return "save";
-    }
+    if (byte === 13) return "save";
     if (b.focused && byte !== 27) {
       b.key(byte);
       this.follow();
@@ -451,15 +413,10 @@ export class Dialog extends nameDialog.Dialog {
     b.focused = false;
     return true;
   }
-  /** The create key is held with the mouse, `tick` noticing it fill; the
-   * name field takes the keys back, and the folder's rows browse. */
+  /** The name field takes the keys back, and the folder's rows browse. */
   press(v: nameDialog.View, x: number, y: number, now: number): Result {
     const found: Hit = v instanceof View ? v.at(x, y) : v.hit(x, y);
     switch (found.tag) {
-      case "save":
-        this.create.down(now);
-        this.pressed(now);
-        return "none";
       case "field":
         this.browser.focused = false;
         break;
@@ -474,36 +431,6 @@ export class Dialog extends nameDialog.Dialog {
         break;
     }
     return super.press(v, x, y, now);
-  }
-  release(now: number): void {
-    super.release(now);
-    this.create.release(now);
-  }
-  /** The hold moved on, and the create key held down with the mouse until it filled. */
-  tick(now: number): Result {
-    this.animate(now);
-    if (!this.create.done()) return "none";
-    this.create.reset();
-    return "save";
-  }
-  frame(): number | null {
-    return this.moving ? 8 : null;
-  }
-  /** A press of ↵ or its button lights the key. */
-  private pressed(now: number): void {
-    this.lit_until = Math.max(this.lit_until, now + lit_ms);
-    this.moving = true;
-  }
-  /** Moves the create hold on to `now`: the border's spring, and the ↵ key,
-   * lit while it's held and a moment after. False once both are at rest. */
-  animate(now: number): boolean {
-    const c = this.create;
-    c.advance(now);
-    const held = c.held(now);
-    if (held) this.lit_until = Math.max(this.lit_until, now + lit_ms);
-    this.lit = Math.max(0, Math.min(1, (this.lit_until - now) / lit_fade_ms));
-    const springing = held ? this.ring.step(eased(c.progress), now, ring_held) : this.ring.step(0, now);
-    return (this.moving = c.active || springing || this.lit > 0);
   }
 }
 
@@ -521,7 +448,7 @@ interface Folders {
 }
 const browserKeys = () =>
   [
-    { key: "↵", label: i18n.t`hold to create`, hit: { tag: "save" } },
+    { key: "↵", label: i18n.t`create`, hit: { tag: "save" } },
     { key: "←→", label: i18n.t`out / in`, hit: { tag: "key", index: 1 }, split: true },
     { key: "esc", label: i18n.t`cancel`, hit: { tag: "cancel" } },
   ] satisfies KeySpec[];
@@ -531,27 +458,10 @@ const browserWidth = () =>
 /** Out and in before the folder has the keys: caps barely raised off the
  * panel, and the arrows and label in the border's color. */
 let quiet_cap: string, quiet_label: string;
-/** The border as a hold lights it: the accent, brightened toward `strong`. */
-export let ring_lit: string;
-let ring_rgb: palette.Rgb;
 palette.derived(() => {
-  ring_rgb = mix(colors.accent, colors.strong, 25);
-  ring_lit = new Style({ bg: "surface", bold: true }).sgr() + fgRgb(ring_rgb);
   quiet_cap = "\x1b[0m" + fgRgb(colors.line) + bgRgb(mix(colors.surface, colors.selected, 50));
   quiet_label = "\x1b[0m" + fgRgb(colors.line) + bgRgb(colors.surface);
 });
-/** The ↵ key while a hold lights it: the cap on `accent` and the label in it,
- * fading back to the usual cap and label as `lit` falls from 1. */
-function litKey(lit: number): { cap: string; label: string } {
-  const p = Math.round(lit * 100);
-  return {
-    cap:
-      new Style({ bold: true }).sgr() +
-      fgRgb(mix(colors.strong, colors.surface, p)) +
-      bgRgb(mix(colors.line, colors.accent, p)),
-    label: new Style({ bg: "surface", bold: true }).sgr() + fgRgb(mix(colors.strong, colors.accent, p)),
-  };
-}
 /** Why the workspace wasn't created, over the name. */
 function problemMessage(p: Problem): string {
   switch (p) {
@@ -656,8 +566,6 @@ export class View extends nameDialog.View {
     const v = this;
     const b = v.dialog.browser;
     v.drawBox(w);
-    // Swinging back past the start, the arc bounces off it.
-    if (v.dialog.ring.x !== 0) v.drawHold(Math.min(1, Math.abs(v.dialog.ring.x)), w);
     const { left, room } = v.heading(d, w, number);
     if (b.problem) {
       w.write(`\x1b[${v.title_y + 2};${left + 1}H` + new Style({ fg: "hot", bg: "surface" }).sgr());
@@ -668,54 +576,11 @@ export class View extends nameDialog.View {
     if (b.focused) v.placeCursor(b.field, w, v.folders.offset, v.folders.field_y);
     else v.placeCursor(d, w);
   }
-  /** A hold lights ↵; out and in stay quiet until the folder has the keys. */
+  /** Out and in stay quiet until the folder has the keys. */
   protected look(k: Key, i: number): { cap: string; label: string; bare: string } {
-    if (i === 0 && this.dialog.lit > 0) {
-      const lit = litKey(this.dialog.lit);
-      return { cap: lit.cap, label: lit.label, bare: lit.label };
-    }
     if (k.hit.tag === "key" && !this.dialog.browser.focused)
       return { cap: quiet_cap, label: quiet_label, bare: quiet_label };
     return super.look(k, i);
-  }
-  /** A hold of ↵ lights the border from the middle of its bottom, both ways
-   * round, closing at the top as the workspace is created. */
-  private drawHold(progress: number, w: Writer): void {
-    const v = this;
-    const right = v.x + v.width - 1;
-    const bottom = v.y + v.height - 1;
-    // The border clockwise from the top left corner.
-    const cells: [number, number, string][] = [];
-    for (let x = v.x; x <= right; x++) cells.push([x, v.y, x === v.x ? "╭" : x === right ? "╮" : "─"]);
-    for (let y = v.y + 1; y < bottom; y++) cells.push([right, y, "│"]);
-    for (let x = right; x >= v.x; x--) cells.push([x, bottom, x === right ? "╯" : x === v.x ? "╰" : "─"]);
-    for (let y = bottom - 1; y > v.y; y--) cells.push([v.x, y, "│"]);
-    const n = cells.length;
-    const start = v.width + v.height - 2 + right - (v.x + Math.floor(v.width / 2));
-    // The arc's length in cells. A sliver lights none, so the spring's last
-    // small swing doesn't blink.
-    const length = progress * n;
-    if (length < 3) return;
-    // Its ends light partly, in dashes brightening as they fill, so it moves
-    // between cells.
-    const ends: string[] = [];
-    w.write(ring_lit);
-    for (let j = 0; j < n; j++) {
-      const along = (((j - start) % n) + n) % n;
-      const lit = progress >= 1 ? 1 : Math.min(1, (length + 1) / 2 - Math.min(along, n - along));
-      if (lit <= 0) continue;
-      const [x, y, ch] = cells[j];
-      const at = `\x1b[${y + 1};${x + 1}H`;
-      if (lit >= 1) w.write(at + ch);
-      else
-        ends.push(
-          at +
-            new Style({ bg: "surface", bold: true }).sgr() +
-            fgRgb(mix(colors.line, ring_rgb, Math.round(35 + 65 * lit))) +
-            (lit < 0.75 && dashes[ch] ? dashes[ch][Math.floor(lit * 4)] : ch),
-        );
-    }
-    for (const end of ends) w.write(end);
   }
   /** The labels over the two fields, the folder field, and the folders in
    * it, then any offer to create: the highlighted one on `selected` behind

@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { Pacer, onlyAnswers, request, answer, column_ms, jitter } from "./frame_pacing";
+import { Pacer, onlyAnswers, request, answer, column_ms } from "./frame_pacing";
 
 test("one request is out at a time", () => {
   const p = new Pacer();
@@ -82,14 +82,4 @@ test("only answers are not typing", () => {
   expect(onlyAnswers(Buffer.from(answer + "a"))).toBe(false);
   expect(onlyAnswers(Buffer.from("\x1b[0"))).toBe(false);
   expect(onlyAnswers(new Uint8Array())).toBe(false);
-});
-
-test("a key's jitter allowance follows the answer time's deviation, capped", () => {
-  expect(jitter(null)).toBe(0);
-  const p = new Pacer();
-  expect(jitter(p)).toBe(0);
-  p.timing = { mean: 80, sd: 30 };
-  expect(jitter(p)).toBe(120);
-  p.timing = { mean: 900, sd: 400 };
-  expect(jitter(p)).toBe(500);
 });

@@ -1,7 +1,9 @@
 import { basename, dirname, join, isAbsolute } from "node:path";
 import { mkdir, open, rename, readFile, realpath, stat } from "node:fs/promises";
-import { Model, cleanLabel, max_workspaces } from "./layout";
+import { Model, boundLabel, max_label, max_workspaces } from "./layout";
+import * as migrations from "./persist/migrations";
 import { Order, Pins, key as agentKey, type Section } from "./agent_order";
+import * as errors from "./errors";
 import { Stars, type Session as StarredSession } from "./agent_stars";
 import { Ref, State } from "./trackers/git_push";
 import { Commits } from "./trackers/git_status";
@@ -9,8 +11,7 @@ import { Window } from "./usage/tokens";
 import type { Snapshot as Worktrees } from "./worktrees";
 export class Workspace {
   static Id = { none: 0, first: 1, next: (id: number) => id + 1 };
-  name_buf = "";
-  name_len = 0;
+  private title: string;
   model = new Model();
   agent_order = new Order();
   /** Starred agents' order; the saved and wire field keeps its original name. */
@@ -45,17 +46,17 @@ export class Workspace {
   constructor(
     public id: number,
     public cwd: string,
-  ) {}
+    name = folderName(cwd),
+  ) {
+    this.title = Workspace.valid(name);
+  }
   /** Takes up a saved activity order, where each agent keeps its place until it moves on. */
   restoreActivity(order: Order) {
     this.activity_order = order;
     this.restored = new Set(order.items.map(agentKey));
   }
-  customName() {
-    return this.name_buf;
-  }
   name() {
-    return this.name_len ? this.customName() : basename(this.cwd) || "/";
+    return this.title;
   }
   /** Points the workspace at another folder; false when it's already there. */
   move(cwd: string) {
@@ -73,10 +74,18 @@ export class Workspace {
     this.git_commits = new Commits();
   }
   rename(value: string) {
-    this.name_buf = cleanLabel(value);
-    this.name_len = this.name_buf.length;
+    this.title = Workspace.valid(value);
+  }
+  private static valid(value: string) {
+    const name = label(value);
+    if (!name) throw Error("InvalidName");
+    return name;
   }
 }
+/** The name a workspace takes from its folder when given none. */
+export const folderName = (cwd: string) => label(basename(cwd) || "/");
+/** A workspace name as kept, untrimmed: non-ASCII text survives. */
+export const label = (value: string, max = max_label) => boundLabel(value, true, max);
 export class Store {
   items: Workspace[] = [];
   next_id = 1;
@@ -97,12 +106,12 @@ export class Store {
       await f.writeFile(
         JSON.stringify(
           {
-            version: 2,
+            version: migrations.workspaces_version,
             active: selected,
             next_id: this.next_id,
             workspaces: this.items.map(w => ({
               id: w.id,
-              name: w.customName(),
+              name: w.name(),
               cwd: w.cwd,
             })),
           },
@@ -125,17 +134,18 @@ export class Store {
       throw e;
     }
     if (Buffer.byteLength(bytes) > 1024 * 1024) throw Error("FileTooBig");
-    const d = JSON.parse(bytes);
-    const invalid = () => {
+    const invalid = (): never => {
       throw Error("InvalidWorkspaceState");
     };
-    if (
-      ![1, 2].includes(d.version) ||
-      !Array.isArray(d.workspaces) ||
-      !d.workspaces.length ||
-      d.workspaces.length > max_workspaces
-    )
-      invalid();
+    let d: any;
+    try {
+      d = migrations.decode("workspaces", bytes).value;
+    } catch (error) {
+      // The steps are shared with checkpoints, and name their errors for them.
+      if (errors.is(error, "InvalidCheckpoint")) invalid();
+      throw error;
+    }
+    if (!Array.isArray(d.workspaces) || !d.workspaces.length || d.workspaces.length > max_workspaces) invalid();
     const items: Workspace[] = [];
     for (const x of d.workspaces) {
       if (
@@ -143,13 +153,13 @@ export class Store {
         x.id <= 0 ||
         x.id >= d.next_id ||
         items.some(w => w.id === x.id) ||
+        typeof x.name !== "string" ||
+        !label(x.name) ||
         typeof x.cwd !== "string" ||
         !isAbsolute(x.cwd)
       )
         invalid();
-      const w = new Workspace(x.id, x.cwd);
-      w.rename(x.name);
-      items.push(w);
+      items.push(new Workspace(x.id, x.cwd, x.name));
     }
     if (!items.some(w => w.id === d.active)) invalid();
     this.items = items;
@@ -179,25 +189,50 @@ export class Store {
     if (!(await stat(p)).isDirectory()) throw Error("NotDir");
     return p;
   }
+  /** Adds a workspace, named for its folder when `name` is blank. */
   async add(name: string, cwd: string) {
+    const dir = await Store.directory(cwd);
     if (this.items.length >= max_workspaces) throw Error("TooManyWorkspaces");
-    const w = new Workspace(this.next_id, await Store.directory(cwd));
-    w.rename(name);
+    const w = new Workspace(this.next_id, dir, label(name) ? name : folderName(dir));
     this.items.push(w);
     this.next_id++;
     return w.id;
+  }
+  /** Renames a workspace whose name another has: "Foo" beside "Foo" and
+   * "Foo · 4" becomes "Foo · 5". The name is numbered as it is, so one
+   * that already ends in a number, like "Release · 2024", keeps it. */
+  distinguish(id: number) {
+    const w = this.get(id);
+    if (!w) throw Error("NoWorkspace");
+    const others = new Set(this.items.filter(o => o !== w).map(o => o.name()));
+    const root = w.name();
+    if (!others.has(root)) return;
+    const separator = " · ";
+    let n = 1;
+    for (const o of others) {
+      const m = o.startsWith(root + separator) ? /^\d{1,6}$/.exec(o.slice(root.length + separator.length)) : null;
+      if (m) n = Math.max(n, Number(m[0]));
+    }
+    const numbered = (n: number) => {
+      const suffix = separator + n;
+      return label(root, max_label - Buffer.byteLength(suffix)) + suffix;
+    };
+    // A root cut short for the number can meet a name the scan missed.
+    while (others.has(numbered(++n)));
+    w.rename(numbered(n));
   }
   rename(id: number, name: string) {
     const w = this.get(id);
     if (!w) throw Error("NoWorkspace");
     w.rename(name);
   }
-  /** Renames a workspace, and moves it unless `cwd` is null: a rename
-   * keeps a folder that has since disappeared. */
-  async edit(id: number, name: string, cwd: string | null) {
+  /** Renames a workspace unless `name` is null, and moves it unless `cwd`
+   * is null: a rename keeps a folder that has since disappeared. */
+  async edit(id: number, name: string | null, cwd: string | null) {
     const w = this.get(id);
     if (!w) throw Error("NoWorkspace");
-    if (cwd !== null) w.move(await Store.directory(cwd));
-    w.rename(name);
+    const dir = cwd === null ? null : await Store.directory(cwd);
+    if (name !== null) w.rename(name);
+    if (dir !== null) w.move(dir);
   }
 }

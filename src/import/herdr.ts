@@ -364,7 +364,7 @@ export function seedTerminal(terminal: import("../pane/terminal").Terminal, stat
 }
 
 import { randomBytes } from "node:crypto";
-import { Workspace } from "../workspace";
+import * as workspace from "../workspace";
 import { Terminal } from "../pane/terminal";
 import { n, ptr } from "../native_ffi";
 import { ReadyLoop, READ, WRITE, wouldBlock } from "../fd_loop";
@@ -596,6 +596,8 @@ export class Job {
   failure = "";
   preparation_failure = "";
   staged = new Runtime();
+  /** Herdr's names for its workspaces, by id, read before the handoff. */
+  labels = new Map<string, string>();
   fds: number[] = [];
   pids: number[] = [];
   reserved = false;
@@ -704,9 +706,14 @@ export class Job {
     for (const snapshot of snapshots) {
       const cwd = text(snapshot, "identity_cwd");
       if (!isAbsolute(cwd)) throw Error("InvalidHerdrDirectory");
+      // The name Herdr shows: its custom name, or the one it derives.
+      const name = this.labels.get(text(snapshot, "id")) || text(snapshot, "custom_name");
       // Panes report resolved folders.
-      const ws = new Workspace(this.staged.workspaces.next_id++, resolved(cwd));
-      ws.rename(text(snapshot, "custom_name"));
+      const ws = new workspace.Workspace(
+        this.staged.workspaces.next_id++,
+        resolved(cwd),
+        workspace.label(name) ? name : undefined,
+      );
       const tabs = list(snapshot.tabs);
       if (!tabs.length) throw Error("InvalidHerdrLayout");
       for (const tab of tabs) {
@@ -741,6 +748,10 @@ export class Job {
   async transfer() {
     const pong = await rpc(this.source, "ping", {});
     if (pong?.capabilities?.live_handoff !== true) throw Error("HerdrHandoffUnsupported");
+    // The manifest saves only custom names; Herdr derives the rest as it draws them.
+    // Without them, workspaces take their custom names or folders'.
+    const shown = (await rpc(this.source, "session.snapshot", {}).catch(() => null))?.snapshot;
+    for (const ws of list(shown?.workspaces)) this.labels.set(text(ws, "workspace_id"), text(ws, "label"));
     const dir = `/tmp/corgi-${process.getuid?.() ?? 0}/herdr-${randomBytes(8).toString("hex")}`;
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const path = join(dir, "bridge.sock"),

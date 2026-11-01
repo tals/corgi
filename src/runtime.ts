@@ -1077,6 +1077,7 @@ export class Runtime {
   }
   async createWorkspace(name: string, opts: Create) {
     const id = await this.workspaces.add(name, opts.cwd);
+    this.workspaces.distinguish(id);
     try {
       await this.create({ ...opts, workspace: id });
     } catch (e) {

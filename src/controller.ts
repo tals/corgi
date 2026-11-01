@@ -1895,7 +1895,7 @@ export class Controller {
     if (id !== null) {
       const index = this.runtime.workspaces.index(id);
       if (index === null) return;
-      initial = this.runtime.workspaces.items[index].custom_name;
+      initial = this.runtime.workspaces.items[index].name;
     }
     this.name_dialog =
       id === null
@@ -1939,15 +1939,11 @@ export class Controller {
   dismissName(): void {
     this.name_dialog = null;
   }
-  /** How long the viewer waits between frames: 120 a second while a hold to
-   * create fills or springs back, a display frame while a sidebar row glides
-   * to another group, 30 ms while overlays, fades or drag scrolling run, and
-   * otherwise the corgi's own pace. */
+  /** How long the viewer waits between frames: a display frame while a
+   * sidebar row glides to another group, 30 ms while overlays, fades or drag
+   * scrolling run, and otherwise the corgi's own pace. */
   frameDelay(): number {
-    const now = milliTimestamp(),
-      d = this.name_dialog;
-    const own = d?.frame() ?? null;
-    if (own !== null) return own;
+    const now = milliTimestamp();
     const launch = this.launcherModel(),
       moving = launch?.managing && (!this.corgi_setup || this.corgi_setup.managing()) && launch.manager.moving();
     if (this.sidebar_rows.moving(now) || moving) return 16;
@@ -1974,8 +1970,11 @@ export class Controller {
         }
       } else if ("workspace_name" in target) {
         const fresh = dialog instanceof newWorkspace.Dialog ? dialog : null;
-        // A name that follows the folder is left empty, so the folder names the workspace.
-        const name = fresh?.follows_folder ? "" : dialog.name();
+        const name = dialog.name();
+        if (!name) {
+          dialog.failed = true;
+          return;
+        }
         if (target.workspace_name === null) {
           const cwd = fresh ? fresh.confirm() : this.currentCwd();
           if (cwd === null) return;
@@ -4696,8 +4695,6 @@ export class Controller {
     }
     if (this.name_dialog) {
       this.fitNameDialog();
-      if (this.name_dialog instanceof newWorkspace.Dialog)
-        this.name_dialog.create.slack = framePacing.jitter(this.host_pacer);
       switch (this.name_dialog.key(byte)) {
         case "save":
           await this.finishName(true);
@@ -6193,7 +6190,7 @@ export class Controller {
       } else if (!release && button === 32) {
         dialog.drag(NameView.init(this.width, this.height, dialog), x);
         this.dirty = true;
-      } else if (release) dialog.release(milliTimestamp());
+      } else if (release) dialog.release();
       return;
     }
     let entries = this.sidebarEntries();
@@ -6648,11 +6645,6 @@ export class Controller {
         this.signin_exit = null;
         this.dirty = true;
       }
-    }
-    const dialog = this.name_dialog;
-    if (dialog && dialog.frame() !== null) {
-      if (dialog.tick(milliTimestamp()) === "save") await this.finishName(true);
-      this.dirty = true;
     }
     if (this.account_removals.size > 0) await this.finishAccountRemovals();
     const removal = this.worktree_card.removal;

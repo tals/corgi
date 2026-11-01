@@ -427,7 +427,6 @@ export interface Pane {
 export interface Workspace {
   id: number;
   name: string;
-  custom_name: string;
   cwd: string;
   model: Model;
   agent_order: ({ pane: number } | { headless: number })[];
@@ -464,7 +463,6 @@ function workspace(value: any): Workspace {
   return {
     id: value.id,
     name: value.name ?? "",
-    custom_name: value.custom_name ?? "",
     cwd: value.cwd ?? "",
     model: Model.fromData(value.model),
     agent_order: value.agent_order ?? [],

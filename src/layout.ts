@@ -27,11 +27,28 @@ export type Split = {
   ratio: number;
 };
 export type Node = { pane: PaneId } | { split: Split };
+/** The longest tab or workspace name, in bytes. */
+export const max_label = 80;
+/** A tab or pane title: trimmed, printable ASCII, within `max_label` bytes. */
 export function cleanLabel(s: string) {
-  return Array.from(Buffer.from(s.replace(/^ +| +$/g, "")))
-    .slice(0, 80)
-    .map(c => (c >= 32 && c < 127 ? String.fromCharCode(c) : "_"))
-    .join("");
+  return boundLabel(s.replace(/^ +| +$/g, ""), false);
+}
+/** A label within `max` bytes. Controls become "_"; without `unicode`, so
+ * does each byte outside printable ASCII. With it, the cut keeps whole
+ * characters. */
+export function boundLabel(s: string, unicode: boolean, max = max_label) {
+  let out = "",
+    bytes = 0;
+  for (const c of s) {
+    const n = Buffer.byteLength(c);
+    if (unicode ? !/[\x00-\x1f\x7f-\x9f]/.test(c) : n === 1 && c >= " " && c < "\x7f") {
+      if (bytes + n > max) break;
+      out += c;
+      bytes += n;
+    } else for (let i = 0; i < (unicode ? 1 : n) && bytes < max; i++, bytes++) out += "_";
+    if (bytes >= max) break;
+  }
+  return out;
 }
 export class Tab {
   title = "";
