@@ -112,11 +112,32 @@ test("a malformed scan cache is ignored", async () => {
     expect(f.run("generate").code).toBe(0);
     const hash = (text: string) => createHash("sha256").update(text).digest("hex");
     const example = hash(readFileSync(join(f.root, "src/example.ts"), "utf8"));
-    for (const files of [null, { "src/example.ts": { hash: example, found: 5 } }]) {
+    const cases = [
+      null,
+      { "src/example.ts": { hash: example, found: 5 } },
+      { "src/example.ts": { hash: example, found: [5] } },
+      { "src/example.ts": { hash: example, found: [{ kind: "template" }] } },
+    ];
+    for (const files of cases) {
       const script = hash(readFileSync(join(project, "scripts/translations.ts"), "utf8"));
       writeFileSync(join(f.root, ".tools/i18n/scan.json"), JSON.stringify({ script, files }));
       expect(await translations.verify(true, f.root)).toEqual({ code: 0, text: "" });
     }
+  } finally {
+    f.close();
+  }
+}, 30000);
+
+test("a cached scan reports a text asset that has since gone", () => {
+  const f = fixture();
+  try {
+    writeFileSync(join(f.root, "src/help.txt"), "Help text\n");
+    f.source('import * as i18n from "./i18n"; import help from "./help.txt"; export const text = i18n.document(help);');
+    expect(f.run("extract").code).toBe(0);
+    rmSync(join(f.root, "src/help.txt"));
+    const result = f.run("check");
+    expect(result.code).toBe(1);
+    expect(result.text).toContain("src/example.ts (src/help.txt): text asset not found");
   } finally {
     f.close();
   }

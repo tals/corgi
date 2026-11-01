@@ -121,6 +121,26 @@ function parse(ts: any, root: string, path: string, text: string): Found[] {
   return found;
 }
 
+/** Whether a cached scan has the shape parse() writes; anything else is parsed again. */
+function replayable(found: unknown): found is Found[] {
+  const strings = (value: unknown) => Array.isArray(value) && value.every(item => typeof item === "string");
+  return (
+    Array.isArray(found) &&
+    found.every(item => {
+      switch (item?.kind) {
+        case "error":
+          return typeof item.error === "string";
+        case "template":
+          return strings(item.parts) && strings(item.names) && typeof item.location === "string";
+        case "document":
+          return typeof item.path === "string" && typeof item.location === "string";
+        default:
+          return false;
+      }
+    })
+  );
+}
+
 /** Finds every marked message, parsing only the files that changed since the last scan. */
 async function scan(root: string): Promise<{ messages: Message[]; errors: string[] }> {
   const messages = new Map<string, Message>(),
@@ -148,7 +168,7 @@ async function scan(root: string): Promise<{ messages: Message[]; errors: string
   let previous: Scans = { script, files: {} };
   try {
     const cached = JSON.parse(readFileSync(scanCache(root), "utf8"));
-    // Anything else is treated as no cache; each entry is checked as it's used.
+    // Anything else is treated as no cache; each entry is checked by replayable().
     if (cached?.script === script && cached.files && typeof cached.files === "object" && !Array.isArray(cached.files))
       previous = cached;
   } catch {}
@@ -161,7 +181,7 @@ async function scan(root: string): Promise<{ messages: Message[]; errors: string
     if (!text.includes("i18n") && !(path in displays)) continue;
     const key = hash(text);
     let entry = previous.files[path];
-    if (entry?.hash !== key || !Array.isArray(entry.found)) {
+    if (entry?.hash !== key || !replayable(entry.found)) {
       ts ??= await typescript();
       entry = { hash: key, found: parse(ts, root, path, text) };
       changed = true;
@@ -170,6 +190,7 @@ async function scan(root: string): Promise<{ messages: Message[]; errors: string
     for (const found of entry.found) {
       if (found.kind === "error") errors.push(found.error);
       else if (found.kind === "template") add(found.parts, found.names, found.location);
+      else if (!existsSync(join(root, found.path))) errors.push(`${found.location}: text asset not found`);
       else add([readFileSync(join(root, found.path), "utf8")], [], found.location);
     }
   }
@@ -311,13 +332,8 @@ function shellPrint(value: string, names: string[]): string {
 /** Formats the generated JS like the rest of the tree. Prettier is slow, so its output is cached by input. */
 async function format(root: string, js: string): Promise<string> {
   const path = join(root, outputs[0]),
-    config = [".prettierrc", ".editorconfig"].map(name => join(root, name)),
     cache = join(root, ".tools/i18n/format.json"),
-    key = hash(
-      [tooling.prettierVersion, ...config.map(file => (existsSync(file) ? readFileSync(file, "utf8") : "")), js].join(
-        "\0",
-      ),
-    );
+    key = hash(js);
   try {
     const cached = JSON.parse(readFileSync(cache, "utf8"));
     if (cached.key === key && typeof cached.text === "string") return cached.text;
