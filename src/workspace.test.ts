@@ -114,18 +114,22 @@ test("a workspace named like another takes the next number after the highest", a
     return s.get(id)!.name();
   };
   expect(await name("Foo")).toBe("Foo");
-  expect(await name("Foo")).toBe("Foo: 2");
-  expect(await name("Foo: 4")).toBe("Foo: 4");
-  expect(await name("Foo")).toBe("Foo: 5");
-  expect(await name("Foo: 4")).toBe("Foo: 6");
+  expect(await name("Foo")).toBe("Foo · 2");
+  expect(await name("Foo · 4")).toBe("Foo · 4");
+  expect(await name("Foo")).toBe("Foo · 5");
+  // A name that ends in a number is numbered as it is.
+  expect(await name("Foo · 4")).toBe("Foo · 4 · 2");
+  expect(await name("Release: 2024")).toBe("Release: 2024");
+  expect(await name("Release: 2024")).toBe("Release: 2024 · 2");
   // A name the folder gives is numbered too.
   expect(await name("")).toBe("tmp");
-  expect(await name("")).toBe("tmp: 2");
-  expect(await name("Foo: 99999999999999999999")).toBe("Foo: 99999999999999999999");
-  expect(await name("Foo")).toBe("Foo: 7");
+  expect(await name("")).toBe("tmp · 2");
+  expect(await name("Foo · 99999999999999999999")).toBe("Foo · 99999999999999999999");
+  expect(await name("Foo")).toBe("Foo · 6");
   // A name too long for its number is cut, and the cut names count too.
-  const long = "L".repeat(layout.max_label);
+  const long = "L".repeat(layout.max_label),
+    cut = "L".repeat(layout.max_label - Buffer.byteLength(" · 2"));
   expect(await name(long)).toBe(long);
-  expect(await name(long)).toBe("L".repeat(layout.max_label - 3) + ": 2");
-  expect(await name(long)).toBe("L".repeat(layout.max_label - 3) + ": 3");
+  expect(await name(long)).toBe(cut + " · 2");
+  expect(await name(long)).toBe(cut + " · 3");
 });

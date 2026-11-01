@@ -199,20 +199,25 @@ export class Store {
     return w.id;
   }
   /** Renames a workspace whose name another has: "Foo" beside "Foo" and
-   * "Foo: 4" becomes "Foo: 5". */
+   * "Foo · 4" becomes "Foo · 5". The name is numbered as it is, so one
+   * that already ends in a number, like "Release · 2024", keeps it. */
   distinguish(id: number) {
     const w = this.get(id);
     if (!w) throw Error("NoWorkspace");
     const others = new Set(this.items.filter(o => o !== w).map(o => o.name()));
-    if (!others.has(w.name())) return;
-    const root = w.name().replace(/: \d+$/, "");
+    const root = w.name();
+    if (!others.has(root)) return;
+    const separator = " · ";
     let n = 1;
     for (const o of others) {
-      const m = o.startsWith(root + ": ") ? /^\d{1,6}$/.exec(o.slice(root.length + 2)) : null;
+      const m = o.startsWith(root + separator) ? /^\d{1,6}$/.exec(o.slice(root.length + separator.length)) : null;
       if (m) n = Math.max(n, Number(m[0]));
     }
+    const numbered = (n: number) => {
+      const suffix = separator + n;
+      return label(root, max_label - Buffer.byteLength(suffix)) + suffix;
+    };
     // A root cut short for the number can meet a name the scan missed.
-    const numbered = (n: number) => label(root, max_label - `: ${n}`.length) + `: ${n}`;
     while (others.has(numbered(++n)));
     w.rename(numbered(n));
   }
