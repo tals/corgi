@@ -110,7 +110,7 @@ export function asksHelp(args: string[]): boolean {
         if (name === "account") i++;
         break;
       case "headless":
-        if (args[1] === "start" && i === 4 && name === "workspace") i++;
+        if (args[1] === "start" && i >= 4 && (name === "workspace" || name === "account")) i++;
         break;
       default:
         if (handles(args) && args[0] !== "--skill" && options.has(name) && !flags.has(name)) i++;

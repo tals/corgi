@@ -4,6 +4,7 @@ import * as observation from "./observation";
 import { Provider, str, adapter } from "./providers";
 import * as worktrees from "./worktrees";
 import type { Permissions } from "./providers/adapter";
+import type { Identity } from "./account_identity";
 export { observation, Provider, str, Path };
 export class Text extends BoundedText(160) {}
 export type State = "unknown" | "initializing" | "idle" | "working" | "blocked" | "done";
@@ -50,6 +51,7 @@ export class Agent {
   /** The permission checks and model its hooks last reported. */
   permissions: Permissions | null = null;
   model = new Text();
+  account: Identity | null = null;
   compacting = false;
   /** When its current compaction began, in µs; 0 when not compacting. */
   compacting_since = 0;
@@ -77,6 +79,7 @@ export class Agent {
       activity: this.activity.toJSON(),
       tool: this.tool.toJSON(),
       model: this.model.toJSON(),
+      account: this.account ? { ...this.account } : null,
       cwd: this.cwd.toJSON(),
     } satisfies Record<ObjectKeys<Agent>, unknown>;
     return { ...this, ...owned };

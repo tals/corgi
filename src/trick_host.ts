@@ -10,6 +10,8 @@ import * as os from "./os";
 import * as budget from "./trick_budget";
 import { adapter, type Provider } from "./providers";
 import * as json from "./json";
+import * as accounts from "./accounts";
+import * as agentEnv from "./agent_env";
 import { getLogger } from "./log";
 import type { Runtime } from "./runtime";
 import type { Request } from "./protocol";
@@ -26,7 +28,7 @@ export interface Manifest {
 export function manifest(source: string): Manifest {
   if (Buffer.byteLength(source) > tricks.max_bytes) throw Error("ManifestTooLarge");
   const m = tricks.object(Bun.TOML.parse(source));
-  if (m.version !== tricks.version) throw Error("UnsupportedTrickVersion");
+  if (m.version !== 1) throw Error("UnsupportedTrickVersion");
   if (m.entry !== undefined) {
     if (typeof m.entry !== "string" || !m.entry || m.entry.includes("\0") || m.command !== undefined)
       throw Error("InvalidEntry");
@@ -62,7 +64,8 @@ export function snapshot(r: Runtime): tricks.Snapshot {
     agents.push({
       id: `pane:${p.id}`,
       provider: a.provider,
-      account: p.account(),
+      account: p.detection.claim ? null : (a.account ?? accounts.describe(a.provider, p.account())),
+      env: p.agent_env,
       workspace,
       session: a.sessionId(),
       name: p.label || a.displayName(),
@@ -77,7 +80,8 @@ export function snapshot(r: Runtime): tricks.Snapshot {
     agents.push({
       id: `headless:${s.id}`,
       provider: s.provider,
-      account: "",
+      account: a.account ?? accounts.describe(s.provider, s.account),
+      env: s.env,
       workspace: s.workspace_id,
       session: s.session,
       name: a.displayName(),
@@ -358,7 +362,7 @@ export class Host {
           const saved = readFileSync(file);
           if (saved.length > tricks.max_bytes) throw Error("StoreTooLarge");
           const store = tricks.object(JSON.parse(saved.toString()));
-          if (store.version !== tricks.version) throw Error("UnsupportedStoreVersion");
+          if (store.version !== 1) throw Error("UnsupportedStoreVersion");
           kv = tricks.object(store.values);
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -368,7 +372,7 @@ export class Host {
         if (command[0].includes("/")) command[0] = resolve(cwd, command[0]);
         const child = spawn(command[0], command.slice(1), {
           cwd,
-          env: { ...process.env, CORGI_SOCKET: this.socket },
+          env: { ...agentEnv.trick(process.env), CORGI_SOCKET: this.socket },
           detached: true,
           stdio: "pipe",
         });
@@ -513,7 +517,7 @@ export class Host {
               writable: true,
             });
           else delete values[c.key];
-          const saved = JSON.stringify({ version: tricks.version, values });
+          const saved = JSON.stringify({ version: 1, values });
           if (Buffer.byteLength(saved) > tricks.max_bytes) throw Error("StoreTooLarge");
           os.atomicWrite(r.file, saved);
           r.kv = values;

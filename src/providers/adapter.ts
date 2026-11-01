@@ -12,6 +12,7 @@ import type { Tokens } from "../usage/live";
 import type { Request as UsageRequest, Result as UsageResult, Tail as UsageTail } from "../usage/worker";
 import type { Request as ObserverRequest, Snapshot } from "./snapshot";
 import type { Runtime } from "../runtime";
+import type { Identity } from "../account_identity";
 /** What the launcher shows about a provider. Corgi opens one per launcher
  * worker and closes it with that worker. */
 export interface Launcher {
@@ -42,6 +43,7 @@ export type Event =
   | { kind: "turn"; session: string; turn: string; phase: "started" }
   | { kind: "turn"; session: string; turn: string; phase: "ended"; outcome: Outcome }
   | { kind: "message"; session: string; text: string }
+  | { kind: "account"; session: string; account: Identity | null }
   | { kind: "activity"; session: string; turn: string; text: string; amend: boolean }
   | { kind: "tool"; session: string; turn: string; id: string; done: boolean; wrote: string[] }
   | { kind: "request"; session: string; id: string; ask: Ask }
@@ -258,6 +260,8 @@ export type Signin = {
 /** How a provider keeps accounts: each in a settings directory of its own,
  * which a variable picks. */
 export type Accounts = {
+  /** The provider reports native account IDs instead of settings-folder identities. */
+  native?: boolean;
   /** The variable that picks the directory. */
   env: string;
   /** The directory it uses when the variable is unset. */

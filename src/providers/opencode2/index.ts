@@ -25,6 +25,7 @@ export const adapter: Adapter = {
     ...["/opt/homebrew/bin", "/usr/local/bin"].map(p => root + p + "/opencode2"),
   ],
   accounts: {
+    native: true,
     env: "XDG_CONFIG_HOME",
     home: env => dirname(configDir(env)),
     prefix: "",

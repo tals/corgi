@@ -878,7 +878,7 @@ export function frame(
         {
           id: `pane:${p.id}`,
           provider: p.agent.provider ?? undefined,
-          account: p.account,
+          account: p.agent.account,
           session: p.agent.session,
           state: p.agent.state,
         },

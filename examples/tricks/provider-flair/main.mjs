@@ -6,7 +6,7 @@ export function register(on, corgi) {
   });
   on("ui:agent.popover", ({ agent, ui }) => {
     const brand = corgi.brand.of(agent.provider);
-    const account = agent.account ? agent.account.split("/").pop() : "Default account";
+    const account = agent.account?.name ?? "Unresolved account";
     ui.color(brand.color);
     ui.append(`!(${brand.icon}) **${brand.name}** · ${corgi.escape(account)}`);
   });

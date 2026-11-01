@@ -13,7 +13,7 @@ For example, give each account a stable color in the sidebar:
 export function register(on, corgi) {
   const accountColor = corgi.palette.map("accounts");
   on("ui:agent.sidebar", async ({ agent, ui }) => {
-    ui.marker(await accountColor([agent.provider, agent.account]));
+    if (agent.account) ui.marker(await accountColor(agent.account.id));
   });
 }
 ```
@@ -86,12 +86,13 @@ this directory. Corgi discovers explicitly installed folders, never code in
 repositories. Set `enabled = false` in a manifest to start disabled unless Settings overrides it.
 Each trick runs once per daemon with its folder as the working directory.
 
-The default account is `""`; other accounts use their canonical config folder.
-`corgi rpc '{"op":"session.snapshot"}'` shows each pane's `account` value.
-Compare that exact value, including resolved symlinks. Labels can change without
-changing account identity. Moving its config folder changes its identity.
-Include the provider when matching a specific account. To color an entire
-agent type, check `agent.provider` in the callback and change matching drawings.
+`agent.account` is `{ id, name, directory }`, or `null` when unresolved.
+Use the opaque `id` directly as a palette key; it already distinguishes harnesses.
+Corgi resolves config folders, including the default profile, and OpenCode's
+native credential IDs. Labels and token refreshes do not change native IDs.
+`directory` is a canonical profile folder or `null` for native accounts.
+`corgi rpc '{"op":"session.snapshot"}'` shows this metadata in each pane's
+`agent.account`. To color an entire agent type, check `agent.provider`.
 
 ## The API
 
@@ -183,10 +184,17 @@ events omit prompts, tool inputs and tool outputs. Transcript records can
 contain that information, but only for explicit transcript subscribers.
 
 An agent has `id` (`pane:3` or `headless:2`), `provider`, `account`, `workspace`,
-`session`, `name`, `state`, `attention`, `activity`, and `completed`.
-`completed` is a decimal string counter; use `BigInt` to compare it. Headless
-agents currently use the default account. Workspace records have `id`, `name`,
-and `cwd`.
+`session`, `name`, `state`, `attention`, `activity`, `env`, and `completed`.
+`completed` is a decimal string counter; use `BigInt` to compare it. Pane and
+headless agents share the same resolved account metadata. Select a headless
+profile with `corgi headless start PROVIDER PROMPT --account DIR`.
+Workspace records have `id`, `name`, and `cwd`.
+
+`agent.env` contains that agent's `CORGI_` variables as public metadata, captured
+when its process is discovered or launched. Other variables, including provider
+API keys, are omitted. Snapshots keep at most 128 entries and 32 KiB; entries
+larger than 4 KiB are omitted. Treat this namespace as visible to installed
+Tricks, including any secrets deliberately placed under it.
 
 The initial subscription supplies a snapshot and/or initial `agent.changed`
 events when registered. Events carry `at` (Unix milliseconds) and `seq`
@@ -206,7 +214,7 @@ export function register(on, corgi) {
   });
 
   on("ui:agent.popover", ({ agent, ui }) => {
-    ui.append(corgi.escape(agent.account || "Default account"));
+    ui.append(corgi.escape(agent.account?.name ?? "Unresolved account"));
   });
 
   on("ui:agent.pane", ({ agent, ui }) => {
@@ -361,7 +369,7 @@ colors, including `string`, `keyword`, `type`, `number` and `property`.
 `const color = corgi.palette.map("accounts")` creates a mapper using the identity
 palette. `await color(key)` returns a color, durably assigning a slot on first use.
 The key can be a string, finite number, boolean, null, or an array of those values.
-Use `[agent.provider, agent.account]` for accounts, not a pane ID or display name.
+Use `agent.account.id` for accounts; skip unresolved accounts.
 Distinct keys take successive slots, cycling after the palette is exhausted.
 Existing assignments never move when other keys appear or disappear.
 
@@ -418,7 +426,7 @@ image cache, so a trick sends only a small reference, never image bytes.
 ## State and resources
 
 Code is the source of truth for fixed preferences. For preferences changed
-at runtime, save a small JSON map keyed by provider and canonical account.
+at runtime, save a small JSON map keyed by `agent.account.id`.
 For counters, read once in registration and save after each change:
 
 ```js
@@ -449,8 +457,11 @@ of trick code. Defaults are 128 MiB combined resident memory, eight processes,
 and 10% of one CPU core with a one-second CPU burst allowance. Exceeding a
 budget stops the trick. These are sampled watchdog limits; brief peaks can
 exceed them between samples. This is trusted local code running with your
-permissions, not an OS sandbox. Async registration and each event's callbacks have five seconds
-to finish.
+permissions, not an OS sandbox. The Trick process inherits `CORGI_` variables
+and basic runtime variables (home, path, locale, timezone, terminal and temporary
+directory), rather than the daemon's full environment. This does not restrict
+file, process, network or Unix socket access. Async registration and each
+event's callbacks have five seconds to finish.
 
 Queues are bounded to 256 events / 1 MiB in the runner and 1 MiB in the daemon
 pipe. Per trick: 256 callbacks, 256 drawings and 64 KiB total UI state, 64 KiB per command and
@@ -465,7 +476,7 @@ JSONL programs.
   and appends its brand icon, adds a popover account note, and shows a pane
   overlay while the agent waits for input.
 - [Account palette](../examples/tricks/account-palette/main.mjs): adds color
-  buttons to the existing agent popover. Choices persist by provider/account
+  buttons to the existing agent popover. Choices persist by account ID
   and recolor every matching sidebar row, including future agents.
 - [Attention radar](../examples/tricks/attention-radar/main.mjs): a snapshot
   becomes a card with buttons to select agents waiting for you, cleared when they resume.
@@ -480,7 +491,7 @@ Other languages can use `command = ["python3", "main.py"]` instead of `entry`.
 It is an argv array launched directly, without a shell. Raw programs own their
 stdin/stdout JSONL loop; stderr is for diagnostics. Only raw command manifests
 accept optional `[subscribe]` and `[config]` tables. The initial message is
-`{"event":"ready","version":1,"config":{},"kv":{}}`. Raw programs default
+`{"event":"ready","version":2,"config":{},"kv":{}}`. Raw programs default
 to no events until they subscribe.
 
 | Operation | Fields |
@@ -498,7 +509,8 @@ Add a string or integer `id` for a reply:
 replies; errors still arrive with `id: null`. Failed commands leave prior
 state intact. Subscriptions replay initial metadata before their reply.
 Raw subscriptions and decorations accept exact-match `where` selectors for
-`id`, `provider`, `account`, `workspace`, `session`, and `state`. Fields combine
+`id`, `provider`, `account`, `workspace`, `session`, and `state`. The `account`
+selector compares `agent.account.id`. Fields combine
 with AND. Snapshot agents are filtered; a change matches either its current
 or previous agent so a consumer sees it leave a filter. Unassociated hooks
 match provider-only filters. Replacing a raw subscription replays its initial
@@ -530,6 +542,10 @@ The core is [trick_runner.ts](../src/trick_runner.ts) (registration and dispatch
 (processes/events/KV), [trick_budget.ts](../src/trick_budget.ts) (watchdog), and
 [trick_ui.ts](../src/trick_ui.ts) (drawing), with
 [trick_style.ts](../src/trick_style.ts) providing palette and brand references.
-Tricks protocol and KV start at version 1. Runtime and viewer protocol 3 remain unchanged: new management
-operations are capability-advertised, and viewer drawings are optional.
+Tricks protocol 2 adds normalized account objects and public environment metadata;
+version 1 programs using account strings must use `account.id` instead and skip
+unresolved accounts. Saved assignments using old account keys need remapping to
+the new IDs. Manifest and KV formats remain at version 1. Runtime and viewer
+protocol 3 remain unchanged: new management operations are capability-advertised,
+and viewer drawings are optional.
 Checkpoints and handoffs carry no trick state; programs rebuild it from KV.

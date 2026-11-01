@@ -8,7 +8,7 @@ import { Rect } from "./layout";
 export type Decoration = Pick<tricks.Decoration, "color" | "marker" | "suffix" | "content">;
 export function decoration(
   views: tricks.View[],
-  agent: Partial<Omit<tricks.Agent, "state">> & { state?: string },
+  agent: tricks.Selection,
   surface: tricks.Surface = "sidebar",
 ): Decoration {
   const result: Decoration = { suffix: [] };

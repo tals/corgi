@@ -24,16 +24,19 @@ test("a sketch manifest only names its entry point", () => {
   ).toThrow("SubscribeInRegister");
 });
 
-test("selectors distinguish default accounts and validate subscription names", () => {
-  const all = tricks.subscription({ events: ["metadata:*"], where: { provider: "claude", account: "" } });
+test("selectors match resolved account IDs and validate subscription names", () => {
+  const account = { id: "claude-default", name: "Default", directory: "/default" };
+  const all = tricks.subscription({ events: ["metadata:*"], where: { provider: "claude", account: account.id } });
   expect(all.events).toEqual([...tricks.metadata_events]);
   expect(tricks.subscription({ events: "transcript" }).events).toEqual(["transcript"]);
   expect(tricks.subscription({ events: ["metadata:*", "transcript"] }).events).toEqual([...tricks.events]);
   expect(() => tricks.subscription({ events: "*" })).toThrow("InvalidEvents");
   expect(() => tricks.subscription({ events: ["*"] })).toThrow("InvalidEvents");
-  expect(tricks.matches(all.where, { provider: "claude", account: "" })).toBe(true);
-  expect(tricks.matches(all.where, { provider: "claude", account: "/company" })).toBe(false);
-  expect(tricks.matches(all.where, { provider: "codex", account: "" })).toBe(false);
+  expect(tricks.matches(all.where, { provider: "claude", account })).toBe(true);
+  expect(tricks.matches(all.where, { provider: "claude", account: { ...account, name: "Renamed" } })).toBe(true);
+  expect(tricks.matches(all.where, { provider: "claude", account: { ...account, id: "company" } })).toBe(false);
+  expect(tricks.matches(all.where, { provider: "claude", account: null })).toBe(false);
+  expect(tricks.matches(all.where, { provider: "codex", account })).toBe(false);
   expect(() => tricks.subscription({ events: ["agent.change"] })).toThrow("InvalidEvents");
   expect(() => tricks.selector({ acount: "" })).toThrow("UnknownField");
   expect(() => tricks.selector({ provider: "missing" })).toThrow("InvalidProvider");
@@ -50,18 +53,19 @@ test("UI rejects terminal controls, oversized text and unknown colors", () => {
 });
 
 test("account rules remain applicable to future agents and compose with provider flourishes", () => {
+  const account = { id: "claude-company", name: "Company", directory: "/company" };
   const views = tricks.views([
     { kind: "decorate", where: { provider: "claude" }, suffix: [{ text: " ✦", color: "warm" }] },
-    { kind: "decorate", where: { provider: "claude", account: "/company" }, marker: "accent", color: "hot" },
+    { kind: "decorate", where: { provider: "claude", account: account.id }, marker: "accent", color: "hot" },
     { kind: "decorate", where: { id: "pane:2" }, color: "strong" },
   ]);
-  expect(trickUi.decoration(views, { id: "pane:2", provider: "claude", account: "/company" })).toEqual({
+  expect(trickUi.decoration(views, { id: "pane:2", provider: "claude", account })).toEqual({
     marker: "accent",
     color: "strong",
     suffix: [{ text: " ✦", color: "warm" }],
   });
-  expect(trickUi.decoration(views, { id: "pane:99", provider: "claude", account: "/company" }).marker).toBe("accent");
-  expect(trickUi.decoration(views, { provider: "claude", account: "" }).marker).toBeUndefined();
+  expect(trickUi.decoration(views, { id: "pane:99", provider: "claude", account }).marker).toBe("accent");
+  expect(trickUi.decoration(views, { provider: "claude", account: null }).marker).toBeUndefined();
 });
 
 test("flat and grouped agent rows retain dim identity markers and brighter focus", () => {

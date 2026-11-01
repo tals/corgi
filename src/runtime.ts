@@ -171,21 +171,26 @@ export class Launch {
     return then?.length ? start + " " + os.shellWords(then) : start;
   }
   /** How the agent at `pid`, which someone started in a pane's shell, starts again. */
-  static observed(provider: Provider, pid: number) {
+  static observed(provider: Provider, pid: number, capture?: (env: [string, string][]) => void) {
     const info = pid > 0 ? os.processArgs(pid, process_buffer, { env: true }) : null,
       found = info?.complete ? locate(info.argv) : null,
+      env =
+        info && found?.provider === provider
+          ? info.environ().flatMap(e => {
+              const at = e.indexOf("=");
+              return at > 0 ? [[e.slice(0, at), e.slice(at + 1)] as [string, string]] : [];
+            })
+          : [],
       kept =
         info && found?.provider === provider
           ? adapter(provider).launch.keep?.({
-              env: info.environ().flatMap(e => {
-                const at = e.indexOf("=");
-                return at > 0 ? [[e.slice(0, at), e.slice(at + 1)] as [string, string]] : [];
-              }),
+              env,
               args: info.argv.slice(found.at),
               flagged: false,
               cwd: "/",
             })
           : null;
+    capture?.(env);
     return new Launch({ provider, args: kept?.args ?? [], env: kept?.env ?? [], observed: true });
   }
   /** How a pane runs it, typed as `typed`. */
@@ -223,6 +228,7 @@ export class Pane {
   /** The account the agent a saved command started reads from its own
    * environment, which can say what the command's text can't. */
   running_account: string | null = null;
+  agent_env: Record<string, string> = {};
   /** The program in front of its shell, "" at a prompt, and its brand. It
    * shows on a second look, so a quick command doesn't flash. */
   command = "";
@@ -241,6 +247,7 @@ export class Pane {
   }
   /** Releases detected identity without losing provisional completion receipts. */
   releaseDetection() {
+    this.agent_env = {};
     const observation = this.attachment.provisional.observation;
     this.attachment.detach();
     this.attachment.provisional.observation = observation;

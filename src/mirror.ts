@@ -7,6 +7,7 @@ import { Model, max_workspaces } from "./layout";
 import * as surface from "./pane/surface";
 import * as resources from "./trackers/resources";
 import * as protocol from "./protocol";
+import * as accountIdentity from "./account_identity";
 import { Stars, type Session as StarredSession } from "./agent_stars";
 import * as viewerVersion from "./viewer_version";
 import { commandEntry, Row } from "./agent_launcher";
@@ -352,6 +353,7 @@ export function acknowledge(o: Observation, through: bigint): void {
 }
 /** protocol.zig's `Agent`, as the snapshot sends it. */
 export interface Agent {
+  account: accountIdentity.Identity | null;
   conversation: number;
   subagents: { running: number; blocked: number; waiting: boolean };
   name: string;
@@ -374,6 +376,7 @@ export interface Agent {
 }
 export function agent(value: any = {}): Agent {
   return {
+    account: accountIdentity.read(value.account),
     conversation: Number(value.conversation ?? 0),
     subagents: {
       running: Number(value.subagents?.running ?? 0),

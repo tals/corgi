@@ -25,6 +25,7 @@ import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { Provider, adapter } from "./providers";
 import type { Login } from "./providers/adapter";
+import type { Identity } from "./account_identity";
 import { atomicWrite } from "./os";
 import * as agentName from "./agent_name";
 import * as agentOptions from "./agent_options";
@@ -92,6 +93,27 @@ export function of(provider: Provider, env: readonly (readonly [string, string])
 /** The folder `account` keeps its settings in. */
 export function directory(provider: Provider, account: string) {
   return account || adapter(provider).accounts.home();
+}
+const descriptions = new Map<string, { at: number; value: Identity }>();
+/** The resolved profile, including the folder behind the daemon's default. */
+export function describe(provider: Provider, account: string): Identity | null {
+  if (adapter(provider).accounts.native) return null;
+  const dir = account || home(provider),
+    id = JSON.stringify([provider, dir]),
+    found = descriptions.get(id),
+    now = Date.now();
+  if (!dir) return null;
+  if (found && now - found.at < 5000) return found.value;
+  const value = {
+    id,
+    name: (account ? label(provider, account) : defaultName(provider) || basename(dir))
+      .replace(/[\x00-\x1f\x7f-\x9f]/g, "")
+      .slice(0, 160),
+    directory: dir,
+  };
+  if (descriptions.size >= 256) descriptions.delete(descriptions.keys().next().value!);
+  descriptions.set(id, { at: now, value });
+  return value;
 }
 let homes: [string, string] = ["", ""];
 /** The folder `account` keeps its settings in, under `~` when it's in the
@@ -649,6 +671,7 @@ function make(provider: Provider, dir: string) {
 /** Forgets what `known` and `home` read, after the environment changes. */
 export function reset() {
   defaults.clear();
+  descriptions.clear();
   saved = null;
   found = null;
   gone = null;

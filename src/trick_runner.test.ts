@@ -5,7 +5,8 @@ import * as tricks from "./tricks";
 const agent: tricks.Agent = {
   id: "pane:1",
   provider: "claude",
-  account: "",
+  account: { id: "claude-default", name: "Default", directory: "/profiles/default" },
+  env: {},
   workspace: 1,
   session: "one",
   name: "Agent",
@@ -24,7 +25,7 @@ function harness(register: Trick["register"]) {
     error => failures.push(error.message),
   );
   const receive = (value: object) => runner.receive(JSON.stringify(value));
-  receive({ event: "ready", version: 1 });
+  receive({ event: "ready", version: tricks.version });
   return { sent, failures, runner, receive };
 }
 

@@ -18,6 +18,10 @@ import * as binary from "../base64";
 import * as json from "../json";
 import * as worktrees from "../worktrees";
 import * as breadcrumbs from "../breadcrumbs";
+import * as accounts from "../accounts";
+import * as agentEnv from "../agent_env";
+import * as accountIdentity from "../account_identity";
+import { shellWords } from "../os";
 import { validateCheckpoint } from "./schema";
 import { testBuild } from "../build_assets";
 
@@ -145,6 +149,7 @@ export type Repairs = { what?: string; repairs?: string[]; strict?: boolean };
 export function restoreBinding(registry: Registry, value: any, live: boolean, how: Repairs = {}): Attachment {
   const binding = new Attachment(),
     agent = hydrate(new Agent(), value.provisional ?? {});
+  agent.account = accountIdentity.read(agent.account);
   check(agent.observation.read > agent.observation.completed, () => "a binding read more turns than finished");
   check((value.known?.length ?? 0) > 256, () => `a binding knows ${value.known.length} conversations, over 256`);
   binding.provisional = agent;
@@ -223,6 +228,7 @@ export function capture(r: Runtime, live: boolean) {
         detection: live ? p.detection : new Tracker(),
         resume_hint: p.resume_hint,
         launch: p.launch,
+        agent_env: p.agent_env,
         dormant: p.dormant,
       };
     }),
@@ -374,6 +380,7 @@ export async function restore(
   for (const entry of r.agent_commands) entry.semantics.nameModel();
   for (const saved of state.conversations ?? []) {
     const agent = hydrate(new Agent(), saved.agent);
+    agent.account = accountIdentity.read(agent.account);
     check(
       !saved.id || saved.id >= (state.next_conversation ?? 1),
       () => `conversation ${saved.id} isn't between 1 and next_conversation ${state.next_conversation ?? 1}`,
@@ -431,6 +438,7 @@ export async function restore(
     check(!r.workspaces.owner(p.id), () => `pane ${p.id} isn't in any workspace's layout`);
     check(!isAbsolute(p.cwd), () => `pane ${p.id}'s folder isn't an absolute path`);
     const pane = new Pane(p.id, Screen.restore(p.screen, live), p.cwd);
+    pane.agent_env = agentEnv.read(Object.entries(p.agent_env ?? {}));
     pane.label = p.label ?? "";
     pane.attachment = restoreBinding(r.conversations, p.binding, live, { what: `pane ${p.id}`, repairs, strict });
     pane.detection = live ? hydrate(new Tracker(), p.detection) : new Tracker();
@@ -494,6 +502,9 @@ export async function restore(
         executable,
       });
       const p = r.pane(id)!;
+      const account = n.account ?? "",
+        env = accounts.env(n.provider, account);
+      p.launch = new Launch({ provider: n.provider, env });
       p.resume_hint = hydrate(new ResumeHint(), n.resume_hint);
       p.attachment = restoreBinding(r.conversations, n.binding, false, { what: `pane ${id}`, repairs });
       for (const { event } of n.events) {
@@ -501,7 +512,10 @@ export async function restore(
         p.terminal.feed(`${kind} ${json.stringify(rest)}`.replace(/[\x00-\x1f\x7f]/g, " ") + "\r\n");
       }
       p.terminal.feed(p.resume_hint.banner(Math.trunc(Date.now() / 1000)));
-      p.terminal.prefill(p.resume_hint.command());
+      const command = p.resume_hint.attach(account) ?? p.launch.typed(p.resume_hint.args(account), p.resume_hint);
+      p.terminal.prefill(
+        (env.length ? shellWords(["env", ...env.map(([key, value]) => `${key}=${value}`)]) + " " : "") + command,
+      );
     }
   }
   breadcrumbs.restore(state.breadcrumbs);

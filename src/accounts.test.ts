@@ -65,6 +65,18 @@ test("an account is its settings folder, and the default's is none", () => {
   expect(accounts.env("claude", "")).toEqual([]);
 });
 
+test("public identities include resolved default folders and keep native accounts separate", () => {
+  const dir = join(home, ".claude");
+  expect(accounts.describe("claude", "")).toEqual({
+    id: JSON.stringify(["claude", dir]),
+    name: ".claude",
+    directory: dir,
+  });
+  expect(accounts.describe("claude", accounts.normalize("claude", dir))?.id).toBe(accounts.describe("claude", "")?.id);
+  expect(accounts.describe("codex", dir)?.id).not.toBe(accounts.describe("claude", "")?.id);
+  expect(accounts.describe("opencode2", "/different-config")).toBeNull();
+});
+
 test("Omarchy's accounts show under their labels, and a folder named like one doesn't", async () => {
   signIn(join(home, ".claude-work"), "me@work.com");
   const side = join(home, ".local", "state", "omarchy", "agents", "accounts", "claude", "side");

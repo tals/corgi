@@ -1106,7 +1106,7 @@ export class Controller {
               decoration: trickUi.decoration(this.runtime.tricks, {
                 id: `pane:${p.id}`,
                 provider: p.agent.provider ?? undefined,
-                account: p.account,
+                account: p.agent.account,
                 workspace: ws.id,
                 session: p.agent.session,
                 state: p.agent.state,
@@ -1140,7 +1140,7 @@ export class Controller {
           decoration: trickUi.decoration(this.runtime.tricks, {
             id: `headless:${session.id}`,
             provider: session.provider,
-            account: "",
+            account: session.agent?.account,
             workspace: ws.id,
             session: session.session,
             state: session.state,

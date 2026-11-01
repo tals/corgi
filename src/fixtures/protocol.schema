@@ -337,6 +337,7 @@ $.requests|headless.start.prompt: string
 $.requests|headless.start.cwd: string
 $.requests|headless.start.workspace: optional
 $.requests|headless.start.workspace?: u32
+$.requests|headless.start.account: string
 $.requests|headless.list: {}
 $.requests|headless.stop.provider: provider
 $.requests|headless.stop.session: string
@@ -520,6 +521,11 @@ $.snapshot.conversations[].agent.session: string
 $.snapshot.conversations[].agent.transcript: string
 $.snapshot.conversations[].agent.activity: string
 $.snapshot.conversations[].agent.cwd: string
+$.snapshot.conversations[].agent.account: optional
+$.snapshot.conversations[].agent.account?.id: string
+$.snapshot.conversations[].agent.account?.name: string
+$.snapshot.conversations[].agent.account?.directory: optional
+$.snapshot.conversations[].agent.account?.directory?: string
 $.snapshot.conversations[].agent.tool_active: bool
 $.snapshot.conversations[].agent.compacting: bool
 $.snapshot.conversations[].agent.compacting_since: i64
@@ -781,6 +787,11 @@ $.snapshot.panes[].agent.session: string
 $.snapshot.panes[].agent.transcript: string
 $.snapshot.panes[].agent.activity: string
 $.snapshot.panes[].agent.cwd: string
+$.snapshot.panes[].agent.account: optional
+$.snapshot.panes[].agent.account?.id: string
+$.snapshot.panes[].agent.account?.name: string
+$.snapshot.panes[].agent.account?.directory: optional
+$.snapshot.panes[].agent.account?.directory?: string
 $.snapshot.panes[].agent.tool_active: bool
 $.snapshot.panes[].agent.compacting: bool
 $.snapshot.panes[].agent.compacting_since: i64
@@ -811,6 +822,11 @@ $.snapshot.headless_sessions[].agent?.session: string
 $.snapshot.headless_sessions[].agent?.transcript: string
 $.snapshot.headless_sessions[].agent?.activity: string
 $.snapshot.headless_sessions[].agent?.cwd: string
+$.snapshot.headless_sessions[].agent?.account: optional
+$.snapshot.headless_sessions[].agent?.account?.id: string
+$.snapshot.headless_sessions[].agent?.account?.name: string
+$.snapshot.headless_sessions[].agent?.account?.directory: optional
+$.snapshot.headless_sessions[].agent?.account?.directory?: string
 $.snapshot.headless_sessions[].agent?.tool_active: bool
 $.snapshot.headless_sessions[].agent?.compacting: bool
 $.snapshot.headless_sessions[].agent?.compacting_since: i64
@@ -824,6 +840,7 @@ $.snapshot.headless_sessions[].id: u32
 $.snapshot.headless_sessions[].session: string
 $.snapshot.headless_sessions[].workspace: u32
 $.snapshot.headless_sessions[].provider: provider
+$.snapshot.headless_sessions[].account: string
 $.snapshot.headless_sessions[].cwd: string
 $.snapshot.headless_sessions[].ready: bool
 $.snapshot.headless_sessions[].exited: bool

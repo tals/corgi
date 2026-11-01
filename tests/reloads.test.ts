@@ -355,11 +355,14 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
     await this.until(async () => (await this.screen(first)).includes("PASTE_SURVIVED"));
   }
   async test_headless_session_retains_pid_approvals_and_transport() {
+    const account = join(realpathSync(this.temp.name), "headless-account");
+    mkdirSync(account);
     const session = (
       await this.rpc({
         op: "headless.start",
         prompt: "test/init",
         provider: "codex",
+        account,
         cwd: this.temp.name,
       })
     ).session;
@@ -379,6 +382,8 @@ m.summaries.launches = { codex: 7, claude: 4, latest: 'claude' };
       before.pending_requests,
     );
     this.assertEqual((await this.rpc({ op: "headless.list" })).sessions[0].pid, pid);
+    this.assertEqual((await this.rpc({ op: "headless.list" })).sessions[0].account, account);
+    this.assertEqual((await this.session()).headless_sessions[0].account, account);
     await this.headless_answer(session, "codex");
     await this.until(async () => (await this.rpc({ op: "headless.list" })).sessions[0].pending_requests === 0);
     await this.headless_command(session, "test/exit");
@@ -612,11 +617,14 @@ process.stdin.resume();
   async test_headless_cold_recovery_displays_resume_without_starting_agent() {
     this.env.SHELL = "/bin/bash";
     await this.restart_runtime();
+    const account = join(realpathSync(this.temp.name), "headless-account");
+    mkdirSync(account);
     const ident = (
       await this.rpc({
         op: "headless.start",
         prompt: "test/init",
         provider: "codex",
+        account,
         cwd: this.temp.name,
       })
     ).session;
@@ -628,11 +636,14 @@ process.stdin.resume();
     const sessions = (await this.rpc({ op: "headless.list" })).sessions;
     this.assertTrue(sessions[0].exited);
     this.assertEqual(sessions[0].pid, -1);
+    this.assertEqual(sessions[0].account, account);
     this.assertEqual((await this.session()).panes.length, 1);
     const pane = (await this.session()).panes[0].id;
     await this.until(async () => (await this.screen(pane)).includes("codex resume t"));
     const text = await this.screen(pane);
     this.assertIn("codex resume t", text);
+    this.assertIn("CODEX_HOME=", text);
+    this.assertEqual((await this.session()).panes[0].account, account);
     this.assertIn("requestApproval", text);
   }
   async test_missing_directory_and_removed_socket_directory_do_not_lose_recovery() {

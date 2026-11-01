@@ -28,7 +28,7 @@ entry = "main.mjs"
 export function register(on, corgi) {
   const accountColor = corgi.palette.map("accounts");
   on("ui:agent.sidebar", async ({ agent, ui }) => {
-    ui.marker(await accountColor([agent.provider, agent.account]));
+    if (agent.account) ui.marker(await accountColor(agent.account.id));
   });
 }
 ```
@@ -86,7 +86,7 @@ Use `corgi.palette` tokens (`accent`, `warm`, `text`, `muted`, `bg`, etc.),
 `corgi.brand.of(agent.provider)` returns `{name, color, icon}` using bundled brands.
 
 For automatic category colors, use `const color = corgi.palette.map("accounts")`
-then `await color([agent.provider, agent.account])`. The default
+then `await color(agent.account.id)`. The default
 `corgi.palette.identity` has five syntax hues, separate from status colors.
 Distinct keys get successive slots, cycling after all colors are used; the same
 key keeps its slot across agents, reloads and restarts. Keys are strings, finite
@@ -103,18 +103,23 @@ within the same 64 KiB KV budget.
 
 ## Save account preferences
 
-`agent.account` is the canonical config folder; the default account is `""`.
-Key by both provider and account, never by display name or pane ID. Inspect
-`corgi rpc '{"op":"session.snapshot"}'` for the exact account value.
+`agent.account` is `{ id, name, directory }` or `null` when unresolved.
+Use `agent.account.id` as the key; Corgi resolves harness identity, default
+folders and native OpenCode credentials. `directory` is nullable. Inspect
+the pane's `agent.account` in `corgi rpc '{"op":"session.snapshot"}'`.
+`agent.env` exposes only that agent's `CORGI_` variables; account discovery
+does not require reading environment variables or files in a Trick.
 
 ```js
 export async function register(on, corgi) {
   const colors = await corgi.get("colors", {});
-  const key = agent => JSON.stringify([agent.provider, agent.account]);
+  const key = agent => agent.account.id;
   on("ui:agent.sidebar", ({ agent, ui }) => {
+    if (!agent.account) return;
     if (colors[key(agent)]) ui.marker(colors[key(agent)]);
   });
   on("ui:agent.popover", ({ agent, ui }) => {
+    if (!agent.account) return;
     ui.append(ui.button("Warm", async () => {
       const next = { ...colors, [key(agent)]: corgi.palette.warm };
       await corgi.set("colors", next);

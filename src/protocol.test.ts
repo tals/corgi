@@ -386,6 +386,10 @@ test("a pick names a unit and a cell, with an optional drag end", () => {
 });
 
 test("headless commands require provider session IDs and a first prompt", () => {
+  expect(
+    protocol.decode("headless.start", { provider: "claude", prompt: "work", account: "/profiles/vertex" }).account,
+  ).toBe("/profiles/vertex");
+  expect(protocol.decode("headless.start", { provider: "claude", prompt: "work" }).account).toBe("");
   expect(() => protocol.decode("headless.start", { provider: "codex" })).toThrow("MissingField");
   expect(() => protocol.decode("headless.stop", { provider: "codex", session: 1 })).toThrow("UnexpectedToken");
   expect(() => protocol.decode("headless.stop", { session: "t" })).toThrow("MissingField");

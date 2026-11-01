@@ -2,8 +2,9 @@ import * as palette from "./palette";
 import { Provider } from "./providers";
 import type { State, Attention } from "./agents";
 import * as process_name from "./process_name";
+import type { Identity } from "./account_identity";
 
-export const version = 1;
+export const version = 2;
 export const max_bytes = 65536;
 export const max_views = 256;
 export type Color =
@@ -15,7 +16,8 @@ export type Color =
 export interface Agent {
   id: string;
   provider: Provider;
-  account: string;
+  account: Identity | null;
+  env: Record<string, string>;
   workspace: number;
   session: string;
   name: string;
@@ -24,7 +26,12 @@ export interface Agent {
   activity: string;
   completed: string;
 }
-export type Selector = Partial<Pick<Agent, "id" | "provider" | "account" | "workspace" | "session" | "state">>;
+export type Selector = Partial<Pick<Agent, "id" | "provider" | "workspace" | "session" | "state">> & {
+  account?: string;
+};
+export type Selection = Partial<Omit<Agent, "state">> & {
+  state?: string;
+};
 export interface Snapshot {
   agents: Agent[];
   workspaces: { id: number; name: string; cwd: string }[];
@@ -138,8 +145,10 @@ export function selector(value: unknown = {}): Selector {
   }
   return out;
 }
-export function matches(where: Selector, agent: Partial<Omit<Agent, "state">> & { state?: string }): boolean {
-  return Object.entries(where).every(([k, v]) => agent[k as keyof Agent] === v);
+export function matches(where: Selector, agent: Selection): boolean {
+  return Object.entries(where).every(
+    ([k, v]) => (k === "account" ? agent.account?.id : agent[k as keyof Selector]) === v,
+  );
 }
 export function subscription(value: unknown): Subscription {
   const source = object(value);

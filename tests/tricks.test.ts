@@ -13,7 +13,7 @@ import {
 import { join } from "node:path";
 import { Runtime, screen_text } from "./runtime";
 import { EXE, ROOT, registerCase, quote } from "./support";
-import { write_ordinary_agent } from "./provider_sim";
+import { NATIVE_PROVIDER, write_executable, write_ordinary_agent } from "./provider_sim";
 import * as trickUi from "../src/trick_ui";
 import * as palette from "../src/palette";
 
@@ -26,6 +26,8 @@ class Tricks extends Runtime {
     this.company = join(this.temp.name, "company");
     write_ordinary_agent(join(this.temp.name, "bin", "claude"));
     write_ordinary_agent(join(this.temp.name, "bin", "codex"));
+    mkdirSync(this.env.CLAUDE_CONFIG_DIR!, { recursive: true });
+    mkdirSync(this.env.CODEX_HOME!, { recursive: true });
     mkdirSync(this.company, { recursive: true });
     this.company = realpathSync(this.company);
     cpSync(join(ROOT, "examples/tricks"), this.root, { recursive: true });
@@ -87,6 +89,67 @@ class Tricks extends Runtime {
         `Missing ${text}:\n${screen_text((await this.client!.poll()).data).join("\n")}\n${JSON.stringify(await this.rpc({ op: "tricks.list" }))}\n${readFileSync(join(this.temp.name, "server.log"), "utf8")}`,
       );
     }
+  }
+  async test_headless_accounts_reach_the_provider_and_trick_metadata() {
+    const record = join(this.temp.name, "headless-account.json"),
+      alias = join(this.temp.name, "company-alias");
+    symlinkSync(this.company, alias);
+    for (const provider of ["claude", "codex"] as const) {
+      const variable = provider === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
+      write_executable(
+        this.env[provider === "claude" ? "CORGI_CLAUDE_BIN" : "CORGI_CODEX_BIN"]!,
+        NATIVE_PROVIDER.replace(
+          "const claude =",
+          `await Bun.write(${JSON.stringify(record)} + "." + process.pid, JSON.stringify(process.env[${JSON.stringify(variable)}]));\nconst claude =`,
+        ),
+      );
+      await this.rpc({ op: "headless.start", provider, prompt: "test/init", cwd: this.temp.name, account: alias });
+      const session = (await this.rpc({ op: "headless.list" })).sessions.find((s: any) => s.provider === provider);
+      await this.until(() => existsSync(record + "." + session.pid));
+      this.assertEqual(JSON.parse(readFileSync(record + "." + session.pid, "utf8")), this.company);
+      this.assertEqual(session.account, this.company);
+    }
+    const store = this.path + ".settings.json.tricks/account-colors.json";
+    await this.until(() => {
+      if (!existsSync(store)) return false;
+      const keys = JSON.parse(readFileSync(store, "utf8")).values["palette.accounts"]?.keys ?? [];
+      return ["claude", "codex"].every(provider =>
+        keys.includes(JSON.stringify(JSON.stringify([provider, this.company]))),
+      );
+    });
+  }
+  async test_agent_environment_is_public_metadata_and_tricks_do_not_inherit_secrets() {
+    this.env.CORGI_TEST_VALUE = "from-daemon";
+    this.env.TRICK_TEST_SECRET = "daemon-secret";
+    await this.restart_runtime();
+    await this.sketch(`export async function register(on, corgi) {
+      await corgi.set("process", { public: process.env.CORGI_TEST_VALUE, secret: process.env.TRICK_TEST_SECRET ?? null });
+      on("ui:agent.sidebar", async ({ agent }) => { await corgi.set("agent", agent); });
+    }`);
+    const { pane } = await this.open_pane({
+      cwd: this.temp.name,
+      command:
+        "CORGI_TEST_VALUE=from-agent ANTHROPIC_API_KEY=agent-secret " + quote(join(this.temp.name, "bin", "claude")),
+    });
+    const store = this.path + ".settings.json.tricks/probe.json";
+    const values = await this.until(() => {
+      if (!existsSync(store)) return null;
+      const values = JSON.parse(readFileSync(store, "utf8")).values;
+      return values.agent?.id === `pane:${pane}` && values.agent.env.CORGI_TEST_VALUE === "from-agent" ? values : null;
+    });
+    this.assertEqual(values.process, { public: "from-daemon", secret: null });
+    this.assertEqual(values.agent.env.ANTHROPIC_API_KEY, undefined);
+    this.assertEqual(values.agent.env.TRICK_TEST_SECRET, undefined);
+    this.assertEqual(values.agent.account.directory, realpathSync(this.env.CLAUDE_CONFIG_DIR!));
+    this.assertNotIn("daemon-secret", JSON.stringify(values));
+    this.assertNotIn("agent-secret", JSON.stringify(values));
+    await this.rpc({ op: "headless.start", provider: "codex", prompt: "test/init", cwd: this.temp.name });
+    const headless = await this.until(() => {
+      const agent = JSON.parse(readFileSync(store, "utf8")).values.agent;
+      return agent?.id === "headless:1" && agent.env.CORGI_TEST_VALUE === "from-daemon" ? agent : null;
+    });
+    this.assertEqual(headless.account.directory, realpathSync(this.env.CODEX_HOME!));
+    this.assertEqual(headless.env.TRICK_TEST_SECRET, undefined);
   }
   records() {
     const path = join(this.root, "probe/events.jsonl");
@@ -425,7 +488,9 @@ export async function register(on, corgi) {
     await this.agent("Company again", true);
     await this.client!.focus(personal);
     const store = this.path + ".settings.json.tricks/account-colors.json";
-    const expected = ["", this.company, realpathSync(folder)].map(account => JSON.stringify(["claude", account]));
+    const expected = [realpathSync(this.env.CLAUDE_CONFIG_DIR!), this.company, realpathSync(folder)].map(account =>
+      JSON.stringify(JSON.stringify(["claude", account])),
+    );
     const assignments = () => JSON.parse(readFileSync(store, "utf8")).values["palette.accounts"].keys;
     const shown = async () => {
       const data = (await this.client!.poll()).data;

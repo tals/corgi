@@ -9,6 +9,7 @@ import type { Location } from "../worktrees";
 import type { Tokens } from "../usage/live";
 import type { Reading } from "../usage/context_window";
 import type { Model } from "./model";
+import type { Identity } from "../account_identity";
 export class Name extends BoundedText(160) {}
 export class Role extends BoundedText(80) {}
 export class Turn extends BoundedText(128) {}
@@ -34,6 +35,7 @@ export class Snapshot {
   lifecycle = true;
   model = "";
   model_info: Model | null = null;
+  account: Identity | null = null;
   tool_active: boolean | null = null;
   /** Whether the provider reports an active compaction; null when it can't tell. */
   compacting: boolean | null = null;

@@ -438,13 +438,32 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     case "headless": {
       const op = args[1];
       if (op === "start") {
-        if (args.length !== 4 && (args.length !== 6 || args[4] !== "--workspace")) throw Error("Usage");
+        if (args.length < 4 || args.length % 2) throw Error("Usage");
+        let workspace: number | null = null,
+          account: string | undefined;
+        for (let i = 4; i < args.length; i += 2) {
+          const value = args[i + 1];
+          if (!value || value.startsWith("--")) throw Error("Usage");
+          switch (args[i]) {
+            case "--workspace":
+              if (workspace !== null || !/^[1-9]\d*$/.test(value)) throw Error("Usage");
+              workspace = Number(value);
+              break;
+            case "--account":
+              if (account !== undefined) throw Error("Usage");
+              account = resolve(value);
+              break;
+            default:
+              throw Error("Usage");
+          }
+        }
         await ensureServer(path);
         await print(path, "headless.start", {
           provider: provider(args[2]),
           prompt: args[3],
           cwd: process.cwd(),
-          workspace: args[5] ? Number(args[5]) : null,
+          workspace,
+          ...(account !== undefined ? { account } : {}),
         });
       } else if (op === "list") await print(path, "headless.list");
       else if ((op === "stop" && args.length === 4) || (op === "events" && (args.length === 4 || args.length === 5)))

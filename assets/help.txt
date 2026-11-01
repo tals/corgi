@@ -18,7 +18,7 @@ corgi — a small Ghostty-powered agent terminal
   corgi account COMMAND         list, add, login, remove provider accounts
   corgi which claude|codex      show automatically selected executable
   corgi keys [PRESET]           list shortcuts: corgi, tmux, herdr, cmux
-  corgi headless start PROVIDER PROMPT [--workspace ID]
+  corgi headless start PROVIDER PROMPT [--workspace ID] [--account DIR]
   corgi headless list              list headless sessions
   corgi headless send PROVIDER SESSION JSON   prompt, answer or interrupt
   corgi headless events PROVIDER SESSION [SEQ]   journal + pending requests
