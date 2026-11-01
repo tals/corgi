@@ -9,8 +9,8 @@ test -f "$fixture"
 mkdir "$output"
 mkdir -p "$output/preflight" "$output/timed/sources"
 
-bun -e 'import {packages} from "./scripts/tooling";
-const [path]=await packages("format",{prettier:"3.9.9"});
+bun -e 'import {dependency} from "./scripts/tooling";
+const path=await dependency("prettier");
 const child=Bun.spawn([process.execPath,path+"/bin/prettier.cjs","--write","tools/benchmarks/viewer_exchange_costs.ts"],{stdout:"inherit",stderr:"inherit"});
 process.exit(await child.exited);' > "$output/format.log" 2>&1
 bun -e 'import {packages} from "./scripts/tooling";
