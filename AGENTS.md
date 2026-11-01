@@ -133,13 +133,15 @@ Write Zig the way Ghostty does. Keep the native boundary small: plain
 functions over FFI, JSON or fixed-size buffers across it, and no policy that
 belongs in TypeScript.
 
-## Commit messages
+## Commit and PR messages
 
-Write for someone skimming `git log`: a subject, then a few short paragraphs
-of plain sentences.
+Write for someone deciding what changed and why they care. The message's
+length follows the idea, not the size of the diff. A large redesign may need
+only three capability bullets; a subtle fix may need a concrete example.
 
-**Subject.** `area: summary`, lowercase after the colon, no period. The area is
-a subsystem, such as `protocol`, `viewer`, `daemon`, `sidebar`, `launcher`,
+**Subject.** `area: summary`, start with a lowercase verb, no period. Preserve
+names and acronyms such as Ghostty and CLI. The area is a subsystem, such as
+`protocol`, `viewer`, `daemon`, `sidebar`, `launcher`,
 `claude`, `codex`, `inference`, `resources`, `saved-state`, `native`, `tests`,
 `build` or `docs`. A change that spans several takes the one it affects most,
 never `refactor`. Write the summary as an imperative:
@@ -149,9 +151,8 @@ viewer: size shared panes for the last-used viewer
 build: skip the native layer with --no-native
 ```
 
-Polish to one part of something says it is polish, and to which part. Its
-details are small and several, and a subject that names some of them reads
-like a feature and leaves the rest out; the body can list them:
+Name the overall change, not a selection of its details. For polish, say
+which part is being polished; leave the individual adjustments to the body:
 
 ```
 site: touchup to review section
@@ -163,26 +164,60 @@ not
 site: review moonlander's thrusters with the rest dimmed
 ```
 
-**Body.** Say how it was and what was wrong with that. Then start a new
-paragraph with how it is now, and stop there. Name the component ("The
-daemon used to send…"), not "we". Keep each paragraph to a few short lines;
-when one runs long, cut detail rather than packing it tighter.
+**Choose the shape.** A short paragraph is usually enough. Use a few short
+bullets for independent capabilities or visible changes. Use before/after
+paragraphs when the old behavior explains the fix. These are options, not a
+template: don't manufacture an "it couldn't do X" preamble for every feature,
+repeat the subject in the body, or add headings to a small change.
 
-Keep only what a reader needs to follow the change. Leave out:
-- how the old or the new code works; the diff shows that
-- counts and sizes: files, call sites, tests, casts, bytes
-- lists of the files or functions touched
-- identifiers nobody will type (keep flags, ops, env vars)
-- the problem restated as a benefit
-- the same point said twice
+**Choose what earns space.**
 
-When it makes the change concrete, quote one thing the user saw, such as the
-text "5h 12% / 7d 48%".
+- Lead with the behavior, capability or reason for the change. For a bug,
+  give the trigger and symptom; one recognizable example often explains more
+  than the internal failure chain. Keep the reason a behavior was wrong:
+  a workspace root chosen by the user should not move when tabs are reordered.
+- Write at the level of the change. A UI redesign needs its main capabilities;
+  stop before expanding each into controls, defaults and supporting fixes.
+  A new authoring model or native boundary may need its mechanism. Keep the
+  detail that explains how contributors use or extend it, or why a surprising
+  choice was necessary. Keep what establishes a capability, such as where a
+  new platform is built and tested; the diff can carry the rest.
+- Keep a shortcut, command, language list, visible label or limit when it makes
+  the main change concrete. These are candidates, not a checklist. For a tool,
+  give the shortest complete workflow for what you advertise, or link to it.
+  A compact walkthrough can earn its space; secondary options and per-viewer
+  bookkeeping usually belong in docs.
+- Cut whole secondary facts before shortening sentences. Packing every detail
+  into fewer words still produces a changelog. Supporting fixes, defensive
+  cases, caches and cleanup usually belong under the main idea, not in the
+  message as extra accomplishments.
+- Use ordinary words and concrete subjects. Say "gray", not a palette token,
+  unless the token itself matters. Skip file/function inventories, test totals,
+  implementation counts, stock assurances and a closing sentence that restates
+  the benefit. Don't invent motivation, results or a personal anecdote.
 
-**Compatibility.** When something crosses a boundary (the wire protocol, the
-viewer protocol, checkpoints, handoffs or preferences), a final paragraph says
-exactly which version changed and whether there is a migration, or that none
-changed and why. Say "unchanged" only where a reader would wonder.
+**Compatibility.** Include actual version changes, required migrations and
+material effects on older clients or saved state. Name the affected boundary
+and what happens, briefly. An additive field can matter; list it when a reader
+needs to understand its default or how older code handles it. Don't append a
+roll call of unchanged wire, viewer, checkpoint and handoff versions just
+because the code touches them. Explain an unchanged version only when the
+change would otherwise leave a real compatibility question.
+
+**PRs.** Use the same title and core description as the intended commit. Add
+only what helps review or try the change: a screenshot, runnable example,
+material limitation or concise verification. Usually a `Tested: ...` line is
+enough; include failures or checks not run when they affect confidence. Don't
+add Summary / Changes / Validation / Compatibility sections by habit, or a
+list of every test and edge case. Larger explanations can link to docs or a
+report. State results for the current change, not an earlier revision.
+
+**Before sending.** Read the message without the diff. Can a reader identify
+the main change and its reason or use? Does each remaining detail change that
+understanding or help them use or review it? Remove the rest. If scope changed,
+rewrite the description around the final result; don't narrate abandoned
+approaches, review rounds or the work session. For a squash, write one message
+for the whole change rather than concatenate the branch's commit messages.
 
 **One logical change per commit.** A fix or feature is one commit even when it
 touches several components; don't split it by component. Split unrelated
