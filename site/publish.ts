@@ -4,18 +4,12 @@
  * Other paths go straight to the release bucket, install.sh among them.
  */
 import { join } from "node:path";
-import * as tooling from "../scripts/tooling.ts";
 
-const run = (argv: string[]) => Bun.spawnSync(argv, { stdin: "inherit", stdout: "inherit", stderr: "inherit" }).success;
+const run = (argv: string[]) =>
+  Bun.spawnSync(argv, { cwd: join(import.meta.dir, ".."), stdin: "inherit", stdout: "inherit", stderr: "inherit" })
+    .success;
 if (!run([process.execPath, join(import.meta.dir, "build.ts")])) process.exit(1);
-const [wrangler] = await tooling.packages("deploy", { wrangler: "4.148.0" });
-const deploy = [
-  process.execPath,
-  join(wrangler, "bin", "wrangler.js"),
-  "deploy",
-  "--config",
-  join(import.meta.dir, "wrangler.jsonc"),
-];
+const deploy = [process.execPath, "run", "wrangler", "deploy", "--config", join(import.meta.dir, "wrangler.jsonc")];
 if (!run([...deploy, ...process.argv.slice(2)])) process.exit(1);
 if (process.argv.includes("--dry-run")) process.exit(0);
 

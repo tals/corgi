@@ -26,5 +26,10 @@
     "fs/promises": "./site/browser/fs.ts",
     "zlib": "./site/browser/zlib.ts"
   },
-  "dependencies": { "@earendil-works/pi-tui": "1.0.4" }
+  "dependencies": {
+    "@earendil-works/pi-tui": "1.0.4"
+  },
+  "devDependencies": {
+    "wrangler": "^4.156.0"
+  }
 }
