@@ -7,7 +7,11 @@ export const version = 1;
 export const max_bytes = 65536;
 export const max_views = 256;
 export type Color =
-  palette.Token | `#${string}` | { brand: process_name.Brand } | { mix: [Color, Color]; amount: number };
+  | palette.Token
+  | `#${string}`
+  | { brand: process_name.Brand }
+  | { syntax: palette.Syntax }
+  | { mix: [Color, Color]; amount: number };
 export interface Agent {
   id: string;
   provider: Provider;
@@ -152,6 +156,12 @@ export function color(value: unknown, depth = 0): Color | undefined {
   if (depth > 4) throw Error("ColorTooDeep");
   if (value && typeof value === "object") {
     const source = object(value);
+    if (source.syntax !== undefined) {
+      fields(source, ["syntax"]);
+      if (typeof source.syntax !== "string" || !Object.hasOwn(palette.syntax, source.syntax))
+        throw Error("InvalidSyntaxColor");
+      return { syntax: source.syntax as palette.Syntax };
+    }
     if (source.brand !== undefined) {
       fields(source, ["brand"]);
       const brand = process_name.brand(source.brand);

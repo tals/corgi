@@ -140,6 +140,9 @@ the viewer that pressed them. `trick_markup.ts` parses bounded inline
 text and bundled icon references. `trick_style.ts` exposes symbolic palette
 colors, blends and brand references; viewers resolve them in their own themes
 and reuse the tab-logo image cache.
+`trick_palette.ts` maps stable keys to palette slots, caching lookups and
+persisting new assignments in the trick's KV store. Identity colors use the
+viewer's syntax palette, apart from UI status colors.
 Metadata is the default stream; transcripts require explicit opt-in and tap
 the existing usage reader without another watcher. Pane content is never sent.
 Viewers receive an optional `tricks` field; protocol 3 and saved formats are

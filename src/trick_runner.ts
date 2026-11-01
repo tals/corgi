@@ -5,6 +5,7 @@ import * as tricks from "./tricks";
 import * as style from "./trick_style";
 import * as markup from "./trick_markup";
 import * as elements from "./trick_elements";
+import * as trickPalette from "./trick_palette";
 
 export interface Drawing {
   kind: "overlay";
@@ -25,7 +26,7 @@ export interface UiContext {
   ui: Ui;
 }
 export interface Corgi {
-  readonly palette: typeof style.palette;
+  readonly palette: typeof style.palette & { map: ReturnType<typeof trickPalette.maps> };
   readonly brand: typeof style.brand;
   readonly ui: typeof elements.ui;
   escape(text: string): string;
@@ -121,7 +122,15 @@ export class Runner {
       return tricks.key(value);
     };
     this.corgi = {
-      palette: style.palette,
+      palette: Object.freeze({
+        ...style.palette,
+        map: trickPalette.maps({
+          get: key => this.call({ op: "kv.get", key }),
+          set: async (key, value) => {
+            await this.call({ op: "kv.set", key, value });
+          },
+        }),
+      }),
       brand: style.brand,
       ui: elements.ui,
       escape: markup.escape,

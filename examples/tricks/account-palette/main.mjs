@@ -1,6 +1,7 @@
 export async function register(on, corgi) {
   const colors = await corgi.get("colors", {});
   const key = agent => JSON.stringify([agent.provider, agent.account]);
+  const p = corgi.palette.syntax;
 
   on("ui:agent.sidebar", ({ agent, ui }) => {
     const color = colors[key(agent)];
@@ -16,9 +17,13 @@ export async function register(on, corgi) {
     ui.append(ui.column(
       "**Color this account**",
       ui.row(
-        ui.button("Accent", () => choose(corgi.palette.accent)),
-        ui.button("Warm", () => choose(corgi.palette.warm)),
-        ui.button("Brand", () => choose(corgi.brand.of(agent.provider).color)),
+        ui.button("Blue", () => choose(p.string)),
+        ui.button("Purple", () => choose(p.keyword)),
+        ui.button("Cyan", () => choose(p.type)),
+      ),
+      ui.row(
+        ui.button("Pink", () => choose(p.number)),
+        ui.button("Slate", () => choose(p.property)),
         ui.button("Default", () => choose(null)),
       ),
     ));

@@ -26,9 +26,9 @@ entry = "main.mjs"
 
 ```js
 export function register(on, corgi) {
-  on("ui:agent.sidebar", ({ agent, ui }) => {
-    if (agent.provider !== "claude") return;
-    ui.marker(agent.account ? "#83b6ef" : corgi.palette.accent);
+  const accountColor = corgi.palette.map("accounts");
+  on("ui:agent.sidebar", async ({ agent, ui }) => {
+    ui.marker(await accountColor([agent.provider, agent.account]));
   });
 }
 ```
@@ -84,6 +84,22 @@ No HTML, URLs or arbitrary images. Inline strings have a 512-byte/16-span limit.
 Use `corgi.palette` tokens (`accent`, `warm`, `text`, `muted`, `bg`, etc.),
 `corgi.palette.mix(a, b, amount)` with 0–100 percent of b, or `#RRGGBB`.
 `corgi.brand.of(agent.provider)` returns `{name, color, icon}` using bundled brands.
+
+For automatic category colors, use `const color = corgi.palette.map("accounts")`
+then `await color([agent.provider, agent.account])`. The default
+`corgi.palette.identity` has five syntax hues, separate from status colors.
+Distinct keys get successive slots, cycling after all colors are used; the same
+key keeps its slot across agents, reloads and restarts. Keys are strings, finite
+numbers, booleans, null or arrays of these. The mapper caches lookups and durably
+saves new assignments before returning. No manual KV bookkeeping is needed.
+
+Pass a custom palette as the second argument, for example
+`corgi.palette.map("projects", [corgi.palette.syntax.string, corgi.palette.syntax.type])`.
+These references follow each viewer's theme. Palette slots, rather than RGB
+values, are saved; changing the palette on the next run recolors the slots.
+Names are private to this trick/runtime. Leave `palette.*` KV keys to Corgi.
+Mappings are capped at 16 per trick, 256 keys each, 32 colors and 1 KiB per key,
+within the same 64 KiB KV budget.
 
 ## Save account preferences
 

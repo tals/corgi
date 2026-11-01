@@ -55,16 +55,17 @@ class Tricks extends Runtime {
       );
     return reply;
   }
-  async agent(name: string, company = false, provider = "claude") {
+  async agent(name: string, company: boolean | string = false, provider = "claude") {
+    const account = typeof company === "string" ? company : company ? this.company : "";
+    if (account) mkdirSync(account, { recursive: true });
     const { pane } = await this.open_pane({
       title: name,
       cwd: this.temp.name,
-      command:
-        (company ? `CLAUDE_CONFIG_DIR=${quote(this.company)} ` : "") + quote(join(this.temp.name, "bin", provider)),
+      command: (account ? `CLAUDE_CONFIG_DIR=${quote(account)} ` : "") + quote(join(this.temp.name, "bin", provider)),
     });
     await this.until(async () =>
       (await this.session()).panes.some(
-        (p: any) => p.id === pane && p.agent.provider === provider && (!company || p.account === this.company),
+        (p: any) => p.id === pane && p.agent.provider === provider && p.account === account,
       ),
     );
     await this.hook(pane, "SessionStart", provider);
@@ -394,19 +395,51 @@ export async function register(on, corgi) {
     lines = screen_text((await this.client!.poll()).data);
     const row = lines.findIndex((line, index) => index > 0 && line.includes("Company"));
     await this.client!.input(`\x1b[<35;6;${row + 1}M`);
-    lines = screen_text(await this.shown("[ Warm ]"));
-    await this.click_text(lines, "[ Warm ]");
+    lines = screen_text(await this.shown("[ Pink ]"));
+    await this.click_text(lines, "[ Pink ]");
     const store = this.path + ".settings.json.tricks/account-palette.json";
     const account = JSON.stringify(["claude", this.company]);
     await this.until(
-      () => existsSync(store) && JSON.parse(readFileSync(store, "utf8")).values.colors[account] === "warm",
+      () => existsSync(store) && JSON.parse(readFileSync(store, "utf8")).values.colors[account]?.syntax === "number",
     );
     await this.client!.input("\x1b[<35;99;29M");
     await this.run_cli("tricks", "reload");
     await this.shown("0 tasks finished");
-    this.assertEqual(JSON.parse(readFileSync(store, "utf8")).values.colors[account], "warm");
-    this.assertIn(trickUi.fg("warm"), (await this.client!.poll()).data);
+    this.assertEqual(JSON.parse(readFileSync(store, "utf8")).values.colors[account], { syntax: "number" });
+    this.assertIn(trickUi.fg({ syntax: "number" }), (await this.client!.poll()).data);
     this.assertTrue((await this.rpc({ op: "tricks.list" })).tricks.every((t: any) => t.running));
+  }
+
+  async test_palette_mapping_distinguishes_custom_accounts_and_remembers_them() {
+    const personal = await this.agent("Personal");
+    await this.agent("Company", true);
+    const client = await this.agent("Client", join(this.temp.name, "client"));
+    await this.agent("Company again", true);
+    await this.client!.focus(personal);
+    const store = this.path + ".settings.json.tricks/account-colors.json";
+    const expected = ["", this.company, join(this.temp.name, "client")].map(account =>
+      JSON.stringify(["claude", account]),
+    );
+    const assignments = () => JSON.parse(readFileSync(store, "utf8")).values["palette.accounts"].keys;
+    const shown = async () => {
+      const data = (await this.client!.poll()).data;
+      return [
+        trickUi.fg({ syntax: "string" }),
+        ...[palette.syntax.keyword, palette.syntax.type].map(color =>
+          palette.fgRgb(palette.mix(color, palette.colors.bg, 45)),
+        ),
+      ].every(color => data.includes(color));
+    };
+    await this.until(shown);
+    this.assertEqual(assignments(), expected);
+    await this.command("pane.rename", { target: client, name: "Renamed" });
+    await this.shown("Renamed *");
+    this.assertEqual(assignments(), expected);
+    await this.restart_runtime();
+    [this.client] = await this.viewer();
+    await this.client.focus(personal);
+    await this.until(shown);
+    this.assertEqual(assignments(), expected);
   }
 
   async test_examples_draw_account_colors_flair_attention_and_durable_completions() {
@@ -423,7 +456,7 @@ export async function register(on, corgi) {
     const panes = (await this.session()).panes;
     this.assertEqual(panes.find((p: any) => p.id === company).account, this.company);
     const data = await this.shown("0 tasks finished");
-    this.assertIn(palette.fgRgb(palette.mix(trickUi.rgb("#83b6ef"), palette.colors.bg, 45)), data);
+    this.assertIn(palette.fgRgb(palette.mix(palette.syntax.keyword, palette.colors.bg, 45)), data);
     this.assertIn(trickUi.fg({ brand: "claude" }), data);
     await this.hook(company, "UserPromptSubmit");
     await this.hook(company, "PermissionRequest", "claude", { tool_name: "Bash" });

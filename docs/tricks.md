@@ -7,13 +7,13 @@ buttons only for the additions that need them.
 Corgi runs the file with its bundled runtime: no imports, SDK, npm install,
 or separate Node/Bun installation required.
 
-For example, color Claude accounts differently in the sidebar:
+For example, give each account a stable color in the sidebar:
 
 ```js
 export function register(on, corgi) {
-  on("ui:agent.sidebar", ({ agent, ui }) => {
-    if (agent.provider !== "claude") return;
-    ui.marker(agent.account ? "#83b6ef" : corgi.palette.accent);
+  const accountColor = corgi.palette.map("accounts");
+  on("ui:agent.sidebar", async ({ agent, ui }) => {
+    ui.marker(await accountColor([agent.provider, agent.account]));
   });
 }
 ```
@@ -21,15 +21,17 @@ export function register(on, corgi) {
 That is the complete [account-colors trick](../examples/tricks/account-colors/main.mjs).
 It implements [issue #44](https://github.com/tals/corgi/issues/44): a margin
 marker in both flat and grouped sidebars, dim when unfocused and bright when
-focused. Change the code to choose colors by account, provider, state, or any
-combination. Corgi removes a patch when its agent disappears or its callback
-stops drawing. Returning early is enough when a condition stops matching.
+focused. The key includes the provider and exact account/config folder: two
+custom accounts get separate colors, and agents sharing an account match across
+workspaces. Assignments survive reloads and restarts. Change the mapping key to
+color providers, projects, or other categories. Corgi removes a patch when its
+agent disappears or its callback stops drawing. Returning early is enough when
+a condition stops matching.
 
-The flat-list marker uses the same `▌` as Corgi's normal focus bar. Here are the
-bundled examples running with seeded personal and company agents; the popover's
-color picker saves a choice for that account:
+The flat-list marker uses the same `▌` as Corgi's normal focus bar. Here are
+three seeded accounts in one workspace, each with its own color:
 
-![Account-colored sidebar markers and a trick's color picker](images/tricks-account-colors.png)
+![Personal, Work and Client accounts with distinct sidebar colors](images/tricks-account-colors.png)
 
 The accompanying `trick.toml` only identifies and launches the code:
 
@@ -111,6 +113,8 @@ agent type, check `agent.provider` in the callback and change matching drawings.
 | `corgi.clear(key)` | Remove an overlay |
 | `corgi.escape(text)` | Escape literal text interpolated into Markdown |
 | `corgi.palette` | Theme colors and `mix(a, b, amount)` |
+| `corgi.palette.identity` | Five theme-aware identity colors, separate from status colors |
+| `corgi.palette.map(name, colors?)` | A durable async mapper from stable keys to palette colors |
 | `corgi.brand.of(name)` | A provider or program's `{ name, color, icon }` |
 | `await corgi.get(key, fallback)` | Read saved JSON; use the fallback for an absent or null value |
 | `await corgi.set(key, value)` | Durably save a JSON value |
@@ -202,7 +206,7 @@ export function register(on, corgi) {
   });
 
   on("ui:agent.popover", ({ agent, ui }) => {
-    ui.append(agent.account ? "**Work account**" : "Default account");
+    ui.append(corgi.escape(agent.account || "Default account"));
   });
 
   on("ui:agent.pane", ({ agent, ui }) => {
@@ -350,12 +354,26 @@ scroll containers and replacement of whole Corgi regions are not exposed.
 `warm` for attention, and `hot` for failures. `mix(a, b, amount)` blends toward
 `b` by 0–100 percent, defaulting to 50. Mixes are limited to four nested levels.
 
+For categories, use `corgi.palette.identity`: five hues from Corgi's syntax family,
+separate from status colors. `corgi.palette.syntax` exposes the named syntax
+colors, including `string`, `keyword`, `type`, `number` and `property`.
+
+`const color = corgi.palette.map("accounts")` creates a mapper using the identity
+palette. `await color(key)` returns a color, durably assigning a slot on first use.
+The key can be a string, finite number, boolean, null, or an array of those values.
+Use `[agent.provider, agent.account]` for accounts, not a pane ID or display name.
+Distinct keys take successive slots, cycling after the palette is exhausted.
+Existing assignments never move when other keys appear or disappear.
+
+Supply any nonempty array of colors to make a custom palette. For example,
+color workspaces with a smaller palette:
+
 ```js
 export function register(on, corgi) {
   const p = corgi.palette;
-  const colors = { personal: p.accent, company: p.mix(p.warm, p.text, 20) };
-  on("ui:agent.sidebar", ({ agent, ui }) => {
-    ui.marker(agent.account ? colors.company : colors.personal);
+  const workspaceColor = p.map("workspaces", [p.syntax.string, p.syntax.type, p.syntax.keyword]);
+  on("ui:agent.sidebar", async ({ agent, ui }) => {
+    ui.marker(await workspaceColor(agent.workspace));
   });
 }
 ```
@@ -364,6 +382,14 @@ These are color references, resolved by each viewer in its current theme.
 Hold them in a variable, save them in KV, or mix them once during registration;
 changing the theme still recolors the drawing. `#RRGGBB` remains available for
 fixed custom colors.
+
+Mappings are private to the trick and runtime. They load once, cache repeat
+lookups, and write only for new keys. Awaiting the mapper commits the assignment
+before drawing. Slots survive reload, handoff and restart; changing a palette on
+the next run recolors its saved slots. Use a separate name for each mapping and
+leave the `palette.*` KV keys to Corgi. Limits: 16 mappings per trick, 256 keys per
+mapping, 32 colors per palette and 1 KiB per encoded key, within the same 64 KiB KV
+budget. A failed write does not consume a slot.
 
 `corgi.brand.of(agent.provider)` returns a display `name`, readable `color`,
 and an `icon` string to interpolate into inline Markdown:

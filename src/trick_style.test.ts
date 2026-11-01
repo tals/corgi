@@ -41,6 +41,11 @@ test("palette references and brand colors resolve in each viewer's theme", () =>
         ansi: Array(16).fill(null),
       });
       expect(style.rgb(mixed)).toEqual(palette.mix(palette.colors.accent, palette.colors.bg, 25));
+      for (const color of style.palette.identity) {
+        expect(tricks.color(JSON.parse(JSON.stringify(color)))).toEqual(color);
+        expect(style.rgb(color)).toEqual(palette.syntax[color.syntax]);
+        expect(terminalPalette.contrast(style.rgb(color), palette.colors.bg)).toBeGreaterThanOrEqual(4.6);
+      }
       for (const name of process_name.brands)
         for (const token of ["bg", "surface", "selected"] as const)
           expect(
@@ -56,6 +61,9 @@ test("palette references and brand colors resolve in each viewer's theme", () =>
 });
 
 test("color recipes reject invalid brands, weights and excessive nesting", () => {
+  expect(() => tricks.color({ syntax: "missing" })).toThrow("InvalidSyntaxColor");
+  expect(() => tricks.color({ syntax: "constructor" })).toThrow("InvalidSyntaxColor");
+  expect(() => tricks.color({ syntax: "string", brand: "claude" })).toThrow("UnknownField");
   expect(() => tricks.color({ brand: "missing" })).toThrow("InvalidBrand");
   expect(() => style.palette.mix("accent", "bg", NaN)).toThrow("InvalidMix");
   expect(() => style.palette.mix("accent", "bg", 101)).toThrow("InvalidMix");
