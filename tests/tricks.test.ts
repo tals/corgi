@@ -4,8 +4,10 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -25,6 +27,7 @@ class Tricks extends Runtime {
     write_ordinary_agent(join(this.temp.name, "bin", "claude"));
     write_ordinary_agent(join(this.temp.name, "bin", "codex"));
     mkdirSync(this.company, { recursive: true });
+    this.company = realpathSync(this.company);
     cpSync(join(ROOT, "examples/tricks"), this.root, { recursive: true });
   }
   async hook(pane: number, event: string, provider = "claude", extra = {}) {
@@ -58,6 +61,7 @@ class Tricks extends Runtime {
   async agent(name: string, company: boolean | string = false, provider = "claude") {
     const account = typeof company === "string" ? company : company ? this.company : "";
     if (account) mkdirSync(account, { recursive: true });
+    const canonical = account ? realpathSync(account) : "";
     const { pane } = await this.open_pane({
       title: name,
       cwd: this.temp.name,
@@ -65,7 +69,7 @@ class Tricks extends Runtime {
     });
     await this.until(async () =>
       (await this.session()).panes.some(
-        (p: any) => p.id === pane && p.agent.provider === provider && p.account === account,
+        (p: any) => p.id === pane && p.agent.provider === provider && p.account === canonical,
       ),
     );
     await this.hook(pane, "SessionStart", provider);
@@ -413,13 +417,15 @@ export async function register(on, corgi) {
   async test_palette_mapping_distinguishes_custom_accounts_and_remembers_them() {
     const personal = await this.agent("Personal");
     await this.agent("Company", true);
-    const client = await this.agent("Client", join(this.temp.name, "client"));
+    const folder = join(this.temp.name, "client"),
+      alias = join(this.temp.name, "client-alias");
+    mkdirSync(folder);
+    symlinkSync(folder, alias, "dir");
+    const client = await this.agent("Client", alias);
     await this.agent("Company again", true);
     await this.client!.focus(personal);
     const store = this.path + ".settings.json.tricks/account-colors.json";
-    const expected = ["", this.company, join(this.temp.name, "client")].map(account =>
-      JSON.stringify(["claude", account]),
-    );
+    const expected = ["", this.company, realpathSync(folder)].map(account => JSON.stringify(["claude", account]));
     const assignments = () => JSON.parse(readFileSync(store, "utf8")).values["palette.accounts"].keys;
     const shown = async () => {
       const data = (await this.client!.poll()).data;
