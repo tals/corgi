@@ -237,7 +237,7 @@ test("the viewer wire matches viewer_version.version", async () => {
 
 test("saved handoff format matches its version", async () => {
   expect(handoff_version).toBe(6);
-  expect(checkpoint_version).toBe(7);
+  expect(checkpoint_version).toBe(6);
   expect(createHash("sha256").update(schemas.handoff).digest("hex")).toBe(
     "c0896d7fabe5d29dd71b51bb11a5c8df82d9334bf37f58e93156ecf0f78818d8",
   );

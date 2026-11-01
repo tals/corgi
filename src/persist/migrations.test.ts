@@ -212,3 +212,22 @@ test("each released step still produces its golden output", () => {
       expect(input).toEqual(output);
     }
 });
+test("an empty workspace name takes its folder's on every decode, at the same version", () => {
+  const workspaces = [
+    { id: 1, name: "", cwd: "/missing/项目 café/" },
+    { id: 2, name: "", cwd: "/" },
+    { id: 3, name: "Custom", cwd: "/elsewhere" },
+    { id: 4, name: "", cwd: "/tmp/  " },
+  ];
+  const names = ["项目 café", "/", "Custom", "  "];
+  const named = (value: any) => value.workspaces.map((w: any) => w.name);
+  const checkpoint = decode("checkpoint", JSON.stringify({ version: checkpoint_version, workspaces }));
+  expect([named(checkpoint.value), checkpoint.migrated]).toEqual([names, false]);
+  const handoff = decode(
+    "handoff",
+    JSON.stringify({ version: handoff_version, runtime: { version: checkpoint_version, workspaces } }),
+  );
+  expect(named(handoff.value.runtime)).toEqual(names);
+  const saved = decode("workspaces", JSON.stringify({ version: 2, active: 1, next_id: 5, workspaces }));
+  expect([named(saved.value), saved.value.version]).toEqual([names, 2]);
+});

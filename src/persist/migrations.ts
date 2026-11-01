@@ -1,4 +1,5 @@
 //! Ordered migrations at the persistence seam.
+import { basename } from "node:path";
 import * as json from "../json";
 import * as steps from "./steps";
 export const checkpoint_version = steps.checkpoint.length + 1;
@@ -34,5 +35,16 @@ export function decode(kind: Kind, bytes: string | Uint8Array): { value: any; fr
     if (!("runtime" in value)) throw Error("MissingField");
     migrated = migrate(steps.checkpoint, value.runtime) || migrated;
   }
+  nameWorkspaces(kind === "handoff" ? value.runtime : value);
   return { value, from, migrated };
+}
+/** Older builds saved "" for a workspace named by its folder. Every
+ * workspace now keeps a name, so an empty one takes its folder's here,
+ * without a version: newer files never hold one, and older builds read the
+ * names these files hold as names. */
+function nameWorkspaces(value: any) {
+  for (const workspace of steps.items(value, "workspaces")) {
+    const fields = steps.object(workspace);
+    if (fields.name === "" && typeof fields.cwd === "string") fields.name = basename(fields.cwd) || "/";
+  }
 }

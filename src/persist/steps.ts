@@ -1,5 +1,4 @@
 //! Released pure JSON migrations, mirrored from persist/steps.zig.
-import { basename } from "node:path";
 class RawBytes extends String {
   constructor(public bytes: Buffer) {
     super(bytes.toString("utf8"));
@@ -13,7 +12,7 @@ export function object(value: any): Record<string, any> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("InvalidCheckpoint");
   return value;
 }
-function items(value: any, key: string): any[] {
+export function items(value: any, key: string): any[] {
   const field = object(value)[key];
   if (field === undefined) return [];
   if (!Array.isArray(field)) throw Error("InvalidCheckpoint");
@@ -377,26 +376,10 @@ function handoff5To6(value: any) {
       for (const cell of items(option, "spend_history")) object(cell).minor = null;
   }
 }
-function workspaceNames(value: any) {
-  // An empty name followed the folder; now every workspace keeps the name it has.
-  for (const workspace of items(value, "workspaces")) {
-    const fields = object(workspace);
-    if (fields.name !== "") continue;
-    if (typeof fields.cwd !== "string") throw Error("InvalidCheckpoint");
-    fields.name = basename(fields.cwd) || "/";
-  }
-}
 function workspaces1To2(value: any) {
   for (const workspace of items(value, "workspaces")) delete object(workspace).pinned;
 }
-export const checkpoint: Step[] = [
-  table,
-  checkpoint2To3,
-  checkpoint3To4,
-  checkpoint4To5,
-  checkpoint5To6,
-  workspaceNames,
-];
+export const checkpoint: Step[] = [table, checkpoint2To3, checkpoint3To4, checkpoint4To5, checkpoint5To6];
 export const handoff: Step[] = [handoff1To2, handoff2To3, handoff3To4, handoff4To5, handoff5To6];
 /** workspaces.json, the workspaces kept apart from checkpoints. */
-export const workspaces: Step[] = [workspaces1To2, workspaceNames];
+export const workspaces: Step[] = [workspaces1To2];

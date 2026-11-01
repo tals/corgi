@@ -64,14 +64,11 @@ test("old workspace state names its folder-named workspaces for their folders", 
       await s.load(file);
       expect(s.items.map(w => w.name())).toEqual(["项目 café", "/", "Custom", "  "]);
       await s.save(file, 1);
-      expect(JSON.parse(await readFile(file, "utf8")).version).toBe(3);
+      expect(JSON.parse(await readFile(file, "utf8")).version).toBe(2);
     }
     await writeFile(file, JSON.stringify({ version: 99 }));
     await expect(new Store().load(file)).rejects.toThrow("UnsupportedStateVersion");
-    await writeFile(
-      file,
-      JSON.stringify({ version: 3, active: 1, next_id: 2, workspaces: [{ id: 1, name: "", cwd: "/" }] }),
-    );
+    await writeFile(file, JSON.stringify({ version: 2, active: 1, next_id: 2, workspaces: [{ id: 1, cwd: "/" }] }));
     await expect(new Store().load(file)).rejects.toThrow("InvalidWorkspaceState");
   } finally {
     await rm(root, { recursive: true, force: true });

@@ -21,7 +21,7 @@ import * as breadcrumbs from "../breadcrumbs";
 import { validateCheckpoint } from "./schema";
 import { testBuild } from "../build_assets";
 
-export const version = 7;
+export const version = 6;
 /** A check the checkpoint failed. It is still named InvalidCheckpoint; `why`
  * says which check, with ids and counts only, since it goes in bug reports. */
 export class Invalid extends Error {

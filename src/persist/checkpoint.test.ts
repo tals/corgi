@@ -241,10 +241,10 @@ test("checkpoint integer fields restore as bigint for small and wide values", as
     expect(json.stringify(cp.captureBinding(nextBinding, true))).toBe(bytes);
   }
 });
-for (const version of [2, 3, 4, 5, 6, 7])
+for (const version of [2, 3, 4, 5, 6])
   test(
-    version === 7
-      ? "V7 fixture is current and restores as saved"
+    version === 6
+      ? "V6 fixture is current and restores as saved"
       : `V${version} fixture migrates before typed decoding and restores unchanged terminal data`,
     async () => {
       const bytes = readFileSync(resolve(fixtures, `checkpoint-v${version}.json`), "utf8"),
@@ -252,7 +252,7 @@ for (const version of [2, 3, 4, 5, 6, 7])
         r = new Runtime();
       try {
         expect(decoded.from).toBe(version);
-        expect(decoded.migrated).toBe(version !== 7);
+        expect(decoded.migrated).toBe(version !== 6);
         expect(decoded.value.version).toBe(migrations.checkpoint_version);
         if (version === 2) {
           expect(decoded.value.panes[0].binding.provisional.provider).toBeNull();
