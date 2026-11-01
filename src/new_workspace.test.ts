@@ -2,20 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  Browser,
-  Dialog,
-  create_hold_ms,
-  eased,
-  isFolder,
-  label,
-  make,
-  ring_lit,
-  size,
-  stat,
-  subfolders,
-  type Found,
-} from "./new_workspace";
+import { Browser, Dialog, isFolder, label, make, size, stat, subfolders, type Found } from "./new_workspace";
 import { printable } from "./name_dialog";
 import { Writer, displayWidth } from "./text";
 import * as i18n from "./i18n";
@@ -193,8 +180,6 @@ test("the dialog moves between the name and the folder with tab", () => {
   d.browser.problem = "not_created";
   d.key(127);
   expect(d.browser.problem).toBeNull();
-  // Enter alone doesn't create; it's held.
-  expect(d.key(13)).toBe("none");
   d.sequence("\x1b[Z");
   expect(d.browser.focused).toBe(false);
   d.sequence("\x1b[B");
@@ -416,63 +401,16 @@ test("up and down go round the name, the folder and its folders", () => {
   expect(b.focused).toBe(false);
 });
 
-test("a workspace is created on a hold of enter, not a tap", () => {
-  const d = new Dialog(browse());
-  const hold = d.create!;
-  expect(d.key(13, 0)).toBe("none");
-  hold.advance(300);
-  expect(hold.progress).toBeGreaterThan(0);
-  // Let go, it drains away.
-  hold.advance(3000);
-  expect(hold.active).toBe(false);
-  // Held, it creates on the repeat that comes once the border has closed.
-  let now = 5000,
-    saved = null;
-  expect(d.key(13, now)).toBe("none");
-  for (now += 400; now < 5000 + create_hold_ms + 3000 && saved === null; now += 30)
-    if (d.key(13, now) === "save") saved = now;
-  expect(saved).not.toBeNull();
-  expect(saved! - 5000).toBeGreaterThanOrEqual(create_hold_ms);
-  expect(hold.active).toBe(false);
-  // The key still down afterwards doesn't start another.
-  expect(d.key(13, now)).toBe("none");
-  expect(hold.active).toBe(false);
-});
-
-test("the create button is held with the mouse until it fills", () => {
-  const d = new Dialog(browse());
-  const hold = d.create!;
-  hold.down(0);
-  hold.advance(500);
-  expect(hold.done()).toBe(false);
-  hold.release(500);
-  hold.advance(2000);
-  expect(hold.active).toBe(false);
-  hold.down(3000);
-  hold.advance(3000 + create_hold_ms - 100);
-  expect(hold.done()).toBe(false);
-  hold.advance(3000 + create_hold_ms);
-  expect(hold.done()).toBe(true);
-});
-
-test("holding enter lights the card's border from the bottom", () => {
+test("enter, or a click on its button, creates the workspace at once", () => {
   const d = new Dialog(browse("/home/me/code"));
+  expect(d.key(13)).toBe("save");
+  // From the folder field too.
+  d.key(9);
+  expect(d.key(13)).toBe("save");
   const v = d.view(100, 30)!;
-  const lit = (progress: number) => {
-    d.ring.x = progress;
-    const w = new Writer();
-    v.draw(d, w, 1);
-    // The border cells written in the accent, a cursor move and a character each.
-    const after = w.s.split(ring_lit)[1] ?? "";
-    return after.match(/^(?:\x1b\[\d+;\d+H[^\x1b])*/)![0].match(/\x1b\[\d+;\d+H/g) ?? [];
-  };
-  expect(lit(0)).toEqual([]);
-  const bottom = `\x1b[${v.y + v.height};${v.x + Math.floor(v.width / 2) + 1}H`;
-  expect(lit(0.1)).toContain(bottom);
-  expect(lit(0.1)).not.toContain(`\x1b[${v.y + 1};${v.x + Math.floor(v.width / 2) + 1}H`);
-  expect(lit(1).length).toBe(2 * (v.width + v.height) - 4);
-  // Less than a cell, as the spring comes to rest, lights nothing.
-  expect(lit(0.002)).toEqual([]);
+  const create = v.buttons()[0];
+  expect(d.press(v, create.x, v.buttons_y, 0)).toBe("save");
+  expect(d.frame()).toBeNull();
 });
 
 test("the name is selected only until the keys first leave it", () => {
@@ -497,7 +435,7 @@ test("the arrows are keys of their own, quiet until the folder has the keys", ()
   expect(v.at(arrows.x + 1, v.buttons_y).tag).toBe("up");
   expect(v.at(arrows.x + 5, v.buttons_y).tag).toBe("open");
   expect(v.at(arrows.x + arrows.width - 1, v.buttons_y).tag).toBe("open");
-  expect(v.buttons().map(b => b.label)).toEqual(["hold to create", "out / in", "cancel"]);
+  expect(v.buttons().map(b => b.label)).toEqual(["create", "out / in", "cancel"]);
   const quiet = fgRgb(colors.line) + bgRgb(mix(colors.surface, colors.selected, 50)) + " ← ";
   const drawn = () => {
     const w = new Writer();
@@ -508,131 +446,6 @@ test("the arrows are keys of their own, quiet until the folder has the keys", ()
   d.sequence("\x1b[B");
   expect(drawn()).not.toContain(quiet);
   expect(drawn()).toContain(" → ");
-});
-
-test("a tap of enter fills the border until its repeat is due, then snaps it back", () => {
-  const d = new Dialog(browse());
-  expect(d.key(13, 1000)).toBe("none");
-  // A swing counts once it is past a cell of the border.
-  const cell = 1 / 80;
-  let highest = 0,
-    lowest = 0,
-    swings = 0,
-    side = 1,
-    now = 1000;
-  for (; d.animate(now) && now < 4000; now += 16) {
-    // It keeps up with the key, and stops within a frame of when the repeat was due.
-    if (now >= 1450 && d.ring.x > 0) expect(d.ring.x).toBeLessThan(highest + cell / 2);
-    highest = Math.max(highest, d.ring.x);
-    lowest = Math.min(lowest, d.ring.x);
-    if (Math.abs(d.ring.x) >= cell && Math.sign(d.ring.x) !== side) {
-      swings++;
-      side = Math.sign(d.ring.x);
-    }
-  }
-  expect(highest).toBeCloseTo(eased(400 / create_hold_ms), 2);
-  expect(lowest).toBeLessThan(0);
-  expect(swings).toBeLessThanOrEqual(1);
-  // It comes to rest, and stops asking for frames.
-  expect(now).toBeLessThan(3000);
-  expect(d.ring.x).toBe(0);
-  expect(d.moving).toBe(false);
-});
-
-test("the border fills fast, then slows to close, still moving at the end", () => {
-  expect(eased(0)).toBe(0);
-  expect(eased(1)).toBe(1);
-  expect(eased(0.33)).toBeGreaterThan(0.5);
-  for (let p = 0; p < 1; p += 0.01) expect(eased(p + 0.01)).toBeGreaterThan(eased(p));
-  // Twice the hold's pace at first; at the end, half of it, never still.
-  expect(eased(0.001) / 0.001).toBeGreaterThan(1.99);
-  expect((1 - eased(0.999)) / 0.001).toBeGreaterThan(0.49);
-});
-
-test("a full hold snaps the border back like a rubber band, bouncing once", () => {
-  const d = new Dialog(browse());
-  const cell = 1 / 80;
-  let saved = false,
-    now = 0;
-  d.key(13, 0);
-  for (; !saved && now < create_hold_ms + 3000; now += 16) {
-    if (now >= 400) saved = d.key(13, now) === "save";
-    d.animate(now);
-  }
-  expect(saved).toBe(true);
-  expect(d.ring.x).toBeGreaterThan(0.9);
-  let lowest = 0,
-    swings = 0,
-    side = 1;
-  for (const end = now + 3000; d.animate(now) && now < end; now += 16) {
-    lowest = Math.min(lowest, d.ring.x);
-    if (Math.abs(d.ring.x) >= cell && Math.sign(d.ring.x) !== side) {
-      swings++;
-      side = Math.sign(d.ring.x);
-    }
-  }
-  expect(lowest).toBeLessThan(-5 * cell);
-  expect(swings).toBe(1);
-});
-
-test("the border's arc moves between cells, its ends part lit", () => {
-  const d = new Dialog(browse("/home/me/code"));
-  const v = d.view(100, 30)!;
-  const cells = 2 * (v.width + v.height) - 4;
-  // Twenty cells long: the cells ten either side of the middle are half lit.
-  d.ring.x = 20 / cells;
-  const w = new Writer();
-  v.draw(d, w, 1);
-  expect(w.s.split("╌").length - 1).toBe(2);
-});
-
-test("the arc's ends are dashes that close up as they fill", () => {
-  const d = new Dialog(browse("/home/me/code"));
-  const v = d.view(100, 30)!;
-  const cells = 2 * (v.width + v.height) - 4;
-  // Each end three cells short of meeting at the top, `lit` into its cell.
-  const ends = cells / 2 - 3;
-  const drawn = (lit: number) => {
-    d.ring.x = (2 * ends - 1 + 2 * lit) / cells;
-    const w = new Writer();
-    v.draw(d, w, 1);
-    return w.s;
-  };
-  for (const [lit, dash] of [
-    [0.1, "┈"],
-    [0.3, "┄"],
-    [0.6, "╌"],
-  ] as const)
-    expect(drawn(lit).split(dash).length - 1).toBe(2);
-  expect(drawn(0.9)).not.toMatch(/[┈┄╌]/);
-  // The arc stays a light line throughout.
-  expect(drawn(0.6)).not.toMatch(/[━┃╾╼╿╽]/);
-});
-
-test("the enter key stays lit while held and a moment after", () => {
-  const d = new Dialog(browse("/home/me/code"));
-  const v = d.view(100, 30)!;
-  const drawn = () => {
-    const w = new Writer();
-    v.draw(d, w, 1);
-    return w.s;
-  };
-  const cap = bgRgb(colors.accent);
-  expect(drawn()).not.toContain(cap);
-  d.key(13, 1000);
-  d.animate(1000);
-  expect(d.lit).toBe(1);
-  expect(drawn()).toContain(cap);
-  // The tap's release shows after the longest repeat delay, as none has
-  // been measured; the key stays lit 200 ms more, fading over the last 80.
-  for (let now = 1016; now <= 2110; now += 16) d.animate(now);
-  expect(d.lit).toBe(1);
-  d.animate(2150);
-  expect(d.lit).toBeGreaterThan(0);
-  expect(d.lit).toBeLessThan(1);
-  d.animate(2200);
-  expect(d.lit).toBe(0);
-  expect(drawn()).not.toContain(cap);
 });
 
 test("something else where the field names a folder is shown, with its size and age", () => {

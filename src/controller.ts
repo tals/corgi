@@ -1856,8 +1856,8 @@ export class Controller {
   dismissName(): void {
     this.name_dialog = null;
   }
-  /** How long the viewer waits between frames: 120 a second while a hold to
-   * create fills or springs back, a display frame while a sidebar row glides
+  /** How long the viewer waits between frames: a dialog's own pace while it
+   * animates, a display frame while a sidebar row glides
    * to another group, 30 ms while overlays, fades or drag scrolling run, and
    * otherwise the corgi's own pace. */
   frameDelay(): number {
@@ -4427,8 +4427,6 @@ export class Controller {
     }
     if (this.name_dialog) {
       this.fitNameDialog();
-      if (this.name_dialog instanceof newWorkspace.Dialog)
-        this.name_dialog.create.slack = framePacing.jitter(this.host_pacer);
       switch (this.name_dialog.key(byte)) {
         case "save":
           await this.finishName(true);

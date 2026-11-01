@@ -1,6 +1,6 @@
 import { basename, dirname, join, isAbsolute } from "node:path";
 import { mkdir, open, rename, readFile, realpath, stat } from "node:fs/promises";
-import { Model, cleanLabel, max_workspaces } from "./layout";
+import { Model, cleanLabel, max_label, max_workspaces } from "./layout";
 import { Order, Pins, key as agentKey, type Section } from "./agent_order";
 import { Stars, type Session as StarredSession } from "./agent_stars";
 import { Ref, State } from "./trackers/git_push";
@@ -186,6 +186,23 @@ export class Store {
     this.items.push(w);
     this.next_id++;
     return w.id;
+  }
+  /** Renames a workspace whose name another has: "Foo" beside "Foo" and
+   * "Foo: 4" becomes "Foo: 5". */
+  distinguish(id: number) {
+    const w = this.get(id);
+    if (!w) throw Error("NoWorkspace");
+    const others = this.items.filter(o => o !== w).map(o => o.name());
+    const name = w.name();
+    if (!others.includes(name)) return;
+    const root = name.replace(/: \d+$/, "");
+    let n = 1;
+    for (const o of others) {
+      const m = o.startsWith(root + ": ") ? /^\d+$/.exec(o.slice(root.length + 2)) : null;
+      if (m) n = Math.max(n, Number(m[0]));
+    }
+    const suffix = `: ${n + 1}`;
+    w.rename(root.slice(0, max_label - suffix.length) + suffix);
   }
   rename(id: number, name: string) {
     const w = this.get(id);

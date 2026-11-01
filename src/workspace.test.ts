@@ -73,3 +73,20 @@ test("a rename keeps a folder that disappeared and its Git state; moving there f
     await rm(root, { recursive: true, force: true });
   }
 });
+test("a workspace named like another takes the next number after the highest", async () => {
+  const s = new Store();
+  const name = async (n: string, cwd = "/tmp") => {
+    const id = await s.add(n, cwd);
+    s.distinguish(id);
+    return s.get(id)!.name();
+  };
+  expect(await name("Foo")).toBe("Foo");
+  expect(await name("Foo")).toBe("Foo: 2");
+  expect(await name("Foo: 4")).toBe("Foo: 4");
+  expect(await name("Foo")).toBe("Foo: 5");
+  expect(await name("Foo: 4")).toBe("Foo: 6");
+  // A name the folder gives is numbered too.
+  expect(await name("")).toBe("tmp");
+  expect(await name("")).toBe("tmp: 2");
+  expect(await name("Bar")).toBe("Bar");
+});

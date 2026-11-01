@@ -27,9 +27,11 @@ export type Split = {
   ratio: number;
 };
 export type Node = { pane: PaneId } | { split: Split };
+/** The longest tab or workspace name, in bytes. */
+export const max_label = 80;
 export function cleanLabel(s: string) {
   return Array.from(Buffer.from(s.replace(/^ +| +$/g, "")))
-    .slice(0, 80)
+    .slice(0, max_label)
     .map(c => (c >= 32 && c < 127 ? String.fromCharCode(c) : "_"))
     .join("");
 }
