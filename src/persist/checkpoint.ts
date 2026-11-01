@@ -347,7 +347,7 @@ export async function restore(
       if (conversation) item.star_bindings.set(agentKey(target), conversation);
     }
     // A checkpoint from before the sections starts them in the dragged order.
-    item.activity_order = Order.restore(w.activity_order ?? w.agent_order ?? []);
+    item.restoreActivity(Order.restore(w.activity_order ?? w.agent_order ?? []));
     item.last_agent = w.last_agent ?? null;
     item.launcher_hidden = w.launcher_hidden ?? [];
     item.launcher_order = w.launcher_order ?? [];
