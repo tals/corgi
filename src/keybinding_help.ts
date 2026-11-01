@@ -92,6 +92,7 @@ const groups: [string, (string | [string, string[]])[]][] = [
     [
       ["New tab → agent picker", ["new"]],
       ["Next / previous", ["next", "prev"]],
+      ["Last visited", ["last-tab"]],
       ["Select tab", ["tab"]],
       ["Rename", ["rename-tab"]],
       ["Close", ["close-tab"]],
@@ -103,6 +104,7 @@ const groups: [string, (string | [string, string[]])[]][] = [
       ["New", ["new-workspace"]],
       ["Edit", ["edit-workspace"]],
       ["Next / previous", ["workspace-next", "workspace-prev"]],
+      ["Last visited", ["last-workspace"]],
       ["Choose workspace", ["choose-workspace"]],
       ["Select workspace", ["goto-workspace"]],
       ["Close workspace", ["close-workspace"]],
@@ -935,16 +937,17 @@ export class State {
     width = 999,
     target?: Target,
     bold = false,
+    background: Token = "surface",
   ) {
     const room = Math.min(width, this.panel.x + this.panel.w - x);
     if (room <= 0 || y >= this.panel.y + this.panel.h) return;
     const style = new Style({
       fg: this.dimmed ? "line" : token,
-      bg: this.dimmed ? "bg" : "surface",
+      bg: this.dimmed ? "bg" : background,
       bold: !this.dimmed && (bold || token === "strong"),
     }).sgr();
     w.write(`\x1b[${y + 1};${x + 1}H${style}`);
-    const dim = new Style({ fg: this.dimmed ? "line" : "faint", bg: this.dimmed ? "bg" : "surface" }).sgr();
+    const dim = new Style({ fg: this.dimmed ? "line" : "faint", bg: this.dimmed ? "bg" : background }).sgr();
     w.write(
       ellipsis(text, room).replace(/\[(F?\d+\.\.F?\d+)\]/g, (_, body) => dim + "[" + style + body + dim + "]" + style),
     );
@@ -1249,24 +1252,30 @@ export class State {
     this.dimmed = this.edit !== null;
     this.box(w, b);
     this.draw(w, b.x + 2, b.y, " Corgi ", "strong");
-    this.draw(w, b.x + 2, b.y + 1, b.w < 60 ? "Shortcuts" : "Keyboard shortcuts", "strong");
+    const title = "Main Controls";
+    this.draw(w, b.x + Math.floor((b.w - displayWidth(title)) / 2), b.y + 1, title, "strong");
+    const customizeX = b.x + b.w - 27;
+    this.draw(w, customizeX, b.y + 3, " Ctrl+E ", "strong", 8, undefined, true, "line");
+    this.draw(w, customizeX + 9, b.y + 3, this.customizing ? "Done" : "Customize Keys", "muted", 14);
+    this.hits.push({ rect: new Rect(customizeX, b.y + 3, 23, 1), target: { name: "customize" } });
+    this.draw(w, b.x + 2, b.y + 3, (b.w < 48 ? "◇ " : "◇ Prefix = ") + keymap.prefixName(prefix), "faint", 22);
+    const searchHint = "to search all",
+      search = this.query || (this.searching ? "▏" : searchHint),
+      searchX = b.x + Math.floor((b.w - displayWidth(searchHint) - 4) / 2),
+      searchY = b.y + (b.w >= 75 ? 3 : 2),
+      searchWidth = Math.min(
+        (b.w >= 75 ? customizeX : b.x + b.w) - searchX - 6,
+        Math.max(displayWidth(searchHint), displayWidth(search)),
+      ),
+      searchText = ellipsis(search, searchWidth);
+    this.draw(w, searchX, searchY, " / ", "strong", 3, { name: "search" }, true, "line");
     this.draw(
       w,
-      b.x + b.w - 22,
-      b.y + 1,
-      this.customizing ? "[Done customizing]" : "[Customize Ctrl+E]",
-      "strong",
-      20,
-      { name: "customize" },
-    );
-    this.draw(w, b.x + 2, b.y + 3, "◇ Prefix = " + keymap.prefixName(prefix), "faint", 22);
-    this.draw(
-      w,
-      b.w < 65 ? b.x + 2 : b.x + b.w - 29,
-      b.y + (b.w < 65 ? 4 : 3),
-      "/ " + (this.query || (this.searching ? "▏" : "Find action or key…")),
+      searchX + 4,
+      searchY,
+      searchText + " ".repeat(searchWidth - displayWidth(searchText)),
       this.searching ? "accent" : "muted",
-      26,
+      searchWidth,
       { name: "search" },
     );
     const layout = this.content(b.w - 6);
@@ -1299,10 +1308,15 @@ export class State {
       }
     }
     if (!this.edit) {
-      const footer = this.customizing
-        ? "Arrows Select · Enter Edit · + Add · / Find"
-        : "Press a shortcut · Ctrl+E Customize · / Find";
-      this.draw(w, b.x + 2, b.y + b.h - 3, footer, "faint", b.w - 4);
+      const remaining = new Set(
+        this.cells.flatMap(c =>
+          c.y >= this.scroll + this.page_rows && c.target?.name === "binding" ? [c.target.id] : [],
+        ),
+      ).size;
+      if (remaining) {
+        const more = `↓ ${remaining} more`;
+        this.draw(w, b.x + Math.floor((b.w - displayWidth(more)) / 2), b.y + b.h - 3, more, "muted");
+      }
       this.draw(w, b.x + 2, b.y + b.h - 2, this.show_alts ? "[Hide alts Ctrl+L]" : "[Show alts Ctrl+L]", "muted", 25, {
         name: "alts",
       });

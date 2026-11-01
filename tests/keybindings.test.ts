@@ -5,6 +5,39 @@ import { screen_text } from "./runtime";
 import { registerCase } from "./support";
 
 class Keybindings extends Viewers {
+  async test_last_navigation_keys_keep_history_per_viewer() {
+    const first = await this.new(),
+      second = await this.new(),
+      third = await this.new(),
+      home = (await this.session()).workspaces[0].id;
+    const other = (await this.command("workspace.create", { name: "Other", cwd: this.temp.name })).workspace;
+    const file = join(this.env.XDG_STATE_HOME!, "corgi", "viewer.json");
+    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, "utf8")), preset: "tmux" }));
+    const a = await this.newViewer(),
+      b = await this.newViewer();
+    const initial = a.state.pane;
+    this.assertEqual((await a.input("\x02l")).pane, initial);
+    this.assertIn("No previous tab", a.state.data);
+    await a.focus(first);
+    await a.focus(third);
+    await b.focus(first);
+    await b.focus(second);
+    this.assertEqual((await a.input("\x02l")).pane, first);
+    this.assertEqual((await a.input("\x02l")).pane, third);
+    this.assertEqual((await b.input("\x02l")).pane, first);
+    await a.request({ op: "workspace", workspace: other });
+    this.assertEqual((await a.input("\x02L")).workspace, home);
+    this.assertEqual((await a.action("last-tab")).pane, first);
+    this.assertEqual((await a.input("\x02L")).workspace, other);
+    this.assertEqual((await b.action("last-workspace")).workspace, home);
+    this.assertIn("No previous workspace", b.state.data);
+    this.assertEqual((await a.input("\x02L")).workspace, home);
+    await this.command("workspace.close", { target: other, close_contents: true });
+    await a.poll();
+    this.assertEqual((await a.input("\x02L")).workspace, home);
+    this.assertIn("No previous workspace", a.state.data);
+  }
+
   async test_prefix_toggle_cancel_and_restore_defaults() {
     const first = await this.new(),
       second = await this.new();

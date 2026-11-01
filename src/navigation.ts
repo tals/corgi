@@ -10,6 +10,7 @@ import type { CommandInput } from "./protocol";
 interface Entry {
   id: number;
   value: Selection;
+  previous_tab: number | null;
   agents: AgentHistory;
   /** The launcher row last left selected here. */
   launcher: LauncherRow | null;
@@ -19,6 +20,7 @@ interface Entry {
 const emptyEntry = (id: number): Entry => ({
   id,
   value: new Selection(),
+  previous_tab: null,
   agents: new AgentHistory(),
   launcher: null,
   agent_offset: 0,
@@ -30,6 +32,7 @@ export interface Intent {
 
 export class State {
   workspace_id = 0;
+  previous_workspace: number | null = null;
   entries: Entry[] = [];
 
   index(store: Workspaces): number {
@@ -42,6 +45,28 @@ export class State {
   }
   tabs(store: Workspaces): Selection {
     return this.entry(store, this.current(store)).value;
+  }
+  switchWorkspace(store: Workspaces, id: number): void {
+    if (store.index(id) === null) throw Error("NoWorkspace");
+    const current = this.current(store).id;
+    if (current !== id) this.previous_workspace = current;
+    this.workspace_id = id;
+  }
+  lastWorkspace(store: Workspaces): number | null {
+    const id = this.previous_workspace;
+    return id !== null && id !== this.current(store).id && store.index(id) !== null ? id : null;
+  }
+  focus(store: Workspaces, id: number, remember = true): void {
+    const ws = this.current(store),
+      e = this.entry(store, ws),
+      previous = e.value.tab()?.id ?? null;
+    e.value.focus(ws.model, id);
+    if (remember && previous !== e.value.tab().id) e.previous_tab = previous;
+  }
+  lastTab(store: Workspaces): number | null {
+    const e = this.entry(store, this.current(store));
+    if (e.previous_tab === e.value.tab()?.id) return null;
+    return e.value.tabs.find(t => t.id === e.previous_tab)?.focus ?? null;
   }
   /** Takes over a closed workspace's slot the first time `ws` needs one. */
   private entry(store: Workspaces, ws: Workspace): Entry {

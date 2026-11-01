@@ -22,6 +22,14 @@ test("strings and arrays replace an action, empty arrays unbind it", () => {
   expect(bindings.chord(table, false, keys.parseChord("ctrl+alt+n")!)).toEqual({ name: "new" });
   expect(bindings.lookup(table, true, 120)).toBeNull();
 });
+test("every preset can bind the last visited tab and workspace actions", () => {
+  const config = custom.parse({ "last-tab": "alt+t", "last-workspace": "alt+w" });
+  for (const preset of ["corgi", "tmux", "herdr", "cmux"] as const) {
+    const table = custom.resolve(preset, config);
+    expect(bindings.chord(table, false, keys.parseChord("alt+t")!)).toEqual({ name: "last-tab" });
+    expect(bindings.chord(table, false, keys.parseChord("alt+w")!)).toEqual({ name: "last-workspace" });
+  }
+});
 test("control bytes, CSI-u chords and uppercase letters match the same bindings", () => {
   const table = custom.resolve("corgi", custom.parse({ new: "ctrl+y", "focus:left": "prefix+shift+h" }));
   expect(bindings.lookup(table, false, 25)).toEqual({ name: "new" });
