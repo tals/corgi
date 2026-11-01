@@ -6,6 +6,7 @@ import { parse as parseAction } from "./action";
 import * as surface from "./pane/surface";
 import * as session from "./session";
 import * as workspace from "./workspace";
+import * as importer from "./import_service";
 import { microTimestamp } from "./clock";
 import { stringify } from "./json";
 import { version as wire_version, type View as WireView, type Control, type Request } from "./protocol";
@@ -49,7 +50,8 @@ export function validateInterests(interests: Interest[]) {
 export async function open(s: Server, cl: Client, q: Open) {
   if (cl.subscribed || cl.launch_preview != null || cl.viewer) throw new Error("AlreadyAttached");
   if (s.runtime.panes.length === 0 && s.initialWorkspace().model.count === 0) {
-    if (s.default_folder_pending && q.cwd) {
+    const starter = s.default_folder_pending;
+    if (starter && q.cwd) {
       // The starter waited for this folder, and takes its name.
       const ws = s.initialWorkspace();
       await s.runtime.workspaces.edit(ws.id, null, q.cwd);
@@ -57,6 +59,7 @@ export async function open(s: Server, cl: Client, q: Open) {
       s.default_folder_pending = false;
       await s.saveWorkspaces();
     }
+    if (starter && q.onboarding) importer.onboardingStarter(s, s.initialWorkspace());
     if (!q.onboarding)
       await s.execute({
         "pane.create": { workspace: s.initialWorkspace().id },

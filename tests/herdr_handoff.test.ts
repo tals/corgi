@@ -296,6 +296,16 @@ for await (const chunk of Bun.stdin.stream()) { for (const line of new TextDecod
     this.assertEqual((await this.corgi({ op: "session.snapshot" })).panes.length, 5);
   }
 
+  async test_onboarding_keeps_a_starter_renamed_before_the_import() {
+    await this.corgi({ op: "viewer.open", onboarding: true, cwd: this.root });
+    const starter = (await this.corgi({ op: "session.snapshot" })).workspaces[0].id;
+    await this.command("workspace.edit", { target: starter, name: "Work" });
+    await this.sourceShell();
+    this.assertEqual((await this.handoff(1)).phase, "complete");
+    const names = (await this.corgi({ op: "session.snapshot" })).workspaces.map((w: any) => w.name);
+    this.assertEqual(names, ["Work", "Migrated website"]);
+  }
+
   async test_rejected_handoff_rolls_back_and_can_retry() {
     await this.corgi({
       op: "viewer.open",
