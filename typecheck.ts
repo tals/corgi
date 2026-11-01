@@ -1,6 +1,7 @@
 import { mkdirSync, symlinkSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import * as tooling from "./scripts/tooling";
+import * as translations from "./scripts/translations";
 
 const root = import.meta.dir;
 const [compiler, bunTypes, nodeTypes] = await tooling.packages("typecheck", {
@@ -24,6 +25,9 @@ for (const [name, directory] of [
   }
   symlinkSync(directory, link, "dir");
 }
+// First: it may regenerate src/i18n.generated.ts, which tsc and Prettier read.
+const translated = await translations.verify();
+process.stderr.write(translated.text);
 const check = Bun.spawn(
   [
     process.execPath,
@@ -37,16 +41,5 @@ const check = Bun.spawn(
   ],
   { cwd: root, stdout: "inherit", stderr: "inherit" },
 );
-// Translations may lag while hacking; --ci (as CI typechecks) requires them.
-const ci = process.argv.includes("--ci");
-const translations = Bun.spawn(
-  [process.execPath, join(root, "scripts/translations.ts"), "check", ...(ci ? [] : ["--summary"])],
-  {
-    cwd: root,
-    stdout: "inherit",
-    stderr: "inherit",
-  },
-);
-const codes = await Promise.all([check.exited, tooling.prettier("check"), translations.exited]);
-if (!ci) codes[2] = 0;
+const codes = [translated.code, ...(await Promise.all([check.exited, tooling.prettier("check")]))];
 process.exitCode = codes.find(code => code !== 0) ?? 0;

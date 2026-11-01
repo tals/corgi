@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import * as translations from "../scripts/translations";
 
 const project = resolve(import.meta.dir, "..");
 function fixture() {
@@ -56,10 +57,59 @@ test("translation CI rejects missing, dead, stale and malformed messages", () =>
     const changed = f.run("check");
     expect(changed.text).toContain("missing");
     expect(changed.text).toContain("unused translation");
-    const summary = f.run("check", "--summary");
-    expect(summary.code).toBe(1);
-    expect(summary.text).toContain("  • 1 message needs translating\n  • 1 unused translation\n");
-    expect(summary.text).not.toContain("ja.json");
+    expect(changed.code).toBe(1);
+  } finally {
+    f.close();
+  }
+}, 30000);
+
+test("local builds regenerate stale output and summarize missing translations; CI fails on both", async () => {
+  const f = fixture();
+  try {
+    f.source('import * as i18n from "./i18n"; const name = "Corgi"; export const greeting = i18n.t`Hello ${name}`;');
+    expect(f.run("extract").code).toBe(0);
+    f.translate({ "Hello ${name}": "こんにちは ${name}" });
+    expect(f.run("generate").code).toBe(0);
+    expect(await translations.verify(false, f.root)).toEqual({ code: 0, text: "" });
+    f.catalog("ja", { "Hello ${name}": "やあ ${name}" });
+    expect((await translations.verify(true, f.root)).text).toContain("stale generated translations");
+    const local = await translations.verify(false, f.root);
+    expect(local).toEqual({ code: 0, text: "Updated the generated translations\n" });
+    expect(readFileSync(join(f.root, "src/i18n.generated.ts"), "utf8")).toContain("やあ");
+    f.source('import * as i18n from "./i18n"; const name = "Corgi"; export const greeting = i18n.t`Welcome ${name}`;');
+    const missing = await translations.verify(false, f.root);
+    expect(missing.code).toBe(0);
+    expect(missing.text).toContain("  • 1 message needs translating\n  • 1 unused translation\n");
+    expect(missing.text).not.toContain("ja.json");
+    expect((await translations.verify(true, f.root)).code).toBe(1);
+    f.source(
+      'import * as i18n from "./i18n"; const name = "Corgi"; export const greeting = i18n.t`Welcome ${name.length}`;',
+    );
+    const broken = await translations.verify(false, f.root);
+    expect(broken.code).toBe(1);
+    expect(broken.text).toContain("use a named local");
+  } finally {
+    f.close();
+  }
+}, 30000);
+
+test("generate leaves untranslated messages in English, even when only the placeholder order changed", () => {
+  const f = fixture();
+  try {
+    f.source(
+      'import * as i18n from "./i18n"; export const progress = (done: number, total: number) => i18n.t`${done} of ${total}`;',
+    );
+    expect(f.run("extract").code).toBe(0);
+    f.translate({ "${done} of ${total}": "${total} 中 ${done}" });
+    expect(f.run("generate").code).toBe(0);
+    f.source(
+      'import * as i18n from "./i18n"; export const progress = (done: number, total: number) => i18n.t`${total} of ${done}`;',
+    );
+    const generated = f.run("generate");
+    expect(generated.code).toBe(0);
+    expect(generated.text).toContain("1 message needs translating");
+    const code = `import * as i18n from ${JSON.stringify(join(f.root, "src/i18n.ts"))}; import { progress } from ${JSON.stringify(join(f.root, "src/example.ts"))}; i18n.setLanguage("ja"); console.log(progress(2, 5));`;
+    expect(Bun.spawnSync([process.execPath, "-e", code]).stdout.toString()).toBe("5 of 2\n");
   } finally {
     f.close();
   }
@@ -69,12 +119,13 @@ test("generated native templates reorder names, escape literal code, and use loc
   const f = fixture();
   try {
     f.source(
-      'import * as i18n from "./i18n"; export const move = (file: string, folder: string) => i18n.t`Moved ${file} to ${folder}`; export const files = (count: number) => i18n.t`${count} files`;',
+      "import * as i18n from \"./i18n\"; export const move = (file: string, folder: string) => i18n.t`Moved ${file} to ${folder}`; export const files = (count: number) => i18n.t`${count} files`; export const done = () => i18n.t`Done: 'all'\\n`;",
     );
     expect(f.run("extract").code).toBe(0);
     f.translate({
       "Moved ${file} to ${folder}": "${folder} ← ${file} ` \\ newline\n",
       "${count} files": "${count} files",
+      "Done: 'all'\n": "完了：'全部'\n",
     });
     f.catalog("ru", {
       "Moved ${file} to ${folder}": "${folder} ← ${file}",
@@ -84,13 +135,14 @@ test("generated native templates reorder names, escape literal code, and use loc
       },
     });
     expect(f.run("generate").code).toBe(0);
-    const code = `import * as i18n from ${JSON.stringify(join(f.root, "src/i18n.ts"))}; import {move, files} from ${JSON.stringify(join(f.root, "src/example.ts"))}; i18n.setLanguage("ja"); console.log(JSON.stringify(move("a.txt", "src"))); i18n.setLanguage("ru"); console.log(JSON.stringify([1,2,5,21].map(files))); i18n.setLanguage("en"); console.log(move("a.txt", "src"));`;
+    const code = `import * as i18n from ${JSON.stringify(join(f.root, "src/i18n.ts"))}; import {move, files, done} from ${JSON.stringify(join(f.root, "src/example.ts"))}; i18n.setLanguage("ja"); console.log(JSON.stringify(move("a.txt", "src"))); console.log(JSON.stringify(done())); i18n.setLanguage("ru"); console.log(JSON.stringify([1,2,5,21].map(files))); i18n.setLanguage("en"); console.log(move("a.txt", "src"));`;
     const result = Bun.spawnSync([process.execPath, "-e", code]);
     expect(result.exitCode).toBe(0);
     const lines = result.stdout.toString().trim().split("\n");
     expect(JSON.parse(lines[0])).toBe("src ← a.txt ` \\ newline\n");
-    expect(JSON.parse(lines[1])).toEqual(["1 файл", "2 файла", "5 файлов", "21 файл"]);
-    expect(lines[2]).toBe("Moved a.txt to src");
+    expect(JSON.parse(lines[1])).toBe("完了：'全部'\n");
+    expect(JSON.parse(lines[2])).toEqual(["1 файл", "2 файла", "5 файлов", "21 файл"]);
+    expect(lines[3]).toBe("Moved a.txt to src");
     const ru = f.catalog("ru");
     delete ru["${count} files"].forms.few;
     f.catalog("ru", ru);

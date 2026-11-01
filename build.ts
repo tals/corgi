@@ -1,18 +1,8 @@
 import { basename } from "node:path";
 import { mkdirSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
+import * as translations from "./scripts/translations";
 const root = import.meta.dir;
-// Translations may lag while hacking; --ci (as CI builds) requires them.
-const ci = process.argv.includes("--ci");
-const translations = Bun.spawn(
-  [process.execPath, `${root}/scripts/translations.ts`, "check", ...(ci ? [] : ["--summary"])],
-  {
-    cwd: root,
-    stdout: "inherit",
-    stderr: "inherit",
-  },
-);
-if ((await translations.exited) && ci) process.exit(1);
 function option(name: string, fallback = ""): string {
   const args = process.argv.slice(2),
     prefix = `--${name}=`,
@@ -57,6 +47,8 @@ if (!existsSync(`${root}/node_modules/@earendil-works/pi-tui`)) {
   });
   process.exit(await again.exited);
 }
+// After the install above, so a fresh checkout reports once. It may regenerate src/i18n.generated.ts.
+const translated = translations.verify();
 const args = [`${root}/scripts/zig`, "build", "--build-file", `${root}/native/build.zig`, "-Doptimize=ReleaseFast"];
 // An explicit --target builds for the oldest systems a release supports, not this machine.
 if (process.argv.slice(2).some(arg => arg === "--target" || arg.startsWith("--target=")))
@@ -72,7 +64,11 @@ if (!process.argv.includes("--no-native")) {
   const status = await native.exited;
   if (status) process.exit(status);
 }
-if (process.argv.includes("--native-only")) process.exit(0);
+const { code: translationsCode, text: translationsText } = await translated;
+if (process.argv.includes("--native-only")) {
+  process.stderr.write(translationsText);
+  process.exit(translationsCode);
+}
 mkdirSync(`${root}/dist`, { recursive: true });
 const suffix = platform === "darwin" ? "dylib" : "so";
 const files = [`lib/libcorgi_term.${suffix}`, `lib/libcorgi_system.${suffix}`, "bin/pty-exec", "bin/corgi-hook"];
@@ -155,3 +151,5 @@ await Bun.write(
   ) + "\n",
 );
 console.log(`Built ${outfile}`);
+process.stderr.write(translationsText);
+process.exitCode = translationsCode;
