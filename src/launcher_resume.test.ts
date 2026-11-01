@@ -71,7 +71,7 @@ test("translated history headings, empty states and search hints stay inside the
               expect(row.startsWith(left)).toBe(true);
               expect(row.endsWith(right)).toBe(true);
             }
-            expect(terminal.text()).toContain(i18n.t`Active`);
+            expect(terminal.text()).toContain(i18n.t`Last active`);
           } finally {
             terminal.destroy();
           }

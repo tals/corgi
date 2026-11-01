@@ -9,6 +9,7 @@ import * as palette from "../palette";
 import * as i18n from "../i18n";
 import { Rect } from "../layout";
 import type { Connection } from "../rpc";
+import type { Reply } from "../protocol";
 import { Writer, byteSlice, clamp, displayWidth, sat, writeSanitized } from "../text";
 import * as catalog from "./catalog";
 import * as scrollThumb from "../scroll_thumb";
@@ -57,7 +58,7 @@ export class Picker {
   /** Whether the cursor is on Herdr's handoff switch, above the workspaces. */
   switch_focused = false;
   stage: Stage = "choose";
-  progress: any = {
+  progress: Reply<"onboarding.status">["progress"] = {
     phase: "idle",
     completed: 0,
     total: 0,
@@ -178,7 +179,7 @@ export class Picker {
     this.scroll = 0;
     this.message = "";
     this.progress = {
-      phase: "connecting",
+      phase: this.activeHandoff() ? "connecting" : "copying",
       completed: 0,
       total: 0,
       workspace: null,
@@ -306,7 +307,22 @@ export class Picker {
           cmux: i18n.t`Copy workspaces and surfaces. Source processes stay in cmux.`,
         }[this.source];
       case "copying":
-        return this.progress.message;
+        switch (this.progress.phase) {
+          case "copying":
+            return i18n.t`Creating workspaces and shells`;
+          case "connecting":
+            return i18n.t`Connecting to Herdr`;
+          case "receiving":
+            return i18n.t`Receiving live terminals`;
+          case "preparing":
+            return i18n.t`Preparing your workspaces`;
+          case "committing":
+            return i18n.t`Waiting for Herdr ownership confirmation`;
+          case "failed":
+            return this.progress.message;
+          default:
+            return "";
+        }
       case "complete":
         return this.activeHandoff() ? i18n.t`Your processes are running in Corgi.` : i18n.t`Your workspaces are ready.`;
     }
@@ -386,7 +402,18 @@ export class Picker {
             ? i18n.t`Couldn't read this source. R retries.`
             : i18n.t`No available sessions found.`;
         put(w, area, 2, tree_top + 1, empty, text);
-        put(w, area, 2, tree_top + 3, wk.catalog.message, dim);
+        put(
+          w,
+          area,
+          2,
+          tree_top + 3,
+          wk.catalog.note === "cmux"
+            ? wk.catalog.confused
+              ? i18n.t`Couldn't read the workspace list. R refreshes.`
+              : i18n.t`Visible splits first; remaining surfaces become additional tabs.`
+            : wk.catalog.message,
+          dim,
+        );
       }
     }
     let row = 0;
@@ -429,7 +456,7 @@ export class Picker {
       line(`${cursor_mark}${check_mark} ${short(ws.name)}`, bright, "");
       if (ws.recovery !== "full") {
         if (ws.recovery === "workspace") line("    " + i18n.t`Workspace only · opens a new shell`, warm, "");
-        line(`    ${ws.recovery_note}`, warm, "");
+        line(`    ${recoveryNote(ws)}`, warm, "");
       }
       if (preview_layout.toggle_row !== null && preview_layout.hidden === 0)
         line("    ▾ " + i18n.t`Show less`, bright, "");
@@ -441,10 +468,12 @@ export class Picker {
         const last_tab = tab_index + 1 === ws.tabs.length;
         const branch = last_tab ? "└─" : "├─";
         if (tab.panes.length === 1) {
-          const pane = tab.panes[0];
-          const done = !choosing && pane_number < this.progress.completed;
+          const pane = tab.panes[0],
+            done = !choosing && pane_number < this.progress.completed,
+            tab_name = ws.recovery === "workspace" ? i18n.t`Terminal` : tab.name,
+            pane_name = ws.recovery === "workspace" ? i18n.t`New shell` : pane.name;
           line(
-            `    ${branch} ${short(tab.name)} · ${done ? "✓ " : ""}${short(pane.name)}`,
+            `    ${branch} ${short(tab_name)} · ${done ? "✓ " : ""}${short(pane_name)}`,
             text,
             paneAnnotation(this.source, handoff, pane),
           );
@@ -489,4 +518,21 @@ function paneAnnotation(source: catalog.Source, handoff: boolean, pane: catalog.
     return "      ? · Herdr → Corgi";
   }
   return pane.url ? i18n.t`↗ Browser link` : pane.resume_available ? i18n.t`↻ Resume available` : i18n.t`+ New shell`;
+}
+
+function recoveryNote(ws: catalog.Workspace): string {
+  switch (ws.recovery_reason) {
+    case "unreadable":
+      return i18n.t`Couldn't read its panes or tabs`;
+    case "panes":
+      return i18n.t`Too many panes for one import`;
+    case "surfaces":
+      return i18n.t`Too many surfaces for one import`;
+    case "partial":
+      return i18n.t`Some pane or tab details couldn't be read`;
+    case "layout":
+      return i18n.t`Split layout approximated`;
+    default:
+      return ws.recovery_note;
+  }
 }

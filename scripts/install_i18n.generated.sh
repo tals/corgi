@@ -208,7 +208,7 @@ msg() {
     'en:Removed ${path} from PATH in ${files}') printf '%s' 'Removed ' "${1-}" ' from PATH in ' "${2-}";;
     'zh:Removed ${path} from PATH in ${files}') printf '%s' '已在 ' "${2-}" ' 中从 PATH 移除 ' "${1-}";;
     'ja:Removed ${path} from PATH in ${files}') printf '%s' "${2-}" 'で' "${1-}" 'をPATHから削除しました';;
-    'ko:Removed ${path} from PATH in ${files}') printf '%s' "${2-}" ' 파일에서 ' "${1-}" ' 경로를 PATH에서 제거했습니다';;
+    'ko:Removed ${path} from PATH in ${files}') printf '%s' "${2-}" '의 PATH 설정에서 ' "${1-}" ' 경로를 제거했습니다';;
     'ru:Removed ${path} from PATH in ${files}') printf '%s' "${1-}" ' удалён из PATH в ' "${2-}";;
     'en:Removed Corgi keybindings from ${path} (reload Ghostty with ⌘⇧,)') printf '%s' 'Removed Corgi keybindings from ' "${1-}" ' (reload Ghostty with ⌘⇧,)';;
     'zh:Removed Corgi keybindings from ${path} (reload Ghostty with ⌘⇧,)') printf '%s' '已从 ' "${1-}" ' 移除 Corgi 键位绑定（按 ⌘⇧, 重载 Ghostty）';;

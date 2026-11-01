@@ -421,7 +421,7 @@ export class View {
    * message goes first when space runs out. */
   columns(inner: number): Columns {
     // Marker, provider and their gaps, the gap after the title, and the age.
-    const room = sat(inner, provider_width + Math.max(6, displayWidth(i18n.t`Active`)) + 1);
+    const room = sat(inner, provider_width + Math.max(6, displayWidth(i18n.t`Last active`)) + 3);
     const folder = this.expanded && this.scope !== "folder" && room >= 60 ? Math.min(24, Math.floor(room / 4)) : 0;
     const title =
       sat(room, folder) >= 70
@@ -441,7 +441,7 @@ export class View {
     const cols = this.columns(sat(width, 4));
     let total = 0;
     for (const e of c.history.entries) total += c.listed(e, "folder") ? 1 : 0;
-    const active = ellipsis(i18n.t`Active`, sat(width, 6));
+    const active = ellipsis(i18n.t`Last active`, sat(width, 6));
     const heading_room = cols.last > 12 ? provider_width + cols.title : sat(width, displayWidth(active) + 7);
     const resume = ellipsis(i18n.t`Resume`, heading_room);
     w.write(`\x1b[${y};${x + 3}H${panel}\x1b[1m` + palette.fg("strong") + resume + panel);
@@ -503,7 +503,7 @@ export class View {
       w.write(`\x1b[${y + 1};${x + 3 + provider_width + cols.title + 2 + cols.folder}H`);
       writeEllipsis(w, i18n.t`You last said`, cols.last);
     }
-    const active = ellipsis(i18n.t`Active`, sat(width, 6));
+    const active = ellipsis(i18n.t`Last active`, sat(width, 6));
     w.write(`\x1b[${y + 1};${x + width - 3 - displayWidth(active)}H${active}`);
     if (context) {
       const date = ellipsis(dayLabel(context.updated_at, c.now), sat(width, 6 + provider_width));

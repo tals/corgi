@@ -98,6 +98,20 @@ test("Pi shows ChatGPT usage and its reset windows without a cached suffix", asy
   }
 });
 
+test("Pi leaves missing account identity empty for the viewer to label", async () => {
+  rmSync(join(account, "settings.json"));
+  rmSync(join(account, "auth.json"));
+  const launcher = open(account);
+  try {
+    const info = await launcher.account(new Quit(), 60);
+    expect(info.account.text()).toBe("");
+    expect(info.signed_in).toBeNull();
+    expect(request).not.toHaveBeenCalled();
+  } finally {
+    launcher.close();
+  }
+});
+
 test.each([
   ["prolite", "Pro 100"],
   ["pro", "Pro 200"],

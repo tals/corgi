@@ -48,7 +48,7 @@ export class Client {
       who = identity(root),
       provider = str(cached(root, "settings.json"), "defaultProvider") || c?.provider || "",
       info = new Info();
-    info.account = new Text(who && c?.provider === provider ? who.email : provider || "Pi provider selection");
+    info.account = new Text(who && c?.provider === provider ? who.email : provider);
     if (!c || c.provider !== provider) return info;
     info.plan = new Text(c.type === "oauth" ? "OAuth" : "API key");
     // Other providers do not share ChatGPT's subscription endpoint.

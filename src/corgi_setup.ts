@@ -1479,7 +1479,7 @@ export class Menu {
       w.write(panel + now);
       return;
     }
-    const label = row === hold_row ? i18n.t`hold` : row % 2 === 0 ? ["1 s", "100 ms", "10 ms", "1 ms"][row / 2] : "";
+    const label = row === hold_row ? i18n.t`wait` : row % 2 === 0 ? ["1 s", "100 ms", "10 ms", "1 ms"][row / 2] : "";
     w.write(at(axis - 1 - displayWidth(label), y) + panel + label + " " + border + "┤");
     let shown = border;
     for (const column of this.chartColumns(n, now_ms)) {

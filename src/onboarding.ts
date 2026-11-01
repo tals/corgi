@@ -516,7 +516,7 @@ function drawTheme(w: Writer, layout: ReturnType<typeof presetLayout>, s: State)
     ),
     sample_x = Math.max(38, description_x + Math.max(...descriptions.map(displayWidth)) + 4),
     sample_w = frame.w - sample_x - 2,
-    sample_width = 10 + displayWidth(i18n.t`working`) + displayWidth(i18n.t`unread`) + displayWidth(i18n.t`clear`);
+    sample_width = 10 + displayWidth(i18n.t`working`) + displayWidth(i18n.t`unread`) + displayWidth(i18n.t`idle`);
   box(w, frame, false);
   put(w, frame, 2, 0, i18n.t` Theme `, bright);
   palette.available_themes.forEach((theme, i) => {
@@ -554,7 +554,7 @@ function sample(theme: palette.Theme): string {
     `  ${ink("accent", true)}● ${palette.fg("text", theme)}` +
     i18n.t`unread` +
     `  ${ink("muted")}○ ${ink("text")}` +
-    i18n.t`clear` +
+    i18n.t`idle` +
     "\x1b[22m"
   );
 }

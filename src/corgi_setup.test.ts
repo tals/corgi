@@ -1402,7 +1402,7 @@ test("frame pacing charts how fast the host answers, in one row on a short frame
   const rows = text.split("\n").filter(row => row.includes("┤"));
   expect(rows.map(row => row.split("┤")[0].split("│").at(-1)!.trim())).toEqual([
     "1 s",
-    "hold",
+    "wait",
     "100 ms",
     "",
     "10 ms",

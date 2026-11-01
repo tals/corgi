@@ -291,6 +291,12 @@ export class Menu {
       ...(settings?.effort ? { effort: settings.effort } : {}),
     };
   }
+  private accountCell(row: Row): string {
+    const o = this.optionOf(row) ?? option();
+    if (o.account) return o.account;
+    if (o.pending ?? this.preview.pending) return i18n.t`Reading…`;
+    return this.launchOf(row)?.provider === "pi" ? i18n.t`Pi provider selection` : i18n.t`Unavailable`;
+  }
   /** A provider's or an account's row's text columns; usageCell draws the last one. */
   cells(row: Row): string[] {
     const o = this.optionOf(row) ?? option(),
@@ -301,7 +307,7 @@ export class Menu {
       this.label(row),
       adapter(this.launchOf(row)!.provider).bypass === false ? "—" : this.yoloOf(row) ? "✓" : "·",
       model.name + effort.suffix(model.effort),
-      out ? "—" : o.account.length > 0 ? o.account : pending ? i18n.t`Reading…` : i18n.t`Unavailable`,
+      out ? "—" : this.accountCell(row),
       out ? "—" : o.plan.length > 0 ? o.plan : pending ? "…" : i18n.t`Unknown`,
     ];
   }
@@ -733,7 +739,7 @@ export class Menu {
             : i18n.t`Not installed`
           : out
             ? i18n.t`Not signed in`
-            : o.account || ((o.pending ?? this.preview.pending) ? i18n.t`Reading…` : i18n.t`Unavailable`),
+            : this.accountCell(row),
         signed_out: out,
         shown: !this.hiddenOf(row),
         here: !this.workspace_hidden.includes(row),
@@ -769,7 +775,9 @@ export class Menu {
         ? o.account
         : (o.pending ?? this.preview.pending)
           ? i18n.t`Reading default account…`
-          : i18n.t`Default account · unavailable`;
+          : info.provider === "pi"
+            ? i18n.t`Pi provider selection`
+            : i18n.t`Default account · unavailable`;
     }
     return i18n.t`Account unknown`;
   }

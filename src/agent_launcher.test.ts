@@ -89,6 +89,27 @@ test("Pi's default and account rows do not offer a permission bypass", () => {
   expect(screen(m, 120, 32, side)[b.y + b.h - 2]).not.toContain("YOLO");
 });
 
+test("Pi account fallback follows the viewer language without translating account data", () => {
+  const m = menu(),
+    previous = i18n.language();
+  m.preview.pending = false;
+  try {
+    for (const language of i18n.locales) {
+      i18n.setLanguage(language);
+      m.preview.options.pi.account = "";
+      const label = i18n.t`Pi provider selection`;
+      expect(m.cells("pi")[3]).toBe(label);
+      expect(m.manageModel().agents.find(a => a.provider === "pi")?.who).toBe(label);
+      if (language !== "en") expect(label).not.toBe("Pi provider selection");
+      m.preview.options.pi.account = "Pi provider selection";
+      expect(m.cells("pi")[3]).toBe("Pi provider selection");
+      expect(m.manageModel().agents.find(a => a.provider === "pi")?.who).toBe("Pi provider selection");
+    }
+  } finally {
+    i18n.setLanguage(previous);
+  }
+});
+
 test("OpenCode stays manageable without offering unsupported account sign-in", () => {
   const m = menu({ selected: "opencode2" });
   m.preview = preview({ pending: false, options: { opencode2: { account: "OpenCode provider credentials" } } });
@@ -346,7 +367,7 @@ test("Manage agents lists the signed-out and hidden agents the picker leaves out
   expect(m.manageModel().agents.map(a => [a.label, a.who, a.shown, a.signed_out])).toEqual([
     ["Codex", "Not signed in", true, true],
     ["Claude Code", "me@example.com", false, false],
-    ["Pi", "Unavailable", false, false],
+    ["Pi", "Pi provider selection", false, false],
     ...others.map(p => [adapter(p).label, "Not installed", true, false]),
   ]);
   m.commands[0].set("FOO=123 claude --whatever");

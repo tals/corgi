@@ -39,3 +39,7 @@ Russian review, 112×36:
 Korean agent management, 80×26:
 
 ![Korean agent management at 80 columns](ko-manage-narrow.png)
+
+Russian welcome, 112×36:
+
+![Russian welcome](ru-welcome.png)
