@@ -216,8 +216,16 @@ class HerdrHandoff extends TestCase {
       cwd: folder,
     });
     const [research] = await this.sourceShell("Migrated research", "Notes");
-    const snapshot = (await this.herdr("session.snapshot")).snapshot;
-    const split = snapshot.panes.find((p: any) => ![first, research].includes(p.pane_id)).pane_id;
+    // An unnamed workspace, which Herdr names for the checkout it's in.
+    const checkout = join(this.root, "checkout");
+    mkdirSync(join(checkout, "src"), { recursive: true });
+    Bun.spawnSync(["git", "init", "-q", checkout]);
+    const unnamed = (await this.herdr("workspace.create", { cwd: join(checkout, "src") })).root_pane.pane_id;
+    const snapshot = (await this.until(async () => {
+      const shown = (await this.herdr("session.snapshot")).snapshot;
+      return shown.workspaces.some((w: any) => w.label === "checkout") ? shown : null;
+    }, "Herdr's checkout name"))!;
+    const split = snapshot.panes.find((p: any) => ![first, research, unnamed].includes(p.pane_id)).pane_id;
     const pids = new Set(await Promise.all(snapshot.panes.map((p: any) => this.sourcePid(p.pane_id))));
     const splitShellPid = await this.sourcePid(split);
     const heartbeat = join(this.root, "heartbeat");
@@ -239,12 +247,17 @@ for await (const chunk of Bun.stdin.stream()) { for (const line of new TextDecod
       .map(Number);
     const progress = await this.handoff(1);
     this.assertEqual(progress.phase, "complete", progress);
-    this.assertEqual([progress.completed, progress.total], [3, 3]);
+    this.assertEqual([progress.completed, progress.total], [4, 4]);
     this.assertEqual(await this.donor.exited, 0);
     this.assertFalse(existsSync(this.herdrSocket));
     const after = await this.corgi({ op: "session.snapshot" });
     this.assertEqual(new Set(after.panes.map((p: any) => p.pid)), new Set([...pids, existingPid]));
-    this.assertEqual(after.workspaces.length, 3);
+    this.assertEqual(after.workspaces.length, 4);
+    // Each workspace keeps the name Herdr showed, derived ones included.
+    this.assertEqual(
+      after.workspaces.filter((w: any) => w.id !== original).map((w: any) => w.name),
+      snapshot.workspaces.map((w: any) => w.label),
+    );
     this.assertEqual(after.panes.find((p: any) => p.id === existing).pid, existingPid);
     const website = after.workspaces.find((w: any) => w.name === "Migrated website");
     const researchWs = after.workspaces.find((w: any) => w.name === "Migrated research");
@@ -280,7 +293,7 @@ for await (const chunk of Bun.stdin.stream()) { for (const line of new TextDecod
       socket: this.herdrSocket,
       viewer_pgid: await this.viewerPgid(),
     });
-    this.assertEqual((await this.corgi({ op: "session.snapshot" })).panes.length, 4);
+    this.assertEqual((await this.corgi({ op: "session.snapshot" })).panes.length, 5);
   }
 
   async test_rejected_handoff_rolls_back_and_can_retry() {

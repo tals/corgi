@@ -1,13 +1,12 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { realpathSync } from "node:fs";
 import * as herdr from "./herdr";
 import * as runtime from "../runtime";
 import * as checkpoint from "../persist/checkpoint";
 
-function staged(sessions = ["imported-session"], name = "Imported") {
+function staged(sessions = ["imported-session"], name = "Imported", labels: [string, string][] = []) {
   const job = new herdr.Job("/tmp/unused-herdr.sock", "/tmp/unused-corgi", {}, null);
+  job.labels = new Map(labels);
   job.restoreManifest({
     panes: sessions.map((_, i) => ({
       pane_id: i + 1,
@@ -19,6 +18,7 @@ function staged(sessions = ["imported-session"], name = "Imported") {
     snapshot: {
       workspaces: [
         {
+          id: "w1",
           identity_cwd: "/tmp",
           custom_name: name,
           tabs: sessions.map((session, i) => ({
@@ -54,30 +54,12 @@ test("live Herdr import roots a workspace at the folder its panes report", () =>
   }
 });
 
-test("an unnamed Herdr workspace takes the name Herdr shows", () => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "corgi-herdr-")));
+test("a handed-off Herdr workspace takes the name Herdr shows", () => {
+  const { job, manager } = staged(undefined, "", [["w1", "app"]]);
   try {
-    const repo = join(root, "repo"),
-      nested = join(repo, "src", "deep"),
-      linked = join(root, "linked  "),
-      plain = join(root, "plain");
-    mkdirSync(join(repo, ".git"), { recursive: true });
-    writeFileSync(join(repo, ".git", "HEAD"), "ref: refs/heads/main\n");
-    mkdirSync(nested, { recursive: true });
-    mkdirSync(join(repo, ".git", "worktrees", "linked"), { recursive: true });
-    writeFileSync(join(repo, ".git", "worktrees", "linked", "HEAD"), "ref: refs/heads/topic\n");
-    mkdirSync(join(linked, "sub"), { recursive: true });
-    writeFileSync(join(linked, ".git"), `gitdir: ${join(repo, ".git", "worktrees", "linked")}\n`);
-    mkdirSync(plain);
-    // A .git without a HEAD doesn't make a checkout.
-    mkdirSync(join(plain, ".git"));
-    expect(herdr.herdrName(root, root)).toBe("~");
-    expect(herdr.herdrName(nested, "/nowhere")).toBe("repo");
-    expect(herdr.herdrName(join(linked, "sub"), "/nowhere")).toBe("linked  ");
-    expect(herdr.herdrName(plain, "/nowhere")).toBe("plain");
-    expect(herdr.herdrName("/", "/nowhere")).toBe("/");
+    expect(job.staged.workspaces.items[0].name()).toBe("app");
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    manager.cancel();
   }
 });
 
