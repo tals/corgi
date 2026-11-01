@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { Connection } from "../src/rpc";
+import type * as protocol from "../src/protocol";
 import { Runtime } from "./runtime";
 import { EXE, JsonSocket, deadline, registerCase, run, versioned, writeExecutable } from "./support";
 
@@ -244,15 +245,54 @@ process.exit(await Bun.spawn([${JSON.stringify(git)}, ...args], {
     }
   }
   async test_followed_history_replies_before_its_events() {
-    const conn = new Connection(this.path);
+    const project = join(this.env.CLAUDE_CONFIG_DIR!, "projects", "rpc-history"),
+      session = "00000000-0000-4000-8000-000000000001";
+    mkdirSync(project, { recursive: true });
+    writeFileSync(
+      join(project, session + ".jsonl"),
+      JSON.stringify({
+        type: "user",
+        cwd: this.temp.name,
+        message: { role: "user", content: "RPC history ordering" },
+      }) + "\n",
+    );
+    const conn = new Connection(this.path),
+      history = Promise.withResolvers<Extract<protocol.Event, { type: "agent.history" }>>(),
+      unsubscribe = conn.onEvent(event => {
+        if (event.type === "agent.history") history.resolve(event);
+      });
     try {
       this.assertEqual(
         (await conn.call("agent.subscribe", { workspace: 1, cwd: this.temp.name })).type,
         "agent.preview",
       );
+      // Make the initial followed snapshot ready before asking for it.
+      await this.until(async () =>
+        (await conn.call("agent.history")).history?.entries.some(entry => entry.session === session),
+      );
+      const wire: string[] = [];
+      let buffer = "";
+      conn.socket.on("data", chunk => {
+        buffer += chunk;
+        for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
+          const message = JSON.parse(buffer.slice(0, end));
+          buffer = buffer.slice(end + 1);
+          // Observe wire order: promise callbacks can run after event callbacks
+          // even when the reply was first in the same socket chunk.
+          if ("request_id" in message) wire.push("reply");
+          else if (message.type === "agent.history") wire.push("history");
+        }
+      });
       this.assertEqual(await deadline(conn.call("agent.history", { follow: true }), 3000), { ok: true });
+      const event = await deadline(history.promise, 3000);
+      this.assertTrue(event.update.full);
+      this.assertTrue(
+        event.update.entries.some(entry => entry.session === session && entry.first === "RPC history ordering"),
+      );
+      this.assertEqual(wire.slice(0, 2), ["reply", "history"]);
       this.assertTrue((await deadline(conn.call("ping"), 3000)).ok);
     } finally {
+      unsubscribe();
       conn.close();
     }
   }
