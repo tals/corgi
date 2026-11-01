@@ -410,7 +410,6 @@ test("enter, or a click on its button, creates the workspace at once", () => {
   const v = d.view(100, 30)!;
   const create = v.buttons()[0];
   expect(d.press(v, create.x, v.buttons_y, 0)).toBe("save");
-  expect(d.frame()).toBeNull();
 });
 
 test("the name is selected only until the keys first leave it", () => {

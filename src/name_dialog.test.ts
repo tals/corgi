@@ -102,7 +102,7 @@ test("a press in the field places the caret, and a drag selects from it", () => 
   expect([d.cursor, d.selection()]).toEqual([0, null]);
   d.drag(v, v.text_x + 6);
   expect(d.selection()).toEqual([0, 6]);
-  d.release(0);
+  d.release();
   d.drag(v, v.text_x + 9);
   expect(d.selection()).toEqual([0, 6]);
 });

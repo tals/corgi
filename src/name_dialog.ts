@@ -321,16 +321,8 @@ export class Dialog {
     this.area.anchor = this.pressed_at;
   }
   /** The mouse button let go. */
-  release(_now: number): void {
+  release(): void {
     this.pressed_at = null;
-  }
-  /** Moves a dialog that animates on to `now`; "save" when it finishes by itself. */
-  tick(_now: number): Result {
-    return "none";
-  }
-  /** How often it wants frames while it moves, or null at rest. */
-  frame(): number | null {
-    return null;
   }
 }
 

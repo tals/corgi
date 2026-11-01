@@ -1856,15 +1856,11 @@ export class Controller {
   dismissName(): void {
     this.name_dialog = null;
   }
-  /** How long the viewer waits between frames: a dialog's own pace while it
-   * animates, a display frame while a sidebar row glides
-   * to another group, 30 ms while overlays, fades or drag scrolling run, and
-   * otherwise the corgi's own pace. */
+  /** How long the viewer waits between frames: a display frame while a
+   * sidebar row glides to another group, 30 ms while overlays, fades or drag
+   * scrolling run, and otherwise the corgi's own pace. */
   frameDelay(): number {
-    const now = milliTimestamp(),
-      d = this.name_dialog;
-    const own = d?.frame() ?? null;
-    if (own !== null) return own;
+    const now = milliTimestamp();
     const launch = this.launcherModel(),
       moving = launch?.managing && (!this.corgi_setup || this.corgi_setup.managing()) && launch.manager.moving();
     if (this.sidebar_rows.moving(now) || moving) return 16;
@@ -5897,7 +5893,7 @@ export class Controller {
       } else if (!release && button === 32) {
         dialog.drag(NameView.init(this.width, this.height, dialog), x);
         this.dirty = true;
-      } else if (release) dialog.release(milliTimestamp());
+      } else if (release) dialog.release();
       return;
     }
     let entries = this.sidebarEntries();
@@ -6338,11 +6334,6 @@ export class Controller {
         this.signin_exit = null;
         this.dirty = true;
       }
-    }
-    const dialog = this.name_dialog;
-    if (dialog && dialog.frame() !== null) {
-      if (dialog.tick(milliTimestamp()) === "save") await this.finishName(true);
-      this.dirty = true;
     }
     if (this.account_removals.size > 0) await this.finishAccountRemovals();
     const removal = this.worktree_card.removal;
