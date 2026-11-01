@@ -704,6 +704,11 @@ export class Runtime {
       this.panes.splice(i, 1);
       breadcrumbs.record("closed", { owner: p });
     }
+    // A pane's Corgi chat holds its session; the pane closing, or its chat
+    // exiting, stops it.
+    const held = this.sessions.filter(s => s.pane === id);
+    for (const s of held) s.destroy();
+    if (held.length) this.sessions = this.sessions.filter(s => !held.includes(s));
     this.changed();
   }
   closedCount(ws: number) {

@@ -77,6 +77,7 @@ let tab_active: string,
   button: string,
   button_edge: string,
   chip: string,
+  cue_mark: Record<Cue["tone"], string>,
   hint_key: string,
   hint_label: string,
   bar: string,
@@ -105,6 +106,10 @@ palette.derived(() => {
   button = new Style({ fg: "strong", bg: "surface", bold: true }).sgr();
   button_edge = new Style({ fg: "surface", bg: "bg" }).sgr();
   chip = new Style({ fg: "text", bg: "selected" }).sgr();
+  cue_mark = {
+    warm: new Style({ fg: "warm", bg: "selected", bold: true }).sgr(),
+    accent: new Style({ fg: "accent", bg: "selected", bold: true }).sgr(),
+  };
   hint_key = new Style({ fg: "strong", bg: "surface", bold: true }).sgr();
   hint_label = new Style({ fg: "faint", bg: "surface" }).sgr();
   bar = new Style({ bg: "surface" }).sgr();
@@ -122,6 +127,8 @@ export interface Ghost {
   /** The pane area once entered. */
   area: Rect;
 }
+/** What the status line says about the Corgi prompt while it is put away. */
+export type Cue = { text: string; tone: "warm" | "accent" };
 /** The workspace under the sidebar's cursor, as switching to it would show it. */
 export interface WorkspaceGhost {
   name: string;
@@ -218,6 +225,9 @@ export interface Ui {
   signin_draw: ((w: Writer, pointer: Pointer | null) => linkTooltip.Link | null) | null;
   /** With every workspace closed, the button that creates one. */
   no_workspace: noWorkspace.State | null;
+  /** Draws the Corgi prompt over everything, placing brand marks where it can. */
+  prompt_draw: ((w: Writer, marks: Marks | null) => void) | null;
+  prompt_cue: Cue | null;
 }
 export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }): Ui {
   return {
@@ -287,6 +297,8 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     review_ghost: null,
     signin_draw: null,
     no_workspace: null,
+    prompt_draw: null,
+    prompt_cue: null,
     ...fields,
   };
 }
@@ -473,16 +485,18 @@ function noPopup(u: Ui): boolean {
     u.dialog === null &&
     u.archive_dialog === null &&
     u.signin_draw === null &&
-    u.signin_exit === null
+    u.signin_exit === null &&
+    u.prompt_draw === null
   );
 }
-/** Dialogs, the launcher, Corgi setup, the workspace drawer and the review panel's keys dim the panes behind them. */
+/** Dialogs, the launcher, Corgi setup, the prompt, the workspace drawer and the review panel's keys dim the panes behind them. */
 function dimsPanes(u: Ui): boolean {
   return (
     u.dialog !== null ||
     u.archive_dialog !== null ||
     u.agent_launcher !== null ||
     u.corgi_setup !== null ||
+    u.prompt_draw !== null ||
     u.sidebar_drawer !== null ||
     u.review_keys
   );
@@ -506,8 +520,8 @@ function retainable(u: Ui, p: Pane, r: Rect, dim: boolean, hovered: bigint | nul
 }
 /** An open overlay reaches the badge. The launcher and scope menu open clear of it. */
 function badgeCovered(u: Ui, side: SidebarView, width: number, height: number): boolean {
-  // The agents drawer has no title row for the badge.
-  if (u.sidebar_drawer === "agents") return true;
+  // The agents drawer has no title row for the badge; the prompt may reach it.
+  if (u.sidebar_drawer === "agents" || u.prompt_draw) return true;
   const boxes = menuBoxes(u, width, height, side.area());
   if (u.agent_launcher) boxes.push(u.agent_launcher.bounds(width, height, side));
   if (u.agent_search) boxes.push(new Rect(0, side.middle() + 1, side.width, 1));
@@ -543,16 +557,20 @@ function writeChip(
   height: number,
   pointer: Pointer | null,
   left = 0,
+  /** A status dot before the text, in its color. */
+  mark: string | null = null,
 ): Rect | null {
   const text = raw.replace(/^ +/, "");
-  if (width - left < 4 || height === 0 || text.length === 0) return null;
+  const lead = mark ? 2 : 0;
+  if (width - left < 4 + lead || height === 0 || text.length === 0) return null;
   const clipped = new Writer();
-  writeEllipsis(clipped, text, width - left - 2);
+  writeEllipsis(clipped, text, width - left - 2 - lead);
   const body = clipped.buffered();
-  const chip_width = displayWidth(body) + 2;
+  const chip_width = displayWidth(body) + 2 + lead;
   const covered = pointer !== null && pointer.y === height - 1 && pointer.x >= left && pointer.x < left + chip_width;
   const x = covered ? width - chip_width : left;
-  w.write(`\x1b[${height};${x + 1}H\x1b]8;;\x1b\\${chip} ${body} \x1b[0m`);
+  const dot = mark ? `${mark}●${chip} ` : "";
+  w.write(`\x1b[${height};${x + 1}H\x1b]8;;\x1b\\${chip} ${dot}${body} \x1b[0m`);
   return new Rect(x, height - 1, chip_width, 1);
 }
 /** A bar over the pane area's bottom row while the prefix waits for its key.
@@ -781,6 +799,7 @@ export function frame(
     } else if (
       u.agent_launcher === null &&
       u.corgi_setup === null &&
+      u.prompt_draw === null &&
       u.agent_search === null &&
       u.menu === null &&
       u.tab_menu === null &&
@@ -979,7 +998,8 @@ export function frame(
             ? i18n.t`SIDEBAR  ↑↓/j/k move  ↵ open  ${search}Esc back`
             : "");
     // Beside the sidebar while it has focus, clear of its box's bottom edge.
-    cover(writeChip(w, text, width, height, u.pointer, u.sidebar_focus ? side.width : 0));
+    if (text || !u.prompt_cue) cover(writeChip(w, text, width, height, u.pointer, u.sidebar_focus ? side.width : 0));
+    else cover(writeChip(w, u.prompt_cue.text, width, height, u.pointer, 0, cue_mark[u.prompt_cue.tone]));
   }
   // The prefix bar covers the area's last row.
   const cursor_rows = area.y + area.h - (u.prefix && area.h > 0 ? 1 : 0);
@@ -1127,8 +1147,8 @@ export function frame(
     managed.manager.cell = u.supports_kitty_graphics ? u.cell_pixels : null;
     managed.manager.pointer_at = u.pointer;
   }
-  // Marks sit above text: none under a sign-in drawn over them, and none
-  // under a link card.
+  // Marks sit above text: none under a sign-in drawn over them, none under
+  // a link card, and none under the prompt but its own.
   const icons = u.tab_icons,
     cell = u.cell_pixels,
     card = u.link_card && u.pointer ? link_rect : null,
@@ -1139,18 +1159,23 @@ export function frame(
             if (!brand || card?.contains(col, row) || card?.contains(col + tabIcons.cols - 1, row)) return "";
             return icons.place(brand, col, row, cell);
           }
-        : null;
+        : null,
+    menu_marks = u.prompt_draw ? null : brand_marks;
   if (u.agent_launcher) {
     // None under the setup drawn over the launcher.
-    u.agent_launcher.marks = u.corgi_setup ? null : brand_marks;
+    u.agent_launcher.marks = u.corgi_setup ? null : menu_marks;
     u.agent_launcher.draw(w, width, height, side);
   }
-  // Settings' Manage agents wears them as the launcher's does.
-  if (u.corgi_setup?.agents) u.corgi_setup.agents.manager.marks = brand_marks;
-  if (u.corgi_setup) u.corgi_setup.draw(w, u.inference, u.prefs, width, height);
+  // Settings' Manage agents and model picker wear them as the launcher's does.
+  if (u.corgi_setup?.agents) u.corgi_setup.agents.manager.marks = menu_marks;
+  if (u.corgi_setup) {
+    u.corgi_setup.marks = menu_marks;
+    u.corgi_setup.draw(w, u.inference, u.prefs, width, height);
+  }
   if (managed?.manager.last_box && !managed.transition.active)
     w.write(managed.manager.glideImage(managed.manager.last_box, managed.manageModel()));
   cover(signinExit.draw(w, u.added_feedback, width, height, u.signin_exit));
+  if (u.prompt_draw) u.prompt_draw(w, brand_marks);
   // A sign-in takes the whole screen, its cursor included.
   if (u.signin_draw) {
     hovered_uri = u.signin_draw(w, on_link_card ? null : u.pointer)?.uri ?? null;
@@ -1173,11 +1198,28 @@ export function frame(
     }
   }
   // Like pane images, a mark goes under nothing drawn over it.
-  if (u.tab_icons && u.cell_pixels && !u.agent_launcher && !u.corgi_setup && !u.signin_draw && !u.signin_exit)
+  if (
+    u.tab_icons &&
+    u.cell_pixels &&
+    !u.agent_launcher &&
+    !u.corgi_setup &&
+    !u.prompt_draw &&
+    !u.signin_draw &&
+    !u.signin_exit
+  )
     for (const { brand, x, y } of archive_marks)
       if (!covered.some(box => box.y <= y && box.y + box.h > y && box.x < x + tabIcons.cols && box.x + box.w > x))
         w.write(u.tab_icons.place(brand, x, y, u.cell_pixels));
-  if (marks && u.tab_icons && u.cell_pixels && !u.agent_launcher && !u.corgi_setup && !u.signin_draw && !u.signin_exit)
+  if (
+    marks &&
+    u.tab_icons &&
+    u.cell_pixels &&
+    !u.agent_launcher &&
+    !u.corgi_setup &&
+    !u.prompt_draw &&
+    !u.signin_draw &&
+    !u.signin_exit
+  )
     for (const { brand, x } of marks)
       if (!covered.some(box => box.y === 0 && box.h > 0 && box.x < x + tabIcons.cols && box.x + box.w > x))
         w.write(u.tab_icons.place(brand, x, 0, u.cell_pixels));

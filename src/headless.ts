@@ -2,18 +2,33 @@
 //! conversations, approvals, tools and journal Corgi keeps for it. The client
 //! speaks the provider's protocol; this file sees only its events.
 import { realpathSync } from "node:fs";
+import { dirname, isAbsolute } from "node:path";
 import { Agent, Text, type Provider } from "./agents";
 import { Actor, Attachment, Registry } from "./conversations";
 import { adapter } from "./providers";
-import type { Ask, Client, Event, Input, Saved } from "./providers/adapter";
+import {
+  image_types,
+  type Ask,
+  type Client,
+  type Event,
+  type Image,
+  type Input,
+  type Place,
+  type Saved,
+} from "./providers/adapter";
+import * as effort from "./providers/effort";
+import type { Effort } from "./providers/effort";
 import { State as Observation } from "./observation";
 import { ResumeHint } from "./resume_hint";
 import { Counts, Tracker, add } from "./usage/tokens";
 import { Tokens } from "./usage/live";
+import * as accounts from "./accounts";
 import * as discovery from "./discovery";
 import * as json from "./json";
+import { truncateUtf8 } from "./bounded_text";
 import * as worktrees from "./worktrees";
 import { Invalid, captureBinding, restoreBinding, hydrate, type Repairs } from "./persist/checkpoint";
+import type { Runtime } from "./runtime";
 import type { Server } from "./server";
 import { Reply, type Client as Peer } from "./peer";
 import type { DecodedRequest } from "./protocol";
@@ -23,6 +38,8 @@ type Request = Extract<
 >;
 
 export type Entry = { seq: bigint; event: Event };
+/** What a session starts with besides its folder; ordinary sessions leave it all out. */
+export type Options = Partial<Omit<Place, "cwd" | "executable">>;
 export type Tool = { id: string; thread: string; turn: string };
 export class PendingRequest {
   constructor(
@@ -64,6 +81,43 @@ export function counted(tracker: Tracker, e: Extract<Event, { kind: "usage" }>, 
   }
   return delta;
 }
+/** What `headless.start` asks of the provider, checked: an effort Corgi knows,
+ * and an account folder Corgi knows or "" for the default. */
+export function startOptions(query: Extract<Request, { op: "headless.start" }>["payload"]): Options {
+  const level = query.effort ? effort.parse(query.effort) : null;
+  if (query.effort && !level) throw Error("InvalidEffort");
+  const account = query.account ? accounts.normalize(query.provider, query.account) : "";
+  // A provider without accounts of its own runs only on the default one.
+  if (account && !adapter(query.provider).accounts.signin) throw Error("HeadlessAccountUnsupported");
+  if (account && !accounts.find(query.provider, account)) throw Error("AccountNotFound");
+  return {
+    account,
+    ...(query.model ? { model: query.model } : {}),
+    ...(level ? { effort: level } : {}),
+    ...(query.instructions ? { instructions: query.instructions } : {}),
+    ...(query.persist ? {} : { persist: false }),
+  };
+}
+/** A tool's name or summary as the journal keeps it: one bounded line with
+ * no control characters, so no escape sequence, and the session's folder
+ * left off the paths in it. */
+function brief(text: string, cwd: string) {
+  const line = text
+    .trimStart()
+    .split("\n", 1)[0]
+    .replace(/[\x00-\x1f\x7f-\x9f]/g, " ")
+    .trimEnd();
+  return truncateUtf8(cwd.length > 1 ? line.replaceAll(cwd + "/", "") : line, 200);
+}
+/** Images a prompt carries: absolute paths of a type a model reads, a few at most. */
+export function validImages(value: unknown): Image[] {
+  if (!Array.isArray(value) || value.length > 8) throw Error("InvalidMessage");
+  return value.map(v => {
+    if (!v || typeof v.path !== "string" || !isAbsolute(v.path) || !image_types.includes(v.mime))
+      throw Error("InvalidMessage");
+    return { path: v.path, mime: v.mime };
+  });
+}
 function validInput(value: any): Input {
   const bad = () => {
     throw Error("InvalidMessage");
@@ -71,9 +125,16 @@ function validInput(value: any): Input {
   if (!value || typeof value !== "object" || Array.isArray(value)) bad();
   const session = value.session === undefined ? undefined : typeof value.session === "string" ? value.session : bad();
   switch (value.kind) {
-    case "prompt":
-      if (typeof value.text !== "string" || !value.text) bad();
-      return { kind: "prompt", text: value.text, ...(session ? { session } : {}) };
+    case "prompt": {
+      const images = value.images === undefined ? [] : validImages(value.images);
+      if (typeof value.text !== "string" || (!value.text && !images.length)) bad();
+      return {
+        kind: "prompt",
+        text: value.text,
+        ...(session ? { session } : {}),
+        ...(images.length ? { images } : {}),
+      };
+    }
     case "answer":
       if (typeof value.request !== "string" || typeof value.allow !== "boolean") bad();
       if (value.message !== undefined && typeof value.message !== "string") bad();
@@ -90,6 +151,21 @@ export class Session {
   resume_hint = new ResumeHint();
   workspace_id = 0;
   exited = false;
+  /** The Corgi prompt's own conversation, which the sidebar leaves out. */
+  corgi = false;
+  /** What it started with, so a viewer can tell which choice it runs. */
+  account = "";
+  model = "";
+  effort: Effort | null = null;
+  persist = true;
+  /** The pane whose Corgi chat holds it: reading its events from there
+   * claims it, and closing that pane stops it. */
+  pane: number | null = null;
+  /** When it exited, and the journal entry that says so, until a reader
+   * fetched it. */
+  exited_at = 0;
+  ended_seq: bigint | null = null;
+  ended_read = false;
   readonly holder = "session";
   #attachment = new Attachment();
   get attachment(): Attachment {
@@ -199,12 +275,22 @@ export class Session {
         request => request.ask.tool && (request.actor?.state ?? this.attachment.provisional) === target,
       );
   }
-  static async start(id: number, provider: Provider, cwd: string) {
+  static async start(id: number, provider: Provider, cwd: string, options: Options = {}) {
     const headless = adapter(provider).headless;
     if (!headless) throw Error("HeadlessUnsupported");
     const directory = realpathSync(cwd),
       executable = await discovery.resolve(provider, directory);
-    return new Session(id, provider, directory, headless.start({ cwd: directory, account: "", executable }));
+    const session = new Session(
+      id,
+      provider,
+      directory,
+      headless.start({ ...options, cwd: directory, account: options.account ?? "", executable }),
+    );
+    session.account = options.account ?? "";
+    session.model = options.model ?? "";
+    session.effort = options.effort ?? null;
+    session.persist = options.persist !== false;
+    return session;
   }
   destroy() {
     this.releaseRequests();
@@ -212,8 +298,13 @@ export class Session {
     this.active_tools = [];
     this.events = [];
   }
-  markExited() {
+  markExited(now = Date.now()) {
     this.releaseRequests();
+    if (!this.exited) {
+      this.journal({ kind: "ended" });
+      this.ended_seq = this.next_seq - 1n;
+      this.exited_at = now;
+    }
     this.exited = true;
     this.attachment.provisional.state = "done";
     this.active_tools = [];
@@ -279,10 +370,28 @@ export class Session {
   poll(registry: Registry) {
     if (this.exited || this.paused) return false;
     let ding = false;
-    for (const event of this.client.take()) ding = this.apply(registry, event) || ding;
+    const events = this.client.take();
+    for (const [i, event] of events.entries()) {
+      // Only the newest of a run of partials matters.
+      const next = events[i + 1];
+      if (event.kind === "partial" && next?.kind === "partial" && next.session === event.session) continue;
+      ding = this.apply(registry, event) || ding;
+    }
     return ding;
   }
   private journal(event: Event) {
+    // A partial replaces its conversation's last one when only partials
+    // followed it, so streaming, even several conversations', never evicts
+    // real events; the message it streamed replaces it for good.
+    const streamed = event.kind === "partial" || event.kind === "message" ? event.session : null;
+    for (let i = this.events.length - 1; streamed !== null && i >= 0; i--) {
+      const old = this.events[i].event;
+      if (old.kind !== "partial") break;
+      if (old.session !== streamed) continue;
+      this.events.splice(i, 1);
+      this.journal_bytes -= Buffer.byteLength(json.stringify(old));
+      break;
+    }
     const size = Buffer.byteLength(json.stringify(event));
     while (this.events.length && (this.events.length >= 128 || this.journal_bytes + size > 4 * 1024 * 1024))
       this.journal_bytes -= Buffer.byteLength(json.stringify(this.events.shift()!.event));
@@ -300,6 +409,16 @@ export class Session {
       this.ended = true;
       return false;
     }
+    if (e.kind === "partial") {
+      this.journal(e);
+      return false;
+    }
+    if (e.kind === "tool" && (e.name !== undefined || e.summary !== undefined))
+      e = {
+        ...e,
+        ...(e.name !== undefined ? { name: brief(e.name, this.cwd) } : {}),
+        ...(e.summary !== undefined ? { summary: brief(e.summary, this.cwd) } : {}),
+      };
     const actor = e.session ? registry.get(this.provider, e.session) : this.attachment.actor;
     if (actor) {
       if (e.kind === "conversation") {
@@ -435,6 +554,12 @@ export class Session {
       provider: this.provider,
       cwd: this.cwd,
       workspace_id: this.workspace_id,
+      corgi: this.corgi,
+      account: this.account,
+      model: this.model,
+      effort: this.effort,
+      persist: this.persist,
+      pane: this.pane,
       client: this.client.save(live),
       ready: this.ready,
       exited: this.exited,
@@ -462,6 +587,12 @@ export class Session {
     session.attachment = restoreBinding(registry, saved.binding, live, { ...how, what: `native session ${saved.id}` });
     session.exited = live ? saved.exited : true;
     session.workspace_id = saved.workspace_id;
+    session.corgi = saved.corgi === true;
+    session.account = typeof saved.account === "string" ? saved.account : "";
+    session.model = typeof saved.model === "string" ? saved.model : "";
+    session.effort = effort.parse(saved.effort);
+    session.persist = saved.persist !== false;
+    session.pane = typeof saved.pane === "number" ? saved.pane : null;
     session.resume_hint = hydrate(new ResumeHint(), saved.resume_hint);
     session.session = saved.session ?? session.resume_hint.session.text();
     session.usage_tracker = live ? Tracker.restore(saved.usage_tracker) : new Tracker();
@@ -481,6 +612,11 @@ export class Session {
     session.events = (saved.events ?? []).map((entry: any) => ({ seq: BigInt(entry.seq), event: entry.event }));
     session.next_seq = BigInt(saved.next_seq);
     session.journal_bytes = saved.journal_bytes;
+    // An end a reader may not have fetched yet gets its grace again.
+    if (session.exited) {
+      session.ended_seq = session.events.findLast(entry => entry.event.kind === "ended")?.seq ?? null;
+      session.exited_at = Date.now();
+    }
     if (live) {
       for (const request of saved.approvals ?? []) {
         const actor = request.actor ? registry.byId(request.actor) : null;
@@ -498,21 +634,46 @@ export class Session {
   }
 }
 
+/** Removes the prompt's sessions that ended, once a reader fetched their
+ * end or a minute after; nothing else shows them. True when it removed one. */
+export function sweep(runtime: Runtime, now = Date.now()) {
+  const gone = runtime.sessions.filter(s => s.corgi && s.exited && (s.ended_read || now - s.exited_at >= 60_000));
+  if (!gone.length) return false;
+  for (const s of gone) s.destroy();
+  runtime.sessions = runtime.sessions.filter(s => !gone.includes(s));
+  runtime.changed();
+  return true;
+}
+/** How a prompt session reaches this Corgi: its socket, and its own corgi
+ * first on PATH. No pane, so provider hooks and extensions stay quiet. */
+export function corgiEnv(socket: string, executable: string): Record<string, string | undefined> {
+  return {
+    CORGI_SOCKET: socket,
+    CORGI_PANE: undefined,
+    PATH: `${dirname(executable)}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+  };
+}
 export async function request(server: Server, client: Peer, request: Request, reply = new Reply(client)) {
   const runtime = server.runtime;
+  if (sweep(runtime)) server.dirty = true;
   if (request.op === "headless.start") {
-    const query = request.payload;
-    if (!query.prompt.trim()) throw Error("InvalidMessage");
+    const query = request.payload,
+      images = query.images === null ? [] : validImages(query.images);
+    if (!query.prompt.trim() && !images.length) throw Error("InvalidMessage");
     if (runtime.sessions.length >= 16) throw Error("TooManyHeadlessSessions");
     const workspace = query.workspace ? runtime.getWorkspace(query.workspace) : server.onlyWorkspace();
-    const session = await Session.start(runtime.next_session, query.provider, query.cwd || workspace.cwd);
+    const session = await Session.start(runtime.next_session, query.provider, query.cwd || workspace.cwd, {
+      ...startOptions(query),
+      ...(query.corgi ? { env: corgiEnv(server.socket, server.executable) } : {}),
+    });
     if (client.dead) {
       session.destroy();
       return;
     }
     session.workspace_id = workspace.id;
+    session.corgi = query.corgi;
     try {
-      session.send({ kind: "prompt", text: query.prompt });
+      session.send({ kind: "prompt", text: query.prompt, ...(images.length ? { images } : {}) });
     } catch (error) {
       session.destroy();
       throw error;
@@ -533,6 +694,12 @@ export async function request(server: Server, client: Peer, request: Request, re
         pid: session.client.processes?.()[0] ?? -1,
         session: session.session || null,
         provider: session.provider,
+        corgi: session.corgi,
+        account: session.account,
+        model: session.model,
+        effort: session.effort,
+        persist: session.persist,
+        pane: session.pane,
         ready: session.ready,
         exited: session.exited,
         state: session.status(),
@@ -570,14 +737,23 @@ export async function request(server: Server, client: Peer, request: Request, re
     session.send(input);
     reply.send({ ok: true });
   } else if (request.op === "headless.events") {
+    const after = BigInt(request.payload.after),
+      pane = request.payload.pane;
+    // A Corgi chat in a pane reads with its pane: the session is that pane's now.
+    if (pane !== null && session.pane !== pane) {
+      session.pane = pane;
+      runtime.changed();
+    }
     reply.send({
       ok: true,
-      events: session.events.filter(entry => entry.seq > BigInt(request.payload.after)),
+      events: session.events.filter(entry => entry.seq > after),
       pending_requests: session.pendingRequests(),
       next_seq: session.next_seq,
       first_seq: session.events[0]?.seq ?? session.next_seq,
     });
     session.acknowledge();
+    if (session.ended_seq !== null && session.ended_seq > after) session.ended_read = true;
+    sweep(runtime);
   }
 }
 

@@ -8,7 +8,7 @@ import * as hooksFile from "../hooks_file";
 import { Watcher } from "./screen";
 import * as daemon from "./daemon";
 import * as peer from "./peer";
-import { Claude, stream_json, summaryArgs } from "./headless";
+import { Claude, summaryArgs } from "./headless";
 import { transcript } from "./transcript";
 import * as usage from "./usage";
 import * as conversation from "./conversation";
@@ -125,7 +125,7 @@ export const adapter: Adapter = {
     },
   },
   headless: {
-    start: at => Claude.start(at, stream_json, null),
+    start: at => Claude.session(at),
     restore: Claude.restore,
   },
   inference: {

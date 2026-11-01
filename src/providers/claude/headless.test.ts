@@ -1,5 +1,8 @@
 import { test, expect } from "bun:test";
-import { Claude } from "./headless";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Claude, sessionArgs } from "./headless";
 import type { Stdio } from "../stdio";
 /** A Claude client reading `lines` as its output, recording what it writes. */
 function client(lines: unknown[], summary: { schema: boolean } | null = null) {
@@ -12,6 +15,7 @@ function client(lines: unknown[], summary: { schema: boolean } | null = null) {
     wait: async () => {},
     close() {},
     adopt() {},
+    save: () => ({ state: {}, handles: [] }),
   } as unknown as Stdio;
   return { claude: new Claude(io, summary, !summary), written };
 }
@@ -75,4 +79,128 @@ test("a summary waits for its handshake and answers with its result", () => {
   expect(events.filter(e => e.kind === "usage")).toHaveLength(1);
   claude.send({ kind: "prompt", text: "go" });
   expect(written).toEqual([{ type: "user", message: { role: "user", content: "go" } }]);
+  // Images follow the text as base64 blocks.
+  const image = join(mkdtempSync(join(tmpdir(), "corgi-image-")), "a.png");
+  writeFileSync(image, "png bytes");
+  claude.send({ kind: "prompt", text: "what's this?", images: [{ path: image, mime: "image/png" }] });
+  expect(written[1]).toEqual({
+    type: "user",
+    message: {
+      role: "user",
+      content: [
+        { type: "text", text: "what's this?" },
+        { type: "image", source: { type: "base64", media_type: "image/png", data: btoa("png bytes") } },
+      ],
+    },
+  });
+});
+test("a session starts with the model, effort and instructions it asks for", () => {
+  const at = { cwd: "/repo", account: "", executable: "claude" };
+  expect(sessionArgs(at, "")).not.toContain("--model");
+  expect(sessionArgs(at, "")).not.toContain("--no-session-persistence");
+  expect(sessionArgs(at, "")).not.toContain("--append-system-prompt-file");
+  expect(sessionArgs(at, "")).toContain("--include-partial-messages");
+  const args = sessionArgs({ ...at, model: "opus", effort: "high", instructions: "Be brief.", persist: false }, "/f");
+  const after = (flag: string) => args.slice(args.indexOf(flag), args.indexOf(flag) + 2);
+  expect(after("--model")).toEqual(["--model", "opus"]);
+  expect(after("--effort")).toEqual(["--effort", "high"]);
+  expect(after("--append-system-prompt-file")).toEqual(["--append-system-prompt-file", "/f"]);
+  expect(args).not.toContain("Be brief.");
+  expect(args).toContain("--no-session-persistence");
+});
+test("a session's instructions reach Claude in a private file that goes with it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-claude-")),
+    program = join(dir, "claude"),
+    report = join(dir, "report.json");
+  writeFileSync(
+    program,
+    `#!${process.execPath}
+const fs = require("node:fs");
+const args = process.argv.slice(2), file = args[args.indexOf("--append-system-prompt-file") + 1];
+const seen = { args, text: fs.readFileSync(file, "utf8"), mode: fs.statSync(file).mode & 0o777 };
+fs.writeFileSync(${JSON.stringify(report + ".tmp")}, JSON.stringify(seen));
+fs.renameSync(${JSON.stringify(report + ".tmp")}, ${JSON.stringify(report)});
+for await (const _ of console) {}
+`,
+  );
+  chmodSync(program, 0o755);
+  const claude = Claude.session({ cwd: dir, account: "", executable: program, instructions: "Remember corgis." });
+  const file = claude.file;
+  try {
+    const deadline = Date.now() + 5000;
+    while (!existsSync(report) && Date.now() < deadline) await Bun.sleep(10);
+    const seen = JSON.parse(readFileSync(report, "utf8"));
+    expect(seen.text).toBe("Remember corgis.");
+    expect(seen.mode).toBe(0o600);
+    expect(seen.args.join(" ")).not.toContain("corgis");
+    expect(JSON.stringify(claude.save(true))).not.toContain("corgis");
+    expect(Claude.restore(claude.save(false), false).file).toBe(file);
+  } finally {
+    claude.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+  expect(existsSync(file)).toBe(false);
+});
+const delta = (text: string, parent: string | null = null) => ({
+  type: "stream_event",
+  session_id: "a",
+  parent_tool_use_id: parent,
+  event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } },
+});
+test("Claude streams each text block as it's written, then sends it whole", () => {
+  const { claude } = client([
+    { type: "stream_event", session_id: "a", event: { type: "message_start", message: {} } },
+    { type: "stream_event", session_id: "a", event: { type: "content_block_start", content_block: { type: "text" } } },
+    delta("Hel"),
+    delta("lo"),
+    delta("sub", "toolu_1"),
+    { type: "assistant", session_id: "a", message: { id: "m", content: [{ type: "text", text: "Hello" }] } },
+    { type: "stream_event", session_id: "a", event: { type: "content_block_start", content_block: { type: "text" } } },
+    delta("Next"),
+  ]);
+  const events = claude.take();
+  expect(events.filter(e => e.kind !== "conversation")).toEqual([
+    { kind: "turn", session: "a", turn: "", phase: "started" },
+    { kind: "partial", session: "a", text: "Hel" },
+    { kind: "partial", session: "a", text: "Hello" },
+    { kind: "message", session: "a", text: "Hello" },
+    { kind: "partial", session: "a", text: "Next" },
+  ]);
+  expect(claude.streamed).toBe("Next");
+});
+test("an interrupted stream ends in the message it showed", () => {
+  const { claude } = client([delta("Half"), { type: "result", session_id: "a", subtype: "error_during_execution" }]);
+  expect(claude.take().filter(e => e.kind === "partial" || e.kind === "message")).toEqual([
+    { kind: "partial", session: "a", text: "Half" },
+    { kind: "message", session: "a", text: "Half" },
+  ]);
+  expect(claude.streamed).toBe("");
+});
+test("a summary doesn't stream", () => {
+  const { claude } = client([delta("x")], { schema: false });
+  expect(claude.take()).toEqual([{ kind: "conversation", session: "a", parent: null, role: null, shown: true }]);
+});
+test("Claude's tools say what they are", () => {
+  const { claude } = client([
+    {
+      type: "assistant",
+      session_id: "a",
+      message: {
+        id: "m",
+        content: [
+          { type: "tool_use", id: "r", name: "Read", input: { file_path: "/repo/src/x.ts" } },
+          { type: "tool_use", id: "s", name: "WebSearch", input: { query: "bun ffi" } },
+        ],
+      },
+    },
+  ]);
+  expect(claude.take().filter(e => e.kind === "tool")).toEqual([
+    { kind: "tool", session: "a", turn: "", id: "r", done: false, wrote: [], name: "Read", summary: "/repo/src/x.ts" },
+    { kind: "tool", session: "a", turn: "", id: "s", done: false, wrote: [], name: "WebSearch", summary: "bun ffi" },
+  ]);
+});
+test("a stream half-way through survives a handoff", () => {
+  const { claude } = client([delta("Half")]);
+  claude.take();
+  expect(Claude.restore(claude.save(true), true).streamed).toBe("Half");
 });

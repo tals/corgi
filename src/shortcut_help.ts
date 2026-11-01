@@ -249,6 +249,8 @@ export function panes(c: Column) {
   c.action(i18n.t`Detach`, act("detach"), 2);
   c.space();
   c.heading(i18n.t`CORGI`);
+  c.action(i18n.t`Corgi prompt`, act("prompt"), 2);
+  c.alsoHeld(i18n.t`Also works directly`, act("prompt"), 4);
   c.action(i18n.t`Toggle sidebar`, act("sidebar"), 2);
   c.action(i18n.t`Review changes`, act("review"), 2);
   c.action(i18n.t`Setup`, act("setup"), 2);

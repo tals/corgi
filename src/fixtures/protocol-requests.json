@@ -182,7 +182,13 @@
     "provider": "codex",
     "cwd": "/tmp",
     "workspace": 1,
-    "prompt": "hello"
+    "prompt": "hello",
+    "model": "gpt-6-luna",
+    "effort": "high",
+    "instructions": "Be brief.",
+    "persist": false,
+    "corgi": true,
+    "images": [{ "path": "/tmp/a.png", "mime": "image/png" }]
   },
   "headless.list": {},
   "headless.stop": {
@@ -200,7 +206,8 @@
   "headless.events": {
     "session": "t",
     "after": 4,
-    "provider": "codex"
+    "provider": "codex",
+    "pane": 3
   },
   "theme": {
     "theme": {

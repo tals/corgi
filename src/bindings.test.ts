@@ -170,3 +170,27 @@ test("arrows after the prefix repeat without it, as tmux's bind -r", async () =>
   expect(find("corgi", { name: "focus", value: "up" })?.key).toBe(57352);
   expect(find("corgi", { name: "swap", value: "up" })?.key).toBe(75);
 });
+
+test("prefix Space toggles the Corgi prompt in every preset, and Ctrl+Shift+K where it's free", async () => {
+  const { format, first, writeTable } = await import("./bindings");
+  for (const preset of ["corgi", "tmux", "herdr", "cmux"] as Preset[]) {
+    expect(lookup(preset, true, 32)).toEqual({ name: "prompt" });
+    expect(format(first(preset, { name: "prompt" }, true)!)).toBe("Space");
+    // Plain Ctrl+K, as a byte or a Kitty key without Shift, stays with the pane.
+    expect(lookup(preset, false, 11)).toBeNull();
+    expect(chord(preset, false, { codepoint: 107, mods: { ctrl: true } })).toBeNull();
+  }
+  for (const preset of ["corgi", "tmux", "herdr"] as Preset[]) {
+    expect(chord(preset, false, { codepoint: 107, mods: { ctrl: true, shift: true } })).toEqual({ name: "prompt" });
+    expect(chord(preset, false, { codepoint: 75, mods: { ctrl: true, shift: true } })).toEqual({ name: "prompt" });
+    expect(format(first(preset, { name: "prompt" }, false)!)).toBe("Ctrl+Shift+K");
+  }
+  // cmux resizes up with it.
+  expect(chord("cmux", false, { codepoint: 107, mods: { ctrl: true, shift: true } })).toEqual({
+    name: "resize",
+    value: "up",
+  });
+  expect(writeTable()).toContain(
+    "| Corgi prompt | `prefix Space`, `Ctrl+Shift+K` | `prefix Space`, `Ctrl+Shift+K` | `prefix Space`, `Ctrl+Shift+K` | `prefix Space` |\n",
+  );
+});

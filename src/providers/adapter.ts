@@ -27,10 +27,14 @@ export interface Launcher {
   watches?(): string[];
   close(): void;
 }
+/** An image a prompt carries: a file on this machine, and its type. */
+export type Image = { path: string; mime: string };
+/** The image types a prompt may carry. */
+export const image_types = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 /** What core asks of a headless client. A prompt or interrupt without a
  * session goes to the conversation it shows. */
 export type Input =
-  | { kind: "prompt"; text: string; session?: string }
+  | { kind: "prompt"; text: string; session?: string; images?: Image[] }
   | { kind: "answer"; request: string; allow: boolean; message?: string }
   | { kind: "interrupt"; session?: string };
 /** What a request asks: `tool` when it is a tool waiting to run. */
@@ -44,7 +48,19 @@ export type Event =
   | { kind: "turn"; session: string; turn: string; phase: "ended"; outcome: Outcome }
   | { kind: "message"; session: string; text: string }
   | { kind: "activity"; session: string; turn: string; text: string; amend: boolean }
-  | { kind: "tool"; session: string; turn: string; id: string; done: boolean; wrote: string[] }
+  | {
+      kind: "tool";
+      session: string;
+      turn: string;
+      id: string;
+      done: boolean;
+      wrote: string[];
+      /** The tool's name and what it's about in a few words ("Read", "src/x.ts"). */
+      name?: string;
+      summary?: string;
+    }
+  /** The assistant message so far, cumulative; the complete `message` follows. */
+  | { kind: "partial"; session: string; text: string }
   | { kind: "request"; session: string; id: string; ask: Ask }
   | { kind: "request_closed"; session: string; id: string; running: boolean }
   | {
@@ -76,8 +92,23 @@ export interface Client {
   /** A client restored from a handoff is the old daemon's until adopted. */
   adopt?(): void;
 }
-/** Where a client runs: `account` names a provider account, "" the default. */
-export type Place = { cwd: string; account: string; executable: string };
+/** Where a client runs: `account` names a provider account, "" the default.
+ * Ordinary headless sessions omit the rest. */
+export type Place = {
+  cwd: string;
+  account: string;
+  executable: string;
+  model?: string;
+  effort?: Effort;
+  /** Appended to the provider's own system prompt. */
+  instructions?: string;
+  /** false: the provider keeps no session file (Claude --no-session-persistence,
+   * Codex ephemeral, Pi/omp --no-session). */
+  persist?: boolean;
+  /** Variables it runs with over the daemon's own, undefined to unset: how a
+   * prompt session reaches this Corgi with its CLI. */
+  env?: Record<string, string | undefined>;
+};
 /** A provider's session transcripts, read as they grow. */
 export interface Transcript {
   /** Initial user evidence for Corgi naming, only when the provider has no automatic titles. */

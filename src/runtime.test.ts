@@ -720,3 +720,33 @@ test("a new agent goes on top though another was dragged before it was seen", ()
     r.destroy();
   }
 });
+test("closing the pane that holds a prompt session stops it; others stay", () => {
+  const { r, w } = setup();
+  try {
+    const chat = add(r, w),
+      other = add(r, w),
+      stopped: string[] = [];
+    const held = (name: string, pane: number | null) =>
+      ({
+        pane,
+        attachment: new Attachment(),
+        members: [],
+        approvals: [],
+        destroy: () => stopped.push(name),
+      }) as unknown as Session;
+    const mine = held("mine", chat.id),
+      card = held("card", null),
+      theirs = held("theirs", other.id);
+    r.sessions.push(mine, card, theirs);
+    r.close(chat.id);
+    expect(stopped).toEqual(["mine"]);
+    expect(r.sessions).toEqual([card, theirs]);
+    // A chat whose process exited closes its pane the same way.
+    other.terminal.exited = true;
+    r.close(other.id);
+    expect(stopped).toEqual(["mine", "theirs"]);
+    expect(r.sessions).toEqual([card]);
+  } finally {
+    r.destroy();
+  }
+});

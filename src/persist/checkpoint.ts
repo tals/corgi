@@ -488,6 +488,8 @@ export async function restore(
   if (state.sessions.length) {
     const { Session } = await import("../headless");
     for (const saved of state.sessions) {
+      // The Corgi prompt's conversations end with the daemon that ran them.
+      if (!live && saved.corgi === true) continue;
       const tracker = saved.usage_tracker;
       check(
         !r.workspaces.get(saved.workspace_id),
@@ -505,7 +507,7 @@ export async function restore(
   if (!live && recover) {
     for (const p of r.panes) await recoverPane(p, socket, executable);
     for (const n of state.sessions) {
-      if (n.exited) continue;
+      if (n.exited || n.corgi === true) continue;
       const cwd = await safeDirectory(n.cwd);
       const id = await r.create({
         workspace: n.workspace_id,

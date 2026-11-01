@@ -30,8 +30,11 @@ Agent controls (--json prints the daemon's reply as JSON):
   corgi claim PROVIDER [--pane ID|current] [--owner PID]
   corgi claim --clear [--pane ID|current] [--owner PID]
   corgi focus ID|current --viewer ID  select in exactly one viewer
+  corgi history [--limit N] [--json]  past conversations, newest first
   corgi grep [--workspace NAME|ID|DIR|'*'] [--max-age 7d] [--tools] [-iC2] REGEX
     search conversation text; --session PROVIDER:ID narrows, -o extracts matches
+  corgi resume PROVIDER SESSION [--viewer ID] [--workspace ID]  show it: focus
+    the pane already showing it, or resume it in a tab where its folder belongs
   corgi launcher list [--workspace ID] [--json]  agents each launcher shows
   corgi launcher hide AGENT... [--workspace ID]  in one workspace only
   corgi launcher show AGENT... [--workspace ID]  in one workspace only
@@ -45,6 +48,11 @@ Agent controls (--json prints the daemon's reply as JSON):
   corgi launcher edit AGENT --command COMMAND [--name NAME] [--workspace ID]
   corgi launcher remove AGENT [--workspace ID]  delete a clone or saved command
   corgi launcher copy --from ID --workspace ID  replace destination order and visibility
+  corgi memory search WORDS... [--limit N]  the Corgi prompt's memory lines
+  corgi memory get [FILE[:FROM[-TO]]]  its files, or a file's lines
+  corgi memory add [--long|--workspace NAME] [--replaces FILE:LINE] TEXT...
+    to today's log, MEMORY.md or a workspace's note; an exact repeat isn't added
+  corgi memory forget FILE:LINE
   corgi --skill                      print bundled agent instructions
 
 IDs come from list; current means CORGI_PANE, never UI focus.

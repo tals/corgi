@@ -919,6 +919,59 @@ function conversations(cwd: string, n: number) {
   }));
 }
 
+test("the launcher grows down when its conversations expand, then keeps its size and place until it closes", () => {
+  for (const [cols, rows] of [
+    [120, 40],
+    [90, 30],
+    [200, 50],
+  ])
+    for (const count of [2, 40]) {
+      const side = SidebarView.init(cols, rows, true, 0, 0),
+        m = menu({ cwd: "/w", workspace_cwd: "/w" });
+      m.history = { pending: false, entries: conversations("/w", count) };
+      const opened = m.bounds(cols, rows, side);
+      m.resume_view.focused = true;
+      m.resume_view.startSearch();
+      // A table's height or the screen's, its top kept while there's room below.
+      const grown = m.bounds(cols, rows, side),
+        same = () => expect(m.bounds(cols, rows, side)).toEqual(grown);
+      expect(grown.h).toBe(Math.min(rows, Math.max(30, opened.h)));
+      expect(grown.y).toBe(Math.min(opened.y, rows - grown.h));
+      for (const ch of "conv 1") m.resume_view.query.key(ch.charCodeAt(0));
+      same();
+      m.resume_view.leaveSearch();
+      same();
+      m.resume_view.expand();
+      same();
+      m.resume_view.nextScope(true);
+      same();
+      m.resume_view.collapse();
+      same();
+      // And it draws inside those bounds every time.
+      m.resume_view.startSearch();
+      const lines = screen(m, cols, rows, side);
+      expect(lines[grown.y]).toContain("╭");
+      expect(lines[grown.y + grown.h - 1]).toContain("╰");
+    }
+});
+
+test("the launcher's search looks like the picker's: the / field, the query and how many match", () => {
+  const side = SidebarView.init(120, 40, true, 0, 0),
+    m = menu({ cwd: "/w", workspace_cwd: "/w" });
+  m.history = { pending: false, entries: conversations("/w", 12) };
+  m.resume_view.focused = true;
+  m.resume_view.startSearch();
+  const b = m.bounds(120, 40, side),
+    search = b.y + 3 + m.count();
+  let lines = screen(m, 120, 40, side);
+  expect(lines[search]).toMatch(/│ +\/ +search titles, branches and messages +tab +this workspace +│/);
+  for (const ch of "conversation 1") m.resume_view.query.key(ch.charCodeAt(0));
+  lines = screen(m, 120, 40, side);
+  // "Conversation 1", 10 and 11 match.
+  expect(lines[search]).toMatch(/│ +\/ +conversation 1 +3 of 12 +tab +this workspace +│/);
+  expect(lines.slice(search + 2, b.y + b.h - 2).filter(l => /Conversation 1\d?\b/.test(l)).length).toBe(3);
+});
+
 test("each agent and conversation row leads with its brand mark", () => {
   const side = SidebarView.init(120, 40, true, 0, 0),
     m = menu({ cwd: "/w", workspace_cwd: "/w" });

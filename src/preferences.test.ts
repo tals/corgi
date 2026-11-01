@@ -193,3 +193,29 @@ test("corgi intensity migrates the old toggle without losing unrelated preferenc
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("the prompt's last pick round trips, and one this build can't read falls back alone", async () => {
+  const root = await mkdtemp(join(tmpdir(), "corgi-prompt-model-"));
+  const file = join(root, "viewer.json");
+  try {
+    const pick = {
+      provider: "claude" as const,
+      account: "/a",
+      model: "claude-haiku-4-5",
+      name: "Haiku 4.5",
+      effort: null,
+    };
+    updateFile(file, { prompt_model: pick, sidebar_width: 40 });
+    expect(read(file).prompt_model).toEqual(pick);
+    await writeFile(file, JSON.stringify({ prompt_model: { ...pick, effort: "high" } }));
+    expect(read(file).prompt_model).toEqual({ ...pick, effort: "high" });
+    await writeFile(file, JSON.stringify({ prompt_model: { ...pick, effort: "galaxy" } }));
+    expect(read(file).prompt_model).toEqual(pick);
+    await writeFile(file, JSON.stringify({ prompt_model: { ...pick, provider: "future" }, sidebar_width: 40 }));
+    expect(read(file)).toMatchObject({ prompt_model: undefined, sidebar_width: 40 });
+    await writeFile(file, JSON.stringify({ prompt_model: "opus" }));
+    expect(read(file).prompt_model).toBeUndefined();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -179,9 +179,12 @@ export async function sync(view: Controller, bell: { seq: bigint }, play_sound: 
       const seq = BigInt(control.seq);
       if (seq <= view.input_state.last_control) continue;
       try {
-        if (control.kind === "focus") view.focusPane(control.id!);
-        else if (control.kind === "workspace") view.switchWorkspace(control.id!);
-        else {
+        if (control.kind === "focus" || control.kind === "workspace") {
+          if (control.kind === "focus") view.focusPane(control.id!);
+          else view.switchWorkspace(control.id!);
+          // Someone sent this viewer somewhere, often the prompt's model: show it.
+          if (view.prompt.open) view.prompt.hide();
+        } else {
           const act = parseAction(control.name!, control.value ?? "");
           if (act.name === "relaunch") {
             view.executable = String(act.value);

@@ -670,10 +670,25 @@ const requests = {
   action: { name: ["string", ""], value: ["string", ""], viewer: ["?u32", null], pane: ["?u32", null] },
   focus: { pane: "u32", viewer: ["?u32", null] },
   "workspace.switch": { workspace: "u32", viewer: ["?u32", null] },
-  "headless.start": { provider: "provider", prompt: "string", cwd: ["string", ""], workspace: ["?u32", null] },
+  "headless.start": {
+    provider: "provider",
+    prompt: "string",
+    cwd: ["string", ""],
+    workspace: ["?u32", null],
+    // An account folder Corgi knows, "" for the default; an effort `effort.parse` takes, "" for none.
+    account: ["string", ""],
+    model: ["string", ""],
+    effort: ["string", ""],
+    instructions: ["string", ""],
+    persist: ["bool", true],
+    corgi: ["bool", false],
+    // Images the first prompt carries: [{ path, mime }].
+    images: ["?json", null],
+  },
   "headless.stop": { provider: "provider", session: "string" },
   "headless.send": { provider: "provider", session: "string", input: "json" },
-  "headless.events": { provider: "provider", session: "string", after: ["u64", 0] },
+  // A reader in a pane passes its pane, which claims the session: closing the pane stops it.
+  "headless.events": { provider: "provider", session: "string", after: ["u64", 0], pane: ["?u32", null] },
   theme: { theme: ["theme", null] },
   "viewer.terminal": { terminal: "json" },
   hook: {

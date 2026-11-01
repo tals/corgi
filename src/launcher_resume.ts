@@ -220,8 +220,18 @@ interface Columns {
   folder: number;
   last: number;
 }
-let panel: string, rule: string, row_style: string, selected_style: string, dim: string;
+let panel: string,
+  rule: string,
+  row_style: string,
+  selected_style: string,
+  dim: string,
+  field: string,
+  field_strong: string,
+  field_muted: string;
 palette.derived(() => {
+  field = new Style({ fg: "text", bg: "selected" }).sgr();
+  field_strong = new Style({ fg: "strong", bg: "selected" }).sgr();
+  field_muted = new Style({ fg: "muted", bg: "selected" }).sgr();
   panel = new Style({ fg: "faint", bg: "surface" }).sgr();
   rule = new Style({ fg: "line", bg: "surface" }).sgr();
   row_style = new Style({ fg: "text", bg: "surface" }).sgr();
@@ -235,9 +245,14 @@ function rail(selected: boolean): string {
 
 export class View {
   expanded = false;
+  /** The list has been expanded since the launcher opened, and the launcher
+   * keeps the room it grew to until it closes. */
+  grown = false;
   /** The keyboard is in this list rather than on the agent rows. */
   focused = false;
   searching = false;
+  /** The list was expanded before the search began, so leaving it goes back there. */
+  searched_expanded = false;
   query = Dialog.init({ pane: 0 }, "");
   scope: Scope = "workspace";
   /** Kept by identity, so a refreshed list keeps the selection. */
@@ -382,6 +397,7 @@ export class View {
   }
   expand(): void {
     this.expanded = true;
+    this.grown = true;
     this.focused = true;
     this.home();
   }
@@ -391,8 +407,19 @@ export class View {
     this.scope = "workspace";
   }
   startSearch(): void {
+    if (this.searching) return;
+    this.searched_expanded = this.expanded;
     this.expand();
     this.searching = true;
+  }
+  /** Leaves the search for where it began: all the conversations, or the newest few. */
+  leaveSearch(): void {
+    const expanded = this.searched_expanded;
+    this.stopSearch();
+    if (!expanded) {
+      this.expanded = false;
+      this.scope = "workspace";
+    }
   }
   stopSearch(): void {
     this.searching = false;
@@ -484,22 +511,32 @@ export class View {
     const { first, height: list_height, context } = viewport;
     const list_top = area.listTop() + (context ? 1 : 0);
     const cols = this.columns(sat(width, 4));
-    // Search line and scope.
-    w.write(`\x1b[${y};${x + 3}H${panel}`);
-    writeKey(w, "/", panel);
-    w.write(" ");
-    const scope = ellipsis(scopeLabel(this.scope), sat(width, 15));
-    const field = sat(width, displayWidth(scope) + 19);
+    // The search line, as the model picker draws its search: a field with
+    // the / keycap, the query and its caret, and how many match; then the scope.
+    const scope = ellipsis(scopeLabel(this.scope), sat(width, 19)),
+      keys_x = x + width - 2 - (displayWidth(scope) + 2 + 6),
+      field_x = x + 3,
+      field_w = sat(keys_x - 1, field_x),
+      found = rows.filter(line => "entry" in line || "open" in line).length,
+      total = c.history.entries.filter(e => c.inScope(e, this.scope)).length,
+      count = this.search().length > 0 ? i18n.t`${found} of ${total}` : "",
+      counted = count !== "" && field_w >= displayWidth(count) + 7,
+      room = sat(field_w, 4 + (counted ? displayWidth(count) + 2 : 0));
+    w.write(`\x1b[${y};${field_x}H${field}`);
+    w.splat(" ", field_w);
+    w.write(`\x1b[${y};${field_x}H${keycap} / ${field} `);
     if (this.searching) {
-      const room = sat(field, 1);
-      writeField(w, this.query, DialogView.scroll(this.query, room), room, panel + palette.fg("strong"), {
-        caret: true,
-      });
+      writeField(w, this.query, DialogView.scroll(this.query, room), room, field_strong, { caret: true });
+      if (this.query.len === 0 && room > 2) {
+        w.write(field_muted);
+        writeEllipsis(w, i18n.t`search titles, branches and messages`, room - 1);
+      }
     } else {
-      w.write(dim);
-      writeEllipsis(w, i18n.t`search titles, branches and messages`, field);
+      w.write(field_muted);
+      writeEllipsis(w, i18n.t`search titles, branches and messages`, room);
     }
-    w.write(`\x1b[${y};${x + width - 2 - (displayWidth(scope) + 2 + 6)}H`);
+    if (counted) w.write(`\x1b[${y};${field_x + field_w - 1 - displayWidth(count)}H${field_muted}${count}`);
+    w.write(`\x1b[${y};${keys_x}H${panel}`);
     writeKey(w, "tab", panel);
     w.write(" ");
     writeKey(w, scope, panel);

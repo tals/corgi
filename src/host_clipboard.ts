@@ -47,6 +47,10 @@ export function relayTypes(listing: string): string[] {
   if (image) types.push(image.mime);
   return types;
 }
+/** The type of an image `saveImage` wrote, from its extension; null for anything else. */
+export function imageType(path: string): string | null {
+  return images.find(i => path.endsWith("." + i.extension))?.mime ?? null;
+}
 export function choose(listing: string, pane: boolean): Choice {
   if (lists(listing, "text/plain")) return { read: "text/plain" };
   const image = images.find(i => lists(listing, i.mime));

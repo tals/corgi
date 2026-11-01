@@ -1,11 +1,12 @@
 //! Claude Code Corgi drives over stream-json: a daemon-hosted session, or a
 //! tool-less one for summaries. One conversation per process.
 import { parse, stringify } from "../../json";
-import { field, number, str } from "../common";
+import { field, imageData, number, str } from "../common";
 import type { Client, Event, Inference, Input, Place, Saved } from "../adapter";
 import { Stdio } from "../stdio";
+import * as instructions from "../instructions";
 import { Tokens } from "../../usage/live";
-export const stream_json = [
+const stream_json = [
   "--print",
   "--verbose",
   "--input-format",
@@ -27,6 +28,16 @@ const toolless = [
   "--effort",
   "low",
 ];
+/** What runs a daemon-hosted session at `at`, streaming its messages as
+ * they're written; `file` holds its instructions. */
+export function sessionArgs(at: Place, file: string) {
+  const args = [...stream_json, "--include-partial-messages"];
+  if (at.model) args.push("--model", at.model);
+  if (at.effort) args.push("--effort", at.effort);
+  if (file) args.push("--append-system-prompt-file", file);
+  if (at.persist === false) args.push("--no-session-persistence");
+  return args;
+}
 /** What runs Claude Code as a tool-less model for `r`. */
 export function summaryArgs(r: Inference) {
   const args = [...stream_json, ...toolless, "--system-prompt", r.instructions];
@@ -45,7 +56,7 @@ function reported(usage: unknown) {
 }
 /** What a tool request is about, in a few words. */
 function about(input: unknown) {
-  for (const key of ["command", "file_path", "pattern", "url", "description"])
+  for (const key of ["command", "file_path", "notebook_path", "pattern", "url", "query", "description", "skill"])
     if (str(input, key)) return str(input, key);
   return "";
 }
@@ -58,6 +69,10 @@ export class Claude implements Client {
   next_request = 1;
   /** Results a summary counted. */
   results = 0;
+  /** The text block streaming now, so far. */
+  streamed = "";
+  /** The file its instructions are in, which goes with it. */
+  file = "";
   private events: Event[] = [];
   private failure: Error | null = null;
   constructor(
@@ -72,7 +87,10 @@ export class Claude implements Client {
     const client = new Claude(
       Stdio.spawn([at.executable, ...args], {
         cwd: at.cwd,
-        env: at.account ? { ...process.env, CLAUDE_CONFIG_DIR: at.account } : undefined,
+        env:
+          at.account || at.env
+            ? { ...process.env, ...at.env, ...(at.account ? { CLAUDE_CONFIG_DIR: at.account } : {}) }
+            : undefined,
       }),
       summary,
       !summary,
@@ -81,10 +99,37 @@ export class Claude implements Client {
       client.io.write({ type: "control_request", request_id: "corgi-initialize", request: { subtype: "initialize" } });
     return client;
   }
+  /** A daemon-hosted session at `at`. */
+  static session(at: Place) {
+    const file = at.instructions ? instructions.write(at.instructions) : "";
+    try {
+      const client = Claude.start(at, sessionArgs(at, file), null);
+      client.file = file;
+      return client;
+    } catch (error) {
+      instructions.remove(file);
+      throw error;
+    }
+  }
   send(input: Input) {
     switch (input.kind) {
       case "prompt":
-        return this.io.write({ type: "user", message: { role: "user", content: input.text } });
+        return this.io.write({
+          type: "user",
+          message: {
+            role: "user",
+            // Images go along as content blocks after the text.
+            content: input.images?.length
+              ? [
+                  ...(input.text ? [{ type: "text", text: input.text }] : []),
+                  ...input.images.map(image => ({
+                    type: "image",
+                    source: { type: "base64", media_type: image.mime, data: imageData(image) },
+                  })),
+                ]
+              : input.text,
+          },
+        });
       case "answer": {
         if (!this.inputs.has(input.request)) throw Error("NoRequest");
         const tool = this.inputs.get(input.request);
@@ -116,11 +161,27 @@ export class Claude implements Client {
       this.events.push({ kind: "conversation", session, parent: null, role: null, shown: true });
     }
     switch (kind) {
-      case "assistant": {
-        if (!this.running) {
-          this.running = true;
-          this.events.push({ kind: "turn", session, turn: "", phase: "started" });
+      case "stream_event": {
+        // A subagent's stream would interleave with the conversation's own.
+        if (this.summary || str(v, "parent_tool_use_id")) return;
+        this.begin(session);
+        const event = field(v, "event"),
+          delta = field(event, "delta");
+        switch (str(event, "type")) {
+          case "message_start":
+          case "content_block_start":
+            this.streamed = "";
+            return;
+          case "content_block_delta":
+            if (str(delta, "type") !== "text_delta" || !str(delta, "text")) return;
+            this.streamed += str(delta, "text");
+            this.events.push({ kind: "partial", session, text: this.streamed });
+            return;
         }
+        return;
+      }
+      case "assistant": {
+        this.begin(session);
         const message = field(v, "message"),
           usage = field(message, "usage");
         // A summary counts what its result reports instead.
@@ -131,10 +192,22 @@ export class Claude implements Client {
           text: string[] = [];
         for (const block of Array.isArray(content) ? content : []) {
           if (str(block, "type") === "tool_use")
-            this.events.push({ kind: "tool", session, turn: "", id: str(block, "id"), done: false, wrote: [] });
+            this.events.push({
+              kind: "tool",
+              session,
+              turn: "",
+              id: str(block, "id"),
+              done: false,
+              wrote: [],
+              name: str(block, "name"),
+              summary: about(field(block, "input")),
+            });
           if (str(block, "type") === "text") text.push(str(block, "text"));
         }
-        if (text.length && !this.summary) this.events.push({ kind: "message", session, text: text.join("") });
+        if (text.length && !this.summary) {
+          this.streamed = "";
+          this.events.push({ kind: "message", session, text: text.join("") });
+        }
         return;
       }
       case "user": {
@@ -150,6 +223,9 @@ export class Claude implements Client {
         const tokens = this.summary ? reported(field(v, "usage")) : null;
         if (tokens)
           this.events.push({ kind: "usage", session, turn: "", part: { id: `result-${++this.results}`, tokens } });
+        // An interrupted stream still ends in the message it showed.
+        if (this.streamed) this.events.push({ kind: "message", session, text: this.streamed });
+        this.streamed = "";
         if (this.summary && !failed) {
           const structured = field(v, "structured_output");
           if (this.summary.schema && structured === null) this.failure = Error("InvalidOutput");
@@ -194,9 +270,17 @@ export class Claude implements Client {
       }
     }
   }
+  private begin(session: string) {
+    if (this.running) return;
+    this.running = true;
+    this.events.push({ kind: "turn", session, turn: "", phase: "started" });
+  }
   take(): Event[] {
     for (const value of this.io.read()) this.decode(value);
-    if (this.io.exited) this.events.push({ kind: "ended" });
+    if (this.io.exited) {
+      this.events.push({ kind: "ended" });
+      this.release();
+    }
     const out = this.events;
     this.events = [];
     if (this.failure) {
@@ -210,7 +294,13 @@ export class Claude implements Client {
     return this.io.wait(deadline);
   }
   close() {
+    // A process a handoff passed on may still read it.
+    if (this.io.owner === "runtime") this.release();
     this.io.close();
+  }
+  private release() {
+    if (this.file) instructions.remove(this.file);
+    this.file = "";
   }
   adopt() {
     this.io.adopt();
@@ -229,6 +319,8 @@ export class Claude implements Client {
         inputs: [...this.inputs],
         results: this.results,
         summary: this.summary,
+        streamed: this.streamed,
+        file: this.file,
       },
       handles: saved.handles,
     };
@@ -240,6 +332,8 @@ export class Claude implements Client {
     client.running = state.running === true;
     client.inputs = new Map(state.inputs ?? []);
     client.results = state.results ?? 0;
+    client.streamed = state.streamed ?? "";
+    client.file = typeof state.file === "string" ? state.file : "";
     // Requests an older Corgi kept as the lines it read.
     for (const line of state.lines ?? []) client.decode(typeof line === "string" ? parse(line) : line);
     return client;

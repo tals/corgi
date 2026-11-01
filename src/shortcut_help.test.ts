@@ -116,3 +116,17 @@ test("the pointer is a hand over what a click acts on", () => {
 test("the corgi's secret key shadows no shortcut", () => {
   for (const preset of available_presets) expect(bindings.lookup(preset, true, 0x74, {})).toBeNull();
 });
+
+test("the help lists the Corgi prompt under Corgi, in each preset's spelling", () => {
+  for (const [preset, text] of [
+    ["corgi", "Space"],
+    ["tmux", "Space"],
+    ["herdr", "Space"],
+    ["cmux", "P Space"],
+  ] as [Preset, string][]) {
+    expect(spelling(preset, act("prompt"))).toBe(text);
+    const column = new Column(47, preset);
+    panes(column);
+    expect(column.rows.some(row => row.some(part => part.text === "Corgi prompt"))).toBe(true);
+  }
+});

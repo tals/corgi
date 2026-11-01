@@ -1,8 +1,11 @@
 import { test, expect } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Session, finishStarts, request } from "./headless";
+import { Session, corgiEnv, finishStarts, request, startOptions, sweep, validImages } from "./headless";
+import * as accounts from "./accounts";
+import * as json from "./json";
+import * as protocol from "./protocol";
 import type { Server } from "./server";
 import type { Client as Peer } from "./peer";
 import { Snapshot } from "./providers/snapshot";
@@ -121,6 +124,16 @@ test("headless approval replies target their original conversation and duplicate
   expect(s.pendingRequests().map(r => [r.id, r.session])).toEqual([["10", "b"]]);
   expect(() => s.send({ kind: "prompt" })).toThrow("InvalidMessage");
   expect(() => s.send({ id: 9, result: {} })).toThrow("InvalidMessage");
+});
+test("a prompt's images are absolute paths of a type a model reads, and may stand without text", () => {
+  expect(validImages([{ path: "/tmp/a.png", mime: "image/png" }])).toEqual([{ path: "/tmp/a.png", mime: "image/png" }]);
+  for (const bad of [
+    [{ path: "a.png", mime: "image/png" }],
+    [{ path: "/tmp/a.tiff", mime: "image/tiff" }],
+    "nope",
+    Array(9).fill({ path: "/tmp/a.png", mime: "image/png" }),
+  ])
+    expect(() => validImages(bad)).toThrow("InvalidMessage");
 });
 test("requests on two sessions retain actor attention until both are resolved or disconnected", () => {
   const registry = new Registry(),
@@ -429,4 +442,228 @@ test("a provider can retire a timed-out dialog without leaving its actor blocked
   expect(s.approvals).toHaveLength(0);
   expect(registry.get("codex", "t").pending_headless_requests).toBe(0);
   expect(registry.get("codex", "t").state.state).toBe("working");
+});
+
+test("a partial replaces the one before it, so streaming never evicts real events", () => {
+  const registry = new Registry(),
+    s = session();
+  start(s, registry, "a", "t");
+  const partial = (session: string, text: string): Event => ({ kind: "partial", session, text });
+  s.apply(registry, partial("a", "H"));
+  s.apply(registry, partial("a", "He"));
+  s.apply(registry, partial("b", "x"));
+  s.apply(registry, partial("a", "Hel"));
+  s.apply(registry, partial("b", "xy"));
+  expect(s.events.map(e => [e.seq, e.event])).toEqual([
+    [1n, { kind: "turn", session: "a", turn: "t", phase: "started" }],
+    [5n, partial("a", "Hel")],
+    [6n, partial("b", "xy")],
+  ]);
+  s.apply(registry, { kind: "message", session: "b", text: "xyz" });
+  s.apply(registry, partial("b", "n"));
+  for (let i = 0; i < 300; i++) s.apply(registry, partial("b", "n".repeat(i)));
+  // The message replaced the partial it streamed for good.
+  expect(s.events.map(e => e.event)).toEqual([
+    { kind: "turn", session: "a", turn: "t", phase: "started" },
+    partial("a", "Hel"),
+    { kind: "message", session: "b", text: "xyz" },
+    partial("b", "n".repeat(299)),
+  ]);
+  expect(s.journal_bytes).toBe(s.events.reduce((n, e) => n + Buffer.byteLength(json.stringify(e.event)), 0));
+  expect(s.next_seq).toBe(s.events.at(-1)!.seq + 1n);
+});
+test("a poll keeps only the newest of a run of partials", () => {
+  const registry = new Registry(),
+    s = session();
+  (s.client as Fake).queued.push(
+    { kind: "partial", session: "a", text: "1" },
+    { kind: "partial", session: "a", text: "12" },
+    { kind: "partial", session: "a", text: "123" },
+    { kind: "message", session: "a", text: "123" },
+  );
+  s.poll(registry);
+  expect(s.events.map(e => [e.seq, e.event])).toEqual([[2n, { kind: "message", session: "a", text: "123" }]]);
+});
+test("a tool's name and summary are kept as one short line, relative to the session's folder", () => {
+  const registry = new Registry(),
+    s = new Session(1, "claude", "/repo", new Fake());
+  start(s, registry, "a", "t");
+  const tool = (id: string, summary: string): Event => ({
+    kind: "tool",
+    session: "a",
+    turn: "t",
+    id,
+    done: false,
+    wrote: [],
+    name: "Read",
+    summary,
+  });
+  s.apply(registry, tool("x", "/repo/src/x.ts"));
+  s.apply(registry, tool("y", "cat <<EOF\n" + "line\n".repeat(100)));
+  s.apply(registry, tool("z", "é".repeat(300)));
+  s.apply(registry, tool("w", "printf '\x1b[2J\x1b]52;c;aGk=\x07\x9b31m\x7f\tdone'"));
+  s.apply(registry, { kind: "tool", session: "a", turn: "t", id: "x", done: true, wrote: [] });
+  const summaries = s.events.flatMap(e => (e.event.kind === "tool" ? [e.event.summary] : []));
+  expect(summaries.slice(0, 2)).toEqual(["src/x.ts", "cat <<EOF"]);
+  expect(Buffer.byteLength(summaries[2]!)).toBe(200);
+  expect(summaries[3]).toBe("printf ' [2J ]52;c;aGk=  31m  done'");
+  expect(summaries[4]).toBeUndefined();
+  expect(s.events.at(-1)!.event).not.toHaveProperty("name");
+});
+test("a start asks for a known effort and account, and leaves out what it doesn't set", () => {
+  const start = (fields: object) =>
+    startOptions(protocol.decode("headless.start", { provider: "claude", prompt: "hi", ...fields }));
+  expect(start({})).toEqual({ account: "" });
+  expect(start({ model: "opus", effort: "high", instructions: "Be brief.", persist: false })).toEqual({
+    account: "",
+    model: "opus",
+    effort: "high",
+    instructions: "Be brief.",
+    persist: false,
+  });
+  expect(() => start({ effort: "turbo" })).toThrow("InvalidEffort");
+  const saved = { ...process.env },
+    home = realpathSync(mkdtempSync(join(tmpdir(), "corgi-headless-accounts-"))),
+    work = join(home, ".claude-work");
+  try {
+    process.env.HOME = home;
+    process.env.CORGI_ENV_BASE = join(home, "state");
+    delete process.env.CLAUDE_CONFIG_DIR;
+    mkdirSync(work);
+    mkdirSync(join(home, "state", "corgi"), { recursive: true });
+    writeFileSync(
+      join(home, "state", "corgi", "accounts.json"),
+      JSON.stringify({ accounts: [{ provider: "claude", dir: work, name: "work" }] }),
+    );
+    accounts.reset();
+    expect(start({ account: work })).toEqual({ account: work });
+    expect(start({ account: join(home, ".claude") })).toEqual({ account: "" });
+    expect(() => start({ account: join(home, "elsewhere") })).toThrow("AccountNotFound");
+    expect(() =>
+      startOptions(protocol.decode("headless.start", { provider: "codex", prompt: "hi", account: work })),
+    ).toThrow("AccountNotFound");
+    expect(() =>
+      startOptions(protocol.decode("headless.start", { provider: "opencode2", prompt: "hi", account: work })),
+    ).toThrow("HeadlessAccountUnsupported");
+  } finally {
+    for (const key of ["HOME", "CORGI_ENV_BASE", "CLAUDE_CONFIG_DIR"])
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    accounts.reset();
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+test("the Corgi prompt's own session stays marked across checkpoints and in the list", async () => {
+  const registry = new Registry(),
+    s = session();
+  s.corgi = true;
+  shown(s, registry, "a");
+  for (const live of [true, false]) expect(Session.restore(clone(s.capture(live)), registry, live).corgi).toBe(true);
+  const old = clone(s.capture(false)) as any;
+  delete old.corgi;
+  expect(Session.restore(old, registry, false).corgi).toBe(false);
+  const p = pendingStart(s);
+  await request(p.server, p.peer, { op: "headless.list", payload: {} });
+  expect((p.replies[0] as any).sessions[0]).toMatchObject({ session: "a", provider: "codex", corgi: true });
+});
+test("a session reports what it started with across checkpoints, defaulting for old ones", async () => {
+  const registry = new Registry(),
+    s = session();
+  shown(s, registry, "a");
+  Object.assign(s, { corgi: true, account: "/accounts/work", model: "gpt-6", effort: "xhigh", persist: false });
+  const started = { account: "/accounts/work", model: "gpt-6", effort: "xhigh", persist: false };
+  for (const live of [true, false])
+    expect(Session.restore(clone(s.capture(live)), registry, live)).toMatchObject(started);
+  const old = clone(s.capture(false)) as any;
+  for (const key of ["account", "model", "effort", "persist"]) delete old[key];
+  expect(Session.restore(old, registry, false)).toMatchObject({ account: "", model: "", effort: null, persist: true });
+  const p = pendingStart(s);
+  await request(p.server, p.peer, { op: "headless.list", payload: {} });
+  expect((p.replies[0] as any).sessions[0]).toMatchObject(started);
+});
+test("a session that exits says so once in its journal", () => {
+  const registry = new Registry(),
+    s = session();
+  shown(s, registry, "a");
+  (s.client as Fake).queued.push({ kind: "ended" });
+  s.poll(registry);
+  expect(s.events.some(e => e.event.kind === "ended")).toBe(false);
+  expect(s.reap()).toBe(true);
+  s.markExited();
+  expect(s.events.filter(e => e.event.kind === "ended")).toEqual([{ seq: s.ended_seq!, event: { kind: "ended" } }]);
+  expect(s.events.at(-1)!.event).toEqual({ kind: "ended" });
+  const restored = Session.restore(clone(s.capture(true)), registry, true);
+  expect(restored.ended_seq).toBe(s.ended_seq);
+  expect(restored.exited_at).toBeGreaterThan(0);
+});
+test("the prompt's ended sessions go once their end is read, or a minute after", async () => {
+  const registry = new Registry(),
+    read = session(),
+    unread = session(),
+    ordinary = session(),
+    running = session(),
+    exited = Date.now();
+  read.id = 1;
+  unread.id = 2;
+  ordinary.id = 3;
+  running.id = 4;
+  for (const [s, id] of [
+    [read, "r"],
+    [unread, "u"],
+    [ordinary, "o"],
+    [running, "n"],
+  ] as const) {
+    shown(s, registry, id);
+    s.corgi = s !== ordinary;
+    if (s !== running) s.markExited(exited);
+  }
+  const p = pendingStart(read);
+  p.server.runtime.sessions.push(unread, ordinary, running);
+  await request(p.server, p.peer, {
+    op: "headless.events",
+    payload: { provider: "codex", session: "r", after: 0n, pane: null },
+  });
+  expect((p.replies[0] as any).events.at(-1).event).toEqual({ kind: "ended" });
+  expect(p.server.runtime.sessions).toEqual([unread, ordinary, running]);
+  expect((read.client as Fake).closed).toBe(true);
+  // A reader that fetched only what came before the end hasn't seen it.
+  await request(p.server, p.peer, {
+    op: "headless.events",
+    payload: { provider: "codex", session: "u", after: unread.ended_seq!, pane: null },
+  });
+  expect(p.server.runtime.sessions).toEqual([unread, ordinary, running]);
+  expect(sweep(p.server.runtime, exited + 59_999)).toBe(false);
+  expect(sweep(p.server.runtime, exited + 60_000)).toBe(true);
+  expect(p.server.runtime.sessions).toEqual([ordinary, running]);
+});
+test("reading from a pane claims the session for it, across checkpoints and in the list", async () => {
+  const registry = new Registry(),
+    s = session();
+  s.corgi = true;
+  shown(s, registry, "a");
+  const p = pendingStart(s);
+  // The prompt card reads without a pane and claims nothing.
+  await request(p.server, p.peer, {
+    op: "headless.events",
+    payload: { provider: "codex", session: "a", after: 0n, pane: null },
+  });
+  expect(s.pane).toBeNull();
+  await request(p.server, p.peer, {
+    op: "headless.events",
+    payload: { provider: "codex", session: "a", after: 0n, pane: 7 },
+  });
+  expect(s.pane).toBe(7);
+  await request(p.server, p.peer, { op: "headless.list", payload: {} });
+  expect((p.replies.at(-1) as any).sessions[0]).toMatchObject({ session: "a", corgi: true, pane: 7 });
+  for (const live of [true, false]) expect(Session.restore(clone(s.capture(live)), registry, live).pane).toBe(7);
+  const old = clone(s.capture(false)) as any;
+  delete old.pane;
+  expect(Session.restore(old, registry, false).pane).toBeNull();
+});
+
+test("a prompt session reaches this Corgi through its socket and its own corgi, as no pane", () => {
+  const env = corgiEnv("/tmp/corgi-test/control.sock", "/opt/corgi/bin/corgi");
+  expect(env.CORGI_SOCKET).toBe("/tmp/corgi-test/control.sock");
+  expect("CORGI_PANE" in env && env.CORGI_PANE === undefined).toBe(true);
+  expect(env.PATH?.startsWith("/opt/corgi/bin:")).toBe(true);
 });

@@ -15,6 +15,7 @@ test("wire names used by the CLI and the test suites parse", () => {
   expect(parse("undo-close")).toEqual({ name: "undo-close" });
   expect(parse("last-tab")).toEqual({ name: "last-tab" });
   expect(parse("last-workspace")).toEqual({ name: "last-workspace" });
+  expect(parse("prompt")).toEqual({ name: "prompt" });
   expect(parse("goto-workspace", "2")).toEqual({
     name: "goto-workspace",
     value: 2,

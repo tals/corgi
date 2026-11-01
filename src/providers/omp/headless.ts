@@ -87,6 +87,7 @@ export class Omp extends Pi {
   decode(v: unknown) {
     switch (str(v, "type")) {
       case "message_update": {
+        this.stream(v);
         const intent = messageIntent(field(v, "message"));
         if (intent) this.activity(intent.id, intent.text);
         return;

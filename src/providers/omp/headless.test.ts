@@ -133,7 +133,16 @@ test("OMP publishes native write intent while arguments stream and amends only t
   expect(executing.filter(e => e.kind === "activity")).toEqual([
     { kind: "activity", session: "s", turn, text: "Writing native labels", amend: true },
   ]);
-  expect(executing).toContainEqual({ kind: "tool", session: "s", turn, id: "write-1", done: false, wrote: [] });
+  expect(executing).toContainEqual({
+    kind: "tool",
+    session: "s",
+    turn,
+    id: "write-1",
+    done: false,
+    wrote: [],
+    name: "Write",
+    summary: "file",
+  });
   lines.push(
     { type: "tool_execution_end", toolCallId: "write-1", isError: false },
     streaming("write-2", "Writing native labels"),
@@ -315,7 +324,16 @@ test("OMP execution without a prior intent emits tool lifecycle but no generic a
   });
   const events = c.take();
   expect(events.filter(e => e.kind === "activity")).toEqual([]);
-  expect(events).toContainEqual({ kind: "tool", session: "s", turn: c.turn, id: "read", done: false, wrote: [] });
+  expect(events).toContainEqual({
+    kind: "tool",
+    session: "s",
+    turn: c.turn,
+    id: "read",
+    done: false,
+    wrote: [],
+    name: "Read",
+    summary: "xd://lsp",
+  });
   lines.push({
     type: "tool_execution_start",
     toolCallId: "native-read",
@@ -325,4 +343,24 @@ test("OMP execution without a prior intent emits tool lifecycle but no generic a
   expect(c.take().filter(e => e.kind === "activity")).toEqual([
     { kind: "activity", session: "s", turn: c.turn, text: "Reading code intelligence interface", amend: false },
   ]);
+});
+test("omp streams its answer alongside native intents", () => {
+  const { c, lines } = client();
+  lines.push(
+    { type: "agent_start" },
+    {
+      type: "message_update",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Reading it" },
+          { type: "toolCall", id: "r", arguments: { i: "Reading config" } },
+        ],
+      },
+      assistantMessageEvent: { type: "toolcall_delta", contentIndex: 1, delta: "{" },
+    },
+  );
+  const events = c.take();
+  expect(events).toContainEqual({ kind: "partial", session: "s", text: "Reading it" });
+  expect(events).toContainEqual({ kind: "activity", session: "s", turn: c.turn, text: "Reading config", amend: false });
 });

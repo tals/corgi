@@ -59,18 +59,16 @@ export class Cache {
     private reader = read,
     private now = Date.now,
   ) {}
-  get(provider: Provider, account: string): Entry {
+  /** A catalog, read again once it's stale; a failed one is retried sooner
+   * when someone is looking (`retry_ms`) than in the background. */
+  get(provider: Provider, account: string, retry_ms = Cache.retry_ms): Entry {
     const key = `${provider}\0${account}`;
     let entry = this.entries.get(key);
     if (!entry) {
       entry = { values: [], pending: false, failed: false, checked: -Infinity };
       this.entries.set(key, entry);
     }
-    if (
-      !this.closed &&
-      !entry.pending &&
-      this.now() - entry.checked >= (entry.failed ? Cache.retry_ms : Cache.fresh_ms)
-    ) {
+    if (!this.closed && !entry.pending && this.now() - entry.checked >= (entry.failed ? retry_ms : Cache.fresh_ms)) {
       entry.pending = true;
       this.queue.push({ provider, account, entry });
       this.drain();

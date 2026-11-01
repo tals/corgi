@@ -942,3 +942,39 @@ test.each([false, true])(
     expect(restored.conversations.find("codex", "plan")!.checklist).toEqual(actor.checklist);
   },
 );
+test("the Corgi prompt's sessions survive a handoff but never a cold recovery", async () => {
+  const { Session } = await import("../headless");
+  const client = {
+    ready: true,
+    send() {},
+    take: () => [],
+    async wait() {},
+    close() {},
+    save: () => ({ state: null, handles: [] }),
+  };
+  using original = fresh();
+  const prompt = new Session(1, "codex", "/tmp", client),
+    agent = new Session(2, "codex", "/tmp", client);
+  prompt.corgi = true;
+  agent.markExited();
+  for (const s of [prompt, agent]) s.workspace_id = original.workspaces.items[0].id;
+  original.sessions.push(prompt, agent);
+  original.next_session = 3;
+  const cold = cp.capture(original, false);
+  validateCheckpoint(roundtrip(cold));
+  expect(cold.sessions.map((s: any) => [s.id, s.corgi])).toEqual([
+    [1, true],
+    [2, false],
+  ]);
+  using handed = new Runtime();
+  await restore(handed, cp.capture(original, true), true);
+  expect(handed.sessions.map(s => [s.id, s.corgi])).toEqual([
+    [1, true],
+    [2, false],
+  ]);
+  using recovered = new Runtime();
+  await restore(recovered, cold, false);
+  expect(recovered.sessions.map(s => s.id)).toEqual([2]);
+  // The prompt's session, still running when saved, opens no recovered pane.
+  expect(recovered.panes).toEqual([]);
+});

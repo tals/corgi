@@ -1010,7 +1010,7 @@ export function idle(width: number, sleep: Sleep | Partial<Sleep> = {}): string 
   if (s.intensity === 0) return " ".repeat(width);
   const grey = intensityColor(s.background, s.intensity, s.selected ? palette.colors.muted : palette.colors.faint),
     body = s.bright || s.selected ? grey : blend(s.background, grey, 0.42),
-    sprite = ["~", "ᐯ", "◡", "ᴥ", "◡", "ᐯ"];
+    sprite = [...frames.asleep];
   let out = palette.fgRgb(body);
   for (let col = 0; col < width; col++) {
     if (col < 6) out += sprite[col];

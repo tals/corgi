@@ -69,6 +69,24 @@ test("lines wrap between words, and up and down follow them", () => {
   expect(a.caret).toBe(a.text.length);
 });
 
+test("a lead shortens only the first line, and clicks and up and down count it as box columns", () => {
+  const a = at("the quick brown fox jumps");
+  a.width = 10;
+  a.lead = 4;
+  expect(a.lines().map(l => a.text.slice(l.start, l.end))).toEqual(["the", "quick", "brown fox", "jumps"]);
+  // Box column 6 is "e" on the first line, which starts 4 in; below, the
+  // short "quick" ends first, and "brown fox" has its "f" there.
+  a.place(0, 6);
+  expect(a.caret).toBe(2);
+  a.move("down");
+  expect(a.caret).toBe(9);
+  a.move("down");
+  expect(a.text[a.caret]).toBe("f");
+  // A click in the lead lands on the first line's start.
+  a.place(0, 1);
+  expect(a.caret).toBe(0);
+});
+
 test("a click places the caret on a shown line, and a drag selects", () => {
   const a = at("one\ntwo three");
   a.place(1, 2);

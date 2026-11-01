@@ -111,6 +111,23 @@ Use `--` before text beginning with `--`. Input delivery is not proof an agent
 started or completed a turn. Inspect output and reported state; never blindly
 resubmit after a timeout or connection error.
 
+## Show the user something
+
+```sh
+corgi focus 31 --viewer 7
+corgi workspace switch 2 --viewer 7
+corgi history --limit 30
+corgi resume claude 0f315d2b-dd8d-4ce2-93db-6831458ca975 --viewer 7
+```
+
+A viewer is one attached screen; `corgi list` ends with each viewer's ID, the
+workspace it shows and its selected pane. Focus selects a pane in that viewer,
+switching to its workspace. `history` lists past conversations newest first,
+with the provider and session that `resume` takes, the title, folder and age.
+`resume` focuses the pane already showing a conversation, or resumes it in a new
+tab in the workspace whose folder holds it (`--workspace` to choose). Without
+`--viewer` it uses `CORGI_VIEWER`, then the only attached viewer.
+
 ## Find past conversations
 
 `corgi grep` searches the workspace holding the current directory: its folder,

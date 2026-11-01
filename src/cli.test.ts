@@ -5,17 +5,20 @@ import {
   handles,
   help,
   helpFor,
+  historyText,
   idle,
   launcher,
   launcherText,
   layout,
   list,
   messaged,
+  openConversation,
   parse,
   read,
   run,
   usage,
   words,
+  workspaceFor,
 } from "./cli";
 import { Provider, adapter } from "./providers";
 import * as i18n from "./i18n";
@@ -166,6 +169,12 @@ test("command lines parse to the request the daemon receives", async () => {
     [["workspace", "list"], { action: "list" }],
     [["current"], { action: "current" }, 5],
     [["focus", "3", "--viewer", "9"], { action: "focus", target: 3, viewer: 9 }],
+    [["history"], { action: "history", history: { limit: 20 } }],
+    [["history", "--limit", "5", "--json"], { action: "history", json: true, history: { limit: 5 } }],
+    [
+      ["resume", "claude", "0f31-ab", "--viewer", "7"],
+      { action: "resume", open: { provider: "claude", session: "0f31-ab", workspace: null, viewer: 7 } },
+    ],
     [["workspace", "switch", "2"], { action: "workspace.switch", target: 2 }],
     [
       ["tab", "new", "--workspace", "2", "--name", "Build", "--command", "make"],
@@ -531,4 +540,112 @@ test("agent mode trims a read's line ends, rules and blank runs", () => {
   const rule = "─".repeat(80);
   expect(read(`${rule}\n❯ hi   \n\n\n\n${rule}`, 10)).toBe(`${rule}\n❯ hi   \n\n\n\n${rule}\n`);
   expect(read(`${rule}\n❯ hi   \n\n\n\n${rule}`, 10, true)).toBe("───\n❯ hi\n\n───\n");
+});
+
+test("history and resume reject what they can't use", async () => {
+  for (const words of [
+    ["resume"],
+    ["resume", "claude"],
+    ["resume", "nope", "abc"],
+    ["resume", "claude", "a b"],
+    ["history", "--limit", "0"],
+    ["history", "3"],
+  ])
+    await expect(parse(words)).rejects.toThrow();
+});
+test("history names each conversation the way resume takes it", () => {
+  const now = Date.UTC(2026, 9, 31, 12);
+  const entry = { account: "", first: "", last: "", branch: "", interrupted: false };
+  expect(
+    historyText(
+      [
+        {
+          ...entry,
+          provider: "claude",
+          session: "abc",
+          title: "Fix the parser",
+          cwd: "/p",
+          updated_at: now / 1000 - 3 * 3600,
+        },
+        {
+          ...entry,
+          provider: "codex",
+          session: "def",
+          title: "",
+          first: "hi",
+          cwd: "/q",
+          updated_at: now / 1000 - 300,
+        },
+      ],
+      now,
+    ),
+  ).toBe('claude abc "Fix the parser" /p 3h\ncodex def "hi" /q 5m\n');
+  expect(historyText([], now)).toBe("no conversations\n");
+});
+test("a conversation opens in the workspace whose folder holds it most closely", () => {
+  const ws = [
+    { id: 1, cwd: "/home/me" },
+    { id: 2, cwd: "/home/me/corgi" },
+    { id: 3, cwd: "/home/me/corgi-site" },
+  ];
+  expect(workspaceFor(ws, "/home/me/corgi/src", 9)).toBe(2);
+  expect(workspaceFor(ws, "/home/me/corgi-site", 9)).toBe(3);
+  expect(workspaceFor(ws, "/elsewhere", 9)).toBe(9);
+  expect(workspaceFor(ws, "/elsewhere", null)).toBeNull();
+});
+test("resume jumps to a conversation already showing, or resumes it and shows that", async () => {
+  const snapshot = {
+    result: {
+      workspaces: [
+        { id: 1, cwd: "/home/me", model: { nodes: [{ pane: 31 }], tabs: [{ id: 10, root: 0 }] } },
+        { id: 2, cwd: "/home/me/corgi", model: { nodes: [{ pane: 42 }], tabs: [{ id: 20, root: 0 }] } },
+      ],
+      panes: [
+        { id: 31, agent: null },
+        { id: 42, agent: { provider: "claude", session: "open-one" } },
+      ],
+    },
+    viewers: [{ id: 7, workspace: 1, pane: 31 }],
+  };
+  const calls: [string, any][] = [];
+  const conn = {
+    call: async (op: string, payload?: any) => {
+      calls.push([op, payload]);
+      if (op === "session.list") return snapshot;
+      if (op === "agent.history")
+        return {
+          history: {
+            pending: false,
+            entries: [
+              { provider: "codex", session: "past-one", account: "", cwd: "/home/me/corgi/site", updated_at: 1 },
+            ],
+          },
+        };
+      if (op === "session.command") return { result: { pane: 50 } };
+      return { ok: true };
+    },
+  } as any;
+  expect(
+    await openConversation(conn, { provider: "claude", session: "open-one", workspace: null, viewer: null }, null),
+  ).toEqual({ pane: 42, workspace: 2, opened: false, viewer: 7 });
+  expect(calls.at(-1)).toEqual(["focus", { pane: 42, viewer: 7 }]);
+  calls.length = 0;
+  expect(
+    await openConversation(conn, { provider: "codex", session: "past-one", workspace: null, viewer: null }, 7),
+  ).toEqual({
+    pane: 50,
+    workspace: 2,
+    opened: true,
+    viewer: 7,
+  });
+  expect(calls.map(c => c[0])).toEqual(["session.list", "agent.history", "session.command", "focus"]);
+  expect(calls[2][1].command["agent.resume"]).toEqual({
+    workspace: 2,
+    cwd: "/home/me/corgi/site",
+    provider: "codex",
+    session: "past-one",
+  });
+  await expect(
+    openConversation(conn, { provider: "codex", session: "missing", workspace: null, viewer: null }, 7),
+  ).rejects.toThrow("NoConversation");
 });

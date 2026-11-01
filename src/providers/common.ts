@@ -1,9 +1,9 @@
 import type * as checklist from "../activity/checklist";
-import { readdirSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { BoundedText } from "../bounded_text";
 import path from "node:path";
 import { field, str } from "../json";
-import type { Permissions, Programs } from "./adapter";
+import type { Image, Permissions, Programs } from "./adapter";
 export { field, str } from "../json";
 export type Outcome = "completed" | "interrupted" | "failed";
 export type SessionRef = { id: string } | { path: string };
@@ -184,4 +184,8 @@ export function owns(programs: Programs, p: string): boolean {
     (programs.markers ?? []).some(marker => p.includes(marker)) ||
     (programs.scripts ?? []).some(script => p.endsWith(script))
   );
+}
+/** An image's bytes as base64, for a protocol that carries them inline. */
+export function imageData(image: Image): string {
+  return readFileSync(image.path).toString("base64");
 }

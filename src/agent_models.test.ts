@@ -104,7 +104,10 @@ test("failed catalogs back off, and loading glimmers beneath Auto without becomi
   expect(entry.failed).toBe(true);
   cache.get("codex", "");
   expect(reads).toBe(1);
+  // Read in the background, a failed catalog waits out its freshness instead.
   now = Cache.retry_ms;
+  cache.get("codex", "", Cache.fresh_ms);
+  expect(reads).toBe(1);
   cache.get("codex", "");
   await Bun.sleep(0);
   expect(reads).toBe(2);

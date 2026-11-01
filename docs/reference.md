@@ -245,6 +245,7 @@ tmux tab numbering starts at zero; other presets start at one.
 | Detach | `prefix q`, `prefix d` | `prefix d` | `prefix q` | `prefix q`, `prefix d` |
 | Toggle sidebar | `prefix b` | `prefix b` | `prefix b` | `Cmd+B`, `prefix b` |
 | Review changes | `prefix e` | `prefix e` | `prefix e` | `prefix e` |
+| Corgi prompt | `prefix Space`, `Ctrl+Shift+K` | `prefix Space`, `Ctrl+Shift+K` | `prefix Space`, `Ctrl+Shift+K` | `prefix Space` |
 | Setup | `prefix i`, `prefix C` | `prefix C` | `prefix s` | `Cmd+,`, `prefix i`, `prefix C` |
 | All shortcuts | `prefix ?` | `prefix ?` | `prefix ?` | `prefix ?` |
 
@@ -276,6 +277,78 @@ Pasting notes does not press Enter. For a pane without bracketed paste,
 such as a bare shell, notes are copied instead. Notes belong to the viewer
 and disappear when it exits. The panel reads Git without modifying the
 repository; binary and oversized files show a notice instead of a diff.
+
+## Ask Corgi
+
+**prefix Space** opens the Corgi prompt over any pane, and closes it again.
+In the Corgi, tmux and Herdr presets, **Ctrl+Shift+K** does too, in terminals
+that report Shift with Ctrl (the Kitty keyboard protocol); plain Ctrl+K stays
+with the pane.
+It runs one of your agents without a terminal and draws the conversation
+itself. It knows the workspace, the focused agent and the others beside it.
+The conversation stays when you close the prompt; the status line says when
+it needs you or has answered.
+
+| Task | Key |
+| --- | --- |
+| Send / new line | Enter / Shift+Enter |
+| Pick the model and effort | Tab, then ↑↓, → for effort, `/` to search |
+| Attach an agent's screen, the selection or the diff | `@` |
+| Attach the clipboard's image | Ctrl+V, or Cmd+V with no text copied |
+| Remove the last attachment | Backspace in an empty box |
+| Steer the turn under way | Type, then Enter |
+| Stop the turn | Ctrl+C |
+| Continue in a Corgi pane of its own | Ctrl+O, or `/pane` |
+| Commands (`/new`, `/remember`, `/dig`, `/memory`…) | `/` |
+| Close | Esc |
+
+The pane you opened it over goes with your next message, as a chip at the
+start of the input; Backspace drops it. `@` adds another agent's or shell's
+recent screen, the text selected in a pane, or the workspace's `git diff`.
+An `@` search may run to several words. `@` also offers your other
+workspaces: one attached tells the model what runs there, and its agents,
+panes and diff join what `@` offers. Type `/` in an empty box to list the
+commands.
+
+A pasted image becomes an "Image 1" chip and goes to the model as an image
+(OpenCode 2 gets its file's path); point at the chip to see it. Ctrl+V reads
+this machine's clipboard, so over SSH an image pastes only from a terminal
+that sends paste events.
+
+Corgi remembers in Markdown files beside its settings, as OpenClaw does: a
+curated `MEMORY.md` it always starts with, a log per day of which it starts
+with the last two, and a note per workspace. What you ask it to remember, with
+`/remember` or in words, goes to today's log; a log line its searches keep
+finding (three times, on two days) moves to `MEMORY.md` the next time a
+conversation starts. `/new` gives the conversation it ends one unseen turn to
+store what's worth keeping. `/memory` browses the files in the card: `/` or
+typing searches, Enter edits a line, Tab adds one to its file, Backspace twice
+removes it, Ctrl+E opens the file in your editor. The model searches and
+writes the same files with `corgi memory search`, `get`, `add` and `forget`,
+which run without asking.
+
+A message sent while Corgi works goes to the turn under way rather than
+waiting for it, and the conversation marks it steered. Ctrl+C stops the turn,
+even one still starting; the input line says "stopping" until it ends.
+
+Ctrl+O moves the conversation to a tab of its own running the same chat, which
+goes on with the same session; before you've asked anything it opens a fresh
+one there. In the tab, Esc only backs out of menus, Ctrl+C
+stops a turn, and `/close` or Ctrl+D in an empty box ends the chat and closes
+the tab. Closing the tab stops its session.
+
+The picker opens on Auto, which runs the newest middle-tier model (Sonnet,
+Terra) of the agent you run most. Below it, models are grouped by agent, with a
+row per account or routed source giving who it's signed in as, its plan and its
+limits. The agents you run most come first, opening with the models you run and
+then the newest of their lineup; older versions wait for a search. A model's
+effort shows at its right; → or a click on Edit opens the levels. Your last pick
+is the next viewer's default.
+
+The prompt lists the agents and accounts the launcher shows, so hiding one in
+**Manage agents** takes it out of the picker too. Their model lists are read in
+the background, a few seconds after Corgi starts and every five minutes; open
+the prompt before the first arrive and it says "Loading models…".
 
 ## Script Corgi
 
@@ -365,10 +438,11 @@ Prefer **Corgi setup** for changes. **Panes → Shell** selects the shell for ne
 panes; **Theme** changes appearance; **Clever Corgi** controls model-backed
 features, Smart Links and auto-retrying capacity errors. Settings and launcher
 commands survive restarts.
-Its Pi section shows “Auto (model name)” and five signed-in models, with “Show N
-more”. Type to search all models, including the hidden ones. Auto is resolved by
-Corgi, preferring subscription-backed access, and does not pin a model in saved
-settings; an explicit pick does. Neither changes Pi's normal chat model.
+Its model picker is the prompt's: Auto first, then cheap models under each
+agent, account and routed source, with heavier ones a search away. Auto is
+resolved by Corgi, preferring subscription-backed access, and does not pin a
+model in saved settings; an explicit pick does, saved apart from the prompt's.
+Neither changes an agent's normal chat model.
 
 For a standard runtime, state lives under `$XDG_STATE_HOME/corgi`, defaulting
 to `~/.local/state/corgi`:

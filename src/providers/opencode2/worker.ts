@@ -30,11 +30,18 @@ export class Engine {
   polled = 0;
   /** When a failed poll is tried again. */
   retry = Infinity;
+  /** The text parts so far of the answer streaming now. */
+  streamed: { message: string; parts: string[] } = { message: "", parts: [] };
+  /** Instructions still to go ahead of the first prompt. */
+  instructions: string;
   constructor(
     readonly api: API,
     readonly emit: (event: Event) => void,
     readonly inference: Inference | null = null,
-  ) {}
+    readonly at: Pick<Place, "model" | "instructions"> = {},
+  ) {
+    this.instructions = at.instructions ?? "";
+  }
   async start() {
     const info = data(
       await this.api.call("POST", "/api/session", {
@@ -45,7 +52,9 @@ export class Engine {
               permissions: [{ action: "*", resource: "*", effect: "deny" }],
               ...(this.inference.model ? { model: modelRef(this.inference.model) } : {}),
             }
-          : {}),
+          : this.at.model
+            ? { model: modelRef(this.at.model) }
+            : {}),
       }),
     );
     this.session = str(info, "id");
@@ -81,7 +90,14 @@ export class Engine {
       await this.api.call("POST", `/api/session/${session}/interrupt?resume=false`);
       return;
     }
-    await this.api.call("POST", `/api/session/${session}/prompt`, { text: input.text, delivery: "steer" });
+    // Its API takes no system prompt, so instructions lead the first prompt;
+    // nor images, so the prompt names their files for the agent to open.
+    const said = [input.text, ...(input.images ?? []).map(image => `[Image attached: ${image.path}]`)]
+        .filter(Boolean)
+        .join("\n\n"),
+      text = this.instructions && session === this.session ? this.instructions + "\n\n" + said : said;
+    await this.api.call("POST", `/api/session/${session}/prompt`, { text, delivery: "steer" });
+    if (session === this.session) this.instructions = "";
   }
   /** Decode a projected context in order. Repeated polls and streaming
    * updates count each completed message and tool only once. */
@@ -147,9 +163,23 @@ export class Engine {
       }
     }
   }
+  /** Streams the conversation's own answer as its text arrives. */
+  stream(value: unknown) {
+    const message = str(value, "assistantMessageID"),
+      ordinal = field(value, "ordinal"),
+      delta = str(value, "delta");
+    if (!message || !delta || !Number.isInteger(ordinal) || ordinal < 0 || ordinal > 1024) return;
+    if (message !== this.streamed.message) this.streamed = { message, parts: [] };
+    const parts = this.streamed.parts;
+    while (parts.length <= ordinal) parts.push("");
+    parts[ordinal] += delta;
+    this.emit({ kind: "partial", session: this.session, text: parts.filter(Boolean).join("\n") });
+  }
   /** Marks the conversation due when an event names it or one of its subagents. */
   observe(event: Record<string, unknown>) {
     const session = eventSession(event);
+    if (str(event, "type") === "session.text.delta" && session === this.session && !this.inference)
+      this.stream(field(event, "data"));
     if (!session || str(event, "type").endsWith(".delta")) return;
     if (session === this.session || this.turns.has(session) || str(field(event, "data"), "parentID") === this.session)
       this.due = true;
@@ -236,7 +266,7 @@ export async function run() {
       const input = JSON.parse(line);
       if (!engine) {
         const at = input.at as Place,
-          started = new Engine(new API(at.executable, at.cwd), emit, input.inference);
+          started = new Engine(new API(at.executable, at.cwd), emit, input.inference, at);
         engine = started;
         await started.start();
         void started.api.follow(abort.signal, {
