@@ -461,7 +461,9 @@ export async function run(
           const compose_started = telemetry.begin();
           const frame = view.compose();
           telemetry.end("viewer.compose", compose_started);
+          const compare_started = telemetry.begin();
           const changed = !composition.same(previous, frame);
+          telemetry.end("viewer.compare", compare_started);
           if (changed || view.overlayOpen()) active_at = now;
           next_sync = Date.now() + (now - active_at < idle_after_ms ? view.frameDelay() : quiet_sync_ms);
           view.dirty = false;

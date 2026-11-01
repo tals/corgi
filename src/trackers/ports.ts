@@ -175,7 +175,7 @@ export function interfaces(): Interface[] {
 export function matching(address: string, ipv6: boolean, all: Interface[]) {
   return all.filter(i => i.ipv6 === ipv6 && (wildcard(address) || address === i.address));
 }
-export function sockets(text: string, list: Process[], roots: Root[], all: Interface[]): Endpoint[] {
+export function sockets(text: string, list: Process[], roots: Root[], all?: Interface[]): Endpoint[] {
   const out: Endpoint[] = [];
   let pid = 0,
     name = "",
@@ -211,7 +211,7 @@ export function sockets(text: string, list: Process[], roots: Root[], all: Inter
       bind_address: bind,
       port,
       ipv6,
-      interfaces: matching(bind, ipv6, all),
+      interfaces: matching(bind, ipv6, (all ??= interfaces())),
       scheme: "unknown",
       http_status: null,
       probed_at: 0,
@@ -673,12 +673,11 @@ export class Tracker {
         if (ps === null) return;
         list = processes(ps);
       }
-      const all = interfaces(),
-        files =
+      const files =
           process.platform === "linux"
             ? await procInventory(list, this.roots).catch(() => null)
             : await command(socketCommand(list, this.roots), true, this.abort.signal),
-        endpoints = files === null ? [] : sockets(files, list, this.roots, all),
+        endpoints = files === null ? [] : sockets(files, list, this.roots),
         works: Work[] = [],
         now = milliTimestamp();
       for (const root of this.roots) {
