@@ -12,8 +12,15 @@ function fixture() {
   copyFileSync(join(project, "src/i18n.ts"), join(root, "src/i18n.ts"));
   copyFileSync(join(project, "scripts/locale.sh"), join(root, "scripts/locale.sh"));
   copyFileSync(join(project, ".prettierrc"), join(root, ".prettierrc"));
-  const run = (command: string) => {
-    const result = Bun.spawnSync([process.execPath, join(project, "scripts/translations.ts"), command, "--root", root]);
+  const run = (command: string, ...options: string[]) => {
+    const result = Bun.spawnSync([
+      process.execPath,
+      join(project, "scripts/translations.ts"),
+      command,
+      "--root",
+      root,
+      ...options,
+    ]);
     return { code: result.exitCode, text: result.stdout.toString() + result.stderr.toString() };
   };
   const catalog = (language: string, value?: unknown) => {
@@ -49,6 +56,10 @@ test("translation CI rejects missing, dead, stale and malformed messages", () =>
     const changed = f.run("check");
     expect(changed.text).toContain("missing");
     expect(changed.text).toContain("unused translation");
+    const summary = f.run("check", "--summary");
+    expect(summary.code).toBe(1);
+    expect(summary.text).toContain("1 message needs translating, 1 unused translation");
+    expect(summary.text).not.toContain("ja.json");
   } finally {
     f.close();
   }

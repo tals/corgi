@@ -37,15 +37,16 @@ const check = Bun.spawn(
   ],
   { cwd: root, stdout: "inherit", stderr: "inherit" },
 );
-const translations = Bun.spawn([process.execPath, join(root, "scripts/translations.ts"), "check"], {
-  cwd: root,
-  stdout: "inherit",
-  stderr: "inherit",
-});
-const codes = await Promise.all([check.exited, tooling.prettier("check"), translations.exited]);
 // Translations may lag while hacking; --ci (as CI typechecks) requires them.
-if (codes[2] !== 0 && !process.argv.includes("--ci")) {
-  console.error("Translations are incomplete; not failing without --ci.");
-  codes[2] = 0;
-}
+const ci = process.argv.includes("--ci");
+const translations = Bun.spawn(
+  [process.execPath, join(root, "scripts/translations.ts"), "check", ...(ci ? [] : ["--summary"])],
+  {
+    cwd: root,
+    stdout: "inherit",
+    stderr: "inherit",
+  },
+);
+const codes = await Promise.all([check.exited, tooling.prettier("check"), translations.exited]);
+if (!ci) codes[2] = 0;
 process.exitCode = codes.find(code => code !== 0) ?? 0;

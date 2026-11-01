@@ -61,8 +61,9 @@ categories must be present. Installer messages use strings only.
 
 `bun scripts/translations.ts check` fails on missing, blank, unused or stale
 translations, invalid placeholders or plural categories, and stale generated
-files. Build and typecheck run it and only warn; with `--ci`, as CI runs
-them, they fail. It also rejects direct unmarked literals in selected UI
+files. Build and typecheck run it with `--summary`, which prints counts
+instead of every entry, and carry on; with `--ci`, as CI runs them, they
+list everything and fail. It also rejects direct unmarked literals in selected UI
 sinks; arbitrary unmarked strings still need code review. Nonempty
 untranslated English cannot be identified reliably by a mechanical check
 (product names and commands often must remain English).

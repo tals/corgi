@@ -16,6 +16,15 @@ type Catalog = Record<string, Translation>;
 const messages = new Map<string, Message>();
 const shapes = new Map<string, string>();
 const errors: string[] = [];
+// Catalog problems by kind and English source, so --summary can count them.
+type Problem = "missing" | "unused" | "invalid" | "stale";
+const problems = new Map<Problem, Set<string>>();
+const summary = process.argv.includes("--summary");
+function problem(kind: Problem, source: string, error: string): void {
+  if (!problems.has(kind)) problems.set(kind, new Set());
+  problems.get(kind)!.add(source);
+  errors.push(error);
+}
 
 function add(parts: string[], names: string[], location: string, shell = false): void {
   if (parts.some(part => /\$\{/.test(part))) {
@@ -131,11 +140,26 @@ if (existsSync(installer)) {
   }
 }
 const ordered = [...messages.values()].sort((a, b) => (a.source < b.source ? -1 : a.source > b.source ? 1 : 0));
+function count(kind: Problem, one: string, many: string): string[] {
+  const size = problems.get(kind)?.size ?? 0;
+  return size ? [`${size} ${size === 1 ? one : many}`] : [];
+}
 function fail(): void {
-  if (errors.length) {
-    for (const error of errors) console.error(error);
-    process.exit(1);
-  }
+  if (!errors.length) return;
+  // Source errors come before any catalog problem and are always listed.
+  if (summary && problems.size) {
+    const found = [
+      ...count("missing", "message needs translating", "messages need translating"),
+      ...count("unused", "unused translation", "unused translations"),
+      ...count("invalid", "malformed translation", "malformed translations"),
+      ...(problems.has("stale") ? ["generated files are stale"] : []),
+    ];
+    console.log(
+      `Translations incomplete: ${found.join(", ")}. Untranslated text shows in English.\n` +
+        "  bun scripts/translations.ts check lists them; extract, translate and generate fix them (locales/README.md).",
+    );
+  } else for (const error of errors) console.error(error);
+  process.exit(1);
 }
 fail();
 const catalogs = {} as Record<locale.TranslatedLocale, Catalog>;
@@ -156,16 +180,20 @@ for (const language of locale.translated) {
   }
   catalogs[language] = catalog;
   for (const key of Object.keys(catalog))
-    if (!messages.has(key)) errors.push(`${path}: unused translation ${JSON.stringify(key)}`);
+    if (!messages.has(key)) problem("unused", key, `${path}: unused translation ${JSON.stringify(key)}`);
   for (const message of ordered) {
     const entry = catalog[message.source];
     if (entry === undefined) {
-      errors.push(`${path}: missing ${JSON.stringify(message.source)} (${message.locations[0]})`);
+      problem(
+        "missing",
+        message.source,
+        `${path}: missing ${JSON.stringify(message.source)} (${message.locations[0]})`,
+      );
       continue;
     }
     const validate = (translated: unknown, category = "") => {
       if (typeof translated !== "string" || !translated.trim()) {
-        errors.push(`${path}: untranslated ${JSON.stringify(message.source)} ${category}`);
+        problem("missing", message.source, `${path}: untranslated ${JSON.stringify(message.source)} ${category}`);
         return;
       }
       const parameters = [...translated.matchAll(/\$\{([^}]*)\}/g)].map(match => match[1]);
@@ -176,9 +204,13 @@ for (const language of locale.translated) {
         expected.size !== actual.size ||
         [...expected].some(name => !actual.has(name))
       )
-        errors.push(`${path}: placeholder mismatch for ${JSON.stringify(message.source)} ${category}`);
+        problem(
+          "invalid",
+          message.source,
+          `${path}: placeholder mismatch for ${JSON.stringify(message.source)} ${category}`,
+        );
       if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(translated))
-        errors.push(`${path}: control character in ${JSON.stringify(message.source)}`);
+        problem("invalid", message.source, `${path}: control character in ${JSON.stringify(message.source)}`);
     };
     if (typeof entry === "string") validate(entry);
     else if (
@@ -188,16 +220,17 @@ for (const language of locale.translated) {
       entry.forms &&
       typeof entry.forms === "object"
     ) {
-      if (!message.names.includes(entry.plural)) errors.push(`${path}: unknown plural variable ${entry.plural}`);
-      if (message.shell) errors.push(`${path}: installer messages cannot use plural variants`);
+      if (!message.names.includes(entry.plural))
+        problem("invalid", message.source, `${path}: unknown plural variable ${entry.plural}`);
+      if (message.shell) problem("invalid", message.source, `${path}: installer messages cannot use plural variants`);
       const categories = new Intl.PluralRules(language).resolvedOptions().pluralCategories;
       for (const category of categories) validate(entry.forms[category], category);
       for (const [category, form] of Object.entries(entry.forms)) {
         if (!categories.includes(category as Intl.LDMLPluralRule))
-          errors.push(`${path}: unused plural category ${category}`);
+          problem("invalid", message.source, `${path}: unused plural category ${category}`);
         validate(form, category);
       }
-    } else errors.push(`${path}: invalid translation for ${JSON.stringify(message.source)}`);
+    } else problem("invalid", message.source, `${path}: invalid translation for ${JSON.stringify(message.source)}`);
   }
 }
 if (command === "extract") {
@@ -275,7 +308,7 @@ for (const [relative, contents] of [
   if (command === "generate") write(path, contents);
   else if (command === "check") {
     if (!existsSync(path) || readFileSync(path, "utf8") !== contents)
-      errors.push(`${relative}: stale generated translations; run bun scripts/translations.ts generate`);
+      problem("stale", relative, `${relative}: stale generated translations; run bun scripts/translations.ts generate`);
   } else throw Error("Usage: bun scripts/translations.ts extract|generate|check [--root DIR]");
 }
 fail();
