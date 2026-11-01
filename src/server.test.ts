@@ -1,4 +1,4 @@
-import { test, expect, spyOn } from "bun:test";
+import { test, expect, setSystemTime, spyOn } from "bun:test";
 import { Server } from "./server";
 import * as agentModels from "./agent_models";
 import { Preview } from "./launch/preview";
@@ -284,6 +284,8 @@ test("provisional pane completions ring until their receipts are read", () => {
 
 test("handoff restoration normalizes small and wide viewer counters before waking", () => {
   for (const seq of [0n, 9007199254740993n]) {
+    // Both captures record saved_at in seconds, which must not tick over between them.
+    setSystemTime(new Date(1_800_000_000_000));
     const source = fixture(),
       target = fixture();
     try {
@@ -324,6 +326,7 @@ test("handoff restoration normalizes small and wide viewer counters before wakin
       );
       expect(json.stringify(captureManifest(target.server, restored))).toBe(bytes);
     } finally {
+      setSystemTime();
       source.dispose();
       target.dispose();
     }
