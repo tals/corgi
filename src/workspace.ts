@@ -3,6 +3,7 @@ import { mkdir, open, rename, readFile, realpath, stat } from "node:fs/promises"
 import { Model, cleanLabel, max_label, max_workspaces } from "./layout";
 import * as migrations from "./persist/migrations";
 import { Order, Pins, key as agentKey, type Section } from "./agent_order";
+import * as errors from "./errors";
 import { Stars, type Session as StarredSession } from "./agent_stars";
 import { Ref, State } from "./trackers/git_push";
 import { Commits } from "./trackers/git_status";
@@ -133,10 +134,17 @@ export class Store {
       throw e;
     }
     if (Buffer.byteLength(bytes) > 1024 * 1024) throw Error("FileTooBig");
-    const { value: d } = migrations.decode("workspaces", bytes);
-    const invalid = () => {
+    const invalid = (): never => {
       throw Error("InvalidWorkspaceState");
     };
+    let d: any;
+    try {
+      d = migrations.decode("workspaces", bytes).value;
+    } catch (error) {
+      // The steps are shared with checkpoints, and name their errors for them.
+      if (errors.is(error, "InvalidCheckpoint")) invalid();
+      throw error;
+    }
     if (!Array.isArray(d.workspaces) || !d.workspaces.length || d.workspaces.length > max_workspaces) invalid();
     const items: Workspace[] = [];
     for (const x of d.workspaces) {

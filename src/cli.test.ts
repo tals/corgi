@@ -135,7 +135,7 @@ test("command lines are rejected before connecting", async () => {
     [["tab", "rename", "4", "--clear", "oops"]],
     [["tab", "move", "4", "--before", "6", "--workspace", "1"]],
     [["tab", "merge", "4"]],
-    [["workspace", "edit", "2", "--name", "Oops", "--clear"]],
+    [["workspace", "edit", "2", "--clear"]],
     [["workspace", "close", "2", "--cwd", "/tmp"]],
     [["workspace", "close", "current"], "Usage", 3],
     [["focus", "3"]],
@@ -229,11 +229,11 @@ test("command lines parse to the request the daemon receives", async () => {
       { action: "workspace.new", command: { "workspace.create": { name: "Project", cwd: realpathSync("/tmp") } } },
     ],
     [
-      ["workspace", "edit", "2", "--clear", "--cwd", "/tmp"],
+      ["workspace", "edit", "2", "--cwd", "/tmp"],
       {
         action: "workspace.edit",
         target: 2,
-        command: { "workspace.edit": { target: 2, name: "", cwd: realpathSync("/tmp") } },
+        command: { "workspace.edit": { target: 2, name: null, cwd: realpathSync("/tmp") } },
       },
     ],
     [

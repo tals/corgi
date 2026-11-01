@@ -2,7 +2,7 @@ Agent controls (--json prints the daemon's reply as JSON):
   corgi list [--json]                 layout, panes, agents, viewers
   corgi workspace list
   corgi workspace new NAME [--cwd DIR]
-  corgi workspace edit ID [--name NAME|--clear] [--cwd DIR]
+  corgi workspace edit ID [--name NAME] [--cwd DIR]
   corgi workspace close ID          requires an empty workspace
   corgi workspace switch ID [--viewer ID]
   corgi current                      calling pane's live location

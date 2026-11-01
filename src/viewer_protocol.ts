@@ -5,7 +5,7 @@ import { version } from "./viewer_version";
 import { parse as parseAction } from "./action";
 import * as surface from "./pane/surface";
 import * as session from "./session";
-import { folderName } from "./workspace";
+import * as workspace from "./workspace";
 import { microTimestamp } from "./clock";
 import { stringify } from "./json";
 import { version as wire_version, type View as WireView, type Control, type Request } from "./protocol";
@@ -53,7 +53,7 @@ export async function open(s: Server, cl: Client, q: Open) {
       // The starter waited for this folder, and takes its name.
       const ws = s.initialWorkspace();
       await s.runtime.workspaces.edit(ws.id, null, q.cwd);
-      ws.rename(folderName(ws.cwd));
+      ws.rename(workspace.folderName(ws.cwd));
       s.default_folder_pending = false;
       await s.saveWorkspaces();
     }

@@ -383,7 +383,9 @@ function workspaceNames(value: any) {
     const fields = object(workspace);
     if (fields.name !== "") continue;
     if (typeof fields.cwd !== "string") throw Error("InvalidCheckpoint");
-    fields.name = basename(fields.cwd) || "/";
+    // A folder named only with spaces would leave no name to load.
+    const folder = basename(fields.cwd);
+    fields.name = folder.replace(/^ +| +$/g, "") || (folder ? "_" : "/");
   }
 }
 function workspaces1To2(value: any) {

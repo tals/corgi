@@ -341,7 +341,7 @@ export async function parse(words: string[], caller = 0, input?: () => Promise<s
     case "workspace.edit":
       set(action, {
         target,
-        name: args.flag("clear") ? "" : args.option("name"),
+        name: args.option("name"),
         cwd: args.options.has("cwd") ? args.directory(args.required("cwd")) : null,
       });
       break;

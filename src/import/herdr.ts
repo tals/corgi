@@ -364,7 +364,7 @@ export function seedTerminal(terminal: import("../pane/terminal").Terminal, stat
 }
 
 import { randomBytes } from "node:crypto";
-import { Workspace, label as workspaceLabel } from "../workspace";
+import * as workspace from "../workspace";
 import { Terminal } from "../pane/terminal";
 import { n, ptr } from "../native_ffi";
 import { ReadyLoop, READ, WRITE, wouldBlock } from "../fd_loop";
@@ -706,10 +706,10 @@ export class Job {
       if (!isAbsolute(cwd)) throw Error("InvalidHerdrDirectory");
       // Panes report resolved folders.
       const name = text(snapshot, "custom_name");
-      const ws = new Workspace(
+      const ws = new workspace.Workspace(
         this.staged.workspaces.next_id++,
         resolved(cwd),
-        workspaceLabel(name) ? name : undefined,
+        workspace.label(name) ? name : undefined,
       );
       const tabs = list(snapshot.tabs);
       if (!tabs.length) throw Error("InvalidHerdrLayout");

@@ -1,6 +1,6 @@
 import { isAbsolute } from "node:path";
 import { Runtime, Pane, ClosedAgent, Launch, closed_per_workspace } from "../runtime";
-import { Workspace, Store, label } from "../workspace";
+import * as workspace from "../workspace";
 import { Model, Tab, max_workspaces } from "../layout";
 import { Order, Pins, key as agentKey } from "../agent_order";
 import { Stars } from "../agent_stars";
@@ -326,8 +326,8 @@ export async function restore(
     );
     check(r.workspaces.get(w.id), () => `workspace ${w.id} is saved twice`);
     check(!isAbsolute(w.cwd), () => `workspace ${w.id}'s folder isn't an absolute path`);
-    check(typeof w.name !== "string" || !label(w.name), () => `workspace ${w.id} has no name`);
-    const item = new Workspace(w.id, w.cwd, w.name);
+    check(typeof w.name !== "string" || !workspace.label(w.name), () => `workspace ${w.id} has no name`);
+    const item = new workspace.Workspace(w.id, w.cwd, w.name);
     if (live && w.worktrees != null) {
       item.worktrees = worktrees.snapshot(w.worktrees);
       if (
@@ -512,9 +512,9 @@ export async function restore(
 }
 async function safeDirectory(cwd: string): Promise<string> {
   try {
-    return await Store.directory(cwd);
+    return await workspace.Store.directory(cwd);
   } catch {
-    return await Store.directory(process.env.HOME ?? "/");
+    return await workspace.Store.directory(process.env.HOME ?? "/");
   }
 }
 async function recoverPane(p: Pane, socket: string, executable: string): Promise<void> {

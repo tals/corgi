@@ -10,6 +10,7 @@ import * as palette from "./palette";
 import { Style, fgRgb, bgRgb, mix, colors } from "./palette";
 import * as keys from "./keys";
 import * as nameDialog from "./name_dialog";
+import * as workspace from "./workspace";
 import { printable, writeField, type Key, type KeySpec, type Result } from "./name_dialog";
 import * as scrollThumb from "./scroll_thumb";
 import { relativeTime } from "./sidebar";
@@ -349,7 +350,7 @@ export class Dialog extends nameDialog.Dialog {
    * The name stays selected only until the keys first leave it. */
   follow(): void {
     if (this.browser.focused) this.selected = false;
-    if (this.follows_folder) this.fill(basename(this.browser.folder()) || "/");
+    if (this.follows_folder) this.fill(workspace.folderName(this.browser.folder()));
   }
   clear(): void {
     this.follows_folder = false;

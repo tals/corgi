@@ -51,17 +51,18 @@ test("old workspace state names its folder-named workspaces for their folders", 
         JSON.stringify({
           version,
           active: 1,
-          next_id: 4,
+          next_id: 5,
           workspaces: [
             { id: 1, name: "", cwd: "/missing/项目 café/", pinned: true },
             { id: 2, name: "", cwd: "/" },
             { id: 3, name: "Custom", cwd: "/elsewhere" },
+            { id: 4, name: "", cwd: "/tmp/  " },
           ],
         }),
       );
       const s = new Store();
       await s.load(file);
-      expect(s.items.map(w => w.name())).toEqual(["项目 café", "/", "Custom"]);
+      expect(s.items.map(w => w.name())).toEqual(["项目 café", "/", "Custom", "_"]);
       await s.save(file, 1);
       expect(JSON.parse(await readFile(file, "utf8")).version).toBe(3);
     }
