@@ -241,8 +241,11 @@ test("renaming an account keeps its folder, and names one Omarchy keeps in Corgi
 
 test("the default account's name stays with the default, whoever signs in to it", () => {
   signIn(join(home, ".claude"), "me@acme.com");
+  const before = accounts.defaultNames();
   expect(accounts.defaultName("claude")).toBe("");
   accounts.renameDefault("claude", "acme");
+  expect(before.claude).toBe("");
+  expect(accounts.defaultNames()).toMatchObject({ claude: "acme", codex: "" });
   expect([accounts.defaultName("claude"), accounts.defaultName("codex")]).toEqual(["acme", ""]);
   // Another login, or another folder, is still the default.
   signIn(join(home, ".claude"), "you@gmail.com");

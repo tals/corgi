@@ -1,9 +1,30 @@
 import { test, expect } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import * as build_id from "./build_id";
 import { installed, onPath, outdated, resolve as find } from "./discovery";
+test("provider discovery follows current files, permissions and symlink targets", () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-discovery-")),
+    command = join(root, "agent"),
+    target = join(root, "target");
+  try {
+    expect(onPath("agent", root)).toBeNull();
+    mkdirSync(command);
+    expect(onPath("agent", root)).toBeNull();
+    rmSync(command, { recursive: true });
+    symlinkSync(target, command);
+    expect(onPath("agent", root)).toBeNull();
+    writeFileSync(target, "#!/bin/sh\n", { mode: 0o644 });
+    expect(onPath("agent", root)).toBeNull();
+    chmodSync(target, 0o755);
+    expect(onPath("agent", root)).toBe(command);
+    rmSync(target);
+    expect(onPath("agent", root)).toBeNull();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 test("a bare provider name resolves past Corgi's own alias on PATH", () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-discovery-")),
     alias = join(root, "alias"),
