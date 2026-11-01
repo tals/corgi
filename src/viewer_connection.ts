@@ -7,7 +7,10 @@ import * as viewerVersion from "./viewer_version";
 export class Connection implements Transport {
   private control: rpc.Connection;
   private data: rpc.Connection | null = null;
-  private watching: { viewer: number; ready: Promise<void> } | null = null;
+  private watching: { viewer: number } | null = null;
+  /** The daemon accepted the watch, so pane content can use the data connection. */
+  private attached = false;
+  /** A sync since then has caught up with changes made before the daemon would wake. */
   private watched = false;
   private closed = false;
   private listeners = new Set<(event: protocol.Event) => void>();
@@ -36,6 +39,7 @@ export class Connection implements Transport {
   private dropData(data: rpc.Connection): void {
     if (this.data !== data) return;
     this.data = null;
+    this.attached = false;
     this.watched = false;
     this.watching = null;
     data.close();
@@ -55,7 +59,7 @@ export class Connection implements Transport {
     return this.control.request(op, ...args);
   }
   private async content<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>> {
-    const data = this.watched ? this.data : null;
+    const data = this.attached ? this.data : null;
     if (data)
       try {
         return await data.request(op, ...args);
@@ -66,26 +70,31 @@ export class Connection implements Transport {
     return this.control.request(op, ...args);
   }
   private async sync(q: protocol.RequestInput<"viewer.sync">): Promise<protocol.Response<"viewer.sync">> {
-    const view = await this.control.request("viewer.sync", { ...q, surfaces: false });
+    // Unwatched, one request on control brings the view and its surfaces.
+    const attached = this.attached;
+    const view = await this.control.request("viewer.sync", { ...q, surfaces: !attached });
     if ("err" in view) return view;
     viewerVersion.require(view);
     if (this.watching?.viewer !== view.viewer) this.watch(view.viewer);
-    await this.watching!.ready;
-    const frames = await this.request("viewer.surfaces");
-    return "err" in frames ? frames : { ...view, surfaces: frames.surfaces };
+    if (!attached) return view;
+    const frames = await this.content("viewer.surfaces");
+    if ("err" in frames) return frames;
+    this.watched = this.attached;
+    return { ...view, surfaces: frames.surfaces };
   }
-  /** Until the daemon accepts, the viewer syncs every frame; a refusal is
-   * asked again on the next sync. */
+  /** Sent beside the sync; until the daemon accepts, the viewer syncs every
+   * frame, and a refusal is asked again on the next sync. */
   private watch(viewer: number): void {
     const data = this.connectData(),
-      watching = { viewer, ready: Promise.resolve() };
+      watching = { viewer };
     this.watching = watching;
+    this.attached = false;
     this.watched = false;
-    watching.ready = data.request("viewer.watch", { viewer }).then(
+    void data.request("viewer.watch", { viewer }).then(
       reply => {
         if (this.watching !== watching) return;
         if ("err" in reply) this.watching = null;
-        else this.watched = true;
+        else this.attached = true;
       },
       () => this.dropData(data),
     );

@@ -7,6 +7,16 @@ import { Connection } from "./viewer_connection";
 import * as json from "./json";
 import * as protocol from "./protocol";
 
+/** Syncs until the daemon has accepted the watch and a sync has caught up. */
+async function watched(connection: Connection, sent = () => true) {
+  const until = Date.now() + 1000;
+  while (!connection.watches() || !sent()) {
+    if (Date.now() >= until) throw Error("Timeout");
+    await connection.request("viewer.sync", { interests: [] });
+    await Bun.sleep(1);
+  }
+}
+
 test("a viewer shares two connections across requests, subscriptions, and pane content", async () => {
   const dir = mkdtempSync(join(tmpdir(), "corgi-viewer-rpc-")),
     path = join(dir, "rpc.sock"),
@@ -14,7 +24,8 @@ test("a viewer shares two connections across requests, subscriptions, and pane c
     received: { socket: Socket; op: string; surfaces?: boolean }[] = [],
     events: protocol.Event[] = [],
     held = Promise.withResolvers<void>();
-  let finish!: () => void;
+  let finish!: () => void,
+    hold = false;
   const server = createServer(socket => {
     sockets.push(socket);
     let buffer = "";
@@ -32,6 +43,10 @@ test("a viewer shares two connections across requests, subscriptions, and pane c
             reply({ type: "view", viewer_protocol: protocol.viewer_version, viewer: 1, surfaces: [] });
             break;
           case "viewer.surfaces":
+            if (!hold) {
+              reply({ ok: true, surfaces: [] });
+              break;
+            }
             // A delayed content response must not hold control replies or events.
             finish = () => reply({ ok: true, surfaces: [{ surface: { pane: 1 } }] });
             send({ type: "viewer.wake" });
@@ -57,6 +72,8 @@ test("a viewer shares two connections across requests, subscriptions, and pane c
   let syncing: Promise<protocol.Response<"viewer.sync">> | null = null;
   try {
     await connection.request("viewer.open");
+    await watched(connection);
+    hold = true;
     syncing = connection.request("viewer.sync", { interests: [] });
     await held.promise;
     await connection.request("agent.subscribe", { workspace: 1, cwd: "/a" });
@@ -85,7 +102,9 @@ test("a viewer shares two connections across requests, subscriptions, and pane c
       expect(received.filter(r => r.op === op).every(r => r.socket === control)).toBe(true);
     for (const op of ["viewer.watch", "viewer.surfaces", "viewer.image", "viewer.pick"])
       expect(received.filter(r => r.op === op).every(r => r.socket === data)).toBe(true);
-    expect(received.find(r => r.op === "viewer.sync")!.surfaces).toBe(false);
+    const syncs = received.filter(r => r.op === "viewer.sync");
+    expect(syncs[0].surfaces).toBe(true);
+    expect(syncs.at(-1)!.surfaces).toBe(false);
     expect(events.map(e => e.type).sort()).toEqual(["agent.history", "agent.preview", "agent.preview", "viewer.wake"]);
   } finally {
     unsubscribe();
@@ -125,7 +144,12 @@ test("a refused watch uses control for surfaces and images until a later sync at
             reply({ ok: true, viewer_protocol: protocol.viewer_version });
             break;
           case "viewer.sync":
-            reply({ type: "view", viewer_protocol: protocol.viewer_version, viewer: 1, surfaces: [] });
+            reply({
+              type: "view",
+              viewer_protocol: protocol.viewer_version,
+              viewer: 1,
+              surfaces: q.surfaces === false ? [] : frames,
+            });
             break;
           case "viewer.watch":
             data = socket;
@@ -156,18 +180,18 @@ test("a refused watch uses control for surfaces and images until a later sync at
       ok: true,
       data: "pixels",
     });
-    expect(surfaces).toEqual([control]);
+    expect(surfaces).toEqual([]);
     expect(images).toEqual([control]);
-    expect(await connection.request("viewer.sync", { interests: [] })).toMatchObject({ viewer: 1, surfaces: frames });
+    await watched(connection, () => watches === 2);
     expect(watches).toBe(2);
-    expect(connection.watches()).toBe(true);
     expect(await connection.request("viewer.image", { pane: 1, image: "1", offset: 0 })).toEqual({
       ok: true,
       data: "pixels",
     });
-    await connection.request("viewer.sync", { interests: [] });
+    expect(await connection.request("viewer.sync", { interests: [] })).toMatchObject({ viewer: 1, surfaces: frames });
     expect(watches).toBe(2);
-    expect(surfaces).toEqual([control, data, data]);
+    expect(surfaces.length).toBeGreaterThan(0);
+    expect(surfaces.every(s => s === data)).toBe(true);
     expect(images).toEqual([control, data]);
     expect(control).not.toBe(data);
   } finally {
@@ -216,7 +240,12 @@ test.each(["watch", "idle", "surfaces", "image"] as const)(
               reply({ ok: true, viewer_protocol: protocol.viewer_version });
               break;
             case "viewer.sync":
-              reply({ type: "view", viewer_protocol: protocol.viewer_version, viewer: 1, surfaces: [] });
+              reply({
+                type: "view",
+                viewer_protocol: protocol.viewer_version,
+                viewer: 1,
+                surfaces: q.surfaces === false ? [] : frames,
+              });
               break;
             case "viewer.watch":
               watching = true;
@@ -246,6 +275,7 @@ test.each(["watch", "idle", "surfaces", "image"] as const)(
     try {
       await connection.request("viewer.open");
       expect(await connection.request("viewer.sync", { interests: [] })).toMatchObject({ surfaces: frames });
+      if (failure !== "watch") await watched(connection);
       expect(connection.watches()).toBe(failure !== "watch");
       if (failure === "idle") {
         watches[0].destroy();
@@ -263,8 +293,8 @@ test.each(["watch", "idle", "surfaces", "image"] as const)(
       expect(connection.watches()).toBe(false);
       expect(await connection.request("ping")).toMatchObject({ ok: true });
       const before = events.length;
+      await watched(connection);
       expect(await connection.request("viewer.sync", { interests: [] })).toMatchObject({ surfaces: frames });
-      expect(connection.watches()).toBe(true);
       expect(sockets).toHaveLength(3);
       expect(watches).toHaveLength(2);
       expect(watches[1]).not.toBe(watches[0]);
