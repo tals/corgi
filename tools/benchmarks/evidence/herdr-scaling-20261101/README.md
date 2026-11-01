@@ -15,6 +15,6 @@ It does not claim an entirely green integration run. The validation wrapper
 and compiler use different path ordering for their source digests; the receipt
 identifies both. Measured and rebuilt compiler source/native hashes match.
 
-Full raw data, scripts, binaries, profiles, screenshots and logs are preserved
-locally in `dist/perf-herdr-20261031/`, including archived raw matrix/repeat
-directories. The portable files here retain their source paths and hashes.
+Raw data, scripts, binaries, profiles, screenshots and logs were kept on the
+benchmark machine and are not in the repository. The files here retain their
+source paths and hashes.

@@ -3,8 +3,7 @@
 Baseline is main `e6e08abbcc98bfbbdce2c31c161f7414a89b1fe1`, fetched before
 the experiment. Herdr is the pinned v0.9.5 binary used by the existing harness,
 with source tag `2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01`; this is not a claim
-about a newer Herdr release. The changes live in worktree
-`/home/t/dev/personal/corgi-perf-herdr`, branch `perf/herdr-matrix-20261031`.
+about a newer Herdr release. The changes are on branch `perf/herdr-matrix-20261031`.
 
 The first complete matrix shows 30–37% less combined CPU at 64 agents, with
 essentially unchanged results at four agents. Busy, attached Corgi moves from
@@ -239,13 +238,8 @@ idle GPU queries can change attribution history. Those are not equivalent
 optimizations to adopt just to improve this table.
 
 The [portable evidence](evidence/herdr-scaling-20261101/summary.json) records
-measurements and provenance. Full binaries, source patches, profiles,
-telemetry snapshots and experiment scripts live in
-[the local artifact directory](../../dist/perf-herdr-20261031/);
-raw CPU trials are archived there as `matrix-raw/` and `repeat-raw/`, alongside
-the earlier rejected strict attempts. Original `/tmp/ch2` and `/tmp/ch3` paths
-remain in raw receipts. Only leftover Unix socket inodes were excluded from
-the archive; their names are recorded in `archive-skipped-sockets.json`.
+measurements and provenance. The raw trials, binaries, profiles and scripts
+behind it were kept on the benchmark machine and are not in the repository.
 
 Frozen production binary SHA-256 values:
 
