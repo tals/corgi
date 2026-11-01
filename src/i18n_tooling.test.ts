@@ -103,7 +103,7 @@ test("local builds regenerate stale output and summarize missing translations; C
   }
 }, 30000);
 
-test("a malformed scan cache is ignored", async () => {
+test("a damaged scan cache is ignored with a warning", () => {
   const f = fixture();
   try {
     f.source('import * as i18n from "./i18n"; const name = "Corgi"; export const greeting = i18n.t`Hello ${name}`;');
@@ -121,7 +121,9 @@ test("a malformed scan cache is ignored", async () => {
     for (const files of cases) {
       const script = hash(readFileSync(join(project, "scripts/translations.ts"), "utf8"));
       writeFileSync(join(f.root, ".tools/i18n/scan.json"), JSON.stringify({ script, files }));
-      expect(await translations.verify(true, f.root)).toEqual({ code: 0, text: "" });
+      const checked = f.run("check");
+      expect(checked.code).toBe(0);
+      if (files) expect(checked.text).toContain("Ignoring a damaged translation scan cache");
     }
   } finally {
     f.close();

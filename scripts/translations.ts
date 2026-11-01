@@ -121,28 +121,8 @@ function parse(ts: any, root: string, path: string, text: string): Found[] {
   return found;
 }
 
-/** Whether a cached scan has the shape parse() writes; anything else is parsed again. */
-function replayable(found: unknown): found is Found[] {
-  const strings = (value: unknown) => Array.isArray(value) && value.every(item => typeof item === "string");
-  return (
-    Array.isArray(found) &&
-    found.every(item => {
-      switch (item?.kind) {
-        case "error":
-          return typeof item.error === "string";
-        case "template":
-          return strings(item.parts) && strings(item.names) && typeof item.location === "string";
-        case "document":
-          return typeof item.path === "string" && typeof item.location === "string";
-        default:
-          return false;
-      }
-    })
-  );
-}
-
 /** Finds every marked message, parsing only the files that changed since the last scan. */
-async function scan(root: string): Promise<{ messages: Message[]; errors: string[] }> {
+async function scan(root: string, cache = true): Promise<{ messages: Message[]; errors: string[] }> {
   const messages = new Map<string, Message>(),
     shapes = new Map<string, string>(),
     errors: string[] = [];
@@ -168,9 +148,7 @@ async function scan(root: string): Promise<{ messages: Message[]; errors: string
   let previous: Scans = { script, files: {} };
   try {
     const cached = JSON.parse(readFileSync(scanCache(root), "utf8"));
-    // Anything else is treated as no cache; each entry is checked by replayable().
-    if (cached?.script === script && cached.files && typeof cached.files === "object" && !Array.isArray(cached.files))
-      previous = cached;
+    if (cache && cached?.script === script) previous = cached;
   } catch {}
   const next: Scans = { script, files: {} };
   let ts: any = null,
@@ -180,18 +158,25 @@ async function scan(root: string): Promise<{ messages: Message[]; errors: string
     // Tags come from an i18n import, so other files can't mark anything.
     if (!text.includes("i18n") && !(path in displays)) continue;
     const key = hash(text);
-    let entry = previous.files[path];
-    if (entry?.hash !== key || !replayable(entry.found)) {
+    let entry = previous.files?.[path];
+    const cached = entry?.hash === key;
+    if (!cached) {
       ts ??= await typescript();
       entry = { hash: key, found: parse(ts, root, path, text) };
       changed = true;
     }
     next.files[path] = entry;
-    for (const found of entry.found) {
-      if (found.kind === "error") errors.push(found.error);
-      else if (found.kind === "template") add(found.parts, found.names, found.location);
-      else if (!existsSync(join(root, found.path))) errors.push(`${found.location}: text asset not found`);
-      else add([readFileSync(join(root, found.path), "utf8")], [], found.location);
+    try {
+      for (const found of entry.found) {
+        if (found.kind === "error") errors.push(found.error);
+        else if (found.kind === "template") add(found.parts, found.names, found.location);
+        else if (!existsSync(join(root, found.path))) errors.push(`${found.location}: text asset not found`);
+        else add([readFileSync(join(root, found.path), "utf8")], [], found.location);
+      }
+    } catch (error) {
+      if (!cached) throw error;
+      console.error(`Ignoring a damaged translation scan cache (${scanCache(root)}): ${error}`);
+      return scan(root, false);
     }
   }
   if (changed || Object.keys(previous.files).length !== Object.keys(next.files).length)
