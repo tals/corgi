@@ -10,16 +10,36 @@
 import { existsSync, watch } from "node:fs";
 import { join } from "node:path";
 import * as prerender from "./prerender";
+import * as locale from "../src/locale";
 
 const port = Number(process.env.PORT ?? 4400);
 const dev = process.argv.includes("--dev");
 const built = (page: string) => () => new Response(Bun.file(join(import.meta.dir, "dist", page)));
 
 if (dev) {
-  await prerender.prepare();
-  const { default: page } = await import("./.generated/index.html");
-  const { default: moonlander } = await import("./moonlander.html");
-  Bun.serve({ port, routes: { "/": page, "/moonlander": moonlander }, development: { hmr: true, console: true } });
+  const routes: Record<string, Bun.HTMLBundle> = {};
+  for (const language of locale.locales) {
+    await prerender.prepare(language);
+    const { default: page } = await import(`./.generated/${language}/index.html`);
+    const { default: moonlander } = await import(`./.generated/${language}/moonlander.html`);
+    routes[`/${language}/`] = page;
+    routes[`/${language}/moonlander`] = moonlander;
+    if (language === "en") {
+      routes["/"] = page;
+      routes["/moonlander"] = moonlander;
+    }
+  }
+  Bun.serve({
+    port,
+    routes,
+    development: { hmr: true, console: true },
+    fetch(request) {
+      const url = new URL(request.url);
+      if (locale.locales.some(language => url.pathname === `/${language}`))
+        return Response.redirect(url.pathname + "/" + url.search, 308);
+      return new Response("Not found", { status: 404 });
+    },
+  });
   let timer: ReturnType<typeof setTimeout>,
     running = false,
     pending = false;
@@ -32,7 +52,7 @@ if (dev) {
       try {
         while (pending) {
           pending = false;
-          await prerender.prepare();
+          for (const language of locale.locales) await prerender.prepare(language);
         }
       } catch (error) {
         console.error("Hero prerender failed:", error);
@@ -54,7 +74,17 @@ if (dev) {
   Bun.serve({
     port,
     // Read on each request, so a rebuild shows without a restart.
-    routes: { "/": built("index.html"), "/moonlander": built("moonlander.html") },
+    routes: {
+      "/": built("index.html"),
+      "/moonlander": built("moonlander.html"),
+      ...Object.fromEntries(
+        locale.locales.flatMap(language => [
+          [`/${language}/`, built(`${language}/index.html`)],
+          [`/${language}/moonlander`, built(`${language}/moonlander.html`)],
+          [`/${language}`, (request: Request) => Response.redirect(`/${language}/` + new URL(request.url).search, 308)],
+        ]),
+      ),
+    },
     fetch: () => new Response("Not found", { status: 404 }),
   });
 }

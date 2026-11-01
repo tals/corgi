@@ -2,13 +2,17 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import * as tooling from "../scripts/tooling";
+import * as i18n from "./i18n";
+import * as locale from "../src/locale";
+import * as htmlTranslations from "../scripts/html_translations";
+import * as bundle from "./bundle";
 import * as heroConfig from "./hero_config";
 
 const root = import.meta.dir;
 export const directory = join(root, ".generated");
 
 export async function render(html: string, bundle: string): Promise<string> {
-  const [dom] = await tooling.packages("site", { "happy-dom": "21.0.4" });
+  const dom = await tooling.dependency("happy-dom");
   const { Window } = await import(join(dom, "lib", "index.js"));
   const frames = [];
   for (const [name, width] of [
@@ -16,7 +20,7 @@ export async function render(html: string, bundle: string): Promise<string> {
     ["mobile", heroConfig.mobile.breakpoint - 1],
   ] as const) {
     const window = new Window({
-      url: "http://localhost/",
+      url: `http://localhost/${locale.parse(/<html[^>]*lang="([^"]+)"/.exec(html)?.[1] ?? "en") ?? "en"}/`,
       width,
       height: 900,
       settings: {
@@ -76,22 +80,54 @@ export async function render(html: string, bundle: string): Promise<string> {
     .text();
 }
 
-export async function prepare(): Promise<string> {
+export async function page(source: string, language: locale.Locale, path = "/"): Promise<string> {
+  i18n.setLanguage(language);
+  const translated = await htmlTranslations.transform(source, i18n.html);
+  const code = language === "zh" ? "zh-CN" : language;
+  const links = locale.locales
+    .map(
+      value =>
+        `<link rel="alternate" hreflang="${value === "zh" ? "zh-CN" : value}" href="https://corgi.computer/${value}${path}">`,
+    )
+    .join("");
+  const picker = `<details class="language-picker" translate="no"><summary aria-label="${i18n.t`Language`}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></svg> ${locale.names[language]}</summary><nav>${locale.locales.map(value => `<a data-language="${value}" lang="${value === "zh" ? "zh-CN" : value}" href="/${value}${path}"${value === language ? ' aria-current="true"' : ""}>${locale.names[value]}</a>`).join("")}</nav></details>`;
+  return new HTMLRewriter()
+    .on("html", { element: element => element.setAttribute("lang", code) })
+    .on("head", {
+      element: element =>
+        element.append(
+          `<link rel="canonical" href="https://corgi.computer/${language}${path}">${links}<link rel="alternate" hreflang="x-default" href="https://corgi.computer${path}">`,
+          { html: true },
+        ),
+    })
+    .on("body", { element: element => element.prepend(picker, { html: true }) })
+    .transform(new Response(translated))
+    .text();
+}
+
+export async function prepare(language: locale.Locale = "en"): Promise<string> {
   const result = await Bun.build({
     entrypoints: [join(root, "main.js")],
     target: "browser",
     format: "iife",
     minify: true,
+    plugins: [bundle.frames(language)],
   });
   if (!result.success) throw new AggregateError(result.logs, "Hero prerender bundle failed");
-  const html = await render(await Bun.file(join(root, "index.html")).text(), await result.outputs[0].text());
-  mkdirSync(directory, { recursive: true });
-  const path = join(directory, "index.html");
-  // Local asset paths are relative to site/, one directory above this file.
-  const prepared = html.replace(/\b(src|href)="\.\//g, '$1="../');
+  const html = await render(
+    await page(await Bun.file(join(root, "index.html")).text(), language),
+    await result.outputs[0].text(),
+  );
+  mkdirSync(join(directory, language), { recursive: true });
+  const path = join(directory, language, "index.html");
+  // Local asset paths are relative to site/, two directories above this file.
+  const prepared = html.replace(/\b(src|href)="\.\//g, '$1="../../').replace('src="../../main.js"', 'src="./main.js"');
+  await Bun.write(join(directory, language, "main.js"), await result.outputs[0].text());
   const previous = await Bun.file(path)
     .text()
     .catch(() => null);
   if (prepared !== previous) await Bun.write(path, prepared);
+  const moon = await page(await Bun.file(join(root, "moonlander.html")).text(), language, "/moonlander");
+  await Bun.write(join(directory, language, "moonlander.html"), moon.replace(/\b(src|href)="\.\//g, '$1="../../'));
   return path;
 }

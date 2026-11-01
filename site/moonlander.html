@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>moonlander</title>
-<meta name="description" content="Help the corgi land on the moon.">
+<title data-i18n="">moonlander</title>
+<meta name="description" content="Help the corgi land on the moon." data-i18n-attrs="content">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap">
@@ -36,9 +36,10 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; t
 .touch button { pointer-events: auto; width: 68px; height: 68px; border: 1px solid var(--line); border-radius: 12px; background: rgb(35 40 47 / .8); color: var(--text); font: 700 22px var(--mono); touch-action: none; -webkit-tap-highlight-color: transparent; }
 .touch button.down { background: var(--selected); color: var(--strong); }
 </style>
+<link rel="stylesheet" href="./language.css">
 </head>
 <body>
-<canvas id="game" aria-label="Moonlander. Land the corgi's ship gently on a pad: up arrow toggles the engine, left and right tilt."></canvas>
+<canvas id="game" aria-label="Moonlander. Land the corgi's ship gently on a pad: up arrow toggles the engine, left and right tilt." data-i18n-attrs="aria-label"></canvas>
 <div class="touch" id="touch" aria-hidden="true">
   <div><button data-key="left" type="button">◀</button><button data-key="right" type="button">▶</button></div>
   <div><button data-key="up" type="button">▲</button></div>

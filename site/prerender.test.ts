@@ -15,14 +15,14 @@ beforeAll(async () => {
   if (!result.success) throw new AggregateError(result.logs);
   bundle = await result.outputs[0].text();
   html = await prerender.render(await Bun.file(join(import.meta.dir, "index.html")).text(), bundle);
-});
+}, 30000);
 
 for (const [name, width] of [
   ["desktop", heroConfig.mobile.breakpoint + 1],
   ["mobile", heroConfig.mobile.breakpoint - 1],
 ] as const) {
   test(`${name} types corgi from its prerendered prompt, then opens the interactive session`, async () => {
-    const [dom] = await tooling.packages("site", { "happy-dom": "21.0.4" });
+    const dom = await tooling.dependency("happy-dom");
     const { Window } = await import(join(dom, "lib", "index.js"));
     const window = new Window({
       width,

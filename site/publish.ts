@@ -4,6 +4,7 @@
  * Other paths go straight to the release bucket, install.sh among them.
  */
 import { join } from "node:path";
+import * as locale from "../src/locale";
 
 const run = (argv: string[]) =>
   Bun.spawnSync(argv, { cwd: join(import.meta.dir, ".."), stdin: "inherit", stdout: "inherit", stderr: "inherit" })
@@ -19,6 +20,10 @@ const checks = [
   { path: "/moonlander", file: "moonlander.html" },
   { path: "/?ref=deploy-check", file: "index.html" },
   { path: "/moonlander?ref=deploy-check", file: "moonlander.html" },
+  ...locale.locales.flatMap(language => [
+    { path: `/${language}/`, file: `${language}/index.html` },
+    { path: `/${language}/moonlander`, file: `${language}/moonlander.html` },
+  ]),
   { path: "/install.sh", file: null },
   { path: "/channels/stable.json", file: null },
 ];
