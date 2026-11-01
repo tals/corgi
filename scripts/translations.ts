@@ -391,17 +391,24 @@ function write(path: string, contents: string): void {
   renameSync(temporary, path);
 }
 
-/** Scans, validates and renders once; files is null when source errors stop generation. */
-async function analyze(root: string): Promise<{ report: Report; files: Record<string, string> | null }> {
+/** Scans the sources and reads the catalogs; catalogs is null when source errors stop the rest. */
+async function load(root: string): Promise<{ report: Report; messages: Message[]; catalogs: Catalogs | null }> {
   const found = await scan(root);
   const report: Report = { messages: found.messages.length, errors: found.errors, problems: [] };
-  if (found.errors.length) return { report, files: null };
+  if (found.errors.length) return { report, messages: found.messages, catalogs: null };
   const catalogs = Object.fromEntries(
     locale.translated.map(language => [language, readCatalog(root, language)]),
   ) as Catalogs;
-  const { problems, valid } = validate(root, found.messages, catalogs);
+  return { report, messages: found.messages, catalogs };
+}
+
+/** Loads, validates and renders once; files is null when source errors stop generation. */
+async function analyze(root: string): Promise<{ report: Report; files: Record<string, string> | null }> {
+  const { report, messages, catalogs } = await load(root);
+  if (!catalogs) return { report, files: null };
+  const { problems, valid } = validate(root, messages, catalogs);
   report.problems = problems;
-  return { report, files: await render(root, found.messages, valid) };
+  return { report, files: await render(root, messages, valid) };
 }
 
 function stale(root: string, files: Record<string, string>): Report["problems"] {
@@ -430,15 +437,15 @@ export async function generate(root = project): Promise<Report> {
 
 /** Adds new messages to every catalog, with blank translations, and drops unused ones. */
 export async function extract(root = project): Promise<Report> {
-  const found = await scan(root);
-  const report: Report = { messages: found.messages.length, errors: found.errors, problems: [] };
-  if (found.errors.length) return report;
+  const { report, messages, catalogs } = await load(root);
+  if (!catalogs) return report;
   for (const language of locale.translated) {
-    const catalog = readCatalog(root, language);
-    const next = Object.fromEntries(found.messages.map(message => [message.source, catalog[message.source] ?? ""]));
+    const next = Object.fromEntries(
+      messages.map(message => [message.source, catalogs[language][message.source] ?? ""]),
+    );
     write(catalogPath(root, language), JSON.stringify(next, null, 2) + "\n");
   }
-  write(join(root, ".tools/i18n/messages.json"), JSON.stringify(found.messages, null, 2) + "\n");
+  write(join(root, ".tools/i18n/messages.json"), JSON.stringify(messages, null, 2) + "\n");
   return report;
 }
 
