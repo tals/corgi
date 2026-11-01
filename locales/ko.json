@@ -355,6 +355,7 @@
   "Could not create that folder.": "폴더를 만들 수 없습니다.",
   "Could not download ${file}: ${error}": "${file} 다운로드 실패: ${error}",
   "Could not install corgi: ${error}": "corgi 설치 실패: ${error}",
+  "Could not rename this workspace": "이 작업 공간의 이름을 변경할 수 없습니다",
   "Could not resolve shorthand. Paste its underlying command.": "축약형을 해석할 수 없습니다. 전체 명령을 붙여넣으세요.",
   "Could not save command; max 2048 bytes.": "명령을 저장할 수 없습니다. 최대 2048바이트입니다.",
   "Could not save. Check folder or capacity.": "저장할 수 없습니다. 폴더나 용량 제한을 확인하세요.",

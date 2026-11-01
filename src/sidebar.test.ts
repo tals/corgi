@@ -52,8 +52,11 @@ import {
   type Entry,
   type WorkspaceEntry,
   type Hit,
+  type RenameState,
   drawGitTooltip,
 } from "./sidebar";
+import { Dialog } from "./name_dialog";
+import type { RenameTarget } from "./inline_rename";
 
 const selected_bg = palette.bg("selected");
 const count = (haystack: string, needle: string) => haystack.split(needle).length - 1;
@@ -1892,4 +1895,178 @@ test("positioned activity sections and overflow badges keep their column offsets
     writer = new Writer(7);
   view.drawAt(writer, entries, [], 5000);
   expect(writer.s).toBe(shifted(expected, 7));
+});
+
+/** A rename open on `target` with the caret at the end of `text`, as the controller opens one. */
+const renaming = (target: RenameTarget, text: string, fallback = "", message: string | null = null): RenameState => {
+  const field = Dialog.init("agent" in target ? { agent: target.agent } : { workspace_name: target.workspace }, text);
+  field.selected = false;
+  field.position(field.len);
+  return { target, field, message, fallback };
+};
+const three_workspaces = [1, 2, 3].map(id => workspaceEntry({ id, name: `ws${id}`, cwd: "/tmp", active: id === 1 }));
+const agents = (n: number) =>
+  Array.from({ length: n }, (_, i) => entry({ target: { pane: i + 1 }, name: `agent ${i}`, provider: "claude" }));
+
+test("the rename field takes a row's name columns and says where its message goes", () => {
+  const entries = agents(4);
+  const view = View.init(100, 30, true, 0, entries.length).withWorkspaces(3, 0).withEntries(entries);
+  // The name starts a column into the lists and runs to the git column.
+  expect(view.fieldRect({ workspace: 1 }, three_workspaces)).toEqual({ x: 2, y: 2, width: 19, message_y: 3 });
+  expect(view.fieldRect({ workspace: 3 }, three_workspaces)).toEqual({ x: 2, y: 8, width: 19, message_y: 9 });
+  // Agent rows start two below the header; the name has the row past its dot.
+  expect(view.fieldRect({ agent: 1 }, three_workspaces)).toEqual({ x: 5, y: 16, width: 21, message_y: 17 });
+  expect(view.fieldRect({ agent: 4 }, three_workspaces)).toEqual({ x: 5, y: 22, width: 21, message_y: 23 });
+  expect(view.fieldRect({ workspace: 9 }, three_workspaces)).toBeNull();
+  expect(view.fieldRect({ agent: 9 }, three_workspaces)).toBeNull();
+  expect(View.init(100, 30, false, 0, 0).fieldRect({ workspace: 1 }, three_workspaces)).toBeNull();
+  expect(View.init(100, 30, false, 0, 0).fieldRect({ agent: 1 }, three_workspaces)).toBeNull();
+  // Readings off shorten the workspace rows; the agent list moves with the split.
+  const compact = View.init(100, 30, true, 0, entries.length, 10).withWorkspaces(3, 0).withEntries(entries);
+  compact.resources = { enabled: false };
+  expect(compact.fieldRect({ workspace: 3 }, three_workspaces)!.y).toBe(6);
+  expect(compact.fieldRect({ agent: 1 }, three_workspaces)!.y).toBe(12);
+  // The figure and the notes keep their columns at the right.
+  const busy = entries.map(e => ("pane" in e.target && e.target.pane === 2 ? { ...e, notes: 2 } : e));
+  expect(view.withEntries(busy).fieldRect({ agent: 2 }, three_workspaces)!.width).toBe(21 - 8);
+});
+
+test("a renamed row scrolled out of its list has no field, and the last visible line puts the message above", () => {
+  const workspaces = Array.from({ length: 8 }, (_, i) =>
+    workspaceEntry({ id: i + 1, name: `ws${i + 1}`, cwd: "/tmp", active: i === 0 }),
+  );
+  const entries = agents(20);
+  const view = View.init(100, 30, true, 3, entries.length).withWorkspaces(8, 2).withEntries(entries);
+  expect(view.workspaceCapacity()).toBe(4);
+  expect(view.fieldRect({ workspace: 2 }, workspaces)).toBeNull();
+  expect(view.fieldRect({ workspace: 3 }, workspaces)).toEqual({ x: 2, y: 2, width: 19, message_y: 3 });
+  expect(view.fieldRect({ workspace: 6 }, workspaces)!.y).toBe(11);
+  expect(view.fieldRect({ workspace: 7 }, workspaces)).toBeNull();
+  expect(view.offset).toBe(3);
+  expect(view.fieldRect({ agent: 3 }, workspaces)).toBeNull();
+  expect(view.fieldRect({ agent: 4 }, workspaces)!.y).toBe(16);
+  expect(view.fieldRect({ agent: 10 }, workspaces)!.y).toBe(28);
+  expect(view.fieldRect({ agent: 11 }, workspaces)).toBeNull();
+  // Boxed, the list ends a row higher: the seventh row shows its name line only.
+  const boxed = View.init(100, 30, true, 0, entries.length);
+  boxed.focus = "agents";
+  const focused = boxed.withEntries(entries);
+  expect(focused.fieldRect({ agent: 6 }, workspaces)).toEqual({ x: 5, y: 26, width: 21, message_y: 27 });
+  expect(focused.fieldRect({ agent: 7 }, workspaces)).toEqual({ x: 5, y: 28, width: 21, message_y: 27 });
+  expect(focused.fieldRect({ agent: 8 }, workspaces)).toBeNull();
+});
+
+test("the workspaces drawer finds a visible workspace row's field", () => {
+  const workspaces = Array.from({ length: 12 }, (_, i) =>
+    workspaceEntry({ id: i + 1, name: `ws${i + 1}`, cwd: "/tmp", active: i === 0 }),
+  );
+  const open = View.init(100, 30, true, 0, 0);
+  open.drawer = "workspaces";
+  const view = open.withWorkspaces(12, 0);
+  expect(view.fieldRect({ workspace: 9 }, workspaces)).toEqual({ x: 2, y: 26, width: 19, message_y: 27 });
+  expect(view.fieldRect({ workspace: 10 }, workspaces)).toBeNull();
+  expect(view.fieldRect({ agent: 1 }, workspaces)).toBeNull();
+  const agents_drawer = View.init(100, 30, true, 0, 0);
+  agents_drawer.drawer = "agents";
+  expect(agents_drawer.withWorkspaces(12, 0).fieldRect({ workspace: 1 }, workspaces)).toBeNull();
+  const lines = hostText(draw(view.withRename(renaming({ workspace: 9 }, "ninth")), [], workspaces)).split("\n");
+  expect(lines[26].startsWith("  ninth ")).toBe(true);
+  expect(lines[26]).not.toContain("ws9");
+});
+
+test("a renamed row shows its field in place of the name, muted fallback while empty", () => {
+  const entries = agents(3);
+  const workspaces = three_workspaces.map(ws => (ws.id === 2 ? { ...ws, git_ahead: 3 } : ws));
+  const view = View.init(100, 30, true, 0, entries.length).withWorkspaces(3, 0).withEntries(entries);
+  const fill = new Style({ fg: "text", bg: "surface" }).sgr();
+  const hint = new Style({ fg: "muted", bg: "surface" }).sgr();
+  let out = draw(view.withRename(renaming({ workspace: 2 }, "renamed")), entries, workspaces);
+  let lines = hostText(out).split("\n");
+  expect(lines[5].startsWith("  renamed  ")).toBe(true);
+  expect(lines[5]).not.toContain("ws2");
+  // The rest of the row keeps its place, and the other rows their names.
+  expect(lines[5]).toContain("↑3");
+  expect(lines[2]).toContain("ws1");
+  expect(lines[16]).toContain("agent 0");
+  expect(has(out, fill + " ".repeat(19))).toBe(true);
+  expect(has(out, fill + "renamed")).toBe(true);
+  out = draw(view.withRename(renaming({ workspace: 2 }, "", "project")), entries, workspaces);
+  lines = hostText(out).split("\n");
+  expect(lines[5].startsWith("  project ")).toBe(true);
+  expect(has(out, hint + "project")).toBe(true);
+  out = draw(view.withRename(renaming({ agent: 2 }, "tagged")), entries, workspaces);
+  lines = hostText(out).split("\n");
+  // The field starts where the name stood.
+  expect(
+    hostText(draw(view, entries, workspaces))
+      .split("\n")[18]
+      .indexOf("agent 1"),
+  ).toBe(5);
+  expect(lines[18].slice(5, 12)).toBe("tagged ");
+  expect(lines[18]).not.toContain("agent 1");
+  expect(lines[16]).toContain("agent 0");
+  expect(lines[20]).toContain("agent 2");
+  expect(has(out, fill + " ".repeat(21))).toBe(true);
+  out = draw(view.withRename(renaming({ agent: 2 }, "", "Claude")), entries, workspaces);
+  expect(hostText(out).split("\n")[18].slice(5, 12)).toBe("Claude ");
+  expect(has(out, hint + "Claude")).toBe(true);
+  // A rename on a row that isn't listed changes nothing.
+  view.corgi_intensity = 0;
+  expect(draw(view.withRename(renaming({ agent: 9 }, "lost")), entries, workspaces, 5000)).toBe(
+    draw(view, entries, workspaces, 5000),
+  );
+});
+
+test("a rename's message takes the line below the field, or the one above on the list's last line", () => {
+  const entries = agents(3);
+  const view = View.init(100, 30, true, 0, entries.length).withWorkspaces(3, 0).withEntries(entries);
+  let out = draw(view.withRename(renaming({ workspace: 2 }, "x", "", "Busy: try again")), entries, three_workspaces);
+  let lines = hostText(out).split("\n");
+  expect(lines[6].startsWith("  Busy: try again")).toBe(true);
+  expect(has(out, fg("hot") + "Busy: try again")).toBe(true);
+  // Clipped to the sidebar, short of the border.
+  const long = "Could not rename this workspace";
+  lines = hostText(draw(view.withRename(renaming({ workspace: 2 }, "x", "", long)), entries, three_workspaces)).split(
+    "\n",
+  );
+  expect(lines[6].slice(2, 28)).toBe("Could not rename this w… │");
+  out = draw(view.withRename(renaming({ agent: 2 }, "x", "", "Busy: try again")), entries, three_workspaces);
+  lines = hostText(out).split("\n");
+  expect(lines[18].slice(5, 7)).toBe("x ");
+  expect(lines[19].startsWith("  Busy: try again")).toBe(true);
+  // The seventh row of a boxed list shows its name line alone: the message goes above.
+  const many = agents(20);
+  const boxed = View.init(100, 30, true, 0, many.length);
+  boxed.focus = "agents";
+  const focused = boxed.withEntries(many).withRename(renaming({ agent: 7 }, "seventh", "", "Busy: try again"));
+  lines = hostText(draw(focused, many, three_workspaces)).split("\n");
+  expect(lines[28].slice(5, 12)).toBe("seventh");
+  expect(lines[27].startsWith("│ Busy: try again")).toBe(true);
+  expect(lines[29].slice(0, 28)).toBe("└" + "─".repeat(26) + "┘");
+});
+
+test("a name longer than the field shows its tail, and the caret follows it", () => {
+  const entries = agents(3);
+  const view = View.init(100, 30, true, 0, entries.length).withWorkspaces(3, 0).withEntries(entries);
+  const long = "a very long workspace name indeed";
+  const renamed = view.withRename(renaming({ workspace: 2 }, long));
+  const lines = hostText(draw(renamed, entries, three_workspaces)).split("\n");
+  expect(lines[5].slice(2, 21)).toBe("kspace name indeed ");
+  const caret = (v: View) => {
+    const w = new Writer();
+    v.renameCursor(w, three_workspaces);
+    return w.buffered();
+  };
+  expect(caret(renamed)).toBe("\x1b[0m\x1b[6;21H\x1b[?25h");
+  expect(caret(view.withRename(renaming({ workspace: 1 }, "ws")))).toBe("\x1b[0m\x1b[3;5H\x1b[?25h");
+  expect(caret(view.withRename(renaming({ workspace: 1 }, "", "folder")))).toBe("\x1b[0m\x1b[3;3H\x1b[?25h");
+  expect(caret(view.withRename(renaming({ agent: 1 }, "abc")))).toBe("\x1b[0m\x1b[17;9H\x1b[?25h");
+  // The caret sits where the field's text has it, not at its end.
+  const inside = renaming({ agent: 1 }, "abc");
+  inside.field.position(1);
+  expect(caret(view.withRename(inside))).toBe("\x1b[0m\x1b[17;7H\x1b[?25h");
+  expect(caret(view)).toBe("");
+  expect(caret(view.withRename(renaming({ agent: 9 }, "lost")))).toBe("");
+  const scrolled = View.init(100, 30, true, 3, 20).withWorkspaces(3, 0).withEntries(agents(20));
+  expect(caret(scrolled.withRename(renaming({ agent: 1 }, "gone")))).toBe("");
 });

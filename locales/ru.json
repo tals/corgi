@@ -619,6 +619,7 @@
   "Could not create that folder.": "Не удалось создать эту папку.",
   "Could not download ${file}: ${error}": "Не удалось скачать ${file}: ${error}",
   "Could not install corgi: ${error}": "Не удалось установить corgi: ${error}",
+  "Could not rename this workspace": "Не удалось переименовать это рабочее пространство",
   "Could not resolve shorthand. Paste its underlying command.": "Не удалось распознать сокращение. Вставьте полную команду.",
   "Could not save command; max 2048 bytes.": "Не удалось сохранить команду; максимум 2048 байт.",
   "Could not save. Check folder or capacity.": "Не удалось сохранить. Проверьте папку и свободное место.",

@@ -374,8 +374,10 @@ class Smoke extends Runtime {
     this.assertEqual((await this.focused()).id, first);
     await this.input("\x1b[<2;4;6M\x1b[<2;4;6m");
     await this.click_text(await this.frame_with("r  Rename"), "Rename");
-    await this.frame_with("Rename workspace");
-    await this.input("Edited\r");
+    // The menu's Rename opens the field on the row, prefilled with "Project".
+    this.assertTrue(this.client!.state.renaming);
+    this.assertFalse(this.client!.state.dialog);
+    await this.input("\x03Edited\r");
     screen = await this.frame_with("Edited");
     this.assertNotIn("workspace: default folder", screen.join("\n"));
     this.assertNotIn("Rename workspace", screen.join("\n"));
@@ -384,6 +386,27 @@ class Smoke extends Runtime {
     await this.input("\x02}");
     await this.frame_with("No agents yet");
     this.assertEqual((await this.workspaces()).find((w: any) => w.active).id, ws.id);
+  }
+  async test_double_click_on_a_workspace_row_renames_it_inline() {
+    await this.open_pane({ cwd: this.temp.name, command: "sleep 30" });
+    await this.attach();
+    const screen = await this.frame_with("workspaces");
+    this.assertTrue(screen[0].startsWith("  workspaces"));
+    // Two left presses on the first workspace's name cell within the
+    // double-click interval: the first switches to it as before, the second
+    // puts the field on its row instead of the centered dialog.
+    await this.click(4, 3);
+    await this.click(4, 3);
+    this.assertTrue(this.client!.state.renaming);
+    this.assertFalse(this.client!.state.dialog);
+    // The field holds the custom name (empty: the name follows the folder)
+    // with nothing selected, so ctrl-c clears it before the new name.
+    await this.input("\x03Edited\r");
+    const renamed = await this.frame_with("Edited");
+    this.assertIn("Edited", renamed[2]);
+    this.assertNotIn("Rename workspace", renamed.join("\n"));
+    await this.until(async () => (await this.workspaces())[0].name === "Edited");
+    this.assertFalse(this.client!.state.renaming);
   }
   async test_workspace_and_agent_lists_scroll_independently() {
     await this.open_pane({ cwd: this.temp.name, command: "sleep 30" });
@@ -747,8 +770,10 @@ process.stdin.on('data',data=>appendFileSync(log,data));process.stdin.resume();`
     this.assertFalse(menu.some(row => row.includes("n  New tab")));
     this.assertEqual((await this.workspaces()).find((w: any) => w.active).id, first);
     await this.click_text(menu, "Rename");
-    await this.frame_with("Rename workspace");
-    await this.input("Renamed\r");
+    // The field opens on "Target"'s row, prefilled with its name.
+    this.assertTrue(this.client!.state.renaming);
+    this.assertFalse(this.client!.state.dialog);
+    await this.input("\x03Renamed\r");
     await this.frame_with("Renamed");
     this.assertEqual((await this.workspaces()).find((w: any) => w.id === second).name, "Renamed");
     await this.input("\x1b[<2;5;6M\x1b[<2;5;6m");

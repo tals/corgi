@@ -16,6 +16,7 @@ import {
   type Search,
   type Scope,
   type Section,
+  type RenameState,
 } from "./sidebar";
 import { ResizeView, TabMenu } from "./commands";
 import { Dialog, View as NameView, printable } from "./name_dialog";
@@ -170,6 +171,8 @@ export interface Ui {
   agent_search: Search | null;
   tab_drop_x: number | null;
   dialog: Dialog | null;
+  /** The sidebar row being renamed in place. */
+  inline_rename: RenameState | null;
   sidebar_open: boolean;
   /** The folded sidebar's list that shows as a drawer over the panes. */
   sidebar_drawer: Section | null;
@@ -244,6 +247,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     agent_search: null,
     tab_drop_x: null,
     dialog: null,
+    inline_rename: null,
     sidebar_open: true,
     sidebar_drawer: null,
     corgi_badge: "none",
@@ -452,6 +456,7 @@ function noOverlay(u: Ui): boolean {
     u.port_menu === null &&
     u.worktree_card === null &&
     u.dialog === null &&
+    u.inline_rename === null &&
     u.signin_draw === null &&
     u.signin_exit === null &&
     !u.sidebar_focus
@@ -638,7 +643,7 @@ export function frame(
   side.gpus = resourceTooltip.gpuCount(u.resources) > 0;
   side.drawer = u.sidebar_drawer;
   side.focus = u.sidebar_focus;
-  side = side.withWorkspaces(u.workspaces.length, u.workspace_offset).withEntries(entries);
+  side = side.withWorkspaces(u.workspaces.length, u.workspace_offset).withEntries(entries).withRename(u.inline_rename);
   side.corgi_badge = u.corgi_badge;
   side.supports_kitty_graphics = u.supports_kitty_graphics;
   side.cell = u.cell_pixels;
@@ -1058,7 +1063,10 @@ export function frame(
     hovered_uri = u.signin_draw(w, on_link_card ? null : u.pointer)?.uri ?? null;
     link_pointer = on_link_card && linkTooltip.copyAt(link_rect!, u.pointer!.x, u.pointer!.y);
     resize_hover = null;
-  } else side.searchCursor(w);
+  } else {
+    side.searchCursor(w);
+    side.renameCursor(w, workspaces);
+  }
   if (u.signin_exit) w.write("\x1b[?25l");
   if (u.link_card && link_rect && u.pointer) {
     w.write("\x1b[?25l");
