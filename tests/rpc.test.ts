@@ -167,6 +167,25 @@ process.exit(await Bun.spawn([${JSON.stringify(git)}, ...args], {
       conn.close();
     }
   }
+  async test_failed_reload_releases_an_untagged_branch_request() {
+    const socket = await JsonSocket.connect(this.path);
+    try {
+      this.arm("branches");
+      socket.send(versioned({ op: "git.branches", workspace: 1 }));
+      socket.send({ op: "ping" });
+      await this.until(() => existsSync(join(this.gate, "started")));
+      const reloaded = await this.raw_rpc({
+        op: "server.reload",
+        executable: join(this.temp.name, "missing-corgi"),
+      });
+      this.assertEqual(reloaded.err, "ReloadCandidateFailed");
+      this.assertEqual(await socket.read(), { err: "Reloading" });
+      this.assertTrue((await socket.read(1000)).ok);
+    } finally {
+      this.release();
+      socket.close();
+    }
+  }
   async test_requests_without_ids_reply_in_order() {
     const socket = await JsonSocket.connect(this.path);
     try {

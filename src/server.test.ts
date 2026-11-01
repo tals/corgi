@@ -5,10 +5,11 @@ import { Preview } from "./launch/preview";
 import { Launch, Pane } from "./runtime";
 import { Terminal } from "./pane/terminal";
 import { Workspace } from "./workspace";
-import { captureManifest, restoreClient, restoreMetadata } from "./persist/handoff";
+import * as handoff from "./persist/handoff";
 import * as json from "./json";
 import * as protocol from "./protocol";
 import * as session from "./session";
+import * as worktreeAdd from "./worktree_add";
 import { n } from "./native_bridge";
 import * as native_ffi from "./native_ffi";
 function fixture() {
@@ -234,6 +235,51 @@ test("one client's or pane's error must not end the daemon loop", async () => {
     dispose();
   }
 });
+test("a cancelled branch read cannot release a later request when it finishes", async () => {
+  const { server, dispose } = fixture(),
+    client = server.addClient(-1, false),
+    reloader = server.addClient(-1, false),
+    first = Promise.withResolvers<Awaited<ReturnType<typeof worktreeAdd.branches>>>(),
+    second = Promise.withResolvers<Awaited<ReturnType<typeof worktreeAdd.branches>>>(),
+    branches = spyOn(worktreeAdd, "branches").mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise),
+    replace = spyOn(handoff, "replace").mockRejectedValue(Error("ReloadCandidateFailed")),
+    replies = spyOn(client, "queue").mockImplementation(() => {}),
+    done = spyOn(client, "done").mockImplementation(() => {}),
+    query = protocol.envelope("git.branches", { workspace: 1 });
+  try {
+    await server.request(client, query);
+    expect(client.held).toBe(true);
+    await expect(
+      server.request(reloader, protocol.envelope("server.reload", { executable: "/missing-corgi" })),
+    ).rejects.toThrow("ReloadCandidateFailed");
+    expect(replies.mock.calls).toEqual([[{ err: "Reloading" }]]);
+    expect(client.held).toBe(false);
+    expect(done).toHaveBeenCalledTimes(1);
+
+    await server.request(client, query);
+    expect(client.held).toBe(true);
+    first.resolve([]);
+    await new Promise(resolve => setImmediate(resolve));
+    expect(client.held).toBe(true);
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(replies).toHaveBeenCalledTimes(1);
+
+    second.resolve([]);
+    await new Promise(resolve => setImmediate(resolve));
+    expect(client.held).toBe(false);
+    expect(done).toHaveBeenCalledTimes(2);
+    expect(replies.mock.calls).toEqual([[{ err: "Reloading" }], [{ ok: true, branches: [] }]]);
+  } finally {
+    first.resolve([]);
+    second.resolve([]);
+    await new Promise(resolve => setImmediate(resolve));
+    branches.mockRestore();
+    replace.mockRestore();
+    replies.mockRestore();
+    done.mockRestore();
+    dispose();
+  }
+});
 test("a buffered data reply delivers the latest wake when it drains", async () => {
   const { server, dispose } = fixture(),
     [fd, reader] = native_ffi.pair(),
@@ -358,11 +404,11 @@ test("handoff restoration normalizes small and wide viewer counters before wakin
         history_sent: seq,
       };
       source.server.bell_seq = seq;
-      const captured = captureManifest(source.server, original),
+      const captured = handoff.captureManifest(source.server, original),
         bytes = json.stringify(captured),
         saved = json.parse(bytes);
-      restoreMetadata(target.server, saved);
-      const restored = restoreClient(target.server, saved.clients[0]);
+      handoff.restoreMetadata(target.server, saved);
+      const restored = handoff.restoreClient(target.server, saved.clients[0]);
       expect(target.server.bell_seq).toBe(seq);
       expect(restored.next_control).toBe(seq + 1n);
       expect(restored.last_control).toBe(seq);
@@ -374,7 +420,7 @@ test("handoff restoration normalizes small and wide viewer counters before wakin
       expect(Reflect.get(target.server, "wakeSeq").call(target.server, 1)).toBe(
         target.server.runtime.shown + seq + seq + 1n,
       );
-      expect(json.stringify(captureManifest(target.server, restored))).toBe(bytes);
+      expect(json.stringify(handoff.captureManifest(target.server, restored))).toBe(bytes);
     } finally {
       setSystemTime();
       source.dispose();
@@ -489,8 +535,8 @@ for (const request_id of [undefined, 41])
         await (source.server as any).jobs;
         source.server.pause();
         expect(reader.mock.calls[0][2].aborted).toBe(true);
-        const saved = captureManifest(source.server, cl),
-          restored = restoreClient(target.server, saved.clients[0]);
+        const saved = handoff.captureManifest(source.server, cl),
+          restored = handoff.restoreClient(target.server, saved.clients[0]);
         expect(restored.output.toString()).toBe(JSON.stringify({ err: "Cancelled", request_id }) + "\n");
         expect(restored.pending.map(r => r.op)).toEqual(["ping"]);
         if (failure) pending.reject(Error("LateFailure"));

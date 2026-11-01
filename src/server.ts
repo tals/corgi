@@ -788,8 +788,14 @@ export class Server {
    * meanwhile. A request without an id holds them, so its replies stay in order.
    * Reload refuses while work that `mutates` runs and answers the rest with `Reloading`. */
   private defer(cl: Client, reply: Reply, mutates: boolean, work: () => Promise<object>): void {
-    const held = reply.id === null;
+    let held = reply.id === null;
     cl.held ||= held;
+    const release = () => {
+      if (!held) return;
+      held = false;
+      cl.held = false;
+      cl.done();
+    };
     let answered = false;
     const answer = (value: object) => {
       if (answered) return;
@@ -800,14 +806,18 @@ export class Server {
       value => answer({ ok: true, ...value }),
       error => answer({ err: error instanceof Error ? error.message : String(error) }),
     );
-    this.deferred.set(pending, { mutates, drop: () => answer({ err: "Reloading" }) });
+    this.deferred.set(pending, {
+      mutates,
+      drop: () => {
+        answer({ err: "Reloading" });
+        release();
+      },
+    });
     void pending
       .catch(error => console.error("deferred reply:", error))
       .finally(() => {
         this.deferred.delete(pending);
-        if (!held) return;
-        cl.held = false;
-        cl.done();
+        release();
       });
   }
   async shutdown(): Promise<void> {
