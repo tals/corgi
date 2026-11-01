@@ -157,6 +157,29 @@ and records screens. It uses `dist/corgi`, so rebuild first. Scripts live in
 The command reference is at the top of the driver. Use
 [UI tokens and rules](docs/ui_styleguide.md) for visual work.
 
+For PNG screenshots, use a live Ghostty window on a private Xvfb display:
+
+```sh
+bun tools/ghostty_screenshot.ts --sandbox review -o /tmp/review.png
+bun tools/ghostty_screenshot.ts --do 'corgi action help' -o /tmp/help.png
+```
+
+Install Ghostty, Xvfb, xdotool and ffmpeg first (`sudo apt install xvfb xdotool
+ffmpeg` on Ubuntu, plus Ghostty). `GHOSTTY_BIN` selects another Ghostty build.
+The tool uses software GL and captures the window at native resolution, keeping
+Ghostty's font shaping, box drawing, colors and Kitty images. Use `--size 110x32`
+and `--font-size 16` to control the capture; no image scaling is applied.
+The UI driver's cell dumps are useful for assertions, but repainting them into
+SVG, canvas or another terminal renderer does not produce a faithful screenshot.
+
+Each capture owns a disposable sandbox, Ghostty process and X display, and
+removes them on success or failure. `--do` steps run after the viewer attaches;
+they receive `corgi` on PATH and `DISPLAY` / `GHOSTTY_WINDOW` for xdotool. For
+repeatable screenshot sets, import `capture` with a `prepare` callback to set up
+the sandbox and a `drive` callback to send keys, move the mouse and save images.
+Inspect regenerated PNGs before committing them. This runs on Linux directly
+or in a container with the dependencies installed.
+
 ## Reload, restart and recovery
 
 | Action | What survives |

@@ -22,6 +22,10 @@ See [HACKING.md](HACKING.md) for development workflows and architecture.
   when a feature needs a particular world to poke at.
 - **UI driver:** `bun tools/ui_driver.ts run current -e 'key ctrl+b c; snap'` drives a
   viewer in a PTY and records its screens. See `tools/ui_driver.ts`.
+- **Screenshots:** `bun tools/ghostty_screenshot.ts --sandbox NAME -o shot.png`
+  captures a live Ghostty window on Xvfb. Use this for documentation and UI
+  screenshots so fonts, box drawing and Kitty images retain terminal fidelity.
+  Do not repaint terminal cells into SVG, canvas or another terminal renderer.
 - **Landing page:** `bun run landingpage:dev` serves `site/` and reloads on
   save; `landingpage:build` writes one self-contained `site/dist/index.html`
   (and `moonlander.html`), `landingpage:start` serves it, and
