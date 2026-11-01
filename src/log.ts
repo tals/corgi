@@ -1,13 +1,22 @@
+import { appendFileSync } from "node:fs";
 import * as clock from "./clock";
 
 export type Level = "debug" | "info" | "warn" | "error";
 type Fields = Record<string, unknown>;
 const levels: Record<Level, number> = { debug: 0, info: 1, warn: 2, error: 3 };
-let minimum: Level | null = null;
+let minimum: Level | null = null,
+  sink = (line: string) => void process.stderr.write(line);
 
-/** Only the daemon's stderr goes to server.log. */
-export function configure(command: string, env: NodeJS.ProcessEnv = process.env) {
+/** Only the daemon's stderr goes to server.log. `corgi voice --verbose`,
+ * whose stderr is its screen, appends to its own `file` instead. */
+export function configure(command: string, env: NodeJS.ProcessEnv = process.env, file: string | null = null) {
   minimum = null;
+  sink = line => void process.stderr.write(line);
+  if (command === "voice" && file) {
+    minimum = "info";
+    sink = line => void appendFileSync(file, line, { mode: 0o600 });
+    return;
+  }
   if (command !== "serve" && command !== "__handoff") return;
   switch (env.CORGI_LOG_LEVEL) {
     case "debug":
@@ -53,7 +62,7 @@ export function getLogger(scope: string) {
       line = stringify({ at: clock.milliTimestamp(), message, logging_error: "Could not serialize fields" });
     }
     try {
-      process.stderr.write(`${level}(${scope}): ${line}\n`);
+      sink(`${level}(${scope}): ${line}\n`);
     } catch {
       // Logging must not interrupt the operation it describes.
     }

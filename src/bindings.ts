@@ -44,6 +44,7 @@ const corgiPrefix: Binding[] = [
   { key: 102, mods: {}, prefixed: true, action: { name: "attention" } },
   { key: 97, mods: {}, prefixed: true, action: { name: "choose-agent" } },
   { key: 109, mods: {}, prefixed: true, action: { name: "mute" } },
+  { key: 77, mods: {}, prefixed: true, action: { name: "voice-mute" } },
   { key: 57350, mods: {}, prefixed: true, action: { name: "focus", value: "left" }, repeat: true },
   { key: 57353, mods: {}, prefixed: true, action: { name: "focus", value: "down" }, repeat: true },
   { key: 57352, mods: {}, prefixed: true, action: { name: "focus", value: "up" }, repeat: true },
@@ -191,6 +192,7 @@ const tables: Record<Preset, Binding[]> = {
     { key: 70, mods: {}, prefixed: true, action: { name: "attention" } },
     { key: 97, mods: {}, prefixed: true, action: { name: "new-agent" } },
     { key: 109, mods: {}, prefixed: true, action: { name: "mute" } },
+    { key: 77, mods: {}, prefixed: true, action: { name: "voice-mute" } },
     {
       key: 57350,
       mods: {},
@@ -308,6 +310,7 @@ const tables: Record<Preset, Binding[]> = {
     { key: 111, mods: {}, prefixed: true, action: { name: "attention" } },
     { key: 97, mods: {}, prefixed: true, action: { name: "new-agent" } },
     { key: 109, mods: {}, prefixed: true, action: { name: "mute" } },
+    { key: 77, mods: {}, prefixed: true, action: { name: "voice-mute" } },
     {
       key: 104,
       mods: {},

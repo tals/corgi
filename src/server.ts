@@ -13,6 +13,7 @@ import { n, ReadyLoop, READ } from "./native_bridge";
 import { closeReadiness } from "./pane/terminal";
 import { Theme } from "./theme";
 import * as protocol from "./protocol";
+import { adapter } from "./providers";
 import * as session from "./session";
 import * as viewer from "./viewer_protocol";
 import * as clock from "./clock";
@@ -28,6 +29,8 @@ import * as trackers from "./trackers";
 import * as updates from "./updates";
 import * as importer from "./import_service";
 import * as worktreeAdd from "./worktree_add";
+import * as viewerNative from "./viewer_native";
+import * as text from "./text";
 import { testBuild } from "./build_assets";
 export class Server {
   summaries: SummaryWorker | null = null;
@@ -71,7 +74,10 @@ export class Server {
     readonly socket: string,
     readonly executable: string,
     readonly build_id: string,
-  ) {}
+  ) {
+    this.runtime.voice.onMuted = muted =>
+      (this.runtime.voice.client as Client | null)?.queue({ type: "voice.muted", muted });
+  }
   initialWorkspace() {
     return this.runtime.workspaces.get(this.preferred_workspace) ?? this.runtime.workspaces.items[0];
   }
@@ -336,6 +342,7 @@ export class Server {
           }
           client.headless_start = null;
         }
+        if (this.runtime.voice.drop(client)) this.voiceChanged();
         this.clients = this.clients.filter(c => !c.dead);
         this.dirty = true;
         void viewer.resize(this);
@@ -374,6 +381,18 @@ export class Server {
     await importer.tick(this);
     telemetry.end("daemon.import", import_started);
     const now = Date.now();
+    // A voice that stopped renewing its lease without closing its socket.
+    const voice = this.runtime.voice.client as Client | null;
+    if (this.runtime.voice.expire(now, voice?.touched ?? 0)) {
+      voice?.close();
+      this.voiceChanged();
+    }
+    // Without a viewer there is nowhere to type: the voice holds off until one
+    // attaches. It also names the pane its text would go to.
+    if (voice) {
+      const seen = this.voiceSees();
+      if (this.runtime.voice.see(seen)) voice.queue({ type: "voice.viewer", ...seen });
+    }
     for (const p of [...this.runtime.panes]) {
       // Panes read their output as it comes; the tick follows up on a pane
       // that printed, and keeps time for one waiting on more than output.
@@ -760,6 +779,44 @@ export class Server {
             error => cl.queue({ err: error instanceof Error ? error.message : String(error) }),
           );
         return;
+      case "voice.watch": {
+        if (cl.viewer || cl.subscribed || cl.launch_preview || cl.watching || cl.voice) throw Error("AlreadyAttached");
+        const reply = this.runtime.voice.watch(cl, request.payload, Date.now(), this.voiceSees());
+        cl.voice = true;
+        this.voiceChanged();
+        cl.reply(op, reply);
+        return;
+      }
+      case "voice.set": {
+        const before = this.runtime.voice.projection()?.state;
+        cl.reply(op, this.runtime.voice.set(request.payload, Date.now()));
+        if (this.runtime.voice.projection()?.state !== before) this.voiceChanged();
+        return;
+      }
+      case "voice.toggle":
+        cl.reply(op, this.runtime.voice.toggle());
+        this.voiceChanged();
+        return;
+      case "voice.type": {
+        const voice = this.runtime.voice.require(request.payload.voice_id);
+        // A mute from a viewer can outrun voice mode hearing of it.
+        if (voice.muted) throw Error("VoiceMuted");
+        if (text.byteLength(request.payload.text) > 4096) throw Error("Usage");
+        const target = this.runtime.voice.target(this.liveViewers(), new Set(this.runtime.panes.map(p => p.id))),
+          p = this.runtime.pane(target.pane)!;
+        // No control character survives, so dictation never ends a paste or submits.
+        const said = request.payload.text.replace(/[\x00-\x1f\x7f-\x9f]/g, " "),
+          // An utterance right after another in this pane joins it with a space.
+          joined = p.dictated && said !== "" && !/^\s/.test(said) ? " " + said : said,
+          data = viewerNative.encodePaste(joined, p.terminal.bracketed_paste ?? false);
+        // Dictation counts as typing, as pane.input does.
+        p.detection.observeInput(data, Date.now() * 1000);
+        if (p.typed(data.toString())) this.runtime.changed();
+        p.dictated = said !== "";
+        p.terminal.send(data);
+        cl.reply(op, target);
+        return;
+      }
       case "onboarding.status":
       case "onboarding.handoff":
       case "onboarding.copy": {
@@ -768,6 +825,43 @@ export class Server {
         return;
       }
     }
+  }
+  /** Viewers learn of voice presence changes from their next snapshot. */
+  private voiceChanged(): void {
+    this.runtime.refreshed();
+    this.dirty = true;
+  }
+  /** Whether a viewer is attached, and the title of the pane voice would type into. */
+  private voiceSees(): { viewer: boolean; focus: string | null } {
+    const viewers = this.liveViewers();
+    try {
+      const { pane } = this.runtime.voice.target(viewers, new Set(this.runtime.panes.map(p => p.id)));
+      return { viewer: true, focus: this.paneTitle(pane) };
+    } catch {
+      return { viewer: viewers.length > 0, focus: null };
+    }
+  }
+  /** A pane's name, close to what its tab shows (`render.untitledTab` works on
+   * the viewer's snapshot, not on runtime panes): the tab's title, else the
+   * pane's label, its agent, the program in front of its shell, or its folder.
+   * Voice mode replaces control characters before showing it. */
+  private paneTitle(id: number): string {
+    const p = this.runtime.pane(id)!,
+      owner = this.runtime.workspaces.owner(id),
+      tab = owner?.model.tabs[owner.model.tabForPane(id) ?? -1],
+      agent = p.agent();
+    if (tab?.title) return tab.title;
+    if (p.label) return p.label;
+    if (agent.provider !== null) return agent.name.len ? agent.name.text() : adapter(agent.provider).name;
+    if (p.command) return p.command;
+    return p.cwd.split("/").filter(Boolean).at(-1) ?? "/";
+  }
+  private liveViewers(): Client[] {
+    return this.clients.filter(c => c.viewer && !c.dead);
+  }
+  /** Voice presence is not handed over; voice mode reconnects to the new daemon. */
+  closeVoice(): void {
+    for (const c of [...this.clients]) if (c.voice) c.close();
   }
   async shutdown(): Promise<void> {
     if (this.stopped) return;

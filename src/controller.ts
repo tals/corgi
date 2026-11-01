@@ -34,6 +34,7 @@ import { ResizeView, TabMenu, type Item as TabMenuItem } from "./commands";
 import { Dialog, View as NameView, name_limit } from "./name_dialog";
 import * as sidebar from "./sidebar";
 import type { Entry, Target, WorkspaceEntry, Scope } from "./sidebar";
+import * as attention from "./attention";
 import * as agentNavigation from "./agent_navigation";
 import * as sidebarFocus from "./sidebar_focus";
 import { Picker as AgentPicker } from "./agent_navigation";
@@ -724,6 +725,9 @@ export class Controller {
     view.focus = this.sidebar_focus?.section() ?? null;
     view = view.withWorkspaces(this.runtime.workspaces.items.length, this.workspace_offset).withEntries(entries);
     view.scope_label = this.scopeLabel();
+    // The badge moves the title, and with it where the voice indicator fits.
+    view.corgi_badge = this.corgi_badge;
+    view.voice = this.runtime.voice;
     return view;
   }
   private agentOffset(): { get(): number; set(value: number): void } {
@@ -2001,24 +2005,16 @@ export class Controller {
     });
   }
   private attention(): void {
-    for (const priority of ["needs_input", "finished"]) {
-      let best: Pane | null = null;
-      for (const p of this.runtime.panes)
-        if (p.agent.attention === priority && (best === null || p.agent.changed_at < best.agent.changed_at)) best = p;
-      if (best) {
-        this.focusPane(best.id);
-        this.dirty = true;
-        return;
-      }
+    const target = attention.pick(this.runtime);
+    if (!target) this.notice(i18n.t` Nothing needs your attention`);
+    else if ("pane" in target) {
+      this.focusPane(target.pane);
+      this.dirty = true;
+    } else {
+      const session = target.session;
+      if (session.workspace !== this.current().id) this.switchWorkspace(session.workspace);
+      this.noticeHeadlessSession(session);
     }
-    for (const priority of ["needs_input", "finished"])
-      for (const session of this.runtime.sessions)
-        if (session.attention === priority) {
-          if (session.workspace !== this.current().id) this.switchWorkspace(session.workspace);
-          this.noticeHeadlessSession(session);
-          return;
-        }
-    this.notice(i18n.t` Nothing needs your attention`);
   }
   async perform(act: Action): Promise<void> {
     this.message = "";
@@ -2278,6 +2274,8 @@ export class Controller {
         this.muted = !this.muted;
         this.notice(this.muted ? i18n.t` Dings muted; attention markers remain on` : i18n.t` Dings enabled`);
         break;
+      case "voice-mute":
+        return this.toggleVoice();
       case "undo-close":
         return this.undoClose();
       case "attention":
@@ -3951,6 +3949,16 @@ export class Controller {
           : i18n.t` ${label}: off (not saved for next start)`,
     );
   }
+  /** Mutes or unmutes voice mode, which then shows the change too. */
+  private async toggleVoice(): Promise<void> {
+    try {
+      const { muted } = await call(this.connection, "voice.toggle");
+      this.runtime.voice = muted ? "muted" : "listening";
+      this.dirty = true;
+    } catch (error) {
+      this.notice(errors.is(error, "NoVoice") ? " Voice is not running" : ` Voice: ${errors.name(error) ?? error}`);
+    }
+  }
   private async configureSmartLinks(enabled: boolean): Promise<void> {
     try {
       await call(this.connection, "smart_links.configure", { enabled });
@@ -5250,6 +5258,7 @@ export class Controller {
       else {
         this.leaveSidebar();
         if (found.tag === "workspace_new") this.beginWorkspace(null);
+        if (found.tag === "voice") await this.perform({ name: "voice-mute" });
         return;
       }
       return this.openSidebarRow(false);
@@ -6008,6 +6017,9 @@ export class Controller {
           }
           case "workspace_new":
             this.beginWorkspace(null);
+            break;
+          case "voice":
+            await this.perform({ name: "voice-mute" });
             break;
           case "agent_new":
             if (button === 0) await this.launchAgent(null);
@@ -7203,6 +7215,7 @@ export class Controller {
         sidebar_open: this.sidebar_open,
         sidebar_drawer: this.sidebar_focus?.drawer ?? null,
         corgi_badge: this.corgi_badge,
+        voice: this.runtime.voice,
         supports_kitty_graphics: this.supports_kitty_graphics,
         images: this.images,
         tab_icons: this.supports_kitty_graphics ? this.tab_icons : null,
