@@ -698,8 +698,12 @@ export class View {
           while (at < last && this.entryEnd(at, last) > y) at += 1;
           return at;
         };
+      // The farthest row that fits from any scroll still showing the nearest agent.
+      const end = this.rowsBefore(nearest + 1);
+      let reach = -Infinity;
+      for (let at = this.offset; at <= nearest; at++) reach = Math.max(reach, end + y - this.entryEnd(at, nearest));
       let last = prev[this.count];
-      while (last > nearest && bottom(last) > nearest) last = prev[last];
+      while (last > nearest && this.rowsBefore(last + 1) > reach) last = prev[last];
       offset = Math.min(bottom(last), this.maxOffset());
     }
     const badge: Badge = {
