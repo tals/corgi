@@ -172,8 +172,8 @@ export class Model {
     return "pane" in n ? n.pane === id : this.contains(n.split.first, id) || this.contains(n.split.second, id);
   }
   tabForPane(id: PaneId) {
-    const i = this.tabs.slice(0, this.count).findIndex(t => this.contains(t.root, id));
-    return i < 0 ? null : i;
+    for (let i = 0; i < this.count; i++) if (this.contains(this.tabs[i].root, id)) return i;
+    return null;
   }
   tabIndex(id: TabId) {
     const i = this.tabs.slice(0, this.count).findIndex(t => t.id === id);
