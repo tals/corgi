@@ -48,12 +48,10 @@ if (!existsSync(`${root}/node_modules/@earendil-works/pi-tui`)) {
   process.exit(await again.exited);
 }
 // After the install above, so a fresh checkout reports once, and before the native build, which a
-// failure skips. Locally it may regenerate src/i18n.generated.ts; its warnings print at the end.
+// failure skips. Locally it may regenerate src/i18n.generated.ts; its report prints on any exit.
 const translated = await translations.verify();
-if (translated.code) {
-  process.stderr.write(translated.text);
-  process.exit(translated.code);
-}
+process.on("exit", () => process.stderr.write(translated.text));
+if (translated.code) process.exit(translated.code);
 const args = [`${root}/scripts/zig`, "build", "--build-file", `${root}/native/build.zig`, "-Doptimize=ReleaseFast"];
 // An explicit --target builds for the oldest systems a release supports, not this machine.
 if (process.argv.slice(2).some(arg => arg === "--target" || arg.startsWith("--target=")))
@@ -67,15 +65,9 @@ if (!process.argv.includes("--no-native")) {
   const native = Bun.spawn(args, { stdout: "inherit", stderr: "inherit" });
   // Zig has already said why.
   const status = await native.exited;
-  if (status) {
-    process.stderr.write(translated.text);
-    process.exit(status);
-  }
+  if (status) process.exit(status);
 }
-if (process.argv.includes("--native-only")) {
-  process.stderr.write(translated.text);
-  process.exit(0);
-}
+if (process.argv.includes("--native-only")) process.exit(0);
 mkdirSync(`${root}/dist`, { recursive: true });
 const suffix = platform === "darwin" ? "dylib" : "so";
 const files = [`lib/libcorgi_term.${suffix}`, `lib/libcorgi_system.${suffix}`, "bin/pty-exec", "bin/corgi-hook"];
@@ -158,4 +150,3 @@ await Bun.write(
   ) + "\n",
 );
 console.log(`Built ${outfile}`);
-process.stderr.write(translated.text);

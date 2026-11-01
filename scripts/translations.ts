@@ -421,7 +421,7 @@ function stale(root: string, files: Record<string, string>): Report["problems"] 
     }));
 }
 
-/** Checks sources, catalogs and generated files without changing anything. */
+/** Checks sources, catalogs and generated files without changing tracked files (caches go in .tools/i18n). */
 export async function check(root = project): Promise<Report> {
   const { report, files } = await analyze(root);
   if (files) report.problems.push(...stale(root, files));

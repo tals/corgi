@@ -1,4 +1,4 @@
-/** Pinned build-only npm tools, installed under .tools/<name> on first use. */
+/** Build tooling: pinned npm tools installed under .tools/<name> on first use, and package.json dependencies. */
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
