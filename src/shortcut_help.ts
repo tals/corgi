@@ -1,4 +1,5 @@
-import { Writer, displayWidth, writeEllipsis, sat } from "./text";
+import * as i18n from "./i18n";
+import { Writer, displayWidth, writeEllipsis, sat, wrap } from "./text";
 import { Fetch } from "./corgi_animation";
 import { milliTimestamp } from "./clock";
 import { Rect } from "./layout";
@@ -31,8 +32,8 @@ export class Column {
     this.rows.push([
       { x: 0, text: label, style: "bright", action: null },
       {
-        x: label.length + 2,
-        text: "─".repeat(Math.max(0, this.width - label.length - 2)),
+        x: displayWidth(label) + 2,
+        text: "─".repeat(Math.max(0, this.width - displayWidth(label) - 2)),
         style: "rule",
         action: null,
       },
@@ -43,19 +44,8 @@ export class Column {
   }
   wrapped(text: string, indent: number, style: Style, right = false, action: Action | null = null) {
     const room = Math.max(1, this.width - indent);
-    while (text) {
-      let end = 0,
-        gap = 0;
-      for (const ch of text) {
-        if (displayWidth(text.slice(0, end) + ch) > room) break;
-        end += ch.length;
-        if (ch === " ") gap = end - 1;
-      }
-      if (end < text.length && gap > 0) end = gap;
-      if (!end) end = [...text][0].length;
-      const slice = text.slice(0, end).trim();
+    for (const slice of wrap(text, room)) {
       this.line(right ? this.width - displayWidth(slice) : indent, slice, style, action);
-      text = text.slice(end).trimStart();
     }
   }
   binding(label: string, key: string, indent: number, direct = false, action: Action | null = null) {
@@ -136,38 +126,38 @@ export function spelling(preset: km.Preset, action: Action) {
 }
 const act = (name: string, value?: any) => (value === undefined ? ({ name } as Action) : ({ name, value } as Action));
 export function navigation(c: Column) {
-  c.heading("TABS");
-  c.action("New tab → agent picker", act("new"), 2);
-  c.alsoHeld("Also works directly", act("new"), 4);
-  c.pair("Next / previous", act("next"), act("prev"), 2);
-  c.action("Last visited", act("last-tab"), 2);
-  c.binding("Select tab", c.preset === "tmux" ? "0–9" : c.preset === "cmux" ? "Ctrl+1–9 · P 1–9" : "1–9", 2);
-  c.action("Rename", act("rename-tab"), 2);
-  c.action("Close", act("close-tab"), 2);
+  c.heading(i18n.t`TABS`);
+  c.action(i18n.t`New tab → agent picker`, act("new"), 2);
+  c.alsoHeld(i18n.t`Also works directly`, act("new"), 4);
+  c.pair(i18n.t`Next / previous`, act("next"), act("prev"), 2);
+  c.action(i18n.t`Last visited`, act("last-tab"), 2);
+  c.binding(i18n.t`Select tab`, c.preset === "tmux" ? "0–9" : c.preset === "cmux" ? "Ctrl+1–9 · P 1–9" : "1–9", 2);
+  c.action(i18n.t`Rename`, act("rename-tab"), 2);
+  c.action(i18n.t`Close`, act("close-tab"), 2);
   c.space();
-  c.heading("WORKSPACES");
-  c.action("New", act("new-workspace"), 2);
-  c.action("Edit", act("edit-workspace"), 2);
-  c.pair("Next / previous", act("workspace-next"), act("workspace-prev"), 2);
-  c.action("Last visited", act("last-workspace"), 2);
-  c.action("Choose workspace", act("choose-workspace"), 2);
-  if (c.preset === "herdr") c.binding("Also choose workspace", "g", 4);
-  if (c.preset === "cmux") c.binding("Select workspace", "Cmd+1–9", 2);
-  c.action("Close workspace", act("close-workspace"), 2);
+  c.heading(i18n.t`WORKSPACES`);
+  c.action(i18n.t`New`, act("new-workspace"), 2);
+  c.action(i18n.t`Edit`, act("edit-workspace"), 2);
+  c.pair(i18n.t`Next / previous`, act("workspace-next"), act("workspace-prev"), 2);
+  c.action(i18n.t`Last visited`, act("last-workspace"), 2);
+  c.action(i18n.t`Choose workspace`, act("choose-workspace"), 2);
+  if (c.preset === "herdr") c.binding(i18n.t`Also choose workspace`, "g", 4);
+  if (c.preset === "cmux") c.binding(i18n.t`Select workspace`, "Cmd+1–9", 2);
+  c.action(i18n.t`Close workspace`, act("close-workspace"), 2);
   c.space();
-  c.heading("AGENTS");
-  c.featured("Jump to who needs you", act("attention"), 2);
-  c.alsoHeld("Also works directly", act("attention"), 4);
-  c.group("Navigate");
-  c.action("Find", act("find-agent"), 4);
-  c.action("Choose", act("choose-agent"), 4);
-  c.pair("Next / previous", act("next-agent"), act("prev-agent"), 4);
-  c.action("Last visited", act("last-agent"), 4);
-  c.group("Manage");
-  c.action("New agent", act("new-agent"), 4);
-  c.pair("Close / reopen", act("close"), act("undo-close"), 4);
-  c.alsoHeld("Reopen directly", act("undo-close"), 4);
-  c.action("Mute / unmute", act("mute"), 4);
+  c.heading(i18n.t`AGENTS`);
+  c.featured(i18n.t`Jump to who needs you`, act("attention"), 2);
+  c.alsoHeld(i18n.t`Also works directly`, act("attention"), 4);
+  c.group(i18n.t`Navigate`);
+  c.action(i18n.t`Find`, act("find-agent"), 4);
+  c.action(i18n.t`Choose`, act("choose-agent"), 4);
+  c.pair(i18n.t`Next / previous`, act("next-agent"), act("prev-agent"), 4);
+  c.action(i18n.t`Last visited`, act("last-agent"), 4);
+  c.group(i18n.t`Manage`);
+  c.action(i18n.t`New agent`, act("new-agent"), 4);
+  c.pair(i18n.t`Close / reopen`, act("close"), act("undo-close"), 4);
+  c.alsoHeld(i18n.t`Reopen directly`, act("undo-close"), 4);
+  c.action(i18n.t`Mute / unmute`, act("mute"), 4);
 }
 function direction(c: Column, x: number, title: string, caption: string, tag: string, start: number) {
   while (c.rows.length < start + 4) c.space();
@@ -196,25 +186,25 @@ function direction(c: Column, x: number, title: string, caption: string, tag: st
   }
 }
 export function panes(c: Column) {
-  c.heading("PANES");
+  c.heading(i18n.t`PANES`);
   const top = c.rows.length;
-  direction(c, 0, "Focus", c.preset === "cmux" ? "Cmd+Option" : "Move focus", "focus", top);
+  direction(c, 0, i18n.t`Focus`, c.preset === "cmux" ? "Cmd+Option" : i18n.t`Move focus`, "focus", top);
   if (bindings.find(c.preset, act("swap", "up")))
     direction(
       c,
       c.width >= 30 ? Math.floor((c.width + 2) / 2) : 0,
-      "Swap",
-      c.preset === "cmux" ? "P + key" : "Move pane",
+      i18n.t`Swap`,
+      c.preset === "cmux" ? "P + key" : i18n.t`Move pane`,
       "swap",
       c.width >= 30 ? top : c.rows.length,
     );
-  if (c.preset === "cmux") c.binding("Also focus", "P h j k l", 2);
-  if (c.preset === "corgi") c.binding("Also focus", "h j k l", 2);
-  c.action("Next pane", act("next-pane"), 2);
-  c.action("Previous pane", act("prev-pane"), 2);
-  c.action("Close", act("close"), 2);
+  if (c.preset === "cmux") c.binding(i18n.t`Also focus`, "P h j k l", 2);
+  if (c.preset === "corgi") c.binding(i18n.t`Also focus`, "h j k l", 2);
+  c.action(i18n.t`Next pane`, act("next-pane"), 2);
+  c.action(i18n.t`Previous pane`, act("prev-pane"), 2);
+  c.action(i18n.t`Close`, act("close"), 2);
   c.space();
-  c.group("Split");
+  c.group(i18n.t`Split`);
   if (c.width >= 30 && c.preset !== "cmux") {
     const right = Math.floor((c.width + 2) / 2),
       splitRight = act("split", "right"),
@@ -235,39 +225,39 @@ export function panes(c: Column) {
         style: "bright",
         action: splitRight,
       },
-      { x: 5, text: "Right", style: "text", action: splitRight },
+      { x: 5, text: i18n.t`Right`, style: "text", action: splitRight },
       {
         x: right + 2,
         text: bindings.format(bindings.first(c.preset, splitDown, true)!),
         style: "bright",
         action: splitDown,
       },
-      { x: right + 5, text: "Down", style: "text", action: splitDown },
+      { x: right + 5, text: i18n.t`Down`, style: "text", action: splitDown },
     ]);
-  } else c.pair("Right / down", act("split", "right"), act("split", "down"), 4);
-  c.group("Arrange");
-  c.action("Resize", act("resize-mode"), 4);
-  if (c.preset === "tmux") c.binding("Resize", "Ctrl+arrows", 4);
-  if (c.preset === "cmux") c.binding("Resize directly", "Ctrl+Shift+HJKL", 4);
-  c.action("Zoom / unzoom", act("zoom"), 4);
-  c.action("Move to new tab", act("break"), 4);
+  } else c.pair(i18n.t`Right / down`, act("split", "right"), act("split", "down"), 4);
+  c.group(i18n.t`Arrange`);
+  c.action(i18n.t`Resize`, act("resize-mode"), 4);
+  if (c.preset === "tmux") c.binding(i18n.t`Resize`, "Ctrl+arrows", 4);
+  if (c.preset === "cmux") c.binding(i18n.t`Resize directly`, "Ctrl+Shift+HJKL", 4);
+  c.action(i18n.t`Zoom / unzoom`, act("zoom"), 4);
+  c.action(i18n.t`Move to new tab`, act("break"), 4);
   c.space();
-  c.heading("TERMINAL");
-  c.action("Scroll / copy", act("copy-mode"), 2);
-  c.action("Paste copied text", act("paste"), 2);
-  if (c.preset === "cmux") c.binding("Paste (host terminal)", "Cmd+V", 2);
-  c.action("Detach", act("detach"), 2);
+  c.heading(i18n.t`TERMINAL`);
+  c.action(i18n.t`Scroll / copy`, act("copy-mode"), 2);
+  c.action(i18n.t`Paste copied text`, act("paste"), 2);
+  if (c.preset === "cmux") c.binding(i18n.t`Paste (host terminal)`, "Cmd+V", 2);
+  c.action(i18n.t`Detach`, act("detach"), 2);
   c.space();
-  c.heading("CORGI");
-  c.action("Toggle sidebar", act("sidebar"), 2);
-  c.action("Review changes", act("review"), 2);
-  c.action("Setup", act("setup"), 2);
+  c.heading(i18n.t`CORGI`);
+  c.action(i18n.t`Toggle sidebar`, act("sidebar"), 2);
+  c.action(i18n.t`Review changes`, act("review"), 2);
+  c.action(i18n.t`Setup`, act("setup"), 2);
 }
-const command_footer = "Press a shortcut or click a key";
+const commandFooter = () => i18n.t`Press a shortcut or click a key`;
 /** The corgi's patch of the footer, from past the longest footer text to the
  * Esc button. */
 function corgiZone(b: Rect): { x: number; w: number } | null {
-  const x = 5 + command_footer.length;
+  const x = 5 + displayWidth(commandFooter());
   if (b.w < 32 || b.h < 12 || b.w < x + 17 + 6) return null;
   return { x, w: b.w - 17 - x };
 }
@@ -447,24 +437,28 @@ export class State {
       this.page_rows = 1;
       this.max_scroll = 0;
       this.scroll = 0;
-      at(w, b, 0, 0, "Help needs 32 × 12", "text");
-      if (b.h > 1) at(w, b, 0, 1, "Esc back", "bright");
+      at(w, b, 0, 0, i18n.t`Help needs 32 × 12`, "text");
+      if (b.h > 1) at(w, b, 0, 1, i18n.t`Esc back`, "bright");
       this.corgi_room = 0;
       w.write(`\x1b[0m\x1b]22;${pointer_shape}\x1b\\\x1b[?2026l`);
       return w.buffered();
     }
     box(w, b);
     at(w, b, 2, 0, " Corgi ", "bright");
-    at(w, b, 3, 1, "Keyboard shortcuts", "bright");
+    at(w, b, 3, 1, i18n.t`Keyboard shortcuts`, "bright");
     if (b.w >= 60) at(w, b, b.w - 17, 1, km.name(preset), "dim");
-    at(w, b, 3, 3, "PREFIX", "dim");
+    at(w, b, 3, 3, i18n.t`PREFIX`, "dim");
     at(w, b, 11, 3, `[ ${km.prefixName(prefix)} ]`, "keycap");
     at(
       w,
       b,
       23,
       3,
-      preset === "cmux" ? "P = prefix · Cmd = hold" : b.w < 76 ? "then key" : "Release, then press the key.",
+      preset === "cmux"
+        ? i18n.t`P = prefix · Cmd = hold`
+        : b.w < 76
+          ? i18n.t`then key`
+          : i18n.t`Release, then press the key.`,
       "dim",
     );
 
@@ -489,10 +483,10 @@ export class State {
       total > capacity
         ? `${scroll_keys}  ${this.scroll + 1}–${Math.min(total, this.scroll + capacity)}/${total}`
         : this.command_mode
-          ? command_footer
-          : "All shortcuts";
+          ? commandFooter()
+          : i18n.t`All shortcuts`;
     clippedAt(w, b, 3, b.h - 2, b.w - 21, b.w < 60 && total > capacity ? scroll_keys : footer, "dim");
-    at(w, b, b.w - 16, b.h - 2, "[ Esc Back ]", "bright");
+    at(w, b, b.w - 16, b.h - 2, i18n.t`[ Esc Back ]`, "bright");
     this.corgi_room = 0;
     const zone = corgiZone(b);
     if (zone) {

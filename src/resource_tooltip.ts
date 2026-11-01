@@ -2,6 +2,7 @@
 //! with GPUs the card is taller, with a row for GPU graphs (drawn while the
 //! workspace uses one) and GPU columns, so its layout doesn't follow usage.
 //! Mirrors resource_tooltip.zig.
+import * as i18n from "./i18n";
 import { Style, derived, colors, mix, fgRgb } from "./palette";
 import { Provider, adapter } from "./providers";
 import { Rect } from "./layout";
@@ -382,14 +383,14 @@ export function rowAt(rect: Rect, x: number, y: number, gpus = 0): number | null
 }
 export type Button = "go" | "term" | "kill";
 /** The pinned card's buttons, right to left from the border. */
-const buttons: { button: Button; key: string; label: string }[] = [
-  { button: "kill", key: "k", label: "kill" },
-  { button: "term", key: "t", label: "term" },
-  { button: "go", key: "↵", label: "go to pane" },
+const buttons = (): { button: Button; key: string; label: string }[] => [
+  { button: "kill", key: "k", label: i18n.t`kill` },
+  { button: "term", key: "t", label: i18n.t`term` },
+  { button: "go", key: "↵", label: i18n.t`go to pane` },
 ];
 function buttonSpans(rect: Rect) {
   let x = rect.x + rect.w - 3;
-  return buttons.map(b => {
+  return buttons().map(b => {
     const width = displayWidth(`${b.key} ${b.label}`);
     x -= width;
     const span = { ...b, x, width };
@@ -460,17 +461,17 @@ export function devicesText(devices: number[]): string {
 function graphTitle(metric: Sort, work: any, memory_kind: string): string {
   switch (metric) {
     case "cpu":
-      return " cpu ";
+      return i18n.t` cpu `;
     case "memory":
-      return " memory ";
+      return i18n.t` memory `;
     case "io":
-      return " disk I/O ";
+      return i18n.t` disk I/O `;
     case "gpu": {
       const devices: number[] = (work.gpu_devices ?? []).map((d: any) => d.index);
       return devices.length ? ` gpu ${devicesText(devices)} ` : " gpu ";
     }
     case "gpu_memory":
-      return ` ${(memory_kind || "gpu memory").toLowerCase()} `;
+      return ` ${(memory_kind || i18n.t`gpu memory`).toLowerCase()} `;
   }
 }
 /** The history point `age` back from the newest, or none for now. */
@@ -592,7 +593,7 @@ function gpuGraph(
     util = metric === "gpu";
   box(w, rect, graphTitle(metric, work, memory_kind), faint);
   if (!work.gpu_shown) {
-    at(w, rect.x + 2, rect.y + 1, faint, "no use", rect.w - 4);
+    at(w, rect.x + 2, rect.y + 1, faint, i18n.t`no use`, rect.w - 4);
     return;
   }
   const point = pointAt(work, age),
@@ -679,27 +680,33 @@ function gpuGraph(
   at(w, chart.x, rect.y, rule, "┄".repeat(chart.w), chart.w);
   const top = ` ${util ? "100%" : `${zigRound(ceiling / 1024 ** 3)}G`} `,
     newest = all.at(-1),
-    span = point && newest ? ` ${spanText(newest.at - point.at)} ago ` : ` ${spanText(chart.w * history_bucket_ms)} `;
+    elapsed = point && newest ? spanText(newest.at - point.at) : "",
+    span = point && newest ? ` ${i18n.t`${elapsed} ago`} ` : ` ${spanText(chart.w * history_bucket_ms)} `;
   at(w, chart.x + chart.w - top.length, rect.y, faint, top, top.length);
   at(w, chart.x + 1, rect.y, point ? text : faint, span, sat(chart.w, top.length + 2));
 }
 function statusText(work: any): string {
-  if (!work.known) return "Sampling unavailable";
-  if (work.partial) return "Partial process coverage";
-  if (work.cpu_pressure) return "CPU busy";
-  if (work.gpu_shown && work.gpu_attribution === "list") return "GPU use shared out by memory";
-  if (work.gpu_shown && work.gpu_attribution === "device") return "GPU use from device totals";
+  if (!work.known) return i18n.t`Sampling unavailable`;
+  if (work.partial) return i18n.t`Partial process coverage`;
+  if (work.cpu_pressure) return i18n.t`CPU busy`;
+  if (work.gpu_shown && work.gpu_attribution === "list") return i18n.t`GPU use shared out by memory`;
+  if (work.gpu_shown && work.gpu_attribution === "device") return i18n.t`GPU use from device totals`;
   return "";
 }
 /** The host's GPUs: their count, mean utilization and memory in use. */
 function gpuHostText(gpus: any[]): string {
   if (!gpus.length) return "";
   const rates = gpus.map(g => g.util).filter(u => u != null);
-  let line = gpus.length === 1 ? "1 GPU" : `${gpus.length} GPUs`;
+  const count = gpus.length;
+  let line = count === 1 ? i18n.t`${count} GPU` : i18n.t`${count} GPUs`;
   if (rates.length) line += ` ${cpuText(rates.reduce((a, b) => a + b, 0) / rates.length)}`;
   const used = gpus.reduce((sum, g) => sum + Number(g.used ?? 0), 0),
     total = gpus.reduce((sum, g) => sum + Number(g.total ?? 0), 0);
-  if (total > 0) line += ` / ${fixed(used / 1024 ** 3, 1)} of ${fixed(total / 1024 ** 3, 0)} GiB`;
+  if (total > 0) {
+    const usedMemory = fixed(used / 1024 ** 3, 1),
+      totalMemory = fixed(total / 1024 ** 3, 0);
+    line += ` / ${i18n.t`${usedMemory} of ${totalMemory} GiB`}`;
+  }
   return line;
 }
 
@@ -737,17 +744,11 @@ export function draw(
     w.write(`\x1b[${rect.y + row + 1};${rect.x + 1}H`);
     w.splat(" ", rect.w);
   }
-  box(w, rect, ` ${name} / resources `, strong);
+  box(w, rect, i18n.t` ${name} / resources `, strong);
+  const interval = Math.floor((snapshot?.interval_ms ?? 2000) / 1000);
   const status = statusText(work);
   at(w, rect.x + 2, rect.y + 1, work.cpu_pressure ? warm : text, status, rect.w - 20);
-  right(
-    w,
-    rect.x + rect.w - 16,
-    rect.y + 1,
-    faint,
-    `live / ${Math.floor((snapshot?.interval_ms ?? 2000) / 1000)}s`,
-    13,
-  );
+  right(w, rect.x + rect.w - 16, rect.y + 1, faint, i18n.t`live / ${interval}s`, 13);
   const gpu = state.gpus > 0,
     shift = gpuShift(rect, state.gpus),
     gpus: any[] = snapshot?.gpus ?? [],
@@ -771,12 +772,23 @@ export function draw(
   const sorted = leaders && hover ? hover.metric : state.sort,
     ascending = leaders ? false : state.ascending;
   for (const g of all_graphs) graph(w, g, work, memory_kind, gpus, age, g === hovered ? hover!.line : null);
-  let host_line = `HOST ${snapshot?.cores ?? 1} cores`;
+  const cores = snapshot?.cores ?? 1;
+  let host_line = i18n.t`HOST ${cores} cores`;
   if (snapshot?.host_cpu != null) host_line += ` / ${cpuText(snapshot.host_cpu)} CPU`;
-  if ((snapshot?.memory_pressure ?? "unknown") !== "unknown") host_line += ` / memory ${snapshot.memory_pressure}`;
+  if ((snapshot?.memory_pressure ?? "unknown") !== "unknown") {
+    const pressure =
+      snapshot.memory_pressure === "normal"
+        ? i18n.t`normal`
+        : snapshot.memory_pressure === "warning"
+          ? i18n.t`warning`
+          : snapshot.memory_pressure === "critical"
+            ? i18n.t`critical`
+            : i18n.t`unknown`;
+    host_line += i18n.t` / memory ${pressure}`;
+  }
   if (gpus.length) host_line += ` / ${gpuHostText(gpus)}`;
   at(w, rect.x + 2, rect.y + 11 + shift, faint, host_line, rect.w - 4);
-  at(w, rect.x + 2, rect.y + 13 + shift, strong, "TOP PROCESSES", 20);
+  at(w, rect.x + 2, rect.y + 13 + shift, strong, i18n.t`TOP PROCESSES`, 20);
   const header = rect.y + 14 + shift;
   const table = columns(gpu, memory_kind),
     name_width = rect.w - table[0].x - 11;
@@ -784,7 +796,7 @@ export function draw(
   // with the way they run; the rest recede.
   // Linux PIDs reach seven digits.
   right(w, rect.x + 2, header, faint, "PID", 7);
-  at(w, rect.x + 10, header, faint, "PROCESS", name_width);
+  at(w, rect.x + 10, header, faint, i18n.t`PROCESS`, name_width);
   for (const c of table)
     if (sorted === c.sort) right(w, rect.x + rect.w - c.x, header, strong, (ascending ? "↑" : "↓") + c.label, c.width);
     else right(w, rect.x + rect.w - c.x, header, faint, c.label, c.width);
@@ -804,7 +816,7 @@ export function draw(
     }
     right(w, rect.x + 2, y, dim, `${key.pid}`, 7);
     if (tagged) at(w, rect.x + 9, y, chosen ? row_tag : tag, "•", 1);
-    if (!p) return at(w, rect.x + 10, y, dim, state.pinned ? "exited" : "Sample not available", name_width);
+    if (!p) return at(w, rect.x + 10, y, dim, state.pinned ? i18n.t`exited` : i18n.t`Sample not available`, name_width);
     const name = `${p.provider ? adapter(p.provider).glyph + " " : ""}${p.name}`,
       devices: number[] = (p.gpu_devices ?? []).map(d => d.index);
     at(w, rect.x + 10, y, tagged ? (chosen ? row_tag : tag) : plain, name, name_width);
@@ -836,27 +848,34 @@ export function draw(
     .map(a => `${a.glyph} ${a.label}`)
     .join("   ");
   at(w, rect.x + 2, rect.y + rect.h - 3, faint, legend, rect.w - 4);
-  at(
-    w,
-    rect.x + 2,
-    rect.y + rect.h - 2,
-    faint,
-    leaders
-      ? `${on.length ? `${count} ${count === 1 ? "process" : "processes"} on gpu ${devicesText(on)}` : `${count} leading processes`} ${spanText((work.history.at(-1)?.at ?? point.at) - point.at)} ago`
-      : `${work.count} local processes / ${snapshot?.memory_kind ?? "RSS"}${work.partial ? " / partial" : ""} / ${count} shown`,
-    rect.w - 4,
-  );
+  const devices = devicesText(on),
+    ageLabel = leaders ? spanText((work.history.at(-1)?.at ?? point.at) - point.at) : "",
+    total = work.count,
+    memory = snapshot?.memory_kind ?? "RSS";
+  const footer = leaders
+    ? on.length
+      ? count === 1
+        ? i18n.t`${count} process on gpu ${devices} ${ageLabel} ago`
+        : i18n.t`${count} processes on gpu ${devices} ${ageLabel} ago`
+      : count === 1
+        ? i18n.t`${count} leading process ${ageLabel} ago`
+        : i18n.t`${count} leading processes ${ageLabel} ago`
+    : work.partial
+      ? i18n.t`${total} local processes / ${memory} / partial / ${count} shown`
+      : i18n.t`${total} local processes / ${memory} / ${count} shown`;
+  at(w, rect.x + 2, rect.y + rect.h - 2, faint, footer, rect.w - 4);
   w.write("\x1b[0m\x1b8\x1b[?25l");
 }
 
 /** What a signal would go to, named for the bar. */
 function targetsText(processes: Process[], state: State): string {
   const keys = state.targets();
-  if (keys.length !== 1) return `${keys.length} tagged processes`;
+  const count = keys.length;
+  if (count !== 1) return i18n.t`${count} tagged processes`;
   const p = find(processes, keys[0]);
   if (!p) return `${keys[0].pid}`;
   const name = `${p.provider ? adapter(p.provider).glyph + " " : ""}${p.name} (${p.pid})`;
-  return p.provider ? `${name}, the pane's agent` : name;
+  return p.provider ? i18n.t`${name}, the pane's agent` : name;
 }
 /** The pinned card's bar: the selected process and where it runs, with the
  * buttons for it; or a signal waiting to be confirmed; or what one did. Under
@@ -869,9 +888,11 @@ function pinnedFooter(w: Writer, rect: Rect, processes: Process[], state: State)
   w.splat(" ", width + 2);
   if (state.confirm) {
     const kill = state.confirm === "kill",
-      ask = `${kill ? "Kill" : "Stop"} ${targetsText(processes, state)} with ${kill ? "SIGKILL" : "SIGTERM"}?`;
+      targets = targetsText(processes, state),
+      ask = kill ? i18n.t`Kill ${targets} with SIGKILL?` : i18n.t`Stop ${targets} with SIGTERM?`;
     at(w, x, y, kill ? bar_hot : bar_warm, ask, width);
-    const again = `${kill ? "k" : "t"} again`,
+    const key = kill ? "k" : "t";
+    const again = i18n.t`${key} again`,
       tail = displayWidth(ask) + 1;
     at(w, x + tail, y, bar_key, again, sat(width, tail));
     at(w, x + tail + displayWidth(again), y, bar_faint, " · esc", sat(width, tail + displayWidth(again)));
@@ -880,8 +901,10 @@ function pinnedFooter(w: Writer, rect: Rect, processes: Process[], state: State)
       left = spans.at(-1)!.x - 2 - x,
       selected = find(processes, state.selected);
     if (state.notice) at(w, x, y, bar, state.notice, left);
-    else if (state.tagged.length) at(w, x, y, bar, `${state.tagged.length} tagged`, left);
-    else if (selected) {
+    else if (state.tagged.length) {
+      const count = state.tagged.length;
+      at(w, x, y, bar, i18n.t`${count} tagged`, left);
+    } else if (selected) {
       const name = `${selected.provider ? adapter(selected.provider).glyph + " " : ""}${selected.name}`;
       at(w, x, y, bar, name, left);
       at(
@@ -889,15 +912,15 @@ function pinnedFooter(w: Writer, rect: Rect, processes: Process[], state: State)
         x + displayWidth(name),
         y,
         bar_faint,
-        ` · ${state.place ?? "background session"}`,
+        ` · ${state.place ?? i18n.t`background session`}`,
         sat(left, displayWidth(name)),
       );
     }
     for (const b of spans) {
       const off = b.button === "go" && (!selected || state.place === null);
       at(w, b.x, y, off ? bar_off : bar_key, b.key, 1);
-      at(w, b.x + 2, y, off ? bar_off : bar_faint, b.label, b.label.length);
+      at(w, b.x + 2, y, off ? bar_off : bar_faint, b.label, displayWidth(b.label));
     }
   }
-  at(w, x, rect.y + rect.h - 2, faint, "↑↓ select  ←→ sort  space tag  c tag tree  u untag  esc close", width);
+  at(w, x, rect.y + rect.h - 2, faint, i18n.t`↑↓ select  ←→ sort  space tag  c tag tree  u untag  esc close`, width);
 }

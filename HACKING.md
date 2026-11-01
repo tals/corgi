@@ -23,6 +23,11 @@ commands from an outer terminal; `./go.ts --help` describes the options.
 
 ## Architecture
 
+For user-facing text, see [the translation workflow](locales/README.md).
+`bun scripts/translations.ts extract` updates the four language catalogs;
+`generate` refreshes the committed runtime and installer output. Builds and
+typecheck reject incomplete or stale translations.
+
 The daemon owns processes, PTYs, workspaces and conversations. Viewers compose
 the UI from snapshots and terminal surfaces; each keeps its own focus, menus,
 scroll position and selection. CLI and viewer mutations use the same commands.

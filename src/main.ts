@@ -18,6 +18,9 @@ import { testBuild } from "./build_assets";
 import * as config from "./build_config";
 import * as crash from "./crash";
 import * as build_id from "./build_id";
+import * as localeHost from "./locale_host";
+import * as i18n from "./i18n";
+import * as preferences from "./preferences";
 import { Provider, adapter } from "./providers";
 export const executable = build_id.executablePath(
   import.meta.filename,
@@ -160,6 +163,7 @@ function asksJson(args: string[]): boolean {
   return (end === -1 ? args : args.slice(0, end)).includes("--json");
 }
 export async function run(args = process.argv.slice(2)): Promise<void> {
+  localeHost.initialize(preferences.load().language);
   if (args[0] === "__opencode2") {
     await (await import("./providers/opencode2/worker")).run();
     return;
@@ -174,6 +178,8 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
   // A provider owns its flags; help returns before Corgi starts any command.
   const own = alias || command.startsWith("__") ? [] : command === "agent" ? args.slice(0, 2) : args;
   if (!alias && (cli.asksHelp(own) || command === "help")) {
+    const humanHelp = agent ? help : i18n.document(helpText).replace("\n\n\n\n", `\n\n${actionNames}\n\n`);
+    const commandHelp = agent ? cli.help : cli.localizedHelp();
     const topic = (command === "help" ? args.slice(1) : args).filter(arg => arg !== "--help" && arg !== "-h");
     switch (topic[0]) {
       case "account":
@@ -184,7 +190,9 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
         break;
       default:
         process.stdout.write(
-          topic.length ? cli.helpFor(cli.handles(topic) ? cli.help : help, topic) : help + "\n" + cli.help,
+          topic.length
+            ? cli.helpFor(cli.handles(topic) ? commandHelp : humanHelp, topic)
+            : humanHelp + "\n" + commandHelp,
         );
         if (topic[0] === "action") process.stdout.write("\n" + actionNames + "\n");
         break;

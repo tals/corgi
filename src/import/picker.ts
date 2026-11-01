@@ -6,6 +6,7 @@ import { randomBytes } from "node:crypto";
 import { n } from "../native_bridge";
 import { milliTimestamp } from "../clock";
 import * as palette from "../palette";
+import * as i18n from "../i18n";
 import { Rect } from "../layout";
 import type { Connection } from "../rpc";
 import { Writer, byteSlice, clamp, displayWidth, sat, writeSanitized } from "../text";
@@ -300,26 +301,27 @@ export class Picker {
     switch (this.stage) {
       case "choose":
         return {
-          tmux: "Copy sessions, scrollback and commands. Source processes stay in tmux.",
-          herdr: "Choose a session to bring into Corgi.",
-          cmux: "Copy workspaces and surfaces. Source processes stay in cmux.",
+          tmux: i18n.t`Copy sessions, scrollback and commands. Source processes stay in tmux.`,
+          herdr: i18n.t`Choose a session to bring into Corgi.`,
+          cmux: i18n.t`Copy workspaces and surfaces. Source processes stay in cmux.`,
         }[this.source];
       case "copying":
         return this.progress.message;
       case "complete":
-        return this.activeHandoff() ? "Your processes are running in Corgi." : "Your workspaces are ready.";
+        return this.activeHandoff() ? i18n.t`Your processes are running in Corgi.` : i18n.t`Your workspaces are ready.`;
     }
   }
   /** The line under Herdr's handoff switch. */
   private handoffNote(): string {
-    if (!this.handoff) return "Copies the workspaces; their processes stay in Herdr.";
-    if (this.items().length === 0) return "Keeps your processes running.";
-    if (!this.activeHandoff()) return "Live handoff unavailable for this session; turn it off to copy.";
-    return `All ${this.selectionCount()} workspaces in this session move together.`;
+    if (!this.handoff) return i18n.t`Copies the workspaces; their processes stay in Herdr.`;
+    if (this.items().length === 0) return i18n.t`Keeps your processes running.`;
+    if (!this.activeHandoff()) return i18n.t`Live handoff unavailable for this session; turn it off to copy.`;
+    const count = this.selectionCount();
+    return i18n.t`All ${count} workspaces in this session move together.`;
   }
   /** The heading while copying. */
   heading(): string {
-    return this.activeHandoff() ? "Handing off to Corgi" : "Copying into Corgi";
+    return this.activeHandoff() ? i18n.t`Handing off to Corgi` : i18n.t`Copying into Corgi`;
   }
   /** The notes and the tree; the cursor shows only when `focused`. */
   draw(w: Writer, area: Rect, focused: boolean) {
@@ -332,7 +334,7 @@ export class Picker {
       if (this.source === "herdr") {
         // Setup's on/off row, across the whole width, with a line under its name.
         settingRow.drawToggle(w, area.x - 2, area.y, area.w + 3, {
-          label: "Handoff processes",
+          label: i18n.t`Handoff processes`,
           on: this.handoff,
           here: focused && this.switch_focused,
         });
@@ -342,30 +344,32 @@ export class Picker {
         // One line where it fits, else a row for each part.
         const tip =
           this.source === "cmux"
-            ? ["Visible splits first", "remaining surfaces in additional tabs"]
-            : ["Up to 3 recent groups selected", "Return in each pane restarts its command"];
+            ? [i18n.t`Visible splits first`, i18n.t`remaining surfaces in additional tabs`]
+            : [i18n.t`Up to 3 recent groups selected`, i18n.t`Return in each pane restarts its command`];
         if (displayWidth(tip.join(" · ")) <= area.w) put(w, area, 0, 0, tip.join(" · "), dim);
         else tip.forEach((part, i) => put(w, area, 0, i, part, dim));
       }
     } else {
       const status =
         this.stage === "complete"
-          ? "[✓] Complete"
+          ? i18n.t`[✓] Complete`
           : this.failed()
-            ? "[!] Import stopped · Enter returns to selection"
-            : "[···] Working";
+            ? i18n.t`[!] Import stopped · Enter returns to selection`
+            : i18n.t`[···] Working`;
       put(w, area, 0, 0, status, bright);
     }
     if (this.cmuxConfused()) {
       const y = this.stage === "choose" ? 0 : 1;
       put(w, area, 0, y, this.blink_closed ? "ᐱ─ᴥ─ᐱ" : "ᐱoᴥ°ᐱ", text);
-      put(w, area, 7, y, "I'm confused by this cmux version.", warm);
+      put(w, area, 7, y, i18n.t`I'm confused by this cmux version.`, warm);
       put(
         w,
         area,
         7,
         y + 1,
-        this.stage === "complete" ? "Imported what I could. See details below." : "I'll bring over what I can.",
+        this.stage === "complete"
+          ? i18n.t`Imported what I could. See details below.`
+          : i18n.t`I'll bring over what I can.`,
         dim,
       );
     }
@@ -374,13 +378,13 @@ export class Picker {
     const choosing = this.stage === "choose",
       wk = this.worker();
     if (wk) {
-      if (!wk.done) put(w, area, 2, tree_top + 1, "Looking for running sessions…", dim);
+      if (!wk.done) put(w, area, 2, tree_top + 1, i18n.t`Looking for running sessions…`, dim);
       else if (this.items().length === 0) {
         const empty = this.cmuxConfused()
-          ? "No workspaces could be recovered yet."
+          ? i18n.t`No workspaces could be recovered yet.`
           : wk.catalog.message.length > 0
-            ? "Couldn't read this source. R retries."
-            : "No available sessions found.";
+            ? i18n.t`Couldn't read this source. R retries.`
+            : i18n.t`No available sessions found.`;
         put(w, area, 2, tree_top + 1, empty, text);
         put(w, area, 2, tree_top + 3, wk.catalog.message, dim);
       }
@@ -424,10 +428,11 @@ export class Picker {
       const check_mark = this.chosen(i) ? "[x]" : "[ ]";
       line(`${cursor_mark}${check_mark} ${short(ws.name)}`, bright, "");
       if (ws.recovery !== "full") {
-        if (ws.recovery === "workspace") line("    Workspace only · opens a new shell", warm, "");
+        if (ws.recovery === "workspace") line("    " + i18n.t`Workspace only · opens a new shell`, warm, "");
         line(`    ${ws.recovery_note}`, warm, "");
       }
-      if (preview_layout.toggle_row !== null && preview_layout.hidden === 0) line("    ▾ Show less", bright, "");
+      if (preview_layout.toggle_row !== null && preview_layout.hidden === 0)
+        line("    ▾ " + i18n.t`Show less`, bright, "");
       let remaining = preview_layout.pane_limit;
       for (const [tab_index, tab] of ws.tabs.entries()) {
         if (remaining === 0) break;
@@ -455,7 +460,10 @@ export class Picker {
           pane_number += 1;
         });
       }
-      if (preview_layout.hidden > 0) line(`    …${preview_layout.hidden} more`, bright, "");
+      if (preview_layout.hidden > 0) {
+        const count = preview_layout.hidden;
+        line("    " + i18n.t`…${count} more`, bright, "");
+      }
       row += 1;
     });
   }
@@ -480,5 +488,5 @@ function paneAnnotation(source: catalog.Source, handoff: boolean, pane: catalog.
     if (pane.pid != null && pane.pid > 0) return `${String(pane.pid).padStart(7)} · Herdr → Corgi`;
     return "      ? · Herdr → Corgi";
   }
-  return pane.url ? "↗ Browser link" : pane.resume_available ? "↻ Resume available" : "+ New shell";
+  return pane.url ? i18n.t`↗ Browser link` : pane.resume_available ? i18n.t`↻ Resume available` : i18n.t`+ New shell`;
 }

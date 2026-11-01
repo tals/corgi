@@ -23,6 +23,11 @@ curl -fsSL https://corgi.computer/install.sh | bash
 
 See the [documentation](docs/reference.md) for setup, workspaces and troubleshooting.
 
+Corgi and its installer follow your system language: English, Simplified
+Chinese, Japanese, Korean or Russian. Choose a different language in
+**Corgi setup → Language**, or set `CORGI_LANG=en`, `zh`, `ja`, `ko` or `ru`
+for one launch. `CORGI_LANG=auto` follows your saved choice or system locale.
+
 ## Uninstall
 
 ```sh

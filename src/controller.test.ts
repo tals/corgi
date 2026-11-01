@@ -49,6 +49,15 @@ function controller(): any {
 }
 const bytes = (text: string) => new TextEncoder().encode(text);
 
+test("notices keep Unicode while stripping controls and truncating at UTF-8 boundaries", () => {
+  const s = controller();
+  s.notice("设置 日本語 한국어 Русский\n\x1b\u009b");
+  expect(s.message).toBe("设置 日本語 한국어 Русский   ");
+  s.notice("界".repeat(200));
+  expect(s.message).toBe("界".repeat(170));
+  expect(Buffer.byteLength(s.message)).toBeLessThanOrEqual(512);
+});
+
 test.each(["typing", "kitty key", "click", "resize", "flourishes off"])(
   "%s finishes the sign-in exit without swallowing input",
   async cause => {

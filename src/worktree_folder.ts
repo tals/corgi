@@ -1,6 +1,7 @@
 //! Where the launcher puts a new worktree: a folder template such as the
 //! default `$PROJECT_ROOT/.worktrees/$NAME`, which Corgi setup edits. A
 //! relative folder is relative to the project root.
+import * as i18n from "./i18n";
 import { basename, isAbsolute, join, normalize } from "node:path";
 import { homedir } from "node:os";
 
@@ -31,14 +32,17 @@ export function parse(template: string): Part[] | string {
     let name: string, end: number;
     if (template[i + 1] === "{") {
       const close = template.indexOf("}", i + 2);
-      if (close < 0) return "A ${ needs its closing }";
+      if (close < 0) {
+        const opening = "${";
+        return i18n.t`A ${opening} needs its closing }`;
+      }
       name = template.slice(i + 2, close);
       end = close + 1;
     } else {
       name = /^[A-Za-z_][A-Za-z0-9_]*/.exec(template.slice(i + 1))?.[0] ?? "";
       end = i + 1 + name.length;
     }
-    if (name.length === 0) return "A $ needs a variable after it, such as $NAME";
+    if (name.length === 0) return i18n.t`A $ needs a variable after it, such as $NAME`;
     const variable = variables.find(v => v === name);
     if (!variable) return unknown(name);
     if (literal) parts.push({ text: literal });
@@ -52,19 +56,25 @@ export function parse(template: string): Part[] | string {
 function unknown(name: string): string {
   const upper = name.toUpperCase();
   const meant = variables.find(v => v === upper) ?? synonyms[upper];
-  if (meant === upper) return `Variables are uppercase: $${meant}, not $${name}`;
-  if (meant) return `$${name} isn't a variable; did you mean $${meant}?`;
+  if (meant === upper) return i18n.t`Variables are uppercase: $${meant}, not $${name}`;
+  if (meant) {
+    const suggestion = `$${meant}`;
+    return i18n.t`$${name} isn't a variable; did you mean ${suggestion}?`;
+  }
   const near = variables.filter(v => v.startsWith(upper) || upper.startsWith(v));
-  if (near.length > 0) return `$${name} isn't a variable; did you mean ${near.map(v => `$${v}`).join(" or ")}?`;
-  return `$${name} isn't a variable`;
+  if (near.length > 0) {
+    const suggestion = new Intl.ListFormat(i18n.language(), { type: "disjunction" }).format(near.map(v => `$${v}`));
+    return i18n.t`$${name} isn't a variable; did you mean ${suggestion}?`;
+  }
+  return i18n.t`$${name} isn't a variable`;
 }
 /** Why the template can't place worktrees, or null. */
 export function problem(template: string): string | null {
-  if (template.trim().length === 0) return `Type a folder, such as ${default_template}`;
+  if (template.trim().length === 0) return i18n.t`Type a folder, such as ${default_template}`;
   const parts = parse(template);
   if (typeof parts === "string") return parts;
   if (!parts.some(p => "variable" in p && p.variable === "NAME"))
-    return "Add $NAME, so each worktree gets a folder of its own";
+    return i18n.t`Add $NAME, so each worktree gets a folder of its own`;
   return null;
 }
 /** The template cut into literal text, known variables and bad uses of

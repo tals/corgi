@@ -10,8 +10,12 @@ import * as effort from "./providers/effort";
 import { Row } from "./launch/row";
 import { Entry as CommandEntry } from "./launch/command";
 import helpText from "../assets/cli-help.txt" with { type: "text" };
+import * as i18n from "./i18n";
 import skill from "../assets/corgi-skill.md" with { type: "text" };
 export const help = helpText;
+export function localizedHelp(): string {
+  return i18n.document(helpText);
+}
 const groups = new Set(["tab", "pane", "workspace", "launcher", "claim", "current", "list", "focus", "--skill"]);
 const nested = new Set(["tab", "pane", "workspace", "launcher"]);
 const flags = new Set(["json", "clear", "stdin", "enter", "new-tab", "first", "left", "right", "up", "down"]);

@@ -1,3 +1,4 @@
+import * as i18n from "./i18n";
 import { realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname } from "node:path";
@@ -229,12 +230,12 @@ function figures(
 }
 /** The columns right of the worktree, each with the gap after it; the last
  * ends two cells from the card's edge. */
-const columns: { name: Column; header: string; width: number }[] = [
-  { name: "agents", header: "AGENTS", width: 9 },
-  { name: "main", header: "VS MAIN", width: 10 },
-  { name: "age", header: "AGE", width: 6 },
-  { name: "edited", header: "EDITED", width: 11 },
-  { name: "changes", header: "UNCOMMITTED CHANGES", width: 19 },
+const columns = (): { name: Column; header: string; width: number }[] => [
+  { name: "agents", header: i18n.t`AGENTS`, width: 9 },
+  { name: "main", header: i18n.t`VS MAIN`, width: 10 },
+  { name: "age", header: i18n.t`AGE`, width: 6 },
+  { name: "edited", header: i18n.t`EDITED`, width: 11 },
+  { name: "changes", header: i18n.t`UNCOMMITTED CHANGES`, width: 19 },
 ];
 /** On a narrow card, these go first, until the worktree has room. */
 const dropped: Column[] = ["age", "main", "edited"];
@@ -243,7 +244,7 @@ const name_room = 24;
 const brief_x = 5;
 /** Where each shown column starts, and the room left for the worktree. */
 export function columnsFor(width: number): { x: Partial<Record<Column, number>>; room: number } {
-  let shown = columns;
+  let shown = columns();
   for (const name of [null, ...dropped]) {
     if (name) shown = shown.filter(c => c.name !== name);
     if (width - 6 - shown.reduce((n, c) => n + c.width, 0) >= name_room) break;
@@ -263,7 +264,7 @@ export function sortAt(rect: Rect, x: number, y: number): Sort | null {
     at = columnsFor(rect.w).x;
   if (y !== rect.y + 4 || col < 1 || col >= rect.w - 2) return null;
   let sort: Sort = "worktree";
-  for (const c of columns) if (at[c.name] !== undefined && col >= at[c.name]! - 1) sort = c.name;
+  for (const c of columns()) if (at[c.name] !== undefined && col >= at[c.name]! - 1) sort = c.name;
   return sort;
 }
 export function draw(
@@ -297,13 +298,23 @@ export function draw(
     offset = state.offset(entries, rect, shown.closed),
     count = worktrees.linked(snapshot).length;
   line(0, 0, "╭" + "─".repeat(rect.w - 2) + "╮", rect.w, "line");
-  line(1, 2, `${name} · ${count} worktree${count === 1 ? "" : "s"}`, rect.w - 4, "strong", true);
+  line(
+    1,
+    2,
+    count === 1 ? i18n.t`${name} · ${count} worktree` : i18n.t`${name} · ${count} worktrees`,
+    rect.w - 4,
+    "strong",
+    true,
+  );
+  const branch = snapshot?.base?.name ?? "";
   line(
     2,
     2,
     snapshot?.base
-      ? `Compared with local ${snapshot.base.name}${snapshot.stale ? " · last known data" : ""}`
-      : "Comparison branch unavailable",
+      ? snapshot.stale
+        ? i18n.t`Compared with local ${branch} · last known data`
+        : i18n.t`Compared with local ${branch}`
+      : i18n.t`Comparison branch unavailable`,
     undefined,
     "muted",
   );
@@ -329,7 +340,7 @@ export function draw(
       hook = () => grid.put(3, row, "╰", c.line);
     if (entry.comparison?.ahead === 0n && entry.changes?.total === 0) {
       hook();
-      return line(row, brief_x, "Nothing beyond main", width, tone("faint"));
+      return line(row, brief_x, i18n.t`Nothing beyond main`, width, tone("faint"));
     }
     if (!b) return;
     if (b.phase === "writing") {
@@ -337,15 +348,17 @@ export function draw(
         text = b.label ?? "...";
       hook();
       // Over the old words while amended; dots while the first is written.
-      [...ellipsis(clean(text), width)].forEach((ch, i) =>
-        grid.put(brief_x + i, row, ch, pulse(b.label ? i / 4 : i, since)),
-      );
+      let col = brief_x;
+      [...ellipsis(clean(text), width)].forEach((ch, i) => {
+        grid.put(col, row, ch, pulse(b.label ? i / 4 : i, since));
+        col += displayWidth(ch);
+      });
       return;
     }
     state.writingFor(entry.path, now);
     if (b.label === null && b.phase !== "failed") return;
     hook();
-    line(row, brief_x, b.label ?? "Brief failed", width, tone("faint"));
+    line(row, brief_x, b.label ?? i18n.t`Brief failed`, width, tone("faint"));
   };
   const layout = columnsFor(rect.w),
     x = layout.x,
@@ -356,8 +369,8 @@ export function draw(
     if (sorted) grid.text(col - 1, 4, state.ascending ? "↑" : "↓", c.strong, true);
     line(4, col, label, width, sorted ? "strong" : "faint", sorted);
   };
-  heading(2, "worktree", "WORKTREE", layout.room);
-  for (const column of columns)
+  heading(2, "worktree", i18n.t`WORKTREE`, layout.room);
+  for (const column of columns())
     if (x[column.name] !== undefined) heading(x[column.name]!, column.name, column.header, column.width);
   // Until a removed row has closed, the cursor is its own: it goes with the
   // row, then waits on that line while the rows below move up to it, or
@@ -385,17 +398,19 @@ export function draw(
     const tone = (token: palette.Token): palette.Token => (chosen && token === "faint" ? "muted" : token);
     if (chosen) for (let row = y; row < y + state.lines(); row++) grid.fill(1, row, rect.w - 2, c.selected);
     // A locked worktree's name gives up room for "locked".
+    const lockedLabel = i18n.t`locked`;
+    const lockedWidth = displayWidth(lockedLabel);
     const label = ellipsis(
       clean((chosen ? "› " : "  ") + worktrees.label(entry)),
-      layout.room + 1 - (entry.locked !== null ? 8 : 0),
+      layout.room + 1 - (entry.locked !== null ? lockedWidth + 2 : 0),
     );
     line(y, 1, label, layout.room + 1, chosen ? "strong" : "text", true);
     // A lock, then the path, if it fits with its last directory whole; the name says the rest.
     const end = layout.room + 2;
     let after = displayWidth(label) + 3;
-    if (entry.locked !== null && after + 6 <= end) {
-      line(y, after, "locked", 6, tone("muted"));
-      after += 8;
+    if (entry.locked !== null && after + lockedWidth <= end) {
+      line(y, after, lockedLabel, lockedWidth, tone("muted"));
+      after += lockedWidth + 2;
     }
     const path = displayPath(entry.path, main),
       short = shortPath(path, end - after);
@@ -429,24 +444,26 @@ export function draw(
       );
     if (x.edited !== undefined) {
       const since = entry.edited === null ? null : now - entry.edited;
+      const elapsed = since === null ? "" : ageLabel(since / 1000);
       // Edits in the last hour are brighter.
       line(
         y,
         x.edited,
-        since === null ? "—" : `${ageLabel(since / 1000)} ago`,
+        since === null ? "—" : i18n.t`${elapsed} ago`,
         8,
         since === null ? tone("faint") : since < 3600000 ? "text" : "muted",
       );
     }
     if (x.changes !== undefined) {
       const changes = entry.changes,
+        count = changes?.total ?? 0,
         star = entry.stale ? "*" : "";
-      if (!entry.available) line(y, x.changes, "Missing", 19, "muted");
+      if (!entry.available) line(y, x.changes, i18n.t`Missing`, 19, "muted");
       else if (!changes) line(y, x.changes, "…", 19, tone("faint"));
-      else if (!changes.total) line(y, x.changes, `Clean${star}`, 19, tone("faint"));
+      else if (!changes.total) line(y, x.changes, i18n.t`Clean` + star, 19, tone("faint"));
       else
         runs(y, x.changes, 19, [
-          [`${changes.total} file${changes.total === 1 ? "" : "s"}${star}`, "text"],
+          [(count === 1 ? i18n.t`${count} file` : i18n.t`${count} files`) + star, "text"],
           ...(changes.added || changes.removed
             ? ([
                 ["  ", "text"],
@@ -462,7 +479,8 @@ export function draw(
     if (state.briefs) brief(y + 1, entry, tone, banded ? layout.room + 2 - brief_x : undefined);
     y += state.lines();
   }
-  if (!selected) line(5, 2, snapshot ? "No linked worktrees" : "Discovering worktrees…", undefined, "muted");
+  if (!selected)
+    line(5, 2, snapshot ? i18n.t`No linked worktrees` : i18n.t`Discovering worktrees…`, undefined, "muted");
   const status = worktreeRemoval.footer(state.removal),
     failed = [...(state.briefs?.values() ?? [])].some(b => b.phase === "failed");
   if (status) {
@@ -476,16 +494,18 @@ export function draw(
     }
   } else {
     const enter = snapshot?.agents.some(a => a.path === selected?.path)
-      ? "focus agents"
+      ? i18n.t`focus agents`
       : state.asleep?.path === selected?.path && state.asleep?.count
-        ? "resume agents"
-        : "new agent";
+        ? i18n.t`resume agents`
+        : i18n.t`new agent`;
     line(
       rect.h - 2,
       2,
       selected
-        ? `↑↓ browse · Enter ${enter} · e review · hold ⌫ remove${failed ? " · r refresh" : ""} · Esc close`
-        : "↑↓ browse · Esc close",
+        ? failed
+          ? i18n.t`↑↓ browse · Enter ${enter} · e review · hold ⌫ remove · r refresh · Esc close`
+          : i18n.t`↑↓ browse · Enter ${enter} · e review · hold ⌫ remove · Esc close`
+        : i18n.t`↑↓ browse · Esc close`,
       undefined,
       "faint",
     );

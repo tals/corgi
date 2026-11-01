@@ -6,6 +6,7 @@
 //! source shows onboarding's import picker in place of options. Source
 //! control edits the worktree folder template in place, with a preview.
 //! The top border names the running build and links its commit.
+import * as i18n from "./i18n";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import * as palette from "./palette";
@@ -33,7 +34,7 @@ import * as releaseLabel from "./release_label";
 import * as bugReport from "./bug_report";
 import type { Snapshot as TerminalSnapshot } from "./terminal_info";
 import * as os from "./os";
-import { Writer, clamp, directoryLabel, displayWidth, writeEllipsis, sat } from "./text";
+import { Writer, clamp, directoryLabel, displayWidth, writeEllipsis, sat, wrap } from "./text";
 import { Dialog, View as DialogView, writeField } from "./name_dialog";
 import { matches } from "./search";
 import * as keys from "./keys";
@@ -98,7 +99,7 @@ export const Summarizer = {
     return Provider.parse(choice);
   },
   label(choice: Summarizer): string {
-    return choice === "auto" ? "Auto" : choice === "off" ? "Off" : adapter(choice).name;
+    return choice === "auto" ? i18n.t`Auto` : choice === "off" ? i18n.t`Off` : adapter(choice).name;
   },
 };
 
@@ -107,6 +108,7 @@ export type Item =
   | "readings"
   | "clever_corgi"
   | "theme"
+  | "language"
   | "shell"
   | "keyboard"
   | "agents"
@@ -125,12 +127,13 @@ const import_sources: Record<ImportItem, catalog.Source> = {
 /** A list row: a setting, a group's heading, or a gap between groups. */
 type ListRow = Item | { heading: string } | null;
 /** The list, top to bottom. */
-const list: ListRow[] = [
+const list = (): ListRow[] => [
   "clever_corgi",
   "flourishes",
   "readings",
   null,
   "theme",
+  "language",
   "shell",
   "keyboard",
   "source_control",
@@ -139,7 +142,7 @@ const list: ListRow[] = [
   null,
   "terminal",
   null,
-  { heading: "Import from" },
+  { heading: i18n.t`Import from` },
   ...(Object.keys(import_sources) as ImportItem[]).filter(item =>
     catalog.available_sources.includes(import_sources[item]),
   ),
@@ -148,27 +151,29 @@ const list: ListRow[] = [
   "report_bug",
   "detach",
 ];
-export const items = list.filter((row): row is Item => typeof row === "string");
-const labels: Record<Item, string> = {
-  flourishes: "Visual flourishes",
-  readings: "Resources",
-  clever_corgi: "Clever Corgi",
-  theme: "Theme",
-  shell: "Shell",
-  keyboard: "Keymap",
-  source_control: "Source control",
-  agents: "Manage agents",
-  terminal: "Terminal capabilities",
-  about: "About",
-  report_bug: "Report a bug",
+export const items = list().filter((row): row is Item => typeof row === "string");
+const labels = (): Record<Item, string> => ({
+  flourishes: i18n.t`Visual flourishes`,
+  readings: i18n.t`Resources`,
+  clever_corgi: i18n.t`Clever Corgi`,
+  theme: i18n.t`Theme`,
+  language: i18n.t`Language`,
+  shell: i18n.t`Shell`,
+  keyboard: i18n.t`Keymap`,
+  source_control: i18n.t`Source control`,
+  agents: i18n.t`Manage agents`,
+  terminal: i18n.t`Terminal capabilities`,
+  about: i18n.t`About`,
+  report_bug: i18n.t`Report a bug`,
   import_tmux: "tmux",
   import_herdr: "Herdr",
   import_cmux: "cmux",
-  detach: "Detach",
-};
+  detach: i18n.t`Detach`,
+});
 /** An item's name on its own, as the crumb and the pane's title give it. */
 function fullLabel(item: Item): string {
-  return importSource(item) === null ? labels[item] : `Import from ${labels[item]}`;
+  const source = labels()[item];
+  return importSource(item) === null ? source : i18n.t`Import from ${source}`;
 }
 /** The import source an item offers, or null for settings. */
 function importSource(item: Item): catalog.Source | null {
@@ -190,6 +195,7 @@ export type Apply =
   | { kind: "readings" | "smart_links" | "ghostty"; on: boolean }
   | { kind: "corgi_intensity"; value: number }
   | { kind: "theme"; theme: palette.Theme }
+  | { kind: "language"; language: i18n.Locale | undefined }
   | { kind: "shell"; entry: shellPicker.Entry }
   | { kind: "preset"; preset: km.Preset }
   | { kind: "prefix" }
@@ -366,15 +372,20 @@ const aim_settle_ms = 100;
 /** The source of a commit the top border names. */
 const commit_url = "https://github.com/tals/corgi/commit/";
 const spaceship_rows = 8;
-const acknowledgements = [
-  { label: "Ghostty", detail: "our terminal engine", url: "https://ghostty.org" },
-  { label: "Kitty", detail: "terminal graphics", url: "https://sw.kovidgoyal.net/kitty/" },
-  { label: "herdr", detail: "inspiration and sound cues", url: "https://github.com/herdrdev/herdr" },
-  { label: "herdr-reviewr", detail: "review panel design", url: "https://github.com/persiyanov/herdr-reviewr" },
-  { label: "Pi", detail: "the wonderful pi-tui", url: "https://github.com/earendil-works/pi/tree/main/packages/tui" },
-  { label: "Bun", detail: "our TypeScript runtime", url: "https://bun.sh" },
-] as const;
-const build_prefix = "Build: ";
+const acknowledgements = () =>
+  [
+    { label: "Ghostty", detail: i18n.t`our terminal engine`, url: "https://ghostty.org" },
+    { label: "Kitty", detail: i18n.t`terminal graphics`, url: "https://sw.kovidgoyal.net/kitty/" },
+    { label: "herdr", detail: i18n.t`inspiration and sound cues`, url: "https://github.com/herdrdev/herdr" },
+    { label: "herdr-reviewr", detail: i18n.t`review panel design`, url: "https://github.com/persiyanov/herdr-reviewr" },
+    {
+      label: "Pi",
+      detail: i18n.t`the wonderful pi-tui`,
+      url: "https://github.com/earendil-works/pi/tree/main/packages/tui",
+    },
+    { label: "Bun", detail: i18n.t`our TypeScript runtime`, url: "https://bun.sh" },
+  ] as const;
+const buildPrefix = () => i18n.t`Build: `;
 /** The frame's height on a tall terminal. */
 const height_max = 40;
 /** The options column beside onboarding's preset detail. */
@@ -1124,7 +1135,7 @@ export class Menu {
       top = b.y + 2;
     this.caret = null;
     frame(w, b, l.dividers);
-    w.write(`${at(b.x + 2, b.y)}${text} ᐯ•ᴥ•ᐯ ${bright}Corgi setup `);
+    w.write(`${at(b.x + 2, b.y)}${text} ᐯ•ᴥ•ᐯ ${bright}` + i18n.t`Corgi setup` + " ");
     const crumb = this.crumb(l);
     if (crumb !== null) {
       // The crumb stops short of a divider's corner.
@@ -1163,7 +1174,7 @@ export class Menu {
             hovered: index === this.dropdown?.at,
           };
         }),
-        { text: "", note: "", detail: "Billing" },
+        { text: "", note: "", detail: i18n.t`Billing` },
         columns.note,
         columns.detail,
       );
@@ -1173,7 +1184,7 @@ export class Menu {
       w.write(at(x, y) + text);
       const offset = DialogView.scroll(this.model_query, width);
       const column = writeField(w, this.model_query, offset, width, text);
-      if (!this.model_query.len) w.write(border + "Search models");
+      if (!this.model_query.len) w.write(border + i18n.t`Search models`);
       this.caret = { x: x + column, y };
     }
     if (l.detail) {
@@ -1199,7 +1210,7 @@ export class Menu {
           framed: false,
           focused: this.focus === "options",
         });
-      else w.write(at(area.x + 2, area.y + 1) + text + "Make the terminal taller to manage agents.");
+      else w.write(at(area.x + 2, area.y + 1) + text + i18n.t`Make the terminal taller to manage agents.`);
     }
   }
   /** The setting the options belong to, on the top border while the list is hidden. */
@@ -1211,18 +1222,18 @@ export class Menu {
   private releaseAt(l: Layout): { x: number; link: number } | null {
     const label = releaseLabel.text(this.release),
       crumb = this.crumb(l),
-      width = displayWidth(build_prefix + label) + 2,
+      width = displayWidth(buildPrefix() + label) + 2,
       x = l.b.x + l.b.w - 2 - width;
     if (label.length === 0) return null;
     if (x < l.b.x + 22 + (crumb === null ? 0 : displayWidth(crumb))) return null;
     if (l.dividers.some(d => d >= x && d < x + width)) return null;
-    return { x, link: x + 1 + displayWidth(build_prefix + releaseLabel.parts(this.release)[0]) };
+    return { x, link: x + 1 + displayWidth(buildPrefix() + releaseLabel.parts(this.release)[0]) };
   }
   private drawRelease(w: Writer, l: Layout): void {
     const spot = this.releaseAt(l);
     if (spot === null) return;
     const [built, commit, mark] = releaseLabel.parts(this.release);
-    w.write(at(spot.x, l.b.y) + panel + " " + build_prefix + built);
+    w.write(at(spot.x, l.b.y) + panel + " " + buildPrefix() + built);
     if (commit.length > 0)
       w.write(`${hint_key}\x1b]8;;${commit_url}${this.release.commit}\x1b\\\x1b[4m${commit}\x1b[24m\x1b]8;;\x1b\\`);
     w.write(panel + mark + " ");
@@ -1244,8 +1255,9 @@ export class Menu {
         w.splat(" ", width);
       }
       w.write(at(x + indent, y + i) + (chosen ? p.label : p.text));
-      writeEllipsis(w, labels[item], width - indent - 2);
       const v = this.value(item, s, prefs);
+      const valueWidth = displayWidth(v.text);
+      writeEllipsis(w, labels()[item], Math.max(0, width - indent - 2 - (valueWidth ? valueWidth + 1 : 0)));
       if (v.text.length > 0)
         w.write(
           at(x + width - 2 - displayWidth(v.text), y + i) +
@@ -1259,7 +1271,7 @@ export class Menu {
   /** The rows `body` rows show: short frames drop the gaps between groups,
    * then scroll to keep the selected item, and its heading, in view. */
   private listRows(body: number): ListRow[] {
-    const rows = body >= list.length ? list : list.filter(row => row !== null);
+    const rows = body >= list().length ? list() : list().filter(row => row !== null);
     if (rows.length <= body) {
       this.list_first = 0;
       return rows;
@@ -1272,7 +1284,7 @@ export class Menu {
   }
   /** Rows the list has to show in `body` rows, before scrolling. */
   private listLength(body: number): number {
-    return body >= list.length ? list.length : list.filter(row => row !== null).length;
+    return body >= list().length ? list().length : list().filter(row => row !== null).length;
   }
   private drawOptions(w: Writer, l: Layout, s: Status, prefs: Preferences, now_ms: number) {
     const x = l.options.x,
@@ -1304,7 +1316,7 @@ export class Menu {
           return;
         }
         case "intensity_ends":
-          w.write(at(x0, y) + panel + "0 Off" + at(right - 10, y) + "100 Bright");
+          w.write(at(x0, y) + panel + i18n.t`0 Off` + at(right - 10, y) + i18n.t`100 Bright`);
           return;
         case "corgi_preview":
           return this.drawCorgiPreview(w, x0, y, Math.min(28, right - x0), line.row, prefs, now_ms);
@@ -1391,7 +1403,7 @@ export class Menu {
             cx += displayWidth(shown);
             w.write(panel);
             writeEllipsis(w, ` ${label}`, sat(right, cx));
-            cx += label.length + 1;
+            cx += displayWidth(label) + 1;
           });
           return;
         }
@@ -1459,11 +1471,11 @@ export class Menu {
     if (row === chart_rows) {
       const since = ` −${(n * framePacing.column_ms) / 1000} s `;
       w.write(at(axis, y) + border + "└─" + panel + since + border + "─".repeat(sat(n, since.length + 5)));
-      w.write(panel + " now");
+      w.write(panel + i18n.t` now`);
       return;
     }
-    const label = row === hold_row ? "hold" : row % 2 === 0 ? ["1 s", "100 ms", "10 ms", "1 ms"][row / 2] : "";
-    w.write(at(axis - 1 - label.length, y) + panel + label + " " + border + "┤");
+    const label = row === hold_row ? i18n.t`hold` : row % 2 === 0 ? ["1 s", "100 ms", "10 ms", "1 ms"][row / 2] : "";
+    w.write(at(axis - 1 - displayWidth(label), y) + panel + label + " " + border + "┤");
     let shown = border;
     for (const column of this.chartColumns(n, now_ms)) {
       const t = column?.timing,
@@ -1502,11 +1514,11 @@ export class Menu {
     w.write(at(x, y) + style + " ".repeat(width - 1) + palette.fg("line") + "│");
     switch (row) {
       case 1:
-        w.write(at(x + 1, y) + palette.fg("muted") + "agents: corgi ▾");
+        w.write(at(x + 1, y) + palette.fg("muted") + i18n.t`agents: corgi ▾`);
         break;
       case 3:
         w.write(at(x + 1, y) + palette.fg("accent") + "▶" + at(x + 4, y) + palette.fg("text"));
-        writeEllipsis(w, "Visual flourishes", room);
+        writeEllipsis(w, i18n.t`Visual flourishes`, room);
         break;
       case 4:
         w.write(at(x + 1, y) + palette.fg("faint") + corgiAnimation.spinner(false, now));
@@ -1514,7 +1526,7 @@ export class Menu {
         break;
       case 5:
         w.write(at(x + 1, y) + palette.fg("muted") + "○" + at(x + 4, y) + palette.fg("text"));
-        writeEllipsis(w, "Release notes", room);
+        writeEllipsis(w, i18n.t`Release notes`, room);
         break;
       case 6:
         if (intensity === 0) w.write(at(x + 1, y) + sidebar.nap_fg + "ᶻ");
@@ -1541,8 +1553,8 @@ export class Menu {
       right = x + width - 1;
     if (o.art) return this.drawArt(w, o, line.index, 0, x, width, y);
     if (o.slider !== undefined) {
-      const value = o.slider === 0 ? "Off" : `${o.slider}%`;
-      w.write(at(x0, y) + (here ? bright : text) + o.label + at(right - value.length, y) + bright + value);
+      const value = o.slider === 0 ? i18n.t`Off` : `${o.slider}%`;
+      w.write(at(x0, y) + (here ? bright : text) + o.label + at(right - displayWidth(value), y) + bright + value);
       return;
     }
     if (o.toggle !== undefined)
@@ -1657,31 +1669,36 @@ export class Menu {
   /** Frame pacing under Terminal capabilities: how fast the host answers, charted when `chart`. */
   private pacingLines(chart: boolean): Line[] {
     const p = this.pacing,
-      name = "Frame pacing";
+      name = i18n.t`Frame pacing`;
     if (p === null)
       return [
         { tag: "capability", name, mark: "no" },
-        { tag: "brief", text: "This viewer has no terminal." },
+        { tag: "brief", text: i18n.t`This viewer has no terminal.` },
       ];
     if (p.timing === null)
       return [
         { tag: "capability", name, mark: "no" },
-        { tag: "brief", text: "Never answered, so frames never wait." },
+        { tag: "brief", text: i18n.t`Never answered, so frames never wait.` },
       ];
     const held = p.late + p.lost,
+      lost = p.lost,
+      slowest = duration(p.slowest),
       answers = duration(p.timing.mean, p.timing.sd),
       late: Line = {
         tag: "brief",
         text:
           held === 0
-            ? "None late enough to hold frames."
-            : `${held} late enough to hold frames; ` +
-              (p.lost > 0 ? `${p.lost === 1 ? "one" : p.lost} never came.` : `slowest ${duration(p.slowest)}.`),
+            ? i18n.t`None late enough to hold frames.`
+            : lost > 0
+              ? lost === 1
+                ? i18n.t`${held} late enough to hold frames; one never came.`
+                : i18n.t`${held} late enough to hold frames; ${lost} never came.`
+              : i18n.t`${held} late enough to hold frames; slowest ${slowest}.`,
       };
     if (!chart) return [{ tag: "capability", name, mark: "yes" }, { tag: "spark", text: answers }, late];
     return [
       { tag: "capability", name, mark: "yes" },
-      { tag: "brief", text: `Answers in ${answers}.` },
+      { tag: "brief", text: i18n.t`Answers in ${answers}.` },
       late,
       { tag: "blank" },
       ...Array.from({ length: chart_rows + 1 }, (_, row): Line => ({ tag: "chart", row })),
@@ -1724,23 +1741,23 @@ export class Menu {
         return [];
       case "about":
         return [
-          title("About Corgi"),
+          title(i18n.t`About Corgi`),
           option({
             label: "GitHub",
             detail: "tals/corgi",
             mark: "none",
             apply: { kind: "open", url: "https://github.com/tals/corgi" },
-            action: "open",
+            action: i18n.t`open`,
           }),
           blank,
-          title("Acknowledgements"),
-          ...acknowledgements.map(link =>
+          title(i18n.t`Acknowledgements`),
+          ...acknowledgements().map(link =>
             option({
               label: link.label,
               detail: link.detail,
               mark: "none",
               apply: { kind: "open", url: link.url },
-              action: "open",
+              action: i18n.t`open`,
             }),
           ),
           blank,
@@ -1749,50 +1766,52 @@ export class Menu {
             detail: "",
             mark: "none",
             apply: { kind: "moonlander" },
-            action: "play",
+            action: i18n.t`play`,
             art: spaceship_rows,
           }),
         ];
       case "flourishes":
         return [
-          title("Visual flourishes"),
+          title(i18n.t`Visual flourishes`),
           blank,
-          lead("Sidebar corgi brightness."),
+          lead(i18n.t`Sidebar corgi brightness.`),
           blank,
           option({
-            label: "Intensity",
+            label: i18n.t`Intensity`,
             detail: "",
             mark: "none",
             apply: null,
-            action: "adjust",
+            action: i18n.t`adjust`,
             slider: this.previewIntensity(prefs),
           }),
           { tag: "intensity" },
           { tag: "intensity_ends" },
           blank,
-          { tag: "note", text: "Preview" },
+          { tag: "note", text: i18n.t`Preview` },
           ...Array.from({ length: 8 }, (_, row): Line => ({ tag: "corgi_preview", row })),
         ];
       case "readings":
         return [
-          title("Resource readings"),
-          lead("CPU and memory under each workspace in the sidebar."),
+          title(i18n.t`Resource readings`),
+          lead(i18n.t`CPU and memory under each workspace in the sidebar.`),
           blank,
-          ...onOff(prefs.resources.enabled, "readings", ["show the readings row", "hide the row"]).map(option),
+          ...onOff(prefs.resources.enabled, "readings", [i18n.t`show the readings row`, i18n.t`hide the row`]).map(
+            option,
+          ),
           blank,
-          { tag: "note", text: "Sampling stops once every viewer turns it off." },
+          { tag: "note", text: i18n.t`Sampling stops once every viewer turns it off.` },
         ];
       case "clever_corgi": {
         const second = note(s.choice, s);
         return [
-          title("Clever Corgi"),
+          title(i18n.t`Clever Corgi`),
           blank,
           option({
-            label: "Model",
+            label: i18n.t`Model`,
             detail: "",
             mark: "none",
             apply: null,
-            action: "change",
+            action: i18n.t`change`,
             choice: {
               text: inUse(s),
               on: s.choice !== "off",
@@ -1808,7 +1827,7 @@ export class Menu {
               detail: "",
               mark: "none",
               apply: c.apply(!c.on),
-              action: c.on ? "turn off" : "turn on",
+              action: c.on ? i18n.t`turn off` : i18n.t`turn on`,
               toggle: c.on,
             }),
             { tag: "brief", text: c.brief },
@@ -1818,27 +1837,50 @@ export class Menu {
       }
       case "theme":
         return [
-          title("Theme"),
-          lead("Corgi's colors, or your terminal theme's."),
+          title(i18n.t`Theme`),
+          lead(i18n.t`Corgi's colors, or your terminal theme's.`),
           blank,
           ...palette.available_themes.map(theme =>
             option({
               label: palette.themes[theme].label,
-              detail: theme === "corgi" ? "Corgi's own" : "your terminal's",
+              detail: theme === "corgi" ? i18n.t`Corgi's own` : i18n.t`your terminal's`,
               mark: theme === palette.chosen(prefs.theme) ? "on" : "off",
               apply: theme === prefs.theme ? null : { kind: "theme", theme },
-              action: "use",
+              action: i18n.t`use`,
               swatch: theme,
             }),
           ),
           blank,
-          { tag: "note", text: "Corgi keeps your background when it's dark and paints its own otherwise." },
+          { tag: "note", text: i18n.t`Corgi keeps your background when it's dark and paints its own otherwise.` },
+        ];
+      case "language":
+        return [
+          title(i18n.t`Language`),
+          lead(i18n.t`Choose the language for Corgi's interface.`),
+          { tag: "note", text: i18n.t`CORGI_LANG overrides this setting when set.` },
+          blank,
+          option({
+            label: i18n.t`Auto`,
+            detail: i18n.t`Follow your system language`,
+            mark: prefs.language === undefined ? "on" : "off",
+            apply: prefs.language === undefined ? null : { kind: "language", language: undefined },
+            action: i18n.t`use`,
+          }),
+          ...i18n.locales.map(language =>
+            option({
+              label: i18n.names[language],
+              detail: "",
+              mark: language === prefs.language ? "on" : "off",
+              apply: language === prefs.language ? null : { kind: "language", language },
+              action: i18n.t`use`,
+            }),
+          ),
         ];
       case "shell": {
         const picker = shellPicker.Picker.open(this.shell, this.shells);
         return [
-          title("Shell for new panes"),
-          lead("New panes and splits start in this shell."),
+          title(i18n.t`Shell for new panes`),
+          lead(i18n.t`New panes and splits start in this shell.`),
           blank,
           ...picker.entries.map((entry, i) => {
             const used = i === picker.in_use && entry !== "other";
@@ -1847,7 +1889,7 @@ export class Menu {
               detail: picker.detail(entry),
               mark: used ? "on" : "off",
               apply: used ? null : { kind: "shell", entry },
-              action: entry === "other" ? "type a path" : "use",
+              action: entry === "other" ? i18n.t`type a path` : i18n.t`use`,
               warn: used && entry !== "default" && shellPicker.missing(this.shell),
             });
           }),
@@ -1860,9 +1902,9 @@ export class Menu {
           trouble = worktreeFolder.problem(template),
           values = worktreeFolder.values(project.root, "fix-login", home);
         return [
-          title("Worktree folder"),
+          title(i18n.t`Worktree folder`),
           { tag: "box", edge: "top" },
-          option({ label: "", detail: "", mark: "none", apply: null, action: "save", edit: true }),
+          option({ label: "", detail: "", mark: "none", apply: null, action: i18n.t`save`, edit: true }),
           { tag: "box", edge: "bottom" },
           trouble !== null
             ? { tag: "problem", text: trouble }
@@ -1876,12 +1918,13 @@ export class Menu {
         ];
       }
       case "keyboard": {
-        const other = prefs.prefix === "ctrl_b" ? "ctrl_a" : "ctrl_b";
+        const other = prefs.prefix === "ctrl_b" ? "ctrl_a" : "ctrl_b",
+          prefixName = km.prefixName(other);
         return [
-          title("Keymap"),
+          title(i18n.t`Keymap`),
           fit.keys
             ? { tag: "keys", keys: keyLine(this.previewPreset(prefs), prefs.prefix) }
-            : lead("Which shortcuts feel like home?"),
+            : lead(i18n.t`Which shortcuts feel like home?`),
           blank,
           ...km.available_presets.map(preset =>
             option({
@@ -1889,31 +1932,31 @@ export class Menu {
               detail: fit.brief ? km.shortDescription(preset) : km.description(preset),
               mark: preset === prefs.preset ? "on" : "off",
               apply: preset === prefs.preset ? null : { kind: "preset", preset },
-              action: "use",
+              action: i18n.t`use`,
             }),
           ),
           blank,
           option({
-            label: "Prefix",
+            label: i18n.t`Prefix`,
             detail: km.prefixName(prefs.prefix),
             mark: "none",
             apply: { kind: "prefix" },
-            action: `switch to ${km.prefixName(other)}`,
+            action: i18n.t`switch to ${prefixName}`,
           }),
           option({
-            label: "Customize",
+            label: i18n.t`Customize`,
             detail: "",
             mark: "none",
             apply: { kind: "keybindings" },
-            action: "edit",
+            action: i18n.t`edit`,
             arrow: true,
           }),
           option({
-            label: "All keys",
+            label: i18n.t`All keys`,
             detail: "",
             mark: "none",
             apply: { kind: "keymap" },
-            action: "open",
+            action: i18n.t`open`,
             arrow: true,
           }),
           blank,
@@ -1929,55 +1972,64 @@ export class Menu {
             blank,
           ];
         return [
-          title("Terminal capabilities"),
-          lead("Detected, not settings: what this terminal can do."),
+          title(i18n.t`Terminal capabilities`),
+          lead(i18n.t`Detected, not settings: what this terminal can do.`),
           blank,
-          ...found("Terminal", null, (term.name || "Didn't say its name") + (term.ssh ? " · over SSH" : ""), "muted"),
           ...found(
-            "Kitty graphics",
-            term.graphics ? "yes" : "no",
-            term.graphics ? "Pixel corgi badge and animations." : "🐕 badge; animations stay still.",
+            i18n.t`Terminal`,
+            null,
+            (term.name || i18n.t`Didn't say its name`) + (term.ssh ? i18n.t` · over SSH` : ""),
+            "muted",
           ),
           ...found(
-            "Theme colors",
+            i18n.t`Kitty graphics`,
+            term.graphics ? "yes" : "no",
+            term.graphics ? i18n.t`Pixel corgi badge and animations.` : i18n.t`🐕 badge; animations stay still.`,
+          ),
+          ...found(
+            i18n.t`Theme colors`,
             term.colors ? "yes" : "no",
-            term.colors ? "Animal Style takes its colors from them." : "Animal Style keeps Corgi's colors.",
+            term.colors ? i18n.t`Animal Style takes its colors from them.` : i18n.t`Animal Style keeps Corgi's colors.`,
           ),
           ...(clipboard
             ? found(
-                "Image paste",
+                i18n.t`Image paste`,
                 paste_found[clipboard.support],
                 clipboard.diagnosis(),
                 clipboard.support === "denied" ? "warm" : undefined,
               )
-            : found("Image paste", "no", "This viewer has no terminal to paste from.")),
+            : found(i18n.t`Image paste`, "no", i18n.t`This viewer has no terminal to paste from.`)),
           ...this.pacingLines(fit.chart),
         ];
       }
       case "report_bug": {
-        if (this.report === null) return [title("Report a bug"), lead("Gathering details about this machine…")];
+        if (this.report === null)
+          return [title(i18n.t`Report a bug`), lead(i18n.t`Gathering details about this machine…`)];
         const settings = reportSettings(s, prefs),
           url = bugReport.issueUrl(this.report, settings, this.full_path !== null) ?? bugReport.issues_url,
+          path = this.full_path ? bugReport.tilde(this.full_path) : "",
           brief = (text: string): Line => ({ tag: "brief", text, tone: "muted" });
         return [
-          title("Report a bug"),
-          lead("The issue starts with these details. Nothing is sent until you submit it on GitHub."),
+          title(i18n.t`Report a bug`),
+          lead(i18n.t`The issue starts with these details. Nothing is sent until you submit it on GitHub.`),
           blank,
           option({
-            label: "Open an Issue on GitHub",
+            label: i18n.t`Open an Issue on GitHub`,
             detail: "",
             mark: "none",
             // Over SSH the browser would open on the other machine, if at all.
             apply: this.terminal.ssh ? { kind: "copy", text: url } : { kind: "open", url },
-            action: this.terminal.ssh ? "copy link" : "open",
+            action: this.terminal.ssh ? i18n.t`copy link` : i18n.t`open`,
             arrow: true,
           }),
-          ...(this.link_copied ? [brief("Copied the link; paste it into your browser.")] : []),
+          ...(this.link_copied ? [brief(i18n.t`Copied the link; paste it into your browser.`)] : []),
           ...(this.full_path
             ? [
                 {
                   tag: "note",
-                  text: `Please attach ${bugReport.tilde(this.full_path)}${this.terminal.ssh ? ", on the machine Corgi runs on" : ""}.`,
+                  text: this.terminal.ssh
+                    ? i18n.t`Please attach ${path}, on the machine Corgi runs on.`
+                    : i18n.t`Please attach ${path}.`,
                 } as Line,
               ]
             : []),
@@ -1990,18 +2042,22 @@ export class Menu {
       }
       case "detach":
         return [
-          title("Detach"),
-          lead("Corgi and your agents keep running."),
+          title(i18n.t`Detach`),
+          lead(i18n.t`Corgi and your agents keep running.`),
           blank,
-          { tag: "binding", job: "Detach", key: detachKey(prefs), dim: false },
-          { tag: "binding", job: "Come back", key: "corgi", dim: false },
+          { tag: "binding", job: i18n.t`Detach`, key: detachKey(prefs), dim: false },
+          { tag: "binding", job: i18n.t`Come back`, key: "corgi", dim: false },
         ];
       case "import_tmux":
       case "import_herdr":
       case "import_cmux": {
         const picker = this.importing()!;
         return [
-          title({ choose: fullLabel(this.item), copying: picker.heading(), complete: "Import complete" }[picker.stage]),
+          title(
+            { choose: fullLabel(this.item), copying: picker.heading(), complete: i18n.t`Import complete` }[
+              picker.stage
+            ],
+          ),
           picker.message.length > 0 ? { tag: "warn", text: picker.message } : lead(picker.summary()),
           blank,
           { tag: "picker" },
@@ -2021,20 +2077,22 @@ export class Menu {
         tag: "option",
         index: 0,
         option: {
-          label: "Command keys",
+          label: i18n.t`Command keys`,
           glyph: "⌘",
           detail: "",
           mark: "none",
           apply: works ? { kind: "ghostty", on: !on } : null,
-          action: on ? "turn off" : "turn on",
+          action: on ? i18n.t`turn off` : i18n.t`turn on`,
           toggle: on,
           disabled: !works,
         },
       },
-      ...(this.reload_ghostty ? [brief("Reload Ghostty with ⌘⇧, to apply.", "warm")] : []),
+      ...(this.reload_ghostty ? [brief(i18n.t`Reload Ghostty with ⌘⇧, to apply.`, "warm")] : []),
       this.integration === "failed"
-        ? brief("Corgi can't read your Ghostty config.", "warm")
-        : brief(works ? "In Ghostty only, these keys drive Corgi:" : "Ghostty only, on this Mac; not over SSH."),
+        ? brief(i18n.t`Corgi can't read your Ghostty config.`, "warm")
+        : brief(
+            works ? i18n.t`In Ghostty only, these keys drive Corgi:` : i18n.t`Ghostty only, on this Mac; not over SSH.`,
+          ),
       { tag: "blank" },
       ...commandRows(prefs).map(([job, key]): Line => ({ tag: "binding", job, key, dim: !on })),
     ];
@@ -2049,11 +2107,11 @@ export class Menu {
       apply: (on: boolean): Apply => ({ kind: "inference_use", use, on }),
     });
     return [
-      use("activity", "Activity summaries", "What each agent is doing, under its name."),
-      use("worktrees", "Worktree briefs", "What each worktree holds, in a few words."),
+      use("activity", i18n.t`Activity summaries`, i18n.t`What each agent is doing, under its name.`),
+      use("worktrees", i18n.t`Worktree briefs`, i18n.t`What each worktree holds, in a few words.`),
       {
-        label: "Smart Links",
-        brief: "Digs up likely HTTP links ↗",
+        label: i18n.t`Smart Links`,
+        brief: i18n.t`Digs up likely HTTP links ↗`,
         on: this.smart_links,
         apply: (on: boolean): Apply => ({ kind: "smart_links", on }),
       },
@@ -2072,25 +2130,30 @@ export class Menu {
   /** The list's value column for `item`. */
   private value(item: Item, s: Status, prefs: Preferences): { text: string; tone: "muted" | "faint" | "warm" } {
     const flag = (enabled: boolean) =>
-      enabled ? { text: "On", tone: "muted" as const } : { text: "Off", tone: "faint" as const };
+      enabled ? { text: i18n.t`On`, tone: "muted" as const } : { text: i18n.t`Off`, tone: "faint" as const };
     switch (item) {
       case "flourishes":
-        return { text: this.previewIntensity(prefs) === 0 ? "Off" : `${this.previewIntensity(prefs)}%`, tone: "muted" };
+        return {
+          text: this.previewIntensity(prefs) === 0 ? i18n.t`Off` : `${this.previewIntensity(prefs)}%`,
+          tone: "muted",
+        };
       case "readings":
         return flag(prefs.resources.enabled);
       case "clever_corgi":
         return { text: "", tone: "faint" };
       case "theme":
         return { text: palette.themes[palette.chosen(prefs.theme)].label, tone: "muted" };
+      case "language":
+        return { text: prefs.language ? i18n.names[prefs.language] : i18n.t`Auto`, tone: "muted" };
       case "shell":
-        if (shellPicker.missing(this.shell)) return { text: "not found", tone: "warm" };
+        if (shellPicker.missing(this.shell)) return { text: i18n.t`not found`, tone: "warm" };
         return { text: this.shell.path ? this.shell.path.split("/").pop()! : "", tone: "muted" };
       case "keyboard":
         return { text: km.name(prefs.preset), tone: "muted" };
       case "source_control":
         return prefs.worktree_folder === worktreeFolder.default_template
           ? { text: "", tone: "faint" }
-          : { text: "custom", tone: "muted" };
+          : { text: i18n.t`custom`, tone: "muted" };
       case "terminal":
       case "about":
       case "report_bug":
@@ -2108,8 +2171,8 @@ export class Menu {
   private hints(s: Status, prefs: Preferences): [string, string][] {
     if (this.editing)
       return [
-        ["enter", "save"],
-        ["esc", "close"],
+        ["enter", i18n.t`save`],
+        ["esc", i18n.t`close`],
       ];
     const picker = this.importing();
     if (this.focus === "list") {
@@ -2117,34 +2180,34 @@ export class Menu {
         open = this.item === "agents" || picker !== null || this.options(s, prefs).some(o => !o.disabled);
       const enter: [string, string][] =
         flip?.kind === "detach"
-          ? [["enter", "detach"]]
+          ? [["enter", i18n.t`detach`]]
           : flip && "on" in flip
-            ? [["enter", flip.on ? "turn on" : "turn off"]]
+            ? [["enter", flip.on ? i18n.t`turn on` : i18n.t`turn off`]]
             : open
-              ? [["enter", "choose"]]
+              ? [["enter", i18n.t`choose`]]
               : [];
-      return [["↑↓", "move"], ...enter, ["esc", "close"]];
+      return [["↑↓", i18n.t`move`], ...enter, ["esc", i18n.t`close`]];
     }
     if (this.item === "agents") return [];
     if (picker) return importHints(picker);
     if (this.item === "flourishes")
       return [
-        ["←→", "adjust"],
-        ["home", "off"],
-        ["end", "bright"],
-        ["esc", "back"],
+        ["←→", i18n.t`adjust`],
+        ["home", i18n.t`off`],
+        ["end", i18n.t`bright`],
+        ["esc", i18n.t`back`],
       ];
     if (this.dropdown !== null)
       return [
-        ["type", "search"],
-        ["↑↓", "move"],
-        ["enter", "use"],
-        ["esc", "close"],
+        ["type", i18n.t`search`],
+        ["↑↓", i18n.t`move`],
+        ["enter", i18n.t`use`],
+        ["esc", i18n.t`close`],
       ];
     const option = this.options(s, prefs)[this.cursor];
     const enter: [string, string][] =
       option && !option.disabled && (option.apply || option.choice !== undefined) ? [["enter", option.action]] : [];
-    return [["↑↓", "move"], ...enter, ["←", "back"], ["esc", "close"]];
+    return [["↑↓", i18n.t`move`], ...enter, ["←", i18n.t`back`], ["esc", i18n.t`close`]];
   }
 }
 /** The manager fills the options pane, leaving the outer frame intact. */
@@ -2173,25 +2236,25 @@ function importHints(picker: importPicker.Picker): [string, string][] {
     case "choose": {
       const count = picker.selectionCount(),
         hints: [string, string][] = [
-          ["r", "refresh"],
-          ["e", "expand"],
+          ["r", i18n.t`refresh`],
+          ["e", i18n.t`expand`],
         ];
-      if (picker.source === "herdr") hints.push(["h", "handoff"]);
+      if (picker.source === "herdr") hints.push(["h", i18n.t`handoff`]);
       hints.push(
-        ["↑↓", "move"],
-        ["space", picker.switch_focused ? (picker.handoff ? "turn off" : "turn on") : "select"],
+        ["↑↓", i18n.t`move`],
+        ["space", picker.switch_focused ? (picker.handoff ? i18n.t`turn off` : i18n.t`turn on`) : i18n.t`select`],
       );
-      if (count > 0) hints.push(["enter", picker.activeHandoff() ? "hand off" : `import ${count}`]);
-      hints.push(["←", "back"], ["esc", "close"]);
+      if (count > 0) hints.push(["enter", picker.activeHandoff() ? i18n.t`hand off` : i18n.t`import ${count}`]);
+      hints.push(["←", i18n.t`back`], ["esc", i18n.t`close`]);
       return hints;
     }
     case "copying":
-      return picker.failed() ? [["enter", "back"]] : [];
+      return picker.failed() ? [["enter", i18n.t`back`]] : [];
     case "complete":
       return [
-        ["enter", "open"],
-        ["←", "back"],
-        ["esc", "close"],
+        ["enter", i18n.t`open`],
+        ["←", i18n.t`back`],
+        ["esc", i18n.t`close`],
       ];
   }
 }
@@ -2203,11 +2266,11 @@ function pickerArea(l: Layout, line: number): Rect {
 }
 function onOff(enabled: boolean, kind: "readings", details: [string, string]): Option[] {
   return [true, false].map((value, i) => ({
-    label: value ? "On" : "Off",
+    label: value ? i18n.t`On` : i18n.t`Off`,
     detail: details[i],
     mark: value === enabled ? "on" : "off",
     apply: value === enabled ? null : { kind, on: value },
-    action: value ? "turn on" : "turn off",
+    action: value ? i18n.t`turn on` : i18n.t`turn off`,
   }));
 }
 const action = (name: string, value?: string) => (value === undefined ? { name } : { name, value }) as Action;
@@ -2220,13 +2283,13 @@ function detachKey(prefs: Preferences): string {
 /** The mini keymap's width, as wide as its longest row needs. */
 const binding_w = 30;
 /** The jobs Command keys' mini keymap shows, where active shortcuts bind them. */
-const command_jobs: { job: string; actions: string[] }[] = [
-  { job: "New tab", actions: ["new"] },
-  { job: "Close tab", actions: ["close-tab"] },
-  { job: "Reopen tab", actions: ["undo-close"] },
-  { job: "Next / previous", actions: ["next", "prev"] },
-  { job: "Select tab", actions: ["tab"] },
-  { job: "Select workspace", actions: ["goto-workspace"] },
+const commandJobs = (): { job: string; actions: string[] }[] => [
+  { job: i18n.t`New tab`, actions: ["new"] },
+  { job: i18n.t`Close tab`, actions: ["close-tab"] },
+  { job: i18n.t`Reopen tab`, actions: ["undo-close"] },
+  { job: i18n.t`Next / previous`, actions: ["next", "prev"] },
+  { job: i18n.t`Select tab`, actions: ["tab"] },
+  { job: i18n.t`Select workspace`, actions: ["goto-workspace"] },
 ];
 /** Command keys' active jobs; consecutive numbered keys show as ⌘1–9. */
 function commandRows(prefs: Preferences): [string, string][] {
@@ -2246,7 +2309,7 @@ function commandRows(prefs: Preferences): [string, string][] {
         return `${labels[0]}–${numbered.at(-1)![2]}`;
       return labels.join(" / ");
     };
-  return command_jobs.flatMap(({ job, actions }) => {
+  return commandJobs().flatMap(({ job, actions }) => {
     const keys = actions.map(key);
     return keys.every(k => k !== null) ? [[job, keys.join(" / ")] as [string, string]] : [];
   });
@@ -2255,10 +2318,10 @@ function commandRows(prefs: Preferences): [string, string][] {
 function keyLine(preset: km.Preset, prefix: km.Prefix): [string, string][] {
   const key = (name: string, value?: string) => onboarding.cardKey({ preset, prefix }, action(name, value));
   return [
-    preset === "cmux" ? ["⌘", "+"] : [km.prefixName(prefix), "then"],
-    [key("new"), "tab"],
-    [`${key("split", "right")} ${key("split", "down")}`, "split"],
-    [["left", "down", "up", "right"].map(side => key("focus", side)).join(" "), "focus"],
+    preset === "cmux" ? ["⌘", "+"] : [km.prefixName(prefix), i18n.t`then`],
+    [key("new"), i18n.t`tab`],
+    [`${key("split", "right")} ${key("split", "down")}`, i18n.t`split`],
+    [["left", "down", "up", "right"].map(side => key("focus", side)).join(" "), i18n.t`focus`],
   ];
 }
 /** The rounded border, with a divider down each listed column. */
@@ -2284,18 +2347,6 @@ function drawHints(w: Writer, x: number, y: number, room: number, hints: [string
     w.write(hint_key + key + panel + " " + label + border + (i < hints.length - 1 ? "   " : " "));
   });
 }
-function wrap(value: string, room: number): string[] {
-  const out: string[] = [];
-  let line = "";
-  for (const word of value.split(" ")) {
-    if (line.length > 0 && displayWidth(line) + 1 + displayWidth(word) > room) {
-      out.push(line);
-      line = word;
-    } else line = line.length > 0 ? `${line} ${word}` : word;
-  }
-  if (line.length > 0) out.push(line);
-  return out;
-}
 function summarizerChoices(
   s: Status,
   expanded: ReadonlySet<Provider>,
@@ -2306,15 +2357,19 @@ function summarizerChoices(
     const provider = Summarizer.provider(choice);
     if (!provider) {
       if (!matches(query, `${Summarizer.label(choice)} ${summary(choice, s)}`)) return [];
+      const providerName = s.provider ? adapter(s.provider).name : "",
+        model = s.provider ? Model.resolve(s.models[s.provider]).label() : "";
       return [
         {
           text: Summarizer.label(choice),
           inline_note: true,
           note:
             choice === "auto" && s.choice === "auto" && s.provider
-              ? `${s.locked ? "Use" : "Follow"} ${adapter(s.provider).name} · ${Model.resolve(s.models[s.provider]).label()}`
+              ? s.locked
+                ? i18n.t`Use ${providerName} · ${model}`
+                : i18n.t`Follow ${providerName} · ${model}`
               : choice === "auto"
-                ? "Follow your agents"
+                ? i18n.t`Follow your agents`
                 : summary(choice, s),
           current: choice === s.choice,
           apply: { kind: "summaries", choice },
@@ -2327,7 +2382,7 @@ function summarizerChoices(
         rows = [
           {
             account: "",
-            name: adapter(provider).inference.source || preview?.names[provider] || "Default",
+            name: adapter(provider).inference.source || preview?.names[provider] || i18n.t`Default`,
             option: preview?.options[provider],
           },
           ...(preview?.accounts.filter(a => a.provider === provider) ?? []).map(a => ({
@@ -2342,7 +2397,7 @@ function summarizerChoices(
             label =
               (row.option?.model === model ? row.option.model_name : "") ||
               Model.resolve(model).label() ||
-              "Default model",
+              i18n.t`Default model`,
             user = row.option?.account || "—",
             plan = row.option?.plan ?? "",
             kind: Billing | "signed_out" =
@@ -2383,20 +2438,28 @@ function summarizerChoices(
     if (query && !models.length && !(s.loading && matches(query, adapter(provider).name))) return [];
     const candidate = recommended;
     const auto_choice: Choice = {
-      text: "Auto",
+      text: i18n.t`Auto`,
       depth: 1,
       inline_note: true,
-      note: candidate ? "" : all.length ? "No verified model yet" : s.loading ? "Fetching models…" : "Sign in first",
+      note: candidate
+        ? ""
+        : all.length
+          ? i18n.t`No verified model yet`
+          : s.loading
+            ? i18n.t`Fetching models…`
+            : i18n.t`Sign in first`,
       current: s.choice === provider && auto,
       apply: s.loading && !all.length ? null : { kind: "summaries", choice: provider },
     };
+    const count = models.length,
+      modelCount = count === 1 ? i18n.t`${count} model` : i18n.t`${count} models`;
     const heading: Choice = {
       text: adapter(provider).name,
       note: all.length
-        ? `${models.length} ${models.length === 1 ? "model" : "models"}${s.loading ? " ◌" : ""}`
+        ? modelCount + (s.loading ? " ◌" : "")
         : s.loading
-          ? "Fetching models…"
-          : "No signed-in models",
+          ? i18n.t`Fetching models…`
+          : i18n.t`No signed-in models`,
       current: false,
       heading: true,
       heading_tone: "accent",
@@ -2441,7 +2504,7 @@ function summarizerChoices(
         ...group.map((m): Choice => ({
           text: m.name,
           depth: 2,
-          note: m === candidate ? "(auto choice)" : m.ready === false ? "Check failed" : "",
+          note: m === candidate ? i18n.t`(auto choice)` : m.ready === false ? i18n.t`Check failed` : "",
           pin: m === candidate,
           current: s.choice === provider && !auto && s.model === m.model && s.account === m.account,
           apply: models.includes(m)
@@ -2452,7 +2515,7 @@ function summarizerChoices(
       ...(hidden > 0
         ? [
             {
-              text: show_all ? "Show fewer" : `Show ${hidden} more`,
+              text: show_all ? i18n.t`Show fewer` : i18n.t`Show ${hidden} more`,
               depth: 1,
               note: "",
               current: false,
@@ -2474,7 +2537,7 @@ function summarizerChoices(
   }
   return spaced.length
     ? spaced
-    : [{ text: "No matching models", note: "", heading: true, current: false, apply: null }];
+    : [{ text: i18n.t`No matching models`, note: "", heading: true, current: false, apply: null }];
 }
 function modelHeading(text: string, depth = 0, note = "", detail = ""): Choice {
   return {
@@ -2513,15 +2576,15 @@ type Billing = "subscription" | "tokens" | "free" | "unknown";
 function billingLabel(kind: Billing | "signed_out", plan: string): string {
   switch (kind) {
     case "subscription":
-      return plan || "Plan";
+      return plan || i18n.t`Plan`;
     case "tokens":
-      return "Metered";
+      return i18n.t`Metered`;
     case "free":
-      return "Free";
+      return i18n.t`Free`;
     case "unknown":
-      return plan || "Unknown";
+      return plan || i18n.t`Unknown`;
     case "signed_out":
-      return "Signed out";
+      return i18n.t`Signed out`;
   }
 }
 function billing(model: ModelOption): Billing {
@@ -2560,13 +2623,19 @@ function modelColumns(choices: Choice[], width: number): { note: number; detail:
 }
 function summary(choice: Summarizer, s: Status): string {
   switch (choice) {
-    case "auto":
-      if (s.choice !== "auto" || s.provider === null) return "Follow the agents you run";
-      return `${s.locked ? "Settled on" : "Following you →"} ${adapter(s.provider).name} · ${Model.resolve(s.models[s.provider]).label()}`;
+    case "auto": {
+      if (s.choice !== "auto" || s.provider === null) return i18n.t`Follow the agents you run`;
+      const providerName = adapter(s.provider).name,
+        model = Model.resolve(s.models[s.provider]).label();
+      return s.locked
+        ? i18n.t`Settled on ${providerName} · ${model}`
+        : i18n.t`Following you → ${providerName} · ${model}`;
+    }
     case "off":
-      return "No summaries, plain links";
+      return i18n.t`No summaries, plain links`;
     default: {
-      const provider = Summarizer.provider(choice)!;
+      const provider = Summarizer.provider(choice)!,
+        providerName = adapter(provider).name;
       const selected = s.available.find(
         m =>
           m.provider === provider &&
@@ -2581,8 +2650,8 @@ function summary(choice: Summarizer, s: Status): string {
         !cached.length
       )
         return s.loading
-          ? "Checking signed-in models…"
-          : `Sign in to a model provider through ${adapter(provider).name}`;
+          ? i18n.t`Checking signed-in models…`
+          : i18n.t`Sign in to a model provider through ${providerName}`;
       const model =
         selected?.name ||
         Model.resolve(
@@ -2590,8 +2659,8 @@ function summary(choice: Summarizer, s: Status): string {
             (adapter(provider).inference.catalog === "native" ? adapter(provider).inference.model : ""),
         ).label() ||
         automatic(cached)?.name ||
-        "No verified model yet";
-      return `${model} · your ${adapter(provider).name} login`;
+        i18n.t`No verified model yet`;
+      return i18n.t`${model} · your ${providerName} login`;
     }
   }
 }
@@ -2601,7 +2670,7 @@ function note(choice: Summarizer, s: Status): string | null {
     case "auto":
       return launchCounts(s);
     case "off":
-      return "Activity text stays blank; links say Open Link";
+      return i18n.t`Activity text stays blank; links say Open Link`;
     default:
       return null;
   }
@@ -2620,17 +2689,17 @@ function inUse(s: Status): string {
     if (native) cached.sort(compare);
     const model =
       s.available.find(m => m.provider === provider && m.model === s.model && m.account === s.account)?.name ??
-      (s.model ? Model.resolve(s.model).label() : (automatic(cached)?.name ?? "checking…"));
+      (s.model ? Model.resolve(s.model).label() : (automatic(cached)?.name ?? i18n.t`checking…`));
     const auto = s.selection.provider !== provider || !s.selection.model;
-    return `${label} · ${auto ? `Auto (${model})` : model}`;
+    return `${label} · ${auto ? i18n.t`Auto (${model})` : model}`;
   }
   return s.choice === "auto" && s.provider !== null ? `${label} · ${adapter(s.provider).name}` : label;
 }
 /** Launches per provider since the daemon started, in launcher order. */
 function launchCounts(s: Status): string {
   const total = Provider.all.reduce((sum, provider) => sum + s.launches[provider], 0);
-  if (total === 0) return "No agents yet this session; using your last one";
-  let out = "Since start:";
+  if (total === 0) return i18n.t`No agents yet this session; using your last one`;
+  let out = i18n.t`Since start:`;
   Provider.all.forEach(
     (provider, i) => (out += `${i === 0 ? "" : " ·"} ${adapter(provider).command} ${s.launches[provider]}×`),
   );

@@ -2,6 +2,7 @@
 //! fills the preview; this file only shows it, and the shared runtime
 //! remembers the choice. Its Manage agents is agent_manager.ts, in its card.
 //! Mirrors agent_launcher.zig.
+import * as i18n from "./i18n";
 import * as palette from "./palette";
 import { Style, keycap } from "./palette";
 import { Provider, byProvider, adapter } from "./providers";
@@ -142,14 +143,21 @@ export function resolution(value: any = {}): Resolution {
   result.command = commandEntry(value?.command);
   return result;
 }
-const headings = ["Agent", "YOLO", "Model", "Account", "Plan", "Usage (used) · resets in"];
+const headings = () => [
+  i18n.t`Agent`,
+  "YOLO",
+  i18n.t`Model`,
+  i18n.t`Account`,
+  i18n.t`Plan`,
+  i18n.t`Usage (used) · resets in`,
+];
 /** Columns for a row's brand mark. */
 const mark_w = 2;
 // Reserve metadata and two usage windows before their readings arrive.
 const column_widths = [26 + mark_w, 6, 24 - mark_w, 28, 12, 50];
 export const preferred_width = 4 + column_widths.reduce((sum, size) => sum + size, 0);
 type Hint = { key: string; label: string };
-const manage_label = " Manage agents ";
+const manageLabel = () => ` ${i18n.t`Manage agents`} `;
 const now = () => Math.floor(Date.now() / 1000);
 
 export class Menu {
@@ -278,8 +286,8 @@ export class Menu {
         : o.model.length
           ? modelLabel(o)
           : (o.pending ?? this.preview.pending)
-            ? "Reading…"
-            : "Default",
+            ? i18n.t`Reading…`
+            : i18n.t`Default`,
       ...(settings?.effort ? { effort: settings.effort } : {}),
     };
   }
@@ -293,15 +301,15 @@ export class Menu {
       this.label(row),
       adapter(this.launchOf(row)!.provider).bypass === false ? "—" : this.yoloOf(row) ? "✓" : "·",
       model.name + effort.suffix(model.effort),
-      out ? "—" : o.account.length > 0 ? o.account : pending ? "Reading…" : "Unavailable",
-      out ? "—" : o.plan.length > 0 ? o.plan : pending ? "…" : "Unknown",
+      out ? "—" : o.account.length > 0 ? o.account : pending ? i18n.t`Reading…` : i18n.t`Unavailable`,
+      out ? "—" : o.plan.length > 0 ? o.plan : pending ? "…" : i18n.t`Unknown`,
     ];
   }
   customCells(index: number): string[] {
     const entry = this.commands[index];
     const info = entry.semantics;
     const shared = info.default_account ? info.provider : null;
-    const values = shared ? this.cells(shared) : ["", "", "Default", "", "—"];
+    const values = shared ? this.cells(shared) : ["", "", i18n.t`Default`, "", "—"];
     values[0] = entry.label();
     values[1] = info.yolo ? "✓" : "·";
     if (info.model.length > 0) values[2] = info.modelLabel();
@@ -318,15 +326,16 @@ export class Menu {
           ? this.preview.options[shared.provider]
           : null;
     if (o === null) return Cell.status("—");
-    if (custom === null && this.signsIn(row)) return Cell.status("Sign in");
+    if (custom === null && this.signsIn(row)) return Cell.status(i18n.t`Sign in`);
     // Agent rows offer an actionable "Track usage" link instead; saved
     // commands sharing that provider show unavailable data (no action).
-    if (this.consenting(o)) return custom === null ? Cell.status("Track usage") : Cell.status("—");
+    if (this.consenting(o)) return custom === null ? Cell.status(i18n.t`Track usage`) : Cell.status("—");
     const at = now();
     const limits = o.limits;
-    if (limits === "none") return (o.pending ?? this.preview.pending) ? Cell.status("Reading…") : Cell.status("—");
+    if (limits === "none")
+      return (o.pending ?? this.preview.pending) ? Cell.status(i18n.t`Reading…`) : Cell.status("—");
     if (limits === "metered") {
-      if (o.spend === null) return Cell.status("Metered");
+      if (o.spend === null) return Cell.status(i18n.t`Metered`);
       if (expired(o.usage_fetched_at, at) || !spend.current(o.spend, at)) return Cell.status("—");
       return Cell.monthly(o.spend, at);
     }
@@ -637,7 +646,7 @@ export class Menu {
   /** The title's Manage button, ` m  Manage agents `, in 0-based cells;
    * null when the menu is too narrow for it. */
   static manageSpan(b: Rect): { x: number; w: number } | null {
-    const width = 1 + 3 + manage_label.length;
+    const width = 1 + 3 + displayWidth(manageLabel());
     if (b.w < width + 18) return null;
     return { x: b.x + b.w - 2 - width, w: width };
   }
@@ -661,11 +670,16 @@ export class Menu {
     // Like a footer hint: a keycap, then a faint label.
     w.write(`\x1b[${b.y + 1};${span.x + 1}H${panel} `);
     writeKey(w, "→", panel);
-    w.write(manage_label);
+    w.write(manageLabel());
   }
   private static drawFooter(w: Writer, b: Rect, panel: string, what: string, hints: Hint[]): void {
     let hint_width = 0;
-    hints.forEach((hint, i) => (hint_width += displayWidth(hint.key) + 2 + 1 + hint.label.length + (i > 0 ? 2 : 0)));
+    hints = hints.filter(hint => {
+      const width = displayWidth(hint.key) + 3 + displayWidth(hint.label) + (hint_width > 0 ? 2 : 0);
+      if (hint_width + width > b.w - 6) return false;
+      hint_width += width;
+      return true;
+    });
     const footer_row = b.y + b.h - 1;
     w.write(`\x1b[${footer_row};${b.x + 3}H${panel}`);
     writeEllipsis(w, what, sat(b.w, hint_width + 6));
@@ -704,7 +718,9 @@ export class Menu {
       if (!l || !o) continue;
       const a = this.accountOf(row),
         installed = this.preview.installed[l.provider],
-        out = installed && o.signed_in === false;
+        out = installed && o.signed_in === false,
+        version = this.preview.outdated[l.provider],
+        requires = adapter(l.provider).requires ?? i18n.t`an update`;
       agents.push({
         ...(this.profileOf(row) ? { profile: this.profileOf(row)!.id } : {}),
         provider: l.provider,
@@ -713,11 +729,11 @@ export class Menu {
         label: this.label(row),
         who: !installed
           ? this.preview.outdated[l.provider]
-            ? `${this.preview.outdated[l.provider]} · needs ${adapter(l.provider).requires ?? "an update"}`
-            : "Not installed"
+            ? i18n.t`${version} · needs ${requires}`
+            : i18n.t`Not installed`
           : out
-            ? "Not signed in"
-            : o.account || ((o.pending ?? this.preview.pending) ? "Reading…" : "Unavailable"),
+            ? i18n.t`Not signed in`
+            : o.account || ((o.pending ?? this.preview.pending) ? i18n.t`Reading…` : i18n.t`Unavailable`),
         signed_out: out,
         shown: !this.hiddenOf(row),
         here: !this.workspace_hidden.includes(row),
@@ -752,10 +768,10 @@ export class Menu {
       return o.account.length > 0
         ? o.account
         : (o.pending ?? this.preview.pending)
-          ? "Reading default account…"
-          : "Default account · unavailable";
+          ? i18n.t`Reading default account…`
+          : i18n.t`Default account · unavailable`;
     }
-    return "Account unknown";
+    return i18n.t`Account unknown`;
   }
   /** A field on `selected`: its text in `fg`, its selection while focused, or the placeholder. */
   private static drawInput(
@@ -804,7 +820,7 @@ export class Menu {
     const marks = m.transition.active ? null : m.marks;
     const widths = m.columns(b.w);
     let heading_x = b.x + 4;
-    headings.forEach((heading, column) => {
+    headings().forEach((heading, column) => {
       const width = widths[column];
       if (width === 0) return;
       w.write(`\x1b[${b.y + 2};${heading_x + (column === 0 ? 4 + mark_w : 0)}H${panel}`);
@@ -814,8 +830,8 @@ export class Menu {
           ? "Y"
           : column === 5 && room < displayWidth(heading)
             ? room >= 14
-              ? "Usage · resets"
-              : "Usage"
+              ? i18n.t`Usage · resets`
+              : i18n.t`Usage`
             : heading;
       writeEllipsis(w, label, room);
       heading_x += width;
@@ -839,7 +855,7 @@ export class Menu {
         w.write(`\x1b[${row};${b.x + 4}H`);
         writeKey(w, "t", style);
         w.write(" ");
-        writeEllipsis(w, "New terminal", sat(b.w, 10));
+        writeEllipsis(w, i18n.t`New terminal`, sat(b.w, 10));
         continue;
       }
       let x = b.x + 4;
@@ -883,66 +899,70 @@ export class Menu {
     let hints: Hint[];
     if (m.worktree.mode === "open" && m.worktree.focus === "from")
       hints = [
-        { key: "↑↓", label: "pick" },
-        { key: "↵", label: "use" },
-        { key: "esc", label: "back" },
+        { key: "↑↓", label: i18n.t`pick` },
+        { key: "↵", label: i18n.t`use` },
+        { key: "esc", label: i18n.t`back` },
       ];
     else if (m.worktree.mode === "open")
       hints = [
-        { key: "↑↓", label: "choose" },
-        ...(m.worktree.creating(m.worktrees) ? [{ key: "tab", label: "from" }] : []),
-        { key: "esc", label: "close" },
+        { key: "↑↓", label: i18n.t`choose` },
+        ...(m.worktree.creating(m.worktrees) ? [{ key: "tab", label: i18n.t`from` }] : []),
+        { key: "esc", label: i18n.t`close` },
       ];
     else if (view.searching && view.query.len > 0)
       hints = [
-        { key: "↵", label: "resume" },
-        { key: "tab", label: "scope" },
-        { key: "esc", label: "clear" },
+        { key: "↵", label: i18n.t`resume` },
+        { key: "tab", label: i18n.t`scope` },
+        { key: "esc", label: i18n.t`clear` },
       ];
     else if (view.searching)
       hints = [
-        { key: "↵", label: "resume" },
-        { key: "tab", label: "scope" },
-        { key: "esc", label: "close" },
+        { key: "↵", label: i18n.t`resume` },
+        { key: "tab", label: i18n.t`scope` },
+        { key: "esc", label: i18n.t`close` },
       ];
     else if (view.focused && view.expanded)
       hints = [
-        { key: "↵", label: "resume" },
-        { key: "/", label: "search" },
-        { key: "tab", label: "scope" },
-        { key: "esc", label: "less" },
+        { key: "↵", label: i18n.t`resume` },
+        { key: "/", label: i18n.t`search` },
+        { key: "tab", label: i18n.t`scope` },
+        { key: "esc", label: i18n.t`less` },
       ];
     else if (on_more)
       hints = [
-        { key: "↵", label: "show all" },
-        { key: "/", label: "search" },
+        { key: "↵", label: i18n.t`show all` },
+        { key: "/", label: i18n.t`search` },
       ];
     else if (view.focused)
       hints = [
-        { key: "↵", label: "resume" },
-        { key: "/", label: "search" },
+        { key: "↵", label: i18n.t`resume` },
+        { key: "/", label: i18n.t`search` },
       ];
-    else if (Row.custom(m.selected) !== null) hints = [{ key: "a", label: "launch" }];
-    else if (m.selected === "terminal") hints = [{ key: "a", label: "open" }];
+    else if (Row.custom(m.selected) !== null) hints = [{ key: "a", label: i18n.t`launch` }];
+    else if (m.selected === "terminal") hints = [{ key: "a", label: i18n.t`open` }];
     else if (m.trackable(m.selected))
       hints = [
-        { key: "u", label: "Track usage" },
-        { key: "a", label: "launch" },
+        { key: "u", label: i18n.t`Track usage` },
+        { key: "a", label: i18n.t`launch` },
         { key: "y", label: "YOLO" },
       ];
     else
       hints = [
-        { key: "a", label: m.signsIn(m.selected) ? "sign in" : "launch" },
+        { key: "a", label: m.signsIn(m.selected) ? i18n.t`sign in` : i18n.t`launch` },
         { key: "y", label: "YOLO" },
       ];
     const launch = m.launchOf(m.selected);
     if (launch && adapter(launch.provider).bypass === false) hints = hints.filter(h => h.key !== "y");
     const planned = m.worktree.planned;
+    const folder = planned
+      ? launcherWorktree.folderLabel(planned.path, launcherWorktree.projectRoot(m.worktrees, m.cwd))
+      : "";
+    const branch = planned?.base_name ?? "";
     const what = !planned
-      ? "new tab"
+      ? i18n.t`new tab`
       : m.worktree.adding
-        ? `adding ${launcherWorktree.folderLabel(planned.path, launcherWorktree.projectRoot(m.worktrees, m.cwd))}…`
-        : `new worktree from ${planned.base_name} · new tab`;
+        ? i18n.t`adding ${folder}…`
+        : i18n.t`new worktree from ${branch} · new tab`;
     Menu.drawFooter(w, b, panel, what, hints);
     w.write("\x1b[0m\x1b[?25l");
     const bx = m.worktreeBox(cols, rowsCount, side);
@@ -963,7 +983,7 @@ export class Menu {
       panel = new Style({ fg: "faint", bg: "surface" }).sgr(),
       rule = new Style({ fg: "line", bg: "surface" }).sgr();
     dropdown.draw(w, r, []);
-    w.write(at(r.x + 2, r.y) + text + " Worktree " + rule);
+    w.write(at(r.x + 2, r.y) + text + i18n.t` Worktree ` + rule);
     launcherWorktree
       .visible(c, this.worktreeChoices(), bx.shown)
       .forEach((choice, i) => dropdown.row(w, r, bx.list - r.y + i, choice));
@@ -971,16 +991,16 @@ export class Menu {
     // The text is strong, a placeholder faint.
     const input = (d: Dialog, placeholder: string, y: number, focused: boolean) =>
       Menu.drawInput(w, d, placeholder, bx.field_x + 1, y + 1, bx.field_w, focused, d.len === 0 ? "faint" : "strong");
-    label(bx.branch, "Branch");
-    input(c.field, "search or create", bx.branch, c.focus === "branch");
+    label(bx.branch, i18n.t`Branch`);
+    input(c.field, i18n.t`search or create`, bx.branch, c.focus === "branch");
     const selected = c.selected(this.worktrees),
       creating = c.creating(this.worktrees);
     if (creating) {
-      label(bx.from, "From");
+      label(bx.from, i18n.t`From`);
       const from = c.focus === "from" ? c.from : Dialog.init({ rename: 0 }, c.base?.name ?? "");
       input(from, "", bx.from, c.focus === "from");
     }
-    label(bx.folder, "Folder");
+    label(bx.folder, i18n.t`Folder`);
     w.write(at(bx.field_x, bx.folder) + text);
     const root = launcherWorktree.projectRoot(this.worktrees, this.cwd),
       path =
@@ -989,9 +1009,15 @@ export class Menu {
           ? launcherWorktree.plannedPath(this.worktrees, this.cwd, c.field.name(), this.worktree_folder)
           : this.cwd);
     writeEllipsis(w, launcherWorktree.folderLabel(path, root), bx.field_w);
-    label(bx.footer, "↑↓ choose");
+    label(bx.footer, i18n.t`↑↓ choose`);
     const action =
-      c.focus === "from" ? "↵ use branch" : creating ? "hold ↵ to create" : selected ? "↵ switch" : "type to search";
+      c.focus === "from"
+        ? i18n.t`↵ use branch`
+        : creating
+          ? i18n.t`hold ↵ to create`
+          : selected
+            ? i18n.t`↵ switch`
+            : i18n.t`type to search`;
     w.write(at(r.x + r.w - displayWidth(action) - 3, bx.footer) + text + action);
     if (c.create.progress > 0)
       w.write(

@@ -686,3 +686,62 @@ test("a ghost shows another scope dimmed and leaves the followed review alone", 
   expect(p.review(3).pick).toHaveLength(40);
   p.hide();
 });
+
+test("wide source wraps and scrolls in cells without writing into the pane beside it", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "corgi-review-wide-")));
+  const p = new panel.Panel();
+  try {
+    execFileSync("git", ["-C", dir, "init", "-q", "-b", "main"]);
+    writeFileSync(
+      join(dir, "wide.ts"),
+      [
+        'export const languages = ["English", "中文", "日本語", "한국어", "Русский"];',
+        'export const combining = "e\u0301";',
+        "界".repeat(210),
+        "export const afterWideLine = true;",
+      ].join("\n") + "\n",
+    );
+    p.follow({ pane: 88, cwd: dir, name: "Wide source" });
+    p.show();
+    await settle(p);
+    const review = p.review(88);
+    review.all = false;
+    review.path = "wide.ts";
+    review.free = true;
+    for (const width of [40, 53]) {
+      for (const [wrap, shift] of [
+        [true, 0],
+        [false, 0],
+        [false, 9],
+      ] as const) {
+        review.wrap = wrap;
+        review.shift = shift;
+        review.top = 0;
+        const left = "L".repeat(59),
+          height = 34;
+        const terminal = new Terminal(left.length + width, height);
+        try {
+          for (let row = 0; row < height; row++) terminal.feed(`\x1b[${row + 1};1H${left}`);
+          const w = new Writer();
+          p.draw(w, left.length, 0, width, height, true);
+          terminal.feed(w.buffered());
+          const rows = terminal.text().split("\n");
+          expect(rows.slice(0, height).every(row => row.startsWith(left + "│"))).toBe(true);
+          const body = rows.map(row => row.slice(left.length)).join("\n");
+          expect(body).toContain("界界界");
+          expect(body).toContain("afterWideLine");
+          expect(body).not.toContain("�");
+          if (wrap) {
+            expect(body).toContain("more characters");
+            expect(body).toMatch(/e\u0301|é/);
+          }
+        } finally {
+          terminal.destroy();
+        }
+      }
+    }
+  } finally {
+    p.hide();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

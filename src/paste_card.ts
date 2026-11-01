@@ -4,6 +4,7 @@
 //! mouse, so Ghostty opens its links only on Cmd+Shift-click, which skips
 //! the capture; a plain click reaches Corgi, which copies the link.
 //! Mirrors paste_card.zig.
+import * as i18n from "./i18n";
 import * as palette from "./palette";
 import { Style } from "./palette";
 import { Rect, View as LayoutView } from "./layout";
@@ -11,12 +12,12 @@ import { download_url, type Notice } from "./host_clipboard";
 import type { Pane } from "./mirror";
 import { Writer, displayWidth, writeEllipsis, sat } from "./text";
 
-const title = " Image not pasted ";
+const titleLabel = () => i18n.t` Image not pasted `;
 const keycap = " esc ";
-const close = " close ";
-const download = "Download: ";
-const copied_label = " Copied to clipboard ";
-const open_hint = " ⇧⌘-click opens · click copies ";
+const closeLabel = () => i18n.t` close `;
+const downloadLabel = () => i18n.t`Download: `;
+const copiedLabel = () => i18n.t` Copied to clipboard `;
+const openHint = () => i18n.t` ⇧⌘-click opens · click copies `;
 /** Columns between the border and the text. */
 const pad = 3;
 const partText = (part: { text: { text(): string } | string }) =>
@@ -40,7 +41,20 @@ palette.derived(() => {
   quiet = new Style({ fg: "faint", bg: "surface" }).sgr();
   pointer = new Style({ fg: "line" }).sgr();
   check = new Style({ fg: "accent", bg: "surface" }).sgr();
-  styles = { text, border, heading, quiet, pointer, check, open_hint, title };
+  styles = {
+    text,
+    border,
+    heading,
+    quiet,
+    pointer,
+    check,
+    get open_hint() {
+      return openHint();
+    },
+    get title() {
+      return titleLabel();
+    },
+  };
 });
 
 export interface Caret {
@@ -61,14 +75,17 @@ function fixWidth(notice: Notice): number {
 /** The card's width around `inner` columns of text. The top border holds
  * the title and the close hint with a dash either side. */
 function frameWidth(inner: number): number {
-  return Math.max(inner + 2 * pad + 2, 2 + title.length + 1 + keycap.length + close.length + 2);
+  return Math.max(
+    inner + 2 * pad + 2,
+    2 + displayWidth(titleLabel()) + 1 + displayWidth(keycap) + displayWidth(closeLabel()) + 2,
+  );
 }
 /** Above the caret when the pane has room, else below it, else at the
  * pane's foot without an arrow when the caret is unknown. A narrow pane
  * shortens the download link; null when even the rest doesn't fit. */
 export function place(notice: Notice, pane: Rect, caret: Caret | null): Placement | null {
   const lines = Math.max(displayWidth(notice.body.text()), fixWidth(notice));
-  const full = hasLink(notice) ? Math.max(lines, download.length + download_url.length) : lines;
+  const full = hasLink(notice) ? Math.max(lines, displayWidth(downloadLabel()) + download_url.length) : lines;
   const w = Math.min(frameWidth(full), pane.w);
   const h = height(notice);
   if (w < frameWidth(lines) || pane.h < h) return null;
@@ -109,22 +126,27 @@ export function linkAt(notice: Notice, at: Placement, x: number, y: number): boo
     return false;
   }
   if (y === at.y + 5) {
-    const start = left + download.length;
+    const start = left + displayWidth(downloadLabel());
     return x >= start && x < start + Math.min(download_url.length, urlRoom(at));
   }
   return false;
 }
 function urlRoom(at: Placement): number {
-  return sat(at.w - 2, 2 * pad + download.length);
+  return sat(at.w - 2, 2 * pad + displayWidth(downloadLabel()));
 }
 /** Draws the card at `at`, leaving the cursor where it was. Its bottom
  * border says how to open the link, or that a click copied it. */
 export function draw(notice: Notice, at: Placement, copied: boolean): string {
-  const w = new Writer();
+  const w = new Writer(),
+    title = titleLabel(),
+    close = closeLabel(),
+    download = downloadLabel(),
+    copied_label = copiedLabel(),
+    open_hint = openHint();
   w.write("\x1b7");
   const inner = at.w - 2;
   w.write(`\x1b[${at.y + 1};${at.x + 1}H${border}╭─${heading}${title}${border}`);
-  w.write("─".repeat(Math.max(0, at.w - (2 + title.length + keycap.length + close.length + 2))));
+  w.write("─".repeat(Math.max(0, at.w - (2 + displayWidth(title) + displayWidth(keycap) + displayWidth(close) + 2))));
   w.write(palette.keycap + keycap + quiet + close + border + "─╮");
   for (let row = 1; row < at.h - 1; row++) {
     w.write(`\x1b[${at.y + row + 1};${at.x + 1}H│${text}`);
@@ -132,7 +154,7 @@ export function draw(notice: Notice, at: Placement, copied: boolean): string {
     w.write(border + "│");
   }
   w.write(`\x1b[${at.y + at.h};${at.x + 1}H╰`);
-  const label = copied ? 2 + copied_label.length : hasLink(notice) ? displayWidth(open_hint) : 0;
+  const label = copied ? 2 + displayWidth(copied_label) : hasLink(notice) ? displayWidth(open_hint) : 0;
   const shown = label > 0 && label + 2 <= inner;
   w.write("─".repeat(inner - (shown ? label + 1 : 0)));
   if (shown) {
@@ -147,7 +169,7 @@ export function draw(notice: Notice, at: Placement, copied: boolean): string {
   for (const part of notice.fix()) {
     const value = partText(part);
     if (part.kind === "text") w.write(text + value);
-    else if (part.kind === "link") writeLink(w, value, Buffer.byteLength(value));
+    else if (part.kind === "link") writeLink(w, value, displayWidth(value));
     else w.write(heading + value);
   }
   if (hasLink(notice)) {

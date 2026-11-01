@@ -3,12 +3,13 @@
 //! the window's right edge, outside the layout, so it follows whichever pane
 //! is focused. Browsing follows herdr-reviewr: scopes, hunk walking across
 //! files, folds, changed words, find, and a commit picker.
+import * as i18n from "../i18n";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import * as dropdown from "../dropdown";
 import { Rect, type Direction } from "../layout";
 import * as palette from "../palette";
-import { codepointWidth, compactCount, Writer } from "../text";
+import { codepointWidth, compactCount, displayWidth, wrap, Writer } from "../text";
 import * as diff from "./diff";
 import * as folding from "./folding";
 import * as funcname from "./funcname";
@@ -76,68 +77,61 @@ const min_diff_rows = 5;
 const parallel_reads = 4;
 /** Keys under a heading: what each row does, and its keys. */
 type KeyGroup = [string, [string, string][]];
-const key_groups: KeyGroup[] = [
+const keyGroups = (): KeyGroup[] => [
   [
-    "Move",
+    i18n.t`Move`,
     [
-      ["Up, down", "j k"],
-      ["Page", "space -"],
-      ["Half page", "ctrl+d ctrl+u"],
-      ["Top, bottom", "home end"],
-      ["Change navigation", "] ["],
-      ["File navigation", "f F"],
-      ["Find", "/"],
-      ["List, diff", "tab"],
+      [i18n.t`Up, down`, "j k"],
+      [i18n.t`Page`, "space -"],
+      [i18n.t`Half page`, "ctrl+d ctrl+u"],
+      [i18n.t`Top, bottom`, "home end"],
+      [i18n.t`Change navigation`, "] ["],
+      [i18n.t`File navigation`, "f F"],
+      [i18n.t`Find`, "/"],
+      [i18n.t`List, diff`, "tab"],
     ],
   ],
   [
-    "File list",
+    i18n.t`File list`,
     [
-      ["Open", "enter"],
-      ["Sort, reverse", "o O"],
-      ["Hide, resize", "z < >"],
+      [i18n.t`Open`, "enter"],
+      [i18n.t`Sort, reverse`, "o O"],
+      [i18n.t`Hide, resize`, "z < >"],
     ],
   ],
   [
-    "Leave",
+    i18n.t`Leave`,
     [
-      ["Back to agent", "esc"],
-      ["Close", "q"],
+      [i18n.t`Back to agent`, "esc"],
+      [i18n.t`Close`, "q"],
     ],
   ],
   [
-    "Show",
+    i18n.t`Show`,
     [
-      ["All", "a"],
-      ["Uncommitted", "u"],
-      ["Commit", "g G"],
-      ["Expand lines", "enter"],
-      ["Fold file", "x"],
-      ["Wrap", "w"],
-      ["Pin review", "p"],
+      [i18n.t`All`, "a"],
+      [i18n.t`Uncommitted`, "u"],
+      [i18n.t`Commit`, "g G"],
+      [i18n.t`Expand lines`, "enter"],
+      [i18n.t`Fold file`, "x"],
+      [i18n.t`Wrap`, "w"],
+      [i18n.t`Pin review`, "p"],
     ],
   ],
   [
-    "Notes",
+    i18n.t`Notes`,
     [
-      ["Select", "v shift+↑↓"],
-      ["Comment", "c"],
-      ["New line", "shift+enter"],
-      ["Edit, delete", "e d"],
-      ["Navigation", "n N"],
-      ["List", "l"],
-      ["Send to agent", "s"],
-      ["Copy", "y"],
+      [i18n.t`Select`, "v shift+↑↓"],
+      [i18n.t`Comment`, "c"],
+      [i18n.t`New line`, "shift+enter"],
+      [i18n.t`Edit, delete`, "e d"],
+      [i18n.t`Navigation`, "n N"],
+      [i18n.t`List`, "l"],
+      [i18n.t`Send to agent`, "s"],
+      [i18n.t`Copy`, "y"],
     ],
   ],
 ];
-/** Columns one group takes: its widest row, indented, with a gap before the keys. */
-const keys_column = Math.max(
-  ...key_groups.flatMap(([heading, rows]) => [
-    heading.length,
-    ...rows.map(([what, k]) => 2 + what.length + 3 + [...k].length),
-  ]),
-);
 
 type Part = "tree" | "diff";
 /** A row of the file list: the "All files" slot above the files. */
@@ -297,6 +291,42 @@ const safe = (ch: string) => {
   const cp = ch.codePointAt(0) ?? 32;
   return cp < 32 || cp === 127 || (cp >= 0x80 && cp < 0xa0) ? "·" : ch;
 };
+type SourceSlice = { start: number; end: number; width: number };
+const sourceGlyph = (ch: string) => (ch === "\t" ? " " : safe(ch));
+/** Slice source by terminal cells while retaining UTF-16 offsets for highlighting. */
+function sourceSlice(value: string, start: number, width: number): SourceSlice {
+  let end = start,
+    used = 0;
+  while (end < value.length) {
+    const raw = String.fromCodePoint(value.codePointAt(end)!);
+    const cells = Math.max(0, codepointWidth(sourceGlyph(raw).codePointAt(0)!));
+    if (used + cells > width) break;
+    used += cells;
+    end += raw.length;
+  }
+  return { start, end, width: used };
+}
+function sourceLines(value: string, width: number, limit: number, start = 0): SourceSlice[] {
+  const lines: SourceSlice[] = [];
+  do {
+    const line = sourceSlice(value, start, width);
+    lines.push(line);
+    if (line.end === start) break;
+    start = line.end;
+  } while (start < value.length && lines.length < limit);
+  return lines;
+}
+/** Horizontal scrolling never starts inside a wide codepoint. */
+function sourceOffset(value: string, columns: number): number {
+  let at = 0,
+    used = 0;
+  while (at < value.length && used < columns) {
+    const raw = String.fromCodePoint(value.codePointAt(at)!);
+    used += Math.max(0, codepointWidth(sourceGlyph(raw).codePointAt(0)!));
+    at += raw.length;
+  }
+  return at;
+}
 class Canvas {
   cells: Cell[][];
   hits: Hit[] = [];
@@ -393,8 +423,21 @@ function mark(ch: git.Change): [string, palette.Rgb] {
         ? ["R", colors.muted]
         : ["M", colors.muted];
 }
-function plural(n: number, word: string): string {
-  return `${n.toLocaleString("en-US")} ${word}${n === 1 ? "" : "s"}`;
+function plural(count: number, word: "note" | "file" | "commit" | "unmodified line" | "hunk" | "row"): string {
+  switch (word) {
+    case "note":
+      return count === 1 ? i18n.t`${count} note` : i18n.t`${count} notes`;
+    case "file":
+      return count === 1 ? i18n.t`${count} file` : i18n.t`${count} files`;
+    case "commit":
+      return count === 1 ? i18n.t`${count} commit` : i18n.t`${count} commits`;
+    case "unmodified line":
+      return count === 1 ? i18n.t`${count} unmodified line` : i18n.t`${count} unmodified lines`;
+    case "hunk":
+      return count === 1 ? i18n.t`${count} hunk` : i18n.t`${count} hunks`;
+    case "row":
+      return count === 1 ? i18n.t`${count} row` : i18n.t`${count} rows`;
+  }
 }
 
 export class Panel {
@@ -1220,14 +1263,15 @@ export class Panel {
             edit: n.id,
             range,
           };
-        } else r.status = { text: "No note on this line. c adds one.", warm: false };
+        } else r.status = { text: i18n.t`No note on this line. c adds one.`, warm: false };
         break;
       }
       case "d": {
         const n = d ? this.noteAt(r, d, units, now) : null;
         if (n) {
           r.notes = r.notes.filter(x => x !== n);
-          r.status = { text: `Deleted the note on ${notes.location(n)}.`, warm: false };
+          const location = notes.location(n);
+          r.status = { text: i18n.t`Deleted the note on ${location}.`, warm: false };
         }
         break;
       }
@@ -1315,7 +1359,7 @@ export class Panel {
     }
     const anchor = notes.anchor(d, rows);
     if (!anchor) {
-      r.status = { text: "Folded lines take no notes; → opens them.", warm: false };
+      r.status = { text: i18n.t`Folded lines take no notes; → opens them.`, warm: false };
       return;
     }
     r.compose = { path, rev, ...anchor, area: new textArea.TextArea(), edit: null, range: [a, b] };
@@ -1369,7 +1413,7 @@ export class Panel {
   }
   private nextNote(r: Review, d: diff.FileDiff | null, units: diff.Unit[], step: 1 | -1): void {
     if (r.notes.length === 0) {
-      r.status = { text: "No notes yet. v selects lines, c comments.", warm: false };
+      r.status = { text: i18n.t`No notes yet. v selects lines, c comments.`, warm: false };
       return;
     }
     const sorted = r.notes.slice().sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : a.start - b.start));
@@ -1447,7 +1491,8 @@ export class Panel {
       r.cur = index;
       r.free = false;
     }
-    if (!r.wrap) r.shift = Math.max(0, hit.start - 10);
+    if (!r.wrap)
+      r.shift = Math.max(0, sourceSlice(d.text(d.rows[hit.row]).slice(0, hit.start), 0, Infinity).width - 10);
   }
   /** Where notes go: the focused pane while pinned, else the reviewed one. */
   private destination(): Target | null {
@@ -1458,16 +1503,22 @@ export class Panel {
       to = this.destination();
     if (!from || !to) return { kind: "none" };
     if (r.notes.length === 0) {
-      r.status = { text: "No notes yet. v selects lines, c comments.", warm: false };
+      r.status = { text: i18n.t`No notes yet. v selects lines, c comments.`, warm: false };
       return { kind: "none" };
     }
     const sent = r.notes,
+      count = sent.length,
+      name = to.name,
       text = notes.format(sent);
     r.notes = [];
     r.status = {
       text: copy
-        ? `Copied ${plural(sent.length, "note")}.`
-        : `Sent ${plural(sent.length, "note")} to ${to.name}. Enter there submits them.`,
+        ? count === 1
+          ? i18n.t`Copied ${count} note.`
+          : i18n.t`Copied ${count} notes.`
+        : count === 1
+          ? i18n.t`Sent ${count} note to ${name}. Enter there submits them.`
+          : i18n.t`Sent ${count} notes to ${name}. Enter there submits them.`,
       warm: false,
     };
     return copy
@@ -1661,9 +1712,10 @@ export class Panel {
     if (!t || !co || !chip) return;
     const r = this.review(t.pane);
     if (!r.picker) return;
+    const branch = co.base?.name ?? "";
     const list = this.pickable(co),
       columns = commitColumns(list, Date.now() / 1000),
-      heading = list.length ? { text: "commit", note: columns.heading } : undefined;
+      heading = list.length ? { text: i18n.t`commit`, note: columns.heading } : undefined;
     const choices: dropdown.Choice[] = list.map((cm, i) => ({
       text: `${cm.hash.slice(0, 7)}  ${cm.subject}`,
       note: columns.notes[i].map(([part]) => part).join(""),
@@ -1674,7 +1726,7 @@ export class Panel {
     }));
     if (choices.length === 0)
       choices.push({
-        text: co.base ? `No commits since ${co.base.name}` : "No commits yet",
+        text: co.base ? i18n.t`No commits since ${branch}` : i18n.t`No commits yet`,
         note: "",
         current: false,
         hovered: false,
@@ -1698,16 +1750,16 @@ export class Panel {
     const colors = palette.colors,
       t = this.target;
     if (focused) c.put(0, 0, "▌", colors.accent);
-    let col = c.text(1, 0, "Review", colors.strong, null, true) + 1;
+    let col = c.text(1, 0, i18n.t`Review`, colors.strong, null, true) + 1;
     if (t) {
       // p's keycap, as in the footer, and "pin", lit while pinned.
       const start = col;
       col = c.text(col, 0, "p", colors.strong, colors.line, true);
-      col = c.text(col + 1, 0, "pin", this.pinned ? colors.accent : colors.muted, null, this.pinned) + 1;
+      col = c.text(col + 1, 0, i18n.t`pin`, this.pinned ? colors.accent : colors.muted, null, this.pinned) + 1;
       c.hit(start, 0, col - 1 - start, 1, { act: () => (this.pinned = !this.pinned) });
     }
     if (!t) {
-      c.text(1, 2, "Focus a pane to review its checkout.", colors.muted);
+      c.text(1, 2, i18n.t`Focus a pane to review its checkout.`, colors.muted);
       return;
     }
     const r = this.review(t.pane);
@@ -1719,23 +1771,24 @@ export class Panel {
     const tabs: { label: string; on: boolean; open?: boolean; act: () => void }[] = [];
     if (co) {
       const caret = r.picker ? "▴" : "▾";
+      const count = co.commits.length;
       tabs.push(
-        { label: "all", on: r.scope === "all", act: () => this.setScope(r, "all") },
-        { label: "uncommitted", on: r.scope === "uncommitted", act: () => this.setScope(r, "uncommitted") },
+        { label: i18n.t`all`, on: r.scope === "all", act: () => this.setScope(r, "all") },
+        { label: i18n.t`uncommitted`, on: r.scope === "uncommitted", act: () => this.setScope(r, "uncommitted") },
         {
           label:
             r.scope === "commits" && r.pick
               ? `${r.pick.slice(0, 7)} ${caret}`
               : co.base
-                ? `commits ${caret} ${co.commits.length}`
-                : `commits ${caret}`,
+                ? i18n.t`commits ${caret} ${count}`
+                : i18n.t`commits ${caret}`,
           on: r.scope === "commits",
           open: r.picker !== null,
           act: () => (r.picker ? (r.picker = null) : this.openPicker(r, co)),
         },
       );
     }
-    const tabs_w = tabs.reduce((s, tab) => s + [...tab.label].length + 2, 0) + Math.max(0, tabs.length - 1),
+    const tabs_w = tabs.reduce((s, tab) => s + displayWidth(tab.label) + 2, 0) + Math.max(0, tabs.length - 1),
       beside = col + tabs_w + 1 <= c.w,
       tabs_row = beside ? 0 : 1,
       head = tabs_row + 1;
@@ -1753,32 +1806,32 @@ export class Panel {
         tab.on ? colors.selected : colors.surface,
         tab.on,
       );
-      c.hit(tx, tabs_row, s.length, 1, { act: tab.act });
-      if (tab === tabs[2]) this.commits_chip = { x: c.x + tx, y: c.y + tabs_row, w: [...s].length };
-      tx += [...s].length;
+      c.hit(tx, tabs_row, displayWidth(s), 1, { act: tab.act });
+      if (tab === tabs[2]) this.commits_chip = { x: c.x + tx, y: c.y + tabs_row, w: displayWidth(s) };
+      tx += displayWidth(s);
     }
     if (r.notes.length) {
       const label = plural(r.notes.length, "note");
-      if (right - label.length - 2 > col) {
-        right -= label.length + 2;
+      if (right - displayWidth(label) - 2 > col) {
+        right -= displayWidth(label) + 2;
         c.text(right, 0, label, colors.warm, null, true);
-        c.hit(right, 0, label.length, 1, { act: () => (r.list = { at: 0 }) });
+        c.hit(right, 0, displayWidth(label), 1, { act: () => (r.list = { at: 0 }) });
       }
     }
     // Pinned elsewhere, where the notes go.
     const to = this.destination();
     if (to && to.pane !== t.pane) c.text(col, 0, `→ ${to.name}`, colors.warm, null, false, right - col - 1);
     if (root === undefined) {
-      c.text(1, 2, "Reading git…", colors.faint);
+      c.text(1, 2, i18n.t`Reading git…`, colors.faint);
       return;
     }
     if (root === null) {
-      c.text(1, 2, "Not in a git checkout:", colors.muted);
-      c.text(1, 3, t.cwd || "(no directory)", colors.faint);
+      c.text(1, 2, i18n.t`Not in a git checkout:`, colors.muted);
+      c.text(1, 3, t.cwd || i18n.t`(no directory)`, colors.faint);
       return;
     }
     if (!co) {
-      c.text(1, 2, "Reading git…", colors.faint);
+      c.text(1, 2, i18n.t`Reading git…`, colors.faint);
       return;
     }
     const own = co.commits.length;
@@ -1792,7 +1845,7 @@ export class Panel {
         ["+" + adds.toLocaleString("en-US"), colors.accent],
         [" −" + dels.toLocaleString("en-US"), colors.hot],
       ];
-      const len = parts.reduce((s, p) => s + [...p[0]].length, 0);
+      const len = parts.reduce((s, p) => s + displayWidth(p[0]), 0);
       if (c.w - 1 - len > 20) {
         let px = c.w - 1 - len;
         room = px - 3;
@@ -1811,26 +1864,26 @@ export class Panel {
             [picked.hash.slice(0, 7) + "  ", colors.faint],
             [picked.subject, colors.text],
           ]
-        : [["No commit picked yet. g opens the menu.", colors.muted]];
+        : [[i18n.t`No commit picked yet. g opens the menu.`, colors.muted]];
     } else if (r.scope === "uncommitted" || !co.base)
       parts = [
         [name, colors.text],
-        [" vs ", colors.faint],
+        [i18n.t` vs `, colors.faint],
         ["HEAD", colors.text],
       ];
     else {
       const working = co.listings.get(sourceKey({ kind: "worktree", against: co.head ?? git.empty_tree }));
       parts = [
         [name, colors.text],
-        [" vs ", colors.faint],
+        [i18n.t` vs `, colors.faint],
         [co.base.name, colors.text],
       ];
       extra = [
-        `  ${own ? plural(own, "commit") : "no commits"}${working?.changes.length ? " + uncommitted" : ""}`,
+        `  ${own ? plural(own, "commit") : i18n.t`no commits`}${working?.changes.length ? i18n.t` + uncommitted` : ""}`,
         colors.faint,
       ];
     }
-    const width = (list: [string, palette.Rgb][]) => list.reduce((s, [part]) => s + [...part].length, 0);
+    const width = (list: [string, palette.Rgb][]) => list.reduce((s, [part]) => s + displayWidth(part), 0);
     if (extra && width(parts) + width([extra]) <= room) parts.push(extra);
     let dx = 1;
     for (const [part, fg] of parts) dx = c.text(dx, head, part, fg, null, false, room + 1 - dx);
@@ -1838,25 +1891,25 @@ export class Panel {
     // How the files are listed, on the rule above them.
     if (listed?.edited && listed.changes.length && !r.tree_hidden) {
       const sorts: ["name" | "edited", string][] = [
-        ["name", "name"],
-        ["edited", "last edit"],
+        ["name", i18n.t`name`],
+        ["edited", i18n.t`last edit`],
       ];
       // Up is A to Z or oldest first; each sort starts the way it's most read.
       const arrow = (r.sort === "name") !== r.reversed ? " ↑" : " ↓";
       let sx =
         c.w -
         2 -
-        sorts.reduce((s, [, label]) => s + label.length, 0) -
+        sorts.reduce((s, [, label]) => s + displayWidth(label), 0) -
         arrow.length -
-        " sort: ".length -
+        displayWidth(i18n.t` sort: `) -
         " · ".length -
         1;
-      sx = c.text(sx, head + 1, " sort: ", colors.faint);
+      sx = c.text(sx, head + 1, i18n.t` sort: `, colors.faint);
       for (const [sort, label] of sorts) {
         if (sort !== "name") sx = c.text(sx, head + 1, " · ", colors.faint);
         const on = r.sort === sort,
           shown = on ? label + arrow : label;
-        c.hit(sx, head + 1, shown.length, 1, { act: () => this.setSort(r, sort) });
+        c.hit(sx, head + 1, displayWidth(shown), 1, { act: () => this.setSort(r, sort) });
         sx = c.text(sx, head + 1, shown, on ? colors.text : colors.faint, null, on);
       }
       c.put(sx, head + 1, " ", colors.line);
@@ -1866,17 +1919,17 @@ export class Panel {
     const paths = changes.map(ch => ch.path);
     this.split = null;
     if (!listed) {
-      c.text(2, ty, r.scope === "commits" ? "Pick a commit with g." : "Reading git…", colors.muted);
+      c.text(2, ty, r.scope === "commits" ? i18n.t`Pick a commit with g.` : i18n.t`Reading git…`, colors.muted);
       ty += 1;
     } else if (changes.length === 0) {
       c.text(
         2,
         ty,
         r.scope === "all"
-          ? `Nothing changed on ${name} yet.`
+          ? i18n.t`Nothing changed on ${name} yet.`
           : r.scope === "uncommitted"
-            ? "No uncommitted changes."
-            : "This commit changed nothing.",
+            ? i18n.t`No uncommitted changes.`
+            : i18n.t`This commit changed nothing.`,
         colors.muted,
       );
       ty += 1;
@@ -1895,9 +1948,13 @@ export class Panel {
       const label = ch.from ? `${ch.from} → ${ch.path}` : ch.path;
       const end = c.text(2, ty, ` ${label} `, colors.strong, null, true, c.w - 16);
       const origin = this.originOf(co, r, now.source, ch);
-      if (origin && end + origin.length + 3 < c.w) c.text(c.w - origin.length - 3, ty, ` ${origin} `, colors.faint);
+      if (origin && end + displayWidth(origin) + 3 < c.w)
+        c.text(c.w - displayWidth(origin) - 3, ty, ` ${origin} `, colors.faint);
     }
-    if (r.tree_hidden && changes.length) c.text(c.w - 12, ty, " z: files ", colors.faint);
+    if (r.tree_hidden && changes.length) {
+      const label = i18n.t` z: files `;
+      c.text(c.w - displayWidth(label) - 2, ty, label, colors.faint);
+    }
     const dy = ty + 1,
       dh = c.h - 1 - dy;
     this.page = dh;
@@ -1911,9 +1968,9 @@ export class Panel {
     return source.kind === "commit"
       ? source.hash.slice(0, 7)
       : ch.kind === "untracked"
-        ? "untracked"
+        ? i18n.t`untracked`
         : r.scope === "uncommitted"
-          ? "working copy"
+          ? i18n.t`working copy`
           : this.origin(co, ch.path);
   }
   /** Where a branch file's change is: in its commits, the working copy, or both. */
@@ -1922,7 +1979,11 @@ export class Panel {
     if (!working) return "";
     const uncommitted = working.changes.some(ch => ch.path === path),
       committed = co.commits.length > 0 && this.committed(co, path, working.changes);
-    return committed && uncommitted ? "committed + working copy" : uncommitted ? "working copy" : "committed";
+    return committed && uncommitted
+      ? i18n.t`committed + working copy`
+      : uncommitted
+        ? i18n.t`working copy`
+        : i18n.t`committed`;
   }
   /** Whether the branch's commits touched `path`: it differs from the base
    * in a way the working copy alone doesn't explain. */
@@ -1968,7 +2029,7 @@ export class Panel {
       const right: [string, palette.Rgb][] = [];
       if (row.kind === "all") {
         c.text(indent, y, "≡", on ? colors.strong : colors.muted, bg, true);
-        c.text(indent + 2, y, "All files", on ? colors.strong : colors.text, bg, on);
+        c.text(indent + 2, y, i18n.t`All files`, on ? colors.strong : colors.text, bg, on);
         c.hit(0, y, c.w, 1, {
           act: () => {
             r.part = "tree";
@@ -1990,7 +2051,7 @@ export class Panel {
             ["−" + dels.toLocaleString("en-US"), colors.hot],
           );
         }
-        const room = c.w - 1 - right.reduce((s, p) => s + [...p[0]].length + 1, 0) - (indent + 2);
+        const room = c.w - 1 - right.reduce((s, p) => s + displayWidth(p[0]) + 1, 0) - (indent + 2);
         c.text(indent + 2, y, row.name + "/", on ? colors.strong : colors.muted, bg, on, room);
         c.hit(0, y, c.w, 1, {
           act: () => {
@@ -2006,15 +2067,15 @@ export class Panel {
           here = r.all && row.path === r.path;
         c.text(indent, y, letter, fg, bg, true);
         if (r.notes.some(n => n.path === row.path)) right.push(["•", colors.warm]);
-        if (ch.binary) right.push(["bin", colors.faint]);
+        if (ch.binary) right.push([i18n.t`bin`, colors.faint]);
         else {
-          if (ch.generated) right.push(["gen", colors.faint]);
+          if (ch.generated) right.push([i18n.t`gen`, colors.faint]);
           if (ch.adds) right.push(["+" + ch.adds.toLocaleString("en-US"), colors.accent]);
           if (ch.dels) right.push(["−" + ch.dels.toLocaleString("en-US"), colors.hot]);
         }
         const at = edited?.get(row.path);
         if (edited) right.push([(at === undefined ? "" : age((now - at) / 1000)).padStart(5), colors.faint]);
-        const room = c.w - 1 - right.reduce((s, p) => s + [...p[0]].length + 1, 0) - (indent + 2);
+        const room = c.w - 1 - right.reduce((s, p) => s + displayWidth(p[0]) + 1, 0) - (indent + 2);
         const end = c.text(indent + 2, y, row.name, on || here ? colors.strong : colors.text, bg, on, room);
         if (row.dir) c.text(end + 2, y, row.dir, colors.faint, bg, false, indent + 2 + room - end - 2);
         c.hit(0, y, c.w, 1, {
@@ -2025,7 +2086,7 @@ export class Panel {
           },
         });
       }
-      let px = c.w - right.reduce((s, p) => s + [...p[0]].length + 1, 0);
+      let px = c.w - right.reduce((s, p) => s + displayWidth(p[0]) + 1, 0);
       for (const [s, fg] of right) px = c.text(px, y, s, fg, bg) + 1;
     });
     // The rule under the list takes its row, so a thumb at the edge says where the list is.
@@ -2038,7 +2099,7 @@ export class Panel {
   }
   private notice(c: Canvas, dy: number, lines: [string, palette.Rgb][], act?: () => void): void {
     const colors = palette.colors,
-      width = Math.min(c.w - 4, Math.max(...lines.map(l => [...l[0]].length)) + 6),
+      width = Math.min(c.w - 4, Math.max(...lines.map(l => displayWidth(l[0]))) + 6),
       height = lines.length + 2;
     for (let row = 0; row < height; row++) {
       c.fill(dy + 1 + row, colors.surface, 2, 2 + width);
@@ -2057,16 +2118,15 @@ export class Panel {
     const ch = now.change;
     if (!r.all) {
       if (!ch) return;
+      const adds = (ch.adds ?? 0).toLocaleString(i18n.language()),
+        dels = (ch.dels ?? 0).toLocaleString(i18n.language());
       if (ch.generated && !r.loaded.has(ch.path))
         return this.notice(
           c,
           dy,
           [
-            [
-              `Generated file · +${(ch.adds ?? 0).toLocaleString("en-US")} −${(ch.dels ?? 0).toLocaleString("en-US")}`,
-              colors.text,
-            ],
-            ["Its diff starts collapsed. Enter loads it.", colors.faint],
+            [i18n.t`Generated file · +${adds} −${dels}`, colors.text],
+            [i18n.t`Its diff starts collapsed. Enter loads it.`, colors.faint],
           ],
           () => {
             r.loaded.add(ch.path);
@@ -2074,25 +2134,24 @@ export class Panel {
           },
         );
       const file = now.file;
-      if (!file) return void c.text(2, dy + 1, "Reading the diff…", colors.faint);
+      if (!file) return void c.text(2, dy + 1, i18n.t`Reading the diff…`, colors.faint);
       const loaded = file.loaded;
       if (loaded.kind === "binary")
         return this.notice(c, dy, [
-          ["Binary file", colors.text],
-          ["No text diff and no line notes.", colors.faint],
+          [i18n.t`Binary file`, colors.text],
+          [i18n.t`No text diff and no line notes.`, colors.faint],
         ]);
-      if (loaded.kind === "too_large")
+      if (loaded.kind === "too_large") {
+        const size = (loaded.bytes / 1e6).toFixed(1);
         return this.notice(c, dy, [
-          [`Too large to show here · ${(loaded.bytes / 1e6).toFixed(1)} MB`, colors.text],
-          ["The limit is 2 MB or 50,000 lines.", colors.faint],
-          [
-            `git counts +${(ch.adds ?? 0).toLocaleString("en-US")} −${(ch.dels ?? 0).toLocaleString("en-US")}.`,
-            colors.faint,
-          ],
+          [i18n.t`Too large to show here · ${size} MB`, colors.text],
+          [i18n.t`The limit is 2 MB or 50,000 lines.`, colors.faint],
+          [i18n.t`git counts +${adds} −${dels}.`, colors.faint],
         ]);
+      }
       if (loaded.kind === "failed")
         return this.notice(c, dy, [
-          ["git couldn't diff this file", colors.text],
+          [i18n.t`git couldn't diff this file`, colors.text],
           [loaded.message, colors.faint],
         ]);
     }
@@ -2104,26 +2163,7 @@ export class Panel {
       box_x = code_x,
       box_w = c.w - box_x - 1;
     const rev = revOf(now.source);
-    const wrapText = (s: string, width: number) => {
-      const out: string[] = [];
-      for (const para of s.split("\n")) {
-        let line = "";
-        for (const word of para.split(" ")) {
-          if (!line) line = word;
-          else if ((line + " " + word).length <= width) line += " " + word;
-          else {
-            out.push(line);
-            line = word;
-          }
-          while (line.length > width) {
-            out.push(line.slice(0, width));
-            line = line.slice(width);
-          }
-        }
-        out.push(line);
-      }
-      return out;
-    };
+    const wrapText = (s: string, width: number) => (s ? wrap(s, width) : [""]);
     // The note being written, in the lines its box shows, and where its caret is.
     if (r.compose) r.compose.area.width = box_w - 4;
     const composed = r.compose ? r.compose.area.lines() : [],
@@ -2168,10 +2208,7 @@ export class Panel {
           d,
           unit,
           at,
-          h:
-            unit.kind === "fold" || !r.wrap
-              ? 1
-              : Math.min(wrap_cap, Math.max(1, Math.ceil(d.text(d.rows[unit.row]).length / code_w))),
+          h: unit.kind === "fold" || !r.wrap ? 1 : sourceLines(d.text(d.rows[unit.row]), code_w, wrap_cap).length,
         });
         if (unit.kind !== "row") return;
         const row = d.rows[unit.row];
@@ -2267,7 +2304,7 @@ export class Panel {
           if (y0 < dy) continue;
           const bg = cursor ? tint.cursor : tint.fold;
           c.fill(y0, bg);
-          const hint = cursor ? "  →  expand" : "",
+          const hint = cursor ? i18n.t`  →  expand` : "",
             holder = funcname.forFold(d, item.unit, syntax.language(path));
           let x = c.text(
             2,
@@ -2276,7 +2313,7 @@ export class Panel {
             cursor ? colors.muted : colors.faint,
             bg,
           );
-          if (holder) x = c.text(x, y0, `  ·  ${holder}`, colors.muted, bg, false, c.w - x - hint.length - 1);
+          if (holder) x = c.text(x, y0, `  ·  ${holder}`, colors.muted, bg, false, c.w - x - displayWidth(hint) - 1);
           c.text(x, y0, hint, colors.muted, bg);
           const unit = item.unit,
             at = item.at;
@@ -2316,7 +2353,7 @@ export class Panel {
       const is_note = item.kind === "note";
       const title = is_note
         ? notes.location(item.note)
-        : `${r.compose!.edit !== null ? "edit note" : "note"} · ${r.compose!.path}:${r.compose!.start}`;
+        : `${r.compose!.edit !== null ? i18n.t`edit note` : i18n.t`note`} · ${r.compose!.path}:${r.compose!.start}`;
       const border = is_note ? colors.line : palette.outline;
       const body = is_note ? wrapText(item.note.text, box_w - 4) : [];
       if (!is_note) this.compose_at = { x: c.x + box_x + 2, y: c.y + y0 + 1, rows: composed.length, w: box_w - 4 };
@@ -2389,13 +2426,13 @@ export class Panel {
     const counts: [string, palette.Rgb][] = [];
     if (r.notes.some(n => n.path === ch.path && notes.sameRev(n.rev, revOf(now.source))))
       counts.push(["•", colors.warm]);
-    if (ch.binary) counts.push(["bin", colors.faint]);
+    if (ch.binary) counts.push([i18n.t`bin`, colors.faint]);
     else {
-      if (ch.generated) counts.push(["gen", colors.faint]);
+      if (ch.generated) counts.push([i18n.t`gen`, colors.faint]);
       if (ch.adds) counts.push(["+" + ch.adds.toLocaleString("en-US"), colors.accent]);
       if (ch.dels) counts.push(["−" + ch.dels.toLocaleString("en-US"), colors.hot]);
     }
-    const width = (parts: [string, palette.Rgb][]) => parts.reduce((sum, [part]) => sum + [...part].length + 1, 0);
+    const width = (parts: [string, palette.Rgb][]) => parts.reduce((sum, [part]) => sum + displayWidth(part) + 1, 0);
     while (extra.length && c.w - 6 - width(extra) - width(counts) < 24) extra.pop();
     const right = [...extra, ...counts];
     let px = c.w - 1 - width(right);
@@ -2407,17 +2444,21 @@ export class Panel {
   /** What a file without lines to show says in the flow. */
   private flowNotice(r: Review, s: Section): string {
     const loaded = s.file?.loaded;
-    if (s.change.generated && !r.loaded.has(s.change.path)) return "Generated file · enter loads its diff";
-    if (!loaded) return "Reading the diff…";
+    if (s.change.generated && !r.loaded.has(s.change.path)) return i18n.t`Generated file · enter loads its diff`;
+    if (!loaded) return i18n.t`Reading the diff…`;
     switch (loaded.kind) {
       case "binary":
-        return "Binary file · no text diff";
-      case "too_large":
-        return `Too large to show here · ${(loaded.bytes / 1e6).toFixed(1)} MB`;
-      case "failed":
-        return `git couldn't diff this file: ${loaded.message}`;
+        return i18n.t`Binary file · no text diff`;
+      case "too_large": {
+        const size = (loaded.bytes / 1e6).toFixed(1);
+        return i18n.t`Too large to show here · ${size} MB`;
+      }
+      case "failed": {
+        const message = loaded.message;
+        return i18n.t`git couldn't diff this file: ${message}`;
+      }
       case "diff":
-        return "No lines changed";
+        return i18n.t`No lines changed`;
     }
   }
   /** A line of a text box: its text in `fg` on `bg`, its selection as every
@@ -2477,20 +2518,12 @@ export class Panel {
       em = cursor || selected ? null : d.emphasis(index),
       em_bg = add ? tint.add_em : tint.del_em,
       found = r.find?.by_row.get(`${path}\0${index}`) ?? null,
-      chars = [...text],
-      lines = r.wrap ? Math.min(wrap_cap, Math.max(1, Math.ceil(chars.length / code_w))) : 1,
+      lines = sourceLines(text, code_w, r.wrap ? wrap_cap : 1, r.wrap ? 0 : sourceOffset(text, r.shift)),
       number = diff.FileDiff.number(row),
       commented = noted.has(`${side}:${number}`);
     const inside = (ranges: diff.Ranges | null, at: number) =>
       ranges !== null && ranges.some(([s, e]) => at >= s && at < e);
-    // Spans and ranges count UTF-16 units; walk both together.
-    let unit = 0;
-    const offsets = chars.map(ch => {
-      const at = unit;
-      unit += ch.length;
-      return at;
-    });
-    for (let j = 0; j < lines; j++) {
+    for (let j = 0; j < lines.length; j++) {
       const y = y0 + j;
       if (y < top || y >= bottom) continue;
       c.fill(y, bg, 0, c.w - 1);
@@ -2505,16 +2538,31 @@ export class Panel {
           commented,
         );
       }
-      let from = r.wrap ? j * code_w : r.shift,
-        to = from + code_w;
+      let line = lines[j];
       let tail: string | null = null;
-      if (r.wrap && j === lines - 1 && chars.length > to) {
-        tail = ` … ${(chars.length - to + 24).toLocaleString("en-US")} more characters`;
-        to -= tail.length;
-      }
-      let si = 0;
-      for (let k = from; k < Math.min(to, chars.length); k++) {
-        const at = offsets[k];
+      const cut = line.end < text.length;
+      if (r.wrap && j === lines.length - 1 && cut) {
+        // Reserving the label can hide more codepoints, including another digit.
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const count = [...text.slice(line.end)].length;
+          tail = i18n.t` … ${count} more characters`;
+          const fitted = sourceSlice(text, line.start, Math.max(0, code_w - displayWidth(tail)));
+          if (fitted.end === line.end) break;
+          line = fitted;
+        }
+      } else if (!r.wrap && cut) line = sourceSlice(text, line.start, code_w - 1);
+      let si = 0,
+        col = code_x,
+        previous = -1;
+      for (let at = line.start; at < line.end;) {
+        const raw = String.fromCodePoint(text.codePointAt(at)!);
+        const ch = sourceGlyph(raw),
+          width = Math.max(0, codepointWidth(ch.codePointAt(0)!));
+        if (width === 0) {
+          if (previous >= 0) c.cells[y][previous].ch += ch;
+          at += raw.length;
+          continue;
+        }
         let fg = colors.text;
         while (si < spans.length && spans[si][1] <= at) si++;
         if (si < spans.length && spans[si][0] <= at) fg = palette.syntax[spans[si][2]];
@@ -2524,12 +2572,16 @@ export class Panel {
           cell_bg = tint.match;
           fg = colors.strong;
         }
-        c.put(code_x + k - from, y, chars[k] === "\t" ? " " : safe(chars[k]), fg, cell_bg);
+        c.put(col, y, ch, fg, cell_bg);
+        if (width === 2) c.put(col + 1, y, "", fg, cell_bg);
+        previous = col;
+        col += width;
+        at += raw.length;
       }
-      if (tail) c.text(code_x + to - from, y, tail, colors.faint, bg);
+      if (tail) c.text(col, y, tail, colors.faint, bg, false, code_w - line.width);
       if (!r.wrap) {
-        if (r.shift > 0 && chars.length) c.put(code_x - 1, y, "‹", colors.faint, bg);
-        if (chars.length > r.shift + code_w) c.put(code_x + code_w - 1, y, "›", colors.faint, bg);
+        if (r.shift > 0 && text.length) c.put(code_x - 1, y, "‹", colors.faint, bg);
+        if (cut) c.put(code_x + code_w - 1, y, "›", colors.faint, bg);
       }
     }
   }
@@ -2538,6 +2590,13 @@ export class Panel {
    * it does. */
   private drawKeys(c: Canvas): void {
     const colors = palette.colors,
+      key_groups = keyGroups(),
+      keys_column = Math.max(
+        ...key_groups.flatMap(([heading, rows]) => [
+          displayWidth(heading),
+          ...rows.map(([what, key]) => 2 + displayWidth(what) + 3 + displayWidth(key)),
+        ]),
+      ),
       columns = c.w >= 2 * keys_column + 10 ? [key_groups.slice(0, 3), key_groups.slice(3)] : [key_groups],
       tall = (groups: KeyGroup[]) => groups.reduce((sum, [, rows]) => sum + 2 + rows.length, -1),
       body = Math.max(...columns.map(tall)),
@@ -2554,8 +2613,17 @@ export class Panel {
       if (row === 0 || row === h - 1)
         for (let i = x + 1; i < x + w - 1; i++) c.put(i, y + row, "─", colors.line, colors.surface);
     }
-    c.text(x + 2, y, " Keys ", colors.strong, colors.surface, true);
-    c.text(x + w - 18, y + h - 1, " any key closes ", colors.faint, colors.surface);
+    c.text(x + 2, y, i18n.t` Keys `, colors.strong, colors.surface, true);
+    const closeHint = i18n.t` any key closes `;
+    c.text(
+      Math.max(x + 1, x + w - displayWidth(closeHint) - 2),
+      y + h - 1,
+      closeHint,
+      colors.faint,
+      colors.surface,
+      false,
+      w - 2,
+    );
     columns.forEach((groups, i) => {
       const left = x + 3 + i * (keys_column + 4);
       let row = y + 2;
@@ -2563,7 +2631,7 @@ export class Panel {
         c.text(left, row++, heading, colors.strong, colors.surface, true);
         for (const [what, keys] of rows) {
           c.text(left + 2, row, what, colors.muted, colors.surface);
-          c.text(left + keys_column - [...keys].length, row++, keys, colors.strong, colors.surface);
+          c.text(left + keys_column - displayWidth(keys), row++, keys, colors.strong, colors.surface);
         }
         row++;
       }
@@ -2585,8 +2653,8 @@ export class Panel {
     const colors = palette.colors,
       n = r.notes.length,
       height = Math.min(dh, Math.max(4, n * 2 + 3));
-    this.box(c, 1, dy, c.w - 2, height, ` Notes · ${n} `);
-    if (n === 0) return void c.text(3, dy + 1, "No notes yet.", colors.muted, colors.surface);
+    this.box(c, 1, dy, c.w - 2, height, i18n.t` Notes · ${n} `);
+    if (n === 0) return void c.text(3, dy + 1, i18n.t`No notes yet.`, colors.muted, colors.surface);
     const listed = this.checkout() && source ? this.listing(this.checkout()!, r) : null;
     r.notes.forEach((note, i) => {
       const y = dy + 1 + i * 2;
@@ -2597,7 +2665,7 @@ export class Panel {
       c.fill(y + 1, bg, 2, c.w - 2);
       const end = c.text(3, y, notes.location(note), colors.strong, bg, true, c.w - 24);
       if (listed && !listed.changes.some(ch => ch.path === note.path))
-        c.text(end + 2, y, "not in this view", colors.faint, bg);
+        c.text(end + 2, y, i18n.t`not in this view`, colors.faint, bg);
       c.text(3, y + 1, note.text.replace(/\n/g, " "), colors.muted, bg, false, c.w - 6);
       c.hit(2, y, c.w - 4, 2, {
         act: () => {
@@ -2617,11 +2685,11 @@ export class Panel {
       let x = 1,
         limit = c.w;
       if (end) {
-        limit = c.w - 1 - [...end[0]].length - 1 - end[1].length;
+        limit = c.w - 1 - displayWidth(end[0]) - 1 - displayWidth(end[1]);
         c.text(keycap(limit, end[0]) + 1, y, end[1], colors.muted);
       }
       for (const [k, label, act] of list) {
-        const need = [...k].length + 1 + label.length + 2;
+        const need = displayWidth(k) + 1 + displayWidth(label) + 2;
         if (x + need > limit) break;
         const start = x;
         x = keycap(x, k);
@@ -2636,8 +2704,8 @@ export class Panel {
       const count = q.text
         ? r.find.hits.length
           ? `${r.find.at + 1}/${r.find.hits.length}`
-          : "no match"
-        : "type to find";
+          : i18n.t`no match`
+        : i18n.t`type to find`;
       c.text(x + 1, y, count, q.text && !r.find.hits.length ? colors.hot : colors.faint);
       return;
     }
@@ -2646,55 +2714,79 @@ export class Panel {
     if (!focused) return;
     if (r.compose)
       return hints([
-        ["enter", "save"],
-        ["shift+enter", "new line"],
-        ["esc", "cancel"],
+        ["enter", i18n.t`save`],
+        ["shift+enter", i18n.t`new line`],
+        ["esc", i18n.t`cancel`],
       ]);
     if (r.list)
       return hints([
-        ["enter", "jump"],
-        ["d", "delete"],
-        ["esc", "close"],
+        ["enter", i18n.t`jump`],
+        ["d", i18n.t`delete`],
+        ["esc", i18n.t`close`],
       ]);
     if (r.picker)
       return hints([
-        ["j/k", "commit"],
-        ["enter", "review it alone"],
-        ["esc", "close"],
+        ["j/k", i18n.t`commit`],
+        ["enter", i18n.t`review it alone`],
+        ["esc", i18n.t`close`],
       ]);
-    if (r.anchor !== null)
+    if (r.anchor !== null) {
+      const count = Math.abs(r.anchor - r.cur) + 1;
       return hints([
-        ["c", `comment on ${plural(Math.abs(r.anchor - r.cur) + 1, "row")}`],
-        ["esc", "cancel"],
+        ["c", count === 1 ? i18n.t`comment on ${count} row` : i18n.t`comment on ${count} rows`],
+        ["esc", i18n.t`cancel`],
       ]);
+    }
     const to = this.destination(),
-      elsewhere = to && to.pane !== this.target?.pane ? ` to ${to.name}` : "";
+      name = to?.name ?? "",
+      count = r.notes.length,
+      elsewhere = to && to.pane !== this.target?.pane;
     const send: [string, string, () => void] = [
       "s",
-      (r.notes.length ? `send ${r.notes.length}` : "send") + elsewhere,
+      elsewhere
+        ? count
+          ? i18n.t`send ${count} to ${name}`
+          : i18n.t`send to ${name}`
+        : count
+          ? i18n.t`send ${count}`
+          : i18n.t`send`,
       () => (this.pending = this.send(r, false)),
     ];
-    const close: [string, string] = ["q", "close"];
+    const close: [string, string] = ["q", i18n.t`close`];
     if (r.part === "tree" && !r.tree_hidden)
-      return hints([["j/k", "file"], ["enter", "open"], ["tab", "diff"], ["]", "hunk"], send, ["?", "keys"]], close);
+      return hints(
+        [
+          ["j/k", i18n.t`file`],
+          ["enter", i18n.t`open`],
+          ["tab", i18n.t`diff`],
+          ["]", i18n.t`hunk`],
+          send,
+          ["?", i18n.t`keys`],
+        ],
+        close,
+      );
     const d = now?.file?.loaded.kind === "diff" ? now.file.loaded.diff : null;
     const units = d && r.path ? this.units(r, d, r.path) : [];
     if (now && r.path && this.isCollapsed(r, now, r.path))
-      return hints([["enter", "unfold"], ["]/[", "hunk"], send, ["?", "keys"]], close);
+      return hints([["enter", i18n.t`unfold`], ["]/[", i18n.t`hunk`], send, ["?", i18n.t`keys`]], close);
     if (now?.change?.generated && !r.loaded.has(now.change.path))
-      return hints([["enter", "load the diff"], ["f", "next file"], send, ["?", "keys"]], close);
-    if (units[r.cur]?.kind === "fold") return hints([["→", "expand"], ["]/[", "hunk"], send, ["?", "keys"]], close);
+      return hints([["enter", i18n.t`load the diff`], ["f", i18n.t`next file`], send, ["?", i18n.t`keys`]], close);
+    if (units[r.cur]?.kind === "fold")
+      return hints([["→", i18n.t`expand`], ["]/[", i18n.t`hunk`], send, ["?", i18n.t`keys`]], close);
     if (d && now && this.noteAt(r, d, units, now))
-      return hints([["e", "edit"], ["d", "delete"], ["]/[", "hunk"], send, ["?", "keys"]], close);
+      return hints(
+        [["e", i18n.t`edit`], ["d", i18n.t`delete`], ["]/[", i18n.t`hunk`], send, ["?", i18n.t`keys`]],
+        close,
+      );
     hints(
       [
-        ["v", "select"],
-        ["c", "comment"],
-        ["]/[", "hunk"],
-        ["w", r.wrap ? "unwrap" : "wrap"],
-        ["/", "find"],
+        ["v", i18n.t`select`],
+        ["c", i18n.t`comment`],
+        ["]/[", i18n.t`hunk`],
+        ["w", r.wrap ? i18n.t`unwrap` : i18n.t`wrap`],
+        ["/", i18n.t`find`],
         send,
-        ["?", "keys"],
+        ["?", i18n.t`keys`],
       ],
       close,
     );
@@ -2709,19 +2801,23 @@ function commitColumns(list: git.Commit[], now: number): { heading: string; note
     dels: `−${compactCount(cm.dels)}`,
     age: age(now - cm.time),
   }));
-  const widest = (key: keyof (typeof cells)[number]) => Math.max(0, ...cells.map(cell => cell[key].length));
+  const filesLabel = i18n.t`files`,
+    linesLabel = i18n.t`lines`,
+    ageLabel = i18n.t`age`;
+  const pad = (value: string, width: number) => " ".repeat(Math.max(0, width - displayWidth(value))) + value;
+  const widest = (key: keyof (typeof cells)[number]) => Math.max(0, ...cells.map(cell => displayWidth(cell[key])));
   const adds = widest("adds"),
     dels = widest("dels"),
-    files = Math.max("files".length, widest("files")),
-    lines = Math.max("lines".length, adds + 1 + dels),
-    when = Math.max("age".length, widest("age"));
+    files = Math.max(displayWidth(filesLabel), widest("files")),
+    lines = Math.max(displayWidth(linesLabel), adds + 1 + dels),
+    when = Math.max(displayWidth(ageLabel), widest("age"));
   return {
-    heading: `${"files".padStart(files)}  ${"lines".padStart(lines)}  ${"age".padStart(when)}`,
+    heading: `${pad(filesLabel, files)}  ${pad(linesLabel, lines)}  ${pad(ageLabel, when)}`,
     notes: list.map((cm, i) => [
       [cells[i].files.padStart(files), "muted"],
       [cells[i].adds.padStart(lines - dels - 1 + 2), cm.adds ? "accent" : "faint"],
       [cells[i].dels.padStart(dels + 1), cm.dels ? "hot" : "faint"],
-      [cells[i].age.padStart(when + 2), "faint"],
+      [pad(cells[i].age, when + 2), "faint"],
     ]),
   };
 }
@@ -2736,12 +2832,13 @@ export async function summary(root: string): Promise<dropdown.Run[]> {
       base,
     );
   } catch {
-    return [["git didn't answer", "faint"]];
+    return [[i18n.t`git didn't answer`, "faint"]];
   }
 }
 /** `summary` from changes already read, as the panel's "all" scope reads them. */
 export function summaryRuns(changes: git.Change[], base: git.Base | null): dropdown.Run[] {
-  if (changes.length === 0) return [[base ? `No changes since ${base.name}` : "No changes", "faint"]];
+  const branch = base?.name ?? "";
+  if (changes.length === 0) return [[base ? i18n.t`No changes since ${branch}` : i18n.t`No changes`, "faint"]];
   const adds = changes.reduce((s, ch) => s + (ch.adds ?? 0), 0),
     dels = changes.reduce((s, ch) => s + (ch.dels ?? 0), 0);
   return [
@@ -2767,8 +2864,9 @@ async function list(root: string, source: git.Source): Promise<Listing> {
 }
 /** A commit's age, short enough for a dropdown note. */
 function age(seconds: number): string {
-  if (seconds < 90) return "now";
-  if (seconds < 3600) return `${Math.round(seconds / 60)} min`;
+  if (seconds < 90) return i18n.t`now`;
+  const minutes = Math.round(seconds / 60);
+  if (seconds < 3600) return i18n.t`${minutes} min`;
   if (seconds < 86400 * 2) return `${Math.round(seconds / 3600)} h`;
   return `${Math.round(seconds / 86400)} d`;
 }

@@ -90,6 +90,7 @@ test("preferences round trip and fall back to defaults", async () => {
     expect(await read(file)).toEqual(new Preferences());
     const p = new Preferences();
     p.agents = "all";
+    p.language = "ja";
     await write(file, p);
     expect(await read(file)).toEqual(p);
     p.agents = "workspace";

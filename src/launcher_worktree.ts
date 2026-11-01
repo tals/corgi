@@ -1,3 +1,4 @@
+import * as i18n from "./i18n";
 //! The launcher's worktree: the button in its title naming where agents
 //! start, and a field that searches checkouts or names a new worktree,
 //! which the daemon adds when an agent launches into it.
@@ -200,7 +201,7 @@ export class Chooser {
     }
     const base = this.base;
     if (!base) {
-      this.error = "This folder has no commit to branch from";
+      this.error = i18n.t`This folder has no commit to branch from`;
       return false;
     }
     this.planned = { branch, base: base.ref, base_name: base.name, path: plannedPath(snapshot, cwd, branch, template) };
@@ -243,9 +244,15 @@ export function place(snapshot: worktrees.Snapshot | null, cwd: string, planned:
 function note(snapshot: worktrees.Snapshot, e: worktrees.Checkout): string {
   const agents = snapshot.agents.filter(a => a.path === e.path).length;
   const parts: string[] = [];
-  if (agents > 0) parts.push(`${agents} agent${agents === 1 ? "" : "s"}`);
-  if (!e.available) parts.push("missing");
-  else if (e.changes) parts.push(e.changes.total > 0 ? `${e.changes.total} changed` : "clean");
+  if (agents > 0) {
+    const count = agents;
+    parts.push(count === 1 ? i18n.t`${count} agent` : i18n.t`${count} agents`);
+  }
+  if (!e.available) parts.push(i18n.t`missing`);
+  else if (e.changes) {
+    const count = e.changes.total;
+    parts.push(count > 0 ? i18n.t`${count} changed` : i18n.t`clean`);
+  }
   return parts.join(" · ");
 }
 /** The matching checkouts and creation offer; From dims the list. */
@@ -260,9 +267,10 @@ export function choices(snapshot: worktrees.Snapshot | null, cwd: string, c: Cho
     hovered: c.focus === "branch" && (e === selected || i === c.hovered),
     dim: c.focus === "from",
   }));
+  const branch = c.typed;
   if (c.offersCreate(snapshot))
     out.push({
-      text: `+ Create “${c.typed}”`,
+      text: i18n.t`+ Create “${branch}”`,
       note: "",
       current: false,
       hovered: c.focus === "branch" && (c.creating(snapshot) || c.hovered === entries.length),
@@ -297,7 +305,7 @@ export function folderLabel(path: string, root: string): string {
 }
 /** Why `name` can't name a new branch, or null; Git has the last word. */
 export function branchProblem(snapshot: worktrees.Snapshot | null, name: string): string | null {
-  if (name.length === 0) return "Type a branch name";
+  if (name.length === 0) return i18n.t`Type a branch name`;
   if (
     /[\x00-\x20\x7f~^:?*[\\]/.test(name) ||
     /\.\.|@\{|\/\//.test(name) ||
@@ -305,34 +313,35 @@ export function branchProblem(snapshot: worktrees.Snapshot | null, name: string)
     name === "@" ||
     name.split("/").some(part => part.startsWith("."))
   )
-    return "Branch names can't have spaces, .., or ~^:?*[\\";
-  if (snapshot?.entries.some(e => e.branch === `refs/heads/${name}`)) return `${name} is checked out already`;
+    return i18n.t`Branch names can't have spaces, .., or ~^:?*[\\`;
+  if (snapshot?.entries.some(e => e.branch === `refs/heads/${name}`)) return i18n.t`${name} is checked out already`;
   return null;
 }
 /** Why the daemon didn't add `planned`, for the form. */
 export function reason(err: string | null, planned: Planned): string {
+  const branch = planned.branch,
+    name = basename(planned.path);
   switch (err) {
     case "BranchExists":
-      return `A branch named ${planned.branch} exists already`;
+      return i18n.t`A branch named ${branch} exists already`;
     case "FolderExists":
-      return `${basename(planned.path)} exists already`;
+      return i18n.t`${name} exists already`;
     case "InvalidBranch":
-      return "Git doesn't take that branch name";
+      return i18n.t`Git doesn't take that branch name`;
     case "WorktreeAddFailed":
-      return "Git couldn't add the worktree";
+      return i18n.t`Git couldn't add the worktree`;
     case "UnknownOperation":
-      return "Reload Corgi's daemon first";
+      return i18n.t`Reload Corgi's daemon first`;
     default:
-      return err ?? "Unknown error";
+      return err ?? i18n.t`Unknown error`;
   }
 }
 
-const lead = " New agent ";
-const joiner = " in  ";
+const titleLead = () => i18n.t` New agent  in  `;
 /** The title's button around the place's name, in 0-based cells, with the
  * room its name has; null when the title can't fit it before `right`. */
 export function button(b: Rect, p: Place, right: number) {
-  const x = b.x + 2 + lead.length + joiner.length;
+  const x = b.x + 2 + displayWidth(titleLead());
   // " ", the keycap, " ⌥ ", then " ▾ " after the name.
   const chrome = p.worktree ? 10 : 0;
   const room = right - x - chrome - 1;
@@ -342,10 +351,9 @@ export function button(b: Rect, p: Place, right: number) {
 /** " New agent  in " and the button, in the launcher's top border; warm
  * off the comparison branch. */
 export function drawTitle(w: Writer, b: Rect, p: Place, right: number, open: boolean, panel: string): void {
-  w.write(`\x1b[${b.y + 1};${b.x + 3}H\x1b[1m` + palette.fg("strong") + lead + panel);
+  w.write(`\x1b[${b.y + 1};${b.x + 3}H\x1b[1m` + palette.fg("strong") + titleLead() + panel);
   const span = button(b, p, right);
   if (!span) return;
-  w.write(joiner);
   if (!p.worktree) {
     w.write(palette.fg("text"));
     writeEllipsis(w, p.label, span.room);
@@ -423,9 +431,9 @@ export function pickRect(bx: Box): Rect {
 }
 /** From's list as dropdown rows, scrolled to keep the highlighted one in view. */
 export function pickChoices(c: Chooser, now: number, rows = pick_rows): dropdown.Choice[] {
-  if (c.branches === null) return [{ text: "Reading branches…", note: "", current: false, hovered: false }];
+  if (c.branches === null) return [{ text: i18n.t`Reading branches…`, note: "", current: false, hovered: false }];
   const all = c.matches();
-  if (all.length === 0) return [{ text: "No branch matches", note: "", current: false, hovered: false }];
+  if (all.length === 0) return [{ text: i18n.t`No branch matches`, note: "", current: false, hovered: false }];
   c.pick_scroll = Math.max(Math.min(c.pick_scroll, c.picked), c.picked - rows + 1, 0);
   return all.slice(c.pick_scroll, c.pick_scroll + rows).map((b, i) => ({
     text: b.name,

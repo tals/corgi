@@ -715,8 +715,12 @@ const keycap = (k: string) => `${palette.keycap} ${k} ${reset}`;
 const problems: Record<string, string> = {
   AccountHasProfiles: "Delete this account’s cloned configurations first.",
   AccountManagementUnsupported: "Manage this agent's login in the agent itself.",
-  InvalidAccountName: agentName.message + " The account name default is reserved.",
-  InvalidAgentName: agentName.message,
+  get InvalidAccountName() {
+    return agentName.accountMessage();
+  },
+  get InvalidAgentName() {
+    return agentName.message();
+  },
   AccountExists: "There's an account by that name already.",
   AccountNotFound: "Corgi doesn't list this account any more.",
   InvalidAgentOptions: "Check the extra flags and environment variables.",

@@ -22,6 +22,7 @@ import * as keybindings from "./keybindings";
 import * as ghosttyIntegration from "./ghostty_integration";
 import type { Binding } from "./bindings";
 import { flock } from "./native_bridge";
+import * as locale from "./locale";
 
 /** Resource readings shown in the sidebar. Disabling removes the row and,
  * once every attached viewer is off, stops the daemon's sampling. Settings
@@ -46,6 +47,8 @@ export class Preferences {
   /** Action overrides; omitted actions inherit the selected preset. */
   keys: keybindings.Config = {};
   onboarding_complete = false;
+  /** Unset follows this viewer's locale; CORGI_LANG overrides an explicit choice. */
+  language: locale.Locale | undefined = undefined;
   resources: Resources = { enabled: true };
   /** Decorative sidebar corgi brightness, from off (0) to full (100). */
   corgi_intensity = 50;
@@ -176,6 +179,10 @@ export function readExisting(file: string): Preferences | null {
     const d = JSON.parse(readFileSync(file, "utf8"));
     if (!d || typeof d !== "object" || Array.isArray(d)) return null;
     const v = new Preferences();
+    if ("language" in d) {
+      if (typeof d.language !== "string") return null;
+      v.language = locale.locales.includes(d.language as locale.Locale) ? (d.language as locale.Locale) : undefined;
+    }
     // std.json: a known field of the wrong type fails the whole parse.
     for (const [key, values] of Object.entries(enums)) {
       if (!(key in d)) continue;

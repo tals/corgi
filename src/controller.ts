@@ -8,6 +8,8 @@ import * as keys from "./keys";
 import * as keyboard from "./keyboard";
 import * as textArea from "./text_area";
 import * as keymap from "./keymap";
+import * as i18n from "./i18n";
+import * as localeHost from "./locale_host";
 import * as bindings from "./bindings";
 import * as onboarding from "./onboarding";
 import * as shortcutHelp from "./keybinding_help";
@@ -102,7 +104,7 @@ import * as signin from "./signin";
 import * as signinExit from "./signin_exit";
 import { Terminal as NativeTerminal } from "./pane/terminal";
 import { Provider, adapter } from "./providers";
-import { sat, byteLength, clamp, displayWidth, ellipsis, type Writer } from "./text";
+import { sat, byteLength, byteSlice, clamp, displayWidth, ellipsis, type Writer } from "./text";
 import * as errors from "./errors";
 import * as moonlanderTerminal from "./moonlander/terminal";
 
@@ -776,13 +778,20 @@ export class Controller {
   }
   loadPreferences(): void {
     this.prefs = preferences.load();
+    localeHost.initialize(this.prefs.language);
     this.closePreferences?.();
     try {
       if (existsSync(preferences.path()) && preferences.readExisting(preferences.path()) === null)
-        this.notice("Invalid viewer.json; using default preferences until the file is repaired.");
+        this.notice(i18n.t`Invalid viewer.json; using default preferences until the file is repaired.`);
       this.closePreferences = keybindingFile.observe(preferences.path(), saved => {
+        if (saved && saved.language !== this.prefs.language) {
+          this.prefs.language = saved.language;
+          localeHost.initialize(saved.language);
+          this.help.configure(this.prefs.preset, this.prefs.prefix, this.prefs.keys);
+          this.dirty = true;
+        }
         if (!saved) {
-          this.help.error = "Invalid viewer.json; keeping the working shortcuts.";
+          this.help.error = i18n.t`Invalid viewer.json; keeping the working shortcuts.`;
           this.notice(this.help.error);
         } else if (
           saved.preset !== this.prefs.preset ||
@@ -797,16 +806,16 @@ export class Controller {
             const editing = this.help.edit !== null;
             this.help.configure(saved.preset, saved.prefix, saved.keys);
             this.help.accept(saved.keys);
-            if (editing) this.help.error = "Shortcuts changed on disk. Reopen the shortcut to edit it.";
+            if (editing) this.help.error = i18n.t`Shortcuts changed on disk. Reopen the shortcut to edit it.`;
           } else this.prefix = false;
           if (!this.remote_links && ghosttyIntegration.available()) {
             try {
               if (
                 ghosttyIntegration.refresh({ preset: saved.preset, prefix: saved.prefix, bindings: saved.bindings() })
               )
-                this.notice("Shortcuts reloaded. Reload Ghostty to update its menu shortcuts.");
+                this.notice(i18n.t`Shortcuts reloaded. Reload Ghostty to update its menu shortcuts.`);
             } catch {
-              this.notice("Shortcuts reloaded; could not update the Ghostty integration.");
+              this.notice(i18n.t`Shortcuts reloaded; could not update the Ghostty integration.`);
             }
           }
           this.dirty = true;
@@ -814,7 +823,7 @@ export class Controller {
         this.wake?.();
       });
     } catch {
-      this.notice("Could not watch viewer.json for shortcut changes.");
+      this.notice(i18n.t`Could not watch viewer.json for shortcut changes.`);
     }
     this.review.tree_rows = this.prefs.review_tree_rows;
     if (!this.prefs.onboarding_complete)
@@ -1264,12 +1273,15 @@ export class Controller {
         ? agentNavigation.relative(entries, this.focusedAgent(), next)
         : this.navigation.agentHistory(this.runtime.workspaces).destination(entries, this.focusedAgent());
     if (target) this.selectAgent(target);
-    else this.notice(entries.length === 0 ? " No agents in this workspace" : " No previous agent in this workspace");
+    else
+      this.notice(
+        entries.length === 0 ? i18n.t` No agents in this workspace` : i18n.t` No previous agent in this workspace`,
+      );
   }
   private openAgentPicker(): void {
     this.closeMenu();
     if (this.width < 40 || this.height < 13) {
-      this.notice(" Agent search needs at least 40 columns and 13 rows");
+      this.notice(i18n.t` Agent search needs at least 40 columns and 13 rows`);
       return;
     }
     this.sidebar_open = true;
@@ -1309,9 +1321,7 @@ export class Controller {
     return this.model().count === 0 ? null : this.pane(this.nav().tab().focus);
   }
   notice(msg: string): void {
-    this.message = Array.from(Buffer.from(msg).subarray(0, 512), ch =>
-      ch >= 32 && ch < 127 ? String.fromCharCode(ch) : " ",
-    ).join("");
+    this.message = byteSlice(msg.replace(/[\x00-\x1f\x7f-\x9f]/g, " "), 512);
     this.headless_notice = null;
     this.dirty = true;
   }
@@ -1327,10 +1337,14 @@ export class Controller {
     this.wake();
   }
   private noticeHeadlessSession(session: Headless): void {
+    const name = adapter(session.provider).name,
+      id = session.session,
+      state = session.state,
+      provider = session.provider;
     this.notice(
       session.session
-        ? ` ${adapter(session.provider).name} session ${session.session}: ${session.state}. Inspect: corgi headless events ${session.provider} ${session.session}`
-        : ` ${adapter(session.provider).name}: waiting for a session ID`,
+        ? i18n.t` ${name} session ${id}: ${state}. Inspect: corgi headless events ${provider} ${id}`
+        : i18n.t` ${name}: waiting for a session ID`,
     );
     this.headless_notice = session.id;
   }
@@ -1498,9 +1512,10 @@ export class Controller {
         hold.stopped(now);
         break;
       case "failed": {
-        const reason = removalReason(report.error);
+        const reason = removalReason(report.error),
+          name = t.name;
         hold.settle(now, reason);
-        if (card.workspace !== t.workspace) this.notice(` Couldn't remove ${t.name}: ${reason}`);
+        if (card.workspace !== t.workspace) this.notice(i18n.t` Couldn't remove ${name}: ${reason}`);
         break;
       }
       default:
@@ -1579,7 +1594,7 @@ export class Controller {
             });
             this.marked_unread.set(p.id, this.focused()?.id === p.id);
           } catch {
-            this.notice(" Couldn't mark as unread");
+            this.notice(i18n.t` Couldn't mark as unread`);
           }
           break;
         case "review":
@@ -1649,7 +1664,9 @@ export class Controller {
             await this.closeWorkspace(context.tab, true);
           } catch (error) {
             this.notice(
-              errors.is(error, "LastWorkspace") ? " Cannot close the last workspace" : " Could not close workspace",
+              errors.is(error, "LastWorkspace")
+                ? i18n.t` Cannot close the last workspace`
+                : i18n.t` Could not close workspace`,
             );
           }
           break;
@@ -1727,7 +1744,7 @@ export class Controller {
               bindings: this.prefs.bindings(),
             }))
           )
-            this.help.error = "Saved. Reload Ghostty to update its menu shortcuts.";
+            this.help.error = i18n.t`Saved. Reload Ghostty to update its menu shortcuts.`;
         } catch (error) {
           this.help.error = (error as Error).message;
         }
@@ -1882,7 +1899,7 @@ export class Controller {
           try {
             await this.newWorkspace(name, cwd);
           } catch {
-            this.notice(" Could not create workspace");
+            this.notice(i18n.t` Could not create workspace`);
           }
           return;
         }
@@ -1906,7 +1923,11 @@ export class Controller {
           } catch (error) {
             this.dismissName();
             this.notice(
-              agentMessage((error as Error).message, " Could not rename this agent", this.pane(target.agent)?.agent),
+              agentMessage(
+                (error as Error).message,
+                i18n.t` Could not rename this agent`,
+                this.pane(target.agent)?.agent,
+              ),
             );
             return;
           }
@@ -1925,7 +1946,7 @@ export class Controller {
         } catch (error) {
           this.dismissName();
           this.notice(
-            agentMessage((error as Error).message, " Could not fork this agent", this.pane(target.fork)?.agent),
+            agentMessage((error as Error).message, i18n.t` Could not fork this agent`, this.pane(target.fork)?.agent),
           );
           return;
         }
@@ -1961,7 +1982,7 @@ export class Controller {
   }
   private async undoClose(): Promise<void> {
     if (this.current().closed_agents === 0) {
-      this.notice(" No closed agents to reopen in this workspace");
+      this.notice(i18n.t` No closed agents to reopen in this workspace`);
       return;
     }
     const id = (await this.execute({ "pane.restore": { workspace: this.current().id } })).pane;
@@ -1976,7 +1997,7 @@ export class Controller {
     if (!p?.dormant || this.wake_failed !== null) return;
     return this.edit({ "pane.wake": { target: p.id } }).catch(() => {
       this.wake_failed = p.id;
-      this.notice(" Could not resume this agent");
+      this.notice(i18n.t` Could not resume this agent`);
     });
   }
   private attention(): void {
@@ -1997,7 +2018,7 @@ export class Controller {
           this.noticeHeadlessSession(session);
           return;
         }
-    this.notice(" Nothing needs your attention");
+    this.notice(i18n.t` Nothing needs your attention`);
   }
   async perform(act: Action): Promise<void> {
     this.message = "";
@@ -2024,7 +2045,7 @@ export class Controller {
           card = this.resource_card;
         if (this.runtime.workspaces.index(id) === null) break;
         if (!this.prefs.resources.enabled) {
-          this.notice(" Resource readings are off: turn them on in Corgi setup → Resources");
+          this.notice(i18n.t` Resource readings are off: turn them on in Corgi setup → Resources`);
           break;
         }
         this.closeMenu();
@@ -2065,7 +2086,7 @@ export class Controller {
           case "resource-go": {
             const pane = this.selectedProcess()?.pane ?? null;
             if (pane === null || !this.pane(pane)) {
-              card.notice = "It runs in a background session, outside any pane";
+              card.notice = i18n.t`It runs in a background session, outside any pane`;
               break;
             }
             this.closeMenu();
@@ -2132,7 +2153,7 @@ export class Controller {
         try {
           await call(this.connection, "worktree.brief", { workspace: id });
         } catch {
-          this.notice(" Worktree briefs: the runtime did not accept the refresh");
+          this.notice(i18n.t` Worktree briefs: the runtime did not accept the refresh`);
         }
         break;
       }
@@ -2163,7 +2184,7 @@ export class Controller {
         try {
           for (const id of panes) await this.close(id);
         } catch {
-          card.removal.settle(milliTimestamp(), "its agents didn't close");
+          card.removal.settle(milliTimestamp(), i18n.t`its agents didn't close`);
           break;
         }
         // The daemon deletes the files in the background and reports on them.
@@ -2229,7 +2250,7 @@ export class Controller {
       case "last-workspace": {
         const id = this.navigation.lastWorkspace(this.runtime.workspaces);
         if (id !== null) this.switchWorkspace(id);
-        else this.notice(" No previous workspace");
+        else this.notice(i18n.t` No previous workspace`);
         break;
       }
       case "last-tab": {
@@ -2237,7 +2258,7 @@ export class Controller {
         if (pane !== null) {
           this.focusPane(pane);
           this.copy_mode = false;
-        } else this.notice(" No previous tab in this workspace");
+        } else this.notice(i18n.t` No previous tab in this workspace`);
         break;
       }
       case "new":
@@ -2255,7 +2276,7 @@ export class Controller {
         break;
       case "mute":
         this.muted = !this.muted;
-        this.notice(this.muted ? " Dings muted; attention markers remain on" : " Dings enabled");
+        this.notice(this.muted ? i18n.t` Dings muted; attention markers remain on` : i18n.t` Dings enabled`);
         break;
       case "undo-close":
         return this.undoClose();
@@ -2468,9 +2489,8 @@ export class Controller {
         "agent.create": { workspace: this.current().id, cwd: dir, provider, ...(account ? { account } : {}) },
       });
     } catch (error) {
-      this.notice(
-        message ? `${message} Couldn't start the agent: ${(error as Error).message}` : (error as Error).message,
-      );
+      const reason = (error as Error).message;
+      this.notice(message ? i18n.t`${message} Couldn't start the agent: ${reason}` : reason);
       return;
     }
     this.focusPane(created.pane);
@@ -2738,8 +2758,8 @@ export class Controller {
   private removeAccount(a: agentManager.Agent, launch: LauncherMenu): void {
     const key = agentManager.agentKey(a.provider, a.account),
       known = accounts.find(a.provider, a.account);
-    if (this.account_removals.has(key)) return launch.manager.removed("This account is already being removed.");
-    if (!known) return launch.manager.removed("Corgi doesn't list this account any more.");
+    if (this.account_removals.has(key)) return launch.manager.removed(i18n.t`This account is already being removed.`);
+    if (!known) return launch.manager.removed(i18n.t`Corgi doesn't list this account any more.`);
     try {
       agentProfiles.assertAccountUnused(a.provider, a.account);
     } catch (error) {
@@ -2748,7 +2768,9 @@ export class Controller {
     const running = this.runtime.panes.filter(p => p.agent.provider === a.provider && p.account === a.account).length;
     if (running > 0)
       return launch.manager.removed(
-        `Close the ${running === 1 ? "agent that runs" : `${running} agents that run`} in it first.`,
+        running === 1
+          ? i18n.t`Close the agent that runs in it first.`
+          : i18n.t`Close the ${running} agents that run in it first.`,
       );
     const job: AccountRemoval = {
       agent: a,
@@ -2775,7 +2797,8 @@ export class Controller {
       if (!job.result) continue;
       this.account_removals.delete(key);
       const { agent: a, result, launch } = job,
-        current = this.launcherModel();
+        current = this.launcherModel(),
+        name = a.label;
       let warning = "";
       if (result.error === null) {
         const previews = new Set([launch.preview, current?.preview, this.launch_previews.preview]);
@@ -2786,14 +2809,17 @@ export class Controller {
           // An account added later in its folder starts shown everywhere.
           await this.showEverywhere(a);
         } catch (error) {
-          warning = ` Removed ${a.label}, but couldn't update launcher settings: ${signin.problem(error)}`;
+          const reason = signin.problem(error);
+          warning = i18n.t` Removed ${name}, but couldn't update launcher settings: ${reason}`;
         }
       }
       if (current === launch && launch.manager.removal === job.removal) launch.manager.removed(result.error);
-      if (result.error !== null) this.notice(` Couldn't remove ${a.label}: ${result.error}`);
+      const reason = result.error;
+      if (reason !== null) this.notice(i18n.t` Couldn't remove ${name}: ${reason}`);
       else
         this.notice(
-          warning || (result.deleted ? ` Deleted ${a.label} and its folder` : ` Removed ${a.label}; kept its folder`),
+          warning ||
+            (result.deleted ? i18n.t` Deleted ${name} and its folder` : i18n.t` Removed ${name}; kept its folder`),
         );
       this.dirty = true;
     }
@@ -2964,13 +2990,14 @@ export class Controller {
       if (socket) await rpc.request(socket, "worktree.add", fields);
       else await call(this.connection, "worktree.add", fields);
     } catch (error) {
-      const reason = launcherWorktree.reason(errors.name(error), planned);
+      const reason = launcherWorktree.reason(errors.name(error), planned),
+        branch = planned.branch;
       c.adding = false;
       if (this.agent_launcher === launch) {
         // The box opens in the form, on the name Git refused.
         this.openWorktrees();
         c.error = reason;
-      } else this.notice(` Couldn't add ${planned.branch}: ${reason}`);
+      } else this.notice(i18n.t` Couldn't add ${branch}: ${reason}`);
       this.dirty = true;
       return null;
     }
@@ -3146,10 +3173,10 @@ export class Controller {
       empty = f.editor.name().length === 0;
     if (index === null || f.editor.overflow || empty) {
       f.save_error = empty
-        ? "Enter a command."
+        ? i18n.t`Enter a command.`
         : index === null
-          ? "All saved command slots are in use."
-          : "Command too long";
+          ? i18n.t`All saved command slots are in use.`
+          : i18n.t`Command too long`;
       f.save_requested = false;
       f.editor.failed = true;
       this.dirty = true;
@@ -3182,7 +3209,7 @@ export class Controller {
         },
       });
     } catch {
-      f.save_error = "Could not resolve shorthand. Paste its underlying command.";
+      f.save_error = i18n.t`Could not resolve shorthand. Paste its underlying command.`;
       f.editor.failed = true;
       this.dirty = true;
       return;
@@ -3707,7 +3734,7 @@ export class Controller {
     const setup = SetupMenu.open();
     setup.agents = this.makeLauncher(true);
     setup.agents.managing = true;
-    setup.agents.manager.back_label = "Settings";
+    setup.agents.manager.back = "settings";
     setup.integration = this.remote_links ? "unavailable" : ghosttyIntegration.state();
     setup.image_paste = this.host_clipboard;
     setup.pacing = this.host_pacer;
@@ -3752,6 +3779,16 @@ export class Controller {
     this.dirty = true;
     if (apply === null) return;
     switch (apply.kind) {
+      case "language":
+        this.prefs.language = apply.language;
+        localeHost.initialize(apply.language);
+        this.help.configure(this.prefs.preset, this.prefs.prefix, this.prefs.keys);
+        try {
+          preferences.update({ language: apply.language });
+        } catch (error) {
+          this.notice((error as Error).message);
+        }
+        return;
       case "moonlander":
         return this.perform({ name: "moonlander" });
       case "shell":
@@ -3845,11 +3882,11 @@ export class Controller {
   private async toggleGhostty(): Promise<void> {
     const integration_state = this.remote_links ? "unavailable" : ghosttyIntegration.state();
     if (integration_state === "unavailable") {
-      this.notice(" Ghostty integration requires a local macOS viewer");
+      this.notice(i18n.t` Ghostty integration requires a local macOS viewer`);
       return;
     }
     if (integration_state === "failed") {
-      this.notice(" Could not read Ghostty config; no changes made");
+      this.notice(i18n.t` Could not read Ghostty config; no changes made`);
       return;
     }
     try {
@@ -3859,7 +3896,8 @@ export class Controller {
           : { preset: this.prefs.preset, prefix: this.prefs.prefix, bindings: this.prefs.bindings() },
       );
     } catch (error) {
-      this.notice(` Ghostty integration: ${(error as Error).message}`);
+      const reason = (error as Error).message;
+      this.notice(i18n.t` Ghostty integration: ${reason}`);
       return;
     }
     if (this.corgi_setup) {
@@ -3868,8 +3906,8 @@ export class Controller {
     }
     this.notice(
       integration_state === "enabled"
-        ? " Ghostty integration disabled. Reload Ghostty: Cmd+Shift+,"
-        : " Ghostty integration enabled. Reload Ghostty: Cmd+Shift+,",
+        ? i18n.t` Ghostty integration disabled. Reload Ghostty: Cmd+Shift+,`
+        : i18n.t` Ghostty integration enabled. Reload Ghostty: Cmd+Shift+,`,
     );
   }
   /** The setup screen stays open; the daemon republishes status, which moves the in-use mark. */
@@ -3878,39 +3916,51 @@ export class Controller {
     try {
       response = await call(this.connection, "inference.configure", { choice, model, account });
     } catch {
-      this.notice(" Corgi setup: the runtime did not accept the change");
+      this.notice(i18n.t` Corgi setup: the runtime did not accept the change`);
       return;
     }
     const saved = response.saved === true;
     const label =
       choice === "auto"
-        ? "Auto (follows your agents)"
+        ? i18n.t`Auto (follows your agents)`
         : choice === "off"
-          ? "Off"
+          ? i18n.t`Off`
           : adapter(Summarizer.provider(choice)!).label;
-    this.notice(` Summaries and link names: ${label}${saved ? "" : " (not saved for next start)"}`);
+    this.notice(
+      saved
+        ? i18n.t` Summaries and link names: ${label}`
+        : i18n.t` Summaries and link names: ${label} (not saved for next start)`,
+    );
   }
   private async configureUse(use: Use, on: boolean): Promise<void> {
     let response: any;
     try {
       response = await call(this.connection, "inference.configure", { [use]: on });
     } catch {
-      this.notice(" Corgi setup: the runtime did not accept the change");
+      this.notice(i18n.t` Corgi setup: the runtime did not accept the change`);
       return;
     }
-    const label = { activity: "Activity summaries", worktrees: "Worktree briefs" }[use];
-    this.notice(` ${label}: ${on ? "on" : "off"}${response.saved === true ? "" : " (not saved for next start)"}`);
+    const label = { activity: i18n.t`Activity summaries`, worktrees: i18n.t`Worktree briefs` }[use];
+    this.notice(
+      response.saved === true
+        ? on
+          ? i18n.t` ${label}: on`
+          : i18n.t` ${label}: off`
+        : on
+          ? i18n.t` ${label}: on (not saved for next start)`
+          : i18n.t` ${label}: off (not saved for next start)`,
+    );
   }
   private async configureSmartLinks(enabled: boolean): Promise<void> {
     try {
       await call(this.connection, "smart_links.configure", { enabled });
     } catch {
-      this.notice(" Corgi setup: the runtime did not accept the change");
+      this.notice(i18n.t` Corgi setup: the runtime did not accept the change`);
       return;
     }
     this.runtime.smart_links = enabled;
     if (this.corgi_setup) this.corgi_setup.smart_links = enabled;
-    this.notice(enabled ? " Smart Links on" : " Smart Links off: Corgi won't connect to pane ports");
+    this.notice(enabled ? i18n.t` Smart Links on` : i18n.t` Smart Links off: Corgi won't connect to pane ports`);
   }
   /** A shell option: Other… asks for a path; the rest go to the daemon. */
   private async chooseShell(entry: shellPicker.Entry): Promise<void> {
@@ -3930,13 +3980,18 @@ export class Controller {
       response = await call(this.connection, "shell.configure", { shell });
     } catch (error) {
       if (errors.is(error, "ShellNotFound")) return false;
-      this.notice(" Corgi setup: the runtime did not accept the change");
+      this.notice(i18n.t` Corgi setup: the runtime did not accept the change`);
       return true;
     }
     const status = shellPicker.status(response.shell);
     this.runtime.shell = status;
     if (this.corgi_setup) this.corgi_setup.shell = status;
-    this.notice(` New panes start in ${basename(status.path)}${status.source === "setting" ? "" : " (the default)"}`);
+    const name = basename(status.path);
+    this.notice(
+      status.source === "setting"
+        ? i18n.t` New panes start in ${name}`
+        : i18n.t` New panes start in ${name} (the default)`,
+    );
     return true;
   }
   private movePortMenu(next: boolean): void {
@@ -3995,10 +4050,14 @@ export class Controller {
     }
   }
   private keysNotice(reload: boolean): void {
+    const name = keymap.name(this.prefs.preset),
+      prefix = keymap.prefixName(this.prefs.prefix);
     this.notice(
       this.prefs.preset === "cmux"
-        ? " Shortcuts: cmux. Reload Ghostty: Cmd+Shift+,"
-        : ` Shortcuts: ${keymap.name(this.prefs.preset)} · prefix ${keymap.prefixName(this.prefs.prefix)}${reload ? ". Reload Ghostty: Cmd+Shift+," : ""}`,
+        ? i18n.t` Shortcuts: cmux. Reload Ghostty: Cmd+Shift+,`
+        : reload
+          ? i18n.t` Shortcuts: ${name} · prefix ${prefix}. Reload Ghostty: Cmd+Shift+,`
+          : i18n.t` Shortcuts: ${name} · prefix ${prefix}`,
     );
   }
   private async saveKeys(preset: keymap.Preset, prefix: keymap.Prefix): Promise<void> {
@@ -4349,7 +4408,8 @@ export class Controller {
         this.search_skip = 0;
         this.message = "";
         const p = this.focused();
-        if (p && !(await p.terminal.search(Buffer.from(this.search_text).toString(), 0))) this.notice(" No matches");
+        if (p && !(await p.terminal.search(Buffer.from(this.search_text).toString(), 0)))
+          this.notice(i18n.t` No matches`);
       } else if (byte === 127) {
         this.search_text.pop();
       } else if (byte >= 32 && byte < 127 && this.search_text.length < 128) {
@@ -4450,7 +4510,7 @@ export class Controller {
         case 47:
           this.search_mode = true;
           this.search_text = [];
-          this.notice("/");
+          this.notice(i18n.t`/`);
           break;
         case 110:
         case 78:
@@ -4576,7 +4636,7 @@ export class Controller {
   }
   private pasteClipboardText(target: Paste, text: string): void {
     // The check Ghostty makes before a paste reaches Corgi.
-    if (!viewerNative.isSafePaste(text)) return this.notice("Paste refused: it contains an end-of-paste marker");
+    if (!viewerNative.isSafePaste(text)) return this.notice(i18n.t`Paste refused: it contains an end-of-paste marker`);
     this.pasteText(target, text);
   }
   /** Has the daemon offer the clipboard in the program's own paste event,
@@ -4601,7 +4661,7 @@ export class Controller {
     this.dirty = true;
     if (typeof target === "object") {
       const p = this.pane(target.pane);
-      if (!p) return this.notice("The pane closed before the paste arrived");
+      if (!p) return this.notice(i18n.t`The pane closed before the paste arrived`);
       this.sendInput(p.terminal, viewerNative.encodePaste(text, p.terminal.bracketedPaste()));
     } else {
       for (const byte of viewerNative.encodePaste(text, true, 1)) void this.pasteByteSync(target, byte);
@@ -4617,8 +4677,8 @@ export class Controller {
     if (!clipboard) return false;
     const p = this.focused();
     if (!p) return false;
-    const agent = p.agent.provider ? adapter(p.agent.provider).name : "The program";
-    let host = "this machine";
+    const agent = p.agent.provider ? adapter(p.agent.provider).name : i18n.t`The program`;
+    let host = i18n.t`this machine`;
     try {
       const full = hostname();
       host = full.slice(0, full.includes(".") ? full.indexOf(".") : full.length);
@@ -6429,7 +6489,8 @@ export class Controller {
       ws = pane === null ? null : this.runtime.workspaces.owner(pane),
       tab = ws?.model.tabForPane(pane!) ?? null;
     if (!ws || tab === null) return null;
-    return `${ws.name} › ${ws.model.tabs[tab].title || `tab ${tab + 1}`}`;
+    const index = tab + 1;
+    return `${ws.name} › ${ws.model.tabs[tab].title || i18n.t`tab ${index}`}`;
   }
   /** Sends the pinned card's signal to its targets, once its key comes twice. */
   private async signalProcesses(signal: Signal): Promise<void> {
@@ -6457,10 +6518,16 @@ export class Controller {
         gone++;
       }
     card.tagged = [];
-    const what = targets.length === 1 ? names[0] : `${targets.length} processes`,
-      sent = `Sent ${signal === "kill" ? "SIGKILL" : "SIGTERM"} to ${what}`;
+    const count = targets.length,
+      what = count === 1 ? names[0] : i18n.t`${count} processes`,
+      signalName = signal === "kill" ? "SIGKILL" : "SIGTERM",
+      sent = i18n.t`Sent ${signalName} to ${what}`;
     card.notice =
-      gone === targets.length ? `${what} already exited` : gone ? `${sent}; ${gone} had already exited` : sent;
+      gone === targets.length
+        ? i18n.t`${what} already exited`
+        : gone
+          ? i18n.t`${sent}; ${gone} had already exited`
+          : sent;
   }
   private pinWorktreeInput(input: string): void {
     if (this.worktreeDetail() === null) return;
@@ -6589,7 +6656,9 @@ export class Controller {
         await this.create(null, selection.path, null, "");
       }
     } catch (error) {
-      this.notice(` Couldn't open ${basename(selection.path)}: ${(error as Error).message}`);
+      const name = basename(selection.path),
+        reason = (error as Error).message;
+      this.notice(i18n.t` Couldn't open ${name}: ${reason}`);
     }
     this.dirty = true;
   }
@@ -6800,7 +6869,8 @@ export class Controller {
     if (!wanted) return;
     const pane = this.checkoutPane(ws);
     if (!pane) {
-      this.notice(` No pane in ${ws.name}'s checkout to review from`);
+      const name = ws.name;
+      this.notice(i18n.t` No pane in ${name}'s checkout to review from`);
       return;
     }
     this.review.pinned = false;
@@ -7106,7 +7176,7 @@ export class Controller {
         worktree_spotlight: this.spotlight(),
         message:
           this.agent_picker && (this.width < 40 || this.height < 13)
-            ? " Agent search: enlarge terminal or Esc"
+            ? i18n.t` Agent search: enlarge terminal or Esc`
             : this.message,
         copy_feedback: this.copy_feedback_until > milliTimestamp(),
         added_feedback:
@@ -7306,7 +7376,7 @@ export class Controller {
     this.review.show();
     if (this.sidebarView([]).panel === 0) {
       this.review.hide();
-      this.notice(" Review needs a wider window");
+      this.notice(i18n.t` Review needs a wider window`);
       return;
     }
     this.giveKeyboard("review");
@@ -7346,18 +7416,18 @@ export class Controller {
       case "send": {
         const p = this.pane(effect.pane);
         if (!p) {
-          this.review.restore(effect.from, effect.notes, "That pane closed; the notes are kept.");
+          this.review.restore(effect.from, effect.notes, i18n.t`That pane closed; the notes are kept.`);
           break;
         }
         // A program that didn't ask for bracketed paste, like a bare shell,
         // would run each line; those notes go to the clipboard instead.
         if (!p.terminal.bracketedPaste()) {
           this.copyText(effect.text);
-          this.review.restore(effect.from, [], "That pane would run the notes as commands; copied them instead.");
+          this.review.restore(effect.from, [], i18n.t`That pane would run the notes as commands; copied them instead.`);
           break;
         }
         if (!viewerNative.isSafePaste(effect.text)) {
-          this.review.restore(effect.from, effect.notes, "The notes hold an end-of-paste marker; they're kept.");
+          this.review.restore(effect.from, effect.notes, i18n.t`The notes hold an end-of-paste marker; they're kept.`);
           break;
         }
         this.pasteText({ pane: p.id }, effect.text);
@@ -7444,14 +7514,16 @@ export function breadcrumbs(p: Pane): string {
 /** What a viewer says when renaming or forking `agent` fails with `err`. */
 export function agentMessage(err: string, fallback: string, agent: Agent | undefined): string {
   switch (err) {
-    case "AgentBusy":
-      return ` ${agent?.provider ? adapter(agent.provider).name : "This agent"} is busy: rename it once its input box is empty`;
+    case "AgentBusy": {
+      const name = agent?.provider ? adapter(agent.provider).name : i18n.t`This agent`;
+      return i18n.t` ${name} is busy: rename it once its input box is empty`;
+    }
     case "RenameUnavailable":
-      return " This agent can't be renamed from outside";
+      return i18n.t` This agent can't be renamed from outside`;
     case "NoConversation":
-      return " This agent has no conversation yet";
+      return i18n.t` This agent has no conversation yet`;
     case "InvalidName":
-      return " Names are one line of up to 80 characters";
+      return i18n.t` Names are one line of up to 80 characters`;
     default:
       return fallback;
   }
@@ -7459,30 +7531,30 @@ export function agentMessage(err: string, fallback: string, agent: Agent | undef
 function removalReason(err: string | null): string {
   switch (err) {
     case "NoWorktree":
-      return "it's already gone";
+      return i18n.t`it's already gone`;
     case "WorktreeLocked":
-      return "it's locked";
+      return i18n.t`it's locked`;
     case "WorktreeLockChanged":
-      return "its lock changed";
+      return i18n.t`its lock changed`;
     case "WorktreeInUse":
-      return "a workspace is open in it";
+      return i18n.t`a workspace is open in it`;
     case "WorktreeRemoveFailed":
-      return "git couldn't remove it";
+      return i18n.t`git couldn't remove it`;
     case "WorktreeRemoving":
-      return "another one is being removed";
+      return i18n.t`another one is being removed`;
     case "UnknownOperation":
-      return "reload Corgi's daemon first";
+      return i18n.t`reload Corgi's daemon first`;
     default:
-      return err ?? "unknown error";
+      return err ?? i18n.t`unknown error`;
   }
 }
-const preview_changed = "The commits to push changed. Review them and push again.";
+
 function gitPushMessage(err: string): string {
   switch (err) {
     case "GitPreviewChanged":
-      return preview_changed;
+      return i18n.t`The commits to push changed. Review them and push again.`;
     case "GitPushInProgress":
-      return "A push is already running for this repository.";
+      return i18n.t`A push is already running for this repository.`;
     default:
       return err;
   }

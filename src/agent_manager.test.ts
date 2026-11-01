@@ -1,3 +1,4 @@
+import * as i18n from "./i18n";
 import * as rowGlide from "./row_glide";
 import { expect, test } from "bun:test";
 import * as agentManager from "./agent_manager";
@@ -838,4 +839,33 @@ test("dragging between groups skips the visibility glide and uses a grab cursor"
   v.tick(m, 1000);
   v.tick(m, 1150);
   expect(screen(v, m, 1150).raw).not.toContain("a=T,f=100,i=730121");
+});
+
+test("narrow translated action rows keep the remove instruction before reorder buttons", () => {
+  const previous = i18n.language();
+  try {
+    for (const language of i18n.locales) {
+      i18n.setLanguage(language);
+      for (const width of [64, 80]) {
+        const m = model(),
+          v = new agentManager.View();
+        v.open(agentManager.agentKey("claude", "/a/2"));
+        const b = new Rect(0, 0, width, v.height(m)),
+          w = new Writer();
+        v.draw(w, b, m);
+        const terminal = new Terminal(width, b.h);
+        try {
+          terminal.feed(w.s);
+          const line = terminal.text().split("\n")[b.h - 3];
+          expect(line).toContain(i18n.t` hold ⌫ ` + i18n.t` remove`);
+          expect(line).toContain(i18n.t` e Edit `);
+          expect(line.endsWith("│")).toBe(true);
+        } finally {
+          terminal.destroy();
+        }
+      }
+    }
+  } finally {
+    i18n.setLanguage(previous);
+  }
 });

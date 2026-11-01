@@ -178,8 +178,12 @@ async function run(args: string[]): Promise<number> {
 }
 const messages: Record<string, string> = {
   AccountHasProfiles: "delete this account’s cloned configurations first",
-  InvalidAccountName: agentName.message + " The account name default is reserved.",
-  InvalidAgentName: agentName.message,
+  get InvalidAccountName() {
+    return agentName.accountMessage();
+  },
+  get InvalidAgentName() {
+    return agentName.message();
+  },
   AccountExists: "there's an account by that name already",
   UnknownAccount: "no account by that name; `corgi account list` shows them",
   AmbiguousAccount: "two providers have an account by that name; say claude/NAME or codex/NAME",

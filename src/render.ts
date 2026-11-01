@@ -1,3 +1,4 @@
+import * as i18n from "./i18n";
 //! One complete frame of the viewer: tabs, panes, sidebar and overlays.
 //! Mirrors render.zig.
 import * as palette from "./palette";
@@ -528,14 +529,14 @@ export function drawPrefixBar(w: Writer, area: Rect, preset: bindings.Source, pr
   if (area.w === 0 || area.h === 0) return;
   const help = bindings.first(preset, { name: "help" }, true);
   const hints = [
-    { key: "Esc", label: "cancel" },
-    { key: keymap.prefixName(prefix), label: "send prefix" },
-    { key: help ? bindings.format(help) : "", label: help ? "shortcuts" : "" },
+    { key: "Esc", label: i18n.t`cancel` },
+    { key: keymap.prefixName(prefix), label: i18n.t`send prefix` },
+    { key: help ? bindings.format(help) : "", label: help ? i18n.t`shortcuts` : "" },
   ];
-  const hintWidth = (h: { key: string; label: string }) => displayWidth(h.key) + h.label.length + 3;
-  const label = " PREFIX ";
+  const hintWidth = (h: { key: string; label: string }) => displayWidth(h.key) + displayWidth(h.label) + 3;
+  const label = i18n.t` PREFIX `;
   let shown = [true, true, help !== null];
-  let used = label.length;
+  let used = displayWidth(label);
   hints.forEach((hint, i) => {
     if (shown[i]) used += hintWidth(hint);
   });
@@ -546,11 +547,10 @@ export function drawPrefixBar(w: Writer, area: Rect, preset: bindings.Source, pr
   }
   if (used > area.w) {
     shown = [false, false, false];
-    used = label.length;
+    used = displayWidth(label);
   }
-  w.write(
-    `\x1b[${area.y + area.h};${area.x + 1}H\x1b]8;;\x1b\\${keycap}${label.slice(0, Math.min(label.length, area.w))}`,
-  );
+  w.write(`\x1b[${area.y + area.h};${area.x + 1}H\x1b]8;;\x1b\\${keycap}`);
+  w.write(clipped(label, area.w));
   hints.forEach((hint, i) => {
     if (shown[i]) w.write(`${hint_key} ${hint.key}${hint_label} ${hint.label} `);
   });
@@ -671,9 +671,11 @@ export function frame(
         ? `${binding.prefixed ? prefix_key + " " : ""}${bindings.format(binding)}: ${label}`
         : `corgi action ${name}: ${label}`;
     };
-    const empty = ` No panes. ${hint("new", "agent picker")} | ${hint("help", "shortcuts")}`;
+    const newAgent = hint("new", i18n.t`agent picker`),
+      shortcuts = hint("help", i18n.t`shortcuts`);
+    const empty = i18n.t` No panes. ${newAgent} | ${shortcuts}`;
     w.write(`\x1b[2;${side.area().x + 1}H`);
-    w.write(byteSlice(empty, side.area().w));
+    writeEllipsis(w, empty, side.area().w);
   }
   const area = side.area();
   let hovered_uri: string | null = null;
@@ -886,16 +888,16 @@ export function frame(
   } else {
     // A card that doesn't fit its pane says why in the status line instead.
     const unplaced = u.paste_card !== null && paste_at === null ? u.paste_card.body.text() : null;
-    const search = u.sidebar_focus === "agents" && u.sidebar_drawer === null ? "/ search  " : "";
+    const search = u.sidebar_focus === "agents" && u.sidebar_drawer === null ? i18n.t`/ search  ` : "";
     const text =
       hovered_uri ??
       unplaced ??
       (u.message.length > 0
         ? u.message
         : u.copy_mode
-          ? "SCROLL  j/k move  y copy viewport  q exit"
+          ? i18n.t`SCROLL  j/k move  y copy viewport  q exit`
           : u.sidebar_focus
-            ? `SIDEBAR  ↑↓ move  ↵ open  ${search}Esc back`
+            ? i18n.t`SIDEBAR  ↑↓ move  ↵ open  ${search}Esc back`
             : "");
     // Beside the sidebar while it has focus, clear of its box's bottom edge.
     cover(writeChip(w, text, width, height, u.pointer, u.sidebar_focus ? side.width : 0));
@@ -935,7 +937,7 @@ export function frame(
         worktreeTooltip.draw(w, rect, ws.name, ws.cwd, ws.worktrees, u.worktree_card, badge, now);
         cover(rect);
         if (u.pointer && worktreeTooltip.sortAt(rect, u.pointer.x, u.pointer.y) !== null) link_pointer = true;
-      } else cover(writeChip(w, "Worktrees: enlarge terminal · Esc to close", width, height, u.pointer));
+      } else cover(writeChip(w, i18n.t`Worktrees: enlarge terminal · Esc to close`, width, height, u.pointer));
     }
   } else if (git_ws && git_rect) {
     const card = u.git_card!;
