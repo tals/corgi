@@ -74,14 +74,23 @@ test("local builds regenerate stale output and summarize missing translations; C
     f.catalog("ja", { "Hello ${name}": "やあ ${name}" });
     expect((await translations.verify(true, f.root)).text).toContain("stale generated translations");
     const local = await translations.verify(false, f.root);
-    expect(local).toEqual({ code: 0, text: "Updated the generated translations\n" });
+    expect(local.code).toBe(0);
+    expect(Bun.stripANSI(local.text)).toBe("Updated the generated translations\n");
     expect(readFileSync(join(f.root, "src/i18n.generated.ts"), "utf8")).toContain("やあ");
     f.source('import * as i18n from "./i18n"; const name = "Corgi"; export const greeting = i18n.t`Welcome ${name}`;');
     const missing = await translations.verify(false, f.root);
     expect(missing.code).toBe(0);
-    expect(missing.text).toContain("  • 1 message needs translating\n  • 1 unused translation\n");
-    expect(missing.text).not.toContain("ja.json");
+    const text = Bun.stripANSI(missing.text);
+    expect(text).toContain("  • 1 message needs translating\n  • 1 unused translation\nRun bun run i18n extract");
+    expect(text).not.toContain("ja.json");
+    expect(text).not.toContain("malformed");
     expect((await translations.verify(true, f.root)).code).toBe(1);
+    f.translate({ "Welcome ${name}": "ようこそ ${wrong}" });
+    const malformed = Bun.stripANSI((await translations.verify(false, f.root)).text);
+    expect(malformed).toContain(
+      "  • 1 malformed translation\nFix the malformed entries; bun run i18n check lists them.",
+    );
+    expect(malformed).not.toContain("extract");
     f.source(
       'import * as i18n from "./i18n"; const name = "Corgi"; export const greeting = i18n.t`Welcome ${name.length}`;',
     );

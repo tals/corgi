@@ -25,9 +25,12 @@ for (const [name, directory] of [
   }
   symlinkSync(directory, link, "dir");
 }
-// First: it may regenerate src/i18n.generated.ts, which tsc and Prettier read.
-const translated = await translations.verify();
-process.stderr.write(translated.text);
+const translated = translations.verify().then(result => {
+  process.stderr.write(result.text);
+  return result.code;
+});
+// Locally it may regenerate src/i18n.generated.ts, which tsc and Prettier read.
+if (!translations.ci()) await translated;
 const check = Bun.spawn(
   [
     process.execPath,
@@ -41,5 +44,5 @@ const check = Bun.spawn(
   ],
   { cwd: root, stdout: "inherit", stderr: "inherit" },
 );
-const codes = [translated.code, ...(await Promise.all([check.exited, tooling.prettier("check")]))];
+const codes = await Promise.all([translated, check.exited, tooling.prettier("check")]);
 process.exitCode = codes.find(code => code !== 0) ?? 0;
