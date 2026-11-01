@@ -163,6 +163,8 @@ const tables: Record<Preset, Binding[]> = {
     { key: 99, mods: {}, prefixed: true, action: { name: "new" } },
     { key: 110, mods: {}, prefixed: true, action: { name: "next" } },
     { key: 112, mods: {}, prefixed: true, action: { name: "prev" } },
+    { key: 108, mods: {}, prefixed: true, action: { name: "last-tab" } },
+    { key: 76, mods: {}, prefixed: true, action: { name: "last-workspace" } },
     { key: 48, mods: {}, prefixed: true, action: { name: "tab", value: 1 } },
     { key: 49, mods: {}, prefixed: true, action: { name: "tab", value: 2 } },
     { key: 50, mods: {}, prefixed: true, action: { name: "tab", value: 3 } },

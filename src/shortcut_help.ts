@@ -140,6 +140,7 @@ export function navigation(c: Column) {
   c.action("New tab → agent picker", act("new"), 2);
   c.alsoHeld("Also works directly", act("new"), 4);
   c.pair("Next / previous", act("next"), act("prev"), 2);
+  c.action("Last visited", act("last-tab"), 2);
   c.binding("Select tab", c.preset === "tmux" ? "0–9" : c.preset === "cmux" ? "Ctrl+1–9 · P 1–9" : "1–9", 2);
   c.action("Rename", act("rename-tab"), 2);
   c.action("Close", act("close-tab"), 2);
@@ -148,6 +149,7 @@ export function navigation(c: Column) {
   c.action("New", act("new-workspace"), 2);
   c.action("Edit", act("edit-workspace"), 2);
   c.pair("Next / previous", act("workspace-next"), act("workspace-prev"), 2);
+  c.action("Last visited", act("last-workspace"), 2);
   c.action("Choose workspace", act("choose-workspace"), 2);
   if (c.preset === "herdr") c.binding("Also choose workspace", "g", 4);
   if (c.preset === "cmux") c.binding("Select workspace", "Cmd+1–9", 2);

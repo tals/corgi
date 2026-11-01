@@ -31,6 +31,7 @@ import * as viewer from "./viewer";
 import { agent, type Pane } from "./mirror";
 import * as summaries from "./review/summaries";
 import * as sidebar from "./sidebar";
+import * as render from "./render";
 
 /** A controller with no daemon: these tests send no requests. */
 function controller(): any {
@@ -438,6 +439,80 @@ function folders(...cwds: string[]) {
     headless_sessions: [],
   };
 }
+
+test("last tab follows keyboard, mouse and tab menu selection, including shell tabs", async () => {
+  const s = controller(),
+    snapshot = folders("/a", "/b", "/c");
+  snapshot.workspaces[0].model = {
+    nodes: [{ pane: 1 }, { pane: 2 }, { pane: 3 }],
+    tabs: [1, 2, 3].map((id, root) => ({ id, root, title: "" })),
+    revision: 0,
+  };
+  snapshot.workspaces.splice(1);
+  for (const pane of snapshot.panes) pane.workspace = 1;
+  s.receiveSnapshot(snapshot);
+  s.prefs.preset = "tmux";
+  s.input_state.attached = true;
+  s.sidebar_open = false;
+  try {
+    await s.perform({ name: "last-tab" });
+    expect(s.message).toBe(" No previous tab in this workspace");
+    await s.perform({ name: "tab", value: 3 });
+    await s.input(bytes("\x02l"));
+    expect(s.focused().id).toBe(1);
+    await s.input(bytes("\x02l"));
+    expect(s.focused().id).toBe(3);
+    const start = s.sidebarView([]).tabX(),
+      x = Array.from({ length: s.width - start }, (_, x) => x + start).find(
+        x => render.tabAt(s.layoutView(), s.width - start, x - start) === 1,
+      )!;
+    await s.input(bytes(`\x1b[<0;${x + 1};1M\x1b[<0;${x + 1};1m`));
+    expect(s.focused().id).toBe(2);
+    await s.perform({ name: "last-tab" });
+    expect(s.focused().id).toBe(3);
+    s.tab_menu = new TabMenu({ tab: 1, anchor_x: 0 });
+    await s.tabMenuAction("rename");
+    expect(s.focused().id).toBe(1);
+    await s.perform({ name: "last-tab" });
+    expect(s.focused().id).toBe(3);
+    const model = s.current().model;
+    model.close(1);
+    s.receiveSnapshot({
+      ...snapshot,
+      workspaces: [{ ...snapshot.workspaces[0], model: model.toJSON() }],
+      panes: snapshot.panes.filter(p => p.id !== 1),
+    });
+    await s.perform({ name: "last-tab" });
+    expect(s.focused().id).toBe(3);
+    expect(s.message).toBe(" No previous tab in this workspace");
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("last workspace records pane jumps and notices closed or missing history", async () => {
+  const s = controller(),
+    snapshot = folders("/a", "/b", "/c");
+  s.receiveSnapshot(snapshot);
+  s.prefs.preset = "tmux";
+  s.input_state.attached = true;
+  try {
+    await s.perform({ name: "last-workspace" });
+    expect(s.message).toBe(" No previous workspace");
+    s.focusPane(3);
+    await s.input(bytes("\x02L"));
+    expect(s.current().id).toBe(1);
+    await s.input(bytes("\x02L"));
+    expect(s.current().id).toBe(3);
+    snapshot.workspaces.splice(0, 1);
+    s.receiveSnapshot(snapshot);
+    await s.perform({ name: "last-workspace" });
+    expect(s.current().id).toBe(3);
+    expect(s.message).toBe(" No previous workspace");
+  } finally {
+    viewer.close(s);
+  }
+});
 
 test("the tab menu starts a prefix only with the configured prefix key", async () => {
   const s = controller();

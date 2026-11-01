@@ -102,6 +102,12 @@ test("the shortcut table lists each preset's keys", async () => {
 });
 
 test("keys that arrive as bytes", () => {
+  expect(lookup("tmux", true, 108)).toEqual({ name: "last-tab" });
+  expect(lookup("tmux", true, 76)).toEqual({ name: "last-workspace" });
+  for (const preset of ["corgi", "herdr", "cmux"] as const) {
+    expect(lookup(preset, true, 108)).toEqual({ name: "focus", value: "right" });
+    expect(lookup(preset, true, 76)).toEqual({ name: "swap", value: "right" });
+  }
   expect(lookup("tmux", true, 57)).toEqual({ name: "tab", value: 10 });
   expect(lookup("herdr", true, 103)).toEqual({ name: "choose-workspace" });
   expect(lookup("corgi", true, 37)).toEqual({ name: "split", value: "right" });

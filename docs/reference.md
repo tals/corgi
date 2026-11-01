@@ -80,6 +80,13 @@ Viewers share processes and layout but keep their own selection and zoom.
 A pane takes its size from the last-used viewer displaying it; other viewers
 clip or pad it. Hidden panes keep their last size.
 
+In the tmux preset, **prefix l** returns to the last visited tab in the current
+workspace, and **prefix L** returns to the last visited workspace. Press again
+to toggle back. Each viewer keeps its own history, including shell tabs. If the
+previous target has been closed, Corgi shows a notice and keeps the current
+selection. The `last-tab` and `last-workspace` actions can also be bound in any
+preset through the shortcut editor.
+
 After a crash or reboot, Corgi restores saved layout and output. Recorded agent
 sessions return dormant and resume when their pane gets focus; other panes
 start new shells. Recovery cannot restore arbitrary process memory. See
@@ -186,6 +193,7 @@ tmux tab numbering starts at zero; other presets start at one.
 | New tab (agent picker) | `prefix c`, `Ctrl+T` | `prefix c` | `prefix c` | `Cmd+T`, `prefix c` |
 | Next tab | `prefix n` | `prefix n` | `prefix n` | `Cmd+Shift+]`, `prefix n` |
 | Previous tab | `prefix p` | `prefix p` | `prefix p` | `Cmd+Shift+[`, `prefix p` |
+| Last visited tab |  | `prefix l` |  |  |
 | Select tab | `prefix 1–9` | `prefix 0–9` | `prefix 1–9` | `Ctrl+1–9`, `prefix 1–9` |
 | Rename tab | `prefix T`, `prefix ,` | `prefix ,` | `prefix T` | `Cmd+R`, `prefix T`, `prefix ,` |
 | Close tab | `prefix X` | `prefix &` | `prefix X` | `prefix X` |
@@ -193,6 +201,7 @@ tmux tab numbering starts at zero; other presets start at one.
 | Edit workspace | `prefix W` | `prefix $` | `prefix W` | `Cmd+Shift+R`, `prefix W` |
 | Next workspace | `prefix }` | `prefix }` | `prefix }` | `prefix }` |
 | Previous workspace | `prefix {` | `prefix {` | `prefix {` | `prefix {` |
+| Last visited workspace |  | `prefix L` |  |  |
 | Choose workspace | `prefix w` | `prefix s` | `prefix w`, `prefix g` | `Cmd+P`, `prefix w` |
 | Select workspace |  |  |  | `Cmd+1–9` |
 | Close workspace |  |  | `prefix D` | `Cmd+Shift+W` |

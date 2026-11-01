@@ -460,7 +460,7 @@ export class Controller {
     if (this.input_state.tab_drag) this.input_state.tab_drag.cancelled = true;
     this.dismissName();
     this.closeMenu();
-    this.navigation.workspace_id = id;
+    this.navigation.switchWorkspace(this.runtime.workspaces, id);
     this.visitWorkspace(id);
     this.revealWorkspace();
     this.copy_mode = false;
@@ -679,12 +679,12 @@ export class Controller {
     this.repeat_until = again ? Date.now() + bindings.repeat_ms : 0;
     return again && !this.sidebar_focus && !this.reviewKeys();
   }
-  focusPane(id: number): void {
+  focusPane(id: number, remember = true): void {
     const owner = this.runtime.workspaces.owner(id);
     if (!owner) throw Error("NoPane");
     this.rememberAgent();
     if (owner.id !== this.current().id) this.switchWorkspace(owner.id);
-    this.nav().focus(this.model(), id);
+    this.navigation.focus(this.runtime.workspaces, id, remember);
     this.headless_notice = null;
     this.rememberAgent();
   }
@@ -1658,12 +1658,9 @@ export class Controller {
       }
       return;
     }
-    this.rememberAgent();
     const index = this.tabIndex(context.tab);
     if (index === null) return;
-    this.nav().active = index;
-    this.headless_notice = null;
-    this.rememberAgent();
+    this.focusPane(this.nav().tabs[index].focus);
     this.copy_mode = false;
     this.dirty = true;
     switch (item) {
@@ -2228,6 +2225,20 @@ export class Controller {
             ? (this.workspaceIndex() + 1) % count
             : (this.workspaceIndex() + count - 1) % count;
         return this.switchWorkspace(this.runtime.workspaces.items[index].id);
+      }
+      case "last-workspace": {
+        const id = this.navigation.lastWorkspace(this.runtime.workspaces);
+        if (id !== null) this.switchWorkspace(id);
+        else this.notice(" No previous workspace");
+        break;
+      }
+      case "last-tab": {
+        const pane = this.navigation.lastTab(this.runtime.workspaces);
+        if (pane !== null) {
+          this.focusPane(pane);
+          this.copy_mode = false;
+        } else this.notice(" No previous tab in this workspace");
+        break;
       }
       case "new":
         this.openLauncher(true);
@@ -6001,10 +6012,7 @@ export class Controller {
       if (x >= tabs_x) {
         const index = render.tabAt(this.layoutView(), tabs_width, x - tabs_x);
         if (index !== null) {
-          this.rememberAgent();
-          this.nav().active = index;
-          this.headless_notice = null;
-          this.rememberAgent();
+          this.focusPane(this.nav().tabs[index].focus);
           cl.tab_drag = {
             workspace_id: this.current().id,
             tab_id: this.model().tabs[index].id,

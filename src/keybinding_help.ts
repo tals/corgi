@@ -92,6 +92,7 @@ const groups: [string, (string | [string, string[]])[]][] = [
     [
       ["New tab → agent picker", ["new"]],
       ["Next / previous", ["next", "prev"]],
+      ["Last visited", ["last-tab"]],
       ["Select tab", ["tab"]],
       ["Rename", ["rename-tab"]],
       ["Close", ["close-tab"]],
@@ -103,6 +104,7 @@ const groups: [string, (string | [string, string[]])[]][] = [
       ["New", ["new-workspace"]],
       ["Edit", ["edit-workspace"]],
       ["Next / previous", ["workspace-next", "workspace-prev"]],
+      ["Last visited", ["last-workspace"]],
       ["Choose workspace", ["choose-workspace"]],
       ["Select workspace", ["goto-workspace"]],
       ["Close workspace", ["close-workspace"]],
