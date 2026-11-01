@@ -95,6 +95,8 @@ Translate app chrome, not terminal programs, provider messages, generated
 summaries, user names, paths or command syntax. Machine-oriented CLI output
 keeps its existing format. Measure and clip UI text with `text.displayWidth`,
 `text.clipped`, and `text.wrap`, not JavaScript string length.
+`text.truncatedText` limits UTF-8 bytes rather than terminal cells; use it for
+byte budgets, not visual clipping.
 
 `bun tools/i18n_screenshots.ts` captures the main screens in every language
 through live Ghostty at wide and narrow sizes. See the
