@@ -593,7 +593,7 @@ export class View {
       const msg =
         kind === "agent_command"
           ? i18n.t`Could not save command; max 2048 bytes.`
-          : kind === "workspace_name" && d.len === 0
+          : kind === "workspace_name" && !d.name()
             ? i18n.t`Enter a workspace name.`
             : kind === "shell"
               ? i18n.t`No executable shell there.`

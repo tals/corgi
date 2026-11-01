@@ -37,6 +37,9 @@ test("workspace names keep whole characters within the limit", () => {
   expect(w.name()).toBe("🐕".repeat(20));
   w.rename("a\tb");
   expect(w.name()).toBe("a_b");
+  // Tab titles stay ASCII, a "_" for each byte.
+  expect(layout.cleanLabel(" café\t ")).toBe("caf___");
+  expect(layout.cleanLabel("é".repeat(50))).toBe("_".repeat(layout.max_label));
 });
 test("old workspace state names its folder-named workspaces for their folders", async () => {
   const root = await mkdtemp(join(tmpdir(), "corgi-ws-"));

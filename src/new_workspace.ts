@@ -349,7 +349,7 @@ export class Dialog extends nameDialog.Dialog {
    * The name stays selected only until the keys first leave it. */
   follow(): void {
     if (this.browser.focused) this.selected = false;
-    if (this.follows_folder) this.fill(basename(this.browser.folder()));
+    if (this.follows_folder) this.fill(basename(this.browser.folder()) || "/");
   }
   clear(): void {
     this.follows_folder = false;

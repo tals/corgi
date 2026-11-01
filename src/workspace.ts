@@ -1,6 +1,6 @@
 import { basename, dirname, join, isAbsolute } from "node:path";
 import { mkdir, open, rename, readFile, realpath, stat } from "node:fs/promises";
-import { Model, max_label, max_workspaces } from "./layout";
+import { Model, cleanLabel, max_label, max_workspaces } from "./layout";
 import * as migrations from "./persist/migrations";
 import { Order, Pins, key as agentKey, type Section } from "./agent_order";
 import { Stars, type Session as StarredSession } from "./agent_stars";
@@ -83,18 +83,8 @@ export class Workspace {
 }
 /** The name a workspace takes from its folder when given none. */
 export const folderName = (cwd: string) => label(basename(cwd) || "/") || "_";
-/** A name trimmed and with controls replaced, cut to whole characters
- * within `max` bytes. */
-export function label(value: string, max = max_label) {
-  let name = "",
-    bytes = 0;
-  for (const c of value.replace(/^ +| +$/g, "").replace(/[\x00-\x1f\x7f-\x9f]/g, "_")) {
-    bytes += Buffer.byteLength(c);
-    if (bytes > max) break;
-    name += c;
-  }
-  return name.trimEnd();
-}
+/** A workspace name as kept: non-ASCII text survives. */
+export const label = (value: string, max = max_label) => cleanLabel(value, true, max);
 export class Store {
   items: Workspace[] = [];
   next_id = 1;

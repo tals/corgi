@@ -356,6 +356,10 @@ test("the name follows the folder until it is edited", () => {
   expect(d.name()).toBe("new_tasks");
 });
 
+test("the root folder names a workspace /", () => {
+  expect(new Dialog(browse("/")).name()).toBe("/");
+});
+
 test("clearing the name stops it following", () => {
   const d = new Dialog(browse("/home/me/code"));
   d.key(3);

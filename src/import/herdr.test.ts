@@ -4,7 +4,7 @@ import * as herdr from "./herdr";
 import * as runtime from "../runtime";
 import * as checkpoint from "../persist/checkpoint";
 
-function staged(sessions = ["imported-session"]) {
+function staged(sessions = ["imported-session"], name = "Imported") {
   const job = new herdr.Job("/tmp/unused-herdr.sock", "/tmp/unused-corgi", {}, null);
   job.restoreManifest({
     panes: sessions.map((_, i) => ({
@@ -18,7 +18,7 @@ function staged(sessions = ["imported-session"]) {
       workspaces: [
         {
           identity_cwd: "/tmp",
-          custom_name: "Imported",
+          custom_name: name,
           tabs: sessions.map((session, i) => ({
             custom_name: "Codex",
             layout: { Pane: i + 1 },
@@ -47,6 +47,15 @@ test("live Herdr import roots a workspace at the folder its panes report", () =>
   try {
     // /tmp is a link to /private/tmp on macOS, which is what panes report there.
     expect(job.staged.workspaces.items[0].cwd).toBe(realpathSync("/tmp"));
+  } finally {
+    manager.cancel();
+  }
+});
+
+test("a blank Herdr workspace name takes the folder's", () => {
+  const { job, manager } = staged(undefined, "  ");
+  try {
+    expect(job.staged.workspaces.items[0].name()).toBe("tmp");
   } finally {
     manager.cancel();
   }
