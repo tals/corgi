@@ -718,7 +718,7 @@
   "Runs: ": "実行内容：",
   "SCROLL  j/k move  y copy viewport  q exit": "スクロール  j/k 移動  y 表示範囲をコピー  q 終了",
   "SCROLL / COPY": "スクロール / コピー",
-  "SIDEBAR  ↑↓ move  ↵ open  ${search}Esc back": "サイドバー  ↑↓ 移動  ↵ 開く  ${search}Esc 戻る",
+  "SIDEBAR  ↑↓/j/k move  ↵ open  ${search}Esc back": "サイドバー  ↑↓/j/k 移動  ↵ 開く  ${search}Esc 戻る",
   "Sample not available": "測定値を取得できません",
   "Sampling stops once every viewer turns it off.": "すべてのビューアーでオフにすると、測定を停止します。",
   "Sampling unavailable": "測定できません",

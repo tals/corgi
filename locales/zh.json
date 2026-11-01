@@ -718,7 +718,7 @@
   "Runs: ": "执行：",
   "SCROLL  j/k move  y copy viewport  q exit": "滚动  j/k 移动  y 复制可见内容  q 退出",
   "SCROLL / COPY": "滚动 / 复制",
-  "SIDEBAR  ↑↓ move  ↵ open  ${search}Esc back": "侧栏  ↑↓ 移动  ↵ 打开  ${search}Esc 返回",
+  "SIDEBAR  ↑↓/j/k move  ↵ open  ${search}Esc back": "侧栏  ↑↓/j/k 移动  ↵ 打开  ${search}Esc 返回",
   "Sample not available": "暂无采样数据",
   "Sampling stops once every viewer turns it off.": "所有客户端都关闭资源监测后，采样才会停止。",
   "Sampling unavailable": "无法采样",

@@ -4322,6 +4322,12 @@ export class Controller {
         case 47:
           if (this.sidebar_focus.searches()) this.searchSidebar();
           break;
+        case 106: // j
+          await this.steerSidebar("down");
+          break;
+        case 107: // k
+          await this.steerSidebar("up");
+          break;
         default:
           if (byte === keymap.prefixByte(this.prefs.prefix)) this.beginPrefix();
       }
