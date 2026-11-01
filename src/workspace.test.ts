@@ -22,7 +22,7 @@ test("a workspace takes its folder's name at creation and keeps it", async () =>
     const restored = new Store();
     expect(await restored.load(file)).toBe(id);
     expect(restored.items[0].name()).toBe("My project");
-    expect(() => s.rename(id, " ")).toThrow("InvalidName");
+    expect(() => s.rename(id, "")).toThrow("InvalidName");
     await expect(s.edit(id, "", folder)).rejects.toThrow("InvalidName");
     expect([w.cwd, w.name()]).toEqual([root, "My project"]);
   } finally {
@@ -62,7 +62,7 @@ test("old workspace state names its folder-named workspaces for their folders", 
       );
       const s = new Store();
       await s.load(file);
-      expect(s.items.map(w => w.name())).toEqual(["项目 café", "/", "Custom", "_"]);
+      expect(s.items.map(w => w.name())).toEqual(["项目 café", "/", "Custom", "  "]);
       await s.save(file, 1);
       expect(JSON.parse(await readFile(file, "utf8")).version).toBe(3);
     }
