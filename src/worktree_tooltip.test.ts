@@ -7,10 +7,11 @@ import * as worktreeRemoval from "./worktree_removal";
 import { View, workspaceEntry, worktreeAt, worktreeLabel, worktreeBadge, writeExit, spotlight_dim } from "./sidebar";
 import { bgRgb, colors, fg, fgRgb } from "./palette";
 import * as launcherResume from "./launcher_resume";
-import { Writer } from "./text";
+import { Writer, ellipsis } from "./text";
 import { Terminal } from "./pane/terminal";
 import { parseInventory } from "./trackers/worktrees";
 import * as clock from "./clock";
+import * as i18n from "./i18n";
 import * as worktrees from "./worktrees";
 import type { Brief, Snapshot } from "./worktrees";
 import { realpathSync } from "node:fs";
@@ -298,6 +299,62 @@ test("a narrow card drops age, then the comparison, then the last edit", () => {
   expect(names(70)).toEqual(["agents", "changes", "edited"]);
   expect(names(60)).toEqual(["agents", "changes"]);
   for (const width of [100, 88, 80, 70, 60]) expect(columnsFor(width).room).toBeGreaterThanOrEqual(24);
+});
+
+test("translated worktree columns keep name room and never overwrite their neighboring heading", () => {
+  const previous = i18n.language();
+  try {
+    for (const language of ["en", "zh", "ja", "ko", "ru"] as const) {
+      i18n.setLanguage(language);
+      for (const width of [52, 60, 80, 100]) {
+        const rect = geometry(width + 3, 30, 0, 3, 1)!,
+          layout = columnsFor(rect.w);
+        const w = new Writer(),
+          terminal = new Terminal(width + 3, 30);
+        try {
+          draw(w, rect, "repo", "/repo", snapshot(1), new State());
+          terminal.feed(w.buffered());
+          const heading = terminal.text().split("\n")[rect.y + 4];
+          expect(layout.room).toBeGreaterThanOrEqual(24);
+          for (const [name, label] of [
+            ["agents", i18n.t`AGENTS`],
+            ["main", i18n.t`VS MAIN`],
+            ["age", i18n.t`AGE`],
+            ["edited", i18n.t`EDITED`],
+            ["changes", i18n.t`UNCOMMITTED CHANGES`],
+          ] as const) {
+            if (layout.x[name] === undefined) continue;
+            expect(heading).toContain(ellipsis(label, layout.widths[name]! - Number(name !== "changes")));
+            expect(sortAt(rect, rect.x + layout.x[name]!, rect.y + 4)).toBe(name);
+          }
+          expect(heading.trimEnd().endsWith("│")).toBe(true);
+        } finally {
+          terminal.destroy();
+        }
+      }
+    }
+  } finally {
+    i18n.setLanguage(previous);
+  }
+});
+
+test("animated and settled worktree briefs preserve wide glyphs and combining marks", () => {
+  for (const phase of ["writing", "ready"] as const) {
+    const data = snapshot(1),
+      state = new State(),
+      entry = data.entries[1];
+    entry.comparison = { ahead: 1n, behind: 0n };
+    state.briefs = new Map([[entry.path, { path: entry.path, label: "Cafe\u0301 中文 か\u3099完了", phase }]]);
+    const w = new Writer(),
+      terminal = new Terminal(140, 30);
+    try {
+      draw(w, geometry(140, 30, 28, 3, 1, 0, 2)!, "repo", "/repo", data, state);
+      terminal.feed(w.buffered());
+      expect(terminal.text().normalize("NFC")).toContain("╰ Café 中文 が完了");
+    } finally {
+      terminal.destroy();
+    }
+  }
 });
 test("paths read from the main checkout, a temporary directory or home", () => {
   expect(displayPath("/repo/.claude/worktrees/a", "/repo")).toBe("./.claude/worktrees/a");

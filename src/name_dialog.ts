@@ -1,6 +1,7 @@
 //! Name dialogs and the one-line editor search fields share. Mirrors
 //! name_dialog.zig: fields count the text in bytes, and the cursor is a byte
 //! offset; the editing itself is a single-line text area's.
+import * as i18n from "./i18n";
 import { basename } from "node:path";
 import * as agentName from "./agent_name";
 import * as palette from "./palette";
@@ -10,7 +11,7 @@ import * as keys from "./keys";
 import * as forkHero from "./fork_hero";
 import { identify, shell } from "./launch/command";
 import { adapter } from "./providers";
-import { Writer, writeEllipsis, codepointWidth } from "./text";
+import { Writer, writeEllipsis, codepointWidth, displayWidth, clipped } from "./text";
 import { TextArea, byte_edits, key_edits, type Edit } from "./text_area";
 
 export type Target =
@@ -356,9 +357,7 @@ export interface Key {
 export type KeySpec = { key: string; label: string; hit: Hit; split?: boolean };
 /** The columns a key's caps take; a split key's stand a column apart. */
 export const capped = (k: { key: string; split?: boolean }) => (k.split ? k.key.length * 4 - 1 : k.key.length + 2);
-export const labelled = (k: { key: string; label: string; split?: boolean }) => capped(k) + 1 + k.label.length;
-/** How many columns each fork card button's label takes. */
-const card_label_widths = [13, 8, 10];
+export const labelled = (k: { key: string; label: string; split?: boolean }) => capped(k) + 1 + displayWidth(k.label);
 /** The fork card's call to action: a tint of the accent, not its full
  * strength, so it doesn't glare on the panel. */
 let create_fill: string, create_label: string;
@@ -438,7 +437,9 @@ export class View {
     const w = Math.min(Math.max(0, width - 6), 72);
     const hero = height >= 21;
     const h = hero ? 19 : 15;
-    if (w < 46 || height < h + 2) return null;
+    const buttons = [i18n.t`↵ Create Fork`, i18n.t`^C Clear`, i18n.t`esc Cancel`];
+    const needed = buttons.reduce((sum, label) => sum + displayWidth(label), 0) + 12;
+    if (w < Math.max(46, needed) || height < h + 2) return null;
     const x = Math.floor((width - w) / 2);
     const y = Math.floor((height - h) / 2);
     const top = hero ? 6 : 2;
@@ -464,8 +465,8 @@ export class View {
   /** The fork card's buttons, centered: the call to action, clear and
    * cancel, each padded as wide as the card allows. */
   cardButtons(): Button[] {
-    const labels = ["↵ Create Fork", "^C Clear", "esc Cancel"];
-    const lengths = card_label_widths;
+    const labels = [i18n.t`↵ Create Fork`, i18n.t`^C Clear`, i18n.t`esc Cancel`];
+    const lengths = labels.map(displayWidth);
     const gap = 2;
     const inner = this.width - 2;
     let pad = 3;
@@ -509,9 +510,9 @@ export class View {
   /** The keys along the bottom. */
   protected keys(): KeySpec[] {
     return [
-      { key: "↵", label: this.fork ? "fork" : "save", hit: { tag: "save" } },
-      { key: "^C", label: "clear", hit: { tag: "clear" } },
-      { key: "esc", label: "cancel", hit: { tag: "cancel" } },
+      { key: "↵", label: this.fork ? i18n.t`fork` : i18n.t`save`, hit: { tag: "save" } },
+      { key: "^C", label: i18n.t`clear`, hit: { tag: "clear" } },
+      { key: "esc", label: i18n.t`cancel`, hit: { tag: "cancel" } },
     ];
   }
   hit(x: number, y: number): Hit {
@@ -573,47 +574,47 @@ export class View {
     const kind = targetKind(d.target);
     const title =
       kind === "agent_command"
-        ? "Agent launch command"
+        ? i18n.t`Agent launch command`
         : kind === "rename"
-          ? "Rename tab"
+          ? i18n.t`Rename tab`
           : kind === "pane"
-            ? "Rename pane"
+            ? i18n.t`Rename pane`
             : kind === "agent" || kind === "agent_name"
-              ? "Rename agent"
+              ? i18n.t`Rename agent`
               : kind === "fork"
-                ? "Fork this agent"
+                ? i18n.t`Fork this agent`
                 : kind === "shell"
-                  ? "Shell for new panes"
+                  ? i18n.t`Shell for new panes`
                   : (d.target as { workspace_name: number | null }).workspace_name === null
-                    ? "New workspace"
-                    : "Rename workspace";
+                    ? i18n.t`New workspace`
+                    : i18n.t`Rename workspace`;
     const left = v.text_x - (v.padded ? 1 : 0);
     const room = v.x + v.width - 1 - left - (v.padded ? 1 : 0);
     w.write(
       `\x1b[${v.title_y + 1};${left + 1}H` +
         new Style({ fg: "strong", bg: "surface", bold: true }).sgr() +
-        title.slice(0, Math.min(title.length, room)),
+        clipped(title, room),
     );
     if ((d.failed || d.overflow) && v.height >= 7) {
       const msg =
         kind === "agent_command"
-          ? "Could not save command; max 2048 bytes."
+          ? i18n.t`Could not save command; max 2048 bytes.`
           : kind === "shell"
-            ? "No executable shell there."
-            : "Could not save. Check folder or capacity.";
+            ? i18n.t`No executable shell there.`
+            : i18n.t`Could not save. Check folder or capacity.`;
       w.write(
-        `\x1b[${v.title_y + 2};${left + 1}H` +
-          new Style({ fg: "hot", bg: "surface" }).sgr() +
-          msg.slice(0, Math.min(msg.length, room)),
+        `\x1b[${v.title_y + 2};${left + 1}H` + new Style({ fg: "hot", bg: "surface" }).sgr() + clipped(msg, room),
       );
     }
     if (kind === "shell" && !d.failed && !d.overflow && v.height >= 7) {
       w.write(`\x1b[${v.title_y + 2};${left + 1}H` + new Style({ fg: "muted", bg: "surface" }).sgr());
-      writeEllipsis(w, "A path or a name on PATH; empty uses the default", room);
+      writeEllipsis(w, i18n.t`A path or a name on PATH; empty uses the default`, room);
     }
     if (kind === "agent_command" && !d.failed && !d.overflow && v.height >= 7) {
       const provider = identify(d.name());
-      const text = `${basename(shell())} · ${provider ? adapter(provider).name : "resolved at launch"} · empty saves delete`;
+      const shellName = basename(shell()),
+        providerName = provider ? adapter(provider).name : i18n.t`resolved at launch`;
+      const text = i18n.t`${shellName} · ${providerName} · empty saves delete`;
       w.write(`\x1b[${v.title_y + 2};${left + 1}H` + new Style({ fg: "muted", bg: "surface" }).sgr());
       writeEllipsis(w, text, room);
     }
@@ -663,17 +664,19 @@ export class View {
     v.drawBox(w);
     if (card.hero_y !== null)
       w.write(forkHero.draw(v.x + Math.floor((v.width - forkHero.width) / 2), card.hero_y, d.branch_glyphs));
-    v.centered(w, v.title_y, new Style({ fg: "strong", bg: "surface", bold: true }).sgr(), "Fork this agent");
+    v.centered(w, v.title_y, new Style({ fg: "strong", bg: "surface", bold: true }).sgr(), i18n.t`Fork this agent`);
     if (d.overflow)
-      v.centered(w, card.subtitle_y, new Style({ fg: "hot", bg: "surface" }).sgr(), "Names fit in 80 characters");
+      v.centered(w, card.subtitle_y, new Style({ fg: "hot", bg: "surface" }).sgr(), i18n.t`Names fit in 80 characters`);
     else
       v.centered(
         w,
         card.subtitle_y,
         new Style({ fg: "muted", bg: "surface" }).sgr(),
-        "Copies the conversation into a new tab",
+        i18n.t`Copies the conversation into a new tab`,
       );
-    w.write(`\x1b[${card.label_y + 1};${v.text_x - 1}H` + new Style({ fg: "faint", bg: "surface" }).sgr() + "Name");
+    w.write(
+      `\x1b[${card.label_y + 1};${v.text_x - 1}H` + new Style({ fg: "faint", bg: "surface" }).sgr() + i18n.t`Name`,
+    );
     // A field three rows tall, with two columns of fill beside the text.
     for (let row = 0; row < 3; row++) {
       w.write(`\x1b[${v.field_y + row};${v.text_x - 1}H` + new Style({ fg: "text", bg: "selected" }).sgr());
@@ -688,9 +691,9 @@ export class View {
         w.splat(" ", b.width);
       }
       const key_end = b.label.indexOf(" ");
-      const pad = Math.floor((b.width - card_label_widths[i]) / 2);
+      const pad = Math.floor((b.width - displayWidth(b.label)) / 2);
       w.write(`\x1b[${v.buttons_y + 1};${b.x + 1 + pad}H`);
-      if (i === 0) w.write(create_label + "↵ Create Fork");
+      if (i === 0) w.write(create_label + i18n.t`↵ Create Fork`);
       else
         w.write(
           new Style({ fg: "muted", bg: "selected" }).sgr() +
@@ -701,9 +704,9 @@ export class View {
     });
     v.placeCursor(d, w);
   }
-  /** `text`, ASCII, centered on row `y`. */
+  /** `text` centered on row `y`, clipped in terminal cells. */
   private centered(w: Writer, y: number, style: string, text: string): void {
-    const shown = text.slice(0, Math.min(text.length, this.width - 4));
-    w.write(`\x1b[${y + 1};${this.x + Math.floor((this.width - shown.length) / 2) + 1}H${style}${shown}`);
+    const shown = clipped(text, Math.max(0, this.width - 4));
+    w.write(`\x1b[${y + 1};${this.x + Math.floor((this.width - displayWidth(shown)) / 2) + 1}H${style}${shown}`);
   }
 }

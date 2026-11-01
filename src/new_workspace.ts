@@ -2,6 +2,7 @@
 //! from the folders under a field. The field is the truth: moving through
 //! the list writes the folder into it. The name follows the folder until
 //! edited, and ↵ is held to create.
+import * as i18n from "./i18n";
 import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, statSync, type Stats } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -14,7 +15,7 @@ import * as scrollThumb from "./scroll_thumb";
 import { relativeTime } from "./sidebar";
 import { KeyHold, Spring } from "./key_hold";
 import { milliTimestamp } from "./clock";
-import { Writer, writeEllipsis } from "./text";
+import { Writer, writeEllipsis, displayWidth } from "./text";
 
 /** How long ↵ is held to create; letting go undoes it faster. A release
  * shows sooner than the shared default: a gap past the measured repeat
@@ -518,13 +519,15 @@ interface Folders {
   first: number;
   entries: number;
 }
-const browser_keys = [
-  { key: "↵", label: "hold to create", hit: { tag: "save" } },
-  { key: "←→", label: "out / in", hit: { tag: "key", index: 1 }, split: true },
-  { key: "esc", label: "cancel", hit: { tag: "cancel" } },
-] satisfies KeySpec[];
+const browserKeys = () =>
+  [
+    { key: "↵", label: i18n.t`hold to create`, hit: { tag: "save" } },
+    { key: "←→", label: i18n.t`out / in`, hit: { tag: "key", index: 1 }, split: true },
+    { key: "esc", label: i18n.t`cancel`, hit: { tag: "cancel" } },
+  ] satisfies KeySpec[];
 /** Wide enough for the labelled keys two columns apart, and a column either side. */
-const browser_width = browser_keys.reduce((n, k) => n + nameDialog.labelled(k), 0) + 2 * (browser_keys.length - 1) + 4;
+const browserWidth = () =>
+  browserKeys().reduce((n, k) => n + nameDialog.labelled(k), 0) + 2 * (browserKeys().length - 1) + 4;
 /** Out and in before the folder has the keys: caps barely raised off the
  * panel, and the arrows and label in the border's color. */
 let quiet_cap: string, quiet_label: string;
@@ -553,26 +556,26 @@ function litKey(lit: number): { cap: string; label: string } {
 function problemMessage(p: Problem): string {
   switch (p) {
     case "not_folder":
-      return "That's a file, not a folder.";
+      return i18n.t`That's a file, not a folder.`;
     case "not_created":
-      return "Could not create that folder.";
+      return i18n.t`Could not create that folder.`;
   }
 }
 /** What stands where a folder was named, as "a socket". */
 function kindLabel(k: Kind): string {
   switch (k) {
     case "folder":
-      return "a folder";
+      return i18n.t`a folder`;
     case "file":
-      return "a file";
+      return i18n.t`a file`;
     case "link":
-      return "a broken link";
+      return i18n.t`a broken link`;
     case "socket":
-      return "a socket";
+      return i18n.t`a socket`;
     case "pipe":
-      return "a named pipe";
+      return i18n.t`a named pipe`;
     case "device":
-      return "a device";
+      return i18n.t`a device`;
   }
 }
 /** A size in bytes, as "0 B", "980 B", "1.2 KB" or "34 MB". */
@@ -595,7 +598,7 @@ export class View extends nameDialog.View {
   /** Without room for three folders, the plain dialog is used instead. */
   static layout(width: number, height: number, d: Dialog): View | null {
     const rows = Math.min(folder_rows, height - 15);
-    const w = Math.max(nameDialog.View.plainWidth(width), Math.min(width - 4, browser_width));
+    const w = Math.max(nameDialog.View.plainWidth(width), Math.min(width - 4, browserWidth()));
     if (rows < 3 || w < 20) return null;
     const h = rows + 13;
     const x = Math.floor((width - w) / 2);
@@ -631,7 +634,7 @@ export class View extends nameDialog.View {
     return v;
   }
   protected keys(): KeySpec[] {
-    return browser_keys;
+    return browserKeys();
   }
   /** What a press lands on, the folder field and list included. */
   at(x: number, y: number): Hit {
@@ -722,8 +725,8 @@ export class View extends nameDialog.View {
     const f = v.folders;
     const b = v.dialog.browser;
     const label = new Style({ fg: "faint", bg: "surface" }).sgr();
-    w.write(`\x1b[${f.name_label_y + 1};${left + 1}H${label}Name`);
-    w.write(`\x1b[${f.label_y + 1};${left + 1}H${label}Folder`);
+    w.write(`\x1b[${f.name_label_y + 1};${left + 1}H${label}` + i18n.t`Name`);
+    w.write(`\x1b[${f.label_y + 1};${left + 1}H${label}` + i18n.t`Folder`);
     const field = b.field;
     const plain = new Style({ fg: "text", bg: "selected" }).sgr();
     w.write(`\x1b[${f.field_y + 1};${left + 1}H` + plain);
@@ -757,9 +760,10 @@ export class View extends nameDialog.View {
       }
       const bg = highlighted ? "selected" : "surface";
       w.write(new Style({ fg: "accent", bg, bold: true }).sgr() + "+ ");
-      w.write(new Style({ fg: highlighted ? "strong" : "muted", bg }).sgr() + "Create ");
+      const create = i18n.t`Create `;
+      w.write(new Style({ fg: highlighted ? "strong" : "muted", bg }).sgr() + create);
       w.write(new Style({ fg: highlighted ? "strong" : "text", bg, bold: highlighted }).sgr());
-      writeEllipsis(w, printable(b.create ?? ""), text_width - 9);
+      writeEllipsis(w, printable(b.create ?? ""), Math.max(0, text_width - 2 - displayWidth(create)));
     }
     // Under the list, what stands where the field names a folder.
     const blocked = b.blocked;
@@ -767,15 +771,22 @@ export class View extends nameDialog.View {
     if (blocked && below < f.list_y + f.rows) {
       const { kind, size: bytes, modified } = blocked.found;
       w.write(`\x1b[${below};${text_x}H` + new Style({ fg: "warm", bg: "surface" }).sgr());
-      writeEllipsis(w, printable(`${blocked.name} is ${kindLabel(kind)}, not a folder`), text_width);
+      const name = blocked.name,
+        type = kindLabel(kind);
+      writeEllipsis(w, printable(i18n.t`${name} is ${type}, not a folder`), text_width);
       const age = relativeTime(Math.floor(modified / 1000), Math.floor(Date.now() / 1000));
       w.write(`\x1b[${below + 1};${text_x}H` + new Style({ fg: "faint", bg: "surface" }).sgr());
-      writeEllipsis(w, `${size(bytes)} · modified ${age}`, text_width);
+      const bytesLabel = size(bytes);
+      writeEllipsis(w, i18n.t`${bytesLabel} · modified ${age}`, text_width);
     } else if (b.count() === 0) {
       w.write(`\x1b[${f.list_y + 1};${text_x}H` + new Style({ fg: "faint", bg: "surface" }).sgr());
       writeEllipsis(
         w,
-        !b.readable ? "Can't read this folder" : b.typed.endsWith("/") ? "No folders" : "No folders match",
+        !b.readable
+          ? i18n.t`Can't read this folder`
+          : b.typed.endsWith("/")
+            ? i18n.t`No folders`
+            : i18n.t`No folders match`,
         text_width,
       );
     }

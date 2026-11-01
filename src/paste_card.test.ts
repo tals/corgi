@@ -4,6 +4,9 @@ import { keycap } from "./palette";
 import { Rect } from "./layout";
 import { place, draw, linkAt, styles } from "./paste_card";
 import { State, download_url } from "./host_clipboard";
+import * as i18n from "./i18n";
+import { Terminal } from "./pane/terminal";
+import { displayWidth } from "./text";
 
 function sample() {
   const s = new State();
@@ -78,4 +81,56 @@ test("both links answer the pointer, and nothing else on the card does", () => {
   expect(plain_at.h).toBe(7);
   // Nothing to open, so no hint.
   expect(draw(plain, plain_at, false)).not.toContain(styles.open_hint);
+});
+
+test("translated clipboard hints wrap in split panes and keep their links clickable", () => {
+  const original = i18n.language();
+  try {
+    for (const locale of i18n.locales) {
+      i18n.setLanguage(locale);
+      for (const width of [32, 44, 80]) {
+        const notice = sample(),
+          at = place(notice, new Rect(2, 0, width, 26), { x: 5, y: 24 });
+        expect(at).not.toBeNull();
+        const terminal = new Terminal(90, 26);
+        try {
+          terminal.feed(draw(notice, at!, false));
+          const lines = terminal.text().split("\n"),
+            card = lines.slice(at!.y, at!.y + at!.h),
+            prose = card
+              .slice(1, -1)
+              .map(line => line.trim().slice(1, -1).trim())
+              .join("");
+          expect(prose.replace(/\s/g, "")).toContain(notice.body.text().replace(/\s/g, ""));
+          const fix = notice
+            .fix()
+            .map(part => part.text.text())
+            .join("");
+          expect(prose.replace(/\s/g, "")).toContain(fix.replace(/\s/g, ""));
+          expect(card[0]).toContain("esc");
+          for (const line of card) expect(displayWidth(line.trimEnd())).toBe(at!.x + at!.w);
+          let linkedCells = 0,
+            linkedText = "";
+          for (let y = at!.y + 1; y < at!.y + at!.h - 1; y++) {
+            let x = 0;
+            for (const char of lines[y]) {
+              if (linkAt(notice, at!, x, y)) {
+                expect(char).not.toBe("│");
+                linkedCells++;
+                linkedText += char;
+              }
+              x += displayWidth(char);
+            }
+          }
+          expect(linkedCells).toBeGreaterThanOrEqual(displayWidth("Ghostty 1.4"));
+          expect(linkedText.replace(/\s/g, "")).toContain("Ghostty1.4");
+          expect(linkAt(notice, at!, at!.x + at!.w - 1, at!.y + 4)).toBe(false);
+        } finally {
+          terminal.destroy();
+        }
+      }
+    }
+  } finally {
+    i18n.setLanguage(original);
+  }
 });

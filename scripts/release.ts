@@ -301,8 +301,10 @@ export function installer(
   version: string,
   binaries: Record<string, { sha256: string; size: number }>,
   template = installTemplate,
+  i18n = readFileSync(join(import.meta.dir, "install_i18n.generated.sh"), "utf8"),
 ) {
   const values: Record<string, string> = {
+    I18N: i18n,
     BASE: shellQuote(base),
     VERSION: shellQuote(releaseVersion(version)),
     MAC_SHA256: shellQuote(binaries["macos-aarch64"].sha256),
@@ -315,7 +317,7 @@ export function installer(
   for (const size of [values.MAC_SIZE, values.LINUX_SIZE, values.LINUX_ARM_SIZE])
     if (!/^[1-9]\d*$/.test(size)) throw new Error("Invalid binary size.");
   return template.replace(
-    /@(BASE|VERSION|MAC_SHA256|LINUX_SHA256|LINUX_ARM_SHA256|MAC_SIZE|LINUX_SIZE|LINUX_ARM_SIZE)@/g,
+    /@(I18N|BASE|VERSION|MAC_SHA256|LINUX_SHA256|LINUX_ARM_SHA256|MAC_SIZE|LINUX_SIZE|LINUX_ARM_SIZE)@/g,
     (_, key) => values[key],
   );
 }
@@ -793,7 +795,8 @@ async function main() {
         await writeFile(join(out, manifest.name), envelopes[manifest.name]);
       }
       const template = await readFile(join(source, "scripts/install.sh.in"), "utf8");
-      const install = installer(config.publicBaseUrl, version, binaries, template);
+      const i18n = await readFile(join(source, "scripts/install_i18n.generated.sh"), "utf8");
+      const install = installer(config.publicBaseUrl, version, binaries, template, i18n);
       await writeFile(join(out, "install.sh"), install);
       checkSource();
       await writeFile(

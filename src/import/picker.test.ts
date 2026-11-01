@@ -3,6 +3,8 @@ import { Picker } from "./picker";
 import { Worker, workspace, pane } from "./catalog";
 import { Rect } from "../layout";
 import { Writer } from "../text";
+import * as i18n from "../i18n";
+import * as cmux from "./cmux";
 
 function picker(names: string[]): Picker {
   const p = new Picker(),
@@ -75,5 +77,57 @@ test("Herdr's handoff switch is the first row the cursor stops on", () => {
   p.click({ handoff: true });
   expect(p.switch_focused).toBe(true);
   expect(p.handoff).toBe(true);
+  p.close();
+});
+
+test("import progress follows the viewer language and keeps failure details", () => {
+  const p = new Picker();
+  p.stage = "copying";
+  const phases = ["copying", "connecting", "receiving", "preparing", "committing"] as const;
+  p.progress.message = "Daemon diagnostic, not display text";
+  const english = phases.map(phase => {
+    p.progress.phase = phase;
+    return p.summary();
+  });
+  for (const language of i18n.locales.filter(language => language !== "en")) {
+    i18n.setLanguage(language);
+    for (const [i, phase] of phases.entries()) {
+      p.progress.phase = phase;
+      expect(p.summary()).not.toBe(english[i]);
+      expect(p.summary()).not.toBe(p.progress.message);
+      expect(p.summary().length).toBeGreaterThan(0);
+    }
+    p.progress.phase = "failed";
+    expect(p.summary()).toBe(p.progress.message);
+  }
+});
+
+test("cmux recovery labels change language without changing imported names", () => {
+  const p = new Picker(),
+    worker = new Worker("cmux");
+  p.source = "cmux";
+  p.workers.set("cmux", worker);
+  worker.done = true;
+  worker.catalog.workspaces = [cmux.convert({ id: "user workspace" })!];
+  const area = new Rect(0, 0, 150, 30),
+    w = new Writer();
+  for (const language of i18n.locales) {
+    i18n.setLanguage(language);
+    w.clear();
+    p.draw(w, area, true);
+    expect(w.s).toContain("user workspace");
+    expect(w.s).toContain(i18n.t`Couldn't read its panes or tabs`);
+    expect(w.s).toContain(i18n.t`New shell`);
+    if (language !== "en") {
+      expect(w.s).not.toContain("Couldn't read its panes or tabs");
+      expect(w.s).not.toContain("New shell");
+    }
+  }
+  worker.catalog.workspaces = [];
+  worker.catalog.confused = true;
+  worker.catalog.note = "cmux";
+  w.clear();
+  p.draw(w, area, true);
+  expect(w.s).toContain(i18n.t`Couldn't read the workspace list. R refreshes.`);
   p.close();
 });

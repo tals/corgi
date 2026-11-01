@@ -1,3 +1,4 @@
+import * as i18n from "./i18n";
 import * as action from "./action";
 import * as bindings from "./bindings";
 import * as keys from "./keys";
@@ -45,7 +46,7 @@ export function chord(value: string): { key: Key; prefixed: boolean } {
   const prefixed = value.toLowerCase().startsWith("prefix+");
   const key = keys.parseChord(prefixed ? value.slice(7) : value);
   if (!key) return fail(`Invalid shortcut: ${value}`);
-  if (key.codepoint === 27) return fail("Escape is reserved for canceling Corgi controls");
+  if (key.codepoint === 27) return fail(i18n.t`Escape is reserved for canceling Corgi controls`);
   return { key, prefixed };
 }
 export function parseShortcut(value: Value, indexed: boolean): Shortcut {
@@ -53,7 +54,7 @@ export function parseShortcut(value: Value, indexed: boolean): Shortcut {
   if (typeof value === "string") {
     const range = /^(.*?)([0-9]|f\d+)\.\.([0-9]|f\d+)$/i.exec(value);
     if (range) {
-      if (!indexed) return fail("Key ranges belong to an indexed action, such as tab");
+      if (!indexed) return fail(i18n.t`Key ranges belong to an indexed action, such as tab`);
       const f = range[2].toLowerCase().startsWith("f");
       const start = Number(f ? range[2].slice(1) : range[2]),
         end = Number(f ? range[3].slice(1) : range[3]);
@@ -61,19 +62,20 @@ export function parseShortcut(value: Value, indexed: boolean): Shortcut {
       list = Array.from({ length: end - start + 1 }, (_, i) => range[1] + (f ? "f" : "") + (start + i));
     } else list = [value];
   } else {
-    if (!indexed) return fail("Ordered key sets belong to an indexed action, such as tab");
+    if (!indexed) return fail(i18n.t`Ordered key sets belong to an indexed action, such as tab`);
     list = value.keys;
   }
-  if (!list.length || list.length > 32) return fail("A key set needs between 1 and 32 keys");
+  if (!list.length || list.length > 32) return fail(i18n.t`A key set needs between 1 and 32 keys`);
   const parsed = list.map(chord);
-  if (parsed.some(k => k.prefixed !== parsed[0].prefixed)) return fail("A key set must use one prefix mode");
+  if (parsed.some(k => k.prefixed !== parsed[0].prefixed)) return fail(i18n.t`A key set must use one prefix mode`);
   for (let i = 0; i < parsed.length; i++)
-    if (parsed.slice(0, i).some(k => keys.same(k.key, parsed[i].key))) return fail("A key set cannot repeat a key");
+    if (parsed.slice(0, i).some(k => keys.same(k.key, parsed[i].key)))
+      return fail(i18n.t`A key set cannot repeat a key`);
   return { prefixed: parsed[0].prefixed, keys: parsed.map(k => k.key) };
 }
 export function parse(raw: unknown): Config {
   if (raw === undefined) return {};
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return fail("keys must be an object");
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return fail(i18n.t`keys must be an object`);
   const config: Config = {};
   for (const [name, value] of Object.entries(raw)) {
     const a = target(name),

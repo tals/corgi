@@ -18,6 +18,9 @@ import { testBuild } from "./build_assets";
 import * as config from "./build_config";
 import * as crash from "./crash";
 import * as build_id from "./build_id";
+import * as localeHost from "./locale_host";
+import * as i18n from "./i18n";
+import * as preferences from "./preferences";
 import { Provider, adapter } from "./providers";
 export const executable = build_id.executablePath(
   import.meta.filename,
@@ -160,6 +163,7 @@ function asksJson(args: string[]): boolean {
   return (end === -1 ? args : args.slice(0, end)).includes("--json");
 }
 export async function run(args = process.argv.slice(2)): Promise<void> {
+  localeHost.initialize(preferences.load().language);
   if (args[0] === "__opencode2") {
     await (await import("./providers/opencode2/worker")).run();
     return;
@@ -167,24 +171,37 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
   const alias = providerAlias(os.processArgs(process.pid)?.argv[0] ?? process.argv[0]);
   // Agent mode covers the control CLI and help; a provider alias keeps its own flags.
   const choice = agent_mode.flags(args),
-    controls = !alias && (cli.handles(choice.args) || ["help", "--help", "-h"].includes(choice.args[0]));
+    accountHelp =
+      ["account", "integration"].includes(choice.args[0]) &&
+      (cli.asksHelp(choice.args) ||
+        choice.args[1] === "help" ||
+        (choice.args[0] === "integration" && choice.args.length === 1)),
+    controls = !alias && (cli.handles(choice.args) || ["help", "--help", "-h"].includes(choice.args[0]) || accountHelp);
   if (controls) args = choice.args;
   const agent = controls && agent_mode.enabled(choice.flag, process.env, process.stdout.isTTY === true);
   const command = args[0] ?? "attach";
   // A provider owns its flags; help returns before Corgi starts any command.
   const own = alias || command.startsWith("__") ? [] : command === "agent" ? args.slice(0, 2) : args;
   if (!alias && (cli.asksHelp(own) || command === "help")) {
+    const humanHelp = agent ? help : i18n.document(helpText).replace("\n\n\n\n", `\n\n${actionNames}\n\n`);
+    const commandHelp = agent ? cli.help : cli.localizedHelp();
     const topic = (command === "help" ? args.slice(1) : args).filter(arg => arg !== "--help" && arg !== "-h");
     switch (topic[0]) {
-      case "account":
-        process.stdout.write((await import("./account_command")).help);
+      case "account": {
+        const account = await import("./account_command");
+        process.stdout.write(agent ? account.help : account.localizedHelp());
         break;
-      case "integration":
-        process.stdout.write((await import("./integration")).help);
+      }
+      case "integration": {
+        const integration = await import("./integration");
+        process.stdout.write(agent ? integration.help : integration.localizedHelp());
         break;
+      }
       default:
         process.stdout.write(
-          topic.length ? cli.helpFor(cli.handles(topic) ? cli.help : help, topic) : help + "\n" + cli.help,
+          topic.length
+            ? cli.helpFor(cli.handles(topic) ? commandHelp : humanHelp, topic, agent)
+            : humanHelp + "\n" + commandHelp,
         );
         if (topic[0] === "action") process.stdout.write("\n" + actionNames + "\n");
         break;
@@ -374,19 +391,20 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     }
     case "integration": {
       const integration = await import("./integration"),
+        reference = agent ? integration.help : integration.localizedHelp(),
         words = args.slice(1),
         at = words.indexOf("--account"),
         account = at >= 0 ? (words[at + 1] ?? "") : null;
       if (at >= 0) words.splice(at, 2);
       const [op, name, ...rest] = words;
-      if (op === undefined || op === "help" || cli.asksHelp(args)) return void process.stdout.write(integration.help);
+      if (op === undefined || op === "help" || cli.asksHelp(args)) return void process.stdout.write(reference);
       if (
         (op !== "status" && op !== "install" && op !== "uninstall") ||
         rest.length ||
         account === "" ||
         (name !== undefined && !Provider.parse(name))
       ) {
-        process.stderr.write(integration.help);
+        process.stderr.write(reference);
         process.exitCode = 2;
         return;
       }
@@ -395,7 +413,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     }
     case "account": {
       const account = await import("./account_command");
-      process.exitCode = await account.command(args.slice(1));
+      process.exitCode = await account.command(args.slice(1), agent);
       return;
     }
     case "hooks": {

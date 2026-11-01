@@ -1,3 +1,4 @@
+import * as i18n from "./i18n";
 export type Preset = "corgi" | "tmux" | "herdr" | "cmux";
 export type Prefix = "ctrl_b" | "ctrl_a";
 export const available_presets: Preset[] =
@@ -16,13 +17,18 @@ export function name(preset: Preset): string {
 }
 export function description(preset: Preset): string {
   return {
-    corgi: "Made for Corgi",
-    tmux: "Prefix + classic splits",
-    herdr: "Prefix + home row",
-    cmux: "Command shortcuts",
+    corgi: i18n.t`Made for Corgi`,
+    tmux: i18n.t`Prefix + classic splits`,
+    herdr: i18n.t`Prefix + home row`,
+    cmux: i18n.t`Command shortcuts`,
   }[preset];
 }
 /** The description where a preset gets a narrow column. */
 export function shortDescription(preset: Preset): string {
-  return { corgi: "Made for Corgi", tmux: "Classic splits", herdr: "Home row", cmux: "Command keys" }[preset];
+  return {
+    corgi: i18n.t`Made for Corgi`,
+    tmux: i18n.t`Classic splits`,
+    herdr: i18n.t`Home row`,
+    cmux: i18n.t`Command keys`,
+  }[preset];
 }

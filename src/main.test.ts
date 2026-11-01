@@ -5,6 +5,7 @@ import * as rpc from "./rpc";
 import * as crash from "./crash";
 import * as updates from "./updates";
 import * as integration from "./integration";
+import * as accountCommand from "./account_command";
 import * as protocol from "./protocol";
 import { readFileSync, realpathSync } from "node:fs";
 import { resolve, dirname, relative } from "node:path";
@@ -114,6 +115,47 @@ test("help after an unrelated option never reaches the daemon", async () => {
     output.mockRestore();
   }
 });
+test("account and integration help routes distinguish human and agent output", async () => {
+  const request = spyOn(rpc, "request").mockRejectedValue(Error("UnexpectedRequest")),
+    output = spyOn(process.stdout, "write").mockReturnValue(true),
+    update = spyOn(updates, "internal").mockResolvedValue(false),
+    accountHelp = spyOn(accountCommand, "localizedHelp").mockReturnValue("account translated\n"),
+    integrationHelp = spyOn(integration, "localizedHelp").mockReturnValue("integration translated\n"),
+    previousExit = process.exitCode;
+  try {
+    for (const [topic, reference] of [
+      ["account", accountCommand.help],
+      ["integration", integration.help],
+    ]) {
+      const forms = [
+        [topic, "--help"],
+        ["help", topic],
+        [topic, "help"],
+      ];
+      if (topic === "integration") forms.push([topic]);
+      for (const args of forms) {
+        output.mockClear();
+        await run(["--no-agent", ...args]);
+        expect(output.mock.calls.map(call => String(call[0])).join("")).toBe(`${topic} translated\n`);
+        output.mockClear();
+        accountHelp.mockClear();
+        integrationHelp.mockClear();
+        await run(["--agent", ...args]);
+        expect(output.mock.calls.map(call => String(call[0])).join("")).toBe(reference);
+        expect(accountHelp).not.toHaveBeenCalled();
+        expect(integrationHelp).not.toHaveBeenCalled();
+      }
+    }
+    expect(request).not.toHaveBeenCalled();
+  } finally {
+    request.mockRestore();
+    output.mockRestore();
+    update.mockRestore();
+    accountHelp.mockRestore();
+    integrationHelp.mockRestore();
+    process.exitCode = previousExit;
+  }
+});
 test("provider help remains the provider's argument", async () => {
   const launch = spyOn(integration, "launch").mockRejectedValue(Error("ProviderHelp"));
   try {
@@ -135,6 +177,27 @@ test("action values preserve agent mode flags", async () => {
   } finally {
     request.mockRestore();
     output.mockRestore();
+  }
+});
+test("account command values preserve agent mode flags", async () => {
+  const account = spyOn(accountCommand, "command").mockResolvedValue(0),
+    hooks = spyOn(integration, "command").mockResolvedValue(true),
+    update = spyOn(updates, "internal").mockResolvedValue(false),
+    previousExit = process.exitCode;
+  try {
+    for (const value of ["--agent", "--no-agent"]) {
+      account.mockClear();
+      await run(["account", "rename", "work", value]);
+      expect(account.mock.calls[0]?.[0]).toEqual(["rename", "work", value]);
+      hooks.mockClear();
+      await run(["integration", "status", "--account", value]);
+      expect(hooks.mock.calls[0]).toEqual(["status", null, value]);
+    }
+  } finally {
+    account.mockRestore();
+    hooks.mockRestore();
+    update.mockRestore();
+    process.exitCode = previousExit;
   }
 });
 test("agent mode does not hide commands from root help", async () => {

@@ -37,5 +37,10 @@ const check = Bun.spawn(
   ],
   { cwd: root, stdout: "inherit", stderr: "inherit" },
 );
-const codes = await Promise.all([check.exited, tooling.prettier("check")]);
+const translations = Bun.spawn([process.execPath, join(root, "scripts/translations.ts"), "check"], {
+  cwd: root,
+  stdout: "inherit",
+  stderr: "inherit",
+});
+const codes = await Promise.all([check.exited, tooling.prettier("check"), translations.exited]);
 process.exitCode = codes.find(code => code !== 0) ?? 0;

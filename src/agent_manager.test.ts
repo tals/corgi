@@ -1,6 +1,8 @@
+import * as i18n from "./i18n";
 import * as rowGlide from "./row_glide";
 import { expect, test } from "bun:test";
 import * as agentManager from "./agent_manager";
+import * as agentName from "./agent_name";
 import * as palette from "./palette";
 import { Entry as CommandEntry } from "./launch/command";
 import { Rect } from "./layout";
@@ -495,6 +497,36 @@ test("clone is an unsaved draft with a native model picker and independent field
   expect(m.agents).toHaveLength(4);
 });
 
+test("translated clone suffixes remain distinct within the name byte limit", () => {
+  const original = i18n.language();
+  try {
+    for (const locale of i18n.locales) {
+      i18n.setLanguage(locale);
+      const m = model(),
+        source = agent({ account: "/long", name: "界".repeat(53), label: "Long name" });
+      m.agents.push(source);
+      const clone = () => {
+        const v = new agentManager.View();
+        v.open(agentManager.agentKey("claude", source.account));
+        v.key(99, m);
+        const name = v.agent_form.label();
+        expect(agentName.valid(name)).toBe(true);
+        expect(v.agent_form.validate()).toBe(true);
+        expect(name).not.toBe(source.name);
+        expect(name).not.toContain("�");
+        return name;
+      };
+      const first = clone();
+      m.agents.push(agent({ account: "/copy", name: first }));
+      const second = clone();
+      expect(second).not.toBe(first);
+      expect(second).toContain("2");
+    }
+  } finally {
+    i18n.setLanguage(original);
+  }
+});
+
 test("Esc returns from a command and cancels a rename or hold before closing the list", () => {
   const m = model(),
     v = new agentManager.View();
@@ -838,4 +870,33 @@ test("dragging between groups skips the visibility glide and uses a grab cursor"
   v.tick(m, 1000);
   v.tick(m, 1150);
   expect(screen(v, m, 1150).raw).not.toContain("a=T,f=100,i=730121");
+});
+
+test("narrow translated action rows keep the remove instruction before reorder buttons", () => {
+  const previous = i18n.language();
+  try {
+    for (const language of i18n.locales) {
+      i18n.setLanguage(language);
+      for (const width of [64, 80]) {
+        const m = model(),
+          v = new agentManager.View();
+        v.open(agentManager.agentKey("claude", "/a/2"));
+        const b = new Rect(0, 0, width, v.height(m)),
+          w = new Writer();
+        v.draw(w, b, m);
+        const terminal = new Terminal(width, b.h);
+        try {
+          terminal.feed(w.s);
+          const line = terminal.text().split("\n")[b.h - 3];
+          expect(line).toContain(i18n.t` hold ⌫ ` + i18n.t` remove`);
+          expect(line).toContain(i18n.t` e Edit `);
+          expect(line.endsWith("│")).toBe(true);
+        } finally {
+          terminal.destroy();
+        }
+      }
+    }
+  } finally {
+    i18n.setLanguage(previous);
+  }
 });

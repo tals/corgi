@@ -41,11 +41,14 @@ export type Workspace = {
   handoff: boolean;
   recovery: Recovery;
   recovery_note: string;
+  /** Viewer-only reason; the wire keeps the diagnostic note. */
+  recovery_reason?: "unreadable" | "panes" | "surfaces" | "partial" | "layout";
   tabs: Tab[];
 };
 export class Catalog {
   workspaces: Workspace[] = [];
   message = "";
+  note: "cmux" | null = null;
   confused = false;
 }
 export const pane = (fields: Partial<Pane> & { id: string; name: string }): Pane => ({
@@ -313,7 +316,7 @@ export class Worker {
         details = await this.cmuxJson(exe, ["list-panes", "--workspace", ws.id], deadline);
       const converted =
         shallow && !Array.isArray(ws?.panes) && !Array.isArray(ws?.surfaces)
-          ? cmux_import.workspaceOnly(ws, "Couldn't read its panes or tabs")
+          ? cmux_import.workspaceOnly(ws, "unreadable")
           : cmux_import.convert(ws, details);
       this.cmuxKeep(ws, converted, out);
     }
@@ -338,6 +341,7 @@ export class Worker {
       await this.cmuxLive(out);
     }
     this.catalog.workspaces = out;
+    this.catalog.note = "cmux";
     this.catalog.message =
       this.catalog.confused && !out.length
         ? "Couldn't read the workspace list. R refreshes."

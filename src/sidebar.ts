@@ -1,4 +1,5 @@
 //! The sidebar: workspaces above, agents below. Mirrors sidebar.zig.
+import * as i18n from "./i18n";
 import * as palette from "./palette";
 import { Provider, adapter } from "./providers";
 import { Style, colors, fg, bg, fgRgb, bgRgb, mix, underline } from "./palette";
@@ -21,6 +22,7 @@ import {
   displayWidth,
   writeClipped,
   writeEllipsis,
+  ellipsis,
   directoryLabel,
   compactCount,
   codepointWidth,
@@ -292,11 +294,41 @@ export function indicator(e: Entry, selected: boolean): { icon: string; color: s
 }
 /** Each activity section's header: the glyph its rows would show, and its name. */
 export const sections: Record<SectionKind, { glyph: string; token: palette.Token; label: string }> = {
-  starred: { glyph: "★", token: "strong", label: "starred" },
-  ready: { glyph: "●", token: "accent", label: "ready" },
-  working: { glyph: "▶", token: "accent", label: "working" },
-  idle: { glyph: "○", token: "muted", label: "idle" },
-  done: { glyph: "○", token: "faint", label: "done" },
+  starred: {
+    glyph: "★",
+    token: "strong",
+    get label() {
+      return i18n.t`starred`;
+    },
+  },
+  ready: {
+    glyph: "●",
+    token: "accent",
+    get label() {
+      return i18n.t`ready`;
+    },
+  },
+  working: {
+    glyph: "▶",
+    token: "accent",
+    get label() {
+      return i18n.t`working`;
+    },
+  },
+  idle: {
+    glyph: "○",
+    token: "muted",
+    get label() {
+      return i18n.t`idle`;
+    },
+  },
+  done: {
+    glyph: "○",
+    token: "faint",
+    get label() {
+      return i18n.t`done`;
+    },
+  },
 };
 /** A group's agents: how many work, how many need input; the rest idle. */
 export type Tally = Pick<Group, "agents" | "working" | "attention">;
@@ -901,7 +933,12 @@ export class View {
       if (x >= v.width - 5) return hit("toggle");
       if (x >= v.width - 11 && x < v.width - 6) return hit("workspace_new");
     }
-    if (y === v.middle() && v.drawer === null && x >= v.width - 10 && x < v.width - 2)
+    if (
+      y === v.middle() &&
+      v.drawer === null &&
+      x >= v.width - displayWidth(newAgentLabel(v.width)) - 2 &&
+      x < v.width - 2
+    )
       return x >= v.width - 4 ? hit("agent_options") : hit("agent_new");
     if (y === v.middle() && x >= v.scopeStart()) {
       const qualifier = v.scopeQualifier();
@@ -1006,7 +1043,8 @@ export class View {
   /** The label is blank at zero, but its slot keeps the width of "1 unread →"
    * so the status row does not shift when the first unread arrives. */
   static unreadWidth(ws: WorkspaceEntry): number {
-    return Math.max(10, displayWidth(compactCount(ws.unread)) + 9);
+    const count = compactCount(Math.max(1, ws.unread));
+    return displayWidth(i18n.t`${count} unread →`);
   }
   unreadHit(ws: WorkspaceEntry, x: number, y: number): boolean {
     if (this.framed()) return this.lists().unreadHit(ws, x - lists_x, y);
@@ -1049,7 +1087,7 @@ export class View {
       v.line(w, v.middle() + 1, "/ ", new Style({ fg: "strong", bg: "surface" }).sgr());
       w.splat(" ", v.width - 5);
       w.write(w.cup(v.middle() + 2, 4) + fg("text"));
-      if (search.text.length === 0) writeClipped(w, "type to search", v.width - 5);
+      if (search.text.length === 0) writeClipped(w, i18n.t`type to search`, v.width - 5);
       else {
         // The selection as every text box shows it.
         const from = v.searchOffset(),
@@ -1059,11 +1097,12 @@ export class View {
         w.write(shown.slice(0, a) + palette.selection + shown.slice(a, b) + plain + shown.slice(b));
       }
     } else if (v.drawer === null) {
-      w.write(w.cup(v.middle() + 1, v.width - 9) + button + ` New  ▾ ${panel}`);
+      const label = newAgentLabel(v.width);
+      w.write(w.cup(v.middle() + 1, v.width - displayWidth(label) - 1) + button + label + panel);
       // The focused agent list shows where `/` opens its search.
       if (v.focus === "agents") {
         v.line(w, v.middle() + 1, "/", new Style({ fg: "strong", bg: "bg", bold: true }).sgr());
-        w.write(new Style({ fg: "faint", bg: "bg" }).sgr() + " search");
+        w.write(new Style({ fg: "faint", bg: "bg" }).sgr() + " " + i18n.t`search`);
       }
     }
     if (v.drawer !== "agents") v.drawWorkspaces(w, workspaces);
@@ -1115,8 +1154,8 @@ export class View {
     if (v.corgi_badge !== "none") {
       if (v.corgi_badge === "emoji") w.write(`${w.cup(1, 2)}${panel}${corgiBadge.emoji}`);
       w.write(`${w.cup(1, 6)}\x1b[1m` + fg("strong"));
-      writeEllipsis(w, "workspaces", sat(v.width, 17));
-    } else v.line(w, 0, "workspaces", "\x1b[1m" + fg("strong"));
+      writeEllipsis(w, i18n.t`workspaces`, sat(v.width, 17));
+    } else v.line(w, 0, i18n.t`workspaces`, "\x1b[1m" + fg("strong"));
     w.write(w.cup(1, v.width - 10) + button + `[ + ]${panel}`);
     const shown = workspaces.slice(
       v.workspace_offset,
@@ -1156,7 +1195,8 @@ export class View {
         w.write(w.cup(y + 2, 2));
       }
       const tools = compactCount(ws.stats.tools);
-      const unread = ws.unread > 0 ? `${compactCount(ws.unread)} unread →` : "";
+      const count = compactCount(ws.unread);
+      const unread = ws.unread > 0 ? i18n.t`${count} unread →` : "";
       const attention = ws.attention > 0 ? ` ●${compactCount(ws.attention)}` : "";
       const unread_width = View.unreadWidth(ws);
       const attention_width = displayWidth(attention);
@@ -1210,9 +1250,9 @@ export class View {
   private drawAgents(w: Writer, entries: Entry[], now_ms: number): void {
     const v = this;
     if (entries.length === 0) {
-      v.line(w, v.middle() + 2, v.search !== null ? "No matching agents" : "No agents yet", panel);
+      v.line(w, v.middle() + 2, v.search !== null ? i18n.t`No matching agents` : i18n.t`No agents yet`, panel);
       if (v.search === null) {
-        v.line(w, v.middle() + 4, "Launch inside a pane:", panel);
+        v.line(w, v.middle() + 4, i18n.t`Launch inside a pane:`, panel);
         commands(v.width - 3).forEach((text, i) => v.line(w, v.middle() + 5 + i, text, panel));
       }
     }
@@ -1335,7 +1375,7 @@ export class View {
       finish();
     });
     if (glide.length > 0) w.write(glide);
-    if (v.search !== null) v.line(w, v.rows - 1, "↑↓  ↵ jump  Esc back", panel);
+    if (v.search !== null) v.line(w, v.rows - 1, i18n.t`↑↓  ↵ jump  Esc back`, panel);
     const t = v.thumb();
     if (t)
       for (let row = t.start; row < t.start + t.len; row++)
@@ -1411,8 +1451,9 @@ export class View {
     const name = e.name.length > 0 ? directoryLabel(e.name, null, 160) : e.provider ? adapter(e.provider).name : "";
     const figure = contextFigure(e, compacting, background);
     const figure_width = figure ? displayWidth(figure.text) : 0;
-    const notes = e.notes > 0 ? `${e.notes} note${e.notes === 1 ? "" : "s"}` : "";
-    const right = figure_width + (figure_width > 0 ? 1 : 0) + (notes.length > 0 ? notes.length + 1 : 0);
+    const count = e.notes;
+    const notes = count > 0 ? (count === 1 ? i18n.t`${count} note` : i18n.t`${count} notes`) : "";
+    const right = figure_width + (figure_width > 0 ? 1 : 0) + (notes.length > 0 ? displayWidth(notes) + 1 : 0);
     w.write(
       `${w.cup(y + 1, x + 5)}${
         waits
@@ -1433,17 +1474,17 @@ export class View {
       w.write(figure.text);
     }
     const detail = compacting
-      ? "Compacting…"
+      ? i18n.t`Compacting…`
       : waiting
-        ? "Waiting on agents"
+        ? i18n.t`Waiting on agents`
         : e.state === "working"
           ? e.activity
           : e.state === "blocked"
-            ? "Needs input"
+            ? i18n.t`Needs input`
             : e.state === "initializing"
-              ? "Starting session"
+              ? i18n.t`Starting session`
               : e.state === "done"
-                ? "Session ended"
+                ? i18n.t`Session ended`
                 : "";
     const badge = subagentBadge(e.subagents, e.children);
     const badge_width = displayWidth(badge);
@@ -1451,7 +1492,7 @@ export class View {
     const animation_key = animationKey(e);
     const fallback = e.state === "working" && !compacting && !waiting && e.activity.length === 0;
     // Narrow rows keep the text; the pile beside it still moves.
-    const herding = compacting && detail_room >= corgiAnimation.herd_width;
+    const herding = compacting && detail_room >= corgiAnimation.herdWidth();
     const mode: corgiAnimation.Mode = herding
       ? "herding"
       : fallback && v.corgi_intensity > 0
@@ -1618,7 +1659,13 @@ export class View {
   scopeStart(): number {
     if (this.framed()) return this.lists().scopeStart() + lists_x;
     // Compact headers keep one cell for the name and one for the arrow.
-    return this.width >= 22 ? 9 : 8;
+    return displayWidth(this.scopeHeading()) + (this.width >= 22 ? 3 : 2);
+  }
+  private scopeHeading(): string {
+    return ellipsis(
+      i18n.t`agents`,
+      sat(this.width, displayWidth(newAgentLabel(this.width)) + (this.width >= 22 ? 7 : 5)),
+    );
   }
   scopeArrow(): string {
     if (this.framed()) return this.lists().scopeArrow();
@@ -1626,7 +1673,10 @@ export class View {
   }
   scopeQualifier(): string {
     if (this.framed()) return this.lists().scopeQualifier();
-    const room = sat(sat(this.width, 11), this.scopeStart() - 1 + displayWidth(this.scopeArrow()));
+    const room = sat(
+      sat(this.width, displayWidth(newAgentLabel(this.width)) + 3),
+      this.scopeStart() - 1 + displayWidth(this.scopeArrow()),
+    );
     const out = new Writer();
     writeEllipsis(out, directoryLabel(this.scope_label, null, 160), room);
     // The qualifier is written into a 163-byte buffer.
@@ -1637,14 +1687,12 @@ export class View {
     if (v.middle() >= v.rows - 1) return;
     w.write(`${w.cup(v.middle() + 1, 2)}\x1b[1m` + fg("strong"));
     // Stop before the New button's leading space.
-    const room = sat(v.width, 11);
-    writeClipped(w, "agents", room);
+    w.write(v.scopeHeading());
     const qualifier = v.scopeQualifier();
     if (qualifier.length > 0) {
-      w.write("\x1b[22m" + fg("faint") + (v.scopeStart() === 9 ? ": " : " ") + "\x1b[1m" + fg("muted"));
-      w.write(qualifier);
+      w.write("\x1b[22m" + fg("faint") + (v.width >= 22 ? ": " : " ") + "\x1b[1m" + fg("muted"));
     }
-    w.write("\x1b[22m" + fg("faint") + v.scopeArrow());
+    w.write(w.cup(v.middle() + 1, v.scopeStart() + 1) + qualifier + "\x1b[22m" + fg("faint") + v.scopeArrow());
   }
   line(w: Writer, y: number, text: string, style: string): void {
     if (y >= this.rows) return;
@@ -1659,8 +1707,9 @@ function commands(width: number): string[] {
   for (const p of Provider.all) {
     const name = adapter(p).command,
       last = lines.length - 1;
-    if (last >= 0 && displayWidth(`${lines[last]}  or  ${name}`) <= width) lines[last] += `  or  ${name}`;
-    else lines.push(last >= 0 ? `or  ${name}` : name);
+    const conjunction = i18n.t`or  ${name}`;
+    if (last >= 0 && displayWidth(`${lines[last]}  ${conjunction}`) <= width) lines[last] += `  ${conjunction}`;
+    else lines.push(last >= 0 ? conjunction : name);
   }
   return lines;
 }
@@ -1751,7 +1800,7 @@ export function drawResources(w: Writer, work: Work, v: View, hovered: boolean, 
   const values = [cpuText(work.cpu), memoryText(work.memory)];
   const names = [
     ["CPU", "C"],
-    ["Memory", "Mem", "M"],
+    [i18n.t`Memory`, i18n.t`Mem`, "M"],
     ["GPU", "G"],
   ];
   if (v.gpus) values.push(cpuText(work.gpu));
@@ -1763,7 +1812,7 @@ export function drawResources(w: Writer, work: Work, v: View, hovered: boolean, 
   const labels = values.map((_, i) => {
     const choices = names[i];
     return (
-      choices.find(name => rooms[i] >= name.length + 1 + 5 + (i === values.length - 1 ? 0 : 1)) ??
+      choices.find(name => rooms[i] >= displayWidth(name) + 1 + 5 + (i === values.length - 1 ? 0 : 1)) ??
       choices[choices.length - 1]
     );
   });
@@ -1782,7 +1831,7 @@ export function drawResources(w: Writer, work: Work, v: View, hovered: boolean, 
     w.write(i === 0 && work.cpu_pressure ? "\x1b[22m" + fg("warm") : normal);
     w.write(label);
     if (room >= 7) w.write(" ");
-    const used = label.length + (room >= 7 ? 1 : 0);
+    const used = displayWidth(label) + (room >= 7 ? 1 : 0);
     writeClipped(w, value, sat(room, used) - (last ? 0 : 1));
     const printed = used + Math.min(displayWidth(value), sat(room, used) - (last ? 0 : 1));
     w.splat(" ", sat(room, printed));
@@ -1982,8 +2031,8 @@ export function portName(ws: WorkspaceEntry): string | null {
 export function portLabel(ws: WorkspaceEntry): string {
   const count = urlCount(ws);
   // A name stands alone; without one the button says what it does.
-  const name = portName(ws) ?? "Open ...";
-  const text = name.length > 0 ? name : "Open Link";
+  const name = portName(ws) ?? `${i18n.t`Open `}...`;
+  const text = name.length > 0 ? name : i18n.t`Open Link`;
   return count === 1 ? `${text} ↗` : `${text} ↗ ${count}`;
 }
 /** The color of the `i`th of three dots that say work is under way: they
@@ -1997,20 +2046,23 @@ export function pulse(i: number, now_ms: number): palette.Rgb {
 /** A label still `naming` its link starts "Open ...", its dots pulsing. */
 export function writePortLabel(w: Writer, label: string, width: number, naming: boolean, now_ms: number): void {
   if (!naming) return writeClipped(w, label, width);
-  writeClipped(w, "Open ", width);
-  for (let i = 0; i < Math.min(3, sat(width, 5)); i++) {
+  const prefix = i18n.t`Open `,
+    prefixWidth = displayWidth(prefix);
+  writeClipped(w, prefix, width);
+  for (let i = 0; i < Math.min(3, sat(width, prefixWidth)); i++) {
     w.write(fgRgb(pulse(i, now_ms)));
     w.write(".");
   }
   w.write(fg("text"));
-  if (width > 8) writeClipped(w, Buffer.from(label).subarray(8).toString(), width - 8);
+  const start = prefixWidth + 3;
+  if (width > start) writeClipped(w, label.slice(prefix.length + 3), width - start);
 }
 function statusMetadataWidth(ws: WorkspaceEntry): number {
   return displayWidth(worktreeLabel(ws)) || displayWidth(compactCount(ws.stats.tools)) + 1;
 }
 export function worktreeLabel(ws: WorkspaceEntry): string {
   const count = worktrees.linked(ws.worktrees).length;
-  return count ? `${count} worktree${count === 1 ? "" : "s"}` : "";
+  return count ? (count === 1 ? i18n.t`${count} worktree` : i18n.t`${count} worktrees`) : "";
 }
 export function worktreeBadge(v: View, workspaces: WorkspaceEntry[], id: number): Rect | null {
   const index = workspaces.findIndex(ws => ws.id === id),
@@ -2143,7 +2195,7 @@ export class ScopeMenu {
       b,
       scope_rows.map(option =>
         option === "gap" || option === "sort"
-          ? { text: option === "sort" ? "Sort" : "", note: "", heading: true, current: false, hovered: false }
+          ? { text: option === "sort" ? i18n.t`Sort` : "", note: "", heading: true, current: false, hovered: false }
           : {
               text: scope_labels[option],
               note: option === "workspace" ? compactCount(current) : option === "all" ? compactCount(total) : "",
@@ -2167,14 +2219,31 @@ const scope_notes: Partial<Record<ScopeChoice, { note: string; runs?: dropdown.R
       [sections.idle.glyph, sections.idle.token],
     ],
   },
-  manual: { note: "as dragged" },
+  manual: {
+    get note() {
+      return i18n.t`as dragged`;
+    },
+  },
 };
 const scope_labels: Record<ScopeChoice, string> = {
-  workspace: "This workspace",
-  all: "All",
-  activity: "By activity",
-  manual: "Manual",
+  get workspace() {
+    return i18n.t`This workspace`;
+  },
+  get all() {
+    return i18n.t`All`;
+  },
+  get activity() {
+    return i18n.t`By activity`;
+  },
+  get manual() {
+    return i18n.t`Manual`;
+  },
 };
+
+function newAgentLabel(width: number): string {
+  const label = ` ${i18n.t`New`}  ▾ `;
+  return displayWidth(i18n.t`agents`) + displayWidth(label) + (width >= 22 ? 7 : 5) <= width ? label : " +  ▾ ";
+}
 
 export class PortMenu {
   selected = 0;
@@ -2207,7 +2276,7 @@ export class PortMenu {
       w.splat(" ", rect.w);
     }
     w.write(w.cup(rect.y + 1, rect.x + 2));
-    writeClipped(w, "Links · Esc to close", rect.w - 2);
+    writeClipped(w, i18n.t`Links · Esc to close`, rect.w - 2);
     const count = urlCount(ws);
     const selected = Math.min(this.selected, sat(count, 1));
     const offset = Math.floor(selected / PortMenu.capacity(rows)) * PortMenu.capacity(rows);
@@ -2219,7 +2288,7 @@ export class PortMenu {
       );
       const name = workspaceUrlName(ws, index);
       const naming = name.length === 0 && workspaceUrlPending(ws, index);
-      const label = name.length > 0 ? `${name} · ${url}` : naming ? `Open ... · ${url}` : url;
+      const label = name.length > 0 ? `${name} · ${url}` : naming ? `${i18n.t`Open `}... · ${url}` : url;
       writePortLabel(w, label, rect.w - 4, naming, Date.now());
       w.write("\x1b]8;;\x1b\\");
     }
@@ -2242,17 +2311,18 @@ function gitColor(phase: GitPush["phase"]): string {
 export function gitLabel(ws: WorkspaceEntry, expanded: boolean): string {
   switch (ws.git_push.phase) {
     case "pushing":
-      return ` Pushing ${corgiAnimation.spinner(false, Date.now())}`;
+      const spinner = corgiAnimation.spinner(false, Date.now());
+      return i18n.t` Pushing ${spinner}`;
     case "succeeded":
-      return " Pushed ✓";
+      return i18n.t` Pushed ✓`;
     case "failed":
-      return " Retry !";
+      return i18n.t` Retry !`;
     case "idle":
       break;
   }
   const count = ws.git_ahead;
   if (count === null || count === undefined || count === 0) return "";
-  return `${expanded ? " Push " : ""}↑${compactCount(count)}`;
+  return `${expanded ? i18n.t` Push ` : ""}↑${compactCount(count)}`;
 }
 export function gitWorkspace(v: View, workspaces: WorkspaceEntry[], x: number, y: number): WorkspaceEntry | null {
   return gitActionWorkspace(v, workspaces, null, x, y);
@@ -2304,15 +2374,19 @@ class DiffColumns {
   constructor(diffs: GitDiff[]) {
     for (const diff of diffs) {
       if (diff.files === 0) continue;
-      this.files = Math.max(this.files, displayWidth(compactCount(diff.files)));
+      this.files = Math.max(this.files, displayWidth(this.fileLabel(diff)));
       this.added = Math.max(this.added, 1 + displayWidth(compactCount(diff.insertions)));
       this.removed = Math.max(this.removed, 1 + displayWidth(compactCount(diff.deletions)));
     }
   }
+  private fileLabel(diff: GitDiff): string {
+    const count = diff.files;
+    return count === 1 ? i18n.t`${count} file` : i18n.t`${count} files`;
+  }
   /** The table's width, or 0 when nothing changed or it needs more than `room`. */
   width(room: number): number {
     if (this.files === 0) return 0;
-    const size = this.files + " files  ".length + this.added + 1 + this.removed;
+    const size = this.files + 2 + this.added + 1 + this.removed;
     return size <= room ? size : 0;
   }
   /** Writes a row ending at the box's content edge: column `x` (0-based) of row `y` (1-based). */
@@ -2322,8 +2396,8 @@ class DiffColumns {
     w.write(
       `\x1b[22m${w.cup(y, x)}` +
         fg("muted") +
-        pad(compactCount(diff.files), this.files) +
-        (diff.files === 1 ? " file   " : " files  ") +
+        this.fileLabel(diff) +
+        " ".repeat(Math.max(0, this.files - displayWidth(this.fileLabel(diff))) + 2) +
         fg("accent") +
         pad(`+${compactCount(diff.insertions)}`, this.added) +
         " " +
@@ -2366,7 +2440,7 @@ function drawGitError(w: Writer, message: string, cols: number, rows: number, px
     w.write((row === 0 || row === height - 1 ? "─" : " ").repeat(width - 2));
     w.write(row === 0 ? "╮" : row === height - 1 ? "╯" : "│");
   }
-  w.write(`${w.cup(y + 2, x + 3)}\x1b[1mPush failed\x1b[22m`);
+  w.write(`${w.cup(y + 2, x + 3)}\x1b[1m${i18n.t`Push failed`}\x1b[22m`);
   lines.forEach((line, i) => w.write(`${w.cup(y + 3 + i, x + 3)}${line}`));
   w.write("\x1b[0m\x1b8");
   return new Rect(x, y, width, height);
@@ -2401,10 +2475,11 @@ export function drawGitTooltip(
   }
   const columns = new DiffColumns([ws.git_diff, ...ws.git_commits.slice(0, count).map(item => item.diff)]);
   const header = columns.width(width - 16);
+  const commits = ws.git_ahead ?? 0;
   w.write(`${w.cup(y + 2, x + 3)}\x1b[1m` + fg("strong") + lit(0));
   writeEllipsis(
     w,
-    `↑ ${ws.git_ahead ?? 0} unpushed commit${ws.git_ahead === 1 ? "" : "s"}`,
+    commits === 1 ? i18n.t`↑ ${commits} unpushed commit` : i18n.t`↑ ${commits} unpushed commits`,
     width - 4 - (header > 0 ? header + 2 : 0),
   );
   if (header > 0) columns.write(w, ws.git_diff, x + width - 1 - header, y + 2);
@@ -2430,7 +2505,8 @@ export function drawGitTooltip(
   });
   if (has_footer) {
     w.write(w.cup(y + height - 1, x + 3) + new Style({ fg: "faint", bg: "bg" }).sgr());
-    const footer = ws.git_commits.length === 0 ? "Commit details unavailable" : `+${remaining} more`;
+    const count = remaining;
+    const footer = ws.git_commits.length === 0 ? i18n.t`Commit details unavailable` : i18n.t`+${count} more`;
     writeEllipsis(w, footer, width - 4);
   }
   w.write("\x1b[0m\x1b8");
@@ -2446,7 +2522,24 @@ export function elapsed(ms: number): string {
 export function relativeTime(timestamp: number, now: number): string {
   if (timestamp === 0) return "";
   const seconds = Math.abs(now - timestamp);
-  if (seconds < 60) return "just now";
+  if (i18n.language() !== "en") {
+    const [scale, unit] =
+      seconds < 3600
+        ? ([60, "minute"] as const)
+        : seconds < 86400
+          ? ([3600, "hour"] as const)
+          : seconds < 30 * 86400
+            ? ([86400, "day"] as const)
+            : seconds < 365 * 86400
+              ? ([30 * 86400, "month"] as const)
+              : ([365 * 86400, "year"] as const);
+    if (seconds < 60) return i18n.t`just now`;
+    return new Intl.RelativeTimeFormat(i18n.language(), { numeric: "auto" }).format(
+      Math.floor(seconds / scale) * (timestamp > now ? 1 : -1),
+      unit,
+    );
+  }
+  if (seconds < 60) return i18n.t`just now`;
   const unit =
     seconds < 3600
       ? { seconds: 60, name: "minute" }

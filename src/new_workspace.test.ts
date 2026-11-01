@@ -17,7 +17,9 @@ import {
   type Found,
 } from "./new_workspace";
 import { printable } from "./name_dialog";
-import { Writer } from "./text";
+import { Writer, displayWidth } from "./text";
+import * as i18n from "./i18n";
+import { Terminal } from "./pane/terminal";
 import { bgRgb, colors, fgRgb, mix } from "./palette";
 
 const c = (s: string) => s.charCodeAt(0);
@@ -295,6 +297,38 @@ test("a folder that isn't there is offered to create, nested too", () => {
   for (let i = 0; i < "/new/deeper".length; i++) b.key(127);
   for (const byte of Buffer.from("rgi")) b.paste(byte);
   expect(b.create).toBeNull();
+});
+
+test("translated Create rows preserve the folder list border when the path fills the row", () => {
+  const original = i18n.language();
+  try {
+    for (const locale of i18n.locales) {
+      i18n.setLanguage(locale);
+      const b = browse("/home/me/code");
+      for (const byte of Buffer.from("folder".repeat(20))) b.paste(byte);
+      const d = new Dialog(b),
+        w = new Writer(),
+        view = d.view(80, 30)!,
+        terminal = new Terminal(80, 30);
+      try {
+        view.draw(d, w, 1);
+        terminal.feed(w.s);
+        const line = terminal
+          .text()
+          .split("\n")
+          .find(row => row.includes("+ " + i18n.t`Create `))!;
+        expect(line).toBeDefined();
+        const end = line.indexOf("…") + 1,
+          following = line.slice(end).trim();
+        expect(following).toBe("│ │");
+        expect(displayWidth(line.slice(0, end))).toBe(view.text_x + view.text_width - 1);
+      } finally {
+        terminal.destroy();
+      }
+    }
+  } finally {
+    i18n.setLanguage(original);
+  }
 });
 
 test("opening the offer makes the folders and lists the last", () => {

@@ -3,6 +3,7 @@
 //! with ▾ for a dropdown. The import picker draws
 //! Herdr's handoff switch with it, in setup and onboarding alike.
 import * as palette from "./palette";
+import * as i18n from "./i18n";
 import { Style, colors, type Rgb } from "./palette";
 import { Writer, displayWidth, writeEllipsis, sat } from "./text";
 
@@ -65,7 +66,17 @@ export function drawToggle(w: Writer, x: number, y: number, width: number, t: To
   const p = fill(w, x, y, width, t.here),
     disabled = t.disabled ?? false;
   if (t.glyph) w.write(at(x + 4, y) + (disabled ? p.quiet : p.label) + t.glyph);
-  drawValue(w, p, x, y, width, t.label, t.on ? "● On" : "○ Off", t.on && !disabled ? p.accent : p.quiet, disabled);
+  drawValue(
+    w,
+    p,
+    x,
+    y,
+    width,
+    t.label,
+    t.on ? "● " + i18n.t`On` : "○ " + i18n.t`Off`,
+    t.on && !disabled ? p.accent : p.quiet,
+    disabled,
+  );
 }
 /** A dropdown setting's row: its name, and the choice in use with ▾ at the
  * right edge, marked and green like On while `on`. */

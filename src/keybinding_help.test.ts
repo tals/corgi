@@ -6,6 +6,7 @@ import * as keys from "./keys";
 import * as bindings from "./bindings";
 import * as terminalCells from "../site/terminal";
 import * as text from "./text";
+import * as i18n from "./i18n";
 
 function screen(s: State, cols = 148, rows = 48): string[] {
   const terminal = new Terminal(cols, rows);
@@ -30,6 +31,63 @@ function editor(id = "new") {
   s.key(13);
   return s;
 }
+
+test("unchanged shortcut preferences refresh their action titles after a language change", () => {
+  const original = i18n.language();
+  try {
+    i18n.setLanguage("en");
+    const s = editor();
+    expect(screen(s).join("\n")).toContain("New tab (agent picker)");
+    i18n.setLanguage("ja");
+    const translated = screen(s).join("\n");
+    expect(translated).toContain(i18n.t`New tab (agent picker)`);
+    expect(translated).not.toContain("New tab (agent picker)");
+  } finally {
+    i18n.setLanguage(original);
+  }
+});
+
+test("translated Save buttons show their whole label and respond at its far edge", () => {
+  const original = i18n.language();
+  try {
+    for (const locale of i18n.locales) {
+      i18n.setLanguage(locale);
+      for (const [cols, rows] of [
+        [80, 30],
+        [42, 18],
+      ]) {
+        const s = editor(),
+          lines = screen(s, cols, rows),
+          label = i18n.t`Save`,
+          y = lines.findLastIndex(line => line.includes(label));
+        expect(y).toBeGreaterThan(0);
+        const x = text.displayWidth(lines[y].slice(0, lines[y].indexOf(label)));
+        expect(s.click(x + text.displayWidth(label) - 1, y)?.name).toBe("save");
+      }
+    }
+  } finally {
+    i18n.setLanguage(original);
+  }
+});
+
+test("translated help controls preserve their key chords at every supported width", () => {
+  const original = i18n.language();
+  try {
+    for (const locale of i18n.locales) {
+      i18n.setLanguage(locale);
+      for (const cols of [42, 80, 112]) {
+        const lines = screen(new State(), cols, 26);
+        expect(lines[3]).toContain("Ctrl+B");
+        expect(lines[3]).toContain("Ctrl+E");
+        expect(lines[24]).toContain("Ctrl+L");
+        expect(lines[24]).toContain("Esc");
+        if (cols >= 80) expect(lines[24]).toContain(i18n.t`[Hide alts Ctrl+L]`);
+      }
+    }
+  } finally {
+    i18n.setLanguage(original);
+  }
+});
 
 test.each([100, 48])("action labels remain clickable when help wraps at %i columns", cols => {
   const s = new State();

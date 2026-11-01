@@ -1,3 +1,4 @@
+import * as i18n from "./i18n";
 //! Manage agents: the accounts agents start in and the saved commands, under
 //! a search, then Add agent: a strip of agents whose focused one lists the
 //! accounts found for it, to add back what was removed or sign in to a new
@@ -13,7 +14,7 @@ import { Dialog, View as DialogView, writeField } from "./name_dialog";
 import { matches } from "./search";
 import { Entry as CommandEntry, Semantics, Resolution } from "./launch/command";
 import * as keys from "./keys";
-import { Writer, displayWidth, writeEllipsis, ellipsis, sat, clamp, shortPath } from "./text";
+import { Writer, displayWidth, writeEllipsis, ellipsis, sat, clamp, shortPath, byteLength, byteSlice } from "./text";
 import { Grid } from "./cell_grid";
 import { KeyHold } from "./key_hold";
 import { milliTimestamp } from "./clock";
@@ -24,6 +25,7 @@ import type { Options } from "./agent_options";
 import { Slide } from "./card_transition";
 import type { Effort } from "./providers/effort";
 import * as agentModels from "./agent_models";
+import * as agentName from "./agent_name";
 import { Row } from "./launch/row";
 import * as launcherOrder from "./launch/order";
 import { Model as AgentModel } from "./providers/model";
@@ -236,7 +238,7 @@ export class Form {
     for (let i = 0; i < 2; i++) {
       const y = top + i * 4,
         focused = this.name_focused === (i === 1);
-      w.write(at(b.x + 3, y) + dim + (i === 0 ? "Command" : "Name"));
+      w.write(at(b.x + 3, y) + dim + (i === 0 ? i18n.t`Command` : i18n.t`Name`));
       const border = focused ? palette.fg("accent") : palette.fg("line");
       for (let line = 0; line < 3; line++) {
         w.write(at(b.x + 3, y + line + 1) + border + (line === 0 ? "┌" : line === 2 ? "└" : "│"));
@@ -248,7 +250,7 @@ export class Form {
       field(
         w,
         i === 0 ? this.editor : this.name_editor,
-        i === 0 ? "Paste a command…" : "Suggested automatically",
+        i === 0 ? i18n.t`Paste a command…` : i18n.t`Suggested automatically`,
         b.x + 5,
         y + 2,
         width,
@@ -264,14 +266,14 @@ export class Form {
           this.editor.failed && this.save_error.length > 0
             ? this.save_error
             : this.editor.overflow
-              ? "Command too long"
+              ? i18n.t`Command too long`
               : !same || this.resolution.pending
-                ? "Resolving command…"
+                ? i18n.t`Resolving command…`
                 : this.resolution.error_message.length > 0
                   ? this.resolution.error_message
                   : model.account(this.resolution.semantics);
       const info = this.resolution.semantics,
-        provider = info.provider ? adapter(info.provider).label : "Custom agent";
+        provider = info.provider ? adapter(info.provider).label : i18n.t`Custom agent`;
       w.write(at(b.x + 3, top + 9));
       writeEllipsis(w, resolved ? `${provider} · ${status}` : status, b.w - 8);
       w.write(at(b.x + 3, top + 10) + dim);
@@ -282,14 +284,25 @@ export class Form {
           `${info.modelLabel()}${info.model.length > 0 && mode.length > 0 ? " · " : ""}${mode}`,
           b.w - 26,
         );
-        w.write(at(b.x + b.w - 18, top + 10) + `[${this.show_command ? "Hide" : "Show"} command]`);
+        const label = this.commandLabel();
+        w.write(at(b.x + b.w - displayWidth(label) - 4, top + 10) + label);
         if (this.show_command) {
-          w.write(at(b.x + 3, top + 12) + "Runs: ");
+          w.write(at(b.x + 3, top + 12) + i18n.t`Runs: `);
           writeEllipsis(w, cleanControls(this.resolution.command.text()), b.w - 14);
         }
       }
     }
-    w.write(panel + at(b.x + b.w - 20, this.actions(b)) + `[Cancel]  [${this.edit_index !== null ? "Save" : "Add"}]`);
+    const cancel = i18n.t`[Cancel]`,
+      save = this.saveLabel();
+    w.write(
+      panel + at(b.x + b.w - displayWidth(cancel) - displayWidth(save) - 6, this.actions(b)) + `${cancel}  ${save}`,
+    );
+  }
+  private commandLabel(): string {
+    return this.show_command ? i18n.t`[Hide command]` : i18n.t`[Show command]`;
+  }
+  private saveLabel(): string {
+    return this.edit_index !== null ? i18n.t`[Save]` : i18n.t`[Add]`;
   }
   /** Where the caret goes, 0-based. */
   caret(b: Rect): { x: number; y: number } {
@@ -303,9 +316,11 @@ export class Form {
   click(b: Rect, x: number, y: number): "save" | "cancel" | null {
     const top = Form.top(b),
       actions = this.actions(b);
-    if (y === actions && x >= sat(b.x + b.w, 10)) return "save";
-    if (y === actions && x >= sat(b.x + b.w, 20)) return "cancel";
-    if (y === top + 10 && x >= sat(b.x + b.w, 18)) this.show_command = !this.show_command;
+    if (y === actions && x >= b.x + b.w - displayWidth(this.saveLabel()) - 4) return "save";
+    if (y === actions && x >= b.x + b.w - displayWidth(this.saveLabel()) - displayWidth(i18n.t`[Cancel]`) - 6)
+      return "cancel";
+    if (y === top + 10 && x >= b.x + b.w - displayWidth(this.commandLabel()) - 4)
+      this.show_command = !this.show_command;
     else if (y === top + 2 || y === top + 6) {
       this.name_focused = y === top + 6;
       const width = sat(b.w, 10),
@@ -362,7 +377,10 @@ export class View {
   page: "list" | "command" | "agent" = "list";
   agent_form = new agentForm.Form();
   transition = new Slide();
-  back_label = "New tab";
+  back: "launcher" | "settings" = "launcher";
+  private backText(): string {
+    return this.back === "settings" ? i18n.t`Settings` : i18n.t`New tab`;
+  }
   private first = 0;
   focus: "search" | "list" = "list";
   query = Dialog.init({ agent_name: null }, "");
@@ -707,16 +725,16 @@ export class View {
     if (item.kind === "command") {
       this.command(item.index, model);
       this.form.edit_index = null;
-      this.form.name_editor = Dialog.init({ agent_name: null }, model.commands[item.index].label() + " copy");
+      this.form.name_editor = Dialog.init({ agent_name: null }, copyName(model.commands[item.index].label()));
       this.form.name_customized = true;
       return;
     }
     if (item.kind !== "agent") return;
     const names = new Set(model.agents.map(a => a.name || adapter(a.provider).label)),
       base = item.agent.name || adapter(item.agent.provider).label;
-    let name = base + " copy",
+    let name = copyName(base),
       n = 2;
-    while (names.has(name)) name = base + " copy " + n++;
+    while (names.has(name)) name = copyName(base, n++);
     this.agent_form.open(item.agent, model.options(item.agent), name);
     this.agent_form.name = Dialog.init({ agent_name: null }, name);
     this.agent_form.cloning = true;
@@ -750,7 +768,7 @@ export class View {
     const item = this.selected(model);
     if (!item || !itemRow(item)) return null;
     if (this.query.len) {
-      this.error = "Clear search to reorder agents.";
+      this.error = i18n.t`Clear search to reorder agents.`;
       return null;
     }
     const peers = this.items(model)[this.section(item, model)],
@@ -802,11 +820,11 @@ export class View {
         detail: a?.who ?? c!.text(),
         note: a
           ? a.profile
-            ? "Deletes this configuration; keeps the account"
+            ? i18n.t`Deletes this configuration; keeps the account`
             : a.managed
-              ? "Signs out and deletes its folder"
-              : "Keeps its folder; Add agent can add it back"
-          : "Deletes the saved command",
+              ? i18n.t`Signs out and deletes its folder`
+              : i18n.t`Keeps its folder; Add agent can add it back`
+          : i18n.t`Deletes the saved command`,
         section: this.section(item, model),
         index: this.items(model)[this.section(item, model)].findIndex(i => itemKey(i) === itemKey(item)),
         phase: "held",
@@ -1013,9 +1031,9 @@ export class View {
   /** A click at (`x`, `y`) in the box `b`. */
   click(b: Rect, x: number, y: number, model: Model): Action | null {
     if (this.picker) return this.modelResult(this.picker.view.click(this.pickerBounds(b, model), x, y));
-    if (y === b.y && this.page === "list" && x >= b.x + 2 && x < b.x + 2 + this.backLabel(b).length)
+    if (y === b.y && this.page === "list" && x >= b.x + 2 && x < b.x + 2 + displayWidth(this.backLabel(b)))
       return { kind: "back" };
-    if (y === b.y && x >= View.closeX(b) && x < View.closeX(b) + 13)
+    if (y === b.y && x >= View.closeX(b) && x < b.x + b.w - 2)
       return this.page === "command"
         ? this.cancelCommand()
         : this.page === "agent"
@@ -1038,7 +1056,7 @@ export class View {
     }
     const row = this.rows(b, model).find(r => r.y === y);
     if (y === b.y + b.h - 3) {
-      const button = this.buttons(b, model).find(button => x >= button.x && x < button.x + button.label.length);
+      const button = this.buttons(b, model).find(button => x >= button.x && x < button.x + displayWidth(button.label));
       const item = this.selected(model);
       switch (button?.kind) {
         case "edit":
@@ -1080,7 +1098,8 @@ export class View {
   }
 
   /** Where the title's Esc hint starts, as the launcher's Manage button sits. */
-  private static closeX = (b: Rect) => b.x + b.w - 15;
+  private static closeX = (b: Rect) =>
+    b.x + b.w - 8 - Math.max(displayWidth(i18n.t` back `), displayWidth(i18n.t` close `));
   /** The columns its rows' names and accounts start at. */
   private static columns(b: Rect) {
     const mark = b.x + 5,
@@ -1092,9 +1111,9 @@ export class View {
     // room every row leaves, so nothing moves with the selection.
     return { mark, name, who, usage, key: model - 4, model };
   }
-  private static workspace = (model: Model) => model.workspace || "workspace";
+  private static workspace = (model: Model) => model.workspace || i18n.t`workspace`;
   private backLabel(b: Rect): string {
-    return b.w >= 56 ? ` ← ${this.back_label} ` : " ← ";
+    return b.w >= 56 ? ` ← ${this.backText()} ` : " ← ";
   }
   /** The list's lines: each section's heading and rows, Add agent's strip
    * above its rows, and as many as its longest agent's list needs below, so
@@ -1127,7 +1146,13 @@ export class View {
   private spans(b: Rect, model: Model): { tile: Tile; x: number; w: number; text: string }[] {
     const tiles = this.tiles(model),
       name = (t: Tile, size: number) =>
-        size === 2 ? "" : t === "custom" ? (size ? "Command" : "Custom command") : adapter(t)[size ? "name" : "label"],
+        size === 2
+          ? ""
+          : t === "custom"
+            ? size
+              ? i18n.t`Command`
+              : i18n.t`Custom command`
+            : adapter(t)[size ? "name" : "label"],
       width = (text: string) => (text ? displayWidth(text) + 5 : 4),
       fits = ([size, gap]: number[]) => tiles.reduce((sum, t) => sum + width(name(t, size)) + gap, -gap) <= b.w - 6,
       [size, gap] = [
@@ -1203,17 +1228,23 @@ export class View {
     const item = this.selected(model);
     if (!item || itemRow(item) === null || this.removal) return [];
     const labels = [
-      ["edit", " e Edit "],
-      ["clone", " c Clone "],
-      ["toggle", this.section(item, model) === "have" ? " h Hide " : " h Activate "],
-      ["up", b.w >= 96 ? " Shift+↑ Move up " : " Shift+↑ Up "],
-      ["down", b.w >= 96 ? " Shift+↓ Move down " : " Shift+↓ Down "],
+      ["edit", i18n.t` e Edit `],
+      ["clone", i18n.t` c Clone `],
+      ["toggle", this.section(item, model) === "have" ? i18n.t` h Hide ` : i18n.t` h Activate `],
+      ["up", b.w >= 96 ? i18n.t` Shift+↑ Move up ` : i18n.t` Shift+↑ Up `],
+      ["down", b.w >= 96 ? i18n.t` Shift+↓ Move down ` : i18n.t` Shift+↓ Down `],
     ] as const;
+    // Keep removal discoverable before spending the remaining room on reorder buttons.
+    const reserved = this.removable(item, model)
+      ? displayWidth(i18n.t` hold ⌫ `) + displayWidth(i18n.t` remove`) + 1
+      : 0;
     let x = b.x + 3;
     return labels.flatMap(([kind, label]) => {
       const at = x;
       x += displayWidth(label) + 1;
-      return x < b.x + b.w - 2 ? [{ kind: kind as "edit" | "clone" | "toggle" | "up" | "down", label, x: at }] : [];
+      return x + reserved <= b.x + b.w - 2
+        ? [{ kind: kind as "edit" | "clone" | "toggle" | "up" | "down", label, x: at }]
+        : [];
     });
   }
   private pickerBounds(b: Rect, model: Model): Rect {
@@ -1363,32 +1394,38 @@ export class View {
       else w.splat(" ", b.w - 2);
       w.write(y === 0 ? "╮" : y === b.h - 1 ? "╯" : "│");
     }
+    const name =
+      this.form.edit_index !== null ? (model.commands[this.form.edit_index]?.label() ?? i18n.t`command`) : "";
     const title =
       this.page === "list"
-        ? "Manage agents"
+        ? i18n.t`Manage agents`
         : this.page === "agent"
           ? this.agent_form.cloning
-            ? "Clone agent · draft"
-            : "Edit agent"
+            ? i18n.t`Clone agent · draft`
+            : i18n.t`Edit agent`
           : this.form.edit_index !== null
-            ? `Edit ${model.commands[this.form.edit_index]?.label() ?? "command"}`
-            : "New command";
+            ? i18n.t`Edit ${name}`
+            : i18n.t`New command`;
     if (this.page === "list") w.write(at(b.x + 2, b.y) + faint + this.backLabel(b));
+    const titleX = b.x + (this.page === "list" ? 3 + displayWidth(this.backLabel(b)) : 2);
+    w.write(at(titleX, b.y) + new Style({ fg: "strong", bg: "surface", bold: true }).sgr());
+    writeEllipsis(w, ` ${title} `, Math.max(0, View.closeX(b) - titleX));
     w.write(
-      at(b.x + (this.page === "list" ? 3 + this.backLabel(b).length : 2), b.y) +
-        new Style({ fg: "strong", bg: "surface", bold: true }).sgr() +
-        ` ${title} `,
-    );
-    w.write(
-      at(View.closeX(b), b.y) + faint + " " + keycap + " esc " + faint + (this.page !== "list" ? " back " : " close "),
+      at(View.closeX(b), b.y) +
+        faint +
+        " " +
+        keycap +
+        " esc " +
+        faint +
+        (this.page !== "list" ? i18n.t` back ` : i18n.t` close `),
     );
     let caret: { x: number; y: number };
     if (this.page === "command") {
       this.form.draw(w, b, model);
       View.footer(w, b, [
-        ["tab", "command / name"],
-        ["↵", "save"],
-        ["esc", "back"],
+        ["tab", i18n.t`command / name`],
+        ["↵", i18n.t`save`],
+        ["esc", i18n.t`back`],
       ]);
       caret = this.form.caret(b);
     } else if (this.page === "agent") {
@@ -1411,7 +1448,7 @@ export class View {
     field(
       w,
       this.query,
-      "Search",
+      i18n.t`Search`,
       b.x + 7,
       b.y + 2,
       search_w,
@@ -1419,14 +1456,14 @@ export class View {
       searching ? "selected" : "surface",
       searching ? "muted" : "faint",
     );
-    w.write(at(columns.name, b.y + 4) + faint + "Agent");
-    if (columns.who < columns.model) w.write(at(columns.who, b.y + 4) + "Account");
-    w.write(at(columns.model + 2, b.y + 4) + "Model");
+    w.write(at(columns.name, b.y + 4) + faint + i18n.t`Agent`);
+    if (columns.who < columns.model) w.write(at(columns.who, b.y + 4) + i18n.t`Account`);
+    w.write(at(columns.model + 2, b.y + 4) + i18n.t`Model`);
     const grid = new launcherUsage.Grid();
     for (const a of model.agents) grid.add(a.usage);
     if (columns.usage !== null) {
       w.write(at(columns.usage, b.y + 4));
-      writeEllipsis(w, "Usage · resets in", columns.key - columns.usage - 2);
+      writeEllipsis(w, i18n.t`Usage · resets in`, columns.key - columns.usage - 2);
     }
     const caret = { x: b.x + 7 + this.queryColumn(search_w), y: b.y + 2 },
       first = this.listOffset(b, model),
@@ -1443,15 +1480,16 @@ export class View {
             bold: line.heading,
           }).sgr(),
       );
-      const title = line.section === "have" ? "Active" : line.section === "hidden" ? "Hidden" : "Add agent";
+      const title =
+        line.section === "have" ? i18n.t`Active` : line.section === "hidden" ? i18n.t`Hidden` : i18n.t`Add agent`;
       writeEllipsis(
         w,
         line.heading
           ? title + (line.section === "add" ? "" : " · " + groups[line.section].length + " · " + View.workspace(model))
           : line.empty
             ? this.query.len
-              ? "No matching agents"
-              : "Drop an agent here"
+              ? i18n.t`No matching agents`
+              : i18n.t`Drop an agent here`
             : "",
         b.w - 6,
       );
@@ -1491,11 +1529,13 @@ export class View {
       }
       w.write(at(itemRow(item) ? columns.name : columns.mark, y));
       switch (item.kind) {
-        case "add":
-          writeEllipsis(w, "New " + adapter(item.provider).label + " account", b.w - 8);
+        case "add": {
+          const providerName = adapter(item.provider).label;
+          writeEllipsis(w, i18n.t`New ${providerName} account`, b.w - 8);
           break;
+        }
         case "custom":
-          writeEllipsis(w, "New custom command", b.w - 8);
+          writeEllipsis(w, i18n.t`New custom command`, b.w - 8);
           break;
         case "found": {
           const a = item.agent;
@@ -1533,7 +1573,7 @@ export class View {
           w.write(at(columns.model, y) + style + "▾ ");
           agentModels.writeModel(
             w,
-            value ? AgentModel.resolve(value).label() : "Auto (last chosen)",
+            value ? AgentModel.resolve(value).label() : i18n.t`Auto (last chosen)`,
             model.options(a).effort,
             b.x + b.w - columns.model - 5,
             style,
@@ -1556,17 +1596,24 @@ export class View {
     for (const button of buttons) w.write(at(button.x, b.y + b.h - 3) + keycap + button.label);
     const last = buttons.at(-1),
       remove_x = last ? last.x + displayWidth(last.label) + 2 : b.x + 3;
-    if (last && chosen && this.removable(chosen, model) && remove_x + 16 < b.x + b.w - 2)
-      w.write(at(remove_x, b.y + b.h - 3) + keycap + " hold ⌫ " + faint + " remove");
+    const removeKey = i18n.t` hold ⌫ `,
+      removeLabel = i18n.t` remove`;
+    if (
+      !this.removal &&
+      chosen &&
+      this.removable(chosen, model) &&
+      remove_x + displayWidth(removeKey) + displayWidth(removeLabel) <= b.x + b.w - 2
+    )
+      w.write(at(remove_x, b.y + b.h - 3) + keycap + removeKey + faint + removeLabel);
     if (this.error) {
       w.write(at(b.x + 3, b.y + b.h - 2) + new Style({ fg: "hot", bg: "surface" }).sgr());
       writeEllipsis(w, this.error, sat(b.w, 6));
     } else if (this.removal) {
       const r = this.removal;
       w.write(at(b.x + 3, b.y + b.h - 3) + new Style({ fg: "strong", bg: "surface" }).sgr());
-      writeEllipsis(w, `${r.phase === "held" ? "Hold ⌫ to remove" : "Removing"} ${r.label}`, sat(b.w, 6));
+      writeEllipsis(w, `${r.phase === "held" ? i18n.t`Hold ⌫ to remove` : i18n.t`Removing`} ${r.label}`, sat(b.w, 6));
       w.write(at(b.x + 3, b.y + b.h - 2) + new Style({ fg: "muted", bg: "surface" }).sgr());
-      writeEllipsis(w, `${r.note}${r.phase === "held" ? " · release to cancel" : ""}`, sat(b.w, 6));
+      writeEllipsis(w, `${r.note}${r.phase === "held" ? i18n.t` · release to cancel` : ""}`, sat(b.w, 6));
     } else if (focused && this.buttons(b, model).length === 0) View.footer(w, b, this.hints(chosen, model));
     return caret;
   }
@@ -1596,7 +1643,7 @@ export class View {
       w.write(shortPath(cleanControls(folder), columns.key - columns.usage - 2));
     }
     w.write(at(columns.model) + dim);
-    writeEllipsis(w, listed ? "In the list" : "Removed", b.x + b.w - columns.model - 3);
+    writeEllipsis(w, listed ? i18n.t`In the list` : i18n.t`Removed`, b.x + b.w - columns.model - 3);
   }
   /** Add agent's strip: each agent's mark and name, the focused one lit
    * while the strip is selected and strong while its list is. */
@@ -1681,41 +1728,42 @@ export class View {
   }
   /** The keys the selected row takes. */
   private hints(item: Item | null, model: Model): Hint[] {
+    const providerName = item?.kind === "add" ? adapter(item.provider).label : "";
     if (this.focus === "search")
       return [
-        ["tab / ↓", "list"],
-        ["←", this.back_label.toLowerCase()],
-        ["esc", "close"],
+        ["tab / ↓", i18n.t`list`],
+        ["←", this.backText().toLowerCase()],
+        ["esc", i18n.t`close`],
       ];
     switch (item?.kind) {
       case undefined:
-        return [["esc", "close"]];
+        return [["esc", i18n.t`close`]];
       case "tile":
-        return [item.tile === "custom" ? ["↵", "new command"] : ["↓", "accounts"], ["←→", "agents"]];
+        return [item.tile === "custom" ? ["↵", i18n.t`new command`] : ["↓", i18n.t`accounts`], ["←→", i18n.t`agents`]];
       case "add":
         return [
-          ["↵", `sign in to a new ${adapter(item.provider).label} account`],
-          ["←→", "agents"],
+          ["↵", i18n.t`sign in to a new ${providerName} account`],
+          ["←→", i18n.t`agents`],
         ];
       case "custom":
         return [
-          ["↵", "new command"],
-          ["←→", "agents"],
+          ["↵", i18n.t`new command`],
+          ["←→", i18n.t`agents`],
         ];
       case "found":
       case "removed":
         return [
-          ["↵", item.kind === "found" && item.agent.shown ? "go to its row" : "add back to the list"],
-          ["←→", "agents"],
+          ["↵", item.kind === "found" && item.agent.shown ? i18n.t`go to its row` : i18n.t`add back to the list`],
+          ["←→", i18n.t`agents`],
         ];
       case "command":
       case "agent":
         return [
-          ["⇧ ↑↓", "reorder"],
-          ["h", this.section(item, model) === "have" ? "hide" : "activate"],
-          ["c", "clone"],
-          ["hold ⌫", "remove"],
-          ["/", "search"],
+          ["⇧ ↑↓", i18n.t`reorder`],
+          ["h", this.section(item, model) === "have" ? i18n.t`hide` : i18n.t`activate`],
+          ["c", i18n.t`clone`],
+          ["hold ⌫", i18n.t`remove`],
+          ["/", i18n.t`search`],
         ];
     }
   }
@@ -1730,4 +1778,9 @@ export class View {
       used += width;
     }
   }
+}
+
+function copyName(name: string, number = 1): string {
+  const translated = (name: string) => (number === 1 ? i18n.t`${name} copy` : i18n.t`${name} copy ${number}`);
+  return translated(byteSlice(name, agentName.limit - byteLength(translated(""))));
 }

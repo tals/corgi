@@ -3,6 +3,7 @@ import { mkdirSync, chmodSync, readdirSync, lstatSync, unlinkSync, writeFileSync
 import { isAbsolute, join } from "node:path";
 import { BoundedText } from "./bounded_text";
 import * as errors from "./errors";
+import * as i18n from "./i18n";
 
 export type Support = "probing" | "on" | "unsupported" | "denied";
 export type Failure =
@@ -18,15 +19,15 @@ export type Failure =
 export const Failure = {
   message(f: Failure): string {
     return {
-      denied: "The terminal refused to send the clipboard",
-      host_error: "The terminal couldn't send the clipboard",
-      timed_out: "The terminal stopped sending the clipboard",
-      too_large: "Images over 32 MB don't paste",
-      not_image: "The clipboard image was damaged",
-      save_failed: "Couldn't save the pasted image",
-      busy: "Still pasting the previous image",
-      not_pane: "Images paste into a pane",
-      unsupported_image: "Corgi pastes PNG, JPEG, GIF and WebP images",
+      denied: i18n.t`The terminal refused to send the clipboard`,
+      host_error: i18n.t`The terminal couldn't send the clipboard`,
+      timed_out: i18n.t`The terminal stopped sending the clipboard`,
+      too_large: i18n.t`Images over 32 MB don't paste`,
+      not_image: i18n.t`The clipboard image was damaged`,
+      save_failed: i18n.t`Couldn't save the pasted image`,
+      busy: i18n.t`Still pasting the previous image`,
+      not_pane: i18n.t`Images paste into a pane`,
+      unsupported_image: i18n.t`Corgi pastes PNG, JPEG, GIF and WebP images`,
     }[f];
   },
 };
@@ -54,7 +55,7 @@ export function choose(listing: string, pane: boolean): Choice {
 }
 export type Key = "cmd" | "ctrl_shift" | "ctrl";
 export class Notice {
-  body = new (BoundedText(96))();
+  body = new (BoundedText(512))();
   parts: { kind: "text" | "link" | "key"; text: InstanceType<ReturnType<typeof BoundedText>> }[] = [];
   get count() {
     return this.parts.length;
@@ -63,12 +64,15 @@ export class Notice {
     return this.parts;
   }
   add(kind: "text" | "link" | "key", text: string) {
-    this.parts.push({ kind, text: new (BoundedText(64))(text) });
+    this.parts.push({ kind, text: new (BoundedText(512))(text) });
   }
-  enable(lead: string, key: string) {
-    this.add("text", `${lead} to enable paste with `);
-    this.add("key", key);
-    this.add("text", ".");
+  /** Translated sentences can move the styled key and download link. */
+  instruction(message: string, paste: string) {
+    for (const part of message.split(/([\ue000\ue001])/)) {
+      if (part === "\ue000") this.add("key", paste);
+      else if (part === "\ue001") this.add("link", "Ghostty 1.4");
+      else if (part) this.add("text", part);
+    }
   }
 }
 export const download_url = "https://ghostty.org/download";
@@ -172,45 +176,50 @@ export class State {
     if (this.asking !== "none" && now >= this.answer_by) this.settle("unsupported");
     if (this.reading && now >= this.stall_by) this.fail("timed_out");
   }
-  notice(key: Key, agent: string, host: string): Notice | null {
-    if (key === "cmd") this.os = "macos";
-    else if (key === "ctrl_shift") this.os = "linux";
+  notice(pressed: Key, agent: string, host: string): Notice | null {
+    if (pressed === "cmd") this.os = "macos";
+    else if (pressed === "ctrl_shift") this.os = "linux";
     const n = new Notice(),
       linux = this.onLinux(),
       paste = linux ? "Ctrl+Shift+V" : "⌘+V",
-      program = this.programName();
+      program = this.programName(),
+      terminal = this.displayName(),
+      key = "\ue000",
+      version = "\ue001";
     const body = (s: string) => {
-      n.body = new (BoundedText(96))(s);
+      n.body = new (BoundedText(512))(s);
     };
     switch (this.support) {
       case "probing":
         return null;
       case "on":
-        if (key !== "ctrl") return null;
-        body(`${agent} reads the clipboard on ${host}.`);
-        n.add("text", linux ? "Paste images with " : "Paste images from your Mac with ");
-        n.add("key", paste);
-        n.add("text", ".");
+        if (pressed !== "ctrl") return null;
+        body(i18n.t`${agent} reads the clipboard on ${host}.`);
+        n.instruction(
+          linux ? i18n.t`Paste images with ${key}.` : i18n.t`Paste images from your Mac with ${key}.`,
+          paste,
+        );
         break;
       case "denied":
         body(
           program === "ghostty"
-            ? "Ghostty is set to refuse clipboard reads."
-            : `${this.displayName()} refuses clipboard reads.`,
+            ? i18n.t`Ghostty is set to refuse clipboard reads.`
+            : i18n.t`${terminal} refuses clipboard reads.`,
         );
-        n.enable(program === "ghostty" ? "Set clipboard-read = ask" : "Allow clipboard reads", paste);
+        n.instruction(
+          program === "ghostty"
+            ? i18n.t`Set clipboard-read = ask to enable paste with ${key}.`
+            : i18n.t`Allow clipboard reads to enable paste with ${key}.`,
+          paste,
+        );
         break;
       case "unsupported":
         if (this.multiplexer()) {
-          body(`${program} sits between Corgi and your terminal.`);
-          n.enable(`Run Corgi outside ${program}`, paste);
+          body(i18n.t`${program} sits between Corgi and your terminal.`);
+          n.instruction(i18n.t`Run Corgi outside ${program} to enable paste with ${key}.`, paste);
         } else {
-          body(`${this.displayName()} can't send images over SSH.`);
-          n.add("text", "Use ");
-          n.add("link", "Ghostty 1.4");
-          n.add("text", " to enable paste with ");
-          n.add("key", paste);
-          n.add("text", ".");
+          body(i18n.t`${terminal} can't send images over SSH.`);
+          n.instruction(i18n.t`Use ${version} to enable paste with ${key}.`, paste);
         }
     }
     return n;
@@ -224,19 +233,21 @@ export class State {
     return this.terminal.text().split(" ", 1)[0];
   }
   private displayName() {
-    return capitalized(this.terminal.text()) || "This terminal";
+    return capitalized(this.terminal.text()) || i18n.t`This terminal`;
   }
   /** What image paste comes to here, in a line for Corgi setup. */
   diagnosis(): string {
     switch (this.support) {
       case "probing":
-        return "Checking…";
+        return i18n.t`Checking…`;
       case "on":
-        return "Copy an image, then paste it to an agent.";
+        return i18n.t`Copy an image, then paste it to an agent.`;
       case "denied":
-        return "Blocked by clipboard-read = deny.";
-      case "unsupported":
-        return this.multiplexer() ? `${this.programName()} sits in between.` : "This terminal sends no paste events.";
+        return i18n.t`Blocked by clipboard-read = deny.`;
+      case "unsupported": {
+        const program = this.programName();
+        return this.multiplexer() ? i18n.t`${program} sits in between.` : i18n.t`This terminal sends no paste events.`;
+      }
     }
   }
   private multiplexer() {

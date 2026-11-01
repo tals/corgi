@@ -1,3 +1,4 @@
+import * as i18n from "./i18n";
 //! The per-account launch editor. Geometry is stable while environment rows change.
 import type { Agent } from "./agent_manager";
 import * as agentName from "./agent_name";
@@ -17,8 +18,9 @@ export type Focus =
 type Variable = { key: Dialog; value: Dialog; added: number | null };
 type Result = "save" | "cancel" | "model" | null;
 const visible_rows = 4;
-const save_label = " Save · Ctrl+S ",
-  cancel_label = " Cancel · Esc ";
+const saveLabel = () => i18n.t` Save · Ctrl+S `;
+const cancelLabel = () => i18n.t` Cancel · Esc `;
+const addLabel = () => i18n.t`[ + Add variable ]`;
 export const row_duration_ms = 240;
 const editor = (text: string) => Dialog.init({ agent_command: 0 }, text);
 const at = (x: number, y: number) => `\x1b[${y + 1};${x + 1}H`;
@@ -84,9 +86,9 @@ export class Form {
   validate(): boolean {
     this.error = agentOptions.problem(this.options()) ?? "";
     if (this.label() ? !agentName.valid(this.label()) : this.cloning || this.agent?.profile)
-      this.error = agentName.message;
+      this.error = agentName.message();
     if ([this.name, this.flags, ...this.variables.flatMap(v => [v.key, v.value])].some(d => d.overflow))
-      this.error = "A field is too long; shorten it before saving.";
+      this.error = i18n.t`A field is too long; shorten it before saving.`;
     return !this.error;
   }
   tick(now: number): boolean {
@@ -242,7 +244,7 @@ export class Form {
       value_x: x + key_width + 2,
       value_width: width - key_width - 6,
       remove_x: x + width - 3,
-      cancel_x: x + displayWidth(save_label) + 3,
+      cancel_x: x + displayWidth(saveLabel()) + 3,
       save_x: x,
       name: compact ? 4 : 5,
       model: compact ? 6 : 8,
@@ -302,18 +304,18 @@ export class Form {
     w.write(at(g.x, b.y + 2) + text + strong);
     writeEllipsis(w, printable(this.agent?.label ?? ""), g.width);
     if (!g.compact) label(3, printable(this.agent?.who ?? ""));
-    label(g.name - 1, "Name", f.kind === "name");
+    label(g.name - 1, i18n.t`Name`, f.kind === "name");
     this.field(
       w,
       this.name,
-      this.agent?.account ? this.suggestion : "Agent default",
+      this.agent?.account ? this.suggestion : i18n.t`Agent default`,
       g.x,
       b.y + g.name,
       g.width,
       f.kind === "name",
     );
-    label(g.flags - 1, "Extra flags", f.kind === "flags");
-    label(g.model - 1, "Model", f.kind === "model");
+    label(g.flags - 1, i18n.t`Extra flags`, f.kind === "flags");
+    label(g.model - 1, i18n.t`Model`, f.kind === "model");
     const model_style = new palette.Style({
       fg: f.kind === "model" ? "strong" : "text",
       bg: f.kind === "model" ? "selected" : "surface",
@@ -321,23 +323,23 @@ export class Form {
     w.write(at(g.x, b.y + g.model) + model_style);
     writeModel(
       w,
-      this.model ? Model.resolve(this.model).label() : "Auto (last chosen)",
+      this.model ? Model.resolve(this.model).label() : i18n.t`Auto (last chosen)`,
       this.effort,
       g.width - 2,
       model_style,
     );
     w.write(" ▾" + text);
-    this.field(w, this.flags, "e.g. --verbose", g.x, b.y + g.flags, g.width, f.kind === "flags");
-    label(g.hint, "Appended to Corgi's launch command. Quotes supported.");
-    label(g.environment, "Environment");
-    label(g.headings, "Variable", f.kind === "key");
-    w.write(at(g.value_x, b.y + g.headings) + palette.fg(f.kind === "value" ? "strong" : "muted") + "Value");
-    if (!this.variables.length) label(g.rows, "No overrides; inherits your environment.");
+    this.field(w, this.flags, i18n.t`e.g. --verbose`, g.x, b.y + g.flags, g.width, f.kind === "flags");
+    label(g.hint, i18n.t`Appended to Corgi's launch command. Quotes supported.`);
+    label(g.environment, i18n.t`Environment`);
+    label(g.headings, i18n.t`Variable`, f.kind === "key");
+    w.write(at(g.value_x, b.y + g.headings) + palette.fg(f.kind === "value" ? "strong" : "muted") + i18n.t`Value`);
+    if (!this.variables.length) label(g.rows, i18n.t`No overrides; inherits your environment.`);
     for (let i = this.first; i < Math.min(this.variables.length, this.first + this.room); i++) {
       const variable = this.variables[i],
         y = b.y + g.rows + i - this.first;
       this.field(w, variable.key, "VARIABLE", g.x, y, g.key_width, f.kind === "key" && f.row === i);
-      this.field(w, variable.value, "(empty)", g.value_x, y, g.value_width, f.kind === "value" && f.row === i);
+      this.field(w, variable.value, i18n.t`(empty)`, g.value_x, y, g.value_width, f.kind === "value" && f.row === i);
       button(g.remove_x, y - b.y, "[×]", f.kind === "remove" && f.row === i);
       if (variable.added !== null) {
         const t = Math.min(1, Math.max(0, (now - variable.added) / row_duration_ms)),
@@ -345,16 +347,15 @@ export class Form {
         w.write(at(g.x - 1, y) + palette.fgRgb(color) + "▎" + text);
       }
     }
-    if (this.variables.length > this.room)
-      label(
-        g.count,
-        `${this.first + 1}–${Math.min(this.first + this.room, this.variables.length)} of ${this.variables.length} · tab to scroll`,
-      );
-    if (this.variables.length < agentOptions.max_variables) button(g.x, g.add, "[ + Add variable ]", f.kind === "add");
+    const first = this.first + 1,
+      last = Math.min(this.first + this.room, this.variables.length),
+      total = this.variables.length;
+    if (this.variables.length > this.room) label(g.count, i18n.t`${first}–${last} of ${total} · tab to scroll`);
+    if (this.variables.length < agentOptions.max_variables) button(g.x, g.add, addLabel(), f.kind === "add");
     w.write(at(g.x, b.y + g.actions - 1) + palette.fg("line") + "─".repeat(g.width));
     for (const [kind, x, label] of [
-      ["save", g.save_x, save_label],
-      ["cancel", g.cancel_x, cancel_label],
+      ["save", g.save_x, saveLabel()],
+      ["cancel", g.cancel_x, cancelLabel()],
     ] as const) {
       const focused = f.kind === kind;
       w.write(at(x - 1, b.y + g.actions) + palette.fg("accent") + (focused ? "›" : " "));
@@ -400,10 +401,10 @@ export class Form {
       this.focus = { kind: "model" };
       return "model";
     }
-    if (row === g.actions && x >= g.save_x && x < g.save_x + displayWidth(save_label))
+    if (row === g.actions && x >= g.save_x && x < g.save_x + displayWidth(saveLabel()))
       return this.validate() ? "save" : null;
-    if (row === g.actions && x >= g.cancel_x && x < g.cancel_x + displayWidth(cancel_label)) return "cancel";
-    if (row === g.add && x < g.x + 18) {
+    if (row === g.actions && x >= g.cancel_x && x < g.cancel_x + displayWidth(cancelLabel())) return "cancel";
+    if (row === g.add && x < g.x + displayWidth(addLabel())) {
       this.add(now);
       return null;
     }

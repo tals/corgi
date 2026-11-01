@@ -2,6 +2,7 @@
 //! /etc/shells lists, and Other… for a typed path. Viewer-owned; a choice
 //! sends `shell.configure`, and the daemon saves it in settings.json.
 import { basename } from "node:path";
+import * as i18n from "./i18n";
 import type { ShellSource, ShellStatus } from "./launch/command";
 
 export type Entry = "default" | "other" | { path: string };
@@ -21,13 +22,13 @@ export function status(value: any = {}): ShellStatus {
 function origin(source: ShellSource): string {
   switch (source) {
     case "setting":
-      return "chosen";
+      return i18n.t`chosen`;
     case "env":
       return "$SHELL";
     case "account":
-      return "your account";
+      return i18n.t`your account`;
     case "fallback":
-      return "fallback";
+      return i18n.t`fallback`;
   }
 }
 /** A setting the daemon could not find, so panes run the default. */
@@ -38,7 +39,11 @@ export function missing(s: ShellStatus): boolean {
 export function summary(s: ShellStatus): string {
   if (!s.path) return "";
   if (s.source === "setting") return basename(s.path);
-  if (missing(s)) return `${s.setting} not found · ${basename(s.path)}`;
+  if (missing(s)) {
+    const path = s.setting,
+      shell = basename(s.path);
+    return i18n.t`${path} not found · ${shell}`;
+  }
   return `${basename(s.path)} · ${origin(s.source)}`;
 }
 export class Picker {
@@ -65,16 +70,17 @@ export class Picker {
     this.selected = Math.max(0, Math.min(this.entries.length - 1, this.selected + (next ? 1 : -1)));
   }
   label(e: Entry): string {
-    return e === "default" ? "Default" : e === "other" ? "Other…" : basename(e.path);
+    return e === "default" ? i18n.t`Default` : e === "other" ? i18n.t`Other…` : basename(e.path);
   }
   detail(e: Entry): string {
     if (e === "default") return `${basename(this.shell.default)} · ${origin(this.shell.default_source)}`;
-    if (e === "other") return "type a path";
-    return this.entries.indexOf(e) === this.in_use && missing(this.shell) ? `${e.path} · not found` : e.path;
+    if (e === "other") return i18n.t`type a path`;
+    const path = e.path;
+    return this.entries.indexOf(e) === this.in_use && missing(this.shell) ? i18n.t`${path} · not found` : path;
   }
   /** The keycap label for Enter on the selected entry. */
   action(): string {
     const e = this.entries[this.selected];
-    return e === "other" ? "Type a path" : this.selected === this.in_use ? "Keep" : "Use";
+    return e === "other" ? i18n.t`Type a path` : this.selected === this.in_use ? i18n.t`Keep` : i18n.t`Use`;
   }
 }

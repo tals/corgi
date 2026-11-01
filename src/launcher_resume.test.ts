@@ -16,6 +16,7 @@ import {
 } from "./launcher_resume";
 import * as sim from "./providers/sim";
 import * as palette from "./palette";
+import * as i18n from "./i18n";
 import { Terminal } from "./pane/terminal";
 import { Writer } from "./text";
 
@@ -31,6 +32,55 @@ const testEntry = (session: string, cwd: string, title: string, updated_at: numb
   updated_at,
   interrupted: false,
   starred: false,
+});
+
+test("translated history headings, empty states and search hints stay inside the list", () => {
+  const previous = i18n.language();
+  try {
+    for (const language of ["en", "zh", "ja", "ko", "ru"] as const) {
+      i18n.setLanguage(language);
+      for (const width of [32, 44, 80]) {
+        const now = 1_700_000_000;
+        const entries = Array.from({ length: 9 }, (_, i) => testEntry(String(i), "/w/corgi", "Work", now - 86400 * i));
+        for (const mode of ["empty", "collapsed", "search", "days"] as const) {
+          const c = new Context(
+            { pending: false, entries: mode === "empty" ? [] : entries },
+            "/w/corgi",
+            "/w",
+            [{ provider: "claude", session: "0", pane: 1 }],
+            now,
+          );
+          const view = new View(),
+            w = new Writer(),
+            terminal = new Terminal(100, 18);
+          const left = "####",
+            right = "#".repeat(100 - (4 + width - 1));
+          try {
+            for (let row = 1; row <= 18; row++) terminal.feed(`\x1b[${row};1H${left}${" ".repeat(width - 1)}${right}`);
+            if (mode === "collapsed") view.drawCollapsed(w, c, 4, 1, width);
+            else {
+              view.expand();
+              if (mode === "search") {
+                view.startSearch();
+                for (const ch of "work") view.query.key(ch.charCodeAt(0));
+              }
+              view.draw(w, c, new Area(4, 1, width, 16));
+            }
+            terminal.feed(w.buffered());
+            for (const row of terminal.text().split("\n").slice(0, 18)) {
+              expect(row.startsWith(left)).toBe(true);
+              expect(row.endsWith(right)).toBe(true);
+            }
+            expect(terminal.text()).toContain(i18n.t`Last active`);
+          } finally {
+            terminal.destroy();
+          }
+        }
+      }
+    }
+  } finally {
+    i18n.setLanguage(previous);
+  }
 });
 
 test("collapsed shows this folder's newest closed conversations, then more", () => {

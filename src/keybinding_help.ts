@@ -1,10 +1,11 @@
+import * as i18n from "./i18n";
 import * as model from "./keybindings";
 import * as keys from "./keys";
 import * as keyboard from "./keyboard";
 import * as keymap from "./keymap";
 import * as action from "./action";
 import { Rect } from "./layout";
-import { Writer, displayWidth, clipped, ellipsis, sat } from "./text";
+import { Writer, displayWidth, clipped, ellipsis, sat, wrap } from "./text";
 import { Style, type Token } from "./palette";
 import { Fetch } from "./corgi_animation";
 
@@ -76,54 +77,46 @@ function copy(shortcut: model.Shortcut): model.Shortcut {
   return structuredClone(shortcut);
 }
 function wrapped(value: string, width: number): string[] {
-  const lines: string[] = [];
-  while (value) {
-    let part = clipped(value, Math.max(1, width));
-    if (!part) part = [...value][0];
-    if (part.length < value.length && part.lastIndexOf(" ") > width / 2) part = part.slice(0, part.lastIndexOf(" "));
-    lines.push(part);
-    value = value.slice(part.length).trimStart();
-  }
-  return lines;
+  return wrap(value, Math.max(1, width));
 }
-const groups: [string, (string | [string, string[]])[]][] = [
+const groups = (): [string, (string | [string, string[]])[]][] => [
   [
-    "TABS",
+    i18n.t`TABS`,
     [
-      ["New tab → agent picker", ["new"]],
-      ["Next / previous", ["next", "prev"]],
-      ["Last visited", ["last-tab"]],
-      ["Select tab", ["tab"]],
-      ["Rename", ["rename-tab"]],
-      ["Close", ["close-tab"]],
+      [i18n.t`New tab → agent picker`, ["new"]],
+      [i18n.t`Next / previous`, ["next", "prev"]],
+      [i18n.t`Last visited`, ["last-tab"]],
+      [i18n.t`Select tab`, ["tab"]],
+      [i18n.t`Rename`, ["rename-tab"]],
+      [i18n.t`Close`, ["close-tab"]],
     ],
   ],
   [
-    "WORKSPACES",
+    i18n.t`WORKSPACES`,
     [
-      ["New", ["new-workspace"]],
-      ["Edit", ["edit-workspace"]],
-      ["Next / previous", ["workspace-next", "workspace-prev"]],
-      ["Last visited", ["last-workspace"]],
-      ["Choose workspace", ["choose-workspace"]],
-      ["Select workspace", ["goto-workspace"]],
-      ["Close workspace", ["close-workspace"]],
+      [i18n.t`New`, ["new-workspace"]],
+      [i18n.t`Edit`, ["edit-workspace"]],
+      [i18n.t`Next / previous`, ["workspace-next", "workspace-prev"]],
+      [i18n.t`Last visited`, ["last-workspace"]],
+      [i18n.t`Choose workspace`, ["choose-workspace"]],
+      [i18n.t`Select workspace`, ["goto-workspace"]],
+      [i18n.t`Close workspace`, ["close-workspace"]],
     ],
   ],
   [
-    "AGENTS",
+    i18n.t`AGENTS`,
     [
-      ["● Jump to who needs you", ["attention"]],
-      "Navigate",
-      ["Find", ["find-agent"]],
-      ["Choose", ["choose-agent"]],
-      ["Next / previous", ["next-agent", "prev-agent"]],
-      ["Last visited", ["last-agent"]],
-      "Manage",
-      ["New agent", ["new-agent"]],
-      ["Close", ["close"]],
-      ["Reopen", ["undo-close"]],
-      ["Mute / unmute", ["mute"]],
+      [i18n.t`● Jump to who needs you`, ["attention"]],
+      i18n.t`Navigate`,
+      [i18n.t`Find`, ["find-agent"]],
+      [i18n.t`Choose`, ["choose-agent"]],
+      [i18n.t`Next / previous`, ["next-agent", "prev-agent"]],
+      [i18n.t`Last visited`, ["last-agent"]],
+      i18n.t`Manage`,
+      [i18n.t`New agent`, ["new-agent"]],
+      [i18n.t`Close`, ["close"]],
+      [i18n.t`Reopen`, ["undo-close"]],
+      [i18n.t`Mute / unmute`, ["mute"]],
     ],
   ],
 ];
@@ -152,6 +145,7 @@ export class State {
   private preset: keymap.Preset = "corgi";
   private prefix: keymap.Prefix = "ctrl_b";
   private config: model.Config = {};
+  private locale = i18n.language();
   private entries = model.entries("corgi", {});
   private hits: Hit[] = [];
   private controls: Control[] = [];
@@ -164,9 +158,11 @@ export class State {
   private fits = true;
   configure(preset: keymap.Preset, prefix: keymap.Prefix, config: model.Config) {
     this.prefix = prefix;
-    if (this.preset === preset && this.config === config) return;
+    const locale = i18n.language();
+    if (this.preset === preset && this.config === config && this.locale === locale) return;
     this.preset = preset;
     this.config = config;
+    this.locale = locale;
     this.entries = model.entries(preset, config);
     const selected = this.entries.find(e => e.id === this.selected.id) ?? this.entries.find(e => e.id === "new")!;
     this.selected = {
@@ -278,12 +274,12 @@ export class State {
     return modifiers.some(([, modifier]) => this.modifierState(modifier) === null);
   }
   private modifierLabel(): string {
-    if (this.mixedModifiers()) return "Mixed";
+    if (this.mixedModifiers()) return i18n.t`Mixed`;
     return (
       modifiers
         .filter(([, modifier]) => this.modifierState(modifier))
         .map(([label]) => label)
-        .join("+") || "None"
+        .join("+") || i18n.t`None`
     );
   }
   private options(menu: NonNullable<Edit["menu"]>): { text: string; target: Target }[] {
@@ -292,7 +288,7 @@ export class State {
         return [
           { text: "[1..9]", target: { name: "range", kind: "numbers" } },
           { text: "[F1..F9]", target: { name: "range", kind: "functions" } },
-          { text: "Record a sequence…", target: { name: "record" } },
+          { text: i18n.t`Record a sequence…`, target: { name: "record" } },
         ];
       case "mods":
         return modifiers
@@ -522,15 +518,15 @@ export class State {
         try {
           model.chord(keys.chordName(k));
         } catch {
-          this.error = "That key is not supported. Try another key.";
+          this.error = i18n.t`That key is not supported. Try another key.`;
           return null;
         }
         if (e.recorded.some(other => keys.same(k, other))) {
-          this.error = "That key is already in the set.";
+          this.error = i18n.t`That key is already in the set.`;
           return null;
         }
         if (e.recorded.length === 32) {
-          this.error = "The set already has 32 keys.";
+          this.error = i18n.t`The set already has 32 keys.`;
           return null;
         }
         if (k.mods.super) e.superAvailable = true;
@@ -797,7 +793,7 @@ export class State {
       add(col, 0, ys[col]++, title + " " + "─".repeat(Math.max(0, colWidth - displayWidth(title) - 1)), "faint");
     };
     if (this.query) {
-      heading(0, "MATCHING SHORTCUTS");
+      heading(0, i18n.t`MATCHING SHORTCUTS`);
       const q = this.query.toLocaleLowerCase();
       const matches = this.entries.filter(e =>
         (
@@ -811,10 +807,10 @@ export class State {
           .includes(q),
       );
       for (const e of matches) row(0, e.title, [e.id]);
-      if (!matches.length) add(0, 1, ys[0]++, "No matching actions.", "muted");
+      if (!matches.length) add(0, 1, ys[0]++, i18n.t`No matching actions.`, "muted");
       return { cells, total: ys[0] };
     }
-    const group = ([title, items]: (typeof groups)[number]) => {
+    const group = ([title, items]: ReturnType<typeof groups>[number]) => {
       heading(0, title);
       for (const item of items) {
         if (typeof item === "string") add(0, 1, ys[0]++, item, "strong");
@@ -825,9 +821,9 @@ export class State {
       }
       ys[0]++;
     };
-    for (const item of dual ? groups : groups.slice(0, 1)) group(item);
+    for (const item of dual ? groups() : groups().slice(0, 1)) group(item);
     const col = dual ? 1 : 0;
-    heading(col, "PANES");
+    heading(col, i18n.t`PANES`);
     const start = ys[col];
     const sideBySide = colWidth >= 2 * (capWidth * 3 + 2) + 3;
     const compassWidth = sideBySide ? Math.floor((colWidth - 3) / 2) : colWidth;
@@ -844,7 +840,7 @@ export class State {
     ["focus", "swap"].forEach((name, i) => {
       const x = sideBySide ? i * (compassWidth + 3) : 0;
       const top = start + (sideBySide ? 0 : i * (compassHeight + 1));
-      add(col, x, top, i ? "Swap" : "Focus", "strong");
+      add(col, x, top, i ? i18n.t`Swap` : i18n.t`Focus`, "strong");
       for (const [dir, dx, dy] of [
         ["up", 1, 1],
         ["left", 0, 2 + count],
@@ -868,9 +864,9 @@ export class State {
       }
     });
     ys[col] = start + (sideBySide ? compassHeight : 2 * compassHeight + 1);
-    row(col, "Close", ["close"]);
+    row(col, i18n.t`Close`, ["close"]);
     ys[col]++;
-    add(col, 1, ys[col]++, "Split", "strong");
+    add(col, 1, ys[col]++, i18n.t`Split`, "strong");
     const splitY = ys[col];
     let splitRows = 1;
     for (const [i, side] of ["right", "down"].entries()) {
@@ -878,7 +874,7 @@ export class State {
         entry = this.entry("split:" + side);
       const diagram = side === "right" ? ["┌──┬──┐", "│  │  │", "└──┴──┘"] : ["┌─────┐", "├─────┤", "└─────┘"];
       diagram.forEach((text, j) => add(col, x + 1, splitY + j, text, "faint"));
-      add(col, x + 1, splitY + 3, side === "right" ? "Right" : "Down", "text", {
+      add(col, x + 1, splitY + 3, side === "right" ? i18n.t`Right` : i18n.t`Down`, "text", {
         name: "label",
         id: entry.id,
       });
@@ -905,25 +901,25 @@ export class State {
       );
     }
     ys[col] = splitY + 5 + splitRows;
-    add(col, 1, ys[col]++, "Arrange", "strong");
-    row(col, "Resize", ["resize-mode"]);
-    row(col, "Zoom / unzoom", ["zoom"]);
-    row(col, "Move to new tab", ["break"]);
+    add(col, 1, ys[col]++, i18n.t`Arrange`, "strong");
+    row(col, i18n.t`Resize`, ["resize-mode"]);
+    row(col, i18n.t`Zoom / unzoom`, ["zoom"]);
+    row(col, i18n.t`Move to new tab`, ["break"]);
     ys[col]++;
-    if (!dual) for (const item of groups.slice(1)) group(item);
-    heading(col, "TERMINAL");
-    row(col, "Scroll / copy", ["copy-mode"]);
-    row(col, "Detach", ["detach"]);
+    if (!dual) for (const item of groups().slice(1)) group(item);
+    heading(col, i18n.t`TERMINAL`);
+    row(col, i18n.t`Scroll / copy`, ["copy-mode"]);
+    row(col, i18n.t`Detach`, ["detach"]);
     ys[col]++;
-    heading(col, "CORGI");
-    row(col, "Toggle sidebar", ["sidebar"]);
-    row(col, "Review changes", ["review"]);
-    row(col, "Setup", ["setup"]);
-    row(col, "Shortcuts", ["help"]);
+    heading(col, i18n.t`CORGI`);
+    row(col, i18n.t`Toggle sidebar`, ["sidebar"]);
+    row(col, i18n.t`Review changes`, ["review"]);
+    row(col, i18n.t`Setup`, ["setup"]);
+    row(col, i18n.t`Shortcuts`, ["help"]);
     const remaining = this.entries.filter(e => !shownIds.has(e.id) && (e.shortcuts.length || e.custom));
     if (remaining.length) {
       ys[col]++;
-      heading(col, "MORE");
+      heading(col, i18n.t`MORE`);
       for (const entry of remaining) row(col, entry.title, [entry.id]);
     }
     return { cells, total: Math.max(...ys) };
@@ -1032,7 +1028,7 @@ export class State {
       chipX += room + 1;
     }
     if (!e.shortcuts.length) {
-      draw(2, chipCenter, "No shortcuts", "muted");
+      draw(2, chipCenter, i18n.t`No shortcuts`, "muted");
       chipX = 15;
     }
     if (page + pageSize < e.shortcuts.length) {
@@ -1043,7 +1039,7 @@ export class State {
     button(
       b.w - removeWidth - 2,
       chipCenter,
-      "Remove",
+      i18n.t`Remove`,
       { name: "remove" },
       removeWidth,
       e.index < 0 || e.index >= e.shortcuts.length,
@@ -1054,12 +1050,12 @@ export class State {
     const half = Math.floor((b.w - 5) / 2);
     let keysRect: Rect | null = null,
       modsRect: Rect | null = null;
-    if (e.index < 0) draw(2, labelY, "Add a shortcut with +", "muted");
+    if (e.index < 0) draw(2, labelY, i18n.t`Add a shortcut with +`, "muted");
     else {
       button(
         2,
         scopeY,
-        (e.prefixed ? "[x]" : "[ ]") + " Use prefix",
+        (e.prefixed ? "[x]" : "[ ]") + i18n.t` Use prefix`,
         { name: "toggle-prefix" },
         28,
         e.listening,
@@ -1068,7 +1064,7 @@ export class State {
         "◇ " + keymap.prefixName(this.prefix),
       );
       if (e.listening) {
-        draw(2, labelY, entry.indexed ? "Press keys in order…" : "Press a shortcut…", "accent");
+        draw(2, labelY, entry.indexed ? i18n.t`Press keys in order…` : i18n.t`Press a shortcut…`, "accent");
         const capture = new Rect(b.x + 2, b.y + fieldY, b.w - 4, bordered ? 3 : 1);
         if (bordered) this.box(w, capture, "accent");
         this.draw(
@@ -1079,10 +1075,10 @@ export class State {
           "accent",
           capture.w - 4,
         );
-        if (entry.indexed) draw(2, bordered ? 13 : 9, "Backspace undo", "faint");
+        if (entry.indexed) draw(2, bordered ? 13 : 9, i18n.t`Backspace undo`, "faint");
       } else if (entry.indexed) {
-        draw(2, labelY, "Keys", "faint");
-        draw(half + 3, labelY, "Modifiers", "faint");
+        draw(2, labelY, i18n.t`Keys`, "faint");
+        draw(half + 3, labelY, i18n.t`Modifiers`, "faint");
         const shown = this.mixedModifiers()
           ? e.recorded
           : e.recorded.map(key => ({ codepoint: key.codepoint, mods: {} }));
@@ -1100,7 +1096,7 @@ export class State {
           "⌄",
         );
       } else {
-        draw(2, labelY, "Shortcut", "faint");
+        draw(2, labelY, i18n.t`Shortcut`, "faint");
         button(
           2,
           fieldY,
@@ -1110,7 +1106,7 @@ export class State {
           false,
           false,
           "field",
-          "Record Enter",
+          i18n.t`Record Enter`,
         );
       }
     }
@@ -1120,29 +1116,27 @@ export class State {
     const defaults = entry.defaults.map(s => model.serialize(s, entry.indexed));
     const atDefault = JSON.stringify(current) === JSON.stringify(defaults);
     if (!atDefault && !e.listening) {
-      draw(
-        2,
-        bordered ? 14 : 10,
-        "Default " + entry.defaults.map(s => model.display(s)).join(" / "),
-        "faint",
-        b.w - 22,
-      );
-      button(b.w - 17, bordered ? 14 : 10, "Use defaults", { name: "restore" }, 15, false, false, "plain");
+      const shortcuts = entry.defaults.map(s => model.display(s)).join(" / ");
+      draw(2, bordered ? 14 : 10, i18n.t`Default ${shortcuts}`, "faint", b.w - 22);
+      button(b.w - 17, bordered ? 14 : 10, i18n.t`Use defaults`, { name: "restore" }, 15, false, false, "plain");
     }
+    const actions = conflicts.map(c => c.title).join(", ");
     const message =
       this.error ||
       (conflicts.length
-        ? "Used by " + conflicts.map(c => c.title).join(", ") + (blocked ? "; edit its key set" : "; Move reassigns it")
+        ? blocked
+          ? i18n.t`Used by ${actions}; edit its key set`
+          : i18n.t`Used by ${actions}; Move reassigns it`
         : "");
     if (message) draw(2, bordered ? 15 : 9, message, "warm");
     draw(2, footerY - 1, "─".repeat(b.w - 4), "line");
-    button(2, footerY, "Cancel", { name: "cancel" }, 14, false, false, "button", "Esc");
+    button(2, footerY, i18n.t`Cancel`, { name: "cancel" }, 14, false, false, "button", "Esc");
     if (e.deleted.length && !e.listening) {
       const room = Math.min(16, b.w - 32);
       button(
         18,
         footerY + (bordered ? 1 : 0),
-        "Undo",
+        i18n.t`Undo`,
         { name: "undo" },
         room,
         false,
@@ -1152,8 +1146,11 @@ export class State {
       );
     }
     const ready = !blocked && (e.index < 0 || e.recorded.length > 0);
-    const saving = e.listening && entry.indexed ? "Done" : conflicts.length ? "Move" : "Save";
-    const saveWidth = e.listening && entry.indexed ? 14 : 10;
+    const saving = e.listening && entry.indexed ? i18n.t`Done` : conflicts.length ? i18n.t`Move` : i18n.t`Save`;
+    const saveWidth = Math.max(
+      e.listening && entry.indexed ? 14 : 10,
+      displayWidth(saving) + (bordered ? 4 : 2) + (e.listening && entry.indexed ? 6 : 0),
+    );
     button(
       b.w - saveWidth - 2,
       footerY,
@@ -1246,26 +1243,48 @@ export class State {
     if (!this.fits) {
       this.controls = [];
       this.dropdown = null;
-      this.draw(w, b.x, b.y, "Shortcuts need 42 × 18 · Esc back");
+      this.draw(w, b.x, b.y, i18n.t`Shortcuts need 42 × 18 · Esc back`);
       return w.buffered() + "\x1b[0m\x1b[?2026l";
     }
     this.dimmed = this.edit !== null;
     this.box(w, b);
     this.draw(w, b.x + 2, b.y, " Corgi ", "strong");
-    const title = "Main Controls";
+    const title = i18n.t`Main Controls`;
     this.draw(w, b.x + Math.floor((b.w - displayWidth(title)) / 2), b.y + 1, title, "strong");
-    const customizeX = b.x + b.w - 27;
+    const prefixName = keymap.prefixName(prefix),
+      shortPrefix = `◇ ${prefixName}`,
+      fullPrefix = i18n.t`◇ Prefix = ${prefixName}`,
+      fullCustomize = this.customizing ? i18n.t`Done` : i18n.t`Customize Keys`,
+      customize =
+        displayWidth(fullCustomize) + 9 + displayWidth(shortPrefix) + 6 > b.w
+          ? this.customizing
+            ? i18n.t`Done`
+            : i18n.t`Customize`
+          : fullCustomize,
+      customizeWidth = Math.min(Math.max(23, 9 + displayWidth(customize)), b.w - displayWidth(shortPrefix) - 6),
+      customizeX = b.x + b.w - customizeWidth - 4,
+      prefixLabel = b.w < 48 || displayWidth(fullPrefix) > customizeX - b.x - 4 ? shortPrefix : fullPrefix,
+      prefixWidth = displayWidth(prefixLabel);
     this.draw(w, customizeX, b.y + 3, " Ctrl+E ", "strong", 8, undefined, true, "line");
-    this.draw(w, customizeX + 9, b.y + 3, this.customizing ? "Done" : "Customize Keys", "muted", 14);
-    this.hits.push({ rect: new Rect(customizeX, b.y + 3, 23, 1), target: { name: "customize" } });
-    this.draw(w, b.x + 2, b.y + 3, (b.w < 48 ? "◇ " : "◇ Prefix = ") + keymap.prefixName(prefix), "faint", 22);
-    const searchHint = "to search all",
+    this.draw(w, customizeX + 9, b.y + 3, customize, "muted", customizeWidth - 9);
+    this.hits.push({ rect: new Rect(customizeX, b.y + 3, customizeWidth, 1), target: { name: "customize" } });
+    this.draw(w, b.x + 2, b.y + 3, prefixLabel, "faint", prefixWidth);
+    const searchHint = i18n.t`to search all`,
       search = this.query || (this.searching ? "▏" : searchHint),
-      searchX = b.x + Math.floor((b.w - displayWidth(searchHint) - 4) / 2),
-      searchY = b.y + (b.w >= 75 ? 3 : 2),
-      searchWidth = Math.min(
-        (b.w >= 75 ? customizeX : b.x + b.w) - searchX - 6,
-        Math.max(displayWidth(searchHint), displayWidth(search)),
+      sameRow = b.w >= 75 && customizeX - b.x - prefixWidth - 8 >= displayWidth(searchHint) + 4,
+      searchLeft = sameRow ? b.x + prefixWidth + 5 : b.x + 2,
+      searchRight = sameRow ? customizeX - 3 : b.x + b.w - 2,
+      searchX = Math.max(
+        searchLeft,
+        Math.min(
+          b.x + Math.floor((b.w - displayWidth(searchHint) - 4) / 2),
+          searchRight - displayWidth(searchHint) - 4,
+        ),
+      ),
+      searchY = b.y + (sameRow ? 3 : 2),
+      searchWidth = Math.max(
+        0,
+        Math.min(searchRight - searchX - 4, Math.max(displayWidth(searchHint), displayWidth(search))),
       ),
       searchText = ellipsis(search, searchWidth);
     this.draw(w, searchX, searchY, " / ", "strong", 3, { name: "search" }, true, "line");
@@ -1314,25 +1333,28 @@ export class State {
         ),
       ).size;
       if (remaining) {
-        const more = `↓ ${remaining} more`;
+        const more = i18n.t`↓ ${remaining} more`;
         this.draw(w, b.x + Math.floor((b.w - displayWidth(more)) / 2), b.y + b.h - 3, more, "muted");
       }
-      this.draw(w, b.x + 2, b.y + b.h - 2, this.show_alts ? "[Hide alts Ctrl+L]" : "[Show alts Ctrl+L]", "muted", 25, {
-        name: "alts",
-      });
-      this.draw(w, b.x + b.w - 12, b.y + b.h - 2, "[Esc Back]", "strong", 11, { name: "close" });
-      this.corgi_room = Math.max(0, b.w - 48);
+      const closeLabel = i18n.t`[Esc Back]`,
+        closeWidth = Math.max(11, displayWidth(closeLabel)),
+        closeX = b.x + b.w - closeWidth - 1,
+        alts = this.show_alts ? i18n.t`[Hide alts Ctrl+L]` : i18n.t`[Show alts Ctrl+L]`,
+        altsLabel = displayWidth(alts) <= closeX - b.x - 4 ? alts : "[Ctrl+L]",
+        altsWidth = displayWidth(altsLabel),
+        corgiX = b.x + Math.max(29, altsWidth + 4);
+      this.draw(w, b.x + 2, b.y + b.h - 2, altsLabel, "muted", altsWidth, { name: "alts" });
+      this.draw(w, closeX, b.y + b.h - 2, closeLabel, "strong", closeWidth, { name: "close" });
+      this.corgi_room = Math.max(0, closeX - corgiX - 7);
       if (this.corgi_room > 10)
         this.draw(
           w,
-          b.x + 29,
+          corgiX,
           b.y + b.h - 2,
           this.corgi.write(this.corgi_room, now).replace(/\x1b\[[0-9;:]*m/g, ""),
           "faint",
           this.corgi_room,
-          {
-            name: "play",
-          },
+          { name: "play" },
         );
       if (this.error) this.draw(w, b.x + 2, b.y + b.h - 3, this.error, "warm", b.w - 4);
     }

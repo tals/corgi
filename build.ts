@@ -2,6 +2,12 @@ import { basename } from "node:path";
 import { mkdirSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 const root = import.meta.dir;
+const translations = Bun.spawn([process.execPath, `${root}/scripts/translations.ts`, "check"], {
+  cwd: root,
+  stdout: "inherit",
+  stderr: "inherit",
+});
+if (await translations.exited) process.exit(1);
 function option(name: string, fallback = ""): string {
   const args = process.argv.slice(2),
     prefix = `--${name}=`,

@@ -10,8 +10,12 @@ import * as effort from "./providers/effort";
 import { Row } from "./launch/row";
 import { Entry as CommandEntry } from "./launch/command";
 import helpText from "../assets/cli-help.txt" with { type: "text" };
+import * as i18n from "./i18n";
 import skill from "../assets/corgi-skill.md" with { type: "text" };
 export const help = helpText;
+export function localizedHelp(): string {
+  return i18n.document(helpText);
+}
 const groups = new Set(["tab", "pane", "workspace", "launcher", "claim", "current", "list", "focus", "--skill"]);
 const nested = new Set(["tab", "pane", "workspace", "launcher"]);
 const flags = new Set(["json", "clear", "stdin", "enter", "new-tab", "first", "left", "right", "up", "down"]);
@@ -120,9 +124,10 @@ export function usage(text: string, args: string[]): string[] {
   return [];
 }
 /** A command's usage, or the full reference when no command was named. */
-export function helpFor(text: string, args: string[]): string {
+export function helpFor(text: string, args: string[], agent = false): string {
   const lines = usage(text, args);
-  return lines.length ? `Usage:\n${lines.join("\n")}\n` : text;
+  const label = agent ? "Usage:" : i18n.t`Usage:`;
+  return lines.length ? `${label}\n${lines.join("\n")}\n` : text;
 }
 export function id(value: string): number {
   if (!/^\+?\d+$/.test(value)) throw Error("InvalidCharacter");
@@ -732,7 +737,7 @@ export function read(text: string, lines: number, agent = false): string {
 export async function run(path: string, args: string[], agent = false): Promise<void> {
   const group = args[0];
   if ((nested.has(group) && args.length === 1) || asksHelp(args)) {
-    process.stdout.write(helpFor(help, args));
+    process.stdout.write(helpFor(agent ? help : localizedHelp(), args, agent));
     return;
   }
   if (group === "--skill") {

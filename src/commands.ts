@@ -1,10 +1,11 @@
 //! The resize menu, and the context menus on tabs, workspaces, panes,
 //! agents and worktree groups. Mirrors commands.zig.
+import * as i18n from "./i18n";
 import * as dropdown from "./dropdown";
 import * as palette from "./palette";
 import { Style, keycap } from "./palette";
 import type { Direction } from "./layout";
-import { Writer, displayWidth, sat, shortPath } from "./text";
+import { Writer, displayWidth, clipped, sat, shortPath } from "./text";
 
 /** A resize menu row: the key it shows and the resize a click performs. */
 export interface Entry {
@@ -13,11 +14,11 @@ export interface Entry {
   direction: Direction;
   needs_pane: boolean;
 }
-const resize_entries: Entry[] = [
-  { key: "h", label: "Resize left", direction: "left", needs_pane: true },
-  { key: "j", label: "Resize down", direction: "down", needs_pane: true },
-  { key: "k", label: "Resize up", direction: "up", needs_pane: true },
-  { key: "l", label: "Resize right", direction: "right", needs_pane: true },
+const resizeEntries = (): Entry[] => [
+  { key: "h", label: i18n.t`Resize left`, direction: "left", needs_pane: true },
+  { key: "j", label: i18n.t`Resize down`, direction: "down", needs_pane: true },
+  { key: "k", label: i18n.t`Resize up`, direction: "up", needs_pane: true },
+  { key: "l", label: i18n.t`Resize right`, direction: "right", needs_pane: true },
 ];
 export type Hit =
   { tag: "none" } | { tag: "close" } | { tag: "previous" } | { tag: "next" } | { tag: "command"; command: Entry };
@@ -54,24 +55,28 @@ const row = (item: Item, key: string, label: string, extra: Partial<Row> = {}): 
   rule: false,
   ...extra,
 });
-const actions = [row("new", "n", "New tab"), row("rename", "r", "Rename"), row("close", "x", "Close")];
-const pane_actions = [
-  row("swap", "s", "Swap with focused pane"),
-  row("rename", "r", "Rename pane"),
-  row("clear-name", "c", "Clear pane name"),
-  row("split-right", "v", "Split right"),
-  row("split-down", "d", "Split down"),
-  row("zoom", "z", "Zoom / unzoom"),
-  row("close", "x", "Close pane"),
+const actions = () => [
+  row("new", "n", i18n.t`New tab`),
+  row("rename", "r", i18n.t`Rename`),
+  row("close", "x", i18n.t`Close`),
 ];
-const agent_actions = [
-  row("review", "e", "Review changes"),
-  row("copy-details", "c", "Copy details"),
-  row("mark-unread", "u", "Mark as unread", { rule: true }),
-  row("star", "s", "Star"),
-  row("rename", "r", "Rename", { rule: true }),
-  row("fork", "f", "Fork"),
-  row("close", "x", "Close", { rule: true }),
+const pane_actions = () => [
+  row("swap", "s", i18n.t`Swap with focused pane`),
+  row("rename", "r", i18n.t`Rename pane`),
+  row("clear-name", "c", i18n.t`Clear pane name`),
+  row("split-right", "v", i18n.t`Split right`),
+  row("split-down", "d", i18n.t`Split down`),
+  row("zoom", "z", i18n.t`Zoom / unzoom`),
+  row("close", "x", i18n.t`Close pane`),
+];
+const agent_actions = () => [
+  row("review", "e", i18n.t`Review changes`),
+  row("copy-details", "c", i18n.t`Copy details`),
+  row("mark-unread", "u", i18n.t`Mark as unread`, { rule: true }),
+  row("star", "s", i18n.t`Star`),
+  row("rename", "r", i18n.t`Rename`, { rule: true }),
+  row("fork", "f", i18n.t`Fork`),
+  row("close", "x", i18n.t`Close`, { rule: true }),
 ];
 let border: string;
 palette.derived(() => {
@@ -135,20 +140,23 @@ export class TabMenu {
       this.details.set(item, { runs, since: now, placeholder: old.runs === null });
   }
   entries(): Row[] {
+    const title = this.title;
     if (this.agent || this.headless)
-      return agent_actions
+      return agent_actions()
         .filter(entry => !this.headless || entry.item === "star")
-        .map(entry => (entry.item === "star" && this.starred ? { ...entry, label: "Unstar" } : entry));
+        .map(entry => (entry.item === "star" && this.starred ? { ...entry, label: i18n.t`Unstar` } : entry));
     if (this.worktree !== null)
       return [
-        row("review", "e", "Review changes"),
-        row("open-folder", "o", "Open folder", { rule: true }),
-        row("copy-path", "c", "Copy full path"),
-        ...(this.folded === null ? [] : [row("fold", "f", this.folded ? "Unfold" : "Fold", { rule: true })]),
-        row("close-all", "x", `Close all agents for ${this.title}`, { rule: true }),
+        row("review", "e", i18n.t`Review changes`),
+        row("open-folder", "o", i18n.t`Open folder`, { rule: true }),
+        row("copy-path", "c", i18n.t`Copy full path`),
+        ...(this.folded === null
+          ? []
+          : [row("fold", "f", this.folded ? i18n.t`Unfold` : i18n.t`Fold`, { rule: true })]),
+        row("close-all", "x", i18n.t`Close all agents for ${title}`, { rule: true }),
       ];
-    if (this.pane) return this.source !== null ? pane_actions : pane_actions.slice(1);
-    return this.workspace ? actions.slice(1) : actions;
+    if (this.pane) return this.source !== null ? pane_actions() : pane_actions().slice(1);
+    return this.workspace ? actions().slice(1) : actions();
   }
   /** The row a key picks. Keys are the menu's own, lowercase, and Shift picks the same row. */
   itemFor(key: number): Item | null {
@@ -181,7 +189,7 @@ export class TabMenu {
   labelWidth(): number {
     let widest = 0;
     for (const entry of this.entries()) {
-      widest = Math.max(widest, Buffer.byteLength(entry.label));
+      widest = Math.max(widest, displayWidth(entry.label));
       const detail = this.details.get(entry.item);
       if (detail) widest = Math.max(widest, detailWidth(detail));
     }
@@ -262,9 +270,9 @@ export class TabMenu {
         w.write(`${off ? dim : keycap} ${entry.key} ${row_style} `);
         used += 4;
       }
-      const len = Math.min(entry.label.length, sat(inner, used));
+      const label = clipped(entry.label, sat(inner, used));
       if (off) w.write(new Style({ fg: "faint", bg: "surface", strike: true }).sgr());
-      w.write(entry.label.slice(0, len));
+      w.write(label);
       const detail = this.details.get(entry.item);
       if (detail) {
         // The second line sits under the label, on the row's own background.
@@ -331,7 +339,7 @@ export class ResizeView {
   static init(width: number, height: number, page: number, has_pane: boolean): ResizeView {
     const v = new ResizeView();
     const w = Math.min(width, 34);
-    const count = resize_entries.length;
+    const count = resizeEntries().length;
     const rows = Math.max(1, Math.min(count, sat(height, 3)));
     const pages = Math.floor((count + rows - 1) / rows);
     v.x = Math.floor((width - w) / 2);
@@ -347,7 +355,7 @@ export class ResizeView {
   items(): Entry[] {
     const size = this.rows * this.columns;
     const start = this.page * size;
-    return resize_entries.slice(start, Math.min(resize_entries.length, start + size));
+    return resizeEntries().slice(start, Math.min(resizeEntries().length, start + size));
   }
   hit(x: number, y: number): Hit {
     const v = this;
@@ -370,9 +378,9 @@ export class ResizeView {
       w.write(`\x1b[${v.y + r + 1};${v.x + 1}H` + new Style({ bg: "surface" }).sgr());
       w.splat(" ", v.width);
     }
-    v.line(w, 0, " Resize panes", true);
+    v.line(w, 0, i18n.t` Resize panes`, true);
     w.write(`\x1b[${v.y + 1};${v.x + v.width - 1}H` + palette.fg("muted") + " x");
-    v.line(w, 1, " Shortcut or click", false);
+    v.line(w, 1, i18n.t` Shortcut or click`, false);
     const col_width = Math.floor(v.width / v.columns);
     v.items().forEach((entry, index) => {
       const r = index % v.rows;
@@ -387,22 +395,23 @@ export class ResizeView {
       w.write(
         `\x1b[${v.y + r + 3};${v.x + col * col_width + 1}H${rc.key} ${entry.key === "\t" ? "⇥" : entry.key} ${rc.label} `,
       );
-      w.write(entry.label.slice(0, Math.min(entry.label.length, sat(col_width, 5))));
+      w.write(clipped(entry.label, sat(col_width, 5)));
     });
     w.write(palette.bg("surface"));
     if (v.pages > 1) {
       const previous = ` < ${v.page + 1}/${v.pages}`;
       v.line(w, v.rows + 2, previous.slice(0, Math.min(previous.length, Math.floor(v.width / 2))), false);
-      const next = "Next >";
-      const next_len = Math.min(next.length, Math.floor(v.width / 2));
-      w.write(`\x1b[${v.y + v.rows + 3};${v.x + v.width - next_len + 1}H${next.slice(next.length - next_len)}`);
-    } else v.line(w, v.rows + 2, " Esc done", false);
+      const next = i18n.t`Next >`;
+      const next_label = clipped(next, Math.floor(v.width / 2));
+      const next_len = displayWidth(next_label);
+      w.write(`\x1b[${v.y + v.rows + 3};${v.x + v.width - next_len + 1}H${next_label}`);
+    } else v.line(w, v.rows + 2, i18n.t` Esc done`, false);
     w.write("\x1b[0m\x1b[?25l");
   }
   private line(w: Writer, r: number, text: string, bold: boolean): void {
     w.write(
       `\x1b[${this.y + r + 1};${this.x + 1}H${bold ? "\x1b[1m" + palette.fg("strong") : "\x1b[22m" + palette.fg("muted")}`,
     );
-    w.write(text.slice(0, Math.min(text.length, this.width)));
+    w.write(clipped(text, this.width));
   }
 }

@@ -1,5 +1,17 @@
 import { expect, test } from "bun:test";
-import { Writer, shortPath } from "./text";
+import { Writer, shortPath, wrap, displayWidth } from "./text";
+
+test("prose wrapping measures cells and breaks text without spaces", () => {
+  expect(wrap("Choose familiar keys.", 16)).toEqual(["Choose familiar", "keys."]);
+  expect(wrap("请选择熟悉的快捷键", 8)).toEqual(["请选择熟", "悉的快捷", "键"]);
+  expect(wrap("日本語の設定\n한국어 설정", 8)).toEqual(["日本語の", "設定", "한국어", "설정"]);
+  expect(wrap("abcdefghijkl", 5)).toEqual(["abcde", "fghij", "kl"]);
+  expect(wrap("字", 1)).toEqual(["…"]);
+  expect(wrap("one\n\ntwo", Infinity)).toEqual(["one", "", "two"]);
+  expect(wrap("  abcdef", 4)).toEqual(["abcd", "ef"]);
+  expect(wrap("  日本語  \n   \n 한국어 ", 4)).toEqual(["日本", "語", "", "한국", "어"]);
+  for (const line of wrap("日本語 and 한국어", 8)) expect(displayWidth(line)).toBeLessThanOrEqual(8);
+});
 
 test("positioned output scopes columns without changing buffer ownership", () => {
   const writer = new Writer();

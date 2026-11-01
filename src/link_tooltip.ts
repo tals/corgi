@@ -1,3 +1,4 @@
+import * as i18n from "./i18n";
 import type { Target as AgentTarget } from "./sidebar";
 import type { Cell } from "./fork_hero";
 import type { Link as TerminalLink } from "./pane/hyperlinks";
@@ -87,7 +88,11 @@ export function geometry(
   thumbnail: Thumbnail | null = null,
 ): Rect | null {
   const cells = thumbnail ? thumbnailCells(thumbnail) : { cols: 0, rows: 0 };
-  const w = Math.max(17, cells.cols + 2),
+  const w = Math.max(
+      17,
+      ...[i18n.t` ✓  Copied`, i18n.t` ⧉  Copy path`, i18n.t` ⧉  Copy link`].map(label => displayWidth(label) + 4),
+      cells.cols + 2,
+    ),
     h = 3 + (thumbnail ? cells.rows + 1 : 0);
   if (width < w || height < h + 1) return null;
   const below = anchor.y + h < height;
@@ -113,7 +118,11 @@ export function copyAt(rect: Rect, x: number, y: number): boolean {
 export function draw(w: Writer, rect: Rect, card: Card, hovered: boolean): void {
   const border = new palette.Style({ fg: "line", bg: "surface" }).sgr();
   const rule = "─".repeat(rect.w - 2);
-  const label = card.copied ? " ✓  Copied" : filePath(card.link.uri) !== null ? " ⧉  Copy path" : " ⧉  Copy link";
+  const label = card.copied
+    ? i18n.t` ✓  Copied`
+    : filePath(card.link.uri) !== null
+      ? i18n.t` ⧉  Copy path`
+      : i18n.t` ⧉  Copy link`;
   w.write(border + `\x1b[${rect.y + 1};${rect.x + 1}H┌${rule}┐`);
   w.write(`\x1b[${rect.y + 2};${rect.x + 1}H│`);
   w.write(new palette.Style({ fg: "strong", bg: hovered ? "selected" : "surface" }).sgr());

@@ -1,5 +1,6 @@
 //! The agent card a sidebar row opens on hover, and the usage overview the
 //! status bar opens. Mirrors subagent_tooltip.zig.
+import * as i18n from "./i18n";
 import { microTimestamp, milliTimestamp } from "./clock";
 import { Provider, byProvider, adapter } from "./providers";
 import { View as UsageView, Tokens } from "./usage/live";
@@ -9,7 +10,7 @@ import { Window, expired, resetCountdown } from "./usage/account";
 import * as spend from "./usage/spend";
 import { percentFigure } from "./launcher_usage";
 import * as limit_history from "./usage/limits";
-import { Group as BackgroundGroup, type Group as BackgroundGroupName } from "./activity/background_tasks";
+import type { Group as BackgroundGroupName } from "./activity/background_tasks";
 import type * as checklist from "./activity/checklist";
 import * as checklist_view from "./checklist_view";
 import { max_actors as max } from "./conversations";
@@ -273,7 +274,7 @@ export function presentChildren(entry: Entry, all: readonly Conversation[], now:
 function groupName(child: Conversation): string {
   if (child.role.length > 0) return child.role;
   if (child.agent.activity.length > 0) return child.agent.activity;
-  return "Agents";
+  return i18n.t`Agents`;
 }
 function add(total: UsageView, next: UsageView) {
   total.tokens.add(next.tokens);
@@ -348,25 +349,25 @@ export function compact(value: bigint | number): string {
   }
 }
 function activity(agent: Agent): string {
-  if (agent.compacting) return "Compacting";
-  if (agent.state === "working" && agent.subagents.waiting) return "Waiting on subagents";
+  if (agent.compacting) return i18n.t`Compacting`;
+  if (agent.state === "working" && agent.subagents.waiting) return i18n.t`Waiting on subagents`;
   if (agent.activity.length > 0) return agent.activity;
   if (agent.recent_activity.length > 0 && !(agent.provider && adapter(agent.provider).caps.native_activity))
     return agent.recent_activity;
-  if (agent.tool_active && agent.state === "working") return "Running a tool";
+  if (agent.tool_active && agent.state === "working") return i18n.t`Running a tool`;
   switch (agent.state) {
     case "working":
-      return "Working";
+      return i18n.t`Working`;
     case "blocked":
-      return "Needs input";
+      return i18n.t`Needs input`;
     case "idle":
-      return "Idle";
+      return i18n.t`Idle`;
     case "done":
-      return "Session ended";
+      return i18n.t`Session ended`;
     case "initializing":
-      return "Starting session";
+      return i18n.t`Starting session`;
     default:
-      return "Waiting for activity";
+      return i18n.t`Waiting for activity`;
   }
 }
 /** Working with nothing reported yet: animated dots advance with the sidebar
@@ -381,26 +382,28 @@ export interface Status {
   tone: Tone;
 }
 export function status(agent: Agent, stale: boolean): Status {
-  if (stale) return { icon: "?", label: "Last seen", tone: "muted" };
+  if (stale) return { icon: "?", label: i18n.t`Last seen`, tone: "muted" };
   if (agent.state === "blocked" || agent.attention === "needs_input")
-    return { icon: "●", label: "Needs input", tone: "warm" };
+    return { icon: "●", label: i18n.t`Needs input`, tone: "warm" };
   const unread = agent.attention === "finished" && agent.state !== "working" && agent.state !== "done";
   // Waiting on its background shells or a wakeup, as the sidebar shows it.
   if (agent.state === "idle" && agent.paused)
-    return unread ? { icon: "‖", label: "Finished", tone: "working" } : { icon: "‖", label: "Idle", tone: "muted" };
+    return unread
+      ? { icon: "‖", label: i18n.t`Finished`, tone: "working" }
+      : { icon: "‖", label: i18n.t`Idle`, tone: "muted" };
   // Finished and not yet seen, as the sidebar shows it.
-  if (unread) return { icon: "●", label: "Finished", tone: "working" };
+  if (unread) return { icon: "●", label: i18n.t`Finished`, tone: "working" };
   switch (agent.state) {
     case "working":
-      return { icon: "▶", label: "Working", tone: "working" };
+      return { icon: "▶", label: i18n.t`Working`, tone: "working" };
     case "idle":
-      return { icon: "○", label: "Idle", tone: "muted" };
+      return { icon: "○", label: i18n.t`Idle`, tone: "muted" };
     case "done":
-      return { icon: "○", label: "Ended", tone: "faint" };
+      return { icon: "○", label: i18n.t`Ended`, tone: "faint" };
     case "initializing":
-      return { icon: "◌", label: "Starting", tone: "muted" };
+      return { icon: "◌", label: i18n.t`Starting`, tone: "muted" };
     default:
-      return { icon: "?", label: "Unknown", tone: "muted" };
+      return { icon: "?", label: i18n.t`Unknown`, tone: "muted" };
   }
 }
 const pad2 = (n: number) => String(n).padStart(2, "0");
@@ -422,20 +425,27 @@ export class Card {
     if (budget < 2 || tasks.items.length === 0) return 0;
     const age = microTimestamp() - tasks.observed_at;
     const live = tasks.live && age >= 0 && age <= fresh_window;
-    this.line(row, "Background commands", live ? "Running" : "Last reported", "title", "muted");
+    this.line(row, i18n.t`Background commands`, live ? i18n.t`Running` : i18n.t`Last reported`, "title", "muted");
     const shown = Math.min(tasks.items.length, budget - 1 - Number(tasks.items.length + 1 > budget || tasks.truncated));
+    const labels: Record<BackgroundGroupName, string> = {
+      tests: i18n.t`Tests`,
+      builds: i18n.t`Builds`,
+      servers: i18n.t`Servers`,
+      commands: i18n.t`Commands`,
+    };
     let offset = 1;
     for (const group of ["tests", "builds", "servers", "commands"] as const) {
       for (const task of tasks.items) {
         if (task.group !== group || offset > shown) continue;
-        this.line(row + offset, `${BackgroundGroup.label(group)} · ${task.label}`, "", "text", "muted");
+        this.line(row + offset, `${labels[group]} · ${task.label}`, "", "text", "muted");
         offset += 1;
       }
     }
     if (shown < tasks.items.length || tasks.truncated) {
+      const count = tasks.items.length - shown;
       this.line(
         row + offset,
-        `+${tasks.items.length - shown}${tasks.truncated ? "+" : ""} more commands`,
+        tasks.truncated ? i18n.t`+${count}+ more commands` : i18n.t`+${count} more commands`,
         "",
         "faint",
         "faint",
@@ -446,7 +456,15 @@ export class Card {
   }
   checklist(row: number, list: checklist.List, view: checklist_view.Window) {
     this.w.write(`\x1b[${row + 2};${this.x + 1}H${base}${this.ink("border")}├${"─".repeat(this.width - 2)}┤`);
-    this.line(row + 2, "TODOs", `${view.done}/${view.total}${list.partial ? "+" : ""} done`, "title", "muted");
+    const done = view.done,
+      total = view.total;
+    this.line(
+      row + 2,
+      i18n.t`TODOs`,
+      list.partial ? i18n.t`${done}/${total}+ done` : i18n.t`${done}/${total} done`,
+      "title",
+      "muted",
+    );
     let offset = 3;
     const markers: Record<checklist.Status, { glyph: string; tone: Tone }> = {
       pending: { glyph: "☐", tone: "muted" },
@@ -457,20 +475,26 @@ export class Card {
     };
     for (const group of view.groups) {
       if (group.name) this.line(row + offset++, group.name, "", "muted", "muted");
-      if (group.more_done > 1)
-        this.line(row + offset++, `${group.name ? "  " : ""}… ${group.more_done} done`, "", "faint", "faint");
+      if (group.more_done > 1) {
+        const count = group.more_done;
+        this.line(row + offset++, `${group.name ? "  " : ""}${i18n.t`… ${count} done`}`, "", "faint", "faint");
+      }
       for (const item of group.items) {
         const marker = markers[item.status];
         this.line(row + offset++, `${group.name ? "  " : ""}${marker.glyph} ${item.text}`, "", marker.tone, "muted");
       }
     }
-    if (view.more_pending > 1) this.line(row + offset, `+${view.more_pending} more pending`, "", "faint", "faint");
+    if (view.more_pending > 1) {
+      const count = view.more_pending;
+      this.line(row + offset, i18n.t`+${count} more pending`, "", "faint", "faint");
+    }
   }
   /** The cells `line` leaves its left text beside a right text this wide. */
   leftRoom(right_width: number): number {
     return sat(this.width - 6, right_width + (right_width > 0 ? 2 : 0));
   }
   line(row: number, left: string, right: string, left_tone: Tone, right_tone: Tone) {
+    right = ellipsis(right, Math.max(0, this.width - 6));
     const right_width = displayWidth(right);
     const left_room = this.leftRoom(right_width);
     this.w.write(`\x1b[${row + 1};${this.x + 4}H${base}${this.ink(left_tone)}`);
@@ -486,13 +510,13 @@ export class Card {
   /** The context meter takes at most half the subtitle line: narrow cards
    * shorten its bar, and the narrowest drop it. */
   meterBar(): number {
-    const bar = Math.min(16, sat(Math.floor((this.width - 6) / 2), 13));
+    const bar = Math.min(16, sat(Math.floor((this.width - 6) / 2), displayWidth(i18n.t`context `) + 5));
     return bar < 6 ? 0 : bar;
   }
   meterWidth(context: ContextView): number {
     const figure = `${context.percent() < 999n ? context.percent() : 999n}%`;
     const bar = this.meterBar();
-    return "context ".length + bar + Number(bar > 0) + figure.length;
+    return displayWidth(i18n.t`context `) + bar + Number(bar > 0) + figure.length;
   }
   /** "context ━━━━━━──── 74%" at the right of a row: the share of the window,
    * in the sidebar figure's colors, with a tick at a learned compaction point.
@@ -502,7 +526,7 @@ export class Card {
     if (band === null) return;
     const color = contextColor(band, compacting, palette.colors.bg);
     this.w.write(
-      `\x1b[${row + 1};${this.x + this.width - 2 - this.meterWidth(context)}H${base}${Tone.ansi("faint")}context `,
+      `\x1b[${row + 1};${this.x + this.width - 2 - this.meterWidth(context)}H${base}${Tone.ansi("faint")}${i18n.t`context `}`,
     );
     const bar = this.meterBar();
     if (bar > 0) {
@@ -534,11 +558,14 @@ export class Card {
     return this.width < 70;
   }
   numbers(): number {
-    return this.tight() ? 6 : Card.number_width;
+    return Math.max(this.tight() ? 6 : Card.number_width, displayWidth(i18n.t`Tokens`), displayWidth(i18n.t`Cached`));
   }
   /** Phone-narrow cards drop the tool count. */
   counts(): number {
-    return !this.counted || this.tight() ? 0 : Card.count_width + 1;
+    return !this.counted || this.tight() ? 0 : Math.max(Card.count_width, displayWidth(i18n.t`Tools`)) + 1;
+  }
+  timeWidth(): number {
+    return Math.max(5, displayWidth(i18n.t`  now`), displayWidth(i18n.t` last`));
   }
   textWidth(): number {
     return this.width - 6 - 2 * (this.numbers() + 1) - this.counts();
@@ -553,22 +580,22 @@ export class Card {
       if (live && value?.known) this.w.write("+");
     };
     if (this.counts()) {
-      const tools = value === null ? "Tools" : value.known ? compact(value.tools) : "—";
-      figure(text_width - this.counts() + 1, Card.count_width, tools, "faint");
+      const tools = value === null ? i18n.t`Tools` : value.known ? compact(value.tools) : "—";
+      figure(text_width - this.counts() + 1, this.counts() - 1, tools, "faint");
     }
     const tokens =
       value !== null
         ? value.known
           ? `${value.partial ? "≥" : ""}${compact(satAdd(satSub(value.tokens.input, value.tokens.cached_input), value.tokens.output))}`
           : "—"
-        : "Tokens";
-    const cached = value !== null ? (value.known ? compact(value.tokens.cached_input) : "—") : "Cached";
+        : i18n.t`Tokens`;
+    const cached = value !== null ? (value.known ? compact(value.tokens.cached_input) : "—") : i18n.t`Cached`;
     figure(text_width + 1, this.numbers(), tokens, tone);
     figure(text_width + this.numbers() + 2, this.numbers(), cached, "faint");
   }
   childRow(row: number, child: Conversation, now = microTimestamp()) {
     const text_width = this.textWidth();
-    const prefix_width = this.tight() ? 9 : 11;
+    const prefix_width = this.timeWidth() + (this.tight() ? 4 : 6);
     const available = sat(text_width, prefix_width);
     const label = activity(child.agent);
     const name = childName(child);
@@ -580,17 +607,17 @@ export class Card {
     const label_width = sat(available, name_width > 0 ? name_width + 1 : 0);
     let marker: Status;
     if (child.agent.attention === "needs_input" || child.agent.state === "blocked")
-      marker = { icon: "●", label: "Needs input", tone: "warm" };
+      marker = { icon: "●", label: i18n.t`Needs input`, tone: "warm" };
     else
       switch (child.agent.state) {
         case "working":
-          marker = { icon: "▶", label: "Working", tone: "working" };
+          marker = { icon: "▶", label: i18n.t`Working`, tone: "working" };
           break;
         case "done":
-          marker = { icon: "✓", label: "Done", tone: "muted" };
+          marker = { icon: "✓", label: i18n.t`Done`, tone: "muted" };
           break;
         case "idle":
-          marker = { icon: "○", label: "Idle", tone: "muted" };
+          marker = { icon: "○", label: i18n.t`Idle`, tone: "muted" };
           break;
         default:
           marker = status(child.agent, false);
@@ -598,7 +625,7 @@ export class Card {
     this.cell(row, 0, prefix_width - 2, `${" ".repeat(prefix_width - 4)}↳`, "faint", false);
     // How long it has worked sits in the timeline's time column.
     const running = this.tight() ? "" : runningFor(child.agent, now);
-    if (running) this.cell(row, 0, 5, running, "faint", true);
+    if (running) this.cell(row, 0, this.timeWidth(), running, "faint", true);
     this.cell(row, prefix_width - 2, 1, marker.icon, marker.tone, false);
     this.cell(row, prefix_width, label_width, label, "text", false);
     if (name_width > 0) this.cell(row, text_width - name_width, name_width, name, "faint", true);
@@ -617,18 +644,20 @@ export class Card {
     this.cell(row, 0, name_width, name, tone, false);
     this.cell(row, name_width + 1, model_width, model, heading ? "faint" : "muted", false);
     columns.tokenColumns(row, value, false, heading ? "faint" : "text");
-    this.cell(row, text_width + 2 * nw + 3, nw, equivalent, heading ? "faint" : "title", true);
+    this.cell(row, this.width - 6 - nw, nw, equivalent, heading ? "faint" : "title", true);
   }
   /** One timeline step: the live one has a sage time and a bright label,
    * and past ones recede. */
   drawPoint(row: number, stamp: string, label: string, value: UsageView, live: boolean, dot: Tone) {
     const icon = live ? "●" : "○";
     const gap = this.tight() ? " " : "  ";
+    stamp = ellipsis(stamp, this.timeWidth());
+    stamp = " ".repeat(sat(this.timeWidth(), displayWidth(stamp))) + stamp;
     this.cell(row, 0, this.textWidth(), `${stamp}${gap}${icon}${gap}${label}`, live ? "strong" : "muted", false);
     this.tokenColumns(row, value, live, !value.known ? "muted" : live ? "title" : "strong");
     const time: Tone = live ? "live" : "faint";
     this.w.write(
-      `\x1b[${row + 1};${this.x + 4}H${base}${this.ink(time)}${stamp}\x1b[${row + 1};${this.x + (this.tight() ? 10 : 11)}H${base}${this.ink(dot)}${icon}`,
+      `\x1b[${row + 1};${this.x + 4}H${base}${this.ink(time)}${stamp}\x1b[${row + 1};${this.x + 4 + this.timeWidth() + displayWidth(gap)}H${base}${this.ink(dot)}${icon}`,
     );
   }
   timeline(row: number, root: Conversation, agent: Agent, nodes: number, pending: boolean) {
@@ -638,9 +667,9 @@ export class Card {
     const history_nodes = nodes - Number(unreported);
     const show_pending = pending && history_nodes > 0;
     const divider_width = this.width - 6;
-    const label = " Recent ";
+    const label = i18n.t` Recent `;
     this.cell(row, 0, divider_width, "─".repeat(Math.min(88, divider_width)), "border", false);
-    this.cell(row, Math.floor((divider_width - label.length) / 2), label.length, label, "muted", false);
+    this.cell(row, Math.floor((divider_width - displayWidth(label)) / 2), displayWidth(label), label, "muted", false);
     const completed = history_nodes - Number(show_pending);
     const history_end = root.timeline.points.length - Number(pending);
     // The latest five rows, the current one included, keep their colors.
@@ -658,7 +687,7 @@ export class Card {
       const latest = root.timeline.points[root.timeline.points.length - 1];
       this.drawPoint(
         row + 1 + completed,
-        active || blocked ? "  now" : " last",
+        active || blocked ? i18n.t`  now` : i18n.t` last`,
         latest.activity,
         root.timeline.pending,
         active,
@@ -666,19 +695,24 @@ export class Card {
       );
     }
     if (unreported) {
-      const current = agent.compacting ? "Compacting…" : agent.subagents.waiting ? "Waiting on subagents" : thinking();
-      this.drawPoint(row + nodes, "  now", current, new UsageView(), true, "working");
+      const current = agent.compacting
+        ? i18n.t`Compacting…`
+        : agent.subagents.waiting
+          ? i18n.t`Waiting on subagents`
+          : thinking();
+      this.drawPoint(row + nodes, i18n.t`  now`, current, new UsageView(), true, "working");
     }
   }
 }
 /** The title row: "Observed tokens", and "2.4M tokens (+38M cached)" at the
  * right in muted words with its figures drawn over them. */
 function overviewTotal(card: Card, row: number, value: UsageView) {
-  if (!value.known) return card.line(row, "Observed tokens", "— tokens", "title", "muted");
+  if (!value.known) return card.line(row, i18n.t`Observed tokens`, i18n.t`— tokens`, "title", "muted");
   const tokens = `${value.partial ? "≥" : ""}${compact(satAdd(satSub(value.tokens.input, value.tokens.cached_input), value.tokens.output))}`;
   const cached = compact(value.tokens.cached_input);
-  const total = `${tokens} tokens (+${cached} cached)`;
-  card.line(row, "Observed tokens", total, "title", "muted");
+  const total = i18n.t`${tokens} tokens (+${cached} cached)`;
+  card.line(row, i18n.t`Observed tokens`, total, "title", "muted");
+  if (i18n.language() !== "en") return;
   const start = card.x + card.width - 2 - displayWidth(total);
   card.w.write(`\x1b[${row + 1};${start}H${base}${Tone.ansi("title")}${tokens}`);
   card.w.write(
@@ -809,7 +843,7 @@ function overviewAgent(
   if (item === null) {
     card.overviewRow(
       row,
-      system_working ? "▶ Corgi (Activity summarizer)" : "○ Corgi (Activity summarizer)",
+      system_working ? i18n.t`▶ Corgi (Activity summarizer)` : i18n.t`○ Corgi (Activity summarizer)`,
       model,
       ranked_row.value,
       equivalent,
@@ -827,14 +861,18 @@ function overviewAgent(
   card.w.write(`\x1b[${row + 1};${card.x + 4}H${base}${Tone.ansi(agent_status.tone)}${agent_status.icon}`);
 }
 function overviewFooter(card: Card, row: number, hidden: number, release: Release) {
-  const more = hidden > 0 ? `... ${hidden} more agents` : "";
+  const more = hidden > 0 ? i18n.t`... ${hidden} more agents` : "";
   const running = releaseLabel.text(releaseLabel.of(release.running ?? "", release.commit ?? ""));
   const staged = releaseLabel.text(releaseLabel.of(release.staged ?? "", ""));
   // Prefer the most complete version text that still leaves room for the agent count.
   const room = sat(card.width - 6, more.length > 0 ? displayWidth(more) + 2 : 0);
   const candidates =
     staged.length > 0
-      ? [`↑ Update ${staged} ready · relaunch Corgi`, "↑ Update ready · relaunch Corgi", "↑ Update ready"]
+      ? [
+          i18n.t`↑ Update ${staged} ready · relaunch Corgi`,
+          i18n.t`↑ Update ready · relaunch Corgi`,
+          i18n.t`↑ Update ready`,
+        ]
       : [running.length > 0 ? `Corgi ${running}` : "", running, ""];
   const version_line = candidates.find(candidate => displayWidth(candidate) <= room) ?? "";
   card.line(row, more, version_line, "faint", staged.length > 0 ? "title" : "faint");
@@ -923,7 +961,7 @@ export function drawOverview(
   const card = new Card(w, x, width);
   overviewTotal(card, y + 1, total);
   const heading = y + 3;
-  card.overviewRow(heading, "Top agents", "Model", null, reference_label, "title");
+  card.overviewRow(heading, i18n.t`Top agents`, i18n.t`Model`, null, reference_label, "title");
   rows_shown.forEach((ranked_row, i) => overviewAgent(card, heading + 1 + i, ranked_row, reference, system_working));
   overviewFooter(card, y + height - 2, ranked.length - shown, release);
   w.write("\x1b[0m\x1b8");
@@ -1061,9 +1099,9 @@ function drawAccounts(
   const table = new Card(w, x, 85);
   overviewTotal(full, y + 1, overview.total);
   const heading = y + 3;
-  table.overviewRow(heading, "Top agents", "Model", null, overview.reference_label, "title");
-  full.cell(heading, pane, 6, "Limits", "title", false);
-  full.cell(heading, pane + 12, 20, "↻ resets in", "faint", true);
+  table.overviewRow(heading, i18n.t`Top agents`, i18n.t`Model`, null, overview.reference_label, "title");
+  full.cell(heading, pane, 6, i18n.t`Limits`, "title", false);
+  full.cell(heading, pane + 12, 20, i18n.t`↻ resets in`, "faint", true);
   let row = heading + 1;
   sections.forEach((section, i) => {
     accountRule(full, row, section, divider, i === 0);
@@ -1129,7 +1167,7 @@ function accountRule(card: Card, row: number, section: Section, divider: number,
       ? who.length > 0
         ? `${adapter(section.provider).name} ${who}`
         : adapter(section.provider).name
-      : "Other agents";
+      : i18n.t`Other agents`;
   const title = ellipsis(name, 60);
   const plan = value !== null && value.plan.length > 0 ? ellipsis(value.plan, 16) : "";
   w.write(`\x1b[${row + 1};${card.x + 3}H${base}${Tone.ansi("border")} `);
@@ -1141,11 +1179,11 @@ function accountRule(card: Card, row: number, section: Section, divider: number,
   w.write(`${base} `);
 }
 function limitsMessage(value: Option): string {
-  if (value.limits === "metered") return "metered";
-  if (value.limits === "rate_limited") return "Unavailable · server returned 429";
-  if (value.usage_error.length > 0) return "Unavailable";
-  if (value.signed_in === false) return "Not signed in";
-  return "Reading…";
+  if (value.limits === "metered") return i18n.t`metered`;
+  if (value.limits === "rate_limited") return i18n.t`Unavailable · server returned 429`;
+  if (value.usage_error.length > 0) return i18n.t`Unavailable`;
+  if (value.signed_in === false) return i18n.t`Not signed in`;
+  return i18n.t`Reading…`;
 }
 /** The month's spend: a spark of the last four weeks in two-day cells, the
  * percent of the limit and the reset, then the amounts beneath. */
@@ -1164,7 +1202,7 @@ function spendLine(card: Card, row: number, pane: number, value: Option, line: n
     const figure: Tone = !fresh ? "muted" : percent >= 100 ? "hot" : percent >= 80 ? "warm" : "title";
     card.cell(row, pane + 18, 4, percentFigure(percent), figure, true);
   }
-  const status_text = !fresh ? "stale" : `↻ ${resetCountdown(reading.reset_at, now)}`;
+  const status_text = !fresh ? i18n.t`stale` : `↻ ${resetCountdown(reading.reset_at, now)}`;
   card.cell(row, pane + 23, 9, status_text, "faint", false);
 }
 /** The month's running spend over the last four weeks, drawn like a window's
@@ -1232,7 +1270,7 @@ export function limitLine(
   }
   const figure: Tone = !fresh ? "muted" : window.used >= 100 ? "hot" : window.used >= 80 ? "warm" : "title";
   card.cell(row, pane + 18, 4, `${window.used}%`, figure, true);
-  const status_text = !fresh ? "stale" : `↻ ${window.countdown(now) ?? "unknown"}`;
+  const status_text = !fresh ? i18n.t`stale` : `↻ ${window.countdown(now) ?? i18n.t`unknown`}`;
   card.cell(row, pane + 23, 9, status_text, "faint", false);
 }
 function sparkCell(card: Card, row: number, offset: number, glyph: string, ink: string) {
@@ -1381,7 +1419,7 @@ export function draw(
   const header = top + 2 + Number(activity_row);
   if (activity_row) card.line(top + 2, root_activity, "", "muted", "muted");
   card.tokenColumns(header, null, false, "faint");
-  card.cell(header + 1, 0, card.textWidth(), "Total", "text", false);
+  card.cell(header + 1, 0, card.textWidth(), i18n.t`Total`, "text", false);
   card.tokenColumns(header + 1, root.usage, false, root.usage.known ? "title" : "muted");
   let row = header + 2;
   const bottom = y + height - 1;
@@ -1416,15 +1454,16 @@ export function draw(
     }
   if (model.children > 0 && row + 1 < end) {
     row += 1;
-    card.cell(row, 0, card.textWidth(), "Including subagents", "text", false);
+    card.cell(row, 0, card.textWidth(), i18n.t`Including subagents`, "text", false);
     card.tokenColumns(row, model.total, false, model.total.known ? "title" : "muted");
   }
+  const count = model.children - shown;
   const footer = !children_available
     ? ""
     : model.children === 0 && (entry.subagents.running > 0 || entry.subagents.blocked > 0)
-      ? "Updating child details…"
+      ? i18n.t`Updating child details…`
       : shown < model.children
-        ? `+${model.children - shown} more`
+        ? i18n.t`+${count} more`
         : "";
   if (footer) card.line(footer_row, footer, "", "faint", "faint");
   if (todo_budget) card.checklist(todo_top, root.checklist, fitted_todos);

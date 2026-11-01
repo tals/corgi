@@ -11,6 +11,7 @@ import * as integration from "./integration";
 import * as signin from "./signin";
 import * as errors from "./errors";
 import * as cli from "./cli";
+import * as i18n from "./i18n";
 
 const managed = Provider.all.filter(p => adapter(p).accounts.signin !== null);
 export const help = `Usage: corgi account COMMAND
@@ -30,6 +31,28 @@ providers both have one called work. Signing in runs the agent's own sign-in
 in the account's folder; agents then start there from the launcher, or with
 ${managed.map(p => adapter(p).accounts.env).join(" or ")} set.
 `;
+export function localizedHelp(): string {
+  const list = new Intl.ListFormat(i18n.language(), { type: "disjunction" }),
+    providers = list.format(managed),
+    variables = list.format(managed.map(p => adapter(p).accounts.env));
+  return i18n.t`Usage: corgi account COMMAND
+
+  list                          the accounts Corgi knows and who signed in
+  add [PROVIDER] [NAME]         make a new account and sign in to it; it's
+                                named from the login unless you name it
+  add PROVIDER NAME --dir DIR   use an account folder you already have
+  login NAME                    sign in to an account again
+  rename NAME NEW               call an account something else; NAME can be
+                                default, or claude/default, for the default
+  remove NAME                   remove an account: one Corgi made is signed
+                                out and deleted, another forgotten
+
+PROVIDER is ${providers}. Name an account claude/work when two
+providers both have one called work. Signing in runs the agent's own sign-in
+in the account's folder; agents then start there from the launcher, or with
+${variables} set.
+`;
+}
 /** `path` from `~` when it is under HOME, as typed or with links resolved. */
 const tilde = (path: string) => {
   const home = process.env.HOME ?? homedir();
@@ -178,8 +201,12 @@ async function run(args: string[]): Promise<number> {
 }
 const messages: Record<string, string> = {
   AccountHasProfiles: "delete this account’s cloned configurations first",
-  InvalidAccountName: agentName.message + " The account name default is reserved.",
-  InvalidAgentName: agentName.message,
+  get InvalidAccountName() {
+    return agentName.accountMessage();
+  },
+  get InvalidAgentName() {
+    return agentName.message();
+  },
   AccountExists: "there's an account by that name already",
   UnknownAccount: "no account by that name; `corgi account list` shows them",
   AmbiguousAccount: "two providers have an account by that name; say claude/NAME or codex/NAME",
@@ -189,16 +216,16 @@ const messages: Record<string, string> = {
   AccountManagementUnsupported: "this agent uses its existing login; manage accounts in the agent itself",
 };
 /** `corgi account …`: the exit status. */
-export async function command(args: string[]): Promise<number> {
+export async function command(args: string[], agent = false): Promise<number> {
   if (args[0] === "help" || cli.asksHelp(["account", ...args])) {
-    process.stdout.write(help);
+    process.stdout.write(agent ? help : localizedHelp());
     return 0;
   }
   try {
     return await run(args);
   } catch (error) {
     const name = errors.name(error) ?? String(error);
-    process.stderr.write(name === "Usage" ? help : `corgi: ${messages[name] ?? name}\n`);
+    process.stderr.write(name === "Usage" ? (agent ? help : localizedHelp()) : `corgi: ${messages[name] ?? name}\n`);
     return name === "Usage" ? 2 : 1;
   }
 }

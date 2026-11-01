@@ -1,3 +1,4 @@
+import * as i18n from "./i18n";
 //! The launcher's conversations to resume: the newest few under the agent
 //! rows, and every one, grouped by day and searchable, once expanded.
 //! Mirrors launcher_resume.zig.
@@ -6,14 +7,14 @@ import { Provider, adapter } from "./providers";
 import * as palette from "./palette";
 import { Style, keycap } from "./palette";
 import { Dialog, View as DialogView, writeField } from "./name_dialog";
-import { Writer, displayWidth, writeEllipsis, truncatedText, sat } from "./text";
+import { Writer, displayWidth, writeEllipsis, ellipsis, truncatedText, sat } from "./text";
 import * as scrollThumb from "./scroll_thumb";
 import { writeMark, type Marks } from "./provider_mark";
 
 export type Scope = "folder" | "workspace" | "everywhere";
 const scopes: Scope[] = ["folder", "workspace", "everywhere"];
 export function scopeLabel(s: Scope): string {
-  return s === "folder" ? "this folder" : s === "workspace" ? "this workspace" : "everywhere";
+  return s === "folder" ? i18n.t`this folder` : s === "workspace" ? i18n.t`this workspace` : i18n.t`everywhere`;
 }
 /** A launcher history entry, as launch/history.zig's `Entry`. */
 export interface Entry {
@@ -420,7 +421,7 @@ export class View {
    * message goes first when space runs out. */
   columns(inner: number): Columns {
     // Marker, provider and their gaps, the gap after the title, and the age.
-    const room = sat(inner, provider_width + 7);
+    const room = sat(inner, provider_width + Math.max(6, displayWidth(i18n.t`Last active`)) + 3);
     const folder = this.expanded && this.scope !== "folder" && room >= 60 ? Math.min(24, Math.floor(room / 4)) : 0;
     const title =
       sat(room, folder) >= 70
@@ -440,14 +441,21 @@ export class View {
     const cols = this.columns(sat(width, 4));
     let total = 0;
     for (const e of c.history.entries) total += c.listed(e, "folder") ? 1 : 0;
-    w.write(`\x1b[${y};${x + 3}H${panel}\x1b[1m` + palette.fg("strong") + `Resume${panel}`);
+    const active = ellipsis(i18n.t`Last active`, sat(width, 6));
+    const heading_room = cols.last > 12 ? provider_width + cols.title : sat(width, displayWidth(active) + 7);
+    const resume = ellipsis(i18n.t`Resume`, heading_room);
+    w.write(`\x1b[${y};${x + 3}H${panel}\x1b[1m` + palette.fg("strong") + resume + panel);
     // The launcher's title names the folder.
-    writeEllipsis(w, total > 0 ? ` · ${total} here` : " · none here", cols.title + 3);
+    writeEllipsis(
+      w,
+      total > 0 ? i18n.t` · ${total} here` : i18n.t` · none here`,
+      sat(heading_room, displayWidth(resume)),
+    );
     if (cols.last > 12) {
       w.write(`\x1b[${y};${x + 3 + provider_width + cols.title + 2}H`);
-      writeEllipsis(w, "You last said", cols.last);
+      writeEllipsis(w, i18n.t`You last said`, cols.last);
     }
-    w.write(`\x1b[${y};${x + width - 3 - 6}HActive`);
+    w.write(`\x1b[${y};${x + width - 3 - displayWidth(active)}H${active}`);
     const at = this.index(c, rows);
     rows.forEach((line, k) => {
       const row = y + 1 + k + ("more" in line ? 1 : 0);
@@ -469,8 +477,8 @@ export class View {
     w.write(`\x1b[${y};${x + 3}H${panel}`);
     writeKey(w, "/", panel);
     w.write(" ");
-    const scope = scopeLabel(this.scope);
-    const field = sat(width, scope.length + 19);
+    const scope = ellipsis(scopeLabel(this.scope), sat(width, 15));
+    const field = sat(width, displayWidth(scope) + 19);
     if (this.searching) {
       const room = sat(field, 1);
       writeField(w, this.query, DialogView.scroll(this.query, room), room, panel + palette.fg("strong"), {
@@ -478,37 +486,42 @@ export class View {
       });
     } else {
       w.write(dim);
-      writeEllipsis(w, "search titles and what was said", field);
+      writeEllipsis(w, i18n.t`search titles and what was said`, field);
     }
-    w.write(`\x1b[${y};${x + width - 2 - (scope.length + 2 + 6)}H`);
+    w.write(`\x1b[${y};${x + width - 2 - (displayWidth(scope) + 2 + 6)}H`);
     writeKey(w, "tab", panel);
     w.write(" ");
     writeKey(w, scope, panel);
     // Column headings.
     w.write(`\x1b[${y + 1};${x + 3 + provider_width}H${panel}`);
-    writeEllipsis(w, "Title", cols.title);
+    writeEllipsis(w, i18n.t`Title`, cols.title);
     if (cols.folder > 0) {
       w.write(`\x1b[${y + 1};${x + 3 + provider_width + cols.title + 2}H`);
-      w.write("Where");
+      writeEllipsis(w, i18n.t`Where`, sat(cols.folder, 1));
     }
     if (cols.last > 12) {
       w.write(`\x1b[${y + 1};${x + 3 + provider_width + cols.title + 2 + cols.folder}H`);
-      writeEllipsis(w, "You last said", cols.last);
+      writeEllipsis(w, i18n.t`You last said`, cols.last);
     }
-    w.write(`\x1b[${y + 1};${x + width - 3 - 6}HActive`);
+    const active = ellipsis(i18n.t`Last active`, sat(width, 6));
+    w.write(`\x1b[${y + 1};${x + width - 3 - displayWidth(active)}H${active}`);
     if (context) {
-      const date = dayLabel(context.updated_at, c.now);
+      const date = ellipsis(dayLabel(context.updated_at, c.now), sat(width, 6 + provider_width));
       w.write(`\x1b[${area.listTop()};${x + 3}H${row_style}`);
       writeMark(w, context.provider, x + 2, area.listTop() - 1, marks);
       w.write(`\x1b[${area.listTop()};${x + 5}H${row_style}`);
       w.write(adapter(context.provider).name);
       w.write(`\x1b[${area.listTop()};${x + 3 + provider_width}H${panel}`);
-      writeEllipsis(w, date, sat(width, 6 + provider_width));
+      w.write(date);
       w.write(rule + " " + "─".repeat(sat(width, 6 + provider_width + displayWidth(date))));
     }
     if (rows.length === 0 || (rows.length === 1 && "heading" in rows[0])) {
       w.write(`\x1b[${list_top + (rows.length === 1 ? 1 : 0)};${x + 3 + provider_width}H${panel}`);
-      w.write(this.search().length > 0 ? "No matches." : "Nothing closed here. Tab widens the scope.");
+      writeEllipsis(
+        w,
+        this.search().length > 0 ? i18n.t`No matches.` : i18n.t`Nothing closed here. Tab widens the scope.`,
+        sat(width, 5 + provider_width),
+      );
     }
     for (let k = 0; k < Math.min(rows.length - first, list_height); k++) {
       const row = list_top + k;
@@ -554,36 +567,48 @@ export class View {
         after = rows[at + 1];
       if (before !== null && after && before === agentOf(c, after)) w.write(`\x1b[${row};${x + 3}H${panel}│`);
       w.write(`\x1b[${row};${x + 3 + provider_width}H${panel}`);
-      const text = dayLabel(line.day, c.now);
+      const text = ellipsis(dayLabel(line.day, c.now), sat(width, 6 + provider_width));
       w.write(text);
       w.write(" " + palette.fg("line"));
       w.write("─".repeat(sat(width, 6 + provider_width + displayWidth(text))));
       return;
     }
     if ("heading" in line) {
-      const text =
-        line.heading === "open" ? "Open · jumps to its tab" : `${View.count(rows)} in ${scopeLabel(this.scope)}`;
-      w.write(`\x1b[${row};${x + 3}H${panel}\x1b[1m${text}\x1b[22m`);
+      const count = View.count(rows),
+        scope = scopeLabel(this.scope);
+      const text = line.heading === "open" ? i18n.t`Open · jumps to its tab` : i18n.t`${count} in ${scope}`;
+      w.write(`\x1b[${row};${x + 3}H${panel}\x1b[1m`);
+      writeEllipsis(w, text, sat(width, 5));
+      w.write("\x1b[22m");
       return;
     }
     if ("elsewhere" in line) {
+      const count = line.elsewhere,
+        scope = scopeLabel(this.scope);
       w.write(`\x1b[${row};${x + 3 + provider_width}H${panel}`);
-      w.write(`${line.elsewhere} more outside ${scopeLabel(this.scope)} · tab widens`);
+      writeEllipsis(w, i18n.t`${count} more outside ${scope} · tab widens`, sat(width, 5 + provider_width));
       return;
     }
     if ("more" in line) {
-      const n = line.more;
+      const count = line.more;
       w.write(`\x1b[${row};${x + 1}H${style}`);
       w.splat(" ", sat(width, 3));
       w.write(`\x1b[${row};${x + 1}H${selected ? "›" : " "}`);
       // The rail above runs on, dashed, into the conversations left out.
-      if (n > View.count(rows)) w.write(`\x1b[${row - 1};${x + 3}H${panel}┊${style}`);
+      if (count > View.count(rows)) w.write(`\x1b[${row - 1};${x + 3}H${panel}┊${style}`);
       // In the agents' keycap column.
       w.write(`\x1b[${row};${x + 3}H`);
       writeKey(w, "/", style);
       w.write(selected ? palette.fg("muted") : dim);
-      if (n > 0) w.write(` Search ${n} agent${n === 1 ? "" : "s"}`);
-      else w.write(" Search every folder");
+      writeEllipsis(
+        w,
+        count > 0
+          ? count === 1
+            ? i18n.t` Search ${count} agent`
+            : i18n.t` Search ${count} agents`
+          : i18n.t` Search every folder`,
+        sat(width, 8),
+      );
       return;
     }
     const e = c.history.entries["entry" in line ? line.entry : line.open];
@@ -611,7 +636,7 @@ export class View {
       // Where names the checkout's branch now; this is the one it ran on.
       const branch = "entry" in line ? otherBranch(c, e) : "";
       if (branch.length > 0 && where?.branch !== branch)
-        tag(branch, Math.min(Buffer.byteLength(branch), Math.floor(room / 2)), palette.fg("muted"));
+        tag(branch, Math.min(displayWidth(branch), Math.floor(room / 2)), palette.fg("muted"));
     }
     w.write(`\x1b[${row};${col}H` + style);
     writeEllipsis(w, (e.starred ? "★ " : "") + (e.title.length > 0 ? e.title : e.first), room);
@@ -624,7 +649,7 @@ export class View {
     }
     if ("open" in line) {
       w.write(`\x1b[${row};${col}H` + palette.fg("muted"));
-      writeEllipsis(w, "↗ open in a tab", cols.last);
+      writeEllipsis(w, i18n.t`↗ open in a tab`, cols.last);
     } else if (cols.last > 12) {
       w.write(`\x1b[${row};${col}H`);
       let room = cols.last;
@@ -636,12 +661,13 @@ export class View {
       writeEllipsis(w, e.last, room);
     }
     const text = ageLabel(c.now - e.updated_at);
-    w.write(`\x1b[${row};${x + width - 3 - text.length}H${selected ? "" : dim}${text}`);
+    w.write(`\x1b[${row};${x + width - 3 - displayWidth(text)}H${selected ? "" : dim}${text}`);
   }
   /** What terminal cell `x`, `y` holds in the expanded list drawn in `area`. */
   hit(c: Context, area: Area, x: number, y: number): Hit | null {
     if (x <= area.x || x >= area.x + area.width - 1) return null;
-    if (y === area.y && x >= area.x + area.width - 2 - (scopeLabel(this.scope).length + 8)) return "scope";
+    const scope = ellipsis(scopeLabel(this.scope), sat(area.width, 15));
+    if (y === area.y && x >= area.x + area.width - 2 - (displayWidth(scope) + 8)) return "scope";
     const rows = this.lines(c);
     const viewport = this.viewport(c, rows, area.listHeight());
     const top = area.listTop() + (viewport.context ? 1 : 0);
@@ -704,9 +730,20 @@ export function dayStart(seconds: number): number {
 }
 export function dayLabel(seconds: number, now: number): string {
   const days = Math.floor((dayStart(now) - dayStart(seconds) + 43200) / 86400);
-  if (days <= 0) return "Today";
-  if (days === 1) return "Yesterday";
+  if (days <= 0) return i18n.t`Today`;
+  if (days === 1) return i18n.t`Yesterday`;
   const date = new Date(seconds * 1000);
+  if (i18n.language() !== "en")
+    return new Intl.DateTimeFormat(
+      i18n.language(),
+      days < 7
+        ? { weekday: "long" }
+        : {
+            month: "long",
+            day: "numeric",
+            ...(new Date(now * 1000).getFullYear() !== date.getFullYear() ? { year: "numeric" as const } : {}),
+          },
+    ).format(date);
   const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const months = [
     "January",

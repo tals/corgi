@@ -173,7 +173,7 @@ function savedWorkspace(ws: any): any {
     panes,
   };
 }
-export function workspaceOnly(ws: any, reason: string): Workspace | null {
+export function workspaceOnly(ws: any, reason: "unreadable" | "panes" | "surfaces"): Workspace | null {
   if (!recognizableWorkspace(ws)) return null;
   return {
     id: id(ws) || title(ws),
@@ -184,7 +184,12 @@ export function workspaceOnly(ws: any, reason: string): Workspace | null {
     activity: 0,
     handoff: false,
     recovery: "workspace",
-    recovery_note: reason,
+    recovery_reason: reason,
+    recovery_note: {
+      unreadable: "Couldn't read its panes or tabs",
+      panes: "Too many panes for one import",
+      surfaces: "Too many surfaces for one import",
+    }[reason],
     tabs: [
       {
         id: "workspace-only",
@@ -216,8 +221,8 @@ export function convert(ws: any, details: any = {}): Workspace | null {
   let source = list(ws, "panes");
   const flat = !source.length && list(ws, "surfaces").length > 0;
   if (flat) source = [ws];
-  if (!source.length) return workspaceOnly(ws, "Couldn't read its panes or tabs");
-  if (source.length > max_panes) return workspaceOnly(ws, "Too many panes for one import");
+  if (!source.length) return workspaceOnly(ws, "unreadable");
+  if (source.length > max_panes) return workspaceOnly(ws, "panes");
   const panes: SourcePane[] = [],
     seen = new Set<string>();
   let total = 0,
@@ -235,7 +240,7 @@ export function convert(ws: any, details: any = {}): Workspace | null {
       surfaces.push(surface);
     }
     total += surfaces.length;
-    if (total > max_panes) return workspaceOnly(ws, "Too many surfaces for one import");
+    if (total > max_panes) return workspaceOnly(ws, "surfaces");
     layers = Math.max(layers, surfaces.length);
     let rectangle = rect(p);
     if (!rectangle) {
@@ -248,7 +253,7 @@ export function convert(ws: any, details: any = {}): Workspace | null {
     if (selected < 0) selected = 0;
     panes.push({ value: p, surfaces, selected, rect: rectangle });
   }
-  if (!total) return workspaceOnly(ws, "Couldn't read its panes or tabs");
+  if (!total) return workspaceOnly(ws, "unreadable");
   const nodes: Node[] = [];
   let approximate = false;
   try {
@@ -315,6 +320,7 @@ export function convert(ws: any, details: any = {}): Workspace | null {
     activity: 0,
     handoff: false,
     recovery: partial ? "partial" : approximate && source.length > 1 ? "layout" : "full",
+    recovery_reason: partial ? "partial" : approximate && source.length > 1 ? "layout" : undefined,
     recovery_note: partial
       ? "Some pane or tab details couldn't be read"
       : approximate && source.length > 1

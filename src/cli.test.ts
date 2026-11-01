@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { test, expect, spyOn } from "bun:test";
 import { realpathSync } from "node:fs";
 import {
   asksHelp,
@@ -12,10 +12,12 @@ import {
   list,
   parse,
   read,
+  run,
   usage,
   words,
 } from "./cli";
 import { Provider, adapter } from "./providers";
+import * as i18n from "./i18n";
 
 test("help is asked for only before --", () => {
   expect(asksHelp(["move", "3", "--help"])).toBe(true);
@@ -72,6 +74,32 @@ test("usage finds the lines for the longest command a line names", () => {
   expect(helpFor(help, ["tab", "new"])).toContain("[--command SHELL_COMMAND]");
   expect(helpFor(help, ["pane", "split"])).toContain("[--command SHELL_COMMAND]");
   expect(helpFor(help, [])).toBe(help);
+});
+
+test("bare command groups localize human help and preserve English agent help", async () => {
+  const previous = i18n.language(),
+    output = spyOn(process.stdout, "write").mockReturnValue(true);
+  i18n.setLanguage("ja");
+  try {
+    for (const args of [["pane"], ["pane", "--help"], ["workspace"], ["launcher"]]) {
+      output.mockClear();
+      await run("/missing-corgi-help-test.sock", args);
+      const human = String(output.mock.calls[0]?.[0]);
+      expect(human).toContain(`corgi ${args[0]}`);
+      expect(human).toMatch(/[\u3040-\u30ff]/);
+      expect(human).not.toContain("shells at their prompt");
+      output.mockClear();
+      await run("/missing-corgi-help-test.sock", args, true);
+      const machine = String(output.mock.calls[0]?.[0]);
+      expect(machine).toStartWith("Usage:\n");
+      expect(machine).toContain(`corgi ${args[0]}`);
+      expect(machine).not.toMatch(/[\u3040-\u30ff]/);
+      if (args[0] === "pane") expect(machine).toContain("shells at their prompt");
+    }
+  } finally {
+    output.mockRestore();
+    i18n.setLanguage(previous);
+  }
 });
 
 test("command lines are rejected before connecting", async () => {

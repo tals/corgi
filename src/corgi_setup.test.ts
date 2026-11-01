@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import * as i18n from "./i18n";
+import { Terminal } from "./pane/terminal";
 import { Menu, items, status, type Hit } from "./corgi_setup";
 import { Menu as LauncherMenu, preferred_width, preview } from "./agent_launcher";
 import { Rect } from "./layout";
@@ -147,9 +149,9 @@ test("setup keeps its options while aiming diagonally across list rows and gaps"
   expect(await menu.poll(no_setup_rpc, 100, 30, 2000)).toBe(false);
   expect(menu.item).toBe("clever_corgi");
   // Up and to the right, toward Keymap's options, crosses Shell.
-  hover(25, 9, 2100);
+  hover(25, 10, 2100);
   expect(menu.item).toBe("keyboard");
-  hover(30, 8, 2200);
+  hover(30, 9, 2200);
   expect(menu.item).toBe("keyboard");
   hover(36, 7, 2300);
   expect(menu.item).toBe("keyboard");
@@ -279,8 +281,8 @@ test("setup aims only at the options a click acts on", () => {
   }
   // Terminal capabilities has nothing to click, so nothing guards it.
   const menu = Menu.open();
-  menu.hover(100, 30, 15, 14, s, prefs, 0);
-  menu.hover(100, 30, 22, 10, s, prefs, 100);
+  menu.hover(100, 30, 15, 15, s, prefs, 0);
+  menu.hover(100, 30, 22, 11, s, prefs, 100);
   expect(menu.item).toBe("source_control");
 });
 
@@ -395,6 +397,45 @@ test("the top border says when the build was made and links its commit", () => {
   rows = draw(menu, 50, 30, 0, s, prefs);
   expect(rows.join("\n")).toContain("Corgi setup › Clever Corgi");
   expect(rows.join("\n")).not.toContain("be82c7b");
+});
+
+test("translated setup titles and chart labels leave their borders intact", () => {
+  const previous = i18n.language();
+  try {
+    for (const language of i18n.locales) {
+      i18n.setLanguage(language);
+      const menu = Menu.open(),
+        s = status(),
+        prefs = new Preferences();
+      menu.openOptions(s, prefs);
+      const narrow = new Terminal(50, 30),
+        chart = new Terminal(80, 40);
+      try {
+        let w = new Writer();
+        menu.drawAt(w, s, prefs, 50, 30, 0);
+        narrow.feed(w.s);
+        expect(narrow.text()).toContain(`${i18n.t`Corgi setup`} › ${i18n.t`Clever Corgi`}`);
+        menu.item = "terminal";
+        menu.pacing = new Pacer();
+        menu.pacing.stamp(1000);
+        menu.pacing.answered(1024);
+        w = new Writer();
+        menu.drawAt(w, s, prefs, 80, 40, 0);
+        chart.feed(w.s);
+        const axis = chart
+          .text()
+          .split("\n")
+          .find(row => row.includes("└─"))!;
+        expect(axis).toContain(i18n.t` now`);
+        expect(axis.slice(axis.indexOf(i18n.t` now`) + i18n.t` now`.length)).toMatch(/^\s*│\s*$/);
+      } finally {
+        narrow.destroy();
+        chart.destroy();
+      }
+    }
+  } finally {
+    i18n.setLanguage(previous);
+  }
 });
 
 test("Model opens a dropdown on the choice in use, and Left closes it", () => {
@@ -1298,6 +1339,22 @@ test("the theme under the cursor previews until Enter keeps it", () => {
   expect(menu.previewTheme(prefs)).toBe("animal_style");
 });
 
+test("language choices return stable locale codes and can follow the system", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status();
+  menu.item = "language";
+  menu.enter(s, prefs);
+  expect(menu.enter(s, prefs)).toBeNull();
+  menu.move(true, s, prefs);
+  expect(menu.enter(s, prefs)).toEqual({ kind: "language", language: "en" });
+  menu.move(true, s, prefs);
+  expect(menu.enter(s, prefs)).toEqual({ kind: "language", language: "zh" });
+  prefs.language = "zh";
+  menu.cursor = 0;
+  expect(menu.enter(s, prefs)).toEqual({ kind: "language", language: undefined });
+});
+
 test("terminal capabilities report what the terminal can do, not settings", () => {
   const menu = Menu.open(),
     prefs = new Preferences(),
@@ -1345,7 +1402,7 @@ test("frame pacing charts how fast the host answers, in one row on a short frame
   const rows = text.split("\n").filter(row => row.includes("┤"));
   expect(rows.map(row => row.split("┤")[0].split("│").at(-1)!.trim())).toEqual([
     "1 s",
-    "hold",
+    "wait",
     "100 ms",
     "",
     "10 ms",
@@ -1644,7 +1701,7 @@ test("Manage agents shares the launcher's view inside wide and narrow settings",
       prefs = new Preferences(),
       launch = new LauncherMenu();
     launch.managing = true;
-    launch.manager.back_label = "Settings";
+    launch.manager.back = "settings";
     menu.agents = launch;
     menu.item = "agents";
     expect(menu.openOptions(s, prefs)).toBe(true);

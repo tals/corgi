@@ -28,6 +28,7 @@ import type { Reading } from "./usage/spend";
 import { option, type Option } from "./agent_launcher";
 import { Writer } from "./text";
 import * as palette from "./palette";
+import * as i18n from "./i18n";
 import * as sidebar from "./sidebar";
 import { Terminal } from "./pane/terminal";
 import { microTimestamp } from "./clock";
@@ -306,6 +307,41 @@ test("cards narrower than 70 columns pack their columns", () => {
   expect(wide).toContain("Verifier");
   expect(narrow).toContain("Fetching SHA256SUMS");
   expect(narrow).not.toContain("Verif");
+});
+
+test("translated usage headings and timeline stamps get their own cell widths", () => {
+  const previous = i18n.language();
+  try {
+    for (const language of ["en", "zh", "ja", "ko", "ru"] as const) {
+      i18n.setLanguage(language);
+      for (const width of [54, 88]) {
+        const w = new Writer(),
+          terminal = new Terminal(width, 6),
+          card = new Card(w, 0, width);
+        card.counted = true;
+        try {
+          card.tokenColumns(0, null, false, "faint");
+          card.drawPoint(1, i18n.t`  now`, "Current activity", usage(), true, "working");
+          card.drawPoint(2, i18n.t` last`, "Last activity", usage(), false, "faint");
+          card.drawPoint(3, "13:59", "Clock activity", usage(), false, "faint");
+          terminal.feed(w.buffered());
+          const rows = terminal.text().split("\n"),
+            gap = width < 70 ? " " : "  ";
+          expect(rows[0]).toContain(i18n.t`Tokens`);
+          expect(rows[0]).toContain(i18n.t`Cached`);
+          if (width >= 70) expect(rows[0]).toContain(i18n.t`Tools`);
+          expect(rows[1]).toContain(`${i18n.t`  now`}${gap}●${gap}Current activity`);
+          expect(rows[2]).toContain(`${i18n.t` last`}${gap}○${gap}Last activity`);
+          expect(rows[3]).toContain(`13:59${gap}○${gap}Clock activity`);
+          for (const row of rows.slice(0, 4)) expect(row.endsWith("  ")).toBe(true);
+        } finally {
+          terminal.destroy();
+        }
+      }
+    }
+  } finally {
+    i18n.setLanguage(previous);
+  }
 });
 
 test("timeline renders each phase once with its own interval including idle and clipped views", () => {

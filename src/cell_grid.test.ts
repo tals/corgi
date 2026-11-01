@@ -25,6 +25,13 @@ test("text fills cells, wide glyphs take two, and the edge cuts", () => {
   expect(g.blank(6, 1)).toBe(false);
   expect(shown(g)).toContain("a界b");
 });
+
+test("combining marks stay on their base glyph, including a wide glyph at the edge", () => {
+  const g = new Grid(6, 1, palette.colors.text);
+  g.text(0, 0, "\u0301e\u0301 か\u3099か\u3099x", palette.colors.text);
+  expect(g.rows[0].map(c => c.ch)).toEqual(["e\u0301", " ", "か\u3099", "", "か\u3099", ""]);
+  expect(shown(g).normalize("NFC")).toContain("é がが");
+});
 test("half of a wide glyph drawn over shows as a space", () => {
   const g = new Grid(6, 1, palette.colors.text);
   g.text(0, 0, "界界x", palette.colors.text);

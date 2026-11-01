@@ -29,6 +29,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { n, pair, readUntil, write } from "../src/native_ffi";
 import { nativeRoot } from "../src/native_paths";
+import * as locale from "../src/locale";
 const bytes = (s: string) => new TextEncoder().encode(s);
 class MemoryStore implements Store {
   files = new Map<string, Uint8Array>();
@@ -110,7 +111,109 @@ test("installer pins every checksum and shell-quotes the base URL", () => {
   expect(script).toContain("${CORGI_INSTALL_ROOT:-$HOME/.local/share/corgi}");
   const p = Bun.spawnSync(["/bin/sh", "-n"], { stdin: Buffer.from(script) });
   expect(p.exitCode).toBe(0);
+  expect(script).not.toContain("@I18N@");
 });
+
+function installerLocaleEnv(extra: Record<string, string> = {}) {
+  const env: Record<string, string | undefined> = { ...process.env };
+  for (const name of ["CORGI_LANG", "LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG", "LC_CTYPE"]) delete env[name];
+  return { ...env, ...extra };
+}
+
+test("installer language selection respects overrides, message locales and C locales", () => {
+  const script = testInstaller().replace(
+    /\nmain "\$@"\n$/,
+    '\nuname() { printf Linux; }\ni18n_init\nprintf "%s\\n" "$i18n_language"\n/bin/sh -c \'printf %s "${CORGI_LANG-unset}"\'\n',
+  );
+  const cases: [Record<string, string>, string][] = [
+    [{}, "en"],
+    [{ LANG: "ja_JP.UTF-8" }, "ja"],
+    [{ LANG: "ko_KR.UTF-8" }, "ko"],
+    [{ LANG: "ru_RU.UTF-8" }, "ru"],
+    [{ LANG: "zh_CN.UTF-8" }, "zh"],
+    [{ LANG: "zh-Hant-TW" }, "zh"],
+    [{ LANG: "ja_JP.UTF-8", LC_MESSAGES: "ko_KR.UTF-8" }, "ko"],
+    [{ LANG: "ja_JP.UTF-8", LC_MESSAGES: "ko_KR.UTF-8", LC_ALL: "ru_RU.UTF-8" }, "ru"],
+    [{ LANG: "en_US.UTF-8", LANGUAGE: "fr:ja:ru" }, "ja"],
+    [{ LANG: "en_US.UTF-8", LANGUAGE: "en:ja" }, "en"],
+    [{ LANG: "ru_RU.UTF-8", LANGUAGE: "C-UTF8:ja" }, "en"],
+    [{ LANG: "ru_RU.UTF-8", LANGUAGE: "C_UTF8:ja" }, "en"],
+    [{ LANG: "ru_RU.UTF-8", LANGUAGE: "POSIX-UTF8:ja" }, "en"],
+    [{ LANG: "C", LANGUAGE: "ja" }, "en"],
+    [{ LANG: "C.UTF-8", LANGUAGE: "ja" }, "en"],
+    [{ LANG: "POSIX", LANGUAGE: "ko" }, "en"],
+    [{ LANG: "ja_JP.UTF-8", LC_ALL: "C", LANGUAGE: "ru" }, "en"],
+    [{ LANG: "C", CORGI_LANG: "ja" }, "ja"],
+    [{ LANG: "ja_JP.UTF-8", CORGI_LANG: "ru-RU" }, "ru"],
+    [{ CORGI_LANG: " JA-jp " }, "ja"],
+    [{ LANG: "ja_JP.UTF-8", CORGI_LANG: "auto" }, "ja"],
+    [{ LANG: "ja_JP.UTF-8", CORGI_LANG: "unsupported" }, "en"],
+    [{ LANG: "de_DE.UTF-8" }, "en"],
+    [{ LC_CTYPE: "ja_JP.UTF-8" }, "en"],
+  ];
+  for (const [env, expected] of cases) {
+    expect(locale.detect(env)).toBe(expected);
+    const p = Bun.spawnSync(["/bin/sh", "-c", script], { env: installerLocaleEnv(env) });
+    expect({ code: p.exitCode, output: p.stdout.toString(), env }).toEqual({
+      code: 0,
+      output: `${expected}\n${env.CORGI_LANG ?? "unset"}`,
+      env,
+    });
+  }
+});
+
+test("installer uses macOS preferred languages only when the message locale is absent", () => {
+  const script = testInstaller().replace(
+    /\nmain "\$@"\n$/,
+    '\nuname() { printf Darwin; }\ndefaults() { printf \'(\\n    "fr-FR",\\n    "ko-KR",\\n    "ja-JP"\\n)\\n\'; }\ni18n_init\nprintf %s "$i18n_language"\n',
+  );
+  for (const [env, locale] of [
+    [{}, "ko"],
+    [{ LC_CTYPE: "UTF-8" }, "ko"],
+    [{ LANG: "en_US.UTF-8" }, "en"],
+    [{ LC_ALL: "C" }, "en"],
+    [{ CORGI_LANG: "ru" }, "ru"],
+    [{ CORGI_LANG: " auto " }, "ko"],
+    [{ CORGI_LANG: " " }, "ko"],
+  ] as [Record<string, string>, string][]) {
+    const p = Bun.spawnSync(["/bin/sh", "-c", script], { env: installerLocaleEnv(env) });
+    expect({ code: p.exitCode, locale: p.stdout.toString(), env }).toEqual({ code: 0, locale, env });
+  }
+});
+
+test("installer messages preserve shell metacharacters and percent signs as data", () => {
+  const script = testInstaller().replace(
+    /\nmain "\$@"\n$/,
+    '\ni18n_init\nmsg \'Installed corgi ${version} at ${path}\' "$TEST_VERSION" "$TEST_PATH"\n',
+  );
+  const version = "1.2.3%test",
+    path = "~/'quoted path'/$(printf should-not-run)/`uname`/\\n\nnext line";
+  for (const locale of ["en", "zh", "ja", "ko", "ru"]) {
+    const p = Bun.spawnSync(["/bin/sh", "-c", script], {
+      env: installerLocaleEnv({ CORGI_LANG: locale, TEST_VERSION: version, TEST_PATH: path }),
+    });
+    expect(p.exitCode).toBe(0);
+    const out = p.stdout.toString();
+    expect(out).toContain(version);
+    expect(out).toContain(path);
+    expect(out).not.toContain("${version}");
+    expect(out).not.toContain("${path}");
+    if (locale === "en") expect(out).toBe(`Installed corgi ${version} at ${path}`);
+    else expect(out).not.toBe(`Installed corgi ${version} at ${path}`);
+  }
+});
+
+test("installer errors are localized before any download", () => {
+  const script = testInstaller().replace(/\nmain "\$@"\n$/, '\nuname() { printf Unsupported; }\nmain "$@"\n');
+  for (const locale of ["zh", "ja", "ko", "ru"]) {
+    const p = Bun.spawnSync(["/bin/sh", "-c", script], { env: installerLocaleEnv({ CORGI_LANG: locale }) });
+    expect(p.exitCode).toBe(1);
+    expect(p.stdout.toString()).toBe("");
+    expect(p.stderr.toString().trim().length).toBeGreaterThan(0);
+    expect(p.stderr.toString()).not.toContain("Corgi supports macOS arm64 and Linux amd64 and arm64.");
+  }
+});
+
 test("private file credentials work without exporting secrets into the shell", async () => {
   const dir = await mkdtemp(join(tmpdir(), "corgi-credentials-test-"));
   const path = join(dir, "credentials.json");
@@ -519,7 +622,7 @@ test("binaries must match their platform", () => {
 test("CLI dry run accepts dirty HEAD without creating release state", async () => {
   await releaseFixture(async (dir, git) => {
     await mkdir(join(dir, "scripts"));
-    for (const name of ["release.ts", "install.sh.in"])
+    for (const name of ["release.ts", "install.sh.in", "install_i18n.generated.sh"])
       await writeFile(join(dir, "scripts", name), await Bun.file(join(import.meta.dir, "../scripts", name)).text());
     git("add", "scripts");
     git("commit", "-m", "publisher");
@@ -543,7 +646,7 @@ test("CLI dry run accepts dirty HEAD without creating release state", async () =
 test("CLI runs the committed build script and cleans up after failure", async () => {
   await releaseFixture(async (dir, git) => {
     await mkdir(join(dir, "scripts"));
-    for (const name of ["release.ts", "install.sh.in"])
+    for (const name of ["release.ts", "install.sh.in", "install_i18n.generated.sh"])
       await writeFile(join(dir, "scripts", name), await Bun.file(join(import.meta.dir, "../scripts", name)).text());
     await writeFile(
       join(dir, "build.ts"),
@@ -624,7 +727,7 @@ test("CLI runs the committed build script and cleans up after failure", async ()
 
 test("PATH setup handles shell configs, spaces, duplicates and opting out", async () => {
   const base = await mkdtemp(join(tmpdir(), "corgi path test "));
-  const script = testInstaller().replace(/\nmain "\$@"\n$/, "\nsetup_path\n");
+  const script = testInstaller().replace(/\nmain "\$@"\n$/, "\ni18n_init\nsetup_path\n");
   const run = (home: string, shell: string, setup: string, path = "/usr/bin:/bin") => {
     const p = Bun.spawnSync(["/bin/sh", "-c", script], {
       env: {
@@ -634,6 +737,7 @@ test("PATH setup handles shell configs, spaces, duplicates and opting out", asyn
         PATH: path,
         CORGI_INSTALL_BIN: home + "/.local/bin/corgi",
         CORGI_UPDATE_PATH: setup,
+        CORGI_LANG: "en",
         ZDOTDIR: home + "/zsh config",
         XDG_CONFIG_HOME: home + "/config",
       },
@@ -692,7 +796,7 @@ test("PATH setup creates a bash login file only on macOS, and only when asked", 
     const home = join(base, name);
     const script = testInstaller().replace(
       /\nmain "\$@"\n$/,
-      `\nuname() { echo ${system}; }\nlive=${live}\nask() { echo asked; return ${answer}; }\nsetup_path\n`,
+      `\nuname() { echo ${system}; }\nlive=${live}\nask() { echo asked; return ${answer}; }\ni18n_init\nsetup_path\n`,
     );
     const p = Bun.spawnSync(["/bin/sh", "-c", script], {
       env: {
@@ -702,6 +806,7 @@ test("PATH setup creates a bash login file only on macOS, and only when asked", 
         PATH: "/usr/bin:/bin",
         CORGI_INSTALL_BIN: home + "/.local/bin/corgi",
         CORGI_UPDATE_PATH: "1",
+        CORGI_LANG: "en",
       },
     });
     expect(p.exitCode).toBe(0);
@@ -758,6 +863,7 @@ async function releaseHome(name: string) {
     HOME: home,
     SHELL: "/bin/bash",
     PATH: join(home, ".local/bin") + ":/usr/bin:/bin",
+    CORGI_LANG: "en",
   };
   for (const name of ["CORGI_PANE", "CORGI_INSTALL_ROOT", "CORGI_INSTALL_BIN"]) delete env[name];
   const run = () => {
@@ -817,7 +923,7 @@ test("the installer updates an older installation and leaves a newer one", async
     const older = run();
     expect(older.code).toBe(1);
     expect(older.out).not.toContain("already done");
-    expect(older.err).toMatch(/Couldn't download corgi-\S+: stubbed/);
+    expect(older.err).toMatch(/Could not download corgi-\S+: stubbed/);
   } finally {
     await rm(home, { recursive: true, force: true });
   }
@@ -853,8 +959,9 @@ test("the launch button gives corgi the terminal device, not /dev/tty", async ()
 async function installedHome(name: string) {
   const { home, root, bin, env } = await releaseHome(name);
   expect(
-    Bun.spawnSync(["/bin/sh", "-c", testInstaller().replace(/\nmain "\$@"\n$/, "\nwrite_launcher\n")], { env })
-      .exitCode,
+    Bun.spawnSync(["/bin/sh", "-c", testInstaller().replace(/\nmain "\$@"\n$/, "\ni18n_init\nwrite_launcher\n")], {
+      env,
+    }).exitCode,
   ).toBe(0);
   const path = 'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac';
   await writeFile(join(home, ".bashrc"), `# mine\nalias ll='ls -l'\n\n# Corgi\n${path}\n`);
@@ -875,6 +982,7 @@ function uninstall(home: string) {
     HOME: home,
     SHELL: "/bin/bash",
     PATH: "/usr/bin:/bin",
+    CORGI_LANG: "en",
   };
   for (const name of [
     "CORGI_PANE",
@@ -898,7 +1006,7 @@ test("uninstall removes what the installer added and keeps saved sessions", asyn
       "✓ Removed ~/.local/bin/corgi\n",
       "✓ Removed ~/.local/share/corgi\n",
       "✓ Removed ~/.local/bin from PATH in ~/.bashrc and ~/.config/fish/conf.d/corgi.fish\n",
-      "✓ Removed Corgi's keybindings from ~/Library/Application Support/com.mitchellh.ghostty/config",
+      "✓ Removed Corgi keybindings from ~/Library/Application Support/com.mitchellh.ghostty/config",
       "– Kept saved sessions and settings in ~/.local/state/corgi",
     ])
       expect(first.out).toContain(line);
