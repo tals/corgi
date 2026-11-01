@@ -1,7 +1,10 @@
 # Corgi <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/tals/corgi/3a9d723dc864fc924d23c960d920c449313c3716/corgi-dark.svg"><img src="https://raw.githubusercontent.com/tals/corgi/3a9d723dc864fc924d23c960d920c449313c3716/corgi-light.svg" alt="Corgi's corgi, wagging its tail"></picture>
 
+A terminal multiplexer for running coding agents side by side. Powered by
+[Ghostty](https://github.com/ghostty-org/ghostty), inspired by
+[herdr](https://github.com/herdrdev/herdr).
 
-A multiplexer terminal agent manager, heavily inspired by [herdr](https://github.com/herdrdev/herdr), powered by [Ghostty](https://github.com/ghostty-org/ghostty).
+[![Corgi with Claude Code and Codex running side by side](https://corgi.computer/images/hero.gif)](https://corgi.computer)
 
 ## Install
 
@@ -11,34 +14,23 @@ macOS (Apple Silicon) or Linux (amd64 or arm64):
 curl -fsSL https://corgi.computer/install.sh | bash
 ```
 
-## First session
+Run `corgi` in your project directory, choose a shortcut preset, and click
+**New** to start an agent.
 
-1. Run `corgi` in your project directory and choose a shortcut preset.
-2. Click **New** in the agent list to start Claude Code, Codex, Pi, OpenCode or
-   Oh My Pi.
-3. Click an agent or pane to focus it; open the shortcut menu with your prefix,
-   then `?` (the default prefix is Ctrl+B).
-4. Choose **Detach** in the shortcut menu to leave processes running.
-5. Run `corgi` again to reconnect.
+Press your prefix (Ctrl+B by default), then `?` for shortcuts. Choose
+**Detach** in that menu to leave agents running; run `corgi` to reconnect.
 
 See the [documentation](docs/reference.md) for setup, workspaces and troubleshooting.
 
-Corgi and its installer follow your system language: English, Simplified
-Chinese, Japanese, Korean or Russian. Choose a different language in
-**Corgi setup → Language**, or set `CORGI_LANG=en`, `zh`, `ja`, `ko` or `ru`
-for one launch. `CORGI_LANG=auto` follows your saved choice or system locale.
-
-## Uninstall
-
-```sh
-curl -fsSL https://corgi.computer/install.sh | bash -s uninstall
-```
+Corgi and its installer support English, 简体中文, 日本語, 한국어 and русский.
+Change the language in **Corgi setup → Language**.
 
 ## Agents
 
-Run `claude`, `codex`, `pi`, `opencode` or `omp` in any pane. Corgi notices
-them and adds its hooks to their settings; Pi and Oh My Pi get an extension,
-and OpenCode needs nothing. Codex asks you to trust the hooks once, in `/hooks`.
+Run `claude`, `codex`, `pi`, `opencode` or `omp` in any pane. Corgi detects
+them automatically and installs hooks for Claude Code and Codex, or an
+extension for Pi and Oh My Pi. OpenCode needs no setup. Codex asks you to
+trust the hooks once, in `/hooks`.
 
 |                                      | Claude Code | Codex | Pi  | OpenCode | Oh My Pi |
 | ------------------------------------ | :---------: | :---: | :-: | :------: | :------: |
@@ -48,14 +40,12 @@ and OpenCode needs nothing. Codex asks you to trust the hooks once, in `/hooks`.
 | Context, tokens and rate limits      |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |
 | Rename and fork                      |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |
 | Resume after a crash or reboot       |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |
-| Multi accounts                       |      ✓      |   ✓   |  ✓  |          |          |
-
+| Multiple accounts                    |      ✓      |   ✓   |  ✓  |          |          |
 
 ## Scripting
 
-`corgi` controls the running session from any shell. Commands print text
-(`--json` for JSON), take IDs from `corgi list`, and accept `current` for the
-pane they run in.
+Control the running session from any shell. Use `--json` for JSON output,
+IDs from `corgi list` to target panes, or `current` for the pane you're in.
 
 ```sh
 corgi list
@@ -65,33 +55,38 @@ corgi pane send 3 'run the tests' --enter
 corgi pane read 3 --lines 50
 ```
 
-`corgi --help` lists every command. Agents in a pane can run `corgi --skill` to
-learn the interface.
+`corgi --help` lists the commands; `corgi --skill` prints instructions for agents.
+
+## Uninstall
+
+```sh
+curl -fsSL https://corgi.computer/install.sh | bash -s uninstall
+```
 
 ## Development
 
-Needs [Bun](https://bun.sh) and the [pinned Zig toolchain](AGENTS.md#zig-toolchain).
+Install [Bun](https://bun.sh), then run:
 
 ```sh
 ./go.ts
 ```
 
-`go.ts` builds and attaches, reloading changed builds while preserving panes.
+`go.ts` downloads the [pinned Zig toolchain](AGENTS.md#zig-toolchain), builds
+and starts Corgi. Later runs reload changed builds while preserving panes.
 See [HACKING.md](HACKING.md) for the development workflow and architecture.
 
 ## Acknowledgements
 
 - [Ghostty](https://ghostty.org) and [Kitty](https://sw.kovidgoyal.net/kitty/):
-  for their pioneering work on computer terminals, and for providing such a
-  strong foundation.
+  for their terminal emulation and graphics work.
 - [herdr](https://github.com/herdrdev/herdr): Corgi's main inspiration. We
   borrow many of their ideas.
 - [Pi](https://github.com/earendil-works/pi): we use its
   [pi-tui](https://github.com/earendil-works/pi/tree/main/packages/tui) library.
-- [Bun](https://bun.sh): enabled Corgi to be written in TypeScript.
+- [Bun](https://bun.sh): Corgi's TypeScript runtime.
 
-Special thanks to our early testers for their wonderful suggestions and
-feedback: [Max Bittker](https://x.com/MaxBittker),
+Thanks to our early testers for their suggestions and feedback:
+[Max Bittker](https://x.com/MaxBittker),
 [Aaron Blakeman](https://github.com/ablakeman),
 [Kai Johnson](https://github.com/sirkaiserkai),
 [Luke Alonso](https://github.com/lukealonso),
