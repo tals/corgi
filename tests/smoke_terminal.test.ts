@@ -84,8 +84,8 @@ process.stdin.on("data", () => process.stdout.write("\\x1b_Ga=d,d=I,i=730140,q=2
       rows: 30,
     });
     this.pty = pty;
-    // The pane and heading paint before the terminal answers any probes.
-    await pty.waitFor("BADGE_STARTUP_READY");
+    // Wait for the whole frame before answering any terminal probes.
+    await pty.waitFor(/BADGE_STARTUP_READY[^]*\x1b\[\?2026l/);
     this.assertIn("workspaces", pty.output);
     this.assertNotIn("🐕", pty.output);
     pty.write("\x1b_Gi=730031;OK\x1b\\\x1b[6;18;9t\x1b[?62c");
@@ -138,7 +138,8 @@ process.stdin.on("data", () => process.stdout.write("\\x1b_Ga=d,d=I,i=730140,q=2
     await pty.waitFor(output => output.slice(offset).includes(placement + "0"));
     this.assertEqual(pty.output.split("\x1b_Ga=t,").length - 1, 1);
     pty.write("badge-input-ok\r");
-    await this.until(() => existsSync(received));
+    // Redirection creates the file before printf writes it.
+    await this.until(() => existsSync(received) && file(received).length > 0);
     this.assertEqual(file(received), "badge-input-ok");
   }
 
