@@ -235,6 +235,10 @@ session cleans up when stopped, on SIGINT or SIGTERM, or when Ghostty exits.
 Inspect regenerated PNGs before committing them. This runs on Linux directly
 or in a container with the dependencies installed.
 
+`bun tools/tricks_screenshots.ts` regenerates the Tricks guide's images. Its
+recipe waits for the seeded accounts and tricks, shows the account-colors
+example's source, and captures its account card and Settings → Tricks.
+
 ## Reload, restart and recovery
 
 | Action | What survives |
