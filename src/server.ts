@@ -122,7 +122,7 @@ export class Server {
       const unread =
         this.runtime.conversations.items.some(actor => actor.state.observation.unread()) ||
         this.runtime.panes.some(pane => pane.agent().observation.unread()) ||
-        this.runtime.sessions.some(session => session.attention() === "finished");
+        this.runtime.sessions.some(session => !session.corgi && session.attention() === "finished");
       if (!unread) {
         this.bell = false;
         this.bell_kind = "none";

@@ -2934,7 +2934,7 @@ test("the prompt opens a pane for what it hands off, and keeps its last pick for
   }
 });
 
-test("the prompt's own conversation is a Corgi agent in the list, its counts and jumps, and opens the prompt", async () => {
+test("the prompt's conversation is a Corgi agent while a Corgi pane holds it, and not while it's in the card", () => {
   const s = controller(),
     corgi = {
       id: 7,
@@ -2945,34 +2945,28 @@ test("the prompt's own conversation is a Corgi agent in the list, its counts and
       state: "blocked",
       attention: "needs_input",
       observation: { completed: 2, read: 0 },
-    };
-  s.receiveSnapshot({
-    ...folders("/a"),
-    headless_sessions: [
-      corgi,
-      { id: 8, workspace: 1, provider: "codex", session: "x1", state: "idle", attention: "none" },
-    ],
-  });
+    },
+    agent = { id: 8, workspace: 1, provider: "codex", session: "x1", state: "idle", attention: "none" };
+  s.receiveSnapshot({ ...folders("/a"), headless_sessions: [corgi, agent] });
   try {
+    // In the card: the status line speaks for it, not the agent list.
+    expect(s.agentEntries().some((e: sidebar.Entry) => e.name === "Corgi")).toBe(false);
+    expect(s.workspaceEntries()[0]).toMatchObject({ agents: 1, attention: 0, unread: 0 });
+    // A viewer that starts while its prompt's session runs goes on in it.
+    expect([s.prompt.conversation.provider, s.prompt.conversation.session]).toEqual(["claude", "c1"]);
+    // In a pane: a Corgi agent, counted, jumped to, and chosen it goes to the pane.
+    s.receiveSnapshot({ ...folders("/a"), headless_sessions: [{ ...corgi, pane: 1 }, agent] });
     const entries = s.agentEntries();
     expect(entries.map((e: sidebar.Entry) => [e.target, e.name])).toContainEqual([{ headless: 7 }, "Corgi"]);
     expect(entries.find((e: sidebar.Entry) => e.name === "Corgi")).toMatchObject({ state: "blocked", unread: true });
     expect(s.workspaceEntries()[0]).toMatchObject({ agents: 2, attention: 1, unread: 1 });
     expect(s.firstUnreadAgent(0)).toEqual({ headless: 7 });
-    // A viewer that starts while its prompt's session runs goes on in it.
-    expect([s.prompt.conversation.provider, s.prompt.conversation.session]).toEqual(["claude", "c1"]);
-    // Choosing it opens the prompt; held by a Corgi pane, it goes to the pane.
-    s.selectAgent({ headless: 7 });
-    await Bun.sleep(1);
-    expect(s.prompt.open).toBe(true);
-    s.prompt.hide();
-    s.receiveSnapshot({ ...folders("/a"), headless_sessions: [{ ...corgi, pane: 1 }] });
     const focus = spyOn(s, "focusPane");
     s.selectAgent({ headless: 7 });
     expect(focus).toHaveBeenCalledWith(1);
     expect(s.prompt.open).toBe(false);
     // Once it exits, it leaves the list.
-    s.receiveSnapshot({ ...folders("/a"), headless_sessions: [{ ...corgi, exited: true }] });
+    s.receiveSnapshot({ ...folders("/a"), headless_sessions: [{ ...corgi, pane: 1, exited: true }] });
     expect(s.agentEntries().some((e: sidebar.Entry) => e.name === "Corgi")).toBe(false);
   } finally {
     viewer.close(s);
@@ -2998,6 +2992,36 @@ test("put away, the prompt says in the status line when it needs you or has answ
     attention.mockReturnValue("needs_input");
     s.perform({ name: "prompt" });
     expect(s.promptCue()).toBeNull();
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("put away, Corgi sounds its own when it answers or needs you, once, and not while its card shows", async () => {
+  const s = controller();
+  s.receiveSnapshot(folders("/a"));
+  const attention = spyOn(s.prompt, "attention").mockReturnValue("working");
+  try {
+    s.pollPrompt();
+    expect(s.prompt_chime).toBeNull();
+    attention.mockReturnValue("finished");
+    s.pollPrompt();
+    expect(s.prompt_chime).toBe("finished");
+    // The viewer plays it and clears it; it doesn't come again for the same answer.
+    s.prompt_chime = null;
+    s.pollPrompt();
+    expect(s.prompt_chime).toBeNull();
+    attention.mockReturnValue("needs_input");
+    s.pollPrompt();
+    expect(s.prompt_chime).toBe("needs_input");
+    // With the card open it's in view: no sound.
+    s.prompt_chime = null;
+    attention.mockReturnValue("working");
+    s.pollPrompt();
+    await s.perform({ name: "prompt" });
+    attention.mockReturnValue("finished");
+    s.pollPrompt();
+    expect(s.prompt_chime).toBeNull();
   } finally {
     viewer.close(s);
   }

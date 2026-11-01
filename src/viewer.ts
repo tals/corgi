@@ -211,6 +211,11 @@ export async function sync(view: Controller, bell: { seq: bigint }, play_sound: 
         if (play_sound && !view.muted) sound.play(view.last_bell_kind);
       }
     }
+    // Corgi's own sound, set apart from the agents'.
+    if (view.prompt_chime) {
+      if (play_sound && !view.muted) sound.playCorgi(view.prompt_chime === "needs_input");
+      view.prompt_chime = null;
+    }
     return view.input_state.attached;
   } finally {
     telemetry.end("viewer.sync", telemetry_started);

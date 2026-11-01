@@ -287,7 +287,8 @@ with the pane.
 It runs one of your agents without a terminal and draws the conversation
 itself. It knows the workspace, the focused agent and the others beside it.
 The conversation stays when you close the prompt; the status line says when
-it needs you or has answered.
+it needs you or has answered, with a short yip of Corgi's own (muted with
+the other dings). Moved to a Corgi pane, it shows in the agent list as Corgi.
 
 | Task | Key |
 | --- | --- |

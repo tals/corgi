@@ -594,8 +594,10 @@ export async function tick(server: Server) {
     if (runtime.pruneConversations()) changed(server);
   }
   for (const session of runtime.sessions) {
-    const seq = session.next_seq;
-    attention(server, session.poll(runtime.conversations), session.status());
+    const seq = session.next_seq,
+      ding = session.poll(runtime.conversations);
+    // The prompt's viewer sounds its own, only while its card is put away.
+    attention(server, ding && !session.corgi, session.status());
     const workspace = runtime.workspaces.get(session.workspace_id);
     if (workspace && !workspaceWatched(server, session.workspace_id))
       workspace.away.record(workspace.away.since, session.usage_pending);

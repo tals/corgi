@@ -526,6 +526,8 @@ export class Controller {
   private prompt_resumed = false;
   /** What the status line last said about the prompt while it was put away. */
   private prompt_attention: PromptAttention = "none";
+  /** Corgi answered or needs you while put away; the viewer sounds it once. */
+  prompt_chime: "finished" | "needs_input" | null = null;
 
   constructor(connection: Transport) {
     this.connection = connection;
@@ -1369,9 +1371,9 @@ export class Controller {
     return null;
   }
   /** The headless sessions the sidebar lists: the agents', and the prompt's
-   * own conversations while they run. */
+   * own conversations while a Corgi pane holds one; in the card they don't show. */
   private listedSessions(): Headless[] {
-    return [...this.runtime.sessions, ...this.runtime.corgi_sessions.filter(s => !s.exited)];
+    return [...this.runtime.sessions, ...this.runtime.corgi_sessions.filter(s => !s.exited && s.pane !== null)];
   }
   private selectAgent(target: Target): void {
     if ("worktree" in target) return this.revealWorktree({ workspace: target.workspace, path: target.worktree }, true);
@@ -4465,6 +4467,9 @@ export class Controller {
     const changed = this.prompt.poll(now),
       attention = this.prompt.open ? "none" : this.prompt.attention();
     if ((this.prompt.open && changed) || attention !== this.prompt_attention) this.dirty = true;
+    // Put away, it sounds its own when it answers or needs you; the viewer plays it.
+    if (attention !== this.prompt_attention && (attention === "finished" || attention === "needs_input"))
+      this.prompt_chime = attention;
     this.prompt_attention = attention;
   }
   /** Gives the prompt its models, suggestions and account briefs when they change.
