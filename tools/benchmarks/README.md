@@ -4,6 +4,10 @@ Build both revisions before measuring. Run the same harness and fake-provider
 workload serially; `flock` prevents overlapping Corgi benchmark runs. Each run
 owns its home, socket and processes. No model calls or existing sessions are used.
 
+The [2026-11-01 Herdr scaling investigation](herdr_scaling_findings.md) covers
+4/64 agents, idle/busy and attached/detached operation, with daemon/viewer CPU,
+memory, thread attribution and telemetry before and after the scaling fixes.
+
 ```sh
 CPU_MATRIX_ONLY=1 CPU_AGENTS=8 CPU_INITIAL_WARMUP_SECONDS=20 CPU_WARMUP_SECONDS=5 \
   bun tools/benchmarks/cpu.ts /absolute/path/to/corgi /tmp/fresh-results 15

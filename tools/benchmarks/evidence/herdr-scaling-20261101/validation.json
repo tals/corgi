@@ -1,0 +1,507 @@
+{
+  "commands": [
+    {
+      "name": "typecheck",
+      "command": [
+        "bun",
+        "typecheck.ts"
+      ],
+      "source_sha256": "549d931405145e0f56f3391eff10306c3d8df924902b4ff349c5a68844677cf1",
+      "started_at": "2026-11-01T01:19:48.953249+00:00",
+      "finished_at": "2026-11-01T01:20:01.710091+00:00",
+      "exit_code": 0,
+      "log": "/home/t/dev/personal/corgi-perf-herdr/dist/perf-herdr-20261031/validation-typecheck-1.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source_hash_order": "Python Path component-sorted relative paths"
+    },
+    {
+      "name": "unit",
+      "command": [
+        "bun",
+        "test",
+        "src"
+      ],
+      "source_sha256": "549d931405145e0f56f3391eff10306c3d8df924902b4ff349c5a68844677cf1",
+      "started_at": "2026-11-01T01:20:01.710524+00:00",
+      "finished_at": "2026-11-01T01:20:33.808322+00:00",
+      "exit_code": 0,
+      "log": "/home/t/dev/personal/corgi-perf-herdr/dist/perf-herdr-20261031/validation-unit-1.log",
+      "log_sha256": "ca7c6ce03d4ebc21cb4368abc279932eb6dbffd76d3f4b8d90d2515f3768346a",
+      "source_hash_order": "Python Path component-sorted relative paths"
+    },
+    {
+      "name": "production-build",
+      "command": [
+        "bun",
+        "build.ts",
+        "--no-native"
+      ],
+      "source_sha256": "549d931405145e0f56f3391eff10306c3d8df924902b4ff349c5a68844677cf1",
+      "started_at": "2026-11-01T01:20:33.809139+00:00",
+      "finished_at": "2026-11-01T01:20:34.343069+00:00",
+      "exit_code": 0,
+      "log": "/home/t/dev/personal/corgi-perf-herdr/dist/perf-herdr-20261031/validation-production-build-1.log",
+      "log_sha256": "2345aa07b9cfae240178d0f88dd2728fe9c98d4c98059ac33df01e434e85f2bb",
+      "source_hash_order": "Python Path component-sorted relative paths"
+    },
+    {
+      "name": "test-build",
+      "command": [
+        "bun",
+        "build.ts",
+        "--test",
+        "--no-native"
+      ],
+      "source_sha256": "549d931405145e0f56f3391eff10306c3d8df924902b4ff349c5a68844677cf1",
+      "started_at": "2026-11-01T01:20:34.343710+00:00",
+      "finished_at": "2026-11-01T01:20:34.895197+00:00",
+      "exit_code": 0,
+      "log": "/home/t/dev/personal/corgi-perf-herdr/dist/perf-herdr-20261031/validation-test-build-1.log",
+      "log_sha256": "0d49eca22848b3471271c1c2312a9263ab6d187bdaa8fd65e884c1d910dcdce7",
+      "source_hash_order": "Python Path component-sorted relative paths"
+    },
+    {
+      "name": "integration",
+      "command": [
+        "bun",
+        "integration.ts",
+        "--jobs",
+        "1",
+        "agent_reorder",
+        "agent_pins",
+        "viewer_sync",
+        "viewers",
+        "selection",
+        "reloads",
+        "smoke_terminal"
+      ],
+      "source_sha256": "549d931405145e0f56f3391eff10306c3d8df924902b4ff349c5a68844677cf1",
+      "started_at": "2026-11-01T01:20:34.895806+00:00",
+      "finished_at": "2026-11-01T01:24:02.670741+00:00",
+      "exit_code": 1,
+      "log": "/home/t/dev/personal/corgi-perf-herdr/dist/perf-herdr-20261031/validation-integration-1.log",
+      "log_sha256": "229ac425210e546a5cae1a1bc29883918e851ce8e46b9a32edcf19815d1c29be",
+      "source_hash_order": "Python Path component-sorted relative paths"
+    },
+    {
+      "name": "integration",
+      "command": [
+        "bun",
+        "integration.ts",
+        "--jobs",
+        "1",
+        "viewers"
+      ],
+      "source_sha256": "8d5601f2c5e4a946b7e298c794a816ff0352271628be803b49c36aee4c917c99",
+      "started_at": "2026-11-01T01:25:28.524733+00:00",
+      "finished_at": "2026-11-01T01:26:21.088652+00:00",
+      "exit_code": 0,
+      "log": "/home/t/dev/personal/corgi-perf-herdr/dist/perf-herdr-20261031/validation-viewers-retry-1.log",
+      "completes_suites_from": "/home/t/dev/personal/corgi-perf-herdr/dist/perf-herdr-20261031/validation-integration-1.log",
+      "note": "Only viewers failed in the first serial integration run; the other six suites passed and are preserved.",
+      "log_sha256": "eb9f27458b5ee9d1bc88279d87f136b024dfc40c9908e39932412824517c5a3d",
+      "source_hash_order": "build.ts string-sorted relative paths"
+    },
+    {
+      "name": "integration",
+      "command": [
+        "bun",
+        "integration.ts",
+        "--jobs",
+        "1",
+        "agent_reorder",
+        "agent_pins",
+        "viewer_sync",
+        "viewers",
+        "selection",
+        "reloads",
+        "smoke_terminal"
+      ],
+      "source_sha256": "549d931405145e0f56f3391eff10306c3d8df924902b4ff349c5a68844677cf1",
+      "started_at": "2026-11-01T01:27:04.752240+00:00",
+      "finished_at": "2026-11-01T01:30:42.606702+00:00",
+      "exit_code": 1,
+      "log": "/home/t/dev/personal/corgi-perf-herdr/dist/perf-herdr-20261031/validation-integration-3.log",
+      "log_sha256": "f50b7a9c33159b479ddc3d15ad431a3b546e6a6743a7d17c48d3350aa30e96a0",
+      "source_hash_order": "Python Path component-sorted relative paths"
+    },
+    {
+      "name": "site-build",
+      "command": [
+        "bun",
+        "run",
+        "landingpage:build"
+      ],
+      "source_sha256": "549d931405145e0f56f3391eff10306c3d8df924902b4ff349c5a68844677cf1",
+      "started_at": "2026-11-01T01:31:25.795998+00:00",
+      "finished_at": "2026-11-01T01:31:25.953801+00:00",
+      "exit_code": 1,
+      "log": "/home/t/dev/personal/corgi-perf-herdr/dist/perf-herdr-20261031/validation-site-build-1.log",
+      "log_sha256": "e8d632f682fc459e03499c70c4538eb2d1c40288cc8a7b20a4b8ab01eae110f5",
+      "source_hash_order": "Python Path component-sorted relative paths"
+    },
+    {
+      "name": "visual",
+      "command": [
+        "bun",
+        "tools/benchmarks/retained_visual.ts",
+        "/home/t/dev/personal/corgi-perf-herdr/dist/perf-herdr-20261031/main",
+        "/home/t/dev/personal/corgi-perf-herdr/dist/perf-herdr-20261031/iteration2",
+        "/home/t/dev/personal/corgi-perf-herdr/dist/perf-herdr-20261031/visual"
+      ],
+      "source_sha256": "549d931405145e0f56f3391eff10306c3d8df924902b4ff349c5a68844677cf1",
+      "started_at": "2026-11-01T01:31:29.838284+00:00",
+      "finished_at": "2026-11-01T01:32:04.464404+00:00",
+      "exit_code": 0,
+      "log": "/home/t/dev/personal/corgi-perf-herdr/dist/perf-herdr-20261031/validation-visual-1.log",
+      "log_sha256": "a9b29f2c01beab56117bb0268e02f7904077da37e907f8f8beada2dd9e623ffe",
+      "source_hash_order": "Python Path component-sorted relative paths"
+    },
+    {
+      "name": "site-build",
+      "command": [
+        "bun",
+        "run",
+        "landingpage:build"
+      ],
+      "source_sha256": "549d931405145e0f56f3391eff10306c3d8df924902b4ff349c5a68844677cf1",
+      "started_at": "2026-11-01T01:32:10.893500+00:00",
+      "finished_at": "2026-11-01T01:32:14.350453+00:00",
+      "exit_code": 0,
+      "log": "/home/t/dev/personal/corgi-perf-herdr/dist/perf-herdr-20261031/validation-site-build-2.log",
+      "log_sha256": "f862373824cb5138ea3dec680a28d900f4c446f64e1d78b40ab25d7285133335",
+      "source_hash_order": "Python Path component-sorted relative paths"
+    }
+  ],
+  "unit_tests": {
+    "passed": 2330,
+    "skipped": 1,
+    "failed": 0
+  },
+  "integration": {
+    "passed_suites": [
+      "agent_reorder",
+      "agent_pins",
+      "viewer_sync",
+      "selection",
+      "reloads",
+      "smoke_terminal"
+    ],
+    "viewer_isolated": {
+      "passed": 33,
+      "skipped": 1,
+      "failed": 0
+    },
+    "known_failure": "test_workspace_away_usage_resets_on_visit_and_respects_other_viewers: timeout at tests/viewers.test.ts:641 in two full candidate runs and unchanged main",
+    "baseline_binary": "/home/t/dev/personal/corgi-perf-herdr/dist/perf-herdr-20261031/baseline-test",
+    "baseline_build": {
+      "builtAt": "2026-11-01T01:30:18.512Z",
+      "target": "linux-x64",
+      "bunVersion": "1.4.4",
+      "testBuild": true,
+      "releaseVersion": "0.1.0-dev",
+      "releaseCommit": "e6e08abbcc98bfbbdce2c31c161f7414a89b1fe1-dirty",
+      "sha256": "dfbc1ce209ef7ff254cec0e36d6282395c0789c9e72edbcec07c25775b3b6294",
+      "sourceSHA256": "d2bcca49bb5ce041780ea0838b234b7800533a12dcea050a313be0265424ace1",
+      "nativeSHA256": "4974584c681de1f21c9a1fb1449b2160ce0d4c6b03dd6accab3c2b0976fb5447",
+      "inputsSHA256": "fa78384d36d6c054be17c5746e6f875a3b699bb2867345b5850c5b8e3e670633"
+    },
+    "baseline_attempts": [
+      {
+        "attempt": 1,
+        "command": [
+          "bun",
+          "test",
+          "tests/viewers.test.ts",
+          "-t",
+          "workspace_away_usage_resets_on_visit_and_respects_other_viewers"
+        ],
+        "started_at": "2026-11-01T01:30:52.762930+00:00",
+        "finished_at": "2026-11-01T01:31:00.652283+00:00",
+        "exit_code": 1,
+        "log": "/home/t/dev/personal/corgi-perf-herdr/dist/perf-herdr-20261031/baseline-away-usage-1.log",
+        "log_sha256": "1d8b7376744d48bb490decbf74fce10c7aa4e4784590353f8752160053d17955",
+        "env": {
+          "CORGI_TEST_BIN": "/home/t/dev/personal/corgi-perf-herdr/dist/perf-herdr-20261031/baseline-test"
+        }
+      }
+    ]
+  },
+  "source_hash_note": "The validation wrapper and build.ts sort path strings differently; both digest orders describe the same source tree. Rebuilt production/test source and native hashes equal the measured candidate.",
+  "rebuilt_provenance": {
+    "measured": {
+      "builtAt": "2026-11-01T00:11:06.781Z",
+      "target": "linux-x64",
+      "bunVersion": "1.4.4",
+      "testBuild": false,
+      "releaseVersion": "0.1.0-dev",
+      "releaseCommit": "e6e08abbcc98bfbbdce2c31c161f7414a89b1fe1-dirty",
+      "sha256": "6ee030dd27f4629139d12bc8587323ec107c883aecea04b9597c2353b1577f1d",
+      "sourceSHA256": "8d5601f2c5e4a946b7e298c794a816ff0352271628be803b49c36aee4c917c99",
+      "nativeSHA256": "4974584c681de1f21c9a1fb1449b2160ce0d4c6b03dd6accab3c2b0976fb5447",
+      "inputsSHA256": "eeefdc93794c8cc0dc2b2464e593613049896c8be06e60d27796b25e2555873b"
+    },
+    "rebuilt": {
+      "builtAt": "2026-11-01T01:20:33.903Z",
+      "target": "linux-x64",
+      "bunVersion": "1.4.4",
+      "testBuild": false,
+      "releaseVersion": "0.1.0-dev",
+      "releaseCommit": "e6e08abbcc98bfbbdce2c31c161f7414a89b1fe1-dirty",
+      "sha256": "2efac8c03aa94d241df305a7a85d8692050c4d30e67cac36fcee621b80245fa9",
+      "sourceSHA256": "8d5601f2c5e4a946b7e298c794a816ff0352271628be803b49c36aee4c917c99",
+      "nativeSHA256": "4974584c681de1f21c9a1fb1449b2160ce0d4c6b03dd6accab3c2b0976fb5447",
+      "inputsSHA256": "eeefdc93794c8cc0dc2b2464e593613049896c8be06e60d27796b25e2555873b"
+    },
+    "test": {
+      "builtAt": "2026-11-01T01:20:34.443Z",
+      "target": "linux-x64",
+      "bunVersion": "1.4.4",
+      "testBuild": true,
+      "releaseVersion": "0.1.0-dev",
+      "releaseCommit": "e6e08abbcc98bfbbdce2c31c161f7414a89b1fe1-dirty",
+      "sha256": "9b7d2b44acf37cb7fac714ff994a96dc35a57bb0b46ba166bfa5cfe765d60ae9",
+      "sourceSHA256": "8d5601f2c5e4a946b7e298c794a816ff0352271628be803b49c36aee4c917c99",
+      "nativeSHA256": "4974584c681de1f21c9a1fb1449b2160ce0d4c6b03dd6accab3c2b0976fb5447",
+      "inputsSHA256": "e25cec7409da6414e8e824f33a4374379587a05243d23fa89923be2a6704b57f"
+    }
+  },
+  "badge_differential": {
+    "checks": 15000,
+    "before": {
+      "wall_ms": 644.103834,
+      "cpu": {
+        "user": 729145,
+        "system": 61048
+      }
+    },
+    "after": {
+      "wall_ms": 29.798671000000013,
+      "cpu": {
+        "user": 39230,
+        "system": 5703
+      }
+    }
+  },
+  "visual": {
+    "baseline": "/home/t/dev/personal/corgi-perf-herdr/dist/perf-herdr-20261031/main",
+    "candidate": "/home/t/dev/personal/corgi-perf-herdr/dist/perf-herdr-20261031/iteration2",
+    "comparisons": [
+      {
+        "name": "01-normal-unicode-colors",
+        "same": true
+      },
+      {
+        "name": "02-sparse-update",
+        "same": true
+      },
+      {
+        "name": "03-link-hover",
+        "same": true
+      },
+      {
+        "name": "04-held-selection",
+        "same": true
+      },
+      {
+        "name": "05-selection-freezes-output",
+        "same": true
+      },
+      {
+        "name": "06-selection-released",
+        "same": true
+      },
+      {
+        "name": "07-kitty-image",
+        "same": true
+      },
+      {
+        "name": "08-image-menu-overlay",
+        "same": true
+      },
+      {
+        "name": "08b-dimmed-dialog",
+        "same": true
+      },
+      {
+        "name": "08c-image-restored",
+        "same": true
+      },
+      {
+        "name": "09-copy-scrollback",
+        "same": true
+      },
+      {
+        "name": "10-copy-selection",
+        "same": true
+      },
+      {
+        "name": "11-split-panes",
+        "same": true
+      },
+      {
+        "name": "12-focus-left",
+        "same": true
+      },
+      {
+        "name": "13-zoom",
+        "same": true
+      },
+      {
+        "name": "14-help-overlay",
+        "same": true
+      },
+      {
+        "name": "15-scope-hover",
+        "same": true
+      },
+      {
+        "name": "16-resize-small",
+        "same": true
+      },
+      {
+        "name": "17-resize-large",
+        "same": true
+      }
+    ],
+    "equal": true,
+    "cell_pixels": [
+      10,
+      22
+    ],
+    "note": "Real PTY output replayed through Ghostty; exact styled cells, hyperlink destinations, cursor and decoded image placements/pixels. Opaque image/link identifiers are excluded. No timing normalization."
+  },
+  "png_comparisons": [
+    {
+      "name": "01-normal-unicode-colors",
+      "same": true,
+      "baseline_sha256": "17706957c224b9f768ff543e2dff81149af150e7fc2406f55c3d78eb89a59df9",
+      "candidate_sha256": "17706957c224b9f768ff543e2dff81149af150e7fc2406f55c3d78eb89a59df9"
+    },
+    {
+      "name": "02-sparse-update",
+      "same": true,
+      "baseline_sha256": "77ad8a7308b0f587ccda7485ca407e2d4e401b17b8cfe65136d7cd3fa0150766",
+      "candidate_sha256": "77ad8a7308b0f587ccda7485ca407e2d4e401b17b8cfe65136d7cd3fa0150766"
+    },
+    {
+      "name": "03-link-hover",
+      "same": true,
+      "baseline_sha256": "08454803f1507c50bc22f5f1cb42101f7e87f05729795373793a07e439c1083f",
+      "candidate_sha256": "08454803f1507c50bc22f5f1cb42101f7e87f05729795373793a07e439c1083f"
+    },
+    {
+      "name": "04-held-selection",
+      "same": true,
+      "baseline_sha256": "ba95fb70f3dcba86fa719086c7df7dd319608211f1a653a10f27d6701ea52f9f",
+      "candidate_sha256": "ba95fb70f3dcba86fa719086c7df7dd319608211f1a653a10f27d6701ea52f9f"
+    },
+    {
+      "name": "05-selection-freezes-output",
+      "same": true,
+      "baseline_sha256": "ba95fb70f3dcba86fa719086c7df7dd319608211f1a653a10f27d6701ea52f9f",
+      "candidate_sha256": "ba95fb70f3dcba86fa719086c7df7dd319608211f1a653a10f27d6701ea52f9f"
+    },
+    {
+      "name": "06-selection-released",
+      "same": true,
+      "baseline_sha256": "e5b857aaf020612e6a2f7086eb886f0d92e89c1a5633f7f74765e49b2abece21",
+      "candidate_sha256": "e5b857aaf020612e6a2f7086eb886f0d92e89c1a5633f7f74765e49b2abece21"
+    },
+    {
+      "name": "07-kitty-image",
+      "same": true,
+      "baseline_sha256": "21f91c4fe0074dad905c34b6c71fb443cbe257f52b60010ac727fe63602eb838",
+      "candidate_sha256": "21f91c4fe0074dad905c34b6c71fb443cbe257f52b60010ac727fe63602eb838"
+    },
+    {
+      "name": "08-image-menu-overlay",
+      "same": true,
+      "baseline_sha256": "efbc9b9fdce8729a530824fb6a2754c91dad195167098e34a94e8a4e98c09208",
+      "candidate_sha256": "efbc9b9fdce8729a530824fb6a2754c91dad195167098e34a94e8a4e98c09208"
+    },
+    {
+      "name": "08b-dimmed-dialog",
+      "same": true,
+      "baseline_sha256": "7bb24391d98c31a4d4042148f1610eee66d67f5261bf876167aed263cd7708d5",
+      "candidate_sha256": "7bb24391d98c31a4d4042148f1610eee66d67f5261bf876167aed263cd7708d5"
+    },
+    {
+      "name": "08c-image-restored",
+      "same": true,
+      "baseline_sha256": "21f91c4fe0074dad905c34b6c71fb443cbe257f52b60010ac727fe63602eb838",
+      "candidate_sha256": "21f91c4fe0074dad905c34b6c71fb443cbe257f52b60010ac727fe63602eb838"
+    },
+    {
+      "name": "09-copy-scrollback",
+      "same": true,
+      "baseline_sha256": "069face5a0a867e2160fdedf288649f36c5568057f06134fe6c40f0016fa310f",
+      "candidate_sha256": "069face5a0a867e2160fdedf288649f36c5568057f06134fe6c40f0016fa310f"
+    },
+    {
+      "name": "10-copy-selection",
+      "same": true,
+      "baseline_sha256": "5087277b7380320465fdf65dd7df6e9b9cde39f4ac234b8b2c50902f4cb09424",
+      "candidate_sha256": "5087277b7380320465fdf65dd7df6e9b9cde39f4ac234b8b2c50902f4cb09424"
+    },
+    {
+      "name": "11-split-panes",
+      "same": true,
+      "baseline_sha256": "b7a0cb011e8d272ea157bea5d3db5f1c1064caa65a8af0afff2f7ae6e1a7d94c",
+      "candidate_sha256": "b7a0cb011e8d272ea157bea5d3db5f1c1064caa65a8af0afff2f7ae6e1a7d94c"
+    },
+    {
+      "name": "12-focus-left",
+      "same": true,
+      "baseline_sha256": "971c6aaafaf2d8676bb1881e6109541b71e64ac7e95de323cf6677966221eb8f",
+      "candidate_sha256": "971c6aaafaf2d8676bb1881e6109541b71e64ac7e95de323cf6677966221eb8f"
+    },
+    {
+      "name": "13-zoom",
+      "same": true,
+      "baseline_sha256": "17706957c224b9f768ff543e2dff81149af150e7fc2406f55c3d78eb89a59df9",
+      "candidate_sha256": "17706957c224b9f768ff543e2dff81149af150e7fc2406f55c3d78eb89a59df9"
+    },
+    {
+      "name": "14-help-overlay",
+      "same": true,
+      "baseline_sha256": "26e1fb1fe230e29359e1f9dc5c572054a9477ba73a864df3f6e3bb289d613c8f",
+      "candidate_sha256": "26e1fb1fe230e29359e1f9dc5c572054a9477ba73a864df3f6e3bb289d613c8f"
+    },
+    {
+      "name": "15-scope-hover",
+      "same": true,
+      "baseline_sha256": "129b7a6e24c1ae2b8030513b61f070d1551b66e66dc16bba44972721e4dfa11d",
+      "candidate_sha256": "129b7a6e24c1ae2b8030513b61f070d1551b66e66dc16bba44972721e4dfa11d"
+    },
+    {
+      "name": "16-resize-small",
+      "same": true,
+      "baseline_sha256": "bb3c015e2e848c4681d34dc46a32a637d8161d063b6345510551ac087cea6815",
+      "candidate_sha256": "bb3c015e2e848c4681d34dc46a32a637d8161d063b6345510551ac087cea6815"
+    },
+    {
+      "name": "17-resize-large",
+      "same": true,
+      "baseline_sha256": "030e9fe44260997565efa0b55b8d0719c684c7638c942742fb50fbdd3af47505",
+      "candidate_sha256": "030e9fe44260997565efa0b55b8d0719c684c7638c942742fb50fbdd3af47505"
+    }
+  ],
+  "rasterizer": {
+    "cell_pixels": [
+      10,
+      22
+    ],
+    "font": "/usr/share/fonts/truetype/dejavu",
+    "symbol_font": null,
+    "math_font": null,
+    "missing_glyphs": [
+      "\u29c9"
+    ]
+  },
+  "manually_inspected": [
+    "05-selection-freezes-output",
+    "11-split-panes",
+    "08b-dimmed-dialog"
+  ]
+}
