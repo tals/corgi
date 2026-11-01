@@ -718,7 +718,7 @@
   "Runs: ": "실행: ",
   "SCROLL  j/k move  y copy viewport  q exit": "스크롤  j/k 이동  y 화면 복사  q 종료",
   "SCROLL / COPY": "스크롤 / 복사",
-  "SIDEBAR  ↑↓ move  ↵ open  ${search}Esc back": "사이드바  ↑↓ 이동  ↵ 열기  ${search}Esc 뒤로",
+  "SIDEBAR  ↑↓/j/k move  ↵ open  ${search}Esc back": "사이드바  ↑↓/j/k 이동  ↵ 열기  ${search}Esc 뒤로",
   "Sample not available": "측정값 없음",
   "Sampling stops once every viewer turns it off.": "모든 클라이언트에서 끄면 수집을 멈춥니다.",
   "Sampling unavailable": "수집할 수 없음",

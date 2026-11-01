@@ -1098,6 +1098,26 @@ test("a workspace row opens that workspace; Esc leaves the sidebar as it was", a
   }
 });
 
+test("j and k move the workspace drawer's cursor like the arrows", async () => {
+  const update = spyOn(preferences, "update").mockImplementation(() => {});
+  const { s, sent } = steering();
+  try {
+    s.sidebar_open = false;
+    s.focusPane(1);
+    await s.input(bytes("\x02w"));
+    expect(s.sidebar_focus?.drawer).toBe("workspaces");
+    expect(s.sidebar_focus!.cursor).toEqual({ workspace: 1 });
+    await s.key(106);
+    expect(s.sidebar_focus!.cursor).toEqual({ workspace: 2 });
+    await s.key(107);
+    expect(s.sidebar_focus!.cursor).toEqual({ workspace: 1 });
+    expect(sent).toEqual([]);
+  } finally {
+    update.mockRestore();
+    viewer.close(s);
+  }
+});
+
 test("search finds agents in folded sections and opening one unfolds its section", () => {
   const { s } = steering();
   try {

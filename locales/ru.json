@@ -982,7 +982,7 @@
   "Runs: ": "Запуск: ",
   "SCROLL  j/k move  y copy viewport  q exit": "ПРОКРУТКА  j/k движение  y копировать экран  q выход",
   "SCROLL / COPY": "ПРОКРУТКА / КОПИЯ",
-  "SIDEBAR  ↑↓ move  ↵ open  ${search}Esc back": "БОКОВАЯ ПАНЕЛЬ  ↑↓ движение  ↵ открыть  ${search}Esc назад",
+  "SIDEBAR  ↑↓/j/k move  ↵ open  ${search}Esc back": "БОКОВАЯ ПАНЕЛЬ  ↑↓/j/k движение  ↵ открыть  ${search}Esc назад",
   "Sample not available": "Данные недоступны",
   "Sampling stops once every viewer turns it off.": "Сбор прекращается, когда его выключат все клиенты.",
   "Sampling unavailable": "Сбор данных недоступен",

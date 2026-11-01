@@ -897,7 +897,7 @@ export function frame(
         : u.copy_mode
           ? i18n.t`SCROLL  j/k move  y copy viewport  q exit`
           : u.sidebar_focus
-            ? i18n.t`SIDEBAR  ↑↓ move  ↵ open  ${search}Esc back`
+            ? i18n.t`SIDEBAR  ↑↓/j/k move  ↵ open  ${search}Esc back`
             : "");
     // Beside the sidebar while it has focus, clear of its box's bottom edge.
     cover(writeChip(w, text, width, height, u.pointer, u.sidebar_focus ? side.width : 0));
