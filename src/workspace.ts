@@ -1,7 +1,7 @@
 import { basename, dirname, join, isAbsolute } from "node:path";
 import { mkdir, open, rename, readFile, realpath, stat } from "node:fs/promises";
 import { Model, cleanLabel, max_workspaces } from "./layout";
-import { Order, Pins, type Section } from "./agent_order";
+import { Order, Pins, key as agentKey, type Section } from "./agent_order";
 import { Stars, type Session as StarredSession } from "./agent_stars";
 import { Ref, State } from "./trackers/git_push";
 import { Commits } from "./trackers/git_status";
@@ -21,6 +21,8 @@ export class Workspace {
   /** The order inside each activity section: the user's, with an agent
    * that enters a section put first. */
   activity_order = new Order();
+  /** Agents brought back with a place in `activity_order`, by key, until first seen. */
+  restored = new Set<string>();
   /** The last section by `pane:N` or `headless:N`; null for a plain shell. */
   sections = new Map<string, Section | null>();
   /** The agents, by key, held in working until their first turn. */
@@ -44,6 +46,11 @@ export class Workspace {
     public id: number,
     public cwd: string,
   ) {}
+  /** Takes up a saved activity order, where each agent keeps its place until it moves on. */
+  restoreActivity(order: Order) {
+    this.activity_order = order;
+    this.restored = new Set(order.items.map(agentKey));
+  }
   customName() {
     return this.name_buf;
   }

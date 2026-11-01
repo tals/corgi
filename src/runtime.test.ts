@@ -653,3 +653,37 @@ test("resume without a reported model leaves the conversation's saved model alon
   hint.observe(agent);
   expect(launch.typed(["--resume", "s1"], hint)).toBe("claude --model opus --verbose --resume s1");
 });
+test("a new agent goes on top though another changes section as it appears", () => {
+  const { r, w } = setup();
+  try {
+    const old = [add(r, w), add(r, w)];
+    old.forEach((p, i) => p.attachment.select(r.conversations.get("claude", `old-${i}`)));
+    r.raiseEntered();
+    const created = add(r, w);
+    created.attachment.select(r.conversations.get("claude", "new"));
+    // Raising the earlier tab fills the order with every live agent, the new one too.
+    old[0].agent().state = "done";
+    r.raiseEntered();
+    expect(w.activity_order.slice()).toEqual([{ pane: created.id }, { pane: old[0].id }, { pane: old[1].id }]);
+    expect(w.starting.has(`pane:${created.id}`)).toBe(true);
+  } finally {
+    r.destroy();
+  }
+});
+test("a new agent goes on top though another was dragged before it was seen", () => {
+  const { r, w } = setup();
+  try {
+    const old = [add(r, w), add(r, w)];
+    old.forEach((p, i) => p.attachment.select(r.conversations.get("claude", `old-${i}`)));
+    r.raiseEntered();
+    const created = add(r, w);
+    created.attachment.select(r.conversations.get("claude", "new"));
+    // As agent.place does; the move fills the order with the new agent too.
+    w.activity_order.move(r.agentTargets(w), { pane: old[0].id }, null);
+    r.raiseEntered();
+    expect(w.activity_order.slice()[0]).toEqual({ pane: created.id });
+    expect(w.starting.has(`pane:${created.id}`)).toBe(true);
+  } finally {
+    r.destroy();
+  }
+});

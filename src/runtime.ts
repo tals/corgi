@@ -714,6 +714,7 @@ export class Runtime {
       ws.agent_order.items = ws.agent_order.items.map(reopened);
       ws.activity_order.items = ws.activity_order.items.map(reopened);
       ws.pinned_agents.items = ws.pinned_agents.items.map(reopened);
+      if (ws.activity_order.has({ pane: id })) ws.restored.add(agentKey({ pane: id }));
     }
     this.pane(id)!.label = saved.label;
     this.closed.splice(index, 1);
@@ -969,7 +970,10 @@ export class Runtime {
       for (const target of live) {
         const key = agentKey(target),
           last = ws.sections.get(key),
-          kind = this.startingSection(ws, target, key, last);
+          // Every move fills the order with all live agents, so being in it
+          // doesn't mean an agent had a place there.
+          restored = ws.restored.delete(key) && last === undefined,
+          kind = this.startingSection(ws, target, key, last, restored);
         seen.add(key);
         changed = this.syncStar(ws, live, target, key) || changed;
         ws.sections.set(key, kind);
@@ -987,7 +991,7 @@ export class Runtime {
           changed = true;
         }
         // A restored agent keeps its place until it moves on.
-        if (last === kind || (last === undefined && ws.activity_order.has(target))) continue;
+        if (last === kind || restored) continue;
         ws.activity_order.raise(live, target);
         changed = true;
       }
@@ -995,6 +999,7 @@ export class Runtime {
       for (const key of ws.starting) if (!seen.has(key)) ws.starting.delete(key);
       for (const key of ws.star_bindings.keys()) if (!seen.has(key)) ws.star_bindings.delete(key);
       for (const key of ws.agent_slots) if (!seen.has(key)) ws.agent_slots.delete(key);
+      for (const key of ws.restored) if (!seen.has(key)) ws.restored.delete(key);
     }
     return changed;
   }
@@ -1008,10 +1013,15 @@ export class Runtime {
   }
   /** An agent's section, except that a new one waits in working until its
    * first turn, through startup and idle. */
-  private startingSection(ws: Workspace, target: Target, key: string, last: Section | null | undefined) {
+  private startingSection(
+    ws: Workspace,
+    target: Target,
+    key: string,
+    last: Section | null | undefined,
+    restored: boolean,
+  ) {
     const kind = this.agentSection(target),
       start = this.agentStart(target),
-      restored = last === undefined && ws.activity_order.has(target),
       fresh = !restored || start?.state === "unknown" || start?.state === "initializing",
       waiting = last ? ws.starting.has(key) : kind !== null && fresh;
     if (waiting && kind === "idle" && start?.completed === 0n) {

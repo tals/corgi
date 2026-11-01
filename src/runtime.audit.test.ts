@@ -19,6 +19,11 @@ class LocalRuntime extends Runtime {
     return id;
   }
 }
+/** As a checkpoint or handoff brings the workspace back. */
+function restore(ws: Workspace) {
+  ws.sections.clear();
+  ws.restoreActivity(ws.activity_order);
+}
 function fixture() {
   const r = new LocalRuntime(),
     ws = new Workspace(1, "/tmp");
@@ -189,7 +194,7 @@ test("an agent that enters another activity section, or is new, goes first in it
     expect(r.raiseEntered()).toBe(true);
     expect(agents()).toEqual([first, second]);
     // After a restore, agents already placed keep their place.
-    ws.sections.clear();
+    restore(ws);
     expect(r.raiseEntered()).toBe(false);
   } finally {
     r.destroy();
@@ -257,7 +262,7 @@ test("after a restore, only agents still starting up wait in working", async () 
       b = await r.create(opts);
     for (const id of [a, b]) Object.assign(r.pane(id)!.agent(), { provider: "claude", state: "idle" });
     r.raiseEntered();
-    ws.sections.clear();
+    restore(ws);
     ws.starting.clear();
     r.pane(b)!.agent().state = "initializing";
     r.raiseEntered();
@@ -277,7 +282,7 @@ test("a snapshot shows an agent's new section with its place at the top of it", 
     const last = order().at(-1) as { pane: number };
     // Restored at work, it keeps its place at the bottom of the order.
     Object.assign(r.pane(last.pane)!.agent(), { state: "working" });
-    ws.sections.clear();
+    restore(ws);
     r.raiseEntered();
     expect(order().at(-1)).toEqual(last);
     // Interrupted, it moves on between the daemon's ticks; the next snapshot has it first.
@@ -307,7 +312,7 @@ test("new agents lead manual order without moving tabs or following activity cha
     r.pane(b)!.agent().state = "working";
     r.raiseEntered();
     expect(ws.agent_order.slice()).toEqual([{ pane: c }, { pane: a }, { pane: b }]);
-    ws.sections.clear();
+    restore(ws);
     expect(r.raiseEntered()).toBe(false);
     expect(ws.agent_order.slice()).toEqual([{ pane: c }, { pane: a }, { pane: b }]);
   } finally {
