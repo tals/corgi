@@ -139,7 +139,10 @@ export async function until<T>(read: () => T | Promise<T>, seconds = 20): Promis
 
 export async function capture(options: Partial<Options> = {}, recipe: Recipe = {}): Promise<void> {
   const o = { ...defaults, ...options };
-  const ghostty = process.env.GHOSTTY_BIN ?? Bun.which("ghostty") ?? "/snap/bin/ghostty";
+  // Ghostty runs from the sandbox, so a relative GHOSTTY_BIN is resolved here.
+  const ghostty = process.env.GHOSTTY_BIN
+    ? resolve(process.env.GHOSTTY_BIN)
+    : (Bun.which("ghostty") ?? "/snap/bin/ghostty");
   if (!existsSync(ghostty)) throw Error("Ghostty is missing; set GHOSTTY_BIN or install Ghostty");
   for (const tool of ["Xvfb", "xdotool", "ffmpeg"])
     if (!Bun.which(tool)) throw Error(`no ${tool} on PATH; install xvfb, xdotool and ffmpeg`);
@@ -151,28 +154,6 @@ export async function capture(options: Partial<Options> = {}, recipe: Recipe = {
   const log = join(scratch, "ghostty.log");
   const xlog = join(scratch, "xvfb.log");
   try {
-    if (!o.command) {
-      if (!/^[a-z0-9_-]+$/.test(o.sandbox)) throw Error("invalid sandbox name");
-      const { world } = (await import(join(ROOT, "tools/sandboxes", `${o.sandbox}.ts`))) as { world: World };
-      // A unique sandbox name also isolates its socket from any interactive sandbox.
-      const nested = process.env.CORGI_PANE;
-      delete process.env.CORGI_PANE;
-      try {
-        sandbox = new Sandbox(basename(scratch), world, ROOT, o.corgi);
-      } finally {
-        if (nested !== undefined) process.env.CORGI_PANE = nested;
-      }
-      sandbox.prepareHome();
-      world.seed(sandbox);
-      sandbox.dated(null);
-      writeFileSync(
-        join(sandbox.home, ".local/state/corgi/viewer.json"),
-        JSON.stringify({ onboarding_complete: true, preset: "corgi", prefix: "ctrl_b", corgi_intensity: 0 }),
-      );
-      sandbox.run([o.corgi, "start", "--update-routed"]);
-      world.arrange(sandbox);
-      await recipe.prepare?.(sandbox);
-    }
     // Let Xvfb choose and reserve a free display, including concurrent captures.
     const displayFile = join(scratch, "display");
     const width = Math.ceil(o.cols * o.fontSize * 2);
@@ -185,9 +166,35 @@ export async function capture(options: Partial<Options> = {}, recipe: Recipe = {
       if (xvfb!.exitCode !== null) throw Error(`Xvfb exited: ${readFileSync(xlog, "utf8")}`);
       return readFileSync(displayFile, "utf8").trim();
     }, o.wait);
+    if (!o.command) {
+      if (!/^[a-z0-9_-]+$/.test(o.sandbox)) throw Error("invalid sandbox name");
+      const { world } = (await import(join(ROOT, "tools/sandboxes", `${o.sandbox}.ts`))) as { world: World };
+      // A unique sandbox name also isolates its socket from any interactive sandbox.
+      const nested = process.env.CORGI_PANE;
+      delete process.env.CORGI_PANE;
+      try {
+        sandbox = new Sandbox(basename(scratch), world, ROOT, o.corgi);
+      } finally {
+        if (nested !== undefined) process.env.CORGI_PANE = nested;
+      }
+      // The daemon and its panes open windows on the capture display, never the caller's desktop.
+      sandbox.env.DISPLAY = `:${display}`;
+      delete sandbox.env.WAYLAND_DISPLAY;
+      sandbox.prepareHome();
+      world.seed(sandbox);
+      sandbox.dated(null);
+      writeFileSync(
+        join(sandbox.home, ".local/state/corgi/viewer.json"),
+        JSON.stringify({ onboarding_complete: true, preset: "corgi", prefix: "ctrl_b", corgi_intensity: 0 }),
+      );
+      sandbox.run([o.corgi, "start", "--update-routed"]);
+      world.arrange(sandbox);
+      await recipe.prepare?.(sandbox);
+    }
     mkdirSync(join(scratch, "runtime"), { mode: 0o700 });
     const env: Record<string, string | undefined> = {
       ...(sandbox?.env ?? process.env),
+      WAYLAND_DISPLAY: undefined,
       DISPLAY: `:${display}`,
       GDK_BACKEND: "x11",
       XDG_RUNTIME_DIR: join(scratch, "runtime"),
