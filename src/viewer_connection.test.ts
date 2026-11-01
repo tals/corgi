@@ -97,14 +97,20 @@ test("a viewer shares two connections across requests, subscriptions, and pane c
   }
 });
 
-test("a refused watch leaves the viewer syncing and is asked again", async () => {
+test("a refused watch uses control for surfaces and images until a later sync attaches data", async () => {
   const dir = mkdtempSync(join(tmpdir(), "corgi-viewer-rpc-")),
     path = join(dir, "rpc.sock"),
-    sockets: Socket[] = [];
+    sockets: Socket[] = [],
+    surfaces: Socket[] = [],
+    images: Socket[] = [],
+    frames = [{ surface: { pane: 1 } }];
   let watches = 0;
+  let control!: Socket, data!: Socket;
   const server = createServer(socket => {
     sockets.push(socket);
     let buffer = "";
+    let attached = false,
+      watching = false;
     socket.setEncoding("utf8");
     socket.on("data", chunk => {
       buffer += chunk;
@@ -113,14 +119,29 @@ test("a refused watch leaves the viewer syncing and is asked again", async () =>
         buffer = buffer.slice(end + 1);
         const reply = (value: object) => socket.write(json.stringify({ request_id: q.request_id, ...value }) + "\n");
         switch (q.op) {
+          case "viewer.open":
+            control = socket;
+            attached = true;
+            reply({ ok: true, viewer_protocol: protocol.viewer_version });
+            break;
           case "viewer.sync":
             reply({ type: "view", viewer_protocol: protocol.viewer_version, viewer: 1, surfaces: [] });
             break;
           case "viewer.watch":
-            reply(++watches === 1 ? { err: "NoViewer" } : { ok: true });
+            data = socket;
+            watching = ++watches > 1;
+            reply(watching ? { ok: true } : { err: "NoViewer" });
+            break;
+          case "viewer.surfaces":
+            surfaces.push(socket);
+            reply(attached || watching ? { ok: true, surfaces: frames } : { err: "NotAttached" });
+            break;
+          case "viewer.image":
+            images.push(socket);
+            reply(attached || watching ? { ok: true, data: "pixels" } : { err: "NotAttached" });
             break;
           default:
-            reply({ ok: true, surfaces: [] });
+            reply({ ok: true });
         }
       }
     });
@@ -128,13 +149,27 @@ test("a refused watch leaves the viewer syncing and is asked again", async () =>
   await new Promise<void>(resolve => server.listen(path, resolve));
   const connection = new Connection(path);
   try {
-    expect(await connection.request("viewer.sync", { interests: [] })).toMatchObject({ viewer: 1 });
+    await connection.request("viewer.open");
+    expect(await connection.request("viewer.sync", { interests: [] })).toMatchObject({ viewer: 1, surfaces: frames });
     expect(connection.watches()).toBe(false);
-    await connection.request("viewer.sync", { interests: [] });
+    expect(await connection.request("viewer.image", { pane: 1, image: "1", offset: 0 })).toEqual({
+      ok: true,
+      data: "pixels",
+    });
+    expect(surfaces).toEqual([control]);
+    expect(images).toEqual([control]);
+    expect(await connection.request("viewer.sync", { interests: [] })).toMatchObject({ viewer: 1, surfaces: frames });
     expect(watches).toBe(2);
     expect(connection.watches()).toBe(true);
+    expect(await connection.request("viewer.image", { pane: 1, image: "1", offset: 0 })).toEqual({
+      ok: true,
+      data: "pixels",
+    });
     await connection.request("viewer.sync", { interests: [] });
     expect(watches).toBe(2);
+    expect(surfaces).toEqual([control, data, data]);
+    expect(images).toEqual([control, data]);
+    expect(control).not.toBe(data);
   } finally {
     connection.close();
     for (const socket of sockets) socket.destroy();
