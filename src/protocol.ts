@@ -68,7 +68,7 @@ export interface View<Session = unknown, Resources = unknown> {
 }
 export const version = 3;
 export const management_version = 1;
-export const viewer_version = 3;
+export const viewer_version = 4;
 export type Op = (typeof operations)[number];
 type PaneDestination = { new_tab: string } | { beside: Normalized<typeof structures.beside> };
 type TabDestination = { workspace: number } | { before: number } | { after: number };

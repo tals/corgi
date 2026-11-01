@@ -196,7 +196,7 @@ test("the runtime wire matches protocol.version", () => {
 });
 
 test("the viewer wire matches viewer_version.version", async () => {
-  expect(protocol.viewer_version).toBe(3);
+  expect(protocol.viewer_version).toBe(4);
   expect(createHash("sha256").update(schemas.viewer).digest("hex")).toBe(
     "d4195c7c300255d9829f1c092cac2b70233f2eb8c9551f6e224c9dce02d5174f",
   );
