@@ -1080,7 +1080,7 @@
   "scope": "范围",
   "search": "搜索",
   "search or create": "搜索或创建",
-  "search titles and what was said": "搜索标题和对话内容",
+  "search titles, branches and messages": "搜索标题、分支和消息",
   "select": "选择",
   "send": "发送",
   "send ${count}": "发送 ${count} 条",

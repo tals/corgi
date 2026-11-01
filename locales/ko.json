@@ -1080,7 +1080,7 @@
   "scope": "범위",
   "search": "검색",
   "search or create": "검색 또는 만들기",
-  "search titles and what was said": "제목과 대화 내용 검색",
+  "search titles, branches and messages": "제목, 브랜치, 메시지 검색",
   "select": "선택",
   "send": "보내기",
   "send ${count}": "${count}개 보내기",
