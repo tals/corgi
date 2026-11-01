@@ -27,6 +27,21 @@ function requestTypes(conn: Connection) {
     const normalized: bigint | null = response.offset;
     return { offset, normalized };
   });
+  conn.call("viewer.pick", { pane: 1, offset: 0, unit: "word", x: 2, y: 3 });
+  conn.call("viewer.pick", { pane: 1, offset: 0n, unit: "line", x: 2, y: 3, to_x: 4, to_y: null });
+  // @ts-expect-error Pick units are a closed set.
+  conn.call("viewer.pick", { pane: 1, offset: 0, unit: "char", x: 2, y: 3 });
+  // @ts-expect-error The viewer's offset is required.
+  conn.call("viewer.pick", { pane: 1, unit: "word", x: 2, y: 3 });
+  // @ts-expect-error Cells are numbers.
+  conn.call("viewer.pick", { pane: 1, offset: 0, unit: "word", x: 2n, y: 3 });
+  conn.call("viewer.pick", { pane: 1, offset: 0, unit: "word", x: 2, y: 3 }).then(response => {
+    const shown: string = response.shown;
+    const end: number | undefined = response.match?.end_x;
+    // @ts-expect-error A pick may find nothing.
+    const x: number = response.match.x;
+    return { shown, end, x };
+  });
   conn.call("agent.command.preview", { workspace: 1, request: 1 }).then(response => {
     const command: string = response.resolution.command.command;
     // @ts-expect-error Serialized entries have no class methods.

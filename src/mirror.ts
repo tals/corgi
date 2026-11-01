@@ -62,6 +62,10 @@ interface Selection {
   end_x: number;
   end_y: number;
 }
+/** Text without its row joins: the mirror breaks and trims rows the daemon unwraps. */
+export function joinRows(text: string): string {
+  return text.replace(/\s*\n\s*/g, "");
+}
 
 export class Terminal {
   private native: NativeTerminal | null = null;
@@ -70,6 +74,8 @@ export class Terminal {
   bottom = 0;
   selection: Selection | null = null;
   holding_selection = false;
+  /** The text a pick's highlight must keep showing; null for drag selections. */
+  pinned: string | null = null;
   known: Stamp | null = null;
   images: surface.ImagePlacement[] = [];
   render_dirty = true;
@@ -156,6 +162,7 @@ export class Terminal {
   clearSelection(): void {
     this.selection = null;
     this.holding_selection = false;
+    this.pinned = null;
     this.native?.clearSelection();
     this.render_dirty = true;
   }
@@ -171,11 +178,49 @@ export class Terminal {
   }
   select(x: number, y: number, end_x: number, end_y: number): void {
     this.selection = { x, y, end_x, end_y };
+    this.pinned = null;
     this.inner.select(x, y, end_x, end_y);
     this.render_dirty = true;
   }
+  /** Selects a pick's range, kept only while it shows `shown`. */
+  pin(range: Selection, shown: string): void {
+    this.select(range.x, range.y, range.end_x, range.end_y);
+    this.pinned = shown;
+  }
+  pinnedMatches(): boolean {
+    return this.pinned !== null && this.shows(this.pinned);
+  }
+  /** Whether the selection shows `text`, row joins aside. */
+  shows(text: string): boolean {
+    // Without a selection, selectedText() reads the whole screen.
+    if (this.selection === null) return false;
+    return joinRows(this.selectedText()) === joinRows(text);
+  }
   selectedText(): string {
     return this.inner.selectedText();
+  }
+  /** The word, line or link at a cell; its `match` is null when there is
+   * none, and the whole result null when the request fails. */
+  async pick(
+    unit: protocol.PickUnit,
+    x: number,
+    y: number,
+    to: { x: number; y: number } | null = null,
+  ): Promise<protocol.PickResult | null> {
+    try {
+      const reply = await call(this.conn, "viewer.pick", {
+        pane: this.id,
+        offset: this.offset ?? this.bottom,
+        unit,
+        x,
+        y,
+        to_x: to?.x ?? null,
+        to_y: to?.y ?? null,
+      });
+      return { match: reply.match ?? null, shown: reply.shown, copy: reply.copy };
+    } catch {
+      return null;
+    }
   }
   async search(needle: string, skip: number): Promise<boolean> {
     const response = await call(this.conn, "viewer.search", { pane: this.id, needle, skip });
@@ -185,6 +230,7 @@ export class Terminal {
     this.offset = offset;
     // A match on the current viewport still needs its selection applied.
     this.known = null;
+    this.pinned = null;
     if (response.match)
       this.selection = {
         x: response.match.x,
@@ -250,6 +296,8 @@ export class Terminal {
     if (this.offset !== null) this.offset = view.offset;
     const sel = this.selection;
     if (sel) this.inner.select(sel.x, sel.y, sel.end_x, sel.end_y);
+    // A pick's highlight goes once the text under it changes.
+    if (this.pinned !== null && !this.pinnedMatches()) this.clearSelection();
     this.updateRender();
     // Only acknowledge surfaces actually installed. A mouse gesture may
     // hold the old display while the daemon continues collecting output.

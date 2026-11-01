@@ -105,10 +105,11 @@ export function releaseUninterested(view: Controller, interests: readonly { pane
 
 export async function sync(view: Controller, bell: { seq: bigint }, play_sound: boolean): Promise<boolean> {
   const telemetry_started = telemetry.begin();
+  view.sweepPickState();
   try {
     for (const p of view.runtime.panes) {
-      if (p.terminal.holding_selection && (view.selection === null || view.selection.pane !== p.id))
-        p.terminal.clearSelection();
+      const held = view.selection?.pane === p.id || view.gesture?.pane === p.id;
+      if (p.terminal.holding_selection && !held) p.terminal.clearSelection();
       if (p.terminal.pending.length > 0) await p.terminal.flush();
     }
     const interests: RequestInput<"viewer.sync">["interests"] = [];

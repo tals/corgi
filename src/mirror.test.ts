@@ -232,6 +232,89 @@ test("mirrored observations keep exact completion counters", () => {
   expect(mirror.unread(large.observation)).toBe(false);
 });
 
+test("a pick asks for the viewer's rows and reads any failure as no match", async () => {
+  const requests: any[] = [];
+  let reply: unknown = {
+    ok: true,
+    match: { x: 0, y: 1, end_x: 4, end_y: 1 },
+    shown: "hello",
+    copy: "hello",
+  };
+  const term = new mirror.Terminal(
+    transport(async (op, fields) => {
+      requests.push({ op, fields });
+      return reply;
+    }),
+    3,
+    10,
+    4,
+  );
+  try {
+    term.bottom = 40;
+    expect(await term.pick("word", 2, 1)).toEqual({
+      match: { x: 0, y: 1, end_x: 4, end_y: 1 },
+      shown: "hello",
+      copy: "hello",
+    });
+    term.offset = 12;
+    await term.pick("line", 2, 1, { x: 5, y: 3 });
+    expect(requests).toEqual([
+      { op: "viewer.pick", fields: { pane: 3, offset: 40, unit: "word", x: 2, y: 1, to_x: null, to_y: null } },
+      { op: "viewer.pick", fields: { pane: 3, offset: 12, unit: "line", x: 2, y: 1, to_x: 5, to_y: 3 } },
+    ]);
+    reply = { err: "UnknownOperation" };
+    expect(await term.pick("word", 0, 0)).toBeNull();
+  } finally {
+    term.destroy();
+  }
+});
+
+test("a pinned highlight stays while its text does and goes when it changes", () => {
+  const t = Terminal.create(10, 4);
+  const term = new mirror.Terminal(
+    transport(async () => {
+      throw Error("unused");
+    }),
+    1,
+    10,
+    4,
+  );
+  try {
+    t.feed("hello you\r\nabcdefghijklmno");
+    term.receive(t.surface(1));
+    expect(term.pinnedMatches()).toBe(false);
+    // The mirror breaks the soft-wrapped word where the daemon unwraps it.
+    term.pin({ x: 0, y: 1, end_x: 4, end_y: 2 }, "abcdefghijklmno");
+    expect(term.selectedText()).toBe("abcdefghij\nklmno");
+    expect(term.pinnedMatches()).toBe(true);
+    t.feed("\x1b[1;1Hjello");
+    term.receive(t.surface(1));
+    expect(term.selection).not.toBeNull();
+    term.pin({ x: 0, y: 0, end_x: 4, end_y: 0 }, "jello");
+    t.feed("\x1b[1;1Hjelly");
+    term.receive(t.surface(1));
+    expect(term.selection).toBeNull();
+    expect(term.pinned).toBeNull();
+    expect(term.pinnedMatches()).toBe(false);
+    // A drag selection is not pinned, so changed text keeps it.
+    term.select(0, 0, 4, 0);
+    t.feed("\x1b[1;1Hhello");
+    term.receive(t.surface(1));
+    expect(term.selection).toEqual({ x: 0, y: 0, end_x: 4, end_y: 0 });
+    term.pin({ x: 0, y: 0, end_x: 4, end_y: 0 }, "hello");
+    term.clearSelection();
+    expect(term.pinned).toBeNull();
+  } finally {
+    term.destroy();
+    t.destroy();
+  }
+});
+
+test("row joins drop their newline and the whitespace around it", () => {
+  expect(mirror.joinRows("abc   \n  def\nghi")).toBe("abcdefghi");
+  expect(mirror.joinRows(" a b ")).toBe(" a b ");
+});
+
 test("an account's YOLO and Show come from the snapshot, and an older daemon's has none", () => {
   const runtime = new mirror.Runtime(),
     workspaces = [{ id: 1, model: { nodes: [], tabs: [], revision: 0 } }];
