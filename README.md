@@ -89,8 +89,9 @@ Special thanks to our early testers for their wonderful suggestions and
 feedback: [Max Bittker](https://x.com/MaxBittker),
 [Aaron Blakeman](https://github.com/ablakeman),
 [Kai Johnson](https://github.com/sirkaiserkai),
-[Luke Alonso](https://github.com/lukealonso) and
-[Keith Adams](https://pebblebed.com/team/keith-adams).
+[Luke Alonso](https://github.com/lukealonso),
+[Keith Adams](https://pebblebed.com/team/keith-adams) and
+[Roland Huß](https://ro14nd.de).
 
 ## License
 
