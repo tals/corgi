@@ -1,6 +1,22 @@
 import { test, expect } from "bun:test";
-import { relative, History, Picker } from "./agent_navigation";
-import { entry, type Entry } from "./sidebar";
+import { relative, sameTarget, History, Picker } from "./agent_navigation";
+import { entry, type Entry, type Target } from "./sidebar";
+test("navigation distinguishes agents and headings with overlapping identities", () => {
+  const targets: (Target | null)[] = [
+    null,
+    { pane: 1 },
+    { headless: 1 },
+    { group: 1 },
+    { worktree: "/wt", workspace: 1 },
+    { worktree: "/wt", workspace: 2 },
+    { asleep: "session", provider: "claude" },
+    { asleep: "session", provider: "codex" },
+    { section: "working" },
+    { section: "working", workspace: 1, checkout: null, run: 0 },
+    { section: "working", workspace: 1, checkout: null, run: 1 },
+  ];
+  targets.forEach((a, i) => targets.forEach((b, j) => expect(sameTarget(a, structuredClone(b))).toBe(i === j)));
+});
 test("agent navigation wraps, excludes shells, and validates history against the current list", () => {
   const entries: Entry[] = [
     entry({

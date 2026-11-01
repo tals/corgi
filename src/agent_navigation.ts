@@ -1,10 +1,7 @@
-import { isAgent, type Entry, type Target } from "./sidebar";
+import { isAgent, sameTarget, type Entry, type Target } from "./sidebar";
 import { Dialog } from "./name_dialog";
 import type * as sidebarFocus from "./sidebar_focus";
-export function sameTarget(a: Target | null, b: Target | null) {
-  if (a === null || b === null) return a === b;
-  return Object.keys(a).length === Object.keys(b).length && Object.keys(a).every(k => (a as any)[k] === (b as any)[k]);
-}
+export { sameTarget };
 export function indexOf(entries: Entry[], target: Target | null) {
   if (!target) return null;
   const i = entries.findIndex(e => sameTarget(e.target, target));
