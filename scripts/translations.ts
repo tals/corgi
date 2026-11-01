@@ -338,8 +338,7 @@ async function format(root: string, js: string): Promise<string> {
     const cached = JSON.parse(readFileSync(cache, "utf8"));
     if (cached.key === key && typeof cached.text === "string") return cached.text;
   } catch {}
-  const [directory] = await tooling.packages("format", { prettier: tooling.prettierVersion });
-  const prettier = await import(join(directory, "index.mjs"));
+  const prettier = await import(join(await tooling.dependency("prettier"), "index.mjs"));
   const text: string = await prettier.format(js, { ...(await prettier.resolveConfig(path)), parser: "typescript" });
   try {
     write(cache, JSON.stringify({ key, text }));
