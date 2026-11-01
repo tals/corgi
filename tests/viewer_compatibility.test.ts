@@ -43,27 +43,36 @@ class ReplyProxy {
       client.destroy();
       replies.end();
     });
-    const loop = async () => {
-      try {
-        while (true) {
-          const line = await requests.next(30000),
-            request = JSON.parse(line);
-          server.write(line + "\n");
-          const upstreamReply = await replies.next(30000);
-          let reply = upstreamReply;
-          if (request.op === "viewer.open" && this.open_reply !== null) reply = JSON.stringify(this.open_reply);
-          if (request.op === "viewer.sync") {
-            if (this.sync_reply !== null) reply = JSON.stringify(this.sync_reply);
-            this.synced = true;
-          }
-          client.write(reply + "\n");
-        }
-      } catch {
-        client.destroy();
-        server.destroy();
+    const pending = new Map<number, protocol.Op>();
+    const forwardRequests = async () => {
+      for (;;) {
+        const line = await requests.next(30000),
+          request = JSON.parse(line),
+          id = protocol.requestId(request);
+        if (id !== null) pending.set(id, protocol.parse(request));
+        server.write(line + "\n");
       }
     };
-    void loop();
+    const forwardReplies = async () => {
+      for (;;) {
+        const line = await replies.next(30000),
+          id = protocol.requestId(JSON.parse(line)),
+          op = id === null ? null : pending.get(id);
+        if (id !== null) pending.delete(id);
+        let replacement: object | null = null;
+        if (op === "viewer.open") replacement = this.open_reply;
+        if (op === "viewer.sync") {
+          replacement = this.sync_reply;
+          this.synced = true;
+        }
+        const reply = replacement === null ? line : JSON.stringify({ ...replacement, request_id: id });
+        client.write(reply + "\n");
+      }
+    };
+    void Promise.all([forwardRequests(), forwardReplies()]).catch(() => {
+      client.destroy();
+      server.destroy();
+    });
   }
   async close() {
     for (const connection of this.connections) connection.destroy();

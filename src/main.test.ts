@@ -1,5 +1,5 @@
 import { test, expect, spyOn } from "bun:test";
-import { actionNames, failure, providerAlias, paneId, run, say } from "./main";
+import { actionNames, ensureServer, failure, providerAlias, paneId, run, say } from "./main";
 import { specs } from "./action";
 import * as rpc from "./rpc";
 import * as crash from "./crash";
@@ -7,8 +7,11 @@ import * as updates from "./updates";
 import * as integration from "./integration";
 import * as accountCommand from "./account_command";
 import * as protocol from "./protocol";
-import { readFileSync, realpathSync } from "node:fs";
-import { resolve, dirname, relative } from "node:path";
+import * as errors from "./errors";
+import { existsSync, mkdtempSync, readFileSync, realpathSync } from "node:fs";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join, resolve, dirname, relative } from "node:path";
 test("provider named launchers use their original argv0", () => {
   expect(providerAlias("/tmp/codex")).toBe("codex");
   expect(providerAlias("/tmp/claude")).toBe("claude");
@@ -29,6 +32,29 @@ test("runtime protocol errors are distinct from viewer incompatibility", () => {
   expect(failure(["reload"], Error("UnsupportedManagementProtocol"))).toContain(
     `management protocol ${protocol.management_version}`,
   );
+});
+test("a busy reload says what it waits for", () => {
+  const busy = errors.fromReply({ err: "ReloadBusy", busy: { op: "worktree.add", path: "/src/feature" } });
+  expect(failure(["reload"], busy)).toBe(
+    "corgi: the server can't reload while Git adds the worktree /src/feature; try again in a moment.\n",
+  );
+  expect(failure(["reload", "--json"], busy)).toBe(
+    '{"ok":false,"err":"ReloadBusy","busy":{"op":"worktree.add","path":"/src/feature"}}\n',
+  );
+  expect(failure(["reload"], Error("ReloadBusy"))).toBe("corgi: ReloadBusy\n");
+});
+test("a daemon that rejects hello still counts as running", async () => {
+  const path = join(mkdtempSync(join(tmpdir(), "corgi-main-")), "s");
+  const server = createServer(socket =>
+    socket.on("data", () => socket.write('{"err":"UnsupportedManagementProtocol"}\n')),
+  );
+  await new Promise<void>(resolve => server.listen(path, resolve));
+  try {
+    await ensureServer(path, "/nonexistent/corgi");
+    expect(existsSync(path)).toBe(true);
+  } finally {
+    server.close();
+  }
 });
 test("help names every action on lines of at most 80 columns", () => {
   for (const line of actionNames.split("\n")) expect(Buffer.byteLength(line)).toBeLessThanOrEqual(80);

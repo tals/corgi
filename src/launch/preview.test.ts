@@ -277,6 +277,45 @@ const reading = (used: number) =>
     limits: { windows: [null, new Window({ minutes: 10080, used, reset_at: 10080 * 60 })] },
   });
 
+test("sign-in refreshes during a pass run again as soon as it finishes", async () => {
+  const worker = new Worker(),
+    started = Promise.withResolvers<void>(),
+    release = Promise.withResolvers<void>();
+  let reads = 0;
+  worker.launcher = async provider => ({
+    account: async () => {
+      if (provider !== "codex") return new Info();
+      const first = ++reads === 1;
+      if (first) {
+        started.resolve();
+        await release.promise;
+      }
+      return Object.assign(new Info(), {
+        signed_in: !first,
+        account: new Text(first ? "" : "codex@example.com"),
+      });
+    },
+    model: async () => ({ model: "test", source: "test" }),
+    close() {},
+  });
+  try {
+    worker.preview(root);
+    await started.promise;
+    worker.preview(root, true);
+    worker.preview(root, true);
+    release.resolve();
+    await worker.pump();
+    const preview = worker.preview(root);
+    expect(reads).toBe(2);
+    expect(preview.pending).toBe(false);
+    expect(preview.options.codex.signed_in).toBe(true);
+    expect(preview.options.codex.account.text()).toBe("codex@example.com");
+  } finally {
+    release.resolve();
+    await worker.stop();
+  }
+});
+
 test("folders signed in to one account share a read, through the folder that worked last", async () => {
   sameLogin(["stale", "fresh"]);
   const worker = new Worker(),

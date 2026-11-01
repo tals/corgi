@@ -83,6 +83,8 @@ class Login {
   /** Someone asked for its usage: the next read fetches it, whatever its age. */
   forced = false;
   reading: Promise<void> | null = null;
+  /** A refresh arrived after the current account read started. */
+  stale = false;
   /** The folder whose read worked last. */
   source: string | null = null;
   /** Each folder's own last read. */
@@ -202,6 +204,7 @@ export class Worker {
     if (refresh || access)
       for (const login of this.logins.values()) {
         login.read_at = 0;
+        login.stale = true;
         login.forced ||= access;
       }
     let job = this.jobs.find(j => j.cwd === cwd);
@@ -221,7 +224,8 @@ export class Worker {
       job.preview = listed;
       if (
         moved ||
-        ((refresh || now - job.updated > 60000) && !job.preview.pending) ||
+        refresh ||
+        (now - job.updated > 60000 && !job.preview.pending) ||
         (access && !job.accessing && !job.request_access)
       ) {
         job.queued = true;
@@ -412,6 +416,7 @@ export class Worker {
       return Promise.resolve();
     const order = login.source !== null && folders.includes(login.source) ? [login.source] : [];
     for (const folder of folders) if (folder !== login.source) order.push(folder);
+    login.stale = false;
     const reading = (async () => {
       // A reading another Corgi fetched this interval will do.
       let max_age = login.forced ? 0 : Math.max(0, this.every - check_ms / 1000),
@@ -439,7 +444,7 @@ export class Worker {
         login.history = history.sparks;
         login.spend = history.spend;
       }
-      login.read_at = Date.now();
+      login.read_at = login.stale ? 0 : Date.now();
     })().finally(() => (login.reading = null));
     login.reading = reading;
     return reading;

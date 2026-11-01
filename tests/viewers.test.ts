@@ -711,7 +711,7 @@ class ViewerScenarios extends Viewers {
     this.assertIn("Rename", a.state.data);
     await a.input("\r");
     await a.input("Renamed\r");
-    this.assertEqual((await this.session()).workspaces.find((w: any) => w.id === ws).custom_name, "Renamed");
+    this.assertEqual((await this.session()).workspaces.find((w: any) => w.id === ws).name, "Renamed");
     await a.input("\x1b[<2;5;6M\x1b[<2;5;6m");
     await a.input("\x1b[B\r");
     this.assertEqual((await this.session()).workspaces.length, 1);

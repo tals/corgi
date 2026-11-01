@@ -13,6 +13,8 @@ import {
   viewers,
   open,
   sync,
+  surfaces,
+  image,
 } from "./viewer_protocol";
 import { Pane, Ghost } from "./runtime";
 import { Terminal } from "./pane/terminal";
@@ -236,6 +238,42 @@ test("surface modes follow the live terminal while a restored ghost supplies its
   expect(view.modes.bracketed_paste).toBe(true);
   expect(view.surface.lines.join("")).toContain("RESTORED");
 });
+test("the data connection reads its viewer's surfaces and receipts without becoming a viewer", async () => {
+  const s = fixture(),
+    ws = new Workspace(1, "/tmp"),
+    pane = new Pane(1, new Terminal(80, 24), "/tmp");
+  ws.model.newTab("pane");
+  s.runtime.workspaces.items.push(ws);
+  s.runtime.panes.push(pane);
+  pane.terminal.feed("pane output");
+  const control = peer(s),
+    data = s.addClient(-1, false),
+    metadata = spyOn(control, "queue").mockImplementation(() => {}),
+    content = spyOn(data, "queue").mockImplementation(() => {});
+  expect(() => surfaces(s, data)).toThrow("NotAttached");
+  data.watching = true;
+  data.watch_viewer = control.viewer_id;
+  await sync(
+    s,
+    control,
+    protocol.decode("viewer.sync", {
+      interests: [{ pane: 1, cols: 80, rows: 24 }],
+      surfaces: false,
+    }),
+  );
+  expect(metadata.mock.calls[0][0]).toMatchObject({ type: "view", surfaces: [] });
+  surfaces(s, data);
+  const reply = content.mock.calls[0][0] as protocol.ReplyPayloads["viewer.surfaces"];
+  expect(reply.surfaces).toHaveLength(1);
+  expect(reply.surfaces[0].surface.lines.join("")).toContain("pane output");
+  expect(viewers(s)).toHaveLength(1);
+  control.interests[0].known = reply.surfaces[0].stamp;
+  surfaces(s, data);
+  expect(content.mock.calls[1][0]).toEqual({ ok: true, surfaces: [] });
+  expect(() => image(s, data, { pane: 2, image: "1", offset: 0 })).toThrow("NoPane");
+  control.dead = true;
+  expect(() => surfaces(s, data)).toThrow("NoViewer");
+});
 test("a new viewer opens on the pane last used in the preferred workspace", async () => {
   const s = fixture(),
     ws = new Workspace(1, "/tmp");
@@ -260,7 +298,7 @@ test("a new viewer opens on the pane last used in the preferred workspace", asyn
   await use(idle, first);
   expect(ws.focus).toBe(second);
   const next = s.addClient(-1, false),
-    reply = spyOn(next, "reply").mockImplementation(() => {});
+    reply = spyOn(next, "queue").mockImplementation(() => {});
   await open(s, next, protocol.decode("viewer.open", {}));
-  expect(reply.mock.calls[0][1]).toMatchObject({ workspace: 1, focus: second });
+  expect(reply.mock.calls[0][0]).toMatchObject({ workspace: 1, focus: second });
 });

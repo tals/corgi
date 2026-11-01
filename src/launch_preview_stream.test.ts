@@ -1,7 +1,48 @@
 import { test, expect } from "bun:test";
 import { Stream } from "./launch_preview_stream";
 import { preview } from "./agent_launcher";
-test("preview stream handles partial and consecutive messages and ignores old directories", () => {
+import type { Transport } from "./mirror";
+import type * as protocol from "./protocol";
+function deliver(stream: Stream, wire: string) {
+  return stream.receive(JSON.parse(wire));
+}
+test("a shared subscription keeps newer pushes and follows history once across folders", async () => {
+  const stream = new Stream(),
+    initial = Promise.withResolvers<unknown>(),
+    requests: string[] = [];
+  let listener: ((event: protocol.Event) => void) | null = null;
+  const message = (cwd: string, account: string) => ({
+    type: "agent.preview" as const,
+    cwd,
+    preview: preview({ pending: false, options: { codex: { account } } }),
+  });
+  const connection: Transport = {
+    onEvent(receive) {
+      listener = receive;
+      return () => {
+        listener = null;
+      };
+    },
+    request: (async (op: protocol.Op) => {
+      requests.push(op);
+      if (op === "agent.history") return { ok: true };
+      return requests.length === 1 ? initial.promise : message("/b", "new");
+    }) as Transport["request"],
+  };
+  stream.connect(connection);
+  stream.poll(1, "/a");
+  initial.resolve(message("/a", "old"));
+  listener!(message("/a", "new") as unknown as protocol.Event);
+  await new Promise(resolve => setImmediate(resolve));
+  expect(stream.preview.options.codex.account).toBe("new");
+  stream.poll(2, "/b");
+  await new Promise(resolve => setImmediate(resolve));
+  expect(stream.preview.options.codex.account).toBe("new");
+  expect(requests).toEqual(["agent.subscribe", "agent.history", "agent.subscribe"]);
+  stream.disconnect();
+  expect(listener).toBeNull();
+});
+test("preview subscriptions update rows and ignore old directories", () => {
   const stream = new Stream();
   stream.cwd = "/a";
   const preview = {
@@ -13,26 +54,26 @@ test("preview stream handles partial and consecutive messages and ignores old di
       },
     },
     first = JSON.stringify({ type: "agent.preview", cwd: "/a", preview });
-  expect(stream.feed(first.slice(0, 100))).toBe(false);
-  expect(stream.feed(first.slice(100) + "\n")).toBe(true);
+  expect(deliver(stream, first)).toBe(true);
   expect(stream.current("/a").options.codex.model).toBe("initial");
   preview.options.codex.model = "updated";
-  let changed = stream.feed(JSON.stringify({ type: "agent.preview", cwd: "/a", preview }) + "\n");
+  let changed = deliver(stream, JSON.stringify({ type: "agent.preview", cwd: "/a", preview }) + "\n");
   preview.options.codex.model = "wrong directory";
-  changed = stream.feed(JSON.stringify({ type: "agent.preview", cwd: "/b", preview }) + "\n") || changed;
+  changed = deliver(stream, JSON.stringify({ type: "agent.preview", cwd: "/b", preview }) + "\n") || changed;
   expect(changed).toBe(true);
   expect(stream.current("/a").options.codex.model).toBe("updated");
   expect(stream.current("/b").options.codex.model).toBe("");
   preview.pending = true;
   preview.options.codex.model = "";
-  stream.feed(JSON.stringify({ type: "agent.preview", cwd: "/a", preview }) + "\n");
+  deliver(stream, JSON.stringify({ type: "agent.preview", cwd: "/a", preview }) + "\n");
   expect(stream.preview.pending).toBe(true);
   expect(stream.preview.options.codex.model).toBe("updated");
 });
 test("the stream follows conversations: the whole list, then what changed", () => {
   const stream = new Stream();
   expect(stream.history.pending).toBe(true);
-  stream.feed(
+  deliver(
+    stream,
     JSON.stringify({
       type: "agent.history",
       update: {
@@ -60,7 +101,8 @@ test("the stream follows conversations: the whole list, then what changed", () =
   );
   expect(stream.history.pending).toBe(false);
   expect(stream.history.entries[0].title).toBe("Newer");
-  stream.feed(
+  deliver(
+    stream,
     JSON.stringify({
       type: "agent.history",
       update: {
@@ -83,7 +125,8 @@ test("the stream follows conversations: the whole list, then what changed", () =
   expect(stream.history.entries).toHaveLength(1);
   expect(stream.history.entries[0].title).toBe("Older, used again");
   expect(
-    stream.feed(
+    deliver(
+      stream,
       JSON.stringify({
         type: "agent.history",
         history: {
@@ -114,14 +157,14 @@ test("accounts survive a change of folder until the new folder's read lists its 
   };
   const message = (cwd: string, pending: boolean, accounts: object[]) =>
     JSON.stringify({ type: "agent.preview", cwd, preview: { pending, accounts } }) + "\n";
-  stream.feed(message("/a", false, [account]));
+  deliver(stream, message("/a", false, [account]));
   // As poll moves the stream to another folder.
   Object.assign(stream, { preview: stream.current("/b"), cwd: "/b", received: false });
   expect(stream.preview.accounts.map(a => [a.name, a.option.model, a.option.signed_in])).toEqual([["work", "", true]]);
   // The daemon's first answer there lists none yet.
-  stream.feed(message("/b", true, []));
+  deliver(stream, message("/b", true, []));
   expect(stream.preview.accounts.map(a => a.name)).toEqual(["work"]);
-  stream.feed(message("/b", false, []));
+  deliver(stream, message("/b", false, []));
   expect(stream.preview.accounts).toEqual([]);
 });
 
@@ -137,7 +180,7 @@ test("the first frame has snapshot accounts and partial previews update while an
     options: { codex: { pending: true }, claude: { pending: false, account: "home@example.com" } },
     accounts: known.map(a => ({ ...a, option: { pending: true } })),
   });
-  const receive = () => stream.feed(JSON.stringify({ type: "agent.preview", cwd: "/a", preview: sent }) + "\n");
+  const receive = () => deliver(stream, JSON.stringify({ type: "agent.preview", cwd: "/a", preview: sent }) + "\n");
   expect(receive()).toBe(true);
   expect(stream.preview.options.claude.account).toBe("home@example.com");
   sent.accounts[0].option.pending = false;

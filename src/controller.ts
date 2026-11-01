@@ -3241,8 +3241,7 @@ export class Controller {
     this.dirty = true;
   }
   /** Where the launcher starts what it launches. A new worktree named there
-   * is added first, over a connection of its own since a big checkout takes
-   * seconds; null when Git refused it, with the reason in its form. */
+   * is added first; null when Git refused it, with the reason in its form. */
   private async launcherDir(): Promise<string | null> {
     const launch = this.agent_launcher;
     if (!launch) return this.launcherCwd();
@@ -3250,13 +3249,11 @@ export class Controller {
       planned = c.planned;
     if (!planned) return launch.cwd;
     if (c.adding) return null;
-    const fields = { workspace: launch.workspace, path: planned.path, branch: planned.branch, base: planned.base },
-      socket = this.connection.socket;
+    const fields = { workspace: launch.workspace, path: planned.path, branch: planned.branch, base: planned.base };
     c.adding = true;
     this.dirty = true;
     try {
-      if (socket) await rpc.request(socket, "worktree.add", fields);
-      else await call(this.connection, "worktree.add", fields);
+      await call(this.connection, "worktree.add", fields);
     } catch (error) {
       const reason = launcherWorktree.reason(errors.name(error), planned),
         branch = planned.branch;
@@ -3285,16 +3282,12 @@ export class Controller {
     if (launch.worktree.branches === null) void this.listBranches(launch);
     this.dirty = true;
   }
-  /** The repository's branches for From, over a connection of its own like
-   * `worktree.add`. A daemon that can't list them leaves From the default bases. */
+  /** A daemon that cannot list branches leaves From the default bases. */
   private async listBranches(launch: LauncherMenu): Promise<void> {
-    const fields = { workspace: launch.workspace },
-      socket = this.connection.socket;
+    const fields = { workspace: launch.workspace };
     let branches: launcherWorktree.Branch[];
     try {
-      const reply = socket
-        ? await rpc.request(socket, "git.branches", fields)
-        : await call(this.connection, "git.branches", fields);
+      const reply = await call(this.connection, "git.branches", fields);
       branches = launcherWorktree.branchList(reply.branches);
     } catch {
       branches = launcherWorktree.bases(launch.worktrees, launch.cwd).map(b => ({ ...b, at: 0 }));

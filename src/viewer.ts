@@ -3,7 +3,6 @@
 //! Mirrors viewer.zig.
 import * as telemetry from "./telemetry";
 import { dirname, join } from "node:path";
-import { createConnection, type Socket } from "node:net";
 import { Controller } from "./controller";
 import { call, unread, acknowledge, type Transport } from "./mirror";
 import { parse as parseAction } from "./action";
@@ -20,10 +19,8 @@ import { sshViewer } from "./trackers/ports";
 import * as palette from "./palette";
 import * as hostBackground from "./host_background";
 import type { Reply, RequestInput } from "./protocol";
-import * as protocol from "./protocol";
 import type { State as ClipboardState } from "./host_clipboard";
 import { n, ptr } from "./native_ffi";
-import { stringify } from "./json";
 export { Controller as View };
 
 /** How often a viewer syncs while the daemon reports nothing new. Under a
@@ -45,15 +42,13 @@ export async function open(
   view: Controller,
   cwd: string,
   theme: RequestInput<"viewer.open">["theme"],
-  socket: string,
 ): Promise<bigint> {
-  return openMode(view, cwd, theme, socket, false);
+  return openMode(view, cwd, theme, false);
 }
 export async function openMode(
   view: Controller,
   cwd: string,
   theme: RequestInput<"viewer.open">["theme"],
-  socket: string,
   start_onboarding: boolean,
 ): Promise<bigint> {
   view.remote_links = sshViewer();
@@ -74,7 +69,11 @@ export async function openMode(
   await view.refresh();
   if (opened.focus && view.runtime.workspaces.owner(opened.focus)) view.focusPane(opened.focus, false);
   view.restoreAgentScroll();
-  view.launch_previews.socket = socket;
+  view.launch_previews.connect(view.connection);
+  view.launch_previews.changedEvent = () => {
+    view.dirty = true;
+    view.wake();
+  };
   view.updateLaunchPreview();
   return BigInt(opened.bell_seq ?? 0n);
 }
@@ -247,7 +246,7 @@ export async function presented(view: Controller): Promise<void> {
   }
 }
 
-/** Waits for the first of stdin, the daemon's wake connection, the host
+/** Waits for the first of stdin, the daemon's data connection, the host
  * taking output or answering a frame, or a timeout, as viewer.zig polls them. */
 class Poll {
   private wake: (() => void) | null = null;
@@ -291,7 +290,7 @@ export async function run(
 ): Promise<string | null> {
   const view = new Controller(connection);
   try {
-    const bell = { seq: await openMode(view, folder ?? process.cwd(), probe.theme, socket, start_onboarding) };
+    const bell = { seq: await openMode(view, folder ?? process.cwd(), probe.theme, start_onboarding) };
     if (folder !== null)
       try {
         await view.perform({ name: "open", value: folder });
@@ -319,9 +318,6 @@ export async function run(
       initial_size = dimensions();
     writeAll(probe.size.update(initial_size.pty) + probe.measure(initial_size.rows, probed_at));
     let terminal_sent = false;
-    // Opened once the first sync names this viewer.
-    let waker: Socket | null = null;
-    let watch_opened = false;
     // What the daemon said changed since the last sync: when it first and
     // last said so, and whether to draw it at once.
     let woken: { first: number; last: number; prompt: boolean } | null = null;
@@ -340,6 +336,16 @@ export async function run(
     const poll = new Poll();
     const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
     view.wake = () => poll.notify("host");
+    const unwatch = connection.onEvent?.(event => {
+      if (event.type !== "viewer.wake") return;
+      const at = Date.now(),
+        due = wakeDue();
+      // Typing's echo, or a change on an idle screen, is drawn now.
+      const prompt = typed || at - active_at >= idle_after_ms || woken?.prompt === true;
+      woken = { first: woken?.first ?? at, last: at, prompt };
+      typed = false;
+      if (wakeDue() < due) poll.notify("waker");
+    });
     let resized = false;
     const onResize = () => {
       resized = true;
@@ -429,34 +435,11 @@ export async function run(
         // changed, or often enough that it still counts this viewer as watching.
         const pane_due = woken !== null && now >= wakeDue();
         if (view.dirty || now >= next_sync || pane_due || (held && ready(probe))) {
-          if (waker === null || view.dirty || pane_due || now - synced >= quiet_sync_ms) {
+          if (!connection.watches?.() || view.dirty || pane_due || now - synced >= quiet_sync_ms) {
             // A wake during the sync may be past what it brings: keep it.
             woken = null;
             synced = now;
             if (!(await sync(view, bell, true))) return view.executable.length > 0 ? view.executable : null;
-            if (!watch_opened) {
-              waker = watch(
-                socket,
-                view.input_state.viewer_id,
-                () => {
-                  const at = Date.now(),
-                    due = wakeDue();
-                  // Typing's echo, or a change on an idle screen, is drawn now.
-                  const prompt = typed || at - active_at >= idle_after_ms || woken?.prompt === true;
-                  woken = { first: woken?.first ?? at, last: at, prompt };
-                  typed = false;
-                  // The daemon wakes per read of a pane's output; the loop
-                  // already waits for the change's due time unless this brings it nearer.
-                  if (wakeDue() < due) poll.notify("waker");
-                },
-                () => {
-                  // A daemon gone or replaced by a reload stops waking; sync on
-                  // every frame again until this viewer reconnects.
-                  waker = null;
-                },
-              );
-              watch_opened = true;
-            }
           }
           const compose_started = telemetry.begin();
           const frame = view.compose();
@@ -520,7 +503,7 @@ export async function run(
         await poll.wait(until - Date.now(), false);
       }
       stdin.close();
-      waker?.destroy();
+      unwatch?.();
       host?.destroy();
       if (probe.badge.uploaded) writeAll(corgiBadge.remove);
       if (view.thumbnails.sent !== null) writeAll(linkThumbnail.remove);
@@ -608,20 +591,6 @@ async function deliverClipboard(view: ClipboardView, clipboard: ClipboardState, 
 function flushClipboard(clipboard: ClipboardState): void {
   const out = clipboard.takeOutput();
   if (out.length > 0) writeAll(out);
-}
-/** The daemon's wake connection, or null when it cannot watch (an older
- * daemon), in which case the viewer syncs on every frame. */
-function watch(socket: string, viewer: number, woken: () => void, closed: () => void): Socket | null {
-  try {
-    const conn = createConnection(socket);
-    conn.on("data", woken);
-    conn.on("error", () => {});
-    conn.on("close", closed);
-    conn.write(stringify(protocol.envelope("viewer.watch", { viewer })) + "\n");
-    return conn;
-  } catch {
-    return null;
-  }
 }
 /** Publish terminal measurements for the UI and other clients to read. */
 async function publishTerminal(view: Controller, connection: Transport, probe: terminal_info.Probe): Promise<void> {

@@ -265,6 +265,54 @@ client can discover and replace an older daemon. No protocol fallback is needed.
 version negotiates ordinary requests on that connection. Management requests
 always carry their own version, even on a negotiated connection.
 
+Runtime protocol 4 lets a request carry a positive safe-integer `request_id`,
+which the daemon echoes on its success or error reply. Tagged replies can
+arrive out of order: a branch listing or worktree addition answers after
+requests sent later. `rpc.Connection` tags by default and fails the
+connection on an untagged reply; subscription events remain untagged. With
+`requestIds: false` it sends one untagged request at a time, as `hello`,
+`server.reload` and the CLI do. Unversioned CLI controls such as `focus` and
+`workspace.switch` still accept replies from older daemons.
+
+Each viewer keeps two daemon connections in `viewer_connection.ts`. The control
+connection owns the viewer, commands, pane input, metadata and launcher/history
+subscriptions. The data connection carries surfaces, images, searches and wake
+notifications. Both use `rpc.Connection`, which delivers untagged subscription
+events separately from correlated replies. Changing folders replaces the launcher
+subscription on the control connection and keeps the history subscription.
+
+The control connection sends `viewer.sync` with `surfaces: false`; after it updates
+the viewer's interests, `viewer.surfaces` reads the corresponding frames on the
+data connection. `viewer.watch` associates that connection with the existing viewer,
+so pane sizing, focus and activity still belong to one viewer. If a watch is refused
+or the data connection closes, content reads use the control connection until a
+later sync attaches the data connection again. Interrupted content reads retry on
+control; commands are never replayed. Surface receipts and frame diffs keep their
+existing behavior.
+The new operation and defaulted `surfaces` flag are additive: runtime protocol 4
+and viewer protocol 3 are unchanged, and older callers still receive surfaces from
+`viewer.sync`. Handoff already saves
+both connections and their association; no saved-format change or migration is needed.
+
+The id is optional, so a script can speak plain JSON lines or HTTP `POST`.
+Requests without one are answered in the order they were sent; a slow request
+holds that connection's later ones until it replies. Older runtime protocols
+are rejected, without a serial fallback.
+
+Discovery and replacement use one untagged management request per connection,
+so `hello` and `server.reload` can still upgrade an older daemon. Startup probes
+with `hello` before deciding whether a daemon needs to be started. One-shot
+unversioned requests, including `ping` and `shutdown`, and bug-report queries
+also omit ids so older daemons can answer. Management protocol 1 and viewer
+protocol 3 are unchanged.
+
+Reload returns `ReloadBusy` while a worktree addition is still running, with
+`busy` naming it (`{"op": "worktree.add", "path": …}`). Retry
+after it finishes; worktree mutations are never replayed. A branch listing still
+running is answered with `Reloading` and dropped. Handoff
+retains the reload request id and pending headless-start ids as optional fields
+defaulting to null, so the saved-format versions are unchanged.
+
 For saved data, a defaulted addition needs an updated schema snapshot; a rename,
 removal or change of meaning needs a migration:
 
