@@ -1971,22 +1971,26 @@ test("the automatic palette editor chooses colors, resets entries and returns to
   menu.trick_palette = {
     ref: "globals.accounts",
     entries: 1,
+    scheme: null,
+    preview: ["warm", "accent"],
+    owners: ["test"],
     colors: ["warm", "accent"],
     assignments: [{ key: "account-id", label: "Claude Code · Work", color: "warm", override: false }],
   };
   expect(draw(menu, 120, 40).join("\n")).toContain("Claude Code · Work");
-  menu.cursor = 1;
+  menu.cursor = 2;
   expect(menu.enter(s, prefs)).toBeNull();
   const lines = draw(menu, 120, 40).join("\n");
-  expect(lines).toContain("Search colors");
+  expect(lines).toContain("Color name or #hex");
+  expect(lines).not.toContain("syntax.");
   expect(lines).not.toContain("Billing");
   expect(menu.click({ choice: 2 }, s, prefs)).toEqual({
     kind: "trick_palette_set",
     ref: "globals.accounts",
     key: "account-id",
-    color: "accent",
+    color: { hue: "green" },
   });
-  menu.cursor = 2;
+  menu.cursor = 3;
   expect(menu.enter(s, prefs)).toEqual({
     kind: "trick_palette_set",
     ref: "globals.accounts",
@@ -2029,4 +2033,71 @@ test("Tricks status refreshes only while visible and never overlaps pending requ
   finish({ directory: "/changed", tricks: [] });
   await Bun.sleep(0);
   expect(menu.tricks?.directory).toBe("/tmp/tricks");
+});
+
+test("each Trick keeps its palettes and preview chips together, including shared and disabled ones", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status();
+  menu.item = "tricks";
+  menu.tricks = {
+    directory: "/tmp/tricks",
+    autoreload: true,
+    watch_error: null,
+    tricks: ["first", "second"].map(id => ({
+      id,
+      path: "/tmp/tricks/" + id + "/trick.toml",
+      enabled: false,
+      running: false,
+      error: null,
+    })),
+  };
+  menu.trick_palettes = [
+    { ref: "first/accounts", entries: 2, owners: ["first"], preview: ["#abcdef", "#fedcba"] },
+    { ref: "globals.shared", entries: 1, owners: ["first", "second"], preview: ["#abcdef"] },
+    { ref: "second/projects", entries: 1, owners: ["second"], preview: ["#fedcba"] },
+  ];
+  for (const width of [80, 120]) {
+    const rows = draw(menu, width, 40, 0, s, prefs);
+    const first = rows.findIndex(r => /first\s+○ Off/.test(r));
+    const second = rows.findIndex(r => /second\s+○ Off/.test(r));
+    expect(rows[first + 1]).toContain("accounts");
+    expect(rows[first + 2]).toContain("globals.shared");
+    expect(rows[second + 1]).toContain("globals.shared");
+    expect(rows[second + 2]).toContain("projects");
+    expect(rows.join("\n")).not.toContain("first/accounts");
+  }
+  menu.openOptions(s, prefs);
+  menu.cursor = 1;
+  expect(menu.enter(s, prefs)).toEqual({ kind: "trick_palette_open", ref: "first/accounts" });
+});
+
+test("the palette editor accepts custom CSS colors and an explicit scheme", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status();
+  menu.item = "tricks";
+  menu.focus = "options";
+  menu.trick_palette_ref = "example/accounts";
+  menu.trick_palette = {
+    ref: "example/accounts",
+    entries: 1,
+    colors: [{ hue: "blue" }],
+    scheme: null,
+    owners: ["example"],
+    preview: [{ hue: "blue" }],
+    assignments: [{ key: "work", label: "Work", color: { hue: "blue" }, override: false }],
+  };
+  menu.cursor = 1;
+  menu.enter(s, prefs);
+  expect(menu.click({ choice: 2 }, s, prefs)).toMatchObject({ kind: "trick_palette_colors", ref: "example/accounts" });
+  menu.cursor = 2;
+  menu.enter(s, prefs);
+  for (const byte of Buffer.from("#f80")) menu.key(byte);
+  expect(menu.enter(s, prefs)).toEqual({
+    kind: "trick_palette_set",
+    ref: "example/accounts",
+    key: "work",
+    color: "#ff8800",
+  });
 });

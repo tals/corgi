@@ -147,9 +147,9 @@ export class Host {
     const state = this.palettes.get(ref),
       agents = this.source().agents;
     return {
-      ref,
-      entries: state.keys.length,
+      ...trickPalette.summary(ref, state),
       colors: state.colors,
+      scheme: state.scheme,
       assignments: state.keys.map((encoded, index) => {
         const key = JSON.parse(encoded) as trickPalette.Key;
         const agent = agents.find(a => a.account?.id === key);

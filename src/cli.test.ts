@@ -41,7 +41,18 @@ test("palette CLI configures unseen string or structured keys and resets overrid
   expect((await parse(["tricks", "palette", "reset", "globals.accounts"])).command).toEqual({
     "tricks.palette.set": { palette: "globals.accounts", key: null, color: null, all: true },
   });
+  expect((await parse(["tricks", "palette", "colors", "globals.accounts", "auto"])).command).toEqual({
+    "tricks.palette.colors": { palette: "globals.accounts", colors: null },
+  });
+  expect((await parse(["tricks", "palette", "colors", "globals.accounts", '["steelblue","#f80"]'])).command).toEqual({
+    "tricks.palette.colors": { palette: "globals.accounts", colors: ["#4682b4", "#ff8800"] },
+  });
+  expect((await parse(["tricks", "palette", "set", "globals.accounts", "work", "terminal.blue"])).command).toEqual({
+    "tricks.palette.set": { palette: "globals.accounts", key: "work", color: { hue: "blue" }, all: false },
+  });
   for (const args of [
+    ["colors", "globals.accounts", "unknown"],
+    ["colors", "globals.accounts", "[]"],
     ["set", "globals.accounts", "work", "not-a-color"],
     ["show", "../accounts"],
     ["set", "accounts", "work", "warm"],

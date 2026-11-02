@@ -16,6 +16,7 @@ import { EXE, ROOT, registerCase, quote } from "./support";
 import { NATIVE_PROVIDER, write_executable, write_ordinary_agent } from "./provider_sim";
 import * as trickUi from "../src/trick_ui";
 import * as palette from "../src/palette";
+import type { Color } from "../src/tricks";
 
 class Tricks extends Runtime {
   root!: string;
@@ -311,7 +312,7 @@ export async function register(on, corgi) {
     await this.sketch(code);
     const first = await this.agent("Global colors");
     await this.client!.focus(first);
-    const hasColor = async (runtime: Tricks, color: "accent" | "warm" | "#cc8844") =>
+    const hasColor = async (runtime: Tricks, color: Color) =>
       (await runtime.client!.poll()).data
         .split(trickUi.fg(color))
         .slice(1)
@@ -341,11 +342,13 @@ export async function register(on, corgi) {
       await this.click_text(screen_text(await this.shown("Manage agents")), "Tricks");
       await this.click_text(screen_text(await this.shown(ref)), ref);
       await this.click_text(screen_text(await this.shown(key)), key);
-      await this.click_text(screen_text(await this.shown("Search colors")), "● warm");
-      await other.until(() => hasColor(other, "warm"));
+      await this.click_text(screen_text(await this.shown("Color name or #hex")), "Red");
+      await other.until(() => hasColor(other, { hue: "red" }));
       const changed = JSON.parse(await other.run_cli("tricks", "palette", "show", ref, "--json"));
-      this.assertEqual(changed.assignments.find((a: any) => a.key === key).color, "warm");
+      this.assertEqual(changed.assignments.find((a: any) => a.key === key).color, { hue: "red" });
+      await other.run_cli("tricks", "palette", "colors", ref, "set2");
       await other.run_cli("tricks", "palette", "reset", ref, key);
+      await other.until(() => hasColor(other, palette.schemes.set2[0]));
       await this.until(async () => {
         const state = await this.rpc({ op: "tricks.palette", palette: ref });
         return state.assignments.find((a: any) => a.key === key)?.override === false;

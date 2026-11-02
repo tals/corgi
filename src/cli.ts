@@ -297,6 +297,14 @@ export async function parse(words: string[], caller = 0, input?: () => Promise<s
         set("tricks.palette", { palette });
         break;
       }
+      if (op === "colors") {
+        const input = args.next();
+        set("tricks.palette.colors", {
+          palette,
+          colors: input === "auto" ? null : trickPalette.colors(input.startsWith("[") ? JSON.parse(input) : input),
+        });
+        break;
+      }
       if (op !== "set" && op !== "reset") throw Error("Usage");
       const all = op === "reset" && args.positional.length === 0;
       const encoded = args.flag("key-json"),
@@ -823,9 +831,11 @@ export async function run(path: string, args: string[], agent = false): Promise<
             : reply.palettes.map(p => p.ref + "  " + p.entries + "\n").join("") || "No palettes yet.\n",
         );
       } else {
-        const reply = command["tricks.palette.set"]
-          ? await conn.call("tricks.palette.set", command["tricks.palette.set"])
-          : await conn.call("tricks.palette", command["tricks.palette"]);
+        const reply = command["tricks.palette.colors"]
+          ? await conn.call("tricks.palette.colors", command["tricks.palette.colors"])
+          : command["tricks.palette.set"]
+            ? await conn.call("tricks.palette.set", command["tricks.palette.set"])
+            : await conn.call("tricks.palette", command["tricks.palette"]);
         process.stdout.write(
           inv.json
             ? stringify(reply) + "\n"

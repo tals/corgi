@@ -43,7 +43,7 @@ test("palette references and brand colors resolve in each viewer's theme", () =>
       expect(style.rgb(mixed)).toEqual(palette.mix(palette.colors.accent, palette.colors.bg, 25));
       for (const color of style.palette.identity) {
         expect(tricks.color(JSON.parse(JSON.stringify(color)))).toEqual(color);
-        expect(style.rgb(color)).toEqual(palette.syntax[color.syntax]);
+        expect(style.rgb(color)).toEqual(palette.identity[color.hue]);
         expect(terminalPalette.contrast(style.rgb(color), palette.colors.bg)).toBeGreaterThanOrEqual(4.6);
       }
       for (const name of process_name.brands)
@@ -58,6 +58,29 @@ test("palette references and brand colors resolve in each viewer's theme", () =>
     palette.use("corgi");
   }
   expect(style.rgb(mixed)).toEqual(before);
+});
+
+test("automatic category colors follow each terminal even in the Corgi theme, while fixed palettes stay fixed", () => {
+  try {
+    for (const theme of ["corgi", "animal_style"] as const) {
+      const blue: palette.Rgb = [100, 180, 240];
+      const ansi = Array(16).fill(null);
+      ansi[4] = blue;
+      palette.use(theme, { background: [15, 20, 25], foreground: [240, 240, 240], ansi });
+      expect(style.rgb(style.palette.identity[0])).toEqual(blue);
+      expect(style.rgb(style.palette.schemes.tableau10[0])).toEqual([78, 121, 167]);
+      ansi[4] = [10, 20, 40];
+      ansi[12] = blue;
+      palette.use(theme, { background: [15, 20, 25], foreground: [240, 240, 240], ansi });
+      expect(style.rgb(style.palette.identity[0])).toEqual(blue);
+    }
+    expect(tricks.color("steelblue")).toBe("#4682b4");
+    expect(tricks.color("hsl(120, 100%, 50%)")).toBe("#00ff00");
+    expect(tricks.color("#abc")).toBe("#aabbcc");
+    expect(() => tricks.color("rgba(0, 0, 0, .5)")).toThrow("InvalidColor");
+  } finally {
+    palette.use("corgi");
+  }
 });
 
 test("color recipes reject invalid brands, weights and excessive nesting", () => {

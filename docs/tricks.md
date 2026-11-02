@@ -146,7 +146,7 @@ email, plan, and the last reported usage in the agent's popover.
 | `corgi.clear(key)` | Remove an overlay |
 | `corgi.escape(text)` | Escape literal text interpolated into Markdown |
 | `corgi.palette` | Theme colors and `mix(a, b, amount)` |
-| `corgi.palette.identity` | Five theme-aware identity colors, separate from status colors |
+| `corgi.palette.identity` | Six terminal-aware categorical hues |
 | `corgi.palette.map(name, colors?)` | A durable async mapper from stable keys to palette colors |
 | `corgi.brand.of(name)` | A provider or program's `{ name, color, icon }` |
 | `await corgi.get(key, fallback)` | Read saved JSON; use the fallback for an absent or null value |
@@ -394,8 +394,10 @@ scroll containers and replacement of whole Corgi regions are not exposed.
 `warm` for attention, and `hot` for failures. `mix(a, b, amount)` blends toward
 `b` by 0–100 percent, defaulting to 50. Mixes are limited to four nested levels.
 
-For categories, use `corgi.palette.identity`: five hues from Corgi's syntax family,
-separate from status colors. `corgi.palette.syntax` exposes the named syntax
+For categories, `corgi.palette.identity` uses six terminal-aware hues. Auto
+follows each viewer’s ANSI palette and adjusts contrast against its background,
+with Corgi colors as a fallback. It never assigns code-highlighting roles.
+`corgi.palette.syntax` remains available for explicit code styling and exposes syntax
 colors, including `string`, `keyword`, `type`, `number` and `property`.
 
 `const color = corgi.palette.map("accounts")` creates a mapper using the identity
@@ -405,10 +407,18 @@ Use `agent.account.id` for accounts; skip unresolved accounts.
 Distinct keys take successive slots, cycling after the palette is exhausted.
 Existing assignments never move when other keys appear or disappear.
 
-Settings → Tricks → Palettes lists these mappings automatically. Pick an entry
-to change its color, choose Automatic to remove its override, or reset the
-whole palette. Changes repaint running Tricks without restarting their code.
+Settings → Tricks groups each Trick with its palettes and a preview of their
+colors. Shared palettes appear under each Trick that uses them. Open a palette
+to choose Automatic (the Trick’s default), Terminal, or an explicit fixed
+[D3 categorical scheme](https://d3js.org/d3-scale-chromatic/categorical): Tableau 10,
+Set 2, or Paired. Automatic uses the terminal by default. Pick an entry
+to change its color, choose Automatic to remove its override, or reset all
+overrides. Type a CSS color name, hex value, RGB, or HSL expression in the
+color picker to use an exact custom color. Fixed schemes and custom colors are
+opt-in. Changes repaint running Tricks without restarting their code.
 No settings UI is needed in the Trick.
+
+![Palette choices with terminal-aware Automatic selected](images/tricks-palette-schemes.png)
 
 ![Corgi's palette editor with account colors](images/tricks-palettes.png)
 
@@ -431,7 +441,9 @@ The CLI offers the same editor to people and agents:
 ```sh
 corgi tricks palette list --json
 corgi tricks palette show account-colors/accounts --json
-corgi tricks palette set globals.accounts 'my-account-id' syntax.type
+corgi tricks palette colors globals.accounts auto
+corgi tricks palette colors globals.accounts set2
+corgi tricks palette set globals.accounts 'my-account-id' steelblue
 corgi tricks palette set globals.accounts 'my-account-id' '#cc8844'
 corgi tricks palette reset globals.accounts 'my-account-id'
 corgi tricks palette reset globals.accounts
@@ -440,17 +452,20 @@ corgi tricks palette reset globals.accounts
 Use `TRICK/NAME` for a private palette and `globals.NAME` for a global one.
 `KEY` is a string; add `--key-json` for a number, boolean, null, or array.
 `set` can create a palette and key before a Trick runs, using the default
-identity palette. Colors accept theme tokens, `syntax.NAME`, `brand.NAME`,
-`#rrggbb`, or a JSON color expression. `--json` returns structured replies.
+identity palette. `colors` accepts `auto`, `terminal`, `tableau10`, `set2`,
+`paired`, or a JSON color array; user selections survive Trick reloads. Colors
+accept CSS names, hex, RGB/HSL, theme tokens, `terminal.HUE`, `brand.NAME`,
+`syntax.NAME`, or a JSON color expression. Translucent colors are rejected. `--json` returns structured replies.
 Reset removes overrides and preserves the key's automatic slot.
 
-Supply any nonempty array of colors to make a custom palette. For example,
+Authors can pass a preset name (`"terminal"`, `"tableau10"`, `"set2"`, `"paired"`)
+or any nonempty array of colors to make a custom palette. For example,
 color workspaces with a smaller palette:
 
 ```js
 export function register(on, corgi) {
   const p = corgi.palette;
-  const workspaceColor = p.map("workspaces", [p.syntax.string, p.syntax.type, p.syntax.keyword]);
+  const workspaceColor = p.map("workspaces", ["steelblue", "#f28e2c", "#76b7b2"]);
   on("ui:agent.sidebar", async ({ agent, ui }) => {
     ui.marker(await workspaceColor(agent.workspace));
   });
@@ -611,9 +626,10 @@ rich content and the capability-advertised `tricks.press` operation are
 additive; older viewers may omit drawings they do not understand.
 
 Raw palette clients define a mapping before assigning keys. Both operations
-return `{version:1, revision, colors, keys, overrides}`; `keys` holds encoded
+return `{version:1, revision, colors, scheme, owners, keys, overrides}`; `keys` holds encoded
 JSON values and `overrides` holds a color or `null` for each slot. An automatic
-color is `colors[index % colors.length]`. User edits deliver
+color uses a slot from `scheme ?? colors`. `scheme` is a nullable user-selected
+color array; `owners` records the Tricks that have registered the palette. User edits deliver
 `{event:"palette.changed", name, state}` to registered consumers, independent
 of subscriptions. Keep the latest revision and redraw affected UI. Code Tricks
 handle this automatically.

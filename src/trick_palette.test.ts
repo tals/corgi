@@ -115,3 +115,27 @@ test("palette limits and malformed stores fail without destroying saved choices"
     f.close();
   }
 });
+test("palette choices persist across reloads and global owners survive restarts", async () => {
+  const f = fixture();
+  try {
+    const a = f.make("one", "alpha"),
+      b = f.make("two", "beta");
+    const left = a.maps("globals.shared"),
+      right = b.maps("globals.shared");
+    await left("work");
+    await right("home");
+    await b.store.scheme("globals.shared", "set2");
+    await eventually(() => left("work"), style.palette.schemes.set2[0]);
+    await a.store.set("globals.shared", "work", "steelblue");
+    expect(await left("work")).toBe("#4682b4");
+    await b.store.scheme("globals.shared", null);
+    await eventually(() => right("home"), style.palette.identity[1]);
+    expect(await f.make("one", "alpha").maps("globals.shared")("work")).toBe("#4682b4");
+    const summary = a.store.list()[0];
+    expect(summary.owners).toEqual(["alpha", "beta"]);
+    expect(summary.preview[0]).toBe("#4682b4");
+    expect(await a.maps("custom", "tableau10")("work")).toBe(style.palette.schemes.tableau10[0]);
+  } finally {
+    f.close();
+  }
+});

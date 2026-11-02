@@ -92,16 +92,14 @@ export function drawChoice(
   color?: Rgb,
 ): void {
   const p = fill(w, x, y, width, here);
-  drawValue(
-    w,
-    p,
-    x,
-    y,
-    width,
-    label,
-    `${on ? "●" : "○"} ${choice} ▾`,
-    color ? palette.fgRgb(color) : on ? p.accent : p.quiet,
-  );
+  if (color) {
+    const value = "   " + choice + " ▾";
+    drawValue(w, p, x, y, width, label, value, p.label);
+    w.write(at(x + width - 2 - displayWidth(value), y));
+    palette.chips(w, [color], 2, p.background);
+    return;
+  }
+  drawValue(w, p, x, y, width, label, `${on ? "●" : "○"} ${choice} ▾`, on ? p.accent : p.quiet);
 }
 function drawValue(
   w: Writer,

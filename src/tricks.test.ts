@@ -54,7 +54,7 @@ test("selectors match resolved account IDs and validate subscription names", () 
 test("UI rejects terminal controls, oversized text and unknown colors", () => {
   for (const text of ["\x1b[2J", "\nhello", "\u009b2J", "x".repeat(513)])
     expect(() => tricks.view({ kind: "overlay", lines: [[{ text }]] })).toThrow();
-  expect(() => tricks.view({ kind: "decorate", marker: "blue" })).toThrow("InvalidColor");
+  expect(() => tricks.view({ kind: "decorate", marker: "not-a-color" })).toThrow("InvalidColor");
   expect(() => tricks.view({ kind: "decorate", account: "company" })).toThrow("UnknownField");
   expect(() => tricks.view({ kind: "overlay", lines: Array(13).fill([]) })).toThrow("InvalidLines");
   expect(tricks.views(undefined)).toEqual([]);

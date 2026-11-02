@@ -94,6 +94,7 @@ export const operations = [
   "tricks.palettes",
   "tricks.palette",
   "tricks.palette.set",
+  "tricks.palette.colors",
   "session.command",
   "session.locate",
   "session.list",
@@ -561,6 +562,7 @@ const launch = { workspace: "u32", cwd: ["string", ""] } as const satisfies Fiel
 const requests = {
   "tricks.palette": { palette: "string" },
   "tricks.palette.set": { palette: "string", key: ["json", null], color: ["json", null], all: ["bool", false] },
+  "tricks.palette.colors": { palette: "string", colors: ["json", null] },
   "tricks.configure": { id: ["?string", null], enabled: ["?bool", null], autoreload: ["?bool", null] },
   "tricks.press": { action: "string", viewer: "u32" },
   "launcher.models": { row: "string" },
@@ -702,6 +704,7 @@ export interface ReplyPayloads {
   "tricks.palettes": Ok & { palettes: import("./trick_palette").Summary[] };
   "tricks.palette": Ok & import("./trick_palette").Info;
   "tricks.palette.set": Ok & import("./trick_palette").Info;
+  "tricks.palette.colors": Ok & import("./trick_palette").Info;
   "session.command": Ok & { result: Result };
   "session.locate": Ok & { result: Result };
   "launcher.catalog": Ok & { agents: import("./launcher_config").Agent[] };

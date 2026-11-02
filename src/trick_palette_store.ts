@@ -102,7 +102,7 @@ export class Store {
     return refs
       .slice(0, 256)
       .sort()
-      .map(ref => ({ ref, entries: this.get(ref).keys.length }));
+      .map(ref => palette.summary(ref, this.get(ref)));
   }
   private async change(ref: string, edit: (state: palette.State | null) => palette.State): Promise<palette.State> {
     const file = this.path(ref);
@@ -139,6 +139,10 @@ export class Store {
         )
           throw Error("SharedPaletteConflict");
         if (!ref.startsWith("globals.")) state.colors = supplied;
+        if (!state.owners.includes(owner)) {
+          if (state.owners.length >= 256) throw Error("TooManyPaletteOwners");
+          state.owners.push(owner);
+        }
         return state;
       }
       let keys: string[] = [];
@@ -147,7 +151,15 @@ export class Store {
         if (old.version !== 1) throw Error("InvalidPaletteStore");
         keys = palette.keys(old.keys);
       }
-      return { version: 1, revision: 0, colors: supplied, keys, overrides: keys.map(() => null) };
+      return {
+        version: 1,
+        revision: 0,
+        colors: supplied,
+        scheme: null,
+        owners: [owner],
+        keys,
+        overrides: keys.map(() => null),
+      };
     });
   }
   assign(ref: string, encoded: string) {
@@ -167,7 +179,7 @@ export class Store {
       override = color === null ? null : tricks.color(color);
     if (override === undefined || (all && override !== null)) throw Error("InvalidPaletteColor");
     return this.change(ref, state => {
-      state ??= { version: 1, revision: 0, colors: [...style.palette.identity], keys: [], overrides: [] };
+      state ??= this.empty();
       if (all) state.overrides.fill(null);
       else {
         let index = state.keys.indexOf(encoded!);
@@ -188,6 +200,21 @@ export class Store {
     this.watched = null;
     if (this.pending) clearTimeout(this.pending);
     this.pending = null;
+  }
+  private empty(): palette.State {
+    return {
+      version: 1,
+      revision: 0,
+      colors: [...style.palette.identity],
+      scheme: null,
+      owners: [],
+      keys: [],
+      overrides: [],
+    };
+  }
+  scheme(ref: string, value: unknown) {
+    const colors = value === null ? null : palette.colors(value);
+    return this.change(ref, state => ({ ...(state ?? this.empty()), scheme: colors }));
   }
 }
 export function open(socket: string, changed: (ref: string, state: palette.State) => void) {

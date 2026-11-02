@@ -147,8 +147,10 @@ persists assignments and user overrides separately from KV. Settings → Tricks
 and `corgi tricks palette` edit them without restarting Tricks. Names beginning
 with `globals.` share locked, atomic files across environments; native watchers
 deliver changes to running consumers. Other palettes belong to one Trick and
-runtime. Identity colors use the viewer's syntax palette, apart from UI status
-colors.
+runtime. Automatic identity hues follow each viewer's terminal palette with
+readable contrast and Corgi fallbacks. Fixed categorical schemes and CSS colors
+are explicit choices. Palette summaries carry preview colors and owning Tricks
+so settings can group them, including shared palettes when a Trick is disabled.
 Metadata is the default stream; transcripts require explicit opt-in and tap
 the existing usage reader without another watcher. Pane content is never sent.
 Viewers receive an optional `tricks` field; protocol 3 and saved formats are

@@ -4113,6 +4113,7 @@ export class Controller {
     if (apply === null) return;
     switch (apply.kind) {
       case "trick_palette_open":
+      case "trick_palette_colors":
       case "trick_palette_set": {
         const setup = this.corgi_setup;
         if (!setup) return;
@@ -4123,6 +4124,13 @@ export class Controller {
               ? trickPalette.info(await call(this.connection, "tricks.palette", { palette: apply.ref }))
               : null;
             setup.cursor = 0;
+          } else if (apply.kind === "trick_palette_colors") {
+            setup.trick_palette = trickPalette.info(
+              await call(this.connection, "tricks.palette.colors", {
+                palette: apply.ref,
+                colors: apply.colors,
+              }),
+            );
           } else {
             const reply = await call(this.connection, "tricks.palette.set", {
               palette: apply.ref,

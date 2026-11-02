@@ -44,6 +44,7 @@ Corgi Tricks
   corgi tricks reload [--json]            Reload manifests and restart tricks
   corgi tricks palette list [--json]      List local and global palettes
   corgi tricks palette show PALETTE [--json]  Show keys and assigned colors
+  corgi tricks palette colors PALETTE auto|terminal|tableau10|set2|paired|JSON_ARRAY [--json]
   corgi tricks palette set PALETTE KEY COLOR [--key-json] [--json]
   corgi tricks palette reset PALETTE [KEY] [--key-json] [--json]
 

@@ -1046,6 +1046,8 @@ $.requests|tricks.palette.set.palette: string
 $.requests|tricks.palette.set.key: any
 $.requests|tricks.palette.set.color: any
 $.requests|tricks.palette.set.all: bool
+$.requests|tricks.palette.colors.palette: string
+$.requests|tricks.palette.colors.colors: any
 $.requests|tricks.reload: {}
 $.requests|tricks.configure.id: optional
 $.requests|tricks.configure.id?: string

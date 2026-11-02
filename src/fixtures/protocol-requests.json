@@ -7,6 +7,7 @@
   "tricks.palettes": {},
   "tricks.palette": { "palette": "globals.accounts" },
   "tricks.palette.set": { "palette": "globals.accounts", "key": "work", "color": "warm" },
+  "tricks.palette.colors": { "palette": "globals.accounts", "colors": "terminal" },
   "session.command": {
     "command": {
       "pane.close": {

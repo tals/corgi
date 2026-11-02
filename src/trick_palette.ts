@@ -1,5 +1,6 @@
 import * as tricks from "./tricks";
 import * as text from "./text";
+import * as theme from "./palette";
 
 type Atom = string | number | boolean | null;
 type Values<T> = Atom | readonly T[];
@@ -9,18 +10,36 @@ export interface State {
   version: 1;
   revision: number;
   colors: tricks.Color[];
+  scheme: tricks.Color[] | null;
+  owners: string[];
   keys: string[];
   overrides: (tricks.Color | null)[];
 }
 export interface Summary {
   ref: string;
   entries: number;
+  preview: tricks.Color[];
+  owners: string[];
 }
 export interface Info extends Summary {
   colors: tricks.Color[];
+  scheme: tricks.Color[] | null;
   assignments: { key: Key; label: string; color: tricks.Color; override: boolean }[];
 }
 export const max_entries = 256;
+function owners(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 256) throw Error("InvalidPaletteOwners");
+  return [...new Set(value.map(tricks.key))];
+}
+export function summary(value: string, state: State): Summary {
+  const base = state.scheme ?? state.colors;
+  const preview = [
+    ...new Map([...state.keys.map((_, i) => color(state, i)), ...base].map(c => [JSON.stringify(c), c])).values(),
+  ].slice(0, 12);
+  const owner = ref(value).owner;
+  return { ref: value, entries: state.keys.length, preview, owners: owner ? [owner] : state.owners };
+}
 export function encode(value: unknown): string {
   const valid = (v: unknown, depth: number): boolean => {
     if (depth > 4) return false;
@@ -35,6 +54,7 @@ export function encode(value: unknown): string {
   return key;
 }
 export function colors(value: unknown): tricks.Color[] {
+  if (typeof value === "string" && Object.hasOwn(theme.schemes, value)) value = theme.schemes[value as theme.Scheme];
   if (!Array.isArray(value) || !value.length || value.length > 32) throw Error("InvalidPalette");
   return value.map(v => {
     const color = tricks.color(v);
@@ -81,12 +101,15 @@ export function read(value: unknown): State {
     version: 1,
     revision: Number(v.revision),
     colors: colors(v.colors),
+    scheme: v.scheme === undefined || v.scheme === null ? null : colors(v.scheme),
+    owners: owners(v.owners),
     keys: k,
     overrides: v.overrides.map(v => (v === null ? null : (tricks.color(v) ?? null))),
   };
 }
 export function automatic(state: State, index: number): tricks.Color {
-  return state.colors[index % state.colors.length];
+  const colors = state.scheme ?? state.colors;
+  return colors[index % colors.length];
 }
 export function color(state: State, index: number): tricks.Color {
   return state.overrides[index] ?? automatic(state, index);
@@ -95,17 +118,20 @@ export function colorText(color: tricks.Color): string {
   if (typeof color === "string") return color;
   if ("syntax" in color) return "syntax." + color.syntax;
   if ("brand" in color) return "brand." + color.brand;
+  if ("hue" in color) return "terminal." + color.hue;
   return JSON.stringify(color);
 }
 export function parseColor(value: string): tricks.Color {
   return tricks.color(
-    value.startsWith("syntax.")
-      ? { syntax: value.slice(7) }
-      : value.startsWith("brand.")
-        ? { brand: value.slice(6) }
-        : value.startsWith("{")
-          ? JSON.parse(value)
-          : value,
+    value.startsWith("terminal.")
+      ? { hue: value.slice(9) }
+      : value.startsWith("syntax.")
+        ? { syntax: value.slice(7) }
+        : value.startsWith("brand.")
+          ? { brand: value.slice(6) }
+          : value.startsWith("{")
+            ? JSON.parse(value)
+            : value,
   )!;
 }
 export function summaries(value: unknown): Summary[] {
@@ -115,7 +141,12 @@ export function summaries(value: unknown): Summary[] {
     ref(String(row.ref));
     if (!Number.isSafeInteger(row.entries) || Number(row.entries) < 0 || Number(row.entries) > max_entries)
       throw Error("InvalidPalette");
-    return { ref: String(row.ref), entries: Number(row.entries) };
+    return {
+      ref: String(row.ref),
+      entries: Number(row.entries),
+      preview: Array.isArray(row.preview) && row.preview.length ? colors(row.preview) : [],
+      owners: owners(row.owners),
+    };
   });
 }
 export function info(value: unknown): Info {
@@ -125,6 +156,7 @@ export function info(value: unknown): Info {
   return {
     ...summary,
     colors: colors(row.colors),
+    scheme: row.scheme === undefined || row.scheme === null ? null : colors(row.scheme),
     assignments: row.assignments.map(value => {
       const a = tricks.object(value);
       return {
@@ -143,7 +175,7 @@ export function maps(call: (command: tricks.Command) => Promise<unknown>) {
     const found = mappings.get(name);
     if (found && (!found.state || state.revision >= found.state.revision)) found.state = state;
   };
-  const create = (value: string, supplied?: readonly tricks.Color[]): Mapping => {
+  const create = (value: string, supplied?: readonly tricks.Color[] | theme.Scheme): Mapping => {
     const n = name(value),
       palette = supplied === undefined ? undefined : colors(supplied),
       signature = JSON.stringify(palette ?? null),

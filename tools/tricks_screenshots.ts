@@ -49,11 +49,13 @@ await ghostty.capture(
       await d.screenshot(join(out, "tricks-settings.png"));
       d.key("Return");
       await d.settle();
-      d.key(...Array(5).fill("Down"));
+      d.key("Down");
       await d.settle();
       d.key("Return");
       await d.settle();
       d.key("Down", "Return");
+      await d.screenshot(join(out, "tricks-palette-schemes.png"));
+      d.key("Escape", "Down", "Return");
       await d.screenshot(join(out, "tricks-palettes.png"));
     },
   },

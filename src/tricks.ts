@@ -9,10 +9,10 @@ export const version = 2;
 export const max_bytes = 65536;
 export const max_views = 256;
 export type Color =
-  | palette.Token
-  | `#${string}`
+  | string
   | { brand: process_name.Brand }
   | { syntax: palette.Syntax }
+  | { hue: palette.IdentityHue }
   | { mix: [Color, Color]; amount: number };
 export interface Agent {
   id: string;
@@ -168,6 +168,11 @@ export function color(value: unknown, depth = 0): Color | undefined {
   if (depth > 4) throw Error("ColorTooDeep");
   if (value && typeof value === "object") {
     const source = object(value);
+    if (source.hue !== undefined) {
+      fields(source, ["hue"]);
+      if (!palette.identity_hues.includes(source.hue as palette.IdentityHue)) throw Error("InvalidHue");
+      return { hue: source.hue as palette.IdentityHue };
+    }
     if (source.syntax !== undefined) {
       fields(source, ["syntax"]);
       if (typeof source.syntax !== "string" || !Object.hasOwn(palette.syntax, source.syntax))
@@ -195,9 +200,12 @@ export function color(value: unknown, depth = 0): Color | undefined {
     if (!a || !b) throw Error("InvalidColor");
     return { mix: [a, b], amount: source.amount };
   }
-  if (typeof value !== "string" || (!Object.hasOwn(palette.colors, value) && !/^#[0-9a-fA-F]{6}$/.test(value)))
-    throw Error("InvalidColor");
-  return value as Color;
+  if (typeof value === "string") {
+    if (Object.hasOwn(palette.colors, value)) return value;
+    const parsed = palette.css(value);
+    if (parsed) return parsed;
+  }
+  throw Error("InvalidColor");
 }
 function spans(value: unknown): Span[] {
   if (!Array.isArray(value) || value.length > 16) throw Error("InvalidSpans");

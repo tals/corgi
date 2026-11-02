@@ -13,11 +13,8 @@ export const palette = Object.freeze({
       readonly [K in theme.Syntax]: { readonly syntax: K };
     },
   ),
-  identity: Object.freeze(
-    ["string", "keyword", "type", "number", "property"].map(syntax =>
-      Object.freeze({ syntax: syntax as theme.Syntax }),
-    ),
-  ),
+  schemes: theme.schemes,
+  identity: theme.schemes.terminal,
   mix(a: tricks.Color, b: tricks.Color, amount = 50): tricks.Color {
     return tricks.color({ mix: [a, b], amount })!;
   },
@@ -49,6 +46,7 @@ export function rgb(color: tricks.Color): theme.Rgb {
       : theme.colors[color as theme.Token];
   if ("mix" in color) return theme.mix(rgb(color.mix[0]), rgb(color.mix[1]), color.amount);
   if ("syntax" in color) return theme.syntax[color.syntax];
+  if ("hue" in color) return theme.identity[color.hue];
   const cached = resolved.get(color.brand);
   if (cached) return cached;
   const hex = art[color.brand].layers[0][0];

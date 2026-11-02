@@ -517,6 +517,10 @@ export class Server {
         );
         cl.reply("tricks.palette.set", this.tricks.palette(request.payload.palette));
         return;
+      case "tricks.palette.colors":
+        await this.tricks.palettes.scheme(request.payload.palette, request.payload.colors);
+        cl.reply("tricks.palette.colors", this.tricks.palette(request.payload.palette));
+        return;
       case "tricks.reload":
         await this.tricks.reload();
         cl.reply("tricks.reload", this.tricks.info());

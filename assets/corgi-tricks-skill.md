@@ -88,16 +88,21 @@ Use `corgi.palette` tokens (`accent`, `warm`, `text`, `muted`, `bg`, etc.),
 
 For automatic category colors, use `const color = corgi.palette.map("accounts")`
 then `await color(agent.account.id)`. The default
-`corgi.palette.identity` has five syntax hues, separate from status colors.
+`corgi.palette.identity` has six categorical hues from each viewer’s terminal
+palette, with readable contrast and Corgi fallbacks. This is the default.
 Distinct keys get successive slots, cycling after all colors are used; the same
 key keeps its slot across agents, reloads and restarts. Keys are strings, finite
 numbers, booleans, null or arrays of these. The mapper caches lookups and durably
 saves new assignments before returning. No manual KV bookkeeping is needed.
 
 Pass a custom palette as the second argument, for example
-`corgi.palette.map("projects", [corgi.palette.syntax.string, corgi.palette.syntax.type])`.
-These references follow each viewer's theme. Palette slots, rather than RGB
-values, are saved; changing the palette on the next run recolors the slots.
+`corgi.palette.map("projects", ["steelblue", "#f28e2c"])`. Fixed D3 presets
+are opt-in: `"tableau10"`, `"set2"`, or `"paired"` as the second argument;
+`"terminal"` uses terminal hues. Arrays are also available through
+`corgi.palette.schemes`.
+Terminal references follow each viewer’s palette; explicit CSS colors stay
+fixed. Slots are saved; changing the palette recolors automatic slots while
+keeping each key in place. User-selected palettes survive code reloads.
 Names are private to this Trick/runtime. `globals.NAME` shares across all Tricks
 and all Corgi environments. A shared palette keeps its original color array;
 other callers can omit the array to inherit it. Mappings are capped at 16 per
@@ -127,7 +132,9 @@ the pane's `agent.account` in `corgi rpc '{"op":"session.snapshot"}'`.
 `agent.env` exposes only that agent's `CORGI_` variables; account discovery
 does not require reading environment variables or files in a Trick.
 
-Corgi provides the editor under Settings → Tricks → Palettes. No buttons or
+Corgi shows each palette beneath its Trick in Settings → Tricks, with color
+preview chips. Its editor offers Automatic, preset schemes, and individual
+color overrides; type a CSS name, hex, RGB or HSL value for a custom color. No buttons or
 settings code are needed in the Trick. Changes repaint running Tricks and
 shared palettes update in other environments without restarting them.
 
@@ -137,7 +144,9 @@ have not appeared yet:
 ```sh
 corgi tricks palette list --json
 corgi tricks palette show account-colors/accounts --json
-corgi tricks palette set globals.accounts 'ACCOUNT_ID' syntax.type
+corgi tricks palette colors globals.accounts auto
+corgi tricks palette colors globals.accounts set2
+corgi tricks palette set globals.accounts 'ACCOUNT_ID' steelblue
 corgi tricks palette set globals.accounts 'ACCOUNT_ID' '#cc8844'
 corgi tricks palette reset globals.accounts 'ACCOUNT_ID'
 corgi tricks palette reset globals.accounts
@@ -145,7 +154,7 @@ corgi tricks palette reset globals.accounts
 
 Use `TRICK/NAME` for private palettes and `globals.NAME` for shared ones.
 Keys are strings unless `--key-json` is supplied. Colors accept theme tokens,
-`syntax.NAME`, `brand.NAME`, hex colors or JSON color expressions. `--json`
+`terminal.HUE`, `brand.NAME`, `syntax.NAME`, opaque CSS colors or JSON color expressions. `--json`
 returns structured replies. Reset removes overrides and keeps automatic slots.
 Do not edit palette files directly; the API locks and saves them atomically.
 

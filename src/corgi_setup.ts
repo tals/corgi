@@ -13,6 +13,7 @@ import * as palette from "./palette";
 import * as trickConfig from "./trick_config";
 import * as trickPalette from "./trick_palette";
 import * as trickStyle from "./trick_style";
+import * as trickPaletteUi from "./trick_palette_ui";
 import type { Color as TrickColor } from "./tricks";
 import { Style, colors, bgRgb, mix, selection, type Token } from "./palette";
 import { Rect } from "./layout";
@@ -197,6 +198,7 @@ function reportSettings(s: Status, prefs: Preferences): bugReport.Settings {
 }
 /** What Enter or a click asks the controller to do. */
 export type Apply =
+  | { kind: "trick_palette_colors"; ref: string; colors: TrickColor[] | null }
   | { kind: "trick_palette_open"; ref: string | null }
   | { kind: "trick_palette_set"; ref: string; key: trickPalette.Key; color: TrickColor | null; all?: boolean }
   | { kind: "trick"; id: string; enabled: boolean }
@@ -238,6 +240,8 @@ export type Hit =
   | { url: string };
 
 interface Option {
+  preview?: palette.Rgb[];
+  inset?: number;
   copy_path?: string;
   color?: palette.Rgb;
   label: string;
@@ -259,7 +263,7 @@ interface Option {
   glyph?: string;
   /** A dropdown in a group: the choice in use at the right edge, green while
    * `on`, and Enter opens `choices`. */
-  choice?: { text: string; on: boolean; choices: Choice[] };
+  choice?: { text: string; on: boolean; choices: Choice[]; placeholder?: string };
   /** A text field, in a box, that takes typing while it has the cursor. */
   edit?: boolean;
   slider?: number;
@@ -286,6 +290,7 @@ const paste_found: Record<ClipboardState["support"], Found> = {
 };
 /** One of a dropdown's choices. */
 interface Choice {
+  preview?: palette.Rgb[];
   color?: palette.Rgb;
   text: string;
   note: string;
@@ -1205,6 +1210,7 @@ export class Menu {
           return {
             text: choice.text,
             color: choice.color,
+            preview: choice.preview,
             note: choice.note,
             detail: choice.detail,
             pin: choice.pin,
@@ -1230,7 +1236,7 @@ export class Menu {
       const offset = DialogView.scroll(this.model_query, width);
       const column = writeField(w, this.model_query, offset, width, text);
       if (!this.model_query.len)
-        w.write(border + (this.item === "tricks" ? i18n.t`Search colors` : i18n.t`Search models`));
+        w.write(border + (this.options(s, prefs)[this.cursor]?.choice?.placeholder ?? i18n.t`Search models`));
       this.caret = { x: x + column, y };
     }
     if (l.detail) {
@@ -1608,6 +1614,19 @@ export class Menu {
       writeEllipsis(w, o.copy_path, sat(width, displayWidth(button) + 5));
       return;
     }
+    if (o.preview) {
+      const p = settingRow.fill(w, x, y, width, here),
+        start = x + 6 + (o.inset ?? 0);
+      const end = right - 3,
+        room = Math.max(0, end - start);
+      const labelWidth = Math.min(displayWidth(o.label), Math.max(4, room - Math.min(12, o.preview.length * 3 + 1)));
+      w.write(at(start, y) + p.label);
+      writeEllipsis(w, o.label, labelWidth);
+      w.write(at(start + labelWidth + 2, y));
+      palette.chips(w, o.preview, Math.max(0, end - start - labelWidth - 2), p.background);
+      w.write(at(right - 2, y) + p.muted + "→");
+      return;
+    }
     if (o.art) return this.drawArt(w, o, line.index, 0, x, width, y);
     if (o.slider !== undefined) {
       const value = o.slider === 0 ? i18n.t`Off` : `${o.slider}%`;
@@ -1800,13 +1819,10 @@ export class Menu {
       case "tricks": {
         if (this.trick_palette_ref) {
           const picked = this.trick_palette;
+          const query = this.model_query.name();
+          const custom = palette.css(query);
           return [
             title(directoryLabel(this.trick_palette_ref, null, 160)),
-            lead(
-              this.trick_palette_ref.startsWith("globals.")
-                ? i18n.t`Shared across Corgi environments.`
-                : i18n.t`Private to this Trick.`,
-            ),
             ...(this.tricks_error
               ? [{ tag: "warn" as const, text: directoryLabel(this.tricks_error, null, 512) }]
               : []),
@@ -1818,47 +1834,82 @@ export class Menu {
               action: i18n.t`back`,
             }),
             ...(picked
-              ? picked.assignments.map(a => {
-                  const choices = [
-                    ...picked.colors,
-                    ...trickStyle.palette.identity,
-                    "warm",
-                    "accent",
-                    "text",
-                    a.color,
-                  ] as TrickColor[];
-                  const unique = choices.filter(
-                    (c, i) => choices.findIndex(other => JSON.stringify(other) === JSON.stringify(c)) === i,
-                  );
-                  const choose = (color: TrickColor | null): Apply => ({
-                    kind: "trick_palette_set",
-                    ref: picked.ref,
-                    key: a.key,
-                    color,
-                  });
-                  return option({
-                    label: directoryLabel(a.label, null, 160),
+              ? [
+                  option({
+                    label: i18n.t`Palette`,
                     detail: "",
                     mark: "none",
                     apply: null,
                     action: i18n.t`choose`,
-                    color: trickStyle.rgb(a.color),
                     choice: {
-                      text: trickPalette.colorText(a.color),
-                      on: a.override,
+                      text: trickPaletteUi.schemeName(picked.scheme),
+                      on: picked.scheme !== null,
+                      placeholder: i18n.t`Search palettes`,
                       choices: [
-                        { text: i18n.t`Automatic`, note: "", current: !a.override, apply: choose(null) },
-                        ...unique.map(color => ({
-                          text: "● " + trickPalette.colorText(color),
+                        {
+                          text: i18n.t`Automatic`,
                           note: "",
-                          color: trickStyle.rgb(color),
+                          preview: picked.colors.map(trickStyle.rgb),
+                          current: picked.scheme === null,
+                          apply: { kind: "trick_palette_colors" as const, ref: picked.ref, colors: null },
+                        },
+                        ...Object.values(palette.schemes).map(colors => ({
+                          text: trickPaletteUi.schemeName(colors),
+                          note: "",
+                          preview: colors.map(trickStyle.rgb),
+                          current: JSON.stringify(picked.scheme) === JSON.stringify(colors),
+                          apply: {
+                            kind: "trick_palette_colors" as const,
+                            ref: picked.ref,
+                            colors: [...colors] as TrickColor[],
+                          },
+                        })),
+                      ].filter(c => matches(query, c.text)),
+                    },
+                  }),
+                  ...picked.assignments.map(a => {
+                    const choose = (color: TrickColor | null): Apply => ({
+                      kind: "trick_palette_set",
+                      ref: picked.ref,
+                      key: a.key,
+                      color,
+                    });
+                    const choices: Choice[] = [
+                      { text: i18n.t`Automatic`, note: "", current: !a.override, apply: choose(null) },
+                      ...trickPaletteUi
+                        .choices([...(picked.scheme ?? picked.colors), ...trickStyle.palette.identity, a.color])
+                        .map(color => ({
+                          text: trickPaletteUi.colorName(color),
+                          note: "",
+                          preview: [trickStyle.rgb(color)],
                           current: a.override && JSON.stringify(a.color) === JSON.stringify(color),
                           apply: choose(color),
                         })),
-                      ].filter(c => matches(this.model_query.name(), c.text)),
-                    },
-                  });
-                })
+                    ].filter(c => matches(query, c.text));
+                    if (custom)
+                      choices.push({
+                        text: custom,
+                        note: i18n.t`Custom`,
+                        preview: [trickStyle.rgb(custom)],
+                        current: false,
+                        apply: choose(custom),
+                      });
+                    return option({
+                      label: directoryLabel(a.label, null, 160),
+                      detail: "",
+                      mark: "none",
+                      apply: null,
+                      action: i18n.t`choose`,
+                      color: trickStyle.rgb(a.color),
+                      choice: {
+                        text: trickPaletteUi.colorName(a.color),
+                        on: a.override,
+                        choices,
+                        placeholder: i18n.t`Color name or #hex`,
+                      },
+                    });
+                  }),
+                ]
               : []),
             option({
               label: i18n.t`Reset all colors`,
@@ -1870,22 +1921,31 @@ export class Menu {
           ];
         }
         const info = this.tricks;
+        const paletteRow = (p: trickPalette.Summary, nested: boolean): Line =>
+          option({
+            label: p.ref.startsWith("globals.") ? p.ref : p.ref.slice(p.ref.indexOf("/") + 1),
+            detail: "",
+            mark: "none",
+            preview: p.preview.map(trickStyle.rgb),
+            inset: nested ? 2 : 0,
+            apply: { kind: "trick_palette_open", ref: p.ref },
+            action: i18n.t`open`,
+            arrow: true,
+          });
+        const ownedBy = (p: trickPalette.Summary, id: string) =>
+          p.owners.includes(id) || trickPalette.ref(p.ref).owner === id;
+        const unassigned = this.trick_palettes.filter(p => !info?.tricks.some(t => ownedBy(p, t.id)));
         return [
           title(i18n.t`Tricks`),
           ...(this.tricks_error ? [{ tag: "warn" as const, text: directoryLabel(this.tricks_error, null, 512) }] : []),
           ...(info
             ? [
                 ...(info.watch_error ? [{ tag: "warn" as const, text: info.watch_error }] : []),
-                ...info.tricks.flatMap(trick => [
+                ...info.tricks.flatMap((trick, i) => [
+                  ...(i ? [blank] : []),
                   option({
                     label: directoryLabel(trick.id, null, 160),
-                    detail: trick.error
-                      ? i18n.t`Error`
-                      : trick.running
-                        ? i18n.t`Running`
-                        : trick.enabled
-                          ? i18n.t`Starting`
-                          : i18n.t`Off`,
+                    detail: "",
                     mark: trick.enabled ? "on" : "off",
                     toggle: trick.enabled,
                     warn: trick.error !== null,
@@ -1893,23 +1953,11 @@ export class Menu {
                     action: trick.enabled ? i18n.t`turn off` : i18n.t`turn on`,
                   }),
                   ...(trick.error ? [{ tag: "warn" as const, text: directoryLabel(trick.error, null, 512) }] : []),
+                  ...this.trick_palettes.filter(p => ownedBy(p, trick.id)).map(p => paletteRow(p, true)),
                 ]),
                 ...(!info.tricks.length ? [lead(i18n.t`No tricks installed yet.`)] : []),
-                ...(this.trick_palettes.length
-                  ? [
-                      blank,
-                      title(i18n.t`Palettes`),
-                      ...this.trick_palettes.map(p =>
-                        option({
-                          label: p.ref,
-                          detail: String(p.entries),
-                          mark: "none",
-                          apply: { kind: "trick_palette_open", ref: p.ref },
-                          action: i18n.t`open`,
-                          arrow: true,
-                        }),
-                      ),
-                    ]
+                ...(unassigned.length
+                  ? [blank, title(i18n.t`Saved palettes`), ...unassigned.map(p => paletteRow(p, false))]
                   : []),
                 blank,
                 title(i18n.t`Development`),
