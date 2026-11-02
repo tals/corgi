@@ -1729,6 +1729,11 @@ function drawSprite(now) {
     cell.classList.toggle("slant", fg === "faint");
   });
 }
+// Reduced motion stops the animation clock, but fonts and viewport sizes
+// can still change how much room the fetch lane has.
+const spriteSize = new ResizeObserver(() => drawSprite(performance.now()));
+spriteSize.observe(sprite.parentElement);
+spriteSize.observe(sprite.closest(".hero"));
 
 // ---------------------------------------------------------------- footer corgi
 const sleeperCells = rowOf(document.getElementById("sleeper"), 16);
