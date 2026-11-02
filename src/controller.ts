@@ -1503,7 +1503,7 @@ export class Controller {
     });
     // Review changes says what it would show: the line read ahead, checked
     // again now, or placeholder bars until git answers.
-    this.review_summaries.ask(this.reviewCwd(p));
+    this.review_summaries.ask(this.agentFolder(p));
     if (p.agent.observation.completed === 0n || unread(p.agent.observation)) opened.off.add("mark-unread");
     try {
       await call(this.connection, "session.command", { command: { "agent.rename": { target: id } } });
@@ -1515,7 +1515,7 @@ export class Controller {
     } catch {
       opened.off.add("fork");
     }
-    opened.setDetail("review", this.review_summaries.get(this.reviewCwd(p)));
+    opened.setDetail("review", this.review_summaries.get(this.agentFolder(p)));
     opened.highlightFirst();
     this.tab_menu = opened;
     this.dirty = true;
@@ -1524,7 +1524,7 @@ export class Controller {
   private menuCheckout(menu: TabMenu): string | null {
     if (menu.worktree !== null) return menu.worktree;
     const p = menu.agent ? this.pane(menu.tab) : null;
-    return p ? this.reviewCwd(p) : null;
+    return p ? this.agentFolder(p) : null;
   }
   /** Opens a worktree heading's menu. Review changes says what it would
    * show, as on an agent's; Close all runs only while the group lists an
@@ -3790,7 +3790,7 @@ export class Controller {
       const provider = p.agent.provider;
       if (!provider) continue;
       if (p.agent.session.length === 0 || running.length === launcherResume.max_open) continue;
-      running.push({ provider, session: p.agent.session, pane: p.id });
+      running.push({ provider, session: p.agent.session, pane: p.id, folder: this.agentFolder(p) });
     }
     const now = nowSeconds();
     for (const was of this.running) {
@@ -7196,7 +7196,7 @@ export class Controller {
     const linked = new Set(worktrees.linked(ws.worktrees).map(c => c.path));
     const panes = this.runtime.panes.filter(p => {
       if (this.runtime.workspaces.owner(p.id)?.id !== ws.id) return false;
-      const cwd = this.reviewCwd(p);
+      const cwd = this.agentFolder(p);
       return (cwd === ws.cwd || cwd.startsWith(ws.cwd + "/")) && !linked.has(cwd);
     });
     const focused = this.focused();
@@ -7612,7 +7612,7 @@ export class Controller {
       const turn = `${p.agent.state === "working"}:${p.agent.observation.completed}`;
       const seen = this.summary_turns.get(p.id);
       if (seen !== undefined && seen !== turn) {
-        this.review_summaries.invalidate(this.reviewCwd(p));
+        this.review_summaries.invalidate(this.agentFolder(p));
         turned = true;
       }
       this.summary_turns.set(p.id, turn);
@@ -7633,7 +7633,7 @@ export class Controller {
       this.summary_hover = hover === null ? null : { cwd: hover, since: now };
     const cwds = [...panes].flatMap(id => {
       const p = this.pane(id);
-      return p ? [this.reviewCwd(p)] : [];
+      return p ? [this.agentFolder(p)] : [];
     });
     // A pause first, so sweeping down the list doesn't read every row it passes.
     if (this.summary_hover && now - this.summary_hover.since >= 100) cwds.push(this.summary_hover.cwd);
@@ -7650,20 +7650,21 @@ export class Controller {
     if (!e || e.exit !== null) return null;
     if ("worktree" in e.target) return e.worktree?.ghost ? null : e.target.worktree;
     const p = "pane" in e.target ? this.pane(e.target.pane) : null;
-    return p ? this.reviewCwd(p) : null;
+    return p ? this.agentFolder(p) : null;
   }
-  /** The directory a pane's review reads: its agent's, else the pane's own,
-   * or the checkout the agent list puts it under when that differs. */
-  private reviewCwd(p: Pane): string {
+  /** Where a pane's agent works, as its review reads and the launcher's
+   * Where shows: its agent's directory, else the pane's own, or the checkout
+   * its workspace's agent list puts it under when that differs. */
+  private agentFolder(p: Pane): string {
     const cwd = p.agent.cwd.length > 0 ? p.agent.cwd : p.cwd;
-    return worktreeAgents.folder(this.current().worktrees ?? null, { pane: p.id }, cwd);
+    return worktreeAgents.folder(this.runtime.workspaces.owner(p.id)?.worktrees ?? null, { pane: p.id }, cwd);
   }
   private reviewTarget(p = this.focused()): panel.Target | null {
     if (!p) return null;
     const agent = p.agent;
     return {
       pane: p.id,
-      cwd: this.reviewCwd(p),
+      cwd: this.agentFolder(p),
       name:
         p.label.length > 0
           ? p.label

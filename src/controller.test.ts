@@ -2046,7 +2046,7 @@ test("the launcher lights the checkout it starts agents in, as the overview ligh
   expect(s.agent_launcher.cwd).toBe("/src/app-topic");
 });
 
-test("an agent's review reads the checkout the list puts it under", () => {
+test("an agent's review and the launcher's Where read the checkout the list puts it under", () => {
   const checkout = (path: string, branch: string, primary: boolean) => ({
     path,
     head: "4f1c2a9e0b",
@@ -2061,29 +2061,52 @@ test("an agent's review reads the checkout the list puts it under", () => {
     changes: null,
     stale: false,
   });
-  const snapshot = folders("/src/app");
-  Object.assign(snapshot.panes[0], {
-    cwd: "/src/app",
-    agent: { ...snapshot.panes[0].agent, provider: "codex", cwd: "/src/app" },
-  });
-  Object.assign(snapshot.workspaces[0], {
-    worktrees: {
-      common_dir: "/src/app/.git",
-      base: { ref: "refs/heads/main", name: "main", head: "4f1c2a9e0b" },
-      entries: [checkout("/src/app", "main", true), checkout("/src/app-topic", "topic", false)],
-      agents: [],
-      stale: false,
-    },
-  });
+  // Two workspaces on one repository, each with a Codex pane started on main.
+  const snapshot = folders("/src/app", "/src/app");
+  snapshot.panes.forEach((pane, i) =>
+    Object.assign(pane, {
+      cwd: "/src/app",
+      agent: { ...pane.agent, provider: "codex", cwd: "/src/app", session: `s${i + 1}` },
+    }),
+  );
+  for (const ws of snapshot.workspaces)
+    Object.assign(ws, {
+      worktrees: {
+        common_dir: "/src/app/.git",
+        base: { ref: "refs/heads/main", name: "main", head: "4f1c2a9e0b" },
+        entries: [checkout("/src/app", "main", true), checkout("/src/app-topic", "topic", false)],
+        agents: [],
+        stale: false,
+      },
+    });
   const s: any = new Controller({ socket: "", request: transport(async () => snapshot).request });
+  const placed = () => s.running.map((o: launcherResume.Open) => [o.session, o.folder]);
   s.receiveSnapshot(snapshot);
   expect(s.reviewTarget().cwd).toBe("/src/app");
-  // Started on main but writing in topic, it's listed under topic.
+  expect(placed()).toEqual([
+    ["s1", "/src/app"],
+    ["s2", "/src/app"],
+  ]);
+  // Started on main but writing in topic, it's listed under topic, by its
+  // own workspace while another is current.
   (snapshot.workspaces[0] as any).worktrees.agents = [
     { target: { pane: 1 }, path: "/src/app-topic", source: "write", stale: false },
   ];
+  (snapshot.workspaces[1] as any).worktrees.agents = [
+    { target: { pane: 2 }, path: "/src/app-topic", source: "write", stale: false },
+  ];
   s.receiveSnapshot(snapshot);
+  expect(s.current().id).toBe(1);
   expect(s.reviewTarget().cwd).toBe("/src/app-topic");
+  expect(placed()).toEqual([
+    ["s1", "/src/app-topic"],
+    ["s2", "/src/app-topic"],
+  ]);
+  // Unplaced, it's where its agent is now, not where it started.
+  (snapshot.workspaces[1] as any).worktrees.agents = [];
+  Object.assign(snapshot.panes[1].agent, { cwd: "/src/app-topic/lib" });
+  s.receiveSnapshot(snapshot);
+  expect(placed()[1]).toEqual(["s2", "/src/app-topic/lib"]);
 });
 
 test("a worktree's menu shows its diff line and opens its folder in a waiting shell or a new tab", async () => {
