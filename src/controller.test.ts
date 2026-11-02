@@ -1638,7 +1638,7 @@ test("an account's row starts its agent there, and resuming keeps a conversation
 test.each(["launcher", "settings"] as const)(
   "%s management saves names, flags and environment in the shared model",
   async source => {
-    const saved = process.env.CORGI_ENV_BASE,
+    const saved = { CORGI_ENV_BASE: process.env.CORGI_ENV_BASE, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR },
       base = realpathSync(mkdtempSync(join(tmpdir(), "corgi-manage-")));
     process.env.CORGI_ENV_BASE = base;
     process.env.CLAUDE_CONFIG_DIR = join(base, "default");
@@ -1678,8 +1678,9 @@ test.each(["launcher", "settings"] as const)(
       expect(launch.label("claude")).toBe("Claude Code · home");
       expect(launch.manager.page).toBe("list");
     } finally {
-      if (saved === undefined) delete process.env.CORGI_ENV_BASE;
-      else process.env.CORGI_ENV_BASE = saved;
+      for (const [key, value] of Object.entries(saved))
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
       accounts.reset();
       rmSync(base, { recursive: true, force: true });
     }

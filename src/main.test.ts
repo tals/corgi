@@ -399,6 +399,12 @@ test("the daemon and the viewer never import each other", () => {
 });
 
 test("headless CLI passes provider IDs intact and includes the first prompt", async () => {
+  // Starting a session first makes sure a daemon runs; this one answers its hello.
+  const socket = join(mkdtempSync(join(tmpdir(), "corgi-main-")), "s"),
+    previous = process.env.CORGI_SOCKET;
+  const server = createServer(s => s.on("data", () => s.write('{"ok":true}\n')));
+  await new Promise<void>(resolve => server.listen(socket, resolve));
+  process.env.CORGI_SOCKET = socket;
   const request = spyOn(rpc, "request").mockResolvedValue({ ok: true, provider: "codex", session: "thread-abc" });
   const output = spyOn(process.stdout, "write").mockReturnValue(true);
   try {
@@ -421,5 +427,8 @@ test("headless CLI passes provider IDs intact and includes the first prompt", as
   } finally {
     request.mockRestore();
     output.mockRestore();
+    server.close();
+    if (previous === undefined) delete process.env.CORGI_SOCKET;
+    else process.env.CORGI_SOCKET = previous;
   }
 });
