@@ -83,7 +83,8 @@ test("the footer corgi wags until a click or the secret t throws it a ball", () 
   expect(fetching.includes("•ᴥ•") || fetching.includes("]o>")).toBe(true);
   expect(fetching).not.toContain("•.•");
   const back = help.frame(120, 40, "corgi", "ctrl_b", thrown + 9_600, "default");
-  expect(back).not.toContain("ᴥ");
+  // Only the prompt's little card sleeps on.
+  expect(back.replace("~ᐯ◡ᴥ◡ᐯ", "")).not.toContain("ᴥ");
   help.play(thrown + 9_600);
   expect(help.corgi.thrown_ms).toBe(thrown + 9_600);
 
@@ -117,7 +118,7 @@ test("the corgi's secret key shadows no shortcut", () => {
   for (const preset of available_presets) expect(bindings.lookup(preset, true, 0x74, {})).toBeNull();
 });
 
-test("the help lists the Corgi prompt under Corgi, in each preset's spelling", () => {
+test("the help pictures the Corgi prompt under Corgi, in each preset's spelling", () => {
   for (const [preset, text] of [
     ["corgi", "Space"],
     ["tmux", "Space"],
@@ -128,5 +129,16 @@ test("the help lists the Corgi prompt under Corgi, in each preset's spelling", (
     const column = new Column(47, preset);
     panes(column);
     expect(column.rows.some(row => row.some(part => part.text === "Corgi prompt"))).toBe(true);
+    // A little card, its corgi asleep on top, its keys beside it; a click anywhere on it opens the prompt.
+    const card = column.rows.findIndex(row => row.some(part => part.text === "~ᐯ◡ᴥ◡ᐯ"));
+    expect(column.rows[card].some(part => part.text === `[ ${text} ]`)).toBe(true);
+    expect(column.rows.slice(card, card + 3).every(row => row.every(part => same(part.action, act("prompt"))))).toBe(
+      true,
+    );
   }
+  // Too narrow for the card, it's text rows.
+  const narrow = new Column(30, "corgi");
+  panes(narrow);
+  expect(narrow.rows.some(row => row.some(part => part.text === "Corgi prompt"))).toBe(true);
+  expect(narrow.rows.some(row => row.some(part => part.text === "~ᐯ◡ᴥ◡ᐯ"))).toBe(false);
 });

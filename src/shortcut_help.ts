@@ -8,6 +8,7 @@ import * as keys from "./keys";
 import * as km from "./keymap";
 import * as bindings from "./bindings";
 import { Style as PaletteStyle, keycap } from "./palette";
+import { asleep } from "./corgi_frames";
 
 type Style = "text" | "bright" | "dim" | "rule" | "direct" | "keycap" | "attention";
 export interface Part {
@@ -249,11 +250,53 @@ export function panes(c: Column) {
   c.action(i18n.t`Detach`, act("detach"), 2);
   c.space();
   c.heading(i18n.t`CORGI`);
-  c.action(i18n.t`Corgi prompt`, act("prompt"), 2);
-  c.alsoHeld(i18n.t`Also works directly`, act("prompt"), 4);
+  prompt(c);
   c.action(i18n.t`Toggle sidebar`, act("sidebar"), 2);
   c.action(i18n.t`Review changes`, act("review"), 2);
   c.action(i18n.t`Setup`, act("setup"), 2);
+}
+/** The Corgi prompt as a little card, its corgi asleep on the top edge, with
+ * its keys beside it; a click anywhere on it opens the prompt. Text rows
+ * where the column is too narrow. */
+function prompt(c: Column) {
+  const action = act("prompt"),
+    key = spelling(c.preset, action);
+  if (key === null) return;
+  const held = bindings.find(c.preset, action)?.prefixed ? bindings.first(c.preset, action, false) : null,
+    label = i18n.t`Corgi prompt`,
+    cap = `[ ${key} ]`,
+    also = i18n.t`Also works directly`,
+    w = 18,
+    x = 2 + w + 2;
+  if (x + displayWidth(label) + 2 + displayWidth(cap) > c.width || (held && x + displayWidth(also) > c.width)) {
+    c.action(label, action, 2);
+    c.alsoHeld(also, action, 4);
+    return;
+  }
+  // As the card draws itself, the input's placeholder cut short.
+  const input = "› Ask Corgi…",
+    corgi = w - 1 - displayWidth(asleep),
+    rows: Part[][] = [
+      [
+        { x: 2, text: "╭" + "─".repeat(corgi - 4) + " ", style: "dim", action },
+        { x: corgi, text: asleep, style: "direct", action },
+        { x: w - 1, text: " ─╮", style: "dim", action },
+        { x, text: label, style: "bright", action },
+        { x: c.width - displayWidth(cap), text: cap, style: "keycap", action },
+      ],
+      [
+        { x: 2, text: "│ ", style: "dim", action },
+        { x: 4, text: input, style: "text", action },
+        { x: 4 + displayWidth(input), text: " ".repeat(w - 3 - displayWidth(input)) + "│", style: "dim", action },
+      ],
+      [{ x: 2, text: "╰" + "─".repeat(w - 2) + "╯", style: "dim", action }],
+    ];
+  if (held) {
+    const spelled = bindings.format(held);
+    rows[1].push({ x, text: also, style: "text", action });
+    rows[2].push({ x: c.width - displayWidth(spelled), text: spelled, style: "bright", action });
+  }
+  c.rows.push(...rows);
 }
 const commandFooter = () => i18n.t`Press a shortcut or click a key`;
 /** The corgi's patch of the footer, from past the longest footer text to the
@@ -265,7 +308,7 @@ function corgiZone(b: Rect): { x: number; w: number } | null {
 }
 export function bounds(cols: number, rows: number) {
   const w = Math.min(cols, 112),
-    h = Math.min(rows, 36);
+    h = Math.min(rows, 37);
   return new Rect(Math.floor((cols - w) / 2), Math.floor((rows - h) / 2), w, h);
 }
 function color(style: Style): string {
