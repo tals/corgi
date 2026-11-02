@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
+import { double_click_ms } from "./clock";
 import * as frames from "./corgi_frames";
 import * as dropdown from "./dropdown";
 import * as errors from "./errors";
@@ -166,9 +167,15 @@ type Row = {
 };
 /** A thread row as drawn, and a column from its left. */
 type Spot = { row: number; col: number };
+/** What a press picks: its cell, or with a double or triple click its word or line. */
+type Unit = "cell" | "word" | "line";
 /** What a drag selected: thread rows between two spots, laid out `room`
- * wide; or the input, which keeps its own. `held` until the button's up. */
-type Selection = { on: "thread"; from: Spot; to: Spot; room: number; held: boolean } | { on: "input"; held: boolean };
+ * wide; or offsets into the input, which keeps the selection itself. A
+ * drag reaches from what the press picked, `from` its `unit` to the one
+ * under the pointer. `held` until the button's up. */
+type Selection =
+  | { on: "thread"; unit: Unit; picked: [Spot, Spot]; from: Spot; to: Spot; room: number; held: boolean }
+  | { on: "input"; unit: Unit; picked: [number, number]; held: boolean };
 type Layout = {
   box: Rect;
   left: number;
@@ -574,6 +581,46 @@ function cells(row: Row, room: number): string[] {
 function ordered(a: Spot, b: Spot): [Spot, Spot] {
   return a.row < b.row || (a.row === b.row && a.col <= b.col) ? [a, b] : [b, a];
 }
+/** What a double-click stops at, as panes pick words (pane/terminal.zig):
+ * Ghostty's boundaries without `:`, so `path:line` stays whole. */
+const word_breaks = new Set([
+  " ",
+  "\t",
+  "'",
+  '"',
+  "│",
+  "`",
+  "|",
+  ";",
+  ",",
+  "(",
+  ")",
+  "[",
+  "]",
+  "{",
+  "}",
+  "<",
+  ">",
+  "$",
+]);
+const blank = new Set([" ", "\t"]);
+/** Trimmed from a word's end, so a sentence's `foo.` gives `foo`. */
+const word_end = new Set([" ", "\t", ".", ":", "!", "?"]);
+/** The word around index `at` of `chars`, as `[first, last]`: a run of
+ * word characters, or of boundaries when it's on one, trimmed of blanks
+ * and its end's punctuation; null on a blank. */
+function wordAt(chars: string[], at: number): [number, number] | null {
+  if (blank.has(chars[at])) return null;
+  const breaks = (i: number) => word_breaks.has(chars[i]),
+    kind = breaks(at);
+  let first = at,
+    last = at;
+  while (first > 0 && breaks(first - 1) === kind) first--;
+  while (last + 1 < chars.length && breaks(last + 1) === kind) last++;
+  while (first <= last && blank.has(chars[first])) first++;
+  while (last >= first && word_end.has(chars[last])) last--;
+  return first <= last ? [first, last] : null;
+}
 /** Where a row's text ends: past its last cell that isn't blank. */
 function textEnd(cs: string[]): number {
   let end = cs.length;
@@ -719,6 +766,8 @@ export class Prompt {
   private hovered: Mention | null = null;
   /** What the last drag selected, shown until the next press or key. */
   private selection: Selection | null = null;
+  /** Presses on one cell, each soon after the last: a double picks a word, a triple a line. */
+  private clicks: { x: number; y: number; count: number; at: number } | null = null;
   /** The thread's rows as last drawn, and the first one shown. */
   private lines: Row[] = [];
   private shown_from = 0;
@@ -871,7 +920,7 @@ export class Prompt {
   }
   key(byte: number): Effect | null {
     if (!this.open) return null;
-    this.selection = null;
+    this.selection = this.clicks = null;
     if (this.picker) return this.picked(this.picker.key(byte));
     if (this.memory_view) return this.remembered(this.memory_view.key(byte));
     const armed = this.burn_until > 0;
@@ -929,7 +978,7 @@ export class Prompt {
   }
   sequence(text: string): Effect | null {
     if (!this.open) return null;
-    this.selection = null;
+    this.selection = this.clicks = null;
     if (this.picker) return this.picked(this.picker.sequence(text));
     if (this.memory_view) return this.remembered(this.memory_view.sequence(text));
     this.burn_until = 0;
@@ -951,7 +1000,7 @@ export class Prompt {
   }
   paste(text: string): void {
     if (!this.open) return;
-    this.selection = null;
+    this.selection = this.clicks = null;
     if (this.memory_view) return this.memory_view.paste(text);
     if (this.picker) {
       this.picker.sequence(text.replace(/\s+/g, " "));
@@ -981,6 +1030,9 @@ export class Prompt {
   click(x: number, y: number): Effect | null {
     if (!this.open) return null;
     this.selection = null;
+    // Only a press in the thread or the input goes on with a click series.
+    const prior = this.clicks;
+    this.clicks = null;
     if (this.picker) return this.picked(this.picker.click(x, y));
     const l = this.drawn;
     if (!l) return null;
@@ -1006,29 +1058,118 @@ export class Prompt {
       this.memory_view.click(x, y);
       return null;
     }
-    // A press in the thread or the input may go on to drag a selection.
+    // A press in the thread or the input picks its cell, word or line, and
+    // may go on to drag a selection.
     const at = this.spot(x, y);
-    if (at) this.selection = { on: "thread", from: at, to: at, room: l.thread!.w, held: true };
-    else if (y >= l.input_y && y < l.input_y + l.input_rows && x >= l.left + text_x) {
+    if (at) {
+      const unit = this.unit(prior, x, y),
+        picked = this.threadSpan(at, unit);
+      this.selection = { on: "thread", unit, picked, from: picked[0], to: picked[1], room: l.thread!.w, held: true };
+    } else if (y >= l.input_y && y < l.input_y + l.input_rows && x >= l.left + text_x) {
+      const unit = this.unit(prior, x, y);
       this.area.place(this.input_first + y - l.input_y, x - l.left - text_x);
-      this.selection = { on: "input", held: true };
+      const picked = this.inputSpan(this.area.caret, unit);
+      this.selection = { on: "input", unit, picked, held: true };
+      if (picked[0] !== picked[1]) [this.area.anchor, this.area.caret] = picked;
     }
     return null;
   }
-  /** The pointer moved with its button down: a selection follows it. True when that changed. */
+  /** What a press at (`x`, `y`) picks: one soon on the cell of the press
+   * before picks its word, and a third its line. */
+  private unit(prior: Prompt["clicks"], x: number, y: number): Unit {
+    const now = this.clock(),
+      count =
+        prior && prior.x === x && prior.y === y && now - prior.at <= double_click_ms ? Math.min(prior.count + 1, 3) : 1;
+    this.clicks = { x, y, count, at: now };
+    return count === 3 ? "line" : count === 2 ? "word" : "cell";
+  }
+  /** The pointer moved with its button down: a selection reaches from what
+   * the press picked to the `unit` under it. True when that changed. */
   drag(x: number, y: number): boolean {
     const sel = this.selection,
       l = this.drawn;
+    // Leaving the cell ends a click series.
+    if (this.clicks && (this.clicks.x !== x || this.clicks.y !== y)) this.clicks = null;
     if (!this.open || !sel?.held || !l) return false;
     if (sel.on === "input") {
-      const before = this.area.selection()?.join();
-      this.area.place(this.input_first + y - l.input_y, x - l.left - text_x, true);
-      return this.area.selection()?.join() !== before;
+      const before = `${this.area.anchor},${this.area.caret}`;
+      this.area.place(this.input_first + y - l.input_y, x - l.left - text_x);
+      const span = this.inputSpan(this.area.caret, sel.unit),
+        first = Math.min(sel.picked[0], span[0]),
+        last = Math.max(sel.picked[1], span[1]);
+      // The caret goes to the end the pointer pulls.
+      [this.area.anchor, this.area.caret] = span[0] < sel.picked[0] ? [last, first] : [first, last];
+      if (this.area.anchor === this.area.caret) this.area.anchor = null;
+      return `${this.area.anchor},${this.area.caret}` !== before;
     }
     const at = this.spot(x, y, true);
-    if (!at || (at.row === sel.to.row && at.col === sel.to.col)) return false;
-    sel.to = at;
+    if (!at) return false;
+    const span = this.threadSpan(at, sel.unit),
+      from = ordered(sel.picked[0], span[0])[0],
+      to = ordered(sel.picked[1], span[1])[1];
+    if (from.row === sel.from.row && from.col === sel.from.col && to.row === sel.to.row && to.col === sel.to.col)
+      return false;
+    [sel.from, sel.to] = [from, to];
     return true;
+  }
+  /** The `unit` at thread spot `at`: its cell; the word, through the rows
+   * it wrapped onto; or the whole line it wrapped from. A blank picks its cell. */
+  private threadSpan(at: Spot, unit: Unit): [Spot, Spot] {
+    const room = this.drawn?.thread?.w ?? 0;
+    if (unit === "cell" || !room) return [at, at];
+    let first = at.row,
+      last = at.row;
+    while (first > 0 && this.lines[first].cont) first--;
+    while (last + 1 < this.lines.length && this.lines[last + 1].cont) last++;
+    if (unit === "line")
+      return [
+        { row: first, col: 0 },
+        { row: last, col: room - 1 },
+      ];
+    // The line's text as one run of characters, each at its spot, with what
+    // a wrap took between rows; a wide character's tail repeats it.
+    const chars: string[] = [],
+      spots: Spot[] = [];
+    let found = -1;
+    for (let row = first; row <= last; row++) {
+      const r = this.lines[row],
+        cs = cells(r, room),
+        end = textEnd(cs);
+      if (row > first) {
+        const after = { row: row - 1, col: Math.min(room - 1, textEnd(cells(this.lines[row - 1], room))) };
+        for (const ch of r.cont!.join) (chars.push(ch === "\n" ? " " : ch), spots.push(after));
+      }
+      for (let col = row > first ? r.cont!.skip : 0; col < end; col++) {
+        if (row === at.row && col === at.col) found = chars.length;
+        chars.push(cs[col] === "" ? (chars.at(-1) ?? " ") : String.fromCodePoint(cs[col].codePointAt(0)!));
+        spots.push({ row, col });
+      }
+    }
+    const word = found < 0 ? null : wordAt(chars, found);
+    return word ? [spots[word[0]], spots[word[1]]] : [at, at];
+  }
+  /** The `unit` around input offset `at`, as offsets: nothing, its word, or its line. */
+  private inputSpan(at: number, unit: Unit): [number, number] {
+    const text = this.area.text;
+    if (unit === "line") {
+      const end = text.indexOf("\n", at);
+      return [text.lastIndexOf("\n", at - 1) + 1, end < 0 ? text.length : end];
+    }
+    if (unit === "cell" || at >= text.length) return [at, at];
+    const chars: string[] = [],
+      offsets: number[] = [];
+    for (let i = 0; i < text.length;) {
+      const ch = String.fromCodePoint(text.codePointAt(i)!);
+      chars.push(ch === "\n" ? " " : ch);
+      offsets.push(i);
+      i += ch.length;
+    }
+    offsets.push(text.length);
+    const word = wordAt(
+      chars,
+      offsets.findLastIndex(o => o <= at),
+    );
+    return word ? [offsets[word[0]], offsets[word[1] + 1]] : [at, at];
   }
   /** The button came up: what a drag selected is copied. */
   release(): Effect | null {
@@ -1077,6 +1218,8 @@ export class Prompt {
   }
   scroll(down: boolean): void {
     if (!this.open) return;
+    // What's under the last click moved: the next press starts anew.
+    this.clicks = null;
     if (this.memory_view) this.memory_view.scroll(down);
     else if (this.picker) this.picker.scroll(down);
     else this.back = Math.max(0, this.back + (down ? -3 : 3));
@@ -1955,9 +2098,10 @@ export class Prompt {
     const sel = this.selection;
     if (sel?.on !== "thread" || index >= this.lines.length) return null;
     const [a, b] = ordered(sel.from, sel.to);
-    // A press that hasn't left its cell selects nothing.
-    if (index < a.row || index > b.row || (a.row === b.row && a.col === b.col)) return null;
+    if (index < a.row || index > b.row) return null;
     const cs = cells(this.lines[index], sel.room);
+    // A press that hasn't left its cell selects nothing, unless it picked a one-letter word.
+    if (a.row === b.row && a.col === b.col && (sel.unit === "cell" || blank.has(cs[a.col]))) return null;
     let start = index === a.row ? a.col : 0;
     const end = Math.min(index === b.row ? b.col + 1 : cs.length, textEnd(cs));
     // A wide character is selected whole.

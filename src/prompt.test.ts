@@ -404,6 +404,86 @@ test("a drag over the thread selects its text, copied on release as it was writt
   expect(drawn(p, 80, 30)).not.toContain(palette.selection);
 });
 
+test("in the thread, a double-click picks a word and a triple its line; a drag after either reaches by them", async () => {
+  const { p, d, clock } = prompt();
+  type(p, "why?");
+  p.key(13);
+  await settle();
+  const sentence =
+      "The flicker case seeds the corgi routine with Date.now(), so two cases in the same millisecond share it.",
+    url = "https://example.com/" + "a".repeat(80);
+  d.add({
+    kind: "message",
+    session: "0193-session",
+    text: `${sentence}\n\nSee src/sidebar.test.ts:42.\n\nLink: ${url}`,
+  });
+  d.add({ kind: "turn", session: "0193-session", turn: "", phase: "ended", outcome: "completed" });
+  await poll(p, 0);
+  const lines = draw(p, 80, 30),
+    y = lines.findIndex(l => l.includes("The flicker")),
+    x = lines[y].indexOf("flicker") + 2;
+  const press = (x: number, y: number) => {
+    clock.now += 100;
+    p.click(x, y);
+  };
+  press(x, y);
+  expect(p.release()).toBeNull();
+  press(x, y);
+  expect(p.release()).toEqual({ kind: "copy", text: "flicker" });
+  // The whole line it wrapped from, and a fourth press keeps to it.
+  press(x, y);
+  expect(p.release()).toEqual({ kind: "copy", text: sentence });
+  press(x, y);
+  expect(p.release()).toEqual({ kind: "copy", text: sentence });
+  // Too slow, or elsewhere, it starts anew.
+  clock.now += 1000;
+  press(x, y);
+  expect(p.release()).toBeNull();
+  press(x + 1, y);
+  expect(p.release()).toBeNull();
+  // A path keeps its line number and drops the sentence's period.
+  const py = lines.findIndex(l => l.includes("src/sidebar")),
+    px = lines[py].indexOf("sidebar");
+  press(px, py);
+  press(px, py);
+  expect(p.release()).toEqual({ kind: "copy", text: "src/sidebar.test.ts:42" });
+  // A word cut across rows is picked whole.
+  const uy = lines.findLastIndex(l => l.includes("aaaa"));
+  press(lines[uy].indexOf("a"), uy);
+  press(lines[uy].indexOf("a"), uy);
+  expect(p.release()).toEqual({ kind: "copy", text: url });
+  // Dragging on from a double-click takes whole words.
+  clock.now += 1000;
+  press(x, y);
+  p.release();
+  press(x, y);
+  expect(p.drag(x + 12, y)).toBe(true);
+  expect(p.release()).toEqual({ kind: "copy", text: "flicker case seeds" });
+});
+
+test("in the input, a double-click picks a word and a triple its line, and typing replaces them", () => {
+  const { p, clock } = prompt();
+  type(p, "fix src/a.ts:12 now");
+  p.sequence("\x1b\r");
+  type(p, "then ship");
+  const lines = draw(p),
+    y = lines.findIndex(l => l.includes("fix src")),
+    x = lines[y].indexOf("a.ts");
+  const press = () => {
+    clock.now += 100;
+    p.click(x, y);
+  };
+  press();
+  p.release();
+  press();
+  expect(p.release()).toEqual({ kind: "copy", text: "src/a.ts:12" });
+  press();
+  expect(p.release()).toEqual({ kind: "copy", text: "fix src/a.ts:12 now" });
+  type(p, "done");
+  expect(draw(p)[y]).toContain("done");
+  expect(draw(p)[y + 1]).toContain("then ship");
+});
+
 test("a drag over the input selects what's typed there, copied on release", () => {
   const { p } = prompt();
   type(p, "hello world");

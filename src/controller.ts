@@ -96,7 +96,7 @@ import * as preferences from "./preferences";
 import { Preferences } from "./preferences";
 import { Drag as AgentDrag } from "./agent_drag";
 import { Drag as WorkspaceDrag } from "./workspace_drag";
-import { milliTimestamp, microTimestamp } from "./clock";
+import { double_click_ms, milliTimestamp, microTimestamp } from "./clock";
 import * as ghosttyIntegration from "./ghostty_integration";
 import * as hostClipboard from "./host_clipboard";
 import * as framePacing from "./frame_pacing";
@@ -235,8 +235,6 @@ const portClick = (fields: Partial<PortClick> & { x: number; y: number }): PortC
   at: milliTimestamp(),
   ...fields,
 });
-/** How soon a press must follow the last one to extend a click series. */
-export const double_click_ms = 300;
 /** An SGR button press or release: neither motion nor the wheel. */
 const isButton = (button: number): boolean => (button & 96) === 0;
 /** Motion with a button held. */

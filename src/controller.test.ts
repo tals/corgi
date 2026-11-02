@@ -1,7 +1,7 @@
 import * as protocol from "./protocol";
 import { transport } from "./fixtures/transport";
 import { expect, setSystemTime, spyOn, test } from "bun:test";
-import { Controller, agentMessage, cardEffect, pasteKey, forkName, breadcrumbs, double_click_ms } from "./controller";
+import { Controller, agentMessage, cardEffect, pasteKey, forkName, breadcrumbs } from "./controller";
 import * as sim from "./providers/sim";
 import { byProvider } from "./providers";
 import * as preferences from "./preferences";
@@ -2889,13 +2889,13 @@ test("presses on one pane cell within the double-click window count up to three"
   const { s, at, click } = clickSeries();
   try {
     expect(await click()).toBe(1);
-    clock.advance(double_click_ms);
+    clock.advance(clock.double_click_ms);
     expect(await click()).toBe(2);
     clock.advance(100);
     expect(await click()).toBe(3);
     clock.advance(100);
     expect(await click()).toBe(3);
-    clock.advance(double_click_ms + 1);
+    clock.advance(clock.double_click_ms + 1);
     expect(await click()).toBe(1);
     clock.advance(50);
     // Shift still counts; Ctrl and Alt end the series.
@@ -3121,7 +3121,7 @@ function picking() {
   term.receive(native.surface(1));
   const at = `${rect.x + 4};${rect.y + 1}`;
   const doubleClick = async () => {
-    clock.advance(double_click_ms + 1);
+    clock.advance(clock.double_click_ms + 1);
     s.clearEffects();
     await s.input(bytes(`\x1b[<0;${at}M\x1b[<0;${at}m\x1b[<0;${at}M\x1b[<0;${at}m`));
   };
@@ -3146,7 +3146,7 @@ test("a pick whose text the pane no longer shows copies nothing", async () => {
     // The same answer copies once it matches what the pane shows.
     reply.shown = "hello";
     await doubleClick();
-    clock.advance(double_click_ms);
+    clock.advance(clock.double_click_ms);
     await s.expireInput();
     expect(s.effects).toEqual([{ write_terminal: `\x1b]52;c;${Buffer.from("hello").toString("base64")}\x07` }]);
     expect(s.copy_feedback_until).not.toBe(0);
@@ -3164,8 +3164,8 @@ test("a double-click copies its word once a third press can no longer pick the l
   const copies = () => s.effects.filter((effect: any) => "write_terminal" in effect).length;
   try {
     await doubleClick();
-    expect(s.pending_copy).toEqual({ text: "hello", due: clock.milliTimestamp() + double_click_ms });
-    clock.advance(double_click_ms - 1);
+    expect(s.pending_copy).toEqual({ text: "hello", due: clock.milliTimestamp() + clock.double_click_ms });
+    clock.advance(clock.double_click_ms - 1);
     await s.expireInput();
     expect(copies()).toBe(0);
     clock.advance(1);
@@ -3179,7 +3179,7 @@ test("a double-click copies its word once a third press can no longer pick the l
     expect(asks.at(-1)?.unit).toBe("line");
     expect(s.pending_copy).toBeNull();
     expect(copies()).toBe(1);
-    clock.advance(double_click_ms);
+    clock.advance(clock.double_click_ms);
     await s.expireInput();
     expect(copies()).toBe(1);
     // A key or a press elsewhere copies the word at once.
@@ -3241,7 +3241,7 @@ test("a held double-click ends on a scroll, a key or a focus change", async () =
   const { s, term, rect, done } = picking();
   const at = `${rect.x + 4};${rect.y + 1}`;
   const hold = async () => {
-    clock.advance(double_click_ms + 1);
+    clock.advance(clock.double_click_ms + 1);
     await s.input(bytes(`\x1b[<0;${at}M\x1b[<0;${at}m\x1b[<0;${at}M`));
     await s.gesture.pending;
     expect(term.holding_selection).toBe(true);
@@ -3276,7 +3276,7 @@ test("a drag past its pane's edges asks for the pane's edge cells", async () => 
   const { s, rect, asks, done } = picking();
   const at = `${rect.x + 4};${rect.y + 1}`;
   try {
-    clock.advance(double_click_ms + 1);
+    clock.advance(clock.double_click_ms + 1);
     await s.input(bytes(`\x1b[<0;${at}M\x1b[<0;${at}m\x1b[<0;${at}M`));
     await s.gesture.pending;
     await s.input(bytes(`\x1b[<32;${rect.x - 4};${rect.y + rect.h + 4}M`));
@@ -3537,18 +3537,18 @@ test("a plain click on a pane link opens it once the double-click window has pas
     const at = clock.milliTimestamp();
     await click();
     expect(s.effects).toEqual([]);
-    expect(s.pending_open).toEqual({ url, pane: 1, due: at + double_click_ms });
+    expect(s.pending_open).toEqual({ url, pane: 1, due: at + clock.double_click_ms });
     expect(await opened()).toEqual([]);
-    clock.advance(double_click_ms - 1);
+    clock.advance(clock.double_click_ms - 1);
     expect(await opened()).toEqual([]);
     clock.advance(1);
     expect(await opened()).toEqual([url]);
     expect(s.pending_open).toBeNull();
-    clock.advance(double_click_ms);
+    clock.advance(clock.double_click_ms);
     expect(await opened()).toEqual([]);
     // Held past the window, it opens at its release.
     await mouse(0);
-    clock.advance(double_click_ms + 100);
+    clock.advance(clock.double_click_ms + 100);
     expect(await opened()).toEqual([]);
     await mouse(0, 0, true);
     expect(await opened()).toEqual([url]);
@@ -3566,24 +3566,24 @@ test("a second press on a pane link cancels its open, another press opens it at 
     await mouse(0);
     expect(await opened()).toEqual([]);
     await mouse(0, 0, true);
-    clock.advance(double_click_ms);
+    clock.advance(clock.double_click_ms);
     expect(await opened()).toEqual([]);
     // A press on another cell of the pane opens it before it lands.
-    clock.advance(double_click_ms);
+    clock.advance(clock.double_click_ms);
     await click();
     clock.advance(50);
     await mouse(0, 20);
     expect(s.effects).toEqual([{ open_url: url }]);
     s.clearEffects();
     await mouse(0, 20, true);
-    clock.advance(double_click_ms);
+    clock.advance(clock.double_click_ms);
     expect(await opened()).toEqual([]);
     // A wheel step isn't a press.
-    clock.advance(double_click_ms);
+    clock.advance(clock.double_click_ms);
     await click();
     clock.advance(50);
     await mouse(64);
-    clock.advance(double_click_ms);
+    clock.advance(clock.double_click_ms);
     expect(await opened()).toEqual([url]);
   } finally {
     done();
@@ -3598,10 +3598,10 @@ test("a second press on the same link opens it only once", async () => {
     clock.advance(100);
     await click(0, 1);
     expect(s.effects).toEqual([]);
-    clock.advance(double_click_ms);
+    clock.advance(clock.double_click_ms);
     expect(await opened()).toEqual([url]);
     // A Ctrl+click after a plain click opens at once, and only then.
-    clock.advance(double_click_ms);
+    clock.advance(clock.double_click_ms);
     await click();
     clock.advance(50);
     await mouse(16);
@@ -3609,14 +3609,14 @@ test("a second press on the same link opens it only once", async () => {
     await mouse(16, 0, true);
     expect(s.effects).toEqual([{ open_url: url }]);
     s.clearEffects();
-    clock.advance(double_click_ms);
+    clock.advance(clock.double_click_ms);
     expect(await opened()).toEqual([]);
     // Nor once its pane lost focus before the press.
-    clock.advance(double_click_ms);
+    clock.advance(clock.double_click_ms);
     await click();
     s.focusPane(2);
     await click(0, 20);
-    clock.advance(double_click_ms);
+    clock.advance(clock.double_click_ms);
     expect(await opened()).toEqual([]);
   } finally {
     done();
@@ -3628,17 +3628,17 @@ test("a pane link's open is dropped once its pane loses focus or closes", async 
   try {
     await click();
     s.focusPane(2);
-    clock.advance(double_click_ms);
+    clock.advance(clock.double_click_ms);
     expect(await opened()).toEqual([]);
     s.focusPane(1);
-    clock.advance(double_click_ms);
+    clock.advance(clock.double_click_ms);
     await click();
     expect(s.pending_open).not.toBeNull();
     const closed = folders("/a", "/b");
     closed.workspaces = closed.workspaces.slice(1);
     closed.panes = closed.panes.slice(1);
     s.receiveSnapshot(closed);
-    clock.advance(double_click_ms);
+    clock.advance(clock.double_click_ms);
     expect(await opened()).toEqual([]);
   } finally {
     done();
@@ -3652,7 +3652,7 @@ test("a Ctrl+click opens a pane link at once", async () => {
     expect(s.effects).toEqual([{ open_url: url }]);
     expect(s.pending_open).toBeNull();
     s.clearEffects();
-    clock.advance(double_click_ms);
+    clock.advance(clock.double_click_ms);
     expect(await opened()).toEqual([]);
   } finally {
     done();
@@ -3665,7 +3665,7 @@ test("a double-click the daemon can't pick leaves nothing selected, copied or op
     const message = s.message;
     // On the link and on a word.
     for (const dx of [0, 7]) {
-      clock.advance(double_click_ms + 1);
+      clock.advance(clock.double_click_ms + 1);
       await click(0, dx);
       await click(0, dx);
       expect(s.click_series?.count).toBe(2);
@@ -3677,7 +3677,7 @@ test("a double-click the daemon can't pick leaves nothing selected, copied or op
       expect(term.holding_selection).toBe(false);
       expect(s.picked).toBeNull();
       expect(s.message).toBe(message);
-      clock.advance(double_click_ms);
+      clock.advance(clock.double_click_ms);
       expect(await opened()).toEqual([]);
     }
   } finally {
