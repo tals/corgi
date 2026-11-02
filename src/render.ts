@@ -951,8 +951,10 @@ export function frame(
   if (u.ghost) cover(drawGhost(w, u.ghost, side.drawer !== null ? side.width : u.ghost.area.x));
   if (u.workspace_ghost) cover(drawWorkspaceGhost(w, u.workspace_ghost, panes, side, width, u.prefs.preset));
   // The host may leave its last mouse report at the window edge.
-  if (u.pointer && u.pointer.x > 0 && !dragging && !on_card && noOverlay(u))
+  if (u.pointer && u.pointer.x > 0 && !dragging && !on_card && noOverlay(u)) {
     side.hovered = sidebar.agentIndexAt(side, entries, u.pointer.x, u.pointer.y);
+    side.workspace_hover = sidebar.workspaceIndexAt(side, u.pointer.x, u.pointer.y);
+  }
   side.spotlight = u.worktree_spotlight;
   // A moving row's tint and a link's thumbnail are placed again by each frame that shows them.
   if (u.supports_kitty_graphics)
