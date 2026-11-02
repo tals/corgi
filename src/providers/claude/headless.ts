@@ -4,6 +4,7 @@ import { parse, stringify } from "../../json";
 import { field, number, str } from "../common";
 import type { Client, Event, Inference, Input, Place, Saved } from "../adapter";
 import { Stdio } from "../stdio";
+import { unnest } from "./process";
 import { Tokens } from "../../usage/live";
 export const stream_json = [
   "--print",
@@ -69,14 +70,11 @@ export class Claude implements Client {
     this.ready = ready;
   }
   static start(at: Place, args: string[], summary: { schema: boolean } | null) {
-    const client = new Claude(
-      Stdio.spawn([at.executable, ...args], {
-        cwd: at.cwd,
-        env: at.account ? { ...process.env, CLAUDE_CONFIG_DIR: at.account } : undefined,
-      }),
-      summary,
-      !summary,
-    );
+    const env: Record<string, string | undefined> = at.account
+      ? { ...process.env, CLAUDE_CONFIG_DIR: at.account }
+      : { ...process.env };
+    unnest(env);
+    const client = new Claude(Stdio.spawn([at.executable, ...args], { cwd: at.cwd, env }), summary, !summary);
     if (summary)
       client.io.write({ type: "control_request", request_id: "corgi-initialize", request: { subtype: "initialize" } });
     return client;

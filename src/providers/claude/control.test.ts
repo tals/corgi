@@ -24,6 +24,32 @@ function fixture(mode: string) {
     },
   };
 }
+test("control never inherits another session's nesting markers", async () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-control-env-")),
+    exe = join(root, "claude");
+  // Answers initialize with the nesting markers and a user setting it sees.
+  writeFileSync(
+    exe,
+    `#!${process.execPath}\nlet input='';process.stdin.on('data',b=>{input+=b;let i;while((i=input.indexOf('\\n'))>=0){const v=JSON.parse(input.slice(0,i));input=input.slice(i+1);const e=process.env;process.stdout.write(JSON.stringify({type:'control_response',response:{request_id:v.request_id,subtype:'success',response:{nested:[e.CLAUDECODE,e.CLAUDE_CODE_CHILD_SESSION,e.CLAUDE_CODE_MESSAGING_SOCKET,e.CLAUDE_PID].filter(Boolean),kept:e.CORGI_TEST_KEEP??null}}})+'\\n');}});\n`,
+    { mode: 0o700 },
+  );
+  const c = new Control(exe, {
+    ...process.env,
+    CLAUDECODE: "1",
+    CLAUDE_CODE_CHILD_SESSION: "1",
+    CLAUDE_CODE_MESSAGING_SOCKET: "/tmp/cc.sock",
+    CLAUDE_PID: "53013",
+    CORGI_TEST_KEEP: "kept",
+  });
+  try {
+    expect(await c.ready()).toEqual({ nested: [], kept: "kept" });
+  } finally {
+    const child = c.child;
+    c.close();
+    if (child && child.exitCode === null && child.signalCode === null) await once(child, "exit");
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 test("read-only control rejects unexpected provider requests", async () => {
   const f = fixture("approval");
   try {

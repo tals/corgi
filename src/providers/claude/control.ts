@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import type { Quit } from "../../subprocess";
 import type { Stopping } from "../../inference";
+import { unnest } from "./process";
 export type ControlStopping = Stopping | { stopping: boolean };
 export type Options = {
   stopping?: ControlStopping;
@@ -54,13 +55,11 @@ export class Control {
       "--tools",
       "",
     ];
+    const env = { ...this.env };
+    unnest(env);
     this.child = spawn(this.executable, args, {
       cwd: "/tmp",
-      env: {
-        ...this.env,
-        CLAUDECODE: undefined,
-        CLAUDE_CODE_ENTRYPOINT: undefined,
-      },
+      env,
       stdio: "pipe",
       detached: true,
     });

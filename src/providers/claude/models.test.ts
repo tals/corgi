@@ -58,6 +58,32 @@ test("Claude inference starts with the same account directory used for its catal
   }
 });
 
+test("headless Claude never inherits another session's nesting markers", () => {
+  const markers = { CLAUDECODE: "1", CLAUDE_CODE_CHILD_SESSION: "1", CLAUDE_CODE_MESSAGING_SOCKET: "/tmp/cc.sock" },
+    saved = Object.fromEntries(
+      [...Object.keys(markers), "CORGI_TEST_KEEP"].map(key => [key, process.env[key]] as const),
+    );
+  Object.assign(process.env, markers, { CORGI_TEST_KEEP: "kept" });
+  const spawn = spyOn(Stdio, "spawn").mockImplementation(() => new Stdio());
+  try {
+    const args = summaryArgs({ instructions: "Summarize", model: "claude-haiku-5-5", schema: null });
+    for (const account of ["/claude/nvidia", ""])
+      Claude.start({ account, cwd: "/tmp", executable: "claude" }, args, { schema: false }).close();
+    for (const [index, account] of ["/claude/nvidia", undefined].entries()) {
+      const env = spawn.mock.calls[index][1]?.env ?? {};
+      for (const key of Object.keys(markers)) expect(env).not.toHaveProperty(key);
+      expect(env.CORGI_TEST_KEEP).toBe("kept");
+      // Without an account, the user's own CLAUDE_CONFIG_DIR (if any) passes through.
+      expect(env.CLAUDE_CONFIG_DIR).toBe(account ?? process.env.CLAUDE_CONFIG_DIR);
+    }
+  } finally {
+    spawn.mockRestore();
+    for (const [key, value] of Object.entries(saved))
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+  }
+});
+
 test("Claude catalogs label the saved native default effort only for supported models", async () => {
   const info = new Info();
   info.signed_in = true;
