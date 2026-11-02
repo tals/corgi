@@ -88,7 +88,7 @@ curl -fsSL https://corgi.computer/install.sh | bash -s uninstall
   [pi-tui](https://github.com/earendil-works/pi/tree/main/packages/tui) 라이브러리를 사용합니다.
 - [Bun](https://bun.sh): Corgi의 TypeScript 런타임입니다.
 
-제안과 피드백을 보내 주신 초기 테스터 여러분께도 감사드립니다.
+초기 테스터와 기여자 여러분의 지원이 없었다면 Corgi는 세상에 나오지 못했을 것입니다.
 [Max Bittker](https://x.com/MaxBittker),
 [Aaron Blakeman](https://github.com/ablakeman),
 [Kai Johnson](https://github.com/sirkaiserkai),

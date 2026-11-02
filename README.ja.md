@@ -88,7 +88,7 @@ Corgi をビルドして起動します。次回以降は、ペインを維持�
   [pi-tui](https://github.com/earendil-works/pi/tree/main/packages/tui) ライブラリを使用しています。
 - [Bun](https://bun.sh)：Corgi の TypeScript ランタイムです。
 
-提案やフィードバックを寄せてくださった初期のテスターの皆さんにも感謝します。
+Corgi は、初期テスターとコントリビューターの皆さんの支えなしには生まれませんでした。
 [Max Bittker](https://x.com/MaxBittker)、
 [Aaron Blakeman](https://github.com/ablakeman)、
 [Kai Johnson](https://github.com/sirkaiserkai)、

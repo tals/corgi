@@ -85,7 +85,7 @@ curl -fsSL https://corgi.computer/install.sh | bash -s uninstall
   [pi-tui](https://github.com/earendil-works/pi/tree/main/packages/tui) 库。
 - [Bun](https://bun.sh)：Corgi 的 TypeScript 运行时。
 
-感谢早期测试者提出的建议和反馈：
+没有早期测试者和贡献者的支持，就不会有 Corgi：
 [Max Bittker](https://x.com/MaxBittker)、
 [Aaron Blakeman](https://github.com/ablakeman)、
 [Kai Johnson](https://github.com/sirkaiserkai)、
