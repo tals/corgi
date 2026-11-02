@@ -128,20 +128,26 @@ export class Drag {
     const above = index > 0 && !isSection(this.ids[index - 1]) ? this.owners[index - 1] : (this.owners[index] ?? null);
     return above === null || above === mine;
   }
-  /** Previews the row at `drop`, unless that leaves it where it is. */
+  /** Previews the row at `drop`, unless that leaves it where it is: above
+   * itself or the agent after it, past any subhead between. */
   private reorder(drop: { index: number; y: number }, action: Action) {
+    const lands = this.agentFrom(drop.index);
+    if (lands === this.source || lands === this.agentFrom(this.source + 1)) {
+      this.preview = this.source;
+      return;
+    }
     this.preview = drop.index - Number(drop.index > this.source);
-    if (this.preview === this.source) return;
     this.action = action;
     this.drop = drop;
   }
-  /** The agent the dragged one lands above, past any subhead there; null
-   * when it goes last. */
+  /** The first agent row from `index`, past any subhead there; null past the
+   * agent's last neighbour. */
+  private agentFrom(index: number): number | null {
+    while (index < this.end && !isAgent(this.ids[index])) index += 1;
+    return index < this.end ? index : null;
+  }
+  /** The agent the dragged one lands above; null when it goes last. */
   before(): number | null {
-    if (!this.drop) return null;
-    const end = this.end;
-    let at = this.drop.index;
-    while (at < end && !isAgent(this.ids[at])) at += 1;
-    return at < end ? at : null;
+    return this.drop ? this.agentFrom(this.drop.index) : null;
   }
 }

@@ -189,11 +189,7 @@ export function arrange(items: Item[], o: Options): sidebar.Entry[] {
     members.sort(
       (a, b) => place(a.workspace) - place(b.workspace) || (kind === "starred" ? a.pin! - b.pin! : before(a, b)),
     );
-    const placed = members.map(item => ({
-      entry: row(item, kind),
-      workspace: item.workspace,
-      checkout: item.checkout,
-    }));
+    const placed = members.map(item => ({ ...item, entry: row(item, kind) }));
     out.push(...labelled(placed, kind, o.all, o.label));
   }
   return out;

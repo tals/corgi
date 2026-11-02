@@ -101,6 +101,37 @@ test("by activity, an agent moves anywhere in its section, past worktree labels"
   expect(drag.action).toBe("place");
   expect(drag.before()).toBe(1);
 });
+test("a star dropped above itself or the star after it, past worktree labels, stays put", () => {
+  const entries = [
+      row({ section: "starred" }, null),
+      row({ section: "starred", workspace: 1, checkout: "/wt", run: 0 }, null),
+      row({ pane: 2 }, "starred"),
+      row({ section: "starred", workspace: 1, checkout: null, run: 0 }, null),
+      row({ pane: 1 }, "starred"),
+      row({ section: "idle" }, null),
+      row({ pane: 3 }, "idle"),
+    ],
+    view = View.init(100, 36, true, 0, entries.length).withEntries(entries),
+    first = Drag.init(view, 2, 5, yOf(view, 2), 1, 1, "activity"),
+    last = Drag.init(view, 4, 5, yOf(view, 4), 1, 1, "activity");
+  first.dragging = last.dragging = true;
+  for (const at of [0, 1, 2, 3, 4]) {
+    first.update(view, 1, 5, yOf(view, at));
+    expect(first.drop).toBeNull();
+    expect(first.preview).toBe(2);
+  }
+  first.update(view, 1, 5, yOf(view, 5));
+  expect(first.action).toBe("starred");
+  expect(first.before()).toBeNull();
+  for (const at of [3, 4, 5]) {
+    last.update(view, 1, 5, yOf(view, at));
+    expect(last.drop).toBeNull();
+    expect(last.preview).toBe(4);
+  }
+  last.update(view, 1, 5, yOf(view, 1));
+  expect(last.action).toBe("starred");
+  expect(last.before()).toBe(2);
+});
 test("in all, starred rows reorder only among their own workspace's stars", () => {
   const entries = [
       row({ section: "starred" }, null),
