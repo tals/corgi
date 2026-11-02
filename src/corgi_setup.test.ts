@@ -1264,6 +1264,16 @@ test("visual flourishes sets the workspace tint on a second slider, keyed and dr
   expect(short).toMatch(/Workspace tint +80%/);
   expect(short).toContain("100 Strong");
   expect(short).not.toContain("Preview");
+  // At every height each slider shows once, its option above its bar.
+  for (let rows = 12; rows <= 40; rows++) {
+    const lines = draw(menu, 100, rows, 0, s, prefs);
+    for (const label of ["Intensity", "Workspace tint"]) {
+      const at = lines.flatMap((line, y) => (line.includes(label) ? [y] : []));
+      expect(at.length, `${label} at ${rows} rows`).toBeLessThanOrEqual(1);
+    }
+    expect(lines.filter(line => line.includes("100 Strong")).length, `${rows} rows`).toBeLessThanOrEqual(1);
+    expect(lines.filter(line => line.includes("100 Bright")).length, `${rows} rows`).toBeLessThanOrEqual(1);
+  }
 });
 
 test("the theme under the cursor previews until Enter keeps it", () => {
