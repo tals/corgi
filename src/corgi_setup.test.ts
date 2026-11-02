@@ -201,6 +201,23 @@ test("setup keeps its options across the single-cell steps a terminal reports", 
   }
 });
 
+test("Tricks stays selected while crossing Manage agents toward the open pane", () => {
+  const s = status(),
+    prefs = new Preferences();
+  for (const destination of [10, 12, 17]) {
+    const menu = Menu.open();
+    menu.tricks = { directory: "/tmp/tricks", autoreload: true, watch_error: null, tricks: [] };
+    menu.hover(100, 30, 20, 14, s, prefs, 0);
+    expect(menu.item).toBe("tricks");
+    menu.hover(100, 30, 21, 14, s, prefs, 200);
+    let now = 200;
+    for (const [x, y] of walk(21, 14, 36, destination)) {
+      menu.hover(100, 30, x, y, s, prefs, (now += 16));
+      expect(menu.item).toBe("tricks");
+    }
+  }
+});
+
 test("setup tells a column of drift down the list from a turn toward the options", () => {
   const s = status(),
     prefs = new Preferences();
@@ -265,26 +282,23 @@ function walk(x0: number, y0: number, x1: number, y1: number): [number, number][
   return out;
 }
 
-test("setup aims only at the options a click acts on", () => {
+test("setup guards the visible pane, including previews and read-only sections", () => {
   const s = status(),
     prefs = new Preferences();
   // Visual flourishes' Intensity sits on rows 7 and 8, its preview below.
-  for (const [y, kept] of [
-    [8, true],
-    [15, false],
-  ] as const) {
+  for (const y of [8, 15]) {
     const menu = Menu.open();
     menu.hover(100, 30, 15, 4, s, prefs, 0);
     menu.hover(100, 30, 16, 4, s, prefs, 200);
     let now = 200;
     for (const [x, row] of walk(16, 4, 35, y)) menu.hover(100, 30, x, row, s, prefs, (now += 16));
-    expect(menu.item === "flourishes").toBe(kept);
+    expect(menu.item).toBe("flourishes");
   }
-  // Terminal capabilities has nothing to click, so nothing guards it.
+  // Reading a section should not switch it when crossing another list item.
   const menu = Menu.open();
-  menu.hover(100, 30, 15, 15, s, prefs, 0);
+  menu.hover(100, 30, 15, 16, s, prefs, 0);
   menu.hover(100, 30, 22, 11, s, prefs, 100);
-  expect(menu.item).toBe("source_control");
+  expect(menu.item).toBe("terminal");
 });
 
 test("setup stops guarding when moving away, leaving the frame, or resizing", async () => {

@@ -329,19 +329,6 @@ type Line =
   | { tag: "option"; option: Option; index: number }
   /** The import picker, down to the bottom of the pane. */
   | { tag: "picker" };
-/** Lines a click acts on; a field's box stands for its field. */
-function clickable(line: Line): boolean {
-  switch (line.tag) {
-    case "option":
-    case "art":
-    case "intensity":
-    case "box":
-    case "picker":
-      return true;
-    default:
-      return false;
-  }
-}
 
 let panel: string, border: string, text: string, bright: string, warm: string, graph: string, hint_key: string;
 let row_resting: settingRow.Row;
@@ -1062,7 +1049,7 @@ export class Menu {
     this.aim = null;
     this.pending_item = null;
   }
-  /** Keep the selected setting while crossing other rows toward its options. */
+  /** Keep the selected setting while crossing other rows toward its pane. */
   hover(cols: number, rows: number, x: number, y: number, s: Status, prefs: Preferences, now = milliTimestamp()): void {
     const l = this.rest(cols, rows),
       hit = this.hit(cols, rows, x, y, s, prefs),
@@ -1085,7 +1072,7 @@ export class Menu {
         from.rows === rows &&
         (from.at === null || now - from.at < menuAim.aim_ms) &&
         (x > from.last_x || (x === from.last_x && from.rightward)) &&
-        this.aimed(l, s, prefs, from, x, y)
+        menuAim.grazed(new Rect(l.options.x, l.b.y + 2, l.options.w, l.body), from, x, y)
       ) {
         from.rightward = x > from.last_x;
         from.last_x = x;
@@ -1105,23 +1092,6 @@ export class Menu {
       if (this.focus === "list") this.item = hit.item;
     } else if ("option" in hit && this.focus === "options" && !this.options(s, prefs)[hit.option]?.disabled)
       this.cursor = hit.option;
-  }
-  /** Whether (x, y) is on the way from the row's exit point to the options a
-   * click acts on, past previews and notes; never when there are none. */
-  private aimed(
-    l: Layout,
-    s: Status,
-    prefs: Preferences,
-    from: { x: number; y: number },
-    x: number,
-    y: number,
-  ): boolean {
-    if (this.item === "agents") return menuAim.grazed(managerArea(l), from, x, y);
-    const lines = this.lines(s, prefs, l),
-      first = lines.findIndex(clickable),
-      last = lines.some(line => line.tag === "picker") ? l.body - 1 : lines.findLastIndex(clickable);
-    if (first < 0) return false;
-    return menuAim.grazed(new Rect(l.options.x, l.b.y + 2 + first, l.options.w, last - first + 1), from, x, y);
   }
   /** Starts gathering what Report a bug shows, once per setup. */
   private gatherReport(s: Status, prefs: Preferences): void {
