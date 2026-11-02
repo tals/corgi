@@ -128,14 +128,17 @@ export function dist(a: Rgb, b: Rgb): number {
 /** The workspace section's background for a tint from 0 to 100, or null at
  * 0: `bg` blended toward `text`, so lighter on dark and darker on light. Full
  * strength stays at 60% of the way to `selected`, keeping selected and hovered
- * rows apart from it. Any tint above 0 moves at least one unit. */
+ * rows apart from it. Any tint above 0 moves at least one unit, on the
+ * channel farthest from `text`, so the tint never steps back toward `bg`. */
 export function sectionTint(value: number): Rgb | null {
   if (!(value > 0)) return null;
   const span = dist(colors.bg, colors.text);
   const cap = span === 0 ? 0.02 : Math.min(0.25, Math.max(0.02, (0.6 * dist(colors.bg, colors.selected)) / span));
   const tinted = blend(colors.bg, colors.text, (Math.min(value, 100) / 100) * cap);
-  if (tinted.every((v, i) => v === colors.bg[i]))
-    return colors.bg.map((v, i) => v + Math.sign(colors.text[i] - v)) as Rgb;
+  if (tinted.some((v, i) => v !== colors.bg[i])) return tinted;
+  const gap = colors.bg.map((v, i) => colors.text[i] - v);
+  const widest = gap.reduce((best, d, i) => (Math.abs(d) > Math.abs(gap[best]) ? i : best), 0);
+  tinted[widest] += Math.sign(gap[widest]);
   return tinted;
 }
 export class Style {
