@@ -2816,8 +2816,9 @@ test("while the prompt shows it takes keys, sequences, pastes and the pointer ah
     expect(s.prompt.open).toBe(true);
     await s.input(bytes("\x1b[200~ok\x1b[201~"));
     expect(paste.mock.calls.map(c => c[0])).toEqual([111, 107]);
+    // The wheel says where the pointer is, so a list under it can scroll.
     await s.input(bytes("\x1b[<65;10;5M"));
-    expect(scroll).toHaveBeenLastCalledWith(true);
+    expect(scroll).toHaveBeenLastCalledWith(true, 9, 4);
     // A move with the button down drags its selection, and the release copies it; other moves hover.
     const drag = spyOn(s.prompt, "drag").mockReturnValue(true),
       hover = spyOn(s.prompt, "hover").mockReturnValue(false),

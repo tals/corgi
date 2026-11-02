@@ -3,7 +3,9 @@
 //! in raw mode with its own frames and keys, talking to the daemon at the
 //! pane's CORGI_SOCKET. Its reads claim the session for the pane, so closing
 //! the pane stops it.
+import { openConversation } from "./cli";
 import * as errors from "./errors";
+import * as launcherResume from "./launcher_resume";
 import * as os from "./os";
 import * as preferences from "./preferences";
 import * as rpc from "./rpc";
@@ -117,12 +119,47 @@ export async function run(argv: string[]): Promise<void> {
         herd: [],
         mentions: args.cwd ? [{ kind: "diff", cwd: args.cwd }] : [],
       };
+  // The conversations the reply's lists show, read again while they show.
+  let known: launcherResume.Context | null = null,
+    reading = false,
+    read_at = 0;
+  const readConversations = async () => {
+    reading = true;
+    try {
+      const [{ history }, snapshot] = await Promise.all([
+          call("agent.history", { follow: false }),
+          call("session.list", {}),
+        ]),
+        open: launcherResume.Open[] = (snapshot.result?.panes ?? []).flatMap((p: any) => {
+          const provider = Provider.parse(p.agent?.provider);
+          return provider && p.agent?.session ? [{ provider, session: p.agent.session, pane: p.id }] : [];
+        });
+      known = new launcherResume.Context(
+        {
+          pending: history.pending === true,
+          entries: (history.entries ?? [])
+            .filter((e: any) => Provider.parse(e?.provider))
+            .map(launcherResume.historyEntry),
+        },
+        "",
+        "",
+        open,
+        Math.floor(Date.now() / 1000),
+      );
+      dirty = true;
+    } catch {
+    } finally {
+      reading = false;
+      read_at = Date.now();
+    }
+  };
   const prompt = new Prompt(
     {
       daemon,
       memory_root: Memory.root(),
       mode: "pane",
       pane,
+      conversations: () => known,
       resolve: async m => {
         switch (m.kind) {
           case "agent":
@@ -211,6 +248,21 @@ export async function run(argv: string[]): Promise<void> {
         // Corgi passes a program's copy on to the host clipboard.
         out.write(`\x1b]52;c;${Buffer.from(effect.text).toString("base64")}\x07`);
         return;
+      case "open":
+        // In the viewer showing this pane's workspace.
+        try {
+          const snapshot = await call("session.list", {}),
+            workspace = context.workspace_id ?? (await call("session.locate", { pane })).result.workspace,
+            viewer = (snapshot.viewers ?? []).find((v: any) => v.workspace === workspace)?.id ?? null;
+          await openConversation(
+            { call: (op: string, payload?: object) => call(op, payload ?? {}) } as never,
+            { provider: effect.entry.provider, session: effect.entry.session, workspace: null, viewer },
+            null,
+          );
+        } catch (error) {
+          prompt.conversation.note(`Couldn't open it: ${errors.name(error) ?? "unknown error"}.`, "hot");
+        }
+        return;
       case "pane":
         // /memory opens its editor in a tab beside this one.
         try {
@@ -237,7 +289,7 @@ export async function run(argv: string[]): Promise<void> {
         dirty = true;
         return;
       case "mouse":
-        if ((token.button & 64) !== 0) prompt.scroll((token.button & 1) !== 0);
+        if ((token.button & 64) !== 0) prompt.scroll((token.button & 1) !== 0, token.x, token.y);
         else if ((token.button & 32) !== 0) {
           // A move with the button down drags a selection; others hover.
           if ((token.button & 3) === 0 ? prompt.drag(token.x, token.y) : prompt.hover(token.x, token.y)) dirty = true;
@@ -278,6 +330,8 @@ export async function run(argv: string[]): Promise<void> {
   out.write(enter);
   const loop = setInterval(() => {
     if (prompt.poll(Date.now())) dirty = true;
+    if (prompt.listed() && !reading && Date.now() - read_at >= (known && !known.history.pending ? 20_000 : 1000))
+      void readConversations();
     if (!dirty) return;
     dirty = false;
     draw();

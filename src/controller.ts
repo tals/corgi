@@ -71,6 +71,7 @@ import * as launcherOrder from "./launch/order";
 import * as accounts from "./accounts";
 import { Stream as LaunchPreviewStream } from "./launch_preview_stream";
 import * as launcherResume from "./launcher_resume";
+import { workspaceFor } from "./cli";
 import { Menu as SetupMenu, Summarizer, type Apply as SetupApply } from "./corgi_setup";
 import type { Use } from "./inference/setup";
 import * as shellPicker from "./shell_picker";
@@ -520,6 +521,8 @@ export class Controller {
   private prompt_opened_at = 0;
   /** When the prompt's catalogs were last read ahead of it. */
   private prompt_warmed_at = 0;
+  /** The conversations the prompt's lists were last given, and when. */
+  private prompt_known: { key: unknown[]; at: number; context: launcherResume.Context } | null = null;
   /** The first snapshot was checked for a prompt session this viewer left running. */
   private prompt_resumed = false;
   /** What the status line last said about the prompt while it was put away. */
@@ -538,6 +541,7 @@ export class Controller {
       resolve: mention => this.resolveMention(mention),
       clock: milliTimestamp,
       viewer: () => this.input_state.viewer_id || null,
+      conversations: () => this.promptConversations(),
     });
     // Its replies are read by the next poll, which says whether they show.
     this.prompt.changed = () => this.wake();
@@ -4434,6 +4438,8 @@ export class Controller {
         return this.savePromptModel(effect.choice);
       case "copy":
         return this.copyText(effect.text);
+      case "open":
+        return this.showConversation(effect.entry);
       case "pane":
         try {
           await this.create(null, effect.cwd || this.currentCwd(), shellWords(effect.argv), "");
@@ -4441,6 +4447,41 @@ export class Controller {
           this.notice(` Couldn't open a pane: ${errors.name(error) ?? "unknown error"}`);
         }
         return;
+    }
+  }
+  /** The conversations the prompt's lists show, as the launcher has them:
+   * the same object until they change, and for at most half a minute. */
+  private promptConversations(): launcherResume.Context {
+    const history = this.launch_previews.history,
+      now = nowSeconds(),
+      key = [
+        history,
+        this.runtime.conversations,
+        this.stopped.length,
+        this.running.map(o => `${o.provider}:${o.session}:${o.pane}`).join(),
+      ],
+      kept = this.prompt_known;
+    if (kept && now - kept.at < 30 && key.every((k, i) => k === kept.key[i])) return kept.context;
+    const context = new launcherResume.Context(
+      { pending: history.pending, entries: this.mergedHistory() },
+      "",
+      "",
+      this.running.slice(),
+      now,
+      this.runtime.accounts,
+      this.launch_previews.preview.names,
+    );
+    this.prompt_known = { key, at: now, context };
+    return context;
+  }
+  /** Shows the conversation a prompt list picked: the pane running it, or
+   * resumed in a tab in the workspace that holds its folder. */
+  private async showConversation(e: launcherResume.Entry): Promise<void> {
+    const workspaces = this.runtime.workspaces.items.map(ws => ({ id: ws.id, cwd: ws.cwd }));
+    try {
+      await this.resumeEntry(e, workspaceFor(workspaces, e.cwd, this.current().id)!);
+    } catch (error) {
+      this.notice(` Couldn't open it: ${errors.name(error) ?? "unknown error"}`);
     }
   }
   private savePromptModel(choice: modelPicker.Choice | null): void {
@@ -6229,7 +6270,7 @@ export class Controller {
         this.prefix = false;
         await this.promptEffect(this.prompt.click(x, y));
       } else if (release && (button & 0xe3) === 0) await this.promptEffect(this.prompt.release());
-      else if (!release && (button & 0xe0) === 64) this.prompt.scroll((button & 1) !== 0);
+      else if (!release && (button & 0xe0) === 64) this.prompt.scroll((button & 1) !== 0, x, y);
       this.dirty = true;
       return;
     }

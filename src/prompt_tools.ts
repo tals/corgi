@@ -1,6 +1,7 @@
 //! What the prompt's model may do to Corgi: its CLI, told how in the
 //! session's instructions, and which of its commands run without asking.
 import skill from "../assets/corgi-skill.md" with { type: "text" };
+import { fence } from "./prompt_conversations";
 
 /** Commands that only look or move a viewer's selection; anything that types
  * into a pane, closes or edits something still asks. */
@@ -71,6 +72,14 @@ export function instructions(binary: string): string {
     "To show the user something: `corgi resume PROVIDER SESSION --viewer V` jumps to a conversation, or",
     "reopens it in a tab if it isn't open; `corgi focus PANE --viewer V`; `corgi workspace switch ID --viewer V`.",
     "Do it when the user asks to go somewhere; don't just explain how.",
+    "To offer conversations to pick from, put them in a fenced block marked " + fence + ", one",
+    "`PROVIDER SESSION` a line as `corgi history` prints them, best first. Corgi draws each with its",
+    "title, folder, what the user last said and when, and the user clicks one to open it, so don't",
+    "list them again as text. Use it whenever you'd list conversations; with one clear match, just open it:",
+    "```" + fence,
+    "claude 4f9e2a51-0c1d-4b7a-9e3f-2d8c6b1a7e50",
+    "codex 019a3c2e-5b7d-7f10-a2c4-6e8d9f0b1c3a",
+    "```",
     "Nothing you run asks the user first, so type into panes, close or launch things only when they ask.",
     "The Corgi skill follows.",
     "",

@@ -12,7 +12,9 @@ import {
   readHandoff,
   writeHandoff,
   type Context,
+  type Deps,
 } from "./prompt";
+import * as launcherResume from "./launcher_resume";
 import * as palette from "./palette";
 import { fast_ms } from "./prompt_session";
 import type { Choice, Entry } from "./model_picker";
@@ -109,7 +111,7 @@ function folder() {
   folders.push(dir);
   return dir;
 }
-function prompt(over: { transcript?: (p: any, s: string) => string } = {}) {
+function prompt(over: Partial<Deps> = {}) {
   const d = new Fake(),
     clock = { now: Date.UTC(2026, 9, 30, 12) },
     root = folder(),
@@ -1596,4 +1598,109 @@ test("chips sit inline in the input row, so adding or removing one never resizes
     p.key(127);
     expect(box(draw(p))).toEqual(before);
   }
+});
+
+/** Conversations Corgi knows, the second one open in pane 4, and a prompt
+ * whose reply lists the first `n` of them. */
+async function listed(n: number) {
+  const now = Date.UTC(2026, 9, 30, 12) / 1000,
+    titles = ["Corgi PR #51", "Corgi PR #64 CI failures", "Hellgate PR 1 rebase", "Super branch", "Hellgate PR 4"],
+    entries = Array.from({ length: 9 }, (_, i) =>
+      launcherResume.historyEntry({
+        provider: i < 7 ? "claude" : "codex",
+        session: `s${i}`,
+        title: titles[i] ?? `Conversation ${i}`,
+        last: `said ${i}`,
+        cwd: "/work/corgi",
+        updated_at: now - (i + 1) * 3600,
+      }),
+    ),
+    known = new launcherResume.Context(
+      { pending: false, entries },
+      "",
+      "",
+      [{ provider: "claude", session: "s1", pane: 4, folder: "/work/corgi" }],
+      now,
+    ),
+    { p, d, clock } = prompt({ conversations: () => known });
+  type(p, "find my PR conversations");
+  p.key(13);
+  await settle();
+  const block = entries.slice(0, n).map(e => `${e.provider} ${e.session}`);
+  d.add(
+    {
+      kind: "message",
+      session: "0193-session",
+      text: `Here:\n\n\`\`\`conversations\n${block.join("\n")}\n\`\`\`\n\nPick one.`,
+    },
+    { kind: "turn", session: "0193-session", turn: "", phase: "ended", outcome: "completed" },
+  );
+  await poll(p, clock.now);
+  return { p, d, entries };
+}
+/** The card's row that shows `text`, and its terminal row and column. */
+function find(p: Prompt, text: string) {
+  const lines = draw(p),
+    y = lines.findIndex(l => l.includes(text));
+  return { y, x: lines[y]?.indexOf(text) ?? -1, line: lines[y] ?? "" };
+}
+
+test("a reply's conversations show as the launcher's rows, and a click opens one", async () => {
+  const { p } = await listed(3);
+  const rows = card(draw(p));
+  const head = rows.findIndex(r => r.includes("Title"));
+  expect(rows.slice(head, head + 4).map(r => r.replace(/\s+/g, " "))).toEqual([
+    "│ Title You last said Last active │",
+    "│ * Claude Corgi PR #51 said 0 1h │",
+    "│ │ Corgi PR #64 CI failures ↗ open in a tab 2h │",
+    "│ │ Hellgate PR 1 rebase said 2 3h │",
+  ]);
+  // The fence's text isn't shown.
+  expect(rows.join("\n")).not.toContain("claude s0");
+  const at = find(p, "Hellgate PR 1 rebase");
+  expect(p.hover(at.x, at.y)).toBe(true);
+  expect(find(p, "Hellgate PR 1 rebase").line).toContain("›");
+  expect(p.click(at.x, at.y)).toMatchObject({ kind: "open", entry: { provider: "claude", session: "s2" } });
+  expect(p.open).toBe(false);
+});
+
+test("↑ from an empty input picks from the newest list, and ⏎ opens the pick", async () => {
+  const { p } = await listed(3);
+  expect(find(p, "Reply, or ↑ to pick a conversation").y).toBeGreaterThan(0);
+  p.sequence("\x1b[A");
+  // The last conversation, nearest the input, is picked first.
+  expect(find(p, "Hellgate PR 1 rebase").line).toContain("›");
+  expect(card(draw(p)).at(-2)).toContain("⏎ open");
+  p.sequence("\x1b[A");
+  expect(find(p, "Corgi PR #64").line).toContain("›");
+  // ↓ past the last goes back to the input, where keys type again.
+  p.sequence("\x1b[B");
+  p.sequence("\x1b[B");
+  type(p, "x");
+  expect(find(p, "› x").y).toBeGreaterThan(0);
+  p.key(127);
+  p.sequence("\x1b[A");
+  expect(p.key(13)).toMatchObject({ kind: "open", entry: { session: "s2" } });
+});
+
+test("a long list keeps its height as typing searches it, and scrolls under the wheel", async () => {
+  const { p } = await listed(9);
+  const before = card(draw(p)),
+    search = find(p, "search titles, branches and messages");
+  const shown = (rows: string[]) => rows.filter(r => /said \d|open in a tab/.test(r));
+  expect(shown(before)).toHaveLength(6);
+  // The wheel over the list scrolls it, not the thread.
+  const row = find(p, "Corgi PR #51");
+  p.scroll(true, row.x, row.y);
+  p.scroll(true, row.x, row.y);
+  expect(find(p, "Corgi PR #51").y).toBe(-1);
+  expect(find(p, "Conversation 7").y).toBeGreaterThan(0);
+  // A press on the search line takes the keyboard; typing filters in place.
+  p.click(search.x, search.y);
+  type(p, "hellgate");
+  const after = card(draw(p));
+  expect(after).toHaveLength(before.length);
+  expect(shown(after)).toHaveLength(2);
+  expect(after.join("\n")).toContain("2 of 9");
+  expect(p.key(13)).toMatchObject({ kind: "open", entry: { session: "s2" } });
 });
