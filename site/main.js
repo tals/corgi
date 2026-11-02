@@ -12,6 +12,7 @@ import * as heroConfig from "./hero_config";
 import * as resourceSamples from "./resource_samples";
 import DATA from "./frames.json";
 import * as terminal from "./terminal";
+import * as footerCorgi from "./footer_corgi";
 import * as corgiAnimation from "../src/corgi_animation";
 import * as corgiFrames from "../src/corgi_frames";
 import * as corgiBadge from "../src/assets/corgi_badge";
@@ -1736,17 +1737,28 @@ spriteSize.observe(sprite.parentElement);
 spriteSize.observe(sprite.closest(".hero"));
 
 // ---------------------------------------------------------------- footer corgi
-const sleeperCells = rowOf(document.getElementById("sleeper"), 16);
-// Corgi's sleeper, dreaming as a lone sidebar sleeper does.
+const sleeper = document.getElementById("sleeper");
+const sleeperCells = rowOf(sleeper, footerCorgi.width);
+// Corgi's sleeper, dreaming as a lone sidebar sleeper does, until a tap wakes him.
+const wake = new footerCorgi.Wake();
 function drawSleeper(now) {
-  const dream = still ? null : corgiAnimation.dreamer([0n], now + 3500);
-  const cells = terminal.row(corgiAnimation.idle(16, new corgiAnimation.Sleep({ puff_ms: dream?.puff_ms ?? null })), 16);
+  const cells = terminal.row(wake.write(still ? null : now), footerCorgi.width);
   sleeperCells.forEach((s, i) => {
     const [ch, fg] = cells[i];
     if (s.textContent !== ch) s.textContent = ch;
     s.style.color = ch === " " ? "" : HEX[fg] ?? fg;
   });
 }
+// Awake, he runs at the display's rate: his scoots are quicker than the page's 50 ms frames.
+let wakeFrame = 0;
+function drawWake(now) {
+  drawSleeper(now);
+  wakeFrame = wake.awake(now) ? requestAnimationFrame(drawWake) : 0;
+}
+if (!still) sleeper.addEventListener("click", () => {
+  wake.tap(performance.now());
+  if (!wakeFrame) wakeFrame = requestAnimationFrame(drawWake);
+});
 
 // ---------------------------------------------------------------- wiring
 const started = new Map();
