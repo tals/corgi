@@ -158,6 +158,7 @@ export function navigation(c: Column) {
   c.pair(i18n.t`Close / reopen`, act("close"), act("undo-close"), 4);
   c.alsoHeld(i18n.t`Reopen directly`, act("undo-close"), 4);
   c.action(i18n.t`Mute / unmute`, act("mute"), 4);
+  c.action(i18n.t`Trick buttons`, act("tricks"), 4);
 }
 function direction(c: Column, x: number, title: string, caption: string, tag: string, start: number) {
   while (c.rows.length < start + 4) c.space();

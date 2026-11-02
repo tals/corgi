@@ -8,6 +8,7 @@ import * as mirror from "./mirror";
 import * as viewer from "./viewer";
 import * as subagentTooltip from "./subagent_tooltip";
 import * as sidebar from "./sidebar";
+import type { Element } from "./tricks";
 import { microTimestamp } from "./clock";
 import { Snapshot as Resources, Work } from "./trackers/resources";
 
@@ -108,6 +109,49 @@ function retained(output: string | Frame): Frame {
   expect(output).toBeInstanceOf(Frame);
   return output as Frame;
 }
+
+test.each(["sidebar", "pane", "overlay"] as const)(
+  "retained composition refreshes %s trick controls and clears removed drawings",
+  surface => {
+    const f = fixture();
+    const button: Element = {
+      kind: "button",
+      spans: [{ text: "Tap" }],
+      action: "instance.old",
+      slot: "instance.panel.0",
+    };
+    try {
+      f.present(f.compose());
+      f.view.runtime.tricks = [
+        surface === "overlay"
+          ? { kind: "overlay", anchor: "top-right", lines: [], content: button }
+          : { kind: "decorate", surface, where: { id: "pane:1" }, suffix: [], content: button },
+      ];
+      const first = retained(f.compose());
+      f.present(first);
+      expect(first.reusable).toBe(surface === "sidebar");
+      expect(f.view.trick_controls.hits).toHaveLength(1);
+      expect(f.view.trick_controls.hits[0].action).toBe("instance.old");
+      f.view.trick_controls.focus = button.slot!;
+      button.action = "instance.new";
+      const focused = retained(f.compose());
+      f.present(focused);
+      expect(focused.chrome).toContain("\x1b[7m");
+      expect(f.view.trick_controls.hits).toHaveLength(1);
+      expect(f.view.trick_controls.hits[0].action).toBe("instance.new");
+      expect(f.view.trick_controls.focus).toBe(button.slot!);
+      f.view.runtime.tricks = [];
+      const removed = retained(f.compose());
+      f.present(removed);
+      expect(removed.reusable).toBe(true);
+      expect(removed.chrome).not.toContain("Tap");
+      expect(f.view.trick_controls.hits).toEqual([]);
+      expect(f.view.trick_controls.focus).toBeNull();
+    } finally {
+      f.close();
+    }
+  },
+);
 
 test("pane composition snapshots revisions and cursor independently", () => {
   const f = fixture();

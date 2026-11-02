@@ -66,6 +66,9 @@ export class Client {
       info = new Info();
     info.account = new Text(who && c?.provider === provider ? who.email : provider || "omp model selection");
     if (!c || c.provider !== provider) return info;
+    info.email = c.type === "oauth" ? str(c.data, "email") || null : null;
+    info.type = c.type;
+    info.login_id = who?.id ?? null;
     info.plan = new Text(c.type === "oauth" ? "OAuth" : "API key");
     if (c.type !== "oauth" || this.quit.aborted || quit.aborted) return info;
     const stopping = new Quit(),
@@ -78,6 +81,9 @@ export class Client {
       try {
         const now = Math.floor(Date.now() / 1000);
         cache.state.info.account = info.account;
+        cache.state.info.email = info.email;
+        cache.state.info.type = info.type;
+        cache.state.info.login_id = info.login_id;
         if (!cache.state.info.plan.len) cache.state.info.plan = info.plan;
         if (max_age > 0 && (now < this.retry_at || now - cache.state.info.usage_fetched_at < max_age))
           return cache.state.display(now);

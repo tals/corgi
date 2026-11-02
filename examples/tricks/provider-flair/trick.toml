@@ -1,0 +1,4 @@
+version = 1
+id = "provider-flair"
+description = "Add provider icons and brand colors."
+entry = "main.mjs"

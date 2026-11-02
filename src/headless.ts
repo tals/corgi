@@ -11,6 +11,10 @@ import { ResumeHint } from "./resume_hint";
 import { Counts, Tracker, add } from "./usage/tokens";
 import { Tokens } from "./usage/live";
 import * as discovery from "./discovery";
+import * as accounts from "./accounts";
+import * as accountIdentity from "./account_identity";
+import * as agentEnv from "./agent_env";
+import * as os from "./os";
 import * as json from "./json";
 import * as worktrees from "./worktrees";
 import { Invalid, captureBinding, restoreBinding, hydrate, type Repairs } from "./persist/checkpoint";
@@ -84,6 +88,7 @@ function validInput(value: any): Input {
   return bad();
 }
 export class Session {
+  env: Record<string, string> = {};
   static Id = { none: 0, first: 1, next: (id: number) => id + 1 };
   /** Provider identity of the root conversation; empty until creation completes. */
   session = "";
@@ -120,6 +125,7 @@ export class Session {
     public provider: Provider,
     public cwd: string,
     public client: Client,
+    public account = "",
   ) {
     this.attachment.provisional.provider = provider;
     this.attachment.provisional.state = client.ready ? "idle" : "initializing";
@@ -199,12 +205,34 @@ export class Session {
         request => request.ask.tool && (request.actor?.state ?? this.attachment.provisional) === target,
       );
   }
-  static async start(id: number, provider: Provider, cwd: string) {
+  static async start(id: number, provider: Provider, cwd: string, account = "") {
     const headless = adapter(provider).headless;
     if (!headless) throw Error("HeadlessUnsupported");
+    if (account && adapter(provider).accounts.native) throw Error("NativeAccountManagedByProvider");
+    if (account && !account.startsWith("/")) throw Error("InvalidAccount");
+    account = accounts.normalize(provider, account);
     const directory = realpathSync(cwd),
       executable = await discovery.resolve(provider, directory);
-    return new Session(id, provider, directory, headless.start({ cwd: directory, account: "", executable }));
+    const session = new Session(
+      id,
+      provider,
+      directory,
+      headless.start({ cwd: directory, account, executable }),
+      account,
+    );
+    session.readEnvironment();
+    return session;
+  }
+  private readEnvironment() {
+    const pid = this.client.processes?.()[0],
+      info = pid ? os.processArgs(pid, undefined, { env: true }) : null;
+    if (!info) return;
+    this.env = agentEnv.read(
+      info.environ().flatMap(entry => {
+        const at = entry.indexOf("=");
+        return at > 0 ? [[entry.slice(0, at), entry.slice(at + 1)] as const] : [];
+      }),
+    );
   }
   destroy() {
     this.releaseRequests();
@@ -293,6 +321,7 @@ export class Session {
    * requests and usage. True when it should ring. */
   apply(registry: Registry, e: Event): boolean {
     if (e.kind === "ready") {
+      this.readEnvironment();
       if (this.attachment.provisional.state === "initializing") this.attachment.provisional.state = "idle";
       return false;
     }
@@ -335,6 +364,11 @@ export class Session {
       if (e.kind === "tool" && e.wrote.length) worktrees.recordWrites(actor.state, e.wrote);
     }
     const target = actor?.state ?? this.attachment.provisional;
+    if (e.kind === "account") {
+      target.account = accountIdentity.read(e.account);
+      this.journal({ ...e, account: target.account });
+      return false;
+    }
     target.provider = this.provider;
     if (target.state === "unknown" && this.ready) target.state = "idle";
     const old = target.state,
@@ -433,6 +467,8 @@ export class Session {
       id: this.id,
       session: this.session,
       provider: this.provider,
+      account: this.account,
+      env: this.env,
       cwd: this.cwd,
       workspace_id: this.workspace_id,
       client: this.client.save(live),
@@ -458,7 +494,8 @@ export class Session {
         live && !saved.exited && headless
           ? headless.restore(saved.client ?? { state: null, handles: [] }, live)
           : new Gone(saved.ready === true);
-    const session = new Session(saved.id, saved.provider, saved.cwd, client);
+    const session = new Session(saved.id, saved.provider, saved.cwd, client, saved.account ?? "");
+    session.env = agentEnv.read(Object.entries(saved.env ?? {}));
     session.attachment = restoreBinding(registry, saved.binding, live, { ...how, what: `native session ${saved.id}` });
     session.exited = live ? saved.exited : true;
     session.workspace_id = saved.workspace_id;
@@ -505,7 +542,12 @@ export async function request(server: Server, client: Peer, request: Request) {
     if (!query.prompt.trim()) throw Error("InvalidMessage");
     if (runtime.sessions.length >= 16) throw Error("TooManyHeadlessSessions");
     const workspace = query.workspace ? runtime.getWorkspace(query.workspace) : server.onlyWorkspace();
-    const session = await Session.start(runtime.next_session, query.provider, query.cwd || workspace.cwd);
+    const session = await Session.start(
+      runtime.next_session,
+      query.provider,
+      query.cwd || workspace.cwd,
+      query.account,
+    );
     if (client.dead) {
       session.destroy();
       return;
@@ -531,6 +573,7 @@ export async function request(server: Server, client: Peer, request: Request) {
         pid: session.client.processes?.()[0] ?? -1,
         session: session.session || null,
         provider: session.provider,
+        account: session.account,
         ready: session.ready,
         exited: session.exited,
         state: session.status(),

@@ -43,6 +43,16 @@ export function readAccount(value: any) {
     api = ["api_key", "api_key_helper"].includes(method),
     external = method === "third_party",
     email = str(value, "email");
+  info.email = logged && !api && !external ? email || null : null;
+  info.type = !logged
+    ? null
+    : api
+      ? "api_key"
+      : external
+        ? "external"
+        : ["claude.ai", "oauth_token"].includes(method)
+          ? "oauth"
+          : null;
   info.account = new Text(
     !logged ? "Not signed in" : api ? "API key" : external ? "External provider" : email || "Signed in",
   );
@@ -174,6 +184,8 @@ export class Client {
     try {
       cache.state.info.signed_in = this.account.signed_in;
       cache.state.info.account = this.account.account;
+      cache.state.info.email = this.account.email;
+      cache.state.info.type = this.account.type;
       if (this.account.plan.len) cache.state.info.plan = this.account.plan;
       if (max_age > 0 && (now < this.retry_at || now - cache.state.info.usage_fetched_at < max_age))
         return cache.state.display(now);

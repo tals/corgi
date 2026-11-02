@@ -1,4 +1,40 @@
 import * as terminalPalette from "./terminal_palette";
+import * as d3Color from "d3-color";
+import * as chromatic from "d3-scale-chromatic";
+
+/** Auto follows terminal hues; fixed categorical schemes are explicit choices. */
+export const identity_hues = ["blue", "purple", "teal", "yellow", "green", "red"] as const;
+export type IdentityHue = (typeof identity_hues)[number];
+export const schemes = Object.freeze({
+  terminal: Object.freeze(identity_hues.map(hue => Object.freeze({ hue }))),
+  tableau10: Object.freeze([...chromatic.schemeTableau10]),
+  set2: Object.freeze([...chromatic.schemeSet2]),
+  paired: Object.freeze([...chromatic.schemePaired]),
+});
+export type Scheme = keyof typeof schemes;
+export function css(value: string): `#${string}` | null {
+  if (value.length > 128) return null;
+  const color = d3Color.color(value);
+  return color && color.opacity === 1 && color.displayable() ? (color.formatHex() as `#${string}`) : null;
+}
+export type Hue =
+  "blue" | "orange" | "red" | "teal" | "green" | "yellow" | "purple" | "pink" | "brown" | "gray" | "black" | "white";
+export function hue(rgb: Rgb): Hue {
+  const exact = schemes.tableau10.indexOf(d3Color.rgb(...rgb).formatHex());
+  if (exact >= 0)
+    return (["blue", "orange", "red", "teal", "green", "yellow", "purple", "pink", "brown", "gray"] as const)[exact];
+  const { h, s, l } = d3Color.hsl(d3Color.rgb(...rgb));
+  if (l < 0.12) return "black";
+  if (!Number.isFinite(s) || s < 0.12) return l > 0.9 ? "white" : "gray";
+  if (h < 15 || h >= 345) return "red";
+  if (h < 45) return l < 0.52 ? "brown" : "orange";
+  if (h < 70) return "yellow";
+  if (h < 165) return "green";
+  if (h < 195) return "teal";
+  if (h < 260) return "blue";
+  if (h < 300) return "purple";
+  return "pink";
+}
 
 export type Rgb = [number, number, number];
 const corgi = {
@@ -107,6 +143,18 @@ export function fgRgb(c: Rgb) {
 export function bgRgb(c: Rgb) {
   return `\x1b[48;2;${c.join(";")}m`;
 }
+/** Two-cell color chips, with a cell between them, bounded by the available row. */
+export function chips(
+  w: { write(value: string): unknown },
+  colors: readonly Rgb[],
+  width: number,
+  background: Rgb,
+): number {
+  const count = Math.max(0, Math.min(colors.length, Math.floor((width + 1) / 3)));
+  for (const [i, color] of colors.slice(0, count).entries())
+    w.write((i ? " " : "") + bgRgb(color) + "  " + bgRgb(background));
+  return Math.max(0, count * 3 - 1);
+}
 export function mix(a: Rgb, b: Rgb, percentage: number): Rgb {
   return a.map((v, i) =>
     Math.floor((v * (100 - Math.min(100, percentage)) + b[i] * Math.min(100, percentage) + 50) / 100),
@@ -166,6 +214,15 @@ const syntax_slots: Record<keyof typeof corgi_syntax, number[]> = {
   property: [12, 4],
 };
 export const syntax = {} as Record<Syntax, Rgb>;
+export const identity = {} as Record<IdentityHue, Rgb>;
+const identity_slots: Record<IdentityHue, number[]> = {
+  blue: [4, 12],
+  purple: [5, 13],
+  teal: [6, 14],
+  yellow: [3, 11],
+  green: [2, 10],
+  red: [1, 9],
+};
 function readableOnBg(rgb: Rgb): Rgb {
   let out = rgb;
   for (let step = 10; step <= 100 && terminalPalette.contrast(out, colors.bg) < 4.6; step += 10)
@@ -181,6 +238,19 @@ derived(() => {
   syntax.function = colors.strong;
   syntax.comment = colors.faint;
   syntax.punctuation = colors.muted;
+  const fallback: Record<IdentityHue, Rgb> = {
+    blue: corgi_syntax.string,
+    purple: corgi_syntax.keyword,
+    teal: corgi_syntax.type,
+    yellow: colors.warm,
+    green: colors.accent,
+    red: colors.hot,
+  };
+  for (const hue of identity_hues) {
+    const candidates = identity_slots[hue].map(slot => terminal?.ansi[slot] ?? null).filter(c => c !== null);
+    const own = candidates.find(c => terminalPalette.contrast(c, colors.bg) >= 4.6) ?? candidates[0];
+    identity[hue] = readableOnBg(own ?? fallback[hue]);
+  }
 });
 
 export function underline(token: Token) {

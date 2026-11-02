@@ -114,9 +114,13 @@ test("management and runtime versions are checked independently", () => {
   expect(protocol.capabilities).toContain("server.reload");
 });
 test("a malformed theme reads as none instead of failing the request", () => {
-  for (const value of [{ theme: { foreground: 7 } }, { theme: "dark" }, {}])
+  for (const value of [{ theme: { foreground: 7 } }, { theme: { palette: [] } }, { theme: "dark" }, {}])
     expect(protocol.decode("theme", value).theme).toBeNull();
   expect(protocol.decode("theme", { theme: { foreground: { r: 1, g: 2, b: 3 } } }).theme?.foreground?.g).toBe(2);
+});
+test("Tricks palette references are names, independent of terminal theme colors", () => {
+  for (const palette of ["globals.x", "globals.profile-colors", "account-colors/accounts"])
+    expect(protocol.decode("tricks.palette", { palette }).palette).toBe(palette);
 });
 test("the ops that wait for an import, a reload or a push", () => {
   expect(
@@ -386,6 +390,10 @@ test("a pick names a unit and a cell, with an optional drag end", () => {
 });
 
 test("headless commands require provider session IDs and a first prompt", () => {
+  expect(
+    protocol.decode("headless.start", { provider: "claude", prompt: "work", account: "/profiles/vertex" }).account,
+  ).toBe("/profiles/vertex");
+  expect(protocol.decode("headless.start", { provider: "claude", prompt: "work" }).account).toBe("");
   expect(() => protocol.decode("headless.start", { provider: "codex" })).toThrow("MissingField");
   expect(() => protocol.decode("headless.stop", { provider: "codex", session: 1 })).toThrow("UnexpectedToken");
   expect(() => protocol.decode("headless.stop", { session: "t" })).toThrow("MissingField");

@@ -11,14 +11,39 @@ import { Row } from "./launch/row";
 import { Entry as CommandEntry } from "./launch/command";
 import helpText from "../assets/cli-help.txt" with { type: "text" };
 import * as i18n from "./i18n";
+import * as trickPalette from "./trick_palette";
 import skill from "../assets/corgi-skill.md" with { type: "text" };
+import trickSkill from "../assets/corgi-tricks-skill.md" with { type: "text" };
 export const help = helpText;
 export function localizedHelp(): string {
   return i18n.document(helpText);
 }
-const groups = new Set(["tab", "pane", "workspace", "launcher", "claim", "current", "list", "focus", "--skill"]);
-const nested = new Set(["tab", "pane", "workspace", "launcher"]);
-const flags = new Set(["json", "clear", "stdin", "enter", "new-tab", "first", "left", "right", "up", "down"]);
+const groups = new Set([
+  "tricks",
+  "tab",
+  "pane",
+  "workspace",
+  "launcher",
+  "claim",
+  "current",
+  "list",
+  "focus",
+  "--skill",
+]);
+const nested = new Set(["tricks", "tab", "pane", "workspace", "launcher"]);
+const flags = new Set([
+  "json",
+  "key-json",
+  "clear",
+  "stdin",
+  "enter",
+  "new-tab",
+  "first",
+  "left",
+  "right",
+  "up",
+  "down",
+]);
 const options = new Set([
   ...flags,
   "model",
@@ -45,6 +70,9 @@ const options = new Set([
   "below",
 ]);
 const actions = new Set([
+  "tricks.list",
+  "tricks.reload",
+  "tricks.palette",
   "list",
   "current",
   "focus",
@@ -96,7 +124,7 @@ export function asksHelp(args: string[]): boolean {
         if (name === "account") i++;
         break;
       case "headless":
-        if (args[1] === "start" && i === 4 && name === "workspace") i++;
+        if (args[1] === "start" && i >= 4 && (name === "workspace" || name === "account")) i++;
         break;
       default:
         if (handles(args) && args[0] !== "--skill" && options.has(name) && !flags.has(name)) i++;
@@ -217,7 +245,11 @@ export async function parse(words: string[], caller = 0, input?: () => Promise<s
   if (!actions.has(action)) throw Error("Usage");
   let current = false,
     target = 0;
-  if (group !== "launcher" && !["list", "current", "tab.new", "workspace.new", "pane.idle", "claim"].includes(action)) {
+  if (
+    group !== "tricks" &&
+    group !== "launcher" &&
+    !["list", "current", "tab.new", "workspace.new", "pane.idle", "claim"].includes(action)
+  ) {
     if (start === words.length) throw Error("Usage");
     current = words[start] === "current";
     if (current && group === "workspace") throw Error("Usage");
@@ -253,6 +285,43 @@ export async function parse(words: string[], caller = 0, input?: () => Promise<s
     command = { [op]: payload };
   };
   switch (action) {
+    case "tricks.palette": {
+      const op = args.next();
+      if (op === "list") {
+        set("tricks.palettes", {});
+        break;
+      }
+      const palette = args.next();
+      trickPalette.ref(palette);
+      if (op === "show") {
+        set("tricks.palette", { palette });
+        break;
+      }
+      if (op === "colors") {
+        const input = args.next();
+        set("tricks.palette.colors", {
+          palette,
+          colors: input === "auto" ? null : trickPalette.colors(input.startsWith("[") ? JSON.parse(input) : input),
+        });
+        break;
+      }
+      if (op !== "set" && op !== "reset") throw Error("Usage");
+      const all = op === "reset" && args.positional.length === 0;
+      const encoded = args.flag("key-json"),
+        raw = all ? "" : args.next();
+      if (all && encoded) throw Error("Usage");
+      const key = all ? null : encoded ? JSON.parse(raw) : raw;
+      trickPalette.encode(key);
+      set("tricks.palette.set", {
+        palette,
+        key,
+        color: op === "set" ? trickPalette.parseColor(args.next()) : null,
+        all,
+      });
+      break;
+    }
+    case "tricks.list":
+    case "tricks.reload":
     case "list":
     case "current":
     case "focus":
@@ -741,8 +810,8 @@ export async function run(path: string, args: string[], agent = false): Promise<
     return;
   }
   if (group === "--skill") {
-    if (args.length !== 1) throw Error("Usage");
-    process.stdout.write(skill);
+    if (args.length > 2 || (args.length === 2 && args[1] !== "tricks")) throw Error("Usage");
+    process.stdout.write(args[1] === "tricks" ? trickSkill : skill);
     return;
   }
   const caller = Number(process.env.CORGI_PANE) || 0,
@@ -752,6 +821,51 @@ export async function run(path: string, args: string[], agent = false): Promise<
     lines = reading?.lines;
   if (reading) reading.lines = Math.min(lines + 1, 10000);
   try {
+    if (inv.action === "tricks.palette") {
+      const command = inv.command;
+      if (command["tricks.palettes"]) {
+        const reply = await conn.call("tricks.palettes");
+        process.stdout.write(
+          inv.json
+            ? stringify(reply) + "\n"
+            : reply.palettes.map(p => p.ref + "  " + p.entries + "\n").join("") || "No palettes yet.\n",
+        );
+      } else {
+        const reply = command["tricks.palette.colors"]
+          ? await conn.call("tricks.palette.colors", command["tricks.palette.colors"])
+          : command["tricks.palette.set"]
+            ? await conn.call("tricks.palette.set", command["tricks.palette.set"])
+            : await conn.call("tricks.palette", command["tricks.palette"]);
+        process.stdout.write(
+          inv.json
+            ? stringify(reply) + "\n"
+            : reply.ref +
+                "\n" +
+                reply.assignments
+                  .map(
+                    a =>
+                      JSON.stringify(a.key) +
+                      "  " +
+                      trickPalette.colorText(a.color) +
+                      (a.override ? "  override" : "") +
+                      "\n",
+                  )
+                  .join(""),
+        );
+      }
+      return;
+    }
+    if (inv.action === "tricks.list" || inv.action === "tricks.reload") {
+      const reply = await conn.call(inv.action as "tricks.list" | "tricks.reload");
+      process.stdout.write(
+        inv.json
+          ? stringify(reply) + "\n"
+          : reply.tricks.length
+            ? reply.tricks.map(t => `${t.id}  ${t.running ? "running" : (t.error ?? "disabled")}  ${t.path}\n`).join("")
+            : "No tricks installed.\n",
+      );
+      return;
+    }
     if (inv.claim) {
       const reply = await conn.call("pane.agent", inv.claim);
       process.stdout.write(inv.json ? stringify(reply) + "\n" : words(reply));

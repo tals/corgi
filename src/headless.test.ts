@@ -36,6 +36,33 @@ class Fake implements Client {
 function session(provider: "codex" | "claude" = "codex") {
   return new Session(1, provider, "/tmp", new Fake());
 }
+test("headless accounts survive live and cold restoration, with defaults for old state", () => {
+  const registry = new Registry(),
+    s = new Session(1, "claude", "/tmp", new Fake(), "/profiles/vertex");
+  s.exited = true;
+  s.env = { CORGI_PROFILE: "vertex" };
+  s.agent().account = {
+    id: "native-account",
+    name: "Work",
+    directory: null,
+    loginId: "login",
+    email: "me@example.com",
+    type: "oauth",
+    plan: "Pro",
+    usage: null,
+  };
+  for (const live of [false, true]) {
+    const saved = clone(s.capture(live));
+    const restored = Session.restore(saved, registry, live);
+    expect(restored.account).toBe("/profiles/vertex");
+    expect(restored.env).toEqual({ CORGI_PROFILE: "vertex" });
+    expect(restored.agent().account).toEqual(s.agent().account);
+    Reflect.deleteProperty(saved, "account");
+    Reflect.deleteProperty(saved, "env");
+    expect(Session.restore(saved, registry, live).account).toBe("");
+    expect(Session.restore(saved, registry, live).env).toEqual({});
+  }
+});
 function start(s: Session, registry: Registry, thread: string, turn: string) {
   return s.apply(registry, { kind: "turn", session: thread, turn, phase: "started" });
 }

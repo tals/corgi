@@ -91,6 +91,21 @@ $.conversations[].agent.compacting: bool
 $.conversations[].agent.compacting_since: i64
 $.conversations[].agent.paused: bool
 $.conversations[].agent.cwd: custom bounded_text.BoundedText(10240)
+$.conversations[].agent.account: optional
+$.conversations[].agent.account?.id: string
+$.conversations[].agent.account?.name: string
+$.conversations[].agent.account?.directory: optional
+$.conversations[].agent.account?.directory?: string
+$.conversations[].agent.account?.loginId: optional
+$.conversations[].agent.account?.loginId?: string
+$.conversations[].agent.account?.email: optional
+$.conversations[].agent.account?.email?: string
+$.conversations[].agent.account?.type: optional
+$.conversations[].agent.account?.type?: enum oauth api_key external
+$.conversations[].agent.account?.plan: optional
+$.conversations[].agent.account?.plan?: string
+$.conversations[].agent.account?.usage: optional
+$.conversations[].agent.account?.usage?: any
 $.conversations[].agent.last_seq: i64
 $.conversations[].agent.changed_at: i64
 $.conversations[].agent.working_since: i64
@@ -247,6 +262,21 @@ $.panes[].binding.provisional.compacting: bool
 $.panes[].binding.provisional.compacting_since: i64
 $.panes[].binding.provisional.paused: bool
 $.panes[].binding.provisional.cwd: custom bounded_text.BoundedText(10240)
+$.panes[].binding.provisional.account: optional
+$.panes[].binding.provisional.account?.id: string
+$.panes[].binding.provisional.account?.name: string
+$.panes[].binding.provisional.account?.directory: optional
+$.panes[].binding.provisional.account?.directory?: string
+$.panes[].binding.provisional.account?.loginId: optional
+$.panes[].binding.provisional.account?.loginId?: string
+$.panes[].binding.provisional.account?.email: optional
+$.panes[].binding.provisional.account?.email?: string
+$.panes[].binding.provisional.account?.type: optional
+$.panes[].binding.provisional.account?.type?: enum oauth api_key external
+$.panes[].binding.provisional.account?.plan: optional
+$.panes[].binding.provisional.account?.plan?: string
+$.panes[].binding.provisional.account?.usage: optional
+$.panes[].binding.provisional.account?.usage?: any
 $.panes[].binding.provisional.last_seq: i64
 $.panes[].binding.provisional.changed_at: i64
 $.panes[].binding.provisional.working_since: i64
@@ -254,6 +284,7 @@ $.panes[].binding.provisional.updated_at: i64
 $.panes[].label: custom bounded_text.BoundedText(80)
 $.panes[].id: u32
 $.panes[].cwd: string
+$.panes[].agent_env: any
 $.panes[].screen.cols: u16
 $.panes[].screen.rows: u16
 $.panes[].screen.data: string
@@ -377,6 +408,21 @@ $.sessions[].binding.provisional.compacting: bool
 $.sessions[].binding.provisional.compacting_since: i64
 $.sessions[].binding.provisional.paused: bool
 $.sessions[].binding.provisional.cwd: custom bounded_text.BoundedText(10240)
+$.sessions[].binding.provisional.account: optional
+$.sessions[].binding.provisional.account?.id: string
+$.sessions[].binding.provisional.account?.name: string
+$.sessions[].binding.provisional.account?.directory: optional
+$.sessions[].binding.provisional.account?.directory?: string
+$.sessions[].binding.provisional.account?.loginId: optional
+$.sessions[].binding.provisional.account?.loginId?: string
+$.sessions[].binding.provisional.account?.email: optional
+$.sessions[].binding.provisional.account?.email?: string
+$.sessions[].binding.provisional.account?.type: optional
+$.sessions[].binding.provisional.account?.type?: enum oauth api_key external
+$.sessions[].binding.provisional.account?.plan: optional
+$.sessions[].binding.provisional.account?.plan?: string
+$.sessions[].binding.provisional.account?.usage: optional
+$.sessions[].binding.provisional.account?.usage?: any
 $.sessions[].binding.provisional.last_seq: i64
 $.sessions[].binding.provisional.changed_at: i64
 $.sessions[].binding.provisional.working_since: i64
@@ -399,6 +445,8 @@ $.sessions[].turns[].turn: string
 $.sessions[].id: u32
 $.sessions[].session: string
 $.sessions[].provider: provider
+$.sessions[].account: string
+$.sessions[].env: any
 $.sessions[].cwd: string
 $.sessions[].workspace_id: u32
 $.sessions[].client.state: any

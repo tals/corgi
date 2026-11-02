@@ -59,6 +59,7 @@ export interface View<Session = unknown, Resources = unknown> {
   resources: Resources | null;
   resources_hash: bigint;
   surfaces: SurfaceView[];
+  tricks?: import("./tricks").View[];
   bell_seq: bigint;
   bell_kind: "none" | "finished" | "needs_input";
   controls: Control[];
@@ -86,6 +87,14 @@ export type Result = { pane: number; tab: number; workspace: number; text: strin
 export const emptyResult = (): Result => ({ pane: 0, tab: 0, workspace: 0, text: null, closed_panes: [] });
 export const operations = [
   "hello",
+  "tricks.list",
+  "tricks.reload",
+  "tricks.configure",
+  "tricks.press",
+  "tricks.palettes",
+  "tricks.palette",
+  "tricks.palette.set",
+  "tricks.palette.colors",
   "session.command",
   "session.locate",
   "session.list",
@@ -436,14 +445,13 @@ function validate(value: any, type: string, strict = false): any {
   }
   if (type === "theme") {
     try {
-      return Object.assign(
-        new Theme(),
-        struct(
-          value,
-          { foreground: ["?rgb", null], background: ["?rgb", null], palette: ["[]?rgb", Array(16).fill(null)] },
-          false,
-        ),
+      const theme = struct(
+        value,
+        { foreground: ["?rgb", null], background: ["?rgb", null], palette: ["[]?rgb", Array(16).fill(null)] },
+        false,
       );
+      if (theme.palette.length !== 16) throw Error("UnexpectedToken");
+      return Object.assign(new Theme(), theme);
     } catch {
       return null;
     }
@@ -488,8 +496,6 @@ function struct(value: any, fields: Fields, strict: boolean) {
     }
     out[key] = validate(source[key], type, strict);
   }
-  if (fields === structures.rgb) return out;
-  if (Object.hasOwn(out, "palette") && out.palette.length !== 16) throw Error("UnexpectedToken");
   return out;
 }
 const structures = {
@@ -554,6 +560,11 @@ const structures = {
 } as const satisfies Record<string, Fields>;
 const launch = { workspace: "u32", cwd: ["string", ""] } as const satisfies Fields;
 const requests = {
+  "tricks.palette": { palette: "string" },
+  "tricks.palette.set": { palette: "string", key: ["json", null], color: ["json", null], all: ["bool", false] },
+  "tricks.palette.colors": { palette: "string", colors: ["json", null] },
+  "tricks.configure": { id: ["?string", null], enabled: ["?bool", null], autoreload: ["?bool", null] },
+  "tricks.press": { action: "string", viewer: "u32" },
   "launcher.models": { row: "string" },
   "session.locate": { pane: "u32" },
   "viewer.watch": { viewer: "u32" },
@@ -635,7 +646,13 @@ const requests = {
   action: { name: ["string", ""], value: ["string", ""], viewer: ["?u32", null], pane: ["?u32", null] },
   focus: { pane: "u32", viewer: ["?u32", null] },
   "workspace.switch": { workspace: "u32", viewer: ["?u32", null] },
-  "headless.start": { provider: "provider", prompt: "string", cwd: ["string", ""], workspace: ["?u32", null] },
+  "headless.start": {
+    provider: "provider",
+    prompt: "string",
+    cwd: ["string", ""],
+    workspace: ["?u32", null],
+    account: ["string", ""],
+  },
   "headless.stop": { provider: "provider", session: "string" },
   "headless.send": { provider: "provider", session: "string", input: "json" },
   "headless.events": { provider: "provider", session: "string", after: ["u64", 0] },
@@ -680,6 +697,14 @@ export interface ReplyPayloads {
     update_abi: string;
   };
   ping: Ok & { pid: number };
+  "tricks.list": Ok & import("./trick_config").Info;
+  "tricks.reload": Ok & import("./trick_config").Info;
+  "tricks.configure": Ok & import("./trick_config").Info;
+  "tricks.press": Ok & { accepted: boolean };
+  "tricks.palettes": Ok & { palettes: import("./trick_palette").Summary[] };
+  "tricks.palette": Ok & import("./trick_palette").Info;
+  "tricks.palette.set": Ok & import("./trick_palette").Info;
+  "tricks.palette.colors": Ok & import("./trick_palette").Info;
   "session.command": Ok & { result: Result };
   "session.locate": Ok & { result: Result };
   "launcher.catalog": Ok & { agents: import("./launcher_config").Agent[] };

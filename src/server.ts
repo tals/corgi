@@ -1,3 +1,4 @@
+import * as trickHost from "./trick_host";
 import * as launcherConfig from "./launcher_config";
 import * as agentModels from "./agent_models";
 import { Quit as ModelQuit } from "./subprocess";
@@ -30,6 +31,7 @@ import * as importer from "./import_service";
 import * as worktreeAdd from "./worktree_add";
 import { testBuild } from "./build_assets";
 export class Server {
+  tricks: trickHost.Host;
   summaries: SummaryWorker | null = null;
   usage: UsageWorker | null = null;
   runtime = new Runtime();
@@ -71,7 +73,21 @@ export class Server {
     readonly socket: string,
     readonly executable: string,
     readonly build_id: string,
-  ) {}
+  ) {
+    this.tricks = new trickHost.Host(
+      socket,
+      executable,
+      () => trickHost.snapshot(this.runtime),
+      () => {
+        this.dirty = true;
+        this.wakeViewers();
+      },
+      (id, agent) => {
+        viewer.queue(this, viewer.targetViewer(this, id), { kind: "action", name: "focus-agent", value: agent });
+        this.wakeViewers();
+      },
+    );
+  }
   initialWorkspace() {
     return this.runtime.workspaces.get(this.preferred_workspace) ?? this.runtime.workspaces.items[0];
   }
@@ -156,7 +172,7 @@ export class Server {
       }
   }
   private wakeSeq(id: number): bigint {
-    let seq = this.runtime.shown + this.bell_seq;
+    let seq = this.runtime.shown + this.bell_seq + this.tricks.revision;
     for (const c of this.clients)
       if (c.viewer && c.viewer_id === id) {
         seq += c.next_control;
@@ -180,6 +196,7 @@ export class Server {
   private publish(): void {
     const telemetry_started = telemetry.begin();
     try {
+      this.tricks.publish();
       if (this.subscribedRevision === this.runtime.revision && !this.dirty) return;
       if (this.subscribedRevision !== this.runtime.revision) {
         const subscribers = this.clients.filter(c => c.subscribed && !c.dead);
@@ -233,10 +250,12 @@ export class Server {
       for (const p of this.runtime.panes) if (p.terminal.imported) p.terminal.adopt(p.terminal.fd, p.terminal.pid);
       for (const c of this.clients) c.resume();
       this.startLoop();
+      await this.tricks.reload();
       process.on("SIGTERM", () => void this.shutdown());
       process.on("SIGINT", () => void this.shutdown());
       await this.saveWorkspaces();
     } catch (error) {
+      await this.tricks.stop();
       clearInterval(this.timer);
       this.registration?.close();
       for (const c of [...this.clients]) c.close();
@@ -303,6 +322,7 @@ export class Server {
     for (const p of this.runtime.panes) p.terminal.resume();
     for (const s of this.runtime.sessions) s.resume();
     this.startLoop();
+    void this.tricks.reload();
   }
   addClient(fd: number, start = true): Client {
     const client = new Client(
@@ -479,6 +499,40 @@ export class Server {
           update_abi: updates.abi,
         });
         return;
+      case "tricks.list":
+        cl.reply("tricks.list", this.tricks.info());
+        return;
+      case "tricks.palettes":
+        cl.reply("tricks.palettes", { palettes: this.tricks.palettes.list() });
+        return;
+      case "tricks.palette":
+        cl.reply("tricks.palette", this.tricks.palette(request.payload.palette));
+        return;
+      case "tricks.palette.set":
+        await this.tricks.palettes.set(
+          request.payload.palette,
+          request.payload.key,
+          request.payload.color,
+          request.payload.all,
+        );
+        cl.reply("tricks.palette.set", this.tricks.palette(request.payload.palette));
+        return;
+      case "tricks.palette.colors":
+        await this.tricks.palettes.scheme(request.payload.palette, request.payload.colors);
+        cl.reply("tricks.palette.colors", this.tricks.palette(request.payload.palette));
+        return;
+      case "tricks.reload":
+        await this.tricks.reload();
+        cl.reply("tricks.reload", this.tricks.info());
+        return;
+      case "tricks.configure":
+        await this.tricks.configure(request.payload);
+        cl.reply("tricks.configure", this.tricks.info());
+        return;
+      case "tricks.press":
+        viewer.targetViewer(this, request.payload.viewer);
+        cl.reply("tricks.press", { accepted: this.tricks.press(request.payload.action, request.payload.viewer) });
+        return;
       case "ping":
         cl.queue({ ok: true, pid: process.pid });
         return;
@@ -631,6 +685,7 @@ export class Server {
       }
       case "hook":
         await observers.hook(this, request.payload);
+        this.tricks.hook(request.payload);
         cl.queue({ ok: true });
         return;
       case "test.advance": {
@@ -782,6 +837,7 @@ export class Server {
     } catch (error) {
       console.error("recovery save:", error);
     }
+    await this.tricks.stop();
     await launch.stop(this);
     observers.stop(this);
     importer.stop(this);

@@ -19,6 +19,48 @@ import {
 import { Provider, adapter } from "./providers";
 import * as i18n from "./i18n";
 
+test("palette CLI configures unseen string or structured keys and resets overrides", async () => {
+  expect((await parse(["tricks", "palette", "list", "--json"])).command).toEqual({ "tricks.palettes": {} });
+  expect((await parse(["tricks", "palette", "show", "account-colors/accounts"])).command).toEqual({
+    "tricks.palette": { palette: "account-colors/accounts" },
+  });
+  expect((await parse(["tricks", "palette", "set", "globals.accounts", "work", "#aabbcc"])).command).toEqual({
+    "tricks.palette.set": { palette: "globals.accounts", key: "work", color: "#aabbcc", all: false },
+  });
+  expect(
+    (await parse(["tricks", "palette", "set", "globals.accounts", '["claude","work"]', "syntax.type", "--key-json"]))
+      .command,
+  ).toEqual({
+    "tricks.palette.set": {
+      palette: "globals.accounts",
+      key: ["claude", "work"],
+      color: { syntax: "type" },
+      all: false,
+    },
+  });
+  expect((await parse(["tricks", "palette", "reset", "globals.accounts"])).command).toEqual({
+    "tricks.palette.set": { palette: "globals.accounts", key: null, color: null, all: true },
+  });
+  expect((await parse(["tricks", "palette", "colors", "globals.accounts", "auto"])).command).toEqual({
+    "tricks.palette.colors": { palette: "globals.accounts", colors: null },
+  });
+  expect((await parse(["tricks", "palette", "colors", "globals.accounts", '["steelblue","#f80"]'])).command).toEqual({
+    "tricks.palette.colors": { palette: "globals.accounts", colors: ["#4682b4", "#ff8800"] },
+  });
+  expect((await parse(["tricks", "palette", "set", "globals.accounts", "work", "terminal.blue"])).command).toEqual({
+    "tricks.palette.set": { palette: "globals.accounts", key: "work", color: { hue: "blue" }, all: false },
+  });
+  for (const args of [
+    ["colors", "globals.accounts", "unknown"],
+    ["colors", "globals.accounts", "[]"],
+    ["set", "globals.accounts", "work", "not-a-color"],
+    ["show", "../accounts"],
+    ["set", "accounts", "work", "warm"],
+    ["reset", "globals.accounts", "--key-json"],
+  ])
+    await expect(parse(["tricks", "palette", ...args])).rejects.toThrow();
+});
+
 test("help is asked for only before --", () => {
   expect(asksHelp(["move", "3", "--help"])).toBe(true);
   expect(asksHelp(["read", "-h"])).toBe(true);

@@ -10,6 +10,13 @@ import * as i18n from "./i18n";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import * as palette from "./palette";
+import * as trickConfig from "./trick_config";
+import * as trickPalette from "./trick_palette";
+import * as trickStyle from "./trick_style";
+import * as trickPaletteUi from "./trick_palette_ui";
+import * as trickUi from "./trick_ui";
+import type { Span } from "./tricks";
+import type { Color as TrickColor } from "./tricks";
 import { Style, colors, bgRgb, mix, selection, type Token } from "./palette";
 import { Rect } from "./layout";
 import { Provider, byProvider, adapter } from "./providers";
@@ -112,6 +119,7 @@ export type Item =
   | "shell"
   | "keyboard"
   | "agents"
+  | "tricks"
   | "source_control"
   | "terminal"
   | "about"
@@ -139,6 +147,7 @@ const list = (): ListRow[] => [
   "source_control",
   null,
   "agents",
+  "tricks",
   null,
   "terminal",
   null,
@@ -162,6 +171,7 @@ const labels = (): Record<Item, string> => ({
   keyboard: i18n.t`Keymap`,
   source_control: i18n.t`Source control`,
   agents: i18n.t`Manage agents`,
+  tricks: i18n.t`Tricks`,
   terminal: i18n.t`Terminal capabilities`,
   about: i18n.t`About`,
   report_bug: i18n.t`Report a bug`,
@@ -190,6 +200,11 @@ function reportSettings(s: Status, prefs: Preferences): bugReport.Settings {
 }
 /** What Enter or a click asks the controller to do. */
 export type Apply =
+  | { kind: "trick_palette_colors"; ref: string; colors: TrickColor[] | null }
+  | { kind: "trick_palette_open"; ref: string | null }
+  | { kind: "trick_palette_set"; ref: string; key: trickPalette.Key; color: TrickColor | null; all?: boolean }
+  | { kind: "trick"; id: string; enabled: boolean }
+  | { kind: "tricks_reload" }
   | { kind: "summaries"; choice: Summarizer; model?: string; account?: string }
   | { kind: "inference_use"; use: Use; on: boolean }
   | { kind: "readings" | "smart_links" | "ghostty"; on: boolean }
@@ -227,6 +242,10 @@ export type Hit =
   | { url: string };
 
 interface Option {
+  preview?: palette.Rgb[];
+  indent?: number;
+  copy_path?: string;
+  color?: palette.Rgb;
   label: string;
   detail: string;
   /** ● in use, ○ not, or no mark for actions. */
@@ -246,7 +265,7 @@ interface Option {
   glyph?: string;
   /** A dropdown in a group: the choice in use at the right edge, green while
    * `on`, and Enter opens `choices`. */
-  choice?: { text: string; on: boolean; choices: Choice[] };
+  choice?: { text: string; on: boolean; choices: Choice[]; placeholder?: string; gap?: number };
   /** A text field, in a box, that takes typing while it has the cursor. */
   edit?: boolean;
   slider?: number;
@@ -273,6 +292,8 @@ const paste_found: Record<ClipboardState["support"], Found> = {
 };
 /** One of a dropdown's choices. */
 interface Choice {
+  preview?: palette.Rgb[];
+  color?: palette.Rgb;
   text: string;
   note: string;
   detail?: string;
@@ -286,6 +307,7 @@ interface Choice {
   apply: Apply | null;
 }
 type Line =
+  | { tag: "description"; spans: Span[] }
   | { tag: "title" | "lead" | "note" | "warn"; text: string }
   /** One line under a setting in a group, aligned with its name. */
   | { tag: "brief"; text: string; tone?: "muted" | "warm" }
@@ -315,19 +337,6 @@ type Line =
   | { tag: "option"; option: Option; index: number }
   /** The import picker, down to the bottom of the pane. */
   | { tag: "picker" };
-/** Lines a click acts on; a field's box stands for its field. */
-function clickable(line: Line): boolean {
-  switch (line.tag) {
-    case "option":
-    case "art":
-    case "intensity":
-    case "box":
-    case "picker":
-      return true;
-    default:
-      return false;
-  }
-}
 
 let panel: string, border: string, text: string, bright: string, warm: string, graph: string, hint_key: string;
 let row_resting: settingRow.Row;
@@ -531,6 +540,14 @@ export class Menu {
   shells: string[] = [];
   /** Whether the daemon probes the ports servers print, for Open ↗ buttons. */
   smart_links = true;
+  tricks: trickConfig.Info | null = null;
+  trick_palettes: trickPalette.Summary[] = [];
+  trick_palette: trickPalette.Info | null = null;
+  trick_palette_ref: string | null = null;
+  tricks_error: string | null = null;
+  private tricks_poll = 0;
+  private tricks_loading = false;
+  private closed = false;
   /** The worktree folder template being typed, while Source control edits it. */
   editing: Dialog | null = null;
   /** A project the worktree folder's preview places a branch in; an example when null. */
@@ -600,6 +617,7 @@ export class Menu {
     return new Menu();
   }
   close(): void {
+    this.closed = true;
     this.clearAim();
     this.intensity_drag = null;
     this.import_picker.close();
@@ -680,6 +698,49 @@ export class Menu {
       visible = this.item === "clever_corgi" && l !== null && !(l.single && this.focus === "list");
     if (visible && !this.models_visible) void conn.call("inference.configure", {}).catch(() => {});
     this.models_visible = visible;
+    if (
+      this.item === "tricks" &&
+      l !== null &&
+      !(l.single && this.focus === "list") &&
+      !this.tricks_loading &&
+      now >= this.tricks_poll
+    ) {
+      this.tricks_loading = true;
+      this.tricks_poll = now + 1000;
+      const ref = this.trick_palette_ref;
+      void Promise.all([
+        conn.call("tricks.list"),
+        conn.call("tricks.palettes"),
+        ref ? conn.call("tricks.palette", { palette: ref }) : Promise.resolve(null),
+      ])
+        .then(([reply, list, selected]) => {
+          const next = trickConfig.info(reply);
+          const palettes = trickPalette.summaries(list.palettes),
+            picked = selected ? trickPalette.info(selected) : null;
+          if (
+            !this.closed &&
+            ref === this.trick_palette_ref &&
+            (JSON.stringify([next, palettes, picked]) !==
+              JSON.stringify([this.tricks, this.trick_palettes, this.trick_palette]) ||
+              this.tricks_error !== null)
+          ) {
+            this.tricks = next;
+            this.trick_palettes = palettes;
+            this.trick_palette = picked;
+            this.tricks_error = null;
+            this.changed();
+          }
+        })
+        .catch(error => {
+          if (!this.closed && this.tricks_error !== String(error)) {
+            this.tricks_error = String(error);
+            this.changed();
+          }
+        })
+        .finally(() => {
+          this.tricks_loading = false;
+        });
+    }
     const picker = this.importing();
     return (picker !== null && (await picker.poll(conn))) || hovered;
   }
@@ -814,9 +875,19 @@ export class Menu {
     if (options[this.cursor]?.edit) this.edit(prefs);
     return true;
   }
+  /** Right opens a section or the selected nested row without changing toggles. */
+  right(s: Status, prefs: Preferences): Apply | null {
+    if (this.focus === "list") {
+      this.openOptions(s, prefs);
+      return null;
+    }
+    const option = this.options(s, prefs)[this.cursor];
+    return !this.dropdown && (option?.arrow || option?.choice) ? this.enter(s, prefs) : null;
+  }
   /** Esc closes setup, except while adjusting a slider or copying sessions. */
   escape(): boolean {
     if (this.focus !== "options") return false;
+    if (this.item === "tricks" && (this.trick_palette_ref || this.dropdown)) return this.back();
     if ((this.dropdown && this.model_query.len) || this.item === "flourishes" || this.importing()?.stage === "copying")
       return this.back();
     return false;
@@ -846,6 +917,12 @@ export class Menu {
     const picker = this.importing();
     if (picker?.stage === "copying") {
       if (picker.failed()) picker.retry();
+      return true;
+    }
+    if (this.item === "tricks" && this.trick_palette_ref) {
+      this.trick_palette_ref = null;
+      this.trick_palette = null;
+      this.cursor = 0;
       return true;
     }
     this.leaveImport();
@@ -989,7 +1066,7 @@ export class Menu {
     this.aim = null;
     this.pending_item = null;
   }
-  /** Keep the selected setting while crossing other rows toward its options. */
+  /** Keep the selected setting while crossing other rows toward its pane. */
   hover(cols: number, rows: number, x: number, y: number, s: Status, prefs: Preferences, now = milliTimestamp()): void {
     const l = this.rest(cols, rows),
       hit = this.hit(cols, rows, x, y, s, prefs),
@@ -1012,7 +1089,7 @@ export class Menu {
         from.rows === rows &&
         (from.at === null || now - from.at < menuAim.aim_ms) &&
         (x > from.last_x || (x === from.last_x && from.rightward)) &&
-        this.aimed(l, s, prefs, from, x, y)
+        menuAim.grazed(new Rect(l.options.x, l.b.y + 2, l.options.w, l.body), from, x, y)
       ) {
         from.rightward = x > from.last_x;
         from.last_x = x;
@@ -1032,23 +1109,6 @@ export class Menu {
       if (this.focus === "list") this.item = hit.item;
     } else if ("option" in hit && this.focus === "options" && !this.options(s, prefs)[hit.option]?.disabled)
       this.cursor = hit.option;
-  }
-  /** Whether (x, y) is on the way from the row's exit point to the options a
-   * click acts on, past previews and notes; never when there are none. */
-  private aimed(
-    l: Layout,
-    s: Status,
-    prefs: Preferences,
-    from: { x: number; y: number },
-    x: number,
-    y: number,
-  ): boolean {
-    if (this.item === "agents") return menuAim.grazed(managerArea(l), from, x, y);
-    const lines = this.lines(s, prefs, l),
-      first = lines.findIndex(clickable),
-      last = lines.some(line => line.tag === "picker") ? l.body - 1 : lines.findLastIndex(clickable);
-    if (first < 0) return false;
-    return menuAim.grazed(new Rect(l.options.x, l.b.y + 2 + first, l.options.w, last - first + 1), from, x, y);
   }
   /** Starts gathering what Report a bug shows, once per setup. */
   private gatherReport(s: Status, prefs: Preferences): void {
@@ -1092,7 +1152,7 @@ export class Menu {
         const search_width = modelColumns(choices, open.w).detail - 2;
         return x < open.x + 4 + search_width ? { model_search: x - open.x - 4 } : null;
       }
-      const index = dropdown.hit(open, this.dropdown?.visible.length ?? 0, x, y, true),
+      const index = dropdown.hit(open, this.dropdown?.visible.length ?? 0, x, y, true, this.dropdownGap(s, prefs)),
         at = index === null ? -1 : (this.dropdown?.visible[index] ?? -1);
       return at < 0 || (!choices[at]?.apply && !choices[at]?.more) ? null : { choice: at };
     }
@@ -1161,6 +1221,8 @@ export class Menu {
             branch = choice.depth === 2 ? (choices[index + 1]?.depth === 2 ? "├" : "╰") : undefined;
           return {
             text: choice.text,
+            color: choice.color,
+            preview: choice.preview,
             note: choice.note,
             detail: choice.detail,
             pin: choice.pin,
@@ -1175,9 +1237,10 @@ export class Menu {
             hovered: index === this.dropdown?.at,
           };
         }),
-        { text: "", note: "", detail: i18n.t`Billing` },
-        columns.note,
-        columns.detail,
+        { text: "", note: "", detail: this.item === "tricks" ? "" : i18n.t`Billing` },
+        this.item === "tricks" ? undefined : columns.note,
+        this.item === "tricks" ? undefined : columns.detail,
+        this.dropdownGap(s, prefs),
       );
       const x = open.x + 4,
         y = open.y + 1,
@@ -1185,7 +1248,8 @@ export class Menu {
       w.write(at(x, y) + text);
       const offset = DialogView.scroll(this.model_query, width);
       const column = writeField(w, this.model_query, offset, width, text);
-      if (!this.model_query.len) w.write(border + i18n.t`Search models`);
+      if (!this.model_query.len)
+        w.write(border + (this.options(s, prefs)[this.cursor]?.choice?.placeholder ?? i18n.t`Search models`));
       this.caret = { x: x + column, y };
     }
     if (l.detail) {
@@ -1296,6 +1360,10 @@ export class Menu {
       x0 = x + 2,
       right = x + width - 1,
       lines = this.lines(s, prefs, l),
+      color_w = Math.max(
+        0,
+        ...this.options(s, prefs).map(o => (o.color && o.choice ? displayWidth(o.choice.text) : 0)),
+      ),
       // Rows with their value at the right edge keep out of the label column.
       label_w = Math.max(
         0,
@@ -1348,6 +1416,14 @@ export class Menu {
             at(x0 + 4, y) + (line.tone === "muted" ? settingRow.normal.muted : line.tone === "warm" ? warm : panel),
           );
           return writeEllipsis(w, line.text, right - x0 - 4);
+        case "description": {
+          const room = Math.max(0, right - x0 - 2),
+            clipped = trickUi.width(line.spans) > room;
+          w.write(at(x0 + 2, y) + panel);
+          trickUi.write(w, line.spans, Math.max(0, room - Number(clipped)), undefined, "muted");
+          if (clipped && room) w.write("…");
+          return;
+        }
         case "box": {
           const edge = line.edge === "top" ? ["╭", "╮"] : ["╰", "╯"];
           w.write(at(x0, y) + (this.editing ? graph : border) + edge[0] + "─".repeat(sat(right, x0 + 2)) + edge[1]);
@@ -1412,7 +1488,7 @@ export class Menu {
           return;
         }
         case "option":
-          return this.drawOption(w, line, x, width, y, label_w, prefs, now_ms);
+          return this.drawOption(w, line, x, width, y, label_w, color_w, prefs, now_ms);
         case "picker":
           return this.import_picker.draw(w, pickerArea(l, i), this.focus === "options");
       }
@@ -1549,6 +1625,7 @@ export class Menu {
     width: number,
     y: number,
     label_w: number,
+    color_w: number,
     prefs: Preferences,
     now_ms: number,
   ) {
@@ -1556,6 +1633,26 @@ export class Menu {
       here = this.focus === "options" && line.index === this.cursor,
       x0 = x + 2,
       right = x + width - 1;
+    if (o.copy_path !== undefined) {
+      const p = settingRow.fill(w, x, y, width, here),
+        button = "[ " + o.label + " ]";
+      w.write(at(x + 2, y) + p.accent + button + "  " + p.muted);
+      writeEllipsis(w, o.copy_path, sat(width, displayWidth(button) + 5));
+      return;
+    }
+    if (o.preview) {
+      const p = settingRow.fill(w, x, y, width, here),
+        start = x + (o.indent ?? 6);
+      const end = right - 3,
+        room = Math.max(0, end - start);
+      const labelWidth = Math.min(displayWidth(o.label), Math.max(4, room - Math.min(12, o.preview.length * 3 + 1)));
+      w.write(at(start, y) + p.label);
+      writeEllipsis(w, o.label, labelWidth);
+      w.write(at(start + labelWidth + 2, y));
+      palette.chips(w, o.preview, Math.max(0, end - start - labelWidth - 2), p.background);
+      w.write(at(right - 2, y) + p.muted + "→");
+      return;
+    }
     if (o.art) return this.drawArt(w, o, line.index, 0, x, width, y);
     if (o.slider !== undefined) {
       const value = o.slider === 0 ? i18n.t`Off` : `${o.slider}%`;
@@ -1569,8 +1666,10 @@ export class Menu {
         here,
         disabled: o.disabled,
         glyph: o.glyph,
+        indent: o.indent,
       });
-    if (o.choice !== undefined) return settingRow.drawChoice(w, x, y, width, o.label, o.choice.text, o.choice.on, here);
+    if (o.choice !== undefined)
+      return settingRow.drawChoice(w, x, y, width, o.label, o.choice.text, o.choice.on, here, o.color, color_w);
     if (o.edit) return this.drawField(w, x0, y, right, prefs);
     const p = settingRow.fill(w, x, y, width, here);
     if (o.mark !== "none")
@@ -1611,6 +1710,9 @@ export class Menu {
     }
     w.write("\x1b[22m");
   }
+  private dropdownGap(s: Status, prefs: Preferences): number {
+    return this.dropdown ? (this.options(s, prefs)[this.dropdown.option]?.choice?.gap ?? 0) : 0;
+  }
   /** The open dropdown's box, under its setting's row with ✓ under the ›;
    * null while it is closed. */
   private dropdownBox(l: Layout, s: Status, prefs: Preferences): Rect | null {
@@ -1620,8 +1722,9 @@ export class Menu {
     if (row < 0) return null;
     const choices = this.choices(s, prefs),
       count = choices.length,
-      h = Math.min(count + 3, l.body),
-      capacity = h - 3,
+      gap = this.dropdownGap(s, prefs),
+      h = Math.min(count + Math.max(0, count - 1) * gap + 3, l.body),
+      capacity = Math.floor((h - 3 + gap) / (gap + 1)),
       width = Math.min(l.b.w - 4, Math.max(l.options.w - 3, modelPreferredWidth(choices))),
       bottom = l.b.y + 2 + l.body;
     const view = dropdown.viewport(choices, d.top, d.at, capacity);
@@ -1744,6 +1847,173 @@ export class Menu {
     switch (this.item) {
       case "agents":
         return [];
+      case "tricks": {
+        if (this.trick_palette_ref) {
+          const picked = this.trick_palette;
+          const query = this.model_query.name();
+          const custom = palette.css(query);
+          return [
+            title(directoryLabel(this.trick_palette_ref, null, 160)),
+            ...(this.tricks_error
+              ? [{ tag: "warn" as const, text: directoryLabel(this.tricks_error, null, 512) }]
+              : []),
+            option({
+              label: i18n.t`Back`,
+              detail: "",
+              mark: "none",
+              apply: { kind: "trick_palette_open", ref: null },
+              action: i18n.t`back`,
+            }),
+            ...(picked
+              ? [
+                  option({
+                    label: i18n.t`Palette`,
+                    detail: "",
+                    mark: "none",
+                    apply: null,
+                    action: i18n.t`choose`,
+                    choice: {
+                      text: trickPaletteUi.schemeName(picked.scheme),
+                      on: picked.scheme !== null,
+                      placeholder: i18n.t`Search palettes`,
+                      gap: 1,
+                      choices: [
+                        {
+                          text: i18n.t`Automatic`,
+                          note: "",
+                          preview: picked.colors.map(trickStyle.rgb),
+                          current: picked.scheme === null,
+                          apply: { kind: "trick_palette_colors" as const, ref: picked.ref, colors: null },
+                        },
+                        ...Object.values(palette.schemes).map(colors => ({
+                          text: trickPaletteUi.schemeName(colors),
+                          note: "",
+                          preview: colors.map(trickStyle.rgb),
+                          current: JSON.stringify(picked.scheme) === JSON.stringify(colors),
+                          apply: {
+                            kind: "trick_palette_colors" as const,
+                            ref: picked.ref,
+                            colors: [...colors] as TrickColor[],
+                          },
+                        })),
+                      ].filter(c => matches(query, c.text)),
+                    },
+                  }),
+                  ...picked.assignments.map(a => {
+                    const choose = (color: TrickColor | null): Apply => ({
+                      kind: "trick_palette_set",
+                      ref: picked.ref,
+                      key: a.key,
+                      color,
+                    });
+                    const choices: Choice[] = [
+                      { text: i18n.t`Automatic`, note: "", current: !a.override, apply: choose(null) },
+                      ...trickPaletteUi
+                        .choices([...(picked.scheme ?? picked.colors), ...trickStyle.palette.identity, a.color])
+                        .map(color => ({
+                          text: trickPaletteUi.colorName(color),
+                          note: "",
+                          preview: [trickStyle.rgb(color)],
+                          current: a.override && JSON.stringify(a.color) === JSON.stringify(color),
+                          apply: choose(color),
+                        })),
+                    ].filter(c => matches(query, c.text));
+                    if (custom)
+                      choices.push({
+                        text: custom,
+                        note: i18n.t`Custom`,
+                        preview: [trickStyle.rgb(custom)],
+                        current: false,
+                        apply: choose(custom),
+                      });
+                    return option({
+                      label: directoryLabel(a.label, null, 160),
+                      detail: "",
+                      mark: "none",
+                      apply: null,
+                      action: i18n.t`choose`,
+                      color: trickStyle.rgb(a.color),
+                      choice: {
+                        text: trickPaletteUi.colorName(a.color),
+                        on: a.override,
+                        choices,
+                        placeholder: i18n.t`Color name or #hex`,
+                      },
+                    });
+                  }),
+                ]
+              : []),
+            option({
+              label: i18n.t`Reset all colors`,
+              detail: "",
+              mark: "none",
+              apply: { kind: "trick_palette_set", ref: this.trick_palette_ref, key: null, color: null, all: true },
+              action: i18n.t`reset`,
+            }),
+          ];
+        }
+        const info = this.tricks;
+        const paletteRow = (p: trickPalette.Summary, nested: boolean): Line =>
+          option({
+            label: p.ref.startsWith("globals.") ? p.ref : p.ref.slice(p.ref.indexOf("/") + 1),
+            detail: "",
+            mark: "none",
+            preview: p.preview.map(trickStyle.rgb),
+            indent: nested ? 6 : 4,
+            apply: { kind: "trick_palette_open", ref: p.ref },
+            action: i18n.t`open`,
+            arrow: true,
+          });
+        const ownedBy = (p: trickPalette.Summary, id: string) =>
+          p.owners.includes(id) || trickPalette.ref(p.ref).owner === id;
+        const unassigned = this.trick_palettes.filter(p => !info?.tricks.some(t => ownedBy(p, t.id)));
+        return [
+          title(i18n.t`Tricks`),
+          ...(this.tricks_error ? [{ tag: "warn" as const, text: directoryLabel(this.tricks_error, null, 512) }] : []),
+          ...(info
+            ? [
+                ...(info.watch_error ? [{ tag: "warn" as const, text: info.watch_error }] : []),
+                ...info.tricks.flatMap((trick, i) => [
+                  ...(i ? [blank] : []),
+                  option({
+                    label: directoryLabel(trick.id, null, 160),
+                    indent: 4,
+                    detail: "",
+                    mark: trick.enabled ? "on" : "off",
+                    toggle: trick.enabled,
+                    warn: trick.error !== null,
+                    apply: { kind: "trick", id: trick.id, enabled: !trick.enabled },
+                    action: trick.enabled ? i18n.t`turn off` : i18n.t`turn on`,
+                  }),
+                  ...(trick.description.length ? [{ tag: "description" as const, spans: trick.description }] : []),
+                  ...(trick.error ? [{ tag: "warn" as const, text: directoryLabel(trick.error, null, 512) }] : []),
+                  ...this.trick_palettes.filter(p => ownedBy(p, trick.id)).map(p => paletteRow(p, true)),
+                ]),
+                ...(!info.tricks.length ? [lead(i18n.t`No tricks installed yet.`)] : []),
+                ...(unassigned.length
+                  ? [blank, title(i18n.t`Saved palettes`), ...unassigned.map(p => paletteRow(p, false))]
+                  : []),
+                blank,
+                title(i18n.t`Development`),
+                option({
+                  label: i18n.t`Restart`,
+                  detail: "",
+                  mark: "none",
+                  apply: { kind: "tricks_reload" },
+                  action: i18n.t`reload`,
+                }),
+                option({
+                  label: i18n.t`Copy`,
+                  detail: "",
+                  copy_path: directoryLabel(info.directory, homedir(), 1024),
+                  mark: "none",
+                  apply: { kind: "copy", text: info.directory },
+                  action: i18n.t`copy`,
+                }),
+              ]
+            : [lead(this.tricks_error ? i18n.t`Tricks are unavailable.` : i18n.t`Loading installed tricks…`)]),
+        ];
+      }
       case "about":
         return [
           title(i18n.t`About Corgi`),
@@ -2159,6 +2429,13 @@ export class Menu {
         return prefs.worktree_folder === worktreeFolder.default_template
           ? { text: "", tone: "faint" }
           : { text: i18n.t`custom`, tone: "muted" };
+      case "tricks": {
+        const count = this.tricks?.tricks.filter(t => t.running).length ?? 0;
+        return {
+          text: this.tricks ? i18n.t`${count} on` : "",
+          tone: this.tricks?.tricks.some(t => t.error) ? "warm" : "muted",
+        };
+      }
       case "terminal":
       case "about":
       case "report_bug":

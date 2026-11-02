@@ -5,7 +5,8 @@
 //! headings may sit over the choices, and a note may color its runs.
 //! The sidebar's agent scope, Corgi setup's summaries, the launcher's
 //! worktrees and the review panel's commits open one.
-import { Style, fg, keycap, type Token } from "./palette";
+import { Style, fg, fgRgb, keycap, type Token, type Rgb } from "./palette";
+import * as palette from "./palette";
 import { Rect } from "./layout";
 import { Writer, displayWidth, writeEllipsis, sat } from "./text";
 
@@ -15,6 +16,8 @@ export function sameRuns(a: Run[], b: Run[]): boolean {
   return a.length === b.length && a.every(([text, token], i) => text === b[i][0] && token === b[i][1]);
 }
 export interface Choice {
+  preview?: Rgb[];
+  color?: Rgb;
   text: string;
   note: string;
   detail?: string;
@@ -106,7 +109,8 @@ export function width(choices: Choice[], heading?: Heading): number {
   return indent(choices) + widest + 4;
 }
 /** Draws `choices` in `b`, under `heading` when present. `note_column` aligns
- * notes past that many cells of text and a two-cell gap. */
+ * notes past that many cells of text and a two-cell gap. `gap` leaves blank
+ * rows between choices. */
 export function draw(
   w: Writer,
   b: Rect,
@@ -114,6 +118,7 @@ export function draw(
   heading?: Heading,
   note_column?: number,
   detail_column?: number,
+  gap = 0,
 ): void {
   const border = new Style({ fg: "line", bg: "surface" }).sgr();
   for (let y = 0; y < b.h; y++) {
@@ -135,14 +140,16 @@ export function draw(
       writeEllipsis(w, heading.detail, Math.max(0, b.x + b.w - 2 - x));
     }
   }
-  choices.forEach((choice, i) => row(w, b, i + (heading ? 2 : 1), choice, indent(choices), note_column, detail_column));
+  choices.forEach((choice, i) =>
+    row(w, b, i * (gap + 1) + (heading ? 2 : 1), choice, indent(choices), note_column, detail_column),
+  );
   w.write("\x1b[0m");
 }
 /** The choice under (x, y) inside `b`'s border, or null; a heading row is no choice. */
-export function hit(b: Rect, count: number, x: number, y: number, heading = false): number | null {
+export function hit(b: Rect, count: number, x: number, y: number, heading = false, gap = 0): number | null {
   if (x <= b.x || x + 1 >= b.x + b.w || y <= b.y || y + 1 >= b.y + b.h) return null;
-  const index = y - b.y - (heading ? 2 : 1);
-  return index >= 0 && index < count ? index : null;
+  const index = (y - b.y - (heading ? 2 : 1)) / (gap + 1);
+  return Number.isInteger(index) && index >= 0 && index < count ? index : null;
 }
 export function row(
   w: Writer,
@@ -207,5 +214,26 @@ export function row(
   else w.write(fg(faint) + choice.note);
   w.write(style);
   w.write(`\x1b[${line};${b.x + 1 + indent + inset}H`);
-  writeEllipsis(w, choice.text, sat(sat(right, b.x + indent + inset), 2));
+  const available = sat(sat(right, b.x + indent + inset), 2);
+  if (choice.preview && choice.preview.length > 1) {
+    const labelWidth = Math.min(14, available);
+    writeEllipsis(w, choice.text, labelWidth);
+    w.write(" ".repeat(Math.max(0, labelWidth - displayWidth(choice.text))));
+    palette.chips(w, choice.preview, available - labelWidth, palette.colors[choice.hovered ? "selected" : "surface"]);
+    return;
+  }
+  let used = choice.preview
+    ? palette.chips(
+        w,
+        choice.preview,
+        Math.max(0, available - Math.min(displayWidth(choice.text), 14) - 1),
+        palette.colors[choice.hovered ? "selected" : "surface"],
+      )
+    : 0;
+  if (used) {
+    w.write(" ");
+    used++;
+  }
+  if (choice.color) w.write(fgRgb(choice.color));
+  writeEllipsis(w, choice.text, Math.max(0, available - used));
 }

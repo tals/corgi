@@ -8,6 +8,14 @@ description: Control Corgi terminal panes, tabs, agents, and workspaces when the
 Corgi organizes a persistent runtime into workspaces, tabs, and panes. Panes own
 running terminals; tabs hold split trees. Each attached viewer owns its selection.
 
+## Customize Corgi with Tricks
+
+For account colors, sidebar additions, agent popovers, pane decorations or small
+interactive overlays, run `corgi --skill tricks` for the bundled authoring API.
+Tricks are JavaScript or TypeScript programs using `register(on, corgi)`.
+Manage installed tricks and reload-on-save in Settings → Tricks;
+`corgi tricks list --json` reports their folder, status and errors.
+
 ## Discover before acting
 
 Run `corgi --help`, then `corgi list`. `corgi tab` and `corgi pane` print usage

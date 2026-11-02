@@ -122,6 +122,43 @@ terminal formats remain unchanged. Screen observers reuse a
 terminal's live text until its native revision changes, while their status
 confirmation and time-based transitions continue on every observation pass.
 
+Corgi Tricks run as daemon-owned subprocesses. `trick_runner.ts` calls their
+`register(on, corgi)` and dispatches callbacks; `tricks.ts` owns the underlying
+JSONL contract.
+`trick_host.ts` owns discovery, subscriptions and atomic per-runtime KV;
+`trick_budget.ts` bounds CPU and memory, and `trick_ui.ts` draws views.
+`trick_watch.ts` watches installed source folders with bounded, debounced native
+watchers and restarts only changed tricks. Settings → Tricks controls per-runtime
+enablement; its Development section rescans and restarts. `trick_config.ts`
+normalizes status and preferences. `trick_defaults.ts` seeds editable account
+colors once in the normal install folder, preserving user edits and removals.
+`corgi --skill tricks` serves the bundled authoring skill.
+`trick_runner.ts` caches patches from named UI hooks on agent metadata changes;
+terminal frames never run trick callbacks. `trick_elements.ts` builds bounded
+rows, columns and buttons; functions stay in the runner. The viewer lays out
+those cached descriptions and routes visible controls through actions. Button
+presses return to their owning process, and viewer navigation returns only to
+the viewer that pressed them. `trick_markup.ts` parses bounded inline
+text and bundled icon references. `trick_style.ts` exposes symbolic palette
+colors, blends and brand references; viewers resolve them in their own themes
+and reuse the tab-logo image cache.
+`trick_palette.ts` caches stable keys to palette slots; `trick_palette_store.ts`
+persists assignments and user overrides separately from KV. Settings → Tricks
+and `corgi tricks palette` edit them without restarting Tricks. Names beginning
+with `globals.` share locked, atomic files across environments; native watchers
+deliver changes to running consumers. Other palettes belong to one Trick and
+runtime. Automatic identity hues follow each viewer's terminal palette with
+readable contrast and Corgi fallbacks. Fixed categorical schemes and CSS colors
+are explicit choices. Palette summaries carry preview colors and owning Tricks
+so settings can group them, including shared palettes when a Trick is disabled.
+Metadata is the default stream; transcripts require explicit opt-in and tap
+the existing usage reader without another watcher. Pane content is never sent.
+Viewers receive an optional `tricks` field; protocol 3 and saved formats are
+unchanged. Handoff stops the
+old trick processes and the committed daemon starts fresh ones; rollback
+restarts them in the old daemon. See [Tricks](docs/tricks.md) and the
+`tricks` sandbox and integration suite.
+
 ## Build, test and format
 
 ```sh
@@ -205,6 +242,10 @@ session cleans up when stopped, on SIGINT or SIGTERM, or when Ghostty exits.
 
 Inspect regenerated PNGs before committing them. This runs on Linux directly
 or in a container with the dependencies installed.
+
+`bun tools/tricks_screenshots.ts` regenerates the Tricks guide's images. Its
+recipe waits for the seeded accounts and tricks, shows the account-colors
+example's source, and captures its account card and Settings → Tricks.
 
 ## Reload, restart and recovery
 

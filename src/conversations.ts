@@ -121,6 +121,7 @@ export class Actor {
     }
     if (snapshot.transcript.len) a.transcript = snapshot.transcript;
     if (snapshot.cwd?.len) a.cwd = snapshot.cwd;
+    a.account = snapshot.account;
     if (snapshot.model) {
       a.model = new Text(snapshot.model);
       this.model = snapshot.model_info ?? Model.resolve(snapshot.model);

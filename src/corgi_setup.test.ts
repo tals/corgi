@@ -14,7 +14,8 @@ import { Worker, pane, workspace } from "./import/catalog";
 import { Writer } from "./text";
 import * as releaseLabel from "./release_label";
 import type { Connection } from "./rpc";
-import { Style } from "./palette";
+import { transport } from "./fixtures/transport";
+import { Style, schemes } from "./palette";
 
 /** The screen's text after replaying the cursor moves in `ansi`. */
 function screen(ansi: string, cols: number, rows: number): string[] {
@@ -200,6 +201,23 @@ test("setup keeps its options across the single-cell steps a terminal reports", 
   }
 });
 
+test("Tricks stays selected while crossing Manage agents toward the open pane", () => {
+  const s = status(),
+    prefs = new Preferences();
+  for (const destination of [10, 12, 17]) {
+    const menu = Menu.open();
+    menu.tricks = { directory: "/tmp/tricks", autoreload: true, watch_error: null, tricks: [] };
+    menu.hover(100, 30, 20, 14, s, prefs, 0);
+    expect(menu.item).toBe("tricks");
+    menu.hover(100, 30, 21, 14, s, prefs, 200);
+    let now = 200;
+    for (const [x, y] of walk(21, 14, 36, destination)) {
+      menu.hover(100, 30, x, y, s, prefs, (now += 16));
+      expect(menu.item).toBe("tricks");
+    }
+  }
+});
+
 test("setup tells a column of drift down the list from a turn toward the options", () => {
   const s = status(),
     prefs = new Preferences();
@@ -264,26 +282,23 @@ function walk(x0: number, y0: number, x1: number, y1: number): [number, number][
   return out;
 }
 
-test("setup aims only at the options a click acts on", () => {
+test("setup guards the visible pane, including previews and read-only sections", () => {
   const s = status(),
     prefs = new Preferences();
   // Visual flourishes' Intensity sits on rows 7 and 8, its preview below.
-  for (const [y, kept] of [
-    [8, true],
-    [15, false],
-  ] as const) {
+  for (const y of [8, 15]) {
     const menu = Menu.open();
     menu.hover(100, 30, 15, 4, s, prefs, 0);
     menu.hover(100, 30, 16, 4, s, prefs, 200);
     let now = 200;
     for (const [x, row] of walk(16, 4, 35, y)) menu.hover(100, 30, x, row, s, prefs, (now += 16));
-    expect(menu.item === "flourishes").toBe(kept);
+    expect(menu.item).toBe("flourishes");
   }
-  // Terminal capabilities has nothing to click, so nothing guards it.
+  // Reading a section should not switch it when crossing another list item.
   const menu = Menu.open();
-  menu.hover(100, 30, 15, 15, s, prefs, 0);
+  menu.hover(100, 30, 15, 16, s, prefs, 0);
   menu.hover(100, 30, 22, 11, s, prefs, 100);
-  expect(menu.item).toBe("source_control");
+  expect(menu.item).toBe("terminal");
 });
 
 test("setup stops guarding when moving away, leaving the frame, or resizing", async () => {
@@ -1903,4 +1918,212 @@ test("a setup choice or provider the viewer doesn't know reads as auto and none"
     "off",
     "codex",
   ]);
+});
+
+test("Tricks settings show statuses, errors and durable toggle actions", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status();
+  menu.item = "tricks";
+  menu.tricks = {
+    directory: "/tmp/tricks",
+    autoreload: true,
+    watch_error: null,
+    tricks: [
+      {
+        id: "account-colors",
+        description: [],
+        path: "/tmp/tricks/account-colors/trick.toml",
+        enabled: true,
+        running: true,
+        error: null,
+      },
+      {
+        id: "broken",
+        description: [],
+        path: "/tmp/tricks/broken/trick.toml",
+        enabled: true,
+        running: false,
+        error: "HandlerDeadline",
+      },
+    ],
+  };
+  const text = draw(menu, 120, 40).join("\n");
+  expect(text).not.toContain("Reload on save");
+  expect(text).not.toContain("Authoring help");
+  expect(text).toContain("[ Copy ]");
+  expect(text).toContain("/tmp/tricks");
+  expect(text).toContain("Development");
+  expect(draw(menu, 120, 40).join("\n")).toContain("HandlerDeadline");
+  menu.openOptions(s, prefs);
+  menu.cursor = 0;
+  expect(menu.enter(s, prefs)).toEqual({ kind: "trick", id: "account-colors", enabled: false });
+  menu.tricks.tricks[0].enabled = false;
+  expect(menu.enter(s, prefs)).toEqual({ kind: "trick", id: "account-colors", enabled: true });
+  expect(draw(menu, 120, 40).join("\n")).toMatch(/account-colors\s+○ Off/);
+  menu.cursor = 2;
+  expect(menu.enter(s, prefs)).toEqual({ kind: "tricks_reload" });
+  menu.cursor = 3;
+  expect(menu.enter(s, prefs)).toEqual({ kind: "copy", text: "/tmp/tricks" });
+  menu.tricks.tricks = [];
+  expect(draw(menu, 120, 40).join("\n")).toContain("No tricks installed yet.");
+});
+
+test("the automatic palette editor chooses colors, resets entries and returns to Tricks", () => {
+  const menu = Menu.open(),
+    s = status(),
+    prefs = new Preferences();
+  menu.item = "tricks";
+  menu.focus = "options";
+  menu.trick_palette_ref = "globals.accounts";
+  menu.trick_palette = {
+    ref: "globals.accounts",
+    entries: 1,
+    scheme: null,
+    preview: ["warm", "accent"],
+    owners: ["test"],
+    colors: ["warm", "accent"],
+    assignments: [{ key: "account-id", label: "Claude Code · Work", color: "warm", override: false }],
+  };
+  expect(draw(menu, 120, 40).join("\n")).toContain("Claude Code · Work");
+  menu.cursor = 2;
+  expect(menu.enter(s, prefs)).toBeNull();
+  const lines = draw(menu, 120, 40).join("\n");
+  expect(lines).toContain("Color name or #hex");
+  expect(lines).not.toContain("syntax.");
+  expect(lines).not.toContain("Billing");
+  expect(menu.click({ choice: 2 }, s, prefs)).toEqual({
+    kind: "trick_palette_set",
+    ref: "globals.accounts",
+    key: "account-id",
+    color: { hue: "green" },
+  });
+  menu.cursor = 3;
+  expect(menu.enter(s, prefs)).toEqual({
+    kind: "trick_palette_set",
+    ref: "globals.accounts",
+    key: null,
+    color: null,
+    all: true,
+  });
+  expect(menu.escape()).toBe(true);
+  expect(menu.trick_palette_ref).toBeNull();
+});
+
+test("Tricks status refreshes only while visible and never overlaps pending requests", async () => {
+  const menu = Menu.open(),
+    requests: string[] = [];
+  let finish!: (value: unknown) => void;
+  const conn = {
+    call: transport(async op => {
+      requests.push(op);
+      if (op === "tricks.palettes") return { palettes: [] };
+      return new Promise<unknown>(resolve => {
+        finish = resolve;
+      });
+    }).request as Connection["call"],
+  };
+  menu.item = "theme";
+  await menu.poll(conn, 100, 30, 0);
+  expect(requests).toEqual([]);
+  menu.item = "tricks";
+  await menu.poll(conn, 100, 30, 0);
+  await menu.poll(conn, 100, 30, 2000);
+  expect(requests).toEqual(["tricks.list", "tricks.palettes"]);
+  finish({ directory: "/tmp/tricks", tricks: [] });
+  await Bun.sleep(0);
+  expect(menu.tricks?.directory).toBe("/tmp/tricks");
+  await menu.poll(conn, 100, 30, 500);
+  expect(requests).toHaveLength(2);
+  await menu.poll(conn, 100, 30, 2000);
+  expect(requests).toHaveLength(4);
+  menu.close();
+  finish({ directory: "/changed", tricks: [] });
+  await Bun.sleep(0);
+  expect(menu.tricks?.directory).toBe("/tmp/tricks");
+});
+
+test("each Trick keeps its palettes and preview chips together, including shared and disabled ones", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status();
+  menu.item = "tricks";
+  menu.tricks = {
+    directory: "/tmp/tricks",
+    autoreload: true,
+    watch_error: null,
+    tricks: ["first", "second"].map(id => ({
+      id,
+      description: [{ text: "Color by " }, { text: "account", bold: true }],
+      path: "/tmp/tricks/" + id + "/trick.toml",
+      enabled: false,
+      running: false,
+      error: null,
+    })),
+  };
+  menu.trick_palettes = [
+    { ref: "first/accounts", entries: 2, owners: ["first"], preview: ["#abcdef", "#fedcba"] },
+    { ref: "globals.shared", entries: 1, owners: ["first", "second"], preview: ["#abcdef"] },
+    { ref: "second/projects", entries: 1, owners: ["second"], preview: ["#fedcba"] },
+  ];
+  for (const width of [80, 120]) {
+    const rows = draw(menu, width, 40, 0, s, prefs);
+    const first = rows.findIndex(r => /first\s+○ Off/.test(r));
+    const second = rows.findIndex(r => /second\s+○ Off/.test(r));
+    const heading = rows.find(r => r.includes("Tricks") && !r.includes(" on"))!;
+    expect(rows[first].indexOf("first") - heading.indexOf("Tricks")).toBe(2);
+    expect(rows[first + 1]).toContain("Color by account");
+    expect(rows[first + 2]).toContain("accounts");
+    expect(rows[first + 2].indexOf("accounts") - rows[first].indexOf("first")).toBe(2);
+    expect(rows[first + 3]).toContain("globals.shared");
+    expect(rows[second + 2]).toContain("globals.shared");
+    expect(rows[second + 3]).toContain("projects");
+    expect(rows.join("\n")).not.toContain("first/accounts");
+  }
+  menu.openOptions(s, prefs);
+  menu.cursor = 1;
+  expect(menu.right(s, prefs)).toEqual({ kind: "trick_palette_open", ref: "first/accounts" });
+  expect(menu.cursor).toBe(1);
+  menu.cursor = 0;
+  expect(menu.right(s, prefs)).toBeNull();
+});
+
+test("the palette editor accepts custom CSS colors and an explicit scheme", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status();
+  menu.item = "tricks";
+  menu.focus = "options";
+  menu.trick_palette_ref = "example/accounts";
+  menu.trick_palette = {
+    ref: "example/accounts",
+    entries: 1,
+    colors: [{ hue: "blue" }],
+    scheme: null,
+    owners: ["example"],
+    preview: [{ hue: "blue" }],
+    assignments: [{ key: "work", label: "Work", color: { hue: "blue" }, override: false }],
+  };
+  menu.cursor = 1;
+  menu.right(s, prefs);
+  const rows = draw(menu, 120, 40, 0, s, prefs),
+    tableau = rows.findIndex(row => row.includes("Tableau 10")),
+    set2 = rows.findIndex(row => row.includes("Set 2"));
+  expect(rows.join("\n")).toContain("Search palettes");
+  expect(set2 - tableau).toBe(2);
+  expect(menu.hit(120, 40, rows[tableau].indexOf("Tableau 10"), tableau + 1, s, prefs)).toBeNull();
+  expect(menu.click(choiceHit(menu, /Tableau 10/, s, prefs, 120, 40), s, prefs)).toEqual({
+    kind: "trick_palette_colors",
+    ref: "example/accounts",
+    colors: [...schemes.tableau10],
+  });
+  menu.cursor = 2;
+  menu.enter(s, prefs);
+  for (const byte of Buffer.from("#f80")) menu.key(byte);
+  expect(menu.enter(s, prefs)).toEqual({
+    kind: "trick_palette_set",
+    ref: "example/accounts",
+    key: "work",
+    color: "#ff8800",
+  });
 });

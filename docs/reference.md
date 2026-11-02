@@ -208,6 +208,7 @@ tmux tab numbering starts at zero; other presets start at one.
 | Select workspace |  |  |  | `Cmd+1–9` |
 | Close workspace |  |  | `prefix D` | `Cmd+Shift+W` |
 | Find agent | `prefix g` | `prefix G` | `prefix f` | `Cmd+Shift+P`, `prefix g` |
+| Focus trick buttons | `prefix U` |  |  | `prefix U` |
 | Choose agent | `prefix a` |  |  | `prefix a` |
 | Next agent | `prefix ]` |  |  | `prefix ]` |
 | Previous agent | `prefix [` |  |  | `prefix [` |

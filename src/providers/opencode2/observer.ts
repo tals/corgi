@@ -12,6 +12,7 @@ import * as activity from "./activity";
 import { Model } from "../model";
 import { Reading } from "../../usage/context_window";
 import * as modelCatalog from "./catalog";
+import { Accounts } from "./identity";
 const log = getLogger("opencode2.observer");
 export async function snapshot(
   api: API,
@@ -19,6 +20,7 @@ export async function snapshot(
   active: Record<string, unknown>,
   catalog = new Map<string, bigint>(),
   models = new Map<string, Model>(),
+  accounts?: Accounts,
 ) {
   const session = request.prefix.text(),
     base = `/api/session/${session}`;
@@ -31,6 +33,7 @@ export async function snapshot(
   if (str(info, "id") !== session) throw Error("WrongSession");
   const state = permissions.length || forms.length ? "blocked" : active[session] ? "working" : "idle";
   const out = new Snapshot(request, session, state);
+  out.account = accounts ? await accounts.describe(info) : null;
   const tail = messages.at(-1);
   out.compacting = state === "working" && tail?.type === "compaction" && tail.status === "running";
   out.name = new Name(str(info, "title"));
@@ -113,6 +116,7 @@ export class Worker implements Observer {
   requests: Request[] = [];
   results: Snapshot[] = [];
   api: API | null = null;
+  accounts: Accounts | null = null;
   /** Sessions to look at again: an event touched them, or they are new here. */
   due = new Set<string>();
   /** When each session whose snapshot failed is tried again. */
@@ -136,6 +140,9 @@ export class Worker implements Observer {
   observe(event: Record<string, unknown>) {
     const type = str(event, "type"),
       session = eventSession(event);
+    if (this.accounts?.invalidate(type)) {
+      for (const request of this.requests) this.due.add(request.prefix.text());
+    }
     if (!session || type.endsWith(".delta")) return;
     for (const id of [session, this.parents.get(session), str(field(event, "data"), "parentID")])
       if (id && this.requests.some(r => r.prefix.text() === id)) this.due.add(id);
@@ -180,6 +187,7 @@ export class Worker implements Observer {
       for (const request of requests) this.due.delete(request.prefix.text());
       if (!this.api) {
         this.api = await API.open();
+        this.accounts = new Accounts(this.api);
         void this.api.follow(this.abort.signal, {
           connected: () => {
             this.live = true;
@@ -204,7 +212,14 @@ export class Worker implements Observer {
         if (this.stopping) return;
         const session = request.prefix.text();
         try {
-          const result = await snapshot(this.api, request, active, this.catalog, this.models);
+          const result = await snapshot(
+            this.api,
+            request,
+            active,
+            this.catalog,
+            this.models,
+            this.accounts ?? undefined,
+          );
           this.retry.delete(session);
           for (const [child, parent] of this.parents) if (parent === session) this.parents.delete(child);
           for (const child of result.children) this.parents.set(child.session, session);

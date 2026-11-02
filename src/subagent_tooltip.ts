@@ -22,6 +22,7 @@ import { type Agent, type Pane, agent as agentValue, providerName } from "./mirr
 import { type Entry, type Subagents, contextColor } from "./sidebar";
 import { Writer, byteSlice, directoryLabel, displayWidth, ellipsis, writeEllipsis, sat } from "./text";
 import { Rect } from "./layout";
+import * as trickUi from "./trick_ui";
 
 let base: string;
 palette.derived(() => {
@@ -1314,6 +1315,10 @@ export function draw(
   px: number,
   py: number,
   accounts: Accounts = new Accounts(),
+  patch: trickUi.Decoration = { suffix: [] },
+  icons: trickUi.Icon[] | null = null,
+  covered = 0,
+  controls: trickUi.Controls | null = null,
 ): Rect | null {
   if (cols < 40 || rows < 13) return null;
   const parent = entry.conversation;
@@ -1356,7 +1361,9 @@ export function draw(
   const todo_height = checklist_view.visible(root.checklist, microTimestamp()) ? todo_view.rows + 3 : 0;
   // Until there is a timeline, the activity takes its own line under the subtitle.
   const activity_row = timeline_nodes === 0;
+  const extra = Math.min(4, trickUi.contentSize(patch).h, Math.max(0, rows - 12));
   const wanted =
+    extra +
     7 +
     Number(activity_row) +
     timeline_height +
@@ -1368,7 +1375,7 @@ export function draw(
   const y = Math.min(py + 1, rows - 1 - height);
   w.write("\x1b7\x1b]8;;\x1b\\");
   for (let row = 0; row < height; row++) {
-    w.write(`\x1b[${y + row + 1};${x + 1}H${base}${Tone.ansi("border")}`);
+    w.write(`\x1b[${y + row + 1};${x + 1}H${base}${patch.marker ? trickUi.fg(patch.marker) : Tone.ansi("border")}`);
     w.write(row === 0 ? "╭" : row === height - 1 ? "╰" : "│");
     w.write((row === 0 || row === height - 1 ? "─" : " ").repeat(width - 2));
     w.write(row === 0 ? "╮" : row === height - 1 ? "╯" : "│");
@@ -1379,6 +1386,10 @@ export function draw(
   const root_status = status(root_agent, false);
   const status_text = `${root_status.icon} ${root_status.label}`;
   card.line(top, name, status_text, "title", "text");
+  if (patch.color) {
+    w.write(`\x1b[${top + 1};${x + 4}H${base}\x1b[1m${trickUi.fg(patch.color)}`);
+    writeEllipsis(w, directoryLabel(name, null, 512), card.leftRoom(displayWidth(status_text)));
+  }
   // Only the status dot takes the state's color.
   w.write(
     `\x1b[${top + 1};${x + width - 2 - displayWidth(status_text)}H${base}${Tone.ansi(root_status.tone)}${root_status.icon}`,
@@ -1422,7 +1433,7 @@ export function draw(
   card.cell(header + 1, 0, card.textWidth(), i18n.t`Total`, "text", false);
   card.tokenColumns(header + 1, root.usage, false, root.usage.known ? "title" : "muted");
   let row = header + 2;
-  const bottom = y + height - 1;
+  const bottom = y + height - 1 - extra;
   const todo_room = sat(bottom, row + task_height + 2 + (model.children > 0 ? 3 : Number(child_footer)));
   const fitted_todos = checklist_view.window(root.checklist, 5, Math.max(0, todo_room - 3));
   const todo_budget = todo_height > 0 && fitted_todos.items.length > 0 ? fitted_todos.rows + 3 : 0;
@@ -1467,6 +1478,18 @@ export function draw(
         : "";
   if (footer) card.line(footer_row, footer, "", "faint", "faint");
   if (todo_budget) card.checklist(todo_top, root.checklist, fitted_todos);
+  if (extra) {
+    w.write(base);
+    trickUi.draw(
+      w,
+      trickUi.content(patch),
+      new Rect(x + 3, bottom, width - 6, extra),
+      icons,
+      covered,
+      controls,
+      patch.color,
+    );
+  }
   w.write("\x1b[0m\x1b8");
   return new Rect(x, y, width, height);
 }

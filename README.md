@@ -55,6 +55,7 @@ corgi pane send 3 'run the tests' --enter
 corgi pane read 3 --lines 50
 ```
 
+`corgi --skill tricks` prints the API for writing UI customizations.
 `corgi --help` lists the commands; `corgi --skill` prints instructions for agents.
 
 ## Uninstall
@@ -62,6 +63,16 @@ corgi pane read 3 --lines 50
 ```sh
 curl -fsSL https://corgi.computer/install.sh | bash -s uninstall
 ```
+
+## Tricks
+
+[Corgi Tricks](docs/tricks.md) are small JavaScript or TypeScript programs with
+`register(on, corgi)` and event callbacks. Named UI hooks change colors and append
+text or brand icons to sidebar rows, popovers, and panes. Draw overlays with the
+theme palette, and save small values in KV.
+Transcripts are opt-in. A tiny TOML manifest just names the entry file.
+Try the account-color, provider-flair, attention-radar and completion-jar
+examples together with `./go.ts --sandbox tricks`.
 
 ## Development
 

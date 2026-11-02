@@ -18,6 +18,7 @@ import type { Snapshot, Request as ObserverRequest } from "./providers/snapshot"
 import type { Request } from "./protocol";
 import { Model } from "./providers/model";
 import * as accounts from "./accounts";
+import * as agentEnv from "./agent_env";
 import * as integration from "./integration";
 import type { Title } from "./pane/terminal";
 
@@ -57,6 +58,8 @@ export function start(server: Server) {
   if (!server.summaries) workers.summaries.selected = setup.loadSelection(setup.path(server.socket));
   server.summaries = workers.summaries;
   server.usage = workers.usage;
+  workers.usage.record = (req, record, bytes) =>
+    server.tricks.transcript(req.agent.provider!, req.agent.sessionId(), record, bytes);
   services.set(server, workers);
   publishInference(server, workers);
   return workers;
@@ -262,11 +265,14 @@ function detect(server: Server, pane: Pane, observedJob?: detection.Job | null) 
     if ((previous && previous !== job.pid) || (pane.attachment.actor && pane.agent().provider !== job.provider))
       pane.releaseDetection();
     // An agent someone typed into the pane's shell comes back as they typed it.
-    if (job.pid !== previous && (!pane.launch || pane.launch.agent?.observed))
-      pane.launch = Launch.observed(job.provider, job.pid);
-    // A saved command's own variables may be spelled past reading; its agent's say.
-    if (job.pid !== previous && pane.launch?.command)
-      pane.running_account = Launch.observed(job.provider, job.pid).account() || null;
+    if (job.pid !== previous) {
+      const observed = Launch.observed(job.provider, job.pid, env => {
+        pane.agent_env = agentEnv.read(env);
+      });
+      if (!pane.launch || pane.launch.agent?.observed) pane.launch = observed;
+      // A saved command's own variables may be spelled past reading; its agent's say.
+      if (pane.launch?.command) pane.running_account = observed.account() || null;
+    }
     // An agent in an account Corgi hadn't seen gets its hooks from the next start on.
     const account = job.pid !== previous ? pane.account() : "";
     if (account && !accounts.forgotten(account)) {

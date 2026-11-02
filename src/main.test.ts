@@ -377,6 +377,7 @@ test("headless CLI passes provider IDs intact and includes the first prompt", as
   const output = spyOn(process.stdout, "write").mockReturnValue(true);
   try {
     await run(["headless", "start", "codex", "hello", "--workspace", "7"]);
+    await run(["headless", "start", "claude", "work", "--account", "/profiles/vertex", "--workspace", "7"]);
     await run(["headless", "send", "codex", "thread-abc", '{"kind":"prompt","text":"again"}']);
     await run(["headless", "stop", "claude", "12345678901234567890"]);
     const calls = request.mock.calls.map(call => call.slice(1));
@@ -388,10 +389,18 @@ test("headless CLI passes provider IDs intact and includes the first prompt", as
       "headless.send",
       { provider: "codex", session: "thread-abc", input: { kind: "prompt", text: "again" } },
     ]);
+    expect(calls).toContainEqual([
+      "headless.start",
+      { provider: "claude", prompt: "work", cwd: process.cwd(), workspace: 7, account: "/profiles/vertex" },
+    ]);
     expect(calls).toContainEqual(["headless.stop", { provider: "claude", session: "12345678901234567890" }]);
     expect(output.mock.calls[0][0]).toBe("headless session thread-abc (codex)\n");
     await expect(run(["headless", "start", "codex"])).rejects.toThrow("Usage");
     await expect(run(["headless", "stop", "1"])).rejects.toThrow("Usage");
+    await expect(run(["headless", "start", "codex", "hello", "--account"])).rejects.toThrow("Usage");
+    await expect(run(["headless", "start", "codex", "hello", "--account", "/a", "--account", "/b"])).rejects.toThrow(
+      "Usage",
+    );
   } finally {
     request.mockRestore();
     output.mockRestore();

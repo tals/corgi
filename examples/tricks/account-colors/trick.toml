@@ -1,0 +1,4 @@
+version = 1
+id = "account-colors"
+description = "Color sidebar markers by **account**."
+entry = "main.mjs"

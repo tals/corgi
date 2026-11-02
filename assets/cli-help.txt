@@ -37,7 +37,16 @@ Agent controls (--json prints the daemon's reply as JSON):
   corgi launcher edit AGENT --command COMMAND [--name NAME] [--workspace ID]
   corgi launcher remove AGENT [--workspace ID]  delete a clone or saved command
   corgi launcher copy --from ID --workspace ID  replace destination order and visibility
-  corgi --skill                      print bundled agent instructions
+  corgi --skill [tricks]             print bundled agent or Tricks authoring instructions
+
+Corgi Tricks
+  corgi tricks list [--json]              List installed tricks and startup errors
+  corgi tricks reload [--json]            Reload manifests and restart tricks
+  corgi tricks palette list [--json]      List local and global palettes
+  corgi tricks palette show PALETTE [--json]  Show keys and assigned colors
+  corgi tricks palette colors PALETTE auto|terminal|tableau10|set2|paired|JSON_ARRAY [--json]
+  corgi tricks palette set PALETTE KEY COLOR [--key-json] [--json]
+  corgi tricks palette reset PALETTE [KEY] [--key-json] [--json]
 
 IDs come from list; current means CORGI_PANE, never UI focus.
 New tabs and launcher mutations outside Corgi require --workspace.
