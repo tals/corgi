@@ -30,7 +30,8 @@ export function hookOrigin() {
 /** What Claude Code exports to the processes its session starts. A Claude
  * that inherits them believes it is that session's child: it turns off
  * transcript saving (CLAUDE_CODE_CHILD_SESSION) or reports to its messaging
- * socket. Settings a user chose, such as CLAUDE_CONFIG_DIR, are not here. */
+ * socket. AI_AGENT also puts Corgi's own CLI in agent mode. Settings a user
+ * chose, such as CLAUDE_CONFIG_DIR, are not here. */
 const nesting = [
   "CLAUDECODE",
   "CLAUDE_CODE_ENTRYPOINT",
@@ -42,6 +43,8 @@ const nesting = [
   "CLAUDE_CODE_MESSAGING_TOKEN",
   "CLAUDE_CODE_EXECPATH",
   "CLAUDE_PID",
+  "CLAUDE_EFFORT",
+  "AI_AGENT",
 ];
 /** Clears the variables that tell Claude Code it runs inside another session. */
 export function unnest(env: Record<string, string | undefined>) {

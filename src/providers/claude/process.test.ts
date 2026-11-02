@@ -20,6 +20,8 @@ test("unnesting clears a parent session's markers and keeps the user's settings"
     CLAUDE_CODE_MESSAGING_TOKEN: "token",
     CLAUDE_CODE_EXECPATH: "/opt/claude",
     CLAUDE_PID: "53013",
+    CLAUDE_EFFORT: "xhigh",
+    AI_AGENT: "claude-code_2-1-316_agent",
     CLAUDE_CONFIG_DIR: "/home/me/.claude",
     CLAUDE_CODE_USE_VERTEX: "1",
   };
