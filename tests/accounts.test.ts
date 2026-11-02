@@ -131,20 +131,20 @@ exec ${quote(agent)} "$@"`,
     const side = join(this.temp.name, "side-claude");
     signIn(side, "me@side.com");
     const pane = (await this.open_pane({ cwd: this.temp.name })).pane,
-      start = `PATH=${quote(join(this.temp.name, "bin"))}:$PATH CLAUDE_CONFIG_DIR=${quote(side)} claude\r`;
-    await this.command("pane.input", { target: pane, data: start });
+      claude = `PATH=${quote(join(this.temp.name, "bin"))}:$PATH CLAUDE_CONFIG_DIR=${quote(side)} claude`;
+    // Still loading, it fires no hooks, so only its process can name its account.
+    await this.command("pane.input", { target: pane, data: `${claude} --loading\r` });
     const first = await this.until(async () =>
       (await this.panes()).find((p: any) => p.id === pane && p.provider === "claude"),
     );
-    // Corgi adds the hooks once it sees the agent, often before the agent reads
-    // its settings, so only the next start is sure to report.
     this.assertEqual(first.account, realpathSync(side));
+    this.assertEqual(first.session, "", "it has not reported");
     await this.until(() => hooked(join(side, "settings.json")));
     this.assertEqual(this.listed(), [
       { provider: "claude", dir: realpathSync(side), name: "side-claude", managed: false },
     ]);
     const next = (await this.open_pane({ cwd: this.temp.name })).pane;
-    await this.command("pane.input", { target: next, data: start });
+    await this.command("pane.input", { target: next, data: `${claude}\r` });
     await this.until(async () =>
       (await this.panes()).find((p: any) => p.id === next && p.session === "ordinary-claude"),
     );

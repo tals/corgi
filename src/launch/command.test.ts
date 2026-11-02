@@ -24,17 +24,18 @@ test("stopping command previews cancels and reaps an active shell lookup", async
     executable = join(root, "bash");
   try {
     process.env.CORGI_ENV_DIR = root;
-    writeFileSync(executable, `#!/bin/sh\nprintf '%s' "$$" > '${pidFile}'\nexec /bin/sleep 60\n`, { mode: 0o755 });
+    // Renamed into place, so the file never exists without its PID.
+    writeFileSync(
+      executable,
+      `#!/bin/sh\nprintf '%s' "$$" > '${pidFile}.tmp'\n/bin/mv '${pidFile}.tmp' '${pidFile}'\nexec /bin/sleep 60\n`,
+      { mode: 0o755 },
+    );
     settings.update(settings.path(), { shell: executable });
     const result = worker.request(1n, "alias_to_resolve", root),
-      deadline = Date.now() + 1000;
-    let pid = 0;
-    while (Date.now() < deadline) {
-      if (existsSync(pidFile)) pid = Number(readFileSync(pidFile, "utf8"));
-      if (pid > 0) break;
-      await Bun.sleep(5);
-    }
-    expect(pid).toBeGreaterThan(0);
+      deadline = Date.now() + 2500;
+    while (!existsSync(pidFile) && Date.now() < deadline) await Bun.sleep(5);
+    expect(existsSync(pidFile)).toBe(true);
+    const pid = Number(readFileSync(pidFile, "utf8"));
     await worker.stop();
     expect(result.pending).toBe(false);
     expect(result.error_message).toBe("Cancelled");
