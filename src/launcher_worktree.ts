@@ -9,7 +9,6 @@ import { Style, keycap } from "./palette";
 import { Rect } from "./layout";
 import * as dropdown from "./dropdown";
 import { Dialog } from "./name_dialog";
-import { KeyHold } from "./key_hold";
 import * as worktrees from "./worktrees";
 import { label } from "./worktree_agents";
 import * as worktreeFolder from "./worktree_folder";
@@ -27,7 +26,6 @@ export interface Planned {
 export type Mode = "closed" | "open";
 /** The field with the caret; browsing checkouts keeps it in Branch. */
 export type Focus = "branch" | "from";
-export const create_hold_ms = 3000;
 /** What a new worktree can branch from. */
 export interface Base {
   ref: string;
@@ -57,7 +55,6 @@ export class Chooser {
   /** Opening keeps a planned name in Branch without filtering the checkouts. */
   filtering = false;
   highlight: number | null = null;
-  create = new KeyHold(create_hold_ms, 220, 150, 80);
   /** The checkouts' first shown row, when they're more than fit. */
   scroll = 0;
   field = Dialog.init({ rename: 0 }, "");
@@ -88,7 +85,6 @@ export class Chooser {
     this.field = Dialog.init({ rename: 0 }, planned?.branch ?? "");
     this.typed = this.field.name();
     this.filtering = false;
-    this.create.reset();
     this.base = planned ? { ref: planned.base, name: planned.base_name } : (bases(snapshot, cwd)[0] ?? null);
     this.error = "";
   }
@@ -120,7 +116,6 @@ export class Chooser {
   edit(edit: (field: Dialog) => void): void {
     const before = this.field.raw();
     edit(this.field);
-    this.create.reset();
     if (this.field.raw() === before) return;
     this.typed = this.field.name();
     this.filtering = true;
@@ -136,7 +131,6 @@ export class Chooser {
     this.field.selected = false;
     this.highlight = index;
     this.focus = "branch";
-    this.create.reset();
     this.error = "";
   }
   /** Arrows browse the matches and the offer to create, filling Branch. */
@@ -151,7 +145,6 @@ export class Chooser {
   }
   /** Puts the caret in From, its text the base, selected so typing replaces it. */
   focusFrom(): void {
-    this.create.reset();
     this.focus = "from";
     this.from = Dialog.init({ rename: 0 }, this.base?.name ?? "");
     this.searching = false;
@@ -274,6 +267,7 @@ export function choices(snapshot: worktrees.Snapshot | null, cwd: string, c: Cho
       note: "",
       current: false,
       hovered: c.focus === "branch" && (c.creating(snapshot) || c.hovered === entries.length),
+      lit: c.focus === "branch" && c.creating(snapshot),
       dim: c.focus === "from",
     });
   return out;

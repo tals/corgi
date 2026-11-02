@@ -520,7 +520,7 @@ test("the title names the worktree once, on a button that drops the checkouts an
   bx = m.worktreeBox(100, 30, side)!;
   text = render();
   expect(text).toContain("+ Create “top”");
-  expect(text).toContain("hold ↵ to create");
+  expect(text).toContain(" ↵ create ");
   expect(text.split("\n")[bx.from]).toContain("From    main");
   expect(text.split("\n")[bx.folder]).toContain("Folder  ./.worktrees/top");
   expect(m.worktreeHit(100, 30, side, bx.field_x, bx.from)).toBe("from");
@@ -561,10 +561,8 @@ test("narrow worktree creation footers leave the translated action intact", () =
         box = m.worktreeBox(width, 30, side)!;
       expect(box).not.toBeNull();
       const row = screen(m, width, 30, side)[box.footer];
-      expect(row).toContain(i18n.t`hold ↵ to create`);
-      expect(row.includes(i18n.t`↑↓ choose`)).toBe(width === 100);
-      const inside = row.slice(box.rect.x + 1, box.rect.x + box.rect.w - 1).trim();
-      if (width === 40) expect(inside).toBe(i18n.t`hold ↵ to create`);
+      expect(row).toContain(i18n.t`↵ create`);
+      expect(row).toContain(i18n.t`↑↓ choose`);
     }
   } finally {
     i18n.setLanguage(previous);
