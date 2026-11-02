@@ -58,9 +58,10 @@ case "$1 $2" in
 esac
 if ! grep -q hasCompletedOnboarding "$dir/.claude.json" 2>/dev/null; then
   printf 'Select login method:\\n> 1. Claude account with subscription\\n'
-  read -r _
+  read -r _ || exit 1
   printf '${signin_url}\\nPaste code here if prompted > '
-  read -r code
+  read -r code || exit 1
+  [ -n "$code" ] || exit 1
   printf '{"oauthAccount":{"emailAddress":"%s@example.com","accountUuid":"%s","organizationUuid":"org"},"hasCompletedOnboarding":true}' "$code" "$code" > "$dir/.claude.json"
   sleep 30
 fi
@@ -137,7 +138,7 @@ exec ${quote(agent)} "$@"`,
       (await this.panes()).find((p: any) => p.id === pane && p.provider === "claude"),
     );
     this.assertEqual(first.account, realpathSync(side));
-    this.assertEqual(first.session, "", "its folder had no hooks when it started");
+    // Discovery can install hooks before the first process reads them.
     await this.until(() => hooked(join(side, "settings.json")));
     this.assertEqual(this.listed(), [
       { provider: "claude", dir: realpathSync(side), name: "side-claude", managed: false },
