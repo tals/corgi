@@ -1656,7 +1656,7 @@ export class Menu implements LinkSource {
         tint = kept.findIndex(line => line.tag === "option" && line.option.slider_id === "workspace_tint"),
         tail = kept.slice(tint);
       const fitted = kept
-        .slice(0, Math.max(0, l.body - tail.length))
+        .slice(0, Math.max(0, Math.min(tint, l.body - tail.length)))
         .concat(tail)
         .slice(0, l.body);
       return fitted.filter((line, i) => line.tag !== "note" || fitted[i + 1]?.tag === "corgi_preview");
