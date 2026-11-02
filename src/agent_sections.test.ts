@@ -99,7 +99,7 @@ test("a section keeps the order it was put in, ahead of agents it doesn't place 
   expect(rows(out)).toEqual(["working 5", 2, 1, 3, 5, 4]);
 });
 
-test("pins keep their order above the sections, each workspace's together", () => {
+test("pins keep their order above the sections, each workspace's together, under their worktrees", () => {
   const out = agentSections.arrange(
     [
       item(1, "working", { pin: 1 }),
@@ -109,8 +109,9 @@ test("pins keep their order above the sections, each workspace's together", () =
     ],
     options(),
   );
-  expect(rows(out)).toEqual(["starred 3", 2, 1, 3, "idle 1", 4]);
-  expect(out[1].section).toBe("starred");
+  expect(rows(out)).toEqual(["starred 3", "· topic", 2, "· ws1", 1, 3, "idle 1", 4]);
+  expect(out[1].target).toEqual({ section: "starred", workspace: 1, checkout: "/repo/topic", run: 0 });
+  expect(out[2]).toMatchObject({ section: "starred", worktree: { workspace: 1, path: "/repo/topic", ghost: false } });
   // In "all", each workspace and each of its worktrees gets a subhead.
   const all = agentSections.arrange(
     [
