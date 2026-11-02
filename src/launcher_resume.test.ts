@@ -47,7 +47,7 @@ test("translated history headings, empty states and search hints stay inside the
             { pending: false, entries: mode === "empty" ? [] : entries },
             "/w/corgi",
             "/w",
-            [{ provider: "claude", session: "0", pane: 1 }],
+            [{ provider: "claude", session: "0", pane: 1, folder: "/w/corgi" }],
             now,
           );
           const view = new View(),
@@ -90,7 +90,7 @@ test("collapsed shows this folder's newest closed conversations, then more", () 
     { pending: false, entries },
     "/w/corgi",
     "/w",
-    [{ provider: "claude", session: "d", pane: 4 }],
+    [{ provider: "claude", session: "d", pane: 4, folder: "/w/corgi" }],
     1000,
   );
   const v = new View();
@@ -125,7 +125,7 @@ test("expanded groups by day and widens; search finds open conversations and cou
     { pending: false, entries },
     "/w/corgi",
     "/w/corgi",
-    [{ provider: "claude", session: "c", pane: 4 }],
+    [{ provider: "claude", session: "c", pane: 4, folder: "/w/corgi" }],
     1000,
   );
   const v = new View();
@@ -386,6 +386,45 @@ test("Where marks branches, and a title still names the branch a conversation ra
   expect(line("Before the worktree")).not.toContain("worktree-wt");
   expect(line("Outside git")).toContain(" plain");
   expect(line("Outside git")).not.toContain("⌥");
+});
+
+test("an open conversation's Where and search follow the worktree its agent moved to", () => {
+  // Started on main in /w/corgi; its pane's agent now works in /w/corgi-wt.
+  const entries = [testEntry("a", "/w/corgi", "Translate the site", 900)];
+  entries[0].branch = "main";
+  const places: Record<string, Location> = {
+    "/w/corgi": { label: "main", branch: "main" },
+    "/w/corgi-wt": { label: "wt", branch: "site/wt" },
+  };
+  const c = new Context(
+      { pending: false, entries },
+      "/w/corgi",
+      "/w",
+      [{ provider: "claude", session: "a", pane: 4, folder: "/w/corgi-wt" }],
+      1000,
+      [],
+      {},
+      cwd => places[cwd] ?? { label: "plain", branch: null },
+    ),
+    view = new View({ expanded: true, focused: true }),
+    area = new Area(0, 1, 140, 10);
+  view.startSearch();
+  for (const ch of "site/wt") view.query.key(ch.charCodeAt(0));
+  expect(view.lines(c)).toEqual([{ heading: "open" }, { open: 0 }, { heading: "results" }]);
+  const w = new Writer(),
+    host = new Terminal(140, 12);
+  view.draw(w, c, area);
+  host.feed(w.s);
+  const row = host
+    .text()
+    .split("\n")
+    .find(l => l.includes("Translate the site"))!;
+  host.destroy();
+  expect(row).toMatch(/Translate the site +⌥ wt/);
+  // The branch it started on still finds it.
+  view.query.clear();
+  for (const ch of "main") view.query.key(ch.charCodeAt(0));
+  expect(view.lines(c)).toContainEqual({ open: 0 });
 });
 
 test("a conversation from another account ends its title with the account's name, dimmed", () => {

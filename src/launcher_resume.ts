@@ -56,6 +56,9 @@ export interface Open {
   provider: Provider;
   session: string;
   pane: number;
+  /** Where its agent works: the checkout the agent list puts the pane
+   * under, which it may have moved to after starting elsewhere. */
+  folder: string;
 }
 export const max_open = 64;
 const session_capacity = 160;
@@ -80,12 +83,8 @@ export class Context {
     public accounts: readonly Account[] = [],
     /** What each provider's default account is called, if anything. */
     public names: Readonly<Record<string, string>> = {},
-    /** What Where says for a folder, or for the pane that runs the
-     * conversation: its checkout's branch, else its name. */
-    public location: (cwd: string, pane: number | null) => Location = cwd => ({
-      label: basename(cwd) || cwd,
-      branch: null,
-    }),
+    /** What Where says for a folder: its checkout's branch, else its name. */
+    public location: (cwd: string) => Location = cwd => ({ label: basename(cwd) || cwd, branch: null }),
   ) {}
   /** The name of the account `e` ran in, while there are accounts to tell
    * apart; "" for a default without a name. */
@@ -98,6 +97,11 @@ export class Context {
   opened(e: Entry): Open | null {
     for (const o of this.open) if (o.provider === e.provider && o.session === e.session) return o;
     return null;
+  }
+  /** What Where says for `e`: where its agent works while a pane runs it,
+   * else the folder it ran in. */
+  where(e: Entry): Location {
+    return this.location(this.opened(e)?.folder ?? e.cwd);
   }
   static within(folder: string, path: string): boolean {
     return (
@@ -246,12 +250,14 @@ export class View {
   search(): string {
     return this.searching ? this.query.name() : "";
   }
-  matches(e: Entry): boolean {
+  /** Whether every word of the search is in `e`'s text or branch, or in
+   * `shown`, the branch its Where shows. */
+  matches(e: Entry, shown: string | null = null): boolean {
+    const fields = [e.title, e.first, e.last, e.branch, shown ?? ""];
     for (const word of this.search().split(" ")) {
       if (word.length === 0) continue;
       if (e.starred && starWord(word)) continue;
-      if (!contains(e.title, word) && !contains(e.first, word) && !contains(e.last, word) && !contains(e.branch, word))
-        return false;
+      if (!fields.some(text => contains(text, word))) return false;
     }
     return true;
   }
@@ -290,7 +296,7 @@ export class View {
     const entries = c.history.entries;
     let open = 0;
     entries.forEach((e, i) => {
-      if (open < 3 && c.opened(e) !== null && this.matches(e)) {
+      if (open < 3 && c.opened(e) !== null && this.matches(e, c.where(e).branch)) {
         if (open === 0) out.push({ heading: "open" });
         out.push({ open: i });
         open += 1;
@@ -633,7 +639,7 @@ export class View {
       w.write(`\x1b[${row};${col + room + 1}H` + color);
       writeEllipsis(w, text, width);
     };
-    const where = cols.folder > 0 ? c.location(e.cwd, c.opened(e)?.pane ?? null) : null;
+    const where = cols.folder > 0 ? c.where(e) : null;
     if (cols.title > 16) {
       const account = e.account ? c.accountName(e) : "";
       if (account.length > 0)

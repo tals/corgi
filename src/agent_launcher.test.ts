@@ -671,39 +671,6 @@ test("digits count account rows like the agents'", () => {
   expect([m.shortcutRow(c("0")), m.shortcutRow(c("1"))]).toEqual(["claude", work]);
 });
 
-test("Where puts an open conversation in the worktree its pane works in", () => {
-  const checkout = (path: string, branch: string, primary: boolean) => ({
-    path,
-    head: "4f1c2a9e0b",
-    branch: `refs/heads/${branch}`,
-    primary,
-    bare: false,
-    detached: false,
-    locked: null,
-    holder: null,
-    prunable: null,
-    available: true,
-    comparison: null,
-    changes: null,
-    created: null,
-    edited: null,
-    stale: false,
-  });
-  const m = menu({ cwd: "/src/app" });
-  m.worktrees = {
-    common_dir: "/src/app/.git",
-    base: { ref: "refs/heads/main", name: "main", head: "4f1c2a9e0b" },
-    entries: [checkout("/src/app", "main", true), checkout("/src/app-topic", "topic", false)],
-    // Started in /src/app, then moved its work to the topic worktree.
-    agents: [{ target: { pane: 7 }, path: "/src/app-topic", source: "write", stale: false }],
-    stale: false,
-  };
-  const c = m.resumeContext();
-  expect(c.location("/src/app", 7)).toEqual({ label: "topic", branch: "topic" });
-  expect(c.location("/src/app", null)).toEqual({ label: "main", branch: "main" });
-  expect(c.location("/src/app", 8)).toEqual({ label: "main", branch: "main" });
-});
-
 test("a default account that has a name shows it on its row", () => {
   const m = menu();
   m.preview = preview({ pending: false, names: { claude: "acme" }, accounts: [workAccount()] });
