@@ -192,7 +192,7 @@ export function arrange(items: Item[], o: Options): sidebar.Entry[] {
     const placed = members.map(item => ({
       entry: row(item, kind),
       workspace: item.workspace,
-      checkout: kind === "starred" ? null : item.checkout,
+      checkout: item.checkout,
     }));
     out.push(...labelled(placed, kind, o.all, o.label));
   }
