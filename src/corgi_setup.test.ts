@@ -268,10 +268,11 @@ function walk(x0: number, y0: number, x1: number, y1: number): [number, number][
 test("setup aims only at the options a click acts on", () => {
   const s = status(),
     prefs = new Preferences();
-  // Visual flourishes' Intensity sits on rows 7 and 8, its preview below.
+  // Visual flourishes' sliders sit on rows 7 to 8 and 22 to 23, its preview
+  // between them; nothing below them takes a click.
   for (const [y, kept] of [
     [8, true],
-    [15, false],
+    [26, false],
   ] as const) {
     const menu = Menu.open();
     menu.hover(100, 30, 15, 4, s, prefs, 0);
@@ -1141,14 +1142,14 @@ test("visual flourishes preview working and idle corgis with a keyboard slider",
   expect(text(corgiAnimation.puff_duration_ms)).not.toContain("ᶻ");
   expect(text()).not.toContain("Sleeping corgi");
   expect(text()).not.toContain("Reset");
-  expect(menu.intensityKey("left", prefs)).toBeNull();
+  expect(menu.sliderKey("left", prefs)).toBeNull();
   menu.openOptions(s, prefs);
-  expect(menu.intensityKey("left", prefs)).toEqual({ kind: "corgi_intensity", value: 45 });
-  expect(menu.intensityKey("right", prefs)).toEqual({ kind: "corgi_intensity", value: 55 });
-  expect(menu.intensityKey("home", prefs)).toEqual({ kind: "corgi_intensity", value: 0 });
-  expect(menu.intensityKey("end", prefs)).toEqual({ kind: "corgi_intensity", value: 100 });
+  expect(menu.sliderKey("left", prefs)).toEqual({ kind: "corgi_intensity", value: 45 });
+  expect(menu.sliderKey("right", prefs)).toEqual({ kind: "corgi_intensity", value: 55 });
+  expect(menu.sliderKey("home", prefs)).toEqual({ kind: "corgi_intensity", value: 0 });
+  expect(menu.sliderKey("end", prefs)).toEqual({ kind: "corgi_intensity", value: 100 });
   prefs.corgi_intensity = 0;
-  expect(menu.intensityKey("left", prefs)).toEqual({ kind: "corgi_intensity", value: 0 });
+  expect(menu.sliderKey("left", prefs)).toEqual({ kind: "corgi_intensity", value: 0 });
   expect(text()).not.toContain("~ᐯ");
   expect(text()).toContain("ᶻ");
   expect(text()).toContain("Release notes");
@@ -1170,22 +1171,99 @@ test("the intensity slider previews a drag, clamps outside its track, and cancel
     const left = rendered[y].indexOf("━"),
       right = rendered[y].lastIndexOf("─");
     expect(y).toBeGreaterThanOrEqual(0);
-    expect(menu.hit(cols, rows, left, y, s, prefs)).toEqual({ intensity: 0 });
-    expect(menu.hit(cols, rows, right, y, s, prefs)).toEqual({ intensity: 100 });
-    expect(menu.click({ intensity: 25 }, s, prefs)).toBeNull();
+    expect(menu.hit(cols, rows, left, y, s, prefs)).toEqual({ slider: "corgi_intensity", value: 0 });
+    expect(menu.hit(cols, rows, right, y, s, prefs)).toEqual({ slider: "corgi_intensity", value: 100 });
+    expect(menu.click({ slider: "corgi_intensity", value: 25 }, s, prefs)).toBeNull();
     expect(menu.previewIntensity(prefs)).toBe(25);
     expect(prefs.corgi_intensity).toBe(50);
-    menu.dragIntensity(cols, rows, -20);
+    menu.dragSlider(cols, rows, -20);
     expect(menu.previewIntensity(prefs)).toBe(0);
     expect(draw(menu, cols, rows, 0, s, prefs).join("\n")).not.toContain("~ᐯ");
-    menu.dragIntensity(cols, rows, cols + 20);
-    expect(menu.finishIntensity()).toEqual({ kind: "corgi_intensity", value: 100 });
-    expect(menu.draggingIntensity()).toBe(false);
-    menu.click({ intensity: 0 }, s, prefs);
+    menu.dragSlider(cols, rows, cols + 20);
+    expect(menu.finishSlider()).toEqual({ kind: "corgi_intensity", value: 100 });
+    expect(menu.draggingSlider()).toBe(false);
+    menu.click({ slider: "corgi_intensity", value: 0 }, s, prefs);
     menu.back();
     expect(menu.previewIntensity(prefs)).toBe(50);
-    expect(menu.finishIntensity()).toBeNull();
+    expect(menu.finishSlider()).toBeNull();
   }
+});
+
+test("visual flourishes sets the workspace tint on a second slider, keyed and dragged on its own", () => {
+  const menu = Menu.open(),
+    prefs = new Preferences(),
+    s = status();
+  prefs.corgi_intensity = 40;
+  prefs.workspace_tint = 0;
+  menu.item = "flourishes";
+  menu.openOptions(s, prefs);
+  const rendered = draw(menu, 100, 30, 0, s, prefs),
+    text = rendered.join("\n");
+  expect(text).toContain("Workspace section background.");
+  expect(text).toMatch(/Workspace tint +Off/);
+  expect(text).toContain("100 Bright");
+  expect(text).toContain("100 Strong");
+  // The tint's slider sits below the corgi's preview.
+  expect(text).toContain("Release notes");
+  expect(text.indexOf("Workspace tint")).toBeGreaterThan(text.indexOf("Release notes"));
+  // Each bar hits its own slider, from 0 at its left end to 100 at its right.
+  const ends = (id: string) => {
+    const found = hits(menu, 100, 30, s, prefs).filter(hit => "slider" in hit && hit.slider === id);
+    return found.map(hit => ("slider" in hit ? hit.value : -1));
+  };
+  for (const id of ["corgi_intensity", "workspace_tint"]) {
+    expect(ends(id)).toContain(0);
+    expect(ends(id)).toContain(100);
+  }
+  // Only the slider under the cursor shows a bright thumb.
+  const thumbs = () => {
+    const w = new Writer();
+    menu.drawAt(w, s, prefs, 100, 30, 0);
+    return w.s.split(new Style({ fg: "strong", bg: "surface", bold: true }).sgr() + "●").length - 1;
+  };
+  expect(thumbs()).toBe(1);
+  // Keys act on the slider under the cursor.
+  expect(menu.sliderKey("right", prefs)).toEqual({ kind: "corgi_intensity", value: 45 });
+  menu.move(true, s, prefs);
+  expect(menu.cursor).toBe(1);
+  expect(thumbs()).toBe(1);
+  expect(menu.sliderKey("left", prefs)).toEqual({ kind: "workspace_tint", value: 0 });
+  expect(menu.sliderKey("right", prefs)).toEqual({ kind: "workspace_tint", value: 5 });
+  expect(menu.sliderKey("end", prefs)).toEqual({ kind: "workspace_tint", value: 100 });
+  prefs.workspace_tint = 100;
+  expect(menu.sliderKey("right", prefs)).toEqual({ kind: "workspace_tint", value: 100 });
+  expect(menu.sliderKey("left", prefs)).toEqual({ kind: "workspace_tint", value: 95 });
+  expect(menu.sliderKey("home", prefs)).toEqual({ kind: "workspace_tint", value: 0 });
+  expect(menu.sliderKey("enter" as never, prefs)).toBeNull();
+  expect(prefs.corgi_intensity).toBe(40);
+  menu.move(false, s, prefs);
+  expect(menu.sliderKey("home", prefs)).toEqual({ kind: "corgi_intensity", value: 0 });
+  // A click on the tint's bar takes the cursor there and drags it alone.
+  prefs.workspace_tint = 0;
+  expect(menu.click({ slider: "workspace_tint", value: 30 }, s, prefs)).toBeNull();
+  expect(menu.cursor).toBe(1);
+  expect(menu.draggingSlider()).toBe(true);
+  expect(menu.previewSlider("workspace_tint", prefs)).toBe(30);
+  expect(menu.previewIntensity(prefs)).toBe(40);
+  menu.dragSlider(100, 30, 200);
+  expect(menu.previewSlider("workspace_tint", prefs)).toBe(100);
+  expect(prefs.workspace_tint).toBe(0);
+  expect(menu.finishSlider()).toEqual({ kind: "workspace_tint", value: 100 });
+  expect(menu.draggingSlider()).toBe(false);
+  expect(menu.previewSlider("workspace_tint", prefs)).toBe(0);
+  // The list's value for Visual flourishes stays the corgi's brightness.
+  prefs.workspace_tint = 80;
+  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toMatch(/Visual flourishes +40%/);
+  // A click on the corgi's bar puts the cursor back on it.
+  menu.click({ slider: "corgi_intensity", value: 20 }, s, prefs);
+  expect(menu.cursor).toBe(0);
+  expect(menu.finishSlider()).toEqual({ kind: "corgi_intensity", value: 20 });
+  // A short frame gives up the preview before either slider.
+  const short = draw(menu, 80, 14, 0, s, prefs).join("\n");
+  expect(short).toContain("Intensity");
+  expect(short).toMatch(/Workspace tint +80%/);
+  expect(short).toContain("100 Strong");
+  expect(short).not.toContain("Preview");
 });
 
 test("the theme under the cursor previews until Enter keeps it", () => {

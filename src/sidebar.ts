@@ -698,6 +698,19 @@ export class View {
     if (this.framed()) return this.lists().splitHandle(x - lists_x, y);
     return this.width > 0 && x < this.width - 1 && y === this.middle() - 1;
   }
+  /** Whether row `y` is in the workspace section, above the rule or the
+   * workspaces drawer's whole list. */
+  workspaceSection(y: number): boolean {
+    if (this.drawer === "agents") return false;
+    return this.drawer === "workspaces" || y <= this.middle() - 2;
+  }
+  /** The workspace section's background, and the plain rows' style on it;
+   * the panel's own while the tint is off. */
+  sectionStyle(): { panel: string; bg: palette.Rgb } {
+    const tinted = palette.sectionTint(this.workspace_tint);
+    if (tinted === null) return { panel, bg: colors.bg };
+    return { panel: new Style({ fg: "muted" }).sgr() + bgRgb(tinted), bg: tinted };
+  }
   /** Name and status rows, plus the resource row unless readings are off. */
   workspaceRows(): number {
     return this.resources.enabled ? 3 : 2;
@@ -1220,10 +1233,13 @@ export class View {
       w.withColumns(lists_x, () => v.lists().drawBadges(w));
       return;
     }
+    const section = v.sectionStyle();
     for (let row = 0; row < v.rows; row++) {
-      w.write(`${w.cup(row + 1, 1)}${panel}`);
+      // The border keeps the panel's background beside the tint.
+      const tinted = section.panel !== panel && v.workspaceSection(row);
+      w.write(`${w.cup(row + 1, 1)}${tinted ? section.panel : panel}`);
       w.splat(" ", v.width - 1);
-      w.write((v.outlines(row) ? outline : fg("line")) + "│");
+      w.write((v.outlines(row) ? outline : (tinted ? panel : "") + fg("line")) + "│");
     }
     v.drawScope(w);
     if (v.search) {
@@ -1277,15 +1293,18 @@ export class View {
     const box = this.box();
     if (box === null) return;
     const v = this,
-      rule = v.drawer === null ? v.middle() - 1 : -1;
+      rule = v.drawer === null ? v.middle() - 1 : -1,
+      section = v.sectionStyle();
     w.write(outline);
     for (let y = box.top; y <= box.bottom; y++)
       w.write(w.cup(y + 1, 1) + (y === box.top ? "┌" : y === box.bottom ? "└" : "│"));
     for (const y of [box.top, box.bottom]) {
       // The rule already runs to the border from the lists' first column.
       const end = y === rule ? 1 + lists_x : v.width - 1;
-      w.write(w.cup(y + 1, 2) + "─".repeat(sat(end, 1)));
-      if (y !== rule) w.write(y === v.rows - 1 ? "┘" : y > 0 ? "┤" : "┐");
+      // An edge across the workspace section sits on its tint; the margin and border keep theirs.
+      const tinted = section.panel !== panel && v.workspaceSection(y);
+      w.write(w.cup(y + 1, 2) + (tinted ? bgRgb(section.bg) + fgRgb(palette.outline) : "") + "─".repeat(sat(end, 1)));
+      if (y !== rule) w.write((tinted ? outline : "") + (y === v.rows - 1 ? "┘" : y > 0 ? "┤" : "┐"));
     }
     w.write("\x1b[0m");
   }
@@ -1298,26 +1317,37 @@ export class View {
    * with `[ + ]` lit as the call to action while `create` is. */
   drawTitleRow(w: Writer, create: boolean): void {
     if (!this.framed() || this.drawer === "agents") return;
+    const lists = this.lists(),
+      section = lists.sectionStyle();
     w.write(`${w.cup(1, 1)}${panel}`);
     w.splat(" ", this.width - 1);
     w.write(fg("line") + "│");
-    w.withColumns(lists_x, () => this.lists().drawTitle(w, create));
+    w.withColumns(lists_x, () => {
+      // The tint stops short of the border, as in the full draw.
+      if (section.panel !== panel) {
+        w.write(w.cup(1, 1) + section.panel);
+        w.splat(" ", lists.width - 1);
+      }
+      lists.drawTitle(w, create);
+    });
     w.write("\x1b[0m");
   }
   /** The corgi, the title, and its buttons. */
   private drawTitle(w: Writer, create = false): void {
-    const v = this;
-    w.write(`${w.cup(1, v.width - 4)}${panel} < `);
+    const v = this,
+      plain = v.sectionStyle().panel;
+    w.write(`${w.cup(1, v.width - 4)}${plain} < `);
     if (v.corgi_badge !== "none") {
-      if (v.corgi_badge === "emoji") w.write(`${w.cup(1, 2)}${panel}${corgiBadge.emoji}`);
+      if (v.corgi_badge === "emoji") w.write(`${w.cup(1, 2)}${plain}${corgiBadge.emoji}`);
       w.write(`${w.cup(1, 6)}\x1b[1m` + fg("strong"));
       writeEllipsis(w, i18n.t`workspaces`, sat(v.width, 17));
     } else v.line(w, 0, i18n.t`workspaces`, "\x1b[1m" + fg("strong"));
-    w.write(w.cup(1, v.width - 10) + (create ? palette.call_to_action : button) + `[ + ]${panel}`);
+    w.write(w.cup(1, v.width - 10) + (create ? palette.call_to_action : button) + `[ + ]${plain}`);
   }
   /** The title row and the workspace list above the agents. */
   private drawWorkspaces(w: Writer, workspaces: WorkspaceEntry[]): void {
-    const v = this;
+    const v = this,
+      plain = v.sectionStyle().panel;
     v.drawTitle(w);
     const shown = workspaces.slice(
       v.workspace_offset,
@@ -1327,8 +1357,8 @@ export class View {
       const y = 2 + index * v.workspaceRows();
       const ghost = v.dragged_workspace === v.workspace_offset + index;
       const tinted = ws.active || ghost;
-      const style = tinted ? active_name : panel;
-      const meta = tinted ? active_meta : panel;
+      const style = tinted ? active_name : plain;
+      const meta = tinted ? active_meta : plain;
       // The dragged workspace takes the selected tint and a strong bar, like a dragged agent row.
       const bar = ghost ? ghost_bar : active_bar;
       w.write(`${w.cup(y + 1, 1)}${style}`);
@@ -1395,7 +1425,7 @@ export class View {
         w.write(`${w.cup(y + 2, v.width - 1 - displayWidth(worktree_label))}${meta}${rule}${worktree_label}`);
       else if (ws.stats.tools > 0) w.write(`${w.cup(y + 2, v.width - 1 - metadata_width)}${meta}${rule}${metadata}`);
       if (tinted) for (const row of [y + 1, y + 2]) w.write(`${w.cup(row, 1)}${bar}`);
-      w.write(panel);
+      w.write(plain);
       if (v.workspaceRows() === 3 && y + 2 < v.workspaceEnd()) {
         if (tinted) {
           w.write(`${w.cup(y + 3, 1)}${meta}`);
@@ -1405,8 +1435,8 @@ export class View {
         if (divider) w.write(rule_underline);
         drawResources(w, ws.resources, v, v.resource_hover === ws.id, tinted);
         w.write("\x1b[24;59m");
-        w.write(panel);
-        if (tinted) w.write(`${w.cup(y + 3, 1)}${bar}${panel}`);
+        w.write(plain);
+        if (tinted) w.write(`${w.cup(y + 3, 1)}${bar}${plain}`);
       }
     });
     const ws_thumb = v.workspaceThumb();
