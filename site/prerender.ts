@@ -1,5 +1,5 @@
 /** The first hero frame, drawn by the same page bundle that takes it over. */
-import { mkdirSync } from "node:fs";
+import { mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import * as tooling from "../scripts/tooling";
 import * as i18n from "./i18n";
@@ -10,6 +10,17 @@ import * as heroConfig from "./hero_config";
 
 const root = import.meta.dir;
 export const directory = join(root, ".generated");
+
+/** Dev watchers should only see complete, changed files. */
+async function write(path: string, contents: string): Promise<void> {
+  const previous = await Bun.file(path)
+    .text()
+    .catch(() => null);
+  if (contents === previous) return;
+  const temporary = `${path}.${process.pid}.tmp`;
+  await Bun.write(temporary, contents);
+  renameSync(temporary, path);
+}
 
 export async function render(html: string, bundle: string): Promise<string> {
   const dom = await tooling.dependency("happy-dom");
@@ -122,12 +133,17 @@ export async function prepare(language: locale.Locale = "en"): Promise<string> {
   const path = join(directory, language, "index.html");
   // Local asset paths are relative to site/, two directories above this file.
   const prepared = html.replace(/\b(src|href)="\.\//g, '$1="../../').replace('src="../../main.js"', 'src="./main.js"');
-  await Bun.write(join(directory, language, "main.js"), await result.outputs[0].text());
-  const previous = await Bun.file(path)
-    .text()
-    .catch(() => null);
-  if (prepared !== previous) await Bun.write(path, prepared);
+  await write(join(directory, language, "main.js"), await result.outputs[0].text());
+  await write(path, prepared);
   const moon = await page(await Bun.file(join(root, "moonlander.html")).text(), language, "/moonlander");
-  await Bun.write(join(directory, language, "moonlander.html"), moon.replace(/\b(src|href)="\.\//g, '$1="../../'));
+  await write(join(directory, language, "moonlander.html"), moon.replace(/\b(src|href)="\.\//g, '$1="../../'));
   return path;
 }
+
+/** Reload both generated catalogs and their imports on each dev rebuild. */
+export async function refresh(): Promise<void> {
+  const child = Bun.spawn([process.execPath, import.meta.path], { stdout: "inherit", stderr: "inherit" });
+  if ((await child.exited) !== 0) throw Error("Site prerender failed");
+}
+
+if (import.meta.main) for (const language of locale.locales) await prepare(language);

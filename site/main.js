@@ -952,9 +952,12 @@ function resTotals(host, ws, t) {
 // CPU's, the size memory's, and a second percentage GPU's.
 function putTotals(g, row, [cpu, memory, gpu]) {
   const text = g[row].map(([ch]) => ch).join(""), rates = [...text.matchAll(/\d+%/g)], size = text.match(/\d[\d.]*[GM]\b/);
-  if (rates[0]) put(g, row, rates[0].index, cpu.padEnd(rates[0][0].length));
-  if (size) put(g, row, size.index, memory.padEnd(size[0].length));
-  if (rates[1]) put(g, row, rates[1].index, gpu.padEnd(rates[1][0].length));
+  const field = (match, value) => {
+    if (match) put(g, row, textWidth.displayWidth(text.slice(0, match.index)), value.padEnd(match[0].length));
+  };
+  field(rates[0], cpu);
+  field(size, memory);
+  field(rates[1], gpu);
 }
 // The card in `rect` at time t, its rows in `state`'s order, which holds
 // while `held`, as corgi holds it under the pointer. A pointer on its

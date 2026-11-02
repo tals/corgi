@@ -18,8 +18,8 @@ const built = (page: string) => () => new Response(Bun.file(join(import.meta.dir
 
 if (dev) {
   const routes: Record<string, Bun.HTMLBundle> = {};
+  await prerender.refresh();
   for (const language of locale.locales) {
-    await prerender.prepare(language);
     const { default: page } = await import(`./.generated/${language}/index.html`);
     const { default: moonlander } = await import(`./.generated/${language}/moonlander.html`);
     routes[`/${language}/`] = page;
@@ -52,7 +52,7 @@ if (dev) {
       try {
         while (pending) {
           pending = false;
-          for (const language of locale.locales) await prerender.prepare(language);
+          await prerender.refresh();
         }
       } catch (error) {
         console.error("Hero prerender failed:", error);

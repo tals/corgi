@@ -45,6 +45,8 @@ import { microTimestamp, milliTimestamp } from "../src/clock";
 import { blankCell, grid, unknown, type Cell } from "../site/terminal";
 
 const root = join(import.meta.dir, "..");
+// Labels and timestamps must agree regardless of the contributor's timezone.
+process.env.TZ = "UTC";
 if (process.argv.includes("--all-languages")) {
   for (const language of locale.locales) {
     const run = spawnSync(
@@ -70,7 +72,7 @@ const checkOnly = process.argv.includes("--check");
 // --show and --tally only look, as --check does.
 const writes = !["--check", "--show", "--tally"].some(flag => process.argv.includes(flag));
 // One moment for every frame, so a rerun changes only what Corgi draws differently.
-const PINNED = new Date(2026, 9, 5, 10, 21, 0).getTime();
+const PINNED = Date.UTC(2026, 9, 5, 10, 21, 0);
 Date.now = () => PINNED;
 
 // ---------------------------------------------------------------- the page
@@ -524,6 +526,7 @@ function watchFrames() {
                   .withWidth(width)
                   .withWorkspaces(s.workspaces.length, 0)
                   .withEntries(s.entries);
+                side.scope_label = "corgi";
                 const span = (tags: string[], row: number) => {
                   const columns = Array.from({ length: width }, (_, x) => x).filter(x =>
                     tags.includes(side.hit(x, row).tag),
