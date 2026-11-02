@@ -67,6 +67,10 @@ async function reachable(path: string): Promise<boolean> {
 }
 export async function ensureServer(path: string, exe = executable): Promise<void> {
   if (await reachable(path)) return;
+  // A pane's daemon is running by definition. Starting one from inside it
+  // would unlink the live socket and orphan every pane, and the new daemon
+  // would inherit the environment of whatever ran here (an agent's tool).
+  if (process.env.CORGI_PANE !== undefined) throw Error("ServerUnreachableFromPane");
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const guard = openSync(path + ".start.lock", "a", 0o600);
   try {
@@ -499,6 +503,8 @@ export function failure(args: string[], error: unknown): string {
     }
     case "UnknownCommand":
       return `corgi: unknown command ${args[0]}; see corgi --help\n`;
+    case "ServerUnreachableFromPane":
+      return "corgi: can't reach the Corgi server this pane belongs to; not starting another one from inside a pane.\n";
     case "IncompatibleViewerProtocol":
     case "UnsupportedViewerProtocol":
       return `corgi: this viewer is incompatible with the server (requires viewer protocol ${protocol.viewer_version}). The server may have changed during a restart. Reattach using the same Corgi version as the server.\n`;

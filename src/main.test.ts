@@ -8,7 +8,7 @@ import * as integration from "./integration";
 import * as accountCommand from "./account_command";
 import * as protocol from "./protocol";
 import * as errors from "./errors";
-import { existsSync, mkdtempSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname, relative } from "node:path";
@@ -54,6 +54,21 @@ test("a daemon that rejects hello still counts as running", async () => {
     expect(existsSync(path)).toBe(true);
   } finally {
     server.close();
+  }
+});
+test("a command inside a pane never replaces an unreachable daemon", async () => {
+  const path = join(mkdtempSync(join(tmpdir(), "corgi-main-")), "s"),
+    previous = process.env.CORGI_PANE;
+  // Stands in for the live socket that a new daemon would have unlinked.
+  writeFileSync(path, "");
+  process.env.CORGI_PANE = "7";
+  try {
+    await expect(ensureServer(path, "/nonexistent/corgi")).rejects.toThrow("ServerUnreachableFromPane");
+    expect(existsSync(path)).toBe(true);
+    expect(failure(["headless"], Error("ServerUnreachableFromPane"))).toContain("from inside a pane");
+  } finally {
+    if (previous === undefined) delete process.env.CORGI_PANE;
+    else process.env.CORGI_PANE = previous;
   }
 });
 test("help names every action on lines of at most 80 columns", () => {
