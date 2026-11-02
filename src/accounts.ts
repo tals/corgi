@@ -23,7 +23,7 @@ import {
 import { rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { Provider, adapter } from "./providers";
+import { Provider, adapter, byProvider } from "./providers";
 import type { Login } from "./providers/adapter";
 import { atomicWrite } from "./os";
 import * as agentName from "./agent_name";
@@ -116,8 +116,8 @@ let saved: { stamp: string; value: Saved } | null = null;
 function load(): Saved {
   let stamp = "";
   try {
-    const s = statSync(path());
-    stamp = `${s.ino}:${s.size}:${s.mtimeMs}`;
+    const s = statSync(path(), { throwIfNoEntry: false });
+    if (s) stamp = `${s.ino}:${s.size}:${s.mtimeMs}`;
   } catch {}
   if (saved?.stamp === stamp) return saved.value;
   const value: Saved = { accounts: [], forgotten: [], removed: [], defaults: {}, launch: [] };
@@ -198,7 +198,8 @@ export function known(): Known[] {
   const accounts: Known[] = [];
   for (const provider of Provider.all) {
     if (!adapter(provider).accounts.signin) continue;
-    const taken = new Set<string>(defaultName(provider) ? [defaultName(provider)] : []),
+    const name = value.defaults[provider],
+      taken = new Set<string>(name ? [name] : []),
       add = (dir: string, name: string, managed: boolean) => {
         const account = normalize(provider, dir);
         if (!account || accounts.some(a => a.provider === provider && a.dir === account)) return;
@@ -284,6 +285,10 @@ export function unused(provider: Provider, name: string, except: string | null =
  * agent's name. */
 export function defaultName(provider: Provider): string {
   return load().defaults[provider] ?? "";
+}
+export function defaultNames(): Record<Provider, string> {
+  const value = load();
+  return byProvider(provider => value.defaults[provider] ?? "");
 }
 /** Calls `provider`'s default account `name`, or nothing for "". The name
  * stays with the default, whoever signs in to it. */

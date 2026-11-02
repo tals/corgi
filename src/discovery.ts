@@ -13,10 +13,10 @@ function executable(path: string): boolean {
     process.env.CORGI_APP_EXE,
   );
   try {
+    if (!statSync(path, { throwIfNoEntry: false })?.isFile()) return false;
+    accessSync(path, constants.X_OK);
     const real = realpathSync(path);
-    if (real === realpathSync(self)) return false;
-    accessSync(real, constants.X_OK);
-    return statSync(real).isFile();
+    return real !== realpathSync(self);
   } catch {
     return false;
   }

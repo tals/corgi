@@ -436,8 +436,10 @@ export class Server {
     telemetry.end("daemon.trackers.schedule", trackers_started);
     if (tracked) this.runtime.refreshed();
     this.flushBell(now);
+    const launcher_started = telemetry.begin();
     launch.sample(this);
     for (const c of this.clients) launch.publish(this, c);
+    telemetry.end("daemon.launcher", launcher_started);
     if (this.savedDurable !== this.runtime.durable) {
       if (!this.durableAt) this.durableAt = now;
       if (now - this.durableAt >= 2000 || now - this.lastRecovery >= 10000) {

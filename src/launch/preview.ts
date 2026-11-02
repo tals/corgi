@@ -262,7 +262,7 @@ export class Worker {
       };
     }
     const { installed: available, outdated } = this.installs,
-      names = byProvider(p => accounts.defaultName(p)),
+      names = accounts.defaultNames(),
       listed = accounts.known().filter(a => available[a.provider]);
     if (
       Provider.all.every(
