@@ -1,9 +1,13 @@
 /** Site-only messages extend, rather than copy, Corgi's translations. */
 import * as corgi from "../src/i18n";
+import * as locale from "../src/locale";
 import * as generated from "./i18n.generated";
 
 export { language, setLanguage, locales, names } from "../src/i18n";
 export type { Locale } from "../src/i18n";
+
+// A page speaks the language its <html lang> names.
+if (typeof document !== "undefined") corgi.setLanguage(locale.parse(document.documentElement.lang) ?? "en");
 
 export function t(strings: TemplateStringsArray, ...values: generated.Value[]): string {
   const language = corgi.language();

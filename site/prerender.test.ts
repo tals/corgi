@@ -3,9 +3,9 @@ import { join } from "node:path";
 import * as tooling from "../scripts/tooling";
 import * as heroConfig from "./hero_config";
 import * as prerender from "./prerender";
-import * as siteBundle from "./bundle";
+import * as bundle from "./bundle";
 
-let html: string, bundle: string;
+let html: string, script: string;
 beforeAll(async () => {
   const result = await Bun.build({
     entrypoints: [join(import.meta.dir, "main.js")],
@@ -14,8 +14,8 @@ beforeAll(async () => {
     minify: true,
   });
   if (!result.success) throw new AggregateError(result.logs);
-  bundle = await result.outputs[0].text();
-  html = await prerender.render(await Bun.file(join(import.meta.dir, "index.html")).text(), bundle);
+  script = await result.outputs[0].text();
+  html = await prerender.render(await Bun.file(join(import.meta.dir, "index.html")).text(), script);
 }, 30000);
 
 for (const [name, width] of [
@@ -68,7 +68,7 @@ for (const [name, width] of [
       expect(links).toBe(0);
       expect(initial.querySelector<HTMLImageElement>(".badge")?.hidden).toBe(true);
 
-      window.eval(bundle);
+      window.eval(script);
       expect(screen.querySelector(".hero-initial")).toBeNull();
       const live = [...screen.querySelectorAll(":scope > .r")];
       expect(live.length).toBe(rows.length);
@@ -109,12 +109,12 @@ for (const [name, width] of [
 }
 
 for (const language of ["en", "zh", "ja", "ko", "ru"] as const) {
-  test(`${language} resource updates preserve labels and clear the entire scope control`, async () => {
+  test(`${language} keeps the sidebar's header and resource labels, without the scope control`, async () => {
     const result = await Bun.build({
       entrypoints: [join(import.meta.dir, "main.js")],
       target: "browser",
       format: "iife",
-      plugins: [siteBundle.frames(language)],
+      plugins: [bundle.frames(language)],
     });
     if (!result.success) throw new AggregateError(result.logs);
     const dom = await tooling.dependency("happy-dom");
@@ -126,7 +126,7 @@ for (const language of ["en", "zh", "ja", "ko", "ru"] as const) {
     });
     try {
       window.structuredClone = structuredClone;
-      const source = await Bun.file(join(import.meta.dir, "index.html")).text();
+      const source = await prerender.page(await Bun.file(join(import.meta.dir, "index.html")).text(), language);
       window.document.write(source.replace(/<script\b[\s\S]*?<\/script>/gi, "").replace(/<link\b[^>]*>/gi, ""));
       Object.defineProperty(window.HTMLElement.prototype, "clientWidth", { get: () => 1200 });
       let clock = 0;
@@ -161,16 +161,24 @@ for (const language of ["en", "zh", "ja", "ko", "ru"] as const) {
         clock = at;
         ticks.forEach(tick => tick());
         const rows = [...window.document.querySelectorAll("#v-sim > .r")];
+        const cells = (row: number) => [...rows[row].querySelectorAll(":scope > span")].slice(0, 34);
         const sidebar = (row: number) =>
-          [...rows[row].querySelectorAll(":scope > span")]
-            .slice(0, 34)
+          cells(row)
             .map(cell => cell.textContent)
             .join("");
         for (const row of [4, 7]) {
           const recorded = recordings.frames.w34_C00[row].map(([text]: [string, number]) => text).join("");
           expect(normalize(sidebar(row))).toBe(normalize(recorded));
         }
-        expect(sidebar(11)).not.toContain("gi ▾");
+        // The header keeps its place and Corgi's bold.
+        const header = recordings.frames.w34_C00[0]
+          .map(([text]: [string, number]) => text)
+          .join("")
+          .search(/\S/);
+        expect(sidebar(0).search(/\S/)).toBe(header);
+        expect(cells(0)[header].classList.contains("b")).toBe(true);
+        // With no scopes to switch, the agents header keeps only its name and New.
+        expect(sidebar(11)).not.toMatch(/:|corgi/);
       }
     } finally {
       await window.happyDOM.close();

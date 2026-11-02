@@ -17,7 +17,7 @@
  */
 import * as i18n from "../site/i18n";
 import * as locale from "../src/locale";
-import * as cellGrid from "../site/cells";
+import * as cells from "../site/cells";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, existsSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -27,6 +27,7 @@ import { adapter } from "../src/providers";
 import { Model, Rect, Selection, View as LayoutView } from "../src/layout";
 import * as sidebar from "../src/sidebar";
 import * as palette from "../src/palette";
+import * as corgiBadge from "../src/corgi_badge";
 import * as subagentTooltip from "../src/subagent_tooltip";
 import * as worktreeAgents from "../src/worktree_agents";
 import type * as worktrees from "../src/worktrees";
@@ -88,7 +89,11 @@ const data = JSON.parse(readFileSync(existsSync(FRAMES) ? FRAMES : join(root, "s
   frames: Record<string, any>;
 };
 const previousMetadata = JSON.stringify([data.layout, data.widths, data.review, data.worktrees]);
-data.layout = { badge: 1, controls: {} };
+// The badge's column, as Corgi places it over a sidebar's header.
+data.layout = {
+  badge: Array.from({ length: 34 }, (_, x) => x).findIndex(x => corgiBadge.hit("image", 34, x, 0)),
+  controls: {},
+};
 const styleIndex = new Map(data.styles.map((s, i) => [JSON.stringify(s), i]));
 function sid(style: unknown[]): number {
   const key = JSON.stringify(style);
@@ -114,9 +119,9 @@ function encode(rows: Cell[][]): Runs {
   });
 }
 const made = new Map<string, Runs | Runs[]>();
-function keep(name: string, cells: Cell[][] | Cell[][][], ansi?: string) {
-  const list = Array.isArray(cells[0]?.[0]?.[0]);
-  made.set(name, list ? (cells as Cell[][][]).map(encode) : encode(cells as Cell[][]));
+function keep(name: string, screens: Cell[][] | Cell[][][], ansi?: string) {
+  const list = Array.isArray(screens[0]?.[0]?.[0]);
+  made.set(name, list ? (screens as Cell[][][]).map(encode) : encode(screens as Cell[][]));
   if (dumpDir && ansi !== undefined) writeFileSync(join(dumpDir, `${name}.ansi`), ansi);
 }
 
@@ -480,6 +485,29 @@ function uiFor(s: ReturnType<typeof scene>, width: number, fields: Partial<Ui> =
   u.prefs.sidebar_width = width;
   return u;
 }
+/** Where the page finds a recorded sidebar's controls, from the hit map of
+ * the sidebar `frame` draws for `u`. The page has no scopes to switch
+ * between, so the scope starts at the ": " that leads to it. */
+function controls(u: Ui, cols: number, rows: number) {
+  const width = u.prefs.sidebar_width;
+  const side = sidebar.View.init(cols, rows, u.sidebar_open, u.sidebar_offset, u.agents.length, u.prefs.sidebar_split)
+    .withWidth(width)
+    .withWorkspaces(u.workspaces.length, u.workspace_offset)
+    .withEntries(u.agents);
+  side.scope_label = u.scope_label;
+  const row = side.middle();
+  const span = (tags: string[]) => {
+    const columns = Array.from({ length: width }, (_, x) => x).filter(x => tags.includes(side.hit(x, row).tag));
+    return columns.length ? [columns[0], columns.at(-1)! + 1] : null;
+  };
+  const scope = span(["agent_scope"]);
+  return {
+    row,
+    unread: side.unreadRange(u.workspaces[0]),
+    newAgent: span(["agent_new", "agent_options"]),
+    scope: scope && [scope[0] - (width >= 22 ? 2 : 1), scope[1]],
+  };
+}
 /** The row an agent's card opens from, as the sidebar hit-tests it. */
 function entryRow(s: ReturnType<typeof scene>, win: number, rows: number, width: number, i: number): number {
   const side = sidebar.View.init(win, rows, true, 0, s.entries.length)
@@ -520,25 +548,10 @@ function watchFrames() {
                 cardWidth = phone ? PHONE.width : 34;
               const s = scene(w);
               for (const width of phone ? [PHONE.width] : WIDTHS) {
-                const plain = frame(view, [], win, ROWS, uiFor(s, width));
+                const u = uiFor(s, width);
+                const plain = frame(view, [], win, ROWS, u);
                 const g = grid(plain, win, ROWS);
-                const side = sidebar.View.init(win, ROWS, true, 0, s.entries.length)
-                  .withWidth(width)
-                  .withWorkspaces(s.workspaces.length, 0)
-                  .withEntries(s.entries);
-                side.scope_label = "corgi";
-                const span = (tags: string[], row: number) => {
-                  const columns = Array.from({ length: width }, (_, x) => x).filter(x =>
-                    tags.includes(side.hit(x, row).tag),
-                  );
-                  return columns.length ? [columns[0], columns.at(-1)! + 1] : null;
-                };
-                data.layout.controls[`${pre}w${width}_${tag}${unread}${Number(ahead)}`] = {
-                  unread: side.unreadRange(s.workspaces[0]),
-                  newAgent: span(["agent_new", "agent_options"], AGENT_TOP - 2),
-                  scope: span(["agent_scope"], AGENT_TOP - 2),
-                  workspaceButtons: span(["workspace_new", "toggle"], 0),
-                };
+                data.layout.controls[`${pre}w${width}_${tag}${unread}${Number(ahead)}`] = controls(u, win, ROWS);
                 // The top (workspaces) and the agent list, each cropped to the sidebar.
                 if (!focused && !read)
                   keep(
@@ -738,6 +751,31 @@ function launcher(selected: Row): LauncherMenu {
   });
   return menu;
 }
+/** The picker's footer without the hints for `keys`. Corgi right-aligns its
+ * hints, each a keycap and its label, two cells apart, so the ones before a
+ * dropped hint move up into its room. */
+function dropHints(screen: Cell[][], box: Rect, keys: string[]) {
+  const row = screen[box.y + box.h - 2],
+    end = box.x + box.w - 2,
+    ground = row[box.x + 1];
+  const keycap = (x: number) => row[x][2] !== ground[2];
+  const starts = Array.from({ length: end - box.x - 1 }, (_, k) => box.x + 1 + k).filter(
+    x => keycap(x) && !keycap(x - 1),
+  );
+  const hints = starts.map((x, i) => {
+    let key = "";
+    for (let k = x; keycap(k); k++) key += row[k][0];
+    return { key: key.trim(), cells: row.slice(x, i + 1 < starts.length ? starts[i + 1] - 2 : end) };
+  });
+  const kept = hints.filter(hint => !keys.includes(hint.key));
+  if (kept.length === hints.length) return;
+  for (let x = starts[0]; x < end; x++) row[x] = [" ", ...ground.slice(1)] as Cell;
+  let x = end - kept.reduce((width, hint) => width + hint.cells.length, 0) - 2 * (kept.length - 1);
+  kept.forEach((hint, i) => {
+    if (i) x += 2;
+    for (const cell of hint.cells) row[x++] = cell;
+  });
+}
 function pickerFrames() {
   const ws = [
     sidebar.workspaceEntry({
@@ -768,7 +806,7 @@ function pickerFrames() {
     }),
     sidebar.entry({ target: { pane: 3 }, name: i18n.t`Docs pass`, provider: "claude", state: "idle" }),
   ];
-  const draw = (menu: LauncherMenu, name: string) => {
+  const draw = (menu: LauncherMenu, name: string, drop: string[]) => {
     const u = uiOf({
       message: "",
       copy_mode: false,
@@ -782,7 +820,7 @@ function pickerFrames() {
     u.prefs.sidebar_width = 30;
     u.prefs.resources.enabled = false;
     const out = frame(view, [], PICK.cols, PICK.rows, u);
-    const cells = grid(out, PICK.cols, PICK.rows);
+    const screen = grid(out, PICK.cols, PICK.rows);
     const side = sidebar.View.init(PICK.cols, PICK.rows, true, 0, entries.length)
       .withWidth(30)
       .withWorkspaces(1, 0)
@@ -791,10 +829,12 @@ function pickerFrames() {
       manage = LauncherMenu.manageSpan(box);
     if (manage)
       for (let x = manage.x; x < manage.x + manage.w; x++)
-        cells[box.y][x] = ["─", ...cells[box.y][box.x + 1].slice(1)] as Cell;
-    keep(name, cells, out);
+        screen[box.y][x] = ["─", ...screen[box.y][box.x + 1].slice(1)] as Cell;
+    dropHints(screen, box, drop);
+    keep(name, screen, out);
   };
-  (["codex", "claude", "pi", "terminal"] as Row[]).forEach((row, i) => draw(launcher(row), `launcher${i}`));
+  // The page has no YOLO toggle, nor scopes to search.
+  (["codex", "claude", "pi", "terminal"] as Row[]).forEach((row, i) => draw(launcher(row), `launcher${i}`, ["y"]));
   for (const [i, query] of [
     [0, ""],
     [1, "fl"],
@@ -804,7 +844,7 @@ function pickerFrames() {
     if (i === 3) menu.resume_view.focused = true;
     else menu.resume_view.startSearch();
     for (const ch of query) menu.resume_view.query.key(ch.charCodeAt(0));
-    draw(menu, `search${i}`);
+    draw(menu, `search${i}`, ["tab"]);
   }
   // The restoring card each conversation opens behind, centered on the
   // picker's pane, wide and on a phone, as its dig ends. The dig is the one row
@@ -858,7 +898,7 @@ function restoringCard(band: Restoring, w: number, h: number, t: number): Cell[]
 /** The card's one row that moves, every 80 ms of its dig. */
 function digRows(card: (t: number) => Cell[][]): Cell[][][] {
   const first = card(0),
-    row = card(3600).findIndex((cells, r) => cells.some(([ch], c) => ch !== first[r][c][0]));
+    row = card(3600).findIndex((line, r) => line.some(([ch], c) => ch !== first[r][c][0]));
   // Narrow cards can fit the translated title but not the digging scene.
   if (row < 0) return [[first[0]]];
   const frames: Cell[][][] = [];
@@ -1179,7 +1219,9 @@ function worktreeFrames() {
       new worktreeAgents.State(),
     );
     const draw = (name: string, spot: sidebar.Spotlight | null) => {
-      const out = frame(view, [], COLS, WT_ROWS, uiFor(s, 34, { worktree_spotlight: spot }));
+      const u = uiFor(s, 34, { worktree_spotlight: spot });
+      const out = frame(view, [], COLS, WT_ROWS, u);
+      data.layout.controls[name] = controls(u, COLS, WT_ROWS);
       keep(
         name,
         grid(out, COLS, WT_ROWS).map(r => r.slice(0, 34)),
@@ -1206,6 +1248,7 @@ function cleverFrame() {
   const u = uiFor(s, 34);
   u.prefs.sidebar_split = 9;
   const plain = frame(view, [], COLS, ROWS, u);
+  data.layout.controls.clever34 = controls(u, COLS, ROWS);
   keep(
     "clever34",
     grid(plain, COLS, ROWS).map(r => r.slice(0, 34)),
@@ -1230,6 +1273,7 @@ function resourceFrame() {
   // The agents start where keeps watch has them.
   u.prefs.sidebar_split = 11;
   const plain = frame(view, [], COLS, rows, u);
+  data.layout.controls.res34 = controls(u, COLS, rows);
   keep(
     "res34",
     grid(plain, COLS, rows).map(r => r.slice(0, 34)),
@@ -1245,7 +1289,9 @@ function reviewFrame() {
   Object.assign(s.workspaces[1], { working: 0, attention: 0, worktrees: MOON_TREES });
   for (const ws of s.workspaces) Object.assign(ws, { stats: { ...ws.stats, tools: 0 } });
   s.entries = worktreeAgents.grouped(MOON_TREES, 2, s.entries, new worktreeAgents.State());
-  const plain = frame(view, [], COLS, ROWS, uiFor(s, 24));
+  const u = uiFor(s, 24);
+  const plain = frame(view, [], COLS, ROWS, u);
+  data.layout.controls.review24 = controls(u, COLS, ROWS);
   keep(
     "review24",
     grid(plain, COLS, ROWS).map(r => r.slice(0, 24)),
@@ -1586,25 +1632,25 @@ function changes(name: string, next: Runs | Runs[]): string {
   const old = data.frames[name];
   if (!old) return "new";
   const flat = (f: Runs) =>
-    f.map(row => cellGrid.decode(row).map(([ch, s]) => ch + "\u0000" + JSON.stringify(data.styles[s])));
+    f.map(row => cells.decode(row).map(([ch, s]) => ch + "\u0000" + JSON.stringify(data.styles[s])));
   const list = (f: any): Runs[] => (Array.isArray(f[0]?.[0]?.[0]) ? f : [f]);
   const a = list(old).map(flat),
     b = list(next).map(flat);
   if (a.length !== b.length) return `${a.length} → ${b.length} frames`;
-  let cells = 0,
+  let differing = 0,
     text = 0,
     sample = "";
   a.forEach((fa, k) => {
     const fb = b[k];
     if (fa.length !== fb.length || fa.some((row, index) => row.length !== fb[index]?.length)) {
-      cells = -1;
+      differing = -1;
       sample ||= `size ${fa[0]?.length}x${fa.length} → ${fb[0]?.length}x${fb.length}`;
       return;
     }
     fa.forEach((ra, r) =>
       ra.forEach((ca, c) => {
         if (ca === fb[r][c]) return;
-        cells += 1;
+        differing += 1;
         if (ca.split("\u0000")[0] !== fb[r][c].split("\u0000")[0]) {
           text += 1;
           sample ||= `row ${r}: ${JSON.stringify(
@@ -1622,8 +1668,8 @@ function changes(name: string, next: Runs | Runs[]): string {
       }),
     );
   });
-  if (cells === 0) return "";
-  return cells < 0 ? sample : `${cells} cells (${text} text)${sample ? ": " + sample : ""}`;
+  if (differing === 0) return "";
+  return differing < 0 ? sample : `${differing} cells (${text} text)${sample ? ": " + sample : ""}`;
 }
 // --show NAME prints a frame's text (every one of a list, with --all).
 const show = arg("--show");
@@ -1639,7 +1685,7 @@ if (show) {
 // --tally counts every differing cell by what changed, across all frames.
 if (process.argv.includes("--tally")) {
   const tally = new Map<string, Set<string>>();
-  const flat = (f: Runs) => f.map(row => cellGrid.decode(row).map(([ch, s]) => [ch, JSON.stringify(data.styles[s])]));
+  const flat = (f: Runs) => f.map(row => cells.decode(row).map(([ch, s]) => [ch, JSON.stringify(data.styles[s])]));
   const list = (f: any): Runs[] => (Array.isArray(f[0]?.[0]?.[0]) ? f : [f]);
   for (const [name, next] of made) {
     const old = data.frames[name];

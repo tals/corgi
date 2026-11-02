@@ -91,7 +91,26 @@ export async function render(html: string, bundle: string): Promise<string> {
     .text();
 }
 
+let redirectBundle: Promise<string> | null = null;
+/** The script English pages send other languages' visitors on from. */
+function redirectScript(): Promise<string> {
+  redirectBundle ??= Bun.build({
+    entrypoints: [join(root, "redirect.ts")],
+    target: "browser",
+    format: "iife",
+    minify: true,
+  }).then(result => {
+    if (!result.success) throw new AggregateError(result.logs, "Language redirect bundle failed");
+    return result.outputs[0].text();
+  });
+  return redirectBundle;
+}
+
 export async function page(source: string, language: locale.Locale, path = "/"): Promise<string> {
+  // English is also what a path without a language serves, so it sends
+  // other languages on before it paints, from just after its charset (which
+  // must stay in the first kilobyte).
+  const redirect = language === "en" ? `<script>${await redirectScript()}</script>` : "";
   i18n.setLanguage(language);
   const translated = await htmlTranslations.transform(source, i18n.html);
   const code = language === "zh" ? "zh-CN" : language;
@@ -104,6 +123,7 @@ export async function page(source: string, language: locale.Locale, path = "/"):
   const picker = `<details class="language-picker" translate="no"><summary aria-label="${i18n.t`Language`}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></svg> ${locale.names[language]}</summary><nav>${locale.locales.map(value => `<a data-language="${value}" lang="${value === "zh" ? "zh-CN" : value}" href="/${value}${path}"${value === language ? ' aria-current="true"' : ""}>${locale.names[value]}</a>`).join("")}</nav></details>`;
   return new HTMLRewriter()
     .on("html", { element: element => element.setAttribute("lang", code) })
+    .on("meta[charset]", { element: element => element.after(redirect, { html: true }) })
     .on("head", {
       element: element =>
         element.append(
@@ -116,12 +136,15 @@ export async function page(source: string, language: locale.Locale, path = "/"):
     .text();
 }
 
-export async function prepare(language: locale.Locale = "en"): Promise<string> {
+/** Writes a language's page and its bundle into .generated/. The dev
+ * server's bundle stays readable, with source maps. */
+export async function prepare(language: locale.Locale = "en", dev = false): Promise<string> {
   const result = await Bun.build({
     entrypoints: [join(root, "main.js")],
     target: "browser",
     format: "iife",
-    minify: true,
+    minify: !dev,
+    sourcemap: dev ? "inline" : "none",
     plugins: [bundle.frames(language)],
   });
   if (!result.success) throw new AggregateError(result.logs, "Hero prerender bundle failed");
@@ -142,8 +165,8 @@ export async function prepare(language: locale.Locale = "en"): Promise<string> {
 
 /** Reload both generated catalogs and their imports on each dev rebuild. */
 export async function refresh(): Promise<void> {
-  const child = Bun.spawn([process.execPath, import.meta.path], { stdout: "inherit", stderr: "inherit" });
+  const child = Bun.spawn([process.execPath, import.meta.path, "--dev"], { stdout: "inherit", stderr: "inherit" });
   if ((await child.exited) !== 0) throw Error("Site prerender failed");
 }
 
-if (import.meta.main) for (const language of locale.locales) await prepare(language);
+if (import.meta.main) for (const language of locale.locales) await prepare(language, process.argv.includes("--dev"));

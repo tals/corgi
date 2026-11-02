@@ -119,6 +119,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '["Play Moonlander (opens in a new tab)"]': () => `玩 Moonlander（在新标签页打开）`,
     '["Plotting the burn"]': () => `绘制点火曲线`,
     '["Plotting the burn curve"]': () => `绘制点火曲线`,
+    '["Pushing the tag"]': () => `正在推送标签`,
     '["Reading install.sh"]': () => `读取 install.sh`,
     '["Reading the Ghostty config"]': () => `读取 Ghostty 配置`,
     '["Reading the config"]': () => `读取配置`,
@@ -192,7 +193,6 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '["terminal 2 · dev server"]': () => `终端 2 · 开发服务器`,
     '["usable"]': () => `可用`,
     '["window closed · agents + dev server still running"]': () => `窗口已关闭 · 智能体 + 开发服务器仍在运行`,
-    '["↑↓ browse · Enter open · / search · Esc close"]': () => `↑↓ 浏览 · Enter 打开 · / 搜索 · Esc 关闭`,
   },
   "ja": {
     '[" Push ↑2"]': () => ` プッシュ ↑2`,
@@ -314,6 +314,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '["Play Moonlander (opens in a new tab)"]': () => `Moonlander をプレイ（新しいタブで開く）`,
     '["Plotting the burn"]': () => `噴射をプロット中`,
     '["Plotting the burn curve"]': () => `噴射曲線をプロット中`,
+    '["Pushing the tag"]': () => `タグをプッシュ中`,
     '["Reading install.sh"]': () => `install.sh を確認中`,
     '["Reading the Ghostty config"]': () => `Ghostty の設定を確認中`,
     '["Reading the config"]': () => `設定を確認中`,
@@ -391,7 +392,6 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '["usable"]': () => `操作可能`,
     '["window closed · agents + dev server still running"]': () =>
       `ウィンドウは閉じても、エージェント + 開発サーバーは実行中`,
-    '["↑↓ browse · Enter open · / search · Esc close"]': () => `↑↓ 選択 · Enter 開く · / 検索 · Esc 閉じる`,
   },
   "ko": {
     '[" Push ↑2"]': () => ` 푸시 ↑2`,
@@ -514,6 +514,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '["Play Moonlander (opens in a new tab)"]': () => `Moonlander 플레이하기(새 탭에서 열림)`,
     '["Plotting the burn"]': () => `분사 그래프 작성 중`,
     '["Plotting the burn curve"]': () => `분사 곡선 작성 중`,
+    '["Pushing the tag"]': () => `태그 푸시 중`,
     '["Reading install.sh"]': () => `install.sh 읽는 중`,
     '["Reading the Ghostty config"]': () => `Ghostty 설정 읽는 중`,
     '["Reading the config"]': () => `설정 읽는 중`,
@@ -589,7 +590,6 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '["terminal 2 · dev server"]': () => `터미널 2 · 개발 서버`,
     '["usable"]': () => `사용 가능`,
     '["window closed · agents + dev server still running"]': () => `창 닫힘 · 에이전트 + 개발 서버는 계속 실행 중`,
-    '["↑↓ browse · Enter open · / search · Esc close"]': () => `↑↓ 이동 · Enter 열기 · / 검색 · Esc 닫기`,
   },
   "ru": {
     '[" Push ↑2"]': () => ` Отправить ↑2`,
@@ -710,6 +710,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '["Play Moonlander (opens in a new tab)"]': () => `Играть в Moonlander (откроется в новой вкладке)`,
     '["Plotting the burn"]': () => `Строит график тяги`,
     '["Plotting the burn curve"]': () => `Строит кривую тяги`,
+    '["Pushing the tag"]': () => `Отправляет тег`,
     '["Reading install.sh"]': () => `Читает install.sh`,
     '["Reading the Ghostty config"]': () => `Читает настройки Ghostty`,
     '["Reading the config"]': () => `Читает настройки`,
@@ -785,6 +786,5 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '["terminal 2 · dev server"]': () => `терминал 2 · сервер разработки`,
     '["usable"]': () => `можно работать`,
     '["window closed · agents + dev server still running"]': () => `окно закрыто · агенты + сервер разработки работают`,
-    '["↑↓ browse · Enter open · / search · Esc close"]': () => `↑↓ выбор · Enter открыть · / поиск · Esc закрыть`,
   },
 };

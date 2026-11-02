@@ -98,6 +98,7 @@
   "Play Moonlander (opens in a new tab)": "玩 Moonlander（在新标签页打开）",
   "Plotting the burn": "绘制点火曲线",
   "Plotting the burn curve": "绘制点火曲线",
+  "Pushing the tag": "正在推送标签",
   "Reading install.sh": "读取 install.sh",
   "Reading the Ghostty config": "读取 Ghostty 配置",
   "Reading the config": "读取配置",
@@ -158,6 +159,5 @@
   "terminal 1 · agent": "终端 1 · 智能体",
   "terminal 2 · dev server": "终端 2 · 开发服务器",
   "usable": "可用",
-  "window closed · agents + dev server still running": "窗口已关闭 · 智能体 + 开发服务器仍在运行",
-  "↑↓ browse · Enter open · / search · Esc close": "↑↓ 浏览 · Enter 打开 · / 搜索 · Esc 关闭"
+  "window closed · agents + dev server still running": "窗口已关闭 · 智能体 + 开发服务器仍在运行"
 }

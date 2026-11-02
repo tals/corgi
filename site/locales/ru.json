@@ -98,6 +98,7 @@
   "Play Moonlander (opens in a new tab)": "Играть в Moonlander (откроется в новой вкладке)",
   "Plotting the burn": "Строит график тяги",
   "Plotting the burn curve": "Строит кривую тяги",
+  "Pushing the tag": "Отправляет тег",
   "Reading install.sh": "Читает install.sh",
   "Reading the Ghostty config": "Читает настройки Ghostty",
   "Reading the config": "Читает настройки",
@@ -158,6 +159,5 @@
   "terminal 1 · agent": "терминал 1 · агент",
   "terminal 2 · dev server": "терминал 2 · сервер разработки",
   "usable": "можно работать",
-  "window closed · agents + dev server still running": "окно закрыто · агенты + сервер разработки работают",
-  "↑↓ browse · Enter open · / search · Esc close": "↑↓ выбор · Enter открыть · / поиск · Esc закрыть"
+  "window closed · agents + dev server still running": "окно закрыто · агенты + сервер разработки работают"
 }

@@ -1,8 +1,10 @@
-import "./language";
+import * as language from "./language";
 import * as moonlander from "../src/moonlander/moonlander";
 import * as scene from "../src/moonlander/scene";
 import * as faces from "../src/moonlander/faces";
 import * as hull from "../src/moonlander/hull";
+
+language.rememberChoices();
 
 const css = getComputedStyle(document.documentElement);
 const C = Object.fromEntries(["bg", "surface", "selected", "line", "faint", "muted", "text", "strong", "accent", "warm", "hot"].map(n => [n, css.getPropertyValue("--"+n).trim()]));

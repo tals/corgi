@@ -98,6 +98,7 @@
   "Play Moonlander (opens in a new tab)": "Moonlander 플레이하기(새 탭에서 열림)",
   "Plotting the burn": "분사 그래프 작성 중",
   "Plotting the burn curve": "분사 곡선 작성 중",
+  "Pushing the tag": "태그 푸시 중",
   "Reading install.sh": "install.sh 읽는 중",
   "Reading the Ghostty config": "Ghostty 설정 읽는 중",
   "Reading the config": "설정 읽는 중",
@@ -158,6 +159,5 @@
   "terminal 1 · agent": "터미널 1 · 에이전트",
   "terminal 2 · dev server": "터미널 2 · 개발 서버",
   "usable": "사용 가능",
-  "window closed · agents + dev server still running": "창 닫힘 · 에이전트 + 개발 서버는 계속 실행 중",
-  "↑↓ browse · Enter open · / search · Esc close": "↑↓ 이동 · Enter 열기 · / 검색 · Esc 닫기"
+  "window closed · agents + dev server still running": "창 닫힘 · 에이전트 + 개발 서버는 계속 실행 중"
 }
