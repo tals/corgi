@@ -689,6 +689,8 @@ export class View {
   dragged: number | null = null;
   /** The agent entry under the pointer. */
   hovered: number | null = null;
+  /** The workspace under the pointer, by its index in the whole list. */
+  workspace_hover: number | null = null;
   dragged_workspace: number | null = null;
   workspace_count = 0;
   workspace_machines: string[] = [];
@@ -705,6 +707,8 @@ export class View {
   resource_hover: number | null = null;
   /** Decorative corgis only; contextual compaction keeps its animation. */
   corgi_intensity = 50;
+  /** The workspace section's background tint, 0 (off) to 100. */
+  workspace_tint = 0;
   /** The agents header row as last dragged; null splits the sidebar in half. */
   split: number | null = null;
   /** A lit checkout: its rows keep their colors while the rest of the list dims. */

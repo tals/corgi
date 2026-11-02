@@ -64,6 +64,8 @@ export class Preferences {
   resources: Resources = { enabled: true };
   /** Decorative sidebar corgi brightness, from off (0) to full (100). */
   corgi_intensity = 50;
+  /** The workspace section's background tint, from off (0) to strong (100). */
+  workspace_tint = 0;
   /** The theme picked in setup or onboarding; unset, the terminal picks
    * (`palette.chosen`), and the file leaves it out. */
   theme: palette.Theme | undefined = undefined;
@@ -216,6 +218,9 @@ export function readExisting(file: string): Preferences | null {
         : d.sleeping_corgis === false
           ? 0
           : 50;
+    // A hand-edited tint that isn't a whole percent reads as off.
+    v.workspace_tint =
+      Number.isInteger(d.workspace_tint) && d.workspace_tint >= 0 && d.workspace_tint <= 100 ? d.workspace_tint : 0;
     if ("theme" in d) {
       if (typeof d.theme !== "string") return null;
       // A theme from a newer build falls back rather than resetting the rest.
