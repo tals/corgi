@@ -135,7 +135,7 @@ class AgentCli extends Runtime {
     const trickSkill = await this.run_cli("--skill", "tricks");
     this.assertIn("register(on, corgi)", trickSkill);
     this.assertIn("ui:agent.sidebar", trickSkill);
-    this.assertIn("await corgi.set", trickSkill);
+    this.assertIn("corgi tricks palette set", trickSkill);
     this.assertEqual(
       await this.cli(["pane", "split", "current", "--right"], {
         error: "NoCallerPane",

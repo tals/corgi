@@ -3,6 +3,7 @@ import { Provider } from "./providers";
 import type { State, Attention } from "./agents";
 import * as process_name from "./process_name";
 import type { Identity } from "./account_identity";
+import * as trickPalette from "./trick_palette";
 
 export const version = 2;
 export const max_bytes = 65536;
@@ -87,6 +88,8 @@ export interface Overlay {
 }
 export type View = Decoration | Overlay;
 export type Command =
+  | { op: "palette.define"; name: string; colors?: Color[] }
+  | { op: "palette.assign"; name: string; key: string }
   | { op: "ui.set"; key: string; view: View }
   | { op: "ui.remove"; key: string }
   | { op: "subscribe"; subscription: Subscription }
@@ -315,6 +318,20 @@ export function command(value: unknown): { id: string | number | null; command: 
   )
     throw Error("InvalidId");
   switch (source.op) {
+    case "palette.define":
+      return {
+        id,
+        command: {
+          op: source.op,
+          name: trickPalette.name(source.name),
+          colors: source.colors === undefined ? undefined : trickPalette.colors(source.colors),
+        },
+      };
+    case "palette.assign":
+      return {
+        id,
+        command: { op: source.op, name: trickPalette.name(source.name), key: trickPalette.keys([source.key])[0] },
+      };
     case "ui.focus":
       if (!Number.isSafeInteger(source.viewer) || Number(source.viewer) < 1) throw Error("InvalidViewer");
       return { id, command: { op: source.op, viewer: Number(source.viewer), agent: agentId(source.agent) } };

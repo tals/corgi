@@ -11,6 +11,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import * as palette from "./palette";
 import * as trickConfig from "./trick_config";
+import * as trickPalette from "./trick_palette";
+import * as trickStyle from "./trick_style";
+import type { Color as TrickColor } from "./tricks";
 import { Style, colors, bgRgb, mix, selection, type Token } from "./palette";
 import { Rect } from "./layout";
 import { Provider, byProvider, adapter } from "./providers";
@@ -194,8 +197,9 @@ function reportSettings(s: Status, prefs: Preferences): bugReport.Settings {
 }
 /** What Enter or a click asks the controller to do. */
 export type Apply =
+  | { kind: "trick_palette_open"; ref: string | null }
+  | { kind: "trick_palette_set"; ref: string; key: trickPalette.Key; color: TrickColor | null; all?: boolean }
   | { kind: "trick"; id: string; enabled: boolean }
-  | { kind: "trick_autoreload"; on: boolean }
   | { kind: "tricks_reload" }
   | { kind: "summaries"; choice: Summarizer; model?: string; account?: string }
   | { kind: "inference_use"; use: Use; on: boolean }
@@ -234,6 +238,8 @@ export type Hit =
   | { url: string };
 
 interface Option {
+  copy_path?: string;
+  color?: palette.Rgb;
   label: string;
   detail: string;
   /** ● in use, ○ not, or no mark for actions. */
@@ -280,6 +286,7 @@ const paste_found: Record<ClipboardState["support"], Found> = {
 };
 /** One of a dropdown's choices. */
 interface Choice {
+  color?: palette.Rgb;
   text: string;
   note: string;
   detail?: string;
@@ -539,6 +546,9 @@ export class Menu {
   /** Whether the daemon probes the ports servers print, for Open ↗ buttons. */
   smart_links = true;
   tricks: trickConfig.Info | null = null;
+  trick_palettes: trickPalette.Summary[] = [];
+  trick_palette: trickPalette.Info | null = null;
+  trick_palette_ref: string | null = null;
   tricks_error: string | null = null;
   private tricks_poll = 0;
   private tricks_loading = false;
@@ -702,12 +712,26 @@ export class Menu {
     ) {
       this.tricks_loading = true;
       this.tricks_poll = now + 1000;
-      void conn
-        .call("tricks.list")
-        .then(reply => {
+      const ref = this.trick_palette_ref;
+      void Promise.all([
+        conn.call("tricks.list"),
+        conn.call("tricks.palettes"),
+        ref ? conn.call("tricks.palette", { palette: ref }) : Promise.resolve(null),
+      ])
+        .then(([reply, list, selected]) => {
           const next = trickConfig.info(reply);
-          if (!this.closed && (JSON.stringify(next) !== JSON.stringify(this.tricks) || this.tricks_error !== null)) {
+          const palettes = trickPalette.summaries(list.palettes),
+            picked = selected ? trickPalette.info(selected) : null;
+          if (
+            !this.closed &&
+            ref === this.trick_palette_ref &&
+            (JSON.stringify([next, palettes, picked]) !==
+              JSON.stringify([this.tricks, this.trick_palettes, this.trick_palette]) ||
+              this.tricks_error !== null)
+          ) {
             this.tricks = next;
+            this.trick_palettes = palettes;
+            this.trick_palette = picked;
             this.tricks_error = null;
             this.changed();
           }
@@ -859,6 +883,7 @@ export class Menu {
   /** Esc closes setup, except while adjusting a slider or copying sessions. */
   escape(): boolean {
     if (this.focus !== "options") return false;
+    if (this.item === "tricks" && (this.trick_palette_ref || this.dropdown)) return this.back();
     if ((this.dropdown && this.model_query.len) || this.item === "flourishes" || this.importing()?.stage === "copying")
       return this.back();
     return false;
@@ -888,6 +913,12 @@ export class Menu {
     const picker = this.importing();
     if (picker?.stage === "copying") {
       if (picker.failed()) picker.retry();
+      return true;
+    }
+    if (this.item === "tricks" && this.trick_palette_ref) {
+      this.trick_palette_ref = null;
+      this.trick_palette = null;
+      this.cursor = 0;
       return true;
     }
     this.leaveImport();
@@ -1203,6 +1234,7 @@ export class Menu {
             branch = choice.depth === 2 ? (choices[index + 1]?.depth === 2 ? "├" : "╰") : undefined;
           return {
             text: choice.text,
+            color: choice.color,
             note: choice.note,
             detail: choice.detail,
             pin: choice.pin,
@@ -1217,9 +1249,9 @@ export class Menu {
             hovered: index === this.dropdown?.at,
           };
         }),
-        { text: "", note: "", detail: i18n.t`Billing` },
-        columns.note,
-        columns.detail,
+        { text: "", note: "", detail: this.item === "tricks" ? "" : i18n.t`Billing` },
+        this.item === "tricks" ? undefined : columns.note,
+        this.item === "tricks" ? undefined : columns.detail,
       );
       const x = open.x + 4,
         y = open.y + 1,
@@ -1227,7 +1259,8 @@ export class Menu {
       w.write(at(x, y) + text);
       const offset = DialogView.scroll(this.model_query, width);
       const column = writeField(w, this.model_query, offset, width, text);
-      if (!this.model_query.len) w.write(border + i18n.t`Search models`);
+      if (!this.model_query.len)
+        w.write(border + (this.item === "tricks" ? i18n.t`Search colors` : i18n.t`Search models`));
       this.caret = { x: x + column, y };
     }
     if (l.detail) {
@@ -1598,6 +1631,13 @@ export class Menu {
       here = this.focus === "options" && line.index === this.cursor,
       x0 = x + 2,
       right = x + width - 1;
+    if (o.copy_path !== undefined) {
+      const p = settingRow.fill(w, x, y, width, here),
+        button = "[ " + o.label + " ]";
+      w.write(at(x + 2, y) + p.accent + button + "  " + p.muted);
+      writeEllipsis(w, o.copy_path, sat(width, displayWidth(button) + 5));
+      return;
+    }
     if (o.art) return this.drawArt(w, o, line.index, 0, x, width, y);
     if (o.slider !== undefined) {
       const value = o.slider === 0 ? i18n.t`Off` : `${o.slider}%`;
@@ -1612,7 +1652,8 @@ export class Menu {
         disabled: o.disabled,
         glyph: o.glyph,
       });
-    if (o.choice !== undefined) return settingRow.drawChoice(w, x, y, width, o.label, o.choice.text, o.choice.on, here);
+    if (o.choice !== undefined)
+      return settingRow.drawChoice(w, x, y, width, o.label, o.choice.text, o.choice.on, here, o.color);
     if (o.edit) return this.drawField(w, x0, y, right, prefs);
     const p = settingRow.fill(w, x, y, width, here);
     if (o.mark !== "none")
@@ -1787,23 +1828,84 @@ export class Menu {
       case "agents":
         return [];
       case "tricks": {
+        if (this.trick_palette_ref) {
+          const picked = this.trick_palette;
+          return [
+            title(directoryLabel(this.trick_palette_ref, null, 160)),
+            lead(
+              this.trick_palette_ref.startsWith("globals.")
+                ? i18n.t`Shared across Corgi environments.`
+                : i18n.t`Private to this Trick.`,
+            ),
+            ...(this.tricks_error
+              ? [{ tag: "warn" as const, text: directoryLabel(this.tricks_error, null, 512) }]
+              : []),
+            option({
+              label: i18n.t`Back`,
+              detail: "",
+              mark: "none",
+              apply: { kind: "trick_palette_open", ref: null },
+              action: i18n.t`back`,
+            }),
+            ...(picked
+              ? picked.assignments.map(a => {
+                  const choices = [
+                    ...picked.colors,
+                    ...trickStyle.palette.identity,
+                    "warm",
+                    "accent",
+                    "text",
+                    a.color,
+                  ] as TrickColor[];
+                  const unique = choices.filter(
+                    (c, i) => choices.findIndex(other => JSON.stringify(other) === JSON.stringify(c)) === i,
+                  );
+                  const choose = (color: TrickColor | null): Apply => ({
+                    kind: "trick_palette_set",
+                    ref: picked.ref,
+                    key: a.key,
+                    color,
+                  });
+                  return option({
+                    label: directoryLabel(a.label, null, 160),
+                    detail: "",
+                    mark: "none",
+                    apply: null,
+                    action: i18n.t`choose`,
+                    color: trickStyle.rgb(a.color),
+                    choice: {
+                      text: trickPalette.colorText(a.color),
+                      on: a.override,
+                      choices: [
+                        { text: i18n.t`Automatic`, note: "", current: !a.override, apply: choose(null) },
+                        ...unique.map(color => ({
+                          text: "● " + trickPalette.colorText(color),
+                          note: "",
+                          color: trickStyle.rgb(color),
+                          current: a.override && JSON.stringify(a.color) === JSON.stringify(color),
+                          apply: choose(color),
+                        })),
+                      ].filter(c => matches(this.model_query.name(), c.text)),
+                    },
+                  });
+                })
+              : []),
+            option({
+              label: i18n.t`Reset all colors`,
+              detail: "",
+              mark: "none",
+              apply: { kind: "trick_palette_set", ref: this.trick_palette_ref, key: null, color: null, all: true },
+              action: i18n.t`reset`,
+            }),
+          ];
+        }
         const info = this.tricks;
         return [
           title(i18n.t`Tricks`),
-          lead(i18n.t`Small programs that customize Corgi.`),
           ...(this.tricks_error ? [{ tag: "warn" as const, text: directoryLabel(this.tricks_error, null, 512) }] : []),
           ...(info
             ? [
-                option({
-                  label: i18n.t`Reload on save`,
-                  detail: "",
-                  mark: info.autoreload ? "on" : "off",
-                  toggle: true,
-                  apply: { kind: "trick_autoreload", on: !info.autoreload },
-                  action: info.autoreload ? i18n.t`turn off` : i18n.t`turn on`,
-                }),
                 ...(info.watch_error ? [{ tag: "warn" as const, text: info.watch_error }] : []),
-                blank,
                 ...info.tricks.flatMap(trick => [
                   option({
                     label: directoryLabel(trick.id, null, 160),
@@ -1815,7 +1917,7 @@ export class Menu {
                           ? i18n.t`Starting`
                           : i18n.t`Off`,
                     mark: trick.enabled ? "on" : "off",
-                    toggle: true,
+                    toggle: trick.enabled,
                     warn: trick.error !== null,
                     apply: { kind: "trick", id: trick.id, enabled: !trick.enabled },
                     action: trick.enabled ? i18n.t`turn off` : i18n.t`turn on`,
@@ -1823,23 +1925,39 @@ export class Menu {
                   ...(trick.error ? [{ tag: "warn" as const, text: directoryLabel(trick.error, null, 512) }] : []),
                 ]),
                 ...(!info.tricks.length ? [lead(i18n.t`No tricks installed yet.`)] : []),
+                ...(this.trick_palettes.length
+                  ? [
+                      blank,
+                      title(i18n.t`Palettes`),
+                      ...this.trick_palettes.map(p =>
+                        option({
+                          label: p.ref,
+                          detail: String(p.entries),
+                          mark: "none",
+                          apply: { kind: "trick_palette_open", ref: p.ref },
+                          action: i18n.t`open`,
+                          arrow: true,
+                        }),
+                      ),
+                    ]
+                  : []),
                 blank,
+                title(i18n.t`Development`),
                 option({
-                  label: i18n.t`Reload`,
-                  detail: i18n.t`Restart installed tricks`,
+                  label: i18n.t`Restart`,
+                  detail: "",
                   mark: "none",
                   apply: { kind: "tricks_reload" },
                   action: i18n.t`reload`,
                 }),
                 option({
-                  label: i18n.t`Copy tricks folder`,
+                  label: i18n.t`Copy`,
                   detail: "",
+                  copy_path: directoryLabel(info.directory, homedir(), 1024),
                   mark: "none",
                   apply: { kind: "copy", text: info.directory },
                   action: i18n.t`copy`,
                 }),
-                { tag: "note" as const, text: directoryLabel(info.directory, null, 1024) },
-                { tag: "note" as const, text: i18n.t`Authoring help: corgi --skill tricks` },
               ]
             : [lead(this.tricks_error ? i18n.t`Tricks are unavailable.` : i18n.t`Loading installed tricks…`)]),
         ];

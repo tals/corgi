@@ -5,7 +5,7 @@
 //! headings may sit over the choices, and a note may color its runs.
 //! The sidebar's agent scope, Corgi setup's summaries, the launcher's
 //! worktrees and the review panel's commits open one.
-import { Style, fg, keycap, type Token } from "./palette";
+import { Style, fg, fgRgb, keycap, type Token, type Rgb } from "./palette";
 import { Rect } from "./layout";
 import { Writer, displayWidth, writeEllipsis, sat } from "./text";
 
@@ -15,6 +15,7 @@ export function sameRuns(a: Run[], b: Run[]): boolean {
   return a.length === b.length && a.every(([text, token], i) => text === b[i][0] && token === b[i][1]);
 }
 export interface Choice {
+  color?: Rgb;
   text: string;
   note: string;
   detail?: string;
@@ -207,5 +208,6 @@ export function row(
   else w.write(fg(faint) + choice.note);
   w.write(style);
   w.write(`\x1b[${line};${b.x + 1 + indent + inset}H`);
+  if (choice.color) w.write(fgRgb(choice.color));
   writeEllipsis(w, choice.text, sat(sat(right, b.x + indent + inset), 2));
 }

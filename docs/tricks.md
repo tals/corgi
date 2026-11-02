@@ -68,10 +68,15 @@ files trigger reloads. Dependency/build folders, hidden directories and nested
 directory symlinks are excluded. Watches are capped at 128 directories and eight
 levels. Changes outside this scope require `corgi tricks reload`.
 
-Open **Settings → Tricks** (`prefix i`) to see installed tricks and errors,
-enable or disable each trick, toggle **Reload on save**, reload manually, or
-copy the install folder. These choices persist per runtime in `settings.json`
-and override a manifest's `enabled` value. Disabling immediately clears a trick's
+The account-colors trick is installed automatically on first use of the normal
+Tricks folder. It is ordinary, editable code; Corgi preserves edits and removals.
+An explicit `CORGI_TRICKS_DIR` uses exactly the Tricks installed there.
+
+Open **Settings → Tricks** (`prefix i`) to enable or disable Tricks and edit
+their palettes. Saves reload automatically. The **Development** section has
+**Restart**, which rescans the folder and restarts installed Tricks, and a
+**Copy** button beside the folder path. Enablement persists per runtime in `settings.json`
+and overrides a manifest's `enabled` value. Disabling immediately clears a trick's
 UI but keeps its saved values. A failed trick stays stopped until its source is
 edited or it is explicitly restarted. Autoreload errors appear in Settings.
 
@@ -400,6 +405,45 @@ Use `agent.account.id` for accounts; skip unresolved accounts.
 Distinct keys take successive slots, cycling after the palette is exhausted.
 Existing assignments never move when other keys appear or disappear.
 
+Settings → Tricks → Palettes lists these mappings automatically. Pick an entry
+to change its color, choose Automatic to remove its override, or reset the
+whole palette. Changes repaint running Tricks without restarting their code.
+No settings UI is needed in the Trick.
+
+![Corgi's palette editor with account colors](images/tricks-palettes.png)
+
+Names are private to the Trick and current Corgi environment by default.
+Prefix a name with `globals.` to share assignments and overrides across all
+Tricks and all Corgi environments:
+
+```js
+const color = corgi.palette.map("globals.accounts");
+```
+
+Global palettes live in Corgi's base state directory; local palettes live beside
+that runtime's settings. Global updates are locked and atomically saved, and
+other running environments notice edits through a directory watch. A shared
+palette keeps the colors it was created with: later callers can omit the color
+array to use it, or supply the same array. A conflicting array is rejected.
+
+The CLI offers the same editor to people and agents:
+
+```sh
+corgi tricks palette list --json
+corgi tricks palette show account-colors/accounts --json
+corgi tricks palette set globals.accounts 'my-account-id' syntax.type
+corgi tricks palette set globals.accounts 'my-account-id' '#cc8844'
+corgi tricks palette reset globals.accounts 'my-account-id'
+corgi tricks palette reset globals.accounts
+```
+
+Use `TRICK/NAME` for a private palette and `globals.NAME` for a global one.
+`KEY` is a string; add `--key-json` for a number, boolean, null, or array.
+`set` can create a palette and key before a Trick runs, using the default
+identity palette. Colors accept theme tokens, `syntax.NAME`, `brand.NAME`,
+`#rrggbb`, or a JSON color expression. `--json` returns structured replies.
+Reset removes overrides and preserves the key's automatic slot.
+
 Supply any nonempty array of colors to make a custom palette. For example,
 color workspaces with a smaller palette:
 
@@ -418,13 +462,13 @@ Hold them in a variable, save them in KV, or mix them once during registration;
 changing the theme still recolors the drawing. `#RRGGBB` remains available for
 fixed custom colors.
 
-Mappings are private to the trick and runtime. They load once, cache repeat
-lookups, and write only for new keys. Awaiting the mapper commits the assignment
-before drawing. Slots survive reload, handoff and restart; changing a palette on
-the next run recolors its saved slots. Use a separate name for each mapping and
-leave the `palette.*` KV keys to Corgi. Limits: 16 mappings per trick, 256 keys per
-mapping, 32 colors per palette and 1 KiB per encoded key, within the same 64 KiB KV
-budget. A failed write does not consume a slot.
+Mappers cache repeat lookups; new assignments commit before drawing. Slots and
+overrides survive reload, handoff and restart. Limits: 16 mappings per Trick,
+256 keys per mapping, 32 colors per palette, 1 KiB per encoded key and 64 KiB per
+palette file. Palette storage is separate from the Trick’s KV; earlier local
+`palette.*` KV assignments are imported on first use. Failed writes do not consume
+a slot. Changing a local palette’s colors recolors automatic slots while keeping
+user overrides.
 
 `corgi.brand.of(agent.provider)` returns a display `name`, readable `color`,
 and an `icon` string to interpolate into inline Markdown:
@@ -529,6 +573,8 @@ to no events until they subscribe.
 | `ui.focus` | `viewer` from a press event, `agent` ID |
 | `kv.get`, `kv.delete` | `key` |
 | `kv.set` | `key`, `value` |
+| `palette.define` | `name`, optional `colors` array |
+| `palette.assign` | `name`, `key` as a JSON-encoded string |
 
 Add a string or integer `id` for a reply:
 `{"id":"save","ok":true,"result":null}` or
@@ -564,15 +610,26 @@ control still exists before delivering it. On the viewer wire, the optional
 rich content and the capability-advertised `tricks.press` operation are
 additive; older viewers may omit drawings they do not understand.
 
+Raw palette clients define a mapping before assigning keys. Both operations
+return `{version:1, revision, colors, keys, overrides}`; `keys` holds encoded
+JSON values and `overrides` holds a color or `null` for each slot. An automatic
+color is `colors[index % colors.length]`. User edits deliver
+`{event:"palette.changed", name, state}` to registered consumers, independent
+of subscriptions. Keep the latest revision and redraw affected UI. Code Tricks
+handle this automatically.
+
 The core is [trick_runner.ts](../src/trick_runner.ts) (registration and dispatch),
 [tricks.ts](../src/tricks.ts) (contract), [trick_host.ts](../src/trick_host.ts)
 (processes/events/KV), [trick_budget.ts](../src/trick_budget.ts) (watchdog), and
 [trick_ui.ts](../src/trick_ui.ts) (drawing), with
 [trick_style.ts](../src/trick_style.ts) providing palette and brand references.
+[trick_palette_store.ts](../src/trick_palette_store.ts) owns durable allocation,
+overrides and cross-environment updates.
 Tricks protocol 2 adds normalized account objects and public environment metadata;
 version 1 programs using account strings must use `account.id` instead and skip
 unresolved accounts. Saved assignments using old account keys need remapping to
 the new IDs. Manifest and KV formats remain at version 1. Runtime and viewer
 protocol 3 remain unchanged: new management operations are capability-advertised,
 and viewer drawings are optional.
-Checkpoints and handoffs carry no trick state; programs rebuild it from KV.
+Palette files use version 1. Checkpoints and handoffs carry no trick state;
+programs rebuild it from KV and palette files.

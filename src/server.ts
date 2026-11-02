@@ -502,6 +502,21 @@ export class Server {
       case "tricks.list":
         cl.reply("tricks.list", this.tricks.info());
         return;
+      case "tricks.palettes":
+        cl.reply("tricks.palettes", { palettes: this.tricks.palettes.list() });
+        return;
+      case "tricks.palette":
+        cl.reply("tricks.palette", this.tricks.palette(request.payload.palette));
+        return;
+      case "tricks.palette.set":
+        await this.tricks.palettes.set(
+          request.payload.palette,
+          request.payload.key,
+          request.payload.color,
+          request.payload.all,
+        );
+        cl.reply("tricks.palette.set", this.tricks.palette(request.payload.palette));
+        return;
       case "tricks.reload":
         await this.tricks.reload();
         cl.reply("tricks.reload", this.tricks.info());

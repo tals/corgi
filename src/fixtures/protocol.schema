@@ -1040,6 +1040,12 @@ $.launch_history.removed[].session: string
 $.replies.viewer.image.data: optional
 $.replies.viewer.image.data?: string
 $.requests|tricks.list: {}
+$.requests|tricks.palettes: {}
+$.requests|tricks.palette.palette: string
+$.requests|tricks.palette.set.palette: string
+$.requests|tricks.palette.set.key: any
+$.requests|tricks.palette.set.color: any
+$.requests|tricks.palette.set.all: bool
 $.requests|tricks.reload: {}
 $.requests|tricks.configure.id: optional
 $.requests|tricks.configure.id?: string

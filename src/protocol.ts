@@ -91,6 +91,9 @@ export const operations = [
   "tricks.reload",
   "tricks.configure",
   "tricks.press",
+  "tricks.palettes",
+  "tricks.palette",
+  "tricks.palette.set",
   "session.command",
   "session.locate",
   "session.list",
@@ -441,14 +444,13 @@ function validate(value: any, type: string, strict = false): any {
   }
   if (type === "theme") {
     try {
-      return Object.assign(
-        new Theme(),
-        struct(
-          value,
-          { foreground: ["?rgb", null], background: ["?rgb", null], palette: ["[]?rgb", Array(16).fill(null)] },
-          false,
-        ),
+      const theme = struct(
+        value,
+        { foreground: ["?rgb", null], background: ["?rgb", null], palette: ["[]?rgb", Array(16).fill(null)] },
+        false,
       );
+      if (theme.palette.length !== 16) throw Error("UnexpectedToken");
+      return Object.assign(new Theme(), theme);
     } catch {
       return null;
     }
@@ -493,8 +495,6 @@ function struct(value: any, fields: Fields, strict: boolean) {
     }
     out[key] = validate(source[key], type, strict);
   }
-  if (fields === structures.rgb) return out;
-  if (Object.hasOwn(out, "palette") && out.palette.length !== 16) throw Error("UnexpectedToken");
   return out;
 }
 const structures = {
@@ -559,6 +559,8 @@ const structures = {
 } as const satisfies Record<string, Fields>;
 const launch = { workspace: "u32", cwd: ["string", ""] } as const satisfies Fields;
 const requests = {
+  "tricks.palette": { palette: "string" },
+  "tricks.palette.set": { palette: "string", key: ["json", null], color: ["json", null], all: ["bool", false] },
   "tricks.configure": { id: ["?string", null], enabled: ["?bool", null], autoreload: ["?bool", null] },
   "tricks.press": { action: "string", viewer: "u32" },
   "launcher.models": { row: "string" },
@@ -697,6 +699,9 @@ export interface ReplyPayloads {
   "tricks.reload": Ok & import("./trick_config").Info;
   "tricks.configure": Ok & import("./trick_config").Info;
   "tricks.press": Ok & { accepted: boolean };
+  "tricks.palettes": Ok & { palettes: import("./trick_palette").Summary[] };
+  "tricks.palette": Ok & import("./trick_palette").Info;
+  "tricks.palette.set": Ok & import("./trick_palette").Info;
   "session.command": Ok & { result: Result };
   "session.locate": Ok & { result: Result };
   "launcher.catalog": Ok & { agents: import("./launcher_config").Agent[] };

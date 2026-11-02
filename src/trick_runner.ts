@@ -55,11 +55,14 @@ type Message =
   | tricks.Event
   | { event: "ready" }
   | { event: "ui.refresh" }
+  | { event: "palette.changed"; name: string; state: trickPalette.State }
   | { event: "ui.press"; action: string; viewer: number }
   | { id: string | null; error?: string; result?: unknown };
 /** This pipe has one writer: the daemon running the same protocol. */
 function message(line: string): Message {
   const value = tricks.object(JSON.parse(line));
+  if (value.event === "palette.changed")
+    return { event: "palette.changed", name: trickPalette.name(value.name), state: trickPalette.read(value.state) };
   if (value.event === "ui.refresh") return { event: "ui.refresh" };
   if (value.event === "ui.press") {
     if (!Number.isSafeInteger(value.viewer) || Number(value.viewer) < 1) throw Error("InvalidViewer");
@@ -92,6 +95,7 @@ export class Runner {
   private handlers: { events: tricks.EventName[]; run: Handler }[] = [];
   private on: On;
   readonly corgi: Corgi;
+  private palettes: ReturnType<typeof trickPalette.maps>;
   constructor(
     private trick: Trick,
     private send: (value: object) => void,
@@ -121,15 +125,11 @@ export class Runner {
       if (value.startsWith("ui-")) throw Error("ReservedKey");
       return tricks.key(value);
     };
+    this.palettes = trickPalette.maps(command => this.call(command));
     this.corgi = {
       palette: Object.freeze({
         ...style.palette,
-        map: trickPalette.maps({
-          get: key => this.call({ op: "kv.get", key }),
-          set: async (key, value) => {
-            await this.call({ op: "kv.set", key, value });
-          },
-        }),
+        map: this.palettes,
       }),
       brand: style.brand,
       ui: elements.ui,
@@ -321,6 +321,9 @@ export class Runner {
               await this.trick.register(this.on, this.corgi);
               this.started = true;
               this.subscribe();
+            } else if (value.event === "palette.changed") {
+              this.palettes.update(value.name, value.state);
+              for (const agent of this.agents.values()) await this.draw(agent, agent);
             } else if (value.event === "ui.refresh") {
               this.refreshing = false;
               for (const agent of this.agents.values()) await this.draw(agent, agent);

@@ -4,6 +4,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import * as trickConfig from "./trick_config";
 import type { Status } from "./trick_config";
 import * as trickWatch from "./trick_watch";
+import * as trickDefaults from "./trick_defaults";
 import * as tricks from "./tricks";
 import * as settings from "./settings";
 import * as os from "./os";
@@ -12,6 +13,8 @@ import { adapter, type Provider } from "./providers";
 import * as json from "./json";
 import * as accounts from "./accounts";
 import * as agentEnv from "./agent_env";
+import * as trickPalette from "./trick_palette";
+import * as paletteStore from "./trick_palette_store";
 import { getLogger } from "./log";
 import type { Runtime } from "./runtime";
 import type { Request } from "./protocol";
@@ -96,6 +99,7 @@ export function snapshot(r: Runtime): tricks.Snapshot {
   return { agents, workspaces: r.workspaces.items.map(w => ({ id: w.id, name: w.name(), cwd: w.cwd })) };
 }
 interface Running {
+  palettes: Set<string>;
   instance: string;
   status: Status;
   manifest: Manifest;
@@ -123,13 +127,45 @@ export class Host {
   private work: Promise<void> = Promise.resolve();
   private epoch = 0;
   revision = 0n;
+  readonly palettes: paletteStore.Store;
   constructor(
     readonly socket: string,
     private executable: string,
     private source: () => tricks.Snapshot,
     private changed: () => void,
     private focus?: (viewer: number, agent: string) => void,
-  ) {}
+  ) {
+    this.palettes = paletteStore.open(socket, (ref, state) => {
+      for (const r of this.running)
+        for (const name of r.palettes)
+          if (trickPalette.reference(r.manifest.id, name) === ref)
+            this.send(r, { event: "palette.changed", name, state });
+      this.invalidate();
+    });
+  }
+  palette(ref: string): trickPalette.Info {
+    const state = this.palettes.get(ref),
+      agents = this.source().agents;
+    return {
+      ref,
+      entries: state.keys.length,
+      colors: state.colors,
+      assignments: state.keys.map((encoded, index) => {
+        const key = JSON.parse(encoded) as trickPalette.Key;
+        const agent = agents.find(a => a.account?.id === key);
+        return {
+          key,
+          label: agent?.account
+            ? adapter(agent.provider).name + " · " + agent.account.name
+            : typeof key === "string"
+              ? key
+              : encoded,
+          color: trickPalette.color(state, index),
+          override: state.overrides[index] !== null,
+        };
+      }),
+    };
+  }
   info(): trickConfig.Info {
     return {
       directory: this.root,
@@ -311,6 +347,7 @@ export class Host {
   }
   stop() {
     this.epoch++;
+    this.palettes.close();
     this.unwatch();
     return this.enqueue(() => this.stopProcesses());
   }
@@ -320,6 +357,13 @@ export class Host {
     return this.enqueue(async () => {
       if (epoch !== this.epoch) return;
       this.root = resolve(root);
+      if (process.env.CORGI_TRICKS_DIR === undefined) {
+        try {
+          trickDefaults.install(this.root);
+        } catch (error) {
+          log.warn("Cannot install default Tricks", { error });
+        }
+      }
       this.config = trickConfig.config(settings.read(settings.path(this.socket)).tricks);
       this.watch();
       await this.restart(null);
@@ -380,6 +424,7 @@ export class Host {
         });
         const exited = new Promise<void>(done => child.once("close", () => done()));
         const r: Running = {
+          palettes: new Set(),
           instance: crypto.randomUUID(),
           status,
           manifest: m,
@@ -465,7 +510,7 @@ export class Host {
         }
       }, 1000).unref();
   }
-  private receive(r: Running, line: string) {
+  private async receive(r: Running, line: string) {
     let id: string | number | null = null;
     try {
       const value = tricks.object(JSON.parse(line));
@@ -475,6 +520,15 @@ export class Host {
       const c = parsed.command;
       let result: unknown = null;
       switch (c.op) {
+        case "palette.define":
+          if (!r.palettes.has(c.name) && r.palettes.size >= 16) throw Error("TooManyPalettes");
+          r.palettes.add(c.name);
+          result = await this.palettes.define(r.manifest.id, c.name, c.colors, r.kv["palette." + c.name]);
+          break;
+        case "palette.assign":
+          if (!r.palettes.has(c.name)) throw Error("NoPalette");
+          result = await this.palettes.assign(trickPalette.reference(r.manifest.id, c.name), c.key);
+          break;
         case "ui.focus":
           if (!this.source().agents.some(agent => agent.id === c.agent)) throw Error("NoAgent");
           if (!this.focus) throw Error("NoViewer");

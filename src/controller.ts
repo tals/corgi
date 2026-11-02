@@ -4,6 +4,7 @@
 import * as trickUi from "./trick_ui";
 import * as tricks from "./tricks";
 import * as trickConfig from "./trick_config";
+import * as trickPalette from "./trick_palette";
 import { hostname } from "node:os";
 import { existsSync } from "node:fs";
 import { basename, isAbsolute } from "node:path";
@@ -4111,6 +4112,32 @@ export class Controller {
     this.dirty = true;
     if (apply === null) return;
     switch (apply.kind) {
+      case "trick_palette_open":
+      case "trick_palette_set": {
+        const setup = this.corgi_setup;
+        if (!setup) return;
+        try {
+          if (apply.kind === "trick_palette_open") {
+            setup.trick_palette_ref = apply.ref;
+            setup.trick_palette = apply.ref
+              ? trickPalette.info(await call(this.connection, "tricks.palette", { palette: apply.ref }))
+              : null;
+            setup.cursor = 0;
+          } else {
+            const reply = await call(this.connection, "tricks.palette.set", {
+              palette: apply.ref,
+              key: apply.key,
+              color: apply.color,
+              all: apply.all ?? false,
+            });
+            setup.trick_palette = trickPalette.info(reply);
+          }
+          setup.tricks_error = null;
+        } catch (error) {
+          setup.tricks_error = String(error);
+        }
+        return;
+      }
       case "language":
         this.prefs.language = apply.language;
         localeHost.initialize(apply.language);
@@ -4122,7 +4149,6 @@ export class Controller {
         }
         return;
       case "trick":
-      case "trick_autoreload":
       case "tricks_reload": {
         const setup = this.corgi_setup;
         if (!setup) return;
@@ -4130,11 +4156,7 @@ export class Controller {
           const reply =
             apply.kind === "tricks_reload"
               ? await call(this.connection, "tricks.reload", {})
-              : await call(
-                  this.connection,
-                  "tricks.configure",
-                  apply.kind === "trick" ? { id: apply.id, enabled: apply.enabled } : { autoreload: apply.on },
-                );
+              : await call(this.connection, "tricks.configure", { id: apply.id, enabled: apply.enabled });
           setup.tricks = trickConfig.info(reply);
           setup.tricks_error = null;
         } catch (error) {

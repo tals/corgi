@@ -1926,21 +1926,62 @@ test("Tricks settings show statuses, errors and durable toggle actions", () => {
       { id: "broken", path: "/tmp/tricks/broken/trick.toml", enabled: true, running: false, error: "HandlerDeadline" },
     ],
   };
-  expect(draw(menu, 120, 40).join("\n")).toContain("Reload on save");
+  const text = draw(menu, 120, 40).join("\n");
+  expect(text).not.toContain("Reload on save");
+  expect(text).not.toContain("Authoring help");
+  expect(text).toContain("[ Copy ]");
+  expect(text).toContain("/tmp/tricks");
+  expect(text).toContain("Development");
   expect(draw(menu, 120, 40).join("\n")).toContain("HandlerDeadline");
   menu.openOptions(s, prefs);
   menu.cursor = 0;
-  expect(menu.enter(s, prefs)).toEqual({ kind: "trick_autoreload", on: false });
-  menu.cursor = 1;
   expect(menu.enter(s, prefs)).toEqual({ kind: "trick", id: "account-colors", enabled: false });
   menu.tricks.tricks[0].enabled = false;
   expect(menu.enter(s, prefs)).toEqual({ kind: "trick", id: "account-colors", enabled: true });
-  menu.cursor = 3;
+  expect(draw(menu, 120, 40).join("\n")).toMatch(/account-colors\s+○ Off/);
+  menu.cursor = 2;
   expect(menu.enter(s, prefs)).toEqual({ kind: "tricks_reload" });
-  menu.cursor = 4;
+  menu.cursor = 3;
   expect(menu.enter(s, prefs)).toEqual({ kind: "copy", text: "/tmp/tricks" });
   menu.tricks.tricks = [];
   expect(draw(menu, 120, 40).join("\n")).toContain("No tricks installed yet.");
+});
+
+test("the automatic palette editor chooses colors, resets entries and returns to Tricks", () => {
+  const menu = Menu.open(),
+    s = status(),
+    prefs = new Preferences();
+  menu.item = "tricks";
+  menu.focus = "options";
+  menu.trick_palette_ref = "globals.accounts";
+  menu.trick_palette = {
+    ref: "globals.accounts",
+    entries: 1,
+    colors: ["warm", "accent"],
+    assignments: [{ key: "account-id", label: "Claude Code · Work", color: "warm", override: false }],
+  };
+  expect(draw(menu, 120, 40).join("\n")).toContain("Claude Code · Work");
+  menu.cursor = 1;
+  expect(menu.enter(s, prefs)).toBeNull();
+  const lines = draw(menu, 120, 40).join("\n");
+  expect(lines).toContain("Search colors");
+  expect(lines).not.toContain("Billing");
+  expect(menu.click({ choice: 2 }, s, prefs)).toEqual({
+    kind: "trick_palette_set",
+    ref: "globals.accounts",
+    key: "account-id",
+    color: "accent",
+  });
+  menu.cursor = 2;
+  expect(menu.enter(s, prefs)).toEqual({
+    kind: "trick_palette_set",
+    ref: "globals.accounts",
+    key: null,
+    color: null,
+    all: true,
+  });
+  expect(menu.escape()).toBe(true);
+  expect(menu.trick_palette_ref).toBeNull();
 });
 
 test("Tricks status refreshes only while visible and never overlaps pending requests", async () => {
@@ -1950,6 +1991,7 @@ test("Tricks status refreshes only while visible and never overlaps pending requ
   const conn = {
     call: transport(async op => {
       requests.push(op);
+      if (op === "tricks.palettes") return { palettes: [] };
       return new Promise<unknown>(resolve => {
         finish = resolve;
       });
@@ -1961,14 +2003,14 @@ test("Tricks status refreshes only while visible and never overlaps pending requ
   menu.item = "tricks";
   await menu.poll(conn, 100, 30, 0);
   await menu.poll(conn, 100, 30, 2000);
-  expect(requests).toEqual(["tricks.list"]);
+  expect(requests).toEqual(["tricks.list", "tricks.palettes"]);
   finish({ directory: "/tmp/tricks", tricks: [] });
   await Bun.sleep(0);
   expect(menu.tricks?.directory).toBe("/tmp/tricks");
   await menu.poll(conn, 100, 30, 500);
-  expect(requests).toHaveLength(1);
-  await menu.poll(conn, 100, 30, 2000);
   expect(requests).toHaveLength(2);
+  await menu.poll(conn, 100, 30, 2000);
+  expect(requests).toHaveLength(4);
   menu.close();
   finish({ directory: "/changed", tricks: [] });
   await Bun.sleep(0);

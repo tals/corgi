@@ -89,9 +89,19 @@ export function drawChoice(
   choice: string,
   on: boolean,
   here: boolean,
+  color?: Rgb,
 ): void {
   const p = fill(w, x, y, width, here);
-  drawValue(w, p, x, y, width, label, `${on ? "●" : "○"} ${choice} ▾`, on ? p.accent : p.quiet);
+  drawValue(
+    w,
+    p,
+    x,
+    y,
+    width,
+    label,
+    `${on ? "●" : "○"} ${choice} ▾`,
+    color ? palette.fgRgb(color) : on ? p.accent : p.quiet,
+  );
 }
 function drawValue(
   w: Writer,

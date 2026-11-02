@@ -11,6 +11,7 @@ import { Row } from "./launch/row";
 import { Entry as CommandEntry } from "./launch/command";
 import helpText from "../assets/cli-help.txt" with { type: "text" };
 import * as i18n from "./i18n";
+import * as trickPalette from "./trick_palette";
 import skill from "../assets/corgi-skill.md" with { type: "text" };
 import trickSkill from "../assets/corgi-tricks-skill.md" with { type: "text" };
 export const help = helpText;
@@ -30,7 +31,19 @@ const groups = new Set([
   "--skill",
 ]);
 const nested = new Set(["tricks", "tab", "pane", "workspace", "launcher"]);
-const flags = new Set(["json", "clear", "stdin", "enter", "new-tab", "first", "left", "right", "up", "down"]);
+const flags = new Set([
+  "json",
+  "key-json",
+  "clear",
+  "stdin",
+  "enter",
+  "new-tab",
+  "first",
+  "left",
+  "right",
+  "up",
+  "down",
+]);
 const options = new Set([
   ...flags,
   "model",
@@ -59,6 +72,7 @@ const options = new Set([
 const actions = new Set([
   "tricks.list",
   "tricks.reload",
+  "tricks.palette",
   "list",
   "current",
   "focus",
@@ -271,6 +285,33 @@ export async function parse(words: string[], caller = 0, input?: () => Promise<s
     command = { [op]: payload };
   };
   switch (action) {
+    case "tricks.palette": {
+      const op = args.next();
+      if (op === "list") {
+        set("tricks.palettes", {});
+        break;
+      }
+      const palette = args.next();
+      trickPalette.ref(palette);
+      if (op === "show") {
+        set("tricks.palette", { palette });
+        break;
+      }
+      if (op !== "set" && op !== "reset") throw Error("Usage");
+      const all = op === "reset" && args.positional.length === 0;
+      const encoded = args.flag("key-json"),
+        raw = all ? "" : args.next();
+      if (all && encoded) throw Error("Usage");
+      const key = all ? null : encoded ? JSON.parse(raw) : raw;
+      trickPalette.encode(key);
+      set("tricks.palette.set", {
+        palette,
+        key,
+        color: op === "set" ? trickPalette.parseColor(args.next()) : null,
+        all,
+      });
+      break;
+    }
     case "tricks.list":
     case "tricks.reload":
     case "list":
@@ -772,6 +813,38 @@ export async function run(path: string, args: string[], agent = false): Promise<
     lines = reading?.lines;
   if (reading) reading.lines = Math.min(lines + 1, 10000);
   try {
+    if (inv.action === "tricks.palette") {
+      const command = inv.command;
+      if (command["tricks.palettes"]) {
+        const reply = await conn.call("tricks.palettes");
+        process.stdout.write(
+          inv.json
+            ? stringify(reply) + "\n"
+            : reply.palettes.map(p => p.ref + "  " + p.entries + "\n").join("") || "No palettes yet.\n",
+        );
+      } else {
+        const reply = command["tricks.palette.set"]
+          ? await conn.call("tricks.palette.set", command["tricks.palette.set"])
+          : await conn.call("tricks.palette", command["tricks.palette"]);
+        process.stdout.write(
+          inv.json
+            ? stringify(reply) + "\n"
+            : reply.ref +
+                "\n" +
+                reply.assignments
+                  .map(
+                    a =>
+                      JSON.stringify(a.key) +
+                      "  " +
+                      trickPalette.colorText(a.color) +
+                      (a.override ? "  override" : "") +
+                      "\n",
+                  )
+                  .join(""),
+        );
+      }
+      return;
+    }
     if (inv.action === "tricks.list" || inv.action === "tricks.reload") {
       const reply = await conn.call(inv.action as "tricks.list" | "tricks.reload");
       process.stdout.write(

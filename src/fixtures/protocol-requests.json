@@ -4,6 +4,9 @@
   "tricks.reload": {},
   "tricks.configure": { "autoreload": false },
   "tricks.press": { "action": "instance.1", "viewer": 1 },
+  "tricks.palettes": {},
+  "tricks.palette": { "palette": "globals.accounts" },
+  "tricks.palette.set": { "palette": "globals.accounts", "key": "work", "color": "warm" },
   "session.command": {
     "command": {
       "pane.close": {

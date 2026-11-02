@@ -128,8 +128,10 @@ JSONL contract.
 `trick_host.ts` owns discovery, subscriptions and atomic per-runtime KV;
 `trick_budget.ts` bounds CPU and memory, and `trick_ui.ts` draws views.
 `trick_watch.ts` watches installed source folders with bounded, debounced native
-watchers and restarts only changed tricks. Settings → Tricks controls autoreload
-and per-runtime enablement; `trick_config.ts` normalizes its status and preferences.
+watchers and restarts only changed tricks. Settings → Tricks controls per-runtime
+enablement; its Development section rescans and restarts. `trick_config.ts`
+normalizes status and preferences. `trick_defaults.ts` seeds editable account
+colors once in the normal install folder, preserving user edits and removals.
 `corgi --skill tricks` serves the bundled authoring skill.
 `trick_runner.ts` caches patches from named UI hooks on agent metadata changes;
 terminal frames never run trick callbacks. `trick_elements.ts` builds bounded
@@ -140,9 +142,13 @@ the viewer that pressed them. `trick_markup.ts` parses bounded inline
 text and bundled icon references. `trick_style.ts` exposes symbolic palette
 colors, blends and brand references; viewers resolve them in their own themes
 and reuse the tab-logo image cache.
-`trick_palette.ts` maps stable keys to palette slots, caching lookups and
-persisting new assignments in the trick's KV store. Identity colors use the
-viewer's syntax palette, apart from UI status colors.
+`trick_palette.ts` caches stable keys to palette slots; `trick_palette_store.ts`
+persists assignments and user overrides separately from KV. Settings → Tricks
+and `corgi tricks palette` edit them without restarting Tricks. Names beginning
+with `globals.` share locked, atomic files across environments; native watchers
+deliver changes to running consumers. Other palettes belong to one Trick and
+runtime. Identity colors use the viewer's syntax palette, apart from UI status
+colors.
 Metadata is the default stream; transcripts require explicit opt-in and tap
 the existing usage reader without another watcher. Pane content is never sent.
 Viewers receive an optional `tricks` field; protocol 3 and saved formats are

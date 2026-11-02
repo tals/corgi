@@ -1,92 +1,117 @@
 import { expect, test } from "bun:test";
-import * as trickPalette from "./trick_palette";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import * as palette from "./trick_palette";
 import * as style from "./trick_style";
+import { Store } from "./trick_palette_store";
+async function eventually(read: () => Promise<unknown>, expected: unknown) {
+  const end = Date.now() + 2000;
+  let value: unknown;
+  while (JSON.stringify((value = await read())) !== JSON.stringify(expected) && Date.now() < end) await Bun.sleep(10);
+  expect(value).toEqual(expected);
+}
 
-function store() {
-  const values = new Map<string, unknown>();
-  let reads = 0,
-    writes = 0,
-    fail = false;
-  const io = {
-    async get(key: string) {
-      reads++;
-      return structuredClone(values.get(key));
-    },
-    async set(key: string, value: unknown) {
-      if (fail) throw Error("DiskFull");
-      writes++;
-      values.set(key, structuredClone(value));
-    },
+function fixture() {
+  const root = mkdtempSync(join(tmpdir(), "corgi-palettes-"));
+  const stores: Store[] = [];
+  const make = (runtime: string, owner: string) => {
+    let calls = 0;
+    const store = new Store(join(root, runtime), join(root, "global"), (ref, state) => {
+      const p = palette.ref(ref);
+      if (p.owner === null || p.owner === owner) maps.update(p.name, state);
+    });
+    stores.push(store);
+    const maps = palette.maps(async c => {
+      calls++;
+      if (c.op === "palette.define") return store.define(owner, c.name, c.colors);
+      if (c.op === "palette.assign") return store.assign(palette.reference(owner, c.name), c.key);
+      throw Error("UnexpectedCommand");
+    });
+    return { store, maps, calls: () => calls };
   };
   return {
-    values,
-    io,
-    counts: () => [reads, writes],
-    fail: (on: boolean) => {
-      fail = on;
+    root,
+    make,
+    close() {
+      for (const s of stores) s.close();
+      rmSync(root, { recursive: true, force: true });
     },
   };
 }
-
-test("palette maps distinguish accounts and providers, remember slots and avoid repeat I/O", async () => {
-  const s = store(),
-    map = trickPalette.maps(s.io)("accounts");
-  const keys = [
-    ["claude", ""],
-    ["claude", "/work"],
-    ["claude", "/client"],
-    ["codex", "/work"],
-  ];
-  const colors = await Promise.all(keys.map(map));
-  expect(colors).toEqual(style.palette.identity.slice(0, 4));
-  for (let i = 0; i < keys.length; i++) expect(await map(keys[i])).toEqual(colors[i]);
-  expect(s.counts()).toEqual([1, 4]);
-  const restored = trickPalette.maps(s.io)("accounts");
-  for (let i = keys.length - 1; i >= 0; i--) expect(await restored(keys[i])).toEqual(colors[i]);
-  expect(s.counts()).toEqual([2, 4]);
+test("local palettes keep durable slots and cached lookups, separately by Trick and runtime", async () => {
+  const f = fixture();
+  try {
+    const a = f.make("one", "a"),
+      map = a.maps("accounts");
+    expect(await Promise.all(["work", "home", "work"].map(map))).toEqual([
+      style.palette.identity[0],
+      style.palette.identity[1],
+      style.palette.identity[0],
+    ]);
+    expect(a.calls()).toBe(3);
+    const restored = f.make("one", "a").maps("accounts");
+    expect(await restored("home")).toEqual(style.palette.identity[1]);
+    expect(await f.make("one", "b").maps("accounts")("home")).toEqual(style.palette.identity[0]);
+    expect(await f.make("two", "a").maps("accounts")("home")).toEqual(style.palette.identity[0]);
+    expect(() => a.maps("accounts", ["warm"])).toThrow("PaletteAlreadyDefined");
+  } finally {
+    f.close();
+  }
 });
-
-test("custom palettes repeat after all slots are used, with separate mappings per name", async () => {
-  const s = store(),
-    maps = trickPalette.maps(s.io),
-    colors = [style.palette.syntax.type, style.palette.syntax.number];
-  const map = maps("projects", colors);
-  expect(maps("projects", colors)).toBe(map);
-  expect(await Promise.all(["a", "b", "a", "c"].map(map))).toEqual([colors[0], colors[1], colors[0], colors[0]]);
-  expect(s.counts()).toEqual([1, 3]);
-  expect(await maps("labels", colors)("b")).toEqual(colors[0]);
-  // Changing a palette on the next run keeps the saved slot, not a stale RGB value.
-  expect(await trickPalette.maps(s.io)("projects", [...colors].reverse())("b")).toEqual(colors[0]);
+test("global palettes share allocation and live overrides across runtimes without restarting maps", async () => {
+  const f = fixture();
+  try {
+    const a = f.make("one", "a"),
+      b = f.make("two", "b"),
+      left = a.maps("globals.accounts"),
+      right = b.maps("globals.accounts");
+    expect(await left("work")).toEqual(await right("work"));
+    const result = await Promise.all([left("home"), right("client")]);
+    expect(result[0]).not.toEqual(result[1]);
+    await b.store.set("globals.accounts", "work", "#cc8844");
+    await eventually(() => left("work"), "#cc8844");
+    await a.store.set("globals.accounts", "work", null);
+    await eventually(() => right("work"), style.palette.identity[0]);
+    expect(a.store.get("globals.accounts").keys).toHaveLength(3);
+    await expect(b.store.define("b", "globals.accounts", ["warm"])).rejects.toThrow("SharedPaletteConflict");
+    expect(await a.maps("globals.custom", ["warm", "accent"])("work")).toBe("warm");
+    expect(await b.maps("globals.custom")("home")).toBe("accent");
+  } finally {
+    f.close();
+  }
 });
-
-test("palette assignment commits only after a durable write and serializes concurrent calls", async () => {
-  const s = store(),
-    map = trickPalette.maps(s.io)("accounts");
-  s.fail(true);
-  await expect(map("failed")).rejects.toThrow("DiskFull");
-  expect(s.values.size).toBe(0);
-  s.fail(false);
-  expect(await Promise.all([map("same"), map("same"), map("other")])).toEqual([
-    style.palette.identity[0],
-    style.palette.identity[0],
-    style.palette.identity[1],
-  ]);
-  expect(s.counts()).toEqual([1, 2]);
+test("CLI overrides can precede a Trick, reset keeps slots, and legacy keys retain their assignments", async () => {
+  const f = fixture();
+  try {
+    const a = f.make("one", "a");
+    await a.store.set("a/accounts", ["provider", "work"], "warm");
+    const map = a.maps("accounts");
+    expect(await map(["provider", "work"])).toBe("warm");
+    expect(await map("other")).toEqual(style.palette.identity[1]);
+    await a.store.set("a/accounts", null, null, true);
+    expect(await map(["provider", "work"])).toEqual(style.palette.identity[0]);
+    await a.store.define("a", "legacy", [...style.palette.identity], { version: 1, keys: ['"first"', '"second"'] });
+    expect(await a.maps("legacy")("second")).toEqual(style.palette.identity[1]);
+  } finally {
+    f.close();
+  }
 });
-
-test("palette maps reject corrupt state, ambiguous keys and unbounded mappings", async () => {
-  const s = store(),
-    maps = trickPalette.maps(s.io);
-  expect(() => maps("empty", [])).toThrow("InvalidPalette");
-  const map = maps("accounts");
-  expect(() => maps("accounts", ["warm"])).toThrow("PaletteAlreadyDefined");
-  expect(() => map(NaN)).toThrow("InvalidPaletteKey");
-  expect(() => map("x".repeat(1025))).toThrow("PaletteKeyTooLarge");
-  s.values.set("palette.accounts", { version: 2, keys: [] });
-  await expect(map("one")).rejects.toThrow("InvalidPaletteStore");
-  expect(s.counts()).toEqual([1, 0]);
-  s.values.clear();
-  for (let i = 0; i < 256; i++) await map(i);
-  await expect(map(256)).rejects.toThrow("PaletteFull");
-  expect(await map(0)).toEqual(style.palette.identity[0]);
+test("palette limits and malformed stores fail without destroying saved choices", async () => {
+  const f = fixture();
+  try {
+    const a = f.make("one", "a"),
+      map = a.maps("bounded", ["warm", "accent"]);
+    expect(() => map(NaN)).toThrow("InvalidPaletteKey");
+    expect(() => map("x".repeat(1025))).toThrow("PaletteKeyTooLarge");
+    expect(() => a.maps("empty", [])).toThrow("InvalidPalette");
+    for (let i = 0; i < 256; i++) await map(i);
+    await expect(map(256)).rejects.toThrow("PaletteFull");
+    expect(await map(0)).toBe("warm");
+    const file = join(f.root, "one/a/bounded.json");
+    writeFileSync(file, "broken");
+    await expect(a.store.set("a/bounded", 0, "accent")).rejects.toThrow();
+  } finally {
+    f.close();
+  }
 });

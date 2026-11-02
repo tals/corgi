@@ -22,6 +22,7 @@ class Tricks extends Runtime {
   company!: string;
   seq = 0;
   async configure() {
+    this.env.CORGI_ENV_BASE = this.extraEnv.CORGI_ENV_BASE ?? this.temp.name;
     this.root = join(this.env.XDG_CONFIG_HOME!, "corgi/tricks");
     this.company = join(this.temp.name, "company");
     write_ordinary_agent(join(this.temp.name, "bin", "claude"));
@@ -90,6 +91,31 @@ class Tricks extends Runtime {
       );
     }
   }
+  async test_default_account_colors_install_and_keep_user_edits_and_disablement() {
+    rmSync(this.root, { recursive: true });
+    delete this.env.CORGI_TRICKS_DIR;
+    await this.restart_runtime();
+    const info = await this.rpc({ op: "tricks.list" });
+    this.assertEqual(
+      info.tricks.map((t: any) => t.id),
+      ["account-colors"],
+    );
+    const file = join(this.root, "account-colors/main.mjs");
+    const source = readFileSync(file, "utf8") + "\n// Personal customization\n";
+    writeFileSync(file, source);
+    const pane = await this.agent("Default colors");
+    await this.client!.focus(pane);
+    await this.until(async () => (await this.client!.poll()).data.includes(trickUi.fg({ syntax: "string" })));
+    const palette = JSON.parse(await this.run_cli("tricks", "palette", "show", "account-colors/accounts", "--json"));
+    this.assertEqual(palette.assignments.length, 1);
+    await this.run_cli("tricks", "palette", "set", palette.ref, palette.assignments[0].key, "#cc8844");
+    await this.until(async () => (await this.client!.poll()).data.includes(trickUi.fg("#cc8844")));
+    await this.rpc({ op: "tricks.configure", id: "account-colors", enabled: false });
+    await this.restart_runtime();
+    const restored = await this.rpc({ op: "tricks.list" });
+    this.assertEqual(restored.tricks[0].enabled, false);
+    this.assertEqual(readFileSync(file, "utf8"), source);
+  }
   async test_headless_accounts_reach_the_provider_and_trick_metadata() {
     const record = join(this.temp.name, "headless-account.json"),
       alias = join(this.temp.name, "company-alias");
@@ -109,10 +135,10 @@ class Tricks extends Runtime {
       this.assertEqual(JSON.parse(readFileSync(record + "." + session.pid, "utf8")), this.company);
       this.assertEqual(session.account, this.company);
     }
-    const store = this.path + ".settings.json.tricks/account-colors.json";
+    const store = this.path + ".settings.json.palettes/account-colors/accounts.json";
     await this.until(() => {
       if (!existsSync(store)) return false;
-      const keys = JSON.parse(readFileSync(store, "utf8")).values["palette.accounts"]?.keys ?? [];
+      const keys = JSON.parse(readFileSync(store, "utf8")).keys;
       return ["claude", "codex"].every(provider =>
         keys.includes(JSON.stringify(JSON.stringify([provider, this.company]))),
       );
@@ -237,14 +263,14 @@ export async function register(on, corgi) {
     await this.client!.request({ op: "size", cols: 120, rows: 40 });
     await this.client!.action("setup");
     await this.click_text(screen_text(await this.shown("Manage agents")), "Tricks");
-    await this.shown("Reload on save");
+    await this.shown("Development");
     await this.click_text(screen_text(await this.shown("completion-jar")), "completion-jar");
     await this.until(async () =>
       (await this.rpc({ op: "tricks.list" })).tricks.some(
         (t: any) => t.id === "completion-jar" && !t.enabled && !t.running,
       ),
     );
-    await this.click_text(screen_text(await this.shown("Reload on save")), "Reload on save");
+    await this.rpc({ op: "tricks.configure", autoreload: false });
     await this.until(async () => (await this.rpc({ op: "tricks.list" })).autoreload === false);
     await this.client!.input("\x1b\x1b");
     await this.restart_runtime();
@@ -270,6 +296,67 @@ export async function register(on, corgi) {
       'export function register(on, corgi) { corgi.draw("x", { kind: "overlay", text: "Watching after handoff" }); }',
     );
     await this.shown("Watching after handoff");
+  }
+  async test_palette_editor_and_cli_share_live_global_choices_across_runtimes() {
+    const ref = "globals.profile-colors",
+      key = "shared-profile",
+      code = [
+        "export async function register(on, corgi) {",
+        '  await corgi.set("pid", process.pid);',
+        '  const color = corgi.palette.map("globals.profile-colors");',
+        '  on("ui:agent.sidebar", async ({ ui }) => ui.marker(await color("shared-profile")));',
+        "}",
+      ].join("\n");
+    await this.run_cli("tricks", "palette", "set", ref, key, "#cc8844");
+    await this.sketch(code);
+    const first = await this.agent("Global colors");
+    await this.client!.focus(first);
+    const hasColor = async (runtime: Tricks, color: "accent" | "warm" | "#cc8844") =>
+      (await runtime.client!.poll()).data
+        .split(trickUi.fg(color))
+        .slice(1)
+        .some((tail: string) => /^(?:\x1b\[[0-9;]*m)*▌/.test(tail));
+    await this.until(() => hasColor(this, "#cc8844"));
+    const pidFile = this.path + ".settings.json.tricks/probe.json";
+    const pid = JSON.parse(readFileSync(pidFile, "utf8")).values.pid;
+    const other = new Tricks();
+    other.extraEnv.CORGI_ENV_BASE = this.temp.name;
+    await other.setUp();
+    try {
+      await other.sketch(code);
+      const second = await other.agent("Other runtime");
+      await other.client!.focus(second);
+      await other.until(() => hasColor(other, "#cc8844"));
+      await Promise.all([
+        this.run_cli("tricks", "palette", "set", ref, "one", "warm"),
+        other.run_cli("tricks", "palette", "set", ref, "two", "accent"),
+      ]);
+      const listed = JSON.parse(await other.run_cli("tricks", "palette", "show", ref, "--json"));
+      this.assertEqual(new Set(listed.assignments.map((a: any) => a.key)), new Set([key, "one", "two"]));
+      await other.run_cli("tricks", "palette", "set", ref, key, "accent");
+      await this.until(() => hasColor(this, "accent"));
+      this.assertEqual(JSON.parse(readFileSync(pidFile, "utf8")).values.pid, pid);
+      await this.client!.request({ op: "size", cols: 120, rows: 40 });
+      await this.client!.action("setup");
+      await this.click_text(screen_text(await this.shown("Manage agents")), "Tricks");
+      await this.click_text(screen_text(await this.shown(ref)), ref);
+      await this.click_text(screen_text(await this.shown(key)), key);
+      await this.click_text(screen_text(await this.shown("Search colors")), "● warm");
+      await other.until(() => hasColor(other, "warm"));
+      const changed = JSON.parse(await other.run_cli("tricks", "palette", "show", ref, "--json"));
+      this.assertEqual(changed.assignments.find((a: any) => a.key === key).color, "warm");
+      await other.run_cli("tricks", "palette", "reset", ref, key);
+      await this.until(async () => {
+        const state = await this.rpc({ op: "tricks.palette", palette: ref });
+        return state.assignments.find((a: any) => a.key === key)?.override === false;
+      });
+      await this.restart_runtime();
+      const saved = JSON.parse(await this.run_cli("tricks", "palette", "show", ref, "--json"));
+      this.assertEqual(saved.assignments.map((a: any) => a.key).sort(), [key, "one", "two"].sort());
+      this.assertEqual(saved.assignments.find((a: any) => a.key === key).override, false);
+    } finally {
+      await other.tearDown();
+    }
   }
 
   async test_typescript_entries_transcripts_opt_in_and_handler_failure_cleanup() {
@@ -487,11 +574,11 @@ export async function register(on, corgi) {
     const client = await this.agent("Client", alias);
     await this.agent("Company again", true);
     await this.client!.focus(personal);
-    const store = this.path + ".settings.json.tricks/account-colors.json";
+    const store = this.path + ".settings.json.palettes/account-colors/accounts.json";
     const expected = [realpathSync(this.env.CLAUDE_CONFIG_DIR!), this.company, realpathSync(folder)].map(account =>
       JSON.stringify(JSON.stringify(["claude", account])),
     );
-    const assignments = () => JSON.parse(readFileSync(store, "utf8")).values["palette.accounts"].keys;
+    const assignments = () => JSON.parse(readFileSync(store, "utf8")).keys;
     const shown = async () => {
       const data = (await this.client!.poll()).data;
       return [

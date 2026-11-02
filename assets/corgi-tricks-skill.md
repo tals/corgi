@@ -37,9 +37,10 @@ TOML identifies and launches the program; behavior and subscriptions belong in
 code. Source, JSON and TOML saves reload only the affected trick by default.
 Relative imports within the folder are watched too. Dependency and build folders,
 hidden directories and nested directory symlinks are excluded; watches are bounded.
-Use `corgi tricks reload` after changing external imports or when autoreload is off.
-`corgi tricks list --json` reports failures. Settings → Tricks controls enablement,
-autoreload and manual reload. Runtime settings override a manifest's `enabled` value.
+Use `corgi tricks reload` after changing external imports.
+`corgi tricks list --json` reports failures. Settings → Tricks controls enablement
+and palettes; Development → Restart rescans and restarts. The folder's Copy
+button copies its full path. Runtime settings override a manifest's `enabled` value.
 
 ## Edit the existing UI
 
@@ -97,11 +98,17 @@ Pass a custom palette as the second argument, for example
 `corgi.palette.map("projects", [corgi.palette.syntax.string, corgi.palette.syntax.type])`.
 These references follow each viewer's theme. Palette slots, rather than RGB
 values, are saved; changing the palette on the next run recolors the slots.
-Names are private to this trick/runtime. Leave `palette.*` KV keys to Corgi.
-Mappings are capped at 16 per trick, 256 keys each, 32 colors and 1 KiB per key,
-within the same 64 KiB KV budget.
+Names are private to this Trick/runtime. `globals.NAME` shares across all Tricks
+and all Corgi environments. A shared palette keeps its original color array;
+other callers can omit the array to inherit it. Mappings are capped at 16 per
+Trick, 256 keys each, 32 colors and 1 KiB per key, with 64 KiB per palette file.
+Earlier local `palette.*` KV assignments are imported automatically.
 
 ## Save account preferences
+
+The account-colors Trick is installed by default in the normal Tricks folder.
+It is editable user code; existing edits and deliberate removals are preserved.
+Custom `CORGI_TRICKS_DIR` folders are managed explicitly.
 
 `agent.account` is `{ id, name, directory, loginId, email, type, plan, usage }`
 or `null` when unresolved. `id` is a general profile lookup key. `loginId` is
@@ -120,24 +127,27 @@ the pane's `agent.account` in `corgi rpc '{"op":"session.snapshot"}'`.
 `agent.env` exposes only that agent's `CORGI_` variables; account discovery
 does not require reading environment variables or files in a Trick.
 
-```js
-export async function register(on, corgi) {
-  const colors = await corgi.get("colors", {});
-  const key = agent => agent.account.id;
-  on("ui:agent.sidebar", ({ agent, ui }) => {
-    if (!agent.account) return;
-    if (colors[key(agent)]) ui.marker(colors[key(agent)]);
-  });
-  on("ui:agent.popover", ({ agent, ui }) => {
-    if (!agent.account) return;
-    ui.append(ui.button("Warm", async () => {
-      const next = { ...colors, [key(agent)]: corgi.palette.warm };
-      await corgi.set("colors", next);
-      Object.assign(colors, next);
-    }));
-  });
-}
+Corgi provides the editor under Settings → Tricks → Palettes. No buttons or
+settings code are needed in the Trick. Changes repaint running Tricks and
+shared palettes update in other environments without restarting them.
+
+Agents can configure the same mappings through the CLI, including keys that
+have not appeared yet:
+
+```sh
+corgi tricks palette list --json
+corgi tricks palette show account-colors/accounts --json
+corgi tricks palette set globals.accounts 'ACCOUNT_ID' syntax.type
+corgi tricks palette set globals.accounts 'ACCOUNT_ID' '#cc8844'
+corgi tricks palette reset globals.accounts 'ACCOUNT_ID'
+corgi tricks palette reset globals.accounts
 ```
+
+Use `TRICK/NAME` for private palettes and `globals.NAME` for shared ones.
+Keys are strings unless `--key-json` is supplied. Colors accept theme tokens,
+`syntax.NAME`, `brand.NAME`, hex colors or JSON color expressions. `--json`
+returns structured replies. Reset removes overrides and keeps automatic slots.
+Do not edit palette files directly; the API locks and saves them atomically.
 
 `await corgi.get(key, fallback)`, `set(key, json)` and `delete(key)` use a private,
 atomic store per runtime and trick ID, capped at 64 KiB. Await writes before

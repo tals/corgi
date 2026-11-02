@@ -45,8 +45,16 @@ await ghostty.capture(
       d.move(109, 31);
       d.sandbox!.run([d.sandbox!.exe, "action", "setup"]);
       await d.settle();
-      d.key(...Array(8).fill("Down"));
+      d.key(...Array(9).fill("Down"));
       await d.screenshot(join(out, "tricks-settings.png"));
+      d.key("Return");
+      await d.settle();
+      d.key(...Array(5).fill("Down"));
+      await d.settle();
+      d.key("Return");
+      await d.settle();
+      d.key("Down", "Return");
+      await d.screenshot(join(out, "tricks-palettes.png"));
     },
   },
 );
