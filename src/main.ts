@@ -504,7 +504,7 @@ export function failure(args: string[], error: unknown): string {
     case "UnknownCommand":
       return `corgi: unknown command ${args[0]}; see corgi --help\n`;
     case "ServerUnreachableFromPane":
-      return "corgi: can't reach the Corgi server this pane belongs to; not starting another one from inside a pane.\n";
+      return `corgi: can't reach the Corgi server at ${os.socketPath()}, and won't start one from inside a Corgi pane.\n`;
     case "IncompatibleViewerProtocol":
     case "UnsupportedViewerProtocol":
       return `corgi: this viewer is incompatible with the server (requires viewer protocol ${protocol.viewer_version}). The server may have changed during a restart. Reattach using the same Corgi version as the server.\n`;

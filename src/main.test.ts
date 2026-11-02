@@ -65,7 +65,9 @@ test("a command inside a pane never replaces an unreachable daemon", async () =>
   try {
     await expect(ensureServer(path, "/nonexistent/corgi")).rejects.toThrow("ServerUnreachableFromPane");
     expect(existsSync(path)).toBe(true);
-    expect(failure(["headless"], Error("ServerUnreachableFromPane"))).toContain("from inside a pane");
+    expect(failure(["headless"], Error("ServerUnreachableFromPane"))).toBe(
+      `corgi: can't reach the Corgi server at ${process.env.CORGI_SOCKET}, and won't start one from inside a Corgi pane.\n`,
+    );
   } finally {
     if (previous === undefined) delete process.env.CORGI_PANE;
     else process.env.CORGI_PANE = previous;
