@@ -1,7 +1,10 @@
+import * as language from "./language";
 import * as moonlander from "../src/moonlander/moonlander";
 import * as scene from "../src/moonlander/scene";
 import * as faces from "../src/moonlander/faces";
 import * as hull from "../src/moonlander/hull";
+
+language.rememberChoices();
 
 const css = getComputedStyle(document.documentElement);
 const C = Object.fromEntries(["bg", "surface", "selected", "line", "faint", "muted", "text", "strong", "accent", "warm", "hot"].map(n => [n, css.getPropertyValue("--"+n).trim()]));
@@ -200,6 +203,7 @@ function frame(now) {
 }
 const KEY = {ArrowUp:"thrust",KeyW:"thrust",Space:"thrust",ArrowLeft:"left",KeyA:"left",ArrowRight:"right",KeyD:"right",ArrowDown:"cut",KeyS:"cut",Enter:"advance",KeyP:"pause",KeyR:"restart",KeyQ:"restart",Escape:"restart"};
 addEventListener("keydown",e => {
+  if (e.target instanceof Element && e.target.closest(".language-picker")) return;
   if (!engine || e.metaKey || e.ctrlKey || e.altKey) return;
   const input = KEY[e.code];
   if (!input) return;

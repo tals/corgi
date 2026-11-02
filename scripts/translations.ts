@@ -6,7 +6,16 @@ import { styleText } from "node:util";
 import * as tooling from "./tooling";
 import * as locale from "../src/locale";
 
-type Message = { source: string; parts: string[]; names: string[]; locations: string[]; shell: boolean; js: boolean };
+type Message = {
+  source: string;
+  parts: string[];
+  names: string[];
+  locations: string[];
+  shell: boolean;
+  js: boolean;
+  markup?: boolean;
+};
+type Target = "app" | "site";
 type Plural = { plural: string; forms: Partial<Record<Intl.LDMLPluralRule, string>> };
 type Translation = string | Plural;
 type Catalog = Record<string, Translation>;
@@ -28,8 +37,11 @@ const displays: Record<string, string[]> = {
   "src/shortcut_help.ts": ["heading", "group", "binding", "action", "featured", "alsoHeld", "pair"],
 };
 
-function sources(root: string): string[] {
-  return [...new Bun.Glob("src/**/*.ts").scanSync(root)]
+function sources(root: string, target: Target): string[] {
+  const patterns = target === "site" ? ["site/**/*.{ts,js}", "tools/site_frames.ts"] : ["src/**/*.ts"];
+  return patterns
+    .flatMap(pattern => [...new Bun.Glob(pattern).scanSync(root)])
+    .filter(path => target !== "site" || (!/\/(?:dist|\.generated)\//.test(path) && path !== "site/i18n.ts"))
     .filter(path => !/\.(?:test|generated|d)\.ts$/.test(path))
     .sort();
 }
@@ -40,7 +52,8 @@ type Found =
   | { kind: "document"; path: string; location: string }
   | { kind: "error"; error: string };
 type Scans = { script: string; files: Record<string, { hash: string; found: Found[] }> };
-const scanCache = (root: string) => join(root, ".tools/i18n/scan.json");
+const scanCache = (root: string, target: Target) =>
+  join(root, `.tools/i18n/${target === "site" ? "site-" : ""}scan.json`);
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
 
 async function typescript(): Promise<any> {
@@ -122,11 +135,16 @@ function parse(ts: any, root: string, path: string, text: string): Found[] {
 }
 
 /** Finds every marked message, parsing only the files that changed since the last scan. */
-async function scan(root: string, cache = true): Promise<{ messages: Message[]; errors: string[] }> {
+async function scan(root: string, target: Target, cache = true): Promise<{ messages: Message[]; errors: string[] }> {
   const messages = new Map<string, Message>(),
     shapes = new Map<string, string>(),
     errors: string[] = [];
-  function add(parts: string[], names: string[], location: string, shell = false): void {
+  // Site catalogs inherit shared messages without scanning app sources again.
+  const inherited = target === "site" ? readCatalog(root, "zh") : null;
+  if (inherited)
+    for (const source of Object.keys(inherited))
+      shapes.set(JSON.stringify(source.split(/\$\{[A-Za-z_$][\w$]*\}/)), source);
+  function add(parts: string[], names: string[], location: string, shell = false, markup = false): void {
     if (parts.some(part => /\$\{/.test(part))) {
       errors.push(`${location}: literal \u0024{ is reserved for named translation placeholders`);
       return;
@@ -142,18 +160,28 @@ async function scan(root: string, cache = true): Promise<{ messages: Message[]; 
       found.locations.push(location);
       found.shell ||= shell;
       found.js ||= !shell;
-    } else messages.set(source, { source, parts, names, locations: [location], shell, js: !shell });
+      if (markup) found.markup = true;
+    } else
+      messages.set(source, {
+        source,
+        parts,
+        names,
+        locations: [location],
+        shell,
+        js: !shell,
+        ...(markup ? { markup } : {}),
+      });
   }
   const script = hash(readFileSync(import.meta.path, "utf8"));
   let previous: Scans = { script, files: {} };
   try {
-    const cached = JSON.parse(readFileSync(scanCache(root), "utf8"));
+    const cached = JSON.parse(readFileSync(scanCache(root, target), "utf8"));
     if (cache && cached?.script === script) previous = cached;
   } catch {}
   const next: Scans = { script, files: {} };
   let ts: any = null,
     changed = false;
-  for (const path of sources(root)) {
+  for (const path of sources(root, target)) {
     const text = readFileSync(join(root, path), "utf8");
     // Tags come from an i18n import, so other files can't mark anything.
     if (!text.includes("i18n") && !(path in displays)) continue;
@@ -175,16 +203,16 @@ async function scan(root: string, cache = true): Promise<{ messages: Message[]; 
       }
     } catch (error) {
       if (!cached) throw error;
-      console.error(`Ignoring a damaged translation scan cache (${scanCache(root)}): ${error}`);
-      return scan(root, false);
+      console.error(`Ignoring a damaged translation scan cache (${scanCache(root, target)}): ${error}`);
+      return scan(root, target, false);
     }
   }
   if (changed || Object.keys(previous.files).length !== Object.keys(next.files).length)
     try {
-      write(scanCache(root), JSON.stringify(next));
+      write(scanCache(root, target), JSON.stringify(next));
     } catch {}
   const installer = join(root, "scripts/install.sh.in");
-  if (existsSync(installer)) {
+  if (target === "app" && existsSync(installer)) {
     const source = readFileSync(installer, "utf8");
     for (const match of source.matchAll(/\bmsg\s+'([^']*)'/g)) {
       const value = match[1],
@@ -200,16 +228,26 @@ async function scan(root: string, cache = true): Promise<{ messages: Message[]; 
       add(parts, names, `scripts/install.sh.in:${source.slice(0, match.index).split("\n").length}`, true);
     }
   }
+  if (target === "site") {
+    // The app's dev workflow never loads HTML tooling or reads site files.
+    const html = await import("./html_translations");
+    for (const path of new Bun.Glob("site/*.html").scanSync(root))
+      await html.transform(readFileSync(join(root, path), "utf8"), (source, markup) => {
+        add([source], [], path, false, markup);
+        return source;
+      });
+    for (const source of Object.keys(inherited!)) messages.delete(source);
+  }
   const ordered = [...messages.values()].sort((a, b) => (a.source < b.source ? -1 : a.source > b.source ? 1 : 0));
   return { messages: ordered, errors };
 }
 
-function catalogPath(root: string, language: locale.TranslatedLocale): string {
-  return join(root, "locales", `${language}.json`);
+function catalogPath(root: string, language: locale.TranslatedLocale, target: Target = "app"): string {
+  return join(root, target === "site" ? "site/locales" : "locales", `${language}.json`);
 }
 
-function readCatalog(root: string, language: locale.TranslatedLocale): Catalog {
-  const path = catalogPath(root, language);
+function readCatalog(root: string, language: locale.TranslatedLocale, target: Target = "app"): Catalog {
+  const path = catalogPath(root, language, target);
   let value: unknown = {};
   if (existsSync(path))
     try {
@@ -226,12 +264,13 @@ function validate(
   root: string,
   messages: Message[],
   catalogs: Catalogs,
+  target: Target,
 ): { problems: Report["problems"]; valid: Catalogs } {
   const problems: Report["problems"] = [],
     known = new Set(messages.map(message => message.source)),
     valid = {} as Catalogs;
   for (const language of locale.translated) {
-    const path = catalogPath(root, language),
+    const path = catalogPath(root, language, target),
       catalog = catalogs[language];
     valid[language] = {};
     for (const key of Object.keys(catalog))
@@ -265,6 +304,12 @@ function validate(
           problem("invalid", `${path}: placeholder mismatch for ${quoted} ${category}`);
         if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(translated))
           problem("invalid", `${path}: control character in ${quoted}`);
+        if (message.markup) {
+          // Reordering inline elements is allowed; changing links or attributes is not.
+          const markup = (value: string) => JSON.stringify((value.match(/<[^>]*>/g) ?? []).sort());
+          if (markup(message.source) !== markup(translated))
+            problem("invalid", `${path}: HTML markup mismatch for ${quoted}`);
+        }
       };
       if (typeof entry === "string") check(entry);
       else if (
@@ -315,9 +360,9 @@ function shellPrint(value: string, names: string[]): string {
 }
 
 /** Formats the generated JS like the rest of the tree. Prettier is slow, so its output is cached by input. */
-async function format(root: string, js: string): Promise<string> {
-  const path = join(root, outputs[0]),
-    cache = join(root, ".tools/i18n/format.json"),
+async function format(root: string, js: string, target: Target): Promise<string> {
+  const path = join(root, target === "site" ? "site/i18n.generated.ts" : outputs[0]),
+    cache = join(root, `.tools/i18n/${target === "site" ? "site-" : ""}format.json`),
     key = hash(js);
   try {
     const cached = JSON.parse(readFileSync(cache, "utf8"));
@@ -332,9 +377,18 @@ async function format(root: string, js: string): Promise<string> {
 }
 
 /** The generated files' contents. Messages without a valid translation are left out, so they show in English. */
-async function render(root: string, messages: Message[], valid: Catalogs): Promise<Record<string, string>> {
+async function render(
+  root: string,
+  messages: Message[],
+  valid: Catalogs,
+  target: Target,
+): Promise<Record<string, string>> {
   let js =
     '// Generated by bun scripts/translations.ts generate. Do not edit.\nimport { plural } from "./locale";\nimport type { TranslatedLocale } from "./locale";\nexport type Value = string | number | bigint;\nexport type Message = (...values: Value[]) => string;\nexport const messages: Record<TranslatedLocale, Record<string, Message>> = {\n';
+  if (target === "site")
+    js = js
+      .replace("translations.ts generate", "translations.ts generate --site")
+      .replaceAll('"./locale"', '"../src/locale"');
   for (const language of locale.translated) {
     js += `${JSON.stringify(language)}: {\n`;
     for (const message of messages) {
@@ -353,6 +407,7 @@ async function render(root: string, messages: Message[], valid: Catalogs): Promi
     js += "},\n";
   }
   js += "};\n";
+  if (target === "site") return { "site/i18n.generated.ts": await format(root, js, target) };
   let shell =
     "# Generated by bun scripts/translations.ts generate. Do not edit.\n" +
     readFileSync(join(root, "scripts/locale.sh"), "utf8") +
@@ -365,7 +420,7 @@ async function render(root: string, messages: Message[], valid: Catalogs): Promi
     }
   }
   shell += '    *) printf "%s" "$i18n_source";;\n  esac\n}\n';
-  return { [outputs[0]]: await format(root, js), [outputs[1]]: shell };
+  return { [outputs[0]]: await format(root, js, target), [outputs[1]]: shell };
 }
 
 /** Replaces the file whole, so a build or typecheck reading it alongside never sees it half-written. */
@@ -377,23 +432,29 @@ function write(path: string, contents: string): void {
 }
 
 /** Scans the sources and reads the catalogs; catalogs is null when source errors stop the rest. */
-async function load(root: string): Promise<{ report: Report; messages: Message[]; catalogs: Catalogs | null }> {
-  const found = await scan(root);
+async function load(
+  root: string,
+  target: Target,
+): Promise<{ report: Report; messages: Message[]; catalogs: Catalogs | null }> {
+  const found = await scan(root, target);
   const report: Report = { messages: found.messages.length, errors: found.errors, problems: [] };
   if (found.errors.length) return { report, messages: found.messages, catalogs: null };
   const catalogs = Object.fromEntries(
-    locale.translated.map(language => [language, readCatalog(root, language)]),
+    locale.translated.map(language => [language, readCatalog(root, language, target)]),
   ) as Catalogs;
   return { report, messages: found.messages, catalogs };
 }
 
 /** Loads, validates and renders once; files is null when source errors stop generation. */
-async function analyze(root: string): Promise<{ report: Report; files: Record<string, string> | null }> {
-  const { report, messages, catalogs } = await load(root);
+async function analyze(
+  root: string,
+  target: Target = "app",
+): Promise<{ report: Report; files: Record<string, string> | null }> {
+  const { report, messages, catalogs } = await load(root, target);
   if (!catalogs) return { report, files: null };
-  const { problems, valid } = validate(root, messages, catalogs);
+  const { problems, valid } = validate(root, messages, catalogs, target);
   report.problems = problems;
-  return { report, files: await render(root, messages, valid) };
+  return { report, files: await render(root, messages, valid, target) };
 }
 
 function stale(root: string, files: Record<string, string>): Report["problems"] {
@@ -402,42 +463,46 @@ function stale(root: string, files: Record<string, string>): Report["problems"] 
     .map(([path]) => ({
       kind: "stale",
       subject: path,
-      error: `${path}: stale generated translations; run bun run i18n generate`,
+      error: `${path}: stale generated translations; run bun run i18n generate${path.startsWith("site/") ? " --site" : ""}`,
     }));
 }
 
 /** Checks sources, catalogs and generated files without changing tracked files (caches go in .tools/i18n). */
-export async function check(root = project): Promise<Report> {
-  const { report, files } = await analyze(root);
+export async function check(root = project, target: Target = "app"): Promise<Report> {
+  const { report, files } = await analyze(root, target);
   if (files) report.problems.push(...stale(root, files));
   return report;
 }
 
 /** Writes the generated files from whatever translations are valid. */
-export async function generate(root = project): Promise<Report> {
-  const { report, files } = await analyze(root);
+export async function generate(root = project, target: Target = "app"): Promise<Report> {
+  const { report, files } = await analyze(root, target);
   for (const [path, contents] of Object.entries(files ?? {})) write(join(root, path), contents);
   return report;
 }
 
 /** Adds new messages to every catalog, with blank translations, and drops unused ones. */
-export async function extract(root = project): Promise<Report> {
-  const { report, messages, catalogs } = await load(root);
+export async function extract(root = project, target: Target = "app"): Promise<Report> {
+  const { report, messages, catalogs } = await load(root, target);
   if (!catalogs) return report;
   for (const language of locale.translated) {
     const next = Object.fromEntries(
       messages.map(message => [message.source, catalogs[language][message.source] ?? ""]),
     );
-    write(catalogPath(root, language), JSON.stringify(next, null, 2) + "\n");
+    write(catalogPath(root, language, target), JSON.stringify(next, null, 2) + "\n");
   }
-  write(join(root, ".tools/i18n/messages.json"), JSON.stringify(messages, null, 2) + "\n");
+  write(
+    join(root, `.tools/i18n/${target === "site" ? "site-" : ""}messages.json`),
+    JSON.stringify(messages, null, 2) + "\n",
+  );
   return report;
 }
 
 const dim = (text: string) => styleText("dim", text, { stream: process.stderr });
 
 /** Counts each kind of problem, with what to do about it, for a short warning. */
-export function summary(report: Report): string {
+export function summary(report: Report, target: Target = "app"): string {
+  const flag = target === "site" ? " --site" : "";
   const count = (kind: Problem) =>
     new Set(report.problems.filter(problem => problem.kind === kind).map(problem => problem.subject)).size;
   const line = (size: number, one: string, many: string) => (size ? [`${size} ${size === 1 ? one : many}`] : []);
@@ -449,8 +514,8 @@ export function summary(report: Report): string {
   ];
   return [
     ...["Translations incomplete:", ...found.map(text => `  • ${text}`)].map(dim),
-    ...(missing || unused ? [`${dim("Run")} bun run i18n extract ${dim("and fill in the new entries.")}`] : []),
-    ...(invalid ? [`${dim("Fix the malformed entries;")} bun run i18n check ${dim("lists them.")}`] : []),
+    ...(missing || unused ? [`${dim("Run")} bun run i18n extract${flag} ${dim("and fill in the new entries.")}`] : []),
+    ...(invalid ? [`${dim("Fix the malformed entries;")} bun run i18n check${flag} ${dim("lists them.")}`] : []),
     dim("See locales/README.md."),
     "",
   ].join("\n");
@@ -490,27 +555,31 @@ if (import.meta.main) {
   const command = process.argv[2] ?? "check",
     rootIndex = process.argv.indexOf("--root"),
     root = rootIndex < 0 ? project : resolve(process.argv[rootIndex + 1]);
+  const target: Target = process.argv.includes("--site") ? "site" : "app";
   let report: Report;
   switch (command) {
     case "check":
-      report = await check(root);
+      report = await check(root, target);
       break;
     case "generate":
-      report = await generate(root);
+      report = await generate(root, target);
       break;
     case "extract":
-      report = await extract(root);
+      report = await extract(root, target);
       break;
     default:
-      console.error("Usage: bun run i18n [check|generate|extract] [--root DIR]");
+      console.error("Usage: bun run i18n [check|generate|extract] [--site] [--root DIR]");
       process.exit(2);
   }
   for (const error of report.errors) console.error(error);
   if (report.errors.length) process.exit(1);
-  if (command === "extract") console.log(`Extracted ${report.messages} messages into locales/{zh,ja,ko,ru}.json`);
+  if (command === "extract")
+    console.log(
+      `Extracted ${report.messages} messages into ${target === "site" ? "site/locales" : "locales"}/{zh,ja,ko,ru}.json`,
+    );
   else if (command === "generate") {
     console.log(`Generated ${report.messages} messages in ${locale.translated.length} languages`);
-    if (report.problems.length) console.error(summary(report));
+    if (report.problems.length) console.error(summary(report, target));
   } else {
     for (const problem of report.problems) console.error(problem.error);
     if (report.problems.length) process.exit(1);

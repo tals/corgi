@@ -148,6 +148,25 @@ in `site/icons/`. Keep them on one row on mobile; `omp` uses the short command
 name. Build with `bun run landingpage:build` and preview with
 `bun run landingpage:start`.
 
+The site serves `/en/`, `/zh/`, `/ja/`, `/ko/` and `/ru/`, with a saved
+language picker and browser-language detection at `/`. Its interactive
+panels use the application's translations; recordings use the same renderer
+in each language. Site translation work is opt-in and never runs in the
+application's normal translation, build or typecheck loop:
+
+```sh
+bun run i18n extract --site
+# Translate new entries in site/locales/{zh,ja,ko,ru}.json.
+bun run i18n generate --site
+bun tools/site_frames.ts --all-languages
+```
+
+`bun run i18n check --site` validates site messages and
+`bun tools/site_frames.ts --all-languages --check` rejects stale recordings.
+A separate CI job runs these, the site tests and the static site build.
+Record just one locale with `--language ja` while iterating. Each built page
+contains only its own recordings; `site/.generated/` remains disposable.
+
 ## Try the UI
 
 ```sh

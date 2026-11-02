@@ -58,6 +58,27 @@ jobs:
           path: build.tgz
           retention-days: 3
 
+  site:
+    name: site translations and recordings
+    if: inputs.os == 'ubuntu-latest'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: build-${{ inputs.os }}
+      - run: tar -xzf build.tgz
+      - run: bun scripts/translations.ts check --site
+      - run: bun tools/site_frames.ts --all-languages --check
+      - run: bun test site
+      - run: bun run landingpage:build
+
   integration:
     name: integration (${{ matrix.shard }}/4)
     needs: build

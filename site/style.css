@@ -161,7 +161,7 @@ h1 { margin: 0; font-size: 48px; line-height: 1.05; font-weight: 700; color: var
 .band { grid-column: 1 / -1; container-type: inline-size; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; gap: 8px; }
 .band > h2 { justify-self: stretch; }
 .band > p, .band .line p { margin: 0; color: var(--muted); }
-.band > p code { color: var(--text); }
+.band > p code { color: var(--text); white-space: nowrap; }
 /* Hackable: a terminal beside Corgi, sized together as one 150-column
    screen, or stacked once they stop fitting. The terminal's blinking
    cursor says it has the keys. */
@@ -270,7 +270,7 @@ h1 { margin: 0; font-size: 48px; line-height: 1.05; font-weight: 700; color: var
   .works-with a { gap: 0.5ch; }
   .works-with img { width: 1em; height: 1em; }
 }
-.band > .legend { font-size: inherit; color: var(--muted); }
+.band > .legend { justify-content: center; font-size: inherit; color: var(--muted); }
 @media (max-width: 600px) {
   .band > .legend { font-size: 13px; gap: 2px 2ch; }
 }
@@ -374,6 +374,7 @@ h1 { margin: 0; font-size: 48px; line-height: 1.05; font-weight: 700; color: var
 .credits .name a:hover { color: var(--accent); }
 .credits .and { color: var(--faint); font-weight: 400; }
 .credits p { margin: auto 0 0; font-size: 14px; line-height: 1.55; color: var(--muted); }
+.credits p a { white-space: nowrap; }
 .credits p.aside { display: flex; align-items: center; gap: 0.75ch; margin-top: -8px; font-size: 12px; color: var(--faint); }
 .credits .aside svg { flex: none; width: 14px; height: 14px; }
 .testers { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin: 6px 0 0; padding: 0; list-style: none; }
@@ -392,3 +393,7 @@ h1 { margin: 0; font-size: 48px; line-height: 1.05; font-weight: 700; color: var
   .credits p { font-size: 13px; }
   .thanks .sleeper { font-size: 18px; }
 }
+
+/* Wide glyphs occupy two terminal columns; the trailing cell keeps its index. */
+.screen .r > span.wide { flex-basis: calc(2 * var(--cell)); width: calc(2 * var(--cell)); }
+.screen .r > span.continuation { flex-basis: 0; width: 0; overflow: hidden; }

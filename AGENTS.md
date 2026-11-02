@@ -29,17 +29,19 @@ See [HACKING.md](HACKING.md) for development workflows and architecture.
   `serve` keeps one running for an agent to drive over its socket and capture
   on demand; see HACKING.md.
 - **Landing page:** `bun run landingpage:dev` serves `site/` and reloads on
-  save; `landingpage:build` writes one self-contained `site/dist/index.html`
-  (and `moonlander.html`), `landingpage:start` serves it, and
+  save; `landingpage:build` writes self-contained pages for each locale in
+  `site/dist/` (plus English root aliases), `landingpage:start` serves them, and
   `landingpage:publish` builds it and deploys it to corgi.computer with
-  wrangler, as an assets-only Worker routed on `/` and `/moonlander`
-  (`site/wrangler.jsonc`); other paths go straight to the release bucket.
+  wrangler, as an assets-only Worker routed on `/`, `/moonlander` and their
+  locale paths (`site/wrangler.jsonc`); other paths go to the release bucket.
   Keep it script-free and narrowly routed: asset hits are free, but a
   script runs on every request it sees and counts against the plan's
   limit. `bun tools/site_frames.ts`
-  re-records the page's screens into `site/frames.json` with Corgi's renderer
-  (`--check` compares). The page imports Corgi's animation code, so keep
-  `src/corgi_animation.ts` browser-safe. It also runs the review panel, the
+  re-records English screens into `site/frames.json` with Corgi's renderer;
+  `--all-languages` also records `site/frames/{zh,ja,ko,ru}.json`. `--check`
+  fails on stale recordings. Site translation commands use `--site` and
+  separate caches; the app's normal i18n workflow does no site work. The page
+  imports Corgi's animation code, so keep `src/corgi_animation.ts` browser-safe. It also runs the review panel, the
   resource card, the command menu and the worktree overview, with
   `site/browser/` standing in for git, files, the resource sampler, ports,
   launch commands, zlib, the native widths (package.json's `"browser"`

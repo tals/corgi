@@ -80,6 +80,30 @@ shell code uses quoted `printf '%s'` arguments; neither runtime evaluates
 translation text as code. Committed output means ordinary `bun` runs need no
 preprocessing pass. Generation runs only when messages or translations change.
 
+## Website
+
+The site imports `site/i18n.ts`, which extends the application's runtime and
+reuses its actual messages. Only site-specific copy belongs in
+`site/locales/{zh,ja,ko,ru}.json`. Run the same extract/generate/check commands
+with `--site` to work on those catalogs and `site/i18n.generated.ts`.
+Without that flag, the compiler never scans the site or loads HTML tooling.
+Site scans and formatter output have separate caches, so site checks do not
+invalidate the app’s caches.
+
+Mark HTML paragraphs or headings with `data-i18n`; keep inline links and code
+inside the marked element. Use `data-i18n-attrs="title aria-label"` for
+attributes. Translations preserve inline tags and attributes, while allowing
+their order to change. JavaScript uses the same named template placeholders
+as the app. Record interactive demos separately with
+`bun tools/site_frames.ts --all-languages`; site CI checks both catalogs and
+recordings without adding work to application builds or typechecks.
+
+Explicit `/en/`, `/zh/`, `/ja/`, `/ko/` and `/ru/` URLs always win. At `/`, a
+saved picker choice wins over `navigator.languages`, then English is the
+fallback. Switching language preserves the current page, query and fragment.
+Provider terminal output and code examples remain in their authored language,
+as they do in the application.
+
 ## Language selection
 
 Selection order is `CORGI_LANG`, the saved language in Corgi setup, then the
