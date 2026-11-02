@@ -297,6 +297,35 @@ test("agent sorting follows the default until explicitly saved", async () => {
   }
 });
 
+test("workspace tint reads whole percents from config.json and falls back to off", async () => {
+  const { root, where } = await scratch("workspace-tint");
+  try {
+    expect(read(where).workspace_tint).toBe(0);
+    await put(where.viewer, { format: current, sidebar_width: 44 });
+    const cases: [unknown, number][] = [
+      [0, 0],
+      [55, 55],
+      [100, 100],
+    ];
+    for (const invalid of [-1, 101, 2.5, "50", null, true]) cases.push([invalid, 0]);
+    for (const [saved, tint] of cases) {
+      await put(where.config, { corgi_intensity: 70, workspace_tint: saved });
+      const reading = inspect(where);
+      expect(reading.prefs).toMatchObject({ workspace_tint: tint, sidebar_width: 44, corgi_intensity: 70 });
+      // One this build can't use names itself without costing the others.
+      expect(reading.problems.map(p => p.text.split(":")[0])).toEqual(tint === saved ? [] : ["workspace_tint"]);
+    }
+    await put(where.config, {});
+    expect(read(where).workspace_tint).toBe(0);
+    update({ workspace_tint: 35 }, where);
+    expect(await json(where.config)).toEqual({ workspace_tint: 35 });
+    expect(await json(where.viewer)).not.toHaveProperty("workspace_tint");
+    expect(read(where)).toMatchObject({ workspace_tint: 35, sidebar_width: 44 });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("the old sleeping-corgi switch becomes brightness, which moves to config.json", async () => {
   const { root, where } = await scratch("intensity");
   try {

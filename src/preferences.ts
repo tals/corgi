@@ -77,6 +77,8 @@ export class Preferences {
   resources: Resources = { enabled: true };
   /** Decorative sidebar corgi brightness, from off (0) to full (100). */
   corgi_intensity = 50;
+  /** The workspace section's background tint, from off (0) to strong (100). */
+  workspace_tint = 0;
   /** The theme picked in setup or onboarding; unset, the terminal picks
    * (`palette.chosen`), and the file leaves it out. */
   theme: palette.Theme | undefined = undefined;
@@ -127,6 +129,7 @@ const settings: readonly string[] = [
   "language",
   "theme",
   "corgi_intensity",
+  "workspace_tint",
   "resources",
   "worktree_folder",
   "sidebar_position",
@@ -585,6 +588,14 @@ function readSettings(d: Record<string, any>, v: Preferences): Skipped[] {
       max = 100;
     if (Number.isInteger(intensity) && intensity >= min && intensity <= max) v.corgi_intensity = intensity;
     else skip("corgi_intensity", i18n.t`use a whole number from ${min} to ${max}`);
+  }
+  if ("workspace_tint" in d) {
+    // A tint that isn't a whole percent reads as off.
+    const tint = d.workspace_tint,
+      min = 0,
+      max = 100;
+    if (Number.isInteger(tint) && tint >= min && tint <= max) v.workspace_tint = tint;
+    else skip("workspace_tint", i18n.t`use a whole number from ${min} to ${max}`);
   }
   if ("theme" in d) {
     // A theme from a newer build falls back quietly.
