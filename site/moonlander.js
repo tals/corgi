@@ -1,3 +1,4 @@
+import "./language";
 import * as moonlander from "../src/moonlander/moonlander";
 import * as scene from "../src/moonlander/scene";
 import * as faces from "../src/moonlander/faces";
@@ -200,6 +201,7 @@ function frame(now) {
 }
 const KEY = {ArrowUp:"thrust",KeyW:"thrust",Space:"thrust",ArrowLeft:"left",KeyA:"left",ArrowRight:"right",KeyD:"right",ArrowDown:"cut",KeyS:"cut",Enter:"advance",KeyP:"pause",KeyR:"restart",KeyQ:"restart",Escape:"restart"};
 addEventListener("keydown",e => {
+  if (e.target instanceof Element && e.target.closest(".language-picker")) return;
   if (!engine || e.metaKey || e.ctrlKey || e.altKey) return;
   const input = KEY[e.code];
   if (!input) return;

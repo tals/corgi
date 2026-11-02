@@ -3,7 +3,9 @@
  * renderer and writes them to site/frames.json, which the page imports.
  *
  *   bun tools/site_frames.ts            render and update the page
- *   bun tools/site_frames.ts --check    compare with the page, change nothing
+ *   bun tools/site_frames.ts --check    fail if the English recordings are stale
+ *   bun tools/site_frames.ts --all-languages [--check]   record or check every locale
+ *   bun tools/site_frames.ts --language ja   record one locale
  *   bun tools/site_frames.ts --show NAME [--all]   print a frame as text
  *   bun tools/site_frames.ts --tally    count every changed cell by what changed
  *   bun tools/site_frames.ts --dump DIR also write each screen as .ansi
@@ -13,14 +15,18 @@
  * Corgi's palette tokens by name. The workspaces, agents and numbers below
  * are the page's story; the drawing is Corgi's.
  */
+import * as i18n from "../site/i18n";
+import * as locale from "../src/locale";
+import * as cellGrid from "../site/cells";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { drawRestoring, frame, ui as uiOf, type Restoring, type Ui } from "../src/render";
 import { adapter } from "../src/providers";
 import { Model, Rect, Selection, View as LayoutView } from "../src/layout";
 import * as sidebar from "../src/sidebar";
+import * as palette from "../src/palette";
 import * as subagentTooltip from "../src/subagent_tooltip";
 import * as worktreeAgents from "../src/worktree_agents";
 import type * as worktrees from "../src/worktrees";
@@ -31,6 +37,7 @@ import { Menu as LauncherMenu, option, type Row } from "../src/agent_launcher";
 import { historyEntry } from "../src/launcher_resume";
 import { Snapshot as PortsSnapshot } from "../src/trackers/ports";
 import * as resourceSamples from "../site/resource_samples";
+import * as prices from "../src/usage/prices";
 import { View as ContextView } from "../src/usage/context_window";
 import { Writer } from "../src/text";
 import { codepointWidths } from "../src/viewer_native";
@@ -38,7 +45,24 @@ import { microTimestamp, milliTimestamp } from "../src/clock";
 import { blankCell, grid, unknown, type Cell } from "../site/terminal";
 
 const root = join(import.meta.dir, "..");
-const FRAMES = join(root, "site", "frames.json");
+// Labels and timestamps must agree regardless of the contributor's timezone.
+process.env.TZ = "UTC";
+if (process.argv.includes("--all-languages")) {
+  for (const language of locale.locales) {
+    const run = spawnSync(
+      process.execPath,
+      [import.meta.path, ...process.argv.slice(2).filter(value => value !== "--all-languages"), "--language", language],
+      { stdio: "inherit" },
+    );
+    if (run.status !== 0) process.exit(run.status ?? 1);
+  }
+  process.exit(0);
+}
+const languageArg = process.argv.indexOf("--language");
+const language = languageArg < 0 ? "en" : locale.parse(process.argv[languageArg + 1] ?? "");
+if (!language) throw Error("Unsupported site language");
+i18n.setLanguage(language);
+const FRAMES = join(root, "site", language === "en" ? "frames.json" : `frames/${language}.json`);
 const arg = (name: string) => {
   const i = process.argv.indexOf(name);
   return i >= 0 ? process.argv[i + 1] : undefined;
@@ -48,11 +72,12 @@ const checkOnly = process.argv.includes("--check");
 // --show and --tally only look, as --check does.
 const writes = !["--check", "--show", "--tally"].some(flag => process.argv.includes(flag));
 // One moment for every frame, so a rerun changes only what Corgi draws differently.
-const PINNED = new Date(2026, 9, 5, 10, 21, 0).getTime();
+const PINNED = Date.UTC(2026, 9, 5, 10, 21, 0);
 Date.now = () => PINNED;
 
 // ---------------------------------------------------------------- the page
-const data = JSON.parse(readFileSync(FRAMES, "utf8")) as {
+const data = JSON.parse(readFileSync(existsSync(FRAMES) ? FRAMES : join(root, "site/frames.json"), "utf8")) as {
+  layout: { badge: number; controls: Record<string, unknown> };
   styles: unknown[][];
   /** Ghostty's codepoint widths, for the page's text.ts. */
   widths: unknown;
@@ -62,6 +87,8 @@ const data = JSON.parse(readFileSync(FRAMES, "utf8")) as {
   worktrees: unknown;
   frames: Record<string, any>;
 };
+const previousMetadata = JSON.stringify([data.layout, data.widths, data.review, data.worktrees]);
+data.layout = { badge: 1, controls: {} };
 const styleIndex = new Map(data.styles.map((s, i) => [JSON.stringify(s), i]));
 function sid(style: unknown[]): number {
   const key = JSON.stringify(style);
@@ -124,15 +151,15 @@ const demo = (
 ): Demo => ({ id, name, provider, state, attention, activity });
 // corgi's agents, then moonlander's.
 const CORGI: Demo[] = [
-  demo(1, "Fix sidebar flicker", "claude", "working", "none", "Running sidebar tests"),
-  demo(2, "Audit the install script", "codex", "working", "none", "Checking release checksums"),
-  demo(3, "Release notes", "claude", "blocked", "needs_input", ""),
-  demo(4, "Refactor the viewer", "claude", "working", "none", "Editing src/viewer.zig"),
-  demo(5, "Ghostty keybindings", "codex", "idle", "finished", ""),
+  demo(1, i18n.t`Fix sidebar flicker`, "claude", "working", "none", i18n.t`Running sidebar tests`),
+  demo(2, i18n.t`Audit the install script`, "codex", "working", "none", i18n.t`Checking release checksums`),
+  demo(3, i18n.t`Release notes`, "claude", "blocked", "needs_input", ""),
+  demo(4, i18n.t`Refactor the viewer`, "claude", "working", "none", i18n.t`Editing src/viewer.zig`),
+  demo(5, i18n.t`Ghostty keybindings`, "codex", "idle", "finished", ""),
 ];
 const MOON: Demo[] = [
-  demo(11, "Tune the thruster physics", "claude", "working", "none", "Tuning lunar gravity"),
-  demo(12, "Draw the lander sprite", "claude", "idle", "none", ""),
+  demo(11, i18n.t`Tune the thruster physics`, "claude", "working", "none", i18n.t`Tuning lunar gravity`),
+  demo(12, i18n.t`Draw the lander sprite`, "claude", "idle", "none", ""),
 ];
 // The Codex agent running two subagents, the one about to compact, the unread one.
 const AUDIT = 1,
@@ -145,77 +172,88 @@ type Story = { phases: Phase[]; pending: Usage; total: Usage; context: number; p
 const STORY: Record<number, Story> = {
   1: {
     phases: [
-      [41, "Reading the sidebar renderer", tokens(48_200, 31_000, 1_900)],
-      [33, "Tracing the redraw order", tokens(62_400, 51_000, 2_600)],
-      [24, "Reproducing the flicker", tokens(39_800, 30_100, 1_200)],
-      [15, "Drawing each row in one write", tokens(71_000, 58_300, 6_400)],
-      [4, "Running sidebar tests", tokens(22_900, 19_000, 800)],
+      [41, i18n.t`Reading the sidebar renderer`, tokens(48_200, 31_000, 1_900)],
+      [33, i18n.t`Tracing the redraw order`, tokens(62_400, 51_000, 2_600)],
+      [24, i18n.t`Reproducing the flicker`, tokens(39_800, 30_100, 1_200)],
+      [15, i18n.t`Drawing each row in one write`, tokens(71_000, 58_300, 6_400)],
+      [4, i18n.t`Running sidebar tests`, tokens(22_900, 19_000, 800)],
     ],
-    phone: ["Reading the renderer", "Tracing the redraw", "Reproducing it", "Drawing rows once", "Running tests"],
+    phone: [
+      i18n.t`Reading the renderer`,
+      i18n.t`Tracing the redraw`,
+      i18n.t`Reproducing it`,
+      i18n.t`Drawing rows once`,
+      i18n.t`Running tests`,
+    ],
     pending: tokens(9_400, 7_100, 300),
     total: tokens(266_000, 198_500, 13_600),
     context: 118_000,
   },
   2: {
     phases: [
-      [18, "Reading install.sh", tokens(21_000, 12_000, 900)],
-      [11, "Splitting the audit", tokens(9_400, 7_000, 1_400)],
-      [3, "Checking release checksums", tokens(6_100, 4_800, 300)],
+      [18, i18n.t`Reading install.sh`, tokens(21_000, 12_000, 900)],
+      [11, i18n.t`Splitting the audit`, tokens(9_400, 7_000, 1_400)],
+      [3, i18n.t`Checking release checksums`, tokens(6_100, 4_800, 300)],
     ],
-    phone: ["Reading install.sh", "Splitting the audit", "Checking checksums"],
+    phone: [i18n.t`Reading install.sh`, i18n.t`Splitting the audit`, i18n.t`Checking checksums`],
     pending: tokens(2_100, 1_600, 200),
     total: tokens(41_000, 26_000, 2_900),
     context: 52_000,
   },
   3: {
     phases: [
-      [26, "Reading the log since 0.8", tokens(33_000, 20_000, 1_100)],
-      [19, "Drafting release notes", tokens(18_400, 15_200, 3_900)],
-      [9, "Asking to tag the release", tokens(4_200, 3_900, 200)],
+      [26, i18n.t`Reading the log since 0.8`, tokens(33_000, 20_000, 1_100)],
+      [19, i18n.t`Drafting release notes`, tokens(18_400, 15_200, 3_900)],
+      [9, i18n.t`Asking to tag the release`, tokens(4_200, 3_900, 200)],
     ],
-    phone: ["Reading the log", "Drafting the notes", "Asking to tag"],
+    phone: [i18n.t`Reading the log`, i18n.t`Drafting the notes`, i18n.t`Asking to tag`],
     pending: tokens(1_200, 1_000, 100),
     total: tokens(55_600, 39_100, 5_200),
     context: 61_000,
   },
   4: {
     phases: [
-      [52, "Mapping the viewer state", tokens(88_000, 61_000, 2_200)],
-      [37, "Moving input into its own file", tokens(102_000, 84_000, 9_700)],
-      [21, "Editing src/viewer.zig", tokens(64_000, 55_000, 7_100)],
-      [1, "Compacting context", { known: true }],
+      [52, i18n.t`Mapping the viewer state`, tokens(88_000, 61_000, 2_200)],
+      [37, i18n.t`Moving input into its own file`, tokens(102_000, 84_000, 9_700)],
+      [21, i18n.t`Editing src/viewer.zig`, tokens(64_000, 55_000, 7_100)],
+      [1, i18n.t`Compacting context`, { known: true }],
     ],
-    phone: ["Mapping viewer state", "Moving input out", "Editing viewer.zig", "Compacting context"],
+    phone: [
+      i18n.t`Mapping viewer state`,
+      i18n.t`Moving input out`,
+      i18n.t`Editing viewer.zig`,
+      i18n.t`Compacting context`,
+    ],
     pending: tokens(3_200, 2_000, 100),
     total: tokens(254_000, 200_000, 19_000),
     context: 171_000,
   },
   5: {
     phases: [
-      [70, "Reading the Ghostty config", tokens(14_000, 9_000, 600)],
-      [61, "Writing the managed block", tokens(19_500, 15_000, 2_400)],
-      [55, "Binding Cmd+1–9 to tabs", tokens(8_800, 7_700, 900)],
+      [70, i18n.t`Reading the Ghostty config`, tokens(14_000, 9_000, 600)],
+      [61, i18n.t`Writing the managed block`, tokens(19_500, 15_000, 2_400)],
+      [55, i18n.t`Binding Cmd+1–9 to tabs`, tokens(8_800, 7_700, 900)],
     ],
-    phone: ["Reading the config", "Writing the block", "Binding Cmd+1–9"],
+    phone: [i18n.t`Reading the config`, i18n.t`Writing the block`, i18n.t`Binding Cmd+1–9`],
     pending: tokens(3_000, 2_500, 300),
     total: tokens(42_300, 31_700, 3_900),
     context: 30_000,
   },
   11: {
     phases: [
-      [22, "Reading the lander physics", tokens(24_000, 15_000, 1_100)],
-      [12, "Plotting the burn curve", tokens(17_500, 13_000, 2_900)],
-      [2, "Tuning lunar gravity", tokens(5_800, 4_400, 400)],
+      [22, i18n.t`Reading the lander physics`, tokens(24_000, 15_000, 1_100)],
+      [12, i18n.t`Plotting the burn curve`, tokens(17_500, 13_000, 2_900)],
+      [2, i18n.t`Tuning lunar gravity`, tokens(5_800, 4_400, 400)],
     ],
-    phone: ["Reading the physics", "Plotting the burn", "Tuning lunar gravity"],
+    phone: [i18n.t`Reading the physics`, i18n.t`Plotting the burn`, i18n.t`Tuning lunar gravity`],
     pending: tokens(1_900, 1_400, 150),
     total: tokens(47_300, 32_400, 4_400),
     context: 64_000,
   },
   12: {
     phases: [
-      [95, "Sketching the lander", tokens(9_000, 5_500, 1_800)],
-      [84, "Shading the sprite", tokens(6_200, 4_900, 1_100)],
+      [95, i18n.t`Sketching the lander`, tokens(9_000, 5_500, 1_800)],
+      [84, i18n.t`Shading the sprite`, tokens(6_200, 4_900, 1_100)],
     ],
     pending: tokens(700, 500, 60),
     total: tokens(15_900, 10_900, 2_960),
@@ -224,13 +262,13 @@ const STORY: Record<number, Story> = {
 };
 /** Phones draw shorter names and activities. */
 const PHONE_NAMES: Record<number, [string, string]> = {
-  1: ["Fix sidebar flicker", "Running tests"],
-  2: ["Audit install.sh", "Checking sums"],
-  3: ["Release notes", ""],
-  4: ["Refactor viewer", "Editing viewer.zig"],
-  5: ["Ghostty keys", ""],
-  11: ["Tune the thrusters", "Tuning lunar gravity"],
-  12: ["Draw the lander", ""],
+  1: [i18n.t`Fix sidebar flicker`, i18n.t`Running tests`],
+  2: [i18n.t`Audit install.sh`, i18n.t`Checking sums`],
+  3: [i18n.t`Release notes`, ""],
+  4: [i18n.t`Refactor viewer`, i18n.t`Editing viewer.zig`],
+  5: [i18n.t`Ghostty keys`, ""],
+  11: [i18n.t`Tune the thrusters`, i18n.t`Tuning lunar gravity`],
+  12: [i18n.t`Draw the lander`, ""],
 };
 const COMMITS: sidebar.GitCommit[] = [
   {
@@ -258,7 +296,7 @@ const PORTS = Object.assign(new PortsSnapshot(), {
       background: 0,
       endpoints: [
         {
-          label: "Game",
+          label: i18n.t`Game`,
           label_pending: false,
           pid: 52803,
           pane: 11,
@@ -382,16 +420,16 @@ function scene(w: Watch) {
       subagentTooltip.conversation({
         id: 8,
         parent: CORGI[AUDIT].id,
-        role: "Explorer",
-        agent: { ...base, activity: "Reading install.sh", session: "7c1e09ab-52d3-4f60-a1c8-3e9b0d7f2a14" },
+        role: i18n.t`Explorer`,
+        agent: { ...base, activity: i18n.t`Reading install.sh`, session: "7c1e09ab-52d3-4f60-a1c8-3e9b0d7f2a14" },
         observed_at: us,
         usage: tokens(12_400, 8_000, 600),
       }),
       subagentTooltip.conversation({
         id: 9,
         parent: CORGI[AUDIT].id,
-        role: "Verifier",
-        agent: { ...base, activity: "Fetching SHA256SUMS", session: "b2f4d871-0e6a-4c39-9f15-a8c2e5d3b7f0" },
+        role: i18n.t`Verifier`,
+        agent: { ...base, activity: i18n.t`Fetching SHA256SUMS`, session: "b2f4d871-0e6a-4c39-9f15-a8c2e5d3b7f0" },
         observed_at: us,
         usage: tokens(7_900, 5_100, 400),
       }),
@@ -464,7 +502,7 @@ const COLS = 124,
   ROWS = 24,
   AGENT_TOP = 13,
   CARD_LEFT = 30,
-  WIDTHS = [26, 30, 34, 38, 42],
+  WIDTHS = [26, 30, 34, 38, 42, 24],
   PHONE = { win: 64, cards: 54, width: 26 };
 function watchFrames() {
   for (const phone of [false, true])
@@ -484,6 +522,23 @@ function watchFrames() {
               for (const width of phone ? [PHONE.width] : WIDTHS) {
                 const plain = frame(view, [], win, ROWS, uiFor(s, width));
                 const g = grid(plain, win, ROWS);
+                const side = sidebar.View.init(win, ROWS, true, 0, s.entries.length)
+                  .withWidth(width)
+                  .withWorkspaces(s.workspaces.length, 0)
+                  .withEntries(s.entries);
+                side.scope_label = "corgi";
+                const span = (tags: string[], row: number) => {
+                  const columns = Array.from({ length: width }, (_, x) => x).filter(x =>
+                    tags.includes(side.hit(x, row).tag),
+                  );
+                  return columns.length ? [columns[0], columns.at(-1)! + 1] : null;
+                };
+                data.layout.controls[`${pre}w${width}_${tag}${unread}${Number(ahead)}`] = {
+                  unread: side.unreadRange(s.workspaces[0]),
+                  newAgent: span(["agent_new", "agent_options"], AGENT_TOP - 2),
+                  scope: span(["agent_scope"], AGENT_TOP - 2),
+                  workspaceButtons: span(["workspace_new", "toggle"], 0),
+                };
                 // The top (workspaces) and the agent list, each cropped to the sidebar.
                 if (!focused && !read)
                   keep(
@@ -568,36 +623,50 @@ function cardCells(ansi: string, phone: boolean): Cell[][] {
 // ---------------------------------------------------------------- the picker
 const PICK = { cols: 150, rows: 21 };
 const HISTORY = [
-  ["claude", "s1", "Fix sidebar flicker", "the sidebar flickers when an agent finishes", "commit it", 720],
-  ["claude", "s2", "Name dev server links", "links just say Open Link", "use the page title when there is one", 3000],
+  ["claude", "s1", i18n.t`Fix sidebar flicker`, "the sidebar flickers when an agent finishes", "commit it", 720],
+  [
+    "claude",
+    "s2",
+    i18n.t`Name dev server links`,
+    "links just say Open Link",
+    "use the page title when there is one",
+    3000,
+  ],
   [
     "claude",
     "s3",
-    "Slow down the herd animation",
+    i18n.t`Slow down the herd animation`,
     "the compacting herd feels rushed",
     "slower, the letters blur",
     2 * 3600,
   ],
-  ["codex", "s5", "Static Linux build", "build a static linux binary", "strip it before upload", 5 * 3600],
-  ["claude", "s6", "Ghostty keybindings", "bind cmd+1-9 to tabs", "does Cmd+W close the whole tab?", day],
+  ["codex", "s5", i18n.t`Static Linux build`, "build a static linux binary", "strip it before upload", 5 * 3600],
+  ["claude", "s6", i18n.t`Ghostty keybindings`, "bind cmd+1-9 to tabs", "does Cmd+W close the whole tab?", day],
   [
     "claude",
     "s7",
-    "Faster session restore",
+    i18n.t`Faster session restore`,
     "restore takes two seconds",
     "measure it again after the cache",
     day + 3600,
   ],
-  ["claude", "s8", "Usage bars in the picker", "show usage next to each agent", "show when it resets", day + 2 * 3600],
+  [
+    "claude",
+    "s8",
+    i18n.t`Usage bars in the picker`,
+    "show usage next to each agent",
+    "show when it resets",
+    day + 2 * 3600,
+  ],
   [
     "claude",
     "s9",
-    "Date resume rows by reply",
+    i18n.t`Date resume rows by reply`,
     "resume dates look wrong",
     "date by the last reply instead",
     day + 3 * 3600,
   ],
-  ["codex", "s10", "Onboarding copy", "rewrite the onboarding text", "fewer words", day + 4 * 3600],
+  ["codex", "s10", i18n.t`Onboarding copy`, "rewrite the onboarding text", "fewer words", day + 4 * 3600],
 ].map(([provider, session, title, first, last, ago]) =>
   historyEntry({
     provider,
@@ -685,19 +754,19 @@ function pickerFrames() {
     sidebar.entry({
       target: { pane: 1 },
       conversation: 1,
-      name: "Fix sidebar flicker",
+      name: i18n.t`Fix sidebar flicker`,
       provider: "claude",
       state: "working",
-      activity: "Running sidebar tests",
+      activity: i18n.t`Running sidebar tests`,
     }),
     sidebar.entry({
       target: { pane: 2 },
-      name: "Release notes",
+      name: i18n.t`Release notes`,
       provider: "codex",
       state: "blocked",
       attention: "needs_input",
     }),
-    sidebar.entry({ target: { pane: 3 }, name: "Docs pass", provider: "claude", state: "idle" }),
+    sidebar.entry({ target: { pane: 3 }, name: i18n.t`Docs pass`, provider: "claude", state: "idle" }),
   ];
   const draw = (menu: LauncherMenu, name: string) => {
     const u = uiOf({
@@ -713,7 +782,17 @@ function pickerFrames() {
     u.prefs.sidebar_width = 30;
     u.prefs.resources.enabled = false;
     const out = frame(view, [], PICK.cols, PICK.rows, u);
-    keep(name, grid(out, PICK.cols, PICK.rows), out);
+    const cells = grid(out, PICK.cols, PICK.rows);
+    const side = sidebar.View.init(PICK.cols, PICK.rows, true, 0, entries.length)
+      .withWidth(30)
+      .withWorkspaces(1, 0)
+      .withEntries(entries);
+    const box = menu.bounds(PICK.cols, PICK.rows, side),
+      manage = LauncherMenu.manageSpan(box);
+    if (manage)
+      for (let x = manage.x; x < manage.x + manage.w; x++)
+        cells[box.y][x] = ["─", ...cells[box.y][box.x + 1].slice(1)] as Cell;
+    keep(name, cells, out);
   };
   (["codex", "claude", "pi", "terminal"] as Row[]).forEach((row, i) => draw(launcher(row), `launcher${i}`));
   for (const [i, query] of [
@@ -780,6 +859,8 @@ function restoringCard(band: Restoring, w: number, h: number, t: number): Cell[]
 function digRows(card: (t: number) => Cell[][]): Cell[][][] {
   const first = card(0),
     row = card(3600).findIndex((cells, r) => cells.some(([ch], c) => ch !== first[r][c][0]));
+  // Narrow cards can fit the translated title but not the digging scene.
+  if (row < 0) return [[first[0]]];
   const frames: Cell[][][] = [];
   for (let t = 0; t <= 3600; t += 80) frames.push([card(t)[row]]);
   return frames;
@@ -874,7 +955,8 @@ function overviewFrames() {
       [5, 9, 14, 19, 24, 29, 35, null, null, null, null, null, null, null],
     ],
   });
-  const frames: Cell[][][] = [];
+  const frames: Cell[][][] = [],
+    phoneFrames: Cell[][][] = [];
   for (let step = 0; step < steps; step++) {
     const all = listed.map((d, n) => {
       let used = STORY[d.id].total;
@@ -914,16 +996,68 @@ function overviewFrames() {
     const card = g.slice(0, bottom + 1);
     // Above the card, only the sidebar's header with the badge; beside it, only the screen's ground.
     const edge = card[0].findIndex(([ch]) => ch === "│");
-    const buttons = card[0]
-      .map(([ch]) => ch)
-      .join("")
-      .indexOf("[ + ]");
+    const buttons = card[0].findIndex(([ch], column) => ch === "[" && card[0][column + 2]?.[0] === "+");
     if (buttons > 0) for (let c = buttons; c < edge; c++) card[0][c] = [" ", ...card[0][buttons - 1].slice(1)] as Cell;
     for (let r = 0; r < 2; r++) for (let c = edge; c < COLS; c++) card[r][c] = blankCell();
     for (const row of card.slice(2)) for (const c of [0, COLS - 1]) row[c] = blankCell();
     frames.push(card);
+    const phone = new Writer();
+    for (let row = 0; row < 13; row++) {
+      const edge = row === 0 || row === 12;
+      phone.write(
+        `\x1b[${row + 1};1H${new palette.Style({ fg: "line", bg: "bg" }).sgr()}` +
+          (row === 0 ? "╭" : row === 12 ? "╰" : "│") +
+          (edge ? "─" : " ").repeat(46) +
+          (row === 0 ? "╮" : row === 12 ? "╯" : "│"),
+      );
+    }
+    const phoneCard = new subagentTooltip.Card(phone, 0, 48);
+    const account = accounts.options.claude;
+    // This fixture has one Opus account and Corgi's Haiku summarizer.
+    // Use the app's pricing and rendering helpers for the compact layout.
+    const reference = prices.lookup(all[0].model)!;
+    const ranked = [
+      ...all.map(item => ({
+        name: `${subagentTooltip.status(item.agent, false).icon} ${item.agent.name}`,
+        model: item.model,
+        usage: item.usage,
+        tone: subagentTooltip.status(item.agent, false).tone,
+      })),
+      {
+        name: u.system_working ? i18n.t`▶ Corgi (Activity summarizer)` : i18n.t`○ Corgi (Activity summarizer)`,
+        model: u.system_model,
+        usage: u.system_usage,
+        tone: "muted" as const,
+      },
+    ].map(item => ({
+      ...item,
+      equivalent: prices.equivalent(
+        prices.lookup(item.model)!,
+        reference,
+        item.usage.tokens.input - item.usage.tokens.cached_input,
+        item.usage.tokens.output,
+      ),
+    }));
+    ranked.sort((a, b) => (a.equivalent > b.equivalent ? -1 : a.equivalent < b.equivalent ? 1 : 0));
+    const total = ranked.reduce(
+      (sum, item) => sum + item.usage.tokens.input - item.usage.tokens.cached_input + item.usage.tokens.output,
+      0n,
+    );
+    phoneCard.line(0, i18n.t`Observed tokens`, subagentTooltip.compact(total), "title", "title");
+    phoneCard.line(1, `Claude · ${account.account}`, `≈${reference.label}`, "muted", "faint");
+    ranked.forEach((item, index) => {
+      phoneCard.line(index + 2, item.name, subagentTooltip.compact(item.equivalent), "text", "title");
+      phoneCard.cell(index + 2, 0, 1, item.name[0], item.tone, false);
+    });
+    phoneCard.line(9, i18n.t`Limits`, i18n.t`↻ resets in`, "title", "faint");
+    if (typeof account.limits === "object")
+      account.limits.windows.forEach((window, index) => {
+        if (window) subagentTooltip.limitLine(phoneCard, 10 + index, 0, window, account.history[index], true, secs);
+      });
+    phoneFrames.push(grid(phone.buffered(), 48, 13));
   }
   keep("ov_card", frames);
+  keep("ov_phone", phoneFrames);
 }
 
 // ---------------------------------------------------------------- worktrees
@@ -1009,8 +1143,8 @@ const MOON_TREES: worktrees.Snapshot = {
 /** What Clever Corgi wrote about moonlander's. */
 const MOON_BRIEFS = new Map<string, worktrees.Brief>(
   [
-    ["thrusters", "Adds thrust and lunar gravity"],
-    ["sprite", "Draws the lander as pixel art"],
+    ["thrusters", i18n.t`Adds thrust and lunar gravity`],
+    ["sprite", i18n.t`Draws the lander as pixel art`],
   ].map(([name, label]) => [moonPath(name), { path: moonPath(name), label, phase: "ready" }]),
 );
 /** The sidebar with moonlander alone, its agents under their worktrees, and
@@ -1452,9 +1586,7 @@ function changes(name: string, next: Runs | Runs[]): string {
   const old = data.frames[name];
   if (!old) return "new";
   const flat = (f: Runs) =>
-    f.map(row =>
-      row.flatMap(([text, s]) => Array.from(text).map(ch => ch + "\u0000" + JSON.stringify(data.styles[s]))),
-    );
+    f.map(row => cellGrid.decode(row).map(([ch, s]) => ch + "\u0000" + JSON.stringify(data.styles[s])));
   const list = (f: any): Runs[] => (Array.isArray(f[0]?.[0]?.[0]) ? f : [f]);
   const a = list(old).map(flat),
     b = list(next).map(flat);
@@ -1464,7 +1596,7 @@ function changes(name: string, next: Runs | Runs[]): string {
     sample = "";
   a.forEach((fa, k) => {
     const fb = b[k];
-    if (fa.length !== fb.length || fa[0]?.length !== fb[0]?.length) {
+    if (fa.length !== fb.length || fa.some((row, index) => row.length !== fb[index]?.length)) {
       cells = -1;
       sample ||= `size ${fa[0]?.length}x${fa.length} → ${fb[0]?.length}x${fb.length}`;
       return;
@@ -1507,8 +1639,7 @@ if (show) {
 // --tally counts every differing cell by what changed, across all frames.
 if (process.argv.includes("--tally")) {
   const tally = new Map<string, Set<string>>();
-  const flat = (f: Runs) =>
-    f.map(row => row.flatMap(([text, s]) => Array.from(text).map(ch => [ch, JSON.stringify(data.styles[s])])));
+  const flat = (f: Runs) => f.map(row => cellGrid.decode(row).map(([ch, s]) => [ch, JSON.stringify(data.styles[s])]));
   const list = (f: any): Runs[] => (Array.isArray(f[0]?.[0]?.[0]) ? f : [f]);
   for (const [name, next] of made) {
     const old = data.frames[name];
@@ -1543,17 +1674,24 @@ for (const [name, frames] of made) {
 }
 const missing = Object.keys(data.frames).filter(k => !made.has(k));
 console.log(`${made.size} frames, ${changed} changed${missing.length ? `; not made here: ${missing.join(", ")}` : ""}`);
+data.widths = widthRanges();
+data.review = review;
+data.worktrees = overviews;
+const metadataChanged = previousMetadata !== JSON.stringify([data.layout, data.widths, data.review, data.worktrees]);
+if (checkOnly && (changed || missing.length || metadataChanged)) {
+  console.error(`Stale ${language} site recordings; run bun tools/site_frames.ts --language ${language}`);
+  process.exitCode = 1;
+}
 if (writes) {
   data.frames = Object.fromEntries(made);
-  data.widths = widthRanges();
-  data.review = review;
-  data.worktrees = overviews;
   // One frame per line, so a re-recording diffs by frame.
   const frames = Object.entries(data.frames).map(([name, f]) => `    ${JSON.stringify(name)}: ${JSON.stringify(f)}`);
+  mkdirSync(join(root, "site/frames"), { recursive: true });
   writeFileSync(
     FRAMES,
     [
       "{",
+      `  "layout": ${JSON.stringify(data.layout)},`,
       `  "styles": ${JSON.stringify(data.styles)},`,
       `  "widths": ${JSON.stringify(data.widths)},`,
       `  "review": ${JSON.stringify(data.review)},`,

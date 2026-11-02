@@ -8,6 +8,7 @@
  * named by palette token where Corgi's palette has them and #rrggbb otherwise.
  */
 import * as palette from "../src/palette";
+import * as text from "../src/text";
 
 export type Cell = [string, string | null, string | null, boolean, number, string | null];
 const tokens = new Map(Object.entries(palette.colors).map(([token, rgb]) => [rgb.join(","), token]));
@@ -43,11 +44,26 @@ export class Screen {
     this.ul = 0;
   }
   put(ch: string) {
-    if (this.y >= 0 && this.y < this.rows && this.x >= 0 && this.x < this.cols)
-      this.grid[this.y][this.x] = this.inverse
+    const width = text.displayWidth(ch),
+      row = this.grid[this.y];
+    if (width === 0) {
+      let x = this.x - 1;
+      while (x >= 0 && row?.[x]?.[0] === "") x--;
+      if (row?.[x]) row[x][0] += ch;
+      return;
+    }
+    if (row && this.x >= 0 && this.x + width <= this.cols) {
+      // Overwriting either half of a wide glyph clears the other half.
+      for (let x = this.x; x < this.x + width; x++) {
+        if (row[x][0] === "" && x > 0) row[x - 1] = blankCell();
+        if (text.displayWidth(row[x][0]) === 2 && x + 1 < this.cols) row[x + 1] = blankCell();
+      }
+      row[this.x] = this.inverse
         ? [ch, this.bg ?? "bg", this.fg ?? "text", this.bold, this.ul, this.ulc]
         : [ch, this.fg, this.bg, this.bold, this.ul, this.ulc];
-    this.x += 1;
+      if (width === 2) row[this.x + 1] = ["", ...row[this.x].slice(1)] as Cell;
+    }
+    this.x += width;
   }
   sgr(params: string) {
     const parts = params ? params.split(";") : ["0"];

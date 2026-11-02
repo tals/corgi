@@ -4,6 +4,10 @@
 // them move by corgi's own animation code.
 import "./browser/process";
 import "./browser/buffer";
+import "./language";
+import * as i18n from "./i18n";
+import * as textWidth from "../src/text";
+import * as cellGrid from "./cells";
 import * as heroConfig from "./hero_config";
 import * as resourceSamples from "./resource_samples";
 import DATA from "./frames.json";
@@ -30,11 +34,12 @@ import { cpuText, memoryText } from "../src/trackers/resources";
 import CLI_HELP from "../assets/cli-help.txt" with { type: "text" };
 import CLI_SKILL from "../assets/corgi-skill.md" with { type: "text" };
 
+const helpText = i18n.html(CLI_HELP);
 const WAG = corgiFrames.wag;
 const BADGE = `data:image/png;base64,${corgiBadge.png_base64}`;
 const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
-const GAME_LABEL = "Game ↗", GAME_URL = "http://localhost:3000/";
-const GAME_TARGETS = [GAME_LABEL, GAME_URL, GAME_URL.slice(0, -1)].map((text) => Array.from(text));
+const GAME_LABEL = i18n.t`Game` + " ↗", GAME_URL = "http://localhost:3000/";
+const GAME_TARGETS = [GAME_LABEL, GAME_URL, GAME_URL.slice(0, -1)].map((text) => cellGrid.decode([[text, 0]]).map(([ch]) => ch));
 
 // ---------------------------------------------------------------- colors
 const HEX = { ...Object.fromEntries(Object.entries(palette.colors).map(([token, rgb]) => [token, "#" + rgb.map((n) => n.toString(16).padStart(2, "0")).join("")])), pane: "#121418" };
@@ -99,35 +104,39 @@ function shape(ch) {
 }
 
 // ---------------------------------------------------------------- grids
-const cellsOf = (frame) => frame.map((row) => { const out = []; for (const [text, s] of row) for (const ch of text) out.push([ch, s]); return out; });
+const cellsOf = (frame) => frame.map(cellGrid.decode);
 // A list of frames nests one level deeper than a frame.
 const F = Object.fromEntries(Object.entries(DATA.frames).map(([k, v]) => [k, Array.isArray(v[0][0][0]) ? v.map(cellsOf) : cellsOf(v)]));
 const copy = (g) => g.map((r) => r.slice());
 // Where corgi's sidebar puts its focus bar (content starts a column later)
 // and its badge, read from a recorded sidebar.
 const BAR = F.w34_C00.map((row) => row.findIndex(([ch]) => ch === "▌")).find((c) => c >= 0);
-const BADGE_X = F.w34_C00[0].findIndex(([ch]) => ch === "w") - 4;
+const BADGE_X = DATA.layout.badge;
 const crop = (g, r0, c0, rows, cols) => Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => g[r0 + r]?.[c0 + c] ?? [" ", PLAIN]));
 // The sidebar without the header's [ + ] and < buttons or the workspaces'
 // tool-call counts.
 function tidySidebar(g) {
-  g.forEach((row, r) => {
-    const text = row.map(([ch]) => ch).join("");
-    const at = r === 0 ? text.indexOf("[ + ]") : -1;
-    if (at >= 0) for (let c = at; c < row.length && row[c][0] !== "│"; c++) row[c] = [" ", row[at - 1][1]];
-    // With the buttons gone, a narrow sidebar's header has room for its name.
-    const cut = r === 0 ? text.search(/\bw[a-z]*…/) : -1;
-    if (cut >= 0) Array.from("workspaces").forEach((ch, k) => (row[cut + k] = [ch, row[cut][1]]));
-    for (const m of text.matchAll(/⚒\d+/g)) for (let c = m.index; c < m.index + m[0].length; c++) row[c] = [" ", row[m.index - 1][1]];
-  });
+  const width = g[0].findIndex(([ch]) => ch === "│") + 1;
+  if (width > 0) {
+    const style = g[0][5][1];
+    put(g, 0, 5, " ".repeat(width - 6), style);
+    put(g, 0, 5, textWidth.ellipsis(i18n.t`workspaces`, width - 7), style);
+  }
+  for (const row of g) {
+    const start = row.findIndex(([ch]) => ch === "⚒");
+    if (start < 0) continue;
+    let end = start + 1;
+    while (/^\d$/.test(row[end]?.[0] ?? "")) end++;
+    for (let column = start; column < end; column++) row[column] = [" ", row[column][1]];
+  }
   return g;
 }
+
 const blank = (rows, cols) => Array.from({ length: rows }, () => Array.from({ length: cols }, () => [" ", PLAIN]));
 // The style `s` would give, keeping the cell's underline (agent separators).
 const keepRule = (s, cell) => { const [fg, bg, bold] = STYLES[s], [, , , ul, ulc] = STYLES[cell[1]]; return ul ? style(fg, bg, bold, ul, ulc) : s; };
 function put(g, r, c, text, s) {
-  for (const ch of text) { if (g[r] && c >= 0 && c < g[r].length) g[r][c] = [ch, s ?? g[r][c][1]]; c++; }
-  return c;
+  return cellGrid.put(g[r], c, text, s);
 }
 
 // Live bits of a frame: spinners (piling dots while compacting), an awake
@@ -203,7 +212,7 @@ class Screen {
     this.spans.forEach((row, r) => {
       let changed = false;
       row.forEach((span, c) => {
-        const [ch, s] = g[r]?.[c] ?? [" ", PLAIN];
+        const [ch, s] = g[r]?.[c] ? cellGrid.visible(g[r], c, row.length) : [" ", PLAIN];
         const key = ch + "\u0000" + s;
         if (this.keys[r][c] === key) return;
         changed = true;
@@ -211,6 +220,8 @@ class Screen {
         const L = look(s), box = shape(ch);
         span.className = L.cls + (span.dataset.p ? " p" : "");
         span.textContent = box ? " " : ch;
+        span.classList.toggle("wide", textWidth.displayWidth(ch) === 2);
+        span.classList.toggle("continuation", ch === "");
         span.style.color = L.color;
         span.style.backgroundColor = L.bg;
         span.style.setProperty("--ulc", L.ulc);
@@ -239,8 +250,8 @@ class Screen {
     this.links[r]?.anchors.forEach((a) => a.remove());
     const anchors = spans.map(([col, width]) => {
       const a = document.createElement("a");
-      a.className = "game-link"; a.href = "/moonlander"; a.target = "_blank"; a.rel = "noopener";
-      a.title = GAME_URL; a.setAttribute("aria-label", "Play Moonlander (opens in a new tab)");
+      a.className = "game-link"; a.href = `/${i18n.language()}/moonlander`; a.target = "_blank"; a.rel = "noopener";
+      a.title = GAME_URL; a.setAttribute("aria-label", i18n.t`Play Moonlander (opens in a new tab)`);
       Object.assign(a.style, { left: `calc(${col} * var(--cell))`, width: `calc(${width} * var(--cell))` });
       a.addEventListener("click", (e) => e.stopPropagation());
       a.addEventListener("keydown", (e) => e.stopPropagation());
@@ -260,15 +271,15 @@ const T = { text: style("text"), strong: style("strong", null, true), muted: sty
 // last message holds every word typed.
 const HOUR = 3600, DAY = 86400;
 const HISTORY = [
-  ["claude", "Fix sidebar flicker", "the sidebar flickers when an agent finishes", "`drawAgent` cleared each row, then wrote it again. It now writes once.", "commit it", "Committed `4f2c1d9` sidebar: draw each row in one write", 12 * 60, 0, ["Read", "src/sidebar.zig", "Read 2104 lines"]],
-  ["claude", "Name dev server links", "links just say Open Link", "Links now take the server's own name.", "use the page title when there is one", "Done. The title wins when the page has one.", 50 * 60, 0, ["Search", "\"Open Link\"", "Found 3 files"]],
-  ["claude", "Slow down the herd animation", "the compacting herd feels rushed", "Each herd step now takes `110 ms`.", "slower, the letters blur", "Slowed `herd_step_ms` to `140`.", 2 * HOUR, 0, ["Read", "src/corgi_animation.zig", "Read 1038 lines"]],
-  ["codex", "Static Linux build", "build a static linux binary", "Built with the musl target.", "strip it before upload", "Stripped: 18 MB down to 7 MB.", 5 * HOUR, 0, ["Ran", "zig build -Dtarget=x86_64-linux-musl", "Build Summary: 5/5 steps succeeded"]],
-  ["claude", "Ghostty keybindings", "bind cmd+1-9 to tabs", "`Cmd+1–9` now switch tabs.", "does Cmd+W close the whole tab?", "Yes: `Cmd+W` closes the tab with every pane in it.", 2 * HOUR, 1, ["Read", "src/ghostty_integration.zig", "Read 412 lines"]],
-  ["claude", "Faster session restore", "restore takes two seconds", "Restore now reads the checkpoint once.", "measure it again after the cache", "Down to 180 ms.", 4 * HOUR, 1, ["Bash", "hyperfine 'corgi checkpoint restore'", "Time (mean ± σ):  1.94 s ±  0.05 s"]],
-  ["claude", "Usage bars in the picker", "show usage next to each agent", "Each agent row now has its limits.", "show when it resets", "Added the reset time after each bar.", 6 * HOUR, 1, ["Read", "src/launcher_usage.zig", "Read 233 lines"]],
-  ["claude", "Date resume rows by reply", "resume dates look wrong", "Rows were dated by file time.", "date by the last reply instead", "Done. Rows now date by the last reply.", 9 * HOUR, 1, ["Search", "updated_at", "Found 6 files"]],
-  ["codex", "Onboarding copy", "rewrite the onboarding text", "Rewrote each step in one line.", "fewer words", "Halved it.", 12 * HOUR, 1, ["Ran", "wc -w docs/onboarding.md", "1840 docs/onboarding.md"]],
+  ["claude", i18n.t`Fix sidebar flicker`, "the sidebar flickers when an agent finishes", "`drawAgent` cleared each row, then wrote it again. It now writes once.", "commit it", "Committed `4f2c1d9` sidebar: draw each row in one write", 12 * 60, 0, ["Read", "src/sidebar.zig", "Read 2104 lines"]],
+  ["claude", i18n.t`Name dev server links`, "links just say Open Link", "Links now take the server's own name.", "use the page title when there is one", "Done. The title wins when the page has one.", 50 * 60, 0, ["Search", "\"Open Link\"", "Found 3 files"]],
+  ["claude", i18n.t`Slow down the herd animation`, "the compacting herd feels rushed", "Each herd step now takes `110 ms`.", "slower, the letters blur", "Slowed `herd_step_ms` to `140`.", 2 * HOUR, 0, ["Read", "src/corgi_animation.zig", "Read 1038 lines"]],
+  ["codex", i18n.t`Static Linux build`, "build a static linux binary", "Built with the musl target.", "strip it before upload", "Stripped: 18 MB down to 7 MB.", 5 * HOUR, 0, ["Ran", "zig build -Dtarget=x86_64-linux-musl", "Build Summary: 5/5 steps succeeded"]],
+  ["claude", i18n.t`Ghostty keybindings`, "bind cmd+1-9 to tabs", "`Cmd+1–9` now switch tabs.", "does Cmd+W close the whole tab?", "Yes: `Cmd+W` closes the tab with every pane in it.", 2 * HOUR, 1, ["Read", "src/ghostty_integration.zig", "Read 412 lines"]],
+  ["claude", i18n.t`Faster session restore`, "restore takes two seconds", "Restore now reads the checkpoint once.", "measure it again after the cache", "Down to 180 ms.", 4 * HOUR, 1, ["Bash", "hyperfine 'corgi checkpoint restore'", "Time (mean ± σ):  1.94 s ±  0.05 s"]],
+  ["claude", i18n.t`Usage bars in the picker`, "show usage next to each agent", "Each agent row now has its limits.", "show when it resets", "Added the reset time after each bar.", 6 * HOUR, 1, ["Read", "src/launcher_usage.zig", "Read 233 lines"]],
+  ["claude", i18n.t`Date resume rows by reply`, "resume dates look wrong", "Rows were dated by file time.", "date by the last reply instead", "Done. Rows now date by the last reply.", 9 * HOUR, 1, ["Search", "updated_at", "Found 6 files"]],
+  ["codex", i18n.t`Onboarding copy`, "rewrite the onboarding text", "Rewrote each step in one line.", "fewer words", "Halved it.", 12 * HOUR, 1, ["Ran", "wc -w docs/onboarding.md", "1840 docs/onboarding.md"]],
 ].map(([provider, title, first, did, last, reply, ago, yesterday, tool]) => ({ provider, title, first, did, last, reply, ago, yesterday, tool }));
 const NOW = Math.floor(Date.now() / 1000);
 // Today's and yesterday's rows land on those days whatever the hour.
@@ -293,7 +304,7 @@ const R = {
   query: style("strong", "surface"), caret: style("surface", "strong"), pane: style(null, "pane"),
 };
 const ink = (fg, selected) => style(fg, selected ? "selected" : "surface");
-const ellipsis = (text, room) => { const g = Array.from(text); return g.length <= room ? text : room <= 0 ? "" : g.slice(0, room - 1).join("") + "…"; };
+const ellipsis = textWidth.ellipsis;
 function ageLabel(s) {
   for (const [below, size, name] of [[HOUR, 60, "m"], [DAY, HOUR, "h"], [14 * DAY, DAY, "d"], [60 * DAY, 7 * DAY, "w"], [Infinity, 30 * DAY, "mo"]])
     if (s < below) return Math.max(1, Math.floor(s / size)) + name;
@@ -301,9 +312,9 @@ function ageLabel(s) {
 const dayStart = (s) => { const d = new Date(s * 1000); d.setHours(0, 0, 0, 0); return d.getTime() / 1000; };
 function dayLabel(s) {
   const days = Math.floor((dayStart(NOW) - dayStart(s) + 43200) / DAY);
-  if (days <= 0) return "Today";
-  if (days === 1) return "Yesterday";
-  return new Date(s * 1000).toLocaleDateString("en-US", days < 7 ? { weekday: "long" } : { month: "long", day: "numeric" });
+  if (days <= 0) return i18n.t`Today`;
+  if (days === 1) return i18n.t`Yesterday`;
+  return new Date(s * 1000).toLocaleDateString(i18n.language(), days < 7 ? { weekday: "long" } : { month: "long", day: "numeric" });
 }
 function columns(expanded) {
   const room = POP.width - 4 - 16, folder = expanded && room >= 60 ? 15 : 0, rest = room - folder;
@@ -332,20 +343,22 @@ const named = (rows, k, first) => {
   if (k === first || rows[k - 1].kind !== "entry") return true;
   return HISTORY[rows[k - 1].i].provider !== HISTORY[rows[k].i].provider;
 };
+const searchCount = count => { const scope = i18n.t`this workspace`; return i18n.t`${count} in ${scope}`; };
+const searchLabel = count => i18n.t` Search ${count} agents`;
 function drawLine(g, line, selected, isNamed, row, cols) {
   const x = POP.x, width = POP.width, base = selected ? R.selected : R.row;
   if (line.kind === "day") {
     const text = dayLabel(line.at);
     const c = put(g, row, x + 3, text + " ", R.panel);
-    put(g, row, c, "─".repeat(Math.max(0, width - (6 + text.length))), R.rule);
+    put(g, row, c, "─".repeat(Math.max(0, width - (6 + textWidth.displayWidth(text)))), R.rule);
     return;
   }
-  if (line.kind === "heading") { put(g, row, x + 3, `${line.n} in this workspace`, R.heading); return; }
+  if (line.kind === "heading") { put(g, row, x + 3, searchCount(line.n), R.heading); return; }
   put(g, row, x + 1, " ".repeat(width - 3), base);
   put(g, row, x + 1, selected ? "›" : " ", base);
   if (line.kind === "more") {
     put(g, row, x + 3, " / ", R.key);
-    put(g, row, x + 6, ` Search ${line.n} agents`, ink(selected ? "muted" : "faint", selected));
+    put(g, row, x + 6, searchLabel(line.n), ink(selected ? "muted" : "faint", selected));
     return;
   }
   const e = HISTORY[line.i];
@@ -362,21 +375,12 @@ function drawLine(g, line, selected, isNamed, row, cols) {
 
 // Frames: the picker with each agent row selected, with the keyboard in the
 // list, expanded for search, and the tab a choice opens.
-// The page has no agents to manage: the title border runs on in its place.
-function noManage(g) {
-  const top = g[0], text = top.map(([ch]) => ch).join(""), at = text.indexOf("Manage agents");
-  if (at < 0) return g;
-  let start = at;
-  while (start > 0 && top[start - 1][0] !== "─") start--;
-  for (let c = start; c <= at + "Manage agents".length; c++) top[c] = ["─", top[1][1]];
-  return g;
-}
-// Nor a YOLO toggle: the recorder leaves out its column, and its hint goes.
 function noYolo(g) {
-  const foot = g[PICK_HEIGHT - 2], text = foot.map(([ch]) => ch).join(""), hint = "   y  YOLO";
-  const at = text.indexOf(hint), lead = text.indexOf("new tab") + "new tab".length;
-  if (at < 0 || lead < "new tab".length) return g;
-  g[PICK_HEIGHT - 2] = [...foot.slice(0, lead), ...Array.from({ length: hint.length }, () => [" ", foot[1][1]]), ...foot.slice(lead, at), ...foot.slice(at + hint.length)];
+  const row = g.length - 2, style = g[row][1][1];
+  put(g, row, 1, " ".repeat(g[row].length - 2), style);
+  put(g, row, 2, i18n.t`new tab`, style);
+  const hint = i18n.t`↑↓ browse · Enter open · / search · Esc close`;
+  put(g, row, Math.max(18, g[row].length - textWidth.displayWidth(hint) - 2), hint, style);
   return g;
 }
 // Rows: Codex, Claude Code, Pi on the company's account, New terminal.
@@ -384,23 +388,21 @@ function noYolo(g) {
 const PICK_AGENTS = 4, PICK_HEIGHT = 18, FIELD_ROW = 7;
 // What each agent row starts.
 const PICK_PROVIDERS = ["codex", "claude", "pi"];
-const PICK = Array.from({ length: PICK_AGENTS }, (_, i) => noYolo(noManage(crop(F["launcher" + i], POP_AT.top, POP_AT.left, PICK_HEIGHT, POP.width))));
-const PICK_LIST = noManage(crop(F.search3, POP_AT.top, POP_AT.left, PICK_HEIGHT, POP.width));
+const PICK = Array.from({ length: PICK_AGENTS }, (_, i) => noYolo(crop(F["launcher" + i], POP_AT.top, POP_AT.left, PICK_HEIGHT, POP.width)));
+const PICK_LIST = crop(F.search3, POP_AT.top, POP_AT.left, PICK_HEIGHT, POP.width);
 // No scope switching here: the search line and the footer lose "tab".
 function noScope(g) {
   for (let c = 7; c < POP.width - 2; c++) g[FIELD_ROW][c] = [" ", g[FIELD_ROW][1][1]];
-  const foot = g[PICK_HEIGHT - 2], text = foot.map(([ch]) => ch).join("");
-  const hints = text.indexOf(" ↵ "), tab = text.indexOf(" tab ", hints), esc = text.indexOf(" esc ", hints);
-  if (hints >= 0 && tab > hints && esc > tab) g[PICK_HEIGHT - 2] = [...foot.slice(0, hints), ...Array.from({ length: esc - tab }, () => [" ", foot[1][1]]), ...foot.slice(hints, tab), ...foot.slice(esc)];
   return g;
 }
 // corgi's search frame lists ten rows; keep the first seven, then its footer.
 const shortList = (g) => [...g.slice(0, LIST.top + LIST.height), ...g.slice(-2)];
-const PICK_SEARCH = [F.search0, F.search1].map((f) => noScope(noManage(shortList(crop(f, 0, POP_AT.left, f.length, POP.width)))));
+const PICK_SEARCH = [F.search0, F.search1].map((f) => noYolo(noScope(shortList(crop(f, 0, POP_AT.left, f.length, POP.width)))));
 const AGENT_ROWS = 2, ENTRY_ROWS = 8, MORE_ROW = 14;
 
 const L = { mode: "agents", agent: 1, key: 0, query: "", scroll: 0, opened: null, back: "agents", phone: false };
 const launcherEl = document.getElementById("v-launcher");
+launcherEl.style.setProperty("--cols", POP.width);
 const launcherStage = document.getElementById("launcher-stage");
 const queryInput = document.getElementById("launcher-query");
 const launcher = new Screen(launcherEl, POP.width, PICK_HEIGHT);
@@ -426,7 +428,7 @@ function drawSearch(g) {
   }
   L.scroll = first;
   rows.slice(first, first + LIST.height).forEach((line, k) => drawLine(g, line, first + k === sel, named(rows, first + k, first), LIST.top + k, cols));
-  if (rows.length <= 1) put(g, LIST.top + rows.length, POP.x + 12, "No matches.", R.panel);
+  if (rows.length <= 1) put(g, LIST.top + rows.length, POP.x + 12, i18n.t`No matches.`, R.panel);
   if (rows.length > LIST.height) {
     const thumb = Math.max(1, Math.floor(LIST.height * LIST.height / rows.length));
     const top = Math.floor((LIST.height - thumb) * first / (rows.length - LIST.height));
@@ -731,22 +733,13 @@ launcherEl.addEventListener("click", (e) => {
 const PW = 48, PROWS = 19;
 const launcherPhoneEl = document.getElementById("v-launcher-phone");
 const launcherPhone = new Screen(launcherPhoneEl, PW, PROWS);
-// Styles sampled from corgi's own picker: the k-th cell of the nth `needle`.
-function sampled(g, r, needle, k = 0, nth = 0) {
-  const text = g[r].map(([ch]) => ch).join("");
-  let at = -1;
-  for (let n = 0; n <= nth; n++) at = text.indexOf(needle, at + 1);
-  return g[r][at + k][1];
-}
-const PS = (() => {
-  const desk = PICK[1], wide = crop(F.search0, 0, POP_AT.left, F.search0.length, POP.width), at = sampled;
-  return {
-    border: at(desk, 0, "╭"), title: at(desk, 0, "New agent"), key: at(desk, 2, "0"), mark: at(desk, 3, "›"),
-    text: at(desk, 2, "Codex"), text_sel: at(desk, 3, "Claude"), label: at(desk, 2, "7d"), label_sel: at(desk, 3, "5h"),
-    pct: at(desk, 2, "18%"), pct_sel: at(desk, 3, "23%"), muted: at(wide, 11, "corgi"), muted_sel: at(wide, 10, "corgi"),
-    foot: at(desk, 16, "new tab"), scope_in: at(desk, 0, " in "), scope: at(desk, 0, "corgi"),
-  };
-})();
+const PS = {
+  border: style("line", "surface"), title: style("strong", "surface", true), key: R.key,
+  mark: R.selected, text: R.row, text_sel: R.selected, label: R.panel,
+  label_sel: style("muted", "selected"), pct: R.row, pct_sel: R.selected,
+  muted: R.panel, muted_sel: style("muted", "selected"), foot: R.panel,
+  scope_in: R.panel, scope: R.row,
+};
 // [row, account, name, model, [label, use (%)] for each of the two figures,
 // or null where unknown], under their accounts.
 const PHONE_AGENTS = [
@@ -771,7 +764,7 @@ function phoneHeader(g, r, label) {
 function phoneAgents(g) {
   g[0] = Array.from({ length: PW }, (_, c) => [c === 0 ? "╭" : c === PW - 1 ? "╮" : "─", PS.border]);
   // Its title names the workspace it opens in, as corgi's does.
-  put(g, 0, put(g, 0, put(g, 0, 2, " New agent ", PS.title), " in  ", PS.scope_in), "corgi ", PS.scope);
+  put(g, 0, put(g, 0, 2, i18n.t` New agent  in  `, PS.title), "corgi ", PS.scope);
   let r = 1, account = null;
   PHONE_AGENTS.forEach(([i, acct, name, model, use]) => {
     if (acct !== account) phoneHeader(g, r++, (account = acct));
@@ -790,7 +783,7 @@ function phoneAgents(g) {
   const term = PICK_AGENTS - 1, sel = L.mode === "agents" && L.agent === term;
   phoneRow(g, r, sel);
   put(g, r, 3, " t ", PS.key);
-  put(g, r, NAME, "New terminal", sel ? PS.text_sel : PS.text);
+  put(g, r, NAME, i18n.t`New terminal`, sel ? PS.text_sel : PS.text);
   PMAP[r++] = { agent: term };
   phoneRow(g, r++);
   return r;
@@ -807,11 +800,11 @@ function phoneLines(g, r, rows, sel, map, last) {
   rows.forEach((line, k) => {
     if (r > last) return;
     if (line.kind === "day") return phoneHeader(g, r++, dayLabel(line.at));
-    if (line.kind === "heading") { phoneRow(g, r); put(g, r++, 3, `${line.n} in this workspace`, R.heading); return; }
+    if (line.kind === "heading") { phoneRow(g, r); put(g, r++, 3, searchCount(line.n), R.heading); return; }
     if (line.kind === "more") {
       phoneRow(g, r, k === sel);
       put(g, r, 3, " / ", R.key);
-      put(g, r, 6, ` Search ${line.n} agents`, ink(k === sel ? "muted" : "faint", k === sel));
+      put(g, r, 6, searchLabel(line.n), ink(k === sel ? "muted" : "faint", k === sel));
       PMAP[r++] = map(line, k);
       return;
     }
@@ -823,9 +816,9 @@ function phoneLines(g, r, rows, sel, map, last) {
 function phoneFoot(g, r, keys) {
   while (r < PROWS - 2) phoneRow(g, r++);
   phoneRow(g, PROWS - 2);
-  put(g, PROWS - 2, 2, "new tab", PS.foot);
+  put(g, PROWS - 2, 2, i18n.t`new tab`, PS.foot);
   // Key hints end two cells in from the border, as corgi's footer does.
-  let c = PW - 2 - keys.reduce((n, [k, label]) => n + k.length + 2 + label.length + 1, 0);
+  let c = PW - 2 - keys.reduce((n, [k, label]) => n + k.length + 2 + textWidth.displayWidth(label) + 1, 0);
   for (const [k, label] of keys) { c = put(g, PROWS - 2, c, ` ${k} `, PS.key); c = put(g, PROWS - 2, c, ` ${label}`, PS.foot); }
   g[PROWS - 1] = Array.from({ length: PW }, (_, c) => [c === 0 ? "╰" : c === PW - 1 ? "╯" : "─", PS.border]);
 }
@@ -859,8 +852,8 @@ function phoneSearch(g, r) {
   }
   L.scroll = first;
   const end = phoneLines(g, r, rows.slice(first, first + room), sel - first, (line) => ({ entry: line.i }), PROWS - 4);
-  if (rows.length <= 1) { phoneRow(g, end); put(g, end, NAME, "No matches.", R.panel); }
-  phoneFoot(g, Math.max(end, rows.length <= 1 ? end + 1 : end), [["↵", "resume"]]);
+  if (rows.length <= 1) { phoneRow(g, end); put(g, end, NAME, i18n.t`No matches.`, R.panel); }
+  phoneFoot(g, Math.max(end, rows.length <= 1 ? end + 1 : end), [["↵", i18n.t`resume`]]);
 }
 function phonePicker() {
   const g = blank(PROWS, PW);
@@ -959,9 +952,12 @@ function resTotals(host, ws, t) {
 // CPU's, the size memory's, and a second percentage GPU's.
 function putTotals(g, row, [cpu, memory, gpu]) {
   const text = g[row].map(([ch]) => ch).join(""), rates = [...text.matchAll(/\d+%/g)], size = text.match(/\d[\d.]*[GM]\b/);
-  if (rates[0]) put(g, row, rates[0].index, cpu.padEnd(rates[0][0].length));
-  if (size) put(g, row, size.index, memory.padEnd(size[0].length));
-  if (rates[1]) put(g, row, rates[1].index, gpu.padEnd(rates[1][0].length));
+  const field = (match, value) => {
+    if (match) put(g, row, textWidth.displayWidth(text.slice(0, match.index)), value.padEnd(match[0].length));
+  };
+  field(rates[0], cpu);
+  field(size, memory);
+  field(rates[1], gpu);
 }
 // The card in `rect` at time t, its rows in `state`'s order, which holds
 // while `held`, as corgi holds it under the pointer. A pointer on its
@@ -1031,7 +1027,7 @@ function workRows(key, t, w) {
       [["• ", A.bullet], ["The script pipes a download straight into tar. I'll check the checksums it trusts.", A.text]], [],
       [["• ", A.bullet], ["Spawned 2 agents", A.tool]], [["  └ Explorer  read install.sh", A.out]], [["    Verifier  fetch SHA256SUMS", A.out]], [],
       [[dot + " ", A.text], ["Working", A.tool], [` (${secs(72)})`, A.hint]], [],
-      ...codexBottom("Audit the install script")];
+      ...codexBottom(i18n.t`Audit the install script`)];
     case "C2": {
       const box = (text, s) => [["│ ", A.border], ...(Array.isArray(text) ? text : [[text, s]]), ["", A.border]];
       return [
@@ -1060,7 +1056,7 @@ function workRows(key, t, w) {
       [["• ", A.bullet], ["Edited ", A.tool], ["src/ghostty_integration.zig (+18 -2)", A.text]], [],
       [["• ", A.bullet], ["Cmd+1–9 now switch tabs. Reload Ghostty with Cmd+Shift+, to pick it up.", A.text]], [],
       [["  Worked for 4m 12s • 12:14 PM", A.hint]], [],
-      ...codexBottom("Ghostty keybindings")];
+      ...codexBottom(i18n.t`Ghostty keybindings`)];
     case "M0": return [
       ...ask("the lander bounces three times on touchdown"), [],
       ...tool("Read", "src/physics.zig", "Read 412 lines"),
@@ -1173,7 +1169,7 @@ function closeBox(rows, w) {
   return rows.map((row) => {
     const runs = row.runs ?? row;
     if (!Array.isArray(runs) || !runs.length || runs[0][0] !== "│ ") return row;
-    const used = runs.reduce((n, [text]) => n + Array.from(text).length, 0);
+    const used = runs.reduce((n, [text]) => n + textWidth.displayWidth(text), 0);
     return [...runs.slice(0, -1), [" ".repeat(Math.max(0, w - 1 - used)) + "│", A.border]];
   });
 }
@@ -1245,9 +1241,8 @@ function sidebarNow() {
     for (const y of [WATCH_ROWS[i], WATCH_ROWS[i] + 1]) frame[y - AGENT_TOP].forEach((cell, c) => (g[y][c] = cell));
   }
   tidySidebar(g);
-  // No scope dropdown: the header reads "agents", then New.
-  const head = AGENT_TOP - 2, text = g[head].map(([ch]) => ch).join(""), from = text.indexOf("agents") + 6, to = text.indexOf(" New");
-  for (let c = from; c < to; c++) g[head][c] = [" ", g[head][0][1]];
+  const scope = DATA.layout.controls[`${W.phone ? "p" : ""}w${W.width}_${W.ws}${unread}${ahead}`].scope;
+  if (scope) put(g, AGENT_TOP - 2, scope[0], " ".repeat(scope[1] - scope[0]));
   SIDE_CACHE.set(key, g);
   return g;
 }
@@ -1261,10 +1256,11 @@ function switchTo(ws) {
   Object.assign(W, { ws, hover: null, card: null, res: null, dismissed: null, spot: -1 });
 }
 // The push button, as drawGitAction draws it: right-aligned on corgi's name row.
+const pushing = spinner => i18n.t` Pushing ${spinner}`;
 function gitLabel(now) {
-  if (W.git === "pushing") return { text: ` Pushing ${corgiAnimation.spinner(false, now)}`, fg: "accent" };
-  if (W.git === "pushed") return { text: " Pushed ✓", fg: "accent" };
-  if (W.git === "ahead" && W.gitHover) return { text: " Push ↑2", fg: "warm" };
+  if (W.git === "pushing") return { text: pushing(corgiAnimation.spinner(false, now)), fg: "accent" };
+  if (W.git === "pushed") return { text: i18n.t` Pushed ✓`, fg: "accent" };
+  if (W.git === "ahead" && W.gitHover) return { text: i18n.t` Push ↑2`, fg: "warm" };
   return null;
 }
 // A phone's finger gets the whole "Push ↑2" width to aim at.
@@ -1325,7 +1321,7 @@ function drawWatch(t) {
   }
   drawWork(g, W.ws + W.focus[W.ws], t, W.width);
   const label = gitLabel(now);
-  if (label) put(g, 2, W.width - 2 - Array.from(label.text).length, label.text, style(label.fg, W.gitHover || W.ws === "C" ? "selected" : "bg", true));
+  if (label) put(g, 2, W.width - 2 - textWidth.displayWidth(label.text), label.text, style(label.fg, W.gitHover || W.ws === "C" ? "selected" : "bg", true));
   // The workspace not shown fades back, until the pointer comes to it.
   const other = W.ws === "C" ? "M" : "C";
   if (W.wsHover !== other && W.res !== other) for (const r of WS_ROWS[other]) for (let c = 0; c < W.width - 1; c++) {
@@ -1354,21 +1350,17 @@ const watchCell = (e) => {
 };
 const agentAt = ({ col, row }) => (col < W.width - 1 ? WATCH_ROWS.slice(0, AGENTS[W.ws]).findIndex((y) => row === y || row === y + 1) : -1);
 const workspaceAt = ({ col, row }) => (col >= W.width - 1 ? null : WS_ROWS.C.includes(row) ? "C" : WS_ROWS.M.includes(row) ? "M" : null);
+const unreadLabel = count => i18n.t`${count} unread →`;
+const sidebarControls = (width, ws, unread, ahead, phone = false) => DATA.layout.controls[`${phone ? "p" : ""}w${width}_${ws}${unread}${ahead}`];
 const unreadAt = ({ col, row }) => {
-  if (row !== 3 || col >= W.width - 1) return false;
-  const text = sidebarNow()[3].map(([ch]) => ch).join(""), at = text.indexOf("unread →");
-  if (at < 0) return false;
-  let from = at;
-  while (from > 0 && /[0-9 ]/.test(text[from - 1])) from--;
-  return col >= from && col < at + "unread →".length;
+  const unread = WATCH_UNREAD.length - W.read.size;
+  const range = sidebarControls(W.width, W.ws, unread, W.git === "none" ? 0 : 1, W.phone).unread;
+  return unread > 0 && row === 3 && col >= range.start && col < range.end;
 };
-// A phone's sidebar keeps its width.
 const edgeAt = ({ col }) => !W.phone && col === W.width - 1;
-// The agents header's New button, through its ▾.
 const newAt = ({ col, row }) => {
-  if (row !== AGENT_TOP - 2 || col >= W.width - 1) return false;
-  const text = sidebarNow()[row].map(([ch]) => ch).join(""), from = text.indexOf(" New") + 1, to = text.indexOf("▾", from);
-  return from > 0 && col >= from - 1 && col <= (to < 0 ? from + 3 : to);
+  const span = sidebarControls(W.width, W.ws, 1, 1, W.phone).newAgent;
+  return row === AGENT_TOP - 2 && span && col >= span[0] && col < span[1];
 };
 // A resource row, up to the sidebar's edge on the way to its card.
 // corgi needs 68 columns for the resource card, so a phone has none.
@@ -1517,58 +1509,15 @@ let overviewShown = null;
 // On a phone the card is laid out like the picker: agents under their
 // account, limits under their own header, each a label and one figure at the
 // right edge, from the same cells corgi drew.
-const OPW = 48, OPROWS = 13, OFIG = 45;
+const OPW = 48, OPROWS = F.ov_phone[0].length;
 const overviewPhoneEl = document.getElementById("v-overview-phone");
+overviewPhoneEl.style.setProperty("--rows", OPROWS);
 const overviewPhone = new Screen(overviewPhoneEl, OPW, OPROWS);
-const OV_PHONE = new Map();
-function phoneOverview(f) {
-  if (OV_PHONE.has(f)) return OV_PHONE.get(f);
-  const text = (r) => f[r].map(([ch]) => ch).join(""), cells = (r, from, n) => f[r].slice(from, from + n);
-  const head = text(5), opusEnd = head.indexOf("≈opus") + 5, model = head.indexOf("Model"), split = text(6).indexOf("┬");
-  const line = f[2][2][1], ground = style(null, "bg"), faint = style("faint", "bg"), rule = style("line", "bg");
-  const g = Array.from({ length: OPROWS }, (_, r) => Array.from({ length: OPW }, (_, c) => [r === 0 || r === OPROWS - 1 ? "─" : c === 0 || c === OPW - 1 ? "│" : " ", c === 0 || c === OPW - 1 || r === 0 || r === OPROWS - 1 ? line : ground]));
-  Object.assign(g[0], { 0: ["╭", line], [OPW - 1]: ["╮", line] });
-  Object.assign(g[OPROWS - 1], { 0: ["╰", line], [OPW - 1]: ["╯", line] });
-  const place = (r, c, list) => list.forEach((cell, k) => (g[r][c + k] = cell));
-  const right = (r, list) => place(r, OFIG - list.length + 1, list);
-  // The title and the total ride the top border.
-  const title = text(3), name = title.indexOf("Observed tokens"), total = title.match(/[\d.]+k?(?= tokens)/);
-  place(0, 2, [[" ", line], ...cells(3, name, "Observed tokens".length), [" ", line]]);
-  right(0, [[" ", line], ...cells(3, total.index, total[0].length), [" ", line]]);
-  // A group: its label, a rule, and what its figures are.
-  const header = (r, label, unit) => {
-    const c = put(g, r, 3, label + " ", faint), u = OFIG - unit.length + 1;
-    put(g, r, c, "─".repeat(Math.max(0, u - 1 - c)), rule);
-    put(g, r, u, unit, faint);
-  };
-  const section = text(6).slice(0, split).replace(/[├─┬]/g, " ").trim().split(" · ")[0].replace(/^(\S+) /, "$1 · ");
-  header(1, section, "≈opus");
-  for (let r = 7, row = 2; r <= 12; r++, row++) {
-    const glyph = text(r).search(/[▶●○]/);
-    place(row, 3, cells(r, glyph, 1));
-    const label = cells(r, glyph + 2, model - glyph - 2);
-    while (label.length && label.at(-1)[0] === " ") label.pop();
-    place(row, 5, label.slice(0, OFIG - 14));
-    const spend = cells(r, opusEnd - 8, 8);
-    while (spend.length && spend[0][0] === " ") spend.shift();
-    right(row, spend);
-  }
-  header(9, "Limits", "resets in");
-  for (const [r, row] of [[7, 10], [8, 11]]) {
-    const side = text(r).slice(split + 1), at = split + 1, m = side.match(/(\S+) (\S+)\s+(\d+%) (↻ .*?)\s*│/);
-    if (!m) continue;
-    const start = at + side.indexOf(m[1]);
-    place(row, 3, cells(r, start, m[1].length + 1 + m[2].length + 2 + m[3].length));
-    right(row, cells(r, at + side.indexOf(m[4]), m[4].length));
-  }
-  OV_PHONE.set(f, g);
-  return g;
-}
 const overviewSection = document.getElementById("overview");
 let overviewPhoneOn = false;
 function drawOverview(t) {
   const g = OV_CARD[Math.floor(t / OV_STEP) % OV_CARD.length];
-  if (overviewPhoneOn) { if (g !== overviewShown) overviewPhone.paint(phoneOverview((overviewShown = g))); return; }
+  if (overviewPhoneOn) { if (g !== overviewShown) (overviewShown = g, overviewPhone.paint(F.ov_phone[Math.floor(t / OV_STEP) % F.ov_phone.length])); return; }
   if (g !== overviewShown) overviewScreen.paint((overviewShown = g));
 }
 // Below 600 pixels the card takes the phone's layout, edge to edge; the
@@ -1578,6 +1527,7 @@ new ResizeObserver(() => requestAnimationFrame(() => {
   if (phone === overviewPhoneOn) return;
   overviewPhoneOn = phone;
   overviewShown = null;
+  drawOverview(0);
 })).observe(overviewSection);
 
 // ---------------------------------------------------------------- keyboard and mouse
@@ -1807,14 +1757,14 @@ const copyBtn = document.getElementById("copy");
 copyBtn.addEventListener("click", () => {
   const text = "curl -fsSL https://corgi.computer/install.sh | bash";
   const cmd = copyBtn.closest(".cmd");
-  const reset = () => { copyBtn.classList.remove("copied"); copyBtn.setAttribute("aria-label", "Copy the install command"); };
+  const reset = () => { copyBtn.classList.remove("copied"); copyBtn.setAttribute("aria-label", i18n.t`Copy the install command`); };
   // The check shows on the click itself; the glint runs alongside it.
   clearTimeout(copyBtn.timer);
   copyBtn.classList.remove("copied");
   cmd.classList.remove("glint");
   void cmd.offsetWidth;
   copyBtn.classList.add("copied");
-  copyBtn.setAttribute("aria-label", "Copied");
+  copyBtn.setAttribute("aria-label", i18n.t`Copied`);
   if (!still) cmd.classList.add("glint");
   copyBtn.timer = setTimeout(reset, 1600);
   // Without clipboard access, select the command for a manual copy instead.
@@ -1848,13 +1798,13 @@ const TABS = {
 // As corgi draws a tab: a half cell of bar, its number on a badge, the
 // badge's half cell, then its name and a space. An untitled tab is twelve
 // wide; a renamed one fits its whole title.
-const tabWidth = (root, i) => Math.max(12, `${i + 1}`.length + 3 + (root.title ?? "").length);
+const tabWidth = (root, i) => Math.max(12, `${i + 1}`.length + 3 + textWidth.displayWidth(root.title ?? ""));
 // What an untitled tab shows for its pane, as corgi does: its agent and the
 // provider's mark, the program in front of its shell and its mark, or its
 // folder.
 const AGENT_TABS = {
-  C0: ["Fix sidebar flicker", "claude"], C1: ["Audit the install script", "codex"], C2: ["Release notes", "claude"], C3: ["Refactor the viewer", "claude"],
-  C4: ["Ghostty keybindings", "codex"], M0: ["Tune the thruster physics", "claude"], M1: ["Draw the lander sprite", "claude"],
+  C0: [i18n.t`Fix sidebar flicker`, "claude"], C1: [i18n.t`Audit the install script`, "codex"], C2: [i18n.t`Release notes`, "claude"], C3: [i18n.t`Refactor the viewer`, "claude"],
+  C4: [i18n.t`Ghostty keybindings`, "codex"], M0: [i18n.t`Tune the thruster physics`, "claude"], M1: [i18n.t`Draw the lander sprite`, "claude"],
 };
 function untitledTab(S, id) {
   const agent = AGENT_TABS[id];
@@ -1907,11 +1857,12 @@ function wrap(rows, w) {
     const out = [[]];
     let n = 0;
     for (const [text, s] of row) for (const ch of text) {
-      if (n === w) { out.push([]); n = 0; }
+      const width = textWidth.displayWidth(ch);
+      if (n + width > w) { out.push([]); n = 0; }
       const line = out.at(-1), last = line.at(-1);
       if (last?.[1] === s) last[0] += ch;
       else line.push([ch, s]);
-      n++;
+      n += width;
     }
     return out;
   });
@@ -1919,8 +1870,8 @@ function wrap(rows, w) {
 const resRectAt = (ws, rows, host) => resourceTooltip.geometry(COLS, rows, SW, RES_ROW[ws], resGpus(host));
 function find(g, text, { r0 = 0, r1 = g.length - 1, c0 = 0, c1 = g[0].length - 1 } = {}) {
   for (let r = r0; r <= r1; r++) {
-    const at = rowText(g, r).slice(c0, c1 + 1).indexOf(text);
-    if (at >= 0) return { r0: r, r1: r, c0: c0 + at, c1: c0 + at + Array.from(text).length - 1 };
+    const at = cellGrid.find(g[r].slice(c0, c1 + 1), text);
+    if (at >= 0) return { r0: r, r1: r, c0: c0 + at, c1: c0 + at + textWidth.displayWidth(text) - 1 };
   }
   return null;
 }
@@ -1935,8 +1886,8 @@ const REVIEW_W = 80;
 // The checkouts the recorder made, by the worktree each is: where the panel
 // reads it, and the agent it follows there.
 const REVIEWED = [
-  ["/thrusters", { cwd: "~/moonlander", name: "Tune the thruster physics" }],
-  ["/sprite", { cwd: "~/moonlander/.claude/worktrees/sprite", name: "Draw the lander sprite" }],
+  ["/thrusters", { cwd: "~/moonlander", name: i18n.t`Tune the thruster physics` }],
+  ["/sprite", { cwd: "~/moonlander/.claude/worktrees/sprite", name: i18n.t`Draw the lander sprite` }],
 ];
 function reviewPanel(target = REVIEWED[0][1]) {
   const p = new panel.Panel();
@@ -2085,7 +2036,7 @@ const GIT_ANSWERS = 350;
 // The checkout whose heading is on `row` of the sidebar, `sw` wide.
 function headingAt(g, o, row, sw) {
   if (!g?.[row]) return null;
-  const text = rowText(g, row).slice(0, sw - 1), at = text.indexOf("⌥ ");
+  const text = g[row].slice(0, sw - 1).map(([ch]) => ch).join(""), at = text.indexOf("⌥ ");
   if (at < 0) return null;
   const name = text.slice(at + 2).split(" ")[0];
   return o.snapshot.entries.find((e) => worktrees.label(e) === name || (name.endsWith("…") && worktrees.label(e).startsWith(name.slice(0, -1)))) ?? null;
@@ -2126,7 +2077,7 @@ function drawMenu(g, S) {
   const m = S.menu, out = new Writer();
   if (!m.answered && Date.now() - m.at >= GIT_ANSWERS) {
     m.answered = true;
-    m.menu.setDetail("review", new Map(S.trees.data.reviews).get(m.path) ?? [["No changes", "faint"]]);
+    m.menu.setDetail("review", new Map(S.trees.data.reviews).get(m.path) ?? [[i18n.t`No changes`, "faint"]]);
   }
   m.menu.draw(out, COLS, S.rows);
   drawOver(g, out, S.rows);
@@ -2280,9 +2231,10 @@ function session(init = {}) {
     if (S.side) F[S.side].forEach((row, r) => row.slice(0, SW).forEach((cell, c) => (g[r][c] = cell)));
     else agentList(g, ws, un, ahead, fi, clear);
     tidySidebar(g);
-    const head = g.findIndex((_, r) => rowText(g, r).includes("agents:")), text = rowText(g, head);
-    const from = text.indexOf("agents") + 6, to = S.newButton ? text.indexOf(" New") : text.indexOf("│");
-    for (let c = from; c < to; c++) g[head][c] = [" ", g[head][0][1]];
+    const controls = sidebarControls(SW, ws, un, ahead);
+    const span = S.side ? null : controls.scope;
+    if (span) put(g, AGENT_TOP - 2, span[0], " ".repeat(span[1] - span[0]));
+    if (!S.newButton && controls.newAgent) put(g, AGENT_TOP - 2, controls.newAgent[0], " ".repeat(controls.newAgent[1] - controls.newAgent[0]));
     SIDE.set(key, g);
     return g;
   }
@@ -2301,16 +2253,16 @@ function session(init = {}) {
       const read = F[`w34_eC${i === fi ? 1 : 0}1`], [top, under] = [WATCH_ROWS[i], WATCH_ROWS[i] + 1];
       read[WATCH_ROWS[4] - AGENT_TOP].forEach((cell, c) => (g[top][c] = cell));
       read[WATCH_ROWS[4] + 1 - AGENT_TOP].forEach((cell, c) => (g[under][c] = [cell[0], keepRule(cell[1], g[under][c])]));
-      const name = rowText(F[`w34_eC${i === fi ? 1 : 0}0`], top - AGENT_TOP).slice(BAR + 4).trimEnd();
-      put(g, top, BAR + 4, name.padEnd(SW - 3 - BAR - 4));
+      const name = F[`w34_eC${i === fi ? 1 : 0}0`][top - AGENT_TOP].slice(BAR + 4).map(([ch]) => ch).join("").trimEnd();
+      put(g, top, BAR + 4, name + " ".repeat(Math.max(0, SW - 3 - BAR - 4 - textWidth.displayWidth(name))));
     }
     // Once allowed, Release notes needs no one, so the ● count goes.
     if (S.approvedAt != null) {
-      const text = rowText(g, 3), at = text.indexOf("●1 "), end = text.indexOf("  ", at);
+      const at = cellGrid.find(g[3], "●1 "), end = cellGrid.find(g[3], "  ", at);
       if (at >= 0) { const gone = g[3].splice(at, 3); g[3].splice(end - 3, 0, ...gone.map(([, s]) => [" ", s])); }
     }
   }
-  const linkCol = () => rowText(sidebar(), LINK_ROW).indexOf(LINK_TEXT);
+  const linkCol = () => cellGrid.find(sidebar()[LINK_ROW], LINK_TEXT);
   function layout() {
     const room = S.cols - SW - (S.review ? REVIEW_W : 0), rows = S.rows;
     const tabs = S.tabs[S.ws], root = tabs[S.tab[S.ws]] ?? tabs[0];
@@ -2397,12 +2349,15 @@ function session(init = {}) {
       const ids = leaves(root, 0, 0, 90, 20).map((l) => l.id);
       const { name, brand } = root.title != null ? { name: root.title, brand: null } : untitledTab(S, ids.includes(S.focus[S.ws]) ? S.focus[S.ws] : ids[0]);
       const mark = brand ? markCells(brand) : [];
-      let label = name.slice(0, w - number.length - mark.length - 3);
+      let label = textWidth.clipped(name, w - number.length - mark.length - 3);
       const cut = label.length < name.length;
       if (cut) label = label.trimEnd();
-      const end = number.length + 2 + mark.length + label.length;
-      [..."▐" + number + "▌", ...mark, ...label.padEnd(w - number.length - 2 - mark.length)].forEach((ch, k) => put(g, 0, c + k, ch,
-        k === 0 ? ts.open : k <= number.length ? ts.badge : k === number.length + 1 ? ts.end : cut && k >= end - 2 && k < end ? ts.fade[k - end + 2] : ts.name));
+      const end = number.length + 2 + mark.length + textWidth.displayWidth(label);
+      const labelCells = cellGrid.decode([[label, ts.name]]);
+      const cells = [...cellGrid.decode([["▐" + number + "▌", ts.name]]), ...mark.map(ch => [ch, ts.name]), ...labelCells];
+      while (cells.length < w) cells.push([" ", ts.name]);
+      cells.forEach(([ch], k) => { if (g[0][c + k]) g[0][c + k] = [ch,
+        k === 0 ? ts.open : k <= number.length ? ts.badge : k === number.length + 1 ? ts.end : cut && k >= end - 2 && k < end ? ts.fade[k - end + 2] : ts.name]; });
       c += w;
     });
     if (!S.single) put(g, 0, put(g, 0, put(g, 0, c, "▐", TAB_ADD_EDGE), "+", TAB_ADD), "▌", TAB_ADD_EDGE);
@@ -2432,8 +2387,8 @@ function session(init = {}) {
   }
   function gitLabel(t) {
     if (S.git === "pushing") return { text: ` Pushing ${corgiAnimation.spinner(false, t)}`, fg: "accent" };
-    if (S.git === "pushed") return { text: " Pushed ✓", fg: "accent" };
-    if (S.git === "ahead" && S.gitHover) return { text: " Push ↑2", fg: "warm" };
+    if (S.git === "pushed") return { text: i18n.t` Pushed ✓`, fg: "accent" };
+    if (S.git === "ahead" && S.gitHover) return { text: i18n.t` Push ↑2`, fg: "warm" };
     return null;
   }
   function compose(t) {
@@ -2462,7 +2417,7 @@ function session(init = {}) {
     if (S.ws === "C" && S.approvedAt != null && !(S.tagged && S.read.has(2))) {
       const [r0, r1] = [WATCH_ROWS[2], WATCH_ROWS[2] + 1], bg = groundOf(g, r0, 2);
       if (S.tagged) {
-        put(g, r0, BAR + 1, "●", style("accent", bg, true)); put(g, r0, BAR + 4, "Release notes", style("strong", bg, true));
+        put(g, r0, BAR + 1, "●", style("accent", bg, true)); put(g, r0, BAR + 4, i18n.t`Release notes`, style("strong", bg, true));
         put(g, r1, BAR + 1, "   ~ᐯ◡ᴥ◡ᐯ".padEnd(SW - 3 - BAR), style(bg === "selected" ? "muted" : "faint", bg));
       } else {
         put(g, r0, BAR + 1, "▶", style("accent", bg, true));
@@ -2482,9 +2437,9 @@ function session(init = {}) {
         put(g, row, c, took, keepRule(style(ground === "selected" ? "muted" : "faint", ground), g[row][c]));
       }
     }
-    if (unread() > 1) { const text = rowText(g, 3), u = text.indexOf("1 unread"); if (u >= 0) put(g, 3, u, "2"); }
+    if (unread() > 1) { const count = String(unread()), range = sidebarControls(SW, S.ws, 1, 1).unread; put(g, 3, range.start, i18n.t`${count} unread →`); }
     const label = gitLabel(at);
-    if (label) put(g, 2, SW - 2 - Array.from(label.text).length, label.text, style(label.fg, "selected", true));
+    if (label) put(g, 2, SW - 2 - textWidth.displayWidth(label.text), label.text, style(label.fg, "selected", true));
     // The workspace not shown fades back until the pointer comes to it.
     const other = S.ws === "C" ? "M" : "C";
     if (!S.alone && S.wsHover !== other && S.res !== other) for (const r of WS_ROWS[other]) for (let c = 0; c < SW - 1; c++) {
@@ -2522,7 +2477,7 @@ function session(init = {}) {
   const hit = {
     link: ({ row, col }) => { const lc = linkCol(); return row === LINK_ROW && S.link >= LINK_TEXT.length && col >= lc && col < lc + LINK_TEXT.length ? true : null; },
     git: ({ row, col }) => (row === 2 && S.git === "ahead" && col >= SW - 2 - (S.gitHover ? 8 : 2) && col < SW - 2 ? true : null),
-    unread: ({ row, col }) => { const u = row === 3 && side({ col }) ? find(sidebar(), "unread →", { r0: 3, r1: 3 }) : null; return u && col >= u.c0 - 2 && col <= u.c1 ? true : null; },
+    unread: ({ row, col }) => { const u = sidebarControls(SW, S.ws, 1, 1).unread; return unread() > 0 && row === 3 && side({ col }) && col >= u.start && col < u.end ? true : null; },
     agent: (at) => { const i = side(at) ? WATCH_ROWS.slice(0, AGENTS[S.ws]).findIndex((y) => at.row === y || at.row === y + 1) : -1; return i >= 0 ? i : null; },
     res: (at) => (side(at) ? (at.row === RES_ROW.C ? "C" : at.row === RES_ROW.M ? "M" : null) : null),
     ws: (at) => (side(at) ? (WS_ROWS.C.includes(at.row) ? "C" : WS_ROWS.M.includes(at.row) ? "M" : null) : null),
@@ -2606,10 +2561,10 @@ function drawHero(t) {
   simEl.classList.toggle("launching", !heroReady);
   simEl.tabIndex = heroReady ? 0 : -1;
   simEl.setAttribute("aria-label", !heroReady
-    ? "A terminal starting Corgi."
+    ? i18n.t`A terminal starting Corgi.`
     : H.single
-      ? "A Corgi session. Tap an agent to see its pane."
-      : "A Corgi session with Claude and Codex agents. Click an agent to switch to it.");
+      ? i18n.t`A Corgi session. Tap an agent to see its pane.`
+      : i18n.t`A Corgi session with Claude and Codex agents. Click an agent to switch to it.`);
   if (heroReady) heroScreen.paint(crop(hero.compose(t), 0, 0, ROWS, H.cols));
   else {
     const g = blank(ROWS, H.cols);
@@ -2669,7 +2624,7 @@ function drawRunning(t) {
   const detached = ms >= 8000 && ms < 10500;
   runningWindow.classList.toggle("detached", detached);
   runningWindow.setAttribute("aria-hidden", String(detached));
-  runningStatus.textContent = detached ? "window closed · agents + dev server still running" : "agents + dev server · running in the background";
+  runningStatus.textContent = detached ? i18n.t`window closed · agents + dev server still running` : i18n.t`agents + dev server · running in the background`;
   for (const v of runningViews) {
     const start = v.name === "agent" && ms >= 10500 ? 10500 : v.at;
     const typed = Math.max(0, Math.min(5, Math.floor((ms - start) / 130)));
@@ -2703,10 +2658,10 @@ drawRunning(now());
 const cardRect = (s) => { const box = s.cardFor(s.S.ws, s.S.card)[1]; return { r0: box.top, r1: box.bottom, c0: box.left, c1: box.right }; };
 // The open card's Recent rows, down to the blank row under them.
 function recentRows(g, s) {
-  const box = cardRect(s), at = find(g, "Recent", box);
+  const box = cardRect(s), at = find(g, i18n.t` Recent `, box);
   if (!at) return null;
   let r1 = at.r0 + 1;
-  while (r1 + 1 < box.r1 && rowText(g, r1 + 1).slice(box.c0 + 1, box.c1).trim()) r1++;
+  while (r1 + 1 < box.r1 && g[r1 + 1].slice(box.c0 + 1, box.c1).some(([ch]) => ch.trim())) r1++;
   return { r0: at.r0 + 1, r1, c0: box.c0 + 3, c1: box.c1 - 3 };
 }
 
@@ -2735,7 +2690,7 @@ function usage(args) {
   const end = args.findIndex((a) => a.startsWith("-")), names = end < 0 ? args : args.slice(0, end);
   for (let n = names.length; n > 0; n--) {
     const prefix = ["corgi", ...names.slice(0, n)].join(" ");
-    const lines = CLI_HELP.split("\n").map((l) => l.trim()).filter((l) => l.startsWith(prefix) && [undefined, " ", "|"].includes(l[prefix.length]));
+    const lines = helpText.split("\n").map((l) => l.trim()).filter((l) => l.startsWith(prefix) && [undefined, " ", "|"].includes(l[prefix.length]));
     if (lines.length) return lines;
   }
   return [];
@@ -2826,7 +2781,7 @@ function corgi(s, from, args) {
     return lines(r.closed_panes.length ? `closed pane ${r.closed_panes.join(", ")}` : r.pane ? `pane ${r.pane} (tab ${r.tab}, workspace ${r.workspace})` : "ok");
   };
   if (group === "--skill") return lines(CLI_SKILL);
-  if (!group || group === "help" || args.includes("--help") || args.includes("-h") || (["pane", "tab", "workspace"].includes(group) && args.length === 1)) return lines(CLI_HELP);
+  if (!group || group === "help" || args.includes("--help") || args.includes("-h") || (["pane", "tab", "workspace"].includes(group) && args.length === 1)) return lines(i18n.html(CLI_HELP));
   if (group === "current") { if (!from) throw Error("NoCallerPane"); return ok(locate(S, from)); }
   if (group === "list" || (group === "workspace" && verb === "list")) {
     if (args.slice(group === "list" ? 1 : 2).some((a) => a !== "--json")) throw Error("Usage");
@@ -3149,7 +3104,7 @@ const FEATURES = {
   // so the box's padding is the same all round; past the sidebar, `split`,
   // it takes the pane's ground.
   agents: { init: { clear: 1, newButton: false, solo: true, compacting: true }, crop: [2, 1, 21, 78], split: SW, touch: "unread agent ws", live: true,
-    rings: (g) => [find(g, "1 unread →", { r0: 3, r1: 3 }), agentRows(4)], dim: false, focus: interest },
+    rings: (g) => [find(g, unreadLabel(1), { r0: 3, r1: 3 }), agentRows(4)], dim: false, focus: interest },
   steps: { init: { hover: 0, card: 0 }, crop: [7, 0, 16, 122], touch: "agent", cards: "keep", rings: (g, s) => [agentRows(s.S.card), recentRows(g, s)], wires: [[0, 1]], lit: (g, s) => [cardRect(s)] },
   // moonlander's thruster tuning, idle under its worktree with the sprite's
   // agent in another, and its changes in the review panel, which has the
@@ -3692,10 +3647,12 @@ const paceSides = [["plain", false], ["corgi", true]].map(([name, paced]) => {
 });
 // Under them, a timeline of each side as Chrome draws one: usable, halted,
 // catching up, usable again, filled in up to the playhead.
-for (const [name, paced] of [["plain ssh", false], ["corgi", true]]) {
+const linkDown = elapsed => i18n.t`link down · ${elapsed}`;
+const catchUp = elapsed => i18n.t`catch-up · ${elapsed}`;
+for (const [name, paced] of [[i18n.t`plain ssh`, false], ["corgi", true]]) {
   const [from, to] = PACE.stall, back = paceBack(paced), track = el("div", "tb-track"), fill = el("div", "tb-fill");
   const secs = (ms) => `${Math.round(ms / 100) / 10} s`;
-  const spans = [["usable", 0, from, "usable", ""], ["halt", from, to, `link down · ${secs(to - from)}`, secs(to - from)], ["catchup", to, back, `catch-up · ${secs(back - to)}`, secs(back - to)], ["usable", back, PACE_END, "usable", ""]];
+  const spans = [["usable", 0, from, i18n.t`usable`, ""], ["halt", from, to, linkDown(secs(to - from)), secs(to - from)], ["catchup", to, back, catchUp(secs(back - to)), secs(back - to)], ["usable", back, PACE_END, i18n.t`usable`, ""]];
   for (const [kind, a, b, long, short] of spans) {
     const span = el("span", `tb-${kind}`);
     Object.assign(span.dataset, { long, short });

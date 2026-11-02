@@ -1,6 +1,8 @@
 # Corgi <picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/tals/corgi/3a9d723dc864fc924d23c960d920c449313c3716/corgi-dark.svg"><img src="https://raw.githubusercontent.com/tals/corgi/3a9d723dc864fc924d23c960d920c449313c3716/corgi-light.svg" alt="Corgi's corgi, wagging its tail"></picture>
 
-A terminal multiplexer for running coding agents side by side. Powered by
+**English** · [简体中文](README.zh.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Русский](README.ru.md)
+
+Terminal multiplexer for humans (and agents). Powered by
 [Ghostty](https://github.com/ghostty-org/ghostty), inspired by
 [herdr](https://github.com/herdrdev/herdr).
 
