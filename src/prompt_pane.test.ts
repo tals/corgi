@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { tokens } from "./prompt_pane";
+import { legacy, tokens } from "./prompt_pane";
 
 const bytes = (text: string) => Buffer.from(text);
 
@@ -33,4 +33,20 @@ test("an unfinished sequence or paste waits for the rest", () => {
   }
   const first = tokens(bytes("\x1b[200~abc"));
   expect(tokens([...first.rest, ...bytes("def\x1b[201~")]).tokens).toEqual([{ kind: "paste", text: "abcdef" }]);
+});
+
+test("Kitty's key reports reach the card as the viewer passes keys to it, Ctrl+/ included", () => {
+  const keys = (text: string) => tokens(bytes(text)).tokens.flatMap(legacy);
+  expect(keys("\x1b[47;5u")).toEqual([{ kind: "byte", byte: 0x1f }]);
+  expect(keys("\x1b[99;5u")).toEqual([{ kind: "byte", byte: 3 }]);
+  expect(keys("\x1b[27u")).toEqual([{ kind: "byte", byte: 0x1b }]);
+  expect(keys("\x1b[13;2u")).toEqual([{ kind: "sequence", text: "\x1b\r" }]);
+  expect(keys("\x1b[A\x1b[1;5D")).toEqual([
+    { kind: "sequence", text: "\x1b[A" },
+    { kind: "sequence", text: "\x1b[1;5D" },
+  ]);
+  expect(keys("a\x1b[<0;10;5M")).toEqual([
+    { kind: "byte", byte: 0x61 },
+    { kind: "mouse", button: 0, x: 9, y: 4, release: false },
+  ]);
 });

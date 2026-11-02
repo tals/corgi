@@ -581,19 +581,21 @@ export class View {
     return k >= bar.start && k < bar.start + bar.len ? panel + "┃" : rule + "│";
   }
   /** The search line at row `y`, as the model picker draws its search: a
-   * field with the / keycap, the query and its caret, and `count`, how many
-   * match; then the `scope` keys, when there is a scope to change. */
-  drawSearch(w: Writer, x: number, y: number, width: number, count: string, scope: string | null): void {
+   * field with the key that searches, `cap` (none when ""), the query and its
+   * caret, and `count`, how many match; then the `scope` keys, when there is
+   * a scope to change. */
+  drawSearch(w: Writer, x: number, y: number, width: number, count: string, scope: string | null, cap = "/"): void {
     const panel = looks[this.ground].panel,
       shown = scope === null ? "" : ellipsis(scope, sat(width, 19)),
       keys_x = scope === null ? x + width - 1 : x + width - 2 - (displayWidth(shown) + 2 + 6),
       field_x = x + 3,
       field_w = sat(keys_x - 1, field_x),
-      counted = count !== "" && field_w >= displayWidth(count) + 7,
-      room = sat(field_w, 4 + (counted ? displayWidth(count) + 2 : 0));
+      lead = cap ? displayWidth(cap) + 3 : 1,
+      counted = count !== "" && field_w >= displayWidth(count) + lead + 3,
+      room = sat(field_w, lead + (counted ? displayWidth(count) + 2 : 0));
     w.write(`\x1b[${y};${field_x}H${field}`);
     w.splat(" ", field_w);
-    w.write(`\x1b[${y};${field_x}H${keycap} / ${field} `);
+    w.write(`\x1b[${y};${field_x}H` + (cap ? `${keycap} ${cap} ${field} ` : " "));
     if (this.searching) {
       writeField(w, this.query, DialogView.scroll(this.query, room), room, field_strong, { caret: true });
       if (this.query.len === 0 && room > 2) {

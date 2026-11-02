@@ -5,6 +5,7 @@
 //! the pane stops it.
 import { openConversation } from "./cli";
 import * as errors from "./errors";
+import * as keyboard from "./keyboard";
 import * as launcherResume from "./launcher_resume";
 import * as os from "./os";
 import * as preferences from "./preferences";
@@ -16,6 +17,7 @@ import { paneScreen, workspaceDiff } from "./prompt_attach";
 import { Prompt, parseChatArgs, readHandoff, type ChatArgs, type Context, type Effect } from "./prompt";
 import type { Daemon } from "./prompt_session";
 import { Writer } from "./text";
+import * as viewerNative from "./viewer_native";
 
 /** Terminal input as the card takes it: a byte, an escape sequence, a paste or a mouse report. */
 export type Token =
@@ -69,8 +71,22 @@ export function tokens(input: ArrayLike<number>): { tokens: Token[]; rest: numbe
   }
   return { tokens: out, rest: bytes.slice(i) };
 }
-const enter = "\x1b[?1049h\x1b[?25l\x1b[?1003h\x1b[?1006h\x1b[?2004h",
-  leave = "\x1b[?2004l\x1b[?1006l\x1b[?1003l\x1b[?25h\x1b[?1049l";
+/** A key in Kitty's encoding as the card reads keys: the sequence Corgi's
+ * text boxes take for one legacy encoding loses, as Ctrl+/, else the legacy
+ * bytes, as the viewer passes keys to the card. Other tokens stay. */
+export function legacy(token: Token): Token[] {
+  const key = token.kind === "sequence" ? keyboard.decode(token.text) : null;
+  if (!key) return [token];
+  const edit = keyboard.editSequence(key),
+    bytes = Array.from(edit !== null ? Buffer.from(edit, "latin1") : Buffer.from(viewerNative.encodeKey(null, key)));
+  if (bytes.length === 1) return [{ kind: "byte", byte: bytes[0] }];
+  const split = tokens(bytes);
+  return [...split.tokens, ...split.rest.map((byte): Token => ({ kind: "byte", byte }))];
+}
+// Kitty's keyboard reports reach it Ctrl+/ and Shift+Enter, which legacy
+// encoding turns into / and Enter.
+const enter = "\x1b[?1049h\x1b[?25l\x1b[?1003h\x1b[?1006h\x1b[?2004h" + keyboard.enable,
+  leave = keyboard.disable + "\x1b[?2004l\x1b[?1006l\x1b[?1003l\x1b[?25h\x1b[?1049l";
 
 /** Runs the Corgi chat in this pane until it closes. */
 export async function run(argv: string[]): Promise<void> {
@@ -305,7 +321,7 @@ export async function run(argv: string[]): Promise<void> {
     esc = null;
     const split = tokens([...pending, ...Array.from(chunk)]);
     pending = split.rest;
-    for (const token of split.tokens) await take(token);
+    for (const token of split.tokens) for (const key of legacy(token)) await take(key);
     // A lone Esc that nothing follows is the key.
     if (pending.length === 1 && pending[0] === 0x1b)
       esc = setTimeout(() => {

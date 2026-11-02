@@ -131,15 +131,16 @@ export class List {
     return true;
   }
   /** Draws row `k` at terminal row `y`, both 1-based, across a card whose
-   * left border is at column `x` and is `width` wide, as the launcher's are. */
-  draw(w: Writer, c: Context, k: number, x: number, y: number, width: number, marks: Marks | null): void {
+   * left border is at column `x` and is `width` wide, as the launcher's are;
+   * its search shows `cap`, the key that reaches it. */
+  draw(w: Writer, c: Context, k: number, x: number, y: number, width: number, marks: Marks | null, cap: string): void {
     const view = this.view,
       lines = this.lines(c),
       cols = view.columns(sat(width, 4)),
       shown = this.height() - this.top();
     if (this.long() && k === 0) {
       const total = this.refs.filter(r => place(c, r) >= 0).length;
-      view.drawSearch(w, x, y, width, view.search() ? `${lines.length} of ${total}` : "", null);
+      view.drawSearch(w, x, y, width, view.search() ? `${lines.length} of ${total}` : "", null, cap);
       return;
     }
     if (k === this.top() - 1) return view.drawHeadings(w, x, y, width, cols);

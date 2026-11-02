@@ -942,6 +942,11 @@ export class Prompt {
     this.selection = this.clicks = null;
     if (this.picker) return this.picked(this.picker.key(byte));
     if (this.memory_view) return this.remembered(this.memory_view.key(byte));
+    // Ctrl+/ searches the newest list of conversations, from the input too.
+    if (byte === 31) {
+      this.searchList();
+      return null;
+    }
     if (this.listing) {
       const effect = this.listKey(byte);
       if (effect !== undefined) return effect;
@@ -1297,6 +1302,19 @@ export class Prompt {
     this.listing = list;
     list.view.focused = true;
     list.end(known);
+    this.revealList();
+    return true;
+  }
+  /** Ctrl+/: the newest list takes the keyboard with its search open, or
+   * without when it's too short to search; false with none. */
+  private searchList(): boolean {
+    const list = this.newestList();
+    if (!list) return false;
+    if (this.listing !== list) {
+      this.leaveList();
+      if (!this.enterList()) return false;
+    }
+    if (list.long()) list.view.startSearch();
     this.revealList();
     return true;
   }
@@ -2261,11 +2279,14 @@ export class Prompt {
       this.selection = null;
     this.lines = lines;
     this.shown_from = Math.max(0, end - t.h);
+    const newest = this.newestList();
     shown.forEach((row, i) => {
       const y = t.y + i;
       if (row.list) {
-        // As the launcher draws its rows: 1-based, across the card from its border.
-        row.list.list.draw(w, this.known(), row.list.k, l.box.x + 1, y + 1, l.box.w, marks);
+        // As the launcher draws its rows: 1-based, across the card from its
+        // border. Ctrl+/ searches the newest list; a click, any.
+        const cap = row.list.list === newest ? "ctrl+/" : "";
+        row.list.list.draw(w, this.known(), row.list.k, l.box.x + 1, y + 1, l.box.w, marks, cap);
         this.targets.push({ x: l.box.x + 1, y, w: l.box.w - 2, act: { kind: "list", ...row.list } });
         return;
       }

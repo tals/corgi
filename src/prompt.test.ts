@@ -1704,3 +1704,21 @@ test("a long list keeps its height as typing searches it, and scrolls under the 
   expect(after.join("\n")).toContain("2 of 9");
   expect(p.key(13)).toMatchObject({ kind: "open", entry: { session: "s2" } });
 });
+
+test("ctrl+/ searches the newest list from the input, as its search line says", async () => {
+  const { p } = await listed(9);
+  expect(find(p, "ctrl+/  search titles").y).toBeGreaterThan(0);
+  type(p, "draft");
+  p.key(31);
+  type(p, "hellgate");
+  expect(card(draw(p)).join("\n")).toContain("2 of 9");
+  // Esc leaves the search, then the list; the draft waits in the input.
+  p.key(27);
+  p.key(27);
+  expect(find(p, "› draft").y).toBeGreaterThan(0);
+  // A list too short to search takes the keyboard as ↑ gives it.
+  const short = (await listed(3)).p;
+  draw(short);
+  short.key(31);
+  expect(find(short, "Hellgate PR 1 rebase").line).toContain("›");
+});
