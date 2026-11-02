@@ -8,6 +8,8 @@ export function account(value: any) {
     email = str(value, "email"),
     api = str(value, "type") === "apiKey";
   info.signed_in = value !== null;
+  info.email = api ? null : email || null;
+  info.type = api ? "api_key" : str(value, "type") === "chatgpt" ? "oauth" : null;
   info.account = new Text(api ? "API key" : email || (!value ? "Not signed in" : "Signed in"));
   info.plan = api ? new Text("API") : plan(str(value, "planType"));
   if (api) info.limits = "metered";

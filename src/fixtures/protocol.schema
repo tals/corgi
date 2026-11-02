@@ -526,6 +526,16 @@ $.snapshot.conversations[].agent.account?.id: string
 $.snapshot.conversations[].agent.account?.name: string
 $.snapshot.conversations[].agent.account?.directory: optional
 $.snapshot.conversations[].agent.account?.directory?: string
+$.snapshot.conversations[].agent.account?.loginId: optional
+$.snapshot.conversations[].agent.account?.loginId?: string
+$.snapshot.conversations[].agent.account?.email: optional
+$.snapshot.conversations[].agent.account?.email?: string
+$.snapshot.conversations[].agent.account?.type: optional
+$.snapshot.conversations[].agent.account?.type?: enum oauth api_key external
+$.snapshot.conversations[].agent.account?.plan: optional
+$.snapshot.conversations[].agent.account?.plan?: string
+$.snapshot.conversations[].agent.account?.usage: optional
+$.snapshot.conversations[].agent.account?.usage?: any
 $.snapshot.conversations[].agent.tool_active: bool
 $.snapshot.conversations[].agent.compacting: bool
 $.snapshot.conversations[].agent.compacting_since: i64
@@ -792,6 +802,16 @@ $.snapshot.panes[].agent.account?.id: string
 $.snapshot.panes[].agent.account?.name: string
 $.snapshot.panes[].agent.account?.directory: optional
 $.snapshot.panes[].agent.account?.directory?: string
+$.snapshot.panes[].agent.account?.loginId: optional
+$.snapshot.panes[].agent.account?.loginId?: string
+$.snapshot.panes[].agent.account?.email: optional
+$.snapshot.panes[].agent.account?.email?: string
+$.snapshot.panes[].agent.account?.type: optional
+$.snapshot.panes[].agent.account?.type?: enum oauth api_key external
+$.snapshot.panes[].agent.account?.plan: optional
+$.snapshot.panes[].agent.account?.plan?: string
+$.snapshot.panes[].agent.account?.usage: optional
+$.snapshot.panes[].agent.account?.usage?: any
 $.snapshot.panes[].agent.tool_active: bool
 $.snapshot.panes[].agent.compacting: bool
 $.snapshot.panes[].agent.compacting_since: i64
@@ -827,6 +847,16 @@ $.snapshot.headless_sessions[].agent?.account?.id: string
 $.snapshot.headless_sessions[].agent?.account?.name: string
 $.snapshot.headless_sessions[].agent?.account?.directory: optional
 $.snapshot.headless_sessions[].agent?.account?.directory?: string
+$.snapshot.headless_sessions[].agent?.account?.loginId: optional
+$.snapshot.headless_sessions[].agent?.account?.loginId?: string
+$.snapshot.headless_sessions[].agent?.account?.email: optional
+$.snapshot.headless_sessions[].agent?.account?.email?: string
+$.snapshot.headless_sessions[].agent?.account?.type: optional
+$.snapshot.headless_sessions[].agent?.account?.type?: enum oauth api_key external
+$.snapshot.headless_sessions[].agent?.account?.plan: optional
+$.snapshot.headless_sessions[].agent?.account?.plan?: string
+$.snapshot.headless_sessions[].agent?.account?.usage: optional
+$.snapshot.headless_sessions[].agent?.account?.usage?: any
 $.snapshot.headless_sessions[].agent?.tool_active: bool
 $.snapshot.headless_sessions[].agent?.compacting: bool
 $.snapshot.headless_sessions[].agent?.compacting_since: i64

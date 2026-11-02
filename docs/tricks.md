@@ -86,11 +86,38 @@ this directory. Corgi discovers explicitly installed folders, never code in
 repositories. Set `enabled = false` in a manifest to start disabled unless Settings overrides it.
 Each trick runs once per daemon with its folder as the working directory.
 
-`agent.account` is `{ id, name, directory }`, or `null` when unresolved.
-Use the opaque `id` directly as a palette key; it already distinguishes harnesses.
-Corgi resolves config folders, including the default profile, and OpenCode's
-native credential IDs. Labels and token refreshes do not change native IDs.
-`directory` is a canonical profile folder or `null` for native accounts.
+`agent.account` is an object, or `null` when unresolved. Corgi resolves the
+provider's profile and login details for both pane and headless agents:
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Opaque general profile lookup key, including the provider; unchanged by labels or token refreshes |
+| `name` | Profile display name |
+| `directory` | Canonical profile folder, or `null` for native accounts |
+| `loginId` | Corgi's existing internal login identity, or native credential ID; `null` if unknown |
+| `email` | Reported email, or `null` |
+| `type` | Authentication kind: `"oauth"`, `"api_key"`, `"external"`, or `null` |
+| `plan` | Reported plan label, or `null` |
+| `usage` | Last account usage reading, or `null` |
+
+Use `id` for profile lookups. Two profile folders can have different IDs while
+sharing a `loginId`; use `[agent.provider, agent.account.loginId]` when grouping
+by login, and skip unknown logins. Login IDs are opaque and provider-scoped.
+They are lookup references, not credentials. `type` describes authentication;
+`plan` describes the subscription.
+
+Usage reuses Corgi's existing background account readings, with no extra polling
+for Tricks. It describes the account's limits, not an individual agent's token
+count. `usage.limits` is `"none"`, `"metered"`, `"rate_limited"`, or
+`{ windows: [...] }`. Each non-null window has `used` (percent), nullable
+`minutes`, and nullable `reset_at` (Unix seconds). `usage.spend` is nullable and
+contains `used_minor`, `limit_minor`, `currency`, `exponent`, `period_start`, and
+`reset_at`. `usage.fetched_at` is nullable Unix seconds; check it and
+`usage.error` before treating a reading as fresh. `usage.needs_consent` reports
+when collection needs consent. Fields stay `null` until Corgi has the data.
+
+The [provider-flair example](../examples/tricks/provider-flair/main.mjs) shows
+email, plan, and the last reported usage in the agent's popover.
 `corgi rpc '{"op":"session.snapshot"}'` shows this metadata in each pane's
 `agent.account`. To color an entire agent type, check `agent.provider`.
 

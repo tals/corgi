@@ -1,6 +1,8 @@
 import { API, data, items } from "./api";
 import { field, str } from "../common";
 import type { Identity } from "../../account_identity";
+import * as accountIdentity from "../../account_identity";
+import * as account from "./account";
 
 /** Only public labels and IDs leave OpenCode's credential response. */
 export function identities(providers: unknown, credentials: unknown): Map<string, Identity> {
@@ -9,11 +11,20 @@ export function identities(providers: unknown, credentials: unknown): Map<string
     const id = str(entry, "id"),
       integration = str(entry, "integrationID");
     if (field(entry, "active") !== true || !id || !integration || id.length > 1024) continue;
-    active.set(integration, {
-      id: JSON.stringify(["opencode2", id]),
-      name: (str(entry, "label") || integration).replace(/[\x00-\x1f\x7f-\x9f]/g, "").slice(0, 160),
-      directory: null,
-    });
+    active.set(
+      integration,
+      accountIdentity.read({
+        id: JSON.stringify(["opencode2", id]),
+        name: (str(entry, "label") || integration).replace(/[\x00-\x1f\x7f-\x9f]/g, "").slice(0, 160),
+        directory: null,
+        loginId: id,
+        email: account.email(entry),
+        type: accountIdentity.type(
+          str(field(entry, "value"), "type") === "api" ? "api_key" : str(field(entry, "value"), "type"),
+        ),
+        plan: account.profile(entry, integration).plan || null,
+      })!,
+    );
   }
   const result = new Map<string, Identity>();
   for (const provider of items(providers)) {

@@ -440,6 +440,7 @@ export class Worker {
         login.spend = history.spend;
       }
       login.read_at = Date.now();
+      for (const folder of folders) this.shown(provider, folder, new Option());
     })().finally(() => (login.reading = null));
     login.reading = reading;
     return reading;
@@ -463,6 +464,17 @@ export class Worker {
       for (const key of ["limits", "spend", "usage_fetched_at", "usage_error"] as const)
         (out as any)[key] = source[key];
     if (borrowed && source.plan.len) out.plan = source.plan;
+    accounts.record(
+      provider,
+      account,
+      Object.assign(new Info(), own, {
+        plan: out.plan,
+        limits: out.limits,
+        spend: out.spend,
+        usage_fetched_at: out.usage_fetched_at,
+        usage_error: out.usage_error,
+      }),
+    );
     out.history = login.history;
     out.spend_history = login.spend;
     return out;

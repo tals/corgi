@@ -25,7 +25,16 @@ test("a sketch manifest only names its entry point", () => {
 });
 
 test("selectors match resolved account IDs and validate subscription names", () => {
-  const account = { id: "claude-default", name: "Default", directory: "/default" };
+  const account = {
+    id: "claude-default",
+    name: "Default",
+    directory: "/default",
+    loginId: null,
+    email: null,
+    type: null,
+    plan: null,
+    usage: null,
+  };
   const all = tricks.subscription({ events: ["metadata:*"], where: { provider: "claude", account: account.id } });
   expect(all.events).toEqual([...tricks.metadata_events]);
   expect(tricks.subscription({ events: "transcript" }).events).toEqual(["transcript"]);
@@ -53,7 +62,16 @@ test("UI rejects terminal controls, oversized text and unknown colors", () => {
 });
 
 test("account rules remain applicable to future agents and compose with provider flourishes", () => {
-  const account = { id: "claude-company", name: "Company", directory: "/company" };
+  const account = {
+    id: "claude-company",
+    name: "Company",
+    directory: "/company",
+    loginId: null,
+    email: null,
+    type: null,
+    plan: null,
+    usage: null,
+  };
   const views = tricks.views([
     { kind: "decorate", where: { provider: "claude" }, suffix: [{ text: " ✦", color: "warm" }] },
     { kind: "decorate", where: { provider: "claude", account: account.id }, marker: "accent", color: "hot" },

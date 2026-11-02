@@ -41,7 +41,16 @@ test("headless accounts survive live and cold restoration, with defaults for old
     s = new Session(1, "claude", "/tmp", new Fake(), "/profiles/vertex");
   s.exited = true;
   s.env = { CORGI_PROFILE: "vertex" };
-  s.agent().account = { id: "native-account", name: "Work", directory: null };
+  s.agent().account = {
+    id: "native-account",
+    name: "Work",
+    directory: null,
+    loginId: "login",
+    email: "me@example.com",
+    type: "oauth",
+    plan: "Pro",
+    usage: null,
+  };
   for (const live of [false, true]) {
     const saved = clone(s.capture(live));
     const restored = Session.restore(saved, registry, live);

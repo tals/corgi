@@ -17,7 +17,16 @@ test("native account IDs follow the model provider and survive label and token c
     ],
   };
   const before = identities(providers, credentials);
-  expect(before.get("claude-work")).toEqual({ id: '["opencode2","work"]', name: "Work", directory: null });
+  expect(before.get("claude-work")).toEqual({
+    id: '["opencode2","work"]',
+    name: "Work",
+    directory: null,
+    loginId: "work",
+    email: null,
+    type: null,
+    plan: null,
+    usage: null,
+  });
   expect(before.get("openai")?.id).not.toBe(before.get("claude-work")?.id);
   expect(JSON.stringify([...before.values()])).not.toContain("secret");
   credentials.data[1].label = "Renamed";

@@ -115,7 +115,10 @@ async function identify(connection: API, quit: Quit, max_age: number, subscripti
     type = str(value, "type"),
     method = str(value, "methodID"),
     identity = await account.resolve(credential, provider, quit, subscription, max_age);
-  if (identity.shared) return identity.shared;
+  info.login_id = str(credential, "id") || null;
+  info.email = account.email(credential);
+  info.type = type === "oauth" ? "oauth" : type === "api" || type === "api_key" ? "api_key" : null;
+  if (identity.shared) return Object.assign(new Info(), identity.shared, { login_id: info.login_id });
   info.account = new Text(identity.user || provider);
   info.plan = selected.free
     ? new Text("Free")

@@ -20,6 +20,7 @@ import * as profiles from "./agent_profiles";
 import * as accountCommand from "./account_command";
 import * as signin from "./signin";
 import { Launch } from "./runtime";
+import { Info, Text, Window } from "./usage/account";
 
 const saved = { ...process.env },
   variables = ["HOME", "CORGI_ENV_BASE", "XDG_STATE_HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME"];
@@ -71,10 +72,44 @@ test("public identities include resolved default folders and keep native account
     id: JSON.stringify(["claude", dir]),
     name: ".claude",
     directory: dir,
+    loginId: null,
+    email: null,
+    type: null,
+    plan: null,
+    usage: null,
   });
   expect(accounts.describe("claude", accounts.normalize("claude", dir))?.id).toBe(accounts.describe("claude", "")?.id);
   expect(accounts.describe("codex", dir)?.id).not.toBe(accounts.describe("claude", "")?.id);
   expect(accounts.describe("opencode2", "/different-config")).toBeNull();
+});
+
+test("profile lookups expose the existing login key and cached structured metadata", () => {
+  const one = join(home, ".claude-one"),
+    two = join(home, ".claude-two");
+  signIn(one, "me@example.com", "same-login");
+  signIn(two, "me@example.com", "same-login");
+  const a = accounts.describe("claude", one)!,
+    b = accounts.describe("claude", two)!;
+  expect(a.id).not.toBe(b.id);
+  expect(a.loginId).toBe(accounts.identity("claude", one)!.id);
+  expect(a.loginId).toBe(b.loginId);
+  expect(a.usage).toBeNull();
+  const info = Object.assign(new Info(), {
+    email: "me@example.com",
+    type: "oauth" as const,
+    plan: new Text("Max"),
+    usage_fetched_at: 1700000000,
+    limits: { windows: [new Window({ used: 42, minutes: 300, reset_at: 1700000500 }), null] },
+  });
+  accounts.record("claude", one, info);
+  expect(accounts.describe("claude", one)).toMatchObject({
+    loginId: a.loginId,
+    email: "me@example.com",
+    type: "oauth",
+    plan: "Max",
+    usage: { fetched_at: 1700000000, limits: { windows: [{ used: 42, minutes: 300, reset_at: 1700000500 }, null] } },
+  });
+  expect(accounts.describe("claude", two)?.usage).toBeNull();
 });
 
 test("Omarchy's accounts show under their labels, and a folder named like one doesn't", async () => {

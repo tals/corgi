@@ -200,7 +200,16 @@ else console.log('{}');
     this.service.credential = "personal";
     this.service.emit("credential.switched");
     await this.until(async () => (await identity())?.id === '["opencode2","personal"]');
-    this.assertEqual(await identity(), { id: '["opencode2","personal"]', name: "personal", directory: null });
+    this.assertEqual(await identity(), {
+      id: '["opencode2","personal"]',
+      name: "personal",
+      directory: null,
+      loginId: "personal",
+      email: null,
+      type: null,
+      plan: null,
+      usage: null,
+    });
   }
   async test_native_pane_account_tracks_opencode_switches() {
     await this.command("agent.create", { workspace: 1, provider: "opencode2", account: "" });
@@ -210,7 +219,16 @@ else console.log('{}');
     this.service.credential = "personal";
     this.service.emit("credential.switched");
     await this.until(async () => (await identity())?.id === '["opencode2","personal"]');
-    this.assertEqual(await identity(), { id: '["opencode2","personal"]', name: "personal", directory: null });
+    this.assertEqual(await identity(), {
+      id: '["opencode2","personal"]',
+      name: "personal",
+      directory: null,
+      loginId: "personal",
+      email: null,
+      type: null,
+      plan: null,
+      usage: null,
+    });
   }
   async test_manager_keeps_opencode_visible_without_account_creation() {
     writeFileSync(this.path + ".viewer.json", JSON.stringify({ onboarding_complete: true }));

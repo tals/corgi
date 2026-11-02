@@ -345,6 +345,7 @@ test("accounts are read on the daemon's schedule with no one subscribed", async 
     await worker.pump();
     expect(reads).toBe(1);
     // A subscriber's job shows the next reading without running again.
+    expect(accounts.describe("claude", "")?.usage?.limits).toMatchObject({ windows: [null, { used: 11 }] });
     worker.preview("/project");
     await worker.pump();
     expect(reads).toBe(1);

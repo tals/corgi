@@ -700,7 +700,10 @@ function build(r: Runtime, viewer: boolean) {
         account:
           p.detection.claim || !p.agent().provider
             ? null
-            : (p.agent().account ?? accounts.describe(p.agent().provider!, p.account())),
+            : accounts.metadata(
+                p.agent().provider!,
+                p.agent().account ?? accounts.describe(p.agent().provider!, p.account()),
+              ),
       },
       account: p.account(),
       restoring: p.restoring(),
@@ -710,7 +713,7 @@ function build(r: Runtime, viewer: boolean) {
     headless_sessions: r.sessions.map(s => ({
       agent: {
         ...agentView(s.attachment.agent(), s.attachment.actor?.id ?? 0),
-        account: s.agent().account ?? accounts.describe(s.provider, s.account),
+        account: accounts.metadata(s.provider, s.agent().account ?? accounts.describe(s.provider, s.account)),
       },
       session: s.session,
       id: s.id,

@@ -103,9 +103,19 @@ within the same 64 KiB KV budget.
 
 ## Save account preferences
 
-`agent.account` is `{ id, name, directory }` or `null` when unresolved.
-Use `agent.account.id` as the key; Corgi resolves harness identity, default
-folders and native OpenCode credentials. `directory` is nullable. Inspect
+`agent.account` is `{ id, name, directory, loginId, email, type, plan, usage }`
+or `null` when unresolved. `id` is a general profile lookup key. `loginId` is
+Corgi's internal login identity (or a native credential ID); different profiles
+can share it. For login lookups use `[agent.provider, agent.account.loginId]`
+and skip unknown logins. `type` is `"oauth"`, `"api_key"`, `"external"`, or
+`null`; `plan` is a separate subscription label. `directory`, `loginId`,
+`email`, `type`, `plan`, and `usage` can be `null`.
+
+`usage` reuses cached account readings, with no extra polling. It has `limits`,
+`spend`, `fetched_at` (Unix seconds or null), `error`, and `needs_consent`.
+`limits` is `"none"`, `"metered"`, `"rate_limited"`, or `{ windows: [...] }`;
+non-null windows contain `used` (percent), `minutes`, and `reset_at`.
+Check freshness before treating usage as current. Inspect
 the pane's `agent.account` in `corgi rpc '{"op":"session.snapshot"}'`.
 `agent.env` exposes only that agent's `CORGI_` variables; account discovery
 does not require reading environment variables or files in a Trick.
@@ -144,7 +154,8 @@ Metadata events: `snapshot` has `agents` and `workspaces`; `agent.changed` has
 `hook` has normalized `kind`, `tool`, `provider` and nullable `agent`.
 An agent has `id`, `provider`, `account`, `workspace`, `session`, `name`, `state`,
 `attention`, `activity`, `completed`. Use `BigInt(agent.completed)` for the decimal
-counter. Headless agents currently report the default account.
+counter. Headless agents resolve their selected account too; use
+`corgi headless start PROVIDER PROMPT --account DIR` to select a profile.
 
 ```js
 export function register(on, corgi) {

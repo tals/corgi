@@ -64,7 +64,9 @@ export function snapshot(r: Runtime): tricks.Snapshot {
     agents.push({
       id: `pane:${p.id}`,
       provider: a.provider,
-      account: p.detection.claim ? null : (a.account ?? accounts.describe(a.provider, p.account())),
+      account: p.detection.claim
+        ? null
+        : accounts.metadata(a.provider, a.account ?? accounts.describe(a.provider, p.account())),
       env: p.agent_env,
       workspace,
       session: a.sessionId(),
@@ -80,7 +82,7 @@ export function snapshot(r: Runtime): tricks.Snapshot {
     agents.push({
       id: `headless:${s.id}`,
       provider: s.provider,
-      account: a.account ?? accounts.describe(s.provider, s.account),
+      account: accounts.metadata(s.provider, a.account ?? accounts.describe(s.provider, s.account)),
       env: s.env,
       workspace: s.workspace_id,
       session: s.session,

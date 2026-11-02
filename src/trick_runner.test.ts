@@ -5,7 +5,16 @@ import * as tricks from "./tricks";
 const agent: tricks.Agent = {
   id: "pane:1",
   provider: "claude",
-  account: { id: "claude-default", name: "Default", directory: "/profiles/default" },
+  account: {
+    id: "claude-default",
+    name: "Default",
+    directory: "/profiles/default",
+    loginId: null,
+    email: null,
+    type: null,
+    plan: null,
+    usage: null,
+  },
   env: {},
   workspace: 1,
   session: "one",
