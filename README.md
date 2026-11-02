@@ -87,7 +87,8 @@ See [HACKING.md](HACKING.md) for the development workflow and architecture.
   [pi-tui](https://github.com/earendil-works/pi/tree/main/packages/tui) library.
 - [Bun](https://bun.sh): Corgi's TypeScript runtime.
 
-Thanks to our early testers for their suggestions and feedback:
+Corgi would not have been possible without the support of our early testers and
+contributors:
 [Max Bittker](https://x.com/MaxBittker),
 [Aaron Blakeman](https://github.com/ablakeman),
 [Kai Johnson](https://github.com/sirkaiserkai),

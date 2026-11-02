@@ -88,7 +88,7 @@ curl -fsSL https://corgi.computer/install.sh | bash -s uninstall
   [pi-tui](https://github.com/earendil-works/pi/tree/main/packages/tui).
 - [Bun](https://bun.sh) — среда выполнения TypeScript, на которой работает Corgi.
 
-Спасибо первым тестировщикам за предложения и отзывы:
+Без поддержки первых тестировщиков и контрибьюторов Corgi бы не появился:
 [Max Bittker](https://x.com/MaxBittker),
 [Aaron Blakeman](https://github.com/ablakeman),
 [Kai Johnson](https://github.com/sirkaiserkai),
