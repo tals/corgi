@@ -62,7 +62,7 @@ test("explicit onboarding opens again after preferences say it was completed", a
   view.receiveSnapshot(snapshot());
   const refresh = spyOn(view, "refresh").mockResolvedValue(undefined);
   try {
-    await viewer.openMode(view, "/tmp", {}, "", true);
+    await viewer.openMode(view, "/tmp", {}, true);
     expect(calls[0].fields.onboarding).toBe(true);
     expect(view.onboarding).not.toBeNull();
   } finally {

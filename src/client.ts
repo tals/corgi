@@ -1,12 +1,11 @@
 //! Attaching a terminal to the daemon. Mirrors client.zig.
-import { Connection } from "./rpc";
+import { Connection } from "./viewer_connection";
 import { run, writeAll, Stdin } from "./viewer";
 import { runTest } from "./viewer_test";
 import * as terminal_info from "./terminal_info";
 import * as keyboard from "./keyboard";
 import * as hostBackground from "./host_background";
 import * as crash from "./crash";
-import type { Transport } from "./mirror";
 
 let keyboard_enabled = false;
 let cursor_blink_saved = false;
@@ -60,9 +59,6 @@ async function attachMode(path: string, start_onboarding: boolean, folder: strin
     throw Error("ExecFailed");
   }
 }
-function transport(conn: Connection, path: string): Transport {
-  return { socket: path, request: (op, ...args) => conn.request(op, ...args) };
-}
 async function attachOnce(path: string, start_onboarding: boolean, folder: string | null): Promise<string | null> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) throw Error("TerminalRequired");
   const conn = new Connection(path);
@@ -96,7 +92,7 @@ async function attachOnce(path: string, start_onboarding: boolean, folder: strin
       writeAll("\x1b[?12s\x1b[?12l");
       cursor_blink_saved = true;
     }
-    return await run(transport(conn, path), path, probe, input, start_onboarding, stdin, folder);
+    return await run(conn, path, probe, input, start_onboarding, stdin, folder);
   } finally {
     stdin.close();
     cleanup();
@@ -110,7 +106,7 @@ async function attachOnce(path: string, start_onboarding: boolean, folder: strin
 export async function test(path: string): Promise<void> {
   const conn = new Connection(path);
   try {
-    await runTest(transport(conn, path), process.cwd());
+    await runTest(conn, process.cwd());
   } finally {
     conn.close();
   }

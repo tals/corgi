@@ -15,7 +15,7 @@ import * as json from "./json";
 import * as worktrees from "./worktrees";
 import { Invalid, captureBinding, restoreBinding, hydrate, type Repairs } from "./persist/checkpoint";
 import type { Server } from "./server";
-import type { Client as Peer } from "./peer";
+import { Reply, type Client as Peer } from "./peer";
 import type { DecodedRequest } from "./protocol";
 type Request = Extract<
   DecodedRequest,
@@ -498,7 +498,7 @@ export class Session {
   }
 }
 
-export async function request(server: Server, client: Peer, request: Request) {
+export async function request(server: Server, client: Peer, request: Request, reply = new Reply(client)) {
   const runtime = server.runtime;
   if (request.op === "headless.start") {
     const query = request.payload;
@@ -521,11 +521,11 @@ export async function request(server: Server, client: Peer, request: Request) {
     runtime.next_session = Session.Id.next(runtime.next_session);
     runtime.changed();
     server.dirty = true;
-    client.headless_start = { id: session.id, deadline: Date.now() + 60_000 };
+    client.headless_start = { id: session.id, deadline: Date.now() + 60_000, request_id: reply.id };
     return;
   }
   if (request.op === "headless.list") {
-    client.queue({
+    reply.send({
       ok: true,
       sessions: runtime.sessions.map((session: Session) => ({
         pid: session.client.processes?.()[0] ?? -1,
@@ -558,7 +558,7 @@ export async function request(server: Server, client: Peer, request: Request) {
     session.destroy();
     runtime.sessions.splice(index, 1);
     runtime.changed();
-    client.queue({ ok: true });
+    reply.send({ ok: true });
   } else if (request.op === "headless.send") {
     const input = validInput(request.payload.input);
     if (input.kind !== "answer") {
@@ -566,9 +566,9 @@ export async function request(server: Server, client: Peer, request: Request) {
       input.session = session.session;
     }
     session.send(input);
-    client.queue({ ok: true });
+    reply.send({ ok: true });
   } else if (request.op === "headless.events") {
-    client.queue({
+    reply.send({
       ok: true,
       events: session.events.filter(entry => entry.seq > BigInt(request.payload.after)),
       pending_requests: session.pendingRequests(),
@@ -594,13 +594,14 @@ export function finishStarts(server: Server, now = Date.now()) {
           : null;
     if (!error && !session!.session) continue;
     client.headless_start = null;
+    const reply = new Reply(client, pending.request_id ?? null);
     if (error) {
       if (session && !session.session) {
         session.destroy();
         server.runtime.sessions.splice(server.runtime.sessions.indexOf(session), 1);
       }
-      client.queue({ err: error });
-    } else client.queue({ ok: true, provider: session!.provider, session: session!.session });
+      reply.send({ err: error });
+    } else reply.send({ ok: true, provider: session!.provider, session: session!.session });
     client.done();
     server.runtime.changed();
     server.dirty = true;

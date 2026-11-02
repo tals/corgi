@@ -4,6 +4,19 @@ import * as json from "./json";
 import type { Control } from "./protocol";
 import type { Interest } from "./viewer_protocol";
 import type { Subscription } from "./launch_service";
+/** A request owns its response even when it completes after another request. */
+export class Reply {
+  constructor(
+    private client: Client,
+    readonly id: number | null = null,
+  ) {}
+  send(value: object): void {
+    this.client.queue(this.id === null ? value : { ...value, request_id: this.id });
+  }
+  ok(value: object = {}): void {
+    this.send({ ok: true, ...value });
+  }
+}
 export class Client {
   viewer_id = 0;
   active_seq = 0;
@@ -24,7 +37,9 @@ export class Client {
   watch_viewer = 0;
   woken = 0n;
   launch_preview: Subscription | null = null;
-  headless_start: { id: number; deadline: number } | null = null;
+  headless_start: { id: number; deadline: number; request_id?: number | null } | null = null;
+  /** An untagged deferred request is running; later requests wait for its reply. */
+  held = false;
   snapshot_revision: bigint | null = null;
   watched = true;
   session_hash = 0n;
@@ -54,6 +69,7 @@ export class Client {
     readonly receive: (client: Client, value: any) => void,
     readonly disconnected: () => void,
     start = true,
+    readonly drained: (client: Client) => void = () => {},
   ) {
     this.paused = !start;
     if (start) this.resume();
@@ -85,9 +101,6 @@ export class Client {
     this.flush();
     this.arm();
   }
-  reply(_op: string, value: object): void {
-    this.queue({ ok: true, ...value });
-  }
   flush(): void {
     if (this.paused) return;
     while (this.sent < this.output.length && !this.dead) {
@@ -101,10 +114,11 @@ export class Client {
         return;
       }
     }
-    if (this.sent === this.output.length) {
+    if (this.output.length > 0 && this.sent === this.output.length) {
       this.output = Buffer.alloc(0);
       this.sent = 0;
       if (this.http === "replied") this.close();
+      else this.drained(this);
     }
   }
   private read(): void {

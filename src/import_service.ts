@@ -6,7 +6,7 @@ import type { Node } from "./import/layout";
 import type { DecodedRequest } from "./protocol";
 import { exclusion } from "./protocol";
 import type { Server } from "./server";
-import type { Client } from "./peer";
+import { Reply, type Client } from "./peer";
 import type { Workspace } from "./workspace";
 type Request = Extract<DecodedRequest, { op: "onboarding.status" | "onboarding.handoff" | "onboarding.copy" }>;
 export { importBridge };
@@ -65,21 +65,25 @@ export function admit(server: Server, op: string): void {
 export function onboardingStarter(server: Server, ws: Workspace): void {
   service(server).starter = { id: ws.id, revision: ws.model.revision, name: ws.name() };
 }
-export async function request(server: Server, client: Client, request: Request): Promise<void> {
+export async function request(
+  server: Server,
+  client: Client,
+  request: Request,
+  reply = new Reply(client),
+): Promise<void> {
   const s = service(server),
     operation = request.payload.operation;
   if (request.op === "onboarding.status") {
-    if (operation !== 0n && operation === s.handoff_operation)
-      client.reply(request.op, { progress: s.herdr_import.status() });
+    if (operation !== 0n && operation === s.handoff_operation) reply.ok({ progress: s.herdr_import.status() });
     else if (operation !== 0n && operation === s.onboarding_copy.operation)
-      client.reply(request.op, { progress: s.onboarding_copy.progress });
+      reply.ok({ progress: s.onboarding_copy.progress });
     else throw Error("NoImport");
     return;
   }
   if (operation === 0n) throw Error("InvalidImport");
   const current = request.op === "onboarding.handoff" ? s.handoff_operation : s.onboarding_copy.operation;
   if (operation === current) {
-    client.queue({ ok: true });
+    reply.send({ ok: true });
     return;
   }
   admit(server, request.op);
@@ -101,7 +105,7 @@ export async function request(server: Server, client: Client, request: Request):
       herdr_session: request.payload.herdr_session as SourceSession | null,
     });
   else throw Error("UnknownOp");
-  client.queue({ ok: true });
+  reply.send({ ok: true });
 }
 export async function tick(server: Server): Promise<void> {
   const s = services.get(server);

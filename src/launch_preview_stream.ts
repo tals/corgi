@@ -1,15 +1,18 @@
-import { createConnection, type Socket } from "node:net";
 import { parse, stringify } from "./json";
 import { milliTimestamp } from "./clock";
 import type { History, Entry } from "./launch/history";
 import type { Account } from "./launcher_resume";
 import { type Preview, option as optionValue, preview as previewValue } from "./agent_launcher";
 import { Provider } from "./providers";
-import * as protocol from "./protocol";
+import { call, type Transport } from "./mirror";
 export class Stream {
-  socket = "";
-  fd: Socket | null = null;
-  input = "";
+  private connection: Transport | null = null;
+  private unsubscribe: (() => void) | null = null;
+  private subscribed = false;
+  private subscribing = false;
+  private history_asked = false;
+  private preview_revision = 0;
+  changedEvent: () => void = () => {};
   cwd = "";
   workspace = 0;
   preview: Preview = previewValue();
@@ -17,10 +20,23 @@ export class Stream {
   retry_at = 0;
   history: History = { pending: true, entries: [] };
   changed = false;
+  connect(connection: Transport) {
+    this.disconnect();
+    this.connection = connection;
+    this.unsubscribe =
+      connection.onEvent?.(event => {
+        if (this.receive(event)) {
+          this.changed = true;
+          this.changedEvent();
+        }
+      }) ?? null;
+  }
   disconnect() {
-    this.fd?.destroy();
-    this.fd = null;
-    this.input = "";
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+    this.connection = null;
+    this.subscribed = false;
+    this.history_asked = false;
   }
   current(cwd: string, known: readonly (Account & { managed?: boolean })[] = []): Preview {
     if (!this.received && this.preview.accounts.length === 0 && known.length > 0)
@@ -48,55 +64,45 @@ export class Stream {
     if (cwd === this.cwd) this.preview.pending = true;
   }
   poll(workspace: number, cwd: string) {
-    if (!this.socket) return false;
+    if (!this.connection) return false;
     if (this.workspace !== workspace || this.cwd !== cwd) {
       const initial = this.current(cwd);
-      this.disconnect();
       this.cwd = cwd;
       this.workspace = workspace;
       this.preview = initial;
       this.received = false;
+      this.subscribed = false;
       this.retry_at = 0;
       this.changed = true;
     }
-    if (!this.fd && milliTimestamp() >= this.retry_at) {
+    if (!this.subscribed && !this.subscribing && milliTimestamp() >= this.retry_at) {
       this.retry_at = milliTimestamp() + 1000;
-      const connection = createConnection(this.socket);
-      this.fd = connection;
-      connection.once("connect", () => {
-        connection.write(stringify(protocol.envelope("agent.subscribe", { workspace, cwd })) + "\n");
-        connection.write(stringify(protocol.envelope("agent.history", { follow: true })) + "\n");
-      });
-      connection.on("data", chunk => {
-        try {
-          this.changed = this.feed(chunk.toString()) || this.changed;
-        } catch {
-          this.disconnect();
-        }
-      });
-      connection.once("error", () => {
-        if (this.fd === connection) this.disconnect();
-      });
-      connection.once("close", () => {
-        if (this.fd === connection) this.disconnect();
+      this.subscribing = true;
+      void this.subscribe(this.connection, workspace, cwd).finally(() => {
+        this.subscribing = false;
       });
     }
     const changed = this.changed;
     this.changed = false;
     return changed;
   }
-  feed(bytes: string) {
-    this.input += bytes;
-    if (Buffer.byteLength(this.input) > 16 * 1024 * 1024) throw new Error("InputTooLarge");
-    let changed = false;
-    while (true) {
-      const i = this.input.indexOf("\n");
-      if (i < 0) break;
-      const line = this.input.slice(0, i);
-      this.input = this.input.slice(i + 1);
-      changed = this.receive(parse(line)) || changed;
+  private async subscribe(connection: Transport, workspace: number, cwd: string) {
+    try {
+      const revision = this.preview_revision;
+      const preview = await call(connection, "agent.subscribe", { workspace, cwd });
+      if (this.connection !== connection) return;
+      // A pushed update in the same socket read can precede this continuation.
+      if (this.preview_revision === revision) this.changed = this.receive(preview) || this.changed;
+      if (!this.history_asked) {
+        await call(connection, "agent.history", { follow: true });
+        if (this.connection !== connection) return;
+        this.history_asked = true;
+      }
+      this.subscribed = this.workspace === workspace && this.cwd === cwd;
+      this.changedEvent();
+    } catch {
+      // Retry on the shared connection after a transient daemon failure.
     }
-    return changed;
   }
   receive(message: any) {
     if (message.type === "agent.history") {
@@ -107,6 +113,7 @@ export class Stream {
       return true;
     }
     if (message.type !== "agent.preview" || message.cwd !== this.cwd) return false;
+    this.preview_revision++;
     const sent = previewValue(message.preview);
     let preview = sent;
     if (preview.pending) {

@@ -5,7 +5,7 @@ import { byProvider } from "./providers";
 import { Worker as HistoryWorker } from "./launch/history";
 import { stringify } from "./json";
 import type { Server } from "./server";
-import type { Client } from "./peer";
+import { Reply, type Client } from "./peer";
 import type { DecodedRequest } from "./protocol";
 type Request = Extract<
   DecodedRequest,
@@ -46,7 +46,7 @@ export async function stop(server: Server) {
   services.delete(server);
   await service?.stop();
 }
-export async function request(server: Server, client: Client, request: Request) {
+export async function request(server: Server, client: Client, request: Request, reply = new Reply(client)) {
   const s = service(server);
   if (request.op === "agent.history") {
     const q = request.payload;
@@ -56,7 +56,9 @@ export async function request(server: Server, client: Client, request: Request) 
       if (!subscription) throw Error("NotSubscribed");
       subscription.history_asked = true;
       subscription.history_epoch = 0n;
-    } else client.reply(request.op, { history: reader.snapshot() });
+      // History follows as untagged events; the request itself still gets a reply.
+      reply.ok();
+    } else reply.ok({ history: reader.snapshot() });
     return;
   }
   const q = request.payload;
@@ -64,13 +66,13 @@ export async function request(server: Server, client: Client, request: Request) 
     cwd = q.cwd || ws.cwd;
   if (!isAbsolute(cwd) || Buffer.byteLength(cwd) > 4096) throw Error("InvalidDirectory");
   if (request.op === "agent.command.preview") {
-    client.reply(request.op, {
+    reply.ok({
       resolution: s.command_previews.request(request.payload.request, request.payload.command, cwd),
     });
     return;
   }
   const subscribe = request.op === "agent.subscribe";
-  if (subscribe && (client.viewer || client.subscribed)) throw Error("AlreadyAttached");
+  if (subscribe && (client.watching || client.subscribed)) throw Error("AlreadyAttached");
   const preview =
     request.op === "agent.track_usage" ? s.launch_previews.trackUsage(cwd) : s.launch_previews.preview(cwd, subscribe);
   if (subscribe) {
@@ -78,12 +80,12 @@ export async function request(server: Server, client: Client, request: Request) 
       cwd,
       preview,
       checked: Date.now(),
-      history_asked: false,
-      history_epoch: 0n,
-      history_sent: 0n,
+      history_asked: client.launch_preview?.history_asked ?? false,
+      history_epoch: client.launch_preview?.history_epoch ?? 0n,
+      history_sent: client.launch_preview?.history_sent ?? 0n,
     } satisfies Subscription;
-    client.queue({ type: "agent.preview", cwd, preview });
-  } else client.queue({ ok: true, preview });
+    reply.send({ type: "agent.preview", cwd, preview });
+  } else reply.send({ ok: true, preview });
 }
 /** Input this recent in any viewer reads accounts every `active_every`. */
 const active_ms = 5 * 60 * 1000;

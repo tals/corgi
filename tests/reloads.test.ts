@@ -716,8 +716,10 @@ process.stdin.resume();
     await this.until(async () => (await this.rpc({ op: "headless.list" })).sessions.length === 0);
     const client = await JsonSocket.connect(this.path);
     try {
-      client.send(versioned({ op: "headless.start", prompt: "ping", provider: "codex", cwd: this.temp.name }));
-      client.send({ op: "ping" });
+      client.send(
+        versioned({ op: "headless.start", prompt: "ping", provider: "codex", cwd: this.temp.name, request_id: 41 }),
+      );
+      client.send({ op: "ping", request_id: 42 });
       await this.until(async () => (await this.rpc({ op: "headless.list" })).sessions.length === 1);
       const starting = (await this.rpc({ op: "headless.list" })).sessions[0];
       this.assertEqual(starting.session, null);
@@ -725,8 +727,10 @@ process.stdin.resume();
       await this.reload();
       writeFileSync(gate, "");
       const started = await client.read();
-      this.assertEqual(started, { ok: true, provider: "codex", session: "t" });
-      this.assertTrue((await client.read()).ok);
+      this.assertEqual(started, { ok: true, provider: "codex", session: "t", request_id: 41 });
+      const pong = await client.read();
+      this.assertTrue(pong.ok);
+      this.assertEqual(pong.request_id, 42);
       this.assertEqual(starting.pid, (await this.rpc({ op: "headless.list" })).sessions[0].pid);
       await this.until(async () =>
         (await this.rpc({ op: "headless.events", provider: "codex", session: started.session })).events.some(

@@ -22,7 +22,7 @@ afterAll(() => {
   accounts.reset();
   rmSync(home, { recursive: true, force: true });
 });
-test("new preview subscribers refresh cached sign-in asynchronously and share pending work", async () => {
+test("new preview subscribers refresh sign-in after a pending pass", async () => {
   const server: any = { runtime: { getWorkspace: () => ({ cwd: "/tmp" }) } },
     messages: any[] = [],
     client = (): any => ({
@@ -76,11 +76,11 @@ test("new preview subscribers refresh cached sign-in asynchronously and share pe
     expect(messages[0].preview.pending).toBe(true);
     expect(messages[0].preview.options.codex.signed_in).toBe(false);
     await request(server, second, subscribe);
-    expect(s.launch_previews.jobs[0].queued).toBe(false);
+    expect(s.launch_previews.jobs[0].queued).toBe(true);
     const pending = s.launch_previews.pump();
     finish();
     await pending;
-    expect(reads).toBe(1);
+    expect(reads).toBe(2);
     messages.length = 0;
     for (const cl of [first, second]) {
       cl.launch_preview!.checked = 0;
@@ -91,7 +91,7 @@ test("new preview subscribers refresh cached sign-in asynchronously and share pe
       expect(message.preview.pending).toBe(false);
       expect(message.preview.options.codex.signed_in).toBe(true);
     }
-    expect(reads).toBe(1);
+    expect(reads).toBe(2);
   } finally {
     finish();
     await stop(server);

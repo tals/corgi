@@ -66,7 +66,7 @@ export interface View<Session = unknown, Resources = unknown> {
   /** Always false; retained for older viewers. Detach uses an action control. */
   detach: boolean;
 }
-export const version = 3;
+export const version = 4;
 export const management_version = 1;
 export const viewer_version = 3;
 export type Op = (typeof operations)[number];
@@ -97,6 +97,7 @@ export const operations = [
   "agent.subscribe",
   "viewer.open",
   "viewer.sync",
+  "viewer.surfaces",
   "viewer.search",
   "viewer.pick",
   "viewer.image",
@@ -185,6 +186,13 @@ export function parse(value: unknown): Op | null {
   if (value === null || typeof value !== "object") return null;
   const op = (value as Record<string, unknown>).op;
   return typeof op === "string" && (operations as readonly string[]).includes(op) ? (op as Op) : null;
+}
+/** Correlation for RPC; raw requests and subscriptions may omit it. */
+export function requestId(value: unknown): number | null {
+  if (!value || typeof value !== "object" || !Object.hasOwn(value, "request_id")) return null;
+  const id = (value as Record<string, unknown>).request_id;
+  if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0) throw Error("InvalidRequestId");
+  return id;
 }
 export function require(value: any, negotiated: number | null, kind: "runtime" | "management" = "runtime"): void {
   if (!Object.hasOwn(value, "protocol") && negotiated === null) throw Error("ProtocolRequired");
@@ -563,6 +571,7 @@ const requests = {
   "viewer.open": { cwd: ["string", ""], onboarding: ["bool", false], theme: ["theme", null] },
   "viewer.sync": {
     interests: "[]interest",
+    surfaces: ["bool", true],
     session_hash: ["?u64", null],
     focus: ["?u32", null],
     watched: ["bool", true],
@@ -574,6 +583,7 @@ const requests = {
     resources: ["bool", true],
     resources_hash: ["?u64", null],
   },
+  "viewer.surfaces": {},
   "viewer.search": { pane: "u32", needle: "string", skip: ["u64", 0] },
   "viewer.pick": {
     pane: "u32",
@@ -689,6 +699,7 @@ export interface ReplyPayloads {
   "session.subscribe": SessionSnapshot;
   "viewer.open": Ok & Opened;
   "viewer.sync": View<ViewerSnapshot, import("./trackers/resources").Snapshot>;
+  "viewer.surfaces": Ok & { surfaces: SurfaceView[] };
   "viewer.search": Ok & {
     offset: bigint | null;
     match?: { x: number; y: number; end_x: number; end_y: number } | null;
@@ -725,7 +736,8 @@ export interface ReplyPayloads {
   "agent.preview": Ok & { preview: import("./launch/preview").Preview };
   "agent.track_usage": Ok & { preview: import("./launch/preview").Preview };
   "agent.subscribe": { type: "agent.preview"; cwd: string; preview: import("./launch/preview").Preview };
-  "agent.history": Ok & { history: import("./launch/history").History };
+  /** Without history when following; updates arrive as `agent.history` events. */
+  "agent.history": Ok & { history?: import("./launch/history").History };
   action: Ok & { viewer: number; queued: true };
   bugreport: Ok & {
     pid: number;
@@ -753,7 +765,34 @@ export type Reply<K extends Op> = WireReply<K>;
 export type PickUnit = Request<"viewer.pick">["unit"];
 /** What `viewer.pick` finds at a cell, as the native terminal and the viewer see it. */
 export type PickResult = Omit<Reply<"viewer.pick">, "ok">;
-export type ErrorReply = { err: string; viewer_protocol?: number };
+/** Unsolicited updates share a connection with correlated replies. */
+export type Event =
+  | { type: "viewer.wake" }
+  | Wire<SessionSnapshot>
+  | Reply<"agent.subscribe">
+  | { type: "agent.history"; update: Wire<import("./launch/history").Update> };
+/** What arrives without a request id; anything else untagged fails the connection. */
+export const event_types = ["viewer.wake", "session", "agent.preview", "agent.history"] as const;
+// Fails to compile while an `Event` type is missing from the list.
+true satisfies Exclude<Event["type"], (typeof event_types)[number]> extends never ? true : false;
+export function event(message: { type?: unknown }): Event | null {
+  return (event_types as readonly unknown[]).includes(message.type) ? (message as Event) : null;
+}
+/** What a `ReloadBusy` reload waits out. */
+export type Busy = { op: "worktree.add"; path: string };
+export type ErrorReply = { err: string; viewer_protocol?: number; busy?: Busy };
+/** The `busy` of an error reply, or null when it names nothing this client knows. */
+export function busy(reply: unknown): Busy | null {
+  const value = reply && typeof reply === "object" ? (reply as { busy?: unknown }).busy : null;
+  if (!value || typeof value !== "object") return null;
+  const { op, path } = value as Record<string, unknown>;
+  if (typeof path !== "string") return null;
+  switch (op) {
+    case "worktree.add":
+      return { op, path };
+  }
+  return null;
+}
 export type Response<K extends Op> = Reply<K> | ErrorReply;
 export type Arguments<K extends Op> =
   {} extends RequestInput<K> ? [fields?: RequestInput<K>] : [fields: RequestInput<K>];

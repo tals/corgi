@@ -3,7 +3,8 @@ import { generateKeyPairSync, sign } from "node:crypto";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { version, parse, managed, release, abi, platform, check, type Release } from "./updates";
+import { createServer } from "node:net";
+import { version, parse, managed, release, abi, platform, check, save, type Release } from "./updates";
 import { releaseVersion } from "./build_config";
 const keys = () => generateKeyPairSync("ed25519");
 const key = (k: ReturnType<typeof keys>) =>
@@ -140,6 +141,27 @@ test("a release only passes the pre-update check with a result, or without the c
     expect((await run(script("babbles", "echo hello")))?.why).toBe("the check answered something other than a result");
     expect((await run(script("hangs", "exec sleep 5"), 200))?.why).toBe("the check didn't finish in 0.2s");
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an older runtime saves its session for the update check", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-save-")),
+    socket = join(dir, "corgi.sock"),
+    asked: any[] = [];
+  // A runtime before protocol 4 ignores request ids and answers untagged.
+  const server = createServer(peer =>
+    peer.on("data", chunk => {
+      asked.push(JSON.parse(chunk.toString()));
+      peer.write(JSON.stringify({ ok: true, path: join(dir, "recovery") }) + "\n");
+    }),
+  );
+  await new Promise<void>(resolve => server.listen(socket, resolve));
+  try {
+    await save(socket, { protocol: 3 });
+    expect(asked).toEqual([{ op: "recovery.save", protocol: 3 }]);
+  } finally {
+    await new Promise(resolve => server.close(resolve));
     rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -5,6 +5,8 @@ $.update_abi?: string
 $.terminal_abi: u64
 $.listener: i32
 $.requester: i32
+$.request_id: optional
+$.request_id?: u64
 $.runtime: versioned persist.checkpoint.State
 $.summaries: optional
 $.summaries?.slots[].index: usize
@@ -252,3 +254,5 @@ $.last_bell_kind: enum none finished needs_input
 $.clients[].headless_start: optional
 $.clients[].headless_start?.id: u32
 $.clients[].headless_start?.deadline: i64
+$.clients[].headless_start?.request_id: optional
+$.clients[].headless_start?.request_id?: u64

@@ -9,7 +9,7 @@ import { str, timestampMs } from "../providers/common";
 import { Model } from "../providers/model";
 import { parse } from "../json";
 import { head } from "../transcript";
-import { Counts, Tracker } from "./tokens";
+import { Counts, Tracker, type Window } from "./tokens";
 import { Counter, Meter, View } from "./live";
 import { Reading } from "./context_window";
 import { Tracker as Tools, View as Progress } from "../activity/tools";
@@ -133,7 +133,7 @@ export class Tail {
       telemetry.end("agent.usage.ingest", telemetry_started);
     }
   }
-  async poll(req: Request, reader: TranscriptReader) {
+  async poll(req: Request, reader: TranscriptReader, window?: Window) {
     const telemetry_started = telemetry.begin();
     try {
       const current = await lstat(req.agent.transcriptPath());
@@ -196,6 +196,8 @@ export class Tail {
           start = this.offset,
           { bytesRead } = await file.read(bytes, 0, bytes.length, this.offset);
         this.offset += bytesRead;
+        // Visits during file I/O must also bound the bytes about to be counted.
+        req.since = window?.since ?? req.since;
         return this.ingest(req, reader, bytes.subarray(0, bytesRead), start);
       } finally {
         await file.close();
@@ -211,6 +213,7 @@ export class Worker {
   cursor = 0;
   results: Result[] = [];
   watchers = new Map<number, Tail>();
+  private windows = new Map<number, Window>();
   /** Each provider's transcript reader, opened on first use. */
   readers = new Map<Provider, TranscriptReader | null>();
   timer: ReturnType<typeof setInterval> | null = null;
@@ -262,6 +265,7 @@ export class Worker {
   reconcile(runtime: Runtime) {
     const telemetry_started = telemetry.begin();
     this.requests = [];
+    this.windows.clear();
     const actors = new Set<number>(runtime.conversations.items.map(actor => actor.id)),
       followed = runtime.followed();
     for (const id of this.watchers.keys()) if (!actors.has(id)) this.watchers.delete(id);
@@ -271,6 +275,7 @@ export class Worker {
       if (!reader || !agent.session.len || (!agent.transcript.len && !reader.name) || !followed.has(actor)) continue;
       const ws = runtime.workspaces.get(actor.workspace);
       if (!ws) continue;
+      this.windows.set(ws.id, ws.away);
       this.requests.push({
         actor: actor.id,
         workspace: ws.id,
@@ -295,7 +300,9 @@ export class Worker {
       const count = Math.min(64, this.requests.length);
       const batch = Array.from({ length: count }, (_, i) => this.requests[(this.cursor + i) % this.requests.length]);
       if (this.requests.length) this.cursor = (this.cursor + count) % this.requests.length;
-      for (const req of batch) {
+      for (const queued of batch) {
+        const window = this.windows.get(queued.workspace),
+          req = { ...queued, since: window?.since ?? queued.since };
         const reader = this.reader(req.agent.provider!),
           existing = this.results.find(r => r.actor === req.actor);
         if (!reader || (!existing && this.results.length >= 64)) continue;
@@ -308,7 +315,7 @@ export class Worker {
         let delta = new Counts();
         if (req.agent.transcript.len)
           try {
-            delta = await t.poll(req, reader);
+            delta = await t.poll(req, reader, window);
           } catch {
             if (t.live.meter.value.known) t.live.meter.lose();
             t.closeFile();

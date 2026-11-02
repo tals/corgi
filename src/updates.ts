@@ -287,7 +287,7 @@ function recordError(root: string, error: unknown) {
 async function activate(root: string, socket: string, v: string, target: string, live: boolean) {
   if (live)
     try {
-      await rpc.request(socket, "server.reload", { executable: target });
+      await rpc.reload(socket, target);
     } catch (error) {
       if ((await hello(socket))?.executable !== target) throw error;
     }
@@ -312,8 +312,9 @@ const interactive = () => !!process.stdin.isTTY && !!process.stderr.isTTY && pro
 const recheck_ms = 3600000;
 /** Has the runtime that said `h` save its session, in the runtime protocol
  * it advertised: one from another release may speak another. */
-async function save(socket: string, h: { protocol?: number }) {
-  const conn = new rpc.Connection(socket);
+export async function save(socket: string, h: { protocol?: number }) {
+  // Untagged: a runtime before protocol 4 answers without the request id.
+  const conn = new rpc.Connection(socket, { requestIds: false });
   try {
     const reply: any = await conn.rawRequest({ op: "recovery.save", protocol: h.protocol });
     if (reply && "err" in reply) throw Error(reply.err);

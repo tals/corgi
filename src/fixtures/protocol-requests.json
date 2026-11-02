@@ -39,6 +39,7 @@
     ],
     "ack": 2
   },
+  "viewer.surfaces": {},
   "viewer.search": {
     "pane": 1,
     "needle": "x",

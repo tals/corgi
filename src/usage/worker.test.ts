@@ -79,6 +79,66 @@ test("usage reconciliation follows current attachments with one pane scan", () =
   }
 });
 
+test("usage reads count against visits after scheduling and during file I/O", async () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-usage-")),
+    file = join(root, "usage.jsonl"),
+    runtime = new Runtime(),
+    workspace = new Workspace(1, root),
+    worker = new Worker(),
+    terminal = Terminal.create(20, 4),
+    pane = new Pane(1, terminal, root),
+    actor = runtime.conversations.get("claude", "session"),
+    opened = Promise.withResolvers<void>(),
+    resume = Promise.withResolvers<void>(),
+    open = fs.open;
+  const line = (id: string, at: number, input: number) =>
+    JSON.stringify({
+      type: "assistant",
+      sessionId: "session",
+      timestamp: new Date(at).toISOString(),
+      message: { id, usage: { input_tokens: input, output_tokens: 1 } },
+    }) + "\n";
+  runtime.workspaces.items.push(workspace);
+  runtime.panes.push(pane);
+  actor.workspace = workspace.id;
+  actor.state.transcript = new Path(file);
+  pane.attachment.select(actor);
+  writeFileSync(file, line("baseline", 0, 10));
+  worker.reconcile(runtime);
+  await worker.run();
+  worker.take();
+  workspace.away.visit(1000);
+  appendFileSync(file, line("before-visit", 1500, 20) + line("after-visit", 2500, 30));
+  const read = spyOn(fs, "open").mockImplementation(async (...args) => {
+    const handle = await open(...args);
+    opened.resolve();
+    await resume.promise;
+    return handle;
+  });
+  const running = worker.run();
+  try {
+    await opened.promise;
+    workspace.away.visit(2000);
+    resume.resolve();
+    await running;
+    const [result] = worker.take();
+    expect(result.since).toBe(2000);
+    expect(result.delta.input).toBe(30n);
+    expect(result.delta.output).toBe(1n);
+    expect(workspace.away.record(result.since, result.delta)).toBe(true);
+    expect(workspace.away.counts.input).toBe(30n);
+    workspace.away.visit(3000);
+    expect(workspace.away.record(result.since, result.delta)).toBe(false);
+  } finally {
+    resume.resolve();
+    await running;
+    read.mockRestore();
+    worker.stop();
+    runtime.destroy();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("usage tail frames records, ignores history and advances baselines while watched", () => {
   const t = new Tail(),
     r = request("codex");
