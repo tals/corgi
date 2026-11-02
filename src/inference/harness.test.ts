@@ -5,11 +5,19 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Pool } from "./harness";
+import * as errors from "../errors";
+import * as os from "../os";
 import * as appServer from "../providers/codex/app_server";
 import * as sim from "../providers/sim";
 const fixture = resolve(import.meta.dir, "../../tests/inference_harness.ts");
 function pool(provider: "codex" | "claude", timeout_ms = 3000) {
   return new Pool({ config: { provider, executable: fixture, timeout_ms } });
+}
+/** A `codex` in `root` that runs `script` in /bin/sh. */
+function fakeCodex(root: string, script: string) {
+  const path = join(root, "codex");
+  writeFileSync(path, `#!/bin/sh\n${script}\n`, { mode: 0o755 });
+  return path;
 }
 test("inference starts in the selected account and old handoffs default to the original account", async () => {
   const unregister = sim.register(),
@@ -114,20 +122,45 @@ test("closing an app server cancels a request still waiting for it to start", as
 
 test("closing an app server stops one still starting", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-app-server-")),
-    started = join(root, "started"),
-    executable = join(root, "codex");
-  // A Codex that never answers initialize.
-  writeFileSync(executable, `#!/bin/sh\n: > '${started}'\nexec /bin/sleep 60\n`, { mode: 0o755 });
-  const server = new appServer.AppServer(30000, executable);
+    pidFile = join(root, "pid"),
+    // Never answers initialize; its PID is renamed into place.
+    executable = fakeCodex(
+      root,
+      `printf '%s' "$$" > '${pidFile}.tmp'\n/bin/mv '${pidFile}.tmp' '${pidFile}'\nexec /bin/sleep 60`,
+    ),
+    server = new appServer.AppServer(30000, executable),
+    pending = appServer.model(server, "/tmp");
+  pending.catch(() => {});
   try {
-    const pending = appServer.model(server, "/tmp"),
-      deadline = Date.now() + 2500;
-    while (!existsSync(started) && Date.now() < deadline) await Bun.sleep(5);
-    expect(existsSync(started)).toBe(true);
-    const closed = Date.now();
+    const deadline = Date.now() + 2500;
+    while (!existsSync(pidFile) && Date.now() < deadline) await Bun.sleep(5);
+    expect(existsSync(pidFile)).toBe(true);
+    const pid = Number(readFileSync(pidFile, "utf8")),
+      closed = Date.now();
+    expect(pid).toBeGreaterThan(0);
     server.close();
     await expect(pending).rejects.toThrow("Cancelled");
     expect(Date.now() - closed).toBeLessThan(1000);
+    while (os.running(pid) && Date.now() < closed + 2500) await Bun.sleep(5);
+    expect(os.running(pid)).toBe(false);
+  } finally {
+    server.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 10000);
+
+test("requests waiting on a failed start all get its error, and the next one starts afresh", async () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-app-server-")),
+    starts = join(root, "starts"),
+    server = new appServer.AppServer(3000, fakeCodex(root, `echo "$$" >> '${starts}'\nread -r _\nexit 1`));
+  try {
+    const results = await Promise.allSettled([server.request("config/read", {}), server.request("model/list", {})]);
+    expect(results.map(r => r.status === "rejected" && errors.name(r.reason))).toEqual([
+      "HarnessExited",
+      "HarnessExited",
+    ]);
+    await expect(server.request("config/read", {})).rejects.toThrow("HarnessExited");
+    expect(readFileSync(starts, "utf8").trim().split("\n")).toHaveLength(2);
   } finally {
     server.close();
     rmSync(root, { recursive: true, force: true });
@@ -137,11 +170,10 @@ test("closing an app server stops one still starting", async () => {
 test("an error reply leaves the app server open", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-app-server-")),
     starts = join(root, "starts"),
-    executable = join(root, "codex");
-  writeFileSync(executable, `#!/bin/sh\necho "$$" >> '${starts}'\nexec '${process.execPath}' '${fixture}' "$@"\n`, {
-    mode: 0o755,
-  });
-  const server = new appServer.AppServer(3000, executable);
+    server = new appServer.AppServer(
+      3000,
+      fakeCodex(root, `echo "$$" >> '${starts}'\nexec '${process.execPath}' '${fixture}' "$@"`),
+    );
   try {
     await expect(server.request("fixture/reject", {})).rejects.toThrow("HarnessRejected");
     expect((await appServer.model(server, "/tmp")).text()).toBe("fixture-codex");
