@@ -1620,6 +1620,9 @@ export class View {
       const ghost = v.dragged_workspace === v.workspace_offset + index;
       const tinted = ws.active || ghost;
       const hovered = !tinted && v.workspace_hover === v.workspace_offset + index;
+      // On a tinted section, faint text would drop below the styleguide's
+      // contrast, so the row's dim text takes muted as on the active row.
+      const lifted = tinted || palette.sectionTint(v.workspace_tint) !== null;
       const style = tinted ? active_name : hovered ? hover : plain;
       const meta = tinted ? active_meta : hovered ? hover : plain;
       // The dragged workspace takes the selected tint and a strong bar, like a dragged agent row.
@@ -1684,7 +1687,7 @@ export class View {
         has_status = true;
       }
       if (ws.unread > 0) {
-        if (has_status) w.write(tinted ? "\x1b[22m" + fg("muted") + " · " : "\x1b[22m" + fg("faint") + " · ");
+        if (has_status) w.write(lifted ? "\x1b[22m" + fg("muted") + " · " : "\x1b[22m" + fg("faint") + " · ");
         w.write(w.cup(y + 2, v.unreadRange(ws).start + 1));
         const unread_room = { value: unread_width };
         statusPart(w, unread, "\x1b[1m" + fg("accent"), unread_room);
@@ -1702,7 +1705,7 @@ export class View {
         }
         w.write(`${w.cup(y + 3, 2)}${meta}`);
         if (divider) w.write(rule_underline);
-        drawResources(w, ws.resources, v, v.resource_hover === ws.id, tinted);
+        drawResources(w, ws.resources, v, v.resource_hover === ws.id, lifted);
         w.write("\x1b[24;59m");
         w.write(plain);
         if (tinted) w.write(`${w.cup(y + 3, 1)}${bar}${plain}`);
