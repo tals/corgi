@@ -1185,6 +1185,7 @@ export function frame(
     side.hovered = sidebar.agentIndexAt(side, entries, u.pointer.x, u.pointer.y);
     if (!on_link_card && !on_peek && !on_git && !u.connection_card?.rect.contains(u.pointer.x, u.pointer.y))
       side.machine_hover = sidebar.machineHeaderAt(side, u.pointer.x, u.pointer.y)?.rect.y ?? null;
+    side.workspace_hover = sidebar.workspaceIndexAt(side, u.pointer.x, u.pointer.y);
   }
   side.spotlight = u.worktree_spotlight;
   const archive_marks: { brand: Brand; x: number; y: number }[] = [];
