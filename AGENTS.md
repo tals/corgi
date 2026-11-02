@@ -214,6 +214,12 @@ add Summary / Changes / Validation / Compatibility sections by habit, or a
 list of every test and edge case. Larger explanations can link to docs or a
 report. State results for the current change, not an earlier revision.
 
+Attach screenshots with `--attach` on `gh pr create` or `gh pr edit`: write
+`![alt](./shot.png)` in the `--body-file`, and `gh` uploads the file and
+rewrites the link. Save later edits with `gh pr edit` too; an attachment in a
+body saved through `gh api` stays private. Never push images to a branch for a
+PR.
+
 **Before sending.** Read the message without the diff. Can a reader identify
 the main change and its reason or use? Does each remaining detail change that
 understanding or help them use or review it? Remove the rest. If scope changed,
