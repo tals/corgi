@@ -252,6 +252,7 @@ pub const Terminal = struct {
             if (std.meta.eql(clamped, cell)) break :drag null;
             break :drag t.screenPin(top, clamped);
         } else null;
+        var line_breaks = false;
         const found = switch (unit) {
             .line => pickLine(screen, anchor, drag),
             .word => word: {
@@ -259,8 +260,11 @@ pub const Terminal = struct {
                 const start = t.screenPin(top, link.start) orelse return .{};
                 const end = t.screenPin(top, link.end) orelse return .{};
                 const span: vt.Selection = .init(start, end, false);
-                const reach = drag orelse break :word span;
-                if (!reach.before(start) and !end.before(reach)) break :word span;
+                const reach = drag orelse start;
+                if (!reach.before(start) and !end.before(reach)) {
+                    line_breaks = link.line_breaks;
+                    break :word span;
+                }
                 // Dragging away from a link extends it by words.
                 if (reach.before(start)) {
                     const near = screen.selectWordBetween(reach, start, &word_boundaries) orelse break :word span;
@@ -278,10 +282,12 @@ pub const Terminal = struct {
         if (std.mem.trim(u8, clip, " \t\r\n").len == 0) return .{};
         const start = t.viewCell(top, sel.topLeft(screen));
         const end = t.viewCell(top, sel.bottomRight(screen));
+        const shown = try t.shownText(alloc, top, start, end);
         return .{
             .match = .{ .x = start.x, .y = start.y, .end_x = end.x, .end_y = end.y },
-            .shown = try t.shownText(alloc, top, start, end),
-            .copy = clip,
+            .shown = shown,
+            // A URL its program broke over indented lines copies without them.
+            .copy = if (line_breaks) shown else clip,
         };
     }
     /// `sel` cut to the view at `top`.
@@ -327,23 +333,25 @@ pub const Terminal = struct {
         }
         return out.toOwnedSlice(alloc);
     }
-    const Link = struct { start: Cell, end: Cell };
+    /// `line_breaks` when the link continues past a line break its program
+    /// wrote, not only soft wraps.
+    const Link = struct { start: Cell, end: Cell, line_breaks: bool };
     /// The link at a viewer's cell, found over the borrowed viewport as
-    /// `surface.captureView` does: its segment and the segments of the same
-    /// link that continue it across soft wraps.
+    /// `surface.captureView` does: its segment and the segments the snapshot
+    /// joined to it.
     fn linkAt(t: *Terminal, top: usize, cell: Cell) !?Link {
         // A pending synchronized redraw keeps its completed frame, whose links
         // are the viewer's only when it shows the same rows; else plain words.
         if (t.vt.modes.get(.synchronized_output)) {
             if (t.render_top != top) return null;
-            return linkIn(t.links.links, t.render.row_data.items(.raw), t.vt.cols, cell);
+            return linkIn(t.links.links, t.render.row_data.items(.raw), cell);
         }
         const borrowed = t.borrowViewport();
         defer borrowed.restore();
         t.vt.scrollViewport(.{ .row = top });
         t.vt.flags.dirty.clear = true;
         try t.updateRender();
-        return linkIn(t.links.links, t.render.row_data.items(.raw), t.vt.cols, cell);
+        return linkIn(t.links.links, t.render.row_data.items(.raw), cell);
     }
     /// The viewport and selection before a viewer borrowed the viewport to
     /// read its own rows; `restore` puts them back and renders them again.
@@ -369,7 +377,7 @@ pub const Terminal = struct {
         const pages = &screen.pages;
         return .{ .t = t, .viewport = pages.viewport, .pin = pages.viewport_pin.*, .row_offset = pages.viewport_pin_row_offset, .selection = screen.selection };
     }
-    fn linkIn(links: []const hyperlink.Link, wraps: anytype, cols: u16, cell: Cell) ?Link {
+    fn linkIn(links: []const hyperlink.Link, wraps: anytype, cell: Cell) ?Link {
         const at = for (links, 0..) |link, i| {
             if (link.row == cell.y and link.start <= cell.x and cell.x < link.end) break i;
         } else return null;
@@ -379,18 +387,19 @@ pub const Terminal = struct {
         const web = std.mem.startsWith(u8, uri, "http://") or std.mem.startsWith(u8, uri, "https://");
         if (!web or uri.len > 4096) return null;
         var first = at;
-        while (first > 0 and continues(links[first - 1], links[first], wraps, cols)) first -= 1;
+        while (first > 0 and continues(links, first)) first -= 1;
         var last = at;
-        while (last + 1 < links.len and continues(links[last], links[last + 1], wraps, cols)) last += 1;
+        while (last + 1 < links.len and continues(links, last + 1)) last += 1;
+        var line_breaks = false;
+        for (links[first + 1 .. last + 1]) |link| line_breaks = line_breaks or !wraps[link.row - 1].wrap;
         return .{
             .start = .{ .x = @intCast(links[first].start), .y = @intCast(links[first].row) },
             .end = .{ .x = @intCast(links[last].end - 1), .y = @intCast(links[last].row) },
+            .line_breaks = line_breaks,
         };
     }
-    // A wide character's spacer may end a row one cell early.
-    fn continues(before: hyperlink.Link, after: hyperlink.Link, wraps: anytype, cols: u16) bool {
-        return before.id == after.id and before.row + 1 == after.row and wraps[before.row].wrap and
-            before.end + 1 >= cols and after.start == 0;
+    fn continues(links: []const hyperlink.Link, i: usize) bool {
+        return links[i].joined and links[i - 1].id == links[i].id;
     }
     // Release the process/PTY while retaining the Ghostty screen and scrollback.
     pub fn stop(t: *Terminal) void {
