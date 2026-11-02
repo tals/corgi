@@ -838,7 +838,7 @@ function phoneList(g, r) {
     rows.push({ ...line, k });
   });
   r = phoneLines(g, r, rows, rows.findIndex((line) => line.k === sel), (line) => ({ key: line.k }), PROWS - 3);
-  phoneFoot(g, r, [["a", "launch"]]);
+  phoneFoot(g, r, [["a", i18n.t`launch`]]);
 }
 // Search: the field, then matches under their days, scrolled to the selection.
 function phoneSearch(g, r) {
