@@ -13,6 +13,7 @@ import {
   writeHandoff,
   type Context,
 } from "./prompt";
+import * as palette from "./palette";
 import { fast_ms } from "./prompt_session";
 import type { Choice, Entry } from "./model_picker";
 import type { Daemon } from "./prompt_session";
@@ -118,9 +119,13 @@ function prompt(over: { transcript?: (p: any, s: string) => string } = {}) {
   return { p, d, clock, root };
 }
 function draw(p: Prompt, cols = 112, rows = 34, now = 0): string[] {
+  return screen(drawn(p, cols, rows, now), cols, rows);
+}
+/** The frame `p` writes, escapes and all. */
+function drawn(p: Prompt, cols = 112, rows = 34, now = 0): string {
   const w = new Writer();
   p.draw(w, cols, rows, null, now);
-  return screen(w.s, cols, rows);
+  return w.s;
 }
 function type(p: Prompt, text: string) {
   for (const byte of Buffer.from(text)) p.key(byte);
@@ -272,7 +277,7 @@ test("mid-conversation: the thread, an approval and a remembered line", async ()
   await poll(p, 200);
   expect(card(draw(p, 112, 34, 0))).toEqual([
     "╭───────────────────────────────────────────────────────────────────────── ^ᐱ•ᴥ•ᐱ ─╮",
-    "│  › why does the sidebar test flake on CI?              with Fix sidebar flicker  │",
+    "│  ›  *  Fix sidebar f…  why does the sidebar test flake on CI?                    │",
     "│                                                                                  │",
     "│  ● Read src/sidebar.test.ts                                                      │",
     "│  ● Bash bun test src/sidebar.test.ts -t flicker                                  │",
@@ -356,11 +361,61 @@ test("a long thread wraps, keeps the newest at the bottom and scrolls back", asy
   expect(lines.some(l => l.includes("↓"))).toBe(true);
   for (let i = 0; i < 20; i++) p.scroll(false);
   lines = card(draw(p, 112, 34));
-  expect(lines[1]).toContain("› count");
+  expect(lines[1]).toMatch(/› .*Fix sidebar f… +count/);
   p.sequence("\x1b[6~");
   p.sequence("\x1b[6~");
   p.sequence("\x1b[6~");
   expect(card(draw(p, 112, 34)).some(l => l.includes("line 40"))).toBe(true);
+});
+
+test("a drag over the thread selects its text, copied on release as it was written", async () => {
+  const { p, d } = prompt();
+  type(p, "why?");
+  p.key(13);
+  await settle();
+  const sentence =
+    "The flicker case seeds the corgi routine with Date.now(), so two cases in the same millisecond share it.";
+  d.add({
+    kind: "message",
+    session: "0193-session",
+    text: sentence.replace("Date.now()", "`Date.now()`") + "\n\n- one\n- two",
+  });
+  d.add({ kind: "turn", session: "0193-session", turn: "", phase: "ended", outcome: "completed" });
+  await poll(p, 0);
+  const lines = draw(p, 80, 30),
+    y = lines.findIndex(l => l.includes("The flicker")),
+    x = lines[y].indexOf("The flicker");
+  expect(lines[y + 1]).toContain("share it.");
+  // A press alone selects nothing.
+  p.click(x, y);
+  expect(p.release()).toBeNull();
+  // From the second word to past the end of the wrapped line, it's the sentence as one line.
+  p.click(x + 4, y);
+  expect(p.drag(x + 100, y + 1)).toBe(true);
+  expect(p.release()).toEqual({ kind: "copy", text: sentence.slice(4) });
+  // It shows until a key; on to the list, lines keep their breaks.
+  const w = new Writer();
+  p.draw(w, 80, 30, null, 0);
+  expect(w.s).toContain(palette.selection + "flicker case");
+  p.click(x, y);
+  p.drag(x + 4, y + 4);
+  expect(p.release()).toEqual({ kind: "copy", text: sentence + "\n\n- one\n- two" });
+  p.sequence("\x1b[C");
+  expect(drawn(p, 80, 30)).not.toContain(palette.selection);
+});
+
+test("a drag over the input selects what's typed there, copied on release", () => {
+  const { p } = prompt();
+  type(p, "hello world");
+  const lines = draw(p),
+    y = lines.findIndex(l => l.includes("hello world")),
+    x = lines[y].indexOf("hello");
+  p.click(x, y);
+  expect(p.drag(x + 5, y)).toBe(true);
+  expect(p.release()).toEqual({ kind: "copy", text: "hello" });
+  // Typing replaces it, as in any text box.
+  type(p, "bye");
+  expect(draw(p)[y]).toContain("bye world");
 });
 
 test("/ lists the commands, filters them and runs the highlighted one", () => {
@@ -908,10 +963,28 @@ test("a pasted image is a chip that goes as an image, even with nothing typed", 
   // The model is told only of the pane; the images go as themselves.
   expect(d.starts[0].prompt).toContain('<context kind="agent" name="Fix sidebar flicker">');
   expect(d.starts[0].prompt).not.toContain("Image 1");
-  expect(p.conversation.items[0]).toMatchObject({ kind: "user", text: "", with: expect.arrayContaining(["Image 1"]) });
+  expect(p.conversation.items[0]).toMatchObject({
+    kind: "user",
+    text: "",
+    chips: [{ name: "Fix sidebar flicker" }, { name: "Image 1" }, { name: "Image 2" }],
+  });
+  // They lead the message in the thread as they led the input.
+  expect(card(draw(p))[1]).toMatch(/^│  › +\* +Fix sidebar f… +Image 1 +Image 2 +│$/);
 });
 
-test("pointing at a pasted image previews it above the card", () => {
+/** Draws `p` with a picture for the image under the pointer, as a host that shows them would. */
+function pictured(
+  p: Prompt,
+  cols: number,
+  rows: number,
+  thumbnail = { width: 180, height: 72, cell: { width: 9, height: 18 } },
+) {
+  const w = new Writer();
+  p.draw(w, cols, rows, null, 0, { pictures: true, thumbnail });
+  return { lines: screen(w.s, cols, rows), ansi: w.s };
+}
+
+test("pointing at a pasted image previews it just over its chip", () => {
   const { p } = prompt();
   p.attachImage("/tmp/shot.png", "image/png");
   let lines = draw(p);
@@ -920,21 +993,50 @@ test("pointing at a pasted image previews it above the card", () => {
   expect(p.previewed()).toBeNull();
   expect(p.hover(x, y)).toBe(true);
   expect(p.previewed()).toBe("/tmp/shot.png");
-  // The host shows pictures: the frame holds the thumbnail, named.
-  const thumbnail = { width: 180, height: 72, cell: { width: 9, height: 18 } },
-    w = new Writer();
-  p.draw(w, 112, 34, null, 0, { pictures: true, thumbnail });
-  lines = screen(w.s, 112, 34);
-  const top = lines.findIndex(l => l.includes("╭")),
-    card = lines.findIndex((l, i) => i > top && l.includes("╭"));
-  expect(card - top).toBe(4 + 3);
-  expect(lines[card - 2]).toContain("Image 1");
-  expect(w.s).toContain("\x1b_Ga=p,i=730140");
+  // The host shows pictures: the frame sits on the chip's row, holding the thumbnail, named.
+  const shown = pictured(p, 112, 34);
+  expect(shown.lines[y - 1].slice(x - 2, x)).toBe("╰─");
+  expect(shown.lines[y - 7].slice(x - 2, x)).toBe("╭─");
+  expect(shown.lines[y - 2]).toContain("Image 1");
+  expect(shown.ansi).toContain("\x1b_Ga=p,i=730140");
   // Without pictures it names the file instead.
   expect(draw(p).some(l => l.includes("Image 1 · /tmp/shot.png"))).toBe(true);
   // Off the chip, it goes.
   expect(p.hover(0, 0)).toBe(true);
   expect(p.previewed()).toBeNull();
+});
+
+test("a preview with no room over its chip hangs under it, and shrinks when it fits neither side", () => {
+  const { p } = prompt();
+  p.attachImage("/tmp/shot.png", "image/png");
+  // On a short screen the card sits near the top, three rows over its chip and eight under.
+  const lines = draw(p, 112, 12),
+    y = lines.findIndex(l => l.includes("Image 1")),
+    x = lines[y].indexOf("Image 1");
+  expect(y).toBe(3);
+  p.hover(x, y);
+  expect(pictured(p, 112, 12).lines[y + 1].slice(x - 2, x)).toBe("╭─");
+  // Eight rows of picture fit neither side: it takes five under the chip.
+  const shrunk = pictured(p, 112, 12, { width: 180, height: 144, cell: { width: 9, height: 18 } });
+  expect(shrunk.lines[y + 1].slice(x - 2, x)).toBe("╭─");
+  expect(shrunk.lines[y + 8].slice(x - 2, x)).toBe("╰─");
+  expect(shrunk.ansi).toMatch(/a=p,i=730140,[^\x1b]*r=5/);
+});
+
+test("a message's image chip in the thread previews like the input's", async () => {
+  const { p } = prompt();
+  p.attachImage("/tmp/shot.png", "image/png");
+  type(p, "what's this?");
+  p.key(13);
+  await settle();
+  await settle();
+  const lines = draw(p),
+    y = lines.findIndex(l => l.includes("what's this?")),
+    x = lines[y].indexOf("Image 1");
+  expect(lines[y]).toMatch(/› +\* +Fix sidebar f… +Image 1 +what's this\?/);
+  expect(p.hover(x, y)).toBe(true);
+  expect(p.previewed()).toBe("/tmp/shot.png");
+  expect(pictured(p, 112, 34).lines[y - 1].slice(x - 2, x)).toBe("╰─");
 });
 
 test("a long message wraps under the chips, and scrolls them away with its first line", () => {
@@ -1279,10 +1381,10 @@ test("a message carries a context block per attachment; the thread shows what we
   expect(p.conversation.items[0]).toEqual({
     kind: "user",
     text: "what's this error?",
-    with: ["Fix sidebar flicker", "diff"],
+    chips: [context.mentions[0], context.mentions[2]],
   });
   expect(card(draw(p)).slice(1, 3)).toEqual([
-    "│  › what's this error?                            with Fix sidebar flicker, diff  │",
+    "│  ›  *  Fix sidebar f…   diff  what's this error?                                 │",
     "│                                                                                  │",
   ]);
   expect(p.attached()).toEqual([]);

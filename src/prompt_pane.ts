@@ -207,6 +207,10 @@ export async function run(argv: string[]): Promise<void> {
           preferences.update({ prompt_model: effect.choice ?? "auto" });
         } catch {}
         return;
+      case "copy":
+        // Corgi passes a program's copy on to the host clipboard.
+        out.write(`\x1b]52;c;${Buffer.from(effect.text).toString("base64")}\x07`);
+        return;
       case "pane":
         // /memory opens its editor in a tab beside this one.
         try {
@@ -235,9 +239,11 @@ export async function run(argv: string[]): Promise<void> {
       case "mouse":
         if ((token.button & 64) !== 0) prompt.scroll((token.button & 1) !== 0);
         else if ((token.button & 32) !== 0) {
-          if (prompt.hover(token.x, token.y)) dirty = true;
+          // A move with the button down drags a selection; others hover.
+          if ((token.button & 3) === 0 ? prompt.drag(token.x, token.y) : prompt.hover(token.x, token.y)) dirty = true;
           return;
-        } else if (!token.release && (token.button & 3) === 0) return apply(prompt.click(token.x, token.y));
+        } else if ((token.button & 3) === 0)
+          return apply(token.release ? prompt.release() : prompt.click(token.x, token.y));
         dirty = true;
         return;
     }

@@ -74,7 +74,9 @@ export type Effect =
   /** /pane, /memory: open a tab running this. */
   | { kind: "pane"; argv: string[]; cwd: string }
   /** Persist the last pick; null follows Auto. */
-  | { kind: "pick"; choice: Choice | null };
+  | { kind: "pick"; choice: Choice | null }
+  /** A drag selected this: put it on the clipboard. */
+  | { kind: "copy"; text: string };
 export type Deps = {
   daemon: Daemon;
   /** The memory folder: `Memory.root()` outside tests. */
@@ -151,8 +153,22 @@ const chip_name_w = 14;
 
 type Seg = { text: string; style: string };
 /** A thread row: its runs, a fill across the card, hints at the right edge,
- * and the request those hints answer. */
-type Row = { segs: Seg[]; fill?: string; right?: Seg[]; ask?: string };
+ * the request those hints answer, and the chips a message leads with. A row
+ * that goes on with the line above when copied says what joins them and how
+ * many of its columns are only indent. */
+type Row = {
+  segs: Seg[];
+  fill?: string;
+  right?: Seg[];
+  ask?: string;
+  chips?: Inline;
+  cont?: { join: string; skip: number };
+};
+/** A thread row as drawn, and a column from its left. */
+type Spot = { row: number; col: number };
+/** What a drag selected: thread rows between two spots, laid out `room`
+ * wide; or the input, which keeps its own. `held` until the button's up. */
+type Selection = { on: "thread"; from: Spot; to: Spot; room: number; held: boolean } | { on: "input"; held: boolean };
 type Layout = {
   box: Rect;
   left: number;
@@ -170,9 +186,9 @@ type Layout = {
 /** The picture of a pasted image: whether the host shows pictures, and this
  * one's, once it has loaded. */
 export type Preview = { pictures: boolean; thumbnail: Thumbnail | null };
-/** Chips laid out in the input row: each with its name cut to fit, then
- * how many didn't fit, and the columns they all take with the gap after. */
-type Inline = { pieces: { chip: Chip; text: string; x: number }[]; more: number; width: number };
+/** Chips laid out in a row: each with its name cut to fit, then how many
+ * didn't fit, and the columns they all take with the gap after. */
+type Inline = { pieces: { mention: Mention; text: string; x: number }[]; more: number; width: number };
 /** An attachment waiting for the next message, and what it read. */
 type Chip = {
   mention: Mention;
@@ -511,17 +527,89 @@ function slice(segs: Seg[], start: number, end: number): Seg[] {
   }
   return out;
 }
-/** `segs` wrapped between words at `room` columns, later lines after `indent` spaces. */
-function wrap(segs: Seg[], room: number, indent = 0, style = s.text): Seg[][] {
+/** `segs` wrapped between words at `room` columns as thread rows, later
+ * ones after `indent` spaces, each going on with the one above, joined by
+ * the spaces the break took. */
+function wrapped(segs: Seg[], room: number, indent = 0, style = s.text): Row[] {
   const plain = segs.map(seg => seg.text).join("");
   const first = new TextArea(plain).lines(Math.max(1, room))[0];
-  const out = [slice(segs, first.start, first.end)];
+  const out: Row[] = [{ segs: slice(segs, first.start, first.end) }];
   let from = first.end;
   while (from < plain.length && plain[from] === " ") from++;
   if (from >= plain.length) return out;
-  for (const line of new TextArea(plain.slice(from)).lines(Math.max(1, room - indent)))
-    out.push([{ text: " ".repeat(indent), style }, ...slice(segs, from + line.start, from + line.end)]);
+  let end = first.end;
+  for (const line of new TextArea(plain.slice(from)).lines(Math.max(1, room - indent))) {
+    out.push({
+      segs: [{ text: " ".repeat(indent), style }, ...slice(segs, from + line.start, from + line.end)],
+      cont: { join: plain.slice(end, from + line.start), skip: indent },
+    });
+    end = from + line.end;
+  }
   return out;
+}
+/** A row's text as its cells, `room` of them: a wide character's second
+ * cell is "". Chips show their names. */
+function cells(row: Row, room: number): string[] {
+  const out = Array<string>(room).fill(" ");
+  const put = (x: number, text: string) => {
+    for (const ch of text) {
+      const w = displayWidth(ch);
+      if (x + w > room) return;
+      if (w === 0) {
+        if (x > 0) out[x - 1] += ch;
+        continue;
+      }
+      out[x] = ch;
+      for (let k = 1; k < w; k++) out[x + k] = "";
+      x += w;
+    }
+  };
+  put(0, row.segs.map(seg => seg.text).join(""));
+  if (row.chips?.more) put(text_x, `+${row.chips.more}`);
+  for (const piece of row.chips?.pieces ?? []) put(text_x + piece.x + (branded(piece.mention) ? 4 : 1), piece.text);
+  if (row.right?.length) put(room - width(row.right), row.right.map(seg => seg.text).join(""));
+  return out;
+}
+/** Two spots, the earlier first. */
+function ordered(a: Spot, b: Spot): [Spot, Spot] {
+  return a.row < b.row || (a.row === b.row && a.col <= b.col) ? [a, b] : [b, a];
+}
+/** Where a row's text ends: past its last cell that isn't blank. */
+function textEnd(cs: string[]): number {
+  let end = cs.length;
+  while (end > 0 && (cs[end - 1] === " " || cs[end - 1] === "")) end--;
+  return end;
+}
+/** A chip that shows its agent's brand mark. */
+function branded(m: Mention): boolean {
+  return m.kind === "agent" && m.provider !== null;
+}
+/** Chips in a row: names cut short, the newest kept in `budget` columns,
+ * and the older ones that don't fit counted first. */
+function lay(mentions: Mention[], budget: number, c: Context | null): Inline {
+  const shown = mentions.map(mention => {
+      const text = ellipsis(mentionName(mention, c), chip_name_w);
+      return { mention, text, size: 2 + (branded(mention) ? 3 : 0) + displayWidth(text) + 1 };
+    }),
+    count = (n: number) => (n ? 2 + String(n).length : 0);
+  let first = shown.length,
+    used = 0;
+  while (first > 0 && used + shown[first - 1].size + count(first - 1) <= budget) used += shown[--first].size;
+  let x = count(first);
+  const pieces = shown.slice(first).map(({ mention, text, size }) => {
+    const piece = { mention, text, x };
+    x += size;
+    return piece;
+  });
+  return { pieces, more: first, width: x };
+}
+/** `t` scaled down to at most `cols` by `rows` cells; null when too little would show. */
+function shrink(t: Thumbnail, cols: number, rows: number): Thumbnail | null {
+  const scale = Math.min(1, (cols * t.cell.width) / t.width, (rows * t.cell.height) / t.height);
+  if (scale >= 1) return t;
+  const c = Math.max(1, Math.floor((t.width * scale) / t.cell.width)),
+    r = Math.floor((t.height * scale) / t.cell.height);
+  return r < 2 ? null : { width: c * t.cell.width, height: r * t.cell.height, cell: t.cell, of: t };
 }
 /** `segs` cut to `room` columns, ending in "…" when cut. */
 function clip(segs: Seg[], room: number): Seg[] {
@@ -625,10 +713,15 @@ export class Prompt {
   private targets: Target[] = [];
   /** The memory, browsed in the card in place of the thread and the input. */
   private memory_view: MemoryView | null = null;
-  /** Where each chip was last drawn, for the pointer. */
-  private chip_spots: { x: number; y: number; w: number; chip: Chip }[] = [];
+  /** Where each chip was last drawn, in the input or a message, for the pointer. */
+  private chip_spots: { x: number; y: number; w: number; mention: Mention }[] = [];
   /** The pasted image the pointer rests on. */
-  private hovered: Chip | null = null;
+  private hovered: Mention | null = null;
+  /** What the last drag selected, shown until the next press or key. */
+  private selection: Selection | null = null;
+  /** The thread's rows as last drawn, and the first one shown. */
+  private lines: Row[] = [];
+  private shown_from = 0;
   private readonly clock: () => number;
   /** The corgi executable the model drives Corgi with. */
   private readonly binary: string;
@@ -778,6 +871,7 @@ export class Prompt {
   }
   key(byte: number): Effect | null {
     if (!this.open) return null;
+    this.selection = null;
     if (this.picker) return this.picked(this.picker.key(byte));
     if (this.memory_view) return this.remembered(this.memory_view.key(byte));
     const armed = this.burn_until > 0;
@@ -835,6 +929,7 @@ export class Prompt {
   }
   sequence(text: string): Effect | null {
     if (!this.open) return null;
+    this.selection = null;
     if (this.picker) return this.picked(this.picker.sequence(text));
     if (this.memory_view) return this.remembered(this.memory_view.sequence(text));
     this.burn_until = 0;
@@ -856,6 +951,7 @@ export class Prompt {
   }
   paste(text: string): void {
     if (!this.open) return;
+    this.selection = null;
     if (this.memory_view) return this.memory_view.paste(text);
     if (this.picker) {
       this.picker.sequence(text.replace(/\s+/g, " "));
@@ -884,6 +980,7 @@ export class Prompt {
   }
   click(x: number, y: number): Effect | null {
     if (!this.open) return null;
+    this.selection = null;
     if (this.picker) return this.picked(this.picker.click(x, y));
     const l = this.drawn;
     if (!l) return null;
@@ -909,17 +1006,61 @@ export class Prompt {
       this.memory_view.click(x, y);
       return null;
     }
-    if (y >= l.input_y && y < l.input_y + l.input_rows && x >= l.left + text_x)
+    // A press in the thread or the input may go on to drag a selection.
+    const at = this.spot(x, y);
+    if (at) this.selection = { on: "thread", from: at, to: at, room: l.thread!.w, held: true };
+    else if (y >= l.input_y && y < l.input_y + l.input_rows && x >= l.left + text_x) {
       this.area.place(this.input_first + y - l.input_y, x - l.left - text_x);
+      this.selection = { on: "input", held: true };
+    }
     return null;
+  }
+  /** The pointer moved with its button down: a selection follows it. True when that changed. */
+  drag(x: number, y: number): boolean {
+    const sel = this.selection,
+      l = this.drawn;
+    if (!this.open || !sel?.held || !l) return false;
+    if (sel.on === "input") {
+      const before = this.area.selection()?.join();
+      this.area.place(this.input_first + y - l.input_y, x - l.left - text_x, true);
+      return this.area.selection()?.join() !== before;
+    }
+    const at = this.spot(x, y, true);
+    if (!at || (at.row === sel.to.row && at.col === sel.to.col)) return false;
+    sel.to = at;
+    return true;
+  }
+  /** The button came up: what a drag selected is copied. */
+  release(): Effect | null {
+    const sel = this.selection;
+    if (!sel?.held) return null;
+    sel.held = false;
+    const text = sel.on === "input" ? this.area.selectedText() : this.selectedText();
+    // A press that didn't drag selects nothing; the input keeps its own selection.
+    if (!text || sel.on === "input") this.selection = null;
+    return text ? { kind: "copy", text } : null;
+  }
+  /** The thread row and column at (`x`, `y`), or null outside the thread;
+   * `clamped` takes a point past its edges to the nearest row's end. */
+  private spot(x: number, y: number, clamped = false): Spot | null {
+    const l = this.drawn,
+      t = l?.thread;
+    if (!l || !t || this.memory_view) return null;
+    const last = Math.min(this.lines.length, this.shown_from + t.h) - 1;
+    if (last < this.shown_from) return null;
+    if (!clamped && !t.contains(x, y)) return null;
+    if (y < t.y) return { row: this.shown_from, col: 0 };
+    const row = this.shown_from + y - t.y;
+    if (row > last) return { row: last, col: t.w - 1 };
+    return { row, col: clamp(x - t.x, 0, t.w - 1) };
   }
   /** The pointer moved: the menu row under it takes the highlight. True when that changed. */
   hover(x: number, y: number): boolean {
-    // A pasted image under the pointer shows a preview of itself.
+    // A pasted image under the pointer, in the input or a message, shows a preview of itself.
     const spot = this.open && !this.picker ? this.chip_spots.find(c => y === c.y && x >= c.x && x < c.x + c.w) : null,
-      chip = spot?.chip.mention.kind === "image" ? spot.chip : null;
-    let changed = chip !== this.hovered;
-    this.hovered = chip;
+      image = spot?.mention.kind === "image" ? spot.mention : null;
+    let changed = image !== this.hovered;
+    this.hovered = image;
     const row = this.open && !this.picker ? this.menuRow(x, y) : null;
     if (row !== null && row !== this.menu_at) {
       this.menu_at = row;
@@ -929,8 +1070,10 @@ export class Prompt {
   }
   /** The pasted image the pointer rests on, whose picture the card shows. */
   previewed(): string | null {
-    const m = this.hovered?.mention;
-    return this.open && !this.picker && m?.kind === "image" && this.chips.includes(this.hovered!) ? m.path : null;
+    const m = this.hovered;
+    return this.open && !this.picker && m?.kind === "image" && this.chip_spots.some(c => c.mention === m)
+      ? m.path
+      : null;
   }
   scroll(down: boolean): void {
     if (!this.open) return;
@@ -995,13 +1138,13 @@ export class Prompt {
       w.write(at(l.left - 1, l.box.y) + " " + s.bold + "Memory" + s.border + " ");
       this.memory_view.draw(w, new Rect(l.left, l.box.y + 1, l.right - l.left, l.footer_y - l.box.y - 2));
     } else {
-      if (l.thread) this.drawThread(w, l, lines);
+      if (l.thread) this.drawThread(w, l, lines, under);
       this.drawInput(w, l, now, under);
     }
     this.drawFooter(w, l, under);
     if (panel && this.picker) this.picker.draw(w, panel, marks, now);
     else if (panel) this.drawMenu(w, panel, marks);
-    else if (this.hovered) this.drawPreview(w, l, cols, rows, preview ?? { pictures: false, thumbnail: null });
+    else if (this.hovered) this.drawPreview(w, cols, rows, preview ?? { pictures: false, thumbnail: null });
     w.write("\x1b[0m");
     this.drawn = l;
   }
@@ -1210,15 +1353,14 @@ export class Prompt {
               (chip.error
                 ? `(Corgi couldn't read it: ${chip.error})`
                 : "(Corgi was still reading it when this was sent)"),
-          })),
-        names = chips.map(chip => mentionName(chip.mention, this.context));
+          }));
       const viewer = this.deps.viewer?.() ?? null,
         wire =
           (viewer ? promptTools.where(viewer, this.context?.workspace ?? "") + "\n" : "") + message(text, attached);
       this.conversation.send(
         text,
         () => this.start(choice),
-        wire === text && !images.length ? undefined : { message: wire, with: names },
+        wire === text && !images.length ? undefined : { message: wire, chips: chips.map(chip => chip.mention) },
         images,
       );
     };
@@ -1640,18 +1782,28 @@ export class Prompt {
       last = kind;
       switch (item.kind) {
         case "user": {
-          const head = out.length;
-          for (const line of item.text.split("\n"))
-            for (const segs of wrap([{ text: line, style: s.user }], room - 2, 0, s.user))
-              out.push({
-                segs: [{ text: out.at(-1)?.fill ? "  " : "› ", style: s.user_mark }, ...segs],
-                fill: s.user,
-              });
-          if (item.with?.length || item.steer) {
-            // Whether it steered a running turn, and what it was sent with,
-            // end its first line, or take one of their own.
-            const said = [item.steer ? "steered" : "", item.with?.length ? "with " + item.with.join(", ") : ""],
-              along = [{ text: said.filter(Boolean).join(" · "), style: s.user_with }];
+          // Its chips lead it as they led the input, and its text wraps as it did there.
+          const head = out.length,
+            chips = item.chips?.length ? lay(item.chips, room - text_x, this.context) : null,
+            area = new TextArea(item.text);
+          area.width = Math.max(1, room - text_x);
+          area.lead = chips ? Math.min(chips.width, area.width - 1) : 0;
+          const lines = area.lines();
+          lines.forEach((line, i) => {
+            const join = i ? item.text.slice(lines[i - 1].end, line.start) : "\n";
+            out.push({
+              segs: [
+                { text: i ? "  " : "› ", style: s.user_mark },
+                { text: " ".repeat(area.leadOf(i)) + item.text.slice(line.start, line.end), style: s.user },
+              ],
+              fill: s.user,
+              ...(i === 0 && chips ? { chips } : {}),
+              ...(join !== "\n" ? { cont: { join, skip: text_x } } : {}),
+            });
+          });
+          if (item.steer) {
+            // Whether it steered a running turn ends its first line, or takes one of its own.
+            const along = [{ text: "steered", style: s.user_with }];
             if (width(out[head].segs) + 2 + width(along) <= room) out[head].right = along;
             else out.push({ segs: clip([{ text: "  ", style: s.user }, ...along], room), fill: s.user });
           }
@@ -1717,7 +1869,7 @@ export class Prompt {
                 { text: item.text, style: s.muted },
               ]
             : [{ text: item.text, style: tone }];
-          for (const line of wrap(segs, room, item.bone ? 4 : 0)) out.push({ segs: line });
+          out.push(...wrapped(segs, room, item.bone ? 4 : 0));
           break;
         }
       }
@@ -1736,13 +1888,13 @@ export class Prompt {
         continue;
       }
       if (fenced) {
-        for (const segs of wrap([{ text: raw, style: s.muted }], room)) out.push({ segs });
+        out.push(...wrapped([{ text: raw, style: s.muted }], room));
         continue;
       }
       const heading = /^#{1,6}\s+(.*)$/.exec(raw);
       const bullet = /^(\s*(?:[-*]|\d+[.)])\s+)/.exec(raw)?.[1] ?? "";
       const segs = heading ? [{ text: heading[1], style: s.bold }] : inline(raw, s.text);
-      for (const line of wrap(segs, room, displayWidth(bullet))) out.push({ segs: line });
+      out.push(...wrapped(segs, room, displayWidth(bullet)));
     }
     return out;
   }
@@ -1761,13 +1913,18 @@ export class Prompt {
       }
     }
   }
-  private drawThread(w: Writer, l: Layout, lines: Row[]): void {
+  private drawThread(w: Writer, l: Layout, lines: Row[], marks: Marks | null): void {
     const t = l.thread!;
     if (this.back > 0 && lines.length > this.total) this.back += lines.length - this.total;
     this.total = lines.length;
     this.back = clamp(this.back, 0, Math.max(0, lines.length - t.h));
     const end = lines.length - this.back,
       shown = lines.slice(Math.max(0, end - t.h), end);
+    // Rows laid out at another width, or a thread begun anew, hold other text.
+    if (this.selection?.on === "thread" && (this.selection.room !== t.w || lines.length < this.lines.length))
+      this.selection = null;
+    this.lines = lines;
+    this.shown_from = Math.max(0, end - t.h);
     shown.forEach((row, i) => {
       const y = t.y + i;
       if (row.fill) {
@@ -1775,6 +1932,7 @@ export class Prompt {
         w.splat(" ", l.box.w - 2);
       }
       writeSegs(w, l.left, y, row.segs);
+      if (row.chips) this.drawChips(w, l.left + text_x, y, row.chips, marks);
       if (row.right?.length) {
         const x = l.right - width(row.right);
         writeSegs(w, x, y, row.right);
@@ -1785,38 +1943,56 @@ export class Prompt {
           this.targets.push({ x: l.right - deny, y, w: deny, act: { kind: "deny", id: row.ask } });
         }
       }
+      const chosen = this.chosen(this.shown_from + i);
+      if (chosen) w.write(at(l.left + chosen.start, y) + palette.selection + chosen.text);
     });
     if (end - t.h > 0) w.write(at(l.right + 1, t.y) + s.faint + "↑");
     if (this.back > 0) w.write(at(l.right + 1, t.y + t.h - 1) + s.faint + "↓");
   }
-  /** The chips as they sit at the start of the input row, in at most half
-   * of `room`: names cut short, the newest kept, and the older ones that
-   * don't fit counted first. */
-  private inline(room: number): Inline {
-    const budget = Math.floor(room / 2),
-      shown = this.chips.map(chip => {
-        const mark = chip.mention.kind === "agent" && chip.mention.provider ? 3 : 0,
-          text = ellipsis(mentionName(chip.mention, this.context), chip_name_w);
-        return { chip, text, size: 2 + mark + displayWidth(text) + 1 };
-      }),
-      count = (n: number) => (n ? 2 + String(n).length : 0);
-    let first = shown.length,
-      used = 0;
-    while (first > 0 && used + shown[first - 1].size + count(first - 1) <= budget) used += shown[--first].size;
-    let x = count(first);
-    const pieces = shown.slice(first).map(({ chip, text, size }) => {
-      const piece = { chip, text, x };
-      x += size;
-      return piece;
-    });
-    return { pieces, more: first, width: x };
+  /** The selected part of thread row `index`: where it starts, and its text
+   * as shown, without the blank past the row's end; null when none is. */
+  private chosen(index: number): { start: number; text: string } | null {
+    const sel = this.selection;
+    if (sel?.on !== "thread" || index >= this.lines.length) return null;
+    const [a, b] = ordered(sel.from, sel.to);
+    // A press that hasn't left its cell selects nothing.
+    if (index < a.row || index > b.row || (a.row === b.row && a.col === b.col)) return null;
+    const cs = cells(this.lines[index], sel.room);
+    let start = index === a.row ? a.col : 0;
+    const end = Math.min(index === b.row ? b.col + 1 : cs.length, textEnd(cs));
+    // A wide character is selected whole.
+    while (start > 0 && cs[start] === "") start--;
+    return start < end ? { start, text: cs.slice(start, end).join("") } : null;
   }
-  /** The chips at the input row's start: how many more, then each, an
-   * agent's with its brand mark and the others quiet. */
+  /** The selected thread text: rows wrapped from one line join as they were. */
+  private selectedText(): string {
+    const sel = this.selection;
+    if (sel?.on !== "thread") return "";
+    const [a, b] = ordered(sel.from, sel.to);
+    let out = "";
+    for (let index = a.row; index <= b.row && index < this.lines.length; index++) {
+      const row = this.lines[index],
+        cont = index > a.row ? row.cont : undefined;
+      const piece = this.chosen(index)?.text ?? "";
+      // A wrapped row's indent isn't part of the line it goes on with.
+      out += (index > a.row ? (cont ? cont.join : "\n") : "") + (cont ? piece.slice(cont.skip) : piece);
+    }
+    return out;
+  }
+  /** The chips as they sit at the start of the input row, in at most half of `room`. */
+  private inline(room: number): Inline {
+    return lay(
+      this.chips.map(chip => chip.mention),
+      Math.floor(room / 2),
+      this.context,
+    );
+  }
+  /** Chips leading a row, in the input or a sent message: how many more,
+   * then each, an agent's with its brand mark and the others quiet. */
   private drawChips(w: Writer, x: number, y: number, chips: Inline, marks: Marks | null): void {
     if (chips.more) w.write(at(x, y) + s.faint + `+${chips.more}`);
     for (const piece of chips.pieces) {
-      const m = piece.chip.mention,
+      const m = piece.mention,
         provider = m.kind === "agent" ? m.provider : null,
         at_x = x + piece.x;
       w.write(at(at_x, y) + s.chip + " ");
@@ -1825,24 +2001,31 @@ export class Prompt {
         w.write(at(at_x + 3, y) + s.chip + " ");
       }
       w.write((m.kind === "agent" ? s.chip : s.chip_quiet) + piece.text + " ");
-      this.chip_spots.push({ x: at_x, y, w: (provider ? 5 : 2) + displayWidth(piece.text), chip: piece.chip });
+      this.chip_spots.push({ x: at_x, y, w: (provider ? 5 : 2) + displayWidth(piece.text), mention: m });
     }
   }
-  /** The pasted image under the pointer, framed above the card, or below it
-   * when there's no room: its picture where the host shows them, and its name. */
-  private drawPreview(w: Writer, l: Layout, cols: number, rows: number, preview: Preview): void {
-    const chip = this.hovered,
-      spot = this.chip_spots.find(c => c.chip === chip),
-      m = chip?.mention;
+  /** The pasted image under the pointer, framed just over its chip, or under
+   * it when there's no room: its picture where the host shows them, shrunk
+   * to the roomier side when it fits neither, and its name. */
+  private drawPreview(w: Writer, cols: number, rows: number, preview: Preview): void {
+    const m = this.hovered,
+      spot = this.chip_spots.find(c => c.mention === m);
     if (!spot || m?.kind !== "image") return;
-    const t = preview.thumbnail,
-      cells = t ? thumbnailCells(t) : { cols: 0, rows: 0 },
-      caption = preview.pictures ? (t ? m.name : `${m.name} · loading…`) : `${m.name} · ${m.path}`,
-      inner = Math.min(cols - 4, Math.max(cells.cols, displayWidth(caption))),
+    const above = spot.y,
+      below = rows - spot.y - 1,
+      full = preview.thumbnail,
+      fits = (t: Thumbnail, room: number) => thumbnailCells(t).rows + 3 <= room && thumbnailCells(t).cols <= cols - 4,
+      t =
+        full && (fits(full, above) || fits(full, below))
+          ? full
+          : full && shrink(full, cols - 4, Math.max(above, below) - 3),
+      pic = t ? thumbnailCells(t) : { cols: 0, rows: 0 },
+      caption = preview.pictures ? (full ? m.name : `${m.name} · loading…`) : `${m.name} · ${m.path}`,
+      inner = Math.min(cols - 4, Math.max(pic.cols, displayWidth(caption))),
       bw = inner + 4,
-      bh = cells.rows + 3,
+      bh = pic.rows + 3,
       x = clamp(spot.x - 1, 0, Math.max(0, cols - bw)),
-      y = l.box.y >= bh ? l.box.y - bh : l.box.y + l.box.h + bh <= rows ? l.box.y + l.box.h : 0;
+      y = bh <= above ? spot.y - bh : bh <= below ? spot.y + 1 : above >= below ? 0 : Math.max(0, rows - bh);
     for (let row = 0; row < bh; row++) {
       w.write(at(x, y + row) + s.border);
       if (row === 0) w.write("╭" + "─".repeat(bw - 2) + "╮");

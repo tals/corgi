@@ -109,10 +109,11 @@ test("the first message starts a corgi session; later ones are sent to it", asyn
 test("images go with the first message's start, and with the ones after it", async () => {
   const d = new Fake(),
     c = conversation(d),
-    image = { path: "/tmp/a.png", mime: "image/png" };
-  c.send("what's this?", () => start(), { message: "what's this?", with: ["Image 1"] }, [image]);
+    image = { path: "/tmp/a.png", mime: "image/png" },
+    chip = { kind: "image" as const, ...image, name: "Image 1" };
+  c.send("what's this?", () => start(), { message: "what's this?", chips: [chip] }, [image]);
   expect(d.starts[0]).toMatchObject({ prompt: "what's this?", images: [image] });
-  expect(c.items.at(-1)).toEqual({ kind: "user", text: "what's this?", with: ["Image 1"] });
+  expect(c.items.at(-1)).toEqual({ kind: "user", text: "what's this?", chips: [chip] });
   await settle();
   c.send("and this?", () => start(), undefined, [image]);
   expect(d.sent()).toEqual([{ kind: "prompt", text: "and this?", images: [image] }]);

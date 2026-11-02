@@ -7,15 +7,16 @@ import { adapter, type Provider } from "./providers";
 import type { Image, Input } from "./providers/adapter";
 import type { Effort } from "./providers/effort";
 import type { Outcome } from "./observation";
+import type { Mention } from "./prompt";
 import type { Written } from "./prompt_memory";
 import * as errors from "./errors";
 import { field, str } from "./json";
 import { codepointWidth } from "./text";
 
 export type Item =
-  /** What the user typed, and the names of what went with it; `steer` when
-   * it went to a turn already running. */
-  | { kind: "user"; text: string; with?: string[]; steer?: boolean }
+  /** What the user typed, and the chips that went with it; `steer` when it
+   * went to a turn already running. */
+  | { kind: "user"; text: string; chips?: Mention[]; steer?: boolean }
   | { kind: "text"; text: string; partial: boolean }
   | { kind: "tool"; id: string; name: string; summary: string; done: boolean }
   | { kind: "ask"; id: string; name: string; summary: string; answer: "allow" | "deny" | null }
@@ -350,14 +351,14 @@ export class Conversation {
   }
   /** Sends `text`, starting a session with `start()` when none runs. With
    * attachments the model gets `attached.message` and the thread shows the
-   * text and what went with it; `images` go along to the model as images. */
-  send(text: string, start: () => Start, attached?: { message: string; with: string[] }, images: Image[] = []): void {
+   * text after their chips; `images` go along to the model as images. */
+  send(text: string, start: () => Start, attached?: { message: string; chips: Mention[] }, images: Image[] = []): void {
     text = clean(text, true);
     const message = attached ? clean(attached.message, true) : text;
     this.push({
       kind: "user",
       text,
-      ...(attached?.with.length ? { with: attached.with.map(name => clean(name)) } : {}),
+      ...(attached?.chips.length ? { chips: attached.chips } : {}),
       ...(this.starting || this.running ? { steer: true } : {}),
     });
     this.dirty = true;

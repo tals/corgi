@@ -4434,6 +4434,8 @@ export class Controller {
     switch (effect?.kind) {
       case "pick":
         return this.savePromptModel(effect.choice);
+      case "copy":
+        return this.copyText(effect.text);
       case "pane":
         try {
           await this.create(null, effect.cwd || this.currentCwd(), shellWords(effect.argv), "");
@@ -6218,17 +6220,18 @@ export class Controller {
       this.dirty = true;
       return;
     }
-    // The prompt takes the pointer; a press outside its card closes it.
+    // The prompt takes the pointer; a press outside its card closes it, and a drag selects.
     if (this.prompt.open) {
       this.pointer = { x, y };
       if ((button & 32) !== 0) {
-        if (this.prompt.hover(x, y)) this.dirty = true;
+        if ((button & 3) === 0 ? this.prompt.drag(x, y) : this.prompt.hover(x, y)) this.dirty = true;
         return;
       }
       if (!release && (button & 0xe3) === 0) {
         this.prefix = false;
         await this.promptEffect(this.prompt.click(x, y));
-      } else if (!release && (button & 0xe0) === 64) this.prompt.scroll((button & 1) !== 0);
+      } else if (release && (button & 0xe3) === 0) await this.promptEffect(this.prompt.release());
+      else if (!release && (button & 0xe0) === 64) this.prompt.scroll((button & 1) !== 0);
       this.dirty = true;
       return;
     }
