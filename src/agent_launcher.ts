@@ -29,6 +29,7 @@ import * as launcherWorktree from "./launcher_worktree";
 import * as worktreeFolder from "./worktree_folder";
 import * as dropdown from "./dropdown";
 import * as worktrees from "./worktrees";
+import * as worktreeAgents from "./worktree_agents";
 import type { View as SidebarView, Spotlight } from "./sidebar";
 import { Writer, displayWidth, ellipsis, writeEllipsis, sat } from "./text";
 import { Row, customs, type Launch } from "./launch/row";
@@ -550,7 +551,10 @@ export class Menu {
       now(),
       this.accounts,
       this.preview.names,
-      cwd => {
+      (cwd, pane) => {
+        // An open conversation is where the agent list puts its pane, which
+        // may be a worktree it moved to after starting in `cwd`.
+        if (pane !== null) cwd = worktreeAgents.folder(this.worktrees, { pane }, cwd);
         const at = launcherWorktree.containing(this.worktrees, cwd);
         return {
           label: launcherWorktree.place(this.worktrees, cwd, null).label,

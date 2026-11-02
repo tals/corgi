@@ -80,8 +80,12 @@ export class Context {
     public accounts: readonly Account[] = [],
     /** What each provider's default account is called, if anything. */
     public names: Readonly<Record<string, string>> = {},
-    /** What Where says for a folder: its checkout's branch, else its name. */
-    public location: (cwd: string) => Location = cwd => ({ label: basename(cwd) || cwd, branch: null }),
+    /** What Where says for a folder, or for the pane that runs the
+     * conversation: its checkout's branch, else its name. */
+    public location: (cwd: string, pane: number | null) => Location = cwd => ({
+      label: basename(cwd) || cwd,
+      branch: null,
+    }),
   ) {}
   /** The name of the account `e` ran in, while there are accounts to tell
    * apart; "" for a default without a name. */
@@ -629,7 +633,7 @@ export class View {
       w.write(`\x1b[${row};${col + room + 1}H` + color);
       writeEllipsis(w, text, width);
     };
-    const where = cols.folder > 0 ? c.location(e.cwd) : null;
+    const where = cols.folder > 0 ? c.location(e.cwd, c.opened(e)?.pane ?? null) : null;
     if (cols.title > 16) {
       const account = e.account ? c.accountName(e) : "";
       if (account.length > 0)
