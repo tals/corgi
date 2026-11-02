@@ -45,6 +45,7 @@ interface Cell {
   token: Token;
   target?: Target;
   width: number;
+  labels?: Cell[];
 }
 interface Hit {
   rect: Rect;
@@ -741,8 +742,19 @@ export class State {
       maxWidth = colWidth - x,
       lane?: number,
     ) => {
-      cells.push({ column: col, lane, x: x + (col ? colWidth + 5 : 0), y, text, token, target, width: maxWidth });
+      const cell: Cell = {
+        column: col,
+        lane,
+        x: x + (col ? colWidth + 5 : 0),
+        y,
+        text,
+        token,
+        target,
+        width: maxWidth,
+      };
+      cells.push(cell);
       if (target?.name === "binding") shownIds.add(target.id);
+      return cell;
     };
     const bindingWidth = Math.min(
       colWidth - 3,
@@ -771,19 +783,38 @@ export class State {
       let y = ys[col];
       const firstText = tabular(first.s);
       const labelTarget: Target | undefined = entries.length === 1 ? { name: "label", id: first.e.id } : undefined;
+      const labels: Cell[] = [];
       if (displayWidth(label) + 2 > keyStart) {
-        for (const line of wrapped(label, colWidth - 2)) add(col, 1, y++, line, "text", labelTarget);
-      } else add(col, 1, y, label, label.startsWith("●") ? "warm" : "text", labelTarget);
+        for (const line of wrapped(label, colWidth - 2)) labels.push(add(col, 1, y++, line, "text", labelTarget));
+      } else labels.push(add(col, 1, y, label, label.startsWith("●") ? "warm" : "text", labelTarget));
       const primary = wrapped(firstText, bindingWidth);
-      primary.forEach((line, i) =>
-        add(col, keyStart, y + i, line, "text", { name: "binding", id: first.e.id, index: first.index }, bindingWidth),
+      primary.forEach(
+        (line, i) =>
+          (add(
+            col,
+            keyStart,
+            y + i,
+            line,
+            "text",
+            { name: "binding", id: first.e.id, index: first.index },
+            bindingWidth,
+          ).labels = labels),
       );
       let altY = y + (inline ? 0 : primary.length);
       shown.slice(1).forEach(({ e, s, index }) => {
         add(col, separator, altY, "/", "faint");
         const lines = wrapped(tabular(s), bindingWidth);
-        lines.forEach((line, i) =>
-          add(col, separator + 2, altY + i, line, "text", { name: "binding", id: e.id, index }, bindingWidth),
+        lines.forEach(
+          (line, i) =>
+            (add(
+              col,
+              separator + 2,
+              altY + i,
+              line,
+              "text",
+              { name: "binding", id: e.id, index },
+              bindingWidth,
+            ).labels = labels),
         );
         altY += lines.length;
       });
@@ -840,7 +871,7 @@ export class State {
     ["focus", "swap"].forEach((name, i) => {
       const x = sideBySide ? i * (compassWidth + 3) : 0;
       const top = start + (sideBySide ? 0 : i * (compassHeight + 1));
-      add(col, x, top, i ? i18n.t`Swap` : i18n.t`Focus`, "strong");
+      const labels = [add(col, x, top, i ? i18n.t`Swap` : i18n.t`Focus`, "strong")];
       for (const [dir, dx, dy] of [
         ["up", 1, 1],
         ["left", 0, 2 + count],
@@ -859,7 +890,7 @@ export class State {
             { name: "binding", id: e.id, index },
             slot,
             sideBySide ? i : undefined,
-          );
+          ).labels = labels;
         });
       }
     });
@@ -874,10 +905,12 @@ export class State {
         entry = this.entry("split:" + side);
       const diagram = side === "right" ? ["┌──┬──┐", "│  │  │", "└──┴──┘"] : ["┌─────┐", "├─────┤", "└─────┘"];
       diagram.forEach((text, j) => add(col, x + 1, splitY + j, text, "faint"));
-      add(col, x + 1, splitY + 3, side === "right" ? i18n.t`Right` : i18n.t`Down`, "text", {
-        name: "label",
-        id: entry.id,
-      });
+      const labels = [
+        add(col, x + 1, splitY + 3, side === "right" ? i18n.t`Right` : i18n.t`Down`, "text", {
+          name: "label",
+          id: entry.id,
+        }),
+      ];
       const splitCaps = (entry.shortcuts.length ? entry.shortcuts : [null])
         .slice(0, this.show_alts ? undefined : 1)
         .flatMap((s, index) =>
@@ -887,17 +920,18 @@ export class State {
           })),
         );
       splitRows = Math.max(splitRows, splitCaps.length);
-      splitCaps.forEach(({ text, index }, line) =>
-        add(
-          col,
-          x + 1,
-          splitY + 4 + line,
-          text,
-          "text",
-          { name: "binding", id: entry.id, index },
-          Math.floor(colWidth / 2) - 2,
-          i,
-        ),
+      splitCaps.forEach(
+        ({ text, index }, line) =>
+          (add(
+            col,
+            x + 1,
+            splitY + 4 + line,
+            text,
+            "text",
+            { name: "binding", id: entry.id, index },
+            Math.floor(colWidth / 2) - 2,
+            i,
+          ).labels = labels),
       );
     }
     ys[col] = splitY + 5 + splitRows;
@@ -1307,15 +1341,16 @@ export class State {
     if (resized && selected && !this.edit) this.reveal(selected);
     for (const c of this.cells)
       if (c.y >= this.scroll && c.y < this.scroll + this.page_rows) {
+        const highlighted = c === selected || !!selected?.labels?.includes(c);
         this.draw(
           w,
           b.x + 3 + c.x,
           this.contentTop + c.y - this.scroll,
           c.text,
-          c === selected ? "accent" : c.token,
+          highlighted ? "accent" : c.token,
           c.width,
           c.target,
-          c === selected,
+          highlighted,
         );
       }
     if (this.max_scroll > 0) {
