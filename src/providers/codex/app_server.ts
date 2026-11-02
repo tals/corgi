@@ -82,9 +82,8 @@ export class AppServer {
     try {
       return await rpc.request(method, params, stopping, Date.now() + this.timeout_ms);
     } catch (error) {
-      // A cancel or an error reply leaves the server working for the requests beside it.
-      const keep = errors.is(error, "Cancelled") || errors.is(error, "HarnessRejected");
-      if (!keep && this.opening === opening) this.close();
+      // Only its own server: one opened since may serve other requests.
+      if (!errors.is(error, "Cancelled") && this.opening === opening) this.close();
       throw error;
     }
   }

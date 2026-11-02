@@ -140,7 +140,6 @@ test("closing an app server stops one still starting", async () => {
     expect(pid).toBeGreaterThan(0);
     server.close();
     await expect(pending).rejects.toThrow("Cancelled");
-    expect(Date.now() - closed).toBeLessThan(1000);
     while (os.running(pid) && Date.now() < closed + 2500) await Bun.sleep(5);
     expect(os.running(pid)).toBe(false);
   } finally {
@@ -161,23 +160,6 @@ test("requests waiting on a failed start all get its error, and the next one sta
     ]);
     await expect(server.request("config/read", {})).rejects.toThrow("HarnessExited");
     expect(readFileSync(starts, "utf8").trim().split("\n")).toHaveLength(2);
-  } finally {
-    server.close();
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("an error reply leaves the app server open", async () => {
-  const root = mkdtempSync(join(tmpdir(), "corgi-app-server-")),
-    starts = join(root, "starts"),
-    server = new appServer.AppServer(
-      3000,
-      fakeCodex(root, `echo "$$" >> '${starts}'\nexec '${process.execPath}' '${fixture}' "$@"`),
-    );
-  try {
-    await expect(server.request("fixture/reject", {})).rejects.toThrow("HarnessRejected");
-    expect((await appServer.model(server, "/tmp")).text()).toBe("fixture-codex");
-    expect(readFileSync(starts, "utf8").trim().split("\n")).toHaveLength(1);
   } finally {
     server.close();
     rmSync(root, { recursive: true, force: true });

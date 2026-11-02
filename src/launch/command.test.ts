@@ -36,6 +36,7 @@ test("stopping command previews cancels and reaps an active shell lookup", async
     while (!existsSync(pidFile) && Date.now() < deadline) await Bun.sleep(5);
     expect(existsSync(pidFile)).toBe(true);
     const pid = Number(readFileSync(pidFile, "utf8"));
+    expect(pid).toBeGreaterThan(0);
     await worker.stop();
     expect(result.pending).toBe(false);
     expect(result.error_message).toBe("Cancelled");
