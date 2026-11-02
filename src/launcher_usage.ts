@@ -12,6 +12,10 @@ const percent_width = 4;
 const separator = " │ ";
 /** Between a figure and its reset. */
 const gap = "   ";
+/** A bar's most cells. */
+const full_bar = 6;
+/** The widest countdown: "23h 59m". */
+const countdown_width = 7;
 
 export interface LimitWindow {
   minutes: number | null;
@@ -226,7 +230,16 @@ export class Grid {
     return Math.max(this.status, this.groupsWidth(0));
   }
   preferredWidth(): number {
-    return Math.max(this.status, this.groupsWidth(6));
+    return Math.max(this.status, this.groupsWidth(full_bar));
+  }
+  /** Groups with full bars and every reset as wide as a countdown gets, so
+   * a column sized by it holds still while they tick. */
+  steadyWidth(): number {
+    const steady = new Grid(),
+      widest = (slot: Slot | null) => slot && { ...slot, reset: Math.max(slot.reset, countdown_width) };
+    steady.slots = [widest(this.slots[0]), widest(this.slots[1])];
+    steady.amount = this.amount;
+    return steady.groupsWidth(full_bar);
   }
   groupsWidth(bar: number): number {
     const [first, second] = this.slots;
@@ -237,7 +250,7 @@ export class Grid {
   /** The same in every row: up to six cells, then none once a group would
    * get fewer than two. */
   barWidth(width: number): number {
-    for (let bar = 6; bar >= 2; bar--) if (this.groupsWidth(bar) <= width) return bar;
+    for (let bar = full_bar; bar >= 2; bar--) if (this.groupsWidth(bar) <= width) return bar;
     return 0;
   }
   /** A copy sized for `cell` as well. */

@@ -6,7 +6,7 @@ import * as agentName from "./agent_name";
 import * as palette from "./palette";
 import { Entry as CommandEntry } from "./launch/command";
 import { Rect } from "./layout";
-import { Cell } from "./launcher_usage";
+import { Cell, type LimitWindow } from "./launcher_usage";
 import { Terminal } from "./pane/terminal";
 import { Writer } from "./text";
 
@@ -50,12 +50,12 @@ function model(): agentManager.Model {
   };
 }
 /** What `v` draws in a box like the launcher's card, as text. */
-function screen(v: agentManager.View, m: agentManager.Model, now?: number) {
-  const b = new Rect(0, 0, 82, v.height(m)),
+function screen(v: agentManager.View, m: agentManager.Model, now?: number, width = 82) {
+  const b = new Rect(0, 0, width, v.height(m)),
     w = new Writer();
   v.draw(w, b, m, now);
   w.write(v.glideImage(b, m));
-  const host = new Terminal(90, 30);
+  const host = new Terminal(width + 8, 30);
   host.feed(w.s);
   const lines = host.text().split("\n");
   host.destroy();
@@ -86,6 +86,48 @@ test("Active, Hidden and Add agent share a model column and preserve the opening
   expect(lines[16]).toContain("Add agent");
   expect(lines[b.h - 3]).toContain("Clone");
   expect(lines[b.h - 2].replaceAll("│", "").trim()).toBe("");
+});
+
+const now = 1_000_000;
+/** Every agent with a weekly and a 5h limit, as Claude reports them. */
+function limited(week: Partial<LimitWindow> = {}, hours: Partial<LimitWindow> = {}) {
+  const m = model(),
+    usage = Cell.init(
+      [
+        { minutes: 10080, used: 18, reset_at: now + 13 * 3600 + 43 * 60, ...week },
+        { minutes: 300, used: 2, reset_at: now + 4 * 3600 + 3 * 60, ...hours },
+      ],
+      now,
+    );
+  m.agents = m.agents.map(a => ({ ...a, usage }));
+  return m;
+}
+const wide = (m: agentManager.Model, width = 148) => screen(new agentManager.View(), m, undefined, width).lines;
+
+test.each([140, 148])("usage gets full bars before accounts get more room (%i)", width => {
+  const lines = wide(limited(), width);
+  expect(lines[4]).toMatch(/Account +Usage · resets in +Model/);
+  expect(lines.find(line => line.includes("me@acme.com"))).toMatch(
+    /me@acme\.com +7d [━─]{6}  18%   13h 43m │ 5h [━─]{6}   2%   4h 3m/,
+  );
+});
+
+test("usage holds its column while resets tick, and moves for wider labels", () => {
+  const column = (m: agentManager.Model) => wide(m)[4].indexOf("Usage"),
+    at = column(limited());
+  expect(column(limited({ reset_at: now + 2 * 86400 + 15 * 3600 }, { reset_at: now + 59 * 60 }))).toBe(at);
+  const unknown = limited({ minutes: null, reset_at: null });
+  expect(column(unknown)).toBeLessThan(at);
+  expect(wide(unknown).find(line => line.includes("me@acme.com"))).toMatch(
+    /Window [━─]{6}  18%   unknown │ 5h [━─]{6}   2%   4h 3m/,
+  );
+});
+
+test("usage without limits leaves accounts their room", () => {
+  const m = model(),
+    who = "firstname.lastname@company.com";
+  m.agents = m.agents.map(a => ({ ...a, who }));
+  expect(wide(m, 140).filter(line => line.includes(who))).toHaveLength(m.agents.length);
 });
 
 test("typing searches names, accounts and commands, and the selection stays while it's listed", () => {

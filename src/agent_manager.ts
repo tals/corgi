@@ -1105,11 +1105,17 @@ export class View {
     const mark = b.x + 5,
       name = mark + 2,
       model = Math.max(name + 16, b.x + b.w - 28),
-      who = b.w >= 76 ? b.x + 29 : model,
-      usage = b.w >= 140 ? b.x + Math.max(58, Math.floor(b.w * 0.48)) : null;
+      who = b.w >= 76 ? b.x + 29 : model;
     // The selected account's model key sits just before its dropdown, in
     // room every row leaves, so nothing moves with the selection.
-    return { mark, name, who, usage, key: model - 4, model };
+    return { mark, name, who, key: model - 4, model };
+  }
+  /** Where usage starts on a wide card: left of its usual place as far as
+   * its groups' full bars need, leaving accounts at least 24 cells. */
+  private static usageColumn(b: Rect, grid: launcherUsage.Grid): number | null {
+    if (b.w < 140) return null;
+    const { who, key } = View.columns(b);
+    return Math.max(who + 26, Math.min(b.x + Math.floor(b.w * 0.48), key - 2 - grid.steadyWidth()));
   }
   private static workspace = (model: Model) => model.workspace || i18n.t`workspace`;
   private backLabel(b: Rect): string {
@@ -1461,9 +1467,10 @@ export class View {
     w.write(at(columns.model + 2, b.y + 4) + i18n.t`Model`);
     const grid = new launcherUsage.Grid();
     for (const a of model.agents) grid.add(a.usage);
-    if (columns.usage !== null) {
-      w.write(at(columns.usage, b.y + 4));
-      writeEllipsis(w, i18n.t`Usage · resets in`, columns.key - columns.usage - 2);
+    const usage = View.usageColumn(b, grid);
+    if (usage !== null) {
+      w.write(at(usage, b.y + 4));
+      writeEllipsis(w, i18n.t`Usage · resets in`, columns.key - usage - 2);
     }
     const caret = { x: b.x + 7 + this.queryColumn(search_w), y: b.y + 2 },
       first = this.listOffset(b, model),
@@ -1540,13 +1547,13 @@ export class View {
         case "found": {
           const a = item.agent;
           writeEllipsis(w, title(a), columns.who - columns.name - 2);
-          View.writeFound(w, b, y, a.who, model.folder(a.provider, a.account), a.shown, on, a.signed_out);
+          View.writeFound(w, b, usage, y, a.who, model.folder(a.provider, a.account), a.shown, on, a.signed_out);
           break;
         }
         case "removed": {
           const r = item.removed;
           writeEllipsis(w, r.name, columns.who - columns.name - 2);
-          View.writeFound(w, b, y, "", model.folder(r.provider, r.account), false, on);
+          View.writeFound(w, b, usage, y, "", model.folder(r.provider, r.account), false, on);
           break;
         }
         case "command": {
@@ -1561,11 +1568,11 @@ export class View {
           writeEllipsis(w, title(a), Math.min(columns.who, columns.key) - columns.name - 2);
           if (columns.who < columns.model) {
             w.write(at(columns.who, y) + palette.fg(a.signed_out ? "warm" : on ? "muted" : "faint"));
-            writeEllipsis(w, cleanControls(a.who), (columns.usage ?? columns.key) - columns.who - 2);
+            writeEllipsis(w, cleanControls(a.who), (usage ?? columns.key) - columns.who - 2);
           }
-          if (columns.usage !== null) {
-            w.write(at(columns.usage, y) + style);
-            a.usage.write(w, grid, columns.key - columns.usage - 2, style, on);
+          if (usage !== null) {
+            w.write(at(usage, y) + style);
+            a.usage.write(w, grid, columns.key - usage - 2, style, on);
           }
           if (on) w.write(at(columns.key, y) + keycap + " m " + style);
           const value = model.options(a).model;
@@ -1622,6 +1629,7 @@ export class View {
   private static writeFound(
     w: Writer,
     b: Rect,
+    usage: number | null,
     y: number,
     who: string,
     folder: string,
@@ -1633,14 +1641,14 @@ export class View {
       columns = View.columns(b),
       dim = palette.fg(on ? "muted" : "faint");
     if (columns.who < columns.model) {
-      const room = (columns.usage ?? columns.key) - columns.who - 2;
+      const room = (usage ?? columns.key) - columns.who - 2;
       w.write(at(columns.who) + (who && warm ? palette.fg("warm") : dim));
       if (who) writeEllipsis(w, cleanControls(who), room);
       else w.write(shortPath(cleanControls(folder), room));
     }
-    if (columns.usage !== null && who) {
-      w.write(at(columns.usage) + dim);
-      w.write(shortPath(cleanControls(folder), columns.key - columns.usage - 2));
+    if (usage !== null && who) {
+      w.write(at(usage) + dim);
+      w.write(shortPath(cleanControls(folder), columns.key - usage - 2));
     }
     w.write(at(columns.model) + dim);
     writeEllipsis(w, listed ? i18n.t`In the list` : i18n.t`Removed`, b.x + b.w - columns.model - 3);
