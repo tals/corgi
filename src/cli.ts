@@ -35,6 +35,7 @@ const groups = new Set([
   "history",
   "resume",
   "memory",
+  "settings",
   "--skill",
 ]);
 const nested = new Set(["tab", "pane", "workspace", "launcher", "memory"]);
@@ -962,6 +963,11 @@ export async function run(path: string, args: string[], agent = false): Promise<
   if (group === "--skill") {
     if (args.length !== 1) throw Error("Usage");
     process.stdout.write(skill);
+    return;
+  }
+  if (group === "settings") {
+    const settings = await import("./settings_command");
+    process.stdout.write(await settings.run(() => new Connection(path, { requestIds: false }), args.slice(1)));
     return;
   }
   // Memory is files on this machine: no runtime needed. Run for a prompt

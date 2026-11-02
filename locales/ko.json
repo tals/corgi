@@ -1,4 +1,5 @@
 {
+  "    e.g. language ja; --model picks Clever Corgi's model": "    예: language ja. --model로 Clever Corgi 모델 선택",
   "    prompt through the agent's own channel, or type it and press Enter": "    에이전트 자체 채널로 프롬프트를 보내고, 없으면 입력한 뒤 Enter를 누릅니다",
   "    search conversation text; --session PROVIDER:ID narrows, -o extracts matches": "    대화 본문 검색; --session PROVIDER:ID로 범위를 좁히고 -o로 일치 부분 추출",
   "    to today's log, MEMORY.md or a workspace's note; an exact repeat isn't added": "    오늘의 로그, MEMORY.md 또는 워크스페이스 메모에 추가. 완전히 같은 내용은 제외",
@@ -44,6 +45,7 @@
   "  corgi reload [ABSOLUTE_EXE]    replace daemon, preserve live processes": "  corgi reload [ABSOLUTE_EXE]    데몬 교체, 실행 중인 프로세스 유지",
   "  corgi resume PROVIDER SESSION [--viewer ID] [--workspace ID]  show it: focus\n    the pane already showing it, or resume it in a tab where its folder belongs": "  corgi resume PROVIDER SESSION [--viewer ID] [--workspace ID]  대화 표시:\n    이미 표시 중인 창으로 이동하거나 폴더가 속한 워크스페이스의 탭에서 재개",
   "  corgi rpc JSON                local JSON control protocol": "  corgi rpc JSON                로컬 JSON 제어 프로토콜",
+  "  corgi settings [--json]            Corgi setup's settings: values and choices": "  corgi settings [--json]            Corgi 설정의 값과 선택지 표시",
   "  corgi shutdown                terminate runtime and its panes": "  corgi shutdown                서비스와 패널 종료",
   "  corgi start                   start detached runtime": "  corgi start                   백그라운드 서비스 시작",
   "  corgi update                  download and safely apply an update": "  corgi update                  업데이트 다운로드 후 안전하게 적용",

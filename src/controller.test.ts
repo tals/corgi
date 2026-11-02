@@ -5,6 +5,7 @@ import { Controller, agentMessage, cardEffect, forkName, breadcrumbs } from "./c
 import * as sim from "./providers/sim";
 import { Provider, byProvider } from "./providers";
 import * as preferences from "./preferences";
+import * as keybindingFile from "./keybinding_file";
 import { TabMenu, type Row } from "./commands";
 import { Dialog } from "./name_dialog";
 import * as newWorkspace from "./new_workspace";
@@ -4005,6 +4006,51 @@ test.each([
     await s.input(bytes(backspace));
     expect(s.prompt.attached()).toEqual([]);
     expect(s.prompt.open).toBe(true);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a viewer takes the settings another viewer or `corgi settings` saved to viewer.json", () => {
+  const s = controller();
+  let changed: ((saved: preferences.Preferences | null) => void) | null = null;
+  const observe = spyOn(keybindingFile, "observe").mockImplementation((_, f) => {
+      changed = f;
+      return () => {};
+    }),
+    load = spyOn(preferences, "load").mockReturnValue(
+      Object.assign(new preferences.Preferences(), { onboarding_complete: true }),
+    );
+  try {
+    s.loadPreferences();
+    s.dirty = false;
+    const saved = {
+      theme: "animal_style",
+      corgi_intensity: 0,
+      resources: { enabled: false },
+      worktree_folder: "$HOME/wt/$NAME",
+    };
+    changed!(Object.assign(new preferences.Preferences(), { onboarding_complete: true, ...saved }));
+    expect(s.prefs).toMatchObject(saved);
+    expect(s.dirty).toBe(true);
+  } finally {
+    observe.mockRestore();
+    load.mockRestore();
+    viewer.close(s);
+  }
+});
+
+test("open setup shows runtime settings another client changed", () => {
+  const s = controller();
+  s.corgi_setup = SetupMenu.open();
+  try {
+    s.receiveSnapshot({
+      ...folders("/a"),
+      smart_links: false,
+      shell: { setting: "fish", path: "/opt/fish", source: "setting", default: "/bin/zsh" },
+    });
+    expect(s.corgi_setup.smart_links).toBe(false);
+    expect(s.corgi_setup.shell).toMatchObject({ setting: "fish", path: "/opt/fish" });
   } finally {
     viewer.close(s);
   }

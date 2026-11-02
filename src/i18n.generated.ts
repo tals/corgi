@@ -5,6 +5,8 @@ export type Value = string | number | bigint;
 export type Message = (...values: Value[]) => string;
 export const messages: Record<TranslatedLocale, Record<string, Message>> = {
   "zh": {
+    '["    e.g. language ja; --model picks Clever Corgi\'s model"]': () =>
+      `    例如 language ja；--model 选择 Clever Corgi 的模型`,
     '["    prompt through the agent\'s own channel, or type it and press Enter"]': () =>
       `    通过智能体自己的通道发送提示；没有通道时输入文本并按 Enter`,
     '["    search conversation text; --session PROVIDER:ID narrows, -o extracts matches"]': () =>
@@ -95,6 +97,8 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     已显示它的窗格，或在其文件夹所属的工作区中打开标签页恢复对话`,
     '["  corgi rpc JSON                local JSON control protocol"]': () =>
       `  corgi rpc JSON                本地 JSON 控制协议`,
+    '["  corgi settings [--json]            Corgi setup\'s settings: values and choices"]': () =>
+      `  corgi settings [--json]            Corgi 设置的各项值与可选项`,
     '["  corgi shutdown                terminate runtime and its panes"]': () =>
       `  corgi shutdown                终止运行服务及其窗格`,
     '["  corgi start                   start detached runtime"]': () =>
@@ -1362,6 +1366,8 @@ ${v1} 使用该账号。
     '["🐕 badge; animations stay still."]': () => `🐕 图标；动画保持静止。`,
   },
   "ja": {
+    '["    e.g. language ja; --model picks Clever Corgi\'s model"]': () =>
+      `    例：language ja。--model で Clever Corgi のモデルを選択`,
     '["    prompt through the agent\'s own channel, or type it and press Enter"]': () =>
       `    エージェント自身のチャネルでプロンプトを送る。なければ入力して Enter を押す`,
     '["    search conversation text; --session PROVIDER:ID narrows, -o extracts matches"]': () =>
@@ -1452,6 +1458,8 @@ ${v1} 使用该账号。
     表示中のペインに移動するか、フォルダに対応するワークスペースのタブで再開`,
     '["  corgi rpc JSON                local JSON control protocol"]': () =>
       `  corgi rpc JSON                ローカルJSON操作プロトコル`,
+    '["  corgi settings [--json]            Corgi setup\'s settings: values and choices"]': () =>
+      `  corgi settings [--json]            Corgi セットアップの設定値と選択肢を表示`,
     '["  corgi shutdown                terminate runtime and its panes"]': () =>
       `  corgi shutdown                ランタイムとそのペインを終了`,
     '["  corgi start                   start detached runtime"]': () =>
@@ -2758,6 +2766,8 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '["🐕 badge; animations stay still."]': () => `🐕 バッジを表示。アニメーションは停止します。`,
   },
   "ko": {
+    '["    e.g. language ja; --model picks Clever Corgi\'s model"]': () =>
+      `    예: language ja. --model로 Clever Corgi 모델 선택`,
     '["    prompt through the agent\'s own channel, or type it and press Enter"]': () =>
       `    에이전트 자체 채널로 프롬프트를 보내고, 없으면 입력한 뒤 Enter를 누릅니다`,
     '["    search conversation text; --session PROVIDER:ID narrows, -o extracts matches"]': () =>
@@ -2848,6 +2858,8 @@ Corgiに登録された全アカウントが対象になります。--accountで
     이미 표시 중인 창으로 이동하거나 폴더가 속한 워크스페이스의 탭에서 재개`,
     '["  corgi rpc JSON                local JSON control protocol"]': () =>
       `  corgi rpc JSON                로컬 JSON 제어 프로토콜`,
+    '["  corgi settings [--json]            Corgi setup\'s settings: values and choices"]': () =>
+      `  corgi settings [--json]            Corgi 설정의 값과 선택지 표시`,
     '["  corgi shutdown                terminate runtime and its panes"]': () =>
       `  corgi shutdown                서비스와 패널 종료`,
     '["  corgi start                   start detached runtime"]': () =>
@@ -4149,6 +4161,8 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '["🐕 badge; animations stay still."]': () => `🐕 배지; 애니메이션은 멈춰 있습니다.`,
   },
   "ru": {
+    '["    e.g. language ja; --model picks Clever Corgi\'s model"]': () =>
+      `    например, language ja; --model выбирает модель Clever Corgi`,
     '["    prompt through the agent\'s own channel, or type it and press Enter"]': () =>
       `    отправить запрос через канал самого агента, а без него ввести текст и нажать Enter`,
     '["    search conversation text; --session PROVIDER:ID narrows, -o extracts matches"]': () =>
@@ -4240,6 +4254,8 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     перейти к его панели или возобновить во вкладке рабочего пространства его папки`,
     '["  corgi rpc JSON                local JSON control protocol"]': () =>
       `  corgi rpc JSON                локальный протокол управления JSON`,
+    '["  corgi settings [--json]            Corgi setup\'s settings: values and choices"]': () =>
+      `  corgi settings [--json]            настройки Corgi: значения и варианты`,
     '["  corgi shutdown                terminate runtime and its panes"]': () =>
       `  corgi shutdown                остановить сервер и его панели`,
     '["  corgi start                   start detached runtime"]': () =>
