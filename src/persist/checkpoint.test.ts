@@ -19,7 +19,8 @@ import * as links from "../trackers/link_labels";
 import * as worktrees from "../worktrees";
 import { parseInventory } from "../trackers/worktrees";
 import { snapshot } from "../session";
-import { Tokens } from "../usage/live";
+import { Tokens, View } from "../usage/live";
+import * as common from "../providers/common";
 import * as checklist from "../activity/checklist";
 const fixtures = resolve(import.meta.dir, "../fixtures");
 const fresh = () => {
@@ -330,6 +331,39 @@ test("a conversation's headless count and tracking start survive handoffs, not c
     expect(usage.tokens).toEqual(new Tokens({ input: 150n, cached_input: 60n, output: 15n }));
     expect(usage.partial).toBe(false);
     expect(usage.recent_tokens).toBe(165n);
+  }
+});
+test("a conversation's activity timeline and usage survive handoffs, not cold restores", async () => {
+  for (const live of [true, false]) {
+    using original = fresh();
+    const actor = original.conversations.get("claude", "timeline");
+    show(original, actor);
+    const usage = (input: bigint) => new View({ known: true, tokens: new Tokens({ input, output: input / 10n }) });
+    actor.live_usage = usage(100n);
+    actor.activity_timeline.checkpoint("turn", new common.Text("Reading files"), actor.live_usage, 1000);
+    actor.live_usage = usage(300n);
+    actor.activity_timeline.checkpoint("turn", new common.Text("Writing tests"), actor.live_usage, 2000);
+    actor.live_usage = usage(450n);
+    const state = roundtrip(cp.capture(original, live));
+    validateCheckpoint(state);
+    expect("activity_timeline" in state.conversations[0]).toBe(live);
+    expect("live_usage" in state.conversations[0]).toBe(live);
+    using next = new Runtime();
+    await restore(next, state, live);
+    const restored = next.conversations.byId(actor.id)!;
+    if (!live) {
+      expect(restored.activity_timeline.len).toBe(0);
+      continue;
+    }
+    expect(restored.activity_timeline).toEqual(actor.activity_timeline);
+    expect(restored.live_usage).toEqual(actor.live_usage);
+    // The open phase goes on counting from what the last daemon saw.
+    expect(restored.activity_timeline.pending(restored.usageView(0)).tokens.input).toBe(150n);
+    state.conversations[0].activity_timeline.points = Array(17).fill(
+      state.conversations[0].activity_timeline.points[0],
+    );
+    using crowded = new Runtime();
+    await expect(restore(crowded, state, live)).rejects.toThrow("InvalidCheckpoint");
   }
 });
 test("a workspace's hidden launcher rows survive checkpoints and default for old ones", async () => {

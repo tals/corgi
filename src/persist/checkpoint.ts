@@ -11,9 +11,11 @@ import { Terminal } from "../pane/terminal";
 import { Tracker } from "../detection";
 import { Cache } from "../trackers/link_labels";
 import { Conversation } from "../activity/summary";
+import { Timeline, max_points } from "../activity/timeline";
 import { decodeChecklist } from "../protocol";
 import { Entry } from "../launch/command";
-import { Meter, Tokens } from "../usage/live";
+import { Meter, Tokens, View } from "../usage/live";
+import * as common from "../providers/common";
 import * as binary from "../base64";
 import * as json from "../json";
 import * as worktrees from "../worktrees";
@@ -166,6 +168,19 @@ export function restoreBinding(registry: Registry, value: any, live: boolean, ho
   }
   return binding;
 }
+/** The activity timeline a live checkpoint kept, measured against the conversation's usage. */
+function timeline(saved: any) {
+  const t = new Timeline();
+  t.points = (saved.points ?? []).map((point: any) => ({
+    at: hydrate(0, point.at),
+    label: hydrate(new common.Text(), point.label),
+    usage: hydrate(new View(), point.usage),
+  }));
+  t.baseline = hydrate(t.baseline, saved.baseline);
+  t.turn = hydrate(t.turn, saved.turn);
+  t.open = hydrate(t.open, saved.open);
+  return t;
+}
 export function capture(r: Runtime, live: boolean) {
   const state = {
     version,
@@ -254,6 +269,9 @@ export function capture(r: Runtime, live: boolean) {
         live && actor.headless_usage
           ? { meter: actor.headless_meter.meter, previous: actor.headless_meter.previous }
           : null,
+      // Cold saves leave both out: recovered agents count their usage over.
+      activity_timeline: live ? actor.activity_timeline : undefined,
+      live_usage: live ? actor.live_usage : undefined,
     })),
     sessions: r.sessions.map(s => s.capture(live)),
     breadcrumbs: breadcrumbs.capture(),
@@ -397,6 +415,9 @@ export async function restore(
       (saved.status_inference?.phases_len ?? 0) > (saved.status_inference?.phases?.length ?? 4)
     )
       invalid(`conversation ${saved.id}'s status inference is out of range`);
+    const phases = saved.activity_timeline?.points ?? [];
+    if (!Array.isArray(phases) || phases.length > max_points)
+      invalid(`conversation ${saved.id}'s activity timeline has more than ${max_points} phases`);
     const actor = r.conversations.get(agent.provider!, agent.sessionId());
     actor.id = saved.id;
     actor.state = live ? agent : historicalAgent(agent);
@@ -415,6 +436,8 @@ export async function restore(
       if (saved.headless_meter.previous)
         actor.headless_meter.previous = hydrate(new Tokens(), saved.headless_meter.previous);
     }
+    if (live && saved.activity_timeline) actor.activity_timeline = timeline(saved.activity_timeline);
+    if (live && saved.live_usage) actor.live_usage = hydrate(new View(), saved.live_usage);
     if (live) actor.restoreCompaction(saved.screen_compacting ?? null, Date.now() * 1000);
   }
   r.conversations.next_id = state.next_conversation ?? 1;

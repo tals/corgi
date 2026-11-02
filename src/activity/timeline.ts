@@ -2,6 +2,8 @@ import { Text } from "../providers/common";
 import { View } from "../usage/live";
 import { add, sub } from "../usage/tokens";
 export type Point = { at: number; label: Text; usage: View };
+/** The phases a timeline keeps, newest last. */
+export const max_points = 16;
 export class Timeline {
   points: Point[] = [];
   get len() {
@@ -45,7 +47,7 @@ export class Timeline {
       at = last ? Math.max(now, last.at) : now;
     if (last) last.usage = interval;
     if (!(this.open && last && turn === this.turn.text() && label.text() === last.label.text())) {
-      if (this.len === 16) this.points.shift();
+      if (this.len === max_points) this.points.shift();
       this.points.push({
         at,
         label,

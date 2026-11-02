@@ -14,6 +14,7 @@ import { Worker as UsageWorker } from "../usage/worker";
 import * as build_id from "../build_id";
 import * as setup from "../inference/setup";
 import * as breadcrumbs from "../breadcrumbs";
+import * as observers from "../observer_service";
 
 export const terminal_abi = 0xa826bd22ebcdbe60n;
 export const update_abi = `1-${terminal_abi.toString(16)}`;
@@ -168,7 +169,7 @@ export async function replace(
     }
     await Bun.sleep(5);
   }
-  await server.summaries?.pause();
+  await observers.pause(server);
   server.pause();
   breadcrumbs.record("reloading");
   const fds = new Int32Array(2);
@@ -252,7 +253,7 @@ export async function replace(
     loop?.close();
     for (const fd of [stateFD, controlFD, childFD]) if (fd >= 0) n.probe_close(fd);
     server.resume();
-    server.summaries?.unpause();
+    observers.unpause(server);
   }
 }
 export async function importAndRun(

@@ -139,12 +139,13 @@ class SummaryCases extends Summaries {
     await this.rpc({ op: "server.reload", executable: EXE });
     await this.until(
       async () =>
-        (await this.state()).compacting && JSON.stringify(await points()) === JSON.stringify(["Compacting context"]),
+        (await this.state()).compacting &&
+        JSON.stringify(await points()) === JSON.stringify(["Tracing pane focus", "Compacting context"]),
     );
     await this.attachment.send("screen:working");
     await this.until(async () => !(await this.state()).compacting);
     this.assertEqual((await this.state()).state, "working");
-    this.assertEqual(await points(), ["Compacting context", "Tracing pane focus"]);
+    this.assertEqual(await points(), ["Tracing pane focus", "Compacting context", "Tracing pane focus"]);
   }
   async test_commentary_fires_without_tools_and_one_completion_refreshes() {
     await this.start_turn("active", false);

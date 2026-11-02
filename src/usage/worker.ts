@@ -5,12 +5,12 @@ import { constants } from "node:fs";
 import { Agent, Provider, Text } from "../agents";
 import { adapter } from "../providers";
 import type { TranscriptReader } from "../providers/adapter";
-import { str, timestampMs } from "../providers/common";
+import { str, timestampMs, Text as Note } from "../providers/common";
 import { Model } from "../providers/model";
 import { parse } from "../json";
 import { head } from "../transcript";
 import { Counts, Tracker, type Window } from "./tokens";
-import { Counter, Meter, View } from "./live";
+import { Counter, Meter, Tokens, View } from "./live";
 import { Reading } from "./context_window";
 import { Tracker as Tools, View as Progress } from "../activity/tools";
 import { Ended } from "../activity/background_tasks";
@@ -18,6 +18,7 @@ import * as checklist from "../activity/checklist";
 import * as accounts from "../accounts";
 import { max_actors } from "../conversations";
 import { hydrate } from "../persist/checkpoint";
+import { decodeChecklist } from "../protocol";
 export type Request = {
   actor: number;
   workspace: number;
@@ -64,15 +65,16 @@ export class Tail {
   context = new Reading();
   opened = false;
   catch_up = false;
-  name = new Text();
+  name = new Note();
   name_chosen = false;
-  continued = new Text();
-  update = new Text();
+  continued = new Note();
+  update = new Note();
   update_at = 0;
   spoke_at = 0;
   ended = new Ended();
   checklist: checklist.List | null = null;
-  /** Where the daemon before a handoff stopped counting, until the file opens. */
+  /** Where the daemon before a handoff stopped counting, until the file opens.
+   * XXX: Remove for next protocol bump. Only an older build's handoff carries one. */
   carried: Position | null = null;
   closeFile() {
     this.inode = 0;
@@ -84,12 +86,83 @@ export class Tail {
   close() {
     Object.assign(this, new Tail());
   }
-  /** How far usage was counted: lines ending past it are not counted yet. */
+  /** How far usage was counted: lines ending past it are not counted yet.
+   * XXX: Remove for next protocol bump. Older builds count on from it. */
   position(): Position | null {
     if (this.carried) return this.carried;
     // A catch-up stopped halfway counted only part of what precedes initial_until.
     if (!this.inode || (this.catch_up && this.offset < this.initial_until)) return null;
     return { inode: this.inode, device: this.device, offset: Math.max(this.offset, this.initial_until) };
+  }
+  /** What a handoff carries: what the tail has read and where it stopped, so the next
+   * daemon reads on from there. An unfinished line is read again. */
+  capture() {
+    return {
+      actor: this.actor,
+      meter: this.live.meter,
+      position: this.position(),
+      file: this.inode
+        ? { inode: this.inode, device: this.device, offset: this.offset - this.partial.length, discard: this.discard }
+        : null,
+      initial_until: this.initial_until,
+      catch_up: this.catch_up,
+      tracker: this.tracker,
+      progress: this.progress,
+      counter: {
+        previous: this.live.previous,
+        child: this.live.child,
+        owned_from: this.live.owned_from,
+        catch_up: this.live.catch_up,
+        ordinal: this.live.ordinal,
+        baseline_next: this.live.baseline_next,
+      },
+      model: this.model.id,
+      context: { ...this.context, model: this.context.model.id },
+      name: this.name,
+      name_chosen: this.name_chosen,
+      continued: this.continued,
+      update: this.update,
+      update_at: this.update_at,
+      spoke_at: this.spoke_at,
+      ended: this.ended.items,
+      checklist: this.checklist,
+    };
+  }
+  /** The tail a handoff carried. An older build's has only its count and position. */
+  static restore(saved: any) {
+    if (!Number.isInteger(saved.actor) || (saved.ended !== undefined && !Array.isArray(saved.ended)))
+      throw Error("InvalidCheckpoint");
+    const t = new Tail(),
+      counter = saved.counter ?? {};
+    t.actor = saved.actor;
+    t.opened = true;
+    t.live.meter = hydrate(new Meter(), saved.meter);
+    t.live.previous = counter.previous ? hydrate(new Tokens(), counter.previous) : null;
+    t.live.owned_from = counter.owned_from == null ? null : BigInt(counter.owned_from);
+    t.live.ordinal = counter.ordinal == null ? null : BigInt(counter.ordinal);
+    for (const key of ["child", "catch_up", "baseline_next"] as const) t.live[key] = hydrate(false, counter[key]);
+    if (saved.file) {
+      Object.assign(t, hydrate({ inode: 0, device: 0, offset: 0 }, saved.file));
+      t.discard = hydrate(false, saved.file.discard);
+    } else if (saved.position) t.carried = hydrate({ inode: 0, device: 0, offset: 0 }, saved.position);
+    t.initial_until = hydrate(0, saved.initial_until);
+    t.catch_up = hydrate(false, saved.catch_up);
+    t.tracker = Tracker.restore(saved.tracker);
+    t.progress = Tools.restore(saved.progress);
+    if (saved.model) t.model = Model.resolve(hydrate(new Note(), saved.model).text());
+    if (saved.context) {
+      const { model, ...reading } = saved.context;
+      t.context = hydrate(new Reading(), reading);
+      if (model) t.context.model = Model.resolve(hydrate(new Note(), model).text());
+    }
+    for (const key of ["name", "continued", "update"] as const) t[key] = hydrate(new Note(), saved[key]);
+    t.name_chosen = hydrate(false, saved.name_chosen);
+    t.update_at = hydrate(0, saved.update_at);
+    t.spoke_at = hydrate(0, saved.spoke_at);
+    if ((saved.ended?.length ?? 0) > Ended.limit) throw Error("InvalidCheckpoint");
+    for (const id of saved.ended ?? []) t.ended.add(hydrate(new Note(), id).text());
+    t.checklist = saved.checklist ? decodeChecklist(saved.checklist) : null;
+    return t;
   }
   observeModel(message: any) {
     const id = str(message, "model");
@@ -209,6 +282,8 @@ export class Tail {
 }
 export class Worker {
   stopping = false;
+  pausing = false;
+  paused = false;
   requests: Request[] = [];
   cursor = 0;
   results: Result[] = [];
@@ -226,23 +301,36 @@ export class Worker {
   activate() {
     this.timer = setInterval(() => void this.run(), 250);
   }
-  /** What a handoff carries: each transcript's count and how far it got. */
-  capture() {
-    return [...this.watchers.values()]
-      .filter(t => t.opened)
-      .map(t => ({ actor: t.actor, meter: t.live.meter, position: t.position() }));
+  /** Stops reading between runs, so a handoff can apply what the worker found. */
+  async pause() {
+    this.pausing = true;
+    const deadline = Date.now() + 5000;
+    while (this.running) {
+      if (Date.now() >= deadline) {
+        this.pausing = false;
+        throw Error("ReloadUsageBusy");
+      }
+      await Bun.sleep(1);
+    }
+    this.paused = true;
   }
-  /** A worker that goes on counting where a handoff's left off, once activated. */
+  unpause() {
+    this.pausing = false;
+    this.paused = false;
+  }
+  /** What a handoff carries: each transcript's tail. The next daemon reads on from where the
+   * tails stopped, so whatever they found must be applied first. */
+  capture() {
+    if (!this.paused || this.running || this.results.length) throw Error("UsageBusy");
+    return [...this.watchers.values()].filter(t => t.opened).map(t => t.capture());
+  }
+  /** A worker that goes on reading where a handoff's left off, once activated. */
   static restore(saved: any) {
     if (!Array.isArray(saved) || saved.length > max_actors) throw Error("InvalidCheckpoint");
     const w = new Worker();
     for (const entry of saved) {
-      if (!Number.isInteger(entry.actor) || w.watchers.has(entry.actor)) throw Error("InvalidCheckpoint");
-      const t = new Tail();
-      t.actor = entry.actor;
-      t.opened = true;
-      t.live.meter = hydrate(new Meter(), entry.meter);
-      t.carried = entry.position ? hydrate({ inode: 0, device: 0, offset: 0 }, entry.position) : null;
+      const t = Tail.restore(entry);
+      if (w.watchers.has(t.actor)) throw Error("InvalidCheckpoint");
       w.watchers.set(t.actor, t);
     }
     return w;
@@ -293,7 +381,7 @@ export class Worker {
     return out;
   }
   async run() {
-    if (this.running || this.stopping) return;
+    if (this.running || this.stopping || this.pausing) return;
     this.running = true;
     try {
       for (const reader of this.readers.values()) await reader?.refresh?.();
