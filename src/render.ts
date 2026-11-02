@@ -815,6 +815,7 @@ export function sidebarView(u: Ui, width: number, height: number): SidebarView {
   side.workspace_scope = u.workspace_scope;
   side.resource_hover = u.resource_hover;
   side.corgi_intensity = u.corgi_setup?.previewIntensity(u.prefs) ?? u.prefs.corgi_intensity;
+  side.workspace_tint = u.corgi_setup?.previewSlider("workspace_tint", u.prefs) ?? u.prefs.workspace_tint;
   side.dragged = u.dragged_agent ? u.dragged_agent.destination : null;
   side.dragged_workspace = u.dragged_workspace ? u.dragged_workspace.destination : null;
   return side;

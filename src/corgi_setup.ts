@@ -192,12 +192,16 @@ function reportSettings(s: Status, prefs: Preferences): bugReport.Settings {
     clever_corgi: bugReport.cleverCorgi(s),
   };
 }
+/** A slider's setting, as the preference it saves. */
+export type SliderId = "corgi_intensity" | "workspace_tint";
+/** Visual flourishes' sliders, in the order of their options. */
+const flourish_sliders: SliderId[] = ["corgi_intensity", "workspace_tint"];
 /** What Enter or a click asks the controller to do. */
 export type Apply =
   | { kind: "summaries"; choice: Summarizer; model?: string; account?: string }
   | { kind: "inference_use"; use: Use; on: boolean }
   | { kind: "readings" | "smart_links" | "auto_retry" | "ghostty"; on: boolean }
-  | { kind: "corgi_intensity"; value: number }
+  | { kind: SliderId; value: number }
   | { kind: "theme"; theme: palette.Theme }
   | { kind: "language"; language: i18n.Locale | undefined }
   | { kind: "shell"; entry: shellPicker.Entry }
@@ -231,7 +235,7 @@ export type Hit =
   | { models: { x: number; y: number } }
   | { picker: importPicker.Hit }
   | { manager: Rect }
-  | { intensity: number }
+  | { slider: SliderId; value: number }
   | { url: string };
 
 interface Option {
@@ -261,6 +265,8 @@ interface Option {
   /** A text field, in a box, that takes typing while it has the cursor. */
   edit?: boolean;
   slider?: number;
+  /** The setting `slider` shows. */
+  slider_id?: SliderId;
   art?: number;
 }
 /** What the viewer found out about its terminal, for Terminal capabilities. */
@@ -297,7 +303,7 @@ type Line =
   | { tag: "blank" }
   /** A rule that sets a setting apart from the options above it. */
   | { tag: "rule" }
-  | { tag: "intensity" | "intensity_ends" }
+  | { tag: "intensity" | "intensity_ends"; slider: SliderId }
   | { tag: "corgi_preview"; row: number }
   | { tag: "art"; option: Option; index: number; row: number }
   /** A row of a setting's mini keymap: what a key does, and the key. */
@@ -609,7 +615,7 @@ export class Menu implements LinkSource {
     return result === "pick" ? cleverApply(s, p, this.agents?.preview) : null;
   }
   /** Pointer adjustments preview until release, then save once. */
-  private intensity_drag: number | null = null;
+  private slider_drag: { id: SliderId; value: number } | null = null;
   /** The selected row's exit point while the pointer aims for its options,
    * where and when it reached the row, and whether its last step moved right:
    * one step straight down after that may still be on the way. */
@@ -636,18 +642,24 @@ export class Menu implements LinkSource {
   }
   close(): void {
     this.clearAim();
-    this.intensity_drag = null;
+    this.slider_drag = null;
     this.import_picker.close();
   }
+  /** A slider's value as shown: the drag's while it lasts, else the saved one. */
+  previewSlider(id: SliderId, prefs: Preferences): number {
+    return this.slider_drag?.id === id ? this.slider_drag.value : prefs[id];
+  }
   previewIntensity(prefs: Preferences): number {
-    return this.intensity_drag ?? prefs.corgi_intensity;
+    return this.previewSlider("corgi_intensity", prefs);
   }
-  draggingIntensity(): boolean {
-    return this.intensity_drag !== null;
+  draggingSlider(): boolean {
+    return this.slider_drag !== null;
   }
-  intensityKey(key: keys.Key | null, prefs: Preferences): Apply | null {
-    if (this.item !== "flourishes" || this.focus !== "options") return null;
-    const current = this.previewIntensity(prefs);
+  /** Steps the slider under the cursor; null when the key or the cursor isn't for one. */
+  sliderKey(key: keys.Key | null, prefs: Preferences): Apply | null {
+    const id = this.item === "flourishes" && this.focus === "options" ? flourish_sliders[this.cursor] : undefined;
+    if (id === undefined) return null;
+    const current = this.previewSlider(id, prefs);
     let value: number;
     switch (key) {
       case "left":
@@ -665,19 +677,19 @@ export class Menu implements LinkSource {
       default:
         return null;
     }
-    this.intensity_drag = null;
-    return { kind: "corgi_intensity", value };
+    this.slider_drag = null;
+    return { kind: id, value };
   }
-  dragIntensity(cols: number, rows: number, x: number): void {
+  dragSlider(cols: number, rows: number, x: number): void {
     const l = this.rest(cols, rows);
-    if (l && this.intensity_drag !== null) this.intensity_drag = this.intensityAt(l, x);
+    if (l && this.slider_drag !== null) this.slider_drag.value = this.sliderAt(l, x);
   }
-  finishIntensity(): Apply | null {
-    const value = this.intensity_drag;
-    this.intensity_drag = null;
-    return value === null ? null : { kind: "corgi_intensity", value };
+  finishSlider(): Apply | null {
+    const drag = this.slider_drag;
+    this.slider_drag = null;
+    return drag === null ? null : { kind: drag.id, value: drag.value };
   }
-  private intensityAt(l: Layout, x: number): number {
+  private sliderAt(l: Layout, x: number): number {
     return clamp(Math.round(((x - l.options.x - 2) * 20) / Math.max(1, l.options.w - 4)) * 5, 0, 100);
   }
   /** The import picker while the list's cursor is on an import source,
@@ -862,8 +874,8 @@ export class Menu implements LinkSource {
   /** Returns focus to the list. False when it already has it. */
   back(): boolean {
     this.clearAim();
-    if (this.intensity_drag !== null) {
-      this.intensity_drag = null;
+    if (this.slider_drag !== null) {
+      this.slider_drag = null;
       return true;
     }
     if (this.editing) {
@@ -934,10 +946,10 @@ export class Menu implements LinkSource {
   click(hit: Hit, s: Status, prefs: Preferences): Apply | null {
     this.clearAim();
     if ("manager" in hit) return null;
-    if ("intensity" in hit) {
+    if ("slider" in hit) {
       this.focus = "options";
-      this.cursor = 0;
-      this.intensity_drag = hit.intensity;
+      this.cursor = flourish_sliders.indexOf(hit.slider);
+      this.slider_drag = { id: hit.slider, value: hit.value };
       return null;
     }
     // A click away from the field drops what it typed.
@@ -1101,7 +1113,7 @@ export class Menu implements LinkSource {
     // A click on the field's box is a click on the field.
     const box = lines[row]?.tag === "box" ? (lines[row] as { edge: string }).edge : null,
       line = box === "top" ? lines[row + 1] : box === "bottom" ? lines[row - 1] : lines[row];
-    if (line?.tag === "intensity") return { intensity: this.intensityAt(l, x) };
+    if (line?.tag === "intensity") return { slider: line.slider, value: this.sliderAt(l, x) };
     return line && (line.tag === "option" || line.tag === "art") ? { option: line.index } : null;
   }
   /** Draws the menu; the box it drew, which images stay out of. */
@@ -1273,14 +1285,17 @@ export class Menu implements LinkSource {
           w.write(at(x0, y) + border + "─".repeat(sat(right, x0)));
           return;
         case "intensity": {
-          const thumb = Math.round((this.previewIntensity(prefs) * Math.max(0, right - x0 - 1)) / 100);
+          const thumb = Math.round((this.previewSlider(line.slider, prefs) * Math.max(0, right - x0 - 1)) / 100),
+            here = this.focus === "options" && flourish_sliders[this.cursor] === line.slider;
           w.write(at(x0, y) + graph + "━".repeat(thumb));
-          w.write((this.focus === "options" ? bright : graph) + "●" + border + "─".repeat(sat(right - x0 - 1, thumb)));
+          w.write((here ? bright : graph) + "●" + border + "─".repeat(sat(right - x0 - 1, thumb)));
           return;
         }
-        case "intensity_ends":
-          w.write(at(x0, y) + panel + i18n.t`0 Off` + at(right - 10, y) + i18n.t`100 Bright`);
+        case "intensity_ends": {
+          const full = line.slider === "workspace_tint" ? i18n.t`100 Strong` : i18n.t`100 Bright`;
+          w.write(at(x0, y) + panel + i18n.t`0 Off` + at(right - displayWidth(full), y) + full);
           return;
+        }
         case "corgi_preview":
           return this.drawCorgiPreview(w, x0, y, Math.min(28, right - x0), line.row, prefs, now_ms);
         case "art":
@@ -1635,8 +1650,17 @@ export class Menu implements LinkSource {
       );
     }
     if (this.item === "report_bug") return out.slice(0, l.body);
-    if (this.item === "flourishes" && out.length > l.body)
-      return out.filter(line => line.tag !== "blank" && line.tag !== "lead").slice(0, l.body);
+    if (this.item === "flourishes" && out.length > l.body) {
+      // The preview gives way before the workspace tint's slider below it.
+      const kept = out.filter(line => line.tag !== "blank" && line.tag !== "lead"),
+        tint = kept.findIndex(line => line.tag === "option" && line.option.slider_id === "workspace_tint"),
+        tail = kept.slice(tint);
+      const fitted = kept
+        .slice(0, Math.max(0, l.body - tail.length))
+        .concat(tail)
+        .slice(0, l.body);
+      return fitted.filter((line, i) => line.tag !== "note" || fitted[i + 1]?.tag === "corgi_preview");
+    }
     // A short frame draws the answer-time chart as one row.
     if (out.length > l.body && out.some(line => line.tag === "chart"))
       out = this.wrapped(s, prefs, l, { ...fit, chart: false });
@@ -1771,12 +1795,26 @@ export class Menu implements LinkSource {
             apply: null,
             action: i18n.t`adjust`,
             slider: this.previewIntensity(prefs),
+            slider_id: "corgi_intensity",
           }),
-          { tag: "intensity" },
-          { tag: "intensity_ends" },
+          { tag: "intensity", slider: "corgi_intensity" },
+          { tag: "intensity_ends", slider: "corgi_intensity" },
           blank,
           { tag: "note", text: i18n.t`Preview` },
           ...Array.from({ length: 8 }, (_, row): Line => ({ tag: "corgi_preview", row })),
+          blank,
+          lead(i18n.t`Workspace section background.`),
+          option({
+            label: i18n.t`Workspace tint`,
+            detail: "",
+            mark: "none",
+            apply: null,
+            action: i18n.t`adjust`,
+            slider: this.previewSlider("workspace_tint", prefs),
+            slider_id: "workspace_tint",
+          }),
+          { tag: "intensity", slider: "workspace_tint" },
+          { tag: "intensity_ends", slider: "workspace_tint" },
         ];
       case "readings":
         return [
@@ -2189,7 +2227,7 @@ export class Menu implements LinkSource {
       return [
         ["←→", i18n.t`adjust`],
         ["home", i18n.t`off`],
-        ["end", i18n.t`bright`],
+        ["end", flourish_sliders[this.cursor] === "workspace_tint" ? i18n.t`strong` : i18n.t`bright`],
         ["esc", i18n.t`back`],
       ];
     if (this.model_picker)

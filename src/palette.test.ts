@@ -131,12 +131,26 @@ test("the workspace section tint leans toward text, short of the selected tint, 
         if (dark) lighter += 1;
         else darker += 1;
         let last = 0;
-        for (let value = 0; value <= 100; value += 5) {
+        for (let value = 0; value <= 100; value += 1) {
           const now = dist(bg, sectionTint(value) ?? bg);
           expect(now, `${where} at ${value}`).toBeGreaterThanOrEqual(last);
+          if (value > 0) expect(now, `${where} at ${value}`).toBeGreaterThan(0);
           last = now;
         }
       }
+    // Hand-edited values below a slider step stay monotonic on palettes
+    // whose smallest blend moves only some channels.
+    const dracula = { foreground: [248, 248, 242] as Rgb, background: [40, 42, 54] as Rgb, ansi: Array(16).fill(null) };
+    for (const theme of available_themes) {
+      use(theme, dracula);
+      const bg = [...colors.bg] as Rgb;
+      let last = 0;
+      for (let value = 1; value <= 100; value += 1) {
+        const now = dist(bg, sectionTint(value)!);
+        expect(now, `${theme} on dracula at ${value}`).toBeGreaterThanOrEqual(last);
+        last = now;
+      }
+    }
   } finally {
     use(undefined, null);
   }
