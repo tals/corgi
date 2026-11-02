@@ -15,7 +15,7 @@ import { Writer } from "./text";
 import * as releaseLabel from "./release_label";
 import type { Connection } from "./rpc";
 import { transport } from "./fixtures/transport";
-import { Style } from "./palette";
+import { Style, schemes } from "./palette";
 
 /** The screen's text after replaying the cursor moves in `ansi`. */
 function screen(ansi: string, cols: number, rows: number): string[] {
@@ -2106,8 +2106,17 @@ test("the palette editor accepts custom CSS colors and an explicit scheme", () =
   };
   menu.cursor = 1;
   menu.right(s, prefs);
-  expect(draw(menu, 120, 40, 0, s, prefs).join("\n")).toContain("Search palettes");
-  expect(menu.click({ choice: 2 }, s, prefs)).toMatchObject({ kind: "trick_palette_colors", ref: "example/accounts" });
+  const rows = draw(menu, 120, 40, 0, s, prefs),
+    tableau = rows.findIndex(row => row.includes("Tableau 10")),
+    set2 = rows.findIndex(row => row.includes("Set 2"));
+  expect(rows.join("\n")).toContain("Search palettes");
+  expect(set2 - tableau).toBe(2);
+  expect(menu.hit(120, 40, rows[tableau].indexOf("Tableau 10"), tableau + 1, s, prefs)).toBeNull();
+  expect(menu.click(choiceHit(menu, /Tableau 10/, s, prefs, 120, 40), s, prefs)).toEqual({
+    kind: "trick_palette_colors",
+    ref: "example/accounts",
+    colors: [...schemes.tableau10],
+  });
   menu.cursor = 2;
   menu.enter(s, prefs);
   for (const byte of Buffer.from("#f80")) menu.key(byte);

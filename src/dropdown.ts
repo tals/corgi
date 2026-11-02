@@ -109,7 +109,8 @@ export function width(choices: Choice[], heading?: Heading): number {
   return indent(choices) + widest + 4;
 }
 /** Draws `choices` in `b`, under `heading` when present. `note_column` aligns
- * notes past that many cells of text and a two-cell gap. */
+ * notes past that many cells of text and a two-cell gap. `gap` leaves blank
+ * rows between choices. */
 export function draw(
   w: Writer,
   b: Rect,
@@ -117,6 +118,7 @@ export function draw(
   heading?: Heading,
   note_column?: number,
   detail_column?: number,
+  gap = 0,
 ): void {
   const border = new Style({ fg: "line", bg: "surface" }).sgr();
   for (let y = 0; y < b.h; y++) {
@@ -138,14 +140,16 @@ export function draw(
       writeEllipsis(w, heading.detail, Math.max(0, b.x + b.w - 2 - x));
     }
   }
-  choices.forEach((choice, i) => row(w, b, i + (heading ? 2 : 1), choice, indent(choices), note_column, detail_column));
+  choices.forEach((choice, i) =>
+    row(w, b, i * (gap + 1) + (heading ? 2 : 1), choice, indent(choices), note_column, detail_column),
+  );
   w.write("\x1b[0m");
 }
 /** The choice under (x, y) inside `b`'s border, or null; a heading row is no choice. */
-export function hit(b: Rect, count: number, x: number, y: number, heading = false): number | null {
+export function hit(b: Rect, count: number, x: number, y: number, heading = false, gap = 0): number | null {
   if (x <= b.x || x + 1 >= b.x + b.w || y <= b.y || y + 1 >= b.y + b.h) return null;
-  const index = y - b.y - (heading ? 2 : 1);
-  return index >= 0 && index < count ? index : null;
+  const index = (y - b.y - (heading ? 2 : 1)) / (gap + 1);
+  return Number.isInteger(index) && index >= 0 && index < count ? index : null;
 }
 export function row(
   w: Writer,

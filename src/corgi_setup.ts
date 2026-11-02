@@ -265,7 +265,7 @@ interface Option {
   glyph?: string;
   /** A dropdown in a group: the choice in use at the right edge, green while
    * `on`, and Enter opens `choices`. */
-  choice?: { text: string; on: boolean; choices: Choice[]; placeholder?: string };
+  choice?: { text: string; on: boolean; choices: Choice[]; placeholder?: string; gap?: number };
   /** A text field, in a box, that takes typing while it has the cursor. */
   edit?: boolean;
   slider?: number;
@@ -1152,7 +1152,7 @@ export class Menu {
         const search_width = modelColumns(choices, open.w).detail - 2;
         return x < open.x + 4 + search_width ? { model_search: x - open.x - 4 } : null;
       }
-      const index = dropdown.hit(open, this.dropdown?.visible.length ?? 0, x, y, true),
+      const index = dropdown.hit(open, this.dropdown?.visible.length ?? 0, x, y, true, this.dropdownGap(s, prefs)),
         at = index === null ? -1 : (this.dropdown?.visible[index] ?? -1);
       return at < 0 || (!choices[at]?.apply && !choices[at]?.more) ? null : { choice: at };
     }
@@ -1240,6 +1240,7 @@ export class Menu {
         { text: "", note: "", detail: this.item === "tricks" ? "" : i18n.t`Billing` },
         this.item === "tricks" ? undefined : columns.note,
         this.item === "tricks" ? undefined : columns.detail,
+        this.dropdownGap(s, prefs),
       );
       const x = open.x + 4,
         y = open.y + 1,
@@ -1359,6 +1360,10 @@ export class Menu {
       x0 = x + 2,
       right = x + width - 1,
       lines = this.lines(s, prefs, l),
+      color_w = Math.max(
+        0,
+        ...this.options(s, prefs).map(o => (o.color && o.choice ? displayWidth(o.choice.text) : 0)),
+      ),
       // Rows with their value at the right edge keep out of the label column.
       label_w = Math.max(
         0,
@@ -1483,7 +1488,7 @@ export class Menu {
           return;
         }
         case "option":
-          return this.drawOption(w, line, x, width, y, label_w, prefs, now_ms);
+          return this.drawOption(w, line, x, width, y, label_w, color_w, prefs, now_ms);
         case "picker":
           return this.import_picker.draw(w, pickerArea(l, i), this.focus === "options");
       }
@@ -1620,6 +1625,7 @@ export class Menu {
     width: number,
     y: number,
     label_w: number,
+    color_w: number,
     prefs: Preferences,
     now_ms: number,
   ) {
@@ -1663,7 +1669,7 @@ export class Menu {
         indent: o.indent,
       });
     if (o.choice !== undefined)
-      return settingRow.drawChoice(w, x, y, width, o.label, o.choice.text, o.choice.on, here, o.color);
+      return settingRow.drawChoice(w, x, y, width, o.label, o.choice.text, o.choice.on, here, o.color, color_w);
     if (o.edit) return this.drawField(w, x0, y, right, prefs);
     const p = settingRow.fill(w, x, y, width, here);
     if (o.mark !== "none")
@@ -1704,6 +1710,9 @@ export class Menu {
     }
     w.write("\x1b[22m");
   }
+  private dropdownGap(s: Status, prefs: Preferences): number {
+    return this.dropdown ? (this.options(s, prefs)[this.dropdown.option]?.choice?.gap ?? 0) : 0;
+  }
   /** The open dropdown's box, under its setting's row with ✓ under the ›;
    * null while it is closed. */
   private dropdownBox(l: Layout, s: Status, prefs: Preferences): Rect | null {
@@ -1713,8 +1722,9 @@ export class Menu {
     if (row < 0) return null;
     const choices = this.choices(s, prefs),
       count = choices.length,
-      h = Math.min(count + 3, l.body),
-      capacity = h - 3,
+      gap = this.dropdownGap(s, prefs),
+      h = Math.min(count + Math.max(0, count - 1) * gap + 3, l.body),
+      capacity = Math.floor((h - 3 + gap) / (gap + 1)),
       width = Math.min(l.b.w - 4, Math.max(l.options.w - 3, modelPreferredWidth(choices))),
       bottom = l.b.y + 2 + l.body;
     const view = dropdown.viewport(choices, d.top, d.at, capacity);
@@ -1866,6 +1876,7 @@ export class Menu {
                       text: trickPaletteUi.schemeName(picked.scheme),
                       on: picked.scheme !== null,
                       placeholder: i18n.t`Search palettes`,
+                      gap: 1,
                       choices: [
                         {
                           text: i18n.t`Automatic`,

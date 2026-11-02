@@ -409,6 +409,8 @@ colors, including `string`, `keyword`, `type`, `number` and `property`.
 palette. `await color(key)` returns a color, durably assigning a slot on first use.
 The key can be a string, finite number, boolean, null, or an array of those values.
 Use `agent.account.id` for accounts; skip unresolved accounts.
+The editor labels accounts with their provider and login email when known,
+falling back to the profile name. Labels do not change the saved mapping keys.
 Distinct keys take successive slots, cycling after the palette is exhausted.
 Existing assignments never move when other keys appear or disappear.
 

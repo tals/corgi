@@ -92,10 +92,11 @@ export function drawChoice(
   on: boolean,
   here: boolean,
   color?: Rgb,
+  color_width = displayWidth(choice),
 ): void {
   const p = fill(w, x, y, width, here);
   if (color) {
-    const value = "   " + choice + " ▾";
+    const value = "   " + choice + " ".repeat(sat(color_width, displayWidth(choice))) + " ▾";
     drawValue(w, p, x, y, width, label, value, p.label);
     w.write(at(x + width - 2 - displayWidth(value), y));
     palette.chips(w, [color], 2, p.background);

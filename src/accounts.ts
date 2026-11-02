@@ -133,13 +133,15 @@ export function describe(provider: Provider, account: string): Identity | null {
     now = Date.now();
   if (!dir) return null;
   if (found && now - found.at < 5000) return metadata(provider, found.value);
+  const login = identity(provider, account);
   const value = accountIdentity.read({
     id,
     name: (account ? label(provider, account) : defaultName(provider) || basename(dir))
       .replace(/[\x00-\x1f\x7f-\x9f]/g, "")
       .slice(0, 160),
     directory: dir,
-    loginId: identity(provider, account)?.id ?? null,
+    loginId: login?.id ?? null,
+    email: login?.email.includes("@") ? login.email : null,
   })!;
   if (descriptions.size >= 256) descriptions.delete(descriptions.keys().next().value!);
   descriptions.set(id, { at: now, value });

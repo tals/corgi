@@ -93,7 +93,27 @@ test("profile lookups expose the existing login key and cached structured metada
   expect(a.id).not.toBe(b.id);
   expect(a.loginId).toBe(accounts.identity("claude", one)!.id);
   expect(a.loginId).toBe(b.loginId);
+  expect(a.email).toBe("me@example.com");
+  expect(b.email).toBe("me@example.com");
   expect(a.usage).toBeNull();
+  const codex = join(home, ".codex-side");
+  mkdirSync(codex);
+  writeFileSync(
+    join(codex, "auth.json"),
+    JSON.stringify({
+      tokens: {
+        id_token:
+          "header." +
+          Buffer.from(JSON.stringify({ email: "codex@example.com", sub: "codex-login" })).toString("base64url") +
+          ".signature",
+      },
+    }),
+  );
+  expect(accounts.describe("codex", codex)).toMatchObject({ email: "codex@example.com", usage: null });
+  const api = join(home, ".codex-api");
+  mkdirSync(api);
+  writeFileSync(join(api, "auth.json"), JSON.stringify({ OPENAI_API_KEY: "fixture-key" }));
+  expect(accounts.describe("codex", api)?.email).toBeNull();
   const info = Object.assign(new Info(), {
     email: "me@example.com",
     type: "oauth" as const,

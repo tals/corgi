@@ -104,11 +104,16 @@ class Tricks extends Runtime {
     const file = join(this.root, "account-colors/main.mjs");
     const source = readFileSync(file, "utf8") + "\n// Personal customization\n";
     writeFileSync(file, source);
+    writeFileSync(
+      join(this.env.CLAUDE_CONFIG_DIR!, ".claude.json"),
+      JSON.stringify({ oauthAccount: { emailAddress: "personal@example.com", accountUuid: "personal" } }),
+    );
     const pane = await this.agent("Default colors");
     await this.client!.focus(pane);
     await this.until(async () => (await this.client!.poll()).data.includes(trickUi.fg({ syntax: "string" })));
     const palette = JSON.parse(await this.run_cli("tricks", "palette", "show", "account-colors/accounts", "--json"));
     this.assertEqual(palette.assignments.length, 1);
+    this.assertEqual(palette.assignments[0].label, "Claude · personal@example.com");
     await this.run_cli("tricks", "palette", "set", palette.ref, palette.assignments[0].key, "#cc8844");
     await this.until(async () => (await this.client!.poll()).data.includes(trickUi.fg("#cc8844")));
     await this.rpc({ op: "tricks.configure", id: "account-colors", enabled: false });

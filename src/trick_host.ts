@@ -159,7 +159,7 @@ export class Host {
         return {
           key,
           label: agent?.account
-            ? adapter(agent.provider).name + " · " + agent.account.name
+            ? adapter(agent.provider).name + " · " + (agent.account.email ?? agent.account.name)
             : typeof key === "string"
               ? key
               : encoded,
