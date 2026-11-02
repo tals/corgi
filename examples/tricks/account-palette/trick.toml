@@ -1,3 +1,4 @@
 version = 1
 id = "account-palette"
+description = "Pick account colors from an agent’s popover."
 entry = "main.mjs"

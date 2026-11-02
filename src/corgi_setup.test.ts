@@ -1932,12 +1932,20 @@ test("Tricks settings show statuses, errors and durable toggle actions", () => {
     tricks: [
       {
         id: "account-colors",
+        description: [],
         path: "/tmp/tricks/account-colors/trick.toml",
         enabled: true,
         running: true,
         error: null,
       },
-      { id: "broken", path: "/tmp/tricks/broken/trick.toml", enabled: true, running: false, error: "HandlerDeadline" },
+      {
+        id: "broken",
+        description: [],
+        path: "/tmp/tricks/broken/trick.toml",
+        enabled: true,
+        running: false,
+        error: "HandlerDeadline",
+      },
     ],
   };
   const text = draw(menu, 120, 40).join("\n");
@@ -2046,6 +2054,7 @@ test("each Trick keeps its palettes and preview chips together, including shared
     watch_error: null,
     tricks: ["first", "second"].map(id => ({
       id,
+      description: [{ text: "Color by " }, { text: "account", bold: true }],
       path: "/tmp/tricks/" + id + "/trick.toml",
       enabled: false,
       running: false,
@@ -2061,15 +2070,22 @@ test("each Trick keeps its palettes and preview chips together, including shared
     const rows = draw(menu, width, 40, 0, s, prefs);
     const first = rows.findIndex(r => /first\s+○ Off/.test(r));
     const second = rows.findIndex(r => /second\s+○ Off/.test(r));
-    expect(rows[first + 1]).toContain("accounts");
-    expect(rows[first + 2]).toContain("globals.shared");
-    expect(rows[second + 1]).toContain("globals.shared");
-    expect(rows[second + 2]).toContain("projects");
+    const heading = rows.find(r => r.includes("Tricks") && !r.includes(" on"))!;
+    expect(rows[first].indexOf("first") - heading.indexOf("Tricks")).toBe(2);
+    expect(rows[first + 1]).toContain("Color by account");
+    expect(rows[first + 2]).toContain("accounts");
+    expect(rows[first + 2].indexOf("accounts") - rows[first].indexOf("first")).toBe(2);
+    expect(rows[first + 3]).toContain("globals.shared");
+    expect(rows[second + 2]).toContain("globals.shared");
+    expect(rows[second + 3]).toContain("projects");
     expect(rows.join("\n")).not.toContain("first/accounts");
   }
   menu.openOptions(s, prefs);
   menu.cursor = 1;
-  expect(menu.enter(s, prefs)).toEqual({ kind: "trick_palette_open", ref: "first/accounts" });
+  expect(menu.right(s, prefs)).toEqual({ kind: "trick_palette_open", ref: "first/accounts" });
+  expect(menu.cursor).toBe(1);
+  menu.cursor = 0;
+  expect(menu.right(s, prefs)).toBeNull();
 });
 
 test("the palette editor accepts custom CSS colors and an explicit scheme", () => {
@@ -2089,7 +2105,8 @@ test("the palette editor accepts custom CSS colors and an explicit scheme", () =
     assignments: [{ key: "work", label: "Work", color: { hue: "blue" }, override: false }],
   };
   menu.cursor = 1;
-  menu.enter(s, prefs);
+  menu.right(s, prefs);
+  expect(draw(menu, 120, 40, 0, s, prefs).join("\n")).toContain("Search palettes");
   expect(menu.click({ choice: 2 }, s, prefs)).toMatchObject({ kind: "trick_palette_colors", ref: "example/accounts" });
   menu.cursor = 2;
   menu.enter(s, prefs);

@@ -6,6 +6,7 @@ import type { Status } from "./trick_config";
 import * as trickWatch from "./trick_watch";
 import * as trickDefaults from "./trick_defaults";
 import * as tricks from "./tricks";
+import * as markup from "./trick_markup";
 import * as settings from "./settings";
 import * as os from "./os";
 import * as budget from "./trick_budget";
@@ -22,6 +23,7 @@ import type { Request } from "./protocol";
 const log = getLogger("tricks");
 export interface Manifest {
   id: string;
+  description: tricks.Span[];
   command: string[] | null;
   entry: string | null;
   subscribe: tricks.Subscription;
@@ -45,6 +47,7 @@ export function manifest(source: string): Manifest {
   if (m.enabled !== undefined && typeof m.enabled !== "boolean") throw Error("InvalidEnabled");
   return {
     id: tricks.key(m.id),
+    description: markup.parse(m.description === undefined ? "" : (m.description as string)),
     command: m.entry === undefined ? (m.command as string[]) : null,
     entry: typeof m.entry === "string" ? m.entry : null,
     subscribe: tricks.subscription(m.subscribe ?? { events: [] }),
@@ -393,11 +396,12 @@ export class Host {
     const ids = new Set(this.statuses.map(s => s.id));
     for (const name of names.filter(name => !this.statuses.some(s => s.path === join(this.root, name, "trick.toml")))) {
       const path = join(this.root, name, "trick.toml");
-      const status: Status = { id: name, path, enabled: true, running: false, error: null };
+      const status: Status = { id: name, description: [], path, enabled: true, running: false, error: null };
       this.statuses.push(status);
       try {
         const m = manifest(readFileSync(path, "utf8"));
         status.id = m.id;
+        status.description = m.description;
         if (ids.has(m.id)) throw Error("DuplicateTrickId");
         ids.add(m.id);
         status.enabled = Object.hasOwn(this.config.enabled, m.id) ? this.config.enabled[m.id] : m.enabled;

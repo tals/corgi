@@ -33,16 +33,21 @@ three seeded accounts in one workspace, each with its own color:
 
 ![Personal, Work and Client accounts with distinct sidebar colors](images/tricks-account-colors.png)
 
-The accompanying `trick.toml` only identifies and launches the code:
+The accompanying `trick.toml` identifies and launches the code:
 
 ```toml
 version = 1
 id = "account-colors"
+description = "Color sidebar markers by **account**."
 entry = "main.mjs"
 ```
 
 Use `main.ts` for TypeScript; relative imports work too. Behavior and
 subscriptions belong in code.
+`description` is optional: up to 512 UTF-8 bytes of inline Markdown, using the
+same bold, italic, code, and bundled-icon syntax as Trick UI text. Settings
+shows it beneath the Trick’s name even when disabled, clipped to one line.
+Right Arrow or Enter opens its palettes; Left Arrow returns.
 
 ## Install and try
 

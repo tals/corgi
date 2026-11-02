@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import * as tricks from "./tricks";
 import * as trickHost from "./trick_host";
+import * as trickConfig from "./trick_config";
 import * as trickUi from "./trick_ui";
 import * as sidebar from "./sidebar";
 import * as palette from "./palette";
@@ -14,6 +15,16 @@ test("a sketch manifest only names its entry point", () => {
   expect(m.entry).toBe("main.mjs");
   expect(m.command).toBeNull();
   expect(m.subscribe.events).toEqual([]);
+  expect(m.description).toEqual([]);
+  const source = 'version = 1\nid = "account-colors"\nentry = "main.mjs"\ndescription = ';
+  const description = trickHost.manifest(source + '"Color by **account**."').description;
+  expect(description).toEqual([{ text: "Color by " }, { text: "account", bold: true }, { text: "." }]);
+  expect(trickConfig.info({ tricks: [{ id: "test", description, enabled: false }] }).tricks[0].description).toEqual(
+    description,
+  );
+  expect(trickConfig.info({ tricks: [{ id: "old" }] }).tricks[0].description).toEqual([]);
+  expect(() => trickHost.manifest(source + '"' + "x".repeat(513) + '"')).toThrow("InvalidString");
+  expect(() => trickHost.manifest(source + '"line\\nline"')).toThrow("ControlCharacter");
   expect(() => trickHost.manifest('version = 99\nid = "test"\nentry = "main.mjs"')).toThrow("UnsupportedTrickVersion");
   expect(() => trickHost.manifest('version = 1\nid = "../test"\nentry = "main.mjs"')).toThrow("InvalidKey");
   expect(() => trickHost.manifest('version = 1\nid = "test"\nentry = "main.mjs"\ncommand = ["node"]')).toThrow(

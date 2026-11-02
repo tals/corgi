@@ -1,9 +1,12 @@
+import * as tricks from "./tricks";
+
 export interface Config {
   autoreload: boolean;
   enabled: Record<string, boolean>;
 }
 export interface Status {
   id: string;
+  description: tricks.Span[];
   path: string;
   enabled: boolean;
   running: boolean;
@@ -37,6 +40,7 @@ export function info(value: unknown): Info {
       const row = object(value);
       return {
         id: typeof row.id === "string" ? row.id : "",
+        description: tricks.spans(row.description ?? []),
         path: typeof row.path === "string" ? row.path : "",
         enabled: row.enabled !== false,
         running: row.running === true,

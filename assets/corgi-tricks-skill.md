@@ -21,6 +21,7 @@ Make one folder with `trick.toml` and `main.mjs` (or `main.ts`):
 ```toml
 version = 1
 id = "account-colors"
+description = "Color sidebar markers by **account**."
 entry = "main.mjs"
 ```
 
@@ -34,7 +35,10 @@ export function register(on, corgi) {
 ```
 
 TOML identifies and launches the program; behavior and subscriptions belong in
-code. Source, JSON and TOML saves reload only the affected trick by default.
+code. An optional `description` is shown below the Trick’s name in settings,
+including when it is off. Use up to 512 UTF-8 bytes of inline Markdown (bold,
+italic, code, and bundled icons); it is clipped to one line. Source, JSON and
+TOML saves reload only the affected trick by default.
 Relative imports within the folder are watched too. Dependency and build folders,
 hidden directories and nested directory symlinks are excluded; watches are bounded.
 Use `corgi tricks reload` after changing external imports.

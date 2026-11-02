@@ -14,6 +14,8 @@ import * as trickConfig from "./trick_config";
 import * as trickPalette from "./trick_palette";
 import * as trickStyle from "./trick_style";
 import * as trickPaletteUi from "./trick_palette_ui";
+import * as trickUi from "./trick_ui";
+import type { Span } from "./tricks";
 import type { Color as TrickColor } from "./tricks";
 import { Style, colors, bgRgb, mix, selection, type Token } from "./palette";
 import { Rect } from "./layout";
@@ -241,7 +243,7 @@ export type Hit =
 
 interface Option {
   preview?: palette.Rgb[];
-  inset?: number;
+  indent?: number;
   copy_path?: string;
   color?: palette.Rgb;
   label: string;
@@ -305,6 +307,7 @@ interface Choice {
   apply: Apply | null;
 }
 type Line =
+  | { tag: "description"; spans: Span[] }
   | { tag: "title" | "lead" | "note" | "warn"; text: string }
   /** One line under a setting in a group, aligned with its name. */
   | { tag: "brief"; text: string; tone?: "muted" | "warm" }
@@ -872,6 +875,15 @@ export class Menu {
     if (options[this.cursor]?.edit) this.edit(prefs);
     return true;
   }
+  /** Right opens a section or the selected nested row without changing toggles. */
+  right(s: Status, prefs: Preferences): Apply | null {
+    if (this.focus === "list") {
+      this.openOptions(s, prefs);
+      return null;
+    }
+    const option = this.options(s, prefs)[this.cursor];
+    return !this.dropdown && (option?.arrow || option?.choice) ? this.enter(s, prefs) : null;
+  }
   /** Esc closes setup, except while adjusting a slider or copying sessions. */
   escape(): boolean {
     if (this.focus !== "options") return false;
@@ -1399,6 +1411,14 @@ export class Menu {
             at(x0 + 4, y) + (line.tone === "muted" ? settingRow.normal.muted : line.tone === "warm" ? warm : panel),
           );
           return writeEllipsis(w, line.text, right - x0 - 4);
+        case "description": {
+          const room = Math.max(0, right - x0 - 2),
+            clipped = trickUi.width(line.spans) > room;
+          w.write(at(x0 + 2, y) + panel);
+          trickUi.write(w, line.spans, Math.max(0, room - Number(clipped)), undefined, "muted");
+          if (clipped && room) w.write("…");
+          return;
+        }
         case "box": {
           const edge = line.edge === "top" ? ["╭", "╮"] : ["╰", "╯"];
           w.write(at(x0, y) + (this.editing ? graph : border) + edge[0] + "─".repeat(sat(right, x0 + 2)) + edge[1]);
@@ -1616,7 +1636,7 @@ export class Menu {
     }
     if (o.preview) {
       const p = settingRow.fill(w, x, y, width, here),
-        start = x + 6 + (o.inset ?? 0);
+        start = x + (o.indent ?? 6);
       const end = right - 3,
         room = Math.max(0, end - start);
       const labelWidth = Math.min(displayWidth(o.label), Math.max(4, room - Math.min(12, o.preview.length * 3 + 1)));
@@ -1640,6 +1660,7 @@ export class Menu {
         here,
         disabled: o.disabled,
         glyph: o.glyph,
+        indent: o.indent,
       });
     if (o.choice !== undefined)
       return settingRow.drawChoice(w, x, y, width, o.label, o.choice.text, o.choice.on, here, o.color);
@@ -1927,7 +1948,7 @@ export class Menu {
             detail: "",
             mark: "none",
             preview: p.preview.map(trickStyle.rgb),
-            inset: nested ? 2 : 0,
+            indent: nested ? 6 : 4,
             apply: { kind: "trick_palette_open", ref: p.ref },
             action: i18n.t`open`,
             arrow: true,
@@ -1945,6 +1966,7 @@ export class Menu {
                   ...(i ? [blank] : []),
                   option({
                     label: directoryLabel(trick.id, null, 160),
+                    indent: 4,
                     detail: "",
                     mark: trick.enabled ? "on" : "off",
                     toggle: trick.enabled,
@@ -1952,6 +1974,7 @@ export class Menu {
                     apply: { kind: "trick", id: trick.id, enabled: !trick.enabled },
                     action: trick.enabled ? i18n.t`turn off` : i18n.t`turn on`,
                   }),
+                  ...(trick.description.length ? [{ tag: "description" as const, spans: trick.description }] : []),
                   ...(trick.error ? [{ tag: "warn" as const, text: directoryLabel(trick.error, null, 512) }] : []),
                   ...this.trick_palettes.filter(p => ownedBy(p, trick.id)).map(p => paletteRow(p, true)),
                 ]),

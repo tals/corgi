@@ -13,6 +13,15 @@ test("default account colors are ordinary editable code, installed once without 
     expect(readFileSync(file, "utf8")).toBe(
       readFileSync(new URL("../examples/tricks/account-colors/main.mjs", import.meta.url), "utf8"),
     );
+    const manifest = join(root, "account-colors/trick.toml"),
+      expected = readFileSync(new URL("../examples/tricks/account-colors/trick.toml", import.meta.url), "utf8");
+    expect(readFileSync(manifest, "utf8")).toBe(expected);
+    writeFileSync(manifest, 'version = 1\nid = "account-colors"\nentry = "main.mjs"\n');
+    defaults.install(root);
+    expect(readFileSync(manifest, "utf8")).toBe(expected);
+    writeFileSync(manifest, expected.replace("Color sidebar markers", "My own markers"));
+    defaults.install(root);
+    expect(readFileSync(manifest, "utf8")).toContain("My own markers");
     writeFileSync(file, "// my own colors\n");
     rmSync(marker);
     defaults.install(root);

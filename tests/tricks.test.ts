@@ -340,7 +340,11 @@ export async function register(on, corgi) {
       await this.client!.request({ op: "size", cols: 120, rows: 40 });
       await this.client!.action("setup");
       await this.click_text(screen_text(await this.shown("Manage agents")), "Tricks");
-      await this.click_text(screen_text(await this.shown(ref)), ref);
+      await this.client!.input("\x1b[C");
+      const rows = screen_text(await this.shown(ref)),
+        y = rows.findIndex(row => row.includes(ref)),
+        x = rows[y].indexOf(ref);
+      await this.client!.input(`\x1b[<35;${x + 1};${y + 1}M\x1b[C`);
       await this.click_text(screen_text(await this.shown(key)), key);
       await this.click_text(screen_text(await this.shown("Color name or #hex")), "Red");
       await other.until(() => hasColor(other, { hue: "red" }));

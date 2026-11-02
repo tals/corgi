@@ -207,7 +207,7 @@ export function color(value: unknown, depth = 0): Color | undefined {
   }
   throw Error("InvalidColor");
 }
-function spans(value: unknown): Span[] {
+export function spans(value: unknown): Span[] {
   if (!Array.isArray(value) || value.length > 16) throw Error("InvalidSpans");
   return value.map(v => {
     const s = object(v);

@@ -4577,7 +4577,7 @@ export class Controller {
           setup.move(false, s, this.prefs);
           break;
         case 108:
-          setup.openOptions(s, this.prefs);
+          await this.applySetup(setup.right(s, this.prefs));
           break;
         case 104:
           setup.back();
@@ -5474,7 +5474,7 @@ export class Controller {
           // The worktree folder field took it.
         } else if (parsed_key === "up" || parsed_key === "shift_tab") setup.move(false, s, this.prefs);
         else if (parsed_key === "down") setup.move(true, s, this.prefs);
-        else if (parsed_key === "right") setup.openOptions(s, this.prefs);
+        else if (parsed_key === "right") await this.applySetup(setup.right(s, this.prefs));
         else if (parsed_key === "left") setup.back();
         this.dirty = true;
       } else if (this.agent_launcher) {
