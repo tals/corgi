@@ -478,7 +478,10 @@ export class Picker {
           .sort((a, b) => Number(this.old.has(a)) - Number(this.old.has(b)))
           .filter(e => {
             const p = adapter(e.provider);
-            return matches(query, `${e.name} ${e.model} ${p.name} ${p.label} ${e.account_name} ${routeName(e.model)}`);
+            return matches(
+              query,
+              `${e.name} ${e.model} ${p.name} ${p.label} ${e.account_name} ${this.headerOf(groupOf(e))?.who ?? ""} ${routeName(e.model)}`,
+            );
           })
           .map((e): Choice => ({
             provider: e.provider,
@@ -638,12 +641,24 @@ export class Picker {
     const own = this.briefs.filter(b => b.provider === g.provider && b.account === g.account && b.model === undefined);
     return own.find(b => (b.route ?? "") === g.route) ?? own.find(b => !b.route) ?? null;
   }
-  /** A group's name: its source, or its account's when the agent has several; "" otherwise. */
+  /** A group's name: its source, or when the agent has several accounts,
+   * who its account is signed in as, else the account's name; "" otherwise.
+   * Not the name alone: the default account's is its agent's in Manage
+   * agents, often a model's, as "Opus". */
   private groupName(g: Group): string {
     if (g.route) return g.route;
     const own = this.entries.filter(e => e.provider === g.provider);
     if (new Set(own.map(e => e.account)).size < 2) return "";
-    return own.find(e => e.account === g.account)?.account_name || (g.account ? "" : i18n.t`default`);
+    return (
+      this.headerOf(g)?.who ||
+      own.find(e => e.account === g.account)?.account_name ||
+      (g.account ? "" : i18n.t`default`)
+    );
+  }
+  /** Who a group's heading says it's signed in as in its own column; "" when its name already does. */
+  private whoOf(g: Group): string {
+    const who = this.headerOf(g)?.who ?? "";
+    return who === this.groupName(g) ? "" : who;
   }
   /** What a model's own brief adds to its group's heading, as "auto". */
   private extras(c: Choice): string[] {
@@ -660,7 +675,8 @@ export class Picker {
     let lead = 0,
       who = 0,
       plan = 0,
-      limits = 0;
+      limits = 0,
+      first = 0;
     for (const g of this.groups()) {
       const name = this.groupName(g),
         head = this.headerOf(g),
@@ -671,10 +687,13 @@ export class Picker {
         group + displayWidth(name),
       );
       if (!head) continue;
-      who = Math.max(who, displayWidth(head.who ?? ""));
+      who = Math.max(who, displayWidth(this.whoOf(g)));
       plan = Math.max(plan, displayWidth(head.plan ?? ""));
       limits = Math.max(limits, displayWidth((head.limits ?? []).join(" · ")));
+      first = Math.max(first, displayWidth(head.limits?.[0] ?? ""));
     }
+    // A long name, as an email, shortens before the plan and the first limit go.
+    lead = Math.min(lead, Math.max(group + 12, right - 1 - (plan ? plan + 2 : 0) - first));
     const start = lead + 2,
       room = right + 1 - start;
     let limits_w = limits,
@@ -773,9 +792,10 @@ export class Picker {
       if (text) w.write(at(cols.right + 1 - displayWidth(text), y) + quiet + text);
       return;
     }
-    if (cols.who_w && head.who) {
+    const who = this.whoOf(group);
+    if (cols.who_w && who) {
       w.write(at(cols.who, y) + quiet);
-      writeEllipsis(w, head.who, cols.who_w);
+      writeEllipsis(w, who, cols.who_w);
     }
     if (cols.plan_w && head.plan) {
       w.write(at(cols.plan, y) + new Style({ fg: "muted", bg: "surface" }).sgr());

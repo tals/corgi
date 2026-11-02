@@ -800,10 +800,10 @@ test("named accounts list their own models, and a pick carries the account", () 
   let rows = draw(menu, 100, 40, 0, s, prefs);
   const y = rows.findIndex(row => row.includes("✓ Haiku"));
   expect(rows[y - 2]).toMatch(/\*  Claude\s+│/);
-  expect(rows[y - 1]).toMatch(/ nvidia\s+Work\s+API\s+│/);
+  expect(rows[y - 1]).toMatch(/ Work\s+API\s+│/);
   for (const byte of Buffer.from("nvidia Codex")) menu.key(byte);
   rows = draw(menu, 100, 40, 0, s, prefs);
-  expect(rows.join("\n")).toMatch(/†  Codex · nvidia\s+Personal\s+Metered │/);
+  expect(rows.join("\n")).toMatch(/†  Codex · Personal\s+Metered │/);
   expect(rows.join("\n")).toMatch(/GPT-6 Luna/);
   expect(rows.join("\n")).not.toContain("Haiku");
   expect(menu.enter(s, prefs)).toEqual({

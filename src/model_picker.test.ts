@@ -179,14 +179,37 @@ test("an agent with several accounts heads each one's models with its own row, t
   expect(p.height(20)).toBe(11);
   expect(text(draw(p)).slice(3, 11)).toEqual([
     "  │ *  Claude                                                │",
-    "  │      work             work@x.com   Team            5h 3% │",
+    "  │      work@x.com                    Team            5h 3% │",
     "  │      ✓ Opus 5.5                              Max  Edit › │",
-    "  │      default          me@x.com     Max   5h 12% · 7d 48% │",
+    "  │      me@x.com                      Max   5h 12% · 7d 48% │",
     "  │        Opus 5.5                             High  Edit › │",
     "  │        Haiku 5.5                             Low  Edit › │",
     "  │ †  Codex                           Pro            5h 30% │",
     "  │        GPT-6 Astra                         XHigh  Edit › │",
   ]);
+  // Not the account's name, which for the default one is its agent's in
+  // Manage agents, often a model's; that only when who it is isn't known.
+  const named = both.map(e => (e.provider === "claude" && !e.account ? { ...e, account_name: "Opus" } : e));
+  expect(text(draw(new Picker(named, [opus, astra, haiku], current, headers))).slice(4, 7)).toEqual([
+    "  │      work@x.com                    Team            5h 3% │",
+    "  │      ✓ Opus 5.5                              Max  Edit › │",
+    "  │      me@x.com                      Max   5h 12% · 7d 48% │",
+  ]);
+  expect(text(draw(new Picker(named, [opus, astra, haiku], current, briefs))).slice(4, 7)).toEqual([
+    "  │      work                                   Team · 5h 3% │",
+    "  │      ✓ Opus 5.5                              Max  Edit › │",
+    "  │      Opus                          Max · 5h 12% · 7d 48% │",
+  ]);
+  // Narrow, a long one shortens before the plan and the first limit go.
+  const long = headers.map(h => (h.account ? { ...h, who: "someone.with.a.long.name@example.com" } : h));
+  expect(text(draw(new Picker(both, [opus, astra, haiku], current, long), 44)).slice(4, 5)).toEqual([
+    "  │      someone.with.a.long.…  Team   5h 3% │",
+  ]);
+  // Searching finds an account by who it is.
+  const q = new Picker(both, [], current, headers);
+  q.key(47);
+  q.sequence("work@");
+  expect(q.chosen()).toEqual(current);
 });
 
 test("arrows move past headers and wrap; Home and End go to the ends", () => {
