@@ -261,14 +261,15 @@ if (provider === 'claude' && words === 'auth status --json') {
   process.exit(0);
 }
 if (provider === 'claude' && process.argv.includes('--input-format')) {
-  // Usage differs by account, so each launcher row reads its own.
+  // Usage differs by account, so each launcher row reads its own. Resets
+  // fall off the hour, as real ones do, for countdowns as wide as "13h 43m".
   const used = [...(email() ?? '')].reduce((n, c) => (n * 31 + c.charCodeAt(0)) % 97, 7);
   const soon = s => new Date(Date.now() + s * 1000).toISOString();
   for await (const line of (await import('node:readline')).createInterface({ input: process.stdin })) {
     const request = JSON.parse(line);
     if (request.type !== 'control_request') continue;
     const body = request.request.subtype === 'get_usage'
-      ? { subscription_type: 'max', rate_limits_available: true, rate_limits: { five_hour: { utilization: used, resets_at: soon(7200) }, seven_day: { utilization: Math.min(99, used + 20), resets_at: soon(345600) } } }
+      ? { subscription_type: 'max', rate_limits_available: true, rate_limits: { five_hour: { utilization: used, resets_at: soon(4 * 3600 + 3 * 60) }, seven_day: { utilization: Math.min(99, used + 20), resets_at: soon(13 * 3600 + 43 * 60) } } }
       : {};
     console.log(JSON.stringify({ type: 'control_response', response: { request_id: request.request_id, subtype: 'success', response: body } }));
   }
