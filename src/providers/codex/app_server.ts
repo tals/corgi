@@ -28,25 +28,32 @@ export const toolless = [
   "-c",
   'web_search="disabled"',
 ];
+/** One server's start, which `close()` can stop before it finishes. */
+type Opening = { rpc: Promise<Rpc>; closed: AbortController };
 /** A tool-less app server, opened on the first request and kept until
  * closed. `account` picks its CODEX_HOME, "" the default. */
 export class AppServer {
-  private opening: Promise<Rpc> | null = null;
+  private opening: Opening | null = null;
   constructor(
     readonly timeout_ms: number,
     readonly executable: string | null = null,
     readonly account = "",
   ) {}
-  private async open() {
+  private open(): Opening {
+    const closed = new AbortController();
+    return { rpc: this.start(closed.signal), closed };
+  }
+  private async start(closed: AbortSignal) {
     // Imported late: discovery reaches back into the provider registry.
-    const discovery = await import("../../discovery"),
-      env = this.account ? { ...process.env, CODEX_HOME: this.account } : undefined,
+    const discovery = await import("../../discovery");
+    if (closed.aborted) throw Error("Cancelled");
+    const env = this.account ? { ...process.env, CODEX_HOME: this.account } : undefined,
       rpc = Rpc.spawn(this.executable ?? discovery.override("codex") ?? "codex", toolless, "/tmp", env);
     try {
       await rpc.request(
         "initialize",
         { clientInfo: { name: "corgi", version: "1" }, capabilities: { experimentalApi: true } },
-        undefined,
+        closed,
         Date.now() + this.timeout_ms,
       );
       rpc.notify("initialized");
@@ -61,9 +68,10 @@ export class AppServer {
     const opening = (this.opening ??= this.open());
     let rpc: Rpc;
     try {
-      rpc = await opening;
+      rpc = await opening.rpc;
     } catch (error) {
-      if (this.opening === opening) this.opening = null;
+      if (this.opening !== opening) throw Error("Cancelled");
+      this.opening = null;
       throw error;
     }
     // Closed while it opened: the request goes with it, though the server came up.
@@ -71,13 +79,17 @@ export class AppServer {
     try {
       return await rpc.request(method, params, stopping, Date.now() + this.timeout_ms);
     } catch (error) {
-      if (!errors.is(error, "Cancelled")) this.close();
+      // A cancel or an error reply leaves the server working for the requests beside it.
+      const keep = errors.is(error, "Cancelled") || errors.is(error, "HarnessRejected");
+      if (!keep && this.opening === opening) this.close();
       throw error;
     }
   }
-  /** Closes the server; the next request opens a fresh one. */
+  /** Closes the server, or stops it starting; the next request opens a fresh one. */
   close() {
-    void this.opening?.then(
+    if (!this.opening) return;
+    this.opening.closed.abort();
+    void this.opening.rpc.then(
       rpc => rpc.io.close(),
       () => {},
     );

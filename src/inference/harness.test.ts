@@ -1,7 +1,9 @@
 import { clone } from "../json";
 import { n } from "../native_bridge";
 import { test, expect } from "bun:test";
-import { resolve } from "node:path";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { Pool } from "./harness";
 import * as appServer from "../providers/codex/app_server";
 import * as sim from "../providers/sim";
@@ -107,6 +109,46 @@ test("closing an app server cancels a request still waiting for it to start", as
     expect((await appServer.model(server, "/tmp")).text()).toBe("fixture-codex");
   } finally {
     server.close();
+  }
+});
+
+test("closing an app server stops one still starting", async () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-app-server-")),
+    started = join(root, "started"),
+    executable = join(root, "codex");
+  // A Codex that never answers initialize.
+  writeFileSync(executable, `#!/bin/sh\n: > '${started}'\nexec /bin/sleep 60\n`, { mode: 0o755 });
+  const server = new appServer.AppServer(30000, executable);
+  try {
+    const pending = appServer.model(server, "/tmp"),
+      deadline = Date.now() + 2500;
+    while (!existsSync(started) && Date.now() < deadline) await Bun.sleep(5);
+    expect(existsSync(started)).toBe(true);
+    const closed = Date.now();
+    server.close();
+    await expect(pending).rejects.toThrow("Cancelled");
+    expect(Date.now() - closed).toBeLessThan(1000);
+  } finally {
+    server.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an error reply leaves the app server open", async () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-app-server-")),
+    starts = join(root, "starts"),
+    executable = join(root, "codex");
+  writeFileSync(executable, `#!/bin/sh\necho "$$" >> '${starts}'\nexec '${process.execPath}' '${fixture}' "$@"\n`, {
+    mode: 0o755,
+  });
+  const server = new appServer.AppServer(3000, executable);
+  try {
+    await expect(server.request("fixture/reject", {})).rejects.toThrow("HarnessRejected");
+    expect((await appServer.model(server, "/tmp")).text()).toBe("fixture-codex");
+    expect(readFileSync(starts, "utf8").trim().split("\n")).toHaveLength(1);
+  } finally {
+    server.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

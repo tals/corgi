@@ -37,6 +37,7 @@ for await (const line of createInterface({ input: process.stdin })) {
       },
     });
   } else if (method === "thread/list") emit({ id: ident, result: { data: [], nextCursor: null } });
+  else if (method === "fixture/reject") emit({ id: ident, error: { code: -32600, message: "rejected" } });
   else if (method === "config/read")
     emit({
       id: ident,
