@@ -136,8 +136,11 @@ function tidySidebar(g) {
 // Nor a scope dropdown, with no scopes to switch: the agents header loses
 // everything from the ": " after its name through the ▾.
 function hideScope(g, controls) {
-  const [from, to] = controls.scope ?? [0, 0];
-  put(g, controls.row, from, " ".repeat(to - from));
+  clearSpan(g, controls.row, controls.scope);
+}
+// Blanks a header control with the sidebar's own background, not the control's.
+function clearSpan(g, row, span) {
+  if (span) put(g, row, span[0], " ".repeat(span[1] - span[0]), g[row][0][1]);
 }
 
 const blank = (rows, cols) => Array.from({ length: rows }, () => Array.from({ length: cols }, () => [" ", PLAIN]));
@@ -2238,7 +2241,7 @@ function session(init = {}) {
     // A recorded sidebar has its own controls; the agent list has keeps watch's.
     const controls = S.side ? DATA.layout.controls[S.side] : sidebarControls(SW, ws, un, ahead);
     hideScope(g, controls);
-    if (!S.newButton && controls.newAgent) put(g, controls.row, controls.newAgent[0], " ".repeat(controls.newAgent[1] - controls.newAgent[0]));
+    if (!S.newButton) clearSpan(g, controls.row, controls.newAgent);
     SIDE.set(key, g);
     return g;
   }
