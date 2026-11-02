@@ -1574,7 +1574,10 @@ export class View {
   /** The title row and the workspace list above the agents. */
   private drawWorkspaces(w: Writer, workspaces: WorkspaceEntry[], now_ms: number): void {
     const v = this,
-      plain = v.sectionStyle().panel;
+      section = v.sectionStyle(),
+      plain = section.panel,
+      // Halfway to the selected tint, so hover stays quieter than selection.
+      hover = new Style({ fg: "muted" }).sgr() + bgRgb(mix(section.bg, colors.selected, 50));
     v.drawTitle(w);
     const shown = workspaces.slice(
       v.workspace_offset,
@@ -1616,8 +1619,9 @@ export class View {
       if (ws.unavailable) w = new Writer(out.column);
       const ghost = v.dragged_workspace === v.workspace_offset + index;
       const tinted = ws.active || ghost;
-      const style = tinted ? active_name : plain;
-      const meta = tinted ? active_meta : plain;
+      const hovered = !tinted && v.workspace_hover === v.workspace_offset + index;
+      const style = tinted ? active_name : hovered ? hover : plain;
+      const meta = tinted ? active_meta : hovered ? hover : plain;
       // The dragged workspace takes the selected tint and a strong bar, like a dragged agent row.
       const bar = ghost ? ghost_bar : active_bar;
       w.write(`${w.cup(y + 1, 1)}${style}`);
@@ -1644,7 +1648,7 @@ export class View {
         drawPorts(w, ws, link.end - link.start, false);
       }
       if (badge_width > 0) w.write(`${w.cup(y + 1, v.width - 1 - badge_width)}${gitColor(ws.git_push.phase)}${badge}`);
-      if (tinted) {
+      if (tinted || hovered) {
         w.write(`${w.cup(y + 2, 1)}${meta}`);
         w.splat(" ", v.width - 1);
       }
@@ -1692,7 +1696,7 @@ export class View {
       if (tinted) for (const row of [y + 1, y + 2]) w.write(`${w.cup(row, 1)}${bar}`);
       w.write(plain);
       if (v.workspaceRows() === 3 && y + 2 < v.workspaceEnd()) {
-        if (tinted) {
+        if (tinted || hovered) {
           w.write(`${w.cup(y + 3, 1)}${meta}`);
           w.splat(" ", v.width - 1);
         }
@@ -2421,6 +2425,11 @@ export function agentIndexAt(v: View, entries: Entry[], x: number, y: number): n
   if (found.tag !== "entry" || found.entry >= entries.length) return null;
   const e = entries[found.entry];
   return e.exit === null && isAgent(e.target) ? found.entry : null;
+}
+/** The workspace under the pointer, by its index in the whole list. */
+export function workspaceIndexAt(v: View, x: number, y: number): number | null {
+  const found = v.hit(x, y);
+  return found.tag === "workspace" ? found.workspace : null;
 }
 
 // Fade both the card background and its foreground/underline colors into the

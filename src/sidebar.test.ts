@@ -22,6 +22,7 @@ import {
   drawResources,
   resourceAt,
   agentAt,
+  workspaceIndexAt,
   writeExit,
   writeRevealedDetail,
   linkRange,
@@ -2335,4 +2336,76 @@ test("a workspace tint fills the workspace section and nothing else", () => {
   // The agents drawer shows no workspaces, so no tint.
   out = draw(tint(agents), tint_agents, few, 1_000_000);
   expect(has(out, bgRgb(palette.sectionTint(100)!))).toBe(false);
+});
+
+test("a hovered workspace sits halfway between its section and the selected tint", () => {
+  const few = tintWorkspaces(3);
+  const view = (tint: number, hover: number | null, offset = 0, workspaces = few) => {
+    const v = View.init(100, 30, true, 0, 0).withWorkspaces(workspaces.length, offset).withEntries(tint_agents);
+    v.corgi_intensity = 0;
+    v.workspace_tint = tint;
+    v.workspace_hover = hover;
+    return v;
+  };
+  const rowsOf = (grid: string[][], ys: number[]) => ys.flatMap(y => grid[y].slice(1, 27));
+  const selected = rgbKey(colors.selected);
+  for (const tint of [0, 100]) {
+    const section = palette.sectionTint(tint) ?? colors.bg,
+      hover = rgbKey(mix(section, colors.selected, 50));
+    // Off, it takes the agent rows' hover.
+    if (tint === 0) expect(hover).toBe(rgbKey(hover_rgb));
+    // Name, status and readings rows, across the list.
+    let grid = backgrounds(draw(view(tint, 0), tint_agents, few, 1_000_000));
+    expect(new Set(rowsOf(grid, [2, 3, 4])), `tint ${tint}`).toEqual(new Set([hover]));
+    expect(rowsOf(grid, [8, 9, 10]).includes(hover), `tint ${tint}`).toBe(false);
+    // The margin and the border keep theirs.
+    for (const y of [2, 3, 4]) {
+      expect(grid[y][0]).not.toBe(hover);
+      expect(grid[y][27]).not.toBe(hover);
+    }
+    // The active workspace stays selected under the pointer.
+    grid = backgrounds(draw(view(tint, 1), tint_agents, few, 1_000_000));
+    expect(new Set(rowsOf(grid, [5, 6, 7]))).toEqual(new Set([selected]));
+    expect(has(draw(view(tint, 1), tint_agents, few, 1_000_000), bgRgb(mix(section, colors.selected, 50)))).toBe(false);
+    // So does a dragged one.
+    const dragged = view(tint, 0);
+    dragged.dragged_workspace = 0;
+    const out = draw(dragged, tint_agents, few, 1_000_000);
+    grid = backgrounds(out);
+    expect(new Set(rowsOf(grid, [2, 3, 4]))).toEqual(new Set([selected]));
+    expect(has(out, ghost_bar)).toBe(true);
+  }
+  // A reading under the pointer keeps its own highlight on the hovered row.
+  const reading = view(100, 0);
+  reading.resource_hover = few[0].id;
+  const grid = backgrounds(draw(reading, tint_agents, few, 1_000_000));
+  const hover = rgbKey(mix(palette.sectionTint(100)!, colors.selected, 50));
+  expect(grid[4].slice(1, 27)).toContain(rgbKey(colors.selected));
+  expect(grid[4].slice(1, 27)).toContain(hover);
+  expect(new Set(rowsOf(grid, [2, 3]))).toEqual(new Set([hover]));
+  // Readings keep the plain row's text colors.
+  const plain = draw(view(100, null), tint_agents, few, 1_000_000),
+    hovered = draw(view(100, 0), tint_agents, few, 1_000_000);
+  expect(count(hovered, fg("faint") + "CPU")).toBe(count(plain, fg("faint") + "CPU"));
+  // Scrolled, the hover is by index in the whole list.
+  const many = tintWorkspaces(6);
+  const scrolled = view(0, 3, 2, many);
+  expect(scrolled.workspace_offset).toBe(2);
+  const off = rgbKey(hover_rgb);
+  const at = backgrounds(draw(scrolled, tint_agents, many, 1_000_000));
+  expect(new Set(rowsOf(at, [5, 6, 7]))).toEqual(new Set([off]));
+  expect(rowsOf(at, [2, 3, 4]).includes(off)).toBe(false);
+});
+
+test("the pointer names the workspace whose rows it is on", () => {
+  const view = View.init(100, 30, true, 0, 0).withWorkspaces(6, 2);
+  // Framed: the lists start a column in; each workspace takes three rows from row 2.
+  expect(workspaceIndexAt(view, 5, 2)).toBe(2);
+  expect(workspaceIndexAt(view, 5, 4)).toBe(2);
+  expect(workspaceIndexAt(view, 5, 5)).toBe(3);
+  expect(workspaceIndexAt(view, 5, 0)).toBeNull();
+  expect(workspaceIndexAt(view, 5, 1)).toBeNull();
+  expect(workspaceIndexAt(view, 5, 13)).toBeNull();
+  expect(workspaceIndexAt(view, 5, 20)).toBeNull();
+  expect(workspaceIndexAt(view, 27, 5)).toBeNull();
 });
