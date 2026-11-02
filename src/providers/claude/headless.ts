@@ -36,6 +36,8 @@ export function sessionArgs(at: Place, file: string) {
   if (at.effort) args.push("--effort", at.effort);
   if (file) args.push("--append-system-prompt-file", file);
   if (at.persist === false) args.push("--no-session-persistence");
+  // Auto mode, and leave to skip the checks should the account not have it.
+  if (at.unattended) args.push("--permission-mode", "auto", "--allow-dangerously-skip-permissions");
   return args;
 }
 /** What runs Claude Code as a tool-less model for `r`. */
@@ -73,6 +75,8 @@ export class Claude implements Client {
   streamed = "";
   /** The file its instructions are in, which goes with it. */
   file = "";
+  /** It runs without asking: a session that didn't start in auto mode skips its checks. */
+  unattended = false;
   private events: Event[] = [];
   private failure: Error | null = null;
   constructor(
@@ -105,6 +109,7 @@ export class Claude implements Client {
     try {
       const client = Claude.start(at, sessionArgs(at, file), null);
       client.file = file;
+      client.unattended = at.unattended === true;
       return client;
     } catch (error) {
       instructions.remove(file);
@@ -161,6 +166,9 @@ export class Claude implements Client {
       this.events.push({ kind: "conversation", session, parent: null, role: null, shown: true });
     }
     switch (kind) {
+      case "system":
+        if (this.unattended && str(v, "subtype") === "init") this.unattend(str(v, "permissionMode"));
+        return;
       case "stream_event": {
         // A subagent's stream would interleave with the conversation's own.
         if (this.summary || str(v, "parent_tool_use_id")) return;
@@ -270,6 +278,15 @@ export class Claude implements Client {
       }
     }
   }
+  /** Auto mode isn't on for every account and model: without it, skip the checks. */
+  private unattend(mode: string) {
+    if (mode === "auto" || mode === "bypassPermissions") return;
+    this.io.write({
+      type: "control_request",
+      request_id: `corgi-mode-${this.next_request++}`,
+      request: { subtype: "set_permission_mode", mode: "bypassPermissions" },
+    });
+  }
   private begin(session: string) {
     if (this.running) return;
     this.running = true;
@@ -321,6 +338,7 @@ export class Claude implements Client {
         summary: this.summary,
         streamed: this.streamed,
         file: this.file,
+        unattended: this.unattended,
       },
       handles: saved.handles,
     };
@@ -334,6 +352,7 @@ export class Claude implements Client {
     client.results = state.results ?? 0;
     client.streamed = state.streamed ?? "";
     client.file = typeof state.file === "string" ? state.file : "";
+    client.unattended = state.unattended === true;
     // Requests an older Corgi kept as the lines it read.
     for (const line of state.lines ?? []) client.decode(typeof line === "string" ? parse(line) : line);
     return client;

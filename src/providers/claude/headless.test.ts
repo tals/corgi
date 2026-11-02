@@ -204,3 +204,32 @@ test("a stream half-way through survives a handoff", () => {
   claude.take();
   expect(Claude.restore(claude.save(true), true).streamed).toBe("Half");
 });
+test("an unattended session runs in auto mode, and skips its checks where auto mode is off", () => {
+  const at = { cwd: "/repo", account: "", executable: "claude" };
+  expect(sessionArgs(at, "")).not.toContain("--permission-mode");
+  const args = sessionArgs({ ...at, unattended: true }, "");
+  expect(args.slice(args.indexOf("--permission-mode"), args.indexOf("--permission-mode") + 2)).toEqual([
+    "--permission-mode",
+    "auto",
+  ]);
+  expect(args).toContain("--allow-dangerously-skip-permissions");
+  const asked = (mode: string, unattended = true) => {
+    const { claude, written } = client([{ type: "system", subtype: "init", session_id: "a", permissionMode: mode }]);
+    claude.unattended = unattended;
+    claude.take();
+    return written;
+  };
+  expect(asked("auto")).toEqual([]);
+  expect(asked("bypassPermissions")).toEqual([]);
+  expect(asked("default", false)).toEqual([]);
+  expect(asked("default")).toEqual([
+    {
+      type: "control_request",
+      request_id: "corgi-mode-1",
+      request: { subtype: "set_permission_mode", mode: "bypassPermissions" },
+    },
+  ]);
+  const { claude } = client([]);
+  claude.unattended = true;
+  expect(Claude.restore(claude.save(true), true).unattended).toBe(true);
+});

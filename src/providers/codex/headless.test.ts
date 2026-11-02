@@ -232,6 +232,12 @@ test("prompts wait for the handshake, which a handoff can carry over", () => {
 });
 test("a session's thread starts with the model, effort and instructions it asks for", () => {
   expect(sessionThread("/repo", {})).toEqual({ cwd: "/repo" });
+  // The Corgi prompt's never stops to ask.
+  expect(sessionThread("/repo", { unattended: true })).toEqual({
+    cwd: "/repo",
+    approvalPolicy: "never",
+    sandbox: "danger-full-access",
+  });
   expect(
     sessionThread("/repo", { model: "gpt-6", effort: "xhigh", instructions: "Be brief.", persist: false }),
   ).toEqual({

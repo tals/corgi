@@ -664,7 +664,8 @@ export async function request(server: Server, client: Peer, request: Request, re
     const workspace = query.workspace ? runtime.getWorkspace(query.workspace) : server.onlyWorkspace();
     const session = await Session.start(runtime.next_session, query.provider, query.cwd || workspace.cwd, {
       ...startOptions(query),
-      ...(query.corgi ? { env: corgiEnv(server.socket, server.executable) } : {}),
+      // The prompt never stops to ask.
+      ...(query.corgi ? { env: corgiEnv(server.socket, server.executable), unattended: true } : {}),
     });
     if (client.dead) {
       session.destroy();

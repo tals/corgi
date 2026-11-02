@@ -99,7 +99,7 @@ export function tool(item: unknown): { name: string; summary: string } {
   return { name: "", summary: "" };
 }
 /** What a daemon-hosted thread starts with, besides the account's own settings. */
-export type Options = Pick<Place, "model" | "effort" | "instructions" | "persist">;
+export type Options = Pick<Place, "model" | "effort" | "instructions" | "persist" | "unattended">;
 /** Thread settings for a daemon-hosted session in `cwd`. */
 export function sessionThread(cwd: string, o: Options) {
   return {
@@ -108,6 +108,7 @@ export function sessionThread(cwd: string, o: Options) {
     ...(o.effort ? { config: { model_reasoning_effort: o.effort } } : {}),
     ...(o.instructions ? { developerInstructions: o.instructions } : {}),
     ...(o.persist === false ? { ephemeral: true } : {}),
+    ...(o.unattended ? { approvalPolicy: "never", sandbox: "danger-full-access" } : {}),
   };
 }
 /** Thread settings for a summary: no tools, no approvals, nothing kept. */
@@ -182,8 +183,8 @@ export class Codex implements Client {
             ? { ...process.env, ...at.env, ...(at.account ? { CODEX_HOME: at.account } : {}) }
             : undefined,
       }),
-      { model, effort, instructions, persist } = at,
-      client = new Codex(io, at.cwd, summary, { model, effort, instructions, persist });
+      { model, effort, instructions, persist, unattended } = at,
+      client = new Codex(io, at.cwd, summary, { model, effort, instructions, persist, unattended });
     client.request(
       "initialize",
       { clientInfo: { name: "corgi", version: "1" }, capabilities: { experimentalApi: true } },

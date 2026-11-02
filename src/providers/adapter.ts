@@ -108,6 +108,9 @@ export type Place = {
   /** Variables it runs with over the daemon's own, undefined to unset: how a
    * prompt session reaches this Corgi with its CLI. */
   env?: Record<string, string | undefined>;
+  /** Runs without asking: Claude in auto mode, or skipping its checks where
+   * that's unavailable; Codex with no approvals or sandbox. */
+  unattended?: boolean;
 };
 /** A provider's session transcripts, read as they grow. */
 export interface Transcript {
