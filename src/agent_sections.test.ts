@@ -99,18 +99,23 @@ test("a section keeps the order it was put in, ahead of agents it doesn't place 
   expect(rows(out)).toEqual(["working 5", 2, 1, 3, 5, 4]);
 });
 
-test("pins keep their order above the sections, each workspace's together", () => {
+test("pins keep their order above the sections, each workspace's together, under their worktrees", () => {
   const out = agentSections.arrange(
     [
       item(1, "working", { pin: 1 }),
       item(2, "blocked", { pin: 0, checkout: "/repo/topic" }),
+      item(5, "idle", { pin: 2, checkout: "/repo/topic" }),
       item(3, "idle", { workspace: 2, pin: 0 }),
       item(4, "idle"),
     ],
     options(),
   );
-  expect(rows(out)).toEqual(["starred 3", 2, 1, 3, "idle 1", 4]);
-  expect(out[1].section).toBe("starred");
+  // A worktree's stars take its subhead in pin order, so one met again gets a
+  // second, and the workspace's own checkout is named where it follows one.
+  expect(rows(out)).toEqual(["starred 4", "· topic", 2, "· ws1", 1, "· topic", 5, 3, "idle 1", 4]);
+  expect(out[1].target).toEqual({ section: "starred", workspace: 1, checkout: "/repo/topic", run: 0 });
+  expect(out[3].group.branch).toBe(true);
+  expect(out[5].target).toEqual({ section: "starred", workspace: 1, checkout: "/repo/topic", run: 1 });
   // In "all", each workspace and each of its worktrees gets a subhead.
   const all = agentSections.arrange(
     [
@@ -118,12 +123,13 @@ test("pins keep their order above the sections, each workspace's together", () =
       item(2, "working", { workspace: 2, since: 9 }),
       item(3, "working", { checkout: "/repo/topic" }),
       item(4, "working", { workspace: 2, pin: 0 }),
+      item(5, "working", { checkout: "/repo/topic", pin: 1 }),
     ],
     options({ all: true }),
   );
   // A section's place is among its own workspace's agents, so each workspace's
   // keep together, however recent another workspace's are.
-  expect(rows(all)).toEqual(["starred 2", "· ws1", 1, "· ws2", 4, "working 2", "· topic", 3, "· ws2", 2]);
+  expect(rows(all)).toEqual(["starred 3", "· ws1", 1, "· topic", 5, "· ws2", 4, "working 2", "· topic", 3, "· ws2", 2]);
 });
 
 test("a folded section stands in for the focused agent it hides", () => {
