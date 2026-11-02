@@ -66,6 +66,8 @@ export class AppServer {
       if (this.opening === opening) this.opening = null;
       throw error;
     }
+    // Closed while it opened: the request goes with it, though the server came up.
+    if (this.opening !== opening) throw Error("Cancelled");
     try {
       return await rpc.request(method, params, stopping, Date.now() + this.timeout_ms);
     } catch (error) {

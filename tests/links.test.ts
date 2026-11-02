@@ -71,7 +71,7 @@ class Links extends Runtime {
     const viewer = await Viewer.create(this, 180, 55);
     await viewer.focus(pane);
     await viewer.poll();
-    const surface = (await this.rpc({ op: "pane.surface", protocol: 3, pane })).surface;
+    const surface = (await this.rpc({ op: "pane.surface", pane })).surface;
     const text = `Open the PR (${url})`,
       width = surface.cols - 2,
       rows: string[] = [];
