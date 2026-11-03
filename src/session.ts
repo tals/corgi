@@ -207,7 +207,7 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
         launch = Launch.in(profile.provider, chosen, profile.yolo, profile.options),
         pane = await r.create({
           ...spawnOptions(r, ctx, request.payload.workspace, null, request.payload.cwd),
-          ...launch.run(ctx.executable, launch.typed()),
+          ...launch.run(ctx.executable),
         });
       r.pane(pane)!.launch = launch;
       r.rememberAgent(pane, profile.provider);
@@ -228,7 +228,7 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
         launch = Launch.in(provider, chosen, r.yolo(provider, chosen)),
         pane = await r.create({
           ...spawnOptions(r, ctx, request.payload.workspace, null, request.payload.cwd ?? ""),
-          ...launch.run(ctx.executable, launch.typed()),
+          ...launch.run(ctx.executable),
         });
       r.pane(pane)!.launch = launch;
       r.rememberAgent(pane, provider);

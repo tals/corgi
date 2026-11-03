@@ -277,7 +277,21 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     this.assertEqual((await this.session()).workspaces[0].launcher_order[0], row);
     await this.command("agent.profile.create", { workspace: this.ws, id: profile.id, cwd: this.launchDir });
     await this.until(() => existsSync(this.launches));
-    this.assertEqual(json(this.launches).args, ["--model", "fixture-fast", "-c", 'model_reasoning_effort="high"']);
+    // Codex gets the effort over its shared server, which a `-c` would keep it off.
+    this.assertEqual(json(this.launches).args, ["--model", "fixture-fast"]);
+    // Run by hand, as a pane's `codex` runs it, nothing sets the effort later, so the flag stays.
+    const high = ["-c", 'model_reasoning_effort="high"'],
+      typed = Bun.spawn([EXE, "agent", "codex", ...high], {
+        env: { ...this.env, CORGI_PANE: "0" },
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+    try {
+      await this.until(() => lines(this.launches).length === 2);
+      this.assertEqual(JSON.parse(lines(this.launches)[1]).args, high);
+    } finally {
+      typed.kill();
+    }
   }
 
   async test_manage_remove_restore_edit_and_reload() {

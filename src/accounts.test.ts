@@ -459,7 +459,7 @@ test("account edits persist privately and apply only to new launches of that acc
   expect(accounts.launchOptions("claude", dir)).toEqual(options);
   const launch = Launch.in("claude", dir, true);
   expect(launch.typed()).toBe("claude --dangerously-skip-permissions --model sonnet --add-dir 'two words'");
-  expect(launch.run("/corgi", launch.typed()).env).toEqual([...options.env, ["CLAUDE_CONFIG_DIR", dir]]);
+  expect(launch.run("/corgi").env).toEqual([...options.env, ["CLAUDE_CONFIG_DIR", dir]]);
   expect(launch.account()).toBe(dir);
   expect(before.typed()).toBe("claude");
   expect(Launch.in("claude", "").typed()).toBe("claude");

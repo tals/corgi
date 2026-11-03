@@ -304,6 +304,7 @@ $.panes[].launch?: one of
 $.panes[].launch?|agent.provider: provider
 $.panes[].launch?|agent.yolo: bool
 $.panes[].launch?|agent.model: string
+$.panes[].launch?|agent.effort: string
 $.panes[].launch?|agent.args[]: string
 $.panes[].launch?|agent.env[][]: string
 $.panes[].launch?|agent.observed: bool
@@ -340,6 +341,7 @@ $.closed[].launch?: one of
 $.closed[].launch?|agent.provider: provider
 $.closed[].launch?|agent.yolo: bool
 $.closed[].launch?|agent.model: string
+$.closed[].launch?|agent.effort: string
 $.closed[].launch?|agent.args[]: string
 $.closed[].launch?|agent.env[][]: string
 $.closed[].launch?|agent.observed: bool

@@ -424,7 +424,7 @@ test("a launch resumes the way it started, quoting what needs it", () => {
   expect(new Launch({ provider: "claude" }).typed(["--resume", "4ee5c02d-691c-4045-8744-930f330494fd"])).toBe(
     "claude --resume 4ee5c02d-691c-4045-8744-930f330494fd",
   );
-  expect(new Launch(undefined, "custom").run("/bin/corgi", "custom").command).toBe("custom");
+  expect(new Launch(undefined, "custom").run("/bin/corgi").command).toBe("custom");
 });
 test("a resume comes back with the agent's live settings and the options it was typed with", () => {
   const agent = new Agent({ provider: "claude", session: new Text("s1") }),
@@ -443,7 +443,7 @@ test("a resume comes back with the agent's live settings and the options it was 
   expect(launch.typed(["--resume", "s1"])).toBe(
     "claude --dangerously-skip-permissions --mcp-config a.json --resume s1",
   );
-  expect(launch.run("/bin/corgi", "claude").env).toEqual([["CLAUDE_CONFIG_DIR", "/work/.claude"]]);
+  expect(launch.run("/bin/corgi").env).toEqual([["CLAUDE_CONFIG_DIR", "/work/.claude"]]);
   hint.observe(new Agent({ provider: "claude", session: new Text("s2") }));
   expect(hint.permissions).toBeNull();
   expect(hint.model.len).toBe(0);

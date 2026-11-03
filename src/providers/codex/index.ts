@@ -12,6 +12,7 @@ export { EventKind, Method, Rollout, RolloutKind } from "./transcript";
 export { ItemType, commandDirectory, writes } from "./headless";
 import { screen, Watcher } from "./screen";
 import * as renaming from "./rename";
+import * as daemonEffort from "./daemon_effort";
 export { screen };
 export { label as plan } from "./plan";
 import { caps, identity, info, keeping, vocabulary } from "./info";
@@ -24,6 +25,8 @@ export function configDir(env = process.env) {
 }
 /** Where `account` keeps its settings, "" for the default's. */
 const dir = (account: string) => account || configDir();
+/** The control socket of `account`'s shared app server. */
+const control = (account: string) => join(dir(account), "app-server-control/app-server-control.sock");
 /** The thread a terminal title names, as Codex's titles spell its ID. */
 export function titleSession(title: string) {
   let found: Text | null = null;
@@ -107,6 +110,8 @@ export const adapter: Adapter = {
   titleSession,
   launch: {
     options: (args, model, value) => effort.apply(null, model ? commandLine.withoutModel(args) : args, value),
+    deferred: (args, account) => (daemonEffort.autoStarts(dir(account)) ? daemonEffort.deferred(args) : null),
+    settle: (named, account, value) => daemonEffort.settle(control(account), named, value),
     start: s => [
       // Its hooks report a run that never asks as bypassing permissions,
       // sandboxed or not, so approval and sandbox options it kept win.
@@ -124,9 +129,7 @@ export const adapter: Adapter = {
   },
   rename: {
     channel: async (session, connected, account) =>
-      session.length === 36 && connected
-        ? name => renaming.rename(join(dir(account), "app-server-control/app-server-control.sock"), session, name)
-        : null,
+      session.length === 36 && connected ? name => renaming.rename(control(account), session, name) : null,
     typed: { command: renaming.command, empty: renaming.empty, holds: renaming.holds },
   },
   headless: {

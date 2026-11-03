@@ -8,6 +8,7 @@ import type { Worker as UsageWorker } from "./usage/worker";
 import { chmodSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { Runtime } from "./runtime";
+import * as agentEffort from "./agent_effort";
 import { Store, Workspace } from "./workspace";
 import { Client, Reply } from "./peer";
 import { n, ReadyLoop, READ } from "./native_bridge";
@@ -428,6 +429,7 @@ export class Server {
     this.runtime.reapStopped();
     if (this.runtime.raiseEntered()) this.runtime.changed();
     await this.runtime.advanceRenames(clock.milliTimestamp());
+    agentEffort.advance(this.runtime, clock.milliTimestamp());
     const observers_started = telemetry.begin();
     await observers.tick(this);
     telemetry.end("daemon.observers", observers_started);

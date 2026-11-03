@@ -27,6 +27,8 @@ import type { Session } from "./headless";
 import { Briefs } from "./worktree_briefs";
 import * as worktreeAgents from "./worktree_agents";
 import * as breadcrumbs from "./breadcrumbs";
+import { WantedEffort } from "./agent_effort";
+import * as effort from "./providers/effort";
 export type Create = {
   workspace: number;
   split?: { pane: number; axis: Axis; before?: boolean } | null;
@@ -38,6 +40,8 @@ export type Create = {
   title?: string;
   /** Dormant from the start: nothing runs until `Runtime.wake`. */
   asleep?: boolean;
+  /** An effort its agent's command leaves to the provider's own channel. */
+  effort?: effort.Effort | null;
   cols: number;
   rows: number;
   theme: any;
@@ -113,6 +117,9 @@ export class Launch {
       provider: Provider;
       yolo?: boolean;
       model?: string;
+      /** The effort its launcher set, which `args` carry. Only this one, and
+       * none someone wrote into its options, may move off the command. */
+      effort?: effort.Effort;
       /** Options and variables kept from a command someone typed to start it. */
       args?: string[];
       env?: [string, string][];
@@ -123,7 +130,10 @@ export class Launch {
     public command?: string,
   ) {}
   static from(value: any) {
-    return value instanceof Launch ? value : new Launch(value.agent, value.command);
+    if (value instanceof Launch) return value;
+    const { effort: saved, ...agent } = value.agent ?? {},
+      chosen = effort.parse(saved);
+    return new Launch(value.agent ? { ...agent, ...(chosen ? { effort: chosen } : {}) } : undefined, value.command);
   }
   /** Starts `provider` in `account`. */
   static in(provider: Provider, account: string, yolo = false, options = accounts.launchOptions(provider, account)) {
@@ -137,6 +147,7 @@ export class Launch {
       provider,
       yolo,
       ...(options.model ? { model: options.model } : {}),
+      ...(options.effort ? { effort: options.effort } : {}),
       ...(args.length ? { args } : {}),
       ...(env.length ? { env } : {}),
     });
@@ -160,18 +171,19 @@ export class Launch {
   /** The command that starts it, followed by `then`, with the permission
    * checks and model `live` last saw. */
   typed(then: string[] | null = null, live: ResumeHint | null = null) {
-    const { agent } = this,
-      start = agent
-        ? os.shellWords([
-            agent.provider,
-            ...adapter(agent.provider).launch.start({
-              permissions: live?.permissions ?? (agent.yolo ? "bypass" : "default"),
-              model: live ? (live.model.len ? live.model.text() : null) : agent.model || null,
-              args: agent.args ?? [],
-            }),
-          ])
-        : (this.command ?? "");
+    if (this.agent) return os.shellWords([this.agent.provider, ...this.args(this.agent, then, live)]);
+    const start = this.command ?? "";
     return then?.length ? start + " " + os.shellWords(then) : start;
+  }
+  private args(agent: NonNullable<Launch["agent"]>, then: string[] | null, live: ResumeHint | null) {
+    return [
+      ...adapter(agent.provider).launch.start({
+        permissions: live?.permissions ?? (agent.yolo ? "bypass" : "default"),
+        model: live ? (live.model.len ? live.model.text() : null) : agent.model || null,
+        args: agent.args ?? [],
+      }),
+      ...(then ?? []),
+    ];
   }
   /** How the agent at `pid`, which someone started in a pane's shell, starts again. */
   static observed(provider: Provider, pid: number) {
@@ -191,15 +203,27 @@ export class Launch {
           : null;
     return new Launch({ provider, args: kept?.args ?? [], env: kept?.env ?? [], observed: true });
   }
-  /** How a pane runs it, typed as `typed`. */
-  run(executable: string, typed: string): Pick<Create, "command" | "interactive_command" | "env"> {
-    return this.agent
-      ? {
-          command: `${os.shellQuote(executable)} agent ${typed}`,
-          interactive_command: false,
-          env: this.agent.env ?? [],
-        }
-      : { command: typed, interactive_command: true, env: [] };
+  /** How a pane runs it, as `typed` would, or as `attached`. An effort its
+   * provider sets over its own channel comes off the agent's command, for the
+   * pane to set once the agent runs. */
+  run(
+    executable: string,
+    then: string[] | null = null,
+    live: ResumeHint | null = null,
+    attached: string | null = null,
+  ): Pick<Create, "command" | "interactive_command" | "env" | "effort"> {
+    const { agent } = this;
+    if (!agent) return { command: this.typed(then, live), interactive_command: true, env: [] };
+    const args = this.args(agent, then, live),
+      found =
+        agent.effort && attached === null ? adapter(agent.provider).launch.deferred?.(args, this.account()) : null,
+      deferred = found?.effort === agent.effort ? found : null;
+    return {
+      command: `${os.shellQuote(executable)} agent ${attached ?? os.shellWords([agent.provider, ...(deferred?.args ?? args)])}`,
+      interactive_command: false,
+      env: agent.env ?? [],
+      effort: deferred?.effort ?? null,
+    };
   }
 }
 export class Pane {
@@ -440,6 +464,7 @@ export class Runtime {
   sessions: Session[] = [];
   renames: TypedRename[] = [];
   wanted_names: WantedName[] = [];
+  wanted_efforts: WantedEffort[] = [];
   next_session = 1;
   last_agent: Provider = Provider.first;
   agent_yolo = byProvider(() => false);
@@ -621,6 +646,7 @@ export class Runtime {
     }
     const p = new Pane(id, t, dir);
     p.dormant = opts.asleep === true;
+    if (opts.effort && !p.dormant) this.wanted_efforts.push(new WantedEffort(id, t, opts.effort));
     this.panes.push(p);
     this.unarchiveWorkspace(ws.id);
     breadcrumbs.record("opened", { owner: p });
@@ -859,8 +885,7 @@ export class Runtime {
       this.resumed(p, opts.workspace, launch, hint, attached);
       return id;
     }
-    const typed = attached ?? launch.typed(hint.args(launch.account()), hint),
-      run = launch.run(opts.executable, typed),
+    const run = launch.run(opts.executable, hint.args(launch.account()), hint, attached),
       frozen = await this.frozenScreen(opts, old);
     let id: number;
     try {
@@ -920,6 +945,7 @@ export class Runtime {
       typed = attached ?? (args ? launch.typed(args, hint) : launch.typed()),
       old = p.terminal.fadedSnapshot(),
       { cols, rows } = p.terminal,
+      run = launch.run(opts.executable, args, args ? hint : null, attached),
       frozen = shell ? null : await this.frozenScreen({ cols, rows, theme: opts.theme }, old),
       t = await Terminal.create(cols, rows);
     try {
@@ -928,7 +954,6 @@ export class Runtime {
         t.feed(old);
         t.feed(hint.banner(Math.trunc(Date.now() / 1000)));
       }
-      const run = launch.run(opts.executable, typed);
       await t.spawn(
         await Store.directory(p.cwd),
         opts.socket,
@@ -947,6 +972,7 @@ export class Runtime {
     p.terminal = t;
     p.dormant = false;
     this.unarchiveWorkspace(this.workspaces.owner(id)!.id);
+    if (!shell && run.effort) this.wanted_efforts.push(new WantedEffort(id, t, run.effort));
     if (frozen) {
       if (args) this.resumed(p, this.workspaces.owner(id)!.id, launch, hint, attached);
       else {
@@ -984,7 +1010,7 @@ export class Runtime {
       old = p.terminal.fadedSnapshot(),
       forked = {
         ...opts,
-        ...launch.run(opts.executable, typed),
+        ...launch.run(opts.executable, branch.args, p.resume_hint),
         cols: p.terminal.vt.cols,
         rows: p.terminal.vt.rows,
       },
