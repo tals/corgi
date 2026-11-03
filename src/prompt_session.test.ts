@@ -153,6 +153,30 @@ test("a failed start is a hot note, and the next message tries again", async () 
   expect(d.starts.length).toBe(2);
 });
 
+test("a steer sent while a reply streams leaves the reply one row", async () => {
+  const d = new Fake(),
+    c = conversation(d);
+  c.send("plan it", () => start());
+  await settle();
+  d.add(
+    { kind: "conversation", session: "s1", parent: null, role: null, shown: true },
+    { kind: "turn", session: "s1", turn: "t1", phase: "started" },
+    { kind: "partial", session: "s1", text: "Here is" },
+  );
+  await poll(c, 0);
+  c.send("keep it short", () => start());
+  d.add(
+    { kind: "partial", session: "s1", text: "Here is the plan" },
+    { kind: "message", session: "s1", text: "Here is the plan." },
+  );
+  await poll(c, fast_ms);
+  expect(c.items).toEqual([
+    { kind: "user", text: "plan it" },
+    { kind: "text", text: "Here is the plan.", partial: false },
+    { kind: "user", text: "keep it short", steer: true },
+  ]);
+});
+
 test("streamed text, tools and the turn's end fold into rows", async () => {
   const d = new Fake(),
     c = conversation(d);

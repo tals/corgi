@@ -797,11 +797,12 @@ export class Conversation {
     }
   }
   /** The reply text still being written: the newest text since the last
-   * prompt, while it's partial. Tool rows can come between. */
+   * prompt, while it's partial. Tool rows and steers can come between: a
+   * steer joins the turn, whose text block streams on. */
   private openText(): Extract<Item, { kind: "text" }> | null {
     for (let i = this.items.length - 1; i >= 0; i--) {
       const item = this.items[i];
-      if (item.kind === "user") return null;
+      if (item.kind === "user" && !item.steer) return null;
       if (item.kind === "text") return item.partial ? item : null;
     }
     return null;
