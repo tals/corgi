@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,6 +21,7 @@ import { fast_ms } from "./prompt_session";
 import type { Choice, Entry } from "./model_picker";
 import type { Daemon } from "./prompt_session";
 import { Writer } from "./text";
+import { replyFormat } from "./prompt_tools";
 
 /** The screen's text after replaying the cursor moves in `ansi`. */
 function screen(ansi: string, cols: number, rows: number): string[] {
@@ -321,7 +323,7 @@ test("a reply that starts with y is a reply, not an answer", async () => {
   await poll(p, 0);
   type(p, "yes but no force");
   p.key(13);
-  expect(d.sent()).toEqual([{ kind: "prompt", text: "yes but no force" }]);
+  expect(d.sent()).toEqual([{ kind: "prompt", text: replyFormat() + "yes but no force" }]);
   expect(p.conversation.pending()?.id).toBe("r1");
   type(p, "N");
   p.key(13);
@@ -405,7 +407,7 @@ test("a drag over the thread selects its text, copied on release as it was writt
   expect(w.s).toContain(palette.selection + "flicker case");
   p.click(x, y);
   p.drag(x + 4, y + 4);
-  expect(p.release()).toEqual({ kind: "copy", text: sentence + "\n\n- one\n- two" });
+  expect(p.release()).toEqual({ kind: "copy", text: sentence + "\n\n• one\n• two" });
   p.sequence("\x1b[C");
   expect(drawn(p, 80, 30)).not.toContain(palette.selection);
 });
@@ -911,7 +913,9 @@ test("in a pane Esc backs out of menus only, Ctrl+D or /close ends it, and its r
   });
   type(p, "and again?");
   p.key(13);
-  expect(d.sent()).toEqual([{ kind: "prompt", text: "and again?" }]);
+  expect(d.sent()).toEqual([{ kind: "prompt", text: replyFormat() + "and again?" }]);
+  expect(d.sent()[0].text).toContain("Show commits inline in normal Markdown");
+  expect(d.sent()[0].text).toContain("no commits fences");
   expect(d.starts).toEqual([]);
 });
 
@@ -1066,8 +1070,8 @@ function pictured(
   thumbnail = { width: 180, height: 72, cell: { width: 9, height: 18 } },
 ) {
   const w = new Writer();
-  p.draw(w, cols, rows, null, 0, { pictures: true, thumbnail });
-  return { lines: screen(w.s, cols, rows), ansi: w.s };
+  const boxes = p.draw(w, cols, rows, null, 0, { pictures: true, thumbnail });
+  return { lines: screen(w.s, cols, rows), ansi: w.s, boxes };
 }
 
 test("pointing at a pasted image previews it just over its chip", () => {
@@ -1085,6 +1089,9 @@ test("pointing at a pasted image previews it just over its chip", () => {
   expect(shown.lines[y - 7].slice(x - 2, x)).toBe("╭─");
   expect(shown.lines[y - 2]).toContain("Image 1");
   expect(shown.ansi).toContain("\x1b_Ga=p,i=730140");
+  // It reports the card and the frame as drawn over, so the corgi badge can stay clear.
+  expect(shown.boxes).toHaveLength(2);
+  expect(shown.boxes[1]).toMatchObject({ x: x - 2, y: y - 7, h: 7 });
   // Without pictures it names the file instead.
   expect(draw(p).some(l => l.includes("Image 1 · /tmp/shot.png"))).toBe(true);
   // Off the chip, it goes.
@@ -1138,7 +1145,7 @@ test("a long message wraps under the chips, and scrolls them away with its first
   lines = card(draw(p, 80, 30));
   expect(lines.some(l => l.includes("Fix sidebar") || l.includes("›"))).toBe(false);
   // Back on the first line, they're back.
-  for (let i = 0; i < 12; i++) p.sequence("\x1b[A");
+  for (let i = 0; i < 12; i++) p.sequence("\x1b[1;2A");
   expect(card(draw(p, 80, 30)).some(l => l.includes("Fix sidebar"))).toBe(true);
 });
 
@@ -1168,7 +1175,7 @@ test("Esc hides, a click outside closes, and working shows on the input line", a
   type(p, "use bun");
   expect(card(draw(p, 112, 34)).at(-2)).toContain("⏎ steer   ctrl+c stop  │");
   p.key(13);
-  expect(d.sent().at(-1)).toEqual({ kind: "prompt", text: "use bun" });
+  expect(d.sent().at(-1)).toEqual({ kind: "prompt", text: replyFormat() + "use bun" });
   expect(card(draw(p, 112, 34)).find(l => l.includes("use bun"))).toMatch(/› use bun +steered/);
   p.key(3);
   expect(d.sent().at(-1)).toEqual({ kind: "interrupt" });
@@ -1297,6 +1304,27 @@ test("a menu fits over the thread when it can, else hangs below the card, else a
   expect(box(lines)).toEqual(card);
   expect(lines.findIndex(l => l.includes("/new"))).toBe(card.top - 2);
   expect(lines.findIndex(l => l.includes("/forgetmenow"))).toBe(card.top - 9);
+});
+
+test("slash menus use the card's width and fit descriptions even beside commit previews", () => {
+  for (const commits of [false, true]) {
+    const { p } = prompt();
+    if (commits) p.conversation.items.push({ kind: "text", text: "Recent: `7165f82b`", partial: false });
+    for (const cols of [112, 70]) {
+      type(p, "/");
+      const lines = draw(p, cols);
+      expect(lines.find(line => line.includes("/new"))).toContain("fresh conversation");
+      expect(lines.find(line => line.includes("/memory"))).toContain("edit what Corgi remembers");
+      expect(lines.find(line => line.includes("/incognito"))).toContain("keep nothing from here on");
+      expect(lines.every(line => line.length <= cols)).toBe(true);
+      if (commits) {
+        const y = lines.findIndex(line => line.includes("7165f82b"));
+        p.hover(lines[y].indexOf("7165f82b"), y);
+        expect(p["review"].ghosted).toBe(false);
+      }
+      p.key(127);
+    }
+  }
 });
 
 test("the card grows down from where it opened, and moves up only when it must", async () => {
@@ -1482,7 +1510,7 @@ test("a message carries a context block per attachment; the thread shows what we
   type(p, "and this one?");
   p.key(13);
   expect(d.sent().at(-1).text).toBe(
-    '<context kind="agent" name="Release notes">\nscreen of Release notes\n</context>\n\nand this one?',
+    replyFormat() + '<context kind="agent" name="Release notes">\nscreen of Release notes\n</context>\n\nand this one?',
   );
 });
 
@@ -1668,10 +1696,10 @@ test("a reply's conversations show as the launcher's rows, and a click opens one
   expect(p.open).toBe(false);
 });
 
-test("↑ from an empty input picks from the newest list, and ⏎ opens the pick", async () => {
+test("Shift+Tab picks from the newest list, and ⏎ opens the pick", async () => {
   const { p } = await listed(3);
-  expect(find(p, "Reply, or ↑ to pick a conversation").y).toBeGreaterThan(0);
-  p.sequence("\x1b[A");
+  expect(find(p, "↑↓ history · ⇧Tab browse").y).toBeGreaterThan(0);
+  p.sequence("\x1b[Z");
   // The last conversation, nearest the input, is picked first.
   expect(find(p, "Hellgate PR 1 rebase").line).toContain("›");
   expect(card(draw(p)).at(-2)).toContain("⏎ open");
@@ -1683,8 +1711,159 @@ test("↑ from an empty input picks from the newest list, and ⏎ opens the pick
   type(p, "x");
   expect(find(p, "› x").y).toBeGreaterThan(0);
   p.key(127);
-  p.sequence("\x1b[A");
+  p.sequence("\x1b[Z");
   expect(p.key(13)).toMatchObject({ kind: "open", entry: { session: "s2" } });
+});
+
+test("Up/Down recalls messages and restores the edited draft and caret", () => {
+  const { p } = prompt();
+  p.conversation.items.push(
+    { kind: "user", text: "first" },
+    { kind: "text", text: "answer", partial: false },
+    { kind: "user", text: "second\nline", steer: true },
+  );
+  type(p, "my draft");
+  p.sequence("\x1b[D");
+  const caret = p["area"].caret;
+  p.sequence("\x1b[A");
+  expect(p["area"].text).toBe("second\nline");
+  type(p, " edited");
+  p.sequence("\x1b[A");
+  p.sequence("\x1b[A");
+  expect(p["area"].text).toBe("first");
+  p.sequence("\x1b[B");
+  expect(p["area"].text).toBe("second\nline edited");
+  p.sequence("\x1b[B");
+  expect(p["area"].text).toBe("my draft");
+  expect(p["area"].caret).toBe(caret);
+  p.sequence("\x1b[B");
+  expect(p["area"].text).toBe("my draft");
+  p.sequence("\x1b[1;2A");
+  expect(p["area"].text).toBe("my draft");
+  expect(p["area"].selectedText()).toBeTruthy();
+});
+
+test("history stays in the input while Shift+Tab enters results with a draft", async () => {
+  const { p } = await listed(3);
+  p.conversation.items.push({ kind: "user", text: "earlier request" });
+  type(p, "draft");
+  draw(p);
+  p.sequence("\x1b[A");
+  expect(p["area"].text).toBe("earlier request");
+  p.sequence("\x1b[B");
+  p.sequence("\x1b[Z");
+  expect(find(p, "Hellgate PR 1 rebase").line).toContain("›");
+  p.key(27);
+  expect(p["area"].text).toBe("draft");
+  expect(p.open).toBe(true);
+});
+
+test("commit links preview real diffs on hover, open on click, and work in narrow panes", async () => {
+  const { p } = prompt({ mode: "pane" });
+  const repo = folder();
+  const git = (...args: string[]) => execFileSync("git", ["-C", repo, ...args], { stdio: "pipe" });
+  git("init", "-q", "-b", "main");
+  writeFileSync(join(repo, "change.txt"), "before\n");
+  git("add", ".");
+  git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base");
+  writeFileSync(join(repo, "change.txt"), "after\n");
+  git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "change");
+  // A real commit with an all-digit abbreviation, not a mock revision lookup.
+  const tree = git("rev-parse", "HEAD^{tree}").toString().trim();
+  const parent = git("rev-parse", "HEAD~").toString().trim();
+  let numeric = "";
+  for (let nonce = 0; nonce < 10000; nonce++) {
+    const body = `tree ${tree}\nparent ${parent}\nauthor t <t@t> 1 +0000\ncommitter t <t@t> 1 +0000\n\nchange ${nonce}\n`;
+    const hash = new Bun.CryptoHasher("sha1").update(`commit ${Buffer.byteLength(body)}\0${body}`).digest("hex");
+    if (!/^\d{8}/.test(hash)) continue;
+    numeric = execFileSync("git", ["-C", repo, "hash-object", "-w", "-t", "commit", "--stdin"], { input: body })
+      .toString()
+      .trim();
+    break;
+  }
+  expect(numeric).toMatch(/^\d{8}[0-9a-f]{32}$/);
+  git("update-ref", "HEAD", numeric);
+  const hash = numeric.slice(0, 8);
+  writeFileSync(join(repo, "change.txt"), "uncommitted-only-content\n");
+  p.show({ ...context, cwd: repo });
+  p.conversation.items.push({
+    kind: "text",
+    text: `[Review change](HEAD~..HEAD@.)\n\nThe latest change is ${hash}, also \`${hash}\`. Ticket 00000000.`,
+    partial: false,
+  });
+  try {
+    const at = find(p, "Review change");
+    await p["references"].settled();
+    const missing = find(p, "00000000");
+    p.hover(missing.x, missing.y);
+    expect(p["review"].ghosted).toBe(false);
+    expect(at.x).toBeGreaterThan(0);
+    expect(p.hover(at.x, at.y)).toBe(true);
+    await p["review"].refresh();
+    await p["review"].refresh();
+    const ghost = draw(p).join("\n");
+    expect(ghost).toContain("change.txt");
+    expect(ghost).toContain("after");
+    expect(ghost).not.toContain("uncommitted-only-content");
+    expect(find(p, "Review change").x).toBe(at.x);
+    expect(p["review"].open).toBe(false);
+    p.click(at.x, at.y);
+    await p["review"].refresh();
+    await p["review"].refresh();
+    expect(p["review"].open).toBe(true);
+    expect(draw(p).join("\n")).toContain("change.txt");
+    expect(draw(p, 64).join("\n")).toContain("change.txt");
+    p.key(27);
+    expect(p["review"].open).toBe(false);
+    draw(p);
+    await p["references"].settled();
+    const bare = find(p, hash);
+    expect(p.hover(bare.x, bare.y)).toBe(true);
+    await p["review"].refresh();
+    await p["review"].refresh();
+    expect(draw(p).join("\n")).toContain("change.txt");
+    expect(p["review"].ghosted).toBe(true);
+    type(p, "draft");
+    p.sequence("\x1b[Z");
+    expect(p["review"].ghosted).toBe(true);
+    p.key(13);
+    expect(p["review"].open).toBe(true);
+    await p["review"].refresh();
+    await p["review"].refresh();
+    draw(p);
+    p.key(9);
+    p.key(99);
+    type(p, "Please explain this change.");
+    p.key(13);
+    p.key(115);
+    expect(p["area"].text).toStartWith("draft\n\nchange.txt:");
+    expect(p["area"].text).toContain("Please explain this change.");
+    // Sending notes prepares the input; the user still submits it.
+    expect(p.conversation.items.filter(item => item.kind === "user")).toHaveLength(0);
+    p.click(p["review_box"]!.x + 1, 0);
+    p.key(113);
+    expect(p["review"].open).toBe(false);
+    expect(p["area"].text).toContain("draft");
+    expect(p.open).toBe(true);
+  } finally {
+    p.hide();
+  }
+}, 15000);
+
+test("commit references stay inline and don't narrow the conversation before opening review", () => {
+  const { p } = prompt();
+  const width = box(draw(p)).width;
+  p.conversation.items.push({
+    kind: "text",
+    text: "The [sidebar fix](7165f82b@.) follows ee11c852.\n\n```commits\n7165f82b@.\nee11c852@.\n```",
+    partial: false,
+  });
+  const lines = draw(p);
+  expect(box(lines).width).toBe(width);
+  expect(lines.join("\n")).toContain("The sidebar fix follows ee11c852.");
+  expect(lines.join("\n")).toContain("7165f82b, ee11c852");
+  expect(lines.join("\n")).not.toContain("Commits");
+  expect(lines.join("\n")).not.toContain("@.");
 });
 
 test("a long list keeps its height as typing searches it, and scrolls under the wheel", async () => {

@@ -65,6 +65,43 @@ const settle = async (p: panel.Panel) => {
 const key = (p: panel.Panel, k: string | panel.Named) =>
   p.key(k.length === 1 ? { text: k } : { named: k as panel.Named });
 
+test("references open a commit outside the branch list and a range without dirty files", async () => {
+  const p = new panel.Panel();
+  try {
+    p.openReference(root, { kind: "commit", hash: "main" });
+    await settle(p);
+    expect(screen(p).join("\n")).toContain("app.ts");
+    expect(screen(p).join("\n")).not.toContain("No commit picked");
+    p.openReference(root, { kind: "range", from: "main", to: "HEAD" });
+    await settle(p);
+    const text = screen(p).join("\n");
+    expect(text).toContain("notes.md");
+    expect(text).toContain("More.");
+    expect(text).not.toContain("app.ts");
+    expect(text).not.toContain("bun.lock");
+    expect(text).toContain("..");
+    key(p, "tab");
+    key(p, "c");
+    for (const text of "keep this note") key(p, text);
+    key(p, "enter");
+    const rangePane = p.pane!;
+    expect(p.noteCount(rangePane)).toBe(1);
+    p.openReference(root, { kind: "commit", hash: "missing-revision" });
+    await settle(p);
+    expect(screen(p).join("\n")).toContain("No commit: missing-revision");
+    p.openReference(root, { kind: "commit", hash: "HEAD" });
+    await settle(p);
+    expect(screen(p).join("\n")).toContain("More.");
+    p.openReference(root, { kind: "range", from: "main", to: "HEAD" });
+    await settle(p);
+    p.keep(new Set());
+    expect(p.pane).toBe(rangePane);
+    expect(key(p, "y")).toMatchObject({ kind: "copy", text: expect.stringContaining("keep this note") });
+  } finally {
+    p.hide();
+  }
+});
+
 test("opens on all: commits and working copy together", async () => {
   const p = new panel.Panel();
   p.follow({ pane: 1, cwd: root, name: "Fix app" });

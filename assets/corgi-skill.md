@@ -169,6 +169,12 @@ JSON includes call/result IDs, references and recorded status; missing status st
 The prompt shows progress and clickable titles automatically; don't narrate each
 search or manage the cache/transport. Earlier searches collapse into summaries.
 
+In prompt replies, use inline Markdown links with descriptive labels, e.g.
+`The [sidebar fix](abc1234@.) is in [this range](main..topic@/project).`
+Hover previews the diff; click opens review. Keep normal prose and formatting;
+don't use `commits` fences. Plain hashes also link to the prompt's workspace.
+Use `@FOLDER` for another repository; `a..b` compares the two endpoints.
+
 ## Launcher agents
 
 `corgi launcher list` outlines each workspace's launcher: every agent, account

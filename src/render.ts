@@ -226,7 +226,8 @@ export interface Ui {
   /** With every workspace closed, the button that creates one. */
   no_workspace: noWorkspace.State | null;
   /** Draws the Corgi prompt over everything, placing brand marks where it can. */
-  prompt_draw: ((w: Writer, marks: Marks | null) => void) | null;
+  /** Draws the prompt and returns the boxes it drew over. */
+  prompt_draw: ((w: Writer, marks: Marks | null) => Rect[]) | null;
   prompt_cue: Cue | null;
 }
 export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }): Ui {
@@ -518,11 +519,12 @@ function retainable(u: Ui, p: Pane, r: Rect, dim: boolean, hovered: bigint | nul
     r.h === p.terminal.inner.rows
   );
 }
-/** An open overlay reaches the badge. The launcher and scope menu open clear of it. */
-function badgeCovered(u: Ui, side: SidebarView, width: number, height: number): boolean {
-  // The agents drawer has no title row for the badge; the prompt may reach it.
-  if (u.sidebar_drawer === "agents" || u.prompt_draw) return true;
-  const boxes = menuBoxes(u, width, height, side.area());
+/** An open overlay reaches the badge. The launcher and scope menu open clear
+ * of it; `prompt` is what the prompt drew over. */
+function badgeCovered(u: Ui, side: SidebarView, width: number, height: number, prompt: Rect[]): boolean {
+  // The agents drawer has no title row for the badge.
+  if (u.sidebar_drawer === "agents") return true;
+  const boxes = [...menuBoxes(u, width, height, side.area()), ...prompt];
   if (u.agent_launcher) boxes.push(u.agent_launcher.bounds(width, height, side));
   if (u.agent_search) boxes.push(new Rect(0, side.middle() + 1, side.width, 1));
   if (u.dialog) {
@@ -971,9 +973,6 @@ export function frame(
   }
   if (u.git_hover !== null) sidebar.drawGitAction(w, side, u.workspaces, u.git_hover);
   if (u.review_draw) u.review_draw(w);
-  if (u.corgi_badge === "image") {
-    w.write(side.width > 0 && !badgeCovered(u, side, width, height) ? corgiBadge.place() : corgiBadge.hide);
-  }
   const paste_at = u.paste_card ? placeCard(view, panes, area, u.paste_card, u) : null;
   if (paste_at && u.pointer && pasteCard.linkAt(u.paste_card!, paste_at, u.pointer.x, u.pointer.y)) link_pointer = true;
   if (paste_at) {
@@ -1175,7 +1174,12 @@ export function frame(
   if (managed?.manager.last_box && !managed.transition.active)
     w.write(managed.manager.glideImage(managed.manager.last_box, managed.manageModel()));
   cover(signinExit.draw(w, u.added_feedback, width, height, u.signin_exit));
-  if (u.prompt_draw) u.prompt_draw(w, brand_marks);
+  const prompt = u.prompt_draw ? u.prompt_draw(w, brand_marks) : [];
+  covered.push(...prompt);
+  // The badge goes once the prompt has said where it drew.
+  if (u.corgi_badge === "image") {
+    w.write(side.width > 0 && !badgeCovered(u, side, width, height, prompt) ? corgiBadge.place() : corgiBadge.hide);
+  }
   // A sign-in takes the whole screen, its cursor included.
   if (u.signin_draw) {
     hovered_uri = u.signin_draw(w, on_link_card ? null : u.pointer)?.uri ?? null;
@@ -1198,28 +1202,11 @@ export function frame(
     }
   }
   // Like pane images, a mark goes under nothing drawn over it.
-  if (
-    u.tab_icons &&
-    u.cell_pixels &&
-    !u.agent_launcher &&
-    !u.corgi_setup &&
-    !u.prompt_draw &&
-    !u.signin_draw &&
-    !u.signin_exit
-  )
+  if (u.tab_icons && u.cell_pixels && !u.agent_launcher && !u.corgi_setup && !u.signin_draw && !u.signin_exit)
     for (const { brand, x, y } of archive_marks)
       if (!covered.some(box => box.y <= y && box.y + box.h > y && box.x < x + tabIcons.cols && box.x + box.w > x))
         w.write(u.tab_icons.place(brand, x, y, u.cell_pixels));
-  if (
-    marks &&
-    u.tab_icons &&
-    u.cell_pixels &&
-    !u.agent_launcher &&
-    !u.corgi_setup &&
-    !u.prompt_draw &&
-    !u.signin_draw &&
-    !u.signin_exit
-  )
+  if (marks && u.tab_icons && u.cell_pixels && !u.agent_launcher && !u.corgi_setup && !u.signin_draw && !u.signin_exit)
     for (const { brand, x } of marks)
       if (!covered.some(box => box.y === 0 && box.h > 0 && box.x < x + tabIcons.cols && box.x + box.w > x))
         w.write(u.tab_icons.place(brand, x, 0, u.cell_pixels));

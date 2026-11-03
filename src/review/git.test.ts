@@ -40,6 +40,34 @@ beforeAll(() => {
 });
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
+test("batch recognition accepts only existing, unambiguous commit objects", async () => {
+  const hash = run("rev-parse", "HEAD"),
+    blob = run("rev-parse", "HEAD:keep.ts");
+  const found = await git.recognizeCommits(root, [
+    hash.slice(0, 8).toUpperCase(),
+    blob.slice(0, 8),
+    "12345678",
+    "--help",
+    "HEAD\nHEAD",
+  ]);
+  expect([...found]).toEqual([[hash.slice(0, 8), hash]]);
+  expect(await git.recognizeCommits(join(root, "does-not-exist"), [hash])).toEqual(new Map());
+});
+
+test("a resolved range compares its endpoints and excludes the dirty worktree", async () => {
+  const source = await git.resolveRevision(root, { kind: "range", from: "main", to: "HEAD" });
+  expect(source).toEqual({ kind: "range", from: run("rev-parse", "main"), to: run("rev-parse", "HEAD") });
+  const changes = await git.changes(root, source);
+  expect(changes.map(c => c.path)).toEqual(["keep.ts"]);
+  const loaded = await git.fileDiff(root, source, changes[0]);
+  expect(loaded.kind === "diff" && [loaded.diff.old, loaded.diff.new]).toEqual([["const a = 1;"], ["const a = 2;"]]);
+  expect(await git.changes(root, await git.resolveRevision(root, { kind: "range", from: "HEAD", to: "HEAD" }))).toEqual(
+    [],
+  );
+  await expect(git.resolveRevision(root, { kind: "commit", hash: "missing-revision" })).rejects.toThrow("No commit");
+  await expect(git.resolveRevision(root, { kind: "commit", hash: "--help" })).rejects.toThrow("No commit");
+});
+
 test("parses raw and numstat records together, renames included", () => {
   const raw =
     ":100644 100644 a b M\0src/a.ts\0:100644 100644 c d R086\0old.txt\0new.txt\0:000000 100644 0 e A\0x.png\0" +

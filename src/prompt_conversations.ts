@@ -11,10 +11,6 @@ import { Writer, clamp, sat, writeEllipsis } from "./text";
 
 /** The fence a reply lists conversations in. */
 export const fence = "conversations";
-/** Whether `line` opens a list. */
-export function opens(line: string): boolean {
-  return /^\s*```\s*conversations\s*$/.test(line);
-}
 /** Rows a list shows before it scrolls. */
 export const shown_rows = 6;
 /** Columns before a row's title: the gutter, the brand mark and its name. */

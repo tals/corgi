@@ -6,8 +6,8 @@
 //! same card fills the pane and goes on with a conversation handed to it.
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { tmpdir } from "node:os";
-import { basename, isAbsolute, join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import { double_click_ms } from "./clock";
 import * as frames from "./corgi_frames";
 import * as dropdown from "./dropdown";
@@ -24,6 +24,9 @@ import { Provider, adapter } from "./providers";
 import * as effort from "./providers/effort";
 import type { Effort } from "./providers/effort";
 import * as conversations from "./prompt_conversations";
+import * as markdown from "./prompt_markdown";
+import * as reviewPanel from "./review/panel";
+import * as reference from "./review/reference";
 import { Memory, flush as memoryFlush } from "./prompt_memory";
 import * as promptTools from "./prompt_tools";
 import * as promptSearch from "./prompt_search";
@@ -160,7 +163,7 @@ const mention_query = 40;
 /** The longest a chip's name goes in the input row. */
 const chip_name_w = 14;
 
-type Seg = { text: string; style: string };
+type Seg = markdown.Seg;
 /** A thread row: its runs, a fill across the card, hints at the right edge,
  * the request those hints answer, and the chips a message leads with. A row
  * that goes on with the line above when copied says what joins them and how
@@ -230,10 +233,20 @@ type Target = {
     | { kind: "model" }
     | { kind: "list"; list: conversations.List; k: number }
     | { kind: "search"; match: promptSearch.Match }
-    | { kind: "search-toggle"; id: string };
+    | { kind: "search-toggle"; id: string }
+    | { kind: "review"; ref: reference.Resolved };
 };
 /** What a list shows before Corgi has read any conversations. */
 const unread = new launcherResume.Context({ pending: true, entries: [] }, "", "", [], 0);
+
+function sameAction(a: Target["act"] | null, b: Target["act"]): boolean {
+  if (!a || a.kind !== b.kind) return false;
+  if (a.kind === "list" && b.kind === "list") return a.list === b.list;
+  if (a.kind === "review" && b.kind === "review") return reference.key(a.ref) === reference.key(b.ref);
+  if (a.kind === "search" && b.kind === "search")
+    return a.match.provider === b.match.provider && a.match.session === b.match.session;
+  return "id" in a && "id" in b ? a.id === b.id : a.kind === "model";
+}
 
 let s: Record<
   | "border"
@@ -525,29 +538,6 @@ export function corgiCommand(): string[] {
     ? [process.execPath]
     : [process.execPath, join(import.meta.dir, "main.ts")];
 }
-/** Text split into runs at `**bold**` and `code` marks. */
-function inline(text: string, base: string): Seg[] {
-  const out: Seg[] = [];
-  let bold = false,
-    code = false,
-    run = "";
-  const flush = () => {
-    if (run) out.push({ text: run, style: code || bold ? s.bold : base });
-    run = "";
-  };
-  for (let i = 0; i < text.length; i++) {
-    if (!code && text.startsWith("**", i)) {
-      flush();
-      bold = !bold;
-      i++;
-    } else if (text[i] === "`") {
-      flush();
-      code = !code;
-    } else run += text[i];
-  }
-  flush();
-  return out;
-}
 /** The runs of `segs` between columns-of-text offsets `start` and `end`. */
 function slice(segs: Seg[], start: number, end: number): Seg[] {
   const out: Seg[] = [];
@@ -784,6 +774,8 @@ export class Prompt {
   private pasted_cr = false;
   private frame = "";
   private drawn: Layout | null = null;
+  /** Menus can use the empty preview area, up to the viewport or an open review. */
+  private menu_cols = 0;
   private targets: Target[] = [];
   private expandedSearches = new Set<string>();
   /** The list whose conversation the pointer rests on. */
@@ -803,8 +795,18 @@ export class Prompt {
   private shown_from = 0;
   /** Each reply's lists of conversations, in order, kept while it streams. */
   private lists = new WeakMap<Item, conversations.List[]>();
-  /** The list the keyboard is in: ↑ from an empty input, or a press on its search. */
+  /** The list the keyboard is in: Shift+Tab, or a press on its search. */
   private listing: conversations.List | null = null;
+  private ui: Target["act"] | null = null;
+  private ui_row = -1;
+  private history: { at: number; texts: string[]; drafts: Map<number, TextArea> } | null = null;
+  private readonly review = new reviewPanel.Panel();
+  private readonly references = new reference.Recognizer();
+  private review_focused = false;
+  private review_dirty = false;
+  private review_box: Rect | null = null;
+  private review_pressed = false;
+  private hovered_review: reference.Resolved | null = null;
   private readonly clock: () => number;
   /** The corgi executable the model drives Corgi with. */
   private readonly binary: string;
@@ -827,10 +829,17 @@ export class Prompt {
       clock: this.clock,
     });
     this.conversation.claim = deps.pane ?? null;
+    this.references.changed = this.review.changed = () => {
+      this.review_dirty = true;
+    };
   }
   /** Called when a reply arrives while the viewer waits on input. */
   set changed(f: () => void) {
     this.conversation.changed = f;
+    this.references.changed = this.review.changed = () => {
+      this.review_dirty = true;
+      f();
+    };
   }
   /** Models, suggestions, account briefs and what Auto runs, as they arrive. */
   catalog(entries: Entry[], suggested: Choice[], briefs: Brief[], auto: Choice | null = null, loading = false): void {
@@ -876,6 +885,7 @@ export class Prompt {
     };
   }
   show(context: Context): void {
+    this.references.forgetMissing();
     this.open = true;
     this.context = context;
     this.back = 0;
@@ -915,7 +925,10 @@ export class Prompt {
     return this.current() ? `Corgi · ${clean(this.currentLabel())}` : "Corgi";
   }
   hide(): void {
-    this.leaveList();
+    this.leaveUI();
+    this.review.hide();
+    this.review.preview(null);
+    this.review_focused = false;
     this.open = false;
     this.picker = null;
     this.burn_until = 0;
@@ -959,6 +972,17 @@ export class Prompt {
     this.selection = this.clicks = null;
     if (this.picker) return this.picked(this.picker.key(byte));
     if (this.memory_view) return this.remembered(this.memory_view.key(byte));
+    if (this.review_focused) {
+      this.review.preview(null);
+      const named = reviewPanel.byte_keys[byte];
+      const text =
+        byte >= 0x80 ? character(this.typing, byte) : byte >= 32 && byte < 127 ? String.fromCharCode(byte) : null;
+      return named
+        ? this.reviewEffect(this.review.key({ named }))
+        : text
+          ? this.reviewEffect(this.review.key({ text }))
+          : null;
+    }
     // Ctrl+/ searches the newest list of conversations, from the input too.
     if (byte === 31) {
       this.searchList();
@@ -967,6 +991,18 @@ export class Prompt {
     if (this.listing) {
       const effect = this.listKey(byte);
       if (effect !== undefined) return effect;
+    }
+    if (this.ui) {
+      if (byte === 27 || byte === 9) {
+        this.leaveUI();
+        return null;
+      }
+      if (byte === 13) return this.activate(this.ui);
+      if (byte === 106 || byte === 107 || byte === 14 || byte === 16) {
+        this.moveUI(byte === 106 || byte === 14 ? 1 : -1);
+        return null;
+      }
+      this.leaveUI();
     }
     const armed = this.burn_until > 0;
     if (byte !== 13) this.burn_until = 0;
@@ -1030,6 +1066,15 @@ export class Prompt {
     const key = keys.parse(text),
       popup = this.popup(),
       page = Math.max(1, (this.drawn?.thread?.h ?? 2) - 1);
+    if (this.review_focused) {
+      this.review.preview(null);
+      const named = key && reviewPanel.sequence_keys[key];
+      return named ? this.reviewEffect(this.review.key({ named })) : null;
+    }
+    if (key === "shift_tab" && !popup) {
+      this.moveUI(-1);
+      return null;
+    }
     if (this.listing) {
       const effect = this.listSequence(key, text);
       if (effect !== undefined) return effect;
@@ -1038,8 +1083,14 @@ export class Prompt {
       this.move(popup, key === "down" ? 1 : -1);
       return null;
     }
-    // ↑ from an empty input goes into the newest list of conversations.
-    if (key === "up" && !this.area.text && !popup && this.enterList()) return null;
+    if (this.ui && (key === "up" || key === "down")) {
+      this.moveUI(key === "down" ? 1 : -1);
+      return null;
+    }
+    if (key === "up" || key === "down") {
+      this.recall(key === "down" ? 1 : -1);
+      return null;
+    }
     if (key === "page_up") this.back += page;
     else if (key === "page_down") this.back = Math.max(0, this.back - page);
     else {
@@ -1052,6 +1103,10 @@ export class Prompt {
   paste(text: string): void {
     if (!this.open) return;
     this.selection = this.clicks = null;
+    if (this.review_focused) {
+      for (const byte of Buffer.from(text)) this.review.pasteByte(byte);
+      return;
+    }
     if (this.memory_view) return this.memory_view.paste(text);
     if (this.picker) {
       this.picker.sequence(text.replace(/\s+/g, " "));
@@ -1081,6 +1136,13 @@ export class Prompt {
   click(x: number, y: number): Effect | null {
     if (!this.open) return null;
     this.selection = null;
+    if (this.review.open && this.review_box?.contains(x, y)) {
+      this.leaveUI();
+      this.review_focused = this.review_pressed = true;
+      this.review.mouse("press", x, y);
+      return this.reviewEffect(this.review.takeEffect());
+    }
+    this.review_focused = false;
     // Only a press in the thread or the input goes on with a click series.
     const prior = this.clicks;
     this.clicks = null;
@@ -1096,19 +1158,9 @@ export class Prompt {
     if (l.panel?.contains(x, y)) return null;
     for (const t of this.targets) {
       if (y !== t.y || x < t.x || x >= t.x + t.w) continue;
-      if (t.act.kind === "list") return this.pressList(t.act.list, t.act.k);
-      if (t.act.kind === "search") return this.openEntry(promptSearch.entry(t.act.match));
-      if (t.act.kind === "search-toggle") {
-        if (this.expandedSearches.has(t.act.id)) this.expandedSearches.delete(t.act.id);
-        else this.expandedSearches.add(t.act.id);
-        return null;
-      }
-      this.leaveList();
-      if (t.act.kind === "model") this.openPicker();
-      else this.conversation.answer(t.act.id, t.act.kind === "allow");
-      return null;
+      return this.activate(t.act);
     }
-    this.leaveList();
+    this.leaveUI();
     if (!l.box.contains(x, y)) {
       if (this.mode === "pane") return null;
       this.hide();
@@ -1146,6 +1198,10 @@ export class Prompt {
   /** The pointer moved with its button down: a selection reaches from what
    * the press picked to the `unit` under it. True when that changed. */
   drag(x: number, y: number): boolean {
+    if (this.review_pressed) {
+      this.review.mouse("drag", x, y);
+      return true;
+    }
     const sel = this.selection,
       l = this.drawn;
     // Leaving the cell ends a click series.
@@ -1233,6 +1289,11 @@ export class Prompt {
   }
   /** The button came up: what a drag selected is copied. */
   release(): Effect | null {
+    if (this.review_pressed) {
+      this.review_pressed = false;
+      this.review.mouse("release", -1, -1);
+      return this.reviewEffect(this.review.takeEffect());
+    }
     const sel = this.selection;
     if (!sel?.held) return null;
     sel.held = false;
@@ -1257,10 +1318,24 @@ export class Prompt {
   }
   /** The pointer moved: the menu row under it takes the highlight. True when that changed. */
   hover(x: number, y: number): boolean {
+    if (this.review.open && this.review_box?.contains(x, y)) {
+      this.review.preview(null);
+      this.review.mouse("move", x, y);
+      return true;
+    }
+    const target =
+      this.open && !this.picker && !this.memory_view && !this.drawn?.panel
+        ? this.targets.find(t => t.act.kind === "review" && t.y === y && x >= t.x && x < t.x + t.w)
+        : null;
+    const ref = target?.act.kind === "review" ? target.act.ref : null;
+    const reviewChanged =
+      (ref ? reference.key(ref) : null) !== (this.hovered_review ? reference.key(this.hovered_review) : null);
+    this.hovered_review = ref;
+    this.previewReview(ref ?? (this.ui?.kind === "review" ? this.ui.ref : null));
     // A pasted image under the pointer, in the input or a message, shows a preview of itself.
     const spot = this.open && !this.picker ? this.chip_spots.find(c => y === c.y && x >= c.x && x < c.x + c.w) : null,
       image = spot?.mention.kind === "image" ? spot.mention : null;
-    let changed = image !== this.hovered;
+    let changed = reviewChanged || image !== this.hovered;
     this.hovered = image;
     // A list's conversation under the pointer lights up, as the launcher's do.
     const over = this.open && !this.picker && !this.drawn?.panel?.contains(x, y) ? this.listAt(x, y) : null,
@@ -1286,6 +1361,10 @@ export class Prompt {
    * scrolls, else the thread does. */
   scroll(down: boolean, x = -1, y = -1): void {
     if (!this.open) return;
+    if (this.review.open && this.review_box?.contains(x, y)) {
+      this.review.mouse(down ? "wheel_down" : "wheel_up", x, y);
+      return;
+    }
     // What's under the last click moved: the next press starts anew.
     this.clicks = null;
     const over = this.picker || this.memory_view ? null : this.listAt(x, y);
@@ -1317,12 +1396,149 @@ export class Prompt {
     }
     return null;
   }
+  private recall(delta: number): void {
+    if (!this.history) {
+      if (delta > 0) return;
+      const texts = this.conversation.items.flatMap(item => (item.kind === "user" ? [item.text] : []));
+      if (!texts.length) return;
+      this.history = { at: texts.length, texts, drafts: new Map([[texts.length, this.area]]) };
+    }
+    const h = this.history;
+    h.drafts.set(h.at, this.area);
+    h.at = clamp(h.at + delta, 0, h.texts.length);
+    this.area = h.drafts.get(h.at) ?? new TextArea(h.texts[h.at], true);
+    if (h.at === h.texts.length) this.history = null;
+    this.dismissed = null;
+    this.input_first = 0;
+  }
+  private resolveReview(ref: reference.Reference): reference.Resolved {
+    const folder =
+      ref.folder === "~" ? homedir() : ref.folder.startsWith("~/") ? join(homedir(), ref.folder.slice(2)) : ref.folder;
+    return { cwd: resolve(this.context?.cwd || this.conversation.started?.cwd || ".", folder), source: ref.source };
+  }
+  private recognizedReview(ref: reference.Reference, request = false): reference.Resolved | null {
+    const resolved = this.resolveReview(ref);
+    if (!ref.implicit) return resolved;
+    const source = this.references.resolve(resolved.cwd, resolved.source, request);
+    return source ? { cwd: resolved.cwd, source } : null;
+  }
+  private previewReview(ref: reference.Resolved | null): void {
+    this.review.preview(
+      ref ? { cwd: ref.cwd, name: basename(ref.cwd), scope: "commits", pick: null, source: ref.source } : null,
+    );
+  }
+  private reviewEffect(effect: reviewPanel.Effect): Effect | null {
+    switch (effect.kind) {
+      case "send":
+        this.area.anchor = null;
+        this.area.caret = this.area.text.length;
+        this.area.insert((this.area.text ? "\n\n" : "") + effect.text);
+        this.history = null;
+        this.review_focused = false;
+        if (this.review_box?.x === 0) this.review.hide();
+        return null;
+      case "hide":
+        this.review.hide();
+        this.review_focused = false;
+        return null;
+      case "leave":
+        this.review_focused = false;
+        if (this.review_box?.x === 0) this.review.hide();
+        return null;
+      case "copy":
+        return { kind: "copy", text: effect.text };
+      default:
+        return null;
+    }
+  }
+  private activate(act: Target["act"]): Effect | null {
+    switch (act.kind) {
+      case "list":
+        return this.pressList(act.list, act.k);
+      case "search":
+        return this.openEntry(promptSearch.entry(act.match));
+      case "search-toggle":
+        if (this.expandedSearches.has(act.id)) this.expandedSearches.delete(act.id);
+        else this.expandedSearches.add(act.id);
+        return null;
+      case "review":
+        this.leaveUI();
+        this.review.openReference(act.ref.cwd, act.ref.source, "Corgi prompt");
+        this.review_focused = true;
+        return null;
+      case "model":
+        this.leaveUI();
+        this.openPicker();
+        return null;
+      default:
+        this.leaveUI();
+        this.conversation.answer(act.id, act.kind === "allow");
+        return null;
+    }
+  }
+  private uiEntries(): { act: Target["act"]; row: number }[] {
+    const out: { act: Target["act"]; row: number }[] = [];
+    const add = (act: Target["act"], row: number) => {
+      if (!sameAction(out.at(-1)?.act ?? null, act)) out.push({ act, row });
+    };
+    this.lines.forEach((line, row) => {
+      if (line.list) add({ kind: "list", list: line.list.list, k: line.list.k }, row);
+      if (line.searchToggle) add({ kind: "search-toggle", id: line.searchToggle }, row);
+      if (line.search) add({ kind: "search", match: line.search }, row);
+      for (const seg of line.segs) {
+        const ref = seg.review && this.recognizedReview(seg.review);
+        if (ref) add({ kind: "review", ref }, row);
+      }
+      if (line.ask) {
+        add({ kind: "allow", id: line.ask }, row);
+        add({ kind: "deny", id: line.ask }, row);
+      }
+    });
+    return out;
+  }
+  private moveUI(delta: number): void {
+    const entries = this.uiEntries();
+    const selected = entries.findIndex(e => e.row === this.ui_row && sameAction(this.ui, e.act));
+    const at = this.ui
+      ? selected >= 0
+        ? selected
+        : entries.findIndex(e => sameAction(this.ui, e.act))
+      : entries.length;
+    const next = at + delta;
+    if (next < 0) return;
+    this.leaveUI();
+    const entry = entries[next];
+    if (!entry) return;
+    this.ui = entry.act;
+    this.ui_row = entry.row;
+    if (entry.act.kind === "list") {
+      this.listing = entry.act.list;
+      this.listing.view.focused = true;
+      if (delta < 0) this.listing.end(this.known());
+      else this.listing.move(this.known(), -Number.MAX_SAFE_INTEGER);
+      this.revealList();
+    } else {
+      const h = this.drawn?.thread?.h ?? 1;
+      const end = this.lines.length - this.back;
+      if (entry.row < end - h) this.back = this.lines.length - entry.row - h;
+      else if (entry.row >= end) this.back = this.lines.length - entry.row - 1;
+      if (entry.act.kind === "review") this.previewReview(entry.act.ref);
+    }
+  }
+  private leaveUI(): void {
+    this.leaveList();
+    this.ui = null;
+    this.ui_row = -1;
+    this.hovered_review = null;
+    this.review.preview(null);
+  }
   /** Gives the newest list the keyboard, at its last conversation; false with none. */
   private enterList(): boolean {
     const list = this.newestList(),
       known = this.known();
     if (!list || !list.lines(known).length) return false;
     this.listing = list;
+    this.ui = { kind: "list", list, k: 0 };
     list.view.focused = true;
     list.end(known);
     this.revealList();
@@ -1334,7 +1550,7 @@ export class Prompt {
     const list = this.newestList();
     if (!list) return false;
     if (this.listing !== list) {
-      this.leaveList();
+      this.leaveUI();
       if (!this.enterList()) return false;
     }
     if (list.long()) list.view.startSearch();
@@ -1364,20 +1580,21 @@ export class Prompt {
   private pressList(list: conversations.List, k: number): Effect | null {
     const press = list.press(this.known(), k);
     if (press !== "search") return press ? this.openEntry(press.open) : null;
-    if (this.listing !== list) this.leaveList();
+    if (this.listing !== list) this.leaveUI();
     this.listing = list;
+    this.ui = { kind: "list", list, k: 0 };
     list.view.startSearch();
     return null;
   }
   /** Shows a conversation a list picked; the card makes way for it. */
   private openEntry(entry: launcherResume.Entry): Effect {
-    this.leaveList();
+    this.leaveUI();
     if (this.mode === "overlay") this.hide();
     return { kind: "open", entry };
   }
   private listMove(delta: number): void {
     // ↓ past the last conversation gives the keyboard back to the input.
-    if (!this.listing!.move(this.known(), delta) && delta > 0) this.leaveList();
+    if (!this.listing!.move(this.known(), delta)) this.moveUI(Math.sign(delta));
     else this.revealList();
   }
   /** A key while a list has the keyboard. Typing searches a long list; any
@@ -1386,9 +1603,12 @@ export class Prompt {
     const list = this.listing!,
       view = list.view;
     switch (byte) {
+      case 9:
+        this.leaveUI();
+        return null;
       case 27:
         if (view.searching) view.leaveSearch();
-        else this.leaveList();
+        else this.leaveUI();
         return null;
       case 13: {
         const entry = list.selected(this.known());
@@ -1417,7 +1637,7 @@ export class Prompt {
       view.home();
       return null;
     }
-    this.leaveList();
+    this.leaveUI();
     return undefined;
   }
   private listSequence(key: keys.Key | null, text: string): Effect | null | undefined {
@@ -1440,12 +1660,13 @@ export class Prompt {
         view.query.sequence(text);
         return null;
     }
-    this.leaveList();
+    this.leaveUI();
     return undefined;
   }
   /** Reads the session when due; true when the prompt needs drawing. */
   poll(now: number): boolean {
-    let dirty = this.conversation.poll(now);
+    let dirty = this.conversation.poll(now) || this.review_dirty;
+    this.review_dirty = false;
     for (const due of this.rechecks.filter(r => now >= r.at)) rmSync(due.path, { force: true });
     this.rechecks = this.rechecks.filter(r => now < r.at);
     if (this.burn_until && now >= this.burn_until) {
@@ -1466,21 +1687,31 @@ export class Prompt {
     }
     return dirty;
   }
-  /** `preview` is the picture of the image the pointer rests on, as the host holds it. */
-  draw(w: Writer, cols: number, rows: number, marks: Marks | null, now: number, preview?: Preview): void {
+  /** `preview` is the picture of the image the pointer rests on, as the host
+   * holds it. Returns the boxes drawn over. */
+  draw(w: Writer, cols: number, rows: number, marks: Marks | null, now: number, preview?: Preview): Rect[] {
     this.drawn = null;
     this.targets = [];
     this.chip_spots = [];
-    if (!this.open) return;
-    const built = this.layout(cols, rows, now);
+    this.review_box = null;
+    if (!this.open) return [];
+    const review_width = cols >= 85 ? Math.max(reviewPanel.min_width, Math.floor(cols * 0.48)) : 0;
+    this.menu_cols = cols - (this.review.open && review_width ? review_width + 1 : 0);
+    const reserved = this.review.open && review_width ? review_width + 1 : 0;
+    if (this.review.open && !review_width) {
+      this.review_box = new Rect(0, 0, cols, rows);
+      this.review.draw(w, 0, 0, cols, rows, this.review_focused);
+      return [this.review_box];
+    }
+    const built = this.layout(cols - reserved, rows, now);
     if (!built) {
       // Too small for the card: say so where the status line goes; Esc still closes it.
-      if (rows < 1) return;
+      if (rows < 1) return [];
       const message = ellipsis(" Corgi prompt: enlarge terminal or Esc", cols);
       w.write(at(0, rows - 1) + s.text + message);
       w.splat(" ", cols - displayWidth(message));
       w.write("\x1b[0m");
-      return;
+      return [new Rect(0, rows - 1, cols, 1)];
     }
     const { l, lines } = built,
       panel = l.panel,
@@ -1492,6 +1723,7 @@ export class Prompt {
                 ? ""
                 : marks(provider, col, row)
           : marks;
+    if (panel) this.review.preview(null);
     this.drawBox(w, l);
     // The corgi sits at the right of the card's top edge, leaving the input its room.
     const corgi = this.corgi(now);
@@ -1504,11 +1736,23 @@ export class Prompt {
       this.drawInput(w, l, now, under);
     }
     this.drawFooter(w, l, under);
+    const boxes = [l.box];
+    if (panel) boxes.push(panel);
     if (panel && this.picker) this.picker.draw(w, panel, marks, now);
     else if (panel) this.drawMenu(w, panel, marks);
-    else if (this.hovered) this.drawPreview(w, cols, rows, preview ?? { pictures: false, thumbnail: null });
+    else if (this.hovered) {
+      const shown = this.drawPreview(w, cols, rows, preview ?? { pictures: false, thumbnail: null });
+      if (shown) boxes.push(shown);
+    }
+    if (review_width && (this.review.open || this.review.ghosted)) {
+      this.review_box = new Rect(cols - review_width, 0, review_width, rows);
+      if (this.review.open) this.review.draw(w, this.review_box.x, 0, review_width, rows, this.review_focused);
+      if (this.review.ghosted) this.review.drawGhost(w, this.review_box.x, 0, review_width, rows);
+      boxes.push(this.review_box);
+    }
     w.write("\x1b[0m");
     this.drawn = l;
+    return boxes;
   }
 
   /** The menu the input shows: commands while it is one `/word`, or what
@@ -1680,6 +1924,7 @@ export class Prompt {
       return null;
     }
     this.area = new TextArea("", true);
+    this.history = null;
     this.back = 0;
     const c = this.conversation,
       started = c.started;
@@ -1700,6 +1945,7 @@ export class Prompt {
   /** Sends `text` with its attachments once they're read, or after a few
    * seconds with what's there. Messages go in the order they were sent. */
   private post(text: string, chips: Chip[], choice: Choice): void {
+    this.references.forgetMissing();
     const send = () => {
       // Images go as images; the rest go as context blocks before the text.
       const images = chips.flatMap(chip =>
@@ -1718,7 +1964,9 @@ export class Prompt {
           }));
       const viewer = this.deps.viewer?.() ?? null,
         wire =
-          (viewer ? promptTools.where(viewer, this.context?.workspace ?? "") + "\n" : "") + message(text, attached);
+          (viewer ? promptTools.where(viewer, this.context?.workspace ?? "") + "\n" : "") +
+          (this.conversation.session ? promptTools.replyFormat() : "") +
+          message(text, attached);
       this.conversation.send(
         text,
         () => this.start(choice),
@@ -1862,6 +2110,10 @@ export class Prompt {
   }
   /** A new conversation; incognito or not. */
   private fresh(incognito: boolean): void {
+    this.history = null;
+    this.leaveUI();
+    this.review.hide();
+    this.review_focused = false;
     // The conversation let go stores what it should first, unless nothing may be kept.
     this.stopping(this.conversation.reset(this.incognito ? null : memoryFlush));
     this.incognito = incognito;
@@ -1906,6 +2158,10 @@ export class Prompt {
    * still read as written, and clears the thread. The note says what went
    * and what stays. */
   private async burn(): Promise<void> {
+    this.history = null;
+    this.leaveUI();
+    this.review.hide();
+    this.review_focused = false;
     const c = this.conversation,
       used = c.used,
       wrote = c.wrote,
@@ -2095,7 +2351,7 @@ export class Prompt {
       return null;
     }
     const kind = this.picker ? "picker" : popup!.kind,
-      key = `${kind}:${box.x},${box.y},${box.w},${box.h}:${rows}`;
+      key = `${kind}:${box.x},${box.y},${box.w},${box.h}:${rows}:${this.menu_cols}`;
     if (this.placed?.key === key) return this.placed.rect;
     const room = { inside: thread?.h ?? 0, below: rows - box.y - box.h, above: box.y },
       want = this.picker
@@ -2117,9 +2373,14 @@ export class Prompt {
                 : "above";
     const h = Math.min(want, room[where]);
     if (h < 3) return null;
-    const y = where === "inside" ? thread!.y + thread!.h - h : where === "below" ? box.y + box.h : box.y - h,
-      w = Math.min(right - left + 2, this.picker ? 76 : popup!.kind === "slash" ? 54 : 64),
-      rect = new Rect(left - 1, y, w, h);
+    const y = where === "inside" ? thread!.y + thread!.h - h : where === "below" ? box.y + box.h : box.y - h;
+    const slash = popup?.kind === "slash";
+    // Match dropdown's label column, gap and borders; filtering never changes this width.
+    const wanted = slash ? Math.max(...offered(this.mode).map(c => displayWidth(c.about))) + 21 : 0;
+    const w = slash
+      ? Math.min(this.menu_cols - 2, Math.max(right - left + 2, wanted))
+      : Math.min(right - left + 2, this.picker ? 76 : 64);
+    const rect = new Rect(clamp(left - 1, 1, Math.max(1, this.menu_cols - w - 1)), y, w, h);
     this.placed = { key, rect };
     return rect;
   }
@@ -2312,41 +2573,23 @@ export class Prompt {
     if (out.length) out.push({ segs: [] });
     return out;
   }
-  /** A reply's lines: headings strong, fenced code muted, `**bold**` and
-   * `code` marked, each wrapped to `room`; a `conversations` fence as a
-   * list of them. */
+  /** A reply's lines as its Markdown lays them out; a `conversations`
+   * fence as a list of them. */
   private markdown(item: Extract<Item, { kind: "text" }>, room: number): Row[] {
     const out: Row[] = [],
-      lines = item.text.replace(/\s+$/, "").split("\n"),
       lists = this.lists.get(item) ?? [];
     this.lists.set(item, lists);
-    let fenced = false,
-      listed = 0;
-    for (let i = 0; i < lines.length; i++) {
-      const raw = lines[i];
-      if (!fenced && conversations.opens(raw)) {
-        let end = i + 1;
-        while (end < lines.length && !lines[end].trimStart().startsWith("```")) end++;
-        const list = (lists[listed++] ??= new conversations.List([]));
-        list.refs = conversations.refs(lines.slice(i + 1, end));
-        out.push({ segs: [], frame: "top", label: "Conversations" });
-        for (let k = 0; k < list.height(); k++) out.push({ segs: [], frame: "body", list: { list, k } });
-        out.push({ segs: [], frame: "bottom" });
-        i = end;
+    let listed = 0;
+    for (const line of markdown.lines(item, room)) {
+      if ("segs" in line) {
+        out.push(line);
         continue;
       }
-      if (raw.trimStart().startsWith("```")) {
-        fenced = !fenced;
-        continue;
-      }
-      if (fenced) {
-        out.push(...wrapped([{ text: raw, style: s.muted }], room));
-        continue;
-      }
-      const heading = /^#{1,6}\s+(.*)$/.exec(raw);
-      const bullet = /^(\s*(?:[-*]|\d+[.)])\s+)/.exec(raw)?.[1] ?? "";
-      const segs = heading ? [{ text: heading[1], style: s.bold }] : inline(raw, s.text);
-      out.push(...wrapped(segs, room, displayWidth(bullet)));
+      const list = (lists[listed++] ??= new conversations.List([]));
+      list.refs = conversations.refs(line.conversations);
+      out.push({ segs: [], frame: "top", label: "Conversations" });
+      for (let k = 0; k < list.height(); k++) out.push({ segs: [], frame: "body", list: { list, k } });
+      out.push({ segs: [], frame: "bottom" });
     }
     return out;
   }
@@ -2416,7 +2659,31 @@ export class Prompt {
         w.write(at(l.box.x + 1, y) + row.fill);
         w.splat(" ", l.box.w - 2);
       }
-      writeSegs(w, left, y, row.segs);
+      let seg_x = left;
+      for (const seg of row.segs) {
+        const ref = seg.review && this.recognizedReview(seg.review, true);
+        const act: Target["act"] | null = ref ? { kind: "review", ref } : null;
+        const selected =
+          act &&
+          (sameAction(this.ui, act) ||
+            (this.hovered_review && sameAction({ kind: "review", ref: this.hovered_review }, act)));
+        seg_x = writeSegs(w, seg_x, y, [
+          { ...seg, style: selected ? palette.selection : act ? seg.style + "\x1b[4m" : seg.style },
+        ]);
+        if (act) this.targets.push({ x: seg_x - displayWidth(seg.text), y, w: displayWidth(seg.text), act });
+      }
+      const rowAct: Target["act"] | null = row.searchToggle
+        ? { kind: "search-toggle", id: row.searchToggle }
+        : row.search
+          ? { kind: "search", match: row.search }
+          : null;
+      if (rowAct && sameAction(this.ui, rowAct))
+        writeSegs(
+          w,
+          left,
+          y,
+          row.segs.map(seg => ({ ...seg, style: palette.selection })),
+        );
       if (row.searchToggle)
         this.targets.push({ x: left, y, w: right - left, act: { kind: "search-toggle", id: row.searchToggle } });
       if (row.search) {
@@ -2432,6 +2699,20 @@ export class Prompt {
             deny = width(row.right.slice(2));
           this.targets.push({ x, y, w: allow, act: { kind: "allow", id: row.ask } });
           this.targets.push({ x: right - deny, y, w: deny, act: { kind: "deny", id: row.ask } });
+          if (sameAction(this.ui, { kind: "allow", id: row.ask }))
+            writeSegs(
+              w,
+              x,
+              y,
+              row.right.slice(0, 2).map(seg => ({ ...seg, style: palette.selection })),
+            );
+          if (sameAction(this.ui, { kind: "deny", id: row.ask }))
+            writeSegs(
+              w,
+              right - deny,
+              y,
+              row.right.slice(2).map(seg => ({ ...seg, style: palette.selection })),
+            );
         }
       }
       const chosen = this.chosen(this.shown_from + i);
@@ -2499,10 +2780,10 @@ export class Prompt {
   /** The pasted image under the pointer, framed just over its chip, or under
    * it when there's no room: its picture where the host shows them, shrunk
    * to the roomier side when it fits neither, and its name. */
-  private drawPreview(w: Writer, cols: number, rows: number, preview: Preview): void {
+  private drawPreview(w: Writer, cols: number, rows: number, preview: Preview): Rect | null {
     const m = this.hovered,
       spot = this.chip_spots.find(c => c.mention === m);
-    if (!spot || m?.kind !== "image") return;
+    if (!spot || m?.kind !== "image") return null;
     const above = spot.y,
       below = rows - spot.y - 1,
       full = preview.thumbnail,
@@ -2530,6 +2811,7 @@ export class Prompt {
     }
     w.write(at(x + 2, y + bh - 2) + s.muted + ellipsis(caption, inner));
     if (t) w.write(linkThumbnail.placeAt(x + 2, y + 1, t, Math.floor((inner * t.cell.width - t.width) / 2)));
+    return new Rect(x, y, bw, bh);
   }
   private drawInput(w: Writer, l: Layout, now: number, marks: Marks | null): void {
     const c = this.conversation,
@@ -2577,16 +2859,15 @@ export class Prompt {
     }
     if (first) w.write(at(l.left + caret_x, y) + s.accent + "›");
     // A list with the keyboard shows the only caret.
-    const caret = !this.listing;
+    const caret = !this.ui && !this.review_focused;
     if (!this.area.text) {
       const hint = this.reading.length
         ? `Reading ${this.reading.join(", ")}…`
         : state === "blocked"
           ? "Reply, or answer the request above"
           : c.items.length
-            ? // ↑ goes into a list a reply showed.
-              this.newestList() && !this.listing
-              ? "Reply, or ↑ to pick a conversation"
+            ? this.uiEntries().length && !this.ui
+              ? "Reply · ↑↓ history · ⇧Tab browse"
               : "Reply"
             : placeholder;
       w.write(at(x, y) + (caret ? s.spin + "█" : " ") + s.faint + ellipsis(hint, room - 1));
@@ -2642,6 +2923,7 @@ export class Prompt {
   private hints(): [string, string][] {
     // The picker and the memory show their own.
     if (this.picker || this.memory_view) return [];
+    if (this.review_focused) return [["esc", "back to input"]];
     if (this.burn_until)
       return [
         ["⏎", "burn it"],
@@ -2654,6 +2936,12 @@ export class Prompt {
         ["⏎", "open"],
         ...(list.long() && !list.view.searching ? [["type", "to search"] as [string, string]] : []),
         ["esc", list.view.searching ? "clear" : "back"],
+      ];
+    if (this.ui)
+      return [
+        ["↑↓", "pick"],
+        ["⏎", "open"],
+        ["esc", "back"],
       ];
     const popup = this.popup();
     if (popup)
@@ -2682,7 +2970,8 @@ export class Prompt {
             ["ctrl+o", "open as pane"],
             ["esc", "close"],
           ];
-    return this.mode === "pane" ? [["⇥", "model"], leave] : [["ctrl+o", "open as pane"], leave];
+    const browse: [string, string][] = this.uiEntries().length ? [["⇧Tab", "browse"]] : [];
+    return this.mode === "pane" ? [...browse, ["⇥", "model"], leave] : [...browse, ["ctrl+o", "open as pane"], leave];
   }
   /** The first row a menu of `capacity` rows shows, moved only to keep the highlight in view. */
   private menuFirst(count: number, capacity: number): number {

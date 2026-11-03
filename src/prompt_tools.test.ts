@@ -72,6 +72,9 @@ test("the instructions name the binary and the commands that show the user somet
   const text = instructions(bin);
   expect(text).toContain(bin);
   expect(text).toContain("corgi resume PROVIDER SESSION --viewer V");
+  expect(text.slice(0, text.indexOf("<corgi_skill>"))).toContain(
+    "Show commits inline in normal Markdown with descriptive links",
+  );
   // The skill comes whole, without the front matter a skill file starts with.
   expect(text).toContain("<corgi_skill>\n# Corgi\n");
   expect(text).toContain("## Read, message and send");

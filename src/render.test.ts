@@ -602,6 +602,14 @@ test("badge redraw preserves cached pixels and shifts only the workspace heading
   expect(covered).toContain(corgiBadge.hide);
   expect(covered).not.toContain("a=p,i=730031");
   u.tab_menu = null;
+  // The prompt leaves it up unless what it drew reaches it.
+  u.prompt_draw = () => [new Rect(30, 5, 60, 12)];
+  expect(frame(view, [], 100, 30, u)).toContain("a=p,i=730031");
+  u.prompt_draw = () => [new Rect(30, 5, 60, 12), new Rect(1, 0, 40, 4)];
+  const under_prompt = frame(view, [], 100, 30, u);
+  expect(under_prompt).toContain(corgiBadge.hide);
+  expect(under_prompt).not.toContain("a=p,i=730031");
+  u.prompt_draw = null;
   u.sidebar_open = false;
   const hidden = frame(view, [], 100, 30, u);
   expect(hidden).toContain(corgiBadge.hide);
@@ -852,7 +860,7 @@ test("settings' Manage agents places the same provider marks as the launcher's",
   expect(launch.manager.marks).not.toBeNull();
 });
 
-test("the prompt draws over dimmed panes, with no pane cursor or tab marks, and places brand marks", () => {
+test("the prompt draws over dimmed panes, with no pane cursor, and places brand marks", () => {
   const m = new Model();
   const selection = new Selection();
   const id = m.newTab("");
@@ -890,15 +898,20 @@ test("the prompt draws over dimmed panes, with no pane cursor or tab marks, and 
   u.prompt_draw = (w, marks) => {
     w.write("\x1b[10;20HPROMPT");
     placed.push(marks!("claude", 30, 12), marks!("pi", 30, 13));
+    return [new Rect(19, 9, 40, 6)];
   };
   const out = frame(view, [pane], 100, 30, u);
   expect(out).toContain("dimmed");
   expect(out.indexOf("PROMPT")).toBeGreaterThan(out.indexOf("dimmed"));
   expect(out).not.toContain("\x1b[?25h");
-  expect(out).not.toMatch(/\x1b\[1;\d+H\x1b_Ga=p/);
+  // Tab marks stay up unless what the prompt drew reaches them.
+  expect(out).toMatch(/\x1b\[1;\d+H\x1b_Ga=p/);
   expect(placed[0]).toContain("\x1b[13;31H\x1b_Ga=p");
   // Pi has no mark: the prompt writes its glyph.
   expect(placed[1]).toBe("");
+  icons.begin();
+  u.prompt_draw = () => [new Rect(0, 0, 100, 30)];
+  expect(frame(view, [pane], 100, 30, u)).not.toMatch(/\x1b\[1;\d+H\x1b_Ga=p/);
 });
 
 test("put away, the prompt's cue takes the status line unless something else needs it", () => {

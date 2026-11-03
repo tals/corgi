@@ -8518,7 +8518,7 @@ export class Controller {
       return text.includes("\ufffd") ? null : { text };
     }
     this.review_bytes = [];
-    const named = byte_keys[byte];
+    const named = panel.byte_keys[byte];
     if (named) return { named };
     return byte >= 32 && byte < 127 ? { text: String.fromCharCode(byte) } : null;
   }
@@ -8566,29 +8566,8 @@ export class Controller {
     this.dirty = true;
   }
 }
-/** Control bytes the review panel reads as keys: a text box's, and its own,
- * whose meaning ctrl+d and ctrl+u take from what has the keys. */
-const byte_keys: Partial<Record<number, panel.Named>> = {
-  ...textArea.byte_edits,
-  4: "ctrl_d",
-  9: "tab",
-  10: "newline",
-  13: "enter",
-  21: "ctrl_u",
-  27: "escape",
-};
-/** Sequences the review panel reads as keys: a text box's, with its own
- * moves over the diff. */
-const sequence_keys: Partial<Record<keys.Key, panel.Named>> = {
-  ...textArea.key_edits,
-  home: "home",
-  end: "end",
-  page_up: "page_up",
-  page_down: "page_down",
-  shift_tab: "shift_tab",
-};
 function reviewNamed(key: keys.Key): panel.Named | null {
-  return sequence_keys[key] ?? null;
+  return panel.sequence_keys[key] ?? null;
 }
 function direction(key: number): Direction | null {
   switch (key) {

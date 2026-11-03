@@ -293,6 +293,8 @@ the other dings). Moved to a Corgi pane, it shows in the agent list as Corgi.
 | Task | Key |
 | --- | --- |
 | Send / new line | Enter / Shift+Enter |
+| Recall previous messages / return to draft | ↑ / ↓ |
+| Browse interactive results | Shift+Tab, then ↑↓ and Enter; Esc returns to input |
 | Pick the model and effort | Tab, then ↑↓, → for effort, `/` to search |
 | Attach an agent's screen, the selection or the diff | `@` |
 | Attach the clipboard's image | Ctrl+V, or Cmd+V with no text copied |
@@ -302,6 +304,20 @@ the other dings). Moved to a Corgi pane, it shows in the agent list as Corgi.
 | Continue in a Corgi pane of its own | Ctrl+O, or `/pane` |
 | Commands (`/new`, `/remember`, `/dig`, `/memory`…) | `/` |
 | Close | Esc |
+
+Replies can link to a commit as `[review](abc1234@/project)` or an endpoint
+comparison as `[changes](main..topic@/project)`. Hover previews the diff on the
+right; click opens the review tool. Relative folders resolve from the prompt's
+workspace, and `~/` works. Code spans such as `HEAD@.` and `abc1234@/project`
+also work. Standalone hashes and hash ranges in normal prose are recognized
+automatically in the prompt's workspace, including hashes made entirely of
+digits or letters. Git verifies bare hashes in a cached batch before making
+them interactive, so unrelated numbers stay text. Old `commits` blocks render as inline links.
+The hover preview overlays the right side; opening review makes room for it.
+In a narrow terminal,
+clicking opens review at full width. Plain ↑↓ recall messages into the input;
+modified arrows keep their text-selection behavior, and returning past the
+newest recalled message restores the draft and caret.
 
 The pane you opened it over goes with your next message, as a chip at the
 start of the input; Backspace drops it. `@` adds another agent's or shell's

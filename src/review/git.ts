@@ -28,7 +28,41 @@ export interface Change {
   funcname: boolean;
 }
 /** What a listing diffs: the working tree against a revision, or one commit. */
-export type Source = { kind: "worktree"; against: string } | { kind: "commit"; hash: string };
+export type Revision = { kind: "commit"; hash: string } | { kind: "range"; from: string; to: string };
+export type Source = { kind: "worktree"; against: string } | Revision;
+export function revisionLabel(source: Revision, short = false): string {
+  const name = (ref: string) => (short && /^[0-9a-f]{7,64}$/i.test(ref) ? ref.slice(0, 7) : ref);
+  return source.kind === "commit" ? name(source.hash) : `${name(source.from)}..${name(source.to)}`;
+}
+/** Resolve user-facing references before they reach diff's revision/path parser. */
+export async function resolveRevision(root: string, source: Revision): Promise<Revision> {
+  const resolve = async (ref: string) => {
+    const hash = await line(root, ["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`]);
+    if (!hash || !/^[0-9a-f]{40,64}$/.test(hash)) throw Error(`No commit: ${ref}`);
+    return hash;
+  };
+  if (source.kind === "commit") return { kind: "commit", hash: await resolve(source.hash) };
+  const [from, to] = await Promise.all([resolve(source.from), resolve(source.to)]);
+  return { kind: "range", from, to };
+}
+/** Recognize many hash prefixes in one read, without walking history or fetching objects. */
+export async function recognizeCommits(root: string, candidates: string[]): Promise<Map<string, string>> {
+  const hashes = candidates.filter(hash => /^[0-9a-f]{7,64}$/i.test(hash)).map(hash => hash.toLowerCase());
+  const found = new Map<string, string>();
+  if (!hashes.length) return found;
+  const out = await git(root, ["cat-file", "--batch-check=%(objectname) %(objecttype)"], {
+    input: hashes.join("\n") + "\n",
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", GIT_NO_LAZY_FETCH: "1", LC_ALL: "C" },
+  });
+  if (!out.ok()) return found;
+  const lines = out.stdout.toString().trimEnd().split("\n");
+  if (lines.length !== hashes.length) return found;
+  lines.forEach((line, i) => {
+    const match = /^([0-9a-f]{40,64}) commit$/.exec(line);
+    if (match) found.set(hashes[i], match[1]);
+  });
+  return found;
+}
 export interface Base {
   /** The branch compared against, such as `main`. */
   name: string;
@@ -316,8 +350,13 @@ async function parentOf(root: string, hash: string): Promise<string> {
 
 /** The files `source` changed, with untracked files for a working tree. */
 export async function changes(root: string, source: Source): Promise<Change[]> {
-  const range = source.kind === "worktree" ? [source.against] : [await parentOf(root, source.hash), source.hash];
-  const out = await git(root, ["diff", "--raw", "--numstat", "-z", "-M", "--no-ext-diff", ...range]);
+  const range =
+    source.kind === "worktree"
+      ? [source.against]
+      : source.kind === "range"
+        ? [source.from, source.to]
+        : [await parentOf(root, source.hash), source.hash];
+  const out = await git(root, ["diff", "--raw", "--numstat", "-z", "-M", "--no-ext-diff", ...range, "--"]);
   if (!out.ok()) throw Error(out.stderr.toString().trim() || "GitFailed");
   const listed = parseChanges(out.stdout.toString());
   if (source.kind === "worktree") listed.push(...(await untracked(root)));
@@ -359,13 +398,19 @@ async function fileSize(root: string, path: string): Promise<number> {
 export async function fileDiff(root: string, source: Source, change: Change): Promise<Loaded> {
   if (change.binary) return { kind: "binary" };
   const old_path = change.from ?? change.path;
-  const old_rev = source.kind === "worktree" ? source.against : await parentOf(root, source.hash);
+  const old_rev =
+    source.kind === "worktree"
+      ? source.against
+      : source.kind === "range"
+        ? source.from
+        : await parentOf(root, source.hash);
+  const new_rev = source.kind === "range" ? source.to : source.kind === "commit" ? source.hash : "";
   const new_size =
     change.kind === "deleted"
       ? 0
       : source.kind === "worktree"
         ? await fileSize(root, change.path)
-        : await blobSize(root, source.hash, change.path);
+        : await blobSize(root, new_rev, change.path);
   const old_size = change.kind === "added" || change.kind === "untracked" ? 0 : await blobSize(root, old_rev, old_path);
   if (old_size + new_size > diff.max_bytes) return { kind: "too_large", bytes: old_size + new_size };
   const paths = change.from ? [change.from, change.path] : [change.path];
@@ -375,7 +420,7 @@ export async function fileDiff(root: string, source: Source, change: Change): Pr
       ? ["diff", "--no-index", "--no-color", "--no-ext-diff", context, "--", "/dev/null", change.path]
       : source.kind === "worktree"
         ? ["diff", "--no-color", "--no-ext-diff", context, "-M", source.against, "--", ...paths]
-        : ["diff", "--no-color", "--no-ext-diff", context, "-M", old_rev, source.hash, "--", ...paths];
+        : ["diff", "--no-color", "--no-ext-diff", context, "-M", old_rev, new_rev, "--", ...paths];
   };
   try {
     // At the fold margin, and with no hunks joined, every fold ends where one of git's hunks starts.

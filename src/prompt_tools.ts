@@ -74,6 +74,12 @@ export function looks(line: string, binary: string): boolean {
 }
 /** How the model drives Corgi, for its instructions: what's particular to
  * the prompt, then the Corgi skill whole, so it needn't go and read it. */
+const reply_format =
+  "Show commits inline in normal Markdown with descriptive links: [fix](abc1234@.) or [changes](main..topic@/project). Use the repository you queried; no commits fences.";
+/** Existing sessions receive the current rendering contract alongside each follow-up. */
+export function replyFormat(): string {
+  return `<corgi-reply-format>\n${reply_format}\n</corgi-reply-format>\n`;
+}
 export function instructions(binary: string): string {
   return [
     "You can drive Corgi, the terminal multiplexer you live in, with its CLI: `corgi` (also " + binary + ").",
@@ -85,6 +91,8 @@ export function instructions(binary: string): string {
     "To show the user something: `corgi resume PROVIDER SESSION --viewer V` jumps to a conversation, or",
     "reopens it in a tab if it isn't open; `corgi focus PANE --viewer V`; `corgi workspace switch ID --viewer V`.",
     "Do it when the user asks to go somewhere; don't just explain how.",
+    reply_format,
+    "Hover previews the diff; clicking opens review. `@.` means the prompt's workspace.",
     "To offer conversations to pick from, put them in a fenced block marked " + fence + ", one",
     "`PROVIDER SESSION` a line as `corgi history` prints them, best first. Corgi draws each with its",
     "title, folder, what the user last said and when, and the user clicks one to open it, so don't",
