@@ -52,6 +52,7 @@ export async function openMode(
   start_onboarding: boolean,
 ): Promise<bigint> {
   view.remote_links = sshViewer();
+  view.start_folder = cwd;
   // OSC 22 uses X11 names in iTerm2, CSS names in Ghostty/Kitty. Read the
   // attaching viewer's environment: one daemon can serve both terminals.
   view.iterm2_pointer = process.env.TERM_PROGRAM === "iTerm.app";

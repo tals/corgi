@@ -354,6 +354,17 @@ test("a reopened agent that Claude's daemon runs shows the attach it runs", () =
     r.destroy();
   }
 });
+test("the last workspace closes with its panes", () => {
+  const { r, w } = setup();
+  try {
+    add(r, w);
+    expect(() => r.closeWorkspace(1, false)).toThrow("WorkspaceNotEmpty");
+    r.closeWorkspace(1, true);
+    expect([r.workspaces.items, r.panes]).toEqual([[], []]);
+  } finally {
+    r.destroy();
+  }
+});
 test("each workspace keeps its newest closed agents, and closing it drops them", () => {
   const { r, w } = setup();
   try {

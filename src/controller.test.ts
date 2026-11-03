@@ -8,6 +8,8 @@ import * as preferences from "./preferences";
 import { TabMenu, type Row } from "./commands";
 import { Dialog } from "./name_dialog";
 import * as newWorkspace from "./new_workspace";
+import * as noWorkspace from "./no_workspace";
+import * as palette from "./palette";
 import * as agentLauncher from "./agent_launcher";
 import * as launcherResume from "./launcher_resume";
 import * as clock from "./clock";
@@ -523,6 +525,67 @@ test("last workspace records pane jumps and notices closed or missing history", 
   }
 });
 
+test("closing the last workspace leaves the button that creates one, which Enter and a click press", async () => {
+  let snapshot: any = folders("/src/app");
+  const sent: any[] = [];
+  const s: any = new Controller({
+    socket: "",
+    request: transport(async (op, fields: any) => {
+      if (op !== "session.command") return snapshot;
+      sent.push(fields.command);
+      if ("workspace.close" in fields.command) snapshot = { ...snapshot, workspaces: [], panes: [] };
+      return { result: {} };
+    }).request,
+  });
+  s.receiveSnapshot(snapshot);
+  s.input_state.attached = true;
+  s.start_folder = "/src/next";
+  try {
+    await s.perform({ name: "close-workspace" });
+    expect(sent).toEqual([{ "workspace.close": { target: 1, close_contents: true } }]);
+    expect([s.runtime.workspaces.items.length, s.current().id, s.model().count]).toEqual([0, 0, 0]);
+    expect(s.frame()).toContain("Create workspace");
+    // What needs a workspace asks for one, and what moves between them waits.
+    for (const name of ["workspace-next", "workspace-prev", "close-workspace", "edit-workspace", "review"])
+      await s.perform({ name });
+    expect([s.name_dialog, s.tab_menu, sent.length]).toEqual([null, null, 1]);
+    await s.perform({ name: "new" });
+    expect(s.agent_launcher).toBeNull();
+    expect(s.name_dialog).toBeInstanceOf(newWorkspace.Dialog);
+    expect(s.name_dialog.browser.folder()).toBe("/src/next");
+    s.dismissName();
+    await s.input(bytes("\r"));
+    expect(s.name_dialog).toBeInstanceOf(newWorkspace.Dialog);
+    s.dismissName();
+    const button = noWorkspace.layout(s.area())!.button;
+    await s.input(bytes(`\x1b[<0;${button.x + 2};${button.y + 2}M\x1b[<0;${button.x + 2};${button.y + 2}m`));
+    expect(s.name_dialog).toBeInstanceOf(newWorkspace.Dialog);
+  } finally {
+    viewer.close(s);
+  }
+});
+test("the button and the sidebar's add button light together while either is chosen", async () => {
+  const s = controller();
+  s.receiveSnapshot({ workspaces: [], panes: [] });
+  s.input_state.attached = true;
+  try {
+    const lit = palette.call_to_action + "[ + ]";
+    expect(s.frame()).toContain(lit);
+    s.enterSidebar("workspaces");
+    expect(s.frame()).not.toContain(lit);
+    const button = noWorkspace.layout(s.area())!.button;
+    s.pointer = { x: button.x + 1, y: button.y + 1 };
+    expect(s.frame()).toContain(lit);
+    // → goes back to the button; Enter in the empty list adds a workspace.
+    await s.moveFocus("right");
+    expect([s.keyboard, s.name_dialog]).toEqual(["pane", null]);
+    s.enterSidebar("workspaces");
+    await s.input(bytes("\r"));
+    expect([s.keyboard, s.name_dialog instanceof newWorkspace.Dialog]).toEqual(["pane", true]);
+  } finally {
+    viewer.close(s);
+  }
+});
 test("the tab menu starts a prefix only with the configured prefix key", async () => {
   const s = controller();
   s.prefs = Object.assign(new preferences.Preferences(), { prefix: "ctrl_a" });

@@ -22,6 +22,7 @@ import { Dialog, View as NameView, printable } from "./name_dialog";
 import type { Menu as LauncherMenu } from "./agent_launcher";
 import { Menu as SetupMenu, status as setupStatus, type Status as SetupStatus } from "./corgi_setup";
 import * as corgiBadge from "./corgi_badge";
+import * as noWorkspace from "./no_workspace";
 import * as rowGlide from "./row_glide";
 import type { Cell } from "./fork_hero";
 import * as pasteCard from "./paste_card";
@@ -209,6 +210,8 @@ export interface Ui {
   review_ghost: { width: number; draw: (w: Writer) => void } | null;
   /** Draws an account's sign-in over the whole screen, its cursor included. */
   signin_draw: ((w: Writer, pointer: Pointer | null) => linkTooltip.Link | null) | null;
+  /** With every workspace closed, the button that creates one. */
+  no_workspace: noWorkspace.State | null;
 }
 export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }): Ui {
   return {
@@ -272,6 +275,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     review_draw: null,
     review_ghost: null,
     signin_draw: null,
+    no_workspace: null,
     ...fields,
   };
 }
@@ -442,6 +446,10 @@ function placeCard(view: LayoutView, panes: Pane[], area: Rect, notice: Notice, 
 }
 /** No modal overlay, menu, or dialog is covering the panes. */
 function noOverlay(u: Ui): boolean {
+  return noPopup(u) && !u.sidebar_focus;
+}
+/** Nothing open over the screen, though the sidebar may have the keyboard. */
+function noPopup(u: Ui): boolean {
   return (
     u.scope_menu === null &&
     u.agent_launcher === null &&
@@ -453,8 +461,17 @@ function noOverlay(u: Ui): boolean {
     u.worktree_card === null &&
     u.dialog === null &&
     u.signin_draw === null &&
-    u.signin_exit === null &&
-    !u.sidebar_focus
+    u.signin_exit === null
+  );
+}
+/** Dialogs, the launcher, Corgi setup, the workspace drawer and the review panel's keys dim the panes behind them. */
+function dimsPanes(u: Ui): boolean {
+  return (
+    u.dialog !== null ||
+    u.agent_launcher !== null ||
+    u.corgi_setup !== null ||
+    u.sidebar_drawer !== null ||
+    u.review_keys
   );
 }
 /** Whether a pane's cells can stay in its native surface. The viewer's own
@@ -659,10 +676,29 @@ export function frame(
   const thumb = over_tabs ? tabThumb(view, width - side.tabX() - side.panel) : null;
   // Marks take room in their tabs only where the host can show them.
   const marks: TabMark[] | null = u.tab_icons && u.cell_pixels ? [] : null;
-  drawTabs(w, view, panes, u.prefs.preset, side.tabX(), tab_space, thumb, marks);
+  // With every workspace closed, all but the way to create one steps back.
+  const none = u.no_workspace;
+  const on_create =
+    none !== null &&
+    u.pointer !== null &&
+    noPopup(u) &&
+    (noWorkspace.hit(side.area(), u.pointer.x, u.pointer.y) ||
+      side.hit(u.pointer.x, u.pointer.y).tag === "workspace_new");
+  const create_lit = none !== null && (none.focused || on_create);
+  if (none) {
+    const tabs = new Writer();
+    drawTabs(tabs, view, panes, u.prefs.preset, side.tabX(), tab_space, thumb, marks);
+    sidebar.writeExit(w, tabs.buffered(), noWorkspace.dim);
+  } else drawTabs(w, view, panes, u.prefs.preset, side.tabX(), tab_space, thumb, marks);
   if (u.tab_drop_x !== null)
     w.write(`\x1b[1;${side.tabX() + u.tab_drop_x + 1}H\x1b[1m` + palette.fg("strong") + "│\x1b[0m");
-  if (model.count === 0) {
+  if (none) {
+    const button = new Writer();
+    noWorkspace.draw(button, side.area(), none, create_lit);
+    // Behind a dialog, like the panes.
+    if (dimsPanes(u)) sidebar.writeExit(w, button.buffered(), sidebar.spotlight_dim);
+    else w.write(button.buffered());
+  } else if (model.count === 0) {
     const prefix_key = keymap.prefixName(u.prefs.prefix);
     const hint = (name: string, label: string) => {
       const binding =
@@ -767,6 +803,7 @@ export function frame(
         // Pushing and just-pushed badges ignore clicks, so only Push and Retry point.
         const git = sidebar.gitActionWorkspace(side, u.workspaces, u.git_hover, pointer.x, pointer.y);
         if (git) link_pointer = link_pointer || git.git_push.phase === "idle" || git.git_push.phase === "failed";
+        if (on_create) link_pointer = true;
         if (pointer.y === 0 && pointer.x >= side.tabX()) {
           const add_x = side.tabX() + addTabX(view, width - side.tabX() - side.panel);
           link_pointer = link_pointer || (pointer.x >= add_x && pointer.x < add_x + 3);
@@ -830,13 +867,7 @@ export function frame(
       hovered = link?.id ?? null;
       hovered_uri = link?.uri ?? hovered_uri;
     }
-    // Dialogs, the launcher, Corgi setup, the workspace drawer and the review panel's keys dim the panes behind them.
-    const dim =
-      u.dialog !== null ||
-      u.agent_launcher !== null ||
-      u.corgi_setup !== null ||
-      u.sidebar_drawer !== null ||
-      u.review_keys;
+    const dim = dimsPanes(u);
     if (retained && retainable(u, p, r, dim, hovered)) retained.pane(w, p.terminal, p.id, r);
     else w.write(p.terminal.rows(p.id, r.x, r.y, r.w, r.h, dim, hovered));
     w.write("\x1b[0m");
@@ -870,7 +901,12 @@ export function frame(
   // A moving row's tint and a link's thumbnail are placed again by each frame that shows them.
   if (u.supports_kitty_graphics)
     w.write(rowGlide.hide + rowGlide.hideImage(rowGlide.manager_image_id) + linkThumbnail.hide);
-  side.draw(w, entries, workspaces);
+  if (none) {
+    const dimmed = new Writer();
+    side.draw(dimmed, entries, workspaces);
+    sidebar.writeExit(w, dimmed.buffered(), noWorkspace.dim);
+    side.drawTitleRow(w, create_lit);
+  } else side.draw(w, entries, workspaces);
   if (u.git_hover !== null) sidebar.drawGitAction(w, side, u.workspaces, u.git_hover);
   if (u.review_draw) u.review_draw(w);
   if (u.corgi_badge === "image") {

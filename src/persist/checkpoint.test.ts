@@ -461,6 +461,15 @@ test("each workspace keeps its last agent, and one that has none follows the lat
     r.destroy();
   }
 });
+test("live and cold recovery keep every workspace closed", async () => {
+  using r = fresh();
+  r.closeWorkspace(1, true);
+  for (const live of [true, false]) {
+    using next = new Runtime();
+    await restore(next, cp.capture(r, live), live);
+    expect([next.workspaces.items, next.workspaces.next_id]).toEqual([[], 2]);
+  }
+});
 test("each workspace keeps the pane a viewer last used in it", async () => {
   const r = fresh();
   r.workspaces.items[0].focus = 3;

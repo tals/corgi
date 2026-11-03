@@ -1151,8 +1151,18 @@ export class View {
   private thumbStyle(section: Section): string {
     return this.focus === section ? outline : panel + fg("faint");
   }
-  /** The title row and the workspace list above the agents. */
-  private drawWorkspaces(w: Writer, workspaces: WorkspaceEntry[]): void {
+  /** The title row again over a sidebar drawn dimmed, its border included,
+   * with `[ + ]` lit as the call to action while `create` is. */
+  drawTitleRow(w: Writer, create: boolean): void {
+    if (!this.framed() || this.drawer === "agents") return;
+    w.write(`${w.cup(1, 1)}${panel}`);
+    w.splat(" ", this.width - 1);
+    w.write(fg("line") + "│");
+    w.withColumns(lists_x, () => this.lists().drawTitle(w, create));
+    w.write("\x1b[0m");
+  }
+  /** The corgi, the title, and its buttons. */
+  private drawTitle(w: Writer, create = false): void {
     const v = this;
     w.write(`${w.cup(1, v.width - 4)}${panel} < `);
     if (v.corgi_badge !== "none") {
@@ -1160,7 +1170,12 @@ export class View {
       w.write(`${w.cup(1, 6)}\x1b[1m` + fg("strong"));
       writeEllipsis(w, i18n.t`workspaces`, sat(v.width, 17));
     } else v.line(w, 0, i18n.t`workspaces`, "\x1b[1m" + fg("strong"));
-    w.write(w.cup(1, v.width - 10) + button + `[ + ]${panel}`);
+    w.write(w.cup(1, v.width - 10) + (create ? palette.call_to_action : button) + `[ + ]${panel}`);
+  }
+  /** The title row and the workspace list above the agents. */
+  private drawWorkspaces(w: Writer, workspaces: WorkspaceEntry[]): void {
+    const v = this;
+    v.drawTitle(w);
     const shown = workspaces.slice(
       v.workspace_offset,
       Math.min(workspaces.length, v.workspace_offset + v.workspaceCapacity()),

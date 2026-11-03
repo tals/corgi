@@ -1089,7 +1089,6 @@ export class Runtime {
   closeWorkspace(id: number, close_contents: boolean) {
     const index = this.workspaces.index(id);
     if (index === null) throw Error("NoWorkspace");
-    if (this.workspaces.items.length === 1) throw Error("LastWorkspace");
     const ws = this.workspaces.items[index];
     if (!close_contents && (ws.model.count > 0 || this.sessions.some(s => s.workspace_id === id)))
       throw Error("WorkspaceNotEmpty");

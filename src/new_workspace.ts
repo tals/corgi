@@ -97,6 +97,14 @@ export function make(path: string): boolean {
   }
 }
 
+/** The folder field's text for `folder`. */
+function fieldText(folder: string, home: string): string {
+  return folder === "/" ? "/" : label(folder, home) + "/";
+}
+/** The name and folder the dialog opens with at `cwd`. */
+export function opening(cwd: string, home = homedir()): { name: string; folder: string } {
+  return { name: workspace.folderName(cwd), folder: fieldText(cwd, home) };
+}
 /** `path` with the home folder as `~`. */
 export function label(path: string, home: string): string {
   if (home.length > 1 && (path === home || path.startsWith(home + "/"))) return "~" + path.slice(home.length);
@@ -167,7 +175,7 @@ export class Browser {
   }
   /** Lists `folder`, writing it into the field. */
   private show(folder: string): void {
-    this.write(folder === "/" ? "/" : label(folder, this.home) + "/");
+    this.write(fieldText(folder, this.home));
   }
   /** Lists `folder` and picks the first folder in it. */
   private enter(folder: string): void {

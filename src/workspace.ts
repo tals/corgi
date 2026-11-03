@@ -145,7 +145,7 @@ export class Store {
       if (errors.is(error, "InvalidCheckpoint")) invalid();
       throw error;
     }
-    if (!Array.isArray(d.workspaces) || !d.workspaces.length || d.workspaces.length > max_workspaces) invalid();
+    if (!Array.isArray(d.workspaces) || d.workspaces.length > max_workspaces) invalid();
     const items: Workspace[] = [];
     for (const x of d.workspaces) {
       if (
@@ -161,7 +161,8 @@ export class Store {
         invalid();
       items.push(new Workspace(x.id, x.cwd, x.name));
     }
-    if (!items.some(w => w.id === d.active)) invalid();
+    // With every workspace closed, none is active.
+    if (items.length ? !items.some(w => w.id === d.active) : d.active !== Workspace.Id.none) invalid();
     this.items = items;
     this.next_id = d.next_id;
     return d.active as number;
