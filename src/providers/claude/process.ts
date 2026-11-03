@@ -27,10 +27,28 @@ export function hookOrigin() {
   const origin = runningUnder();
   return { pid: origin.pid, background: process.env.CLAUDE_CODE_SESSION_KIND === "bg" || origin.background };
 }
+/** What Claude Code exports to the processes its session starts. A Claude
+ * that inherits them believes it is that session's child: it turns off
+ * transcript saving (CLAUDE_CODE_CHILD_SESSION) or reports to its messaging
+ * socket. AI_AGENT also puts Corgi's own CLI in agent mode. Settings a user
+ * chose, such as CLAUDE_CONFIG_DIR, are not here. */
+const nesting = [
+  "CLAUDECODE",
+  "CLAUDE_CODE_ENTRYPOINT",
+  "CLAUDE_CODE_CHILD_SESSION",
+  "CLAUDE_CODE_SESSION_ID",
+  "CLAUDE_CODE_SESSION_KIND",
+  "CLAUDE_CODE_SESSION_ATTENDED",
+  "CLAUDE_CODE_MESSAGING_SOCKET",
+  "CLAUDE_CODE_MESSAGING_TOKEN",
+  "CLAUDE_CODE_EXECPATH",
+  "CLAUDE_PID",
+  "CLAUDE_EFFORT",
+  "AI_AGENT",
+];
 /** Clears the variables that tell Claude Code it runs inside another session. */
 export function unnest(env: Record<string, string | undefined>) {
-  delete env.CLAUDECODE;
-  delete env.CLAUDE_CODE_ENTRYPOINT;
+  for (const key of nesting) delete env[key];
 }
 function runningUnder() {
   let pid = process.ppid;
