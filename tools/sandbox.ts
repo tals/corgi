@@ -9,6 +9,8 @@
  * `claude` and `codex` there are fakes: they take `work`, `stop`, `block` and
  * `exit`, and pasted notes that start with path:line make them "address" each
  * note by writing a comment into the file, so they have edits to show.
+ * Run headless for the Corgi prompt, `claude` answers from the world's
+ * `prompt-replies.json`.
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -262,6 +264,55 @@ if (provider === 'claude' && words === 'auth status --json') {
   console.log(JSON.stringify(who ? { loggedIn: true, authMethod: 'claude.ai', email: who, subscriptionType: 'max' } : { loggedIn: false, authMethod: 'none' }));
   process.exit(0);
 }
+// The Corgi prompt's headless Claude answers from $HOME/prompt-replies.json:
+// the first reply whose "when" matches the message, step by step. A "run"
+// step runs its command for real, so its output and a corgi grep's live
+// progress are genuine; a "say" step streams Markdown.
+if (provider === 'claude' && process.argv.includes('--include-partial-messages')) {
+  const session = (await import('node:crypto')).randomUUID();
+  const send = v => process.stdout.write(JSON.stringify({ session_id: session, ...v }) + '\n');
+  const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+  let replies = [], n = 0;
+  try { replies = JSON.parse(readFileSync(join(process.env.HOME, 'prompt-replies.json'), 'utf8')); } catch {}
+  const usage = { input_tokens: 2400, output_tokens: 180, cache_read_input_tokens: 18000 };
+  async function say(text) {
+    send({ type: 'stream_event', event: { type: 'content_block_start' } });
+    for (let i = 0; i < text.length; i += 20) {
+      send({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: text.slice(i, i + 20) } } });
+      await pause(12);
+    }
+    send({ type: 'assistant', message: { id: 'msg-' + ++n, content: [{ type: 'text', text }], usage } });
+  }
+  async function run(command) {
+    const id = 'tool-' + ++n;
+    send({ type: 'assistant', message: { id: 'msg-' + n, content: [{ type: 'tool_use', id, name: 'Bash', input: { command } }], usage } });
+    const child = Bun.spawn(['/bin/sh', '-c', command], { stdout: 'pipe', stderr: 'pipe' });
+    const output = (await new Response(child.stdout).text()) + (await new Response(child.stderr).text());
+    send({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: output.slice(0, 8000) }] } });
+  }
+  send({ type: 'system', subtype: 'init', permissionMode: 'bypassPermissions' });
+  for await (const line of (await import('node:readline')).createInterface({ input: process.stdin })) {
+    let v;
+    try { v = JSON.parse(line); } catch { continue; }
+    if (v.type === 'control_request') {
+      send({ type: 'control_response', response: { subtype: 'success', request_id: v.request_id, response: {} } });
+      continue;
+    }
+    if (v.type !== 'user') continue;
+    const content = v.message?.content;
+    const text = typeof content === 'string' ? content : (content ?? []).filter(b => b.type === 'text').map(b => b.text).join('\n');
+    const reply = replies.find(r => new RegExp(r.when, 'i').test(text));
+    send({ type: 'stream_event', event: { type: 'message_start' } });
+    const steps = reply?.steps ?? [{ say: "I'm this sandbox's stand-in for Claude, so I only know a few questions:\n\n" + replies.map(r => '- ' + r.example).join('\n') }];
+    for (const step of steps) {
+      await pause(step.pause ?? 400);
+      if (step.run) await run(step.run);
+      else await say(step.say);
+    }
+    send({ type: 'result', subtype: 'success', is_error: false, result: '', usage });
+  }
+  process.exit(0);
+}
 if (provider === 'claude' && process.argv.includes('--input-format')) {
   // Usage differs by account, so each launcher row reads its own. Resets
   // fall off the hour, as real ones do, for countdowns as wide as "13h 43m".
@@ -270,9 +321,17 @@ if (provider === 'claude' && process.argv.includes('--input-format')) {
   for await (const line of (await import('node:readline')).createInterface({ input: process.stdin })) {
     const request = JSON.parse(line);
     if (request.type !== 'control_request') continue;
+    const efforts = ['low', 'medium', 'high', 'xhigh', 'max'];
     const body = request.request.subtype === 'get_usage'
       ? { subscription_type: 'max', rate_limits_available: true, rate_limits: { five_hour: { utilization: used, resets_at: soon(4 * 3600 + 3 * 60) }, seven_day: { utilization: Math.min(99, used + 20), resets_at: soon(13 * 3600 + 43 * 60) } } }
-      : {};
+      : request.request.subtype === 'initialize'
+        ? { models: [
+            { value: 'default', displayName: 'Default (recommended)', resolvedModel: 'claude-opus-5-5', supportedEffortLevels: efforts },
+            { value: 'opus', displayName: 'Opus 5.5', resolvedModel: 'claude-opus-5-5', supportedEffortLevels: efforts },
+            { value: 'sonnet', displayName: 'Sonnet 5.5', resolvedModel: 'claude-sonnet-5-5', supportedEffortLevels: efforts.slice(0, 3) },
+            { value: 'haiku', displayName: 'Haiku 5.5', resolvedModel: 'claude-haiku-5-5', supportedEffortLevels: [] },
+          ] }
+        : {};
     console.log(JSON.stringify({ type: 'control_response', response: { request_id: request.request_id, subtype: 'success', response: body } }));
   }
   process.exit(0);
