@@ -203,6 +203,7 @@
     },
     "provider": "codex"
   },
+  "headless.search": { "id": 1, "search": {} },
   "headless.events": {
     "session": "t",
     "after": 4,

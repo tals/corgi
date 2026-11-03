@@ -12,13 +12,15 @@ import type { Written } from "./prompt_memory";
 import * as errors from "./errors";
 import { field, str } from "./json";
 import { codepointWidth } from "./text";
+import * as promptSearch from "./prompt_search";
 
 export type Item =
   /** What the user typed, and the chips that went with it; `steer` when it
    * went to a turn already running. */
   | { kind: "user"; text: string; chips?: Mention[]; steer?: boolean }
   | { kind: "text"; text: string; partial: boolean }
-  | { kind: "tool"; id: string; name: string; summary: string; done: boolean }
+  | { kind: "tool"; id: string; name: string; summary: string; done: boolean; search?: string }
+  | { kind: "search"; search: promptSearch.State }
   | { kind: "ask"; id: string; name: string; summary: string; answer: "allow" | "deny" | null }
   | { kind: "note"; text: string; tone: "faint" | "warm" | "hot"; bone?: boolean };
 export interface Daemon {
@@ -66,6 +68,7 @@ export type Hooks = {
   /** Whether a whole shell command only looks at Corgi or moves a viewer, so
    * it runs without asking. */
   corgi?(command: string): boolean;
+  search?(command: string): boolean;
   /** Where a session's transcript is, "" when Corgi doesn't know; asked while it still runs. */
   transcript?(provider: Provider, session: string, account: string): string;
   read?(path: string): string | null;
@@ -130,6 +133,7 @@ type Wire =
   | { kind: "turn"; session: string; phase: "ended"; outcome: Outcome }
   | { kind: "message" | "partial"; session: string; text: string }
   | { kind: "tool"; session: string; id: string; done: boolean; name: string; summary: string }
+  | promptSearch.Event
   | { kind: "request"; session: string; id: string; name: string; summary: string }
   | { kind: "request_closed"; session: string; id: string; running: boolean }
   | { kind: "ended" };
@@ -138,6 +142,10 @@ type Wire =
 function wire(value: unknown): Wire | null {
   const session = str(value, "session");
   switch (str(value, "kind")) {
+    case "search": {
+      const search = promptSearch.parse(field(value, "search"));
+      return search ? { kind: "search", session, search } : null;
+    }
     case "conversation":
       return { kind: "conversation", session, parent: str(value, "parent") || null };
     case "turn": {
@@ -332,6 +340,14 @@ export class Conversation {
       const item = this.items[i];
       if (item.kind === "user") break;
       if (item.kind === "tool" && !item.done) return item;
+    }
+    return null;
+  }
+  search(): promptSearch.State | null {
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      const item = this.items[i];
+      if (item.kind === "user") break;
+      if (item.kind === "search" && !promptSearch.finished(item.search)) return item.search;
     }
     return null;
   }
@@ -577,6 +593,8 @@ export class Conversation {
     for (const item of this.items) {
       if (item.kind === "ask" && item.answer === null) item.answer = "deny";
       if (item.kind === "tool") item.done = true;
+      if (item.kind === "search" && !promptSearch.finished(item.search))
+        item.search = { ...item.search, phase: "cancelled" };
       if (item.kind === "text") item.partial = false;
     }
   }
@@ -708,6 +726,16 @@ export class Conversation {
   private apply(e: Wire): void {
     this.dirty = true;
     switch (e.kind) {
+      case "search": {
+        if (e.session !== this.session) return;
+        const tool = this.tool();
+        if (tool && this.hooks.search?.(tool.summary)) tool.search = e.search.id;
+        const item = this.items.find(i => i.kind === "search" && i.search.id === e.search.id);
+        if (item?.kind === "search") {
+          if (!promptSearch.finished(item.search) && e.search.revision > item.search.revision) item.search = e.search;
+        } else this.push({ kind: "search", search: e.search });
+        return;
+      }
       case "conversation":
         if (e.parent) this.children.add(e.session);
         return;
@@ -725,6 +753,9 @@ export class Conversation {
         this.unread = true;
         for (const item of this.items) if (item.kind === "text") item.partial = false;
         for (const item of this.items) if (item.kind === "tool") item.done = true;
+        for (const item of this.items)
+          if (item.kind === "search" && !promptSearch.finished(item.search))
+            item.search = { ...item.search, phase: "cancelled" };
         this.notice();
         this.capture();
         if (e.outcome === "interrupted") this.note("Stopped.", "faint");

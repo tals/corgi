@@ -152,6 +152,7 @@ export const operations = [
   "headless.stop",
   "headless.send",
   "headless.events",
+  "headless.search",
   "theme",
   "viewer.terminal",
   "bugreport",
@@ -162,6 +163,8 @@ export const operations = [
   "test.advance",
 ] as const;
 const local = new Set([
+  // Local progress callback, like provider hooks; no native CLI imports needed.
+  "headless.search",
   "viewer.list",
   "action",
   "focus",
@@ -689,6 +692,7 @@ const requests = {
   "headless.send": { provider: "provider", session: "string", input: "json" },
   // A reader in a pane passes its pane, which claims the session: closing the pane stops it.
   "headless.events": { provider: "provider", session: "string", after: ["u64", 0], pane: ["?u32", null] },
+  "headless.search": { id: "u32", search: "json" },
   theme: { theme: ["theme", null] },
   "viewer.terminal": { terminal: "json" },
   hook: {

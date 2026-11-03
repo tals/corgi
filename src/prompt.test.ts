@@ -281,14 +281,18 @@ test("mid-conversation: the thread, an approval and a remembered line", async ()
     "╭───────────────────────────────────────────────────────────────────────── ^ᐱ•ᴥ•ᐱ ─╮",
     "│  ›  *  Fix sidebar f…  why does the sidebar test flake on CI?                    │",
     "│                                                                                  │",
-    "│  ● Read src/sidebar.test.ts                                                      │",
-    "│  ● Bash bun test src/sidebar.test.ts -t flicker                                  │",
+    "│  ╭─ Activity ─────────────────────────────────────────────────────────────────╮  │",
+    "│  │ ● Read src/sidebar.test.ts                                                 │  │",
+    "│  │ ● Bash bun test src/sidebar.test.ts -t flicker                             │  │",
+    "│  ╰────────────────────────────────────────────────────────────────────────────╯  │",
     "│                                                                                  │",
     "│  The flicker case seeds the corgi routine with Date.now(), so two cases in the   │",
     "│  same millisecond share a routine and the second reads a cached frame. Seeding   │",
     "│  from the pane id makes every case deterministic.                                │",
     "│                                                                                  │",
-    "│  ● needs you  Edit src/sidebar.test.ts                       y⏎ allow   n⏎ deny  │",
+    "│  ╭─ Activity ─────────────────────────────────────────────────────────────────╮  │",
+    "│  │ ● needs you  Edit src/sidebar.test.ts                   y⏎ allow   n⏎ deny │  │",
+    "│  ╰────────────────────────────────────────────────────────────────────────────╯  │",
     "│                                                                                  │",
     "│  ε=з remembered CI runs unit tests in parallel                                   │",
     "│                                                                                  │",
@@ -1650,10 +1654,10 @@ test("a reply's conversations show as the launcher's rows, and a click opens one
   const rows = card(draw(p));
   const head = rows.findIndex(r => r.includes("Title"));
   expect(rows.slice(head, head + 4).map(r => r.replace(/\s+/g, " "))).toEqual([
-    "│ Title You last said Last active │",
-    "│ * Claude Corgi PR #51 said 0 1h │",
-    "│ │ Corgi PR #64 CI failures ↗ open in a tab 2h │",
-    "│ │ Hellgate PR 1 rebase said 2 3h │",
+    "│ │ Title You last said Last active │ │",
+    "│ │ * Claude Corgi PR #51 said 0 1h │ │",
+    "│ │ │ Corgi PR #64 CI failures ↗ open in a tab 2h │ │",
+    "│ │ │ Hellgate PR 1 rebase said 2 3h │ │",
   ]);
   // The fence's text isn't shown.
   expect(rows.join("\n")).not.toContain("claude s0");
@@ -1721,4 +1725,137 @@ test("ctrl+/ searches the newest list from the input, as its search line says", 
   draw(short);
   short.key(31);
   expect(find(short, "Hellgate PR 1 rebase").line).toContain("›");
+});
+
+test("a live search shows its expression, count and branded clickable matches before the agent replies", async () => {
+  const { p, d, clock } = prompt();
+  type(p, "find the emoji PR");
+  p.key(13);
+  await settle();
+  const search = {
+    id: "q",
+    revision: 1,
+    phase: "searching",
+    expression: "emoji|unicode",
+    workspace: "/work",
+    found: 1,
+    scanned: 8,
+    total: 20,
+    limited: false,
+    error: "",
+    matches: [
+      {
+        provider: "claude",
+        session: "found",
+        account: "",
+        cwd: "/work",
+        title: "Unicode tabs PR #34",
+        excerpt: "Preserve emoji in tab names",
+        updated_at: 10000,
+      },
+    ],
+  };
+  d.add(
+    { kind: "tool", session: "0193-session", id: "bash", name: "Bash", summary: "search", done: false },
+    { kind: "search", session: "0193-session", search },
+  );
+  await poll(p, clock.now);
+  expect(find(p, "Searching conversations").y).toBeGreaterThan(0);
+  expect(find(p, "emoji|unicode").y).toBeGreaterThan(0);
+  expect(find(p, "1 conversation found").y).toBeGreaterThan(0);
+  expect(find(p, "Claude Unicode tabs PR #34").y).toBeGreaterThan(0);
+  expect(p.conversation.tool()?.done).toBe(false);
+  const marks: string[] = [];
+  p.draw(
+    new Writer(),
+    80,
+    30,
+    provider => {
+      marks.push(provider);
+      return "";
+    },
+    0,
+  );
+  expect(marks).toContain("claude");
+  d.add({
+    kind: "search",
+    session: "0193-session",
+    search: { ...search, revision: 2, phase: "done", found: 10, limited: true, scanned: 20 },
+  });
+  await poll(p, clock.now + fast_ms);
+  expect(find(p, "Found 10+ conversations").y).toBeGreaterThan(0);
+  const at = find(p, "Unicode tabs PR #34");
+  expect(p.click(at.x, at.y)).toMatchObject({ kind: "open", entry: { provider: "claude", session: "found" } });
+});
+
+test("searches collapse earlier results, replace Bash rows and use saved titles instead of tool text", async () => {
+  const known = new launcherResume.Context(
+    {
+      pending: false,
+      entries: [
+        launcherResume.historyEntry({
+          provider: "claude",
+          session: "found",
+          title: "Unicode tabs PR #34",
+          cwd: "/work",
+          updated_at: 10,
+        }),
+      ],
+    },
+    "",
+    "",
+    [],
+    0,
+  );
+  const { p, d, clock } = prompt({ conversations: () => known });
+  type(p, "find the PR");
+  p.key(13);
+  await settle();
+  const base = {
+    revision: 1,
+    phase: "done",
+    workspace: "/work",
+    found: 8,
+    scanned: 20,
+    total: 20,
+    limited: false,
+    error: "",
+    matches: [
+      {
+        provider: "claude",
+        session: "found",
+        account: "",
+        cwd: "/work",
+        title: "",
+        excerpt: 'tool("Bash", "gh pr create --fill", "not logged in");',
+        updated_at: 10000,
+      },
+    ],
+  };
+  for (let n = 0; n < 3; n++) {
+    d.add(
+      {
+        kind: "tool",
+        session: "0193-session",
+        id: "bash-" + n,
+        name: "Bash",
+        summary: "corgi grep --workspace /work '" + "x".repeat(200),
+        done: false,
+      },
+      { kind: "search", session: "0193-session", search: { ...base, id: "q-" + n, expression: "needle-" + n } },
+      { kind: "tool", session: "0193-session", id: "bash-" + n, name: "Bash", summary: "", done: true },
+    );
+  }
+  await poll(p, clock.now);
+  let rows = draw(p);
+  expect(rows.filter(l => l.includes("Unicode tabs PR #34"))).toHaveLength(1);
+  expect(rows.filter(l => l.includes("Found 8 conversations"))).toHaveLength(3);
+  expect(rows.join("\n")).not.toContain("Bash");
+  expect(rows.join("\n")).not.toContain("not logged in");
+  const old = find(p, "needle-0");
+  expect(old.y).toBeGreaterThan(0);
+  p.click(old.x, old.y);
+  rows = draw(p);
+  expect(rows.filter(l => l.includes("Unicode tabs PR #34"))).toHaveLength(2);
+  expect(rows.join("\n")).toContain("not logged in");
 });

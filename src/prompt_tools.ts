@@ -33,6 +33,17 @@ function shellWords(line: string): string[] | null {
   }
   return out;
 }
+/** Recognize the command at the tool boundary, before rendering its summary. */
+export function searchCommand(line: string, binary: string): boolean {
+  const words = shellWords(line);
+  return !!words && (words[0] === "corgi" || words[0] === binary) && words[1] === "grep";
+}
+/** Journals may clip the command's tail; classification needs only its prefix. */
+export function searchTool(line: string, binary: string): boolean {
+  return ["corgi", binary, `'${binary}'`, `"${binary}"`].some(
+    executable => line === executable + " grep" || line.startsWith(executable + " grep "),
+  );
+}
 /** Whether `line`, a whole shell command, is one Corgi command that only
  * looks, or a memory command, which touches only the memory folder: plain
  * words, with no pipes, redirects or substitutions, run as `corgi` or as
@@ -42,6 +53,7 @@ export function looks(line: string, binary: string): boolean {
   const said = line.length <= 2048 ? shellWords(line) : null;
   if (said && (said[0] === "corgi" || said[0] === binary) && said[1] === "memory")
     return ["search", "get", "add", "forget"].includes(said[2]);
+  if (searchCommand(line, binary)) return true;
   if (!/^[A-Za-z0-9_.:/@+= -]+$/.test(line) || line.length > 512) return false;
   const words = line.split(" ").filter(Boolean);
   if (words[0] !== "corgi" && words[0] !== binary) return false;
@@ -69,6 +81,7 @@ export function instructions(binary: string): string {
     "You run in no pane of your own, so `current` names nothing: use IDs from `corgi list`.",
     "To find things: `corgi list` (workspaces, tabs, panes, agents and what they're doing, viewers),",
     "`corgi history` (past conversations: provider, session, title, folder, age), `corgi pane read ID`.",
+    "Search their content with `corgi grep --workspace DIR REGEX`; its index and live progress are automatic.",
     "To show the user something: `corgi resume PROVIDER SESSION --viewer V` jumps to a conversation, or",
     "reopens it in a tab if it isn't open; `corgi focus PANE --viewer V`; `corgi workspace switch ID --viewer V`.",
     "Do it when the user asks to go somewhere; don't just explain how.",

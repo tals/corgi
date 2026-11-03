@@ -26,6 +26,7 @@ import type { Effort } from "./providers/effort";
 import * as conversations from "./prompt_conversations";
 import { Memory, flush as memoryFlush } from "./prompt_memory";
 import * as promptTools from "./prompt_tools";
+import * as promptSearch from "./prompt_search";
 import { Picker, label, type Brief, type Choice, type Entry, type Pin, type Result } from "./model_picker";
 import { writeMark, type Marks } from "./provider_mark";
 import {
@@ -173,6 +174,10 @@ type Row = {
   cont?: { join: string; skip: number };
   /** Row `k` of a reply's list of conversations, which draws it. */
   list?: { list: conversations.List; k: number };
+  search?: promptSearch.Match;
+  searchToggle?: string;
+  frame?: "top" | "body" | "bottom";
+  label?: string;
 };
 /** A thread row as drawn, and a column from its left. */
 type Spot = { row: number; col: number };
@@ -221,7 +226,11 @@ type Target = {
   y: number;
   w: number;
   act:
-    { kind: "allow" | "deny"; id: string } | { kind: "model" } | { kind: "list"; list: conversations.List; k: number };
+    | { kind: "allow" | "deny"; id: string }
+    | { kind: "model" }
+    | { kind: "list"; list: conversations.List; k: number }
+    | { kind: "search"; match: promptSearch.Match }
+    | { kind: "search-toggle"; id: string };
 };
 /** What a list shows before Corgi has read any conversations. */
 const unread = new launcherResume.Context({ pending: true, entries: [] }, "", "", [], 0);
@@ -377,7 +386,7 @@ export function readHandoff(path: string): HandoffFile | null {
     return null;
   }
 }
-const item_kinds = new Set(["user", "text", "tool", "ask", "note"]);
+const item_kinds = new Set(["user", "text", "tool", "search", "ask", "note"]);
 /** A handoff as the card wrote it, its conversation checked. */
 function handoffFile(v: any): HandoffFile | null {
   const h = v?.conversation,
@@ -403,7 +412,12 @@ function handoffFile(v: any): HandoffFile | null {
             },
             after: String(h.after),
             running: h.running === true,
-            items: list(h.items).filter((item: any) => item_kinds.has(item?.kind)),
+            items: list(h.items).flatMap((item: any) => {
+              if (!item_kinds.has(item?.kind)) return [];
+              if (item.kind !== "search") return [item];
+              const search = promptSearch.parse(item.search);
+              return search ? [{ kind: "search", search }] : [];
+            }),
             wrote: list(h.wrote),
             used: list(h.used),
             memory_writes: h.memory_writes !== false,
@@ -583,10 +597,11 @@ function cells(row: Row, room: number): string[] {
       x += w;
     }
   };
-  put(0, row.segs.map(seg => seg.text).join(""));
+  put(row.frame === "body" ? 2 : 0, row.segs.map(seg => seg.text).join(""));
   if (row.chips?.more) put(text_x, `+${row.chips.more}`);
   for (const piece of row.chips?.pieces ?? []) put(text_x + piece.x + (branded(piece.mention) ? 4 : 1), piece.text);
-  if (row.right?.length) put(room - width(row.right), row.right.map(seg => seg.text).join(""));
+  if (row.right?.length)
+    put(room - (row.frame === "body" ? 2 : 0) - width(row.right), row.right.map(seg => seg.text).join(""));
   return out;
 }
 /** Two spots, the earlier first. */
@@ -770,6 +785,7 @@ export class Prompt {
   private frame = "";
   private drawn: Layout | null = null;
   private targets: Target[] = [];
+  private expandedSearches = new Set<string>();
   /** The list whose conversation the pointer rests on. */
   private hovered_list: conversations.List | null = null;
   /** The memory, browsed in the card in place of the thread and the input. */
@@ -807,6 +823,7 @@ export class Prompt {
       files: () => [join(this.memory.dir, "MEMORY.md"), this.memory.today(new Date(this.clock()))],
       transcript: (provider, session, account) => this.transcript(provider, session, account),
       corgi: command => promptTools.looks(command, this.binary),
+      search: command => promptTools.searchTool(command, this.binary),
       clock: this.clock,
     });
     this.conversation.claim = deps.pane ?? null;
@@ -1080,6 +1097,12 @@ export class Prompt {
     for (const t of this.targets) {
       if (y !== t.y || x < t.x || x >= t.x + t.w) continue;
       if (t.act.kind === "list") return this.pressList(t.act.list, t.act.k);
+      if (t.act.kind === "search") return this.openEntry(promptSearch.entry(t.act.match));
+      if (t.act.kind === "search-toggle") {
+        if (this.expandedSearches.has(t.act.id)) this.expandedSearches.delete(t.act.id);
+        else this.expandedSearches.add(t.act.id);
+        return null;
+      }
       this.leaveList();
       if (t.act.kind === "model") this.openPicker();
       else this.conversation.answer(t.act.id, t.act.kind === "allow");
@@ -2102,23 +2125,29 @@ export class Prompt {
   }
   /** The thread as rows `room` columns wide, oldest first, with a blank
    * between unlike rows and after the last. */
-  private rows(room: number, now: number): Row[] {
+  private rows(totalRoom: number, now: number): Row[] {
     const out: Row[] = [],
       first = this.conversation.pending(),
+      latestSearch = this.conversation.items.findLast(item => item.kind === "search"),
       spinner = frames.thinking[Math.floor(now / 80) % frames.thinking.length];
     let last: string | null = null;
     const group = (item: Item) =>
-      item.kind === "tool" || item.kind === "ask"
-        ? "tool"
+      item.kind === "search" || item.kind === "tool" || item.kind === "ask"
+        ? "activity"
         : item.kind === "note"
           ? item.bone
             ? "bone"
             : "note"
           : null;
     for (const item of this.conversation.items) {
+      if (item.kind === "tool" && item.search) continue;
       const kind = group(item);
+      if (last === "activity" && kind !== last) out.push({ segs: [], frame: "bottom" });
       if (out.length && (kind === null || kind !== last)) out.push({ segs: [] });
+      if (kind === "activity" && last !== kind) out.push({ segs: [], frame: "top", label: "Activity" });
       last = kind;
+      const begin = out.length,
+        room = Math.max(1, totalRoom - (kind === "activity" ? 4 : 0));
       switch (item.kind) {
         case "user": {
           // Its chips lead it as they led the input, and its text wraps as it did there.
@@ -2163,6 +2192,71 @@ export class Prompt {
             ),
           });
           break;
+        case "search": {
+          const search = item.search,
+            done = promptSearch.finished(search),
+            failed = search.phase === "failed" || search.phase === "cancelled",
+            symbol = failed ? "×" : done ? "✓" : spinner,
+            expanded = this.expandedSearches.has(search.id),
+            show = expanded || item === latestSearch,
+            label =
+              search.phase === "checking"
+                ? "Checking for new conversations"
+                : search.phase === "indexing"
+                  ? "Updating conversation index"
+                  : search.phase === "searching"
+                    ? "Searching conversations"
+                    : search.phase === "failed"
+                      ? "Search failed"
+                      : search.phase === "cancelled"
+                        ? "Search stopped"
+                        : "Found",
+            count = `${search.found}${search.limited ? "+" : ""} conversation${search.found === 1 ? "" : "s"}`,
+            detail =
+              search.phase === "indexing"
+                ? search.total
+                  ? ` · ${search.scanned}/${search.total}`
+                  : ""
+                : !done
+                  ? ` · ${count} found`
+                  : "";
+          out.push({
+            segs: clip(
+              [
+                { text: symbol + " ", style: failed ? s.hot : s.spin },
+                { text: label + (search.phase === "done" ? " " + count : ""), style: s.bold },
+                { text: detail + (!show ? " · " + search.expression : ""), style: s.muted },
+              ],
+              room,
+            ),
+            searchToggle: search.id,
+          });
+          if (!show) break;
+          out.push({ segs: clip([{ text: "  " + search.expression, style: s.muted }], room) });
+          if (expanded) out.push({ segs: clip([{ text: "  " + search.workspace, style: s.faint }], room) });
+          if (search.error) out.push({ segs: clip([{ text: "  " + search.error, style: s.hot }], room) });
+          const known = this.known();
+          for (const raw of search.matches.slice(0, expanded ? promptSearch.top_k : 3)) {
+            const saved = known.history.entries.find(e => e.provider === raw.provider && e.session === raw.session),
+              title = saved?.title || raw.title || saved?.first || "Untitled conversation",
+              match = { ...raw, title },
+              open = known.opened(promptSearch.entry(match));
+            out.push({
+              segs: clip(
+                [
+                  { text: open ? "● " : "○ ", style: open ? s.warm : s.faint },
+                  { text: "   " + adapter(match.provider).name.padEnd(6) + " ", style: s.muted },
+                  { text: title, style: s.text },
+                ],
+                room,
+              ),
+              search: match,
+            });
+            if (expanded && match.excerpt)
+              out.push({ segs: clip([{ text: "     " + match.excerpt, style: s.muted }], room) });
+          }
+          break;
+        }
         case "ask": {
           if (item.answer === null) {
             const right =
@@ -2212,7 +2306,9 @@ export class Prompt {
           break;
         }
       }
+      if (kind === "activity") for (let i = begin; i < out.length; i++) out[i].frame = "body";
     }
+    if (last === "activity") out.push({ segs: [], frame: "bottom" });
     if (out.length) out.push({ segs: [] });
     return out;
   }
@@ -2233,7 +2329,9 @@ export class Prompt {
         while (end < lines.length && !lines[end].trimStart().startsWith("```")) end++;
         const list = (lists[listed++] ??= new conversations.List([]));
         list.refs = conversations.refs(lines.slice(i + 1, end));
-        for (let k = 0; k < list.height(); k++) out.push({ segs: [], list: { list, k } });
+        out.push({ segs: [], frame: "top", label: "Conversations" });
+        for (let k = 0; k < list.height(); k++) out.push({ segs: [], frame: "body", list: { list, k } });
+        out.push({ segs: [], frame: "bottom" });
         i = end;
         continue;
       }
@@ -2281,29 +2379,59 @@ export class Prompt {
     this.shown_from = Math.max(0, end - t.h);
     const newest = this.newestList();
     shown.forEach((row, i) => {
-      const y = t.y + i;
+      const y = t.y + i,
+        inset = row.frame === "body" ? 2 : 0,
+        left = l.left + inset,
+        right = l.right - inset;
+      if (row.frame) {
+        w.write(at(l.left, y) + s.border);
+        if (row.frame === "body") {
+          w.write("│");
+          w.write(at(l.right - 1, y) + s.border + "│");
+        } else {
+          const top = row.frame === "top",
+            label = top && row.label ? " " + row.label + " " : "",
+            caption = ellipsis(label, Math.max(0, t.w - 4));
+          w.write(
+            (top ? "╭" : "╰") +
+              "─" +
+              s.muted +
+              caption +
+              s.border +
+              "─".repeat(Math.max(0, t.w - 3 - displayWidth(caption))) +
+              (top ? "╮" : "╯"),
+          );
+          return;
+        }
+      }
       if (row.list) {
         // As the launcher draws its rows: 1-based, across the card from its
         // border. Ctrl+/ searches the newest list; a click, any.
         const cap = row.list.list === newest ? "ctrl+/" : "";
-        row.list.list.draw(w, this.known(), row.list.k, l.box.x + 1, y + 1, l.box.w, marks, cap);
-        this.targets.push({ x: l.box.x + 1, y, w: l.box.w - 2, act: { kind: "list", ...row.list } });
+        row.list.list.draw(w, this.known(), row.list.k, l.left + 1, y + 1, t.w, marks, cap);
+        this.targets.push({ x: l.left + 1, y, w: t.w - 2, act: { kind: "list", ...row.list } });
         return;
       }
       if (row.fill) {
         w.write(at(l.box.x + 1, y) + row.fill);
         w.splat(" ", l.box.w - 2);
       }
-      writeSegs(w, l.left, y, row.segs);
+      writeSegs(w, left, y, row.segs);
+      if (row.searchToggle)
+        this.targets.push({ x: left, y, w: right - left, act: { kind: "search-toggle", id: row.searchToggle } });
+      if (row.search) {
+        writeMark(w, row.search.provider, left + 2, y, marks);
+        this.targets.push({ x: left, y, w: right - left, act: { kind: "search", match: row.search } });
+      }
       if (row.chips) this.drawChips(w, l.left + text_x, y, row.chips, marks);
       if (row.right?.length) {
-        const x = l.right - width(row.right);
+        const x = right - width(row.right);
         writeSegs(w, x, y, row.right);
         if (row.ask) {
           const allow = displayWidth(row.right[0].text + row.right[1].text.trimEnd()),
             deny = width(row.right.slice(2));
           this.targets.push({ x, y, w: allow, act: { kind: "allow", id: row.ask } });
-          this.targets.push({ x: l.right - deny, y, w: deny, act: { kind: "deny", id: row.ask } });
+          this.targets.push({ x: right - deny, y, w: deny, act: { kind: "deny", id: row.ask } });
         }
       }
       const chosen = this.chosen(this.shown_from + i);
@@ -2420,13 +2548,24 @@ export class Prompt {
       const spinner = frames.thinking[Math.floor(now / 80) % frames.thinking.length],
         seconds = Math.max(0, Math.floor((now - c.working_since) / 1000)),
         tool = c.tool(),
+        search = c.search(),
         segs: Seg[] = [
           {
             text: `${c.stopping ? "stopping" : state === "starting" ? "starting" : "working"} ${seconds}s`,
             style: s.muted,
           },
         ];
-      if (tool)
+      if (search)
+        segs.push(
+          {
+            text:
+              " · " +
+              (search.phase === "checking" ? "checking" : search.phase === "indexing" ? "updating index" : "searching"),
+            style: s.key,
+          },
+          { text: " " + search.expression + (search.found ? ` · ${search.found} found` : ""), style: s.faint },
+        );
+      else if (tool && !tool.search)
         segs.push(
           { text: " · ", style: s.faint },
           { text: tool.name, style: s.key },

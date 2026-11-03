@@ -368,6 +368,8 @@ $.requests|headless.events.session: string
 $.requests|headless.events.after: u64
 $.requests|headless.events.pane: optional
 $.requests|headless.events.pane?: u32
+$.requests|headless.search.id: u32
+$.requests|headless.search.search: any
 $.requests|theme.theme: optional
 $.requests|theme.theme?.foreground: optional
 $.requests|theme.theme?.foreground?.r: u8

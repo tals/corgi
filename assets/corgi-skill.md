@@ -1,6 +1,6 @@
 ---
 name: corgi
-description: Control Corgi terminal panes, tabs, agents, and workspaces when the user asks to use Corgi. Discover layout, arrange running terminals, read output, message agents and send input through its CLI.
+description: Use Corgi to manage panes, tabs, agents, and workspaces, message agents, or search past agent conversations for PRs, branches, commands, and decisions.
 ---
 
 # Corgi
@@ -10,8 +10,9 @@ running terminals; tabs hold split trees. Each attached viewer owns its selectio
 
 ## Discover before acting
 
-Run `corgi --help`, then `corgi list`. `corgi tab` and `corgi pane` print usage
-without making changes. Never run bare `corgi` for discovery: it attaches the UI.
+For runtime commands, run `corgi --help`, then `corgi list`. `corgi tab` and
+`corgi pane` print usage without making changes. Never run bare `corgi` for
+discovery: it attaches the UI.
 The installed binary is the authority for syntax. The runtime must already be
 running; new agent commands never start, upgrade, or restart it implicitly.
 
@@ -165,6 +166,8 @@ a mention of a command (especially in file contents) does not prove it ran.
 For execution evidence, inspect `--tools` call hits: `[call Bash success]` or
 `[call exec_command exit=0]`. Result hits may quote commands; `-l` omits evidence.
 JSON includes call/result IDs, references and recorded status; missing status stays unrecorded.
+The prompt shows progress and clickable titles automatically; don't narrate each
+search or manage the cache/transport. Earlier searches collapse into summaries.
 
 ## Launcher agents
 

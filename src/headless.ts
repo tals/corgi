@@ -32,12 +32,13 @@ import type { Runtime } from "./runtime";
 import type { Server } from "./server";
 import { Reply, type Client as Peer } from "./peer";
 import type { DecodedRequest } from "./protocol";
+import * as promptSearch from "./prompt_search";
 type Request = Extract<
   DecodedRequest,
-  { op: "headless.start" | "headless.list" | "headless.stop" | "headless.send" | "headless.events" }
+  { op: "headless.start" | "headless.list" | "headless.stop" | "headless.send" | "headless.events" | "headless.search" }
 >;
 
-export type Entry = { seq: bigint; event: Event };
+export type Entry = { seq: bigint; event: Event | promptSearch.Event };
 /** What a session starts with besides its folder; ordinary sessions leave it all out. */
 export type Options = Partial<Omit<Place, "cwd" | "executable">>;
 export type Tool = { id: string; thread: string; turn: string };
@@ -379,7 +380,18 @@ export class Session {
     }
     return ding;
   }
-  private journal(event: Event) {
+  search(value: unknown): void {
+    const search = promptSearch.parse(value);
+    if (!search) throw Error("InvalidMessage");
+    const previous = this.events.find(e => e.event.kind === "search" && e.event.search.id === search.id);
+    if (previous?.event.kind === "search") {
+      if (previous.event.search.revision >= search.revision || promptSearch.finished(previous.event.search)) return;
+      this.events.splice(this.events.indexOf(previous), 1);
+      this.journal_bytes -= Buffer.byteLength(json.stringify(previous.event));
+    }
+    this.journal({ kind: "search", session: this.session, search });
+  }
+  private journal(event: Event | promptSearch.Event) {
     // A partial replaces its conversation's last one when only partials
     // followed it, so streaming, even several conversations', never evicts
     // real events; the message it streamed replaces it for good.
@@ -646,10 +658,11 @@ export function sweep(runtime: Runtime, now = Date.now()) {
 }
 /** How a prompt session reaches this Corgi: its socket, and its own corgi
  * first on PATH. No pane, so provider hooks and extensions stay quiet. */
-export function corgiEnv(socket: string, executable: string): Record<string, string | undefined> {
+export function corgiEnv(socket: string, executable: string, id?: number): Record<string, string | undefined> {
   return {
     CORGI_SOCKET: socket,
     CORGI_PANE: undefined,
+    CORGI_HEADLESS_ID: id === undefined ? undefined : String(id),
     PATH: `${dirname(executable)}:${process.env.PATH ?? "/usr/bin:/bin"}`,
   };
 }
@@ -665,7 +678,9 @@ export async function request(server: Server, client: Peer, request: Request, re
     const session = await Session.start(runtime.next_session, query.provider, query.cwd || workspace.cwd, {
       ...startOptions(query),
       // The prompt never stops to ask.
-      ...(query.corgi ? { env: corgiEnv(server.socket, server.executable), unattended: true } : {}),
+      ...(query.corgi
+        ? { env: corgiEnv(server.socket, server.executable, runtime.next_session), unattended: true }
+        : {}),
     });
     if (client.dead) {
       session.destroy();
@@ -712,6 +727,14 @@ export async function request(server: Server, client: Peer, request: Request, re
         next_seq: session.next_seq,
       })),
     });
+    return;
+  }
+  if (request.op === "headless.search") {
+    const session = runtime.sessions.find(s => s.id === request.payload.id && s.corgi && !s.exited);
+    if (!session) throw Error("NoHeadlessSession");
+    session.search(request.payload.search);
+    server.dirty = true;
+    reply.send({ ok: true });
     return;
   }
   const query = request.payload;

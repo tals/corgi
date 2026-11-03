@@ -670,3 +670,51 @@ test("a conversation handed to a pane goes on from where it was read, claimed by
   // Nothing to hand over before a session runs.
   expect(conversation(new Fake()).handoff()).toBeNull();
 });
+
+test("live searches update in place before the shell reply and ignore stale revisions", async () => {
+  const d = new Fake(),
+    c = conversation(d),
+    state = {
+      id: "q",
+      revision: 1,
+      phase: "searching",
+      expression: "branch|worktree",
+      workspace: "/work",
+      found: 0,
+      scanned: 0,
+      total: 20,
+      limited: false,
+      matches: [],
+      error: "",
+    };
+  c.send("find that PR", () => start());
+  await settle();
+  d.add(
+    { kind: "tool", session: "s1", id: "bash", name: "Bash", summary: "search", done: false },
+    { kind: "search", session: "s1", search: state },
+  );
+  await poll(c, 0);
+  expect(c.tool()?.done).toBe(false);
+  expect(c.items.at(-1)).toMatchObject({ kind: "search", search: { phase: "searching" } });
+  d.add(
+    { kind: "search", session: "other", search: { ...state, id: "other" } },
+    { kind: "search", session: "s1", search: { ...state, revision: 3, phase: "done", found: 2, scanned: 20 } },
+    { kind: "search", session: "s1", search: { ...state, revision: 2 } },
+  );
+  await poll(c, fast_ms);
+  expect(c.items.filter(i => i.kind === "search")).toHaveLength(1);
+  expect(c.items.at(-1)).toMatchObject({ search: { phase: "done", found: 2 } });
+  d.add(
+    { kind: "search", session: "s1", search: { ...state, id: "unfinished" } },
+    { kind: "turn", session: "s1", phase: "ended", outcome: "interrupted" },
+  );
+  await poll(c, fast_ms * 2);
+  expect(c.items.find(i => i.kind === "search" && i.search.id === "unfinished")).toMatchObject({
+    search: { phase: "cancelled" },
+  });
+  d.add({ kind: "search", session: "s1", search: { ...state, id: "unfinished", revision: 9 } });
+  await poll(c, fast_ms * 2 + slow_ms);
+  expect(c.items.find(i => i.kind === "search" && i.search.id === "unfinished")).toMatchObject({
+    search: { phase: "cancelled" },
+  });
+});

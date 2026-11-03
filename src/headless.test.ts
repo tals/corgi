@@ -667,3 +667,59 @@ test("a prompt session reaches this Corgi through its socket and its own corgi, 
   expect("CORGI_PANE" in env && env.CORGI_PANE === undefined).toBe(true);
   expect(env.PATH?.startsWith("/opt/corgi/bin:")).toBe(true);
 });
+
+test("search progress reaches the prompt journal while its shell tool is still running", async () => {
+  const registry = new Registry(),
+    s = session();
+  shown(s, registry, "a");
+  s.corgi = true;
+  start(s, registry, "a", "turn");
+  s.apply(registry, {
+    kind: "tool",
+    session: "a",
+    turn: "turn",
+    id: "shell",
+    done: false,
+    wrote: [],
+    name: "Bash",
+    summary: "conversation grep",
+  });
+  const p = pendingStart(s);
+  const state = {
+    id: "search-1",
+    revision: 1,
+    phase: "searching",
+    expression: "emoji|unicode",
+    workspace: "/work",
+    found: 0,
+    scanned: 0,
+    total: 100,
+    limited: false,
+    matches: [],
+    error: "",
+  };
+  await request(p.server, p.peer, { op: "headless.search", payload: { id: s.id, search: state } });
+  expect(s.active_tools.some(t => t.id === "shell")).toBe(true);
+  await request(p.server, p.peer, {
+    op: "headless.events",
+    payload: { provider: "codex", session: "a", after: 0n, pane: null },
+  });
+  expect((p.replies.at(-1) as any).events.at(-1).event).toMatchObject({
+    kind: "search",
+    session: "a",
+    search: { phase: "searching", expression: "emoji|unicode" },
+  });
+  await request(p.server, p.peer, {
+    op: "headless.search",
+    payload: { id: s.id, search: { ...state, revision: 2, phase: "done", scanned: 100, found: 4 } },
+  });
+  await request(p.server, p.peer, { op: "headless.search", payload: { id: s.id, search: state } });
+  expect(s.events.filter(e => e.event.kind === "search")).toHaveLength(1);
+  expect(s.events.at(-1)?.event).toMatchObject({ search: { phase: "done", found: 4 } });
+  expect(s.active_tools.some(t => t.id === "shell")).toBe(true);
+  expect(corgiEnv("/socket", "/bin/corgi", s.id).CORGI_HEADLESS_ID).toBe("1");
+  s.corgi = false;
+  await expect(
+    request(p.server, p.peer, { op: "headless.search", payload: { id: s.id, search: state } }),
+  ).rejects.toThrow("NoHeadlessSession");
+});

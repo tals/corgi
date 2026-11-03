@@ -744,6 +744,11 @@ export class Server {
         await headless.request(this, cl, request, reply);
         return;
       }
+      case "headless.search": {
+        const headless = await import("./headless");
+        await headless.request(this, cl, request, reply);
+        return;
+      }
       case "agent.command.preview":
         await launch.request(this, cl, request, reply);
         return;

@@ -351,6 +351,11 @@ The prompt lists the agents and accounts the launcher shows, so hiding one in
 the background, a few seconds after Corgi starts and every five minutes; open
 the prompt before the first arrive and it says "Loading models…".
 
+Conversation searches show the expression and a count as results arrive. The
+latest search previews three conversation titles; earlier searches collapse to
+one line. Click a search heading for the workspace and matching excerpts, or
+click a title to open that conversation.
+
 ## Script Corgi
 
 Commands print text; `--json` prints the daemon's reply as JSON instead. Take
