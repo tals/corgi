@@ -6,6 +6,7 @@ import { displayWidth } from "../src/text";
 import { EXE, Pty, registerCase, run } from "./support";
 import { FIXTURES, bracketed, capture, modelFile, voiceClient, voiceEnv } from "./voice_support";
 import * as models from "../src/voice/models";
+import * as protocol from "../src/protocol";
 import { concat, silence, tone } from "./fixtures/voice/make_pcm";
 
 const voiceOps = ["voice.watch", "voice.set", "voice.type", "voice.toggle"];
@@ -116,7 +117,7 @@ class Voice extends Viewers {
       pushed: boolean[] = [];
     link.on("muted", muted => pushed.push(muted));
     await link.watch({ muted: false, available: true });
-    this.assertEqual((await this.rpc({ op: "voice.toggle", protocol: 3 })).muted, true);
+    this.assertEqual((await this.rpc({ op: "voice.toggle", protocol: protocol.viewer_version })).muted, true);
     // Text already on its way when the viewer muted is refused.
     await this.assertRejects(link.type("late"), "VoiceMuted");
     await this.until(() => pushed.includes(true), 1);
@@ -126,11 +127,11 @@ class Voice extends Viewers {
     // A voice that cannot listen shows muted, and a toggle keeps it so.
     await link.set({ available: false });
     await this.until(async () => (await this.voice()) === "muted", 1);
-    this.assertEqual((await this.rpc({ op: "voice.toggle", protocol: 3 })).muted, true);
+    this.assertEqual((await this.rpc({ op: "voice.toggle", protocol: protocol.viewer_version })).muted, true);
     this.assertEqual(await this.voice(), "muted");
     link.close();
     await this.until(async () => (await this.voice()) === null, 5);
-    await this.assertRejects(this.rpc({ op: "voice.toggle", protocol: 3 }), "NoVoice");
+    await this.assertRejects(this.rpc({ op: "voice.toggle", protocol: protocol.viewer_version }), "NoVoice");
   }
 
   /** Voice mode in a terminal, with the fakes and a port of its own. */
