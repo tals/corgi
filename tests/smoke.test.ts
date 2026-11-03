@@ -759,11 +759,25 @@ process.stdin.on('data',data=>appendFileSync(log,data));process.stdin.resume();`
     await this.input("\x1b[<2;5;3M\x1b[<2;5;3m");
     await this.frame_with("r  Rename");
     await this.input("\x1b[B\r");
-    await this.frame_with("Cannot close the last workspace");
-    this.assertEqual(
-      (await this.panes()).map((p: any) => p.id),
-      [pane],
-    );
+    // The last one closes too, leaving the button that creates the next.
+    await this.frame_with("Create workspace");
+    this.assertEqual(await this.workspaces(), []);
+    this.assertEqual(await this.panes(), []);
+    await this.input("\r");
+    await this.frame_with("New workspace");
+    await this.input("\r");
+    await this.until(async () => (await this.workspaces()).length === 1);
+    this.assertEqual((await this.panes()).length, 1);
+  }
+  async test_viewer_attaches_with_every_workspace_closed() {
+    const first = (await this.workspaces())[0].id;
+    await this.command("workspace.close", { target: first, close_contents: true });
+    this.assertEqual(await this.workspaces(), []);
+    await this.attach();
+    await this.frame_with("Create workspace");
+    this.assertEqual(await this.panes(), []);
+    await this.input("\r");
+    await this.frame_with("New workspace");
   }
   async test_tab_context_menu_targets_clicked_tab_for_rename_and_new() {
     const one = this.folder("one"),

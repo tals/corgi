@@ -7,7 +7,7 @@ import type { Worker as UsageWorker } from "./usage/worker";
 import { chmodSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { Runtime } from "./runtime";
-import { Store } from "./workspace";
+import { Store, Workspace } from "./workspace";
 import { Client, Reply } from "./peer";
 import { n, ReadyLoop, READ } from "./native_bridge";
 import { closeReadiness } from "./pane/terminal";
@@ -74,8 +74,9 @@ export class Server {
     readonly executable: string,
     readonly build_id: string,
   ) {}
-  initialWorkspace() {
-    return this.runtime.workspaces.get(this.preferred_workspace) ?? this.runtime.workspaces.items[0];
+  /** The workspace a viewer opens on; null once every workspace is closed. */
+  initialWorkspace(): Workspace | null {
+    return this.runtime.workspaces.get(this.preferred_workspace) ?? this.runtime.workspaces.items[0] ?? null;
   }
   onlyWorkspace() {
     if (this.runtime.workspaces.items.length !== 1) throw Error("MissingWorkspace");
@@ -84,7 +85,10 @@ export class Server {
   saveWorkspaces(): Promise<void> {
     this.workspaceWrites = this.workspaceWrites.then(async () => {
       try {
-        await this.runtime.workspaces.save(Store.statePath(this.socket), this.initialWorkspace().id);
+        await this.runtime.workspaces.save(
+          Store.statePath(this.socket),
+          this.initialWorkspace()?.id ?? Workspace.Id.none,
+        );
       } catch (error) {
         console.error("workspace save:", error);
       }
@@ -208,7 +212,10 @@ export class Server {
       let selected: number | null = null;
       const handoff = this.listener >= 0;
       if (!handoff) {
+        // Saved state with every workspace closed stays that way.
+        let saved = false;
         if (await recovery.load(this.runtime, this.socket, this.executable)) {
+          saved = true;
           const preferences = new Store();
           try {
             selected = await preferences.load(Store.statePath(this.socket));
@@ -218,13 +225,14 @@ export class Server {
         } else
           try {
             selected = await this.runtime.workspaces.load(Store.statePath(this.socket));
+            saved = selected !== null;
           } catch (error) {
             console.error("workspace load:", error);
           }
         // Only a starter made now waits for the first viewer's folder and name.
-        this.default_folder_pending = !this.runtime.workspaces.items.length;
+        this.default_folder_pending = !saved && !this.runtime.workspaces.items.length;
         if (this.default_folder_pending) await this.runtime.workspaces.add("", process.cwd());
-        this.preferred_workspace = selected ?? this.runtime.workspaces.items[0].id;
+        this.preferred_workspace = selected ?? this.runtime.workspaces.items[0]?.id ?? Workspace.Id.none;
         this.listener = listen(this.socket);
         chmodSync(this.socket, 0o600);
         this.socketPath = SocketPath.claim(this.socket);

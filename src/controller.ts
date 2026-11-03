@@ -57,6 +57,7 @@ import { needsPane, type Action } from "./action";
 import * as corgiBadge from "./corgi_badge";
 import * as forkHero from "./fork_hero";
 import * as newWorkspace from "./new_workspace";
+import * as noWorkspace from "./no_workspace";
 import { State as SidebarRows } from "./sidebar_rows";
 import * as agentLauncher from "./agent_launcher";
 import { Menu as LauncherMenu, Row, keyAgent, type Row as LauncherRow } from "./agent_launcher";
@@ -478,6 +479,8 @@ export class Controller {
   private summary_wanted = "";
   /** The checkout of the agent row or worktree heading under the pointer, and since when. */
   private summary_hover: { cwd: string; since: number } | null = null;
+  /** The folder this viewer started in, where a workspace made with none open starts. */
+  start_folder = process.cwd();
 
   constructor(connection: Transport) {
     this.connection = connection;
@@ -559,9 +562,10 @@ export class Controller {
   }
   private async closeWorkspace(id: number, close_contents: boolean): Promise<void> {
     if (this.runtime.workspaces.index(id) === null) throw Error("NoWorkspace");
-    if (this.runtime.workspaces.items.length === 1) throw Error("LastWorkspace");
     await this.edit({ "workspace.close": { target: id, close_contents } });
-    this.switchWorkspace(this.current().id);
+    // Closing the last one leaves the button to create another.
+    if (this.runtime.workspaces.items.length) this.switchWorkspace(this.current().id);
+    else this.closeMenu();
   }
   private revealWorkspace(index = this.workspaceIndex()): void {
     const capacity = this.sidebarView([]).workspaceCapacity();
@@ -666,6 +670,11 @@ export class Controller {
    * to a pane; on a header it goes back to the focused pane. */
   private async openSidebarRow(arrow: boolean): Promise<void> {
     const cursor = this.sidebar_focus!.cursor;
+    // An empty workspace list's one choice is to add a workspace; → goes to the button for it.
+    if (!this.runtime.workspaces.items.length) {
+      this.leaveSidebar();
+      return arrow ? undefined : this.perform({ name: "new-workspace" });
+    }
     if ("workspace" in cursor) return this.switchWorkspace(cursor.workspace);
     const target = cursor.entry;
     const index = agentNavigation.indexOf(this.sidebarEntries(), target);
@@ -840,7 +849,8 @@ export class Controller {
     } catch {}
   }
   private scopeLabel(): string {
-    return this.prefs.agents === "workspace" ? this.current().name : "all";
+    // With every workspace closed, no one workspace's agents are left to show.
+    return this.prefs.agents === "workspace" && this.runtime.workspaces.items.length ? this.current().name : "all";
   }
   private inScope(id: number): boolean {
     return this.prefs.agents === "workspace" ? id === this.current().id : true;
@@ -1016,6 +1026,7 @@ export class Controller {
     return p ? p.cwd : ws.cwd;
   }
   private currentCwd(): string {
+    if (!this.runtime.workspaces.items.length) return this.start_folder;
     const p = this.focused();
     return this.inheritedCwd(this.current(), p ? p.id : null);
   }
@@ -1745,12 +1756,8 @@ export class Controller {
         case "close":
           try {
             await this.closeWorkspace(context.tab, true);
-          } catch (error) {
-            this.notice(
-              errors.is(error, "LastWorkspace")
-                ? i18n.t` Cannot close the last workspace`
-                : i18n.t` Could not close workspace`,
-            );
+          } catch {
+            this.notice(i18n.t` Could not close workspace`);
           }
           break;
         default:
@@ -2323,6 +2330,7 @@ export class Controller {
       case "workspace-next":
       case "workspace-prev": {
         const count = this.runtime.workspaces.items.length;
+        if (count === 0) break;
         const index =
           act.name === "workspace-next"
             ? (this.workspaceIndex() + 1) % count
@@ -2354,7 +2362,7 @@ export class Controller {
         this.dirty = true;
         break;
       case "review":
-        this.toggleReview();
+        if (this.runtime.workspaces.items.length) this.toggleReview();
         break;
       case "mute":
         this.muted = !this.muted;
@@ -2371,10 +2379,10 @@ export class Controller {
         this.beginWorkspace(null);
         break;
       case "edit-workspace":
-        this.openCurrentWorkspaceMenu();
+        if (this.runtime.workspaces.items.length) this.openCurrentWorkspaceMenu();
         break;
       case "close-workspace":
-        await this.closeWorkspace(this.current().id, true);
+        if (this.runtime.workspaces.items.length) await this.closeWorkspace(this.current().id, true);
         break;
       case "choose-workspace":
         this.chooseIn("workspaces");
@@ -2745,6 +2753,7 @@ export class Controller {
   }
   /** Starts `provider`'s agent in `account`, "" its default. */
   private async launchAgent(provider: Provider | null, account = "", message = ""): Promise<void> {
+    if (!this.runtime.workspaces.items.length) return this.beginWorkspace(null);
     const dir = await this.launcherDir();
     if (dir === null) return;
     if (byteLength(dir) > 4096) throw Error("NameTooLong");
@@ -3595,6 +3604,8 @@ export class Controller {
     return worktreeAgents.listedWorktree(ws.worktrees ?? null, { pane: p.id }, cwd) ?? ws.cwd;
   }
   private openLauncher(pinned: boolean, cwd = this.launcherCwd()): void {
+    // An agent needs a workspace to start in.
+    if (!this.runtime.workspaces.items.length) return this.beginWorkspace(null);
     this.closeMenu();
     if (byteLength(cwd) > 10 * 1024) return;
     const launch = this.makeLauncher(pinned, cwd);
@@ -4795,7 +4806,8 @@ export class Controller {
       p.agent.attention = "none";
       // Ctrl+V asks an agent to paste an image from its own machine.
       if (byte === 22 && p.agent.provider !== null) this.imageHint("ctrl");
-    }
+    } else if (!this.runtime.workspaces.items.length && (byte === 13 || byte === 32))
+      await this.perform({ name: "new-workspace" });
   }
   /** The keyboard's owner when a paste begins, in `key`'s order. */
   private pasteTarget(): Paste {
@@ -5218,6 +5230,8 @@ export class Controller {
           );
           if (
             owned ||
+            // With no workspace, Enter goes to the button that creates one.
+            !this.runtime.workspaces.items.length ||
             (legacy.length === 1 &&
               (legacy[0] === keymap.prefixByte(this.prefs.prefix) ||
                 bindings.lookup(this.prefs.bindings(), false, legacy[0], {}) !== null))
@@ -6366,6 +6380,12 @@ export class Controller {
         }
       }
       return;
+    }
+    const pressed =
+      !release && button === 0 && !this.runtime.workspaces.items.length ? noWorkspace.hit(this.area(), x, y) : null;
+    if (pressed !== null) {
+      this.ui_mouse_down = true;
+      return this.perform({ name: pressed === "create" ? "new-workspace" : "moonlander" });
     }
     const hover = isHover(button);
     for (const p of this.layoutView().placements(this.area())) {
@@ -7538,6 +7558,9 @@ export class Controller {
               }
             : null,
         signin_draw: this.signin ? (w: Writer, pointer: render.Pointer | null) => this.drawSignin(w, pointer) : null,
+        no_workspace: this.runtime.workspaces.items.length
+          ? null
+          : { focused: this.keyboard === "pane" && !this.hasMenu() && this.name_dialog === null },
       }),
       retained,
     );

@@ -556,6 +556,9 @@ function headless(value: any): Headless {
 }
 export class Workspaces {
   items: Workspace[] = [];
+  /** What stands for the current workspace once every one is closed: no
+   * tabs, and no folder for anything to start in. */
+  readonly none: Workspace = workspace({ id: 0, model: new Model() });
   index(id: number): number | null {
     const i = this.items.findIndex(ws => ws.id === id);
     return i < 0 ? null : i;
@@ -611,7 +614,7 @@ export class Runtime {
     const snapshot = value;
     const workspaces = snapshot?.workspaces ?? [];
     const infos = snapshot?.panes ?? [];
-    if (workspaces.length === 0 || workspaces.length > max_workspaces) throw Error("InvalidSnapshot");
+    if (workspaces.length > max_workspaces) throw Error("InvalidSnapshot");
     const parsed = workspaces.map(workspace);
     const created: Terminal[] = [];
     const panes: Pane[] = [];

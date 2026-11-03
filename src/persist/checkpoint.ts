@@ -291,8 +291,8 @@ export async function restore(
   );
   check(!Array.isArray(state.sessions), () => "sessions isn't a list");
   check(
-    !state.workspaces.length || state.workspaces.length > max_workspaces,
-    () => `${state.workspaces.length} workspaces, outside 1–${max_workspaces}`,
+    state.workspaces.length > max_workspaces,
+    () => `${state.workspaces.length} workspaces, over ${max_workspaces}`,
   );
   check(
     state.closed.length > closed_per_workspace * max_workspaces,

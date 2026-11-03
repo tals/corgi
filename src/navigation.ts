@@ -35,13 +35,15 @@ export class State {
   previous_workspace: number | null = null;
   entries: Entry[] = [];
 
+  /** The current workspace's place in `store`; with none open, 0. */
   index(store: Workspaces): number {
     const i = store.index(this.workspace_id) ?? 0;
-    this.workspace_id = store.items[i].id;
+    if (i < store.items.length) this.workspace_id = store.items[i].id;
     return i;
   }
+  /** The current workspace, or with none open, `store.none`. */
   current(store: Workspaces): Workspace {
-    return store.items[this.index(store)];
+    return store.items[this.index(store)] ?? store.none;
   }
   tabs(store: Workspaces): Selection {
     return this.entry(store, this.current(store)).value;

@@ -49,20 +49,20 @@ export function validateInterests(interests: Interest[]) {
 }
 export async function open(s: Server, cl: Client, q: Open, reply = new Reply(cl)) {
   if (cl.subscribed || cl.launch_preview != null || cl.viewer) throw new Error("AlreadyAttached");
-  if (s.runtime.panes.length === 0 && s.initialWorkspace().model.count === 0) {
+  const initial = s.initialWorkspace();
+  if (initial && s.runtime.panes.length === 0 && initial.model.count === 0) {
     const starter = s.default_folder_pending;
     if (starter && q.cwd) {
       // The starter waited for this folder, and takes its name.
-      const ws = s.initialWorkspace();
-      await s.runtime.workspaces.edit(ws.id, null, q.cwd);
-      ws.rename(workspace.folderName(ws.cwd));
+      await s.runtime.workspaces.edit(initial.id, null, q.cwd);
+      initial.rename(workspace.folderName(initial.cwd));
       s.default_folder_pending = false;
       await s.saveWorkspaces();
     }
-    if (starter && q.onboarding) importer.onboardingStarter(s, s.initialWorkspace());
+    if (starter && q.onboarding) importer.onboardingStarter(s, initial);
     if (!q.onboarding)
       await s.execute({
-        "pane.create": { workspace: s.initialWorkspace().id },
+        "pane.create": { workspace: initial.id },
       });
   }
   const first = !s.clients.some(other => other.viewer && !other.dead);
@@ -70,15 +70,16 @@ export async function open(s: Server, cl: Client, q: Open, reply = new Reply(cl)
   cl.viewer_id = s.next_viewer++;
   cl.active_seq = ++s.next_active;
   cl.input_at = Date.now();
-  cl.view_workspace = s.initialWorkspace().id;
+  const ws = s.initialWorkspace();
+  // With every workspace closed, the viewer opens on none.
+  cl.view_workspace = ws?.id ?? workspace.Workspace.Id.none;
   cl.protocol_version = wire_version;
   if (first) s.updateTheme(q.theme ?? null);
-  const ws = s.initialWorkspace();
   reply.ok({
     viewer_protocol: version,
     bell_seq: s.bell_seq,
-    workspace: ws.id,
-    focus: ws.model.tabForPane(ws.focus) === null ? null : ws.focus,
+    workspace: cl.view_workspace,
+    focus: ws && ws.model.tabForPane(ws.focus) !== null ? ws.focus : null,
   });
 }
 function equal(a: surface.Stamp, b: surface.Stamp) {

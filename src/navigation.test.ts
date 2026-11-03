@@ -114,3 +114,18 @@ test("initial focus and a reused workspace slot start without tab history", () =
   expect(state.tabs(store).tab().focus).toBe(31);
   expect(state.command(store, { name: "prev" }, new layout.Rect()).focus).toBe(33);
 });
+
+test("with every workspace closed, the current one is none until another opens", () => {
+  const runtime = new mirror.Runtime(),
+    conn = transport(async () => {
+      throw Error("UnexpectedRequest");
+    }),
+    state = new navigation.State();
+  runtime.receive(conn, { workspaces: [] });
+  const store = runtime.workspaces;
+  expect(state.current(store)).toBe(store.none);
+  expect([state.index(store), state.tabs(store).count, state.lastWorkspace(store)]).toEqual([0, 0, null]);
+  expect(() => state.command(store, { name: "next" }, new layout.Rect(0, 0, 80, 24))).toThrow("NoPane");
+  runtime.receive(conn, { workspaces: [{ id: 4, model: { nodes: [], tabs: [], revision: 0 } }] });
+  expect(state.current(runtime.workspaces).id).toBe(4);
+});

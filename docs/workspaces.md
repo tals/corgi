@@ -6,6 +6,10 @@ chosen when creating or editing it; changing directories inside a tab, reorderin
 tabs or deleting a linked worktree a tab is in does not change that root.
 `corgi workspace edit ID --cwd DIR` moves it.
 
+You can close every workspace. The pane area then holds a **Create workspace**
+button, chosen from the start: Enter, a click, or the sidebar's `[ + ]` opens
+the New workspace dialog. Corgi starts the same way until you make one.
+
 ## Follow activity
 
 | Indicator | Meaning |
