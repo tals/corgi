@@ -559,3 +559,49 @@ test("pausing for a handoff applies the usage counted since the last tick", asyn
   unpause(server);
   expect(workers.usage.paused).toBe(false);
 });
+
+test("hooks sent before a pane knows its Codex conversation catch it up once it does", () => {
+  const { server, pane, terminal, registry } = fixture();
+  const job = { provider: "codex" as const, pid: 42 },
+    detect = (screen: string) => {
+      terminal.feed("\x1b[2J\x1b[H" + screen);
+      for (let i = 0; i < 3; i++) detectPane(server, pane, job);
+    },
+    send = (seq: bigint, name: string) =>
+      hook(server, {
+        pane: 1,
+        provider: "codex",
+        event: { hook_event_name: name, session_id: id, turn_id: "turn" },
+        seq,
+        pid: 42,
+        background: false,
+      });
+  detect("Working (esc to interrupt)");
+  send(1n, "UserPromptSubmit");
+  expect(registry.find("codex", id)).toBeNull();
+  expect(start(server).held.size).toBe(1);
+  detect("Working (esc to interrupt)");
+  const identity = new Snapshot(
+    {
+      pane: 1,
+      pid: 42,
+      actor: 0,
+      prefix: new Text(id),
+      generation: pane.attachment.generation,
+      title_revision: terminal.title_revision,
+    },
+    id,
+    "unknown",
+  );
+  identity.lifecycle = false;
+  const actor = snapshotActor(server, "codex", identity)!;
+  expect(actor.state).toMatchObject({ state: "working", last_seq: 1n, observation: { source: "hook" } });
+  expect(actor.state.turnId()).toBe("turn");
+  expect(start(server).held.size).toBe(0);
+  // Its hooks speak for it now, so an idle-looking screen doesn't end the turn.
+  detect("› ");
+  expect(actor.state.state).toBe("working");
+  expect(actor.state.observation.completed).toBe(0n);
+  send(5n, "Stop");
+  expect(actor.state.observation.pending_stop).toBe(true);
+});
