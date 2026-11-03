@@ -323,6 +323,14 @@ export class Agent {
     this.provider = provider;
     if (session && Buffer.byteLength(session) <= 160) this.session = new Text(session);
     const old = this.state;
+    // A turn only the screen saw finish is still at work, so its Stop is no repeat.
+    if (
+      this.observation.source === "screen" &&
+      reported &&
+      this.finishedTurn(reported) &&
+      (next === "working" || next === "blocked")
+    )
+      this.last_finished_turn = new Text();
     this.observation.source = "hook";
     this.observation.pending_stop = event === "stop" && !binds_completion;
     if (binds_completion) this.last_finished_turn = Text.ascii(reported || this.turnId());

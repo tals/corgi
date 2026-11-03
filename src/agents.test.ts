@@ -37,6 +37,24 @@ test("starting work preserves unread receipt and stale stop cannot finish newer 
   expect(a.endTurn("a", "completed", "protocol", 2)).toBe(false);
   expect(a.state).toBe("working");
 });
+test("hooks working on a turn the screen saw finish let its own Stop end it", () => {
+  const a = new Agent({ provider: "codex" });
+  a.session.value = "s";
+  a.observation.source = "screen";
+  a.beginTurn("");
+  a.setTurn("t");
+  expect(a.endTurn("", "completed", "screen", 1)).toBe(true);
+  a.beginTurn("");
+  expect(observe(a, "codex", { kind: "tool_start", session: "s", turn: "t", tool: "exec" }, 10n, false, 10)).toBe(
+    false,
+  );
+  expect(observe(a, "codex", { kind: "stop", session: "s", turn: "t" }, 20n, false, 20)).toBe(false);
+  expect(a.observation.pending_stop).toBe(true);
+  expect(a.confirmStop(20n, "completed", 30)).toBe(true);
+  expect(a).toMatchObject({ state: "idle", observation: { completed: 2n } });
+  // A turn its hooks saw finish still drops a repeated Stop.
+  expect(observe(a, "codex", { kind: "stop", session: "s", turn: "t" }, 40n, false, 40)).toBeNull();
+});
 test("Codex automatic review only blocks after visible permission confirmation", () => {
   const a = new Agent();
   const hook = codex.adapter.hook({
