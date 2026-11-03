@@ -46,6 +46,7 @@ interface Cell {
   target?: Target;
   width: number;
   labels?: Cell[];
+  background?: Token;
 }
 interface Hit {
   rect: Rect;
@@ -77,6 +78,8 @@ const modifiers: readonly (readonly [string, keyof keyboard.Mods])[] = [
 function copy(shortcut: model.Shortcut): model.Shortcut {
   return structuredClone(shortcut);
 }
+/** The empty Corgi prompt's placeholder, cut short. */
+const promptPlaceholder = "Ask Corgi anything…";
 function wrapped(value: string, width: number): string[] {
   return wrap(value, Math.max(1, width));
 }
@@ -823,6 +826,16 @@ export class State {
     const heading = (col: number, title: string) => {
       add(col, 0, ys[col]++, title + " " + "─".repeat(Math.max(0, colWidth - displayWidth(title) - 1)), "faint");
     };
+    // The prompt's empty input under its row, a field like the prompt's
+    // own; a click on it opens the prompt.
+    const promptInput = (col: number) => {
+      const target: Target = { name: "label", id: "prompt" },
+        w = colWidth - 1,
+        hint = ellipsis(promptPlaceholder, w - 5);
+      if (w - 5 < 8) return;
+      add(col, 1, ys[col], " › ", "muted", target).background = "selected";
+      add(col, 4, ys[col]++, hint + " ".repeat(w - 3 - displayWidth(hint)), "faint", target).background = "selected";
+    };
     if (this.query) {
       heading(0, i18n.t`MATCHING SHORTCUTS`);
       const q = this.query.toLocaleLowerCase();
@@ -946,6 +959,8 @@ export class State {
     row(col, i18n.t`Detach`, ["detach"]);
     ys[col]++;
     heading(col, i18n.t`CORGI`);
+    row(col, i18n.t`Corgi prompt`, ["prompt"]);
+    if (shownIds.has("prompt")) promptInput(col);
     row(col, i18n.t`Toggle sidebar`, ["sidebar"]);
     row(col, i18n.t`Review changes`, ["review"]);
     row(col, i18n.t`Setup`, ["setup"]);
@@ -1351,6 +1366,7 @@ export class State {
           c.width,
           c.target,
           highlighted,
+          c.background,
         );
       }
     if (this.max_scroll > 0) {
