@@ -678,12 +678,11 @@ export function frame(
   const marks: TabMark[] | null = u.tab_icons && u.cell_pixels ? [] : null;
   // With every workspace closed, all but the way to create one steps back.
   const none = u.no_workspace;
+  const on_none =
+    none !== null && u.pointer !== null && noPopup(u) ? noWorkspace.hit(side.area(), u.pointer.x, u.pointer.y) : null;
   const on_create =
-    none !== null &&
-    u.pointer !== null &&
-    noPopup(u) &&
-    (noWorkspace.hit(side.area(), u.pointer.x, u.pointer.y) ||
-      side.hit(u.pointer.x, u.pointer.y).tag === "workspace_new");
+    on_none === "create" ||
+    (none !== null && u.pointer !== null && noPopup(u) && side.hit(u.pointer.x, u.pointer.y).tag === "workspace_new");
   const create_lit = none !== null && (none.focused || on_create);
   if (none) {
     const tabs = new Writer();
@@ -694,7 +693,7 @@ export function frame(
     w.write(`\x1b[1;${side.tabX() + u.tab_drop_x + 1}H\x1b[1m` + palette.fg("strong") + "│\x1b[0m");
   if (none) {
     const button = new Writer();
-    noWorkspace.draw(button, side.area(), none, create_lit);
+    noWorkspace.draw(button, side.area(), create_lit);
     // Behind a dialog, like the panes.
     if (dimsPanes(u)) sidebar.writeExit(w, button.buffered(), sidebar.spotlight_dim);
     else w.write(button.buffered());
@@ -803,7 +802,7 @@ export function frame(
         // Pushing and just-pushed badges ignore clicks, so only Push and Retry point.
         const git = sidebar.gitActionWorkspace(side, u.workspaces, u.git_hover, pointer.x, pointer.y);
         if (git) link_pointer = link_pointer || git.git_push.phase === "idle" || git.git_push.phase === "failed";
-        if (on_create) link_pointer = true;
+        if (on_create || on_none !== null) link_pointer = true;
         if (pointer.y === 0 && pointer.x >= side.tabX()) {
           const add_x = side.tabX() + addTabX(view, width - side.tabX() - side.panel);
           link_pointer = link_pointer || (pointer.x >= add_x && pointer.x < add_x + 3);

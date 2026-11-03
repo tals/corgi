@@ -557,9 +557,18 @@ test("closing the last workspace leaves the button that creates one, which Enter
     await s.input(bytes("\r"));
     expect(s.name_dialog).toBeInstanceOf(newWorkspace.Dialog);
     s.dismissName();
-    const button = noWorkspace.layout(s.area())!.button;
-    await s.input(bytes(`\x1b[<0;${button.x + 2};${button.y + 2}M\x1b[<0;${button.x + 2};${button.y + 2}m`));
+    const { button, steps } = noWorkspace.layout(s.area())!,
+      click = (x: number, y: number) => s.input(bytes(`\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`));
+    await click(button.x + 1, button.y + 1);
     expect(s.name_dialog).toBeInstanceOf(newWorkspace.Dialog);
+    s.dismissName();
+    // The sketches press the button, but the example's name plays the game.
+    await click(steps!.dialog.x + 1, steps!.dialog.y + 1);
+    expect([s.name_dialog instanceof newWorkspace.Dialog, s.moonlander]).toEqual([true, null]);
+    s.dismissName();
+    await click(steps!.names[1].x, steps!.names[1].y);
+    expect([s.name_dialog, s.moonlander === null]).toEqual([null, false]);
+    s.closeMoonlander();
   } finally {
     viewer.close(s);
   }

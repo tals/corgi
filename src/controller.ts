@@ -6381,9 +6381,11 @@ export class Controller {
       }
       return;
     }
-    if (!release && button === 0 && !this.runtime.workspaces.items.length && noWorkspace.hit(this.area(), x, y)) {
+    const pressed =
+      !release && button === 0 && !this.runtime.workspaces.items.length ? noWorkspace.hit(this.area(), x, y) : null;
+    if (pressed !== null) {
       this.ui_mouse_down = true;
-      return this.perform({ name: "new-workspace" });
+      return this.perform({ name: pressed === "create" ? "new-workspace" : "moonlander" });
     }
     const hover = isHover(button);
     for (const p of this.layoutView().placements(this.area())) {
@@ -7558,10 +7560,7 @@ export class Controller {
         signin_draw: this.signin ? (w: Writer, pointer: render.Pointer | null) => this.drawSignin(w, pointer) : null,
         no_workspace: this.runtime.workspaces.items.length
           ? null
-          : {
-              ...newWorkspace.opening(this.start_folder),
-              focused: this.keyboard === "pane" && !this.hasMenu() && this.name_dialog === null,
-            },
+          : { focused: this.keyboard === "pane" && !this.hasMenu() && this.name_dialog === null },
       }),
       retained,
     );
