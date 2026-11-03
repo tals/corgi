@@ -329,6 +329,8 @@ const toggled = <T extends string>(list: T[], item: T, on: boolean) => [
   ...(on ? [item] : []),
 ];
 
+/** The session a viewer's prompt runs, kept across the viewer's reload. */
+const prompt_session_env = "CORGI_PROMPT_SESSION";
 /** An agent's account the Corgi prompt offers models from. */
 type PromptPlace = { provider: Provider; account: string; name: string; option: agentLauncher.Option };
 type AccountRemoval = {
@@ -4489,8 +4491,31 @@ export class Controller {
   }
   /** Reads the prompt's session, and tells it the models while it shows.
    * Put away, it redraws only for the status line's cue. */
+  /** The prompt goes on with the session this viewer ran before it reloaded,
+   * or, as the only viewer, the newest one a viewer left behind. Never one a
+   * Corgi pane holds, nor another live viewer's. */
+  private async resumePrompt(): Promise<void> {
+    const left = this.runtime.corgi_sessions.filter(s => !s.exited && s.session && s.pane === null),
+      mine = process.env[prompt_session_env];
+    let pick = mine ? left.find(s => `${s.provider}:${s.session}` === mine) : undefined;
+    if (!mine && left.length) {
+      const reply = await call(this.connection, "viewer.list", {}).catch(() => null);
+      if (reply?.viewers.length === 1) pick = left.at(-1);
+    }
+    if (pick && !this.prompt.conversation.session) {
+      this.prompt.attach(pick);
+      this.dirty = true;
+    }
+  }
   private pollPrompt(): void {
     const now = milliTimestamp();
+    // A reload execs this viewer in place, so its environment says which
+    // session is its prompt's, once the first snapshot has read it.
+    if (this.prompt_resumed) {
+      const c = this.prompt.conversation;
+      if (c.session && c.started) process.env[prompt_session_env] = `${c.started.provider}:${c.session}`;
+      else delete process.env[prompt_session_env];
+    }
     if (this.prompt.open && (this.prompt_stale || now - this.prompt_fed_at >= 1000)) this.feedPrompt(now);
     // Its catalogs are read in the background, so it opens with them.
     else if (!this.prompt.open && now - this.prompt_warmed_at >= 5000) {
@@ -7317,12 +7342,9 @@ export class Controller {
     }
     this.agent_since.keep(live);
     this.prompt_stale = true;
-    // A session this viewer's prompt ran before a reload goes on in it.
     if (!this.prompt_resumed) {
       this.prompt_resumed = true;
-      // One a Corgi pane holds is that pane's.
-      const left = this.runtime.corgi_sessions.filter(s => !s.exited && s.session && s.pane === null).at(-1);
-      if (left && !this.prompt.conversation.session) this.prompt.attach(left);
+      void this.resumePrompt();
     }
     if (this.agent_launcher) {
       const starred = this.historyStars();

@@ -2959,13 +2959,16 @@ test("the prompt's conversation is a Corgi agent while a Corgi pane holds it, an
       attention: "needs_input",
       observation: { completed: 2, read: 0 },
     },
-    agent = { id: 8, workspace: 1, provider: "codex", session: "x1", state: "idle", attention: "none" };
+    agent = { id: 8, workspace: 1, provider: "codex", session: "x1", state: "idle", attention: "none" },
+    saved = process.env.CORGI_PROMPT_SESSION;
+  // The viewer reloaded while its prompt's session ran.
+  process.env.CORGI_PROMPT_SESSION = "claude:c1";
   s.receiveSnapshot({ ...folders("/a"), headless_sessions: [corgi, agent] });
   try {
     // In the card: the status line speaks for it, not the agent list.
     expect(s.agentEntries().some((e: sidebar.Entry) => e.name === "Corgi")).toBe(false);
     expect(s.workspaceEntries()[0]).toMatchObject({ agents: 1, attention: 0, unread: 0 });
-    // A viewer that starts while its prompt's session runs goes on in it.
+    // It goes on in it.
     expect([s.prompt.conversation.provider, s.prompt.conversation.session]).toEqual(["claude", "c1"]);
     // In a pane: a Corgi agent, counted, jumped to, and chosen it goes to the pane.
     s.receiveSnapshot({ ...folders("/a"), headless_sessions: [{ ...corgi, pane: 1 }, agent] });
@@ -2982,6 +2985,8 @@ test("the prompt's conversation is a Corgi agent while a Corgi pane holds it, an
     s.receiveSnapshot({ ...folders("/a"), headless_sessions: [{ ...corgi, pane: 1, exited: true }] });
     expect(s.agentEntries().some((e: sidebar.Entry) => e.name === "Corgi")).toBe(false);
   } finally {
+    if (saved === undefined) delete process.env.CORGI_PROMPT_SESSION;
+    else process.env.CORGI_PROMPT_SESSION = saved;
     viewer.close(s);
   }
 });
@@ -3855,6 +3860,51 @@ test("a viewer that starts leaves alone a prompt session a Corgi pane holds", ()
     expect(s.prompt.conversation.session).toBe("");
   } finally {
     viewer.close(s);
+  }
+});
+
+test("a reloaded viewer goes on with its own prompt session; another viewer's stays theirs", async () => {
+  const sessions = [
+    { id: 7, workspace: 1, provider: "claude", corgi: true, session: "mine", pane: null, state: "idle" },
+    { id: 8, workspace: 1, provider: "claude", corgi: true, session: "theirs", pane: null, state: "idle" },
+  ];
+  const viewers = (count: number) => {
+    const s: any = new Controller({
+      socket: "",
+      request: transport(async op => {
+        if (op === "viewer.list") return { viewers: Array.from({ length: count }, (_, i) => ({ id: i + 1 })) };
+        throw Error("UnexpectedRequest");
+      }).request,
+    });
+    s.model_cache = new agentModels.Cache(
+      () => {},
+      async () => [],
+    );
+    return s;
+  };
+  const saved = process.env.CORGI_PROMPT_SESSION;
+  const reloaded = viewers(2),
+    second = viewers(2),
+    only = viewers(1);
+  try {
+    // The reload exec'd it in place; its environment names its session.
+    process.env.CORGI_PROMPT_SESSION = "claude:mine";
+    reloaded.receiveSnapshot({ ...folders("/a"), headless_sessions: sessions });
+    await Bun.sleep(1);
+    expect(reloaded.prompt.conversation.session).toBe("mine");
+    // A second viewer takes neither while another viewer is on.
+    delete process.env.CORGI_PROMPT_SESSION;
+    second.receiveSnapshot({ ...folders("/a"), headless_sessions: sessions });
+    await Bun.sleep(1);
+    expect(second.prompt.conversation.session).toBe("");
+    // The only viewer picks up the newest one left behind.
+    only.receiveSnapshot({ ...folders("/a"), headless_sessions: sessions });
+    await Bun.sleep(1);
+    expect(only.prompt.conversation.session).toBe("theirs");
+  } finally {
+    if (saved === undefined) delete process.env.CORGI_PROMPT_SESSION;
+    else process.env.CORGI_PROMPT_SESSION = saved;
+    for (const s of [reloaded, second, only]) viewer.close(s);
   }
 });
 
