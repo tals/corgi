@@ -9,6 +9,25 @@ const agents = () => [
   entry({ target: { pane: 3 } }),
 ];
 
+test("archived header is a keyboard stop before the expanded workspaces", () => {
+  const s = new State({ workspace: 2 });
+  s.move([2], [], true, 1);
+  expect(s.cursor).toEqual({ archived: true });
+  expect(s.section()).toBe("workspaces");
+  s.move([2, 3, 4], [], true, 1);
+  expect(s.cursor).toEqual({ workspace: 3 });
+  s.move([2, 3, 4], [], false, 1);
+  expect(s.cursor).toEqual({ archived: true });
+  s.move([2], [], true, 1);
+  expect(s.cursor).toEqual({ workspace: 2 });
+  s.move([2], [], false, 1);
+  expect(s.cursor).toEqual({ archived: true });
+  const workspaces = [{ id: 2, active: true }];
+  expect(s.markWorkspaces(workspaces)[0].active).toBe(false);
+  s.reconcile([2], []);
+  expect(s.cursor).toEqual({ workspace: 2 });
+});
+
 test("focus enters on the focused agent, else the first, else the current workspace", () => {
   expect(initial(7, agents())).toEqual({ entry: { pane: 2 } });
   expect(initial(7, [entry({ target: { pane: 1 } })])).toEqual({ entry: { pane: 1 } });

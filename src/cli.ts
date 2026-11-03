@@ -58,6 +58,8 @@ const actions = new Set([
   "pane.swap",
   "pane.resize",
   "pane.close",
+  "pane.hibernate",
+  "pane.wake",
   "pane.read",
   "pane.send",
   "pane.keys",
@@ -66,6 +68,8 @@ const actions = new Set([
   "workspace.new",
   "workspace.edit",
   "workspace.close",
+  "workspace.archive",
+  "workspace.unarchive",
   "workspace.switch",
   "launcher.edit",
   "launcher.clone",
@@ -336,6 +340,8 @@ export async function parse(words: string[], caller = 0, input?: () => Promise<s
       set("workspace.create", { name: args.next(), cwd: args.directory(args.option("cwd") ?? ".") });
       break;
     case "workspace.close":
+    case "workspace.archive":
+    case "workspace.unarchive":
       set(action, { target });
       break;
     case "workspace.edit":
@@ -350,7 +356,20 @@ export async function parse(words: string[], caller = 0, input?: () => Promise<s
       break;
     case "tab.close":
     case "pane.close":
+    case "pane.wake":
       set(action, { target });
+      break;
+    case "pane.hibernate":
+      set(action, {
+        targets: [
+          target,
+          ...args.positional.splice(0).map(value => {
+            if (value !== "current") return id(value);
+            if (!caller) throw Error("NoCallerPane");
+            return caller;
+          }),
+        ],
+      });
       break;
     case "pane.swap":
       set(action, { target, other: id(args.next()) });
@@ -444,7 +463,7 @@ export function list(reply: any): string {
   const out: string[] = [],
     byId = new Map<number, any>((reply.result?.panes ?? []).map((p: any) => [p.id, p]));
   for (const w of reply.result?.workspaces ?? []) {
-    out.push(`workspace ${w.id}${quote(w.name)} ${w.cwd}`);
+    out.push(`workspace ${w.id}${quote(w.name)} ${w.cwd}${w.archived ? " archived" : ""}`);
     for (const t of w.model?.tabs ?? []) {
       const ids = panes(w.model.nodes, t.root);
       out.push(`  tab ${t.id}${quote(t.title)}${ids.length > 1 ? ": " + layout(w.model.nodes, t.root) : ""}`);
@@ -459,7 +478,7 @@ export function list(reply: any): string {
 }
 function pane(p: any): string {
   const a = p.agent,
-    exited = p.exited ? " exited" : "";
+    exited = p.dormant ? " hibernated" : p.exited ? " exited" : "";
   if (!a?.provider) return exited;
   const attention = a.attention && a.attention !== "none" ? ", " + a.attention.replace("_", " ") : "",
     activity = a.activity || a.recent_activity;

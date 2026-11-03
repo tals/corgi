@@ -1,3 +1,4 @@
+import * as archiveInventory from "./archive_inventory";
 import * as launcherConfig from "./launcher_config";
 import * as agentModels from "./agent_models";
 import { Quit as ModelQuit } from "./subprocess";
@@ -74,9 +75,12 @@ export class Server {
     readonly executable: string,
     readonly build_id: string,
   ) {}
-  /** The workspace a viewer opens on; null once every workspace is closed. */
+  /** The active workspace a viewer opens on, or null when none remain. */
   initialWorkspace(): Workspace | null {
-    return this.runtime.workspaces.get(this.preferred_workspace) ?? this.runtime.workspaces.items[0] ?? null;
+    const preferred = this.runtime.workspaces.get(this.preferred_workspace);
+    return preferred && !preferred.archived
+      ? preferred
+      : (this.runtime.workspaces.items.find(w => !w.archived) ?? null);
   }
   onlyWorkspace() {
     if (this.runtime.workspaces.items.length !== 1) throw Error("MissingWorkspace");
@@ -139,6 +143,12 @@ export class Server {
   }
   async execute(command: protocol.CommandInput): Promise<protocol.Result> {
     importer.admit(this, "session.command");
+    const lifecycle =
+      "pane.hibernate" in command ||
+      "workspace.archive" in command ||
+      "workspace.unarchive" in command ||
+      "pane.wake" in command;
+    if (lifecycle) await recovery.save(this.runtime, this.socket);
     const result = await session.execute(
       this.runtime,
       { socket: this.socket, executable: this.executable, theme: this.theme },
@@ -147,6 +157,7 @@ export class Server {
     this.bindPanes();
     this.dirty = true;
     await this.saveWorkspaces();
+    if (lifecycle) await recovery.save(this.runtime, this.socket);
     return { ...protocol.emptyResult(), ...result };
   }
   private bindPanes(): void {
@@ -512,6 +523,11 @@ export class Server {
         return;
       case "session.command":
         reply.ok({ result: await this.execute(request.payload.command) });
+        return;
+      case "workspace.archive.preview":
+        reply.ok({
+          preview: await archiveInventory.preview(this.runtime, request.payload.target, request.payload.remote),
+        });
         return;
       case "session.locate":
         reply.ok({

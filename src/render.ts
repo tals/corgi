@@ -1,3 +1,4 @@
+import type * as workspaceArchive from "./workspace_archive";
 import * as i18n from "./i18n";
 //! One complete frame of the viewer: tabs, panes, sidebar and overlays.
 //! Mirrors render.zig.
@@ -171,6 +172,7 @@ export interface Ui {
   agent_search: Search | null;
   tab_drop_x: number | null;
   dialog: Dialog | null;
+  archive_dialog: workspaceArchive.Dialog | null;
   sidebar_open: boolean;
   /** The folded sidebar's list that shows as a drawer over the panes. */
   sidebar_drawer: Section | null;
@@ -196,6 +198,10 @@ export interface Ui {
   accounts: subagentTooltip.Accounts;
   workspaces: WorkspaceEntry[];
   workspace_offset: number;
+  archived_workspaces: sidebar.ArchivedWorkspace[];
+  archived_expanded: boolean;
+  archived_offset: number;
+  archived_focused: boolean;
   /** Columns the review panel takes at the right edge; 0 while it is closed. */
   review_width: number;
   /** The row of the rule under the review panel's file list, which drags its height. */
@@ -247,6 +253,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     agent_search: null,
     tab_drop_x: null,
     dialog: null,
+    archive_dialog: null,
     sidebar_open: true,
     sidebar_drawer: null,
     corgi_badge: "none",
@@ -268,6 +275,10 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     accounts: new subagentTooltip.Accounts(),
     workspaces: [],
     workspace_offset: 0,
+    archived_workspaces: [],
+    archived_expanded: false,
+    archived_offset: 0,
+    archived_focused: false,
     review_width: 0,
     review_split: null,
     review_focused: false,
@@ -460,6 +471,7 @@ function noPopup(u: Ui): boolean {
     u.port_menu === null &&
     u.worktree_card === null &&
     u.dialog === null &&
+    u.archive_dialog === null &&
     u.signin_draw === null &&
     u.signin_exit === null
   );
@@ -468,6 +480,7 @@ function noPopup(u: Ui): boolean {
 function dimsPanes(u: Ui): boolean {
   return (
     u.dialog !== null ||
+    u.archive_dialog !== null ||
     u.agent_launcher !== null ||
     u.corgi_setup !== null ||
     u.sidebar_drawer !== null ||
@@ -484,6 +497,7 @@ function retainable(u: Ui, p: Pane, r: Rect, dim: boolean, hovered: bigint | nul
     !dim &&
     hovered === null &&
     p.restoring.length === 0 &&
+    !p.dormant &&
     !p.terminal.selection &&
     p.terminal.images.length === 0 &&
     r.w === p.terminal.inner.cols &&
@@ -494,7 +508,7 @@ function retainable(u: Ui, p: Pane, r: Rect, dim: boolean, hovered: bigint | nul
 function badgeCovered(u: Ui, side: SidebarView, width: number, height: number): boolean {
   // The agents drawer has no title row for the badge.
   if (u.sidebar_drawer === "agents") return true;
-  const boxes = menuBoxes(u, width, height);
+  const boxes = menuBoxes(u, width, height, side.area());
   if (u.agent_launcher) boxes.push(u.agent_launcher.bounds(width, height, side));
   if (u.agent_search) boxes.push(new Rect(0, side.middle() + 1, side.width, 1));
   if (u.dialog) {
@@ -504,8 +518,9 @@ function badgeCovered(u: Ui, side: SidebarView, width: number, height: number): 
   return boxes.some(corgiBadge.overlaps);
 }
 /** The open menus that can reach past the sidebar. */
-function menuBoxes(u: Ui, width: number, height: number): Rect[] {
+function menuBoxes(u: Ui, width: number, height: number, area: Rect): Rect[] {
   const boxes: Rect[] = [];
+  if (u.archive_dialog) boxes.push(u.archive_dialog.view(width, height, area).box);
   if (u.menu) boxes.push(new Rect(u.menu.x, u.menu.y, u.menu.width, u.menu.rows + 3));
   if (u.tab_menu) {
     const b = u.tab_menu.bounds(width, height);
@@ -655,6 +670,7 @@ export function frame(
   side.gpus = resourceTooltip.gpuCount(u.resources) > 0;
   side.drawer = u.sidebar_drawer;
   side.focus = u.sidebar_focus;
+  side = side.withArchives(u.archived_workspaces.length, u.archived_expanded, u.archived_offset, u.archived_focused);
   side = side.withWorkspaces(u.workspaces.length, u.workspace_offset).withEntries(entries);
   side.corgi_badge = u.corgi_badge;
   side.supports_kitty_graphics = u.supports_kitty_graphics;
@@ -768,7 +784,8 @@ export function frame(
       u.agent_search === null &&
       u.menu === null &&
       u.tab_menu === null &&
-      u.dialog === null
+      u.dialog === null &&
+      u.archive_dialog === null
     ) {
       if (u.port_menu) {
         const menu = u.port_menu;
@@ -791,6 +808,8 @@ export function frame(
           case "agent_new":
           case "agent_options":
           case "active":
+          case "archives":
+          case "archived_workspace":
             link_pointer = true;
             break;
           case "workspace":
@@ -836,6 +855,8 @@ export function frame(
             : false;
     } else if (u.tab_menu) {
       link_pointer = u.tab_menu.hit(width, height, pointer.x, pointer.y) !== null;
+    } else if (u.archive_dialog) {
+      link_pointer = u.archive_dialog.view(width, height, area).hit(pointer.x, pointer.y) !== null;
     } else if (u.dialog) {
       const dialog_view = NameView.init(width, height, u.dialog);
       // Clicks outside the dialog also cancel; only the buttons point.
@@ -870,14 +891,22 @@ export function frame(
     if (retained && retainable(u, p, r, dim, hovered)) retained.pane(w, p.terminal, p.id, r);
     else w.write(p.terminal.rows(p.id, r.x, r.y, r.w, r.h, dim, hovered));
     w.write("\x1b[0m");
-    if (p.restoring.length > 0) {
+    if (p.restoring.length > 0 || p.dormant) {
+      const id = p.id;
       drawRestoring(
         w,
         r,
         {
           command: p.restoring,
-          name: p.label.length > 0 ? p.label : p.agent.name.length > 0 ? p.agent.name : providerName(p.agent),
-          meta: restoringMeta(p, u.conversations),
+          name:
+            p.label.length > 0
+              ? p.label
+              : p.agent.name.length > 0
+                ? p.agent.name
+                : p.agent.provider
+                  ? providerName(p.agent)
+                  : i18n.t`Terminal`,
+          meta: p.dormant ? i18n.t`Resume with corgi pane wake ${id}` : restoringMeta(p, u.conversations),
           dig: p.dormant ? "asleep" : p.forking ? "forking" : "restoring",
         },
         Date.now() - p.restoring_since,
@@ -886,7 +915,13 @@ export function frame(
     // Kitty can't dim an image, so dimmed and covered panes keep their
     // images uploaded but don't place them.
     const hidden =
-      dim || dragging || u.copy_mode || u.signin_draw !== null || u.signin_exit !== null || p.restoring.length > 0;
+      dim ||
+      dragging ||
+      u.copy_mode ||
+      u.signin_draw !== null ||
+      u.signin_exit !== null ||
+      p.restoring.length > 0 ||
+      p.dormant;
     if (u.supports_kitty_graphics) pictured.push({ pane: p, rect: r, hidden });
   }
   drawDividers(w, view, area, !u.sidebar_focus);
@@ -900,12 +935,21 @@ export function frame(
   // A moving row's tint and a link's thumbnail are placed again by each frame that shows them.
   if (u.supports_kitty_graphics)
     w.write(rowGlide.hide + rowGlide.hideImage(rowGlide.manager_image_id) + linkThumbnail.hide);
-  if (none) {
+  const archive_marks: { brand: Brand; x: number; y: number }[] = [];
+  const dim_sidebar = none !== null && u.archived_workspaces.length === 0;
+  if (!dim_sidebar && u.tab_icons && u.cell_pixels)
+    side.archive_marks = (brand, x, y) => {
+      archive_marks.push({ brand, x, y });
+    };
+  if (dim_sidebar) {
     const dimmed = new Writer();
-    side.draw(dimmed, entries, workspaces);
+    side.draw(dimmed, entries, workspaces, u.archived_workspaces);
     sidebar.writeExit(w, dimmed.buffered(), noWorkspace.dim);
     side.drawTitleRow(w, create_lit);
-  } else side.draw(w, entries, workspaces);
+  } else {
+    side.draw(w, entries, workspaces, u.archived_workspaces);
+    if (none) side.drawTitleRow(w, create_lit);
+  }
   if (u.git_hover !== null) sidebar.drawGitAction(w, side, u.workspaces, u.git_hover);
   if (u.review_draw) u.review_draw(w);
   if (u.corgi_badge === "image") {
@@ -1033,13 +1077,32 @@ export function frame(
     w.write(`\x1b[4;${toast_x}H╰─────────────────────────╯`);
     w.write("\x1b[0m\x1b8");
   }
-  covered.push(...menuBoxes(u, width, height));
+  covered.push(...menuBoxes(u, width, height, area));
   if (u.menu) u.menu.draw(w);
   if (u.tab_menu) u.tab_menu.draw(w, width, height);
   if (u.port_menu) {
     const menu = u.port_menu;
     const ws = u.workspaces.find(item => item.id === menu.workspace);
     if (ws) menu.draw(w, ws, width, height);
+  }
+  if (u.archive_dialog) {
+    const icons = u.tab_icons,
+      cell = u.cell_pixels;
+    u.archive_dialog.view(width, height, area).draw(
+      w,
+      icons && cell && !u.signin_draw && !u.signin_exit
+        ? (brand, col, row) => {
+            if (
+              u.link_card &&
+              link_rect &&
+              (link_rect.contains(col, row) || link_rect.contains(col + tabIcons.cols - 1, row))
+            )
+              return "";
+            return icons.place(brand, col, row, cell);
+          }
+        : null,
+      u.pointer,
+    );
   }
   if (u.dialog) {
     const dialog = u.dialog;
@@ -1110,6 +1173,10 @@ export function frame(
     }
   }
   // Like pane images, a mark goes under nothing drawn over it.
+  if (u.tab_icons && u.cell_pixels && !u.agent_launcher && !u.corgi_setup && !u.signin_draw && !u.signin_exit)
+    for (const { brand, x, y } of archive_marks)
+      if (!covered.some(box => box.y <= y && box.y + box.h > y && box.x < x + tabIcons.cols && box.x + box.w > x))
+        w.write(u.tab_icons.place(brand, x, y, u.cell_pixels));
   if (marks && u.tab_icons && u.cell_pixels && !u.agent_launcher && !u.corgi_setup && !u.signin_draw && !u.signin_exit)
     for (const { brand, x } of marks)
       if (!covered.some(box => box.y === 0 && box.h > 0 && box.x < x + tabIcons.cols && box.x + box.w > x))
@@ -1246,7 +1313,7 @@ export function drawRestoring(w: Writer, r: Rect, band: Restoring, shown_ms: num
   const text = Math.max(displayWidth(band.name), displayWidth(band.meta), Math.min(displayWidth(band.command) + 2, 58));
   const bw = Math.min(r.w, Math.max(text + 6, word + 2 * lead + 6));
   const inner = sat(bw, 6);
-  const lines = commandLines(units, inner);
+  const lines = band.command ? commandLines(units, inner) : [];
   // Borders and padding, the title, then a gap and the details that fit.
   let details = 2 + lines.length;
   while (details > 0 && 6 + details > r.h) details = details > 2 ? 2 : 0;

@@ -204,6 +204,18 @@ $.workspaces[].last_agent?: provider
 $.workspaces[].launcher_hidden[]: string
 $.workspaces[].launcher_order[]: string
 $.workspaces[].focus: u32
+$.workspaces[].archived: bool
+$.workspaces[].archive_summary: optional
+$.workspaces[].archive_summary?.agents: u32
+$.workspaces[].archive_summary?.running: u32
+$.workspaces[].archive_summary?.waiting: u32
+$.workspaces[].archive_summary?.unread: u32
+$.workspaces[].archive_summary?.idle: u32
+$.workspaces[].archive_summary?.unknown: u32
+$.workspaces[].archive_summary?.programs[].name: string
+$.workspaces[].archive_summary?.programs[].brand: optional
+$.workspaces[].archive_summary?.programs[].brand?: string
+$.workspaces[].archive_summary?.programs[].count: u32
 $.panes[].binding.actor: u32
 $.panes[].binding.generation: u64
 $.panes[].binding.selection_hash: u64
@@ -297,6 +309,7 @@ $.panes[].launch?|agent.env[][]: string
 $.panes[].launch?|agent.observed: bool
 $.panes[].launch?|command: custom bounded_text.BoundedText(2048)
 $.panes[].dormant: bool
+$.panes[].manual_resume: bool
 $.closed[].label: custom bounded_text.BoundedText(80)
 $.closed[].cwd: string
 $.closed[].screen.cols: u16

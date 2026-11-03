@@ -48,6 +48,18 @@ requested by its most recently active viewer; hidden panes retain their size.
 Background workers return observations for the daemon to validate and apply.
 Keep application policy in TypeScript and the native boundary small.
 
+Pane hibernation reuses recovery's dormant terminal and resume hint. Workspaces
+carry an optional `archived` flag and `archive_summary`, capturing agent states
+and program counts before stopping. Archived panes keep `manual_resume` so
+waking and cold recovery prefill the restore command without running it.
+Older saved state defaults these to false/null; archived panes also imply
+manual resume.
+Viewer protocol 4 requires wake-on-entry: a viewer records selection changes
+while panes are awake too, so a selected pane becoming dormant cannot wake
+itself. Older viewers must reconnect with the matching binary. The CLI and
+session commands share the same lifecycle operations; see
+[hibernation and archiving](docs/workspaces.md#hibernate-panes-and-archive-workspaces).
+
 Pane surfaces carry Kitty image placements; `viewer.image` transfers decoded
 pixels in bounded chunks. [pane_images.ts](src/pane_images.ts) gives each viewer
 its own image ids, clips pictures to their panes and frees images that leave

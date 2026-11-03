@@ -1,6 +1,7 @@
 import { isAbsolute } from "node:path";
 import { Runtime, Pane, ClosedAgent, Launch, closed_per_workspace } from "../runtime";
 import * as workspace from "../workspace";
+import * as archiveSummary from "../archive_summary";
 import { Model, Tab, max_workspaces } from "../layout";
 import { Order, Pins, key as agentKey } from "../agent_order";
 import { Stars } from "../agent_stars";
@@ -116,18 +117,7 @@ export class Screen {
   }
 }
 export function historicalAgent(value: Agent): Agent {
-  const result = value.snapshot();
-  result.state = result.state === "done" ? "done" : "unknown";
-  result.attention = result.observation.unread() ? "finished" : "none";
-  result.last_seq = 0n;
-  result.metadata_protocol_at = result.metadata_at = result.working_since = 0;
-  result.tool_active = result.compacting = false;
-  result.compacting_since = 0;
-  result.permission_review = null;
-  result.subagents = { running: 0, blocked: 0, waiting: false };
-  result.observation.pending_stop = false;
-  result.transcript = new (result.transcript.constructor as any)();
-  return result;
+  return value.historical();
 }
 export function captureBinding(binding: Attachment, live: boolean) {
   return {
@@ -205,6 +195,8 @@ export function capture(r: Runtime, live: boolean) {
       launcher_hidden: w.launcher_hidden,
       launcher_order: w.launcher_order,
       focus: w.focus,
+      archived: w.archived,
+      archive_summary: w.archive_summary,
     })),
     panes: r.panes.map(p => {
       p.refreshCwd();
@@ -224,6 +216,7 @@ export function capture(r: Runtime, live: boolean) {
         resume_hint: p.resume_hint,
         launch: p.launch,
         dormant: p.dormant,
+        manual_resume: p.manual_resume,
       };
     }),
     closed: r.closed.map(p => ({
@@ -352,6 +345,8 @@ export async function restore(
     item.launcher_hidden = w.launcher_hidden ?? [];
     item.launcher_order = w.launcher_order ?? [];
     item.focus = w.focus ?? 0;
+    item.archived = w.archived === true;
+    item.archive_summary = archiveSummary.restore(w.archive_summary);
     item.away = hydrate(item.away, w.away);
     for (const tab of item.model.tabs)
       check(
@@ -436,7 +431,8 @@ export async function restore(
     pane.detection = live ? hydrate(new Tracker(), p.detection) : new Tracker();
     pane.resume_hint = hydrate(new ResumeHint(), p.resume_hint);
     pane.launch = p.launch ? Launch.from(p.launch) : null;
-    pane.dormant = live && p.dormant === true;
+    pane.dormant = p.dormant === true;
+    pane.manual_resume = p.manual_resume === true || r.workspaces.owner(p.id)!.archived;
     r.panes.push(pane);
   }
   for (const w of r.workspaces.items)
@@ -519,7 +515,11 @@ async function safeDirectory(cwd: string): Promise<string> {
 }
 async function recoverPane(p: Pane, socket: string, executable: string): Promise<void> {
   p.cwd = await safeDirectory(p.cwd);
-  if (p.resume_hint.args() !== null) return p.sleep();
+  if (p.dormant) {
+    p.sleep();
+    return;
+  }
+  if (p.resume_hint.args() !== null || (p.manual_resume && p.launch)) return p.sleep();
   p.terminal.feed("\x1b[0m\r\n\r\n# Recovered saved output; new shell.\r\n");
   await p.terminal.spawn(p.cwd, socket, p.id, executable, null, false);
 }

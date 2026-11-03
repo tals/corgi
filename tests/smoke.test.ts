@@ -757,8 +757,7 @@ process.stdin.on('data',data=>appendFileSync(log,data));process.stdin.resume();`
       [pane],
     );
     await this.input("\x1b[<2;5;3M\x1b[<2;5;3m");
-    await this.frame_with("r  Rename");
-    await this.input("\x1b[B\r");
+    await this.click_text(await this.frame_with("x  Close"), "Close");
     // The last one closes too, leaving the button that creates the next.
     await this.frame_with("Create workspace");
     this.assertEqual(await this.workspaces(), []);

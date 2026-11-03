@@ -129,3 +129,15 @@ test("with every workspace closed, the current one is none until another opens",
   runtime.receive(conn, { workspaces: [{ id: 4, model: { nodes: [], tabs: [], revision: 0 } }] });
   expect(state.current(runtime.workspaces).id).toBe(4);
 });
+
+test("fallback skips archived workspaces until one is explicitly selected", () => {
+  const store = world(),
+    state = new navigation.State();
+  store.items[0].archived = true;
+  expect(state.current(store).id).toBe(2);
+  store.items.splice(1);
+  expect(state.current(store)).toBe(store.none);
+  expect(state.tabs(store).count).toBe(0);
+  state.switchWorkspace(store, 1);
+  expect(state.current(store).id).toBe(1);
+});

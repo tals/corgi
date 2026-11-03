@@ -125,6 +125,12 @@ function changed(server: Server) {
   server.dirty = true;
   server.runtime.changed();
 }
+/** Starting a staged archive command restores ordinary hibernation and cold recovery. */
+function running(server: Server, pane: Pane) {
+  if (!pane.manual_resume || pane.dormant || pane.terminal.initial_input !== null) return;
+  pane.manual_resume = false;
+  changed(server);
+}
 function attention(server: Server, ding: boolean, state: string) {
   server.attention(ding, state);
 }
@@ -259,6 +265,7 @@ function detect(server: Server, pane: Pane, observedJob?: detection.Job | null) 
     title = claim || job ? pane.terminal.titleInfo() : null;
   if (!claim) pane.resume_hint.observe(pane.agent());
   if (job) {
+    running(server, pane);
     if ((previous && previous !== job.pid) || (pane.attachment.actor && pane.agent().provider !== job.provider))
       pane.releaseDetection();
     // An agent someone typed into the pane's shell comes back as they typed it.
@@ -394,6 +401,7 @@ export async function tick(server: Server) {
     for (const pane of panes) {
       const front = fronts.get(pane.terminal.fd);
       detectPane(server, pane, front && front.job);
+      if (front?.program?.name) running(server, pane);
       if (front !== undefined && pane.observeFront(front)) {
         server.dirty = true;
         runtime.refreshed();

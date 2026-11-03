@@ -35,11 +35,11 @@ export class State {
   previous_workspace: number | null = null;
   entries: Entry[] = [];
 
-  /** The current workspace's place in `store`; with none open, 0. */
+  /** The current workspace's place in `store`; with none active, past its end. */
   index(store: Workspaces): number {
-    const i = store.index(this.workspace_id) ?? 0;
-    if (i < store.items.length) this.workspace_id = store.items[i].id;
-    return i;
+    const i = store.index(this.workspace_id) ?? store.items.findIndex(w => !w.archived);
+    this.workspace_id = store.items[i]?.id ?? 0;
+    return i < 0 ? store.items.length : i;
   }
   /** The current workspace, or with none open, `store.none`. */
   current(store: Workspaces): Workspace {

@@ -25,6 +25,7 @@ test("menu keys pick the rows each menu shows", () => {
   expect(pane.itemFor(c("c"))).toBe("clear-name");
   expect(pane.itemFor(c("-"))).toBeNull();
   expect(pane.itemFor(c("s"))).toBeNull();
+  expect(pane.itemFor(c("h"))).toBeNull();
   const swap = new TabMenu({ tab: 1, anchor_x: 0, pane: true, source: 2 });
   expect(swap.itemFor(c("s"))).toBe("swap");
   const agent = new TabMenu({ tab: 1, anchor_x: 0, agent: true });
@@ -35,6 +36,7 @@ test("menu keys pick the rows each menu shows", () => {
   expect(agent.itemFor(c("s"))).toBe("star");
   expect(agent.itemFor(c("x"))).toBe("close");
   expect(agent.itemFor(c("n"))).toBeNull();
+  expect(agent.itemFor(c("h"))).toBeNull();
 });
 
 test("a worktree group's menu opens on Review changes and keeps Close all below a rule", () => {

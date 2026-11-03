@@ -19,7 +19,7 @@ export interface World {
   /** Builds the world under `s.dir`: once, and again after --restart. */
   seed(s: Sandbox): void;
   /** Opens the workspaces and tabs on a runtime that has none. */
-  arrange(s: Sandbox): void;
+  arrange(s: Sandbox): void | Promise<void>;
   /** What to try, printed before the viewer attaches; `table` lays out keys. */
   intro(s: Sandbox): string[];
 }
@@ -64,7 +64,7 @@ export async function open(name: string, root: string, exe: string, fresh: boole
     spawnSync(exe, ["start", "--update-routed"], { cwd: s.dir, env: s.env, stdio: "inherit" });
     // A runtime that was stopped comes back with its tabs; only an empty one is laid out.
     const workspaces: { model?: { tabs?: unknown[] } }[] = s.corgi(["workspace", "list"])?.workspaces ?? [];
-    if (workspaces.every(w => (w.model?.tabs?.length ?? 0) === 0)) s.world.arrange(s);
+    if (workspaces.every(w => (w.model?.tabs?.length ?? 0) === 0)) await s.world.arrange(s);
   }
   return s;
 }
@@ -119,7 +119,7 @@ export class Sandbox {
       // Corgi only uses a socket in a private directory.
       CORGI_SOCKET: join(this.dir, "run", "control.sock"),
       CORGI_ENV_DIR: join(this.dir, "env"),
-      SHELL: existsSync("/bin/zsh") ? "/bin/zsh" : "/bin/sh",
+      SHELL: existsSync("/bin/zsh") ? "/bin/zsh" : existsSync("/bin/bash") ? "/bin/bash" : "/bin/sh",
       PATH: `${join(this.home, "bin")}:${process.env.PATH}`,
     });
   }
@@ -217,6 +217,8 @@ export class Sandbox {
       "[user]\n\tname = Sandbox\n\temail = sandbox@example.com\n[init]\n\tdefaultBranch = main\n",
     );
     writeFileSync(join(this.home, ".zshrc"), "PROMPT='%F{green}%1~%f %# '\nbindkey -e\n");
+    writeFileSync(join(this.home, ".bashrc"), "PS1='\\W $ '\n");
+    writeFileSync(join(this.home, ".sudo_as_admin_successful"), "");
     // Keep what the sandbox's viewer saved, but set the prefix for where it runs this time.
     const prefs = join(this.home, ".local/state/corgi/viewer.json");
     let saved: Record<string, unknown> = {};
@@ -276,9 +278,18 @@ if (provider === 'claude' && process.argv.includes('--input-format')) {
   process.exit(0);
 }
 const hooks = provider === 'codex' ? join(process.env.CODEX_HOME, 'hooks.json') : join(process.env.CLAUDE_CONFIG_DIR, 'settings.json');
-const session = 'sandbox-' + provider + '-' + process.pid;
+const resume = process.argv.indexOf(provider === 'claude' ? '--resume' : 'resume');
+const session = resume >= 0 && process.argv[resume + 1] ? process.argv[resume + 1] : 'sandbox-' + provider + '-' + process.pid;
 const transcript = join(process.env.HOME, session + '.jsonl');
-writeFileSync(transcript, JSON.stringify({ type: 'session_meta', payload: { id: session } }) + '\n');
+if (!existsSync(transcript)) writeFileSync(transcript, JSON.stringify({ type: 'session_meta', payload: { id: session } }) + '\n');
+const option = flag => {
+  const i = process.argv.indexOf(flag);
+  return i >= 0 ? process.argv[i + 1] : '';
+};
+const task = option('--sandbox-name');
+const initial = option('--sandbox-state');
+if (task && provider === 'claude')
+  appendFileSync(transcript, JSON.stringify({ type: 'custom-title', sessionId: session, customTitle: task }) + '\n');
 let turn = 0;
 function event(name) {
   if (!existsSync(hooks)) return;
@@ -299,6 +310,19 @@ function begin() {
   event('SessionStart');
   out(provider + ' · a fake agent in a Corgi sandbox (' + process.cwd().split('/').pop() + ')\r\n');
   out('  work, stop, block, exit · or paste notes on path:line and press Enter\r\n\r\n');
+  if (initial) {
+    event('UserPromptSubmit');
+    out('› ' + task + '\r\n\r\n');
+    for (let i = 0; i < 24; i++)
+      out('  ' + (i + 1) + '. ' + ['Inspecting the existing implementation', 'Following the affected call sites', 'Checking the behavior against tests'][i % 3] + '\r\n');
+    if (initial === 'working') {
+      title('⠋ Working');
+      out('\r\nWorking on: ' + task + '\r\n');
+    } else {
+      event('Stop');
+      out('\r\nFinished: ' + task + '\r\nReady for review.\r\n');
+    }
+  }
   prompt();
 }
 // Its first run in a folder no one signed in to: how, then a link.

@@ -125,9 +125,9 @@ export async function sync(view: Controller, bell: { seq: bigint }, play_sound: 
         cell: view.cell_pixels,
       });
     }
-    // The sidebar's ghost needs its agent's screen, sized as entering will size it.
-    const ghost = view.sidebarGhost();
-    if (ghost)
+    // A ghost needs its agent's screen, sized as entering will size it.
+    const ghost = view.previewGhost();
+    if (ghost && !interests.some(interest => interest.pane === ghost.pane.id))
       interests.push({
         pane: ghost.pane.id,
         cols: Math.max(1, ghost.rect.w),

@@ -91,6 +91,21 @@ export class Agent {
     out.observation = new observation.State({ ...this.observation });
     return out;
   }
+  /** Saved identity and unread results, without a running process's state. */
+  historical(): Agent {
+    const result = this.snapshot();
+    result.state = result.state === "done" ? "done" : "unknown";
+    result.attention = result.observation.unread() ? "finished" : "none";
+    result.last_seq = 0n;
+    result.metadata_protocol_at = result.metadata_at = result.working_since = 0;
+    result.tool_active = result.compacting = false;
+    result.compacting_since = 0;
+    result.permission_review = null;
+    result.subagents = { running: 0, blocked: 0, waiting: false };
+    result.observation.pending_stop = false;
+    result.transcript = new Path();
+    return result;
+  }
   /** Starts or clears the work clock; blocked keeps it running. */
   trackWorking(now: number) {
     const since = this.state === "working" || this.state === "blocked" ? this.working_since || now : 0;

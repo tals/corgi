@@ -489,7 +489,9 @@ test("waking a dormant agent starts it in its own pane behind its old screen", a
     expect(p.ghost?.terminal.text()).toContain("OLD SCREEN");
     expect(p.restoring()).toBe("true resume agent-session");
     expect(actor.state.state).toBe("idle");
-    await expect(r.wake(p.id, wakeOptions, false)).rejects.toThrow("NotDormant");
+    const awake = p.terminal;
+    await r.wake(p.id, wakeOptions, false);
+    expect(p.terminal).toBe(awake);
   } finally {
     r.destroy();
   }

@@ -4,6 +4,8 @@ Agent controls (--json prints the daemon's reply as JSON):
   corgi workspace new NAME [--cwd DIR]
   corgi workspace edit ID [--name NAME] [--cwd DIR]
   corgi workspace close ID          requires an empty workspace
+  corgi workspace archive ID        hibernate panes and hide the workspace
+  corgi workspace unarchive ID      show the workspace; panes stay asleep
   corgi workspace switch ID [--viewer ID]
   corgi current                      calling pane's live location
   corgi tab new [--name NAME] [--cwd DIR] [--workspace ID] [--command SHELL_COMMAND]
@@ -17,6 +19,8 @@ Agent controls (--json prints the daemon's reply as JSON):
   corgi pane swap ID|current ID
   corgi pane resize ID|current --width PERCENT|--height PERCENT (10%-90%)
   corgi pane close ID|current
+  corgi pane hibernate ID|current... hibernate panes and stop their processes
+  corgi pane wake ID|current         resume or restart a pane
   corgi pane read ID|current [--lines N] [--json]
   corgi pane send ID|current TEXT|--stdin [--enter]
   corgi pane keys ID|current KEY...    enter, esc, ctrl+c, arrows, etc.

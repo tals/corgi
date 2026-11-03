@@ -5,10 +5,11 @@
 import { isSubhead, sameTarget, type Entry, type Section, type Target } from "./sidebar";
 
 /** A workspace row by id, or an agent list row by target. */
-export type Cursor = { workspace: number } | { entry: Target };
+export type Cursor = { workspace: number } | { entry: Target } | { archived: true };
 
 export function same(a: Cursor, b: Cursor): boolean {
   if ("workspace" in a) return "workspace" in b && a.workspace === b.workspace;
+  if ("archived" in a) return "archived" in b;
   return "entry" in b && sameTarget(a.entry, b.entry);
 }
 /** List rows the cursor stops on: not a closing row, nor a workspace's
@@ -38,20 +39,24 @@ export class State {
   ) {}
   /** The list the cursor moves in. */
   section(): Section {
-    return this.drawer ?? ("workspace" in this.cursor ? "workspaces" : "agents");
+    return this.drawer ?? ("entry" in this.cursor ? "agents" : "workspaces");
   }
   /** Whether `/` searches from here: the agent list, but not as a drawer,
    * since searching opens the whole sidebar. */
   searches(): boolean {
     return this.drawer === null && this.section() === "agents";
   }
-  private list(workspaces: number[], entries: Entry[]): Cursor[] {
-    if (this.section() === "workspaces") return workspaces.map(id => ({ workspace: id }));
+  private list(workspaces: number[], entries: Entry[], archived_at: number | null): Cursor[] {
+    if (this.section() === "workspaces") {
+      const rows: Cursor[] = workspaces.map(id => ({ workspace: id }));
+      if (archived_at !== null) rows.splice(archived_at, 0, { archived: true });
+      return rows;
+    }
     return entries.filter(stops).map(e => ({ entry: e.target }));
   }
   /** Keeps the cursor on its row, or the row now in its place when it closed. */
-  reconcile(workspaces: number[], entries: Entry[]): void {
-    const list = this.list(workspaces, entries);
+  reconcile(workspaces: number[], entries: Entry[], archived_at: number | null = null): void {
+    const list = this.list(workspaces, entries, archived_at);
     const i = list.findIndex(row => same(row, this.cursor));
     if (i >= 0) this.index = i;
     else if (list.length > 0) {
@@ -60,9 +65,9 @@ export class State {
     }
   }
   /** One row down or up in the cursor's list, wrapping at either end. */
-  move(workspaces: number[], entries: Entry[], down: boolean): void {
-    this.reconcile(workspaces, entries);
-    const list = this.list(workspaces, entries);
+  move(workspaces: number[], entries: Entry[], down: boolean, archived_at: number | null = null): void {
+    this.reconcile(workspaces, entries, archived_at);
+    const list = this.list(workspaces, entries, archived_at);
     if (list.length === 0) return;
     this.index = (this.index + (down ? 1 : list.length - 1)) % list.length;
     this.cursor = list[this.index];
@@ -77,7 +82,7 @@ export class State {
       this.cursor = { workspace: current };
       return true;
     }
-    if (up || !("workspace" in cursor)) return false;
+    if (up || "entry" in cursor) return false;
     const left = this.left;
     const back = left && entries.some(e => stops(e) && sameTarget(e.target, left)) ? { entry: left } : null;
     this.cursor = back ?? agentRow(entries) ?? cursor;
@@ -86,8 +91,8 @@ export class State {
   /** Workspace rows as drawn: on a workspace, the cursor's row takes the current one's tint. */
   markWorkspaces<T extends { id: number; active: boolean }>(workspaces: T[]): T[] {
     const cursor = this.cursor;
-    if (!("workspace" in cursor)) return workspaces;
-    return workspaces.map(ws => ({ ...ws, active: ws.id === cursor.workspace }));
+    if ("entry" in cursor) return workspaces;
+    return workspaces.map(ws => ({ ...ws, active: "workspace" in cursor && ws.id === cursor.workspace }));
   }
   /** The list as drawn: the cursor's row is its one focused row. */
   mark(entries: Entry[]): Entry[] {

@@ -68,7 +68,7 @@ export interface View<Session = unknown, Resources = unknown> {
 }
 export const version = 4;
 export const management_version = 1;
-export const viewer_version = 3;
+export const viewer_version = 4;
 export type Op = (typeof operations)[number];
 type PaneDestination = { new_tab: string } | { beside: Normalized<typeof structures.beside> };
 type TabDestination = { workspace: number } | { before: number } | { after: number };
@@ -88,6 +88,7 @@ export const operations = [
   "hello",
   "session.command",
   "session.locate",
+  "workspace.archive.preview",
   "session.list",
   "launcher.catalog",
   "launcher.models",
@@ -282,9 +283,12 @@ const commands = {
   "tab.close": { target: "u32" },
   "pane.restore": { workspace: "u32" },
   "pane.wake": { target: "u32", shell: ["bool", false] },
+  "pane.hibernate": { targets: "[]u32" },
   "workspace.create": { name: ["string", ""], cwd: "string" },
   "workspace.edit": { target: "u32", name: ["?string", null], cwd: ["?string", null] },
   "workspace.close": { target: "u32", close_contents: ["bool", false] },
+  "workspace.archive": { target: "u32" },
+  "workspace.unarchive": { target: "u32" },
   "workspace.move": { target: "u32", before: "u32" },
   "pane.rename": { target: "u32", name: "string" },
   "tab.rename": { target: "u32", name: "string" },
@@ -627,6 +631,7 @@ const requests = {
   "git.push": { workspace: "u32", ref: "ref" },
   "worktree.remove": { workspace: "u32", path: "string", locked: ["?string", null] },
   "worktree.stop": { workspace: "u32" },
+  "workspace.archive.preview": { target: "u32", remote: ["bool", false] },
   "process.signal": { workspace: "u32", pid: "u32", start: "u64", signal: "term|kill" },
   "worktree.brief": { workspace: "u32" },
   "worktree.add": { workspace: "u32", path: "string", branch: "string", base: "string" },
@@ -692,6 +697,7 @@ export interface ReplyPayloads {
   ping: Ok & { pid: number };
   "session.command": Ok & { result: Result };
   "session.locate": Ok & { result: Result };
+  "workspace.archive.preview": Ok & { preview: import("./workspace_archive").Preview };
   "launcher.catalog": Ok & { agents: import("./launcher_config").Agent[] };
   "launcher.models": Ok & { models: import("./agent_models").Choice[] };
   "session.list": Ok & { result: SessionSnapshot; viewers: ViewerInfo[] };
