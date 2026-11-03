@@ -123,6 +123,7 @@ $.requests|session.command.command|tab.close.target: u32
 $.requests|session.command.command|pane.restore.workspace: u32
 $.requests|session.command.command|pane.wake.target: u32
 $.requests|session.command.command|pane.wake.shell: bool
+$.requests|session.command.command|pane.hibernate.targets[]: u32
 $.requests|session.command.command|workspace.create.name: string
 $.requests|session.command.command|workspace.create.cwd: string
 $.requests|session.command.command|workspace.edit.target: u32
@@ -132,6 +133,8 @@ $.requests|session.command.command|workspace.edit.cwd: optional
 $.requests|session.command.command|workspace.edit.cwd?: string
 $.requests|session.command.command|workspace.close.target: u32
 $.requests|session.command.command|workspace.close.close_contents: bool
+$.requests|session.command.command|workspace.archive.target: u32
+$.requests|session.command.command|workspace.unarchive.target: u32
 $.requests|session.command.command|workspace.move.target: u32
 $.requests|session.command.command|workspace.move.before: u32
 $.requests|session.command.command|pane.rename.target: u32
@@ -172,6 +175,8 @@ $.requests|session.command.command|pane.keys.target: u32
 $.requests|session.command.command|pane.keys.text: string
 $.requests|session.command.command|pane.input.target: u32
 $.requests|session.command.command|pane.input.data: string
+$.requests|workspace.archive.preview.target: u32
+$.requests|workspace.archive.preview.remote: bool
 $.requests|session.locate.pane: u32
 $.requests|session.list: {}
 $.requests|launcher.catalog: {}
@@ -652,6 +657,18 @@ $.snapshot.revision: u64
 $.snapshot.workspaces[].id: u32
 $.snapshot.workspaces[].name: string
 $.snapshot.workspaces[].cwd: string
+$.snapshot.workspaces[].archived: bool
+$.snapshot.workspaces[].archive_summary: optional
+$.snapshot.workspaces[].archive_summary?.agents: u32
+$.snapshot.workspaces[].archive_summary?.running: u32
+$.snapshot.workspaces[].archive_summary?.waiting: u32
+$.snapshot.workspaces[].archive_summary?.unread: u32
+$.snapshot.workspaces[].archive_summary?.idle: u32
+$.snapshot.workspaces[].archive_summary?.unknown: u32
+$.snapshot.workspaces[].archive_summary?.programs[].name: string
+$.snapshot.workspaces[].archive_summary?.programs[].brand: optional
+$.snapshot.workspaces[].archive_summary?.programs[].brand?: string
+$.snapshot.workspaces[].archive_summary?.programs[].count: u32
 $.snapshot.workspaces[].model: custom layout.Model
 $.snapshot.workspaces[].agent_order[]: one of
 $.snapshot.workspaces[].agent_order[]|pane: u32
@@ -854,6 +871,27 @@ $.replies.session.locate.result.workspace: u32
 $.replies.session.locate.result.text: optional
 $.replies.session.locate.result.text?: string
 $.replies.session.locate.result.closed_panes[]: u32
+$.replies.workspace.archive.preview.preview.workspace: u32
+$.replies.workspace.archive.preview.preview.name: string
+$.replies.workspace.archive.preview.preview.agents[].target: one of
+$.replies.workspace.archive.preview.preview.agents[].target|pane: u32
+$.replies.workspace.archive.preview.preview.agents[].target|headless: u32
+$.replies.workspace.archive.preview.preview.agents[].name: string
+$.replies.workspace.archive.preview.preview.agents[].provider: string
+$.replies.workspace.archive.preview.preview.agents[].activity: string
+$.replies.workspace.archive.preview.preview.agents[].running: bool
+$.replies.workspace.archive.preview.preview.agents[].state: enum unknown initializing idle working blocked done
+$.replies.workspace.archive.preview.preview.agents[].attention: enum none finished needs_input
+$.replies.workspace.archive.preview.preview.agents[].paused: bool
+$.replies.workspace.archive.preview.preview.agents[].unread: bool
+$.replies.workspace.archive.preview.preview.processes[].pid: u32
+$.replies.workspace.archive.preview.preview.processes[].name: string
+$.replies.workspace.archive.preview.preview.processes[].brand: optional
+$.replies.workspace.archive.preview.preview.processes[].brand?: string
+$.replies.workspace.archive.preview.preview.processes_available: bool
+$.replies.workspace.archive.preview.preview.processes_partial: bool
+$.replies.workspace.archive.preview.preview.links[]: string
+$.replies.workspace.archive.preview.preview.links_available: bool
 $.replies.session.snapshot: any
 $.replies.viewer.open: versioned protocol.Opened
 $.replies.viewer.sync: versioned protocol.View(json.dynamic.Value,json.dynamic.Value)

@@ -90,8 +90,12 @@ selection. The `last-tab` and `last-workspace` actions can also be bound in any
 preset through the shortcut editor.
 
 After a crash or reboot, Corgi restores saved layout and output. Recorded agent
-sessions return dormant and resume when their pane gets focus; other panes
-start new shells. Recovery cannot restore arbitrary process memory. See
+sessions return dormant and resume when their pane enters focus; other panes
+start new shells unless explicitly hibernated. Scripts can use `corgi pane
+hibernate ID` and `corgi pane wake ID`;
+[workspace archiving](workspaces.md#hibernate-panes-and-archive-workspaces)
+keeps a whole workspace asleep and out of the normal sidebar list.
+Recovery cannot restore arbitrary process memory. See
 [reload and recovery details](../HACKING.md).
 
 ### Customize shortcuts

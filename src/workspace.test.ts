@@ -84,6 +84,13 @@ test("workspace state keeps every workspace closed", async () => {
     const restored = new Store();
     expect(await restored.load(file)).toBe(Workspace.Id.none);
     expect([restored.items, restored.next_id]).toEqual([[], 4]);
+    const archived = new Workspace(3, "/tmp", "parked");
+    archived.archived = true;
+    s.items.push(archived);
+    await s.save(file, Workspace.Id.none);
+    expect(await restored.load(file)).toBe(Workspace.Id.none);
+    expect(restored.items.map(w => [w.id, w.archived])).toEqual([[3, true]]);
+
     await writeFile(file, JSON.stringify({ version: 2, active: 3, next_id: 4, workspaces: [] }));
     await expect(new Store().load(file)).rejects.toThrow("InvalidWorkspaceState");
   } finally {

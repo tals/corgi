@@ -10,6 +10,9 @@ import * as gitTooltip from "./git_tooltip";
 import * as dropdown from "./dropdown";
 import * as worktrees from "./worktrees";
 import * as rowGlide from "./row_glide";
+import type { Summary as ArchiveSummary } from "./archive_summary";
+import type { Brand } from "./process_name";
+import * as tabIcons from "./tab_icons";
 import type { Cell } from "./fork_hero";
 import { url as portUrl } from "./trackers/ports";
 import { cpuText, memoryText } from "./trackers/resources";
@@ -277,7 +280,10 @@ export function lessThan(order: OrderTarget[], left: Entry, right: Entry): boole
 // The style guide's status glyphs; finished attention is the unseen-idle
 // state, and its name turns bold. Corgi also retains ended headless
 // sessions. A `selected` row takes muted where the guide says faint.
-export function indicator(e: Entry, selected: boolean): { icon: string; color: string; unread: boolean } {
+export function indicator(
+  e: Pick<Entry, "state" | "attention" | "paused">,
+  selected: boolean,
+): { icon: string; color: string; unread: boolean } {
   const quiet = selected ? fg("muted") : fg("faint");
   if (e.state === "done") return { icon: "○", color: quiet, unread: false };
   if (e.state === "blocked" || e.attention === "needs_input")
@@ -421,6 +427,7 @@ function portEndpoints(ports: PortsSnapshot, id: number): Endpoint[] {
   return (ports?.workspaces ?? []).find(w => w.id === id)?.endpoints ?? [];
 }
 export interface WorkspaceEntry {
+  archived: boolean;
   resources: Work;
   ports: PortsSnapshot;
   remote_links: boolean;
@@ -439,10 +446,12 @@ export interface WorkspaceEntry {
   attention: number;
   stats: Stats;
 }
+export type ArchivedWorkspace = Pick<WorkspaceEntry, "id" | "name" | "active"> & { summary?: ArchiveSummary | null };
 export function workspaceEntry(
   fields: Partial<WorkspaceEntry> & { id: number; name: string; cwd: string; active: boolean },
 ): WorkspaceEntry {
   return {
+    archived: false,
     resources: work({ id: 0 }),
     ports: { workspaces: [] },
     remote_links: false,
@@ -498,6 +507,8 @@ export type Hit =
   /** A badge counting agents scrolled out of sight, and the scroll that shows the nearest. */
   | { tag: "active"; offset: number }
   | { tag: "workspace_new" }
+  | { tag: "archives" }
+  | { tag: "archived_workspace"; workspace: number }
   | { tag: "workspace"; workspace: number };
 const hit = <T extends Hit["tag"]>(tag: T): Hit => ({ tag }) as Hit;
 
@@ -527,6 +538,7 @@ export class View {
   supports_kitty_graphics = false;
   /** The host's cell in pixels, for images placed by the pixel. */
   cell: Cell | null = null;
+  archive_marks: ((brand: Brand, col: number, row: number) => void) | null = null;
   cols = 0;
   rows = 0;
   width = 0;
@@ -543,6 +555,10 @@ export class View {
   dragged_workspace: number | null = null;
   workspace_count = 0;
   workspace_offset = 0;
+  archived_count = 0;
+  archived_expanded = false;
+  archived_offset = 0;
+  archived_focused = false;
   resources: { enabled: boolean } = { enabled: true };
   /** Whether the host has GPUs: rows keep a GPU reading's place, used or not. */
   gpus = false;
@@ -617,12 +633,33 @@ export class View {
   }
   /** The rule row below the workspace list. */
   workspaceEnd(): number {
-    return sat(this.middle(), 1);
+    return this.archivedHeader() ?? sat(this.middle(), 1);
+  }
+  archivedCapacity(): number {
+    if (!this.archived_count || !this.archived_expanded) return 0;
+    const room = sat(this.middle(), 3);
+    return Math.min(this.archived_count, Math.floor(room / 3), Math.max(1, Math.floor(room / 6)));
+  }
+  archivedHeader(): number | null {
+    return this.archived_count && this.drawer !== "agents"
+      ? Math.max(1, this.middle() - 2 - this.archivedCapacity() * 3)
+      : null;
+  }
+  withArchives(count: number, expanded: boolean, offset: number, focused = false): View {
+    const result = this.clone();
+    result.archived_count = count;
+    result.archived_expanded = expanded;
+    result.archived_offset = Math.min(offset, sat(count, result.archivedCapacity()));
+    result.archived_focused = focused;
+    return result;
   }
   /** Name and status rows end above the rule; only a trailing resource row
    * may give way to it. */
   workspaceCapacity(): number {
-    return Math.max(1, Math.floor((sat(this.workspaceEnd(), 2) + (this.workspaceRows() - 2)) / this.workspaceRows()));
+    return Math.max(
+      this.archived_count ? 0 : 1,
+      Math.floor((sat(this.workspaceEnd(), 2) + (this.workspaceRows() - 2)) / this.workspaceRows()),
+    );
   }
   /** The workspace list's scrollbar thumb, like the agent list's. */
   workspaceThumb(): { start: number; len: number } | null {
@@ -954,6 +991,13 @@ export class View {
         return { tag: "active", offset: b.offset };
     }
     if (y < v.middle()) {
+      const header = v.archivedHeader();
+      if (header !== null) {
+        if (y === header) return hit("archives");
+        const row = y - header - 1;
+        if (row >= 0 && row < v.archivedCapacity() * 3)
+          return { tag: "archived_workspace", workspace: v.archived_offset + Math.floor(row / 3) };
+      }
       if (y < 2 || y >= v.workspaceEnd()) return hit("none");
       const slot = Math.floor((y - 2) / v.workspaceRows());
       const index = slot + v.workspace_offset;
@@ -1056,18 +1100,30 @@ export class View {
     const range = this.unreadRange(ws);
     return x >= range.start && x < range.end;
   }
-  draw(w: Writer, entries: Entry[], workspaces: WorkspaceEntry[]): void {
-    return this.drawAt(w, entries, workspaces, Date.now());
+  draw(w: Writer, entries: Entry[], workspaces: WorkspaceEntry[], archived: ArchivedWorkspace[] = []): void {
+    return this.drawAt(w, entries, workspaces, Date.now(), archived);
   }
-  drawAt(w: Writer, entries: Entry[], workspaces: WorkspaceEntry[], now_ms: number): void {
+  drawAt(
+    w: Writer,
+    entries: Entry[],
+    workspaces: WorkspaceEntry[],
+    now_ms: number,
+    archived: ArchivedWorkspace[] = [],
+  ): void {
     corgiAnimation.beginFrame();
     try {
-      this.drawFrame(w, entries, workspaces, now_ms);
+      this.drawFrame(w, entries, workspaces, now_ms, archived);
     } finally {
       corgiAnimation.endFrame();
     }
   }
-  private drawFrame(w: Writer, entries: Entry[], workspaces: WorkspaceEntry[], now_ms: number): void {
+  private drawFrame(
+    w: Writer,
+    entries: Entry[],
+    workspaces: WorkspaceEntry[],
+    now_ms: number,
+    archived: ArchivedWorkspace[],
+  ): void {
     const v = this;
     if (v.width === 0) {
       if (v.cols >= 64) w.write(`${w.cup(1, 1)}\x1b[1m` + fg("strong") + " > \x1b[0m");
@@ -1075,7 +1131,7 @@ export class View {
     }
     if (v.framed()) {
       for (let row = 0; row < v.rows; row++) w.write(`${w.cup(row + 1, 1)}${panel}` + " ".repeat(lists_x));
-      w.withColumns(lists_x, () => v.lists().drawFrame(w, entries, workspaces, now_ms));
+      w.withColumns(lists_x, () => v.lists().drawFrame(w, entries, workspaces, now_ms, archived));
       v.drawBox(w);
       w.withColumns(lists_x, () => v.lists().drawBadges(w));
       return;
@@ -1109,7 +1165,10 @@ export class View {
         w.write(new Style({ fg: "faint", bg: "bg" }).sgr() + " " + i18n.t`search`);
       }
     }
-    if (v.drawer !== "agents") v.drawWorkspaces(w, workspaces);
+    if (v.drawer !== "agents") {
+      v.drawWorkspaces(w, workspaces);
+      v.drawArchives(w, archived);
+    }
     if (v.drawer === "workspaces") {
       w.write("\x1b[0m");
       return;
@@ -1194,7 +1253,13 @@ export class View {
       const badge_width = displayWidth(badge);
       w.write(`${w.cup(y + 1, 2)}${style}`);
       const link = linkRange(v, ws, workspaces);
-      writeClipped(w, directoryLabel(ws.name, null, 4097), sat(link.start, 2));
+      const name = directoryLabel(ws.name, null, 4097),
+        name_room = sat(link.start, 2);
+      if (ws.archived) {
+        const suffix = i18n.t` (archived)`;
+        writeEllipsis(w, name, sat(name_room, displayWidth(suffix)));
+        writeClipped(w, suffix, name_room);
+      } else writeClipped(w, name, name_room);
       if (link.end > link.start) {
         w.write(w.cup(y + 1, link.start + 1));
         drawPorts(w, ws, link.end - link.start, false);
@@ -1264,6 +1329,77 @@ export class View {
     if (ws_thumb)
       for (let row = ws_thumb.start; row < ws_thumb.start + ws_thumb.len; row++)
         w.write(w.cup(3 + row, v.width) + v.thumbStyle("workspaces") + "┃");
+  }
+  private drawArchives(w: Writer, archived: ArchivedWorkspace[]): void {
+    const header = this.archivedHeader();
+    if (header === null) return;
+    const row = (y: number, label: string, active: boolean, bold = false, rule = "") => {
+      const style = new Style({ fg: active ? "strong" : "muted", bg: active ? "selected" : "surface", bold }).sgr();
+      w.write(w.cup(y + 1, 1) + style);
+      w.splat(" ", this.width - 1);
+      w.write(w.cup(y + 1, 2));
+      if (rule) {
+        w.write(rule);
+        w.splat(" ", sat(this.width, 3));
+        w.write(w.cup(y + 1, 2));
+      }
+      writeEllipsis(w, label, sat(this.width, 3));
+      w.write(panel);
+    };
+    const count = this.archived_count;
+    row(header, (this.archived_expanded ? "▾ " : "▸ ") + i18n.t`${count} archived`, this.archived_focused);
+    const capacity = this.archivedCapacity();
+    const visible = archived.slice(this.archived_offset, this.archived_offset + capacity);
+    visible.forEach((ws, i) => {
+      const y = header + i * 3 + 1;
+      const rule = i + 1 < visible.length ? rule_underline : "";
+      row(y, directoryLabel(ws.name, null, 4097), ws.active, true);
+      const s = ws.summary;
+      row(y + 1, s ? "" : i18n.t`Agent states unavailable`, ws.active);
+      if (s) {
+        const count = s.agents;
+        let x = 1;
+        const part = (value: string, token: palette.Token) => {
+          w.write(w.cup(y + 2, x + 1) + new Style({ fg: token, bg: ws.active ? "selected" : "surface" }).sgr());
+          writeEllipsis(w, value, sat(this.width - 2, x));
+          x += displayWidth(value);
+        };
+        part(i18n.t`${count} agents`, "muted");
+        if (s.running) part(` ${compactCount(s.running)}▶`, "accent");
+        if (s.waiting) part(` ${compactCount(s.waiting)}●`, "warm");
+        if (s.unread) part(` ${compactCount(s.unread)}●`, "accent");
+        if (s.idle) part(` ${compactCount(s.idle)}○`, "muted");
+        if (s.unknown) part(` ${compactCount(s.unknown)}?`, "muted");
+      }
+      row(
+        y + 2,
+        s ? (s.programs.length ? "" : i18n.t`No processes`) : i18n.t`Process counts unavailable`,
+        ws.active,
+        false,
+        rule,
+      );
+      let x = 1;
+      for (const p of s?.programs ?? []) {
+        const room = this.width - 2 - x;
+        if (room <= 0) break;
+        const prefix = `${x > 1 ? " " : ""}${compactCount(p.count)}× `;
+        const icon = p.brand && this.archive_marks ? tabIcons.cols : 0;
+        const name = p.name.replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
+        w.write(w.cup(y + 3, x + 1) + new Style({ fg: "muted", bg: ws.active ? "selected" : "surface" }).sgr() + rule);
+        writeEllipsis(w, prefix + " ".repeat(icon) + name, room);
+        if (p.brand && icon && displayWidth(prefix) + icon < room)
+          this.archive_marks!(p.brand, w.column + x + displayWidth(prefix), y + 2);
+        x += displayWidth(prefix) + icon + displayWidth(name);
+      }
+      w.write(panel);
+    });
+    const track = capacity * 3;
+    if (capacity > 0 && count > capacity) {
+      const len = Math.max(1, Math.floor((track * capacity) / count));
+      const start = Math.round(((track - len) * this.archived_offset) / (count - capacity));
+      for (let i = start; i < start + len; i++)
+        w.write(w.cup(header + 2 + i, this.width) + this.thumbStyle("workspaces") + "┃");
+    }
   }
   /** The agent list below its header. */
   private drawAgents(w: Writer, entries: Entry[], now_ms: number): void {

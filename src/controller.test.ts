@@ -525,54 +525,65 @@ test("last workspace records pane jumps and notices closed or missing history", 
   }
 });
 
-test("closing the last workspace leaves the button that creates one, which Enter and a click press", async () => {
-  let snapshot: any = folders("/src/app");
-  const sent: any[] = [];
-  const s: any = new Controller({
-    socket: "",
-    request: transport(async (op, fields: any) => {
-      if (op !== "session.command") return snapshot;
-      sent.push(fields.command);
-      if ("workspace.close" in fields.command) snapshot = { ...snapshot, workspaces: [], panes: [] };
-      return { result: {} };
-    }).request,
+for (const archived of [false, true])
+  test(`closing the last active workspace leaves a working create button (archives: ${archived})`, async () => {
+    let snapshot: any = folders("/src/app", ...(archived ? ["/src/parked"] : []));
+    if (archived) {
+      snapshot.workspaces[1].archived = true;
+      snapshot.panes[1].dormant = true;
+    }
+    const sent: any[] = [];
+    const s: any = new Controller({
+      socket: "",
+      request: transport(async (op, fields: any) => {
+        if (op !== "session.command") return snapshot;
+        sent.push(fields.command);
+        if ("workspace.close" in fields.command)
+          snapshot = { ...snapshot, workspaces: snapshot.workspaces.slice(1), panes: snapshot.panes.slice(1) };
+        return { result: {} };
+      }).request,
+    });
+    s.receiveSnapshot(snapshot);
+    s.input_state.attached = true;
+    s.start_folder = "/src/next";
+    try {
+      await s.perform({ name: "close-workspace" });
+      expect(sent).toEqual([{ "workspace.close": { target: 1, close_contents: true } }]);
+      expect([s.runtime.workspaces.items.length, s.current().id, s.model().count]).toEqual([archived ? 1 : 0, 0, 0]);
+      expect(s.frame()).toContain("Create workspace");
+      if (archived) {
+        expect(s.frame()).toContain("1 archived");
+        await s.perform({ name: "toggle-archived-workspaces" });
+        expect(s.frame()).toContain("/src/parked");
+      }
+      // What needs a workspace asks for one, and what moves between them waits.
+      for (const name of ["workspace-next", "workspace-prev", "close-workspace", "edit-workspace", "review"])
+        await s.perform({ name });
+      expect([s.name_dialog, s.tab_menu, sent.length]).toEqual([null, null, 1]);
+      await s.perform({ name: "new" });
+      expect(s.agent_launcher).toBeNull();
+      expect(s.name_dialog).toBeInstanceOf(newWorkspace.Dialog);
+      expect(s.name_dialog.browser.folder()).toBe("/src/next");
+      s.dismissName();
+      await s.input(bytes("\r"));
+      expect(s.name_dialog).toBeInstanceOf(newWorkspace.Dialog);
+      s.dismissName();
+      const { button, steps } = noWorkspace.layout(s.area())!,
+        click = (x: number, y: number) => s.input(bytes(`\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`));
+      await click(button.x + 1, button.y + 1);
+      expect(s.name_dialog).toBeInstanceOf(newWorkspace.Dialog);
+      s.dismissName();
+      // The sketches press the button, but the example's name plays the game.
+      await click(steps!.dialog.x + 1, steps!.dialog.y + 1);
+      expect([s.name_dialog instanceof newWorkspace.Dialog, s.moonlander]).toEqual([true, null]);
+      s.dismissName();
+      await click(steps!.names[1].x, steps!.names[1].y);
+      expect([s.name_dialog, s.moonlander === null]).toEqual([null, false]);
+      s.closeMoonlander();
+    } finally {
+      viewer.close(s);
+    }
   });
-  s.receiveSnapshot(snapshot);
-  s.input_state.attached = true;
-  s.start_folder = "/src/next";
-  try {
-    await s.perform({ name: "close-workspace" });
-    expect(sent).toEqual([{ "workspace.close": { target: 1, close_contents: true } }]);
-    expect([s.runtime.workspaces.items.length, s.current().id, s.model().count]).toEqual([0, 0, 0]);
-    expect(s.frame()).toContain("Create workspace");
-    // What needs a workspace asks for one, and what moves between them waits.
-    for (const name of ["workspace-next", "workspace-prev", "close-workspace", "edit-workspace", "review"])
-      await s.perform({ name });
-    expect([s.name_dialog, s.tab_menu, sent.length]).toEqual([null, null, 1]);
-    await s.perform({ name: "new" });
-    expect(s.agent_launcher).toBeNull();
-    expect(s.name_dialog).toBeInstanceOf(newWorkspace.Dialog);
-    expect(s.name_dialog.browser.folder()).toBe("/src/next");
-    s.dismissName();
-    await s.input(bytes("\r"));
-    expect(s.name_dialog).toBeInstanceOf(newWorkspace.Dialog);
-    s.dismissName();
-    const { button, steps } = noWorkspace.layout(s.area())!,
-      click = (x: number, y: number) => s.input(bytes(`\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`));
-    await click(button.x + 1, button.y + 1);
-    expect(s.name_dialog).toBeInstanceOf(newWorkspace.Dialog);
-    s.dismissName();
-    // The sketches press the button, but the example's name plays the game.
-    await click(steps!.dialog.x + 1, steps!.dialog.y + 1);
-    expect([s.name_dialog instanceof newWorkspace.Dialog, s.moonlander]).toEqual([true, null]);
-    s.dismissName();
-    await click(steps!.names[1].x, steps!.names[1].y);
-    expect([s.name_dialog, s.moonlander === null]).toEqual([null, false]);
-    s.closeMoonlander();
-  } finally {
-    viewer.close(s);
-  }
-});
 test("the button and the sidebar's add button light together while either is chosen", async () => {
   const s = controller();
   s.receiveSnapshot({ workspaces: [], panes: [] });
@@ -912,14 +923,14 @@ test("edit workspace opens the current workspace's menu centered in its row, and
   try {
     s.sidebar_open = false;
     await s.perform({ name: "edit-workspace" });
-    expect([s.tab_menu?.anchor_x, s.tab_menu?.anchor_y]).toEqual([40, 1]);
+    expect([s.tab_menu?.anchor_x, s.tab_menu?.anchor_y]).toEqual([36, 1]);
     s.sidebar_open = true;
     s.navigation.workspace_id = 2;
     await s.perform({ name: "edit-workspace" });
     expect(s.tab_menu?.workspace).toBe(true);
     expect(s.tab_menu?.tab).toBe(2);
-    expect(s.tab_menu?.entries().map((e: Row) => e.label)).toEqual(["Rename", "Close"]);
-    expect([s.tab_menu?.anchor_x, s.tab_menu?.anchor_y]).toEqual([4, 6]);
+    expect(s.tab_menu?.entries().map((e: Row) => e.label)).toEqual(["Rename", "Archive workspace", "Close"]);
+    expect([s.tab_menu?.anchor_x, s.tab_menu?.anchor_y]).toEqual([0, 6]);
     await s.key(114);
     expect(s.tab_menu).toBeNull();
     expect(s.name_dialog?.target).toEqual({ workspace_name: 2 });
@@ -2782,7 +2793,7 @@ function picking() {
     socket: "",
     request: transport(async (op, fields) => {
       // A sync sees nothing new, and focus changes are accepted.
-      if (op === "viewer.sync" || op === "session.command") return { ok: true, viewer_protocol: 3 };
+      if (op === "viewer.sync" || op === "session.command") return { ok: true, viewer_protocol: 4 };
       if (op !== "viewer.pick") throw Error("UnexpectedRequest");
       asks.push(fields);
       return { ok: true, match: { x: 2, y: 0, end_x: 6, end_y: 0 }, shown: reply.shown, copy: "hello" };

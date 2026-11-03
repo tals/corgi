@@ -97,6 +97,17 @@ test("foreground detection shares its title read with local reattachment", () =>
   expect(terminal.titleReads).toBe(1);
 });
 
+test("agent detection consumes a staged restore before hooks can save its state", () => {
+  const { server, pane } = fixture();
+  pane.manual_resume = true;
+  detectPane(server, pane, null);
+  expect(pane.manual_resume).toBe(true);
+  const durable = server.runtime.durable;
+  detectPane(server, pane, { provider: "codex", pid: 42 });
+  expect(pane.manual_resume).toBe(false);
+  expect(server.runtime.durable).toBeGreaterThan(durable);
+});
+
 test("a bridge claim runs the existing screen watcher without a local agent or conversation", () => {
   const { server, pane, terminal, registry } = fixture();
   pane.launch = new Launch({ provider: "codex" });

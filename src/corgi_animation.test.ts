@@ -595,8 +595,8 @@ test.each(["zh", "ja", "ko", "ru"] as const)("%s resume and dig labels fit both 
   const original = i18n.language();
   try {
     i18n.setLanguage(locale);
-    const asleep = i18n.t`Click to resume`;
-    expect(asleep).not.toBe("Click to resume");
+    const asleep = i18n.t`Hibernated`;
+    expect(asleep).not.toBe("Hibernated");
     expect(a.Asleep.word).toBe(asleep);
     expect(a.Asleep.wordWidth).toBe(displayWidth(asleep));
     expect(displayWidth(plain(a.writeAsleep(a.Asleep.width)))).toBe(a.Asleep.width);

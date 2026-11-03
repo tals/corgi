@@ -518,9 +518,11 @@ export async function request(server: Server, client: Peer, request: Request, re
       throw error;
     }
     runtime.sessions.push(session);
+    runtime.unarchiveWorkspace(workspace.id);
     runtime.next_session = Session.Id.next(runtime.next_session);
     runtime.changed();
     server.dirty = true;
+    await server.saveWorkspaces();
     client.headless_start = { id: session.id, deadline: Date.now() + 60_000, request_id: reply.id };
     return;
   }

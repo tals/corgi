@@ -1,3 +1,4 @@
+import * as json from "./json";
 import * as clock from "./clock";
 import * as telemetry from "./telemetry";
 import * as os from "./os";
@@ -13,6 +14,8 @@ import { Terminal } from "./pane/terminal";
 import { Attachment, Registry, type Actor, type ActorId } from "./conversations";
 import { Tracker, locate, process_buffer, type Foreground } from "./detection";
 import type { Brand } from "./process_name";
+import * as processName from "./process_name";
+import * as archiveInventory from "./archive_inventory";
 import { ResumeHint } from "./resume_hint";
 import { waitpid, tcgetpgrp } from "./native_bridge";
 import * as keys from "./keys";
@@ -220,6 +223,8 @@ export class Pane {
   ghost: Ghost | null = null;
   /** Recovered with nothing running: its old screen, faded, until `Runtime.wake`. */
   dormant = false;
+  /** Archived commands wait at the prompt, including after cold recovery. */
+  manual_resume = false;
   /** The account the agent a saved command started reads from its own
    * environment, which can say what the command's text can't. */
   running_account: string | null = null;
@@ -335,24 +340,22 @@ export class Pane {
    * dormant one will run. */
   restoring() {
     if (!this.ghost && !this.dormant) return "";
-    return (
-      this.ghost?.fork ??
-      this.attached ??
-      this.resumeLaunch()?.typed(this.resume_hint.args(this.resumeLaunch()?.account()), this.resume_hint) ??
-      ""
-    );
+    const launch = this.resumeLaunch(),
+      args = this.resume_hint.args(launch?.account());
+    return this.ghost?.fork ?? this.attached ?? (args ? launch?.typed(args, this.resume_hint) : launch?.typed()) ?? "";
   }
   /** How its agent comes back: as it was launched, or as its provider starts. */
   resumeLaunch() {
     return this.launch ?? (this.resume_hint.provider ? new Launch({ provider: this.resume_hint.provider }) : null);
   }
   /** Shows its saved screen, faded, with nothing running until `Runtime.wake`. */
-  async sleep() {
-    const t = await Terminal.create(this.terminal.cols, this.terminal.rows);
-    t.feed(this.terminal.fadedSnapshot());
+  sleep() {
+    const t = Terminal.create(this.terminal.cols, this.terminal.rows);
+    t.feed((this.ghost?.terminal ?? this.terminal).fadedSnapshot());
     t.exited = true;
     this.terminal.destroy();
     this.terminal = t;
+    this.dropGhost();
     this.dormant = true;
     const launch = this.resumeLaunch();
     this.attached = launch?.agent ? this.resume_hint.attach(launch.account()) : null;
@@ -619,6 +622,7 @@ export class Runtime {
     const p = new Pane(id, t, dir);
     p.dormant = opts.asleep === true;
     this.panes.push(p);
+    this.unarchiveWorkspace(ws.id);
     breadcrumbs.record("opened", { owner: p });
     ws.model = next;
     this.workspaces.next_pane_id = next.next_id;
@@ -675,6 +679,110 @@ export class Runtime {
   }
   reapStopped() {
     this.stopped = this.stopped.filter(pid => waitpid(pid) === 0);
+  }
+  /** Resolves the whole selection, then keeps whatever can restart each pane. */
+  hibernate(ids: number[]) {
+    const panes = [...new Set(ids)].map(id => {
+      const p = this.pane(id);
+      if (!p) throw Error("NoPane");
+      return p;
+    });
+    for (const p of panes) {
+      if (p.dormant) continue;
+      p.refreshCwd();
+      p.terminal.read();
+      if (p.detection.claim) {
+        p.resume_hint = new ResumeHint();
+        if (p.launch?.agent) p.launch = null;
+        p.releaseDetection();
+      } else {
+        const a = p.agent();
+        if (!a.session.len && !p.ghost) p.resume_hint = new ResumeHint();
+        p.resume_hint.observe(a);
+        if (a.provider) p.launch ??= Launch.observed(a.provider, p.detection.pid);
+        else if (!p.ghost && !p.manual_resume && (p.idleShell() || p.launch?.agent?.observed)) p.launch = null;
+      }
+      this.stopShell(p.terminal);
+      p.sleep();
+      const actor = p.attachment.actor;
+      if (!actor) p.attachment.provisional = p.agent().historical();
+      else if (
+        !this.panes.some(other => other.attachment.actor === actor && !other.dormant && !other.terminal.exited) &&
+        !this.sessions.some(s => !s.exited && s.members.includes(actor))
+      )
+        actor.state = actor.state.historical();
+      p.detection = new Tracker();
+      p.command = "";
+      p.brand = null;
+    }
+    this.changed();
+  }
+  archiveWorkspace(id: number) {
+    const ws = this.getWorkspace(id);
+    if (ws.archived) return;
+    if (!this.workspaces.items.some(w => w.id !== id && !w.archived)) throw Error("LastWorkspace");
+    const summary = archiveInventory.summary(this, id);
+    const sessions = this.sessions.filter(s => s.workspace_id === id && !s.exited);
+    const next = clone(ws.model);
+    next.next_id = this.workspaces.next_pane_id;
+    const recovered: Pane[] = [];
+    try {
+      for (const session of sessions) {
+        const pane = next.newTab(session.agent().name.text() || session.provider);
+        const terminal = Terminal.create(100, 30);
+        terminal.exited = true;
+        const p = new Pane(pane, terminal, session.cwd);
+        recovered.push(p);
+        p.resume_hint = session.resume_hint;
+        p.resume_hint.observe(session.agent());
+        p.launch = new Launch({ provider: session.provider });
+        if (session.attachment.actor) p.attachment.select(session.attachment.actor);
+        else p.attachment.provisional = session.agent().historical();
+        for (const { event } of session.events)
+          terminal.feed(json.stringify(event).replace(/[\x00-\x1f\x7f]/g, " ") + "\r\n");
+        terminal.feed(p.resume_hint.banner(Math.trunc(Date.now() / 1000)));
+      }
+    } catch (error) {
+      for (const p of recovered) p.terminal.destroy();
+      throw error;
+    }
+    for (const session of sessions) {
+      session.destroy();
+      this.sessions.splice(this.sessions.indexOf(session), 1);
+    }
+    if (recovered.length) {
+      next.revision = BigInt.asUintN(64, next.revision + 1n);
+      ws.model = next;
+      this.workspaces.next_pane_id = next.next_id;
+      this.panes.push(...recovered);
+    }
+    const panes = this.panes.filter(p => this.workspaces.owner(p.id)?.id === id);
+    for (const p of panes) {
+      p.manual_resume = true;
+      if (!p.dormant && !p.terminal.exited && !p.agent().provider && !p.idleShell()) {
+        const pid = tcgetpgrp(p.terminal.fd);
+        const info = pid > 0 ? os.processArgs(pid, process_buffer) : null;
+        if (info?.complete && info.argv.length && processName.program([info.argv[0]]).name)
+          p.launch = new Launch(undefined, os.shellWords(info.argv));
+      }
+    }
+    this.hibernate(panes.map(p => p.id));
+    for (const session of sessions)
+      for (const actor of session.members)
+        if (
+          !this.panes.some(p => !p.dormant && !p.terminal.exited && p.attachment.actor === actor) &&
+          !this.sessions.some(s => !s.exited && s.members.includes(actor))
+        )
+          actor.state = actor.state.historical();
+    ws.archived = true;
+    ws.archive_summary = summary;
+    this.changed();
+  }
+  unarchiveWorkspace(id: number) {
+    const ws = this.getWorkspace(id);
+    if (!ws.archived) return;
+    ws.archived = false;
+    this.changed();
   }
   reopen(opts: Create) {
     const i = this.closedIndex(opts.workspace, "newest");
@@ -785,13 +893,31 @@ export class Runtime {
   async wake(id: number, opts: Pick<Create, "socket" | "executable" | "theme">, shell: boolean) {
     const p = this.pane(id);
     if (!p) throw Error("NoPane");
-    if (!p.dormant) throw Error("NotDormant");
+    if (!p.dormant) return;
+    shell ||= p.manual_resume;
     const hint = p.resume_hint,
       launch = p.resumeLaunch(),
       args = hint.args(launch?.account());
-    if (!launch || !args) throw Error("InvalidSession");
+    if (!launch) {
+      const t = Terminal.create(p.terminal.cols, p.terminal.rows);
+      try {
+        t.applyTheme(opts.theme);
+        t.feed(p.terminal.fadedSnapshot());
+        await t.spawn(await Store.directory(p.cwd), opts.socket, id, opts.executable, null, false);
+      } catch (e) {
+        t.destroy();
+        throw e;
+      }
+      p.terminal.destroy();
+      p.terminal = t;
+      p.dormant = false;
+      p.manual_resume = false;
+      this.unarchiveWorkspace(this.workspaces.owner(id)!.id);
+      this.changed();
+      return;
+    }
     const attached = launch.agent ? hint.attach(launch.account()) : null,
-      typed = attached ?? launch.typed(args, hint),
+      typed = attached ?? (args ? launch.typed(args, hint) : launch.typed()),
       old = p.terminal.fadedSnapshot(),
       { cols, rows } = p.terminal,
       frozen = shell ? null : await this.frozenScreen({ cols, rows, theme: opts.theme }, old),
@@ -820,8 +946,17 @@ export class Runtime {
     p.terminal.destroy();
     p.terminal = t;
     p.dormant = false;
+    this.unarchiveWorkspace(this.workspaces.owner(id)!.id);
     if (frozen) {
-      this.resumed(p, this.workspaces.owner(id)!.id, launch, hint, attached);
+      if (args) this.resumed(p, this.workspaces.owner(id)!.id, launch, hint, attached);
+      else {
+        p.releaseDetection();
+        p.resume_hint = new ResumeHint();
+        p.launch = launch;
+        p.attached = null;
+        p.attachment.provisional.provider = launch.agent?.provider ?? null;
+        p.attachment.provisional.state = "initializing";
+      }
       this.haunt(p, frozen, old, null);
     } else t.prefill(typed);
     this.changed();

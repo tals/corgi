@@ -40,7 +40,9 @@ export type Item =
   | "open-folder"
   | "close"
   | "fold"
-  | "close-all";
+  | "close-all"
+  | "archive"
+  | "unarchive";
 /** A `rule` sets the row apart below a line, and the highlight never starts on it. */
 export interface Row {
   item: Item;
@@ -116,6 +118,7 @@ export class TabMenu {
   headless = false;
   /** Whether the agent is starred. */
   starred = false;
+  archived = false;
   /** A worktree group's checkout path; `tab` is its workspace, `title` its
    * heading, and `folded` whether the group is folded, or null for a
    * section's subhead, which has nothing to fold. */
@@ -156,7 +159,15 @@ export class TabMenu {
         row("close-all", "x", i18n.t`Close all agents for ${title}`, { rule: true }),
       ];
     if (this.pane) return this.source !== null ? pane_actions() : pane_actions().slice(1);
-    return this.workspace ? actions().slice(1) : actions();
+    return this.workspace
+      ? [
+          actions()[1],
+          this.archived
+            ? row("unarchive", "a", i18n.t`Unarchive workspace`)
+            : row("archive", "a", i18n.t`Archive workspace`),
+          actions()[2],
+        ]
+      : actions();
   }
   /** The row a key picks. Keys are the menu's own, lowercase, and Shift picks the same row. */
   itemFor(key: number): Item | null {

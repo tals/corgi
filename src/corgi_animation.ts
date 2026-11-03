@@ -854,11 +854,10 @@ export const Dig = {
   wordWidth: (dig: Dig) => displayWidth(Dig.word(dig)),
   width: (dig: Dig) => Dig.lead + Dig.wordWidth(dig),
 };
-/** An unfocused dormant pane's title: the corgi asleep where it will dig,
- * then what wakes it. */
+/** A dormant pane's title, with the corgi asleep where it will dig. */
 export const Asleep = {
   get word() {
-    return i18n.t`Click to resume`;
+    return i18n.t`Hibernated`;
   },
   get wordWidth() {
     return displayWidth(Asleep.word);

@@ -321,6 +321,12 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
     case "workspace.close":
       r.closeWorkspace(request.payload.target, request.payload.close_contents);
       break;
+    case "workspace.archive":
+      r.archiveWorkspace(request.payload.target);
+      break;
+    case "workspace.unarchive":
+      r.unarchiveWorkspace(request.payload.target);
+      break;
     case "workspace.move":
       r.workspaces.moveBefore(request.payload.target, request.payload.before);
       break;
@@ -329,6 +335,9 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
     case "pane.wake":
       await r.wake(request.payload.target, ctx, request.payload.shell);
       return location(r, request.payload.target);
+    case "pane.hibernate":
+      r.hibernate(request.payload.targets);
+      break;
     case "pane.close":
       location(r, request.payload.target);
       r.close(request.payload.target);
@@ -540,6 +549,12 @@ function arrangeInner(r: Runtime, request: Arrangement): Result {
       if (source !== destination) {
         dst.revision = BigInt.asUintN(64, dst.revision + 1n);
         destination.model = dst;
+        for (const [ws, model] of [
+          [source, src],
+          [destination, dst],
+        ] as const)
+          if (ws.archived && r.panes.some(p => !p.dormant && model.tabForPane(p.id) !== null))
+            r.unarchiveWorkspace(ws.id);
       }
       if (placement.kind === "new_tab") r.workspaces.next_pane_id++;
       break;
@@ -658,6 +673,8 @@ function build(r: Runtime, viewer: boolean) {
       launcher_hidden: w.launcher_hidden,
       launcher_order: w.launcher_order,
       closed_agents: r.closedCount(w.id),
+      archived: w.archived,
+      archive_summary: w.archive_summary,
       git_commits:
         w.git_commits.items?.slice(0, w.git_commits.len).map((c: any) => ({
           timestamp: c.timestamp,

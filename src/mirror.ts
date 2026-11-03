@@ -19,6 +19,7 @@ import { type Conversation, conversation, usageView } from "./subagent_tooltip";
 import { View as UsageView } from "./usage/live";
 import * as errors from "./errors";
 import * as processName from "./process_name";
+import * as archiveSummary from "./archive_summary";
 import type { GitCommit, GitDiff } from "./sidebar";
 import {
   snapshot as worktreeSnapshot,
@@ -429,6 +430,8 @@ export interface Pane {
 /** protocol.zig's `Workspace`, with its model parsed. */
 export interface Workspace {
   id: number;
+  archived: boolean;
+  archive_summary: archiveSummary.Summary | null;
   name: string;
   cwd: string;
   model: Model;
@@ -465,6 +468,8 @@ function starredSessions(value: unknown): StarredSession[] {
 function workspace(value: any): Workspace {
   return {
     id: value.id,
+    archived: value.archived === true,
+    archive_summary: archiveSummary.restore(value.archive_summary),
     name: value.name ?? "",
     cwd: value.cwd ?? "",
     model: Model.fromData(value.model),

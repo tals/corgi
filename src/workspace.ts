@@ -4,6 +4,7 @@ import { Model, boundLabel, max_label, max_workspaces } from "./layout";
 import * as migrations from "./persist/migrations";
 import { Order, Pins, key as agentKey, type Section } from "./agent_order";
 import * as errors from "./errors";
+import * as archiveSummary from "./archive_summary";
 import { Stars, type Session as StarredSession } from "./agent_stars";
 import { Ref, State } from "./trackers/git_push";
 import { Commits } from "./trackers/git_status";
@@ -36,6 +37,8 @@ export class Workspace {
   launcher_order: string[] = [];
   /** The pane a viewer last used here, for the next viewer to open on. */
   focus = 0;
+  archived = false;
+  archive_summary: archiveSummary.Summary | null = null;
   git_ahead: bigint | null = null;
   git_ref = new Ref();
   git_push = new State();
@@ -113,6 +116,8 @@ export class Store {
               id: w.id,
               name: w.name(),
               cwd: w.cwd,
+              archived: w.archived,
+              archive_summary: w.archive_summary,
             })),
           },
           null,
@@ -159,10 +164,14 @@ export class Store {
         !isAbsolute(x.cwd)
       )
         invalid();
-      items.push(new Workspace(x.id, x.cwd, x.name));
+      if (x.archived !== undefined && typeof x.archived !== "boolean") invalid();
+      const item = new Workspace(x.id, x.cwd, x.name);
+      item.archived = x.archived === true;
+      item.archive_summary = archiveSummary.restore(x.archive_summary);
+      items.push(item);
     }
-    // With every workspace closed, none is active.
-    if (items.length ? !items.some(w => w.id === d.active) : d.active !== Workspace.Id.none) invalid();
+    // With every workspace closed or archived, none is active.
+    if (d.active === Workspace.Id.none ? items.some(w => !w.archived) : !items.some(w => w.id === d.active)) invalid();
     this.items = items;
     this.next_id = d.next_id;
     return d.active as number;

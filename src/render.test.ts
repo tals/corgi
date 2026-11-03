@@ -659,13 +659,13 @@ test("a reopened agent's card sits mid-pane: title centered, details left, comma
   drawRestoring(out, new Rect(0, 0, 80, 24), { ...band, dig: "forking" }, 3000);
   expect(out.buffered()).toContain(palette.fg("accent") + "Forking…");
 
-  // A dormant agent's corgi sleeps until its pane is clicked, in the same card.
+  // A dormant agent keeps the same card, with its corgi asleep.
   out = new Writer();
   drawRestoring(out, new Rect(0, 0, 80, 24), { ...band, dig: "asleep" }, 3000);
   const asleep = out.buffered();
   expect(asleep).toContain("\x1b[17;9H" + border + "╰");
   expect(asleep).toContain("~ᐯ◡ᴥ◡ᐯ");
-  expect(asleep).toContain(palette.fg("accent") + "Click to resume");
+  expect(asleep).toContain(palette.fg("accent") + "Hibernated");
   expect(asleep).not.toContain("Restoring…");
 });
 

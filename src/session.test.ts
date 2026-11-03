@@ -296,6 +296,21 @@ test("swapping panes exchanges their places, across workspaces too", async () =>
     r.destroy();
   }
 });
+test("moving live panes into an archived workspace reveals it without waking its other panes", async () => {
+  const { r, home, away } = setup();
+  try {
+    const live = pane(r, home),
+      sleeping = pane(r, away);
+    r.pane(sleeping)!.terminal.exited = true;
+    r.archiveWorkspace(away.id);
+    await execute(r, ctx, { "pane.swap": { target: sleeping, other: live } });
+    expect(away.archived).toBe(false);
+    expect(location(r, live).workspace).toBe(away.id);
+    expect(r.pane(sleeping)!.dormant).toBe(true);
+  } finally {
+    r.destroy();
+  }
+});
 test("an account's YOLO and Show are its own, apart from its provider's", async () => {
   const { r } = setup();
   try {
