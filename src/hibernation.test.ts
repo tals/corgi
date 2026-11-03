@@ -214,6 +214,29 @@ test("archiving converts headless agents into dormant panes with their session a
   expect(recovered.terminal.history()).toContain("Headless work");
 });
 
+test("the Corgi prompt's session isn't a workspace's agent: archiving and closing leave it running", () => {
+  using r = world();
+  const prompt = new Session(1, "claude", "/tmp", {
+    ready: true,
+    send() {},
+    take: () => [],
+    async wait() {},
+    close() {},
+    save: () => ({ state: null, handles: [] }),
+  });
+  prompt.workspace_id = 2;
+  prompt.corgi = true;
+  r.sessions.push(prompt);
+  expect(r.agentTargets(r.workspaces.items[1])).toEqual([]);
+  r.archiveWorkspace(1);
+  expect(r.sessions).toEqual([prompt]);
+  expect(r.panes).toHaveLength(2);
+  // Nothing else is in workspace 2, so it closes, and the conversation moves on to workspace 1.
+  r.closeWorkspace(2, false);
+  expect(r.sessions).toEqual([prompt]);
+  expect(prompt.workspace_id).toBe(1);
+});
+
 test("archiving headless subagents preserves only their other live attachments", () => {
   for (const exited of [true, false]) {
     using r = world();

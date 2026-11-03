@@ -769,7 +769,8 @@ export class Runtime {
     if (ws.archived) return;
     if (!this.workspaces.items.some(w => w.id !== id && !w.archived)) throw Error("LastWorkspace");
     const summary = archiveInventory.summary(this, id);
-    const sessions = this.sessions.filter(s => s.workspace_id === id && !s.exited);
+    // The Corgi prompt's sessions belong to no workspace's agents; they stay running.
+    const sessions = this.sessions.filter(s => s.workspace_id === id && !s.exited && !s.corgi);
     const next = clone(ws.model);
     next.next_id = this.workspaces.next_pane_id;
     const recovered: Pane[] = [];
@@ -1247,7 +1248,7 @@ export class Runtime {
       if (tab !== null) tabs[tab].push({ pane: p.id });
     }
     for (const targets of tabs) out.push(...targets);
-    for (const s of this.sessions) if (s.workspace_id === ws.id) out.push({ headless: s.id });
+    for (const s of this.sessions) if (s.workspace_id === ws.id && !s.corgi) out.push({ headless: s.id });
     return out;
   }
   async renameAgent(id: number, wanted: string | null) {
@@ -1278,14 +1279,17 @@ export class Runtime {
     const index = this.workspaces.index(id);
     if (index === null) throw Error("NoWorkspace");
     const ws = this.workspaces.items[index];
-    if (!close_contents && (ws.model.count > 0 || this.sessions.some(s => s.workspace_id === id)))
-      throw Error("WorkspaceNotEmpty");
+    const held = this.sessions.filter(s => s.workspace_id === id && !s.corgi);
+    if (!close_contents && (ws.model.count > 0 || held.length)) throw Error("WorkspaceNotEmpty");
     while (ws.model.count) this.close(ws.model.firstPane(ws.model.tabs[0].root));
     for (const c of this.closed.filter(c => c.workspace_id === id)) c.destroy();
     this.closed = this.closed.filter(c => c.workspace_id !== id);
-    for (const s of this.sessions.filter(s => s.workspace_id === id)) s.destroy();
-    this.sessions = this.sessions.filter(s => s.workspace_id !== id);
+    for (const s of held) s.destroy();
+    this.sessions = this.sessions.filter(s => !held.includes(s));
     this.workspaces.items.splice(index, 1);
+    // A Corgi prompt conversation goes on in another workspace.
+    const home = this.workspaces.items[0]?.id;
+    if (home !== undefined) for (const s of this.sessions) if (s.workspace_id === id) s.workspace_id = home;
     this.changed();
   }
 }
