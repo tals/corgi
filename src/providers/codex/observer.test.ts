@@ -183,3 +183,26 @@ test("a turn's evidence leads with the latest agent message", () => {
   expect(text.startsWith("Latest agent update: Tracing focus changes")).toBe(true);
   expect(text).toContain("User request: Fix tabs");
 });
+test("a turn that failed on an overloaded model reads as one a retry may get past", async () => {
+  const failed = (codexErrorInfo: string) => ({
+    async call(method: string) {
+      if (method === "thread/read") return { result: { thread: { id: "t", status: { type: "idle" } } } };
+      if (method === "thread/turns/list")
+        return {
+          result: {
+            data: [{ id: "turn", status: "failed", completedAt: 1793663093, error: { message: "", codexErrorInfo } }],
+          },
+        };
+      return { result: { data: [], nextCursor: null } };
+    },
+  });
+  const request = { pane: 1, pid: 42, prefix: new Text("t"), actor: 0, generation: 1n, title_revision: 1n };
+  expect(await snapshot(failed("serverOverloaded") as any, request, "t")).toMatchObject({
+    outcome: "failed",
+    transient_failure_at: 1793663093,
+  });
+  expect(await snapshot(failed("cyberPolicy") as any, request, "t")).toMatchObject({
+    outcome: "failed",
+    transient_failure_at: 0,
+  });
+});

@@ -31,6 +31,7 @@ import * as updates from "./updates";
 import * as importer from "./import_service";
 import * as worktreeAdd from "./worktree_add";
 import { testBuild } from "./build_assets";
+import * as agentRetry from "./agent_retry";
 export class Server {
   summaries: SummaryWorker | null = null;
   usage: UsageWorker | null = null;
@@ -218,8 +219,15 @@ export class Server {
       telemetry.end("daemon.publish", telemetry_started);
     }
   }
+  /** When a viewer focused on `pane` last had input from its user, in ms; 0 if none did. */
+  inputAt(pane: number) {
+    let at = 0;
+    for (const c of this.clients) if (c.viewer && !c.dead && c.view_focus === pane) at = Math.max(at, c.input_at);
+    return at;
+  }
   async run(): Promise<void> {
     this.runtime.ports.configure(settings.smartLinks(settings.path(this.socket)));
+    this.runtime.auto_retry = settings.autoRetry(settings.path(this.socket));
     try {
       let selected: number | null = null;
       const handoff = this.listener >= 0;
@@ -430,6 +438,7 @@ export class Server {
     if (this.runtime.raiseEntered()) this.runtime.changed();
     await this.runtime.advanceRenames(clock.milliTimestamp());
     agentEffort.advance(this.runtime, clock.milliTimestamp());
+    agentRetry.advance(this.runtime, clock.milliTimestamp(), pane => this.inputAt(pane));
     const observers_started = telemetry.begin();
     await observers.tick(this);
     telemetry.end("daemon.observers", observers_started);
@@ -744,6 +753,21 @@ export class Server {
         reply.ok({ shell: launch_command.shellStatus() });
         return;
       }
+      case "retry.configure": {
+        settings.update(settings.path(this.socket), { auto_retry: request.payload.enabled });
+        this.runtime.auto_retry = request.payload.enabled;
+        if (!request.payload.enabled) this.runtime.retries = [];
+        this.runtime.changed();
+        this.dirty = true;
+        reply.ok({ auto_retry: request.payload.enabled });
+        return;
+      }
+      case "retry.cancel":
+        agentRetry.cancel(this.runtime, request.payload.pane);
+        this.runtime.changed();
+        this.dirty = true;
+        reply.ok();
+        return;
       case "smart_links.configure": {
         settings.update(settings.path(this.socket), { smart_links: request.payload.enabled });
         this.runtime.ports.configure(request.payload.enabled);

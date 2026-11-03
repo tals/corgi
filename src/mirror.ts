@@ -375,6 +375,8 @@ export interface Agent {
   /** When its current compaction began, in µs; 0 when not compacting. */
   compacting_since: number;
   paused: boolean;
+  /** When Corgi starts its failed turn again, in ms on the daemon's clock; 0 when it won't. */
+  retry_at: number;
 }
 export function agent(value: any = {}): Agent {
   return {
@@ -400,6 +402,7 @@ export function agent(value: any = {}): Agent {
     compacting: value.compacting === true,
     compacting_since: Number(value.compacting_since ?? 0),
     paused: value.paused === true,
+    retry_at: Number(value.retry_at ?? 0),
   };
 }
 export function providerName(a: Agent): string {
@@ -589,6 +592,7 @@ export class Runtime {
   shell: ShellStatus = shellStatus();
   system_working = false;
   smart_links = true;
+  auto_retry = true;
   system_usage = new UsageView();
   ports: any = { workspaces: [] };
   resources = new resources.Snapshot();
@@ -670,6 +674,7 @@ export class Runtime {
     this.system_usage = usageView(snapshot.system_usage);
     this.system_working = snapshot.system_working === true;
     this.smart_links = snapshot.smart_links !== false;
+    this.auto_retry = snapshot.auto_retry !== false;
     this.ports = snapshot.ports ?? { workspaces: [] };
     this.last_agent = Provider.parse(snapshot.last_agent) ?? Provider.first;
     this.agent_yolo = byProvider(p => snapshot.agent_yolo?.[p] === true);

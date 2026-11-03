@@ -102,6 +102,12 @@
   "smart_links.configure": {
     "enabled": false
   },
+  "retry.configure": {
+    "enabled": false
+  },
+  "retry.cancel": {
+    "pane": 1
+  },
   "git.push": {
     "workspace": 1,
     "ref": {

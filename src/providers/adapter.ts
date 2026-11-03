@@ -415,6 +415,10 @@ export interface Adapter extends Info {
     keep?(c: CommandLine): Kept;
   };
   rename?: Rename;
+  /** Starts `session`'s turn `turn`, which failed on a condition that may
+   * pass, again through `account`'s own channel, if that turn is still its
+   * latest and nothing runs; whether it did. */
+  retry?(session: string, turn: string, account: string): Promise<boolean>;
   /** Runs it headless, for a daemon-hosted session. */
   headless?: {
     start(at: Place): Client;

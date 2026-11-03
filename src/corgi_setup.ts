@@ -192,7 +192,7 @@ function reportSettings(s: Status, prefs: Preferences): bugReport.Settings {
 export type Apply =
   | { kind: "summaries"; choice: Summarizer; model?: string; account?: string }
   | { kind: "inference_use"; use: Use; on: boolean }
-  | { kind: "readings" | "smart_links" | "ghostty"; on: boolean }
+  | { kind: "readings" | "smart_links" | "auto_retry" | "ghostty"; on: boolean }
   | { kind: "corgi_intensity"; value: number }
   | { kind: "theme"; theme: palette.Theme }
   | { kind: "language"; language: i18n.Locale | undefined }
@@ -531,6 +531,8 @@ export class Menu {
   shells: string[] = [];
   /** Whether the daemon probes the ports servers print, for Open ↗ buttons. */
   smart_links = true;
+  /** Whether the daemon starts a turn again that failed on an overloaded model. */
+  auto_retry = true;
   /** The worktree folder template being typed, while Source control edits it. */
   editing: Dialog | null = null;
   /** A project the worktree folder's preview places a branch in; an example when null. */
@@ -2103,7 +2105,7 @@ export class Menu {
     ];
   }
   /** Clever Corgi's settings, each turned on or off in the group's pane. */
-  /** What Corgi does with the model, and Smart Links, each with its own switch. */
+  /** What Corgi does with the model, Smart Links and auto-retry, each with its own switch. */
   private clever(s: Status): { label: string; brief: string; on: boolean; apply: (on: boolean) => Apply }[] {
     const use = (use: Use, label: string, brief: string) => ({
       label,
@@ -2119,6 +2121,12 @@ export class Menu {
         brief: i18n.t`Digs up likely HTTP links ↗`,
         on: this.smart_links,
         apply: (on: boolean): Apply => ({ kind: "smart_links", on }),
+      },
+      {
+        label: i18n.t`Auto-retry capacity errors`,
+        brief: i18n.t`Retries Codex at capacity; Esc stops it.`,
+        on: this.auto_retry,
+        apply: (on: boolean): Apply => ({ kind: "auto_retry", on }),
       },
     ];
   }

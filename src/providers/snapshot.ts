@@ -55,6 +55,9 @@ export class Snapshot {
   cwd = new Path();
   location: Location | null = null;
   outcome: "completed" | "interrupted" | "failed" | null = null;
+  /** When the latest turn failed on a condition that may pass, such as an
+   * overloaded model, in Unix seconds; 0 otherwise. */
+  transient_failure_at = 0;
   /** A thread the provider keeps no history of, such as a Codex `/btw` side conversation. */
   ephemeral = false;
   observed_at = Date.now() * 1000;

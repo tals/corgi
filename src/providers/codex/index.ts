@@ -13,6 +13,7 @@ export { ItemType, commandDirectory, writes } from "./headless";
 import { screen, Watcher } from "./screen";
 import * as renaming from "./rename";
 import * as daemonEffort from "./daemon_effort";
+import * as retrying from "./retry";
 export { screen };
 export { label as plan } from "./plan";
 import { caps, identity, info, keeping, vocabulary } from "./info";
@@ -132,6 +133,7 @@ export const adapter: Adapter = {
       session.length === 36 && connected ? name => renaming.rename(control(account), session, name) : null,
     typed: { command: renaming.command, empty: renaming.empty, holds: renaming.holds },
   },
+  retry: (session, turn, account) => retrying.retry(control(account), session, turn),
   headless: {
     start: at => Codex.start(at, null),
     restore: Codex.restore,

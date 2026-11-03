@@ -29,6 +29,11 @@ export function update(file: string, changes: Record<string, unknown>) {
 export function smartLinks(file = path()): boolean {
   return read(file).smart_links !== false;
 }
+/** Whether Corgi starts a turn again that failed on an overloaded model. On
+ * unless the file says false. */
+export function autoRetry(file = path()): boolean {
+  return read(file).auto_retry !== false;
+}
 export function shell(file = path()): string | null {
   const value = read(file).shell;
   return typeof value === "string" && value.trim() ? value.trim() : null;

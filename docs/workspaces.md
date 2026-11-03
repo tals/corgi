@@ -40,6 +40,13 @@ from launch history and keeps it once it answers. These features use the
 provider login and consume model usage. Activity labels and link names are
 inferences; they do not establish agent lifecycle or verify page titles.
 
+Its **Auto-retry capacity errors** switch, on by default, starts a Codex turn
+again when the model was at capacity: after 15s, 1m, 2m, 5m and 10m, then it
+gives up. Until then the agent's row shows a yellow ‖ and the time left. A
+retry waits while you work in that pane, and Esc there calls it off. It needs
+Codex on its shared app server; a Codex with a server of its own leaves the
+failure as it is.
+
 ## Hibernate panes and archive workspaces
 
 Pane hibernation is a CLI/RPC primitive for scripts and tricks. It stops the

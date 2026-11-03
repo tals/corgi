@@ -29,6 +29,7 @@ import * as worktreeAgents from "./worktree_agents";
 import * as breadcrumbs from "./breadcrumbs";
 import { WantedEffort } from "./agent_effort";
 import * as effort from "./providers/effort";
+import type { HeldStop, Retry } from "./agent_retry";
 export type Create = {
   workspace: number;
   split?: { pane: number; axis: Axis; before?: boolean } | null;
@@ -465,6 +466,12 @@ export class Runtime {
   renames: TypedRename[] = [];
   wanted_names: WantedName[] = [];
   wanted_efforts: WantedEffort[] = [];
+  /** Whether Corgi starts a failed turn again when its condition may pass. */
+  auto_retry = true;
+  /** Conversations whose latest turn failed on a condition that may pass. */
+  retries: Retry[] = [];
+  /** Failed turns their transcripts ended, waiting on the observer. */
+  held_stops: HeldStop[] = [];
   next_session = 1;
   last_agent: Provider = Provider.first;
   agent_yolo = byProvider(() => false);

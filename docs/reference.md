@@ -346,7 +346,8 @@ receipts.
 
 Prefer **Corgi setup** for changes. **Panes → Shell** selects the shell for new
 panes; **Theme** changes appearance; **Clever Corgi** controls model-backed
-features and Smart Links. Settings and launcher commands survive restarts.
+features, Smart Links and auto-retrying capacity errors. Settings and launcher
+commands survive restarts.
 Its Pi section shows “Auto (model name)” and five signed-in models, with “Show N
 more”. Type to search all models, including the hidden ones. Auto is resolved by
 Corgi, preferring subscription-backed access, and does not pin a model in saved

@@ -3273,3 +3273,33 @@ test("a double-click the daemon can't pick leaves nothing selected, copied or op
     done();
   }
 });
+test("Esc calls off a retry still waiting, and goes to the agent once the retry is under way", async () => {
+  const calls: [string, unknown][] = [],
+    snapshot: any = pair();
+  snapshot.panes[0].agent = { ...snapshot.panes[0].agent, provider: "codex", state: "working", retry_at: 60_000 };
+  const s: any = new Controller({
+    socket: "",
+    request: transport(async (op, fields) => {
+      calls.push([op, fields]);
+      return {};
+    }).request,
+  });
+  s.receiveSnapshot(snapshot);
+  s.input_state.attached = true;
+  const sent: string[] = [];
+  s.sendInput = (_: unknown, data: Uint8Array | number[]) => sent.push(Buffer.from(data).toString());
+  try {
+    s.focusPane(1);
+    setSystemTime(new Date(45_000));
+    await s.input(bytes("\x1b[27u"));
+    expect(calls).toEqual([["retry.cancel", { pane: 1 }]]);
+    expect(sent).toEqual([]);
+    setSystemTime(new Date(61_000));
+    await s.input(bytes("\x1b[27u"));
+    expect(calls).toHaveLength(1);
+    expect(sent).toEqual(["\x1b"]);
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});

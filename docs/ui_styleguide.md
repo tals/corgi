@@ -141,6 +141,7 @@ Unread names also use `strong`, bold. Ended rows use `muted` when selected.
 | State | Glyph | Token |
 | --- | --- | --- |
 | Working | ▶ | `accent`, bold |
+| Working, retrying a failed turn soon | ‖ | `warm`, bold |
 | Needs input | ● | `warm`, bold |
 | Finished, unread | ● | `accent`, bold |
 | Paused, unread | ‖ | `accent`, bold |

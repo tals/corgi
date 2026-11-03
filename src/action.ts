@@ -27,6 +27,7 @@ export const specs: Record<string, string> = {
   "worktree-remove": "void",
   "worktree-confirm": "void",
   "worktree-stop": "void",
+  "cancel-retry": "void",
   "worktree-refresh": "void",
   "worktree-review": "void",
   resources: "usize",

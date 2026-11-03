@@ -53,6 +53,7 @@ import {
   type WorkspaceEntry,
   type Hit,
   drawGitTooltip,
+  indicator,
 } from "./sidebar";
 
 const selected_bg = palette.bg("selected");
@@ -1892,4 +1893,12 @@ test("positioned activity sections and overflow badges keep their column offsets
     writer = new Writer(7);
   view.drawAt(writer, entries, [], 5000);
   expect(writer.s).toBe(shifted(expected, 7));
+});
+test("an agent waiting on a retry shows a warm pause and counts down", () => {
+  const e = entry({ target: { pane: 1 }, name: "Agent title", provider: "codex", state: "working", retry_at: 60_000 });
+  expect(indicator(e, false)).toEqual({ icon: "‖", color: "\x1b[1m" + fg("warm"), unread: false });
+  expect(indicator({ ...e, retry_at: 0 }, false).icon).toBe("▶");
+  const view = View.init(100, 30, true, 0, 1).withWidth(28 + lists_x);
+  expect(hostText(draw(view, [e], [], 15_500))).toContain("◷  Retrying in 45s");
+  expect(hostText(draw(view, [e], [], 60_000))).toContain("◷  Retrying…");
 });

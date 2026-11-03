@@ -1059,3 +1059,18 @@ test("attention receipts compare normalized timestamps and leave newer input unr
   actor.acknowledge(0n, 100n);
   expect(actor.state.snapshot().attention).toBe("none");
 });
+test("a failed turn Corgi will start again keeps its agent at work, unfinished", () => {
+  const registry = new Registry(),
+    failed = snapshot("idle"),
+    actor = registry.get("codex", failed.session);
+  failed.turn = new Text("failed");
+  failed.outcome = "failed";
+  expect(actor.observeSnapshot(failed, false, 100, true)).toBe(false);
+  expect(actor.state).toMatchObject({ state: "working", attention: "none" });
+  expect(actor.state.observation.completed).toBe(0n);
+  // Once it won't, the failure ends the turn as usual.
+  failed.observed_at++;
+  actor.observeSnapshot(failed, false, 200);
+  expect(actor.state).toMatchObject({ state: "idle", attention: "finished" });
+  expect(actor.state.observation).toMatchObject({ completed: 1n, outcome: "failed" });
+});

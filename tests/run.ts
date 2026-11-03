@@ -18,7 +18,7 @@ let list = false,
   jobs = Math.max(1, Math.min(2, Math.floor(availableParallelism() / 4)));
 function usage(): never {
   console.log(
-    "Usage: bun run tests/run.ts [suite ...] [--list|--check] [--jobs N] [--shard K/N] [--retry] [--external] [--dev] [--corgi PATH] [--herdr PATH] [-- bun-test-options]\nWithout suite names, runs all normal suites in isolated processes, several at a time (--jobs 1 runs them one by one); --shard K/N runs every Nth of them, starting with the Kth; --retry runs each failed suite once more, alone. Herdr handoff and developer-launch suites are opt-in.",
+    "Usage: bun run tests/run.ts [suite ...] [--list|--check] [--jobs N] [--shard K/N] [--retry] [--external] [--dev] [--corgi PATH] [--herdr PATH] [-- bun-test-options]\nWithout suite names, runs all normal suites in isolated processes, several at a time (--jobs 1 runs them one by one); --shard K/N runs every Nth of them, starting with the Kth; --retry runs each failed suite once more, alone. Herdr handoff, real-Codex and developer-launch suites are opt-in.",
   );
   process.exit(0);
 }
@@ -48,13 +48,15 @@ for (let i = 0; i < args.length; i++) {
   } else if (arg.startsWith("-")) throw new Error(`Unknown option ${arg}; put bun test options after --`);
   else selected.push(arg.replace(/^.*\//, "").replace(/\.test\.ts$/, ""));
 }
+/** Suites that run other people's programs: Herdr, and Codex on a fake model. */
+const externals = ["herdr_handoff.test.ts", "codex_overload.test.ts"];
 const available = readdirSync(import.meta.dir)
   .filter(file => file.endsWith(".test.ts"))
   .sort();
 const suites = (
   selected.length
     ? available.filter(file => selected.includes(file.slice(0, -8)))
-    : available.filter(file => (external || file !== "herdr_handoff.test.ts") && (dev || file !== "dev.test.ts"))
+    : available.filter(file => (external || !externals.includes(file)) && (dev || file !== "dev.test.ts"))
 ).filter((_, i) => !shard || i % shard[1] === shard[0] - 1);
 for (const name of selected) if (!available.includes(name + ".test.ts")) throw new Error(`Unknown suite: ${name}`);
 if (list) {
