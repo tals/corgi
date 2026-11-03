@@ -1,0 +1,133 @@
+import { test, expect } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { autoStarts, deferred, settle } from "./daemon_effort";
+import { adapter } from "./index";
+const xhigh = 'model_reasoning_effort="xhigh"';
+test("an effort override comes off where the rest keeps Codex on its shared server", () => {
+  expect(deferred(["-c", xhigh])).toEqual({ args: [], effort: "xhigh" });
+  expect(
+    deferred([
+      "--dangerously-bypass-approvals-and-sandbox",
+      "--model",
+      "gpt-5",
+      "-c",
+      xhigh,
+      "fork",
+      "01a19d19-c0b9-7371-813d-63a71adf5bd3",
+      "--cd",
+      "/work",
+    ]),
+  ).toEqual({
+    args: [
+      "--dangerously-bypass-approvals-and-sandbox",
+      "--model",
+      "gpt-5",
+      "fork",
+      "01a19d19-c0b9-7371-813d-63a71adf5bd3",
+      "--cd",
+      "/work",
+    ],
+    effort: "xhigh",
+  });
+  expect(deferred(["--yolo", "-s", "workspace-write", "-a", "never", "-C", "/tmp", "-c", xhigh])?.args).toEqual([
+    "--yolo",
+    "-s",
+    "workspace-write",
+    "-a",
+    "never",
+    "-C",
+    "/tmp",
+  ]);
+  expect(deferred(["--config=model_reasoning_effort=low", "--model=gpt-5"])).toEqual({
+    args: ["--model=gpt-5"],
+    effort: "low",
+  });
+  expect(deferred(["-cmodel_reasoning_effort='high'", "resume", "abc"])).toEqual({
+    args: ["resume", "abc"],
+    effort: "high",
+  });
+});
+test("the override stays when anything else needs Codex's own server", () => {
+  for (const args of [
+    [],
+    ["--model", "gpt-5"],
+    ["-c", xhigh, "--search"],
+    ["-c", xhigh, "-c", "model_verbosity=high"],
+    ["-c", xhigh, "--enable", "web_search"],
+    ["-c", xhigh, "--no-daemon"],
+    ["-c", xhigh, "--profile", "work"],
+    ["-c", xhigh, "write the tests"],
+    ["-c", xhigh, "--", "write the tests"],
+    ["-c", xhigh, "resume", "--last"],
+    ["-c", xhigh, "--model"],
+    ["-c", 'model_reasoning_effort="extreme"'],
+    ["-c"],
+  ])
+    expect(deferred(args)).toBeNull();
+});
+test("Codex keeps the effort on a command Corgi doesn't start itself", () => {
+  // `corgi agent codex` and the pane's `codex` exec through `prepare`, with no one to set the effort later.
+  expect(adapter.launch.prepare).toBeUndefined();
+});
+test("the override stays where Codex wouldn't start its shared server", () => {
+  const home = mkdtempSync(tmpdir() + "/corgi-ts-effort-");
+  try {
+    // Codex starts one unless its config says not to.
+    expect(autoStarts(home)).toBe(true);
+    expect(adapter.launch.deferred?.(["-c", xhigh], home)).toEqual({ args: [], effort: "xhigh" });
+    writeFileSync(home + "/config.toml", 'model = "gpt-5"\n[features]\ndaemon_auto_start = true\n');
+    expect(autoStarts(home)).toBe(true);
+    writeFileSync(home + "/config.toml", "[features]\ndaemon_auto_start = false\n");
+    expect(autoStarts(home)).toBe(false);
+    expect(adapter.launch.deferred?.(["-c", xhigh], home)).toBeNull();
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+test("the effort is set once the shared server runs the thread its title names", async () => {
+  const dir = mkdtempSync(tmpdir() + "/corgi-ts-effort-"),
+    path = dir + "/control.sock",
+    one = "01a19d30-c663-7862-a13b-3df431ee1507",
+    updates: unknown[] = [];
+  let status = "notLoaded",
+    loaded = [one, "01a19d31-0000-7000-8000-000000000000"];
+  const server = Bun.serve({
+    unix: path,
+    fetch(req, server) {
+      return server.upgrade(req) ? undefined : new Response("bad", { status: 400 });
+    },
+    websocket: {
+      message(ws, message) {
+        const value = JSON.parse(String(message));
+        if (!value.id) return;
+        if (value.method === "thread/settings/update") updates.push(value.params);
+        const reply =
+          value.method === "thread/loaded/list"
+            ? { result: { data: loaded, nextCursor: null } }
+            : value.method === "thread/read" && value.params.threadId !== one
+              ? { error: { code: -32600, message: "no thread" } }
+              : { result: value.method === "thread/read" ? { thread: { id: one, status: { type: status } } } : {} };
+        ws.send(JSON.stringify({ id: value.id, ...reply }));
+      },
+    },
+  });
+  try {
+    expect(await settle(path, one, "low")).toBeNull();
+    expect(await settle(path, "01a19d31-0000-7000-8000-00000", "low")).toBeNull();
+    expect(updates).toEqual([]);
+    status = "idle";
+    expect(await settle(path, one.slice(0, 29), "low")).toBe(one);
+    expect(await settle(path, one, "high")).toBe(one);
+    expect(updates).toEqual([
+      { threadId: one, effort: "low" },
+      { threadId: one, effort: "high" },
+    ]);
+    loaded = [one, one.slice(0, 29) + "0000000"];
+    expect(await settle(path, one.slice(0, 29), "low")).toBeNull();
+    expect(await settle(dir + "/missing.sock", one, "low")).toBeNull();
+  } finally {
+    server.stop(true);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

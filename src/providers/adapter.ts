@@ -389,6 +389,14 @@ export interface Adapter extends Info {
       args: string[],
       executable: string,
     ): Promise<{ args: string[]; event?: unknown; env?: [string, string][] }>;
+    /** Options `args` without the effort they set, for `settle` to set on
+     * each conversation the agent a pane starts with them in `account`
+     * shows; null when the effort stays on the command line. */
+    deferred?(args: string[], account: string): { args: string[]; effort: Effort } | null;
+    /** Sets `effort` on the session `named` names in `account`, in full or
+     * as `titleSession` reads it: the session it set, or null while that
+     * doesn't run where the provider's channel reaches it yet. */
+    settle?(named: string, account: string, effort: Effort): Promise<string | null>;
     /** Arguments that start an agent. */
     start(s: Settings): string[];
     /** Arguments, after the ones it started with, that resume `session`. */

@@ -63,7 +63,7 @@ export function childName(thread: any) {
   const task = str(spawn, "agent_path").replace(/^\/root\//, "");
   return str(thread, "name") || task || str(thread, "agentNickname");
 }
-async function pages(
+export async function pages(
   client: Pick<Client, "call">,
   method: string,
   params: any,
