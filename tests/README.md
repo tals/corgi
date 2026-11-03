@@ -55,6 +55,12 @@ They expect the fixture binary to match the developer build. The alternate-build
 reload case additionally needs `CORGI_OLD_EXE`. On macOS the fixture discovers
 the host signing identity before isolating `HOME`; the developer build must
 already be available in the compiler cache.
+
+`codex_overload` runs the installed Codex (or `CODEX_TEST_BIN`) against a
+fake model that is at capacity a few times, and is opt-in too
+(`bun run tests/run.ts codex_overload`, or `--external`). Its Codex home
+takes a copy of Codex's app-server package, about 500 MB, while it runs.
+
 Live Herdr handoff is also opt-in:
 
 ```sh

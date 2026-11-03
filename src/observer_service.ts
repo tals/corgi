@@ -19,6 +19,7 @@ import type { Request } from "./protocol";
 import { Model } from "./providers/model";
 import * as accounts from "./accounts";
 import * as integration from "./integration";
+import * as agentRetry from "./agent_retry";
 import type { Title } from "./pane/terminal";
 
 type Workers = {
@@ -410,16 +411,24 @@ export async function tick(server: Server) {
     }
     for (const actor of runtime.conversations.items) actor.checkPause();
     observeAccounts(workers, runtime);
-    for (const { provider, observer } of workers.observers.values()) {
+    for (const { provider, account, observer } of workers.observers.values()) {
       observer.reconcile(runtime);
       for (const request of observer.takeMissed()) missed(server, provider, request);
       for (const snapshot of observer.take()) {
         telemetry.count("agent.provider.results");
         const actor = snapshotActor(server, provider, snapshot);
         if (!actor) continue;
+        const retry_at = agentRetry.observe(
+          runtime,
+          provider,
+          account,
+          snapshot,
+          clock.milliTimestamp(),
+          Date.now() / 1000,
+        );
         attention(
           server,
-          actor.observeSnapshot(snapshot, actorWatched(server, actor.id), clock.microTimestamp()),
+          actor.observeSnapshot(snapshot, actorWatched(server, actor.id), clock.microTimestamp(), retry_at > 0),
           actor.state.state,
         );
         if (snapshot.lifecycle) {
@@ -525,11 +534,18 @@ export async function tick(server: Server) {
     for (const result of workers.transcripts.take()) {
       const actor = runtime.conversations.byId(result.actor);
       if (!actor) continue;
+      if (result.outcome === "failed" && agentRetry.hold(runtime, actor, result.seq, Date.now())) continue;
       attention(
         server,
         actor.confirmStop(result.seq, result.outcome, clock.microTimestamp()) && !actorWatched(server, actor.id),
         actor.state.state,
       );
+      changed(server);
+    }
+    for (const held of agentRetry.released(runtime, Date.now())) {
+      const actor = runtime.conversations.byId(held.actor);
+      if (!actor) continue;
+      actor.confirmStop(held.seq, "failed", clock.microTimestamp());
       changed(server);
     }
     if (runtime.pruneConversations()) changed(server);

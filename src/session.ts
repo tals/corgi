@@ -16,6 +16,7 @@ import * as profiles from "./agent_profiles";
 import * as launcherOrder from "./launch/order";
 import * as integration from "./integration";
 import * as worktreeAgents from "./worktree_agents";
+import * as agentRetry from "./agent_retry";
 import { Row } from "./launch/row";
 import type { Provider } from "./providers";
 export type Context = { socket: string; executable: string; theme: any };
@@ -565,7 +566,7 @@ function arrangeInner(r: Runtime, request: Arrangement): Result {
   r.changed();
   return location(r, representative);
 }
-function agentView(a: any, conversation: number) {
+function agentView(r: Runtime, a: any, conversation: number) {
   return {
     conversation,
     subagents: a.subagents,
@@ -585,6 +586,7 @@ function agentView(a: any, conversation: number) {
     compacting: a.compacting,
     compacting_since: a.compacting_since,
     paused: a.paused,
+    retry_at: agentRetry.retryAt(r, a),
   };
 }
 const text = (v: any) => v?.text?.() ?? (typeof v === "string" ? v : "");
@@ -629,7 +631,7 @@ function build(r: Runtime, viewer: boolean) {
             pending: a.activity_timeline?.pending?.(usage) ?? null,
           },
           children_observed_at: a.children_observed_at,
-          agent: agentView(a.state, a.id),
+          agent: agentView(r, a.state, a.id),
         };
       if (viewer) {
         out.observed_at = coarse(out.observed_at);
@@ -650,6 +652,7 @@ function build(r: Runtime, viewer: boolean) {
     inference: r.inference,
     shell: shellStatus(),
     smart_links: r.ports.enabled,
+    auto_retry: r.auto_retry,
     system_usage: r.system_usage,
     system_working: r.system_working,
     server_pid: process.pid,
@@ -709,14 +712,14 @@ function build(r: Runtime, viewer: boolean) {
       cols: p.terminal.vt.cols,
       rows: p.terminal.vt.rows,
       exited: p.terminal.exited,
-      agent: agentView(p.agent(), p.attachment.actor?.id ?? 0),
+      agent: agentView(r, p.agent(), p.attachment.actor?.id ?? 0),
       account: p.account(),
       restoring: p.restoring(),
       forking: p.ghost?.fork !== null && p.ghost !== null,
       dormant: p.dormant,
     })),
     headless_sessions: r.sessions.map(s => ({
-      agent: agentView(s.attachment.agent(), s.attachment.actor?.id ?? 0),
+      agent: agentView(r, s.attachment.agent(), s.attachment.actor?.id ?? 0),
       session: s.session,
       id: s.id,
       workspace: s.workspace_id,

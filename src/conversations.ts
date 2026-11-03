@@ -100,7 +100,9 @@ export class Actor {
     this.transcript_tool_active = !progress.ended && progress.running > 0;
     this.refreshTranscriptTool();
   }
-  observeSnapshot(snapshot: Snapshot, watched: boolean, now: number) {
+  /** Applies what its observer read; `retrying` while Corgi will start a
+   * failed latest turn again, which keeps it at work. */
+  observeSnapshot(snapshot: Snapshot, watched: boolean, now: number, retrying = false) {
     const a = this.state;
     if (!snapshot.lifecycle) {
       if (a.sessionId() !== snapshot.session) return false;
@@ -145,7 +147,7 @@ export class Actor {
     const old = a.state,
       was = a.compacting,
       same = a.turnId() === snapshot.turn.text();
-    a.state = snapshot.state;
+    a.state = retrying ? "working" : snapshot.state;
     a.permission_review = null;
     a.subagents = snapshot.subagents;
     a.last_seq = BigInt(snapshot.observed_at);
@@ -169,7 +171,7 @@ export class Actor {
     let ding = false;
     if (snapshot.turn.len) {
       a.setTurn(snapshot.turn.text());
-      if (snapshot.outcome)
+      if (snapshot.outcome && !retrying)
         ding =
           a.recordCompletion(a.turnId(), snapshot.outcome, "protocol", binding) &&
           snapshot.outcome === "completed" &&

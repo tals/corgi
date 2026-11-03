@@ -7,6 +7,7 @@ import type { Observer } from "../adapter";
 import { commandDirectory, configDir, titleSession, writes } from "./index";
 import { Client } from "./socket";
 import { Local } from "./identity";
+import { transient } from "./retry";
 import * as errors from "../../errors";
 import { Inventory, capacity } from "../../activity/background_tasks";
 import { Text as SummaryText } from "../../activity/summary";
@@ -167,6 +168,7 @@ export async function snapshot(client: Client, req: Request, session: string) {
         out.turn = new Turn(id);
         const status = str(data[0], "status");
         if (status === "completed" || status === "interrupted" || status === "failed") out.outcome = status;
+        out.transient_failure_at = transient(data[0]);
       }
     }
     try {

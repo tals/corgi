@@ -1195,6 +1195,7 @@ export class Controller {
               compacting: p.agent.compacting,
               compacting_since: p.agent.compacting_since,
               paused: p.agent.paused,
+              retry_at: p.agent.retry_at,
               subagents: { ...p.agent.subagents },
               unread: unread(p.agent.observation),
               activity: p.agent.activity,
@@ -2435,6 +2436,15 @@ export class Controller {
         } catch (error) {
           card.removal.settle(milliTimestamp(), removalReason(errors.name(error)));
         }
+        break;
+      }
+      case "cancel-retry": {
+        const p = this.focused();
+        if (!p) break;
+        try {
+          await call(this.connection, "retry.cancel", { pane: p.id });
+        } catch {}
+        this.dirty = true;
         break;
       }
       case "worktree-stop": {
@@ -4236,6 +4246,7 @@ export class Controller {
       break;
     }
     setup.smart_links = this.runtime.smart_links;
+    setup.auto_retry = this.runtime.auto_retry;
     setup.changed = () => {
       this.dirty = true;
       this.wake();
@@ -4354,6 +4365,8 @@ export class Controller {
         return this.toggleGhostty();
       case "smart_links":
         return this.configureSmartLinks(apply.on);
+      case "auto_retry":
+        return this.configureAutoRetry(apply.on);
       case "summaries":
         return this.configureSummaries(apply.choice, apply.model, apply.account);
       case "inference_use":
@@ -4442,6 +4455,23 @@ export class Controller {
     this.runtime.smart_links = enabled;
     if (this.corgi_setup) this.corgi_setup.smart_links = enabled;
     this.notice(enabled ? i18n.t` Smart Links on` : i18n.t` Smart Links off: Corgi won't connect to pane ports`);
+  }
+  private async configureAutoRetry(enabled: boolean): Promise<void> {
+    try {
+      await call(this.connection, "retry.configure", { enabled });
+    } catch {
+      this.notice(i18n.t` Corgi setup: the runtime did not accept the change`);
+      return;
+    }
+    this.runtime.auto_retry = enabled;
+    if (this.corgi_setup) this.corgi_setup.auto_retry = enabled;
+    this.notice(enabled ? i18n.t` Auto-retry capacity errors on` : i18n.t` Auto-retry capacity errors off`);
+  }
+  /** Whether the focused agent still waits on a retry, which Esc calls off.
+   * Once it is due, the retry is under way and Esc is the agent's again. */
+  private retryPending(): boolean {
+    const p = this.focused();
+    return !!p && p.agent.state === "working" && p.agent.retry_at > milliTimestamp();
   }
   /** A shell option: Other… asks for a path; the rest go to the daemon. */
   private async chooseShell(entry: shellPicker.Entry): Promise<void> {
@@ -5025,6 +5055,7 @@ export class Controller {
       }
       return;
     }
+    if (byte === 27 && this.retryPending()) return this.perform({ name: "cancel-retry" });
     const p = this.focused();
     if (p) {
       this.sendInput(p.terminal, [byte]);
@@ -5463,6 +5494,11 @@ export class Controller {
                 bindings.lookup(this.prefs.bindings(), false, legacy[0], {}) !== null))
           ) {
             seq = legacy;
+          } else if (legacy.length === 1 && legacy[0] === 27 && this.retryPending()) {
+            // The pane would get Esc in its own encoding, past `key`.
+            await this.perform({ name: "cancel-retry" });
+            used += len;
+            continue;
           } else {
             const p = this.focused();
             if (p) seq = Array.from(Buffer.from(viewerNative.encodeKey(p.terminal.handle, key_event)));

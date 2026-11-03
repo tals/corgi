@@ -243,6 +243,8 @@ $.requests|inference.configure.worktrees: optional
 $.requests|inference.configure.worktrees?: bool
 $.requests|shell.configure.shell: string
 $.requests|smart_links.configure.enabled: bool
+$.requests|retry.configure.enabled: bool
+$.requests|retry.cancel.pane: u32
 $.requests|git.push.workspace: u32
 $.requests|git.push.ref.root: string
 $.requests|git.push.ref.head: string
@@ -417,6 +419,7 @@ $.snapshot.shell.source: enum setting env account fallback
 $.snapshot.shell.default: string
 $.snapshot.shell.default_source: enum env account fallback
 $.snapshot.smart_links: bool
+$.snapshot.auto_retry: bool
 $.snapshot.system_working: bool
 $.snapshot.system_usage.tokens.input: u64
 $.snapshot.system_usage.tokens.cached_input: u64
@@ -532,6 +535,7 @@ $.snapshot.conversations[].agent.tool_active: bool
 $.snapshot.conversations[].agent.compacting: bool
 $.snapshot.conversations[].agent.compacting_since: i64
 $.snapshot.conversations[].agent.paused: bool
+$.snapshot.conversations[].agent.retry_at: i64
 $.snapshot.ports.processes_available: bool
 $.snapshot.ports.ports_available: bool
 $.snapshot.ports.workspaces[].id: u32
@@ -804,6 +808,7 @@ $.snapshot.panes[].agent.tool_active: bool
 $.snapshot.panes[].agent.compacting: bool
 $.snapshot.panes[].agent.compacting_since: i64
 $.snapshot.panes[].agent.paused: bool
+$.snapshot.panes[].agent.retry_at: i64
 $.snapshot.panes[].account: string
 $.snapshot.panes[].restoring: string
 $.snapshot.panes[].forking: bool

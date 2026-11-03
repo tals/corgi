@@ -115,6 +115,8 @@ export const operations = [
   "inference.configure",
   "shell.configure",
   "smart_links.configure",
+  "retry.configure",
+  "retry.cancel",
   "git.push",
   "worktree.remove",
   "worktree.stop",
@@ -628,6 +630,8 @@ const requests = {
   },
   "shell.configure": { shell: "string" },
   "smart_links.configure": { enabled: "bool" },
+  "retry.configure": { enabled: "bool" },
+  "retry.cancel": { pane: "u32" },
   "git.push": { workspace: "u32", ref: "ref" },
   "worktree.remove": { workspace: "u32", path: "string", locked: ["?string", null] },
   "worktree.stop": { workspace: "u32" },
@@ -733,6 +737,8 @@ export interface ReplyPayloads {
   "inference.configure": Ok & { saved: boolean; inference: import("./corgi_setup").Status };
   "shell.configure": Ok & { shell: import("./launch/command").ShellStatus };
   "smart_links.configure": Ok & { smart_links: boolean };
+  "retry.configure": Ok & { auto_retry: boolean };
+  "retry.cancel": Ok;
   "worktree.remove": Ok & { removal: number };
   "git.branches": Ok & { branches: Awaited<ReturnType<typeof import("./worktree_add").branches>> };
   "onboarding.status": Ok & {
