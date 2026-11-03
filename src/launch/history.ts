@@ -2,9 +2,11 @@ import { stat, open } from "node:fs/promises";
 import { realpathSync, watch, FSWatcher } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { Provider, adapter } from "../providers";
+import { Provider, adapter, byProvider } from "../providers";
 import type { SessionHistory } from "../providers/adapter";
 import * as accounts from "../accounts";
+import * as profiles from "../agent_profiles";
+import * as row from "./row";
 export type Entry = {
   provider: Provider;
   /** The account it ran in, "" for the default. */
@@ -186,12 +188,14 @@ function shared(history: SessionHistory, covered: Set<string>) {
   for (const root of roots) covered.add(root);
   return false;
 }
-/** The provider accounts whose sessions the launcher offers: each default, then the rest. */
-function sources(): { provider: Provider; account: string }[] {
+/** The provider accounts whose sessions the launcher offers: each default,
+ * then the rest, but those taken out of Manage agents that no saved agent runs in. */
+function sources(removed: row.Removed): row.Launch[] {
+  const used = profiles.list();
   return [
     ...Provider.all.map(provider => ({ provider, account: "" })),
     ...accounts.known().map(a => ({ provider: a.provider, account: a.dir })),
-  ];
+  ].filter(l => !row.removed(removed, l, used));
 }
 export type Update = {
   epoch: bigint;
@@ -214,8 +218,11 @@ export class Worker {
   syncing: ReturnType<typeof setInterval> | null = null;
   timer: ReturnType<typeof setTimeout> | null = null;
   refreshing: Promise<void> | null = null;
-  static start() {
+  /** The rows taken out of Manage agents, whose sessions it doesn't list. */
+  removed: row.Removed = { agent_hidden: byProvider(() => false), account_hidden: [] };
+  static start(removed?: row.Removed) {
     const w = new Worker();
+    if (removed) w.removed = row.removedOf(removed);
     void w.refresh();
     void w.startWatching();
     w.syncing = setInterval(() => void w.sync(), 10000);
@@ -241,6 +248,17 @@ export class Worker {
    * such as a new account's `projects`, showed up. */
   async sync() {
     if (!this.stopping && (await this.startWatching())) await this.refresh();
+  }
+  /** Follows the rows Manage agents took out: their sessions leave the
+   * list, and come back with them. */
+  async follow(removed: row.Removed) {
+    if (row.sameRemoved(removed, this.removed)) return;
+    this.removed = row.removedOf(removed);
+    // A read already under way listed the old rows.
+    await this.refreshing;
+    if (this.stopping) return;
+    await this.startWatching();
+    await this.refresh();
   }
   snapshot(): History {
     return {
@@ -269,7 +287,7 @@ export class Worker {
    * Corgi no longer knows; true when either happened. */
   async startWatching(): Promise<boolean> {
     let moved = false;
-    const listed = sources(),
+    const listed = sources(this.removed),
       wanted = new Set(listed.map(s => source(s.provider, s.account)));
     for (const [key, roots] of this.watching) {
       if (wanted.has(key)) continue;
@@ -343,7 +361,7 @@ export class Worker {
   async read() {
     const found: Entry[] = [],
       read: string[] = [],
-      listed = sources(),
+      listed = sources(this.removed),
       covered = new Set<string>();
     for (const { provider: p, account } of listed) {
       const history = await this.history(p, account);

@@ -3,6 +3,7 @@ import { Worker as CommandWorker } from "./launch/command";
 import { Worker as PreviewWorker, Option, active_every, idle_every, type Preview } from "./launch/preview";
 import { byProvider } from "./providers";
 import { Worker as HistoryWorker } from "./launch/history";
+import type { Removed } from "./launch/row";
 import { stringify } from "./json";
 import type { Server } from "./server";
 import { Reply, type Client } from "./peer";
@@ -25,8 +26,13 @@ export class Service {
   command_previews = CommandWorker.start();
   launch_previews = PreviewWorker.start();
   launch_history: HistoryWorker | null = null;
-  startHistory() {
-    return (this.launch_history ??= HistoryWorker.start());
+  startHistory(removed: Removed) {
+    return (this.launch_history ??= HistoryWorker.start(removed));
+  }
+  /** Tells the workers which rows Manage agents took out, which they then don't read. */
+  follow(removed: Removed) {
+    this.launch_previews.follow(removed);
+    void this.launch_history?.follow(removed);
   }
   async stop() {
     await Promise.all([this.command_previews.stop(), this.launch_previews.stop(), this.launch_history?.stop()]);
@@ -48,9 +54,10 @@ export async function stop(server: Server) {
 }
 export async function request(server: Server, client: Client, request: Request, reply = new Reply(client)) {
   const s = service(server);
+  s.follow(server.runtime);
   if (request.op === "agent.history") {
     const q = request.payload;
-    const reader = s.startHistory();
+    const reader = s.startHistory(server.runtime);
     if (q.follow) {
       const subscription = client.launch_preview;
       if (!subscription) throw Error("NotSubscribed");
@@ -93,8 +100,10 @@ const active_ms = 5 * 60 * 1000;
  * someone uses a viewer and rarely when no one does or none is attached. */
 export function sample(server: Server) {
   const now = Date.now(),
-    active = server.clients.some(c => c.viewer && !c.dead && now - c.input_at < active_ms);
-  service(server).launch_previews.sample(active ? active_every : idle_every);
+    active = server.clients.some(c => c.viewer && !c.dead && now - c.input_at < active_ms),
+    s = service(server);
+  s.follow(server.runtime);
+  s.launch_previews.sample(active ? active_every : idle_every);
 }
 /** Whether the worker holds a preview this subscription wasn't sent; reads nothing. */
 export function due(server: Server, client: Client): boolean {
@@ -111,7 +120,7 @@ export function publish(server: Server, client: Client) {
   if (!subscription || !s || client.dead || client.output.length || Date.now() - subscription.checked < 100) return;
   subscription.checked = Date.now();
   if (subscription.history_asked) {
-    s.startHistory();
+    s.startHistory(server.runtime);
   }
   if (subscription.history_asked && s.launch_history) {
     const update = s.launch_history.update(subscription.history_epoch, subscription.history_sent);

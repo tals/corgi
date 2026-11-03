@@ -5,14 +5,16 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Option, Worker, active_every, idle_every } from "./preview";
 import { Info, Window } from "../usage/account";
-import { Provider, Text } from "../providers";
+import { Provider, Text, byProvider } from "../providers";
 import * as accounts from "../accounts";
 import * as discovery from "../discovery";
+import * as limitHistory from "../usage/limits";
+import * as profiles from "../agent_profiles";
 
 const bin = (p: Provider) => `CORGI_${p.toUpperCase()}_BIN`;
 /** The providers these tests find installed. */
 const installed: Provider[] = Provider.all.filter(p => p !== "opencode2");
-const variables = ["CORGI_ENV_BASE", "XDG_STATE_HOME", ...Provider.all.map(bin)];
+const variables = ["CORGI_ENV_BASE", "XDG_STATE_HOME", "PI_CODING_AGENT_DIR", ...Provider.all.map(bin)];
 let saved: NodeJS.ProcessEnv, root: string;
 beforeEach(() => {
   saved = { ...process.env };
@@ -397,6 +399,78 @@ test("accounts are read on the daemon's schedule with no one subscribed", async 
     await worker.pump();
     expect(reads).toBe(2);
     expect(worker.preview("/project").options.claude.limits).toMatchObject({ windows: [null, { used: 12 }] });
+  } finally {
+    setSystemTime();
+    await worker.stop();
+  }
+});
+
+test("a removed agent isn't read, shows only who signed in, and is read again once added back", async () => {
+  const pi = join(root, "pi");
+  mkdirSync(pi);
+  writeFileSync(
+    join(pi, "auth.json"),
+    JSON.stringify({ "openai-codex": { type: "oauth", access: "a", refresh: "r", email: "me@pi.dev" } }),
+  );
+  process.env.PI_CODING_AGENT_DIR = pi;
+  const worker = new Worker(),
+    reads: Provider[] = [],
+    closed: Provider[] = [],
+    none = { agent_hidden: byProvider(() => false), account_hidden: [] },
+    removed = { ...none, agent_hidden: byProvider(p => p === "pi") };
+  const fake = (provider: Provider) => ({
+    account: async () => {
+      reads.push(provider);
+      return reading(84);
+    },
+    model: async () => ({ model: "", source: "test" }),
+    close: () => void closed.push(provider),
+  });
+  worker.launcher = async provider => fake(provider);
+  for (const p of installed) worker.launchers.set(p + "\0", Promise.resolve(fake(p)));
+  try {
+    setSystemTime(new Date(1_000_000_000));
+    worker.preview("/project");
+    await worker.pump();
+    expect(reads).toContain("pi");
+    worker.follow(removed);
+    await worker.pump();
+    await turn();
+    expect(closed).toEqual(["pi"]);
+    const option = worker.preview("/project").options.pi;
+    expect(option.pending).toBe(false);
+    expect(option.account.text()).toBe("me@pi.dev");
+    expect(option.limits).toBe("none");
+    expect(option.history).toEqual(limitHistory.none());
+    // Neither the daemon's schedule nor a refresh reads it.
+    reads.length = 0;
+    setSystemTime(new Date(1_000_000_000 + idle_every * 2000));
+    worker.sample(idle_every);
+    worker.preview("/project", true);
+    await worker.pump();
+    expect(reads).toContain("claude");
+    expect(reads).not.toContain("pi");
+    expect(worker.preview("/project").options.pi.limits).toBe("none");
+    // A saved agent that runs in it keeps it read.
+    writeFileSync(
+      profiles.path(),
+      JSON.stringify([
+        { id: "pi-fast", provider: "pi", account: "", name: "Pi fast", options: { flags: "", env: [] } },
+      ]),
+    );
+    worker.preview("/project", true);
+    await worker.pump();
+    expect(reads).toContain("pi");
+    expect(worker.preview("/project").options.pi.limits).toMatchObject({ windows: [null, { used: 84 }] });
+    rmSync(profiles.path());
+    reads.length = 0;
+    worker.preview("/project", true);
+    await worker.pump();
+    expect(reads).not.toContain("pi");
+    worker.follow(none);
+    await worker.pump();
+    expect(reads).toContain("pi");
+    expect(worker.preview("/project").options.pi.limits).toMatchObject({ windows: [null, { used: 84 }] });
   } finally {
     setSystemTime();
     await worker.stop();

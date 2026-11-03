@@ -4,9 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { service, publish, request, sample, stop, due } from "./launch_service";
 import { Preview, Worker as PreviewWorker, active_every, idle_every } from "./launch/preview";
-import { Text } from "./providers";
+import { Text, byProvider } from "./providers";
 import * as protocol from "./protocol";
 import * as accounts from "./accounts";
+import type { Removed } from "./launch/row";
+const nothingRemoved = (): Removed => ({ agent_hidden: byProvider(() => false), account_hidden: [] });
 // Previews list the user's accounts; these tests see none.
 const saved = { HOME: process.env.HOME, CORGI_ENV_BASE: process.env.CORGI_ENV_BASE },
   home = mkdtempSync(join(tmpdir(), "corgi-launch-service-"));
@@ -23,7 +25,7 @@ afterAll(() => {
   rmSync(home, { recursive: true, force: true });
 });
 test("new preview subscribers refresh sign-in after a pending pass", async () => {
-  const server: any = { runtime: { getWorkspace: () => ({ cwd: "/tmp" }) } },
+  const server: any = { runtime: { ...nothingRemoved(), getWorkspace: () => ({ cwd: "/tmp" }) } },
     messages: any[] = [],
     client = (): any => ({
       dead: false,
@@ -196,7 +198,7 @@ test("restored preview subscriptions restart their workers without a new request
   }
 });
 test("accounts are read often while someone uses a viewer and rarely otherwise", () => {
-  const server: any = { clients: [] },
+  const server: any = { clients: [], runtime: nothingRemoved() },
     asked: number[] = [];
   service(server).launch_previews.sample = every => void asked.push(every);
   try {
