@@ -136,12 +136,18 @@ test("partial matches offer creation, exact names switch, and editing resumes fi
     for (const byte of Buffer.from(text)) c.edit(field => field.key(byte));
   };
   type("to");
-  expect(launcherWorktree.choices(snapshot, "/src/app", c).map(e => e.text)).toEqual(["topic", "+ Create “to”"]);
+  // The offer to create is lit while it's the selection.
+  const lit = () => launcherWorktree.choices(snapshot, "/src/app", c).map(e => [e.text, e.lit]);
+  expect(lit()).toEqual([
+    ["topic", undefined],
+    ["+ Create “to”", true],
+  ]);
   expect(c.creating(snapshot)).toBe(true);
   c.move(snapshot, 1);
   expect(c.field.name()).toBe("topic");
   expect(c.selected(snapshot)?.path).toBe("/src/app-topic");
   expect(c.creating(snapshot)).toBe(false);
+  expect(lit()[1]).toEqual(["+ Create “to”", false]);
   expect(c.count(snapshot)).toBe(2);
   c.move(snapshot, 1);
   expect(c.field.name()).toBe("to");

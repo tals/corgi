@@ -86,7 +86,8 @@ filter the checkouts. Arrows or a click fill the field with a choice; Enter
 switches to it. An empty field shows all checkouts.
 
 When the typed name has no exact match, **+ Create “name”** appears alongside
-any partial matches. Hold Enter or the **hold ↵ to create** button to plan it.
+any partial matches, lit in green while it's the selection. Enter or the
+**↵ create** button plans it.
 **From** appears for a new worktree, defaulting to the repository's local
 default branch; Tab lets you search for another base. **Folder** previews
 the destination from the configured template.

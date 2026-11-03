@@ -1448,108 +1448,78 @@ test("the launcher names a new worktree, then adds it before starting the agent 
   s.input_state.attached = true;
   s.openLauncher(true, "/src/app-topic");
   s.agent_launcher.selected = "claude";
-  const hold = async () => {
-    await s.key(13);
-    clock.advance(300);
-    for (let i = 0; i < 70 && s.agent_launcher.worktree.mode === "open"; i++) {
-      await s.key(13);
-      clock.advance(50);
-    }
-  };
-  try {
-    await s.key("w".charCodeAt(0));
-    expect([s.agent_launcher.worktree.mode, s.agent_launcher.worktree.focus]).toEqual(["open", "branch"]);
-    // Browsing fills Branch while preserving the list and its caret.
-    await s.input(bytes("\x1b[A"));
-    expect([s.agent_launcher.worktree.focus, s.agent_launcher.worktree.field.name()]).toEqual(["branch", "topic"]);
-    await s.input(bytes("\x1bOA"));
-    expect(s.agent_launcher.worktree.field.name()).toBe("main");
-    await s.key(13);
-    expect(s.agent_launcher.cwd).toBe("/src/app");
-    await s.key("w".charCodeAt(0));
-    await s.input(bytes("\x1b[200~top\x1b[201~"));
-    expect(s.agent_launcher.worktree.typed).toBe("top");
-    const box = () => s.agent_launcher.worktreeBox(s.width, s.height, s.sidebarView([]));
-    const mouse = (button: number, x: number, y: number, release = false) =>
-      s.input(bytes(`\x1b[<${button};${x + 1};${y + 1}${release ? "m" : "M"}`));
-    await mouse(35, box().label_x, box().list);
-    expect(s.agent_launcher.worktree.field.name()).toBe("top");
-    await mouse(0, box().label_x, box().list);
-    await mouse(0, box().label_x, box().list, true);
-    expect(s.agent_launcher.worktree.field.name()).toBe("topic");
-    expect(s.agent_launcher.worktree.focus).toBe("branch");
-    // Escape closes the box from the form in one press.
-    await s.key(27);
-    expect([s.agent_launcher.worktree.mode, s.agent_launcher === null]).toEqual(["closed", false]);
-    await s.key("w".charCodeAt(0));
-    for (const byte of bytes("log in")) await s.key(byte);
-    // Tab moves to From, which searches the branches the daemon listed.
-    await s.key(9);
-    expect(s.agent_launcher.worktree.focus).toBe("from");
-    // There Escape only dismisses From's list.
-    await s.key(27);
-    expect([s.agent_launcher.worktree.mode, s.agent_launcher.worktree.focus]).toEqual(["open", "branch"]);
-    await s.key(9);
-    for (const byte of bytes("top")) await s.key(byte);
-    await s.key(13);
-    expect(s.agent_launcher.worktree.focus).toBe("branch");
-    await s.key(13);
-    expect(s.agent_launcher.worktree.planned).toBeNull();
-    clock.advance(1200);
-    await s.expireInput();
-    expect(s.agent_launcher.worktree.create.progress).toBe(0);
-    await hold();
-    expect(s.agent_launcher.worktree.planned).toEqual({
-      branch: "log-in",
-      base: "refs/heads/topic",
-      base_name: "topic",
-      path: "/src/app/.worktrees/log-in",
-    });
-    expect(s.agent_launcher.place().label).toBe("log-in");
-    // The tail of the held Enter must not launch the highlighted agent.
-    for (let i = 0; i < 5; i++) {
-      await s.key(13);
-      clock.advance(50);
-    }
-    expect(sent.some(([op]) => op === "session.command" || op === "worktree.add")).toBe(false);
-    // Git refuses: the form comes back with why, and nothing launches.
-    await s.key("a".charCodeAt(0));
-    expect([s.agent_launcher.worktree.mode, s.agent_launcher.worktree.focus]).toEqual(["open", "branch"]);
-    expect(s.agent_launcher.worktree.error).toBe("A branch named log-in exists already");
-    expect(sent.some(([op]) => op === "session.command")).toBe(false);
-    refuse = null;
-    clock.advance(300);
-    const confirm = () => mouse(0, box().rect.x + box().rect.w - 5, box().footer);
-    await confirm();
-    clock.advance(400);
-    await mouse(0, box().rect.x + box().rect.w - 5, box().footer, true);
-    clock.advance(1000);
-    await s.expireInput();
-    expect(s.agent_launcher.worktree.mode).toBe("open");
-    expect(s.agent_launcher.worktree.create.progress).toBe(0);
-    await confirm();
-    const button = box();
-    clock.advance(3100);
-    await s.expireInput();
-    expect(s.agent_launcher.worktree.mode).toBe("closed");
-    await mouse(0, button.rect.x + button.rect.w - 5, button.footer, true);
-    await s.key("a".charCodeAt(0));
-    const add = sent.findLast(([op]) => op === "worktree.add")!;
-    expect(add[1]).toEqual({
-      workspace: 1,
-      path: "/src/app/.worktrees/log-in",
-      branch: "log-in",
-      base: "refs/heads/topic",
-    });
-    const create = sent.find(([op]) => op === "session.command")!;
-    expect(create[1].command["agent.create"]).toEqual({
-      workspace: 1,
-      cwd: "/src/app/.worktrees/log-in",
-      provider: "claude",
-    });
-  } finally {
-    clock.reset();
-  }
+  await s.key("w".charCodeAt(0));
+  expect([s.agent_launcher.worktree.mode, s.agent_launcher.worktree.focus]).toEqual(["open", "branch"]);
+  // Browsing fills Branch while preserving the list and its caret.
+  await s.input(bytes("\x1b[A"));
+  expect([s.agent_launcher.worktree.focus, s.agent_launcher.worktree.field.name()]).toEqual(["branch", "topic"]);
+  await s.input(bytes("\x1bOA"));
+  expect(s.agent_launcher.worktree.field.name()).toBe("main");
+  await s.key(13);
+  expect(s.agent_launcher.cwd).toBe("/src/app");
+  await s.key("w".charCodeAt(0));
+  await s.input(bytes("\x1b[200~top\x1b[201~"));
+  expect(s.agent_launcher.worktree.typed).toBe("top");
+  const box = () => s.agent_launcher.worktreeBox(s.width, s.height, s.sidebarView([]));
+  const mouse = (button: number, x: number, y: number, release = false) =>
+    s.input(bytes(`\x1b[<${button};${x + 1};${y + 1}${release ? "m" : "M"}`));
+  await mouse(35, box().label_x, box().list);
+  expect(s.agent_launcher.worktree.field.name()).toBe("top");
+  await mouse(0, box().label_x, box().list);
+  await mouse(0, box().label_x, box().list, true);
+  expect(s.agent_launcher.worktree.field.name()).toBe("topic");
+  expect(s.agent_launcher.worktree.focus).toBe("branch");
+  // Escape closes the box from the form in one press.
+  await s.key(27);
+  expect([s.agent_launcher.worktree.mode, s.agent_launcher === null]).toEqual(["closed", false]);
+  await s.key("w".charCodeAt(0));
+  for (const byte of bytes("log in")) await s.key(byte);
+  // Tab moves to From, which searches the branches the daemon listed.
+  await s.key(9);
+  expect(s.agent_launcher.worktree.focus).toBe("from");
+  // There Escape only dismisses From's list.
+  await s.key(27);
+  expect([s.agent_launcher.worktree.mode, s.agent_launcher.worktree.focus]).toEqual(["open", "branch"]);
+  await s.key(9);
+  for (const byte of bytes("top")) await s.key(byte);
+  await s.key(13);
+  expect(s.agent_launcher.worktree.focus).toBe("branch");
+  // Enter plans the new worktree at once.
+  await s.key(13);
+  expect(s.agent_launcher.worktree.mode).toBe("closed");
+  expect(s.agent_launcher.worktree.planned).toEqual({
+    branch: "log-in",
+    base: "refs/heads/topic",
+    base_name: "topic",
+    path: "/src/app/.worktrees/log-in",
+  });
+  expect(s.agent_launcher.place().label).toBe("log-in");
+  expect(sent.some(([op]) => op === "session.command" || op === "worktree.add")).toBe(false);
+  // Git refuses: the form comes back with why, and nothing launches.
+  await s.key("a".charCodeAt(0));
+  expect([s.agent_launcher.worktree.mode, s.agent_launcher.worktree.focus]).toEqual(["open", "branch"]);
+  expect(s.agent_launcher.worktree.error).toBe("A branch named log-in exists already");
+  expect(sent.some(([op]) => op === "session.command")).toBe(false);
+  refuse = null;
+  // So does a click on the footer's button.
+  const button = box();
+  await mouse(0, button.rect.x + button.rect.w - 5, button.footer);
+  expect(s.agent_launcher.worktree.mode).toBe("closed");
+  await mouse(0, button.rect.x + button.rect.w - 5, button.footer, true);
+  await s.key("a".charCodeAt(0));
+  const add = sent.findLast(([op]) => op === "worktree.add")!;
+  expect(add[1]).toEqual({
+    workspace: 1,
+    path: "/src/app/.worktrees/log-in",
+    branch: "log-in",
+    base: "refs/heads/topic",
+  });
+  const create = sent.find(([op]) => op === "session.command")!;
+  expect(create[1].command["agent.create"]).toEqual({
+    workspace: 1,
+    cwd: "/src/app/.worktrees/log-in",
+    provider: "claude",
+  });
 });
 
 /** An attached controller whose session commands land in `sent`, each making pane 1. */

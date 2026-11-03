@@ -1,6 +1,7 @@
 //! A dropdown: a bordered box on `surface` with a row per choice, ✓ on the
 //! current one and a faint note at the right edge; the hovered row takes
-//! `selected`; a dim one steps back while something else has the keyboard.
+//! `selected`, and a lit action the accent too; a dim one steps back while
+//! something else has the keyboard.
 //! A choice with a key shows it as a keycap where ✓ goes. Faint column
 //! headings may sit over the choices, and a note may color its runs.
 //! The sidebar's agent scope, Corgi setup's summaries, the launcher's
@@ -22,6 +23,9 @@ export interface Choice {
   runs?: Run[];
   current: boolean;
   hovered: boolean;
+  /** An action the keyboard has chosen, such as creating something: bold
+   * accent with a bar at its edge, on the hovered background. */
+  lit?: boolean;
   key?: string;
   dim?: boolean;
   /** A non-selectable section heading inside a grouped menu. */
@@ -163,12 +167,15 @@ export function row(
   }
   const style = choice.heading
     ? new Style({ fg: choice.heading_tone ?? "muted", bg: "surface", bold: true }).sgr()
-    : choice.hovered
-      ? new Style({ fg: "strong", bg: "selected" }).sgr()
-      : new Style({ fg: choice.dim ? "faint" : "text", bg: "surface" }).sgr();
+    : choice.lit
+      ? new Style({ fg: "accent", bg: "selected", bold: true }).sgr()
+      : choice.hovered
+        ? new Style({ fg: "strong", bg: "selected" }).sgr()
+        : new Style({ fg: choice.dim ? "faint" : "text", bg: "surface" }).sgr();
   const line = b.y + y + 1;
   w.write(`\x1b[${line};${b.x + 2}H${style}`);
   w.splat(" ", b.w - 2);
+  if (choice.lit) w.write(`\x1b[${line};${b.x + 2}H▌`);
   if (choice.branch)
     w.write(`\x1b[${line};${b.x + indent + 1}H` + fg(choice.hovered ? "muted" : "faint") + choice.branch + style);
   if (choice.current)

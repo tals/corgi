@@ -5,7 +5,7 @@ import * as i18n from "./i18n";
 import { basename } from "node:path";
 import * as agentName from "./agent_name";
 import * as palette from "./palette";
-import { Style, keycap, fgRgb, bgRgb, mix, colors, selection } from "./palette";
+import { Style, keycap, selection } from "./palette";
 export { selection } from "./palette";
 import * as keys from "./keys";
 import * as forkHero from "./fork_hero";
@@ -358,13 +358,6 @@ export type KeySpec = { key: string; label: string; hit: Hit; split?: boolean };
 /** The columns a key's caps take; a split key's stand a column apart. */
 export const capped = (k: { key: string; split?: boolean }) => (k.split ? k.key.length * 4 - 1 : k.key.length + 2);
 export const labelled = (k: { key: string; label: string; split?: boolean }) => capped(k) + 1 + displayWidth(k.label);
-/** The fork card's call to action: a tint of the accent, not its full
- * strength, so it doesn't glare on the panel. */
-let create_fill: string, create_label: string;
-palette.derived(() => {
-  create_fill = "\x1b[0m" + bgRgb(mix(colors.surface, colors.accent, 22));
-  create_label = create_fill + "\x1b[1m" + fgRgb(colors.accent);
-});
 export class View {
   x = 0;
   y = 0;
@@ -687,7 +680,7 @@ export class View {
     w.write(`\x1b[${v.field_y + 1};${v.text_x + 1}H`);
     writeField(w, d, v.offset, v.text_width, new Style({ fg: "text", bg: "selected" }).sgr());
     v.cardButtons().forEach((b, i) => {
-      const fill = i === 0 ? create_fill : new Style({ bg: "selected" }).sgr();
+      const fill = i === 0 ? palette.call_to_action : new Style({ bg: "selected" }).sgr();
       for (let row = 0; row < 3; row++) {
         w.write(`\x1b[${v.buttons_y + row};${b.x + 1}H${fill}`);
         w.splat(" ", b.width);
@@ -695,7 +688,7 @@ export class View {
       const key_end = b.label.indexOf(" ");
       const pad = Math.floor((b.width - displayWidth(b.label)) / 2);
       w.write(`\x1b[${v.buttons_y + 1};${b.x + 1 + pad}H`);
-      if (i === 0) w.write(create_label + i18n.t`↵ Create Fork`);
+      if (i === 0) w.write(palette.call_to_action + i18n.t`↵ Create Fork`);
       else
         w.write(
           new Style({ fg: "muted", bg: "selected" }).sgr() +

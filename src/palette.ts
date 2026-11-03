@@ -138,11 +138,15 @@ export let outline: Rgb;
  * accent on `selected`, so it doesn't glare. */
 export let selection: string;
 export let selection_bg: Rgb;
+/** A button that does what's chosen, such as creating it: bold accent on a
+ * tint of the accent, not its full strength, so it doesn't glare on `surface`. */
+export let call_to_action: string;
 derived(() => {
   keycap = new Style({ fg: "strong", bg: "line", bold: true }).sgr();
   outline = mix(colors.accent, colors.line, 50);
   selection_bg = mix(colors.selected, colors.accent, 30);
   selection = fgRgb(colors.strong) + bgRgb(selection_bg);
+  call_to_action = "\x1b[0m" + bgRgb(mix(colors.surface, colors.accent, 22)) + "\x1b[1m" + fgRgb(colors.accent);
 });
 
 /** Code colors, a family apart from the UI tokens: in code, green, warm and

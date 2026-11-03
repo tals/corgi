@@ -1020,24 +1020,24 @@ export class Menu {
           ? launcherWorktree.plannedPath(this.worktrees, this.cwd, c.field.name(), this.worktree_folder)
           : this.cwd);
     writeEllipsis(w, launcherWorktree.folderLabel(path, root), bx.field_w);
+    // Creating, the action is a lit button a cell wider on each side.
+    const button = c.focus === "branch" && creating,
+      pad = Number(button);
     const action = ellipsis(
       c.focus === "from"
         ? i18n.t`↵ use branch`
         : creating
-          ? i18n.t`hold ↵ to create`
+          ? i18n.t`↵ create`
           : selected
             ? i18n.t`↵ switch`
             : i18n.t`type to search`,
-      sat(r.x + r.w - 3, bx.label_x),
+      sat(r.x + r.w - 3, bx.label_x + pad),
     );
     const action_x = r.x + r.w - displayWidth(action) - 3,
       hint = i18n.t`↑↓ choose`;
-    if (displayWidth(hint) + 2 <= action_x - bx.label_x) w.write(at(bx.label_x, bx.footer) + panel + hint);
-    w.write(at(action_x, bx.footer) + text + action);
-    if (c.create.progress > 0)
-      w.write(
-        at(r.x + 1, r.y + r.h - 1) + palette.fg("accent") + "━".repeat(Math.floor((r.w - 2) * c.create.progress)),
-      );
+    if (displayWidth(hint) + 2 + pad <= action_x - bx.label_x) w.write(at(bx.label_x, bx.footer) + panel + hint);
+    if (button) w.write(at(action_x - 1, bx.footer) + palette.call_to_action + ` ${action} `);
+    else w.write(at(action_x, bx.footer) + text + action);
     if (bx.error !== null) {
       w.write(at(bx.label_x, bx.error) + palette.fg("hot"));
       writeEllipsis(w, c.error, sat(r.x + r.w - 2, bx.label_x));
