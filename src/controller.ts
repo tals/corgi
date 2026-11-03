@@ -36,6 +36,7 @@ import * as composition from "./composition";
 import { ResizeView, TabMenu, type Item as TabMenuItem } from "./commands";
 import { Dialog, View as NameView, name_limit } from "./name_dialog";
 import * as sidebar from "./sidebar";
+import * as attention from "./attention";
 import type { Entry, Target, WorkspaceEntry, Scope } from "./sidebar";
 import * as agentNavigation from "./agent_navigation";
 import * as sidebarFocus from "./sidebar_focus";
@@ -2267,29 +2268,23 @@ export class Controller {
     }
   }
   private attention(): void {
-    for (const priority of ["needs_input", "finished"]) {
-      let best: Pane | null = null;
-      for (const p of this.runtime.panes)
-        if (
-          p.agent.attention === priority &&
-          !this.archivedAway(this.runtime.workspaces.owner(p.id)?.id ?? 0) &&
-          (best === null || p.agent.changed_at < best.agent.changed_at)
-        )
-          best = p;
-      if (best) {
-        this.focusPane(best.id);
-        this.dirty = true;
-        return;
-      }
+    // Archived workspaces stay out of jumps until one is opened.
+    const target = attention.pick(
+      {
+        panes: this.runtime.panes.filter(p => !this.archivedAway(this.runtime.workspaces.owner(p.id)?.id ?? 0)),
+        sessions: this.runtime.sessions.filter(session => !this.archivedAway(session.workspace)),
+      },
+      this.focused()?.id ?? null,
+    );
+    if (!target) this.notice(i18n.t` Nothing needs your attention`);
+    else if ("pane" in target) {
+      this.focusPane(target.pane);
+      this.dirty = true;
+    } else {
+      const session = target.session;
+      if (session.workspace !== this.current().id) this.switchWorkspace(session.workspace);
+      this.noticeHeadlessSession(session);
     }
-    for (const priority of ["needs_input", "finished"])
-      for (const session of this.runtime.sessions)
-        if (session.attention === priority && !this.archivedAway(session.workspace)) {
-          if (session.workspace !== this.current().id) this.switchWorkspace(session.workspace);
-          this.noticeHeadlessSession(session);
-          return;
-        }
-    this.notice(i18n.t` Nothing needs your attention`);
   }
   async perform(act: Action): Promise<void> {
     this.message = "";
