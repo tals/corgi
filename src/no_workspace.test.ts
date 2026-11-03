@@ -17,18 +17,23 @@ test("the button stays centered, with the pictures of its steps only where they 
   expect(noWorkspace.layout(new Rect(30, 1, 40, 3))!.button.h).toBe(1);
   expect(noWorkspace.layout(new Rect(30, 1, 6, 31))).toBeNull();
 });
-test("a press anywhere on the button is on it", () => {
+test("a press on the button or its sketches is on the button", () => {
   const area = new Rect(30, 1, 80, 31),
-    { button } = noWorkspace.layout(area)!;
+    { button, steps } = noWorkspace.layout(area)!,
+    { dialog, sidebar } = steps!;
   for (const [x, y] of [
     [button.x, button.y],
     [button.x + button.w - 1, button.y + button.h - 1],
+    [dialog.x, dialog.y - 1],
+    [dialog.x + dialog.w, dialog.y + 5],
+    [sidebar.x + sidebar.w - 1, sidebar.y + sidebar.h - 1],
   ])
     expect(noWorkspace.hit(area, x, y)).toBe(true);
   expect(noWorkspace.hit(area, button.x - 1, button.y)).toBe(false);
   expect(noWorkspace.hit(area, button.x, button.y + button.h)).toBe(false);
+  expect(noWorkspace.hit(area, sidebar.x + sidebar.w, sidebar.y)).toBe(false);
 });
-test("the pictures show the folder the dialog opens with, its end when it's long", () => {
+test("the sketches show the folder the dialog opens with, its end when it's long", () => {
   const w = new Writer(),
     folder = "~/a/very/long/path/that/does/not/fit/project/";
   noWorkspace.draw(w, new Rect(30, 1, 80, 31), { name: "project", folder, focused: true }, true);
