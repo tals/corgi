@@ -275,9 +275,9 @@ export class Conversation {
   started: Start | null = null;
   /** Off for /incognito: memory edits are denied. */
   memory_writes = true;
-  /** Memory lines this conversation added, the model's and /remember's, for /forgetmenow. */
+  /** Memory lines this conversation added, for /erase. */
   wrote: Written[] = [];
-  /** Every session the thread used, ended ones too, for /forgetmenow. */
+  /** Every session the thread used, ended ones too, for /erase. */
   used: Used[] = [];
   /** A start under way: the session it makes, or null when it fails. */
   launching: Promise<Used | null> | null = null;

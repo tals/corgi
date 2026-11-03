@@ -509,84 +509,56 @@ test("a drag over the input selects what's typed there, copied on release", () =
 test("/ lists the commands, filters them and runs the highlighted one", () => {
   const { p } = prompt();
   p.key(47);
-  let lines = draw(p);
+  const lines = draw(p);
   expect(lines.filter(l => /\/\w+ {2,}\w/.test(l)).map(l => l.trim().split(/\s+/)[1])).toEqual([
-    "/forgetmenow",
-    "/remember",
-    "/forget",
-    "/dig",
-    "/pane",
+    "/new",
+    "/erase",
     "/incognito",
     "/memory",
-    "/new",
+    "/pane",
   ]);
   expect(card(lines).at(-2)).toContain("↑↓ pick   ⏎ run   esc back");
-  type(p, "f");
-  expect(matching("f")).toEqual(["forgetmenow", "forget"]);
-  expect(matching("me")).toEqual(["memory", "forgetmenow", "remember"]);
+  expect(matching("n")).toEqual(["new", "incognito", "pane"]);
+  expect(matching("n", "pane")).toEqual(["new", "incognito"]);
+  // Tab completes the highlighted name; Enter runs it.
+  type(p, "e");
+  p.sequence("\x1b[B");
+  p.key(9);
+  expect(card(draw(p)).find(l => l.includes("›"))).toContain("Fix sidebar f…  /new█");
+  for (let i = 0; i < 20; i++) p.key(127);
+  type(p, "/e");
+  p.sequence("\x1b[B");
   p.sequence("\x1b[B");
   p.key(13);
-  // A command that takes words fills the input instead of running.
-  expect(card(draw(p)).find(l => l.includes("›"))).toContain("Fix sidebar f…  /forget █");
-  for (let i = 0; i < 20; i++) p.key(127);
-  type(p, "/rem");
-  p.key(13);
-  // The twenty Backspaces took the chips too, once the box was empty.
-  expect(card(draw(p)).find(l => l.includes("›"))).toContain("› /remember █");
-  for (let i = 0; i < 20; i++) p.key(127);
-  type(p, "/d");
+  expect(draw(p).some(l => l.includes("Search memory"))).toBe(true);
   p.key(27);
-  expect(card(draw(p)).some(l => l.includes("search memory"))).toBe(false);
-  expect(parseCommand("dig")).toBe("dig");
-  expect(parseCommand("fetch")).toBeNull();
+  type(p, "/m");
+  p.key(27);
+  expect(card(draw(p)).some(l => l.includes("search and edit"))).toBe(false);
+  expect(parseCommand("erase")).toBe("erase");
+  expect(parseCommand("close")).toBeNull();
+  expect(parseCommand("close", "pane")).toBe("close");
+  expect(parseCommand("remember")).toBeNull();
 });
 
-test("/remember, /dig and /forget work on memory", () => {
-  const { p, root } = prompt();
-  // As OpenClaw keeps it, what's remembered goes to today's log.
-  type(p, "/remember CI runs unit tests in parallel");
-  p.key(13);
-  expect(readFileSync(join(root, "2026-10-30.md"), "utf8")).toBe("- CI runs unit tests in parallel\n");
-  expect(p.conversation.items.at(-1)).toEqual({
-    kind: "note",
-    text: "remembered CI runs unit tests in parallel → 2026-10-30.md",
-    tone: "faint",
-    bone: true,
-  });
-  writeFileSync(join(root, "MEMORY.md"), "- CI caches bun\n");
-  type(p, "/dig CI");
-  p.key(13);
-  expect(p.conversation.items.slice(-2).map(i => (i as any).text)).toEqual([
-    "CI caches bun · MEMORY",
-    "CI runs unit tests in parallel · 2026-10-30",
-  ]);
-  type(p, "/forget CI");
-  p.key(13);
-  expect(p.conversation.items.at(-1)).toEqual({
-    kind: "note",
-    text: "2 lines match. /forget with the whole line drops one.",
-    tone: "warm",
-  });
-  type(p, "/forget ci caches bun");
-  p.key(13);
-  expect(readFileSync(join(root, "MEMORY.md"), "utf8")).toBe("");
-  expect((p.conversation.items.at(-1) as any).text).toBe("forgot CI caches bun ← MEMORY.md");
-});
+/** A line the model wrote to today's log during the conversation. */
+function wrote(p: Prompt, root: string, line: string) {
+  p.conversation.wrote.push(p.memory.append(join(root, "2026-10-30.md"), line));
+}
 
-test("/forgetmenow waits for a second Enter, then burns what it can", async () => {
+test("/erase waits for a second Enter, then erases what it can", async () => {
   const transcripts = folder(),
     file = join(transcripts, "0193-session.jsonl");
   writeFileSync(file, "{}\n");
   const { p, d, clock, root } = prompt({ transcript: () => file });
-  type(p, "/remember keep this");
-  p.key(13);
+  wrote(p, root, "keep this");
   type(p, "hello");
   p.key(13);
   await settle();
-  type(p, "/forgetmenow");
+  type(p, "/erase");
   p.key(13);
   expect(d.calls.some(c => c.op === "headless.stop")).toBe(false);
-  expect(card(draw(p)).find(l => l.includes("› /"))).toContain("/forgetmenow█  ⏎ again burns the chat");
+  expect(card(draw(p)).find(l => l.includes("› /"))).toContain("/erase█  ⏎ again erases the chat");
   clock.now += 2500;
   p.key(13);
   expect(d.calls.some(c => c.op === "headless.stop")).toBe(false);
@@ -600,14 +572,14 @@ test("/forgetmenow waits for a second Enter, then burns what it can", async () =
   expect(p.conversation.items).toEqual([
     {
       kind: "note",
-      text: "burned the chat, 1 memory line and Claude's transcript",
+      text: "erased the chat, 1 memory line and Claude's transcript",
       tone: "faint",
       bone: true,
     },
   ]);
 });
 
-test("/forgetmenow burns every session the thread used, and keeps lines changed since", async () => {
+test("/erase erases every session the thread used, and keeps lines changed since", async () => {
   const transcripts = folder(),
     files: Record<string, string> = {
       first: join(transcripts, "first.jsonl"),
@@ -618,10 +590,8 @@ test("/forgetmenow burns every session the thread used, and keeps lines changed 
   d.ids = ["first", "second"];
   const log = join(root, "2026-10-30.md");
   writeFileSync(log, "- the user's own line\n");
-  type(p, "/remember keep this");
-  p.key(13);
-  type(p, "/remember and this");
-  p.key(13);
+  wrote(p, root, "keep this");
+  wrote(p, root, "and this");
   type(p, "one");
   p.key(13);
   await settle();
@@ -632,7 +602,7 @@ test("/forgetmenow burns every session the thread used, and keeps lines changed 
   await settle();
   // The user edits one of the remembered lines by hand.
   writeFileSync(log, "- the user's own line\n- keep this, edited\n- and this\n");
-  type(p, "/forgetmenow");
+  type(p, "/erase");
   p.key(13);
   clock.now += 100;
   p.key(13);
@@ -642,12 +612,12 @@ test("/forgetmenow burns every session the thread used, and keeps lines changed 
   expect(existsSync(files.second)).toBe(false);
   expect(readFileSync(log, "utf8")).toBe("- the user's own line\n- keep this, edited\n");
   expect(p.conversation.items.map(i => (i as any).text)).toEqual([
-    "burned the chat, 1 memory line and 2 transcripts",
+    "erased the chat, 1 memory line and 2 transcripts",
     "A memory line changed since it was written, so it stays: keep this",
   ]);
 });
 
-test("/forgetmenow during a start burns the session once it arrives", async () => {
+test("/erase during a start erases the session once it arrives", async () => {
   const transcripts = folder(),
     file = join(transcripts, "late.jsonl");
   writeFileSync(file, "{}\n");
@@ -659,7 +629,7 @@ test("/forgetmenow during a start burns the session once it arrives", async () =
   };
   type(p, "hello");
   p.key(13);
-  type(p, "/forgetmenow");
+  type(p, "/erase");
   p.key(13);
   clock.now += 100;
   p.key(13);
@@ -670,21 +640,21 @@ test("/forgetmenow during a start burns the session once it arrives", async () =
   await settle();
   expect(d.calls.filter(c => c.op === "headless.stop").map(c => c.payload.session)).toContain("late");
   expect(existsSync(file)).toBe(false);
-  expect(p.conversation.items.map(i => (i as any).text)).toEqual(["burned the chat and Claude's transcript"]);
+  expect(p.conversation.items.map(i => (i as any).text)).toEqual(["erased the chat and Claude's transcript"]);
 });
 
-test("/forgetmenow says plainly what stays when Corgi can't find the transcript", async () => {
+test("/erase says plainly what stays when Corgi can't find the transcript", async () => {
   const { p, clock } = prompt();
   type(p, "hello");
   p.key(13);
   await settle();
-  type(p, "/forgetmenow");
+  type(p, "/erase");
   p.key(13);
   clock.now += 500;
   p.key(13);
   await settle();
   expect(p.conversation.items.map(i => (i as any).text)).toEqual([
-    "burned the chat",
+    "erased the chat",
     "Claude keeps its transcript of session 0193-session: Corgi doesn't know where it is.",
   ]);
 });
@@ -695,9 +665,6 @@ test("/incognito starts over keeping nothing, until /new", async () => {
   p.key(13);
   expect(p.incognito).toBe(true);
   expect(card(draw(p)).at(-2)).toContain("incognito · Max");
-  type(p, "/remember secret");
-  p.key(13);
-  expect((p.conversation.items.at(-1) as any).text).toBe("Incognito keeps nothing, so /remember is off until /new.");
   type(p, "psst");
   p.key(13);
   expect(d.starts[0].persist).toBe(false);
@@ -1276,7 +1243,7 @@ test("/, @ and the picker open over the card or beside it, never moving or resiz
       p.key(47);
       const slash = draw(p, cols, rows);
       expect(box(slash)).toEqual(before);
-      expect(slash.some(l => l.includes("/forgetmenow"))).toBe(true);
+      expect(slash.some(l => l.includes("/erase"))).toBe(true);
       p.key(127);
       p.key(64);
       const at = draw(p, cols, rows);
@@ -1298,13 +1265,13 @@ test("a menu fits over the thread when it can, else hangs below the card, else a
   // Fresh, there's no thread to cover: it hangs below.
   let lines = draw(p, 112, 34),
     card = box(lines);
-  expect(lines.findIndex(l => l.includes("/forgetmenow"))).toBe(card.bottom + 2);
+  expect(lines.findIndex(l => l.includes("/new"))).toBe(card.bottom + 2);
   p.key(127);
   await midConversation(p, d);
   p.key(47);
   lines = draw(p, 112, 34);
   card = box(lines);
-  const at = lines.findIndex(l => l.includes("/forgetmenow"));
+  const at = lines.findIndex(l => l.includes("/new"));
   expect(at).toBeGreaterThan(card.top);
   expect(at).toBeLessThan(card.bottom);
   // A card at the bottom, short of room below, has it above.
@@ -1316,8 +1283,8 @@ test("a menu fits over the thread when it can, else hangs below the card, else a
   low.key(47);
   lines = draw(low, 112, 24);
   expect(box(lines)).toEqual(card);
-  expect(lines.findIndex(l => l.includes("/new"))).toBe(card.top - 2);
-  expect(lines.findIndex(l => l.includes("/forgetmenow"))).toBe(card.top - 9);
+  expect(lines.findIndex(l => l.includes("/new"))).toBe(card.top - 6);
+  expect(lines.findIndex(l => l.includes("/pane"))).toBe(card.top - 2);
 });
 
 test("slash menus use the card's width and fit descriptions even beside commit previews", () => {
@@ -1327,9 +1294,9 @@ test("slash menus use the card's width and fit descriptions even beside commit p
     for (const cols of [112, 70]) {
       type(p, "/");
       const lines = draw(p, cols);
-      expect(lines.find(line => line.includes("/new"))).toContain("fresh conversation");
-      expect(lines.find(line => line.includes("/memory"))).toContain("edit what Corgi remembers");
-      expect(lines.find(line => line.includes("/incognito"))).toContain("keep nothing from here on");
+      expect(lines.find(line => line.includes("/new"))).toContain("start over; this chat stays in Resume");
+      expect(lines.find(line => line.includes("/memory"))).toContain("search and edit what Corgi remembers");
+      expect(lines.find(line => line.includes("/incognito"))).toContain("start a chat that saves nothing");
       expect(lines.every(line => line.length <= cols)).toBe(true);
       if (commits) {
         const y = lines.findIndex(line => line.includes("7165f82b"));
@@ -1371,20 +1338,20 @@ test("/ and @ menus open again once their trigger is typed anew", () => {
   const { p } = prompt();
   const shows = (what: string) => draw(p).some(l => l.includes(what));
   p.key(47);
-  expect(shows("/forgetmenow")).toBe(true);
+  expect(shows("/erase")).toBe(true);
   p.key(127);
-  expect(shows("/forgetmenow")).toBe(false);
+  expect(shows("/erase")).toBe(false);
   p.key(47);
-  expect(shows("/forgetmenow")).toBe(true);
+  expect(shows("/erase")).toBe(true);
   // Esc closes the menu and keeps the text; it opens again for a new "/".
   p.key(27);
-  expect(shows("/forgetmenow")).toBe(false);
+  expect(shows("/erase")).toBe(false);
   expect(p.open).toBe(true);
-  type(p, "re");
-  expect(shows("/remember")).toBe(false);
+  type(p, "er");
+  expect(shows("/erase")).toBe(false);
   for (let i = 0; i < 3; i++) p.key(127);
   p.key(47);
-  expect(shows("/forgetmenow")).toBe(true);
+  expect(shows("/erase")).toBe(true);
   p.key(127);
   type(p, "look at @");
   expect(shows("Release notes")).toBe(true);
@@ -1592,7 +1559,7 @@ test("typing into an open menu or the picker's search keeps it where and how big
     };
     p.key(47);
     const slash = panel();
-    type(p, "rem");
+    type(p, "mem");
     expect(panel()).toEqual(slash);
     for (let i = 0; i < 4; i++) p.key(127);
     type(p, "@");

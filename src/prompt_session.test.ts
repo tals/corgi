@@ -369,7 +369,7 @@ test("requests come back from the pending list, and leave when answered elsewher
   expect(c.state).toBe("idle");
 });
 
-test("lines a turn adds to memory become rows, and are kept for /forgetmenow", async () => {
+test("lines a turn adds to memory become rows, and are kept for /erase", async () => {
   const d = new Fake(),
     files: Record<string, string> = { "/memory/today.md": "# 2026-10-30\n- Runs tests with bun\n" },
     c = conversation(d, files);

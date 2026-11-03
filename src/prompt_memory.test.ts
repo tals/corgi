@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import * as accounts from "./accounts";
@@ -19,7 +19,6 @@ const write = (name: string, text: string) => {
 };
 const read = (name: string) => readFileSync(join(memory.dir, name), "utf8");
 /** Sets a file's modification time to local `date`. */
-const touch = (name: string, date: Date) => utimesSync(join(memory.dir, name), date, date);
 
 test("the root sits beside accounts.json", () => {
   expect(Memory.root()).toBe(join(dirname(accounts.path()), "memory"));
@@ -30,21 +29,22 @@ test("daily logs are named by local date", () => {
   expect(memory.today(new Date(2026, 0, 2, 23, 59))).toBe(join(memory.dir, "2026-01-02.md"));
 });
 
-test("remember appends a bullet, making folders and finishing an open last line", () => {
-  const long = join(memory.dir, "MEMORY.md");
-  expect(memory.remember("Runs tests with bun, never npm.", now, "long")).toEqual({
+test("append adds a bullet, making folders and finishing an open last line", () => {
+  const long = join(memory.dir, "MEMORY.md"),
+    today = memory.today(now);
+  expect(memory.append(long, "Runs tests with bun, never npm.")).toEqual({
     file: long,
     line: "- Runs tests with bun, never npm.",
   });
-  expect(memory.remember("- CI runs unit tests\n  in parallel", now, "long")).toEqual({
+  expect(memory.append(long, "- CI runs unit tests\n  in parallel")).toEqual({
     file: long,
     line: "- CI runs unit tests in parallel",
   });
   expect(read("MEMORY.md")).toBe("- Runs tests with bun, never npm.\n- CI runs unit tests in parallel\n");
   write("2026-10-30.md", "# Thursday\n- open line");
-  expect(memory.remember("picked Opus for the prompt", now, "today").file).toBe(memory.today(now));
+  expect(memory.append(today, "picked Opus for the prompt").file).toBe(today);
   expect(read("2026-10-30.md")).toBe("# Thursday\n- open line\n- picked Opus for the prompt\n");
-  expect(memory.remember("   ", now, "today")).toEqual({ file: memory.today(now), line: "" });
+  expect(memory.append(today, "   ")).toEqual({ file: today, line: "" });
   expect(read("2026-10-30.md")).toEndWith("prompt\n");
 });
 
@@ -128,39 +128,6 @@ test("instructions carry the persona, memory, context and where to write", () =>
   expect(text).toContain("MEMORY.md is curated: change it (`--long`) only when the user asks you to curate memory.");
   expect(text).toContain("`--replaces FILE:LINE`");
   expect(memory.instructions("", "", now)).not.toContain("# Memory\n");
-});
-
-test("find matches every word in any case, newest first", () => {
-  write("MEMORY.md", "- CI runs unit tests in parallel\n- Runs tests with bun\n");
-  write("2026-10-28.md", "- the sidebar TEST flaked\n");
-  write("2026-10-30.md", "- first test today\n- second test today\n");
-  write("workspaces/corgi.md", "- corgi tests live beside the code\n");
-  touch("MEMORY.md", new Date(2026, 9, 29, 12));
-  touch("workspaces/corgi.md", new Date(2026, 9, 1));
-  expect(memory.find("TEST")).toEqual([
-    { file: "2026-10-30.md", line: "second test today" },
-    { file: "2026-10-30.md", line: "first test today" },
-    { file: "MEMORY.md", line: "Runs tests with bun" },
-    { file: "MEMORY.md", line: "CI runs unit tests in parallel" },
-    { file: "2026-10-28.md", line: "the sidebar TEST flaked" },
-    { file: "workspaces/corgi.md", line: "corgi tests live beside the code" },
-  ]);
-  expect(memory.find("parallel ci")).toEqual([{ file: "MEMORY.md", line: "CI runs unit tests in parallel" }]);
-  expect(memory.find("  ")).toEqual([]);
-  expect(memory.find("absent")).toEqual([]);
-});
-
-test("forget drops one exact line, newest file first", () => {
-  write("MEMORY.md", "- keep me\n- same line\n");
-  write("2026-10-30.md", "- same line\n- other\n");
-  touch("MEMORY.md", new Date(2026, 9, 29));
-  expect(memory.forget("same line")).toBe(true);
-  expect(read("2026-10-30.md")).toBe("- other\n");
-  expect(read("MEMORY.md")).toBe("- keep me\n- same line\n");
-  expect(memory.forget("- same line")).toBe(true);
-  expect(read("MEMORY.md")).toBe("- keep me\n");
-  expect(memory.forget("same")).toBe(false);
-  expect(memory.forget("")).toBe(false);
 });
 
 test("strike drops each written line once, from its own file, only as written", () => {

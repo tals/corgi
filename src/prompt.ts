@@ -122,17 +122,14 @@ export type Resumed = {
   effort: Effort | null;
   persist: boolean;
 };
-export type Command = "forgetmenow" | "remember" | "forget" | "dig" | "pane" | "close" | "incognito" | "memory" | "new";
-const commands: { name: Command; about: string; takes: boolean }[] = [
-  { name: "forgetmenow", about: "burn this chat, keep nothing", takes: false },
-  { name: "remember", about: "bury a note in memory", takes: true },
-  { name: "forget", about: "dig up a memory and drop it", takes: true },
-  { name: "dig", about: "search memory", takes: true },
-  { name: "pane", about: "go on in a pane of its own", takes: false },
-  { name: "close", about: "end this chat and close the pane", takes: false },
-  { name: "incognito", about: "keep nothing from here on", takes: false },
-  { name: "memory", about: "edit what Corgi remembers", takes: false },
-  { name: "new", about: "fresh conversation", takes: false },
+export type Command = "new" | "erase" | "incognito" | "memory" | "pane" | "close";
+const commands: { name: Command; about: string }[] = [
+  { name: "new", about: "start over; this chat stays in Resume" },
+  { name: "erase", about: "delete this chat and what it saved" },
+  { name: "incognito", about: "start a chat that saves nothing" },
+  { name: "memory", about: "search and edit what Corgi remembers" },
+  { name: "pane", about: "move this chat to a pane" },
+  { name: "close", about: "end this chat and close the pane" },
 ];
 /** The commands a mode offers: the card moves to a pane, a pane closes. */
 function offered(mode: Mode) {
@@ -153,7 +150,7 @@ const caret_x = 0,
   text_x = 2;
 const max_w = 84,
   max_input_rows = 6,
-  burn_ms = 2000,
+  erase_ms = 2000,
   /** How long a message waits for its attachments to be read. */
   attach_ms = 3000;
 const placeholder = "Ask Corgi anything, @ to add context";
@@ -766,8 +763,8 @@ export class Prompt {
   private back = 0;
   private total = 0;
   private input_first = 0;
-  /** /forgetmenow waits for a second Enter until then. */
-  private burn_until = 0;
+  /** /erase waits for a second Enter until then. */
+  private erase_until = 0;
   /** Deleted transcripts to delete again, in case their process wrote once more as it stopped. */
   private rechecks: { path: string; at: number }[] = [];
   private typing: number[] = [];
@@ -934,7 +931,7 @@ export class Prompt {
     this.review_focused = false;
     this.open = false;
     this.picker = null;
-    this.burn_until = 0;
+    this.erase_until = 0;
     this.dismissed = null;
   }
   /** Goes on with the session this prompt ran before the viewer reloaded,
@@ -1007,8 +1004,8 @@ export class Prompt {
       }
       this.leaveUI();
     }
-    const armed = this.burn_until > 0;
-    if (byte !== 13) this.burn_until = 0;
+    const armed = this.erase_until > 0;
+    if (byte !== 13) this.erase_until = 0;
     const popup = this.popup();
     switch (byte) {
       // Esc backs out of a menu, then hides the card; a pane stays.
@@ -1040,7 +1037,7 @@ export class Prompt {
         else this.area = new TextArea("", true);
         return null;
       case 15:
-        return this.mode === "overlay" ? this.run("pane", "") : null;
+        return this.mode === "overlay" ? this.run("pane") : null;
       case 14:
       case 16:
         if (popup) this.move(popup, byte === 14 ? 1 : -1);
@@ -1065,7 +1062,7 @@ export class Prompt {
     this.selection = this.clicks = null;
     if (this.picker) return this.picked(this.picker.sequence(text));
     if (this.memory_view) return this.remembered(this.memory_view.sequence(text));
-    this.burn_until = 0;
+    this.erase_until = 0;
     const key = keys.parse(text),
       popup = this.popup(),
       page = Math.max(1, (this.drawn?.thread?.h ?? 2) - 1);
@@ -1692,8 +1689,8 @@ export class Prompt {
     this.review_dirty = false;
     for (const due of this.rechecks.filter(r => now >= r.at)) rmSync(due.path, { force: true });
     this.rechecks = this.rechecks.filter(r => now < r.at);
-    if (this.burn_until && now >= this.burn_until) {
-      this.burn_until = 0;
+    if (this.erase_until && now >= this.erase_until) {
+      this.erase_until = 0;
       dirty = true;
     }
     if (!this.open) return dirty;
@@ -1787,10 +1784,10 @@ export class Prompt {
     if (this.dismissed?.kind === "slash" && !text.startsWith("/")) this.dismissed = null;
     if (this.dismissed?.kind === "mention" && token?.start !== this.dismissed.start) this.dismissed = null;
     let popup: Popup | null = null;
-    if (!this.burn_until && text.startsWith("/") && !/\s/.test(text)) {
+    if (!this.erase_until && text.startsWith("/") && !/\s/.test(text)) {
       const items = this.dismissed ? [] : matching(text.slice(1), this.mode);
       if (items.length) popup = { kind: "slash", items };
-    } else if (!this.burn_until && token && !this.dismissed) {
+    } else if (!this.erase_until && token && !this.dismissed) {
       // This workspace's, the workspaces themselves, and what an attached one holds.
       const attached = new Set(this.chips.flatMap(c => (c.mention.kind === "workspace" ? [c.mention.id] : []))),
         offered = (this.context?.mentions ?? []).filter(
@@ -1836,8 +1833,7 @@ export class Prompt {
     return index === null ? null : this.menuFirst(popup.items.length, capacity) + index;
   }
   private complete(command: Command): void {
-    const takes = commands.find(c => c.name === command)!.takes;
-    this.area = new TextArea(`/${command}${takes ? " " : ""}`, true);
+    this.area = new TextArea(`/${command}`, true);
   }
   /** Takes the typed `@word` out of the box and attaches what's highlighted. */
   private mention(popup: Extract<Popup, { kind: "mention" }>): void {
@@ -1908,14 +1904,7 @@ export class Prompt {
       this.mention(popup);
       return null;
     }
-    if (popup) {
-      const command = popup.items[this.menu_at];
-      if (commands.find(c => c.name === command)!.takes) {
-        this.complete(command);
-        return null;
-      }
-      return this.run(command, "");
-    }
+    if (popup) return this.run(popup.items[this.menu_at]);
     const text = this.area.text.trim(),
       ask = this.conversation.pending();
     // A pasted image goes even with nothing typed.
@@ -1929,7 +1918,7 @@ export class Prompt {
     if (text.startsWith("/")) {
       const word = text.slice(1).split(/\s/, 1)[0],
         command = parseCommand(word, this.mode);
-      if (command) return this.run(command, text.slice(1 + word.length).trim());
+      if (command) return this.run(command);
       this.conversation.note(`/${word} isn't a command. Type / to see them.`, "warm");
       return null;
     }
@@ -2040,8 +2029,7 @@ export class Prompt {
       persist: !this.incognito,
     };
   }
-  private run(command: Command, args: string): Effect | null {
-    const c = this.conversation;
+  private run(command: Command): Effect | null {
     this.area = new TextArea("", true);
     switch (command) {
       case "new":
@@ -2049,26 +2037,18 @@ export class Prompt {
         return null;
       case "incognito":
         this.fresh(true);
-        c.note("Incognito: nothing from here on is kept, no transcript and no memory. /new ends it.", "faint");
+        this.conversation.note(
+          "Incognito: nothing from here on is kept, no transcript and no memory. /new ends it.",
+          "faint",
+        );
         return null;
-      case "remember":
-      case "forget":
-      case "dig":
-        try {
-          if (command === "remember") this.remember(args);
-          else if (command === "forget") this.forget(args);
-          else this.dig(args);
-        } catch (error) {
-          c.note(`Couldn't use the memory folder: ${errors.name(error) ?? "unknown error"}.`, "hot");
-        }
-        return null;
-      case "forgetmenow":
-        if (this.clock() < this.burn_until) {
-          this.burn_until = 0;
-          void this.burn();
+      case "erase":
+        if (this.clock() < this.erase_until) {
+          this.erase_until = 0;
+          void this.erase();
         } else {
-          this.burn_until = this.clock() + burn_ms;
-          this.area = new TextArea("/forgetmenow", true);
+          this.erase_until = this.clock() + erase_ms;
+          this.area = new TextArea("/erase", true);
         }
         return null;
       case "memory":
@@ -2143,44 +2123,11 @@ export class Prompt {
     this.conversation.memory_writes = !incognito;
     this.back = 0;
   }
-  private remember(line: string): void {
-    const c = this.conversation;
-    if (!line) return c.note("Say what to keep: /remember CI runs unit tests in parallel", "warm");
-    if (this.incognito) return c.note("Incognito keeps nothing, so /remember is off until /new.", "warm");
-    // As OpenClaw keeps it: today's log, which searches that keep finding it move to MEMORY.md.
-    const written = this.memory.remember(line, new Date(this.clock()), "today");
-    if (!written.line) return;
-    c.wrote.push(written);
-    c.note(`remembered ${shownLine(written.line)} → ${basename(written.file)}`, "faint", true);
-  }
-  private forget(words: string): void {
-    const c = this.conversation;
-    if (!words) return c.note("Say which line: /forget CI runs", "warm");
-    const hits = this.memory.find(words);
-    if (!hits.length) return c.note(`Nothing in memory matches “${words}”.`, "faint");
-    const want = words.replace(/\s+/g, " ").toLowerCase(),
-      exact = hits.find(h => h.line.toLowerCase() === want) ?? (hits.length === 1 ? hits[0] : null);
-    if (exact) {
-      if (this.memory.forget(exact.line)) c.note(`forgot ${exact.line} ← ${exact.file}`, "faint", true);
-      else c.note(`Couldn't drop that line from ${exact.file}.`, "hot");
-      return;
-    }
-    for (const h of hits.slice(0, 6)) c.note(`${h.line} · ${h.file}`, "faint", true);
-    c.note(`${hits.length} lines match. /forget with the whole line drops one.`, "warm");
-  }
-  private dig(words: string): void {
-    const c = this.conversation;
-    if (!words) return c.note("Say what to look for: /dig splitter", "warm");
-    const hits = this.memory.find(words);
-    if (!hits.length) return c.note(`Nothing in memory matches “${words}”.`, "faint");
-    for (const h of hits.slice(0, 8)) c.note(`${h.line} · ${h.file.replace(/\.md$/, "")}`, "faint", true);
-    if (hits.length > 8) c.note(`and ${hits.length - 8} more`, "faint");
-  }
-  /** /forgetmenow: stops every session the thread used and deletes each
+  /** /erase: stops every session the thread used and deletes each
    * transcript Corgi can find, strikes the memory lines it wrote where they
    * still read as written, and clears the thread. The note says what went
    * and what stays. */
-  private async burn(): Promise<void> {
+  private async erase(): Promise<void> {
     this.history = null;
     this.leaveUI();
     this.review.hide();
@@ -2235,7 +2182,7 @@ export class Prompt {
     }
     if (deleted.length === 1) gone.push(`${deleted[0]}'s transcript`);
     else if (deleted.length) gone.push(`${deleted.length} transcripts`);
-    c.note(`burned ${gone.join(", ").replace(/, ([^,]*)$/, " and $1")}`, "faint", true);
+    c.note(`erased ${gone.join(", ").replace(/, ([^,]*)$/, " and $1")}`, "faint", true);
     for (const line of left) c.note(line, "warm");
     c.changed();
   }
@@ -2916,8 +2863,8 @@ export class Prompt {
         w.write(s.spin + "█");
         used++;
       }
-      if (row === 0 && this.burn_until && used + 3 < line_room)
-        w.write(s.faint + ellipsis("  ⏎ again burns the chat, its transcript and memory lines", line_room - used));
+      if (row === 0 && this.erase_until && used + 3 < line_room)
+        w.write(s.faint + ellipsis("  ⏎ again erases the chat, its transcript and memory lines", line_room - used));
     }
   }
   private drawFooter(w: Writer, l: Layout, marks: Marks | null): void {
@@ -2947,9 +2894,9 @@ export class Prompt {
     // The picker and the memory show their own.
     if (this.picker || this.memory_view) return [];
     if (this.review_focused) return [["esc", "back to input"]];
-    if (this.burn_until)
+    if (this.erase_until)
       return [
-        ["⏎", "burn it"],
+        ["⏎", "erase it"],
         ["esc", "cancel"],
       ];
     const list = this.listing;

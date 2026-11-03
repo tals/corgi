@@ -302,7 +302,7 @@ the other dings). Moved to a Corgi pane, it shows in the agent list as Corgi.
 | Steer the turn under way | Type, then Enter |
 | Stop the turn | Ctrl+C |
 | Continue in a Corgi pane of its own | Ctrl+O, or `/pane` |
-| Commands (`/new`, `/remember`, `/dig`, `/memory`…) | `/` |
+| Commands (`/new`, `/erase`, `/incognito`, `/memory`) | `/` |
 | Close | Esc |
 
 Replies can link to a commit as `[review](abc1234@/project)` or an endpoint
@@ -334,13 +334,15 @@ image pastes only from a terminal that sends paste events.
 
 Corgi remembers in Markdown files beside its settings, as OpenClaw does: a
 curated `MEMORY.md` it always starts with, a log per day of which it starts
-with the last two, and a note per workspace. What you ask it to remember, with
-`/remember` or in words, goes to today's log; a log line its searches keep
-finding (three times, on two days) moves to `MEMORY.md` the next time a
-conversation starts. `/new` gives the conversation it ends one unseen turn to
-store what's worth keeping. `/memory` browses the files in the card: `/` or
-typing searches, Enter edits a line, Tab adds one to its file, Backspace twice
-removes it, Ctrl+E opens the file in your editor. The model searches and
+with the last two, and a note per workspace. What you ask it to remember goes
+to today's log; a log line its searches keep finding (three times, on two
+days) moves to `MEMORY.md` the next time a conversation starts. `/new` gives
+the conversation it ends one unseen turn to store what's worth keeping, and
+the conversation stays in Resume. `/erase` deletes it instead: its transcript
+and the memory lines it wrote. `/incognito` starts one that keeps neither.
+`/memory` browses the files in the card: `/` or typing searches, Enter edits
+a line, Tab adds one to its file, Backspace twice removes it, Ctrl+E opens the
+file in your editor. The model searches and
 writes the same files with `corgi memory search`, `get`, `add` and `forget`,
 which run without asking.
 

@@ -5,7 +5,6 @@
 import { appendFileSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import * as accounts from "./accounts";
-import { matches } from "./search";
 
 /** A line as a file holds it, and the file. */
 export type Written = { file: string; line: string };
@@ -185,26 +184,6 @@ export class Memory {
       .filter(Boolean)
       .join("\n\n");
   }
-  /** Appends `- line` to MEMORY.md or today's log; returns the file and the
-   * line as written, "" when there was nothing to write. */
-  remember(line: string, now: Date, where: "long" | "today"): Written {
-    return this.append(where === "long" ? join(this.dir, long_name) : this.today(now), line);
-  }
-  /** Lines holding every word, newest first: daily logs by date, the
-   * others by when they changed, each file's last line first. `file` is
-   * relative to the memory folder; `line` drops its "- ". */
-  find(words: string): { file: string; line: string }[] {
-    if (!words.trim()) return [];
-    const out: { file: string; line: string }[] = [];
-    for (const file of this.files()) {
-      const lines = read(file).split("\n");
-      for (let i = lines.length - 1; i >= 0; i--) {
-        const line = clean(lines[i]);
-        if (line && matches(words, line)) out.push({ file: relative(this.dir, file), line });
-      }
-    }
-    return out;
-  }
   /** Lines holding the most of `words`, a file's name counting as part of
    * each of its lines: every word first, any one only when no line holds them
    * all. MEMORY.md and the workspace notes come before the logs, newest
@@ -322,12 +301,8 @@ export class Memory {
       ...files.filter(f => dirname(f) === this.dir && f !== long),
     ];
   }
-  /** Drops one line, matched with or without its "- ", newest file first. */
-  forget(line: string): boolean {
-    return this.drop([line]) > 0;
-  }
   /** Drops each written line once, from its own file, only while it reads
-   * exactly as written: /forgetmenow. Returns the ones it didn't find. */
+   * exactly as written: /erase. Returns the ones it didn't find. */
   strike(lines: Written[]): Written[] {
     const missed: Written[] = [],
       files = new Map<string, string[]>();
@@ -441,31 +416,6 @@ export class Memory {
     scan(this.dir);
     scan(join(this.dir, "workspaces"));
     return found.sort((a, b) => b.time - a.time || (a.path < b.path ? 1 : a.path > b.path ? -1 : 0)).map(f => f.path);
-  }
-  /** Removes each wanted line once, matched with or without its "- ", newest
-   * file first; returns how many went. */
-  private drop(lines: string[]): number {
-    const wanted = new Map<string, number>();
-    for (const line of lines) {
-      const text = clean(line);
-      if (text) wanted.set(text, (wanted.get(text) ?? 0) + 1);
-    }
-    let dropped = 0;
-    for (const file of this.files()) {
-      if (!wanted.size) break;
-      const before = read(file).split("\n"),
-        after = before.filter(line => {
-          const text = clean(line),
-            left = wanted.get(text);
-          if (!left) return true;
-          if (left === 1) wanted.delete(text);
-          else wanted.set(text, left - 1);
-          dropped++;
-          return false;
-        });
-      if (after.length !== before.length) writeFileSync(file, after.join("\n"));
-    }
-    return dropped;
   }
 }
 /** A local date as its log is named: "2026-10-30". */
