@@ -1,7 +1,7 @@
 import * as protocol from "./protocol";
 import { transport } from "./fixtures/transport";
 import { expect, setSystemTime, spyOn, test } from "bun:test";
-import { Controller, agentMessage, cardEffect, pasteKey, forkName, breadcrumbs } from "./controller";
+import { Controller, agentMessage, cardEffect, forkName, breadcrumbs } from "./controller";
 import * as sim from "./providers/sim";
 import { byProvider } from "./providers";
 import * as preferences from "./preferences";
@@ -27,7 +27,6 @@ import { join } from "node:path";
 import { Menu as SetupMenu, items as setupItems } from "./corgi_setup";
 import * as hostClipboard from "./host_clipboard";
 import * as promptAttach from "./prompt_attach";
-import * as keyboard from "./keyboard";
 import * as keymap from "./keymap";
 import * as bindings from "./bindings";
 import * as viewer from "./viewer";
@@ -729,7 +728,8 @@ test("an image pasted into the prompt becomes a chip, from the terminal or this 
   s.receiveSnapshot(folders("/a"));
   s.input_state.attached = true;
   s.host_clipboard = clipboard;
-  const read = spyOn(promptAttach, "clipboardImage").mockResolvedValue("/tmp/paste/a.png");
+  const read = spyOn(promptAttach, "clipboardImage").mockResolvedValue("/tmp/paste/a.png"),
+    dir = mkdtempSync(join(tmpdir(), "corgi-drop-"));
   try {
     await s.perform({ name: "prompt" });
     // A terminal that sends paste events hands the image over.
@@ -744,12 +744,17 @@ test("an image pasted into the prompt becomes a chip, from the terminal or this 
     read.mockResolvedValue(null);
     await s.input(bytes("\x1b[118;9u"));
     expect(s.message).toBe("No image on the clipboard");
+    // A dropped image file pastes its path, which goes as the image.
+    writeFileSync(join(dir, "drop.png"), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    await s.input(bytes(`\x1b[200~${join(dir, "drop.png")}\x1b[201~`));
+    expect(s.prompt.attached()).toEqual(["shell", "Image 1", "Image 2", "Image 3"]);
     // Over SSH, this machine's clipboard isn't the user's.
     s.remote_links = true;
     await s.input(bytes("\x16"));
     expect(s.message).toBe("Over SSH, images paste only from terminals that send them");
   } finally {
     read.mockRestore();
+    rmSync(dir, { recursive: true, force: true });
     viewer.close(s);
   }
 });
@@ -762,9 +767,6 @@ test("esc closes the paste card and does nothing else; a click or another key al
   expect(cardEffect("\x1b[<0;5;5m")).toBe("keep");
   expect(cardEffect("\x1b[I")).toBe("keep");
   expect(cardEffect("\x1b[A")).toBe("close");
-  expect(pasteKey(keyboard.decode("\x1b[118;9u")!)).toBe("cmd");
-  expect(pasteKey(keyboard.decode("\x1b[118;6u")!)).toBe("ctrl_shift");
-  expect(pasteKey(keyboard.decode("\x1b[118;5u")!)).toBeNull();
   const s = controller();
   s.paste_card = { pane: 1, notice: {}, pressed: false, copied: false };
   await s.key(27);

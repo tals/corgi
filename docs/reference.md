@@ -327,10 +327,10 @@ workspaces: one attached tells the model what runs there, and its agents,
 panes and diff join what `@` offers. Type `/` in an empty box to list the
 commands.
 
-A pasted image becomes an "Image 1" chip and goes to the model as an image
-(OpenCode 2 gets its file's path); point at the chip to see it. Ctrl+V reads
-this machine's clipboard, so over SSH an image pastes only from a terminal
-that sends paste events.
+A pasted image, or a pasted or dropped image file, becomes an "Image 1" chip
+and goes to the model as an image (OpenCode 2 gets its file's path); point at
+the chip to see it. Ctrl+V reads this machine's clipboard, so over SSH an
+image pastes only from a terminal that sends paste events.
 
 Corgi remembers in Markdown files beside its settings, as OpenClaw does: a
 curated `MEMORY.md` it always starts with, a log per day of which it starts

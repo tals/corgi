@@ -1034,6 +1034,20 @@ test("typing: UTF-8 bytes, Alt+Enter breaks the line, pastes keep their lines", 
   expect(lines.slice(at + 1, at + 3).map(l => l.slice(5, -1).replace(/ +\/? *$/, ""))).toEqual(["a", "b    c█"]);
 });
 
+test("a pasted or dropped image file goes as the image once the paste ends", () => {
+  const { p } = prompt(),
+    shot = join(folder(), "My Shot.png");
+  writeFileSync(shot, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  p.pasteStart();
+  for (const byte of Buffer.from(shot.replace(/ /g, "\\ "))) p.pasteByte(byte);
+  expect(p.attached()).toEqual(["Fix sidebar flicker"]);
+  p.pasteEnd();
+  expect(p.attached()).toEqual(["Fix sidebar flicker", "Image 1"]);
+  // A path to anything else is text.
+  p.paste("/no/such/shot.png");
+  expect(p.attached()).toEqual(["Fix sidebar flicker", "Image 1"]);
+  expect(card(draw(p)).some(l => l.includes("/no/such/shot.png"))).toBe(true);
+});
 test("a pasted image is a chip that goes as an image, even with nothing typed", async () => {
   const { p, d } = prompt();
   p.attachImage("/tmp/a.png", "image/png");

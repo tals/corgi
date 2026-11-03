@@ -23,6 +23,7 @@ import { Rect } from "./layout";
 import { Provider, adapter } from "./providers";
 import * as effort from "./providers/effort";
 import type { Effort } from "./providers/effort";
+import * as promptAttach from "./prompt_attach";
 import * as conversations from "./prompt_conversations";
 import * as markdown from "./prompt_markdown";
 import * as reviewPanel from "./review/panel";
@@ -772,6 +773,8 @@ export class Prompt {
   private typing: number[] = [];
   private pasting: number[] = [];
   private pasted_cr = false;
+  /** The bracketed paste under way, which goes in whole at its end. */
+  private pasted: number[] | null = null;
   private frame = "";
   private drawn: Layout | null = null;
   /** Menus can use the empty preview area, up to the viewport or an open review. */
@@ -1112,6 +1115,12 @@ export class Prompt {
       this.picker.sequence(text.replace(/\s+/g, " "));
       return;
     }
+    // A pasted or dropped image file goes as the image.
+    const files = promptAttach.imageFiles(text);
+    if (files) {
+      for (const file of files) this.attachImage(file.path, file.mime);
+      return;
+    }
     this.area.insert(
       text
         .replace(/\r\n?/g, "\n")
@@ -1120,8 +1129,22 @@ export class Prompt {
     );
     this.popup();
   }
+  /** A bracketed paste begins: its bytes wait for its end, so a dropped
+   * file's path can become the image. */
+  pasteStart(): void {
+    this.pasted = [];
+  }
+  pasteEnd(): void {
+    const pasted = this.pasted;
+    this.pasted = null;
+    if (pasted?.length) this.paste(Buffer.from(pasted).toString());
+  }
   /** A byte of a paste, as the controller passes them on. */
   pasteByte(byte: number): void {
+    if (this.pasted) {
+      this.pasted.push(byte);
+      return;
+    }
     const cr = this.pasted_cr;
     this.pasted_cr = byte === 13;
     if (byte === 10 && cr) return;

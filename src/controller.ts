@@ -190,13 +190,6 @@ function parseU16(text: string): number | null {
   const value = Number(text);
   return value <= 0xffff ? value : null;
 }
-/** The paste keys Ghostty passes on as keys when it has no text to paste. */
-export function pasteKey(k: keyboard.Key): hostClipboard.Key | null {
-  if (k.codepoint !== 118 || k.mods.alt) return null;
-  if (k.mods.super && !k.mods.ctrl && !k.mods.shift) return "cmd";
-  if (k.mods.ctrl && k.mods.shift && !k.mods.super) return "ctrl_shift";
-  return null;
-}
 /** Whether a wheel report scrolls the tab bar toward later tabs, with either
  * wheel and any modifier; null for other buttons. */
 function tabWheel(button: number): boolean | null {
@@ -5624,6 +5617,8 @@ export class Controller {
       const p = this.pane(target.pane);
       if (!p) return this.notice(i18n.t`The pane closed before the paste arrived`);
       this.sendInput(p.terminal, viewerNative.encodePaste(text, p.terminal.bracketedPaste()));
+    } else if (target === "prompt") {
+      this.prompt.paste(viewerNative.encodePaste(text, true, 1).toString());
     } else {
       for (const byte of viewerNative.encodePaste(text, true, 1)) void this.pasteByteSync(target, byte);
     }
@@ -5898,7 +5893,7 @@ export class Controller {
           }
           // Ghostty passes its paste key on only when it had no text
           // to paste. Over SSH it can't be pasted here: say why.
-          const pressed = pasteKey(key_event);
+          const pressed = hostClipboard.pasteKey(key_event);
           // Ghostty passes its paste key on when there was no text: an image, perhaps.
           if (pressed !== null && this.prompt.open && !this.prefix) {
             await this.promptClipboardImage();
@@ -5988,6 +5983,11 @@ export class Controller {
       const again = cl.paste === null ? bindings.repeatSequence(this.prefs.bindings(), text) : null;
       if (parsed_key === "paste_start" || parsed_key === "paste_end") {
         if (parsed_key === "paste_start") cl.paste = this.pasteTarget();
+        if (cl.paste === "prompt") {
+          if (parsed_key === "paste_start") this.prompt.pasteStart();
+          else this.prompt.pasteEnd();
+          this.dirty = true;
+        }
         // The markers reach only an application that asked for them.
         const p = this.pastePane();
         if (cl.paste === "signin") await this.signin?.input(text);

@@ -3,8 +3,10 @@
 //! in raw mode with its own frames and keys, talking to the daemon at the
 //! pane's CORGI_SOCKET. Its reads claim the session for the pane, so closing
 //! the pane stops it.
+import { dirname, join } from "node:path";
 import { openConversation } from "./cli";
 import * as errors from "./errors";
+import * as hostClipboard from "./host_clipboard";
 import * as keyboard from "./keyboard";
 import * as launcherResume from "./launcher_resume";
 import * as os from "./os";
@@ -13,21 +15,24 @@ import * as rpc from "./rpc";
 import type * as protocol from "./protocol";
 import { Provider } from "./providers";
 import { Memory } from "./prompt_memory";
-import { paneScreen, workspaceDiff } from "./prompt_attach";
+import { clipboardImage, paneScreen, workspaceDiff } from "./prompt_attach";
 import { Prompt, parseChatArgs, readHandoff, type ChatArgs, type Context, type Effect } from "./prompt";
 import type { Daemon } from "./prompt_session";
 import { Writer } from "./text";
 import * as viewerNative from "./viewer_native";
 
-/** Terminal input as the card takes it: a byte, an escape sequence, a paste or a mouse report. */
+/** Terminal input as the card takes it: a byte, an escape sequence, a
+ * paste, a mouse report or a clipboard packet (after its `5522;`). */
 export type Token =
   | { kind: "byte"; byte: number }
   | { kind: "sequence"; text: string }
   | { kind: "paste"; text: string }
-  | { kind: "mouse"; button: number; x: number; y: number; release: boolean };
+  | { kind: "mouse"; button: number; x: number; y: number; release: boolean }
+  | { kind: "clipboard"; text: string };
 
 const paste_start = "\x1b[200~",
-  paste_end = [0x1b, 0x5b, 0x32, 0x30, 0x31, 0x7e];
+  paste_end = [0x1b, 0x5b, 0x32, 0x30, 0x31, 0x7e],
+  clipboard_prefix = "\x1b]5522;";
 const latin1 = (bytes: number[]) => String.fromCharCode(...bytes);
 /** Splits terminal input; `rest` is an unfinished sequence to wait on. */
 export function tokens(input: ArrayLike<number>): { tokens: Token[]; rest: number[] } {
@@ -42,6 +47,17 @@ export function tokens(input: ArrayLike<number>): { tokens: Token[]; rest: numbe
     // A lone Esc waits: it may start a sequence.
     if (i + 1 >= bytes.length) break;
     const next = bytes[i + 1];
+    const head = latin1(bytes.slice(i, i + clipboard_prefix.length));
+    if (head === clipboard_prefix) {
+      // A clipboard packet ends at ST or BEL.
+      let end = i + head.length;
+      while (end < bytes.length && bytes[end] !== 0x07 && !(bytes[end] === 0x1b && bytes[end + 1] === 0x5c)) end++;
+      if (end >= bytes.length) break;
+      out.push({ kind: "clipboard", text: Buffer.from(bytes.slice(i + head.length, end)).toString("latin1") });
+      i = end + (bytes[end] === 0x07 ? 1 : 2);
+      continue;
+    }
+    if (clipboard_prefix.startsWith(head) && i + head.length >= bytes.length) break;
     if (next !== 0x5b && next !== 0x4f) {
       // Alt and a key.
       out.push({ kind: "sequence", text: latin1([0x1b, next]) });
@@ -83,10 +99,38 @@ export function legacy(token: Token): Token[] {
   const split = tokens(bytes);
   return [...split.tokens, ...split.rest.map((byte): Token => ({ kind: "byte", byte }))];
 }
+/** A clipboard packet for the card, or null to check on a read. A paste
+ * event reads its text, else its image, and the read's end pastes the text
+ * or attaches the image. Returns what to send the terminal. */
+export function clipboardPacket(
+  clipboard: hostClipboard.State,
+  prompt: Prompt,
+  raw: string | null,
+  now: number,
+): string {
+  if (raw !== null) clipboard.packet(raw, now);
+  else clipboard.tick(now);
+  const listing = clipboard.takeEvent(),
+    choice = listing !== null ? hostClipboard.choose(listing, true) : "nothing";
+  if (choice !== "nothing" && "refuse" in choice)
+    prompt.conversation.note(hostClipboard.Failure.message(choice.refuse), "hot");
+  else if (choice !== "nothing" && !clipboard.request(choice.read, now))
+    prompt.conversation.note(hostClipboard.Failure.message("busy"), "hot");
+  const result = clipboard.takeResult();
+  if (result && "text" in result) prompt.paste(result.text);
+  else if (result && "path" in result) attach(prompt, result.path);
+  else if (result && "failed" in result) prompt.conversation.note(hostClipboard.Failure.message(result.failed), "hot");
+  return clipboard.takeOutput();
+}
+function attach(prompt: Prompt, path: string): void {
+  const mime = hostClipboard.imageType(path);
+  if (mime) prompt.attachImage(path, mime);
+  else prompt.conversation.note(hostClipboard.Failure.message("unsupported_image"), "hot");
+}
 // Kitty's keyboard reports reach it Ctrl+/ and Shift+Enter, which legacy
-// encoding turns into / and Enter.
-const enter = "\x1b[?1049h\x1b[?25l\x1b[?1003h\x1b[?1006h\x1b[?2004h" + keyboard.enable,
-  leave = keyboard.disable + "\x1b[?2004l\x1b[?1006l\x1b[?1003l\x1b[?25h\x1b[?1049l";
+// encoding turns into / and Enter; paste events, a pasted image.
+const enter = "\x1b[?1049h\x1b[?25l\x1b[?1003h\x1b[?1006h\x1b[?2004h" + hostClipboard.enable + keyboard.enable,
+  leave = keyboard.disable + hostClipboard.disable + "\x1b[?2004l\x1b[?1006l\x1b[?1003l\x1b[?25h\x1b[?1049l";
 
 /** Runs the Corgi chat in this pane until it closes. */
 export async function run(argv: string[]): Promise<void> {
@@ -226,6 +270,21 @@ export async function run(argv: string[]): Promise<void> {
   prompt.changed = () => {
     dirty = true;
   };
+  // Pasted images save where the viewer's go.
+  const clipboard = new hostClipboard.State();
+  clipboard.folder = join(dirname(socket), "paste");
+  const pasted = (raw: string | null) => {
+    out.write(clipboardPacket(clipboard, prompt, raw, Date.now()));
+    dirty = true;
+  };
+  // Ctrl+V, and the paste key a terminal without paste events passes on:
+  // the image on this machine's clipboard.
+  const clipboardKey = async () => {
+    const path = await clipboardImage(clipboard.folder, Date.now());
+    if (path) attach(prompt, path);
+    else prompt.conversation.note("No image on the clipboard.", "faint");
+    dirty = true;
+  };
   const draw = () => {
     const cols = out.columns || 80,
       rows = out.rows || 24,
@@ -297,6 +356,7 @@ export async function run(argv: string[]): Promise<void> {
   const take = async (token: Token) => {
     switch (token.kind) {
       case "byte":
+        if (token.byte === 22) return clipboardKey();
         return apply(prompt.key(token.byte));
       case "sequence":
         return apply(prompt.sequence(token.text));
@@ -304,6 +364,8 @@ export async function run(argv: string[]): Promise<void> {
         prompt.paste(token.text);
         dirty = true;
         return;
+      case "clipboard":
+        return pasted(token.text);
       case "mouse":
         if ((token.button & 64) !== 0) prompt.scroll((token.button & 1) !== 0, token.x, token.y);
         else if ((token.button & 32) !== 0) {
@@ -321,7 +383,11 @@ export async function run(argv: string[]): Promise<void> {
     esc = null;
     const split = tokens([...pending, ...Array.from(chunk)]);
     pending = split.rest;
-    for (const token of split.tokens) for (const key of legacy(token)) await take(key);
+    for (const token of split.tokens) {
+      const key = token.kind === "sequence" ? keyboard.decode(token.text) : null;
+      if (key && hostClipboard.pasteKey(key)) await clipboardKey();
+      else for (const each of legacy(token)) await take(each);
+    }
     // A lone Esc that nothing follows is the key.
     if (pending.length === 1 && pending[0] === 0x1b)
       esc = setTimeout(() => {
@@ -346,6 +412,8 @@ export async function run(argv: string[]): Promise<void> {
   out.write(enter);
   const loop = setInterval(() => {
     if (prompt.poll(Date.now())) dirty = true;
+    // A read that stalls gives up.
+    if (clipboard.reading) pasted(null);
     if (prompt.listed() && !reading && Date.now() - read_at >= (known && !known.history.pending ? 20_000 : 1000))
       void readConversations();
     if (!dirty) return;

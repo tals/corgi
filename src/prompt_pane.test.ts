@@ -1,5 +1,11 @@
-import { expect, test } from "bun:test";
-import { legacy, tokens } from "./prompt_pane";
+import { afterEach, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import * as hostClipboard from "./host_clipboard";
+import { Prompt } from "./prompt";
+import { clipboardPacket, legacy, tokens } from "./prompt_pane";
+import { Writer } from "./text";
 
 const bytes = (text: string) => Buffer.from(text);
 
@@ -49,4 +55,74 @@ test("Kitty's key reports reach the card as the viewer passes keys to it, Ctrl+/
     { kind: "byte", byte: 0x61 },
     { kind: "mouse", button: 0, x: 9, y: 4, release: false },
   ]);
+});
+
+test("clipboard packets end at ST or BEL, and wait for the rest", () => {
+  expect(
+    tokens(bytes("\x1b]5522;type=read:status=OK:pw=b3Rw\x1b\\a\x1b]5522;type=read:status=DONE\x07")).tokens,
+  ).toEqual([
+    { kind: "clipboard", text: "type=read:status=OK:pw=b3Rw" },
+    { kind: "byte", byte: 0x61 },
+    { kind: "clipboard", text: "type=read:status=DONE" },
+  ]);
+  for (const partial of ["\x1b]", "\x1b]55", "\x1b]5522;type=read", "\x1b]5522;type=read\x1b"]) {
+    const split = tokens(bytes("a" + partial));
+    expect(split.tokens).toEqual([{ kind: "byte", byte: 0x61 }]);
+    expect(Buffer.from(split.rest).toString()).toBe(partial);
+  }
+  // Alt and ] from a legacy terminal stay a key.
+  expect(tokens(bytes("\x1b]x")).tokens).toEqual([
+    { kind: "sequence", text: "\x1b]" },
+    { kind: "byte", byte: 0x78 },
+  ]);
+});
+
+const folders: string[] = [];
+afterEach(() => {
+  for (const dir of folders.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+function folder() {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-pane-"));
+  folders.push(dir);
+  return dir;
+}
+const b64 = (text: string | Buffer) => Buffer.from(text).toString("base64");
+
+test("a paste event brings the card its image, else its text", () => {
+  const prompt = new Prompt({
+      daemon: { call: async () => ({ ok: true }), start: async () => ({ provider: "claude", session: "s" }) },
+      memory_root: folder(),
+      mode: "pane",
+    }),
+    clipboard = Object.assign(new hostClipboard.State(), { folder: folder() });
+  prompt.show({ cwd: "", workspace: "", workspace_id: null, branch: "", focus: null, herd: [], mentions: [] });
+  const event = (listing: string, pw: string) =>
+    [
+      `type=read:status=OK:pw=${pw}`,
+      `type=read:status=DATA:mime=Lg==:pw=${pw};${b64(listing)}`,
+      `type=read:status=DONE:pw=${pw}`,
+    ]
+      .map(raw => clipboardPacket(clipboard, prompt, raw, 0))
+      .join("");
+  const reply = (mime: string, data: Buffer) =>
+    [
+      "type=read:id=corgi:status=OK",
+      `type=read:id=corgi:status=DATA:mime=${b64(mime)};${b64(data)}`,
+      "type=read:id=corgi:status=DONE",
+    ]
+      .map(raw => clipboardPacket(clipboard, prompt, raw, 0))
+      .join("");
+  // The event's password reads the image the daemon holds for it.
+  expect(event("image/png", "b3Rw")).toBe(
+    `\x1b]5522;type=read:id=corgi:pw=b3Rw:name=Q29yZ2k=;${b64("image/png")}\x1b\\`,
+  );
+  expect(reply("image/png", Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1]))).toBe("");
+  expect(prompt.attached()).toEqual(["Image 1"]);
+  // Text wins when the paste brought both.
+  expect(event("text/plain image/png", "cHc=")).toContain(`;${b64("text/plain")}\x1b\\`);
+  reply("text/plain", Buffer.from("hello"));
+  expect(prompt.attached()).toEqual(["Image 1"]);
+  const w = new Writer();
+  prompt.draw(w, 80, 24, null, 0);
+  expect(w.s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "")).toContain("hello█");
 });
