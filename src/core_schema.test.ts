@@ -12,6 +12,8 @@ import { Workspace } from "./workspace";
 import { Terminal } from "./pane/terminal";
 import { Worker, Request, Result, Slot } from "./activity/worker";
 import { Worker as UsageWorker, Tail } from "./usage/worker";
+import { Tokens } from "./usage/live";
+import { Call } from "./activity/tools";
 import { parseLabel } from "./activity/summary";
 import { captureManifest } from "./persist/handoff";
 import { checkpoint_version, handoff_version } from "./persist/migrations";
@@ -240,7 +242,7 @@ test("saved handoff format matches its version", async () => {
   expect(handoff_version).toBe(6);
   expect(checkpoint_version).toBe(6);
   expect(createHash("sha256").update(schemas.handoff).digest("hex")).toBe(
-    "65cbd7281b0daec2f8ada2101176139b069c2f29a61976b842cda51d0d912484",
+    "4c489a44ac9b539f76ec596dfb6de0a32609d88752d793f24a69e37569c2c233",
   );
   const { server, client, dispose } = fixture();
   const summaries = new Worker();
@@ -251,9 +253,18 @@ test("saved handoff format matches its version", async () => {
   (server as any).summaries = summaries;
   await summaries.pause();
   const usage = new UsageWorker(),
-    tail = Object.assign(new Tail(), { actor: 1, opened: true, inode: 7, device: 1, offset: 42 });
+    tail = Object.assign(new Tail(), { actor: 1, opened: true, inode: 7, device: 1, offset: 42 }),
+    call = new Call();
+  tail.progress.bind("turn");
+  call.id = 5n;
+  call.append("Bash: ls");
+  tail.progress.save(call, true);
+  tail.live.previous = new Tokens({ input: 10n });
+  tail.live.ordinal = 3n;
+  tail.ended.add("task");
   usage.watchers.set(1, tail);
   server.usage = usage;
+  await usage.pause();
   try {
     const captured = json.parse(json.stringify(captureManifest(server, client)));
     validate(schemas.handoff, captured);
@@ -263,6 +274,8 @@ test("saved handoff format matches its version", async () => {
     expect(captured.clients[0].launch_preview.preview.options.claude.spend.used_minor).toBe(59);
     expect(captured.summaries.pool.slots).toHaveLength(4);
     expect(captured.usage[0].position.offset).toBe(42);
+    expect(captured.usage[0].file.offset).toBe(42);
+    expect(captured.usage[0].progress.pending[0].value).toBe("Bash: ls");
     expect(() => validate(schemas.handoff, { ...captured, listener: "bad" })).toThrow();
   } finally {
     await summaries.stop();

@@ -667,9 +667,10 @@ test("real file usage reader accepts large Codex metadata and counts later activ
 });
 
 /** Carries `tail` through a handoff and returns the next daemon's tail. */
-function handOver(tail: Tail) {
+async function handOver(tail: Tail) {
   const before = new Worker();
   before.watchers.set(tail.actor, tail);
+  await before.pause();
   const saved = json.clone(before.capture());
   return () => Worker.restore(json.clone(saved)).watchers.get(tail.actor)!;
 }
@@ -694,7 +695,7 @@ test("a handoff's usage tail counts on from where the last daemon stopped", asyn
     appendFileSync(file, line("m2", 10, 2) + `{"type":"assistant","sessionId":"s"`);
     await tail.poll(req, reader(req));
     expect(tail.live.meter.value.tokens.input).toBe(10n);
-    const next = handOver(tail);
+    const next = await handOver(tail);
     // Written while the daemons hand over, finishing the line the last one read half of.
     appendFileSync(file, `,"message":{"id":"m3","usage":{"input_tokens":20,"output_tokens":3}}}\n`);
     const after = next();
@@ -764,7 +765,7 @@ test("a Codex subagent's count stays whole through a handoff", async () => {
     expect(tail.live.meter.value.tokens.input).toBe(150n);
     expect(tail.live.meter.value.tools).toBe(1n);
     expect(tail.live.meter.value.partial).toBe(false);
-    const after = handOver(tail)();
+    const after = (await handOver(tail))();
     appendFileSync(file, count(4, 200, 50));
     await after.poll(req, reader(req));
     expect(after.live.meter.value.tokens.input).toBe(200n);
@@ -775,7 +776,7 @@ test("a Codex subagent's count stays whole through a handoff", async () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
-test("a handoff in the middle of a subagent's catch-up keeps its count as partial", async () => {
+test("a handoff in the middle of a subagent's catch-up finishes it", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-usage-"));
   try {
     const file = join(root, "agent-a1.jsonl"),
@@ -800,12 +801,131 @@ test("a handoff in the middle of a subagent's catch-up keeps its count as partia
     const counted = tail.live.meter.value.tokens.input;
     expect(counted).toBeGreaterThan(0n);
     expect(counted).toBeLessThan(100n);
-    const after = handOver(tail)();
+    const after = (await handOver(tail))();
     await after.poll(req, reader(req));
     await after.poll(req, reader(req));
-    expect(after.live.meter.value.tokens.input).toBe(counted);
-    expect(after.live.meter.value.partial).toBe(true);
+    expect(after.live.meter.value.tokens.input).toBe(100n);
+    expect(after.live.meter.value.partial).toBe(false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+test("a handoff keeps the tools a turn ran and finished", async () => {
+  const at = "1970-01-01T00:00:02.000Z",
+    formats = {
+      claude: {
+        label: (command: string) => `Bash: ${command}`,
+        start: "",
+        turn: () => "",
+        use: (id: string, command: string) =>
+          JSON.stringify({
+            type: "assistant",
+            sessionId: "session",
+            timestamp: at,
+            message: { id: `m-${id}`, content: [{ type: "tool_use", id, name: "Bash", input: { command } }] },
+          }) + "\n",
+        done: (id: string) =>
+          JSON.stringify({
+            type: "user",
+            sessionId: "session",
+            timestamp: at,
+            message: { content: [{ type: "tool_result", tool_use_id: id }] },
+          }) + "\n",
+      },
+      codex: {
+        label: (cmd: string) => `exec_command: ${cmd}`,
+        start: JSON.stringify({ type: "session_meta", payload: { id: "session" } }) + "\n",
+        // Older turns precede the live one in what a new daemon would read again.
+        turn: (turn_id: string) => JSON.stringify({ type: "turn_context", payload: { turn_id } }) + "\n",
+        use: (call_id: string, cmd: string) =>
+          JSON.stringify({
+            type: "response_item",
+            payload: { type: "function_call", call_id, name: "exec_command", arguments: JSON.stringify({ cmd }) },
+          }) + "\n",
+        done: (call_id: string) =>
+          JSON.stringify({ type: "response_item", payload: { type: "function_call_output", call_id } }) + "\n",
+      },
+    };
+  for (const provider of ["claude", "codex"] as const) {
+    const root = mkdtempSync(join(tmpdir(), "corgi-usage-"));
+    try {
+      const file = join(root, "s.jsonl"),
+        f = formats[provider];
+      writeFileSync(file, f.start + f.turn("turn-0") + f.use("old", "pwd") + f.done("old"));
+      const req = request(provider);
+      req.agent.transcript = new Path(file);
+      req.agent.turn = new Text("turn-1");
+      const tail = new Tail();
+      tail.actor = 1;
+      await tail.poll(req, reader(req));
+      appendFileSync(
+        file,
+        f.turn("turn-1") +
+          f.use("t1", "ls") +
+          f.done("t1") +
+          f.use("t2", "make") +
+          f.done("t2") +
+          f.use("t3", "sleep 9"),
+      );
+      await tail.poll(req, reader(req));
+      const before = tail.progress.view();
+      expect(before.completed).toBe(2n);
+      expect(before.evidence.text()).toContain("sleep 9");
+      const after = (await handOver(tail))();
+      await after.poll(req, reader(req));
+      expect(after.progress.view()).toEqual(before);
+      appendFileSync(file, f.done("t3"));
+      await after.poll(req, reader(req));
+      const finished = after.progress.view();
+      expect(finished.completed).toBe(3n);
+      expect(finished.evidence.text()).toBe(
+        `Recent completed tools (oldest to newest):\n${["ls", "make", "sleep 9"].map(f.label).join("\n")}\n`,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+test("a handoff from an older build counts on from where it stopped counting", async () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-usage-"));
+  try {
+    const file = join(root, "s.jsonl"),
+      line = (id: string, input: number, output: number) =>
+        JSON.stringify({
+          type: "assistant",
+          sessionId: "s",
+          timestamp: "1970-01-01T00:00:02.000Z",
+          message: { id, usage: { input_tokens: input, output_tokens: output } },
+        }) + "\n";
+    writeFileSync(file, line("m1", 7, 1));
+    const req = request("claude");
+    req.agent.session = new Text("s");
+    req.agent.transcript = new Path(file);
+    const tail = new Tail();
+    tail.actor = 1;
+    await tail.poll(req, reader(req));
+    appendFileSync(file, line("m2", 10, 2));
+    await tail.poll(req, reader(req));
+    // What builds before whole tails carried.
+    const saved = json.clone([{ actor: 1, meter: tail.live.meter, position: tail.position() }]);
+    appendFileSync(file, line("m3", 20, 3));
+    const after = Worker.restore(saved).watchers.get(1)!;
+    await after.poll(req, reader(req));
+    expect(after.live.meter.value.tokens.input).toBe(30n);
+    expect(after.live.meter.value.tokens.output).toBe(5n);
+    expect(after.live.meter.value.partial).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test("a usage worker is captured only once paused, with its results applied", async () => {
+  const w = new Worker();
+  expect(() => w.capture()).toThrow("UsageBusy");
+  await w.pause();
+  w.results.push(new UsageResult());
+  expect(() => w.capture()).toThrow("UsageBusy");
+  w.take();
+  expect(w.capture()).toEqual([]);
+  w.unpause();
+  expect(() => w.capture()).toThrow("UsageBusy");
 });

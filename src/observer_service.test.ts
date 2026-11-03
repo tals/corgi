@@ -11,6 +11,8 @@ import * as codex from "./providers/codex";
 import * as checklist from "./activity/checklist";
 import * as omp from "./providers/omp";
 import { Result as UsageResult } from "./usage/worker";
+import { Counts } from "./usage/tokens";
+import { Workspace } from "./workspace";
 import {
   snapshotActor,
   missed,
@@ -22,6 +24,8 @@ import {
   stop,
   start,
   tick,
+  pause,
+  unpause,
 } from "./observer_service";
 
 const id = "11111111-1111-4111-8111-111111111111";
@@ -527,4 +531,31 @@ test("local Codex identity attaches without lifecycle authority and admits only 
   expect(stringify(actor.state)).toBe(before);
   terminal.title_revision++;
   expect(snapshotActor(server, "codex", identity)).toBeNull();
+});
+test("pausing for a handoff applies the usage counted since the last tick", async () => {
+  const { server, pane, terminal, registry } = fixture();
+  terminal.exited = true;
+  const workspace = new Workspace(1, "/tmp"),
+    actor = registry.get("claude", "away-usage");
+  server.runtime.workspaces.items.push(workspace);
+  actor.workspace = workspace.id;
+  pane.attachment.select(actor);
+  const workers = start(server);
+  workers.transcripts.stop();
+  workers.usage.stop();
+  workers.summaries.stop();
+  for (const { observer } of workers.observers.values()) observer.stop();
+  workers.observers.clear();
+  const result = new UsageResult();
+  result.actor = actor.id;
+  result.workspace = workspace.id;
+  result.since = workspace.away.since;
+  result.delta = new Counts({ input: 10n, output: 1n, tokens_known: true });
+  workers.usage.results.push(result);
+  await pause(server);
+  expect(workspace.away.counts.input).toBe(10n);
+  expect(workspace.away.counts.output).toBe(1n);
+  expect(workers.usage.capture()).toEqual([]);
+  unpause(server);
+  expect(workers.usage.paused).toBe(false);
 });

@@ -385,6 +385,52 @@ export function hook(server: Server, query: Request<"hook">) {
   if (event.initial_request) workers.summaries.names.offer(actor, event.initial_request);
   changed(server);
 }
+/** Applies what usage counting found to its conversations and their workspaces. */
+function applyUsage(server: Server, workers: Workers) {
+  const runtime = server.runtime;
+  for (const result of workers.usage.take()) {
+    telemetry.count("agent.usage.results");
+    const actor = runtime.conversations.byId(result.actor);
+    if (!actor) continue;
+    if (result.checklist) actor.observeChecklist(result.checklist);
+    if (!actor.model_from_hook && result.model.id.len) actor.model = result.model;
+    if (!actor.headless_usage) actor.live_usage = result.live;
+    actor.context = result.context;
+    runtime.conversations.compaction_points.learn(result.context.model.id.text(), result.context.auto_compaction);
+    const continuation = adapter(actor.provider()).transcript?.continuation;
+    if (result.continued.len && continuation && result.continued.text() !== actor.state.sessionId()) {
+      const next = runtime.conversations.get(actor.provider(), result.continued.text());
+      next.workspace ||= actor.workspace;
+      if (!next.state.last_seq) {
+        next.state.state = actor.state.state === "done" ? "idle" : actor.state.state;
+        next.state.cwd = actor.state.cwd;
+        next.state.transcript = Path.initTruncated(continuation(actor.state.transcriptPath(), result.continued.text()));
+      }
+      let followed = false;
+      for (const pane of runtime.panes)
+        if (pane.attachment.actor === actor) {
+          pane.attachment.select(next);
+          followed = true;
+        }
+      if (followed) {
+        actor.state.state = "done";
+        actor.state.tool_active = false;
+        actor.state.paused = false;
+      }
+    }
+    actor.observeTranscriptTurn(result.spoke_at);
+    actor.observeTaskEnds(result.ended);
+    if (result.progress) actor.observeTools(result.progress);
+    const now = clock.microTimestamp();
+    if (result.fallback(actor.state, now)) {
+      if (adapter(actor.provider()).caps.native_activity) actor.checkpointActivity(false, now);
+      else workers.summaries.submit(actor, result.progress!.commentary, result.progress, runtime.panes);
+    } else if (result.progress) workers.summaries.tools(actor.id, actor.state, result.progress);
+    if (!actor.headless_usage && !workspaceWatched(server, result.workspace))
+      runtime.workspaces.get(result.workspace)?.away.record(result.since, result.delta);
+    changed(server);
+  }
+}
 export async function tick(server: Server) {
   const workers = start(server),
     runtime = server.runtime,
@@ -486,50 +532,7 @@ export async function tick(server: Server) {
     for (const result of workers.summaries.takeLinks())
       if (result && runtime.link_labels.apply(result, now)) changed(server);
     workers.usage.reconcile(runtime);
-    for (const result of workers.usage.take()) {
-      telemetry.count("agent.usage.results");
-      const actor = runtime.conversations.byId(result.actor);
-      if (!actor) continue;
-      if (result.checklist) actor.observeChecklist(result.checklist);
-      if (!actor.model_from_hook && result.model.id.len) actor.model = result.model;
-      if (!actor.headless_usage) actor.live_usage = result.live;
-      actor.context = result.context;
-      runtime.conversations.compaction_points.learn(result.context.model.id.text(), result.context.auto_compaction);
-      const continuation = adapter(actor.provider()).transcript?.continuation;
-      if (result.continued.len && continuation && result.continued.text() !== actor.state.sessionId()) {
-        const next = runtime.conversations.get(actor.provider(), result.continued.text());
-        next.workspace ||= actor.workspace;
-        if (!next.state.last_seq) {
-          next.state.state = actor.state.state === "done" ? "idle" : actor.state.state;
-          next.state.cwd = actor.state.cwd;
-          next.state.transcript = Path.initTruncated(
-            continuation(actor.state.transcriptPath(), result.continued.text()),
-          );
-        }
-        let followed = false;
-        for (const pane of runtime.panes)
-          if (pane.attachment.actor === actor) {
-            pane.attachment.select(next);
-            followed = true;
-          }
-        if (followed) {
-          actor.state.state = "done";
-          actor.state.tool_active = false;
-          actor.state.paused = false;
-        }
-      }
-      actor.observeTranscriptTurn(result.spoke_at);
-      actor.observeTaskEnds(result.ended);
-      if (result.progress) actor.observeTools(result.progress);
-      const now = clock.microTimestamp();
-      if (result.fallback(actor.state, now)) {
-        if (adapter(actor.provider()).caps.native_activity) actor.checkpointActivity(false, now);
-        else workers.summaries.submit(actor, result.progress!.commentary, result.progress, runtime.panes);
-      } else if (result.progress) workers.summaries.tools(actor.id, actor.state, result.progress);
-      if (!actor.headless_usage && !workspaceWatched(server, result.workspace))
-        runtime.workspaces.get(result.workspace)?.away.record(result.since, result.delta);
-      changed(server);
-    }
+    applyUsage(server, workers);
     workers.transcripts.reconcile(runtime.conversations.items);
     for (const result of workers.transcripts.take()) {
       const actor = runtime.conversations.byId(result.actor);
@@ -580,6 +583,25 @@ export async function settle(server: Server) {
   }
 }
 
+/** Pauses the workers a handoff carries. Usage results are applied first: the next daemon
+ * reads on from where usage counting stopped, so the checkpoint must hold what it found. */
+export async function pause(server: Server) {
+  const workers = services.get(server);
+  if (!workers) return;
+  await workers.summaries.pause();
+  try {
+    await workers.usage.pause();
+  } catch (error) {
+    workers.summaries.unpause();
+    throw error;
+  }
+  applyUsage(server, workers);
+}
+export function unpause(server: Server) {
+  const workers = services.get(server);
+  workers?.summaries.unpause();
+  workers?.usage.unpause();
+}
 export function stop(server: Server) {
   const workers = services.get(server);
   if (!workers) return;

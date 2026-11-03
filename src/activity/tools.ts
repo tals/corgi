@@ -46,6 +46,11 @@ export class Call {
   id = 0n;
   live = false;
   value = "";
+  static restore(saved: any) {
+    if (saved === null) return null;
+    if (typeof saved.value !== "string" || Buffer.byteLength(saved.value) > 240) throw Error("InvalidCheckpoint");
+    return Object.assign(new Call(), { id: BigInt(saved.id), live: saved.live === true, value: saved.value });
+  }
   text() {
     return this.value;
   }
@@ -119,6 +124,33 @@ export class Tracker {
   seen: bigint[] = [];
   recent: Array<Call | null> = [null, null, null];
   dirty = false;
+  /** The tracker a handoff carried, or a new one. */
+  static restore(saved: any) {
+    const t = new Tracker();
+    if (!saved) return t;
+    if (
+      !Array.isArray(saved.pending) ||
+      saved.pending.length !== 64 ||
+      !Number.isInteger(saved.next_pending) ||
+      saved.next_pending < 0 ||
+      saved.next_pending >= 64 ||
+      !Array.isArray(saved.seen) ||
+      saved.seen.length > 256 ||
+      !Array.isArray(saved.recent) ||
+      saved.recent.length !== 3
+    )
+      throw Error("InvalidCheckpoint");
+    t.commentary = Text.fromJSON(saved.commentary);
+    t.turn = Turn.fromJSON(saved.turn);
+    t.ended = saved.ended === true;
+    t.completed = BigInt(saved.completed);
+    t.pending = saved.pending.map(Call.restore);
+    t.next_pending = saved.next_pending;
+    t.seen = saved.seen.map(BigInt);
+    t.recent = saved.recent.map(Call.restore);
+    t.dirty = saved.dirty === true;
+    return t;
+  }
   bind(turn: string) {
     if (!turn || turn === this.turn.text() || Buffer.byteLength(turn) > 160) return;
     Object.assign(this, new Tracker());
