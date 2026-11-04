@@ -157,6 +157,10 @@ A development build stamps the repository of the branch's remote and the
 merges since `main` on the remote that points at tals/corgi into
 `corgi --version --verbose`.
 
+`scripts/custom-build rebuild` builds `dist/corgi-custom` from upstream `main`
+plus a list of branches and PRs; see [custom builds](docs/custom-builds.md).
+Its tests are `bun test tests/custom_build.test.ts`.
+
 [AGENTS.md](AGENTS.md) owns coding and commit conventions.
 [tests/README.md](tests/README.md) explains test tiers, isolated runtimes and
 deterministic waiting. [evals/README.md](evals/README.md) covers activity-summary
