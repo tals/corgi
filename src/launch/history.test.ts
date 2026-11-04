@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { clip, source, Store, Worker, type Entry } from "./history";
 import * as accounts from "../accounts";
+import { byProvider } from "../providers";
 test("clip keeps one line within its byte limit at a UTF-8 boundary", () => {
   const out = clip("  a\tb\n\nc\x1b é", 7);
   expect(out.slice(0, 6)).toBe("a b c ");
@@ -106,6 +107,52 @@ test("an account that shares the default's history lists each session once, as t
     expect(w.snapshot().entries.map(e => [e.session, e.account])).toEqual([
       ["22222222-2222-4222-8222-222222222222", ""],
     ]);
+  } finally {
+    await w.stop();
+    for (const key of [
+      "HOME",
+      "CORGI_ENV_BASE",
+      "CLAUDE_CONFIG_DIR",
+      "CODEX_HOME",
+      "XDG_STATE_HOME",
+      "CORGI_CODEX_BIN",
+      "CORGI_OPENCODE2_BIN",
+    ])
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    accounts.reset();
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+test("a removed agent's sessions leave the list, and come back when it's added back", async () => {
+  const saved = { ...process.env },
+    home = realpathSync(mkdtempSync(join(tmpdir(), "corgi-history-"))),
+    session = "33333333-3333-4333-8333-333333333333";
+  Object.assign(process.env, {
+    HOME: home,
+    CORGI_ENV_BASE: join(home, "state"),
+    CLAUDE_CONFIG_DIR: join(home, ".claude"),
+    CODEX_HOME: join(home, ".codex"),
+    XDG_STATE_HOME: join(home, ".local/state"),
+    CORGI_CODEX_BIN: "/nonexistent/codex",
+    CORGI_OPENCODE2_BIN: "/nonexistent/opencode",
+  });
+  accounts.reset();
+  const project = join(home, ".claude", "projects", "app");
+  mkdirSync(project, { recursive: true });
+  writeFileSync(
+    join(project, `${session}.jsonl`),
+    JSON.stringify({ type: "user", cwd: home, message: { role: "user", content: "hello" } }) + "\n",
+  );
+  const removed = { agent_hidden: byProvider(p => p === "claude"), account_hidden: [] },
+    w = Worker.start(removed);
+  try {
+    await w.refresh();
+    expect(w.snapshot().entries).toEqual([]);
+    await w.follow({ ...removed, agent_hidden: byProvider(() => false) });
+    expect(w.snapshot().entries.map(e => e.session)).toEqual([session]);
+    await w.follow(removed);
+    expect(w.snapshot().entries).toEqual([]);
   } finally {
     await w.stop();
     for (const key of [

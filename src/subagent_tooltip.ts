@@ -1183,7 +1183,8 @@ function limitsMessage(value: Option): string {
   if (value.limits === "rate_limited") return i18n.t`Unavailable · server returned 429`;
   if (value.usage_error.length > 0) return i18n.t`Unavailable`;
   if (value.signed_in === false) return i18n.t`Not signed in`;
-  return i18n.t`Reading…`;
+  // A finished read without limits, such as a removed agent's, which nothing reads.
+  return value.pending === false ? "" : i18n.t`Reading…`;
 }
 /** The month's spend: a spark of the last four weeks in two-day cells, the
  * percent of the limit and the reset, then the amounts beneath. */

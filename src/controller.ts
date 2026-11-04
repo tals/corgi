@@ -3935,7 +3935,8 @@ export class Controller {
       launch.accounts = this.runtime.accounts;
       if (launch.managing && (!this.corgi_setup || this.corgi_setup.managing())) {
         for (const agent of launch.manageModel().agents)
-          if (launch.preview.installed[agent.provider]) this.model_cache.get(agent.provider, agent.account);
+          if (agent.shown && launch.preview.installed[agent.provider])
+            this.model_cache.get(agent.provider, agent.account);
         const picker = launch.manager.picker;
         if (picker) {
           const entry = this.model_cache.get(picker.agent.provider, picker.agent.account),

@@ -1,5 +1,5 @@
 //! Launcher rows: what the picker lists, and what a workspace hides by name.
-import { Provider } from "../providers";
+import { Provider, type ByProvider } from "../providers";
 
 export const customs = ["custom0", "custom1", "custom2", "custom3", "custom4", "custom5"] as const;
 
@@ -10,6 +10,27 @@ type AccountRow = `${Provider}:${string}`;
 export type Row = Provider | AccountRow | `profile:${string}` | (typeof customs)[number] | "terminal";
 /** What a row starts: a provider's agent in one of its accounts, "" the default. */
 export type Launch = { provider: Provider; account: string };
+/** The rows taken out of Manage agents: providers' own, and accounts by
+ * folder. Unless a saved agent in `used` runs in one, nothing reads it;
+ * Add agent offers it back. */
+export type Removed = { agent_hidden: ByProvider<boolean>; account_hidden: readonly string[] };
+export function removed(r: Removed, l: Launch, used: readonly Launch[] = []): boolean {
+  return (
+    (l.account ? r.account_hidden.includes(l.account) : r.agent_hidden[l.provider]) &&
+    !used.some(u => u.provider === l.provider && u.account === l.account)
+  );
+}
+/** `r`'s removed rows alone, which later changes to `r` leave as they were. */
+export function removedOf(r: Removed): Removed {
+  return { agent_hidden: { ...r.agent_hidden }, account_hidden: [...r.account_hidden] };
+}
+export function sameRemoved(a: Removed, b: Removed): boolean {
+  return (
+    Provider.all.every(p => a.agent_hidden[p] === b.agent_hidden[p]) &&
+    a.account_hidden.length === b.account_hidden.length &&
+    a.account_hidden.every((account, i) => account === b.account_hidden[i])
+  );
+}
 export const Row = {
   profile(row: string): string | null {
     return /^profile:[a-z0-9-]{1,64}$/.test(row) ? row.slice(8) : null;

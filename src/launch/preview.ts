@@ -8,6 +8,8 @@ import { Info, serializeLimits } from "../usage/account";
 import * as limitHistory from "../usage/limits";
 import * as discovery from "../discovery";
 import * as accounts from "../accounts";
+import * as profiles from "../agent_profiles";
+import * as row from "./row";
 export { Text };
 /** Seconds between account reads while someone uses a viewer, and otherwise. */
 export const active_every = 150,
@@ -96,6 +98,18 @@ class Login {
 function usable(info: Info) {
   return info.signed_in === true && info.usage_fetched_at > 0 && !info.usage_error.len;
 }
+/** A removed row's option: who signed in, as the provider's own files say,
+ * so Add agent can offer it back. Nothing asks its servers. */
+function signedIn(provider: Provider, account: string): Option {
+  const option = new Option(),
+    who = accounts.identity(provider, account);
+  option.pending = false;
+  if (who) {
+    option.signed_in = true;
+    option.account = new Text(who.email);
+  }
+  return option;
+}
 /** Who signed in to `account`, or the folder itself when that's unknown. */
 function loginOf(provider: Provider, account: string) {
   const id = accounts.identity(provider, account)?.id;
@@ -121,6 +135,8 @@ export class Worker {
   logins = new Map<string, Login>();
   /** Seconds between account reads, which the daemon sets from its viewers. */
   every = idle_every;
+  /** The rows taken out of Manage agents, which it doesn't read. */
+  removed: row.Removed = { agent_hidden: byProvider(() => false), account_hidden: [] };
   private checked = 0;
   private sampling = false;
   private installs: { at: number; installed: Preview["installed"]; outdated: Preview["outdated"] } | null = null;
@@ -173,6 +189,12 @@ export class Worker {
       job.preview = job.preview.with({ pending: true });
     }
     void this.pump();
+  }
+  /** Follows the rows Manage agents took out, reading again once they changed. */
+  follow(removed: row.Removed) {
+    if (row.sameRemoved(removed, this.removed)) return;
+    this.removed = row.removedOf(removed);
+    this.reread();
   }
   launcher(p: Provider, account = "") {
     const key = p + "\0" + account;
@@ -336,16 +358,17 @@ export class Worker {
     await discovery.check();
     if (this.stopping) return;
     this.installs = null;
-    job.preview = this.list(job.preview).with({ pending: true });
-    // Launchers keep a provider process each, so those of accounts gone close.
-    const live = new Set([...Provider.all.map(p => p + "\0"), ...accounts.known().map(a => a.provider + "\0" + a.dir)]);
+    const skip = this.skipped();
+    job.preview = this.withSkipped(this.list(job.preview).with({ pending: true }), skip);
+    const rows = this.rows(job.preview, skip),
+      groups = this.groups(rows);
+    // Launchers keep a provider process each, so those of accounts gone or removed close.
+    const live = new Set(rows.map(l => l.provider + "\0" + l.account));
     for (const [key, launcher] of this.launchers)
       if (!live.has(key)) {
         void launcher.then(l => l?.close());
         this.launchers.delete(key);
       }
-    const rows = this.rows(job.preview),
-      groups = this.groups(rows);
     await Promise.all(
       rows.map(async ({ provider, account }) => {
         let option: Option;
@@ -376,11 +399,25 @@ export class Worker {
       job.updated = Date.now();
     }
   }
-  private rows(preview: Preview): Row[] {
+  /** Which rows it doesn't read: those removed that no saved agent runs in. */
+  private skipped(): (l: row.Launch) => boolean {
+    const used = profiles.list();
+    return l => row.removed(this.removed, l, used);
+  }
+  /** The rows it reads: installed providers' own and their accounts', but those skipped. */
+  private rows(preview: Preview, skip: (l: row.Launch) => boolean): Row[] {
     return [
       ...Provider.all.filter(p => preview.installed[p]).map(provider => ({ provider, account: "" })),
       ...preview.accounts,
-    ];
+    ].filter(l => !skip(l));
+  }
+  /** `preview` with its skipped rows showing only who signed in. */
+  private withSkipped(preview: Preview, skip: (l: row.Launch) => boolean): Preview {
+    const own = (l: row.Launch, option: Option) => (skip(l) ? signedIn(l.provider, l.account) : option);
+    return preview.with({
+      options: byProvider(p => own({ provider: p, account: "" }, preview.options[p])),
+      accounts: preview.accounts.map(a => ({ ...a, option: own(a, a.option) })),
+    });
   }
   private groups(rows: Row[]): Group[] {
     const groups: Group[] = [];
@@ -395,13 +432,16 @@ export class Worker {
   /** Reads the accounts due a read, then shows what they read in every
    * folder's preview, so subscribers needn't wait for their next refresh. */
   private async round() {
-    const before = new Map([...this.logins].map(([key, login]) => [key, login.read_at]));
-    await Promise.all(this.groups(this.rows(this.list(new Preview()))).map(group => this.read(group)));
+    const before = new Map([...this.logins].map(([key, login]) => [key, login.read_at])),
+      skip = this.skipped();
+    await Promise.all(this.groups(this.rows(this.list(new Preview()), skip)).map(group => this.read(group)));
     if (this.stopping || [...this.logins].every(([key, login]) => before.get(key) === login.read_at)) return;
+    // A skipped row's folder may share a login read for another, or read before it was removed.
+    const shown = (l: row.Launch, option: Option) => (skip(l) ? option : this.shown(l.provider, l.account, option));
     for (const job of this.jobs)
       job.preview = job.preview.with({
-        options: byProvider(p => this.shown(p, "", job.preview.options[p])),
-        accounts: job.preview.accounts.map(a => ({ ...a, option: this.shown(a.provider, a.account, a.option) })),
+        options: byProvider(p => shown({ provider: p, account: "" }, job.preview.options[p])),
+        accounts: job.preview.accounts.map(a => ({ ...a, option: shown(a, a.option) })),
       });
   }
   /** Reads an account once `every` seconds have passed: its folders in turn,
