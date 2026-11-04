@@ -1,11 +1,12 @@
-// Copies of the test binary play two releases in isolated runtimes; no host
+// Copies of the test binary play four releases in isolated runtimes; no host
 // installation is touched. A test build at releases/<v>/corgi is release <v>.
 import { beforeAll, afterAll, beforeEach, afterEach, test, expect } from "bun:test";
 import { generateKeyPairSync, sign, createHash } from "node:crypto";
-import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, readdir, realpath, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { EXE, Pty, deadline, versioned } from "./support";
+import { running } from "./runtime";
 import { installer, manifests as releaseManifests } from "../scripts/release.ts";
 import { Scope } from "../scripts/process_scope";
 const base = await mkdtemp(join(tmpdir(), "corgi-updates-"));
@@ -79,7 +80,7 @@ async function waitFor(fn: () => Promise<boolean>) {
 }
 beforeAll(async () => {
   const current = await readFile(EXE);
-  for (const v of ["1.0.0", "1.0.1"]) {
+  for (const v of ["1.0.0", "1.0.1", "1.0.2", "1.0.3"]) {
     const binary = v === "1.0.0" && process.env.CORGI_OLD_EXE ? await readFile(process.env.CORGI_OLD_EXE) : current;
     await mkdir(dirname(fixture(v)), { recursive: true });
     await writeFile(fixture(v), binary, { mode: 0o755 });
@@ -197,6 +198,18 @@ test("explicit update preserves real pane PID and supports rollback", async () =
   expect(await readFile(join(root, "suppressed"), "utf8")).toBe("1.0.1");
   const rollbackProtocol = (await rpc({ op: "hello", protocol: 1 })).protocol;
   expect((await rpc({ op: "session.snapshot", protocol: rollbackProtocol })).panes[0].pid).toBe(before.panes[0].pid);
+}, 30_000);
+test("a newer download replaces the update waiting before it", async () => {
+  await cli(["update", "--download-only"]);
+  latest = "1.0.2";
+  await cli(["update", "--download-only"]);
+  expect(await readFile(join(root, "staged"), "utf8")).toBe("1.0.2");
+  expect((await readdir(join(root, "releases"))).sort()).toEqual(["1.0.0", "1.0.2"]);
+  // A stale feed doesn't take it back.
+  latest = "1.0.1";
+  await cli(["update", "--download-only"]);
+  expect(await readFile(join(root, "staged"), "utf8")).toBe("1.0.2");
+  expect((await readdir(join(root, "releases"))).sort()).toEqual(["1.0.0", "1.0.2"]);
 }, 30_000);
 test("background download stages without activating, next start works offline", async () => {
   await cli(["start"]);
@@ -330,3 +343,58 @@ test("two simultaneous starts activate once; a second runtime catches up later",
     await exec([bin, "shutdown"], secondEnv, false);
   }
 }, 30_000);
+test("updates remove releases two behind, except one another runtime runs", async () => {
+  const secondEnv = { ...env, CORGI_SOCKET: join(home, "second/control.sock") },
+    installed = async () => (await readdir(join(root, "releases"))).sort(),
+    hello = async (e: Record<string, string>) =>
+      JSON.parse((await exec([bin, "rpc", JSON.stringify(versioned({ op: "hello" }))], e)).out);
+  // Waits for the runtime it replaced to exit, letting go of its release.
+  async function update(e: Record<string, string>, ...args: string[]) {
+    const old = (await hello(e)).server_pid;
+    await exec([bin, "update", ...args], e);
+    await waitFor(async () => !running(old));
+  }
+  await cli(["start"]);
+  await exec([bin, "start"], secondEnv);
+  try {
+    await update(env);
+    await update(secondEnv);
+    const session = await rpc({ op: "session.snapshot" });
+    await rpc({
+      op: "session.command",
+      command: { "pane.create": { workspace: session.workspaces[0].id, cwd: home, command: "exec /bin/sh" } },
+    });
+    const pane = (await rpc({ op: "session.snapshot" })).panes[0].id;
+    latest = "1.0.2";
+    await update(env);
+    expect(await installed()).toEqual(["1.0.1", "1.0.2"]);
+    latest = "1.0.3";
+    await update(env);
+    expect(await installed()).toEqual(["1.0.1", "1.0.2", "1.0.3"]);
+    const second = (await hello(secondEnv)).server_pid;
+    await exec([bin, "shutdown"], secondEnv);
+    await waitFor(async () => !running(second));
+    await update(env, "rollback");
+    expect(await installed()).toEqual(["1.0.2", "1.0.3"]);
+    // The pane opened under 1.0.1 still finds the CLI, as do hooks. Corgi
+    // resolves its own path, and macOS's /tmp is a link to /private/tmp.
+    const launcher = join(await realpath(root), "bin/corgi");
+    await rpc({
+      op: "session.command",
+      command: {
+        "pane.input": {
+          target: pane,
+          data: `corgi --version >/dev/null && printf 'CLI_%s\\n' "$(command -v corgi)"\r`,
+        },
+      },
+    });
+    await waitFor(async () =>
+      (
+        await rpc({ op: "session.command", command: { "pane.read": { target: pane, view: "screen" } } })
+      ).result.text.includes(`CLI_${launcher}`),
+    );
+    expect((await cli(["hooks", "claude"])).out).toContain(launcher);
+  } finally {
+    await exec([bin, "shutdown"], secondEnv, false);
+  }
+}, 120_000);

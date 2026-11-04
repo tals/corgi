@@ -1,11 +1,12 @@
 import { test, expect } from "bun:test";
 import { generateKeyPairSync, sign } from "node:crypto";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { closeSync, mkdirSync, mkdtempSync, openSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
-import { version, parse, managed, release, abi, platform, check, save, type Release } from "./updates";
+import { version, parse, managed, release, abi, platform, check, save, prune, type Release } from "./updates";
 import { releaseVersion } from "./build_config";
+import { flock } from "./native_bridge";
 const keys = () => generateKeyPairSync("ed25519");
 const key = (k: ReturnType<typeof keys>) =>
   Buffer.from(k.publicKey.export({ type: "spki", format: "der" }))
@@ -101,6 +102,75 @@ test("only an installed release with a feed is managed", () => {
       expect(managed({ ...r, ...change }, exe)).toBeNull();
     expect(managed(r, join(root, "1.2.3/corgi"))).toBeNull();
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+/** An installation with `versions` installed and `pointers` (current, previous, staged) recorded. */
+function installation(versions: string[], pointers: Record<string, string>): string {
+  const root = mkdtempSync(join(tmpdir(), "corgi-prune-"));
+  for (const v of versions) {
+    mkdirSync(join(root, "releases", v), { recursive: true });
+    writeFileSync(join(root, "releases", v, "corgi"), "");
+  }
+  for (const [name, v] of Object.entries(pointers)) writeFileSync(join(root, name), v);
+  return root;
+}
+const releases = (root: string) => readdirSync(join(root, "releases")).sort();
+test("an installation keeps its current release and the previous one", () => {
+  const root = installation(["1.0.0", "1.0.1", "1.0.2", "1.0.3"], { current: "1.0.3", previous: "1.0.2" });
+  try {
+    mkdirSync(join(root, "releases", "notes"));
+    prune(root);
+    expect(releases(root)).toEqual(["1.0.2", "1.0.3", "notes"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test("releases newer than the current one stay", () => {
+  // 1.0.3 waits to apply and 1.0.4 is still downloading.
+  const root = installation(["1.0.0", "1.0.1", "1.0.2", "1.0.3", "1.0.4"], {
+    current: "1.0.2",
+    previous: "1.0.1",
+    staged: "1.0.3",
+  });
+  try {
+    prune(root);
+    expect(releases(root)).toEqual(["1.0.1", "1.0.2", "1.0.3", "1.0.4"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test("a finished download removes the update it replaces", () => {
+  const root = installation(["1.0.0", "1.0.1", "1.0.2", "1.0.3"], { current: "1.0.0", staged: "1.0.3" });
+  try {
+    mkdirSync(join(root, "releases", "notes"));
+    prune(root, true);
+    expect(releases(root)).toEqual(["1.0.0", "1.0.3", "notes"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test("a rollback keeps the release it left", () => {
+  const root = installation(["1.0.0", "1.0.1", "1.0.2"], { current: "1.0.1", previous: "1.0.2" });
+  try {
+    prune(root);
+    expect(releases(root)).toEqual(["1.0.1", "1.0.2"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test("a release a runtime still runs stays until it stops", () => {
+  const root = installation(["1.0.0", "1.0.1", "1.0.2"], { current: "1.0.2", previous: "1.0.1" }),
+    fd = openSync(join(root, "releases/1.0.0/runtime-1.lock"), "a");
+  try {
+    expect(flock(fd)).toBe(true);
+    prune(root);
+    expect(releases(root)).toEqual(["1.0.0", "1.0.1", "1.0.2"]);
+    flock(fd, false);
+    prune(root);
+    expect(releases(root)).toEqual(["1.0.1", "1.0.2"]);
+  } finally {
+    closeSync(fd);
     rmSync(root, { recursive: true, force: true });
   }
 });

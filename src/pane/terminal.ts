@@ -4,6 +4,7 @@ import { EventEmitter } from "node:events";
 import { dirname } from "node:path";
 import { n, ptr, call, symbols, ReadyLoop, READ, nativeRoot } from "../native_bridge";
 import * as launch_command from "../launch/command";
+import * as current_release from "../current_release";
 import { Provider, adapter } from "../providers";
 import * as surface from "./surface";
 import type { Link } from "./hyperlinks";
@@ -136,7 +137,8 @@ export class Terminal extends EventEmitter {
     const fds = new Int32Array(2);
     if (n.probe_pty(ptr(fds))) throw Error("OpenPtyFailed");
     const [master, slave] = fds;
-    const shell = launch_command.shell();
+    const shell = launch_command.shell(),
+      cli = current_release.path(executable);
     const env: Record<string, string | undefined> = {
       ...process.env,
       SHELL: shell,
@@ -146,9 +148,9 @@ export class Terminal extends EventEmitter {
       TERM_PROGRAM: "ghostty",
       TERM_PROGRAM_VERSION: undefined,
       CORGI_SOCKET: socket,
-      CORGI_BIN: hookSender(executable),
+      CORGI_BIN: hookSender(cli),
       CORGI_PANE: String(id),
-      PATH: `${dirname(executable)}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+      PATH: `${dirname(cli)}:${process.env.PATH ?? "/usr/bin:/bin"}`,
     };
     for (const key of ["ITERM_SESSION_ID", "KITTY_WINDOW_ID", "WEZTERM_PANE", "VSCODE_PID", "ALACRITTY_WINDOW_ID"])
       delete env[key];
@@ -471,7 +473,7 @@ export class Terminal extends EventEmitter {
 }
 /** What the installed hook command runs as `$CORGI_BIN hook <provider>`: the
  * native sender, so an agent's hooks don't start the Bun application. */
-function hookSender(executable: string): string {
+function hookSender(cli: string): string {
   const sender = `${nativeRoot}/bin/corgi-hook`;
-  return existsSync(sender) ? sender : executable;
+  return existsSync(sender) ? sender : cli;
 }

@@ -15,6 +15,7 @@ import { specs as actionSpecs } from "./action";
 import type { Preset } from "./keymap";
 import { flock, n } from "./native_bridge";
 import * as updates from "./updates";
+import * as current_release from "./current_release";
 import { testBuild } from "./build_assets";
 import * as config from "./build_config";
 import * as crash from "./crash";
@@ -270,6 +271,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       process.stdout.write((await import("./licenses")).text);
       return;
     case "serve": {
+      updates.hold(executable);
       const { Server } = await import("./server");
       await new Server(path, executable, buildId()).run();
       return;
@@ -361,6 +363,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       await print(path, "server.reload", { executable: args[1] ?? executable });
       return;
     case "__handoff": {
+      updates.hold(executable);
       const handoff = await import("./persist/handoff");
       await handoff.importAndRun(path, executable, Number(args[1]), Number(args[2]));
       return;
@@ -438,7 +441,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     }
     case "hooks": {
       if (args.length !== 2) throw Error("Usage");
-      process.stdout.write(adapter(provider(args[1])).integration.snippet(executable) + "\n");
+      process.stdout.write(adapter(provider(args[1])).integration.snippet(current_release.path(executable)) + "\n");
       return;
     }
     case "agent": {

@@ -7,8 +7,10 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   unlinkSync,
 } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
@@ -237,6 +239,9 @@ async function feed(rel: Release, root: string, download: boolean, explicit: boo
     }
     const suppressed = read(root, "suppressed");
     if (!explicit && suppressed && compare(m.version, suppressed) <= 0) return;
+    // A stale feed doesn't take back a newer update, such as one the installer staged.
+    const staged = read(root, "staged");
+    if (staged && compare(m.version, staged) < 0) return;
     if (explicit) console.error(`Corgi ${m.version} is available.${download ? " Downloading…" : ""}`);
     if (!download) return;
     const dest = executable(root, m.version),
@@ -258,6 +263,14 @@ async function feed(rel: Release, root: string, download: boolean, explicit: boo
     write(dir, "manifest.json", bytes);
     write(root, "staged", m.version);
     remove(root, "last-error");
+    // With activation held off as well, the update this one replaces can go.
+    const unlockActivation = await lock(root, "activation.lock", false);
+    if (unlockActivation)
+      try {
+        prune(root, true);
+      } finally {
+        unlockActivation();
+      }
   } finally {
     unlock();
   }
@@ -276,8 +289,69 @@ function switchCurrent(root: string, v: string) {
   if (old !== v) {
     write(root, "previous", old);
     write(root, "current", v);
+    prune(root);
   }
   if (read(root, "staged") === v) remove(root, "staged");
+}
+const runtimeLock = /^runtime-\d+\.lock$/;
+let holding: number | null = null;
+/** Keeps the release at `exe` from being pruned while this runtime runs it:
+ * prune skips a release with a held `runtime-<pid>.lock`, and the kernel lets
+ * go of the lock however the runtime exits. */
+export function hold(exe: string) {
+  try {
+    if (holding !== null || !managed(release(exe), exe)) return;
+    const file = join(dirname(exe), `runtime-${process.pid}.lock`),
+      fd = openSync(file, "a", 0o600);
+    // A prune testing the file holds it for a moment.
+    for (let tries = 0; !flock(fd); tries++) {
+      if (tries === 50) {
+        closeSync(fd);
+        return;
+      }
+      Bun.sleepSync(2);
+    }
+    holding = fd;
+    process.once("exit", () => remove(dirname(file), basename(file)));
+  } catch {
+    // Unheld, the release can go two updates later; the runtime keeps running.
+  }
+}
+/** Whether a runtime holds the release in `dir`. */
+function runtimeHolds(dir: string): boolean {
+  return readdirSync(dir).some(name => {
+    if (!runtimeLock.test(name)) return false;
+    const fd = openSync(join(dir, name), "r");
+    try {
+      if (!flock(fd)) return true;
+      flock(fd, false);
+      return false;
+    } finally {
+      closeSync(fd);
+    }
+  });
+}
+/** Removes the releases nothing needs: all but the current one, the previous
+ * one kept for rollback, a staged update and any a runtime runs. Under the
+ * activation lock alone a download may be filling a newer release, so only
+ * older ones go; `downloads` says the download lock is held too. */
+export function prune(root: string, downloads = false) {
+  try {
+    const current = read(root, "current"),
+      keep = [current, read(root, "previous"), read(root, "staged")],
+      dir = join(root, "releases");
+    if (current === null) return;
+    for (const v of readdirSync(dir))
+      try {
+        // Throws for what isn't a release.
+        const older = compare(v, current) < 0,
+          path = join(dir, v);
+        if (!keep.includes(v) && (older || downloads) && !runtimeHolds(path))
+          rmSync(path, { recursive: true, force: true });
+      } catch {
+        // Not a release, or it couldn't go; a later prune tries again.
+      }
+  } catch {}
 }
 function recordError(root: string, error: unknown) {
   try {
