@@ -71,3 +71,40 @@ test("a headless conversation streams its own answer's text", () => {
     { kind: "partial", session: "ses_main", text: "Next" },
   ]);
 });
+test("unattended, a tool's permission is granted at once and a question still asks", async () => {
+  const calls: unknown[][] = [],
+    events: unknown[] = [];
+  const replies: Record<string, unknown> = {
+    "/api/session/ses_main/context": { data: [] },
+    "/api/session/ses_main": { data: { tokens: {} } },
+    "/api/session/ses_main/permission": { data: [{ id: "per_1", action: "bash", resources: ["ls"] }] },
+    "/api/session/ses_main/form": { data: [{ id: "frm_1", title: "Which?", fields: [] }] },
+  };
+  const api = {
+    cwd: "/repo",
+    sessions: async () => ({ entries: [], complete: true }),
+    call: async (method: string, path: string, body?: unknown) => {
+      calls.push([method, path, ...(body === undefined ? [] : [body])]);
+      return replies[path] ?? { data: {} };
+    },
+  } as unknown as API;
+  const engine = new Engine(api, e => events.push(e), null, { unattended: true });
+  engine.session = "ses_main";
+  await engine.poll();
+  const reply = ["POST", "/api/session/ses_main/permission/per_1/reply", { decision: "once" }];
+  expect(calls).toContainEqual(reply);
+  expect(events.filter((e: any) => e.kind === "request").map((e: any) => e.id)).toEqual(["frm_1"]);
+  // Still listed while OpenCode takes the reply up: granted once.
+  await engine.poll();
+  expect(calls.filter(call => JSON.stringify(call) === JSON.stringify(reply)).length).toBe(1);
+  // A reply OpenCode refuses leaves the permission to ask.
+  replies["/api/session/ses_main/permission"] = { data: [{ id: "per_2", action: "bash", resources: ["rm"] }] };
+  const call = api.call;
+  api.call = async (method: string, path: string, body?: unknown) => {
+    if (method === "POST") throw Error("OpenCodeRequestFailed");
+    return call(method, path, body);
+  };
+  await engine.poll();
+  expect(events.filter((e: any) => e.kind === "request").map((e: any) => e.id)).toEqual(["frm_1", "per_2"]);
+  expect(engine.replied.size).toBe(0);
+});

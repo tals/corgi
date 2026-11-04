@@ -370,6 +370,10 @@ $.requests|headless.events.pane: optional
 $.requests|headless.events.pane?: u32
 $.requests|headless.search.id: u32
 $.requests|headless.search.search: any
+$.requests|headless.memory.id: u32
+$.requests|headless.memory.file: string
+$.requests|headless.memory.line: string
+$.requests|headless.memory.edited: bool
 $.requests|theme.theme: optional
 $.requests|theme.theme?.foreground: optional
 $.requests|theme.theme?.foreground?.r: u8

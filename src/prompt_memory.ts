@@ -5,9 +5,24 @@
 import { appendFileSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import * as accounts from "./accounts";
+import { spacedControls } from "./text";
 
 /** A line as a file holds it, and the file. */
 export type Written = { file: string; line: string };
+/** A line `corgi memory add` wrote, its file a path: a new one, or with
+ * `edited` one rewritten in place. */
+export type Change = Written & { edited: boolean };
+/** A change as a prompt session's journal keeps it, for the conversation it ran for. */
+export type Event = { kind: "memory"; session: string } & Change;
+/** What `add` did: the line's file relative to the memory folder and its
+ * number from 1, then the file's path and the line as it holds it. */
+export type Added = {
+  status: "added" | "already" | "replaced";
+  file: string;
+  line: number;
+  path: string;
+  text: string;
+};
 /** A line a search found: its file relative to the memory folder, its line
  * number from 1, and its text without the "- ". */
 export type Hit = { file: string; line: number; text: string };
@@ -148,7 +163,7 @@ export class Memory {
    * where it was opened, and where it may write, `workspace`'s note among it. */
   instructions(loaded: string, context: string, now: Date, workspace: string | null = null): string {
     // The name goes in double quotes, so nothing in it may end them or expand.
-    const name = workspace?.replace(/["$`\\!]/g, "").trim() ?? "",
+    const name = workspace === null ? "" : noteKey(workspace),
       here = name
         ? `Facts that hold only in this workspace (its project, conventions, people and plans) go to its ` +
           `note instead: \`corgi memory add --workspace "${name}" "<line>"\`. `
@@ -239,7 +254,7 @@ export class Memory {
     where: "today" | "long" | { workspace: string },
     now: Date,
     replaces: { file: string; line: number; moved?: boolean } | null = null,
-  ): { status: "added" | "already" | "replaced"; file: string; line: number } {
+  ): Added {
     const line = clean(text);
     if (!line) throw Error("EmptyLine");
     if (replaces) {
@@ -250,7 +265,7 @@ export class Memory {
       if (!replaces.moved) {
         lines[at] = `- ${line}`;
         writeFileSync(file, lines.join("\n"));
-        return { status: "replaced", file: replaces.file, line: replaces.line };
+        return { status: "replaced", file: replaces.file, line: replaces.line, path: file, text: lines[at] };
       }
       lines.splice(at, 1);
       writeFileSync(file, lines.join("\n"));
@@ -263,16 +278,17 @@ export class Memory {
             ? long
             : join(this.dir, "workspaces", noteName(where.workspace) || "_.md");
     for (const f of new Set([file, long])) {
-      const at = read(f)
-        .split("\n")
-        .findIndex(l => clean(l) === line);
-      if (at >= 0) return { status: "already", file: relative(this.dir, f), line: at + 1 };
+      const held = read(f).split("\n"),
+        at = held.findIndex(l => clean(l) === line);
+      if (at >= 0) return { status: "already", file: relative(this.dir, f), line: at + 1, path: f, text: held[at] };
     }
-    this.append(file, line);
+    const written = this.append(file, line);
     return {
       status: replaces ? "replaced" : "added",
       file: relative(this.dir, file),
       line: read(file).split("\n").length - 1,
+      path: file,
+      text: written.line,
     };
   }
   /** Drops line `line` of `name`, a file in the memory folder; the text it held. */
@@ -346,7 +362,7 @@ export class Memory {
     const out: Group[] = [
       { file: join(this.dir, long_name), title: long_name, loaded: true, lines: lines(join(this.dir, long_name)) },
       { file: today, title: "Today", loaded: true, lines: lines(today) },
-      ...(here ? [{ file: here, title: `Workspace ${workspace}`, loaded: true, lines: lines(here) }] : []),
+      ...(here ? [{ file: here, title: `Workspace ${shown(workspace!)}`, loaded: true, lines: lines(here) }] : []),
     ];
     const notes: Group[] = [],
       logs: Group[] = [];
@@ -354,7 +370,7 @@ export class Memory {
       const name = basename(file);
       if (file === today || file === here || name === long_name) continue;
       if (dirname(file) !== this.dir)
-        notes.push({ file, title: `Workspace ${name.slice(0, -3)}`, loaded: name === note, lines: lines(file) });
+        notes.push({ file, title: `Workspace ${shown(name.slice(0, -3))}`, loaded: name === note, lines: lines(file) });
       else if (daily.test(name)) {
         const date = name.slice(0, -3),
           title = date === yesterday ? "Yesterday" : date;
@@ -423,18 +439,30 @@ function day(at: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
 }
-/** A workspace's note file, without folder separators or a leading dot. */
-function noteName(workspace: string): string {
-  const name = workspace
+/** A workspace's name as its note is named: without folder separators, a
+ * leading dot, or what a shell expands in double quotes, so the model can
+ * pass it back to `--workspace` as it was told it. */
+function noteKey(workspace: string): string {
+  return workspace
     .replace(/[/\\\x00-\x1f\x7f]/g, "-")
+    .replace(/["$`!]/g, "")
     .replace(/^[.\s]+/, "")
-    .trim()
-    .slice(0, 120);
-  return name ? `${name}.md` : "";
+    .slice(0, 120)
+    .trim();
 }
-/** One line as memory keeps it: whitespace collapsed, without its "- ". */
+/** A name as the memory view draws it, its controls as spaces. */
+function shown(name: string): string {
+  return spacedControls(name);
+}
+/** A workspace's note file. */
+function noteName(workspace: string): string {
+  const key = noteKey(workspace);
+  return key ? `${key}.md` : "";
+}
+/** One line as memory keeps it: controls as spaces, whitespace collapsed,
+ * without its "- ". */
 function clean(line: string): string {
-  return line
+  return spacedControls(line)
     .replace(/\s+/g, " ")
     .trim()
     .replace(/^[-*] +/, "");

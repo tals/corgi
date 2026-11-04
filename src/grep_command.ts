@@ -379,10 +379,11 @@ async function main(raw: string[], socket: string) {
   options.workspace = display.workspace = where.root;
   options.folders = where.folders;
   if (display.onlyMatching) options.context = options.before = options.after = 0;
-  const headless = Number(process.env.CORGI_HEADLESS_ID);
-  if (process.env.CORGI_SOCKET && Number.isSafeInteger(headless) && headless > 0) {
+  if (process.env.CORGI_SOCKET && process.env.CORGI_HEADLESS_ID) {
     const { Reporter } = await import("./prompt_search_report");
-    reporter = new Reporter(process.env.CORGI_SOCKET, headless);
+    reporter = Reporter.here();
+  }
+  if (reporter) {
     progress = {
       id: crypto.randomUUID(),
       revision: 0,

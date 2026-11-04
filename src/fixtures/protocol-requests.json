@@ -204,6 +204,7 @@
     "provider": "codex"
   },
   "headless.search": { "id": 1, "search": {} },
+  "headless.memory": { "id": 1, "file": "/memory/MEMORY.md", "line": "- Ships Fridays", "edited": false },
   "headless.events": {
     "session": "t",
     "after": 4,

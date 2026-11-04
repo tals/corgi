@@ -145,6 +145,16 @@ test("as in Pi: two tildes strike, math shows as Unicode, prices stay text", () 
 
 test("entities show as what they name", () => {
   expect(shown(markdown.layout("a &amp; b &lt;c&gt; &#x1F600; &bogus;", 40))).toEqual(["a & b <c> 😀 &bogus;"]);
+  expect(shown(markdown.layout("a&#10;b&#9;c", 40))).toEqual(["a", "b c"]);
+});
+
+test("an entity naming a control stays as written, out of the terminal", () => {
+  const text = "&#27;]52;c;aGk=&#7; &#x1b;[2J &#155; &#xD800;";
+  for (const source of [text, `**${text}**`, `| a |\n|---|\n| ${text} |`]) {
+    const out = shown(markdown.layout(source, 80)).join("\n");
+    expect(out).not.toMatch(/[\x00-\x09\x0b-\x1f\x7f-\x9f\ud800-\udfff]/);
+    expect(out).toContain("&#27;");
+  }
 });
 
 test("a streaming reply closes what it left open, and waits on a half-typed mark", () => {

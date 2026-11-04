@@ -22,9 +22,10 @@ const looking = [
 const valued = new Set(["--viewer", "--workspace", "--limit", "--lines"]);
 const flags = new Set(["--json"]);
 /** The words of `line` when it is plain words and quoted strings holding
- * nothing a shell would expand or run; null for anything else. */
+ * nothing a shell would expand or run; null for anything else. Words part
+ * at spaces and tabs only: an unquoted newline starts another command. */
 function shellWords(line: string): string[] | null {
-  const word = /\s*(?:'([^']*)'|"([^"$`\\!]*)"|([A-Za-z0-9_.:/@+=,-]+))(?=\s|$)/y,
+  const word = /[ \t]*(?:'([^']*)'|"([^"$`\\!]*)"|([A-Za-z0-9_.:/@+=,-]+))(?=[ \t]|$)/y,
     out: string[] = [];
   for (let at = 0; line.slice(at).trim(); at = word.lastIndex) {
     word.lastIndex = at;

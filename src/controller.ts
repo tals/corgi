@@ -580,8 +580,14 @@ export class Controller {
   layoutView(): LayoutView {
     return new LayoutView(this.model(), this.nav());
   }
-  private async execute(command: CommandInput): Promise<{ pane: number; workspace: number; text: string | null }> {
+  /** Runs `command` in the daemon, then reads what changed; `done` hears
+   * that the daemon did it, even when the reading fails. */
+  private async execute(
+    command: CommandInput,
+    done?: () => void,
+  ): Promise<{ pane: number; workspace: number; text: string | null }> {
     const response = await call(this.connection, "session.command", { command });
+    done?.();
     const result = {
       pane: Number(response.result?.pane ?? 0),
       workspace: Number(response.result?.workspace ?? 0),
@@ -1228,10 +1234,12 @@ export class Controller {
       const first_agent = entries.length,
         starts: number[] = [];
       for (const { entry, start } of agentRows.rows(this.runtime, ws, now_ms)) {
-        const t = entry.target;
+        const t = entry.target,
+          chat = "headless" in t ? this.runtime.corgi_sessions.find(s => s.id === t.headless) : null,
+          pane = "pane" in t ? t.pane : chat?.pane;
         entry.focused =
-          "pane" in t
-            ? this.headless_notice === null && focus === t.pane
+          pane != null
+            ? this.headless_notice === null && focus === pane
             : "headless" in t && this.headless_notice === t.headless;
         entries.push(entry);
         starts.push(start);
@@ -1370,7 +1378,7 @@ export class Controller {
   /** The headless sessions the sidebar lists: the agents', and the prompt's
    * own conversations while a Corgi pane holds one; in the card they don't show. */
   private listedSessions(): Headless[] {
-    return [...this.runtime.sessions, ...this.runtime.corgi_sessions.filter(s => !s.exited && s.pane !== null)];
+    return agentRows.sessions(this.runtime);
   }
   private selectAgent(target: Target): void {
     if ("worktree" in target) return this.revealWorktree({ workspace: target.workspace, path: target.worktree }, true);
@@ -1570,7 +1578,7 @@ export class Controller {
   }
   /** Whether a tab menu's target (pane, workspace, or tab) has disappeared. */
   private tabMenuStale(context: TabMenu): boolean {
-    if (context.headless) return !this.runtime.sessions.some(session => session.id === context.tab);
+    if (context.headless) return !this.listedSessions().some(session => session.id === context.tab);
     if (context.worktree !== null) {
       const ws = this.runtime.workspaces.items.find(ws => ws.id === context.tab);
       return !worktrees.linked(ws?.worktrees ?? null).some(e => e.path === context.worktree);
@@ -2150,7 +2158,13 @@ export class Controller {
     this.dismissName();
     this.message = "";
   }
-  private async create(split: Axis | null, cwd: string, command: string | null, title: string): Promise<number> {
+  private async create(
+    split: Axis | null,
+    cwd: string,
+    command: string | null,
+    title: string,
+    made?: () => void,
+  ): Promise<number> {
     const operation: CommandInput = split
       ? {
           "pane.split": {
@@ -2162,7 +2176,7 @@ export class Controller {
           },
         }
       : { "pane.create": { workspace: this.current().id, cwd, command, title } };
-    const id = (await this.execute(operation)).pane;
+    const id = (await this.execute(operation, made)).pane;
     this.focusPane(id);
     this.nav().tab().zoom = false;
     this.dirty = true;
@@ -2578,7 +2592,7 @@ export class Controller {
         if (!dialog || dialog.pending || !agent) return;
         const target = agent.target;
         if ("pane" in target && !this.pane(target.pane)) return;
-        if ("headless" in target && !this.runtime.sessions.some(s => s.id === target.headless)) return;
+        if ("headless" in target && !this.listedSessions().some(s => s.id === target.headless)) return;
         this.archive_dialog = null;
         this.selectAgent(agent.target);
         this.dirty = true;
@@ -4435,13 +4449,20 @@ export class Controller {
         return this.copyText(effect.text);
       case "open":
         return this.showConversation(effect.entry);
-      case "pane":
+      case "pane": {
+        let made = false;
         try {
-          await this.create(null, effect.cwd || this.currentCwd(), shellWords(effect.argv), "");
+          await this.create(null, effect.cwd || this.currentCwd(), shellWords(effect.argv), "", () => (made = true));
         } catch (error) {
-          this.notice(` Couldn't open a pane: ${errors.name(error) ?? "unknown error"}`);
+          const name = errors.name(error) ?? "unknown error";
+          // A pane the daemon made goes on with the conversation; the card
+          // takes it back only from one that never opened.
+          if (made) return;
+          if (effect.handoff) this.prompt.reclaim(effect.handoff, name);
+          this.notice(` Couldn't open a pane: ${name}`);
         }
         return;
+      }
     }
   }
   /** The conversations the prompt's lists show, as the launcher has them:
@@ -4472,7 +4493,7 @@ export class Controller {
   /** Shows the conversation a prompt list picked: the pane running it, or
    * resumed in a tab in the workspace that holds its folder. */
   private async showConversation(e: launcherResume.Entry): Promise<void> {
-    const workspaces = this.runtime.workspaces.items.map(ws => ({ id: ws.id, cwd: ws.cwd }));
+    const workspaces = this.runtime.workspaces.items.map(ws => ({ id: ws.id, cwd: ws.cwd, archived: ws.archived }));
     try {
       await this.resumeEntry(e, workspaceFor(workspaces, e.cwd, this.current().id)!);
     } catch (error) {
@@ -5542,6 +5563,8 @@ export class Controller {
   }
   /** The text box that has the keyboard, which cmd+c and cmd+x copy from. */
   private textField(): textArea.TextArea | null {
+    // The prompt takes the keys while it's open, as `input` sends them.
+    if (this.prompt.open && !this.prefix) return this.prompt.textField();
     const launch = this.agent_launcher;
     if (launch) {
       if (this.resumeSearching()) return launch.resume_view.query.area;

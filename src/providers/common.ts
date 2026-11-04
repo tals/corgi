@@ -1,9 +1,9 @@
 import type * as checklist from "../activity/checklist";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { BoundedText } from "../bounded_text";
 import path from "node:path";
 import { field, str } from "../json";
-import type { Image, Permissions, Programs } from "./adapter";
+import { max_image_bytes, type Image, type Permissions, type Programs } from "./adapter";
 export { field, str } from "../json";
 export type Outcome = "completed" | "interrupted" | "failed";
 export type SessionRef = { id: string } | { path: string };
@@ -184,6 +184,15 @@ export function owns(programs: Programs, p: string): boolean {
     (programs.markers ?? []).some(marker => p.includes(marker)) ||
     (programs.scripts ?? []).some(script => p.endsWith(script))
   );
+}
+/** Whether the image file at `path` is too big to send; false for one that
+ * can't be read, which sending it reports. */
+export function oversized(path: string): boolean {
+  try {
+    return statSync(path).size > max_image_bytes;
+  } catch {
+    return false;
+  }
 }
 /** An image's bytes as base64, for a protocol that carries them inline. */
 export function imageData(image: Image): string {

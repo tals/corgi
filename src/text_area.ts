@@ -41,6 +41,25 @@ export const byte_edits: Partial<Record<number, Edit>> = {
   23: "word_backspace",
   127: "backspace",
 };
+/** A character typed a byte at a time, whole once its UTF-8 bytes are. */
+export class Typed {
+  private bytes: number[] = [];
+  /** The character `byte` completes: null while one is partial, and for a stray byte. */
+  take(byte: number): string | null {
+    if (byte < 0x80) {
+      this.bytes = [];
+      return String.fromCharCode(byte);
+    }
+    if (byte >= 0xc0) this.bytes = [];
+    else if (!this.bytes.length) return null;
+    this.bytes.push(byte);
+    const lead = this.bytes[0],
+      size = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : 2;
+    if (this.bytes.length < size) return null;
+    const text = new TextDecoder().decode(new Uint8Array(this.bytes.splice(0)));
+    return text.includes("\ufffd") ? null : text;
+  }
+}
 /** Keys every text box reads as edits. */
 export const key_edits: Partial<Record<keys.Key, Edit>> = {
   left: "left",

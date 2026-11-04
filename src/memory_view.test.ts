@@ -126,6 +126,33 @@ test("a line is edited in place, added to its file, or deleted with Backspace tw
   expect(readFileSync(join(dir, "MEMORY.md"), "utf8")).toBe("- Prefers bun over npm\n");
 });
 
+test("a search or an edit takes any character, typed as its UTF-8 bytes", () => {
+  const { dir, view } = memory();
+  const typeBytes = (text: string) => {
+    for (const byte of Buffer.from(text)) view.key(byte);
+  };
+  writeFileSync(join(dir, "2026-10-31.md"), "- café au lait\n- 部署 on Fridays\n");
+  view.reload();
+  typeBytes("é");
+  expect(draw(view)[0]).toMatch(/^ \/  é +1 of 6/);
+  view.key(27);
+  typeBytes("部");
+  expect(draw(view).filter(l => l.startsWith("  · "))).toEqual(["  · 部署 on Fridays"]);
+  view.key(13);
+  typeBytes(" ✓");
+  view.key(13);
+  expect(readFileSync(join(dir, "2026-10-31.md"), "utf8")).toContain("- 部署 on Fridays ✓\n");
+  // An emoji is whole under the caret, and as the line scrolls past it.
+  view.key(13);
+  typeBytes(" 🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕");
+  for (let i = 0; i < 3; i++) view.sequence("\x1b[D");
+  for (const width of [70, 40, 21, 20]) {
+    const out = new Writer();
+    view.draw(out, new Rect(0, 0, width, 16));
+    expect(out.s).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/);
+  }
+});
+
 test("an edit to a line the model changed meanwhile leaves the file alone and says so", () => {
   const { dir, view } = memory();
   view.key(13);

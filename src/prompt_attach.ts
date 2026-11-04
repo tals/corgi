@@ -30,16 +30,20 @@ export async function paneScreen(call: (op: string, payload: object) => Promise<
   return tail(clean(typeof reply?.result?.text === "string" ? reply.result.text : "", true).trimEnd(), screen_bytes);
 }
 /** `git diff` of `cwd` against HEAD, its stat first, cut at 32 KB. It runs
- * off the UI path, with a timeout. */
+ * off the UI path, with a timeout; a patch too long to keep is read only as
+ * far as the cut. */
 export async function workspaceDiff(cwd: string): Promise<string> {
-  const git = async (args: string[]) => {
+  let partial = false;
+  const git = async (args: string[], cut = false) => {
     const out = await subprocess.run(["git", "-C", cwd, "-c", "core.quotepath=false", ...args], {
       timeout_ms: 5000,
-      max_output: 1024 * 1024,
+      max_output: cut ? 4 * diff_bytes : 1024 * 1024,
+      cut,
       stderr: true,
       env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", LC_ALL: "C" },
     });
-    if (!out.ok()) throw Error(out.stderr.toString().trim().split("\n")[0] || "GitFailed");
+    if (!out.ok() && !out.cut) throw Error(out.stderr.toString().trim().split("\n")[0] || "GitFailed");
+    partial ||= out.cut;
     return out.stdout.toString();
   };
   // A checkout without a commit yet has no HEAD to compare against.
@@ -47,10 +51,10 @@ export async function workspaceDiff(cwd: string): Promise<string> {
     () => ["HEAD"],
     () => [],
   );
-  const [stat, patch] = await Promise.all([git(["diff", "--stat", ...against]), git(["diff", ...against])]);
+  const [stat, patch] = await Promise.all([git(["diff", "--stat", ...against]), git(["diff", ...against], true)]);
   if (!patch.trim()) return "No uncommitted changes.";
   const text = clean(`${stat.trimEnd()}\n\n${patch}`, true);
-  if (Buffer.byteLength(text) <= diff_bytes) return text;
+  if (!partial && Buffer.byteLength(text) <= diff_bytes) return text;
   const head = Buffer.from(text)
     .subarray(0, diff_bytes)
     .toString()

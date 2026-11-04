@@ -10,6 +10,11 @@ export interface Row {
   start: number;
 }
 
+/** The agents' sessions, and the prompt's while a Corgi pane holds them. */
+export function sessions(runtime: mirror.Runtime): mirror.Headless[] {
+  return [...runtime.sessions, ...runtime.corgi_sessions.filter(s => !s.exited && s.pane !== null)];
+}
+
 /** `ws`'s agents, panes by tab and then headless sessions, unsorted and
  * unfocused; the viewer marks its own focus. */
 export function rows(runtime: mirror.Runtime, ws: mirror.Workspace, now_ms: number): Row[] {
@@ -44,7 +49,7 @@ export function rows(runtime: mirror.Runtime, ws: mirror.Workspace, now_ms: numb
     }),
     start: stateStart(p.agent),
   }));
-  for (const session of runtime.sessions) {
+  for (const session of sessions(runtime)) {
     if (session.workspace !== ws.id) continue;
     const entry = sidebar.entry({
       target: { headless: session.id },
@@ -63,6 +68,7 @@ export function rows(runtime: mirror.Runtime, ws: mirror.Workspace, now_ms: numb
       entry.name = session.agent.name;
       entry.activity = session.agent.activity;
     }
+    if (session.corgi) entry.name = "Corgi";
     rows.push({ entry, start: session.agent ? stateStart(session.agent) : 0 });
   }
   for (const { entry } of rows) subagentTooltip.presentChildren(entry, runtime.conversations, now_ms * 1000);

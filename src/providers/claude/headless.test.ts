@@ -154,6 +154,13 @@ test("Claude streams each text block as it's written, then sends it whole", () =
     delta("Hel"),
     delta("lo"),
     delta("sub", "toolu_1"),
+    // A subagent's own message stays out of the conversation's.
+    {
+      type: "assistant",
+      session_id: "a",
+      parent_tool_use_id: "toolu_1",
+      message: { id: "s", content: [{ type: "text", text: "Searching the repo" }] },
+    },
     { type: "assistant", session_id: "a", message: { id: "m", content: [{ type: "text", text: "Hello" }] } },
     { type: "stream_event", session_id: "a", event: { type: "content_block_start", content_block: { type: "text" } } },
     delta("Next"),

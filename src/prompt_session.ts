@@ -1,17 +1,16 @@
 //! The prompt's conversation: one headless session the daemon hosts, driven
 //! over `headless.*` and folded into the rows the prompt draws. It answers
 //! memory edits itself and notices the lines they add.
-import { readFileSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { adapter, type Provider } from "./providers";
 import type { Image, Input } from "./providers/adapter";
 import type { Effort } from "./providers/effort";
 import type { Outcome } from "./observation";
 import type { Mention } from "./prompt";
-import type { Written } from "./prompt_memory";
+import type { Change as MemoryChange, Event as MemoryEvent, Written } from "./prompt_memory";
 import * as errors from "./errors";
 import { field, str } from "./json";
-import { codepointWidth } from "./text";
+import { codepointWidth, isControl } from "./text";
 import * as promptSearch from "./prompt_search";
 
 export type Item =
@@ -65,15 +64,12 @@ export type Used = { provider: Provider; session: string; account: string; persi
 export type Hooks = {
   /** Whether `path` is in the memory folder, links followed. */
   inside(path: string): boolean;
-  /** The memory files a turn may add to, read before and after to see what it wrote. */
-  files(): string[];
   /** Whether a whole shell command only looks at Corgi or moves a viewer, so
    * it runs without asking. */
   corgi?(command: string): boolean;
   search?(command: string): boolean;
   /** Where a session's transcript is, "" when Corgi doesn't know; asked while it still runs. */
   transcript?(provider: Provider, session: string, account: string): string;
-  read?(path: string): string | null;
   clock?(): number;
   /** Waits `ms` between reads of a session no longer shown. */
   wait?(ms: number): Promise<void>;
@@ -118,7 +114,7 @@ function expand(line: string): string {
       const n = tab_stop - (col % tab_stop);
       out += " ".repeat(n);
       col += n;
-    } else if (cp < 0x20 || (cp >= 0x7f && cp <= 0x9f) || (cp >= 0xd800 && cp <= 0xdfff)) {
+    } else if (isControl(cp)) {
       out += " ";
       col++;
     } else {
@@ -136,6 +132,7 @@ type Wire =
   | { kind: "message" | "partial"; session: string; text: string }
   | { kind: "tool"; session: string; id: string; done: boolean; name: string; summary: string }
   | promptSearch.Event
+  | MemoryEvent
   | { kind: "request"; session: string; id: string; name: string; summary: string }
   | { kind: "request_closed"; session: string; id: string; running: boolean }
   | { kind: "ended" };
@@ -148,6 +145,14 @@ function wire(value: unknown): Wire | null {
       const search = promptSearch.parse(field(value, "search"));
       return search ? { kind: "search", session, search } : null;
     }
+    case "memory":
+      return {
+        kind: "memory",
+        session,
+        file: str(value, "file"),
+        line: str(value, "line"),
+        edited: field(value, "edited") === true,
+      };
     case "conversation":
       return { kind: "conversation", session, parent: str(value, "parent") || null };
     case "turn": {
@@ -186,62 +191,6 @@ function wire(value: unknown): Wire | null {
  * summary stays raw: it is checked as a path before it is shown. */
 function ask(value: unknown): { name: string; summary: string } {
   return { name: str(value, "name"), summary: str(value, "summary") };
-}
-function readText(path: string): string | null {
-  try {
-    return readFileSync(path, "utf8");
-  } catch {
-    return null;
-  }
-}
-/** The lines of a memory file that say something: no blanks, no headings. */
-function said(text: string | null): string[] {
-  return (text ?? "").split("\n").filter(line => line.trim() && !line.trimStart().startsWith("#"));
-}
-/** The lines `after` adds to `before`: new ones, and ones that replace a
- * line `before` had. Where lines were both removed and added, as many of
- * the added as were removed count as edits. */
-export function changes(before: string[], after: string[]): { added: string[]; edited: string[] } {
-  let start = 0,
-    end = 0;
-  while (start < before.length && start < after.length && before[start] === after[start]) start++;
-  while (
-    end < before.length - start &&
-    end < after.length - start &&
-    before[before.length - 1 - end] === after[after.length - 1 - end]
-  )
-    end++;
-  const old = before.slice(start, before.length - end),
-    now = after.slice(start, after.length - end);
-  if (!now.length || !old.length) return { added: now, edited: [] };
-  // Too long to compare: none of it counts as new.
-  if (old.length * now.length > 250_000) return { added: [], edited: now };
-  const longest = Array.from({ length: old.length + 1 }, () => new Uint32Array(now.length + 1));
-  for (let i = old.length - 1; i >= 0; i--)
-    for (let j = now.length - 1; j >= 0; j--)
-      longest[i][j] = old[i] === now[j] ? longest[i + 1][j + 1] + 1 : Math.max(longest[i + 1][j], longest[i][j + 1]);
-  const out = { added: [] as string[], edited: [] as string[] };
-  let removed = 0,
-    inserted: string[] = [];
-  const flush = () => {
-    out.edited.push(...inserted.slice(0, removed));
-    out.added.push(...inserted.slice(removed));
-    removed = 0;
-    inserted = [];
-  };
-  for (let i = 0, j = 0; i < old.length || j < now.length;) {
-    if (i < old.length && j < now.length && old[i] === now[j]) {
-      flush();
-      i++;
-      j++;
-    } else if (j < now.length && (i >= old.length || longest[i][j + 1] >= longest[i + 1][j])) inserted.push(now[j++]);
-    else {
-      removed++;
-      i++;
-    }
-  }
-  flush();
-  return out;
 }
 /** A memory line as a row shows it, without its list marker. */
 export function shownLine(line: string): string {
@@ -310,15 +259,11 @@ export class Conversation {
   /** Requests answered from here, which the pending list may still name. */
   private answered = new Set<string>();
   private warned = new Set<string>();
-  /** Memory files as they read when the turn began. */
-  private snapshots = new Map<string, string[]>();
-  private readonly read: (path: string) => string | null;
   private readonly clock: () => number;
   constructor(
     readonly daemon: Daemon,
     readonly hooks: Hooks,
   ) {
-    this.read = hooks.read ?? readText;
     this.clock = hooks.clock ?? Date.now;
   }
   get state(): State {
@@ -385,12 +330,15 @@ export class Conversation {
       this.queued.push(prompt(message, images));
       return;
     }
-    this.snapshot();
     if (!this.session) return this.begin(prompt(message, images), start());
+    const idle = !this.running;
     this.running = true;
     this.working_since = this.clock();
     this.soon();
-    this.input(prompt(message, images), start);
+    // A message the session refused started no turn.
+    this.input(prompt(message, images), start, () => {
+      if (idle) this.running = false;
+    });
   }
   answer(id: string, allow: boolean): void {
     const ask = this.items.find(item => item.kind === "ask" && item.id === id);
@@ -593,7 +541,6 @@ export class Conversation {
     this.next_at = 0;
     this.children.clear();
     this.answered.clear();
-    this.snapshots.clear();
     for (const item of this.items) {
       if (item.kind === "ask" && item.answer === null) item.answer = "deny";
       if (item.kind === "tool") item.done = true;
@@ -668,8 +615,8 @@ export class Conversation {
   }
   /** Sends `input` to the session; a prompt the session ended before
    * reading starts the next one, with `restart()` when the session's own
-   * start isn't known. */
-  private input(input: Input, restart?: () => Start): void {
+   * start isn't known. `refused()` runs when the session turned it down. */
+  private input(input: Input, restart?: () => Start, refused?: () => void): void {
     const provider = this.provider,
       session = this.session,
       generation = this.generation;
@@ -683,10 +630,14 @@ export class Conversation {
         const start = input.kind !== "prompt" ? null : this.started?.instructions ? this.started : restart?.();
         if (input.kind === "prompt" && start) {
           this.lost("The session had ended, so your message started a new one.");
-          this.snapshot();
           this.begin(input, start);
         } else this.lost();
-      } else this.note(`Couldn't reach ${adapter(provider).name}: ${errors.name(error) ?? "unknown error"}.`, "hot");
+      } else {
+        this.note(`Couldn't reach ${adapter(provider).name}: ${errors.name(error) ?? "unknown error"}.`, "hot");
+        // Only the daemon's answer says it went nowhere; a timeout may have
+        // reached the session after all.
+        if (errors.reply(error)) refused?.();
+      }
       this.changed();
     });
   }
@@ -765,7 +716,6 @@ export class Conversation {
         for (const item of this.items)
           if (item.kind === "search" && !promptSearch.finished(item.search))
             item.search = { ...item.search, phase: "cancelled" };
-        this.notice();
         this.capture();
         if (e.outcome === "interrupted") this.note("Stopped.", "faint");
         else if (e.outcome === "failed") this.note("The turn failed.", "hot");
@@ -786,13 +736,13 @@ export class Conversation {
           found.done ||= e.done;
           found.name ||= e.name;
           found.summary ||= e.summary;
-        } else if (e.id && e.name && !this.memoryEdit(e.name, e.summary))
-          // A memory edit shows as the lines it adds instead. An item that
-          // ends with no tool's name, as Codex's messages do, isn't a tool.
+        } else if (e.id && e.name)
+          // An item that ends with no tool's name, as Codex's messages do, isn't a tool.
           this.push({ kind: "tool", id: e.id, name: e.name, summary: e.summary, done: e.done });
-        if (e.done) this.notice();
         return;
       }
+      case "memory":
+        return this.remember(e);
       case "request":
         return this.request(e.id, e.name, e.summary);
       case "request_closed": {
@@ -873,23 +823,12 @@ export class Conversation {
     void this.end(provider, session).catch(() => {});
     this.note(text, "faint");
   }
-  private snapshot(): void {
-    this.snapshots.clear();
-    if (!this.memory_writes) return;
-    for (const path of this.hooks.files()) this.snapshots.set(path, said(this.read(path)));
-  }
-  /** Rows for the memory lines the turn wrote since the last look. Only new
-   * lines count as its own; an edited line was the user's first. */
-  private notice(): void {
-    for (const [path, before] of this.snapshots) {
-      const after = said(this.read(path)),
-        { added, edited } = changes(before, after);
-      this.snapshots.set(path, after);
-      for (const line of added) {
-        this.wrote.push({ file: path, line });
-        this.note("remembered " + shownLine(line), "faint", true);
-      }
-      for (const line of edited) this.note("edited " + shownLine(line), "faint", true);
-    }
+  /** A line `corgi memory` wrote for this session: a row, and when it's
+   * new, one /erase strikes. Only a line in the memory folder counts, and
+   * only while the conversation keeps memory. */
+  private remember(change: MemoryChange): void {
+    if (!this.memory_writes || !isAbsolute(change.file) || !this.hooks.inside(change.file)) return;
+    if (!change.edited) this.wrote.push({ file: change.file, line: change.line });
+    this.note(`${change.edited ? "edited" : "remembered"} ${shownLine(change.line)}`, "faint", true);
   }
 }

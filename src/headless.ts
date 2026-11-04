@@ -8,6 +8,7 @@ import { Actor, Attachment, Registry } from "./conversations";
 import { adapter } from "./providers";
 import {
   image_types,
+  max_images,
   type Ask,
   type Client,
   type Event,
@@ -16,6 +17,7 @@ import {
   type Place,
   type Saved,
 } from "./providers/adapter";
+import { oversized } from "./providers/common";
 import * as effort from "./providers/effort";
 import type { Effort } from "./providers/effort";
 import { State as Observation } from "./observation";
@@ -32,13 +34,23 @@ import type { Runtime } from "./runtime";
 import type { Server } from "./server";
 import { Reply, type Client as Peer } from "./peer";
 import type { DecodedRequest } from "./protocol";
+import type * as promptMemory from "./prompt_memory";
 import * as promptSearch from "./prompt_search";
 type Request = Extract<
   DecodedRequest,
-  { op: "headless.start" | "headless.list" | "headless.stop" | "headless.send" | "headless.events" | "headless.search" }
+  {
+    op:
+      | "headless.start"
+      | "headless.list"
+      | "headless.stop"
+      | "headless.send"
+      | "headless.events"
+      | "headless.search"
+      | "headless.memory";
+  }
 >;
 
-export type Entry = { seq: bigint; event: Event | promptSearch.Event };
+export type Entry = { seq: bigint; event: Event | promptSearch.Event | promptMemory.Event };
 /** What a session starts with besides its folder; ordinary sessions leave it all out. */
 export type Options = Partial<Omit<Place, "cwd" | "executable">>;
 export type Tool = { id: string; thread: string; turn: string };
@@ -110,12 +122,14 @@ function brief(text: string, cwd: string) {
     .trimEnd();
   return truncateUtf8(cwd.length > 1 ? line.replaceAll(cwd + "/", "") : line, 200);
 }
-/** Images a prompt carries: absolute paths of a type a model reads, a few at most. */
+/** Images a prompt carries: absolute paths of a type a model reads, a few
+ * at most, none too big to send. */
 export function validImages(value: unknown): Image[] {
-  if (!Array.isArray(value) || value.length > 8) throw Error("InvalidMessage");
+  if (!Array.isArray(value) || value.length > max_images) throw Error("InvalidMessage");
   return value.map(v => {
     if (!v || typeof v.path !== "string" || !isAbsolute(v.path) || !image_types.includes(v.mime))
       throw Error("InvalidMessage");
+    if (oversized(v.path)) throw Error("ImageTooLarge");
     return { path: v.path, mime: v.mime };
   });
 }
@@ -145,6 +159,8 @@ function validInput(value: any): Input {
   }
   return bad();
 }
+/** How long a session just sent something stays urgent, for the events it answers with. */
+const sent_ms = 10_000;
 export class Session {
   static Id = { none: 0, first: 1, next: (id: number) => id + 1 };
   /** Provider identity of the root conversation; empty until creation completes. */
@@ -169,6 +185,8 @@ export class Session {
   ended_read = false;
   /** When a reader last fetched its events, for the prompt's sessions no pane holds. */
   read_at = Date.now();
+  /** When it was last sent a prompt, an answer or an interrupt. */
+  sent_at = 0;
   readonly holder = "session";
   #attachment = new Attachment();
   get attachment(): Attachment {
@@ -219,6 +237,15 @@ export class Session {
       if (owner.state.state === "working") result = "working";
     }
     return result === "working" || result === "blocked" ? result : (this.attachment.actor?.state.state ?? result);
+  }
+  /** Whether its events can't wait for the daemon's idle cadence: it's
+   * starting, a conversation in it works, or it was just sent something it
+   * hasn't taken up. One left idle or waiting on an answer can. */
+  urgent(now = Date.now()): boolean {
+    if (this.exited) return false;
+    if (!this.ready || now - this.sent_at < sent_ms) return true;
+    const owners = [this.attachment.provisional, ...this.members.map(owner => owner.state)];
+    return owners.some(owner => owner.state === "working");
   }
   attention() {
     let result = this.attachment.provisional.attention;
@@ -353,6 +380,7 @@ export class Session {
     if (this.exited) throw Error("HeadlessExited");
     const input = validInput(value);
     this.client.send(input);
+    this.sent_at = Date.now();
     if (input.kind !== "answer") return;
     const resolved = this.approvals.filter(request => request.id === input.request);
     this.approvals = this.approvals.filter(request => request.id !== input.request);
@@ -393,7 +421,12 @@ export class Session {
     }
     this.journal({ kind: "search", session: this.session, search });
   }
-  private journal(event: Event | promptSearch.Event) {
+  /** A line `corgi memory` wrote while running for it. */
+  memory(change: promptMemory.Change): void {
+    if (!isAbsolute(change.file) || /[\r\n]/.test(change.line)) throw Error("InvalidMessage");
+    this.journal({ kind: "memory", session: this.session, ...change });
+  }
+  private journal(event: Event | promptSearch.Event | promptMemory.Event) {
     // A partial replaces its conversation's last one when only partials
     // followed it, so streaming, even several conversations', never evicts
     // real events; the message it streamed replaces it for good.
@@ -753,10 +786,14 @@ export async function request(server: Server, client: Peer, request: Request, re
     });
     return;
   }
-  if (request.op === "headless.search") {
+  if (request.op === "headless.search" || request.op === "headless.memory") {
     const session = runtime.sessions.find(s => s.id === request.payload.id && s.corgi && !s.exited);
     if (!session) throw Error("NoHeadlessSession");
-    session.search(request.payload.search);
+    if (request.op === "headless.search") session.search(request.payload.search);
+    else {
+      const { file, line, edited } = request.payload;
+      session.memory({ file, line, edited });
+    }
     server.dirty = true;
     reply.send({ ok: true });
     return;

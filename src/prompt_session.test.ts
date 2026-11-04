@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { Conversation, changes, clean, fast_ms, shownLine, slow_ms, type Daemon, type Start } from "./prompt_session";
+import * as errors from "./errors";
+import { Conversation, clean, fast_ms, shownLine, slow_ms, type Daemon, type Start } from "./prompt_session";
 
 /** A daemon that keeps one session's journal and records what it was asked. */
 class Fake implements Daemon {
@@ -52,17 +53,10 @@ const start = (over: Partial<Start> = {}): Start => ({
   ...over,
 });
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
-function conversation(
-  d: Fake,
-  files: Record<string, string> = {},
-  clock = { now: 0 },
-  transcripts: Record<string, string> = {},
-) {
+function conversation(d: Fake, clock = { now: 0 }, transcripts: Record<string, string> = {}) {
   return new Conversation(d, {
     inside: path => path.startsWith("/memory/"),
-    files: () => Object.keys(files),
     transcript: (_provider, session) => transcripts[session] ?? "",
-    read: path => files[path] ?? null,
     clock: () => clock.now,
   });
 }
@@ -307,7 +301,6 @@ test("only an edit tool writing one absolute path in memory goes without asking"
     const d = new Fake(),
       c = new Conversation(d, {
         inside: path => !path.includes("..") && path.startsWith("/memory/"),
-        files: () => [],
       });
     c.send("hi", () => start({ provider: provider as any, cwd }));
     await settle();
@@ -334,7 +327,7 @@ test("a shell running one Corgi command that only looks goes without asking", as
   ];
   for (const [provider, ask, allowed] of cases) {
     const d = new Fake(),
-      c = new Conversation(d, { inside: () => false, files: () => [], corgi: looks });
+      c = new Conversation(d, { inside: () => false, corgi: looks });
     c.send("where is my parser chat?", () => start({ provider: provider as any }));
     await settle();
     d.add({ kind: "request", session: "s1", id: "r1", ask: { tool: true, ...ask } });
@@ -393,41 +386,45 @@ test("requests come back from the pending list, and leave when answered elsewher
   expect(c.state).toBe("idle");
 });
 
-test("lines a turn adds to memory become rows, and are kept for /erase", async () => {
+test("lines corgi memory writes for the session become rows, and new ones are kept for /erase", async () => {
   const d = new Fake(),
-    files: Record<string, string> = { "/memory/today.md": "# 2026-10-30\n- Runs tests with bun\n" },
-    c = conversation(d, files);
+    c = conversation(d);
   c.send("remember that CI is parallel", () => start());
   await settle();
-  files["/memory/today.md"] += "- CI runs unit tests in parallel\n\n";
-  d.add({ kind: "tool", session: "s1", turn: "", id: "u1", done: true, wrote: ["/memory/today.md"] });
+  const line = "- CI runs unit tests in parallel";
+  d.add(
+    { kind: "memory", session: "s1", file: "/memory/today.md", line, edited: false },
+    { kind: "memory", session: "s1", file: "/memory/MEMORY.md", line: "- CI is fast now", edited: true },
+  );
   await poll(c, 0);
-  expect(c.items.at(-1)).toEqual({
-    kind: "note",
-    text: "remembered CI runs unit tests in parallel",
-    tone: "faint",
-    bone: true,
-  });
-  expect(c.wrote).toEqual([{ file: "/memory/today.md", line: "- CI runs unit tests in parallel" }]);
-  // The turn's end looks again and finds nothing new.
-  d.add({ kind: "turn", session: "s1", turn: "", phase: "ended", outcome: "completed" });
-  await poll(c, fast_ms);
-  expect(c.wrote.length).toBe(1);
+  expect(c.items.slice(-2)).toEqual([
+    { kind: "note", text: "remembered CI runs unit tests in parallel", tone: "faint", bone: true },
+    { kind: "note", text: "edited CI is fast now", tone: "faint", bone: true },
+  ]);
+  // A line it rewrote was the user's first.
+  expect(c.wrote).toEqual([{ file: "/memory/today.md", line }]);
+  // A viewer that reloads reads them again from the journal, so /erase still finds them.
+  const again = conversation(d);
+  again.attach(start(), "s1", false);
+  await poll(again, 0);
+  expect(again.wrote).toEqual(c.wrote);
 });
-
-test("a line the turn edits is shown, but stays the user's", async () => {
+test("a memory line outside the memory folder, or in an incognito chat, counts for nothing", async () => {
   const d = new Fake(),
-    files: Record<string, string> = { "/memory/MEMORY.md": "- Runs tests with bun\n- CI is slow\n" },
-    c = conversation(d, files);
-  c.send("CI got faster", () => start());
+    c = conversation(d);
+  c.send("hi", () => start());
   await settle();
-  files["/memory/MEMORY.md"] = "- Runs tests with bun\n- CI is fast now\n- CI caches bun\n";
-  d.add({ kind: "turn", session: "s1", turn: "", phase: "ended", outcome: "completed" });
+  d.add(
+    { kind: "memory", session: "s1", file: "/etc/passwd", line: "- root", edited: false },
+    { kind: "memory", session: "s1", file: "memory/today.md", line: "- relative", edited: false },
+  );
   await poll(c, 0);
-  expect(c.items.slice(1).map(i => (i as any).text)).toEqual(["remembered CI caches bun", "edited CI is fast now"]);
-  expect(c.wrote).toEqual([{ file: "/memory/MEMORY.md", line: "- CI caches bun" }]);
+  c.memory_writes = false;
+  d.add({ kind: "memory", session: "s1", file: "/memory/today.md", line: "- secret", edited: false });
+  await poll(c, fast_ms);
+  expect(c.wrote).toEqual([]);
+  expect(c.items.some(i => i.kind === "note")).toBe(false);
 });
-
 test("a lost session says so quietly, stops what's left, and the next message starts another", async () => {
   const d = new Fake(),
     c = conversation(d);
@@ -471,6 +468,46 @@ test("a message for a session that ended starts a new one with it", async () => 
     "user",
     "The session had ended, so your message started a new one.",
   ]);
+  expect(c.state).toBe("working");
+});
+
+test("a follow-up the session refuses leaves it as it was", async () => {
+  const d = new Fake(),
+    c = conversation(d);
+  c.send("hi", () => start());
+  await settle();
+  d.add(
+    { kind: "turn", session: "s1", turn: "", phase: "started" },
+    { kind: "turn", session: "s1", turn: "", phase: "completed" },
+  );
+  await poll(c, 0);
+  expect(c.state).toBe("idle");
+  const call = d.call.bind(d);
+  let failure = errors.fromReply({ err: "InvalidMessage" });
+  d.call = async (op, payload) => {
+    if (op === "headless.send") throw failure;
+    return call(op, payload);
+  };
+  c.send("nine images", () => start());
+  expect(c.state).toBe("working");
+  await settle();
+  expect(c.state).toBe("idle");
+  expect(c.items.at(-1)).toMatchObject({ kind: "note", text: "Couldn't reach Claude: InvalidMessage." });
+  // A timeout may have reached it, so the turn it may have started shows.
+  failure = Error("Timeout");
+  c.send("are you there", () => start());
+  await settle();
+  expect(c.state).toBe("working");
+  d.add({ kind: "turn", session: "s1", turn: "", phase: "completed" });
+  await poll(c, fast_ms);
+  expect(c.state).toBe("idle");
+  // A steer refused mid-turn leaves the turn running.
+  failure = errors.fromReply({ err: "InvalidMessage" });
+  d.add({ kind: "turn", session: "s1", turn: "", phase: "started" });
+  await poll(c, fast_ms + slow_ms);
+  expect(c.state).toBe("working");
+  c.send("and also", () => start());
+  await settle();
   expect(c.state).toBe("working");
 });
 
@@ -549,7 +586,6 @@ test("a conversation let go after an exchange stores what it should, unseen, the
   const d = new Fake(),
     c = new Conversation(d, {
       inside: () => false,
-      files: () => [],
       corgi: command => command === "corgi memory add 'Ships Fridays'",
       wait: () => settle() as Promise<void>,
     });
@@ -633,7 +669,7 @@ test("attaching follows a session from the start of its journal, as already seen
 
 test("every session the thread used is kept, with its transcript learned before it stops", async () => {
   const d = new Fake(),
-    c = conversation(d, {}, { now: 0 }, { s1: "/t/s1.jsonl", s2: "/t/s2.jsonl" });
+    c = conversation(d, { now: 0 }, { s1: "/t/s1.jsonl", s2: "/t/s2.jsonl" });
   c.send("one", () => start());
   await settle();
   await c.stop();
@@ -671,12 +707,7 @@ test("text from the daemon is cleaned before it's measured or drawn", async () =
   ]);
 });
 
-test("memory diffs: new lines are the turn's own, a replaced line is an edit", () => {
-  expect(changes(["a", "b"], ["a", "b", "c", "d"])).toEqual({ added: ["c", "d"], edited: [] });
-  expect(changes(["a", "b", "c"], ["a", "B", "c"])).toEqual({ added: [], edited: ["B"] });
-  expect(changes(["a", "b"], ["a", "B", "new"])).toEqual({ added: ["new"], edited: ["B"] });
-  expect(changes(["a", "b"], ["b"])).toEqual({ added: [], edited: [] });
-  expect(changes([], ["a", "a"])).toEqual({ added: ["a", "a"], edited: [] });
+test("a memory line shows without its list marker", () => {
   expect(shownLine("- [ ] CI runs in parallel")).toBe("CI runs in parallel");
   expect(shownLine("* note")).toBe("note");
 });

@@ -212,7 +212,8 @@ export class Claude implements Client {
             });
           if (str(block, "type") === "text") text.push(str(block, "text"));
         }
-        if (text.length && !this.summary) {
+        // A subagent's text is its own report, not the conversation's reply.
+        if (text.length && !this.summary && !str(v, "parent_tool_use_id")) {
           this.streamed = "";
           this.events.push({ kind: "message", session, text: text.join("") });
         }

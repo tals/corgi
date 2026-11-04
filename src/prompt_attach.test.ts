@@ -1,9 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { imageFiles } from "./prompt_attach";
+import { imageFiles, workspaceDiff } from "./prompt_attach";
 
 const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13]);
 const folders: string[] = [];
@@ -46,4 +47,20 @@ test("a pasted path names image files as a terminal pastes dropped ones", () => 
     "",
   ])
     expect(imageFiles(text)).toBeNull();
+});
+
+test("a diff too big to read whole still attaches its start, cut", async () => {
+  const dir = folder(),
+    git = (...args: string[]) => spawnSync("git", ["-C", dir, ...args], { stdio: "ignore" });
+  git("init", "-q");
+  writeFileSync(join(dir, "small.txt"), "one\n");
+  writeFileSync(join(dir, "lock.json"), "");
+  git("add", ".");
+  git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "start");
+  writeFileSync(join(dir, "small.txt"), "two\n");
+  writeFileSync(join(dir, "lock.json"), `${"x".repeat(100)}\n`.repeat(20_000));
+  const text = await workspaceDiff(dir);
+  expect(text).toStartWith(" lock.json");
+  expect(text).toEndWith("\n(diff cut at 32 KB)");
+  expect(Buffer.byteLength(text)).toBeLessThan(33 * 1024);
 });

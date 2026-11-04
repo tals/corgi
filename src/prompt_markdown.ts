@@ -9,7 +9,7 @@ import * as palette from "./palette";
 import { fence } from "./prompt_conversations";
 import * as syntax from "./review/syntax";
 import { TextArea } from "./text_area";
-import { displayWidth } from "./text";
+import { displayWidth, isControl } from "./text";
 import * as reference from "./review/reference";
 
 export type Seg = { text: string; style: string; review?: reference.Reference };
@@ -194,12 +194,16 @@ const entities: Record<string, string> = {
   rarr: "→",
   times: "×",
 };
-/** Text with its HTML entities as what they name: marked leaves them for a browser. */
+/** Text with its HTML entities as what they name: marked leaves them for a
+ * browser. A line break breaks the line and a tab is a space; another
+ * control stays as written, since the terminal would act on it. */
 function decode(text: string): string {
   return text.replace(/&(#\d+|#[xX][\da-fA-F]+|[A-Za-z]+);/g, (whole, name: string) => {
     if (name[0] !== "#") return entities[name] ?? whole;
     const code = /^#[xX]/.test(name) ? parseInt(name.slice(2), 16) : parseInt(name.slice(1), 10);
-    return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
+    if (code === 10) return "\n";
+    if (code === 9) return " ";
+    return code > 0 && code <= 0x10ffff && !isControl(code) ? String.fromCodePoint(code) : whole;
   });
 }
 

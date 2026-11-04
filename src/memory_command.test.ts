@@ -83,6 +83,23 @@ test("add writes one line where it's asked, and not a line that's there already"
   expect(() => cmd("add")).toThrow("Usage");
 });
 
+test("add tells its caller each line it writes or rewrites, and not one already there", () => {
+  const { dir } = memory(),
+    heard: unknown[] = [],
+    cmd = (...args: string[]) => run(new Memory(dir), args, now, change => heard.push(change));
+  cmd("add", "Deploys from main");
+  cmd("add", "Prefers bun over npm");
+  cmd("add", "--replaces", "2026-10-31.md:1", "foo = qux");
+  cmd("add", "--long", "--replaces", "2026-10-30.md:1", "CI runs bun test");
+  cmd("forget", "MEMORY.md:1");
+  expect(heard).toEqual([
+    { file: join(dir, "2026-10-31.md"), line: "- Deploys from main", edited: false },
+    { file: join(dir, "2026-10-31.md"), line: "- foo = qux", edited: true },
+    // Moved to MEMORY.md, it's a new line there.
+    { file: join(dir, "MEMORY.md"), line: "- CI runs bun test", edited: false },
+  ]);
+});
+
 test("forget drops one line by its place", () => {
   const { dir, cmd } = memory();
   expect(cmd("forget", "MEMORY.md:2")).toBe("forgot MEMORY.md:2: Main branch is protected\n");

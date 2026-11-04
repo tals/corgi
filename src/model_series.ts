@@ -14,6 +14,9 @@ export type Series = {
    * haiku; null for one Corgi doesn't know. */
   lineup: string | null;
   version: number[] | null;
+  /** The version is a snapshot's date ("4o-2024-08-06", "large-2411",
+   * "4-0613"): it orders its series, not its brand's majors. */
+  dated: boolean;
   /** A fast, free or preview build of another model. */
   variant: boolean;
 };
@@ -42,6 +45,8 @@ export function series(e: { model: string; name: string }): Series {
     brand: `${route}:${rest[0] ?? ""}`,
     lineup: lineup ? `${route}:${lineup}` : null,
     version,
+    // No version number runs to four digits in one part; a date does.
+    dated: at >= 0 && /^\d{4,}$/.test(words[at]),
     variant: rest.some(w => variants.has(w)),
   };
 }
@@ -84,14 +89,15 @@ export function outdated<T extends Named>(entries: T[]): Set<T> {
     if (!s.version) continue;
     const was = newest.get(catalog + s.key);
     if (!was || compare(s.version, was) > 0) newest.set(catalog + s.key, s.version);
-    major.set(catalog + s.brand, Math.max(major.get(catalog + s.brand) ?? 0, s.version[0]));
+    if (!s.dated) major.set(catalog + s.brand, Math.max(major.get(catalog + s.brand) ?? 0, s.version[0]));
   }
   return new Set(
     read
       .filter(
         ({ s, catalog }) =>
           s.version &&
-          (compare(s.version, newest.get(catalog + s.key)!) < 0 || s.version[0] < major.get(catalog + s.brand)!),
+          (compare(s.version, newest.get(catalog + s.key)!) < 0 ||
+            (!s.dated && s.version[0] < major.get(catalog + s.brand)!)),
       )
       .map(r => r.e),
   );

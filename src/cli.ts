@@ -11,7 +11,7 @@ import { Row } from "./launch/row";
 import { Entry as CommandEntry } from "./launch/command";
 import type { History } from "./launch/history";
 import * as memoryCommand from "./memory_command";
-import { Memory } from "./prompt_memory";
+import { Memory, type Change } from "./prompt_memory";
 import helpText from "../assets/cli-help.txt" with { type: "text" };
 import * as i18n from "./i18n";
 import * as cli_help from "./cli_help";
@@ -547,11 +547,15 @@ function age(at: number, now: number): string {
   return `${Math.floor(minutes / 1440)}d`;
 }
 /** The workspace a conversation from `cwd` belongs in: the one whose folder
- * holds it most closely, else `fallback`. */
-export function workspaceFor(workspaces: { id: number; cwd: string }[], cwd: string, fallback: number | null) {
+ * holds it most closely, else `fallback`. An archived one stays put away. */
+export function workspaceFor(
+  workspaces: { id: number; cwd: string; archived?: boolean }[],
+  cwd: string,
+  fallback: number | null,
+) {
   let best: { id: number; cwd: string } | null = null;
   for (const w of workspaces)
-    if (w.cwd && (cwd === w.cwd || cwd.startsWith(w.cwd.endsWith("/") ? w.cwd : w.cwd + "/")))
+    if (!w.archived && w.cwd && (cwd === w.cwd || cwd.startsWith(w.cwd.endsWith("/") ? w.cwd : w.cwd + "/")))
       if (!best || w.cwd.length > best.cwd.length) best = w;
   return best?.id ?? fallback;
 }
@@ -947,9 +951,16 @@ export async function run(path: string, args: string[], agent = false): Promise<
     process.stdout.write(skill);
     return;
   }
-  // Memory is files on this machine: no runtime needed.
+  // Memory is files on this machine: no runtime needed. Run for a prompt
+  // session, it tells the session what it wrote.
   if (group === "memory") {
-    process.stdout.write(memoryCommand.run(new Memory(Memory.root()), args.slice(1), new Date()));
+    const changes: Change[] = [];
+    process.stdout.write(memoryCommand.run(new Memory(Memory.root()), args.slice(1), new Date(), c => changes.push(c)));
+    if (changes.length && process.env.CORGI_HEADLESS_ID) {
+      const reporter = (await import("./prompt_search_report")).Reporter.here();
+      for (const change of changes) await reporter?.memory(change);
+      reporter?.close();
+    }
     return;
   }
   const caller = Number(process.env.CORGI_PANE) || 0,

@@ -36,6 +36,21 @@ class AgentCli extends Runtime {
   async topology() {
     return (await this.snapshot()).workspaces.map((w: any) => [w.id, w.model.tabs]);
   }
+  async test_memory_lines_reach_the_prompt_session_they_ran_for() {
+    const ident = (
+      await this.rpc({ op: "headless.start", prompt: "test/init", provider: "codex", cwd: this.temp.name, corgi: true })
+    ).session;
+    const session = (await this.snapshot()).headless_sessions.find((s: any) => s.session === ident);
+    const memory = (args: string[], env: Record<string, string | undefined>) =>
+      run([EXE, "memory", ...args], { env: { ...this.env, CORGI_PANE: undefined, ...env } });
+    // The model's: run with the session's id, as the daemon starts it.
+    await memory(["add", "Ships Fridays"], { CORGI_HEADLESS_ID: String(session.id) });
+    // The user's, in their own shell: no session to tell.
+    await memory(["add", "Deploys from main"], {});
+    const events = (await this.rpc({ op: "headless.events", provider: "codex", session: ident })).events,
+      lines = events.filter((e: any) => e.event.kind === "memory").map((e: any) => e.event.line);
+    this.assertEqual(lines, ["- Ships Fridays"]);
+  }
   async test_layout_moves_keep_processes_and_tree() {
     const one = await this.new("one"),
       two = await this.new("two");

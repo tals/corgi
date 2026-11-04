@@ -9,6 +9,7 @@ test("a name reads as its series, brand, lineup and version", () => {
     brand: ":opus",
     lineup: ":claude",
     version: [5, 5],
+    dated: false,
     variant: false,
   });
   expect(series(e("gpt-6.1-sol", "GPT-6.1-Sol"))).toMatchObject({ key: ":gpt sol", lineup: ":gpt", version: [6, 1] });
@@ -50,6 +51,24 @@ test("older versions of a series, and a brand's older majors, are outdated in th
     "codex GPT-5.6-Terra",
     "opencode2 GPT-5.5",
   ]);
+  // A date read as a version orders its own series, and leaves the brand's
+  // newest alone; a dated snapshot of a version still yields to a newer major.
+  const dated = [
+    e("gpt-6.1-sol", "GPT-6.1-Sol", "codex"),
+    e("gpt-4o-2024-08-06", "", "codex"),
+    e("mistral-large-2411", "", "opencode2"),
+    e("mistral-large-2407", "", "opencode2"),
+    e("mistral-medium-3", "", "opencode2"),
+    e("gpt-4-0613", "", "codex"),
+    e("claude-3-5-sonnet-20241022", "", "claude"),
+    e("claude-sonnet-4", "", "claude"),
+  ];
+  expect([...outdated(dated)].map(m => m.model)).toEqual([
+    "mistral-large-2407",
+    "gpt-4-0613",
+    "claude-3-5-sonnet-20241022",
+  ]);
+  expect(series(e("mistral-large-2411", ""))).toMatchObject({ version: [2411], dated: true });
 });
 
 test("a model's tier comes from its name", () => {

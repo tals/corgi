@@ -2920,6 +2920,29 @@ test("presses on one pane cell within the double-click window count up to three"
   }
 });
 
+test("the card takes its conversation back only from a pane that never opened", async () => {
+  const { s } = recording(folders("/a"));
+  const reclaim = spyOn(s.prompt, "reclaim").mockImplementation(() => {}),
+    effect = { kind: "pane", argv: ["corgi", "__chat"], cwd: "/w", handoff: "/tmp/h.json" };
+  try {
+    // Made, then reading the change failed: the pane goes on with it.
+    const made = spyOn(s, "execute").mockImplementation(async (_command: unknown, done?: () => void) => {
+      done?.();
+      throw Error("ConnectionClosed");
+    });
+    await s.promptEffect(effect);
+    expect(reclaim).not.toHaveBeenCalled();
+    made.mockRestore();
+    const refused = spyOn(s, "execute").mockRejectedValue(Error("NoWorkspace"));
+    await s.promptEffect(effect);
+    expect(reclaim).toHaveBeenCalledWith("/tmp/h.json", "NoWorkspace");
+    refused.mockRestore();
+  } finally {
+    reclaim.mockRestore();
+    viewer.close(s);
+  }
+});
+
 test("the prompt opens a pane for what it hands off, and keeps its last pick for the next viewer", async () => {
   const { s, sent } = recording(folders("/a"));
   const choice = { provider: "claude", account: "", model: "claude-haiku-4-5", name: "Haiku 4.5", effort: null },
@@ -2981,9 +3004,13 @@ test("the prompt's conversation is a Corgi agent while a Corgi pane holds it, an
     s.selectAgent({ headless: 7 });
     expect(focus).toHaveBeenCalledWith(1);
     expect(s.prompt.open).toBe(false);
+    // Its row's menu stays open while the row does.
+    const menu = new TabMenu({ tab: 7, headless: true, anchor_x: 0 });
+    expect(s.tabMenuStale(menu)).toBe(false);
     // Once it exits, it leaves the list.
     s.receiveSnapshot({ ...folders("/a"), headless_sessions: [{ ...corgi, pane: 1, exited: true }] });
     expect(s.agentEntries().some((e: sidebar.Entry) => e.name === "Corgi")).toBe(false);
+    expect(s.tabMenuStale(menu)).toBe(true);
   } finally {
     if (saved === undefined) delete process.env.CORGI_PROMPT_SESSION;
     else process.env.CORGI_PROMPT_SESSION = saved;
@@ -3889,6 +3916,9 @@ test("a viewer that starts leaves alone a prompt session a Corgi pane holds", ()
   try {
     expect(s.runtime.corgi_sessions.map((h: any) => [h.session, h.pane])).toEqual([["held", 1]]);
     expect(s.prompt.conversation.session).toBe("");
+    // Its row shows focused while its pane is.
+    const row = s.agentEntries().find((e: any) => e.target.headless === 7);
+    expect([row?.name, row?.focused]).toEqual(["Corgi", true]);
   } finally {
     viewer.close(s);
   }

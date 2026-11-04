@@ -15,7 +15,8 @@ export class OpenCode2 implements Client {
     readonly inference = false,
   ) {}
   static start(at: Place, inference: Inference | null) {
-    // Its API reaches the one service the default settings run.
+    // Its API reaches the one service the default settings run. Its tools
+    // run there too, in that service's environment, so `at.env` can't reach them.
     if (at.account) throw Error("HeadlessAccountUnsupported");
     const command = import.meta.filename.startsWith("/$bunfs/")
       ? [process.execPath]

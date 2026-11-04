@@ -121,6 +121,17 @@ export function ellipsis(text: string, room: number): string {
   if (room <= 0) return "";
   return clipped(text, room - 1) + "…";
 }
+/** Whether a terminal would act on code point `cp` rather than draw it: a
+ * C0 or C1 control, DEL, or half of a surrogate pair standing alone. */
+export function isControl(cp: number): boolean {
+  return cp < 0x20 || (cp >= 0x7f && cp <= 0x9f) || (cp >= 0xd800 && cp <= 0xdfff);
+}
+/** `text` with each control `isControl` finds as a space. */
+export function spacedControls(text: string): string {
+  let out = "";
+  for (const ch of text) out += isControl(ch.codePointAt(0)!) ? " " : ch;
+  return out;
+}
 /** `writeEllipsis` for text from outside: control characters and invalid
  * UTF-8 show as spaces, and only the first 2 KiB is kept. */
 export function writeSanitized(w: Writer, value: string, room: number): void {

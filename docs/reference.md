@@ -339,7 +339,8 @@ to today's log; a log line its searches keep finding (three times, on two
 days) moves to `MEMORY.md` the next time a conversation starts. `/new` gives
 the conversation it ends one unseen turn to store what's worth keeping, and
 the conversation stays in Resume. `/erase` deletes it instead: its transcript
-and the memory lines it wrote. `/incognito` starts one that keeps neither.
+and the memory lines it added with `corgi memory add`, not ones you wrote
+yourself. `/incognito` starts one that keeps neither.
 `/memory` browses the files in the card: `/` or typing searches, Enter edits
 a line, Tab adds one to its file, Backspace twice removes it, Ctrl+E opens the
 file in your editor. The model searches and

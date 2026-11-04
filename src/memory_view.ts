@@ -8,7 +8,7 @@ import { Style, fg, keycap, type Token } from "./palette";
 import type { Rect } from "./layout";
 import type { Group, Memory } from "./prompt_memory";
 import { matches } from "./search";
-import { TextArea, byte_edits, key_edits } from "./text_area";
+import { TextArea, Typed, byte_edits, key_edits } from "./text_area";
 import { Writer, clamp, displayWidth, ellipsis } from "./text";
 
 /** A list row: a file's heading, one of its lines, or the place for a first
@@ -25,6 +25,8 @@ const at = (x: number, y: number) => `\x1b[${y + 1};${x + 1}H`;
 
 export class View {
   readonly query = new TextArea("", false);
+  /** A character typed into the search or a line, its bytes so far. */
+  private typed = new Typed();
   private groups: Group[] = [];
   private rows: Row[] = [];
   /** The highlighted row: a line, or an empty file's place. */
@@ -105,13 +107,14 @@ export class View {
     }
     // `/` starts a search, and so does typing.
     if (!this.searching) {
-      if (byte <= 32 || byte >= 127) return null;
+      if (byte <= 32 || byte === 127) return null;
       this.searching = true;
       if (byte === 47) return null;
     }
-    const edit = byte_edits[byte];
+    const edit = byte_edits[byte],
+      text = !edit && byte >= 32 ? this.typed.take(byte) : null;
     if (edit) this.query.apply(edit);
-    else if (byte >= 32 && byte < 127) this.query.insert(String.fromCharCode(byte));
+    else if (text) this.query.insert(text);
     else return null;
     this.layout(this.rows[this.index]);
     return null;
@@ -269,14 +272,18 @@ export class View {
   private drawEditor(w: Writer, b: Rect, y: number): void {
     const area = this.editing!.area,
       room = b.w - 5;
+    // Whole characters only: an emoji is two UTF-16 units.
     let start = 0;
-    while (displayWidth(area.text.slice(start, area.caret)) >= room) start++;
+    while (displayWidth(area.text.slice(start, area.caret)) >= room)
+      start += String.fromCodePoint(area.text.codePointAt(start)!).length;
     const shown = area.text.slice(start);
     w.write(at(b.x, y) + new Style({ fg: "accent", bg: "selected", bold: true }).sgr() + "  › ");
     w.write(new Style({ fg: "strong", bg: "selected" }).sgr());
-    const caret = area.caret - start;
-    w.write(ellipsis(shown.slice(0, caret), room) + "\x1b[7m" + (shown[caret] ?? " ") + "\x1b[27m");
-    w.write(ellipsis(shown.slice(caret + 1), Math.max(0, room - displayWidth(shown.slice(0, caret)) - 1)));
+    const caret = area.caret - start,
+      point = shown.codePointAt(caret),
+      under = point === undefined ? "" : String.fromCodePoint(point);
+    w.write(ellipsis(shown.slice(0, caret), room) + "\x1b[7m" + (under || " ") + "\x1b[27m");
+    w.write(ellipsis(shown.slice(caret + under.length), Math.max(0, room - displayWidth(shown.slice(0, caret)) - 1)));
   }
   private edit(byte: number): Result {
     const e = this.editing!;
@@ -287,8 +294,9 @@ export class View {
     }
     if (byte !== 13) {
       const edit = byte_edits[byte];
+      const text = !edit && byte >= 32 ? this.typed.take(byte) : null;
       if (edit) e.area.apply(edit);
-      else if (byte >= 32 && byte < 127) e.area.insert(String.fromCharCode(byte));
+      else if (text) e.area.insert(text);
       return null;
     }
     this.editing = null;

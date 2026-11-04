@@ -1,8 +1,10 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import * as fs from "node:fs";
+import { createServer } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { State } from "./prompt_search";
+import { Reporter } from "./prompt_search_report";
 
 test("grep publishes on a separate socket before producing its final stdout", async () => {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "corgi-search-live-"))),
@@ -101,4 +103,64 @@ test("grep publishes on a separate socket before producing its final stdout", as
     listener.stop(true);
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+const cleanups: (() => void)[] = [];
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0)) cleanup();
+});
+/** A daemon socket that answers every request and keeps what it was sent. */
+async function daemon(): Promise<{ socket: string; heard: any[] }> {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "corgi-report-")),
+    socket = path.join(dir, "control.sock"),
+    heard: any[] = [];
+  const server = createServer(connection => {
+    let buffer = "";
+    connection.setEncoding("utf8");
+    connection.on("data", chunk => {
+      buffer += chunk;
+      for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
+        const request = JSON.parse(buffer.slice(0, end));
+        buffer = buffer.slice(end + 1);
+        heard.push(request);
+        connection.write(JSON.stringify({ ok: true, request_id: request.request_id }) + "\n");
+      }
+    });
+  });
+  await new Promise<void>(resolve => server.listen(socket, resolve));
+  cleanups.push(() => {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  return { socket, heard };
+}
+
+test("only a command run for a prompt session reports to it", () => {
+  expect(Reporter.here({})).toBeNull();
+  expect(Reporter.here({ CORGI_SOCKET: "/s" })).toBeNull();
+  expect(Reporter.here({ CORGI_SOCKET: "/s", CORGI_HEADLESS_ID: "0" })).toBeNull();
+  expect(Reporter.here({ CORGI_SOCKET: "/s", CORGI_HEADLESS_ID: "x" })).toBeNull();
+  expect(Reporter.here({ CORGI_SOCKET: "/s", CORGI_HEADLESS_ID: "7" })).toBeInstanceOf(Reporter);
+});
+
+test("each memory line goes to the session in order, each waiting for its reply", async () => {
+  const { socket, heard } = await daemon(),
+    reporter = Reporter.here({ CORGI_SOCKET: socket, CORGI_HEADLESS_ID: "7" })!;
+  await reporter.memory({ file: "/m/2026-10-30.md", line: "- Ships Fridays", edited: false });
+  await reporter.memory({ file: "/m/MEMORY.md", line: "- CI is fast", edited: true });
+  reporter.close();
+  expect(heard).toEqual([
+    { op: "headless.memory", id: 7, file: "/m/2026-10-30.md", line: "- Ships Fridays", edited: false, request_id: 1 },
+    { op: "headless.memory", id: 7, file: "/m/MEMORY.md", line: "- CI is fast", edited: true, request_id: 2 },
+  ]);
+});
+
+test("a daemon that isn't there leaves the command to finish", async () => {
+  const reporter = Reporter.here({
+    CORGI_SOCKET: path.join(os.tmpdir(), "corgi-no-such.sock"),
+    CORGI_HEADLESS_ID: "7",
+  })!;
+  await reporter.memory({ file: "/m/MEMORY.md", line: "- x", edited: false });
+  await reporter.memory({ file: "/m/MEMORY.md", line: "- y", edited: false });
+  reporter.close();
 });

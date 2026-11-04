@@ -217,6 +217,29 @@ test("this workspace's note has its place even while empty, and the model is tol
   // Nothing in the name can end its quotes or expand.
   expect(memory.instructions("", "", now, 'my "ws" $(x)')).toContain('--workspace "my ws (x)"');
   expect(memory.instructions("", "", now)).not.toContain("--workspace");
+  // The name the model is told leads to the note that's loaded.
+  for (const [workspace, told] of [
+    ["Q&A!", "Q&A"],
+    ["a\\b", "a-b"],
+  ]) {
+    expect(memory.instructions("", "", now, workspace)).toContain(`--workspace "${told}"`);
+    memory.add("a fact", { workspace: told }, now);
+    expect(memory.load(workspace, now).files).toEqual([{ name: `workspaces/${told}.md`, lines: 1 }]);
+  }
+});
+
+test("a line or file name with controls reads with spaces, and still edits", () => {
+  write("MEMORY.md", "- copied \x1b]52;c;aGk=\x07 here\n");
+  write("workspaces/x\x1b[2J.md", "- \x9b31m red\n");
+  const groups = memory.groups(now, null),
+    drawn = groups.flatMap(g => [g.title, ...g.lines.map(l => l.text)]).join(" ");
+  expect(drawn).not.toMatch(/[\x00-\x1f\x7f-\x9f]/);
+  expect(groups[0].lines).toEqual([{ at: 0, text: "copied ]52;c;aGk= here" }]);
+  expect(groups.map(g => g.title)).toContain("Workspace x [2J");
+  expect(memory.edit(groups[0].file, 0, groups[0].lines[0].text, "kept")).toBe(true);
+  expect(read("MEMORY.md")).toBe("- kept\n");
+  memory.add("bell \x07 here", "long", now);
+  expect(read("MEMORY.md")).toBe("- kept\n- bell here\n");
 });
 
 test("--replaces with a file named moves the line there", () => {
@@ -225,6 +248,8 @@ test("--replaces with a file named moves the line there", () => {
     status: "replaced",
     file: "MEMORY.md",
     line: 1,
+    path: join(memory.dir, "MEMORY.md"),
+    text: "- foo is baz",
   });
   expect(read("2026-10-30.md")).toBe("- other\n");
   expect(read("MEMORY.md")).toBe("- foo is baz\n");

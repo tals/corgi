@@ -31,6 +31,11 @@ export interface Launcher {
 export type Image = { path: string; mime: string };
 /** The image types a prompt may carry. */
 export const image_types = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+/** The most images one prompt carries. */
+export const max_images = 8;
+/** The largest image file a prompt carries. Claude and Pi take its bytes
+ * inline, read and encoded on the daemon's loop. */
+export const max_image_bytes = 20 * 1024 * 1024;
 /** What core asks of a headless client. A prompt or interrupt without a
  * session goes to the conversation it shows. */
 export type Input =

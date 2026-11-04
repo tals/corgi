@@ -23,6 +23,8 @@ import { Rect } from "./layout";
 import { Provider, adapter } from "./providers";
 import * as effort from "./providers/effort";
 import type { Effort } from "./providers/effort";
+import { max_image_bytes, max_images } from "./providers/adapter";
+import { oversized } from "./providers/common";
 import * as promptAttach from "./prompt_attach";
 import * as conversations from "./prompt_conversations";
 import * as markdown from "./prompt_markdown";
@@ -48,7 +50,7 @@ import { matches } from "./search";
 import * as linkThumbnail from "./link_thumbnail";
 import { View as MemoryView, type Result as MemoryResult } from "./memory_view";
 import { thumbnailCells, type Thumbnail } from "./link_tooltip";
-import { TextArea, byte_edits, key_edits } from "./text_area";
+import { TextArea, Typed, byte_edits, key_edits } from "./text_area";
 import { Writer, clamp, clipped, displayWidth, ellipsis } from "./text";
 
 /** What `@` attaches: an agent's recent screen, the text selected in a
@@ -79,8 +81,8 @@ export type Context = {
 export type Effect =
   /** The card hid; in a pane, the chat ends. */
   | { kind: "close" }
-  /** /pane, /memory: open a tab running this. */
-  | { kind: "pane"; argv: string[]; cwd: string }
+  /** /pane, /memory: open a tab running this; /pane's reads `handoff`. */
+  | { kind: "pane"; argv: string[]; cwd: string; handoff?: string }
   /** Persist the last pick; null follows Auto. */
   | { kind: "pick"; choice: Choice | null }
   /** A drag selected this: put it on the clipboard. */
@@ -730,15 +732,6 @@ function deletable(path: string, session: string): boolean {
     !!session && isAbsolute(path) && path.endsWith(".jsonl") && basename(path).includes(session) && existsSync(path)
   );
 }
-/** A whole character from the bytes of one, once it has them all. */
-function character(pending: number[], byte: number): string | null {
-  pending.push(byte);
-  const lead = pending[0],
-    size = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1;
-  if (pending.length < size) return null;
-  const text = Buffer.from(pending.splice(0)).toString();
-  return text.includes("�") ? null : text;
-}
 
 export class Prompt {
   open = false;
@@ -783,8 +776,8 @@ export class Prompt {
   private erase_until = 0;
   /** Deleted transcripts to delete again, in case their process wrote once more as it stopped. */
   private rechecks: { path: string; at: number }[] = [];
-  private typing: number[] = [];
-  private pasting: number[] = [];
+  private typing = new Typed();
+  private pasting = new Typed();
   private pasted_cr = false;
   /** The bracketed paste under way, which goes in whole at its end. */
   private pasted: number[] | null = null;
@@ -838,7 +831,6 @@ export class Prompt {
     this.choice = choice;
     this.conversation = new Conversation(deps.daemon, {
       inside: path => this.memory.inside(path),
-      files: () => [join(this.memory.dir, "MEMORY.md"), this.memory.today(new Date(this.clock()))],
       transcript: (provider, session, account) => this.transcript(provider, session, account),
       corgi: command => promptTools.looks(command, this.binary),
       search: command => promptTools.searchTool(command, this.binary),
@@ -951,7 +943,8 @@ export class Prompt {
     this.dismissed = null;
   }
   /** Goes on with the session this prompt ran before the viewer reloaded,
-   * with the model, account and incognito it started with. */
+   * with the model, account and incognito it started with. Following Auto,
+   * it follows Auto again once the session ends. */
   attach(r: Resumed): void {
     this.incognito = !r.persist;
     this.conversation.memory_writes = r.persist;
@@ -969,6 +962,7 @@ export class Prompt {
       r.session,
       r.state === "working" || r.state === "blocked",
     );
+    if (!this.choice) return;
     // A model's name is the same in every account.
     const entry = this.entries.find(e => e.provider === r.provider && e.model === r.model);
     this.choice = {
@@ -991,8 +985,7 @@ export class Prompt {
     if (this.review_focused) {
       this.review.preview(null);
       const named = reviewPanel.byte_keys[byte];
-      const text =
-        byte >= 0x80 ? character(this.typing, byte) : byte >= 32 && byte < 127 ? String.fromCharCode(byte) : null;
+      const text = byte >= 32 && byte !== 127 ? this.typing.take(byte) : null;
       return named
         ? this.reviewEffect(this.review.key({ named }))
         : text
@@ -1066,12 +1059,17 @@ export class Prompt {
     }
     const edit = byte_edits[byte];
     if (edit) this.area.apply(edit);
-    else if (byte >= 0x80) {
-      const text = character(this.typing, byte);
+    else if (byte >= 32) {
+      const text = this.typing.take(byte);
       if (text) this.area.insert(text);
-    } else if (byte >= 32 && byte !== 127) this.area.insert(String.fromCharCode(byte));
+    }
     this.popup();
     return null;
+  }
+  /** The text box keys edit, whose selection the viewer's copy takes. */
+  textField(): TextArea | null {
+    if (!this.open || this.picker || this.memory_view) return null;
+    return this.review_focused ? this.review.typingArea() : this.area;
   }
   sequence(text: string): Effect | null {
     if (!this.open) return null;
@@ -1103,7 +1101,9 @@ export class Prompt {
       this.moveUI(key === "down" ? 1 : -1);
       return null;
     }
-    if (key === "up" || key === "down") {
+    // In a draft of several lines, the arrows go between them before the
+    // messages sent.
+    if ((key === "up" || key === "down") && this.atEdge(key)) {
       this.recall(key === "down" ? 1 : -1);
       return null;
     }
@@ -1131,7 +1131,7 @@ export class Prompt {
     // A pasted or dropped image file goes as the image.
     const files = promptAttach.imageFiles(text);
     if (files) {
-      for (const file of files) this.attachImage(file.path, file.mime);
+      for (const file of files) if (!this.attachImage(file.path, file.mime)) break;
       return;
     }
     this.area.insert(
@@ -1161,13 +1161,8 @@ export class Prompt {
     const cr = this.pasted_cr;
     this.pasted_cr = byte === 13;
     if (byte === 10 && cr) return;
-    if (byte < 0x80) {
-      this.pasting = [];
-      this.paste(byte === 13 ? "\n" : String.fromCharCode(byte));
-      return;
-    }
-    const text = character(this.pasting, byte);
-    if (text) this.paste(text);
+    const text = this.pasting.take(byte);
+    if (text) this.paste(text === "\r" ? "\n" : text);
   }
   click(x: number, y: number): Effect | null {
     if (!this.open) return null;
@@ -1432,6 +1427,11 @@ export class Prompt {
     }
     return null;
   }
+  /** Whether the caret is on the draft's first line, for `up`, or its last. */
+  private atEdge(key: "up" | "down"): boolean {
+    const row = this.area.position().row;
+    return key === "up" ? row === 0 : row === this.area.lines().length - 1;
+  }
   private recall(delta: number): void {
     if (!this.history) {
       if (delta > 0) return;
@@ -1439,10 +1439,14 @@ export class Prompt {
       if (!texts.length) return;
       this.history = { at: texts.length, texts, drafts: new Map([[texts.length, this.area]]) };
     }
-    const h = this.history;
-    h.drafts.set(h.at, this.area);
+    const h = this.history,
+      was = this.area;
+    h.drafts.set(h.at, was);
     h.at = clamp(h.at + delta, 0, h.texts.length);
     this.area = h.drafts.get(h.at) ?? new TextArea(h.texts[h.at], true);
+    // It wraps as the box does before the next frame says so.
+    this.area.width = was.width;
+    this.area.lead = was.lead;
     if (h.at === h.texts.length) this.history = null;
     this.dismissed = null;
     this.input_first = 0;
@@ -1769,6 +1773,7 @@ export class Prompt {
       this.memory_view.draw(w, new Rect(l.left, l.box.y + 1, l.right - l.left, l.footer_y - l.box.y - 2));
     } else {
       if (l.thread) this.drawThread(w, l, lines, under);
+      else this.forgetRows();
       this.drawInput(w, l, now, under);
     }
     this.drawFooter(w, l, under);
@@ -1859,10 +1864,25 @@ export class Prompt {
     this.area.caret = popup.start;
     this.addChip(popup.items[this.menu_at], false);
   }
-  /** Attaches a pasted image to the next message, named for its place among them. */
-  attachImage(path: string, mime: string): void {
+  /** Attaches a pasted image to the next message, named for its place among
+   * them; false when the message carries all it can. */
+  attachImage(path: string, mime: string): boolean {
+    const mention: Mention = { kind: "image", path, mime, name: "" };
+    if (this.chips.some(c => sameMention(c.mention, mention))) return true;
     const n = this.chips.filter(c => c.mention.kind === "image").length + 1;
-    this.addChip({ kind: "image", path, mime, name: `Image ${n}` }, false);
+    if (n > max_images) {
+      this.conversation.note(`A message carries at most ${max_images} images.`, "warm");
+      return false;
+    }
+    if (oversized(path)) {
+      this.conversation.note(
+        `${basename(path)} is too big to send: an image takes ${max_image_bytes / 2 ** 20} MB at most.`,
+        "warm",
+      );
+      return true;
+    }
+    this.addChip({ ...mention, name: `Image ${n}` }, false);
+    return true;
   }
   /** Attaches `mention` to the next message and starts reading what it holds. */
   private addChip(mention: Mention, auto: boolean): void {
@@ -1900,7 +1920,7 @@ export class Prompt {
     try {
       mkdirSync(this.memory.dir, { recursive: true });
     } catch {}
-    this.hide();
+    if (this.mode === "overlay") this.hide();
     return {
       kind: "pane",
       argv: ["sh", "-c", 'exec ${EDITOR:-vi} "$1"', "sh", result.file],
@@ -2131,7 +2151,16 @@ export class Prompt {
       c.note("Continued in a Corgi pane.", "faint");
     }
     this.hide();
-    return { kind: "pane", argv, cwd: cwd || this.context?.cwd || "" };
+    return { kind: "pane", argv, cwd: cwd || this.context?.cwd || "", handoff: path };
+  }
+  /** The pane /pane asked for didn't open: the card takes back what it handed over. */
+  reclaim(path: string, error: string): void {
+    const file = readHandoff(path);
+    if (file?.conversation) {
+      this.incognito = file.incognito;
+      this.conversation.adopt(file.conversation);
+    }
+    this.conversation.note(`Couldn't open a pane: ${error}.`, "hot");
   }
   /** A new conversation; incognito or not. */
   private fresh(incognito: boolean): void {
@@ -2144,6 +2173,12 @@ export class Prompt {
     this.incognito = incognito;
     this.conversation.memory_writes = !incognito;
     this.back = 0;
+    this.forgetRows();
+  }
+  /** The thread shows none of its rows: they no longer act or stay selected. */
+  private forgetRows(): void {
+    this.lines = [];
+    if (this.selection?.on === "thread") this.selection = null;
   }
   /** /erase: stops every session the thread used and deletes each
    * transcript Corgi can find, strikes the memory lines it wrote where they

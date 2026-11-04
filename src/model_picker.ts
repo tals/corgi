@@ -20,6 +20,7 @@ import { percentFigure } from "./launcher_usage";
 import { writeMark, type Marks } from "./provider_mark";
 import type { Limits } from "./usage/account";
 import { Style, fg, fgRgb, keycap, type Token } from "./palette";
+import { Typed } from "./text_area";
 import { Writer, clamp, displayWidth, writeEllipsis } from "./text";
 
 export type Entry = {
@@ -208,7 +209,7 @@ export class Picker {
   /** What's typed after `/`; null while not searching. */
   private query: string | null = null;
   /** A typed character's bytes until it is whole. */
-  private partial: number[] = [];
+  private bytes = new Typed();
   private highlight = 0;
   private first = 0;
   /** List rows the box holds under the field, as last drawn. */
@@ -520,7 +521,7 @@ export class Picker {
   private leave(): void {
     const focused = this.focused();
     this.query = null;
-    this.partial = [];
+    this.bytes = new Typed();
     this.first = 0;
     this.rebuild(focused);
   }
@@ -535,21 +536,8 @@ export class Picker {
   /** Types a byte into the query, starting a search; UTF-8 waits until whole. */
   private type(byte: number): void {
     if (byte < 32 || byte === 127) return;
-    let text: string;
-    if (byte < 0x80) {
-      this.partial = [];
-      text = String.fromCharCode(byte);
-    } else {
-      if (byte < 0xc0 && !this.partial.length) return;
-      if (byte >= 0xc0) this.partial = [];
-      this.partial.push(byte);
-      const lead = this.partial[0],
-        size = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : 2;
-      if (this.partial.length < size) return;
-      text = Buffer.from(this.partial).toString();
-      this.partial = [];
-      if (text.includes("�")) return;
-    }
+    const text = this.bytes.take(byte);
+    if (!text) return;
     if (this.query === null) this.search();
     this.retype(this.query! + text);
   }

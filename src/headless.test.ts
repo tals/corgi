@@ -26,7 +26,7 @@ import { clone } from "./json";
 import { Tokens } from "./usage/live";
 import { Stdio } from "./providers/stdio";
 import { Codex } from "./providers/codex/headless";
-import type { Client, Event, Input, Saved } from "./providers/adapter";
+import { max_image_bytes, type Client, type Event, type Input, type Saved } from "./providers/adapter";
 /** A client that plays back the events a test gives it. */
 class Fake implements Client {
   ready = true;
@@ -99,6 +99,32 @@ test("native activity follows its headless turn without changing approvals or re
   expect(actor.state.turnId()).toBe("next");
 });
 
+test("a session hurries the daemon only while it starts, works, or was just sent something", () => {
+  const registry = new Registry(),
+    client = new Fake(),
+    s = new Session(1, "codex", "/tmp", client),
+    later = 1e15;
+  expect(s.urgent(later)).toBe(false);
+  s.send({ kind: "prompt", text: "hi" });
+  expect([s.urgent(s.sent_at + 1), s.urgent(s.sent_at + 10_000)]).toEqual([true, false]);
+  shown(s, registry, "a");
+  start(s, registry, "a", "a1");
+  expect(s.urgent(later)).toBe(true);
+  // Waiting on an answer, nothing comes until one is sent.
+  s.apply(registry, approval("a", "r1"));
+  expect(s.status()).toBe("blocked");
+  expect(s.urgent(later)).toBe(false);
+  // Another conversation working still needs it.
+  shown(s, registry, "b");
+  start(s, registry, "b", "b1");
+  expect([s.status(), s.urgent(later)]).toEqual(["blocked", true]);
+  finish(s, registry, "b", "b1");
+  finish(s, registry, "a", "a1");
+  expect(s.urgent(later)).toBe(false);
+  client.ready = false;
+  expect(s.urgent(later)).toBe(true);
+});
+
 test("headless conversations retain independent turns and receipts across selection", () => {
   const registry = new Registry(),
     s = session();
@@ -145,6 +171,17 @@ test("a prompt's images are absolute paths of a type a model reads, and may stan
     Array(9).fill({ path: "/tmp/a.png", mime: "image/png" }),
   ])
     expect(() => validImages(bad)).toThrow("InvalidMessage");
+  const dir = mkdtempSync(join(tmpdir(), "corgi-image-")),
+    big = join(dir, "big.png");
+  try {
+    writeFileSync(big, Buffer.alloc(max_image_bytes + 1));
+    expect(() => validImages([{ path: big, mime: "image/png" }])).toThrow("ImageTooLarge");
+    // One that can't be read is for sending it to report, as before.
+    const under = { path: join(big, "x.png"), mime: "image/png" };
+    expect(validImages([under])).toEqual([under]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 test("requests on two sessions retain actor attention until both are resolved or disconnected", () => {
   const registry = new Registry(),
@@ -700,6 +737,28 @@ test("a prompt session reaches this Corgi through its socket and its own corgi, 
   expect(env.CORGI_SOCKET).toBe("/tmp/corgi-test/control.sock");
   expect("CORGI_PANE" in env && env.CORGI_PANE === undefined).toBe(true);
   expect(env.PATH?.startsWith("/opt/corgi/bin:")).toBe(true);
+});
+
+test("a memory line corgi memory wrote reaches only its own prompt session's journal", async () => {
+  const registry = new Registry(),
+    s = session();
+  shown(s, registry, "a");
+  s.corgi = true;
+  const p = pendingStart(s),
+    line = { file: "/memory/2026-10-30.md", line: "- Ships Fridays", edited: false };
+  await request(p.server, p.peer, { op: "headless.memory", payload: { id: s.id, ...line } });
+  expect(s.events.at(-1)?.event).toEqual({ kind: "memory", session: "a", ...line });
+  for (const bad of [
+    { ...line, file: "memory/x.md" },
+    { ...line, line: "- one\n- two" },
+  ])
+    await expect(request(p.server, p.peer, { op: "headless.memory", payload: { id: s.id, ...bad } })).rejects.toThrow(
+      "InvalidMessage",
+    );
+  s.corgi = false;
+  await expect(request(p.server, p.peer, { op: "headless.memory", payload: { id: s.id, ...line } })).rejects.toThrow(
+    "NoHeadlessSession",
+  );
 });
 
 test("search progress reaches the prompt journal while its shell tool is still running", async () => {

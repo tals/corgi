@@ -2,7 +2,7 @@
 //! runs through its shell, the way OpenClaw gives its agent memory_search
 //! and memory_get. They read and write only the memory folder, so the
 //! prompt lets them run without asking.
-import type { Memory } from "./prompt_memory";
+import type { Change, Memory } from "./prompt_memory";
 
 type Ref = { file: string; line: number };
 /** Lines `get` prints at most. */
@@ -18,8 +18,9 @@ function positive(value: string | undefined): number {
   if (!/^\d+$/.test(value ?? "") || !Number(value)) throw Error("Usage");
   return Number(value);
 }
-/** Runs `corgi memory ARGS` on `memory`; what it prints. */
-export function run(memory: Memory, args: string[], now: Date): string {
+/** Runs `corgi memory ARGS` on `memory`; what it prints. `wrote` hears each
+ * line it adds or rewrites. */
+export function run(memory: Memory, args: string[], now: Date, wrote: (change: Change) => void = () => {}): string {
   const [verb, ...rest] = args,
     words: string[] = [];
   let limit = 8,
@@ -78,12 +79,15 @@ export function run(memory: Memory, args: string[], now: Date): string {
     case "add": {
       if (!words.length || (long && workspace)) throw Error("Usage");
       // Replacing a line with a file named moves it there; without one, it's rewritten in place.
-      const done = memory.add(
-        words.join(" "),
-        long ? "long" : workspace ? { workspace } : "today",
-        now,
-        replaces && { ...replaces, moved: long || workspace !== null },
-      );
+      const moved = long || workspace !== null,
+        done = memory.add(
+          words.join(" "),
+          long ? "long" : workspace ? { workspace } : "today",
+          now,
+          replaces && { ...replaces, moved },
+        );
+      if (done.status !== "already")
+        wrote({ file: done.path, line: done.text, edited: done.status === "replaced" && !moved });
       return `${done.status === "already" ? "already in" : done.status} ${done.file}:${done.line}\n`;
     }
     case "forget": {

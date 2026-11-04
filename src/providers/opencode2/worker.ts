@@ -22,6 +22,9 @@ export class Engine {
   turns = new Map<string, string>();
   seen = new Map<string, string>();
   requests = new Map<string, { session: string; form: boolean }>();
+  /** Permissions granted unasked while unattended, and their sessions, until
+   * OpenCode stops listing them. */
+  replied = new Map<string, string>();
   answer = "";
   /** An event touched the conversation since the last poll. */
   due = true;
@@ -38,7 +41,7 @@ export class Engine {
     readonly api: API,
     readonly emit: (event: Event) => void,
     readonly inference: Inference | null = null,
-    readonly at: Pick<Place, "model" | "instructions"> = {},
+    readonly at: Pick<Place, "model" | "instructions" | "unattended"> = {},
   ) {
     this.instructions = at.instructions ?? "";
   }
@@ -218,6 +221,7 @@ export class Engine {
         for (const form of [false, true]) {
           const pending = items(await this.api.call("GET", `/api/session/${session}/${form ? "form" : "permission"}`));
           const ids = new Set(pending.map(req => str(req, "id")));
+          if (!form) for (const [id, of] of this.replied) if (of === session && !ids.has(id)) this.replied.delete(id);
           for (const [id, request] of this.requests)
             if (request.session === session && request.form === form && !ids.has(id)) {
               this.requests.delete(id);
@@ -230,7 +234,9 @@ export class Engine {
             }
           for (const req of pending) {
             const id = str(req, "id");
-            if (!id || this.requests.has(id)) continue;
+            if (!id || this.requests.has(id) || this.replied.has(id)) continue;
+            // Unattended, a tool runs without asking; a question still waits.
+            if (!form && this.at.unattended && (await this.grant(session, id))) continue;
             this.requests.set(id, { session, form });
             this.emit({
               kind: "request",
@@ -248,6 +254,19 @@ export class Engine {
     } finally {
       this.polling = false;
     }
+  }
+  /** Lets a tool run unasked, once; false when OpenCode refused the reply,
+   * so it's asked as any other. */
+  private async grant(session: string, id: string): Promise<boolean> {
+    try {
+      await this.api.call("POST", `/api/session/${session}/permission/${encodeURIComponent(id)}/reply`, {
+        decision: "once",
+      });
+    } catch {
+      return false;
+    }
+    this.replied.set(id, session);
+    return true;
   }
 }
 export async function run() {

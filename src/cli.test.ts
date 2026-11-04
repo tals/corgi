@@ -592,6 +592,8 @@ test("a conversation opens in the workspace whose folder holds it most closely",
   expect(workspaceFor(ws, "/home/me/corgi-site", 9)).toBe(3);
   expect(workspaceFor(ws, "/elsewhere", 9)).toBe(9);
   expect(workspaceFor(ws, "/elsewhere", null)).toBeNull();
+  // An archived workspace isn't brought back for one.
+  expect(workspaceFor([...ws, { id: 4, cwd: "/home/me/corgi/x", archived: true }], "/home/me/corgi/x/y", 9)).toBe(2);
 });
 test("resume jumps to a conversation already showing, or resumes it and shows that", async () => {
   const snapshot = {

@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   Prompt,
   chatArgs,
@@ -228,6 +228,21 @@ test("the model is told how to drive Corgi, and each message says which viewer i
   expect(start.prompt).toEndWith("open my parser chat");
 });
 
+test("a line the model writes to the workspace's note is remembered as its own", async () => {
+  const { p, d, root } = prompt();
+  type(p, "we use pnpm here");
+  p.key(13);
+  await settle();
+  const note = join(root, "workspaces", "corgi.md");
+  d.add(
+    { kind: "turn", session: "0193-session", turn: "t", phase: "started" },
+    { kind: "memory", session: "0193-session", file: note, line: "- Uses pnpm", edited: false },
+  );
+  await poll(p, 0);
+  expect(p.conversation.wrote).toEqual([{ file: note, line: "- Uses pnpm" }]);
+  expect(card(draw(p)).some(l => l.includes("remembered Uses pnpm"))).toBe(true);
+});
+
 test("mid-conversation: the thread, an approval and a remembered line", async () => {
   const { p, d, root } = prompt();
   type(p, "why does the sidebar test flake on CI?");
@@ -266,17 +281,13 @@ test("mid-conversation: the thread, an approval and a remembered line", async ()
   );
   d.pending = [{ id: "r1", session: "0193-session", ask }];
   await poll(p, 0);
-  // The model notes something in today's log; its edit shows as the line.
-  writeFileSync(today, "- CI runs unit tests in parallel\n");
+  // The model notes something in today's log with corgi memory: the line shows.
   d.add({
-    kind: "tool",
+    kind: "memory",
     session: "0193-session",
-    turn: "t",
-    id: "3",
-    done: true,
-    wrote: [today],
-    name: "Edit",
-    summary: today,
+    file: today,
+    line: "- CI runs unit tests in parallel",
+    edited: false,
   });
   await poll(p, 200);
   expect(card(draw(p, 112, 34, 0))).toEqual([
@@ -759,6 +770,25 @@ test("/pane hands the conversation to a Corgi pane, which reads it once; /memory
   expect(p.open).toBe(true);
 });
 
+test("a pane that doesn't open leaves the chat with the card", async () => {
+  const { p, d } = prompt();
+  type(p, "hello");
+  p.key(13);
+  await settle();
+  d.add({ kind: "message", session: "0193-session", text: "hi there" });
+  await poll(p, 0);
+  const effect = p.key(15) as any;
+  expect(p.conversation.session).toBe("");
+  p.reclaim(effect.handoff, "TooManyPanes");
+  expect(existsSync(effect.handoff)).toBe(false);
+  expect(p.conversation.session).toBe("0193-session");
+  expect(p.conversation.items.map(i => (i as any).text)).toEqual([
+    "hello",
+    "hi there",
+    "Couldn't open a pane: TooManyPanes.",
+  ]);
+});
+
 test("corgi __chat takes the handoff and what the session runs with", () => {
   const args = {
     handoff: "/tmp/corgi-chat-1.json",
@@ -887,6 +917,17 @@ test("in a pane Esc backs out of menus only, Ctrl+D or /close ends it, and its r
   expect(d.starts).toEqual([]);
 });
 
+test("in a pane the memory's editor opens beside it, and the pane goes on", () => {
+  const { p } = pane();
+  type(p, "/memory");
+  p.key(13);
+  expect((p.key(5) as any)?.kind).toBe("pane");
+  expect(p.open).toBe(true);
+  expect(draw(p).some(l => l.includes("Hi there, friend!"))).toBe(true);
+  type(p, "x");
+  expect(p["area"].text).toBe("x");
+});
+
 test("Tab or a click on the chip opens the picker; a pick changes the chip", () => {
   const { p } = prompt();
   p.key(9);
@@ -968,6 +1009,11 @@ test("a reloaded viewer goes on with its session, model, account and incognito",
   p.key(13);
   expect(d.sent().map(i => i.text.split("\n").at(-1))).toEqual(["and now?"]);
   expect(d.starts).toEqual([]);
+  // It followed Auto before the reload, and does again for the next conversation.
+  type(p, "/new");
+  p.key(13);
+  expect(p.current()).toEqual(opus);
+  expect(card(draw(p)).some(l => l.includes("Auto · Opus 5.5"))).toBe(true);
 });
 
 test("text from the model and the panes can't reach the terminal raw", async () => {
@@ -1015,6 +1061,31 @@ test("a pasted or dropped image file goes as the image once the paste ends", () 
   p.paste("/no/such/shot.png");
   expect(p.attached()).toEqual(["Fix sidebar flicker", "Image 1"]);
   expect(card(draw(p)).some(l => l.includes("/no/such/shot.png"))).toBe(true);
+});
+test("a message carries no more images than the daemon takes", () => {
+  const { p } = prompt();
+  const files = Array.from({ length: 10 }, (_, i) => `/tmp/${i}.png`);
+  for (const file of files.slice(0, 8)) expect(p.attachImage(file, "image/png")).toBe(true);
+  expect(p.attachImage(files[0], "image/png")).toBe(true);
+  expect(p.conversation.items).toEqual([]);
+  expect(p.attachImage(files[8], "image/png")).toBe(false);
+  expect(p.attached().at(-1)).toBe("Image 8");
+  expect(p.conversation.items).toEqual([{ kind: "note", text: "A message carries at most 8 images.", tone: "warm" }]);
+});
+test("an image too big to send says so and stays off the message", () => {
+  const { p } = prompt(),
+    dir = mkdtempSync(join(tmpdir(), "corgi-image-")),
+    big = join(dir, "huge.png");
+  try {
+    writeFileSync(big, Buffer.alloc(20 * 1024 * 1024 + 1));
+    expect(p.attachImage(big, "image/png")).toBe(true);
+    expect(p.attached()).toEqual(["Fix sidebar flicker"]);
+    expect(p.conversation.items).toEqual([
+      { kind: "note", text: "huge.png is too big to send: an image takes 20 MB at most.", tone: "warm" },
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 test("a pasted image is a chip that goes as an image, even with nothing typed", async () => {
   const { p, d } = prompt();
@@ -1726,6 +1797,33 @@ test("Shift+Tab picks from the newest list, and ⏎ opens the pick", async () =>
   expect(p.key(13)).toMatchObject({ kind: "open", entry: { session: "s2" } });
 });
 
+test("the viewer's copy takes the input's selection, and nothing under a menu", () => {
+  const { p } = prompt();
+  type(p, "hello");
+  p.sequence("\x1b[1;2D");
+  p.sequence("\x1b[1;2D");
+  expect(p.textField()?.selectedText()).toBe("lo");
+  p.key(9);
+  expect(p.textField()).toBeNull();
+  p.key(27);
+  p.hide();
+  expect(p.textField()).toBeNull();
+});
+
+test("after /new the old thread's lists don't act", async () => {
+  const { p } = await listed(3);
+  p.show(context);
+  draw(p);
+  type(p, "/new");
+  p.key(13);
+  draw(p);
+  p.sequence("\x1b[Z");
+  expect(p.key(13)).toBeNull();
+  p.key(31);
+  type(p, "x");
+  expect(p["area"].text).toBe("x");
+});
+
 test("Up/Down recalls messages and restores the edited draft and caret", () => {
   const { p } = prompt();
   p.conversation.items.push(
@@ -1739,11 +1837,17 @@ test("Up/Down recalls messages and restores the edited draft and caret", () => {
   p.sequence("\x1b[A");
   expect(p["area"].text).toBe("second\nline");
   type(p, " edited");
+  // Up goes to the first line before the message before it.
   p.sequence("\x1b[A");
+  expect(p["area"].text).toBe("second\nline edited");
+  expect(p["area"].position().row).toBe(0);
   p.sequence("\x1b[A");
   expect(p["area"].text).toBe("first");
   p.sequence("\x1b[B");
   expect(p["area"].text).toBe("second\nline edited");
+  p.sequence("\x1b[B");
+  expect(p["area"].text).toBe("second\nline edited");
+  expect(p["area"].position().row).toBe(1);
   p.sequence("\x1b[B");
   expect(p["area"].text).toBe("my draft");
   expect(p["area"].caret).toBe(caret);
@@ -1752,6 +1856,19 @@ test("Up/Down recalls messages and restores the edited draft and caret", () => {
   p.sequence("\x1b[1;2A");
   expect(p["area"].text).toBe("my draft");
   expect(p["area"].selectedText()).toBeTruthy();
+});
+
+test("Up keeps going back through long messages between frames", () => {
+  const { p } = prompt(),
+    long = "a long message that runs past forty columns but fits the box",
+    first = "first";
+  p.conversation.items.push({ kind: "user", text: first }, { kind: "user", text: long });
+  p["area"].width = 80;
+  // Held, Up arrives several times before the next frame.
+  p.sequence("\x1b[A");
+  expect(p["area"].text).toBe(long);
+  p.sequence("\x1b[A");
+  expect(p["area"].text).toBe(first);
 });
 
 test("history stays in the input while Shift+Tab enters results with a draft", async () => {
