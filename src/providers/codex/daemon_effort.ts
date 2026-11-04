@@ -3,9 +3,10 @@
 //! where the launcher's effort is the only one and nothing else keeps Codex
 //! off the shared server, the override comes off and Corgi sets the effort
 //! there once the thread runs.
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import * as effort from "../effort";
+import * as config from "./config";
 import { field, str, Text } from "../common";
 import * as socket from "./socket";
 import * as observer from "./observer";
@@ -59,16 +60,29 @@ export function deferred(args: string[]): { args: string[]; effort: effort.Effor
   }
   return found ? { args: kept, effort: found } : null;
 }
-/** Whether Codex with settings in `home` starts the shared server when none
- * runs, as it does unless its config turns `daemon_auto_start` off. */
-export function autoStarts(home: string) {
-  let config: any;
+/** Whether Corgi can set the effort of the threads Codex with settings in
+ * `home` opens: Codex starts the shared server when none runs, unless its
+ * config turns `daemon_auto_start` off, and Corgi learns which thread a pane
+ * shows from the thread ID its integration puts in Codex's title. Nothing
+ * else ties a thread on that server to a pane, and Corgi's observer and
+ * retries skip a pane whose title doesn't name its thread too. */
+export function reachable(home: string) {
+  const path = join(home, "config.toml");
+  if (!existsSync(path)) return false;
+  let settings: any;
   try {
-    config = Bun.TOML.parse(readFileSync(join(home, "config.toml"), "utf8"));
+    settings = Bun.TOML.parse(readFileSync(path, "utf8"));
   } catch {
     return true;
   }
-  return config?.features?.daemon_auto_start !== false;
+  return settings?.features?.daemon_auto_start !== false && titled(settings);
+}
+function titled(settings: any) {
+  try {
+    return config.titleItems(settings?.tui) === null;
+  } catch {
+    return false;
+  }
 }
 /** Sets `chosen` on the thread `named` names, in full or as the prefix its
  * title shows, through the server listening at `path`; the thread it set,

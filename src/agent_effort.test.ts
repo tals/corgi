@@ -99,13 +99,16 @@ test("a launch's effort reaches each conversation its agent shows, once it runs 
     rmSync(account, { recursive: true, force: true });
   }
 });
+const titled = '[tui]\nterminal_title = ["app-name", "thread-id"]\n';
 test("Codex panes Corgi starts leave their launcher's effort to the shared server", () => {
   const home = mkdtempSync(tmpdir() + "/corgi-ts-effort-"),
     off = mkdtempSync(tmpdir() + "/corgi-ts-effort-"),
+    untitled = mkdtempSync(tmpdir() + "/corgi-ts-effort-"),
     high = 'model_reasoning_effort="high"',
     launch = (account: string, flags = "") =>
       Launch.in("codex", account, false, { flags, env: [], model: "gpt-5", effort: "high" });
-  writeFileSync(off + "/config.toml", "[features]\ndaemon_auto_start = false\n");
+  writeFileSync(home + "/config.toml", titled);
+  writeFileSync(off + "/config.toml", "[features]\ndaemon_auto_start = false\n" + titled);
   try {
     const deferred = launch(home);
     expect(deferred.run("/bin/corgi", ["resume", "abc"])).toMatchObject({
@@ -134,9 +137,21 @@ test("Codex panes Corgi starts leave their launcher's effort to the shared serve
       command: "'/bin/corgi' agent codex attach",
       effort: null,
     });
+    // Without Corgi's integration nothing names the pane's thread, so the effort stays a flag.
+    expect(launch(untitled).run("/bin/corgi")).toMatchObject({
+      command: `'/bin/corgi' agent codex --model gpt-5 -c '${high}'`,
+      effort: null,
+    });
+    // At the launcher's default effort, nothing sets one, on the command or later.
+    for (const account of [home, off, untitled])
+      expect(Launch.in("codex", account, false, { flags: "", env: [], model: "gpt-5" }).run("/bin/corgi")).toEqual({
+        command: "'/bin/corgi' agent codex --model gpt-5",
+        interactive_command: false,
+        env: [["CODEX_HOME", account]],
+        effort: null,
+      });
   } finally {
-    rmSync(home, { recursive: true, force: true });
-    rmSync(off, { recursive: true, force: true });
+    for (const dir of [home, off, untitled]) rmSync(dir, { recursive: true, force: true });
   }
   expect(Launch.in("claude", "", false, { flags: "", env: [], effort: "high" }).run("/bin/corgi").effort).toBeNull();
   expect(new Launch(undefined, "codex").run("/bin/corgi", ["resume", "abc"])).toEqual({

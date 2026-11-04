@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { autoStarts, deferred, settle } from "./daemon_effort";
+import { deferred, reachable, settle } from "./daemon_effort";
 import { adapter } from "./index";
 const xhigh = 'model_reasoning_effort="xhigh"';
 test("an effort override comes off where the rest keeps Codex on its shared server", () => {
@@ -70,16 +70,26 @@ test("Codex keeps the effort on a command Corgi doesn't start itself", () => {
   // `corgi agent codex` and the pane's `codex` exec through `prepare`, with no one to set the effort later.
   expect(adapter.launch.prepare).toBeUndefined();
 });
-test("the override stays where Codex wouldn't start its shared server", () => {
-  const home = mkdtempSync(tmpdir() + "/corgi-ts-effort-");
+test("the override stays where Corgi can't name the thread a pane shows on the shared server", () => {
+  const home = mkdtempSync(tmpdir() + "/corgi-ts-effort-"),
+    titled = '[tui]\nterminal_title = ["app-name", "thread-id"]\n',
+    write = (text: string) => writeFileSync(home + "/config.toml", text);
   try {
-    // Codex starts one unless its config says not to.
-    expect(autoStarts(home)).toBe(true);
+    // Without Corgi's integration, Codex's title doesn't name its thread.
+    expect(reachable(home)).toBe(false);
+    write('model = "gpt-5"\n');
+    expect(reachable(home)).toBe(false);
+    write('[tui]\nterminal_title = ["app-name", "project"]\n');
+    expect(reachable(home)).toBe(false);
+    expect(adapter.launch.deferred?.(["-c", xhigh], home)).toBeNull();
+    write(titled);
+    expect(reachable(home)).toBe(true);
     expect(adapter.launch.deferred?.(["-c", xhigh], home)).toEqual({ args: [], effort: "xhigh" });
-    writeFileSync(home + "/config.toml", 'model = "gpt-5"\n[features]\ndaemon_auto_start = true\n');
-    expect(autoStarts(home)).toBe(true);
-    writeFileSync(home + "/config.toml", "[features]\ndaemon_auto_start = false\n");
-    expect(autoStarts(home)).toBe(false);
+    // Codex starts the shared server unless its config says not to.
+    write("[features]\ndaemon_auto_start = true\n" + titled);
+    expect(reachable(home)).toBe(true);
+    write("[features]\ndaemon_auto_start = false\n" + titled);
+    expect(reachable(home)).toBe(false);
     expect(adapter.launch.deferred?.(["-c", xhigh], home)).toBeNull();
   } finally {
     rmSync(home, { recursive: true, force: true });

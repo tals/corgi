@@ -111,7 +111,7 @@ export const adapter: Adapter = {
   titleSession,
   launch: {
     options: (args, model, value) => effort.apply(null, model ? commandLine.withoutModel(args) : args, value),
-    deferred: (args, account) => (daemonEffort.autoStarts(dir(account)) ? daemonEffort.deferred(args) : null),
+    deferred: (args, account) => (daemonEffort.reachable(dir(account)) ? daemonEffort.deferred(args) : null),
     settle: (named, account, value) => daemonEffort.settle(control(account), named, value),
     start: s => [
       // Its hooks report a run that never asks as bypassing permissions,
