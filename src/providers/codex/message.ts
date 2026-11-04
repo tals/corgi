@@ -15,9 +15,11 @@ export async function send(path: string, id: string, text: string) {
     throw error;
   }
   try {
+    // A socket that closed after `initialize` never gets the request.
+    if (client.socket.readyState !== WebSocket.OPEN) throw Error("MessageUnavailable");
     await client.call("turn/start", { threadId: id, input: [{ type: "text", text }] }, 3000);
   } catch (error) {
-    if (errors.is(error, "RpcError")) throw Error("MessageUnavailable");
+    if (errors.is(error, "RpcError") || errors.is(error, "TooLarge")) throw Error("MessageUnavailable");
     if (unanswered(error)) throw Error("DeliveryUnknown");
     throw error;
   } finally {

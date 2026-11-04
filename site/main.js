@@ -2752,7 +2752,7 @@ const layoutText = (S, node, nested) => {
   return nested ? `(${text})` : text;
 };
 // `corgi list` for moonlander: its tabs and panes, the panes it started with
-// being Claude, which works once a send asks it something.
+// being Claude, which works once `corgi message` asks it something.
 function listText(S) {
   const out = ['workspace 2 "moonlander" ~/moonlander'];
   for (const root of S.tabs.M) {
@@ -2830,13 +2830,16 @@ function corgi(s, from, args) {
     const panes = S.tabs.M.flatMap((root) => leafIds(root).filter((k) => S.ids[k]).map((k) => locate(S, k)));
     return [[[JSON.stringify({ ok: true, result: { workspaces: [{ id: MOON, name: "moonlander", cwd: "~/moonlander" }], panes }, viewers: [] }), JSON_OUT]]];
   }
+  // The panes it started with are Claude, which takes a message through its
+  // inbox; a terminal is a shell, which `pane send` types into instead.
   if (group === "message") {
-    const { pos } = cliArgs(args.slice(1)), id = paneArg(S, from, pos[0]?.replace(/^pane:/, "")), typed = !!S.term[id];
-    if (pos.length !== 2 || !pos[1]) throw Error("Usage");
+    const { pos } = cliArgs(args.slice(1)), id = paneArg(S, from, pos[0]?.replace(/^pane:/, ""));
+    if (pos.length !== 2 || !pos[1].trim()) throw Error(pos.length === 2 ? "InvalidMessage" : "Usage");
+    if (S.term[id]) throw Error("NoAgent");
     typeInto(s, id, pos[1], true);
-    const where = locate(S, id), delivery = typed ? "typed" : "message";
-    if (wantsJson(args)) return ok({ ...where, delivery, queued: false });
-    return lines(`${typed ? "typed into" : "messaged"} pane ${where.pane} (tab ${where.tab}, workspace ${where.workspace})`);
+    const where = locate(S, id);
+    if (wantsJson(args)) return ok({ ...where, delivery: "message", queued: false });
+    return lines(`messaged pane ${where.pane} (tab ${where.tab}, workspace ${where.workspace})`);
   }
   const { pos, opt } = cliArgs(args.slice(2));
   switch (`${group} ${verb}`) {
@@ -3012,7 +3015,7 @@ const cliBand = (() => {
     B.s.S.recall = [...B.s.S.recall, line];
     runLine(B.s, B.term, null, line);
     B.step++;
-    B.at = at + (B.step === CLI_SCRIPT.length ? 9000 : line.includes(" send ") ? FIX_AFTER + 1500 : 1500);
+    B.at = at + (B.step === CLI_SCRIPT.length ? 9000 : line.includes(" message ") ? FIX_AFTER + 1500 : 1500);
   }
   function drawTerm(t) {
     const p = B.term, h = ROWS - 2, on = !B.taken || (document.activeElement === termEl && Math.floor(t / 530) % 2 === 0);

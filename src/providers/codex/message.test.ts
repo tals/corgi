@@ -35,6 +35,8 @@ test("a prompt starts a turn, and a failure says whether the server may have tak
     await expect(send(path, "s", "x")).rejects.toThrow("MessageUnavailable");
     answer = "hang up";
     await expect(send(path, "s", "x")).rejects.toThrow("DeliveryUnknown");
+    // Too large to send at all, so typing can still take it.
+    await expect(send(path, "s", "x".repeat(3 << 20))).rejects.toThrow("MessageUnavailable");
   } finally {
     server.stop(true);
     rmSync(dir, { recursive: true, force: true });

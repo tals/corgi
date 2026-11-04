@@ -110,7 +110,8 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
     case "agent.message": {
       const target = request.payload.target,
         sent = await agentMessage.send(r, target, request.payload.text);
-      return { ...("pane" in target ? location(r, target.pane) : {}), ...sent };
+      // Delivered is delivered, even if the pane closed while the channel answered.
+      return { ...("pane" in target && r.pane(target.pane) ? location(r, target.pane) : {}), ...sent };
     }
     case "agent.command": {
       if (request.payload.name !== null && request.payload.name !== undefined)

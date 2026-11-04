@@ -41,14 +41,14 @@ export async function peerIn(folder: string, session: string): Promise<Peer | nu
   return null;
 }
 /** Writes `frame` to `peer`'s inbox after its auth line. Throws ConnectFailed
- * when the inbox refused the connection, and Timeout when the session didn't
- * take the frame within `timeout` ms, as when it is stopped: the daemon waits
- * on this. */
+ * when the inbox refused or never accepted the connection, and Timeout when
+ * the session didn't take the frame within `timeout` ms, as when it is
+ * stopped: the daemon waits on this. */
 function write(peer: Peer, frame: object, timeout = 2000) {
   const text = JSON.stringify({ type: "auth", token: peer.token }) + "\n" + JSON.stringify(frame) + "\n";
   return new Promise<void>((resolve, reject) => {
     const connection = createConnection(peer.socket),
-      timer = setTimeout(() => settle(Error("Timeout")), timeout);
+      timer = setTimeout(() => settle(Error(connected ? "Timeout" : "ConnectFailed")), timeout);
     let connected = false,
       settled = false;
     const settle = (error?: Error | null) => {

@@ -44,8 +44,10 @@ export async function send(r: Runtime, target: Target, text: string): Promise<Se
     const session = r.sessions.find(s => s.id === target.headless);
     if (!session) throw Error("NoHeadlessSession");
     if (session.exited) throw Error("HeadlessExited");
+    // Before its conversation exists, a prompt would start a second one.
+    if (!session.session) throw Error("NoConversation");
     const queued = busy(session.status());
-    session.send({ kind: "prompt", text, ...(session.session ? { session: session.session } : {}) });
+    session.send({ kind: "prompt", text, session: session.session });
     return { delivery: "message", queued };
   }
   let pane = live(r, target);
@@ -66,8 +68,14 @@ export async function send(r: Runtime, target: Target, text: string): Promise<Se
   // The pane may have closed, slept or lost its agent meanwhile.
   pane = live(r, target);
   if (pane.agent().state === "blocked") throw Error("AgentBlocked");
-  if (message?.empty && !message.empty(pane.terminal)) throw Error("AgentBusy");
-  await pane.terminal.send(paste(pane.terminal, text) + enter(pane.terminal));
+  const t = pane.terminal,
+    id = pane.id;
+  if (r.renames.some(rename => rename.pane === id) || (message?.empty && !message.empty(t))) throw Error("AgentBusy");
+  // A trailing newline would submit an empty prompt after it; without a
+  // paste, every newline would submit part of the message.
+  text = text.replace(/[\r\n]+$/, "");
+  if (!t.bracketed_paste && /[\r\n]/.test(text)) throw Error("PasteUnsupported");
+  await t.send(paste(t, text) + enter(t));
   return { delivery: "typed", queued };
 }
 function busy(state: State) {

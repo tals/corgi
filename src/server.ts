@@ -146,13 +146,11 @@ export class Server {
   /** Runs an `agent.message` beside the job queue: a provider's channel can
    * take seconds to answer, and the queue keeps every viewer going. */
   async message(command: protocol.CommandInput): Promise<protocol.Result> {
-    importer.admit(this, "session.command");
-    const result = await session.execute(
-      this.runtime,
-      { socket: this.socket, executable: this.executable, theme: this.theme },
-      protocol.decodeCommand(command),
-    );
+    const result = await session.execute(this.runtime, this.context(), protocol.decodeCommand(command));
     return { ...protocol.emptyResult(), ...result };
+  }
+  private context() {
+    return { socket: this.socket, executable: this.executable, theme: this.theme };
   }
   async execute(command: protocol.CommandInput): Promise<protocol.Result> {
     importer.admit(this, "session.command");
@@ -162,11 +160,7 @@ export class Server {
       "workspace.unarchive" in command ||
       "pane.wake" in command;
     if (lifecycle) await recovery.save(this.runtime, this.socket);
-    const result = await session.execute(
-      this.runtime,
-      { socket: this.socket, executable: this.executable, theme: this.theme },
-      protocol.decodeCommand(command),
-    );
+    const result = await session.execute(this.runtime, this.context(), protocol.decodeCommand(command));
     this.bindPanes();
     this.dirty = true;
     await this.saveWorkspaces();
@@ -547,16 +541,9 @@ export class Server {
         return;
       case "session.command":
         if ("agent.message" in request.payload.command) {
-          void this.message(request.payload.command)
-            .then(
-              result => reply.ok({ result }),
-              error => reply.send({ err: error instanceof Error ? error.message : String(error) }),
-            )
-            .finally(() => {
-              cl.done();
-              this.publish();
-            });
-          return "deferred";
+          const command = request.payload.command;
+          this.defer(cl, reply, null, async () => ({ result: await this.message(command) }));
+          return;
         }
         reply.ok({ result: await this.execute(request.payload.command) });
         return;

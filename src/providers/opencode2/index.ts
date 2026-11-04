@@ -93,10 +93,11 @@ export const adapter: Adapter = {
     },
   },
   message: {
+    // Messaging never starts OpenCode's service: one that isn't running holds
+    // no session to prompt, and the pane is typed into instead.
     async channel(session) {
-      const api = validSession(session) ? await API.open().catch(() => null) : null;
-      if (!api) return null;
-      return text => message.send(api, session, text);
+      if (!validSession(session)) return null;
+      return API.peek(process.cwd(), async api => (text: string) => message.send(api, session, text), false);
     },
   },
   headless: { start: at => OpenCode2.start(at, null), restore: (saved, live) => OpenCode2.restore(saved, live) },

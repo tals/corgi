@@ -100,8 +100,18 @@ test("typing refuses an agent answering a prompt or holding a draft", async () =
     await expect(execute(r, ctx, message({ pane: id }, "go"))).rejects.toThrow("AgentBusy");
     expect(pending()).toBe("");
     empty = true;
-    expect(await execute(r, ctx, message({ pane: id }, "go"))).toMatchObject({ delivery: "typed" });
+    // A typed rename waiting for its Enter would take the message with it.
+    r.renames.push({ pane: id, name: "Named", deadline: Infinity });
+    await expect(execute(r, ctx, message({ pane: id }, "go"))).rejects.toThrow("AgentBusy");
+    r.renames = [];
+    // A trailing newline is dropped; without a paste, a newline inside would
+    // submit part of the message.
+    expect(await execute(r, ctx, message({ pane: id }, "go\n"))).toMatchObject({ delivery: "typed" });
     expect(pending()).toBe("go\r");
+    await expect(execute(r, ctx, message({ pane: id }, "one\ntwo"))).rejects.toThrow("PasteUnsupported");
+    pane.terminal.feed("\x1b[?2004h");
+    await execute(r, ctx, message({ pane: id }, "one\ntwo\n"));
+    expect(pending()).toBe("\x1b[200~one\ntwo\x1b[201~\r");
   } finally {
     channel.mockRestore();
     composer.mockRestore();
@@ -128,6 +138,9 @@ test("a headless agent gets a message as a prompt to its conversation", async ()
     expect(inputs).toEqual([{ kind: "prompt", text: "go on", session: "thread" }]);
     session.status = () => "working";
     expect(await execute(r, ctx, message({ headless: 4 }, "then"))).toMatchObject({ queued: true });
+    // Before its conversation exists, a prompt would start another.
+    session.session = "";
+    await expect(execute(r, ctx, message({ headless: 4 }, "x"))).rejects.toThrow("NoConversation");
     session.exited = true;
     await expect(execute(r, ctx, message({ headless: 4 }, "x"))).rejects.toThrow("HeadlessExited");
     await expect(execute(r, ctx, message({ headless: 5 }, "x"))).rejects.toThrow("NoHeadlessSession");
