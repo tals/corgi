@@ -99,6 +99,7 @@ export const adapter: Adapter = {
     restore: (saved, live) => OpenCode2.restore(saved, live),
   },
   history: () => import("./history").then(m => m.open()),
+  search: () => import("./search").then(m => m.conversations),
   observer: () => new Worker(),
   launcher: account => import("./launcher").then(m => m.open(account)),
   integration: {

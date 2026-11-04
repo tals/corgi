@@ -293,6 +293,17 @@ corgi launcher hide codex claude/work --workspace 1
 corgi focus 3 --viewer 1
 ```
 
+`corgi grep --max-age 7d -i 'branch|pull/[0-9]+'` searches past conversation
+text in the workspace holding the current directory, its git worktrees included,
+newest first. `--workspace` takes another workspace's name or ID, or a directory;
+use `'*'` for all workspaces, `--tools` for commands and tool results, `-C2` for
+nearby lines, or `-o` for exact matches. Narrow with `--session PROVIDER:ID`;
+`--json` returns structured provenance. Each result names the conversation's
+cached copy once indexed, one JSON message per line, and a hit numbered 18 is
+line 18 of it. The private index refreshes changed conversations automatically,
+Codex archives and OpenCode's database included. Patterns are JavaScript regular
+expressions. See `corgi grep --help`.
+
 `pane send` types literal input; `--enter` submits it. `pane close` and
 `tab close` terminate their target processes without prompting. Layout changes
 do not focus a viewer; `focus` requires an explicit `--viewer` from `list`.

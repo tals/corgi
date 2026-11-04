@@ -16,8 +16,8 @@ const limit = 8 * 1024 * 1024;
 export function configDir(env = process.env) {
   return join(env.XDG_CONFIG_HOME ?? join(env.HOME!, ".config"), "opencode");
 }
-export function dataDir() {
-  return join(process.env.XDG_DATA_HOME ?? join(process.env.HOME!, ".local/share"), "opencode");
+export function dataDir(env = process.env) {
+  return join(env.XDG_DATA_HOME ?? join(env.HOME!, ".local/share"), "opencode");
 }
 export function stateDir(env = process.env) {
   return join(env.XDG_STATE_HOME ?? join(env.HOME!, ".local/state"), "opencode");

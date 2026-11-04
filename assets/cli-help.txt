@@ -28,6 +28,8 @@ Agent controls (--json prints the daemon's reply as JSON):
   corgi claim PROVIDER [--pane ID|current] [--owner PID]
   corgi claim --clear [--pane ID|current] [--owner PID]
   corgi focus ID|current --viewer ID  select in exactly one viewer
+  corgi grep [--workspace NAME|ID|DIR|'*'] [--max-age 7d] [--tools] [-iC2] REGEX
+    search conversation text; --session PROVIDER:ID narrows, -o extracts matches
   corgi launcher list [--workspace ID] [--json]  agents each launcher shows
   corgi launcher hide AGENT... [--workspace ID]  in one workspace only
   corgi launcher show AGENT... [--workspace ID]  in one workspace only

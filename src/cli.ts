@@ -16,7 +16,18 @@ export const help = helpText;
 export function localizedHelp(): string {
   return i18n.document(helpText);
 }
-const groups = new Set(["tab", "pane", "workspace", "launcher", "claim", "current", "list", "focus", "--skill"]);
+const groups = new Set([
+  "tab",
+  "pane",
+  "workspace",
+  "launcher",
+  "claim",
+  "current",
+  "list",
+  "focus",
+  "grep",
+  "--skill",
+]);
 const nested = new Set(["tab", "pane", "workspace", "launcher"]);
 const flags = new Set(["json", "clear", "stdin", "enter", "new-tab", "first", "left", "right", "up", "down"]);
 const options = new Set([
@@ -87,6 +98,7 @@ export function handles(args: string[]): boolean {
 }
 /** Help flags in a full command line before `--`, excluding its option values. */
 export function asksHelp(args: string[]): boolean {
+  if (args[0] === "grep") return false; // grep parses regex option values itself.
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--") return false;
@@ -755,6 +767,10 @@ export function read(text: string, lines: number, agent = false): string {
  * the daemon sent it. */
 export async function run(path: string, args: string[], agent = false): Promise<void> {
   const group = args[0];
+  if (group === "grep") {
+    await (await import("./grep_command")).run(args.slice(1), path);
+    return;
+  }
   if ((nested.has(group) && args.length === 1) || asksHelp(args)) {
     process.stdout.write(helpFor(agent ? help : localizedHelp(), args, agent));
     return;

@@ -12,6 +12,7 @@ import type { Tokens } from "../usage/live";
 import type { Request as UsageRequest, Result as UsageResult, Tail as UsageTail } from "../usage/worker";
 import type { Request as ObserverRequest, Snapshot } from "./snapshot";
 import type { Runtime } from "../runtime";
+import type { Search } from "./search";
 /** What the launcher shows about a provider. Corgi opens one per launcher
  * worker and closes it with that worker. */
 export interface Launcher {
@@ -453,6 +454,8 @@ export interface Adapter extends Info {
   launcher?(account: string): Promise<Launcher>;
   history?(account: string): Promise<SessionHistory>;
   transcript?: Transcript;
+  /** Its past conversations, as corgi grep reads them; loaded on use. */
+  search?(): Promise<Search>;
   conversation?: Conversation;
   /** Watches the conversations of panes in `account`. */
   observer?(account: string): Observer;
