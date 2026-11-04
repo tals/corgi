@@ -7,7 +7,7 @@ import type { Axis } from "./layout";
 import { Store, Workspace } from "./workspace";
 import { Provider, byProvider, Text, validRef, adapter } from "./providers";
 import { Agent } from "./agents";
-import { Entry, capacity as command_capacity, commandLine, identify } from "./launch/command";
+import { Entry, capacity as command_capacity, commandLine, identify, max_length } from "./launch/command";
 import * as accounts from "./accounts";
 import * as agentOptions from "./agent_options";
 import { Terminal } from "./pane/terminal";
@@ -17,6 +17,7 @@ import type { Brand } from "./process_name";
 import * as processName from "./process_name";
 import * as archiveInventory from "./archive_inventory";
 import { ResumeHint } from "./resume_hint";
+import { byteLength } from "./text";
 import { waitpid, tcgetpgrp } from "./native_bridge";
 import * as keys from "./keys";
 import * as trackers from "./trackers";
@@ -250,6 +251,9 @@ export class Pane {
   dormant = false;
   /** Archived commands wait at the prompt, including after cold recovery. */
   manual_resume = false;
+  /** A program archiving found running, typed at the prompt when no agent
+   * comes back. It lasts as long as `manual_resume`, apart from `launch`. */
+  manual_command: string | null = null;
   /** The account the agent a saved command started reads from its own
    * environment, which can say what the command's text can't. */
   running_account: string | null = null;
@@ -367,7 +371,12 @@ export class Pane {
     if (!this.ghost && !this.dormant) return "";
     const launch = this.resumeLaunch(),
       args = this.resume_hint.args(launch?.account());
-    return this.ghost?.fork ?? this.attached ?? (args ? launch?.typed(args, this.resume_hint) : launch?.typed()) ?? "";
+    return (
+      this.ghost?.fork ??
+      this.attached ??
+      (args ? launch?.typed(args, this.resume_hint) : (this.manual_command ?? launch?.typed())) ??
+      ""
+    );
   }
   /** How its agent comes back: as it was launched, or as its provider starts. */
   resumeLaunch() {
@@ -795,8 +804,11 @@ export class Runtime {
       if (!p.dormant && !p.terminal.exited && !p.agent().provider && !p.idleShell()) {
         const pid = tcgetpgrp(p.terminal.fd);
         const info = pid > 0 ? os.processArgs(pid, process_buffer) : null;
-        if (info?.complete && info.argv.length && processName.program([info.argv[0]]).name)
-          p.launch = new Launch(undefined, os.shellWords(info.argv));
+        const argv = info?.complete ? info.argv : [],
+          command = os.shellWords(argv);
+        // A saved command holds what a launcher command may.
+        if (argv.length && processName.program([argv[0]]).name && byteLength(command) <= max_length)
+          p.manual_command = command;
       }
     }
     this.hibernate(panes.map(p => p.id));
@@ -929,12 +941,14 @@ export class Runtime {
     shell ||= p.manual_resume;
     const hint = p.resume_hint,
       launch = p.resumeLaunch(),
-      args = hint.args(launch?.account());
-    if (!launch) {
+      args = hint.args(launch?.account()),
+      staged = shell && !args ? p.manual_command : null;
+    if (!launch || staged !== null) {
       const t = Terminal.create(p.terminal.cols, p.terminal.rows);
       try {
         t.applyTheme(opts.theme);
         t.feed(p.terminal.fadedSnapshot());
+        if (staged !== null) t.feed(hint.banner(Math.trunc(Date.now() / 1000)));
         await t.spawn(await Store.directory(p.cwd), opts.socket, id, opts.executable, null, false);
       } catch (e) {
         t.destroy();
@@ -943,7 +957,8 @@ export class Runtime {
       p.terminal.destroy();
       p.terminal = t;
       p.dormant = false;
-      p.manual_resume = false;
+      if (staged !== null) t.prefill(staged);
+      else p.manual_resume = false;
       this.unarchiveWorkspace(this.workspaces.owner(id)!.id);
       this.changed();
       return;

@@ -135,6 +135,7 @@ function changed(server: Server) {
 function running(server: Server, pane: Pane) {
   if (!pane.manual_resume || pane.dormant || pane.terminal.initial_input !== null) return;
   pane.manual_resume = false;
+  pane.manual_command = null;
   changed(server);
 }
 function attention(server: Server, ding: boolean, state: string) {

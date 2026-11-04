@@ -52,6 +52,9 @@ Pane hibernation reuses recovery's dormant terminal and resume hint. Workspaces
 carry an optional `archived` flag and `archive_summary`, capturing agent states
 and program counts before stopping. Archived panes keep `manual_resume` so
 waking and cold recovery prefill the restore command without running it.
+A non-agent program archiving finds running is kept as `manual_command`,
+apart from the pane's launch, and is dropped once anything runs there, so an
+agent started later resumes as itself.
 Older saved state defaults these to false/null; archived panes also imply
 manual resume.
 Viewer protocol 4 requires wake-on-entry: a viewer records selection changes
