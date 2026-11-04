@@ -623,18 +623,19 @@ export async function settle(server: Server) {
 }
 
 /** Pauses the workers a handoff carries. Usage results are applied first: the next daemon
- * reads on from where usage counting stopped, so the checkpoint must hold what it found. */
+ * reads on from where usage counting stopped, so the checkpoint must hold what it found.
+ * A pause that fails leaves both running. */
 export async function pause(server: Server) {
   const workers = services.get(server);
   if (!workers) return;
   await workers.summaries.pause();
   try {
     await workers.usage.pause();
+    applyUsage(server, workers);
   } catch (error) {
-    workers.summaries.unpause();
+    unpause(server);
     throw error;
   }
-  applyUsage(server, workers);
 }
 export function unpause(server: Server) {
   const workers = services.get(server);

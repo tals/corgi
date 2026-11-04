@@ -10,6 +10,7 @@ import { Path } from "./bounded_text";
 import * as codex from "./providers/codex";
 import * as checklist from "./activity/checklist";
 import * as omp from "./providers/omp";
+import * as agents from "./agents";
 import { Result as UsageResult } from "./usage/worker";
 import { Counts } from "./usage/tokens";
 import { Workspace } from "./workspace";
@@ -558,6 +559,31 @@ test("pausing for a handoff applies the usage counted since the last tick", asyn
   expect(workers.usage.capture()).toEqual([]);
   unpause(server);
   expect(workers.usage.paused).toBe(false);
+});
+test("a handoff whose usage results fail to apply leaves both workers running", async () => {
+  const { server, pane, terminal, registry } = fixture();
+  terminal.exited = true;
+  const workspace = new Workspace(1, "/tmp"),
+    actor = registry.get("claude", "bad-continuation");
+  server.runtime.workspaces.items.push(workspace);
+  actor.workspace = workspace.id;
+  pane.attachment.select(actor);
+  const workers = start(server);
+  workers.transcripts.stop();
+  workers.usage.stop();
+  workers.summaries.stop();
+  for (const { observer } of workers.observers.values()) observer.stop();
+  workers.observers.clear();
+  const result = new UsageResult();
+  result.actor = actor.id;
+  result.workspace = workspace.id;
+  result.since = workspace.away.since;
+  // A transcript can name a continuation that is not a session.
+  result.continued = new agents.Text("bad\x01session");
+  workers.usage.results.push(result);
+  await expect(pause(server)).rejects.toThrow("InvalidSession");
+  expect(workers.usage.pausing || workers.usage.paused).toBe(false);
+  expect(workers.summaries.pausing || workers.summaries.paused).toBe(false);
 });
 
 test("hooks sent before a pane knows its Codex conversation catch it up once it does", () => {
