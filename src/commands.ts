@@ -36,6 +36,8 @@ export type Item =
   | "copy-path"
   | "mark-unread"
   | "star"
+  | "unstar"
+  | "cancel"
   | "review"
   | "open-folder"
   | "close"
@@ -108,6 +110,7 @@ function detailWidth(d: Detail): number {
 // Herdr's tab context menu: these actions apply to the clicked tab, not the
 // currently focused tab. Keep its identity even while tabs move or disappear.
 export class TabMenu {
+  selection: { count: number; hidden: number; panes: number; unread: number; confirm: boolean } | null = null;
   tab = 0;
   anchor_x = 0;
   anchor_y = 0;
@@ -116,7 +119,7 @@ export class TabMenu {
   /** An agent row's menu; `tab` is the agent's pane. */
   agent = false;
   headless = false;
-  /** Whether the agent is starred. */
+  /** Whether the agent, or every selected agent, is starred. */
   starred = false;
   archived = false;
   /** A worktree group's checkout path; `tab` is its workspace, `title` its
@@ -143,6 +146,24 @@ export class TabMenu {
       this.details.set(item, { runs, since: now, placeholder: old.runs === null });
   }
   entries(): Row[] {
+    if (this.selection) {
+      const { count, hidden, panes, unread, confirm } = this.selection;
+      if (confirm)
+        return [
+          row("cancel", "n", i18n.t`Cancel`),
+          row("close", "y", i18n.t`Close ${panes} agent panes`, { rule: true }),
+        ];
+      const suffix = hidden ? i18n.t` (${hidden} hidden)` : "";
+      return [
+        row(
+          this.starred ? "unstar" : "star",
+          "s",
+          (this.starred ? i18n.t`Unstar ${count} agents` : i18n.t`Star ${count} agents`) + suffix,
+        ),
+        row("mark-unread", "u", i18n.t`Mark ${unread} agents unread`, { rule: true }),
+        row("close", "x", i18n.t`Close ${panes} agent panes…`, { rule: true }),
+      ];
+    }
     const title = this.title;
     if (this.agent || this.headless)
       return agent_actions()

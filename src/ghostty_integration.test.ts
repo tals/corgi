@@ -148,3 +148,11 @@ test("custom bindings update host aliases and unbound actions remove them", asyn
   expect(block).toContain("cmd+2=text:\\x02\\x1b[57375;1u");
   expect(block).not.toContain("cmd+3=");
 });
+
+test("agent selection never installs global Ghostty Space, letter or Shift-arrow bindings", () => {
+  const bindings = custom.resolve("cmux", { "agent-select-toggle": "cmd+t" });
+  const config = transform("", { preset: "cmux", prefix: "ctrl_b", bindings });
+  expect(commandKeys("cmux", bindings).some(k => k.action.name.startsWith("agent-select-"))).toBe(false);
+  for (const key of ["space", "v", "a", "m", "shift+up", "shift+down"])
+    expect(config).not.toContain(`keybind = ${key}=`);
+});

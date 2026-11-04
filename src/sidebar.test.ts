@@ -803,6 +803,18 @@ test("agents header names its scope and opens the scope menu left of New", () =>
   }
 });
 
+test("workspace drawer rows remain clickable with an active agent selection", () => {
+  const view = View.init(100, 30, true, 0, 0).withWorkspaces(10, 0);
+  view.drawer = "workspaces";
+  view.focus = "workspaces";
+  const baseline = view.clone();
+  view.selection = { count: 1, hidden: 0, visual: false, toggle: "Space", menu: "m", range: "v", all: "a" };
+  expect(view.hit(5, 27)).toEqual({ tag: "workspace", workspace: 8 });
+  for (const y of [27, 28])
+    for (const x of [5, Math.floor(view.width / 2), view.width - 4]) expect(view.hit(x, y)).toEqual(baseline.hit(x, y));
+  expect(view.listEnd()).toBe(baseline.listEnd());
+});
+
 test("scope menu offers only the current workspace and all agents", () => {
   const workspaces = [
     workspaceEntry({ id: 4, name: "corgi", cwd: "/tmp", active: true, agents: 3, working: 2, attention: 1 }),
@@ -1390,7 +1402,7 @@ test("the focused list sits in a box in the focused pane's outline, sharing the 
   expect(lines[1]).toBe(edge("┌", "┤"));
   expect(lines[13]).toBe(rule("└─", "─", "┤"));
   expect(lines[29]).toBe(" ".repeat(27) + "│");
-  expect(lines[15].trim()).toBe("│");
+  expect(lines[15]).toContain("[Select]");
   expect(lines[17]).toBe(" ".repeat(20) + "↑" + " ".repeat(6) + "│");
   expect([0, 12, 13, 29].map(y => view.outlines(y))).toEqual([false, true, true, false]);
   view.drawer = "workspaces";

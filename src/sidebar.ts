@@ -217,6 +217,8 @@ export interface Entry {
   state: State;
   attention: Attention;
   focused: boolean;
+  /** A viewer's multiselection, independent of keyboard or pane focus. */
+  marked?: boolean;
   cwd: string;
   tool_active: boolean;
   compacting: boolean;
@@ -584,6 +586,11 @@ export type Hit =
   | { tag: "agent_new" }
   | { tag: "agent_options" }
   | { tag: "entry"; entry: number }
+  | { tag: "agent_select" }
+  | {
+      tag: "agent_selection";
+      action: "agent-select-menu" | "agent-select-clear" | "agent-select-range" | "agent-select-all";
+    }
   /** A badge counting agents scrolled out of sight, and the scroll that shows the nearest. */
   | { tag: "active"; offset: number }
   | { tag: "workspace_new" }
@@ -611,6 +618,15 @@ export class Preview {
 }
 
 export class View {
+  selection: {
+    count: number;
+    hidden: number;
+    visual: boolean;
+    toggle: string;
+    menu: string;
+    range: string;
+    all: string;
+  } | null = null;
   search: Search | null = null;
   /** Header scope: "all" or the workspace whose agents are listed. */
   scope_label = "";
@@ -792,6 +808,7 @@ export class View {
    * edge takes it; a drawer is always boxed. */
   listEnd(): number {
     const boxed = this.drawer !== null || this.box()?.bottom === this.rows - 1;
+    if (this.selection && !this.search && this.drawer !== "workspaces") return sat(this.rows, 3);
     return this.search !== null || boxed ? sat(this.rows, 1) : this.rows;
   }
   listRows(): number {
@@ -799,7 +816,7 @@ export class View {
   }
   /** Rows end here for drawing: above the bottom badge while it shows. */
   drawEnd(below: Badge | null): number {
-    return below !== null ? sat(this.rows, 1) : this.listEnd();
+    return below !== null ? Math.min(sat(this.rows, 1), this.listEnd()) : this.listEnd();
   }
   /** The row below entry `index` from the current scroll at `offset`. */
   private entryEnd(offset: number, index: number): number {
@@ -1052,6 +1069,22 @@ export class View {
     const v = this;
     if (v.width === 0) return v.cols >= 64 && x < 3 && y === 0 ? hit("toggle") : hit("none");
     if (x >= v.width - 1 || y >= v.rows) return hit("none");
+    if (v.selection && !v.search && v.drawer !== "workspaces" && y >= v.rows - 3 && y < v.rows - 1)
+      return {
+        tag: "agent_selection",
+        action:
+          y === v.rows - 3
+            ? x >= v.width - 9
+              ? "agent-select-clear"
+              : "agent-select-menu"
+            : x < Math.floor(v.width / 3)
+              ? "agent-select-menu"
+              : x >= Math.floor((v.width * 2) / 3)
+                ? "agent-select-all"
+                : "agent-select-range",
+      };
+    if (!v.search && !v.selection && v.focus !== "agents" && v.drawer === null && y === v.middle() + 1 && x < 10)
+      return hit("agent_select");
     if (y === 0 && v.drawer !== "agents") {
       if (x >= v.width - 5) return hit("toggle");
       if (x >= v.width - 11 && x < v.width - 6) return hit("workspace_new");
@@ -1267,7 +1300,25 @@ export class View {
       if (grip) w.write(boxed ? grip : fg("faint") + grip + fg("line"));
       w.write(stroke.repeat(run - left - grip.length) + (boxed ? "┤" : "┥"));
     }
+    if (!v.search && !v.selection && v.focus !== "agents" && v.drawer === null)
+      v.line(w, v.middle() + 1, i18n.t`[Select]`, new Style({ fg: "muted", bg: "bg" }).sgr());
     v.drawAgents(w, entries, now_ms);
+    if (v.selection && !v.search) {
+      const { count, hidden, visual, menu, range, all } = v.selection;
+      const summary = hidden ? i18n.t`${count} · ${hidden} hidden` : i18n.t`${count} selected`;
+      v.line(w, v.rows - 3, " ".repeat(v.width - 3), new Style({ fg: "strong", bg: "surface" }).sgr());
+      w.write(w.cup(v.rows - 2, 2));
+      writeClipped(w, summary, v.width - 10);
+      w.write(w.cup(v.rows - 2, v.width - 7) + fg("muted") + "[Esc ×]");
+      const third = Math.floor(v.width / 3);
+      v.line(w, v.rows - 2, " ".repeat(v.width - 3), new Style({ fg: "muted", bg: "surface" }).sgr());
+      w.write(w.cup(v.rows - 1, 2));
+      writeClipped(w, i18n.t`${menu} menu`, third - 1);
+      w.write(w.cup(v.rows - 1, third + 1) + fg(visual ? "accent" : "muted"));
+      writeClipped(w, visual ? i18n.t`${range} keep` : i18n.t`${range} range`, third - 1);
+      w.write(w.cup(v.rows - 1, third * 2 + 1) + fg("muted"));
+      writeClipped(w, i18n.t`${all} all`, v.width - third * 2 - 2);
+    }
   }
   /** The focused list's box: the lists' view draws its right edge and the
    * rule; this closes it on the left and, off the rule, on top and bottom. */
@@ -1644,9 +1695,8 @@ export class View {
     dream: corgiAnimation.Dream | null,
   ): void {
     const v = this;
-    // Focused and dragged rows take the selected tint, and a hovered one
-    // goes halfway to it; in a group the rail stays unbroken.
-    const selected = ghost || e.focused;
+    // In selection mode, color denotes marks; the bar or rail still shows focus.
+    const selected = ghost || e.marked === true || (e.focused && v.selection === null);
     const background = selected ? colors.selected : hovered ? hover_rgb : colors.bg;
     const row_bg = selected ? selected_bg : hovered ? hover_bg : bg("bg");
     for (let row = 0; row < 2; row++) {
