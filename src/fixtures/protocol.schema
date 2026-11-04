@@ -839,6 +839,7 @@ $.snapshot.headless_sessions[].agent?.tool_active: bool
 $.snapshot.headless_sessions[].agent?.compacting: bool
 $.snapshot.headless_sessions[].agent?.compacting_since: i64
 $.snapshot.headless_sessions[].agent?.paused: bool
+$.snapshot.headless_sessions[].agent?.retry_at: i64
 $.snapshot.headless_sessions[].observation.source: enum unknown screen hook transcript protocol
 $.snapshot.headless_sessions[].observation.pending_stop: bool
 $.snapshot.headless_sessions[].observation.completed: u64
