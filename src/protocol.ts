@@ -587,7 +587,8 @@ const requests = {
   "agent.subscribe": launch,
   "agent.preview": launch,
   "agent.track_usage": launch,
-  "viewer.open": { cwd: ["string", ""], onboarding: ["bool", false], theme: ["theme", null] },
+  /** `pid` is the viewer's process, whose terminal window a desktop can raise. */
+  "viewer.open": { cwd: ["string", ""], onboarding: ["bool", false], theme: ["theme", null], pid: ["u32", 0] },
   "viewer.sync": {
     interests: "[]interest",
     surfaces: ["bool", true],
@@ -699,7 +700,7 @@ type WireFields<T> = unknown extends T
 type SessionSnapshot = ReturnType<typeof import("./session").snapshot>;
 type ViewerSnapshot = ReturnType<typeof import("./session").viewerSnapshot>;
 type Ok = { ok: true };
-type ViewerInfo = { id: number; workspace: number; pane: number | null; watched: boolean };
+type ViewerInfo = { id: number; pid: number; active: number; workspace: number; pane: number | null; watched: boolean };
 export interface ReplyPayloads {
   hello: {
     type: "hello";

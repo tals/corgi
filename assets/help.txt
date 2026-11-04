@@ -11,7 +11,7 @@ corgi — a small Ghostty-powered agent terminal
   corgi update --check|--download-only
   corgi update auto on|off      control automatic updates
   corgi start                   start detached runtime
-  corgi action NAME [VALUE]     run a viewer action, named below
+  corgi action NAME [VALUE] [--viewer ID]  run a viewer action, named below
   corgi agent claude|codex ...   optional discovered-binary launcher
   corgi hooks claude|codex       print hook configuration
   corgi integration COMMAND     status, install, uninstall hooks

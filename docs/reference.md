@@ -311,7 +311,8 @@ extension, a headless session's protocol), and otherwise types the text and pres
 that is waiting on a prompt or has a draft Corgi can see in its composer. It takes a pane ID,
 `current`, or `headless:ID` as `list` prints it. `pane close` and
 `tab close` terminate their target processes without prompting. Layout changes
-do not focus a viewer; `focus` requires an explicit `--viewer` from `list`.
+do not focus a viewer; `focus` requires an explicit `--viewer` from `list`,
+and `workspace switch` and `action` take one too.
 `pane idle` lists the panes whose shell waits at its prompt, by workspace then
 tab; `--cwd` and `--workspace` narrow them and `--first` stops at one.
 `launcher hide` and `launcher show` take agents out of one workspace's launcher
