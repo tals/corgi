@@ -110,7 +110,7 @@ function arranged(
   now_ms: number,
   seen: Set<string>,
 ): sidebar.Entry[] {
-  const items = agentRows.rows(runtime, ws).map(({ entry, start }): agentSections.Item => {
+  const items = agentRows.rows(runtime, ws, now_ms).map(({ entry, start }): agentSections.Item => {
     const target = entry.target as agentOrder.Target,
       key = agentOrder.key(target),
       section = agentSections.section(entry),

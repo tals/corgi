@@ -2,6 +2,7 @@
 //! agent list and `corgi watch --json` start from the same rows.
 import * as sidebar from "./sidebar";
 import * as mirror from "./mirror";
+import * as subagentTooltip from "./subagent_tooltip";
 
 export interface Row {
   entry: sidebar.Entry;
@@ -11,7 +12,7 @@ export interface Row {
 
 /** `ws`'s agents, panes by tab and then headless sessions, unsorted and
  * unfocused; the viewer marks its own focus. */
-export function rows(runtime: mirror.Runtime, ws: mirror.Workspace): Row[] {
+export function rows(runtime: mirror.Runtime, ws: mirror.Workspace, now_ms: number): Row[] {
   const starred = (target: sidebar.Target) => ws.pinned_agents.some(t => sidebar.sameTarget(t, target)),
     starting = (target: sidebar.Target) => ws.starting_agents.some(t => sidebar.sameTarget(t, target));
   const tabs: mirror.Pane[][] = Array.from({ length: ws.model.count }, () => []);
@@ -64,6 +65,7 @@ export function rows(runtime: mirror.Runtime, ws: mirror.Workspace): Row[] {
     }
     rows.push({ entry, start: session.agent ? stateStart(session.agent) : 0 });
   }
+  for (const { entry } of rows) subagentTooltip.presentChildren(entry, runtime.conversations, now_ms * 1000);
   return rows;
 }
 /** When an agent's state began, in ms, as far as the daemon says: its work

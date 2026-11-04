@@ -6,6 +6,8 @@ import { join } from "node:path";
 import * as watch from "./watch";
 import * as agentSections from "./agent_sections";
 import * as mirror from "./mirror";
+import * as sidebar from "./sidebar";
+import * as subagentTooltip from "./subagent_tooltip";
 import * as json from "./json";
 import * as protocol from "./protocol";
 import { Runtime, Pane } from "./runtime";
@@ -165,6 +167,63 @@ test("the summary lists each workspace's agents as the sidebar sorted by activit
     runtime.destroy();
   } finally {
     r.destroy();
+  }
+});
+
+test("watch and the sidebar suppress stale child claims for pane and headless agents", () => {
+  const now_ms = Date.now(),
+    now = now_ms * 1000,
+    agent = {
+      conversation: 1,
+      provider: "codex",
+      state: "working",
+      attention: "none",
+      activity: "Reading source",
+      subagents: { running: 1, blocked: 0, waiting: true },
+    },
+    wire = {
+      ...session("api", agent),
+      conversations: [
+        { id: 1, children_observed_at: now, observed_at: now, agent },
+        { id: 2, parent: 1, observed_at: now, agent: { provider: "codex", state: "working" } },
+      ],
+      headless_sessions: [{ id: 7, workspace: 1, provider: "codex", state: "working", agent }],
+    },
+    conn = transport(async () => ({})),
+    runtime = new mirror.Runtime(),
+    viewer = new Controller(conn);
+  try {
+    for (const stamp of [now, now - subagentTooltip.fresh_window - 1, 0, now]) {
+      wire.conversations[0].children_observed_at = stamp;
+      runtime.receive(conn, wire);
+      viewer.receiveSnapshot(wire);
+      const summary = watch.summary(runtime, 1, new agentSections.Since(), now_ms);
+      if (!summary.running) throw Error("not running");
+      const agents = summary.workspaces[0].agents,
+        rows = viewer.agentEntries().filter(e => sidebar.isAgent(e.target)),
+        expected = {
+          detail: stamp === now ? "Waiting on agents" : "Reading source",
+          glyph: stamp === now ? "waiting" : "thinking",
+          corgi: "content",
+        } as const;
+      expect(agents).toHaveLength(2);
+      expect(rows).toHaveLength(2);
+      for (const row of rows) {
+        const shown = {
+          detail: sidebar.rowDetail(row),
+          glyph: sidebar.activityKind(row, 1),
+          corgi: sidebar.corgiMode(row, 1),
+        };
+        expect(shown).toEqual(expected);
+        expect(agents.find(a => ("pane" in row.target ? a.pane === row.target.pane : a.headless === 7))).toMatchObject(
+          shown,
+        );
+      }
+      expect(runtime.panes[0].agent.subagents.waiting).toBe(true);
+    }
+  } finally {
+    viewer.runtime.destroy();
+    runtime.destroy();
   }
 });
 

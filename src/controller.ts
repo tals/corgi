@@ -1176,7 +1176,7 @@ export class Controller {
       }
       const first_agent = entries.length,
         starts: number[] = [];
-      for (const { entry, start } of agentRows.rows(this.runtime, ws)) {
+      for (const { entry, start } of agentRows.rows(this.runtime, ws, now_ms)) {
         const t = entry.target;
         entry.focused =
           "pane" in t
@@ -1242,10 +1242,8 @@ export class Controller {
         label: (id, checkout) => this.checkoutLabel(id, checkout, all),
       });
     }
-    const now = microTimestamp();
     for (const entry of entries) {
       if (!sidebar.isAgent(entry.target)) continue;
-      subagentTooltip.presentChildren(entry, this.runtime.conversations, now);
       const conversation = this.runtime.conversations.find(c => c.id === entry.conversation);
       if (conversation) entry.context = contextView(conversation.context);
       if ("pane" in entry.target) entry.notes = this.review.noteCount(entry.target.pane);
