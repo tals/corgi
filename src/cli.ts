@@ -11,11 +11,12 @@ import { Row } from "./launch/row";
 import { Entry as CommandEntry } from "./launch/command";
 import helpText from "../assets/cli-help.txt" with { type: "text" };
 import * as i18n from "./i18n";
+import * as cli_help from "./cli_help";
 import * as agentOrder from "./agent_order";
 import skill from "../assets/corgi-skill.md" with { type: "text" };
 export const help = helpText;
 export function localizedHelp(): string {
-  return i18n.document(helpText);
+  return cli_help.commands();
 }
 const groups = new Set([
   "tab",
