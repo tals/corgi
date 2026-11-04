@@ -61,6 +61,7 @@ export class Server {
   private timer?: ReturnType<typeof setInterval>;
   private stopped = false;
   private subscribedRevision = -1n;
+  private subscribedShown = -1n;
   private watched = new WeakSet<object>();
   private frozen = false;
   private savedDurable = 0n;
@@ -207,7 +208,8 @@ export class Server {
     try {
       if (this.subscribedRevision === this.runtime.revision && !this.dirty) return;
       if (this.subscribedRevision !== this.runtime.revision) {
-        const subscribers = this.clients.filter(c => c.subscribed && !c.dead);
+        const shown = this.subscribedShown !== this.runtime.shown,
+          subscribers = this.clients.filter(c => c.subscribed && !c.dead && (shown || c.subscribed_output));
         if (subscribers.length) {
           const snapshot = session.snapshot(this.runtime);
           for (const c of subscribers) c.queue(snapshot);
@@ -217,6 +219,7 @@ export class Server {
           for (const pane of this.runtime.panes) pane.account();
         }
         this.subscribedRevision = this.runtime.revision;
+        this.subscribedShown = this.runtime.shown;
       }
       this.wakeViewers();
       this.dirty = false;
@@ -591,6 +594,7 @@ export class Server {
       case "session.subscribe":
         if (cl.viewer || cl.launch_preview || cl.watching) throw Error("AlreadyAttached");
         cl.subscribed = true;
+        cl.subscribed_output = request.payload.output;
         reply.send(session.snapshot(this.runtime));
         return;
       case "viewer.open":

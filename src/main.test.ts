@@ -123,6 +123,7 @@ test("--help prints help instead of running the command", async () => {
       [["pane", "split", "--help"], "[--command SHELL_COMMAND]"],
       [["help", "account"], "Usage: corgi account"],
       [["help", "integration"], "Usage: corgi integration"],
+      [["watch", "--help"], "corgi watch --json"],
     ] as const) {
       output.mockClear();
       await run([...args]);
@@ -324,6 +325,7 @@ test("usage errors show the command's help lines", () => {
   expect(failure(["update", "status", "x"], Error("Usage"))).not.toContain("corgi update auto on|off");
   expect(failure(["update", "bogus"], Error("Usage"))).toContain("corgi update auto on|off");
   expect(failure(["action"], Error("Usage"))).toEndWith(actionNames + "\n");
+  expect(failure(["watch"], Error("Usage"))).toContain("corgi watch --json");
   expect(failure(["ping", "x"], Error("Usage"))).toBe("corgi: usage: see corgi --help\n");
   expect(failure(["shutdwon"], Error("UnknownCommand"))).toBe("corgi: unknown command shutdwon; see corgi --help\n");
   expect(failure(["open"], Error("NotDir"))).toBe("corgi: NotDir\n");

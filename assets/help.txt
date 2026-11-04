@@ -23,6 +23,7 @@ corgi — a small Ghostty-powered agent terminal
   corgi headless send PROVIDER SESSION JSON   prompt, answer or interrupt
   corgi headless events PROVIDER SESSION [SEQ]   journal + pending requests
   corgi headless stop PROVIDER SESSION        stop headless session
+  corgi watch --json            print agent states as JSON lines as they change
   corgi rpc JSON                local JSON control protocol
   corgi reload [ABSOLUTE_EXE]    replace daemon, preserve live processes
   corgi checkpoint               save recovery context now

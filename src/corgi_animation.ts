@@ -255,6 +255,24 @@ export function fetchTicks(width: number, value: Throw) {
 }
 const fetchPace = (width: number, value: Throw) => Math.max(fetchTicks(width, value), 192);
 export const wagTail = (step: number) => ["~", "-", "~", "^"][step % 4];
+/** What an agent row's activity glyph shows. */
+export type Activity = "waiting" | "tool" | "thinking" | "compacting" | "napping" | "none";
+export function activityGlyph(kind: Activity, now_ms: number): string {
+  switch (kind) {
+    case "waiting":
+      return "◷";
+    case "tool":
+      return "🔧";
+    case "thinking":
+      return spinner(false, now_ms);
+    case "compacting":
+      return spinner(true, now_ms);
+    case "napping":
+      return "ᶻ";
+    case "none":
+      return "";
+  }
+}
 /** The thinking swirl, or dots that pile up and squash flat while compacting. */
 export function spinner(compacting: boolean, now_ms: number): string {
   const list = compacting ? frames.pile : frames.thinking;

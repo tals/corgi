@@ -483,6 +483,13 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     case "update":
       await updates.command(args.slice(1), path, executable);
       return;
+    case "watch": {
+      // Never starts a daemon: one that isn't running is what it reports.
+      if (args.length !== 2 || args[1] !== "--json") throw Error("Usage");
+      const watch = await import("./watch");
+      await watch.command(path);
+      return;
+    }
     default:
       throw Error("UnknownCommand");
   }
