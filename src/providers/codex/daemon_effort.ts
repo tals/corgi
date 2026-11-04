@@ -11,6 +11,7 @@ import { field, str, Text } from "../common";
 import * as socket from "./socket";
 import * as observer from "./observer";
 import * as errors from "../../errors";
+import type { Settled } from "../adapter";
 /** Options seen to keep Codex 0.166 on the shared server, and whether each
  * takes a value. */
 const shared: Record<string, boolean> = {
@@ -85,9 +86,17 @@ function titled(settings: any) {
   }
 }
 /** Sets `chosen` on the thread `named` names, in full or as the prefix its
- * title shows, through the server listening at `path`; the thread it set,
- * or null while that server doesn't run it, as before Codex has loaded it. */
-export async function settle(path: string, named: string, chosen: effort.Effort): Promise<string | null> {
+ * title shows, through the server listening at `path`, unless `last`, the
+ * thread it set before, no longer has it, as after a `/model` there: Codex
+ * starts a thread with the effort its TUI shows, which then is someone's own.
+ * The thread it set, "changed", or null while that server doesn't run it,
+ * as before Codex has loaded it. */
+export async function settle(
+  path: string,
+  named: string,
+  chosen: effort.Effort,
+  last: string | null = null,
+): Promise<Settled> {
   let client: socket.Client;
   try {
     client = await socket.Client.open(path);
@@ -103,11 +112,12 @@ export async function settle(path: string, named: string, chosen: effort.Effort)
       session = observer.unique(ids, new Text(named));
     }
     if (!session) return null;
-    const read = await client.call("thread/read", { threadId: session, includeTurns: false }),
-      status = str(field(field(field(read, "result"), "thread"), "status"), "type");
+    const status = str(field(await thread(client, session), "status"), "type");
     if (!status || status === "notLoaded") return null;
+    if (last && last !== session && str(await thread(client, last).catch(gone), "reasoningEffort") !== chosen)
+      return "changed";
     await client.call("thread/settings/update", { threadId: session, effort: chosen });
-    return session;
+    return { session };
   } catch (error) {
     switch (errors.name(error)) {
       case "RpcError":
@@ -121,4 +131,12 @@ export async function settle(path: string, named: string, chosen: effort.Effort)
   } finally {
     client.close();
   }
+}
+async function thread(client: socket.Client, session: string) {
+  return field(field(await client.call("thread/read", { threadId: session, includeTurns: false }), "result"), "thread");
+}
+/** A thread the server can't read any more, whose effort no one can tell. */
+function gone(error: unknown) {
+  if (errors.is(error, "RpcError")) return null;
+  throw error;
 }

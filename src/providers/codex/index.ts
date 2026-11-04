@@ -112,7 +112,7 @@ export const adapter: Adapter = {
   launch: {
     options: (args, model, value) => effort.apply(null, model ? commandLine.withoutModel(args) : args, value),
     deferred: (args, account) => (daemonEffort.reachable(dir(account)) ? daemonEffort.deferred(args) : null),
-    settle: (named, account, value) => daemonEffort.settle(control(account), named, value),
+    settle: (named, account, value, last) => daemonEffort.settle(control(account), named, value, last),
     start: s => [
       // Its hooks report a run that never asks as bypassing permissions,
       // sandboxed or not, so approval and sandbox options it kept win.

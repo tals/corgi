@@ -350,6 +350,7 @@ $.panes[].manual_resume: bool
 $.panes[].effort: optional
 $.panes[].effort?.value: string
 $.panes[].effort?.done[]: string
+$.panes[].effort?.last: string
 $.closed[].label: custom bounded_text.BoundedText(80)
 $.closed[].cwd: string
 $.closed[].screen.cols: u16

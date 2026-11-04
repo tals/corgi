@@ -355,6 +355,8 @@ export interface Conversation {
   /** Whether the process holding an actor's pause still runs. */
   holds?(pid: number): boolean;
 }
+/** What a launch's deferred effort came to on a conversation. */
+export type Settled = { session: string } | "changed" | null;
 /** Everything core asks a provider. Each one lives in `providers/<name>/`. */
 export interface Adapter extends Info {
   caps: Caps;
@@ -398,9 +400,11 @@ export interface Adapter extends Info {
      * shows; null when the effort stays on the command line. */
     deferred?(args: string[], account: string): { args: string[]; effort: Effort } | null;
     /** Sets `effort` on the session `named` names in `account`, in full or
-     * as `titleSession` reads it: the session it set, or null while that
-     * doesn't run where the provider's channel reaches it yet. */
-    settle?(named: string, account: string, effort: Effort): Promise<string | null>;
+     * as `titleSession` reads it, unless `last`, the session it set before,
+     * no longer has it: the session it set, "changed" when someone changed
+     * `last`'s effort since, or null while `named` doesn't run where the
+     * provider's channel reaches it yet. */
+    settle?(named: string, account: string, effort: Effort, last: string | null): Promise<Settled>;
     /** Arguments that start an agent. */
     start(s: Settings): string[];
     /** Arguments, after the ones it started with, that resume `session`. */

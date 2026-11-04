@@ -98,10 +98,12 @@ test("the override stays where Corgi can't name the thread a pane shows on the s
 test("the effort is set once the shared server runs the thread its title names", async () => {
   const dir = mkdtempSync(tmpdir() + "/corgi-ts-effort-"),
     path = dir + "/control.sock",
-    one = "01a19d30-c663-7862-a13b-3df431ee1507",
-    updates: unknown[] = [];
-  let status = "notLoaded",
-    loaded = [one, "01a19d31-0000-7000-8000-000000000000"];
+    [one, two, three] = ["01a19d30-c663-7862-a13b-3df431ee1507", "01a19d31", "01a19d32"].map(id =>
+      id.length === 36 ? id : id + "-0000-7000-8000-000000000000",
+    ),
+    updates: unknown[] = [],
+    threads = new Map([[one, { status: "notLoaded", effort: "medium" }]]);
+  let loaded = [one, two];
   const server = Bun.serve({
     unix: path,
     fetch(req, server) {
@@ -109,26 +111,32 @@ test("the effort is set once the shared server runs the thread its title names",
     },
     websocket: {
       message(ws, message) {
-        const value = JSON.parse(String(message));
+        const value = JSON.parse(String(message)),
+          thread = threads.get(value.params?.threadId);
         if (!value.id) return;
-        if (value.method === "thread/settings/update") updates.push(value.params);
+        if (value.method === "thread/settings/update") {
+          updates.push(value.params);
+          thread!.effort = value.params.effort;
+        }
         const reply =
           value.method === "thread/loaded/list"
             ? { result: { data: loaded, nextCursor: null } }
-            : value.method === "thread/read" && value.params.threadId !== one
-              ? { error: { code: -32600, message: "no thread" } }
-              : { result: value.method === "thread/read" ? { thread: { id: one, status: { type: status } } } : {} };
+            : value.method !== "thread/read"
+              ? { result: {} }
+              : thread
+                ? { result: { thread: { status: { type: thread.status }, reasoningEffort: thread.effort } } }
+                : { error: { code: -32600, message: "no thread" } };
         ws.send(JSON.stringify({ id: value.id, ...reply }));
       },
     },
   });
   try {
     expect(await settle(path, one, "low")).toBeNull();
-    expect(await settle(path, "01a19d31-0000-7000-8000-00000", "low")).toBeNull();
+    expect(await settle(path, two.slice(0, 29), "low")).toBeNull();
     expect(updates).toEqual([]);
-    status = "idle";
-    expect(await settle(path, one.slice(0, 29), "low")).toBe(one);
-    expect(await settle(path, one, "high")).toBe(one);
+    threads.get(one)!.status = "idle";
+    expect(await settle(path, one.slice(0, 29), "low")).toEqual({ session: one });
+    expect(await settle(path, one, "high")).toEqual({ session: one });
     expect(updates).toEqual([
       { threadId: one, effort: "low" },
       { threadId: one, effort: "high" },
@@ -136,6 +144,15 @@ test("the effort is set once the shared server runs the thread its title names",
     loaded = [one, one.slice(0, 29) + "0000000"];
     expect(await settle(path, one.slice(0, 29), "low")).toBeNull();
     expect(await settle(dir + "/missing.sock", one, "low")).toBeNull();
+    // A thread opened later gets it while the one set before keeps it, but
+    // not once someone changed that one's, or it can't be read any more.
+    threads.set(two, { status: "idle", effort: "medium" });
+    expect(await settle(path, two, "high", one)).toEqual({ session: two });
+    threads.set(three, { status: "idle", effort: "low" });
+    threads.get(two)!.effort = "low";
+    expect(await settle(path, three, "high", two)).toBe("changed");
+    expect(await settle(path, three, "high", "01a19d33-0000-7000-8000-000000000000")).toBe("changed");
+    expect(updates).toHaveLength(3);
   } finally {
     server.stop(true);
     rmSync(dir, { recursive: true, force: true });
