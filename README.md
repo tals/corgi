@@ -53,7 +53,7 @@ IDs from `corgi list` to target panes, or `current` for the pane you're in.
 corgi list
 corgi tab new --workspace 1 --command 'bun run dev'
 corgi pane split current --right --command codex
-corgi pane send 3 'run the tests' --enter
+corgi message 3 'run the tests'
 corgi pane read 3 --lines 50
 ```
 

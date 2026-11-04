@@ -3,7 +3,8 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
-import { peerIn } from "./rename";
+import { createServer } from "node:net";
+import { message, peerIn } from "./peer";
 test("a session's peer is its live record's socket and key", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-peer-")),
     socket = "/tmp/cc-socks/1.sock";
@@ -20,6 +21,32 @@ test("a session's peer is its live record's socket and key", async () => {
     expect(await peerIn(root, "LIVE")).toEqual({ socket, token: "secret" });
     for (const session of ["future", "gone", "keyless", "missing"]) expect(await peerIn(root, session)).toBeNull();
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test("a message is a queued user prompt for the session, after the peer's auth line", async () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-peer-")),
+    socket = join(root, "inbox.sock"),
+    received = Promise.withResolvers<string>();
+  const server = createServer(connection => {
+    let text = "";
+    connection.on("data", chunk => (text += chunk));
+    connection.on("end", () => received.resolve(text));
+  });
+  try {
+    await new Promise<void>(resolve => server.listen(socket, resolve));
+    await message({ socket, token: "secret" }, "live", "review the diff");
+    const [auth, frame, rest] = (await received.promise).split("\n").map(line => (line ? JSON.parse(line) : line));
+    expect(auth).toEqual({ type: "auth", token: "secret" });
+    expect(frame).toMatchObject({
+      type: "user",
+      message: { role: "user", content: "review the diff" },
+      priority: "next",
+      session_id: "live",
+    });
+    expect(rest).toBe("");
+  } finally {
+    server.close();
     rmSync(root, { recursive: true, force: true });
   }
 });

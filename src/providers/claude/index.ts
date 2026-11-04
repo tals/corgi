@@ -7,7 +7,7 @@ import type { Adapter } from "../adapter";
 import * as hooksFile from "../hooks_file";
 import { Watcher } from "./screen";
 import * as daemon from "./daemon";
-import * as renaming from "./rename";
+import * as peer from "./peer";
 import { Claude, stream_json, summaryArgs } from "./headless";
 import { transcript } from "./transcript";
 import * as usage from "./usage";
@@ -114,9 +114,13 @@ export const adapter: Adapter = {
   },
   rename: {
     async channel(session, _connected, account) {
-      const peer = await renaming.peerIn(path.join(dir(account), "sessions"), session);
-      return peer ? name => renaming.rename(peer, session, name) : null;
+      const found = await peer.peerIn(path.join(dir(account), "sessions"), session);
+      return found ? name => peer.rename(found, session, name) : null;
     },
+  },
+  async message(session, _connected, account) {
+    const found = await peer.peerIn(path.join(dir(account), "sessions"), session);
+    return found ? text => peer.message(found, session, text) : null;
   },
   headless: {
     start: at => Claude.start(at, stream_json, null),

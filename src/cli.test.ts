@@ -10,6 +10,7 @@ import {
   launcherText,
   layout,
   list,
+  messaged,
   parse,
   read,
   run,
@@ -126,7 +127,14 @@ test("command lines are rejected before connecting", async () => {
     [["pane", "resize", "3", "--width", "95%"]],
     [["pane", "close", "3", "--cwd", "/tmp"]],
     [["pane", "read", "3", "--lines", "0"]],
-    [["pane", "send", "3"]],
+    [["pane", "type", "3"]],
+    [["pane", "send", "3", "text"]],
+    [["message", "3"]],
+    [["message", "3", ""]],
+    [["message", "3", "hi", "--enter"]],
+    [["message", "agent:3", "hi"], "InvalidCharacter"],
+    [["message", "headless:0", "hi"], "InvalidCharacter"],
+    [["message", "current", "hi"], "NoCallerPane"],
     [["pane", "keys", "3"]],
     [["pane", "keys", "3", "enter", "invalid-key"], "InvalidKey"],
     [["pane", "bogus", "3"]],
@@ -217,8 +225,25 @@ test("command lines parse to the request the daemon receives", async () => {
     ],
     [["pane", "close", "3"], { action: "pane.close", target: 3, command: { "pane.close": { target: 3 } } }],
     [
-      ["pane", "send", "3", "--enter", "--", "--literal"],
-      { action: "pane.send", target: 3, command: { "pane.send": { target: 3, text: "--literal", enter: true } } },
+      ["pane", "type", "3", "--enter", "--", "--literal"],
+      { action: "pane.type", target: 3, command: { "pane.send": { target: 3, text: "--literal", enter: true } } },
+    ],
+    [
+      ["message", "3", "--", "--literal"],
+      { action: "message", target: 3, command: { "agent.message": { target: { pane: 3 }, text: "--literal" } } },
+    ],
+    [
+      ["message", "pane:3", "hi"],
+      { action: "message", target: 3, command: { "agent.message": { target: { pane: 3 }, text: "hi" } } },
+    ],
+    [
+      ["message", "current", "hi"],
+      { action: "message", target: 5, command: { "agent.message": { target: { pane: 5 }, text: "hi" } } },
+      5,
+    ],
+    [
+      ["message", "headless:4", "hi"],
+      { action: "message", command: { "agent.message": { target: { headless: 4 }, text: "hi" } } },
     ],
     [
       ["pane", "keys", "3", "ctrl+c", "enter"],
@@ -323,7 +348,7 @@ test("a tab's layout names each split's sides", () => {
   expect(layout(nodes, 2)).toBe("12 above 13");
   expect(layout(nodes, 5)).toBe("");
 });
-test("list outlines workspaces, tabs, panes and viewers", () => {
+test("list outlines workspaces, tabs, panes, headless agents and viewers", () => {
   const idle = { provider: null, state: "unknown", attention: "none", name: "", activity: "", recent_activity: "" };
   const reply = {
     ok: true,
@@ -360,6 +385,9 @@ test("list outlines workspaces, tabs, panes and viewers", () => {
           },
         },
       ],
+      headless_sessions: [
+        { id: 4, workspace: 2, exited: false, agent: { ...idle, provider: "codex", state: "idle", name: "Triage" } },
+      ],
     },
     viewers: [{ id: 1, workspace: 2, pane: 9, watched: true }],
   };
@@ -371,6 +399,7 @@ test("list outlines workspaces, tabs, panes and viewers", () => {
       "    pane 10 /tmp",
       '  tab 21 "Logs"',
       '    pane 15 "tail" exited claude blocked, needs input (used: Bash)',
+      '  headless:4 codex idle "Triage"',
       "viewer 1: workspace 2, pane 9",
       "",
     ].join("\n"),
@@ -459,6 +488,18 @@ test("other replies say what changed", () => {
   expect(words({ ok: true, result: { ...result, closed_panes: [3, 4] } })).toBe("closed pane 3, 4\n");
   expect(words({ ok: true, result })).toBe("ok\n");
   expect(words({ ok: true, viewer: 1, queued: true })).toBe("queued for viewer 1\n");
+});
+test("message says where it went and whether it was typed", () => {
+  const result = { pane: 31, tab: 12, workspace: 2, text: null, closed_panes: [] };
+  expect(messaged({ ok: true, result: { ...result, delivery: "message" } }, { pane: 31 })).toBe(
+    "messaged pane 31 (tab 12, workspace 2)\n",
+  );
+  expect(messaged({ ok: true, result: { ...result, delivery: "typed" } }, { pane: 31 })).toBe(
+    "typed into pane 31 (tab 12, workspace 2)\n",
+  );
+  expect(messaged({ ok: true, result: { pane: 0, tab: 0, workspace: 0, delivery: "message" } }, { headless: 4 })).toBe(
+    "messaged headless:4\n",
+  );
 });
 test("pane idle lists each waiting shell with its folder", () => {
   expect(

@@ -138,12 +138,20 @@ class AgentCli extends Runtime {
     );
     await this.cli(["tab", "new"], { error: "MissingWorkspace" });
     const one = await this.new();
-    await this.cli(["pane", "send", one.pane, "--stdin", "--enter"], {
+    await this.cli(["pane", "type", one.pane, "--stdin", "--enter"], {
       stdin: "printf 'cli_marker_123\\n'",
     });
     await this.until(async () => (await this.cli(["pane", "read", one.pane])).result.text.includes("cli_marker_123"));
     this.assertIn("cli_marker_123", await this.run_cli("pane", "read", String(one.pane)));
     this.assertIn(`    pane ${one.pane}`, await this.run_cli("list"));
+    // A shell has no provider channel, so a message is typed and submitted.
+    const message = await this.cli(["message", `pane:${one.pane}`, "printf 'message_marker_456\\n'"]);
+    this.assertEqual(message.result.delivery, "typed");
+    await this.until(async () =>
+      (await this.cli(["pane", "read", one.pane])).result.text.includes("message_marker_456"),
+    );
+    this.assertIn(`typed into pane ${one.pane}`, await this.run_cli("message", String(one.pane), "true"));
+    await this.cli(["message", "headless:999", "hello"], { error: "NoHeadlessSession" });
     await this.cli(["pane", "keys", one.pane, "ctrl+c"]);
     await this.cli(["pane", "keys", one.pane, "enter", "invalid-key"], {
       error: "InvalidKey",
@@ -215,13 +223,13 @@ class AgentCli extends Runtime {
       const executable = write_ordinary_agent(join(this.temp.name, provider)),
         one = await this.new(provider),
         state = async () => (await this.snapshot()).panes.find((p: any) => p.id === one.pane).agent;
-      await this.cli(["pane", "send", one.pane, shellJoin([executable, "--working"]), "--enter"]);
+      await this.cli(["pane", "type", one.pane, shellJoin([executable, "--working"]), "--enter"]);
       await this.until(async () => (await state()).state === "working");
       this.assertEqual([(await state()).provider, (await state()).session], [provider, ""]);
       this.assertEqual((await state()).observation.completed, 0);
       await viewer.poll();
       const bell = viewer.state.bell_seq;
-      await this.cli(["pane", "send", one.pane, "stop", "--enter"]);
+      await this.cli(["pane", "type", one.pane, "stop", "--enter"]);
       await this.until(async () => (await state()).observation.completed === 1);
       this.assertEqual([(await state()).state, (await state()).attention], ["idle", "finished"]);
       this.assertEqual((await state()).observation.source, "screen");
@@ -233,9 +241,9 @@ class AgentCli extends Runtime {
       await viewer.focus(one.pane);
       await this.until(async () => (await state()).observation.read === 1);
       await viewer.focus(other.pane);
-      await this.cli(["pane", "send", one.pane, "work", "--enter"]);
+      await this.cli(["pane", "type", one.pane, "work", "--enter"]);
       await this.until(async () => (await state()).state === "working");
-      await this.cli(["pane", "send", one.pane, "exit", "--enter"]);
+      await this.cli(["pane", "type", one.pane, "exit", "--enter"]);
       await this.until(async () => (await state()).provider === null);
       this.assertEqual((await state()).observation.completed, 1);
       this.assertEqual((await state()).observation.read, 1);
@@ -272,7 +280,7 @@ class AgentCli extends Runtime {
     this.assertEqual((await this.snapshot()).panes.find((p: any) => p.id === pane.pane).cwd, folder);
     await this.cli([
       "pane",
-      "send",
+      "type",
       one.pane,
       "i=0; while [ $i -lt 150 ]; do printf 'row_%03d\\n' $i; i=$((i+1)); done",
       "--enter",
@@ -309,12 +317,12 @@ class AgentCli extends Runtime {
     await this.until(async () => (await idle("--cwd", folder)).length === 2);
     this.assertEqual(await idle("--cwd", folder), [one.pane, two.pane]);
     this.assertEqual(await idle("--cwd", folder, "--workspace", 1, "--first"), [one.pane]);
-    await this.cli(["pane", "send", one.pane, "sleep 30", "--enter"]);
+    await this.cli(["pane", "type", one.pane, "sleep 30", "--enter"]);
     await this.until(async () => (await idle("--cwd", folder, "--first"))[0] === two.pane);
     this.assertEqual(await idle("--cwd", folder), [two.pane]);
     await this.cli(["pane", "keys", one.pane, "ctrl+c"]);
     await this.until(async () => (await idle("--cwd", folder)).length === 2);
-    await this.cli(["pane", "send", two.pane, "cd ..", "--enter"]);
+    await this.cli(["pane", "type", two.pane, "cd ..", "--enter"]);
     await this.until(async () => (await idle("--cwd", folder)).length === 1);
     this.assertEqual(await idle("--cwd", realpathSync(empty)), []);
     await this.cli(["pane", "idle", "--workspace", 99], { error: "NoWorkspace" });

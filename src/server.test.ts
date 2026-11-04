@@ -362,7 +362,7 @@ test("input sent into a pane counts as work in it, as a focused viewer's does", 
     const pane = new Pane(1, new Terminal(20, 4), "/tmp");
     server.runtime.panes.push(pane);
     expect(server.inputAt(1)).toBe(0);
-    // As `corgi pane send` types a prompt, with no viewer about.
+    // As `corgi pane type` types a prompt, with no viewer about.
     const before = Date.now();
     pane.terminal.send("again\r");
     expect(server.inputAt(1)).toBeGreaterThanOrEqual(before);

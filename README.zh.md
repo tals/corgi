@@ -51,7 +51,7 @@ OpenCode 无需额外设置。Codex 会在 `/hooks` 中要求你信任这些钩�
 corgi list
 corgi tab new --workspace 1 --command 'bun run dev'
 corgi pane split current --right --command codex
-corgi pane send 3 'run the tests' --enter
+corgi message 3 'run the tests'
 corgi pane read 3 --lines 50
 ```
 

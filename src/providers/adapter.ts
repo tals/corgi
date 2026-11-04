@@ -424,6 +424,10 @@ export interface Adapter extends Info {
     keep?(c: CommandLine): Kept;
   };
   rename?: Rename;
+  /** Sends `text` to `session`, in `account`, as a prompt through the
+   * provider's own channel, if one reaches it now; `connected` as for
+   * `rename`. Without one, Corgi types it into the agent's pane. */
+  message?(session: string, connected: boolean, account: string): Promise<((text: string) => Promise<void>) | null>;
   /** Starts `session`'s turn `turn`, which failed on a condition that may
    * pass, again through `account`'s own channel, if that turn is still its
    * latest and nothing runs. It asks `clear` last, just before it starts

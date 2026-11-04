@@ -1085,7 +1085,7 @@ process.stdin.resume();
     await this.run_cli("pane", "keys", String(first), "enter", "esc", "ctrl+a");
     const cliKeys = "\x1b[13u\x1b[27u\x1b[97;5u";
     await this.until(() => readFileSync(capture).includes(Buffer.from(cliKeys)));
-    await this.run_cli("pane", "send", String(first), "submitted", "--enter");
+    await this.run_cli("pane", "type", String(first), "submitted", "--enter");
     await this.until(() => readFileSync(capture).includes(Buffer.from("submitted\x1b[13u")));
     await a.input("\x1b[<0;29;2M\x1b[<0;29;2m");
     await this.until(() => readFileSync(capture).includes(Buffer.from("\x1b[<0;1;1M")));

@@ -11,6 +11,7 @@ import { Row } from "./launch/row";
 import { Entry as CommandEntry } from "./launch/command";
 import helpText from "../assets/cli-help.txt" with { type: "text" };
 import * as i18n from "./i18n";
+import * as agentOrder from "./agent_order";
 import skill from "../assets/corgi-skill.md" with { type: "text" };
 export const help = helpText;
 export function localizedHelp(): string {
@@ -25,6 +26,7 @@ const groups = new Set([
   "current",
   "list",
   "focus",
+  "message",
   "grep",
   "--skill",
 ]);
@@ -72,10 +74,11 @@ const actions = new Set([
   "pane.hibernate",
   "pane.wake",
   "pane.read",
-  "pane.send",
+  "pane.type",
   "pane.keys",
   "pane.idle",
   "claim",
+  "message",
   "workspace.new",
   "workspace.edit",
   "workspace.close",
@@ -144,6 +147,22 @@ export function helpFor(text: string, args: string[], agent = false): string {
   const lines = usage(text, args);
   const label = agent ? "Usage:" : i18n.t`Usage:`;
   return lines.length ? `${label}\n${lines.join("\n")}\n` : text;
+}
+/** The agent a command line names: a pane by ID or `current`, or `pane:ID`
+ * or `headless:ID` as Tricks name agents. */
+export function agentTarget(value: string, caller: number): agentOrder.Target {
+  if (value === "current") {
+    if (!caller) throw Error("NoCallerPane");
+    return { pane: caller };
+  }
+  return agentOrder.parse(value) ?? { pane: id(value) };
+}
+/** The text argument, or standard input with `--stdin`. */
+async function typed(args: Args, input?: () => Promise<string>): Promise<string> {
+  if (!args.flag("stdin")) return args.next();
+  const text = await (input ? input() : Bun.stdin.text());
+  if (Buffer.byteLength(text) > 1024 * 1024) throw Error("StreamTooLong");
+  return text;
 }
 export function id(value: string): number {
   if (!/^\+?\d+$/.test(value)) throw Error("InvalidCharacter");
@@ -232,8 +251,16 @@ export async function parse(words: string[], caller = 0, input?: () => Promise<s
   const action = raw === "workspace.list" ? "list" : raw;
   if (!actions.has(action)) throw Error("Usage");
   let current = false,
-    target = 0;
-  if (group !== "launcher" && !["list", "current", "tab.new", "workspace.new", "pane.idle", "claim"].includes(action)) {
+    target = 0,
+    agent: agentOrder.Target | null = null;
+  if (action === "message") {
+    if (start === words.length) throw Error("Usage");
+    agent = agentTarget(words[start++], caller);
+    if ("pane" in agent) target = agent.pane;
+  } else if (
+    group !== "launcher" &&
+    !["list", "current", "tab.new", "workspace.new", "pane.idle", "claim"].includes(action)
+  ) {
     if (start === words.length) throw Error("Usage");
     current = words[start] === "current";
     if (current && group === "workspace") throw Error("Usage");
@@ -425,13 +452,13 @@ export async function parse(words: string[], caller = 0, input?: () => Promise<s
       set(action, { target, lines });
       break;
     }
-    case "pane.send": {
-      let text: string;
-      if (args.flag("stdin")) {
-        text = await (input ? input() : Bun.stdin.text());
-        if (Buffer.byteLength(text) > 1024 * 1024) throw Error("StreamTooLong");
-      } else text = args.next();
-      set(action, { target, text, enter: args.flag("enter") });
+    case "pane.type":
+      set("pane.send", { target, text: await typed(args, input), enter: args.flag("enter") });
+      break;
+    case "message": {
+      const text = await typed(args, input);
+      if (!text) throw Error("Usage");
+      set("agent.message", { target: agent, text });
       break;
     }
     case "pane.keys":
@@ -469,8 +496,9 @@ function panes(nodes: any[], index: number): number[] {
   return [...panes(nodes, node.split.first), ...panes(nodes, node.split.second)];
 }
 const quote = (name: string) => (name ? " " + JSON.stringify(name) : "");
-/** `corgi list` as an outline: workspaces, their tabs and panes, then viewers.
- * A pane shows its cwd only where it differs from its workspace's. */
+/** `corgi list` as an outline: workspaces, their tabs and panes and headless
+ * agents, then viewers. A pane shows its cwd only where it differs from its
+ * workspace's. */
 export function list(reply: any): string {
   const out: string[] = [],
     byId = new Map<number, any>((reply.result?.panes ?? []).map((p: any) => [p.id, p]));
@@ -484,6 +512,8 @@ export function list(reply: any): string {
         if (p) out.push(`    pane ${id}${quote(p.name)}${p.cwd && p.cwd !== w.cwd ? " " + p.cwd : ""}${pane(p)}`);
       }
     }
+    for (const s of reply.result?.headless_sessions ?? [])
+      if (s.workspace === w.id) out.push(`  headless:${s.id}${pane({ agent: s.agent, exited: s.exited })}`);
   }
   for (const v of reply.viewers ?? []) out.push(`viewer ${v.id}: workspace ${v.workspace}, pane ${v.pane}`);
   return out.join("\n") + "\n";
@@ -748,6 +778,12 @@ export function words(reply: any): string {
   if (r.pane) return `pane ${r.pane} (tab ${r.tab}, workspace ${r.workspace})\n`;
   return "ok\n";
 }
+/** Where `message` went, and whether it was typed for want of a channel. */
+export function messaged(reply: any, target: agentOrder.Target): string {
+  const r = reply.result ?? {},
+    to = r.pane ? `pane ${r.pane} (tab ${r.tab}, workspace ${r.workspace})` : agentOrder.key(target);
+  return r.delivery === "typed" ? `typed into ${to}\n` : `messaged ${to}\n`;
+}
 /** `pane read` text for a reader that asked for `lines` lines, given up to one
  * more: the extra line only says that earlier output exists. Agent mode trims
  * line ends, shortens rules and keeps one blank line in a row. */
@@ -823,7 +859,13 @@ export async function run(path: string, args: string[], agent = false): Promise<
       process.stdout.write(read(reply.result.text, lines, agent));
     else
       process.stdout.write(
-        inv.action === "list" ? list(reply) : inv.action === "pane.idle" ? idle(reply) : words(reply),
+        inv.action === "list"
+          ? list(reply)
+          : inv.action === "pane.idle"
+            ? idle(reply)
+            : inv.action === "message"
+              ? messaged(reply, inv.command["agent.message"].target)
+              : words(reply),
       );
   } finally {
     conn.close();

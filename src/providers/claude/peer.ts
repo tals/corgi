@@ -1,5 +1,5 @@
-//! Renames a running Claude Code session through the messaging socket its
-//! session record names.
+//! Talks to a running Claude Code session through the messaging socket its
+//! session record names: renames it, or queues a prompt for it.
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -39,20 +39,10 @@ export async function peerIn(folder: string, session: string): Promise<Peer | nu
   }
   return null;
 }
-export async function rename(peer: Peer, session: string, name: string) {
-  const text =
-    JSON.stringify({ type: "auth", token: peer.token }) +
-    "\n" +
-    JSON.stringify({
-      type: "control",
-      action: "rename",
-      name,
-      session_id: session,
-      from: "uds:" + peer.socket,
-      msg_id: randomUUID(),
-    }) +
-    "\n";
-  await new Promise<void>((resolve, reject) => {
+/** Writes `frame` to `peer`'s inbox after its auth line. */
+function write(peer: Peer, frame: object) {
+  const text = JSON.stringify({ type: "auth", token: peer.token }) + "\n" + JSON.stringify(frame) + "\n";
+  return new Promise<void>((resolve, reject) => {
     const connection = createConnection(peer.socket);
     connection.once("error", reject);
     connection.once("connect", () =>
@@ -61,5 +51,26 @@ export async function rename(peer: Peer, session: string, name: string) {
         connection.destroy();
       }),
     );
+  });
+}
+export function rename(peer: Peer, session: string, name: string) {
+  return write(peer, {
+    type: "control",
+    action: "rename",
+    name,
+    session_id: session,
+    from: "uds:" + peer.socket,
+    msg_id: randomUUID(),
+  });
+}
+/** Queues `text` as a prompt: it starts a turn when the session is idle, or
+ * runs after the current one. */
+export function message(peer: Peer, session: string, text: string) {
+  return write(peer, {
+    type: "user",
+    message: { role: "user", content: text },
+    priority: "next",
+    session_id: session,
+    msg_id: randomUUID(),
   });
 }

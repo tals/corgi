@@ -17,6 +17,7 @@ import * as launcherOrder from "./launch/order";
 import * as integration from "./integration";
 import * as worktreeAgents from "./worktree_agents";
 import * as agentRetry from "./agent_retry";
+import * as agentMessage from "./agent_message";
 import { Row } from "./launch/row";
 import type { Provider } from "./providers";
 export type Context = { socket: string; executable: string; theme: any };
@@ -38,6 +39,7 @@ export type Result = {
   workspace?: number;
   closed_panes?: number[];
   text?: string | null;
+  delivery?: agentMessage.Delivery;
 };
 export function location(r: Runtime, pane: number): protocol.Result {
   const ws = r.workspaces.owner(pane);
@@ -103,6 +105,11 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
       const ws = r.getWorkspace(request.payload.workspace);
       ws.activity_order.move(r.agentTargets(ws), request.payload.target, request.payload.before ?? null);
       break;
+    }
+    case "agent.message": {
+      const target = request.payload.target,
+        delivery = await agentMessage.send(r, target, request.payload.text);
+      return { ...("pane" in target ? location(r, target.pane) : {}), delivery };
     }
     case "agent.command": {
       if (request.payload.name !== null && request.payload.name !== undefined)
@@ -364,13 +371,7 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
     case "pane.send": {
       const p = r.pane(request.payload.target);
       if (!p) throw Error("NoPane");
-      const bracketed = p.terminal.bracketed_paste ?? false;
-      await p.terminal.send(
-        (bracketed ? "\x1b[200~" : "") +
-          request.payload.text +
-          (bracketed ? "\x1b[201~" : "") +
-          (request.payload.enter ? viewerNative.encodeKey(p.terminal.handle, logicalKey("enter")) : ""),
-      );
+      await agentMessage.type(p, request.payload.text, request.payload.enter);
       return location(r, request.payload.target);
     }
     case "pane.keys": {

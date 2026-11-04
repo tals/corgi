@@ -54,7 +54,7 @@ Codex では、初回のみ `/hooks` でフックを信頼する操作が必要�
 corgi list
 corgi tab new --workspace 1 --command 'bun run dev'
 corgi pane split current --right --command codex
-corgi pane send 3 'run the tests' --enter
+corgi message 3 'run the tests'
 corgi pane read 3 --lines 50
 ```
 

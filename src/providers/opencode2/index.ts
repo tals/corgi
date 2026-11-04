@@ -91,6 +91,13 @@ export const adapter: Adapter = {
       };
     },
   },
+  async message(session) {
+    if (!validSession(session)) return null;
+    const api = await API.open();
+    return async text => {
+      await api.call("POST", `/api/session/${session}/prompt`, { text, delivery: "steer" });
+    };
+  },
   headless: { start: at => OpenCode2.start(at, null), restore: (saved, live) => OpenCode2.restore(saved, live) },
   inference: {
     model: "",

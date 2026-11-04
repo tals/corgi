@@ -28,6 +28,10 @@ $.requests|session.command.command|agent.place.before: optional
 $.requests|session.command.command|agent.place.before?: one of
 $.requests|session.command.command|agent.place.before?|pane: u32
 $.requests|session.command.command|agent.place.before?|headless: u32
+$.requests|session.command.command|agent.message.target: one of
+$.requests|session.command.command|agent.message.target|pane: u32
+$.requests|session.command.command|agent.message.target|headless: u32
+$.requests|session.command.command|agent.message.text: string
 $.requests|session.command.command|agent.command.index: usize
 $.requests|session.command.command|agent.command.command: string
 $.requests|session.command.command|agent.command.hidden: bool
@@ -871,6 +875,8 @@ $.replies.session.command.result.workspace: u32
 $.replies.session.command.result.text: optional
 $.replies.session.command.result.text?: string
 $.replies.session.command.result.closed_panes[]: u32
+$.replies.session.command.result.delivery: optional
+$.replies.session.command.result.delivery?: enum message typed
 $.replies.session.locate.result.pane: u32
 $.replies.session.locate.result.tab: u32
 $.replies.session.locate.result.workspace: u32

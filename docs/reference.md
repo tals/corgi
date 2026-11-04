@@ -287,7 +287,7 @@ corgi list
 corgi tab new --workspace 1 --name Tests --command 'bun test src'
 corgi pane split current --right
 corgi pane read 3 --lines 100
-corgi pane send 3 --stdin --enter < /path/to/prompt.txt
+corgi message 3 --stdin < /path/to/prompt.txt
 corgi pane idle --cwd /path/to/project --first
 corgi launcher hide codex claude/work --workspace 1
 corgi focus 3 --viewer 1
@@ -304,7 +304,11 @@ line 18 of it. The private index refreshes changed conversations automatically,
 Codex archives and OpenCode's database included. Patterns are JavaScript regular
 expressions. See `corgi grep --help`.
 
-`pane send` types literal input; `--enter` submits it. `pane close` and
+`pane type` types literal input; `--enter` submits it. `message` prompts an
+agent through its provider's own channel where there is one (Claude Code's
+session inbox, Codex's app server, OpenCode's server, a headless session's
+protocol), and otherwise types the text and presses Enter. It takes a pane ID,
+`current`, or `headless:ID` as `list` prints it. `pane close` and
 `tab close` terminate their target processes without prompting. Layout changes
 do not focus a viewer; `focus` requires an explicit `--viewer` from `list`.
 `pane idle` lists the panes whose shell waits at its prompt, by workspace then
