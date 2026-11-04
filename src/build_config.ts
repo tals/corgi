@@ -5,3 +5,7 @@ export const builtAt = "";
 export const updateURL = "";
 export const updatePublicKey = "";
 export const sentryDSN = "";
+/** Where a development build's commit lives and what it merged onto upstream
+ * main; empty for a release. */
+export const buildRepository = "";
+export const buildMerges: import("./custom_build").BuildMerge[] = [];
