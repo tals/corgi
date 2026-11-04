@@ -13,6 +13,7 @@ export { ItemType, commandDirectory, writes } from "./headless";
 import { screen, Watcher } from "./screen";
 import * as renaming from "./rename";
 import * as daemonEffort from "./daemon_effort";
+import * as discovery from "../../discovery";
 import * as retrying from "./retry";
 export { screen };
 export { label as plan } from "./plan";
@@ -111,7 +112,11 @@ export const adapter: Adapter = {
   titleSession,
   launch: {
     options: (args, model, value) => effort.apply(null, model ? commandLine.withoutModel(args) : args, value),
-    deferred: (args, account) => (daemonEffort.reachable(dir(account)) ? daemonEffort.deferred(args) : null),
+    deferred: (args, account) =>
+      daemonEffort.joins(discovery.considered("codex").find(install => install.ok)?.version ?? null) &&
+      daemonEffort.reachable(dir(account))
+        ? daemonEffort.deferred(args)
+        : null,
     settle: (named, account, value, last) => daemonEffort.settle(control(account), named, value, last),
     start: s => [
       // Its hooks report a run that never asks as bypassing permissions,

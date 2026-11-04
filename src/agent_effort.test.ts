@@ -145,11 +145,13 @@ test("Codex panes Corgi starts leave their launcher's effort to the shared serve
   const home = mkdtempSync(tmpdir() + "/corgi-ts-effort-"),
     off = mkdtempSync(tmpdir() + "/corgi-ts-effort-"),
     untitled = mkdtempSync(tmpdir() + "/corgi-ts-effort-"),
+    broken = mkdtempSync(tmpdir() + "/corgi-ts-effort-"),
     high = 'model_reasoning_effort="high"',
     launch = (account: string, flags = "") =>
       Launch.in("codex", account, false, { flags, env: [], model: "gpt-5", effort: "high" });
   writeFileSync(home + "/config.toml", titled);
   writeFileSync(off + "/config.toml", "[features]\ndaemon_auto_start = false\n" + titled);
+  writeFileSync(broken + "/config.toml", "[features\n" + titled);
   try {
     const deferred = launch(home);
     expect(deferred.run("/bin/corgi", ["resume", "abc"])).toMatchObject({
@@ -178,13 +180,15 @@ test("Codex panes Corgi starts leave their launcher's effort to the shared serve
       command: "'/bin/corgi' agent codex attach",
       effort: null,
     });
-    // Without Corgi's integration nothing names the pane's thread, so the effort stays a flag.
-    expect(launch(untitled).run("/bin/corgi")).toMatchObject({
-      command: `'/bin/corgi' agent codex --model gpt-5 -c '${high}'`,
-      effort: null,
-    });
+    // Without Corgi's integration nothing names the pane's thread, so the effort stays a
+    // flag, as it does with a config Corgi can't read.
+    for (const account of [untitled, broken])
+      expect(launch(account).run("/bin/corgi")).toMatchObject({
+        command: `'/bin/corgi' agent codex --model gpt-5 -c '${high}'`,
+        effort: null,
+      });
     // At the launcher's default effort, nothing sets one, on the command or later.
-    for (const account of [home, off, untitled])
+    for (const account of [home, off, untitled, broken])
       expect(Launch.in("codex", account, false, { flags: "", env: [], model: "gpt-5" }).run("/bin/corgi")).toEqual({
         command: "'/bin/corgi' agent codex --model gpt-5",
         interactive_command: false,
@@ -192,7 +196,7 @@ test("Codex panes Corgi starts leave their launcher's effort to the shared serve
         effort: null,
       });
   } finally {
-    for (const dir of [home, off, untitled]) rmSync(dir, { recursive: true, force: true });
+    for (const dir of [home, off, untitled, broken]) rmSync(dir, { recursive: true, force: true });
   }
   expect(Launch.in("claude", "", false, { flags: "", env: [], effort: "high" }).run("/bin/corgi").effort).toBeNull();
   expect(new Launch(undefined, "codex").run("/bin/corgi", ["resume", "abc"])).toEqual({

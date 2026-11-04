@@ -74,9 +74,25 @@ export function reachable(home: string) {
   try {
     settings = Bun.TOML.parse(readFileSync(path, "utf8"));
   } catch {
-    return true;
+    // Unread, it may turn the shared server off or leave the title out. Codex
+    // refuses a config.toml that doesn't parse, so the flag rarely matters.
+    return false;
   }
   return settings?.features?.daemon_auto_start !== false && titled(settings);
+}
+/** The oldest Codex seen to start and join the shared server; older ones run
+ * a server of their own whatever their options, so the flag costs nothing. */
+const shared_since = [0, 162, 1];
+/** Whether Codex as `--version` says, null when Corgi hasn't asked it,
+ * joins the shared server. */
+export function joins(version: string | null) {
+  const found = /^codex-cli (\d+)\.(\d+)\.(\d+)/.exec(version ?? "");
+  if (!found) return true;
+  for (let i = 0; i < shared_since.length; i++) {
+    const ahead = Number(found[i + 1]) - shared_since[i];
+    if (ahead) return ahead > 0;
+  }
+  return true;
 }
 function titled(settings: any) {
   try {

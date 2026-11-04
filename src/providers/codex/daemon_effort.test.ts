@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { deferred, reachable, settle } from "./daemon_effort";
+import { deferred, joins, reachable, settle } from "./daemon_effort";
 import { adapter } from "./index";
 const xhigh = 'model_reasoning_effort="xhigh"';
 test("an effort override comes off where the rest keeps Codex on its shared server", () => {
@@ -91,9 +91,20 @@ test("the override stays where Corgi can't name the thread a pane shows on the s
     write("[features]\ndaemon_auto_start = false\n" + titled);
     expect(reachable(home)).toBe(false);
     expect(adapter.launch.deferred?.(["-c", xhigh], home)).toBeNull();
+    // Unread, it may say either; Codex itself refuses it.
+    write("[features\n" + titled);
+    expect(reachable(home)).toBe(false);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
+});
+test("the override stays on a Codex older than the shared server", () => {
+  for (const version of ["codex-cli 0.153.4", "codex-cli 0.155.0-alpha.2.6", "codex-cli 0.162.0"])
+    expect(joins(version)).toBe(false);
+  for (const version of ["codex-cli 0.162.1", "codex-cli 0.166.0", "codex-cli 1.2.3-fixture"])
+    expect(joins(version)).toBe(true);
+  // One Corgi hasn't asked yet counts as current.
+  expect(joins(null)).toBe(true);
 });
 test("the effort is set once the shared server runs the thread its title names", async () => {
   const dir = mkdtempSync(tmpdir() + "/corgi-ts-effort-"),
