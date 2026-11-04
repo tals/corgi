@@ -280,13 +280,19 @@ export function orderTarget(e: Entry): OrderTarget | null {
 export function lessThan(order: OrderTarget[], left: Entry, right: Entry): boolean {
   return rank(order, orderTarget(left)!) < rank(order, orderTarget(right)!);
 }
-/** The line under an agent's name: what it's doing, or why it isn't. */
-export function rowDetail(e: Entry, now_ms = Date.now()): string {
+/** An agent row's name: its own, or else its provider's. */
+export function rowTitle(e: Pick<Entry, "name" | "provider">): string {
+  return e.name.length > 0 ? directoryLabel(e.name, null, 160) : e.provider ? adapter(e.provider).name : "";
+}
+/** The line under an agent's name: what it's doing, or why it isn't. With
+ * `now_ms` null, a retry leaves out its countdown. */
+export function rowDetail(e: Entry, now_ms: number | null = Date.now()): string {
   const compacting = e.state === "working" && e.compacting,
     waiting = e.state === "working" && e.subagents.waiting && !compacting;
   if (retrying(e)) {
+    if (now_ms === null || e.retry_at <= now_ms) return i18n.t`Retrying…`;
     const wait = elapsed(e.retry_at - now_ms + 999);
-    return e.retry_at > now_ms ? i18n.t`Retrying in ${wait}` : i18n.t`Retrying…`;
+    return i18n.t`Retrying in ${wait}`;
   }
   if (compacting) return i18n.t`Compacting…`;
   if (waiting) return i18n.t`Waiting on agents`;
@@ -1659,7 +1665,6 @@ export class View {
     // Dotted lines start under the name, leaving the guide and activity clear.
     const underline_x = dotted ? 5 : 2;
     const compacting = e.state === "working" && e.compacting;
-    const waiting = e.state === "working" && e.subagents.waiting && !compacting;
     // Without sleeping corgis, a dim Z marks an idle agent; unseen ones are
     // brighter. Selected rows take muted, as faint is too dim on them.
     const napping = e.state === "idle" && v.corgi_intensity === 0;
@@ -1668,7 +1673,7 @@ export class View {
       : napping && e.attention !== "finished"
         ? "\x1b[22m" + nap_fg
         : "\x1b[22m" + fg("faint");
-    const name = e.name.length > 0 ? directoryLabel(e.name, null, 160) : e.provider ? adapter(e.provider).name : "";
+    const name = rowTitle(e);
     const figure = contextFigure(e, compacting, background);
     const figure_width = figure ? displayWidth(figure.text) : 0;
     const count = e.notes;

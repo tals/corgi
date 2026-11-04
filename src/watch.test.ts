@@ -93,6 +93,7 @@ test("the summary lists each workspace's agents as the sidebar sorted by activit
               glyph: "none",
               corgi: "content",
               compacting_since: 0,
+              retry_at: 0,
             },
             {
               pane: working.id,
@@ -108,6 +109,7 @@ test("the summary lists each workspace's agents as the sidebar sorted by activit
               glyph: "thinking",
               corgi: "content",
               compacting_since: 0,
+              retry_at: 0,
             },
             {
               pane: ready.id,
@@ -123,6 +125,7 @@ test("the summary lists each workspace's agents as the sidebar sorted by activit
               glyph: "none",
               corgi: "asleep",
               compacting_since: 0,
+              retry_at: 0,
             },
             {
               pane: null,
@@ -138,6 +141,7 @@ test("the summary lists each workspace's agents as the sidebar sorted by activit
               glyph: "none",
               corgi: "asleep",
               compacting_since: 0,
+              retry_at: 0,
             },
           ],
         },
@@ -214,6 +218,38 @@ test("a done agent no longer needs input", () => {
   }
 });
 
+test("a retrying agent says so and leaves its countdown to retry_at", () => {
+  const { r, working } = daemon();
+  try {
+    const wire: any = json.parse(json.stringify(snapshot(r)));
+    wire.panes.find((p: any) => p.id === working.id).agent.retry_at = 1_900_000_000_000;
+    const s = watch.summary(received(wire));
+    if (!s.running) throw Error("not running");
+    expect(s.workspaces[0].agents.find(a => a.pane === working.id)).toMatchObject({
+      section: "working",
+      status: "retrying",
+      detail: "Retrying…",
+      glyph: "waiting",
+      retry_at: 1_900_000_000_000,
+    });
+  } finally {
+    r.destroy();
+  }
+});
+
+test("archived workspaces and their agents stay out, as in the sidebar", () => {
+  const { r, api } = daemon();
+  try {
+    api.archived = true;
+    const s = watch.summary(received(snapshot(r)));
+    if (!s.running) throw Error("not running");
+    expect(s.workspaces.map(ws => ws.name)).toEqual(["docs"]);
+    expect(s.counts.agents).toBe(0);
+  } finally {
+    r.destroy();
+  }
+});
+
 test("the printer writes only summaries that changed", () => {
   const lines: string[] = [],
     printer = new watch.Printer(line => lines.push(line));
@@ -238,6 +274,8 @@ test("the printer writes only summaries that changed", () => {
 class FakeDaemon {
   server: SocketServer;
   clients: Socket[] = [];
+  /** Pushes written in one piece with the next reply. */
+  along: object[] = [];
   constructor(
     readonly path: string,
     public reply: (request: any) => object = () => session("api"),
@@ -251,7 +289,8 @@ class FakeDaemon {
         for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
           const request = JSON.parse(buffer.slice(0, end));
           buffer = buffer.slice(end + 1);
-          socket.write(JSON.stringify({ ...this.reply(request), request_id: request.request_id }) + "\n");
+          const reply = { ...this.reply(request), request_id: request.request_id };
+          socket.write([reply, ...this.along.splice(0)].map(v => JSON.stringify(v) + "\n").join(""));
         }
       });
       socket.on("error", () => {});
@@ -296,15 +335,20 @@ const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
   for (const f of cleanup.splice(0).reverse()) await f();
 });
-/** Runs `watch.run` against `path`, collecting its lines. */
+/** Runs `watch.run` against `path` until the test ends, collecting its lines. */
 function watching(path: string) {
-  const lines: any[] = [];
+  const lines: any[] = [],
+    stop = new AbortController();
   let failed: unknown = null;
-  watch
-    .run(path, line => lines.push(JSON.parse(line)), { grace_ms: 200, poll_ms: 50 })
+  const running = watch
+    .run(path, line => lines.push(JSON.parse(line)), { intensity: 1, grace_ms: 200, poll_ms: 50, signal: stop.signal })
     .catch(error => {
       failed = error;
     });
+  cleanup.push(() => {
+    stop.abort();
+    return running;
+  });
   return {
     lines,
     failed: () => failed,
@@ -404,6 +448,17 @@ test("a daemon that comes back within the grace period prints nothing in between
   expect(w.lines.length).toBe(1);
   second.push(session("renamed"));
   expect(await w.next(2)).toMatchObject({ running: true, workspaces: [{ name: "renamed" }] });
+});
+
+test("a push read along with the subscription's reply is shown after it", async () => {
+  const path = join(folder(), "control.sock"),
+    fake = new FakeDaemon(path);
+  fake.along.push(session("renamed"));
+  cleanup.push(() => fake.stop());
+  await fake.listen();
+  const w = watching(path);
+  await w.next(2);
+  expect(w.lines.map(line => line.workspaces[0].name)).toEqual(["api", "renamed"]);
 });
 
 test("a daemon that refuses the subscription ends the watch", async () => {

@@ -415,6 +415,22 @@ test("provisional pane completions ring until their receipts are read", () => {
   }
 });
 
+test("a subscriber that leaves out output still does after a handoff", () => {
+  const source = fixture(),
+    target = fixture();
+  try {
+    const original = source.server.addClient(-1, false);
+    original.subscribed = true;
+    original.subscribed_output = false;
+    const saved = json.parse(json.stringify(handoff.captureManifest(source.server, original)));
+    handoff.restoreMetadata(target.server, saved);
+    const restored = handoff.restoreClient(target.server, saved.clients[0]);
+    expect(restored).toMatchObject({ subscribed: true, subscribed_output: false });
+  } finally {
+    source.dispose();
+    target.dispose();
+  }
+});
 test("handoff restoration normalizes small and wide viewer counters before waking", () => {
   for (const seq of [0n, 9007199254740993n]) {
     const source = fixture(),

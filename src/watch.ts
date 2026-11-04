@@ -4,12 +4,13 @@
 import * as rpc from "./rpc";
 import * as mirror from "./mirror";
 import * as sidebar from "./sidebar";
+import * as agentRows from "./agent_rows";
 import * as agentSections from "./agent_sections";
 import * as agentOrder from "./agent_order";
 import * as json from "./json";
 import * as errors from "./errors";
 import * as protocol from "./protocol";
-import { adapter, type Provider } from "./providers";
+import type { Provider } from "./providers";
 import * as preferences from "./preferences";
 import { directoryLabel } from "./text";
 import type { Section } from "./agent_order";
@@ -28,7 +29,7 @@ export interface Agent {
   unread: boolean;
   /** What its sidebar glyph says. */
   status: sidebar.Status;
-  /** Its sidebar row's second line. */
+  /** Its sidebar row's second line; a retry's countdown is left to `retry_at`. */
   detail: string;
   /** The glyph before that line: thinking and compacting spin. */
   glyph: Activity;
@@ -36,6 +37,8 @@ export interface Agent {
   corgi: Mode;
   /** When its compaction began, in ms, or 0; the herd starts from it. */
   compacting_since: number;
+  /** When Corgi starts its failed turn again, in ms, while it's retrying; else 0. */
+  retry_at: number;
 }
 export interface Workspace {
   id: number;
@@ -58,8 +61,9 @@ export interface Counts {
 export type Summary = { running: false } | { running: true; counts: Counts; workspaces: Workspace[] };
 
 /** Every workspace's links and agents, in the order the sidebar sorted by
- * activity lists them. `since` remembers when each agent entered its
- * section, from one summary to the next. */
+ * activity lists them; archived workspaces stay out, as they do there.
+ * `since` remembers when each agent entered its section, from one summary
+ * to the next. */
 export function summary(
   runtime: mirror.Runtime,
   intensity = new preferences.Preferences().corgi_intensity,
@@ -68,7 +72,8 @@ export function summary(
 ): Summary {
   const counts: Counts = { agents: 0, working: 0, needs_input: 0, ready: 0, idle: 0, done: 0, unread: 0 },
     seen = new Set<string>();
-  const workspaces = runtime.workspaces.items.map(ws => {
+  const workspaces = runtime.workspaces.items.flatMap(ws => {
+    if (ws.archived) return [];
     const agents = arranged(runtime, ws, since, now_ms, seen).map(e => agent(e, intensity));
     for (const a of agents) {
       counts.agents += 1;
@@ -89,7 +94,7 @@ export function summary(
       if (url === null) break;
       links.push({ url, label: sidebar.workspaceUrlName(entry, index) });
     }
-    return { id: ws.id, name: ws.name, links, pointer: links.length > 0 ? sidebar.portLabel(entry) : "", agents };
+    return [{ id: ws.id, name: ws.name, links, pointer: links.length > 0 ? sidebar.portLabel(entry) : "", agents }];
   });
   since.keep(seen);
   return { running: true, counts, workspaces };
@@ -104,7 +109,7 @@ function arranged(
   now_ms: number,
   seen: Set<string>,
 ): sidebar.Entry[] {
-  const items = rows(runtime, ws).map(({ entry, start }): agentSections.Item => {
+  const items = agentRows.rows(runtime, ws).map(({ entry, start }): agentSections.Item => {
     const target = entry.target as agentOrder.Target,
       key = agentOrder.key(target),
       section = agentSections.section(entry),
@@ -127,80 +132,24 @@ function arranged(
     .arrange(items, { all: false, folded: new Set(), workspaces: [ws.id], label: () => "" })
     .filter(e => sidebar.isAgent(e.target));
 }
-/** When the daemon says an agent's state began, in ms. */
-const stateStart = (agent: mirror.Agent) => (agent.working_since > 0 ? agent.working_since : agent.changed_at) / 1000;
-/** `ws`'s agent rows as its hand-sorted list builds them: panes by tab, then
- * headless sessions, in the workspace's agent order; each with when its state began. */
-function rows(runtime: mirror.Runtime, ws: mirror.Workspace): { entry: sidebar.Entry; start: number }[] {
-  const starting = (target: sidebar.Target) => ws.starting_agents.some(t => sidebar.sameTarget(t, target)),
-    starred = (target: sidebar.Target) => ws.pinned_agents.some(t => sidebar.sameTarget(t, target));
-  const tabs: mirror.Pane[][] = Array.from({ length: ws.model.count }, () => []);
-  for (const p of runtime.panes) {
-    if (p.agent.provider === null) continue;
-    const tab = ws.model.tabForPane(p.id);
-    if (tab !== null) tabs[tab].push(p);
-  }
-  const entries = tabs.flat().map(p => ({
-    start: stateStart(p.agent),
-    entry: sidebar.entry({
-      target: { pane: p.id },
-      starting: starting({ pane: p.id }),
-      starred: starred({ pane: p.id }),
-      name: p.label.length > 0 ? p.label : p.agent.name,
-      provider: p.agent.provider,
-      state: p.agent.state,
-      attention: p.agent.attention,
-      tool_active: p.agent.tool_active,
-      compacting: p.agent.compacting,
-      compacting_since: p.agent.compacting_since,
-      paused: p.agent.paused,
-      subagents: { ...p.agent.subagents },
-      unread: mirror.unread(p.agent.observation),
-      activity: p.agent.activity,
-    }),
-  }));
-  for (const session of runtime.sessions)
-    if (session.workspace === ws.id)
-      entries.push({
-        start: session.agent ? stateStart(session.agent) : 0,
-        entry: sidebar.entry({
-          target: { headless: session.id },
-          starting: starting({ headless: session.id }),
-          starred: starred({ headless: session.id }),
-          name: session.agent?.name ?? "",
-          provider: session.provider,
-          state: session.state,
-          attention: session.attention,
-          tool_active: session.tool_active,
-          ...(session.agent ? { subagents: { ...session.agent.subagents }, activity: session.agent.activity } : {}),
-          unread: mirror.unread(session.observation),
-        }),
-      });
-  return entries.sort((l, r) =>
-    sidebar.lessThan(ws.agent_order, l.entry, r.entry)
-      ? -1
-      : sidebar.lessThan(ws.agent_order, r.entry, l.entry)
-        ? 1
-        : 0,
-  );
-}
 function agent(e: sidebar.Entry, intensity: number): Agent {
-  const detail = sidebar.rowDetail(e);
+  const detail = sidebar.rowDetail(e, null),
+    status = sidebar.status(e);
   return {
     pane: "pane" in e.target ? e.target.pane : null,
     headless: "headless" in e.target ? e.target.headless : null,
-    // As its row names it.
-    title: e.name.length > 0 ? directoryLabel(e.name, null, 160) : e.provider ? adapter(e.provider).name : "",
+    title: sidebar.rowTitle(e),
     provider: e.provider,
     starred: e.starred,
     section: agentSections.section(e),
-    needs_input: e.state !== "done" && (e.state === "blocked" || e.attention === "needs_input"),
+    needs_input: status === "needs_input",
     unread: e.unread,
-    status: sidebar.status(e),
+    status,
     detail: detail.length === 0 ? "" : directoryLabel(detail, null, 512),
     glyph: sidebar.activityKind(e, intensity),
     corgi: sidebar.corgiMode(e, intensity),
     compacting_since: e.state === "working" && e.compacting ? Math.floor(e.compacting_since / 1000) : 0,
+    retry_at: status === "retrying" ? e.retry_at : 0,
   };
 }
 
@@ -216,28 +165,29 @@ export class Printer {
   }
 }
 
-export interface Timing {
+export interface Options {
+  /** How bright the sidebar's corgis are, where 0 turns them off. */
+  intensity: number;
   /** How long a dropped daemon has to come back before it counts as gone. */
   grace_ms: number;
   /** How often to look for a daemon while there is none. */
   poll_ms: number;
+  signal?: AbortSignal;
 }
-const timing: Timing = { grace_ms: 1000, poll_ms: 1000 };
 
-/** Follows the daemon at `path` for good, through restarts and handoffs. A
- * daemon that answers with an error ends it. */
-export async function run(path: string, write: (line: string) => void, t: Timing = timing): Promise<never> {
-  const printer = new Printer(write),
-    // How bright the sidebar's corgis are, where 0 turns them off.
-    intensity = preferences.load().corgi_intensity;
-  for (let until = 0; ;) {
-    if (await follow(path, printer, intensity)) until = Date.now() + t.grace_ms;
+/** Follows the daemon at `path` through restarts and handoffs until
+ * `signal` aborts. A daemon that answers with an error ends it. */
+export async function run(path: string, write: (line: string) => void, o: Options): Promise<void> {
+  const printer = new Printer(write);
+  for (let until = 0; !o.signal?.aborted;) {
+    if (await follow(path, printer, o.intensity, o.signal)) until = Date.now() + o.grace_ms;
+    if (o.signal?.aborted) return;
     if (Date.now() < until) {
-      await Bun.sleep(Math.min(100, t.grace_ms));
+      await Bun.sleep(Math.min(100, o.grace_ms));
       continue;
     }
     printer.print({ running: false });
-    await Bun.sleep(t.poll_ms);
+    await Bun.sleep(o.poll_ms);
   }
 }
 /** No daemon is there to answer, or it went away. */
@@ -246,8 +196,9 @@ function unreachable(error: unknown): boolean {
 }
 /** Prints the daemon's summaries until its connection closes; false when no
  * daemon answered. */
-async function follow(path: string, printer: Printer, intensity: number): Promise<boolean> {
+async function follow(path: string, printer: Printer, intensity: number, signal?: AbortSignal): Promise<boolean> {
   const connection = new rpc.Connection(path),
+    stop = () => connection.close(),
     closed = new Promise<void>(resolve => connection.socket.once("close", () => resolve())),
     runtime = new mirror.Runtime(),
     since = new agentSections.Since(),
@@ -266,18 +217,26 @@ async function follow(path: string, printer: Printer, intensity: number): Promis
       connection.close();
     }
   };
+  // A push read along with the reply reaches us before the reply does, but
+  // it's the newer; it waits for the reply.
+  let subscribed = false,
+    held: protocol.Reply<"session.subscribe"> | null = null;
   connection.onEvent(event => {
-    if (event.type === "session") show(event);
+    if (event.type !== "session") return;
+    if (subscribed) show(event);
+    else held = event;
   });
-  let subscribed = false;
+  signal?.addEventListener("abort", stop);
   try {
     show(await connection.call("session.subscribe", { output: false }));
     subscribed = true;
+    if (held !== null) show(held);
   } catch (error) {
     if (!unreachable(error)) failure = error;
     connection.close();
   }
   await closed;
+  signal?.removeEventListener("abort", stop);
   runtime.destroy();
   if (failure !== null) throw failure;
   return subscribed;
@@ -287,5 +246,9 @@ async function follow(path: string, printer: Printer, intensity: number): Promis
 export async function command(path: string): Promise<void> {
   // The widget stops reading when it reloads.
   process.stdout.on("error", () => process.exit(0));
-  await run(path, line => void process.stdout.write(line));
+  await run(path, line => void process.stdout.write(line), {
+    intensity: preferences.load().corgi_intensity,
+    grace_ms: 1000,
+    poll_ms: 1000,
+  });
 }

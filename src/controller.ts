@@ -84,6 +84,7 @@ import type { Signal } from "./trackers/resources";
 import * as worktreeTooltip from "./worktree_tooltip";
 import * as worktreeAgents from "./worktree_agents";
 import * as agentSections from "./agent_sections";
+import * as agentRows from "./agent_rows";
 import { key as agentKey, section, type Section, type Target as OrderTarget } from "./agent_order";
 import * as worktrees from "./worktrees";
 import * as worktreeRemoval from "./worktree_removal";
@@ -1175,62 +1176,14 @@ export class Controller {
       }
       const first_agent = entries.length,
         starts: number[] = [];
-      const tabs: Pane[][] = Array.from({ length: ws.model.count }, () => []);
-      for (const p of this.runtime.panes) {
-        if (p.agent.provider === null) continue;
-        const tab = ws.model.tabForPane(p.id);
-        if (tab !== null) tabs[tab].push(p);
-      }
-      for (const panes of tabs) {
-        for (const p of panes) {
-          entries.push(
-            sidebar.entry({
-              conversation: p.agent.conversation,
-              target: { pane: p.id },
-              starred: ws.pinned_agents.some(t => sidebar.sameTarget(t, { pane: p.id })),
-              starting: ws.starting_agents.some(t => sidebar.sameTarget(t, { pane: p.id })),
-              name: p.label.length > 0 ? p.label : p.agent.name,
-              provider: p.agent.provider,
-              state: p.agent.state,
-              attention: p.agent.attention,
-              focused: this.headless_notice === null && focus === p.id,
-              cwd: p.agent.cwd.length > 0 ? p.agent.cwd : p.cwd,
-              tool_active: p.agent.tool_active,
-              compacting: p.agent.compacting,
-              compacting_since: p.agent.compacting_since,
-              paused: p.agent.paused,
-              retry_at: p.agent.retry_at,
-              subagents: { ...p.agent.subagents },
-              unread: unread(p.agent.observation),
-              activity: p.agent.activity,
-              reopened: p.restoring.length > 0 && !p.dormant,
-            }),
-          );
-          starts.push(stateStart(p.agent));
-        }
-      }
-      for (const session of this.runtime.sessions) {
-        if (session.workspace !== ws.id) continue;
-        const e = sidebar.entry({
-          target: { headless: session.id },
-          starred: ws.pinned_agents.some(t => sidebar.sameTarget(t, { headless: session.id })),
-          starting: ws.starting_agents.some(t => sidebar.sameTarget(t, { headless: session.id })),
-          provider: session.provider,
-          state: session.state,
-          attention: session.attention,
-          focused: this.headless_notice === session.id,
-          cwd: session.cwd,
-          tool_active: session.tool_active,
-          unread: unread(session.observation),
-        });
-        if (session.agent) {
-          e.conversation = session.agent.conversation;
-          e.subagents = { ...session.agent.subagents };
-          e.name = session.agent.name;
-          e.activity = session.agent.activity;
-        }
-        entries.push(e);
-        starts.push(session.agent ? stateStart(session.agent) : 0);
+      for (const { entry, start } of agentRows.rows(this.runtime, ws)) {
+        const t = entry.target;
+        entry.focused =
+          "pane" in t
+            ? this.headless_notice === null && focus === t.pane
+            : "headless" in t && this.headless_notice === t.headless;
+        entries.push(entry);
+        starts.push(start);
       }
       if (!sectioned) {
         // std.sort.insertion is stable.
@@ -8193,11 +8146,6 @@ function sendMouse(term: Terminal, rect: Rect, button: number, x: number, y: num
 }
 function latin1(bytes: number[]): string {
   return String.fromCharCode(...bytes);
-}
-/** When an agent's state began, in ms, as far as the daemon says: its work
- * clock while it works, else its last change. */
-function stateStart(agent: Agent): number {
-  return (agent.working_since > 0 ? agent.working_since : agent.changed_at) / 1000;
 }
 function contextView(value: any): sidebar.Entry["context"] {
   const view = sidebar.entry({ target: { pane: 0 } }).context;

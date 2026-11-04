@@ -562,7 +562,7 @@ class AgentCli extends Runtime {
         one = await this.new("agent"),
         agent = (summary: any) => summary.workspaces?.[0]?.agents.find((a: any) => a.pane === one.pane);
       await this.cli(["pane", "send", one.pane, executable, "--enter"]);
-      const { status, detail, glyph, corgi, compacting_since, ...appeared } = agent(
+      const { status, detail, glyph, corgi, compacting_since, retry_at, ...appeared } = agent(
         await seen(s => agent(s) !== undefined),
       );
       this.assertEqual(appeared, {
@@ -578,8 +578,8 @@ class AgentCli extends Runtime {
       // The sidebar's glyph and second line come with it.
       this.assertIn(status, ["starting", "working"]);
       this.assertEqual(
-        [typeof detail, typeof glyph, typeof corgi, compacting_since],
-        ["string", "string", "string", 0],
+        [typeof detail, typeof glyph, typeof corgi, compacting_since, retry_at],
+        ["string", "string", "string", 0, 0],
       );
       await this.cli(["pane", "send", one.pane, "block", "--enter"]);
       const blocked = await seen(s => agent(s)?.needs_input === true);
