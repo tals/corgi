@@ -100,6 +100,19 @@ test("last workspace ignores reselecting and reordering, and rejects a closed ta
   expect(state.lastWorkspace(store)).toBeNull();
 });
 
+test("last workspace passes over archived ones to the live workspace before them", () => {
+  const store = world(),
+    state = new navigation.State(),
+    archive = (id: number) => (store.items.find(ws => ws.id === id)!.archived = true);
+  state.switchWorkspace(store, 2);
+  archive(1);
+  expect(state.lastWorkspace(store)).toBeNull();
+  // Leaving archived 1 for 3 keeps 2 as the one to go back to.
+  state.switchWorkspace(store, 1);
+  state.switchWorkspace(store, 3);
+  expect(state.lastWorkspace(store)).toBe(2);
+});
+
 test("initial focus and a reused workspace slot start without tab history", () => {
   const store = world(),
     state = new navigation.State();

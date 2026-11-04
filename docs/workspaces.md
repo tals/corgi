@@ -86,7 +86,8 @@ entering each pane opens a shell with its restore command ready for Enter.
 Agents and other programs wait for you to run those commands. Its menu's **Unarchive workspace** reveals it
 without waking any panes. Keep at least one workspace active.
 Starting new work in an archived workspace, or moving an awake pane into it,
-also makes the workspace visible again.
+also makes the workspace visible again. Jump to attention, next and previous
+workspace, and last workspace pass over archived workspaces.
 
 Hibernation accepts working, blocked and newly starting agents, including
 those that have not reported a session yet. A batch checks that all pane IDs

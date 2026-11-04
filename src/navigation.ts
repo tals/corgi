@@ -50,13 +50,16 @@ export class State {
   }
   switchWorkspace(store: Workspaces, id: number): void {
     if (store.index(id) === null) throw Error("NoWorkspace");
-    const current = this.current(store).id;
-    if (current !== id) this.previous_workspace = current;
+    const current = this.current(store);
+    // Leaving an archived workspace keeps the live one before it.
+    if (current.id !== id && !current.archived) this.previous_workspace = current.id;
     this.workspace_id = id;
   }
+  /** The workspace switched from, unless it has since closed or been archived. */
   lastWorkspace(store: Workspaces): number | null {
     const id = this.previous_workspace;
-    return id !== null && id !== this.current(store).id && store.index(id) !== null ? id : null;
+    const ws = store.items.find(w => w.id === id);
+    return ws && !ws.archived && ws.id !== this.current(store).id ? ws.id : null;
   }
   focus(store: Workspaces, id: number, remember = true): void {
     const ws = this.current(store),

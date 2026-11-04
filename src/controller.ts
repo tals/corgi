@@ -1082,6 +1082,10 @@ export class Controller {
   private archivedWorkspaces(): Workspace[] {
     return this.runtime.workspaces.items.filter(ws => ws.archived && ws.id !== this.current().id);
   }
+  /** Archived workspaces stay out of agent lists and jumps until one is opened. */
+  private archivedAway(id: number): boolean {
+    return id !== this.current().id && this.runtime.workspaces.items.some(ws => ws.id === id && ws.archived);
+  }
   archivedWorkspaceEntries(): sidebar.ArchivedWorkspace[] {
     return this.archivedWorkspaces().map(ws => ({
       id: ws.id,
@@ -1148,7 +1152,7 @@ export class Controller {
       now_ms = milliTimestamp();
     this.runtime.workspaces.items.forEach((ws, ws_index) => {
       if (workspace !== undefined ? ws.id !== workspace : !this.inScope(ws.id)) return;
-      if (workspace === undefined && ws.archived && ws.id !== this.current().id) return;
+      if (workspace === undefined && this.archivedAway(ws.id)) return;
       if (grouped) {
         const total = totals.find(w => w.id === ws.id);
         if (!total) return;
@@ -2239,7 +2243,12 @@ export class Controller {
     for (const priority of ["needs_input", "finished"]) {
       let best: Pane | null = null;
       for (const p of this.runtime.panes)
-        if (p.agent.attention === priority && (best === null || p.agent.changed_at < best.agent.changed_at)) best = p;
+        if (
+          p.agent.attention === priority &&
+          !this.archivedAway(this.runtime.workspaces.owner(p.id)?.id ?? 0) &&
+          (best === null || p.agent.changed_at < best.agent.changed_at)
+        )
+          best = p;
       if (best) {
         this.focusPane(best.id);
         this.dirty = true;
@@ -2248,7 +2257,7 @@ export class Controller {
     }
     for (const priority of ["needs_input", "finished"])
       for (const session of this.runtime.sessions)
-        if (session.attention === priority) {
+        if (session.attention === priority && !this.archivedAway(session.workspace)) {
           if (session.workspace !== this.current().id) this.switchWorkspace(session.workspace);
           this.noticeHeadlessSession(session);
           return;
