@@ -1,9 +1,10 @@
 import { test, expect } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { clip, source, Store, Worker, type Entry } from "./history";
 import * as accounts from "../accounts";
+import * as profiles from "../agent_profiles";
 import { byProvider } from "../providers";
 test("clip keeps one line within its byte limit at a UTF-8 boundary", () => {
   const out = clip("  a\tb\n\nc\x1b é", 7);
@@ -124,7 +125,7 @@ test("an account that shares the default's history lists each session once, as t
     rmSync(home, { recursive: true, force: true });
   }
 });
-test("a removed agent's sessions leave the list, and come back when it's added back", async () => {
+test("a removed agent's sessions leave the list, and come back when it's added back or something saved runs in it", async () => {
   const saved = { ...process.env },
     home = realpathSync(mkdtempSync(join(tmpdir(), "corgi-history-"))),
     session = "33333333-3333-4333-8333-333333333333";
@@ -144,12 +145,30 @@ test("a removed agent's sessions leave the list, and come back when it's added b
     join(project, `${session}.jsonl`),
     JSON.stringify({ type: "user", cwd: home, message: { role: "user", content: "hello" } }) + "\n",
   );
-  const removed = { agent_hidden: byProvider(p => p === "claude"), account_hidden: [] },
+  const removed = { agent_hidden: byProvider(p => p === "claude"), account_hidden: [], commands: [] },
     w = Worker.start(removed);
   try {
     await w.refresh();
     expect(w.snapshot().entries).toEqual([]);
     await w.follow({ ...removed, agent_hidden: byProvider(() => false) });
+    expect(w.snapshot().entries.map(e => e.session)).toEqual([session]);
+    await w.follow(removed);
+    expect(w.snapshot().entries).toEqual([]);
+    // A saved agent that runs in it keeps its sessions listed.
+    mkdirSync(dirname(profiles.path()), { recursive: true });
+    writeFileSync(
+      profiles.path(),
+      JSON.stringify([
+        { id: "claude-fast", provider: "claude", account: "", name: "Claude fast", options: { flags: "", env: [] } },
+      ]),
+    );
+    await w.sync();
+    expect(w.snapshot().entries.map(e => e.session)).toEqual([session]);
+    rmSync(profiles.path());
+    await w.sync();
+    expect(w.snapshot().entries).toEqual([]);
+    // So does a saved command.
+    await w.follow({ ...removed, commands: [{ provider: "claude", account: "" }] });
     expect(w.snapshot().entries.map(e => e.session)).toEqual([session]);
     await w.follow(removed);
     expect(w.snapshot().entries).toEqual([]);

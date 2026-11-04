@@ -136,7 +136,7 @@ export class Worker {
   /** Seconds between account reads, which the daemon sets from its viewers. */
   every = idle_every;
   /** The rows taken out of Manage agents, which it doesn't read. */
-  removed: row.Removed = { agent_hidden: byProvider(() => false), account_hidden: [] };
+  removed: row.Removed = { agent_hidden: byProvider(() => false), account_hidden: [], commands: [] };
   private checked = 0;
   private sampling = false;
   private installs: { at: number; installed: Preview["installed"]; outdated: Preview["outdated"] } | null = null;
@@ -399,7 +399,7 @@ export class Worker {
       job.updated = Date.now();
     }
   }
-  /** Which rows it doesn't read: those removed that no saved agent runs in. */
+  /** Which rows it doesn't read: those removed that no saved agent or command runs in. */
   private skipped(): (l: row.Launch) => boolean {
     const used = profiles.list();
     return l => row.removed(this.removed, l, used);

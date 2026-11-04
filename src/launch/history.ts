@@ -189,7 +189,8 @@ function shared(history: SessionHistory, covered: Set<string>) {
   return false;
 }
 /** The provider accounts whose sessions the launcher offers: each default,
- * then the rest, but those taken out of Manage agents that no saved agent runs in. */
+ * then the rest, but those taken out of Manage agents that no saved agent
+ * or command runs in. */
 function sources(removed: row.Removed): row.Launch[] {
   const used = profiles.list();
   return [
@@ -219,7 +220,7 @@ export class Worker {
   timer: ReturnType<typeof setTimeout> | null = null;
   refreshing: Promise<void> | null = null;
   /** The rows taken out of Manage agents, whose sessions it doesn't list. */
-  removed: row.Removed = { agent_hidden: byProvider(() => false), account_hidden: [] };
+  removed: row.Removed = { agent_hidden: byProvider(() => false), account_hidden: [], commands: [] };
   static start(removed?: row.Removed) {
     const w = new Worker();
     if (removed) w.removed = row.removedOf(removed);

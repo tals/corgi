@@ -416,7 +416,7 @@ test("a removed agent isn't read, shows only who signed in, and is read again on
   const worker = new Worker(),
     reads: Provider[] = [],
     closed: Provider[] = [],
-    none = { agent_hidden: byProvider(() => false), account_hidden: [] },
+    none = { agent_hidden: byProvider(() => false), account_hidden: [], commands: [] },
     removed = { ...none, agent_hidden: byProvider(p => p === "pi") };
   const fake = (provider: Provider) => ({
     account: async () => {
@@ -473,6 +473,37 @@ test("a removed agent isn't read, shows only who signed in, and is read again on
     expect(worker.preview("/project").options.pi.limits).toMatchObject({ windows: [null, { used: 84 }] });
   } finally {
     setSystemTime();
+    await worker.stop();
+  }
+});
+
+test("a saved command that runs in a removed default keeps it read", async () => {
+  const worker = new Worker(),
+    reads: Provider[] = [],
+    removed = { agent_hidden: byProvider(p => p === "pi"), account_hidden: [], commands: [] };
+  worker.launcher = async provider => ({
+    account: async () => {
+      reads.push(provider);
+      return reading(84);
+    },
+    model: async () => ({ model: "pi-model", source: "test" }),
+    close() {},
+  });
+  try {
+    worker.follow({ ...removed, commands: [{ provider: "pi", account: "" }] });
+    await worker.pump();
+    worker.preview("/project");
+    await worker.pump();
+    expect(reads).toContain("pi");
+    expect(worker.preview("/project").options.pi.model.text()).toBe("pi-model");
+    expect(worker.preview("/project").options.pi.limits).toMatchObject({ windows: [null, { used: 84 }] });
+    // Once the command goes, so does the reading.
+    reads.length = 0;
+    worker.follow(removed);
+    await worker.pump();
+    expect(reads).not.toContain("pi");
+    expect(worker.preview("/project").options.pi.limits).toBe("none");
+  } finally {
     await worker.stop();
   }
 });
