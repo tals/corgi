@@ -153,6 +153,9 @@ named integration suite, then run the full unit suite and relevant integrations.
 If a parallel integration suite fails, rerun it with `--jobs 1` first.
 `bun integration.ts --check` only parses and bundles suites; it does not run them.
 
+A development build stamps the repository of the branch's remote, as an https
+link, into `corgi --version --verbose` and the bug report.
+
 [AGENTS.md](AGENTS.md) owns coding and commit conventions.
 [tests/README.md](tests/README.md) explains test tiers, isolated runtimes and
 deterministic waiting. [evals/README.md](evals/README.md) covers activity-summary
