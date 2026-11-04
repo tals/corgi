@@ -375,10 +375,14 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       }
       return;
     }
-    case "action":
-      if (args.length < 2) throw Error("Usage");
-      await print(path, "action", { name: args[1], value: args[2] ?? "" });
+    case "action": {
+      // A trailing `--viewer ID` picks the viewer; a VALUE may itself look like a flag.
+      const viewer = args.length >= 4 && args.at(-2) === "--viewer" ? Number(args.at(-1)) : null,
+        rest = viewer === null ? args : args.slice(0, -2);
+      if (rest.length < 2 || (viewer !== null && !(Number.isInteger(viewer) && viewer > 0))) throw Error("Usage");
+      await print(path, "action", { name: rest[1], value: rest[2] ?? "", ...(viewer === null ? {} : { viewer }) });
       return;
+    }
     case "which": {
       if (args.length !== 2) throw Error("Usage");
       const d = await import("./discovery");

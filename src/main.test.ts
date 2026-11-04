@@ -222,6 +222,21 @@ test("action values preserve agent mode flags", async () => {
     output.mockRestore();
   }
 });
+test("an action goes to the viewer --viewer names", async () => {
+  const request = spyOn(rpc, "request").mockResolvedValue({ ok: true, viewer: 3, queued: true });
+  const output = spyOn(process.stdout, "write").mockReturnValue(true);
+  try {
+    await run(["action", "new-agent", "--viewer", "3"]);
+    expect(request.mock.calls[0]?.slice(1)).toEqual(["action", { name: "new-agent", value: "", viewer: 3 }]);
+    request.mockClear();
+    await run(["action", "rename", "--agent", "--viewer", "2"]);
+    expect(request.mock.calls[0]?.slice(1)).toEqual(["action", { name: "rename", value: "--agent", viewer: 2 }]);
+    await expect(run(["action", "new-agent", "--viewer", "x"])).rejects.toThrow("Usage");
+  } finally {
+    request.mockRestore();
+    output.mockRestore();
+  }
+});
 test("account command values preserve agent mode flags", async () => {
   const account = spyOn(accountCommand, "command").mockResolvedValue(0),
     hooks = spyOn(integration, "command").mockResolvedValue(true),

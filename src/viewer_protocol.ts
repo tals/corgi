@@ -68,6 +68,7 @@ export async function open(s: Server, cl: Client, q: Open, reply = new Reply(cl)
   const first = !s.clients.some(other => other.viewer && !other.dead);
   cl.viewer = true;
   cl.viewer_id = s.next_viewer++;
+  cl.viewer_pid = q.pid;
   cl.active_seq = ++s.next_active;
   cl.input_at = Date.now();
   const ws = s.initialWorkspace();
@@ -348,11 +349,15 @@ export function copy(s: Server, pane: number, text: string) {
   target.controls = target.controls.filter(c => c.kind !== "action" || c.name !== "copy");
   queue(s, target, { kind: "action", name: "copy", value: text });
 }
+/** The attached viewers. `active` grows with each one's latest input, so the
+ * highest is the one used last. */
 export function viewers(s: Server) {
   return s.clients
     .filter(cl => cl.viewer && !cl.dead)
     .map(cl => ({
       id: cl.viewer_id,
+      pid: cl.viewer_pid,
+      active: cl.active_seq,
       workspace: cl.view_workspace,
       pane: cl.view_focus,
       watched: cl.watched,

@@ -19,6 +19,7 @@ export class Reply {
 }
 export class Client {
   viewer_id = 0;
+  viewer_pid = 0;
   active_seq = 0;
   /** When the viewer last had input from its user, in ms. */
   input_at = 0;

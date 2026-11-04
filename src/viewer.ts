@@ -61,7 +61,12 @@ export async function openMode(
   if (start_onboarding) view.openOnboarding("welcome");
   let opened: Reply<"viewer.open">;
   try {
-    opened = await call(view.connection, "viewer.open", { cwd, theme, onboarding: view.onboarding !== null });
+    opened = await call(view.connection, "viewer.open", {
+      cwd,
+      theme,
+      onboarding: view.onboarding !== null,
+      pid: process.pid,
+    });
   } catch (error) {
     throw incompatible(error as Error);
   }

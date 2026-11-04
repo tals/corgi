@@ -137,7 +137,20 @@ test("relaunch validates absolute executable and goes to viewer showing pane", (
   action(s, source, protocol.decode("action", { name: "relaunch", value: "/usr/bin/corgi", pane: 1 }));
   expect(result).toHaveBeenCalledWith({ ok: true, viewer: 1, queued: true });
   expect(target.controls[0].name).toBe("relaunch");
-  expect(viewers(s)).toEqual([{ id: 1, workspace: 1, pane: 1, watched: true }]);
+  expect(viewers(s)).toEqual([{ id: 1, pid: 0, active: 1, workspace: 1, pane: 1, watched: true }]);
+});
+test("viewers are listed in order with their process and how recently each was used", () => {
+  const s = fixture(),
+    one = peer(s),
+    two = peer(s, 2);
+  one.viewer_pid = 111;
+  two.viewer_pid = 222;
+  one.active_seq = 5;
+  two.active_seq = 9;
+  expect(viewers(s).map(v => [v.id, v.pid, v.active])).toEqual([
+    [1, 111, 5],
+    [2, 222, 9],
+  ]);
 });
 test("open from a pane goes to the viewer showing it", () => {
   const s = fixture(),
