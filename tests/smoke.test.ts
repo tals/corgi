@@ -778,6 +778,21 @@ process.stdin.on('data',data=>appendFileSync(log,data));process.stdin.resume();`
     await this.input("\r");
     await this.frame_with("New workspace");
   }
+  async test_every_workspace_stays_closed_through_restart_and_reload() {
+    const first = (await this.workspaces())[0].id;
+    await this.command("workspace.close", { target: first, close_contents: true });
+    // A cold start keeps none open rather than making a starter in its folder.
+    await this.restart_runtime();
+    this.assertEqual(await this.workspaces(), []);
+    await this.attach();
+    await this.frame_with("Create workspace");
+    this.assertEqual(await this.panes(), []);
+    await this.rpc({ op: "server.reload", executable: EXE });
+    this.assertEqual(await this.workspaces(), []);
+    const [viewer] = await this.viewer();
+    await this.viewer_frame(viewer, "Create workspace");
+    this.assertEqual(await this.panes(), []);
+  }
   async test_tab_context_menu_targets_clicked_tab_for_rename_and_new() {
     const one = this.folder("one"),
       two = this.folder("two"),
