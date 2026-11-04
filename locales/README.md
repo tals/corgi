@@ -80,6 +80,11 @@ shell code uses quoted `printf '%s'` arguments; neither runtime evaluates
 translation text as code. Committed output means ordinary `bun` runs need no
 preprocessing pass. Generation runs only when messages or translations change.
 
+Human CLI help uses tagged lines in `src/cli_help.ts`, joined with newlines,
+so unrelated command edits can merge independently. Keep wrapped sentences in
+one tag. Its English output must match `assets/help.txt` and
+`assets/cli-help.txt`, the agent references; `src/cli_help.test.ts` checks this.
+
 ## Website
 
 The site imports `site/i18n.ts`, which extends the application's runtime and

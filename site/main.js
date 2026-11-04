@@ -32,11 +32,11 @@ import * as brandIcons from "../src/assets/brand_icons";
 import { Rect } from "../src/layout";
 import { Writer } from "../src/text";
 import { cpuText, memoryText } from "../src/trackers/resources";
-import CLI_HELP from "../assets/cli-help.txt" with { type: "text" };
+import * as cli_help from "../src/cli_help";
 import CLI_SKILL from "../assets/corgi-skill.md" with { type: "text" };
 
 language.rememberChoices();
-const helpText = i18n.html(CLI_HELP);
+const helpText = cli_help.commands();
 const WAG = corgiFrames.wag;
 const BADGE = `data:image/png;base64,${corgiBadge.png_base64}`;
 const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -2822,7 +2822,7 @@ function corgi(s, from, args) {
     return lines(r.closed_panes.length ? `closed pane ${r.closed_panes.join(", ")}` : r.pane ? `pane ${r.pane} (tab ${r.tab}, workspace ${r.workspace})` : "ok");
   };
   if (group === "--skill") return lines(CLI_SKILL);
-  if (!group || group === "help" || args.includes("--help") || args.includes("-h") || (["pane", "tab", "workspace"].includes(group) && args.length === 1)) return lines(i18n.html(CLI_HELP));
+  if (!group || group === "help" || args.includes("--help") || args.includes("-h") || (["pane", "tab", "workspace"].includes(group) && args.length === 1)) return lines(cli_help.commands());
   if (group === "current") { if (!from) throw Error("NoCallerPane"); return ok(locate(S, from)); }
   if (group === "list" || (group === "workspace" && verb === "list")) {
     if (args.slice(group === "list" ? 1 : 2).some((a) => a !== "--json")) throw Error("Usage");

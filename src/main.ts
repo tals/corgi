@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import * as os from "./os";
 import * as rpc from "./rpc";
 import * as cli from "./cli";
+import * as cli_help from "./cli_help";
 import * as agent_mode from "./agent_mode";
 import * as json from "./json";
 import * as errors from "./errors";
@@ -191,7 +192,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
   // A provider owns its flags; help returns before Corgi starts any command.
   const own = alias || command.startsWith("__") ? [] : command === "agent" ? args.slice(0, 2) : args;
   if (!alias && (cli.asksHelp(own) || command === "help")) {
-    const humanHelp = agent ? help : i18n.document(helpText).replace("\n\n\n\n", `\n\n${actionNames}\n\n`);
+    const humanHelp = agent ? help : cli_help.main().replace("\n\n\n\n", `\n\n${actionNames}\n\n`);
     const commandHelp = agent ? cli.help : cli.localizedHelp();
     const topic = (command === "help" ? args.slice(1) : args).filter(arg => arg !== "--help" && arg !== "-h");
     switch (topic[0]) {
