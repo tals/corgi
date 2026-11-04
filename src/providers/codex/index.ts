@@ -149,6 +149,7 @@ export const adapter: Adapter = {
   },
   launcher: account => import("./launcher").then(m => m.open(account)),
   history: account => import("./history").then(m => m.open(account)),
+  search: () => import("./search").then(m => m.conversations),
   transcript: {
     ...transcript,
     reader: accounts => usage.open(() => [configDir(), ...accounts()].map(root => join(root, "session_index.jsonl"))),

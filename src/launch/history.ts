@@ -55,28 +55,29 @@ export const copied = (e: Entry): Entry => ({
 export function clone(e: Entry) {
   return { ...e };
 }
+/** Text an agent put in the user's turn: commands, reminders, notices, its own context. */
+export function injected(text: string) {
+  const s = text.replace(/^[ \n\t]+/, "");
+  return [
+    "<command-",
+    "<local-command",
+    "<system-reminder",
+    "<task-notification",
+    "<bash-",
+    "Caveat:",
+    "[Request interrupted",
+    "This session is being continued",
+    "# AGENTS.md",
+    "<environment_context",
+    "<user_instructions",
+    "<turn_aborted",
+    "<user_shell_command",
+  ].some(p => s.startsWith(p));
+}
+/** A prompt the user typed, as the launcher shows one: no slash commands either. */
 export function typed(text: string) {
   const s = text.replace(/^[ \n\t]+/, "");
-  return (
-    !!s &&
-    ![
-      "<command-",
-      "<local-command",
-      "<system-reminder",
-      "<task-notification",
-      "<bash-",
-      "Caveat:",
-      "[Request interrupted",
-      "This session is being continued",
-      "/",
-      "◯",
-      "# AGENTS.md",
-      "<environment_context",
-      "<user_instructions",
-      "<turn_aborted",
-      "<user_shell_command",
-    ].some(p => s.startsWith(p))
-  );
+  return !!s && !injected(s) && !["/", "◯"].some(p => s.startsWith(p));
 }
 export function complete(bytes: string, mid: boolean) {
   const start = mid ? (bytes.indexOf("\n") < 0 ? bytes.length : bytes.indexOf("\n") + 1) : 0,

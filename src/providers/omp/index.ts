@@ -178,6 +178,7 @@ export const adapter: Adapter = {
   },
   launcher: account => import("./launcher").then(m => m.open(account)),
   history: account => import("./history").then(m => m.open(account)),
+  search: () => import("./search").then(m => m.conversations),
   transcript,
   conversation,
   integration: {
