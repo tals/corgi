@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setSystemTime, test } from "bun:test";
 import { createServer, type Server as SocketServer, type Socket } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -549,7 +549,39 @@ test("a socket that can't be opened for another reason ends the watch", async ()
   expect(w.lines).toEqual([]);
 });
 
-test("a change to the corgi intensity shows with the next push", async () => {
+test("stale child claims expire without a daemon push", async () => {
+  const now_ms = 1_800_000_000_000;
+  setSystemTime(new Date(now_ms));
+  cleanup.push(() => setSystemTime());
+  const path = join(folder(), "control.sock"),
+    agent = {
+      conversation: 1,
+      provider: "codex",
+      state: "working",
+      attention: "none",
+      activity: "Reading source",
+      subagents: { running: 1, blocked: 0, waiting: true },
+    },
+    fake = new FakeDaemon(path, () => ({
+      ...session("api", agent),
+      conversations: [
+        { id: 1, observed_at: now_ms * 1000, children_observed_at: now_ms * 1000, agent },
+        { id: 2, parent: 1, observed_at: now_ms * 1000, agent: { provider: "codex", state: "working" } },
+      ],
+    }));
+  cleanup.push(() => fake.stop());
+  await fake.listen();
+  const w = watching(path);
+  expect(await w.next(1)).toMatchObject({
+    workspaces: [{ agents: [{ detail: "Waiting on agents", glyph: "waiting" }] }],
+  });
+  setSystemTime(new Date(now_ms + subagentTooltip.fresh_window / 1000 + 1));
+  expect(await w.next(2)).toMatchObject({
+    workspaces: [{ agents: [{ detail: "Reading source", glyph: "thinking" }] }],
+  });
+});
+
+test("a change to the corgi intensity shows without a daemon push", async () => {
   const path = join(folder(), "control.sock"),
     fake = new FakeDaemon(path, () =>
       session("api", { provider: "claude", state: "working", attention: "none", name: "Fix it" }),
@@ -560,7 +592,6 @@ test("a change to the corgi intensity shows with the next push", async () => {
   const w = watching(path, () => intensity),
     before = await w.next(1);
   intensity = 0;
-  fake.push(session("api", { provider: "claude", state: "working", attention: "none", name: "Fix it" }));
   const after = await w.next(2);
   expect(after.workspaces[0].agents[0].corgi).not.toBe(before.workspaces[0].agents[0].corgi);
 });

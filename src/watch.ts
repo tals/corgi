@@ -1,6 +1,6 @@
 //! `corgi watch --json`: the agents, as a desktop bar shows them, one JSON
-//! line at start and another whenever they change. The daemon pushes each
-//! change; with none running it prints `{"running":false}` and waits for one.
+//! line at start and another whenever they change. With no daemon running
+//! it prints `{"running":false}` and waits for one.
 import * as rpc from "./rpc";
 import * as mirror from "./mirror";
 import * as sidebar from "./sidebar";
@@ -220,12 +220,14 @@ async function follow(
     // Its terminals stay unrendered, so they never ask.
     transport: mirror.Transport = { request: (op, ...args) => connection.request(op, ...args) };
   let failure: unknown = null;
-  const show = (snapshot: protocol.Reply<"session.subscribe">) => {
+  const show = (snapshot?: protocol.Reply<"session.subscribe">) => {
     if (failure !== null) return;
     try {
-      // A daemon on another protocol after a handoff: a matching client takes over.
-      if (snapshot.protocol !== protocol.version) throw Error("UnsupportedProtocol");
-      runtime.receive(transport, snapshot);
+      if (snapshot) {
+        // A daemon on another protocol after a handoff: a matching client takes over.
+        if (snapshot.protocol !== protocol.version) throw Error("UnsupportedProtocol");
+        runtime.receive(transport, snapshot);
+      }
       printer.print(summary(runtime, intensity(), since));
     } catch (error) {
       failure = error;
@@ -253,7 +255,10 @@ async function follow(
     if (why === null) failure = error;
     connection.close();
   }
+  // Freshness and preferences keep the viewer's quiet 500 ms cadence.
+  const refresh = subscribed && failure === null ? setInterval(() => show(), 500) : null;
   await closed;
+  if (refresh !== null) clearInterval(refresh);
   signal?.removeEventListener("abort", stop);
   runtime.destroy();
   if (failure !== null) throw failure;
