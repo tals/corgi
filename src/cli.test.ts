@@ -489,17 +489,20 @@ test("other replies say what changed", () => {
   expect(words({ ok: true, result })).toBe("ok\n");
   expect(words({ ok: true, viewer: 1, queued: true })).toBe("queued for viewer 1\n");
 });
-test("message says where it went and whether it was typed", () => {
+test("message says where it went, whether it was typed and whether it is queued", () => {
   const result = { pane: 31, tab: 12, workspace: 2, text: null, closed_panes: [] };
-  expect(messaged({ ok: true, result: { ...result, delivery: "message" } }, { pane: 31 })).toBe(
+  expect(messaged({ ok: true, result: { ...result, delivery: "message", queued: false } }, { pane: 31 })).toBe(
     "messaged pane 31 (tab 12, workspace 2)\n",
   );
-  expect(messaged({ ok: true, result: { ...result, delivery: "typed" } }, { pane: 31 })).toBe(
-    "typed into pane 31 (tab 12, workspace 2)\n",
+  expect(messaged({ ok: true, result: { ...result, delivery: "typed", queued: true } }, { pane: 31 })).toBe(
+    "typed into pane 31 (tab 12, workspace 2), queued while it works\n",
   );
-  expect(messaged({ ok: true, result: { pane: 0, tab: 0, workspace: 0, delivery: "message" } }, { headless: 4 })).toBe(
-    "messaged headless:4\n",
-  );
+  expect(
+    messaged(
+      { ok: true, result: { pane: 0, tab: 0, workspace: 0, delivery: "message", queued: true } },
+      { headless: 4 },
+    ),
+  ).toBe("messaged headless:4, queued while it works\n");
 });
 test("pane idle lists each waiting shell with its folder", () => {
   expect(

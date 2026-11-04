@@ -147,6 +147,7 @@ class AgentCli extends Runtime {
     // A shell has no provider channel, so a message is typed and submitted.
     const message = await this.cli(["message", `pane:${one.pane}`, "printf 'message_marker_456\\n'"]);
     this.assertEqual(message.result.delivery, "typed");
+    this.assertEqual(message.result.queued, false);
     await this.until(async () =>
       (await this.cli(["pane", "read", one.pane])).result.text.includes("message_marker_456"),
     );

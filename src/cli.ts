@@ -778,11 +778,12 @@ export function words(reply: any): string {
   if (r.pane) return `pane ${r.pane} (tab ${r.tab}, workspace ${r.workspace})\n`;
   return "ok\n";
 }
-/** Where `message` went, and whether it was typed for want of a channel. */
+/** Where `message` went, whether it was typed for want of a channel, and
+ * whether it waits on the agent's turn. */
 export function messaged(reply: any, target: agentOrder.Target): string {
   const r = reply.result ?? {},
     to = r.pane ? `pane ${r.pane} (tab ${r.tab}, workspace ${r.workspace})` : agentOrder.key(target);
-  return r.delivery === "typed" ? `typed into ${to}\n` : `messaged ${to}\n`;
+  return `${r.delivery === "typed" ? "typed into" : "messaged"} ${to}${r.queued ? ", queued while it works" : ""}\n`;
 }
 /** `pane read` text for a reader that asked for `lines` lines, given up to one
  * more: the extra line only says that earlier output exists. Agent mode trims

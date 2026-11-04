@@ -40,6 +40,7 @@ export type Result = {
   closed_panes?: number[];
   text?: string | null;
   delivery?: agentMessage.Delivery;
+  queued?: boolean;
 };
 export function location(r: Runtime, pane: number): protocol.Result {
   const ws = r.workspaces.owner(pane);
@@ -108,8 +109,8 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
     }
     case "agent.message": {
       const target = request.payload.target,
-        delivery = await agentMessage.send(r, target, request.payload.text);
-      return { ...("pane" in target ? location(r, target.pane) : {}), delivery };
+        sent = await agentMessage.send(r, target, request.payload.text);
+      return { ...("pane" in target ? location(r, target.pane) : {}), ...sent };
     }
     case "agent.command": {
       if (request.payload.name !== null && request.payload.name !== undefined)

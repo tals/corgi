@@ -877,6 +877,8 @@ $.replies.session.command.result.text?: string
 $.replies.session.command.result.closed_panes[]: u32
 $.replies.session.command.result.delivery: optional
 $.replies.session.command.result.delivery?: enum message typed
+$.replies.session.command.result.queued: optional
+$.replies.session.command.result.queued?: bool
 $.replies.session.locate.result.pane: u32
 $.replies.session.locate.result.tab: u32
 $.replies.session.locate.result.workspace: u32

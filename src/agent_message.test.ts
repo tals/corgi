@@ -25,10 +25,16 @@ test("a message goes through the agent's own channel when it has one", async () 
     pane.agent().provider = "claude";
     pane.agent().session = new Text("a-session");
     const result = await execute(r, ctx, { "agent.message": { target: { pane: id }, text: "review this" } });
-    expect(result).toMatchObject({ pane: id, workspace: 1, delivery: "message" });
+    expect(result).toMatchObject({ pane: id, workspace: 1, delivery: "message", queued: false });
     expect(message.mock.calls[0][0]).toBe("a-session");
     expect(sent).toEqual(["review this"]);
     expect(pending()).toBe("");
+    pane.agent().state = "working";
+    expect(await execute(r, ctx, { "agent.message": { target: { pane: id }, text: "and this" } })).toMatchObject({
+      delivery: "message",
+      queued: true,
+    });
+    expect(sent).toEqual(["review this", "and this"]);
   } finally {
     message.mockRestore();
     r.destroy();
@@ -40,13 +46,18 @@ test("without a channel a message is typed and submitted", async () => {
   try {
     expect(await execute(r, ctx, { "agent.message": { target: { pane: id }, text: "ls" } })).toMatchObject({
       delivery: "typed",
+      queued: false,
     });
     expect(pending()).toBe("ls\r");
     expect(message).not.toHaveBeenCalled();
     pane.agent().provider = "claude";
     pane.agent().session = new Text("a-session");
+    pane.agent().state = "blocked";
     pane.terminal.feed("\x1b[?2004h");
-    await execute(r, ctx, { "agent.message": { target: { pane: id }, text: "hi" } });
+    expect(await execute(r, ctx, { "agent.message": { target: { pane: id }, text: "hi" } })).toMatchObject({
+      delivery: "typed",
+      queued: true,
+    });
     expect(message).toHaveBeenCalled();
     expect(pending()).toBe("\x1b[200~hi\x1b[201~\r");
   } finally {
@@ -57,13 +68,24 @@ test("without a channel a message is typed and submitted", async () => {
 test("a headless agent gets a message as a prompt to its conversation", async () => {
   const { r } = setup(),
     inputs: unknown[] = [];
-  r.sessions.push({ id: 4, session: "thread", send: (input: unknown) => inputs.push(input) } as unknown as Session);
+  let status = "idle";
+  r.sessions.push({
+    id: 4,
+    session: "thread",
+    status: () => status,
+    send: (input: unknown) => inputs.push(input),
+  } as unknown as Session);
   try {
     expect(await execute(r, ctx, { "agent.message": { target: { headless: 4 }, text: "go on" } })).toMatchObject({
       pane: 0,
       delivery: "message",
+      queued: false,
     });
     expect(inputs).toEqual([{ kind: "prompt", text: "go on", session: "thread" }]);
+    status = "working";
+    expect(await execute(r, ctx, { "agent.message": { target: { headless: 4 }, text: "then" } })).toMatchObject({
+      queued: true,
+    });
     await expect(execute(r, ctx, { "agent.message": { target: { headless: 5 }, text: "x" } })).rejects.toThrow(
       "NoHeadlessSession",
     );

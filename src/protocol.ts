@@ -90,6 +90,7 @@ export type Result = {
   closed_panes: number[];
   /** How `agent.message` reached its agent. */
   delivery?: "message" | "typed";
+  queued?: boolean;
 };
 export const emptyResult = (): Result => ({ pane: 0, tab: 0, workspace: 0, text: null, closed_panes: [] });
 export const operations = [
