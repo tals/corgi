@@ -6,7 +6,7 @@ import { truncateUtf8 } from "./bounded_text";
 import type { Entry } from "./launcher_resume";
 
 export const top_k = 5;
-export type Phase = "checking" | "indexing" | "searching" | "done" | "failed" | "cancelled";
+export type Phase = "checking" | "searching" | "done" | "failed" | "cancelled";
 export type Match = {
   provider: Provider;
   session: string;
@@ -51,7 +51,6 @@ export function parse(value: unknown): State | null {
   let phase: Phase;
   switch (v.phase) {
     case "checking":
-    case "indexing":
     case "searching":
     case "done":
     case "failed":

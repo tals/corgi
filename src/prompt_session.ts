@@ -57,6 +57,8 @@ export type Handoff = {
   wrote: Written[];
   used: Used[];
   memory_writes: boolean;
+  /** Its subagents' sessions, whose events aren't the conversation's own. */
+  children: string[];
 };
 /** A session the thread used, and its transcript once Corgi learned where it is. */
 export type Used = { provider: Provider; session: string; account: string; persist: boolean; transcript: string };
@@ -388,7 +390,7 @@ export class Conversation {
     this.running = true;
     this.working_since = this.clock();
     this.soon();
-    this.input(prompt(message, images));
+    this.input(prompt(message, images), start);
   }
   answer(id: string, allow: boolean): void {
     const ask = this.items.find(item => item.kind === "ask" && item.id === id);
@@ -496,6 +498,7 @@ export class Conversation {
       wrote: this.wrote,
       used: this.used,
       memory_writes: this.memory_writes,
+      children: [...this.children],
     };
   }
   /** Lets the session go on elsewhere: the thread clears and it keeps running. */
@@ -518,6 +521,7 @@ export class Conversation {
     this.wrote = h.wrote;
     this.used = h.used;
     this.memory_writes = h.memory_writes;
+    this.children = new Set(h.children);
     this.provider = h.provider;
     this.session = h.session;
     this.started = h.start;
@@ -662,7 +666,10 @@ export class Conversation {
       });
     this.launching = launch;
   }
-  private input(input: Input): void {
+  /** Sends `input` to the session; a prompt the session ended before
+   * reading starts the next one, with `restart()` when the session's own
+   * start isn't known. */
+  private input(input: Input, restart?: () => Start): void {
     const provider = this.provider,
       session = this.session,
       generation = this.generation;
@@ -670,8 +677,10 @@ export class Conversation {
     this.daemon.call("headless.send", { provider, session, input }).catch(error => {
       if (generation !== this.generation || errors.is(error, "NoRequest")) return;
       if (gone(error)) {
-        // A message for a session that ended starts the next one.
-        const start = this.started;
+        // A message for a session that ended starts the next one as that one
+        // started. One taken up after a reload never had its instructions,
+        // so they're built anew.
+        const start = input.kind !== "prompt" ? null : this.started?.instructions ? this.started : restart?.();
         if (input.kind === "prompt" && start) {
           this.lost("The session had ended, so your message started a new one.");
           this.snapshot();

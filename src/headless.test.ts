@@ -2,10 +2,21 @@ import { test, expect } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Session, corgiEnv, finishStarts, request, startOptions, sweep, validImages } from "./headless";
+import {
+  Session,
+  corgiEnv,
+  finishStarts,
+  request,
+  retire,
+  startOptions,
+  sweep,
+  unread_ms,
+  validImages,
+} from "./headless";
 import * as accounts from "./accounts";
 import * as json from "./json";
 import * as protocol from "./protocol";
+import type { Runtime } from "./runtime";
 import type { Server } from "./server";
 import type { Client as Peer } from "./peer";
 import { Snapshot } from "./providers/snapshot";
@@ -635,6 +646,29 @@ test("the prompt's ended sessions go once their end is read, or a minute after",
   expect(sweep(p.server.runtime, exited + 59_999)).toBe(false);
   expect(sweep(p.server.runtime, exited + 60_000)).toBe(true);
   expect(p.server.runtime.sessions).toEqual([ordinary, running]);
+});
+test("a prompt session left unread while a viewer is attached stops, unless a pane holds it", () => {
+  const left = session(),
+    held = session(),
+    ordinary = session(),
+    runtime = { sessions: [left, held, ordinary], changed() {} } as unknown as Runtime;
+  left.corgi = held.corgi = true;
+  held.pane = 7;
+  // Ticks every 30 s, with the viewers attached or not.
+  let now = 1_000_000;
+  const until = (end: number, attached: boolean) => {
+    for (; now < end; now += 30_000) expect(retire(runtime, attached, now)).toBe(false);
+  };
+  // Nobody attached: what a viewer left waits for the next one.
+  until(now + unread_ms * 3, false);
+  // A viewer attaches and has the whole time to take it up.
+  until(now + unread_ms - 30_000, true);
+  // A gap this long means the machine slept, so the time starts over.
+  now += 120_000;
+  until(now + unread_ms, true);
+  expect(retire(runtime, true, now)).toBe(true);
+  expect(runtime.sessions).toEqual([held, ordinary]);
+  expect((left.client as Fake).closed).toBe(true);
 });
 test("reading from a pane claims the session for it, across checkpoints and in the list", async () => {
   const registry = new Registry(),

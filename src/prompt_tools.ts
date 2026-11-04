@@ -3,7 +3,8 @@
 import skill from "../assets/corgi-skill.md" with { type: "text" };
 import { fence } from "./prompt_conversations";
 
-/** Commands that only look or move a viewer's selection; anything that types
+/** Commands that only look, move a viewer's selection, or show a conversation
+ * (`resume` reopens one in a tab when no pane shows it); anything that types
  * into a pane, closes or edits something still asks. */
 const looking = [
   ["list"],

@@ -392,13 +392,18 @@ export async function run(argv: string[]): Promise<void> {
     if (pending.length === 1 && pending[0] === 0x1b)
       esc = setTimeout(() => {
         pending = [];
-        void take({ kind: "byte", byte: 0x1b });
+        queue(() => take({ kind: "byte", byte: 0x1b }));
       }, 30);
+  };
+  // Input goes in order: keys typed while Ctrl+V reads the clipboard wait for its image.
+  let input = Promise.resolve();
+  const queue = (work: () => Promise<void>) => {
+    input = input.then(work).catch(() => {});
   };
 
   process.stdin.setRawMode?.(true);
   process.stdin.resume();
-  process.stdin.on("data", (chunk: Buffer) => void feed(chunk));
+  process.stdin.on("data", (chunk: Buffer) => queue(() => feed(chunk)));
   out.on("resize", () => {
     out.write("\x1b[2J");
     dirty = true;

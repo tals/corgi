@@ -258,11 +258,37 @@ test("a session's thread starts with the model, effort and instructions it asks 
   );
   expect(restored.options).toEqual({ model: "gpt-6", persist: false });
 });
-test("a checkpoint keeps no instructions, which the thread already has", () => {
+const handedOff = (codex: Codex) =>
+  Codex.restore(JSON.parse(JSON.stringify(codex.save(true), (_, v) => (typeof v === "bigint" ? Number(v) : v))), true);
+test("a checkpoint keeps instructions only until the thread has them", () => {
   const { codex } = client([], false, { model: "gpt-6", instructions: "Remember corgis." });
+  // Its thread still to start, as when a prompt waits for the handshake.
+  expect(handedOff(codex).options).toEqual({ model: "gpt-6", instructions: "Remember corgis." });
+  codex.thread = "t";
   const saved = JSON.stringify(codex.save(true), (_, v) => (typeof v === "bigint" ? Number(v) : v));
   expect(saved).not.toContain("corgis");
   expect(Codex.restore(JSON.parse(saved), true).options).toEqual({ model: "gpt-6" });
+});
+test("prompts waiting on a turn's ID, or for a turn to end, survive a handoff", () => {
+  const lines: unknown[] = [];
+  const { codex } = client(lines);
+  codex.thread = "a";
+  codex.send({ kind: "prompt", text: "first" });
+  codex.send({ kind: "prompt", text: "also" });
+  codex.after_turn.set("b", [{ text: "later" }]);
+  const restored = handedOff(codex),
+    written: unknown[] = [];
+  (restored.io as any).write = (value: unknown) => written.push(value);
+  (restored.io as any).read = () => lines.splice(0);
+  lines.push(
+    { method: "turn/started", params: { threadId: "a", turn: { id: "t1" } } },
+    { method: "turn/completed", params: { threadId: "b", turn: { id: "t2", status: "completed" } } },
+  );
+  restored.take();
+  expect(written.map((w: any) => [w.method, w.params.input[0].text])).toEqual([
+    ["turn/steer", "also"],
+    ["turn/start", "later"],
+  ]);
 });
 test("Codex tools say what they are", () => {
   const run = (actions: unknown[]) =>

@@ -432,6 +432,7 @@ function handoffFile(v: any): HandoffFile | null {
             wrote: list(h.wrote),
             used: list(h.used),
             memory_writes: h.memory_writes !== false,
+            children: list(h.children).filter((c): c is string => typeof c === "string"),
           },
     incognito: v.incognito === true,
     choice: chosen(v.choice),
@@ -674,6 +675,21 @@ function shrink(t: Thumbnail, cols: number, rows: number): Thumbnail | null {
   return r < 2 ? null : { width: c * t.cell.width, height: r * t.cell.height, cell: t.cell, of: t };
 }
 /** `segs` cut to `room` columns, ending in "…" when cut. */
+/** What a search's row says it's doing. */
+function searchLabel(phase: promptSearch.Phase): string {
+  switch (phase) {
+    case "checking":
+      return "Checking for new conversations";
+    case "searching":
+      return "Searching conversations";
+    case "failed":
+      return "Search failed";
+    case "cancelled":
+      return "Search stopped";
+    case "done":
+      return "Found";
+  }
+}
 function clip(segs: Seg[], room: number): Seg[] {
   if (width(segs) <= room) return segs;
   if (room <= 0) return [];
@@ -2030,6 +2046,12 @@ export class Prompt {
     };
   }
   private run(command: Command): Effect | null {
+    // A message still reading its attachments goes to this conversation, so
+    // it can't be handed on or ended yet.
+    if (this.outbox && (command === "new" || command === "incognito" || command === "erase" || command === "pane")) {
+      this.conversation.note("Your message is still being sent. Try again in a moment.", "warm");
+      return null;
+    }
     this.area = new TextArea("", true);
     switch (command) {
       case "new":
@@ -2430,27 +2452,9 @@ export class Prompt {
             symbol = failed ? "×" : done ? "✓" : spinner,
             expanded = this.expandedSearches.has(search.id),
             show = expanded || item === latestSearch,
-            label =
-              search.phase === "checking"
-                ? "Checking for new conversations"
-                : search.phase === "indexing"
-                  ? "Updating conversation index"
-                  : search.phase === "searching"
-                    ? "Searching conversations"
-                    : search.phase === "failed"
-                      ? "Search failed"
-                      : search.phase === "cancelled"
-                        ? "Search stopped"
-                        : "Found",
+            label = searchLabel(search.phase),
             count = `${search.found}${search.limited ? "+" : ""} conversation${search.found === 1 ? "" : "s"}`,
-            detail =
-              search.phase === "indexing"
-                ? search.total
-                  ? ` · ${search.scanned}/${search.total}`
-                  : ""
-                : !done
-                  ? ` · ${count} found`
-                  : "";
+            detail = !done ? ` · ${count} found` : "";
           out.push({
             segs: clip(
               [
@@ -2810,9 +2814,7 @@ export class Prompt {
       if (search)
         segs.push(
           {
-            text:
-              " · " +
-              (search.phase === "checking" ? "checking" : search.phase === "indexing" ? "updating index" : "searching"),
+            text: " · " + (search.phase === "checking" ? "checking" : "searching"),
             style: s.key,
           },
           { text: " " + search.expression + (search.found ? ` · ${search.found} found` : ""), style: s.faint },

@@ -821,6 +821,7 @@ function pane(d = new Fake()) {
       wrote: [],
       used: [],
       memory_writes: true,
+      children: [],
     },
     incognito: false,
     choice: opus,
@@ -1515,6 +1516,35 @@ test("a message waits for an attachment still being read", async () => {
   await settle();
   await settle();
   expect(d.starts.map(s => s.prompt.endsWith("summarize") && s.prompt.includes("+line"))).toEqual([true]);
+});
+
+test("a chat can't be ended or handed on while its message reads an attachment", async () => {
+  const d = new Fake();
+  let release!: (text: string) => void;
+  const p = new Prompt({
+    daemon: d,
+    memory_root: folder(),
+    resolve: m => (m.kind === "diff" ? new Promise(r => (release = r)) : Promise.resolve("")),
+  });
+  p.catalog(entries, [opus], []);
+  p.show({ ...context, focus: null });
+  type(p, "@diff");
+  p.key(13);
+  type(p, "summarize");
+  p.key(13);
+  // Ctrl+O, then /new: both wait, and say so.
+  expect(p.key(15)).toBeNull();
+  type(p, "/new");
+  p.key(13);
+  expect(p.conversation.items.filter(i => i.kind === "note").map(i => (i as any).text)).toEqual([
+    "Your message is still being sent. Try again in a moment.",
+    "Your message is still being sent. Try again in a moment.",
+  ]);
+  release("+line");
+  await settle();
+  await settle();
+  expect(d.starts.map(s => s.prompt.endsWith("summarize"))).toEqual([true]);
+  expect(p.conversation.items.some(i => i.kind === "user")).toBe(true);
 });
 
 test("the pointer hits the menu where it hangs, and no brand mark shows under it", () => {

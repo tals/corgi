@@ -491,9 +491,11 @@ export class Codex implements Client {
         deferred: this.deferred,
         summary: this.summary,
         created: this.created,
-        // The thread has its instructions; a checkpoint needn't keep them.
-        options: { ...this.options, instructions: undefined },
+        // A thread that started has its instructions; one still to start needs them.
+        options: { ...this.options, instructions: this.thread ? undefined : this.options.instructions },
         streaming: [...this.streaming],
+        opening: [...this.opening],
+        after_turn: [...this.after_turn],
       },
       handles: saved.handles,
     };
@@ -509,6 +511,8 @@ export class Codex implements Client {
     client.steps = new Map(state.steps ?? []);
     client.deferred = state.deferred ?? [];
     client.streaming = new Map(state.streaming ?? []);
+    client.opening = new Map(state.opening ?? []);
+    client.after_turn = new Map(state.after_turn ?? []);
     for (const asked of state.requests ?? []) client.requests.set(asked.key, { id: asked.id, method: asked.method });
     // Requests an older Corgi kept as the lines it read.
     for (const line of state.lines ?? []) client.decode(typeof line === "string" ? parse(line) : line);

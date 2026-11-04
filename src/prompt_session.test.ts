@@ -474,6 +474,21 @@ test("a message for a session that ended starts a new one with it", async () => 
   expect(c.state).toBe("working");
 });
 
+test("a session taken up after a reload that ended starts the next with instructions", async () => {
+  const d = new Fake(),
+    c = conversation(d);
+  c.attach(start({ instructions: "" }), "s0", false);
+  d.call = async (op, payload) => {
+    d.calls.push({ op, payload });
+    if (op === "headless.send") throw Error("HeadlessExited");
+    return { ok: true, events: [], pending_requests: [], next_seq: 1, first_seq: 1 };
+  };
+  c.send("still there?", () => start({ instructions: "You are Corgi, again." }));
+  await settle();
+  await settle();
+  expect(d.starts.map(s => [s.prompt, s.instructions])).toEqual([["still there?", "You are Corgi, again."]]);
+});
+
 test("a read that fails warns once, and an ended client is a lost session", async () => {
   const d = new Fake(),
     c = conversation(d);
@@ -671,10 +686,13 @@ test("a conversation handed to a pane goes on from where it was read, claimed by
     card = conversation(d);
   card.send("hi", () => start());
   await settle();
-  d.add({ kind: "message", session: "s1", text: "hello there" });
+  d.add(
+    { kind: "message", session: "s1", text: "hello there" },
+    { kind: "conversation", session: "sub", parent: "s1", role: "explorer", shown: false },
+  );
   await poll(card, 0);
   const handed = card.handoff()!;
-  expect(handed).toMatchObject({ provider: "claude", session: "s1", after: "1", running: true });
+  expect(handed).toMatchObject({ provider: "claude", session: "s1", after: "2", running: true });
   // The card lets it go without stopping it, and starts fresh.
   card.release();
   expect(card.items).toEqual([]);
@@ -684,12 +702,18 @@ test("a conversation handed to a pane goes on from where it was read, claimed by
   pane.claim = 12;
   pane.adopt(JSON.parse(JSON.stringify(handed)));
   expect(pane.items.map(i => i.kind)).toEqual(["user", "text"]);
-  d.add({ kind: "message", session: "s1", text: "and more" });
+  // The subagent's turn and reply stay its own.
+  d.add(
+    { kind: "message", session: "sub", text: "found it" },
+    { kind: "turn", session: "sub", turn: "x", phase: "ended", outcome: "completed" },
+    { kind: "message", session: "s1", text: "and more" },
+  );
   await poll(pane, 0);
   expect(d.calls.at(-1)).toEqual({
     op: "headless.events",
-    payload: { provider: "claude", session: "s1", after: 1n, pane: 12 },
+    payload: { provider: "claude", session: "s1", after: 2n, pane: 12 },
   });
+  expect(pane.state).toBe("working");
   expect(pane.items.filter(i => i.kind === "text").map(i => (i as any).text)).toEqual(["hello there", "and more"]);
   // Nothing to hand over before a session runs.
   expect(conversation(new Fake()).handoff()).toBeNull();

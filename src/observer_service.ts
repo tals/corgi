@@ -604,6 +604,11 @@ export async function tick(server: Server) {
     session.usage_pending = new Counts();
     if (session.next_seq !== seq || session.reap()) changed(server);
   }
+  if (runtime.sessions.some(s => s.corgi)) {
+    const headless = await import("./headless"),
+      attached = server.clients.some(c => c.viewer && !c.dead);
+    if (headless.retire(runtime, attached)) changed(server);
+  }
 }
 export async function settle(server: Server) {
   const workers = start(server);

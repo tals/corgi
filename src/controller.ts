@@ -4489,8 +4489,6 @@ export class Controller {
       this.notice(` ${(error as Error).message}`);
     }
   }
-  /** Reads the prompt's session, and tells it the models while it shows.
-   * Put away, it redraws only for the status line's cue. */
   /** The prompt goes on with the session this viewer ran before it reloaded,
    * or, as the only viewer, the newest one a viewer left behind. Never one a
    * Corgi pane holds, nor another live viewer's. */
@@ -4507,6 +4505,8 @@ export class Controller {
       this.dirty = true;
     }
   }
+  /** Reads the prompt's session, and tells it the models while it shows.
+   * Put away, it redraws only for the status line's cue. */
   private pollPrompt(): void {
     const now = milliTimestamp();
     // A reload execs this viewer in place, so its environment says which
@@ -8681,11 +8681,11 @@ function gitPushMessage(err: string): string {
 function sendMouse(term: Terminal, rect: Rect, button: number, x: number, y: number, release: boolean): void {
   term.send(viewerNative.encodeMouse(term.handle, button, x - rect.x, y - rect.y, release));
 }
-/** An agent's state as the prompt tells its model. */
 /** What the prompt calls a pane: its label, its agent, or what runs in it. */
 function paneName(p: Pane): string {
   return p.label || p.agent.name || (p.agent.provider ? providerName(p.agent) : p.command || "shell");
 }
+/** An agent's state as the prompt tells its model. */
 function herdState(e: Entry): string {
   if (e.attention === "needs_input") return "needs input";
   if (e.paused) return "paused";

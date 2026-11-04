@@ -167,6 +167,8 @@ export class Session {
   exited_at = 0;
   ended_seq: bigint | null = null;
   ended_read = false;
+  /** When a reader last fetched its events, for the prompt's sessions no pane holds. */
+  read_at = Date.now();
   readonly holder = "session";
   #attachment = new Attachment();
   get attachment(): Attachment {
@@ -656,6 +658,28 @@ export function sweep(runtime: Runtime, now = Date.now()) {
   runtime.changed();
   return true;
 }
+/** How long a prompt session no pane holds may go unread while a viewer is
+ * attached: its viewer quit while others stayed, and none took it up. */
+export const unread_ms = 10 * 60_000;
+let retired_at = 0;
+/** Stops the prompt's sessions no viewer reads. Until a viewer attaches, and
+ * after a gap that means the machine slept, each gets its time again. True
+ * when it stopped one. */
+export function retire(runtime: Runtime, attached: boolean, now = Date.now()) {
+  const rested = !attached || now - retired_at > 60_000,
+    gone: Session[] = [];
+  retired_at = now;
+  for (const s of runtime.sessions) {
+    if (!s.corgi || s.exited || s.pane !== null) continue;
+    if (rested) s.read_at = now;
+    else if (now - s.read_at >= unread_ms) gone.push(s);
+  }
+  if (!gone.length) return false;
+  for (const s of gone) s.destroy();
+  runtime.sessions = runtime.sessions.filter(s => !gone.includes(s));
+  runtime.changed();
+  return true;
+}
 /** How a prompt session reaches this Corgi: its socket, and its own corgi
  * first on PATH. No pane, so provider hooks and extensions stay quiet. */
 export function corgiEnv(socket: string, executable: string, id?: number): Record<string, string | undefined> {
@@ -763,6 +787,7 @@ export async function request(server: Server, client: Peer, request: Request, re
   } else if (request.op === "headless.events") {
     const after = BigInt(request.payload.after),
       pane = request.payload.pane;
+    session.read_at = Date.now();
     // A Corgi chat in a pane reads with its pane: the session is that pane's now.
     if (pane !== null && session.pane !== pane) {
       session.pane = pane;

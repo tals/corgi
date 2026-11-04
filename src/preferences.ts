@@ -71,8 +71,8 @@ export class Preferences {
   review_width = 80;
   /** Rows the review panel's file list takes at most, as last dragged. */
   review_tree_rows = 9;
-  /** The Corgi prompt's last pick; unset, it offers its first suggestion. */
-  /** The prompt's pick; "auto" follows the strong model of the agent run most. */
+  /** The Corgi prompt's last pick; "auto", like unset, follows the strong
+   * model of the agent run most. */
   prompt_model: PromptModel | "auto" | undefined = undefined;
 
   agentSort(): Sort {
