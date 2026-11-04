@@ -518,7 +518,7 @@ export class Panel {
   /** A press in the note box is dragging a selection. */
   private placing = false;
   /** A pasted character's bytes so far, and whether the last was a carriage return. */
-  private pasted: number[] = [];
+  private pasted = new textArea.Typed();
   private pasted_cr = false;
   /** A byte of a paste while typing. Whole characters go in at the caret;
    * a line break, however it's spelled, as one. */
@@ -529,26 +529,15 @@ export class Panel {
       cr = this.pasted_cr;
     this.pasted_cr = byte === 13;
     if (byte === 10 && cr) return;
-    let text: string | null = null;
-    if (byte < 0x80) {
-      this.pasted = [];
+    const typed = this.pasted.take(byte),
       text =
-        byte === 10 || byte === 13
+        typed === "\n" || typed === "\r"
           ? "\n"
-          : byte === 9
+          : typed === "\t"
             ? "    "
-            : byte >= 32 && byte !== 127
-              ? String.fromCharCode(byte)
+            : typed !== null && byte >= 32 && byte !== 127
+              ? typed
               : null;
-    } else {
-      this.pasted.push(byte);
-      const lead = this.pasted[0],
-        size = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1;
-      if (this.pasted.length < size) return;
-      text = Buffer.from(this.pasted).toString();
-      this.pasted = [];
-      if (text.includes("\ufffd")) text = null;
-    }
     if (text === null) return;
     if (r.compose) r.compose.area.insert(text);
     else if (r.find) {

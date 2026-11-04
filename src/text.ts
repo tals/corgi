@@ -132,17 +132,15 @@ export function spacedControls(text: string): string {
   for (const ch of text) out += isControl(ch.codePointAt(0)!) ? " " : ch;
   return out;
 }
-/** `writeEllipsis` for text from outside: control characters and invalid
- * UTF-8 show as spaces, and only the first 2 KiB is kept. */
+/** `writeEllipsis` for text from outside: controls and invalid UTF-8 (lone
+ * surrogates stand in for it) show as spaces, and only the first 2 KiB is kept. */
 export function writeSanitized(w: Writer, value: string, room: number): void {
   let clean = "";
   let n = 0;
   for (const ch of value) {
     if (n >= 2048 - 4) break;
     const cp = ch.codePointAt(0)!;
-    // Lone surrogates stand in for invalid UTF-8.
-    const invalid = cp >= 0xd800 && cp <= 0xdfff;
-    if (invalid || cp < 32 || cp === 127) {
+    if (isControl(cp)) {
       clean += " ";
       n += 1;
       continue;
