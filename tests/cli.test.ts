@@ -144,14 +144,8 @@ class AgentCli extends Runtime {
     await this.until(async () => (await this.cli(["pane", "read", one.pane])).result.text.includes("cli_marker_123"));
     this.assertIn("cli_marker_123", await this.run_cli("pane", "read", String(one.pane)));
     this.assertIn(`    pane ${one.pane}`, await this.run_cli("list"));
-    // A shell has no provider channel, so a message is typed and submitted.
-    const message = await this.cli(["message", `pane:${one.pane}`, "printf 'message_marker_456\\n'"]);
-    this.assertEqual(message.result.delivery, "typed");
-    this.assertEqual(message.result.queued, false);
-    await this.until(async () =>
-      (await this.cli(["pane", "read", one.pane])).result.text.includes("message_marker_456"),
-    );
-    this.assertIn(`typed into pane ${one.pane}`, await this.run_cli("message", String(one.pane), "true"));
+    // A shell would run a message as a command.
+    await this.cli(["message", `pane:${one.pane}`, "printf 'message_marker_456\\n'"], { error: "NoAgent" });
     await this.cli(["message", "headless:999", "hello"], { error: "NoHeadlessSession" });
     await this.cli(["pane", "keys", one.pane, "ctrl+c"]);
     await this.cli(["pane", "keys", one.pane, "enter", "invalid-key"], {
@@ -242,10 +236,19 @@ class AgentCli extends Runtime {
       await viewer.focus(one.pane);
       await this.until(async () => (await state()).observation.read === 1);
       await viewer.focus(other.pane);
-      await this.cli(["pane", "send", one.pane, "work", "--enter"]);
+      // Without a conversation to reach, a message is typed and submitted, but
+      // only where Corgi can't tell or can see an empty composer: this stand-in
+      // draws none of Codex's.
+      if (provider === "claude")
+        this.assertIn(`typed into pane ${one.pane}`, await this.run_cli("message", String(one.pane), "work"));
+      else {
+        await this.cli(["message", one.pane, "work"], { error: "AgentBusy" });
+        await this.cli(["pane", "send", one.pane, "work", "--enter"]);
+      }
       await this.until(async () => (await state()).state === "working");
       await this.cli(["pane", "send", one.pane, "exit", "--enter"]);
       await this.until(async () => (await state()).provider === null);
+      await this.cli(["message", one.pane, "work"], { error: "NoAgent" });
       this.assertEqual((await state()).observation.completed, 1);
       this.assertEqual((await state()).observation.read, 1);
     }

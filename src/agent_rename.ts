@@ -41,7 +41,7 @@ export async function renamePane(pane: Pane, name: string | null, runtime: Runti
   const text = typed.command(name);
   if (Buffer.byteLength(text) + 4 > pane.terminal.cols) throw new Error("InvalidName");
   if (runtime.renames.some(r => r.pane === pane.id)) throw new Error("AgentBusy");
-  await agentMessage.paste(pane.terminal, text);
+  await pane.terminal.send(agentMessage.paste(pane.terminal, text));
   runtime.renames.push({
     pane: pane.id,
     name,
@@ -59,7 +59,7 @@ export async function advance(runtime: Runtime, now: number) {
       continue;
     }
     if (typed.holds(pane.terminal, typed.command(pending.name))) {
-      await agentMessage.submit(pane.terminal);
+      await pane.terminal.send(agentMessage.enter(pane.terminal));
       renamed(runtime, pane, pending.name);
     } else if (now < pending.deadline) continue;
     runtime.renames.splice(i, 1);

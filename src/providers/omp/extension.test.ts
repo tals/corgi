@@ -110,7 +110,7 @@ await emit("agent_end", { messages: [] });
     outcome: "completed",
   });
 });
-test("omp takes a prompt through Corgi's extension, as its own default delivery", async () => {
+test("omp takes a prompt through Corgi's extension, as its own default delivery, but not while compacting", async () => {
   const { entries } = await drive(`
 await emit("session_start");
 const { sockets } = await import(${JSON.stringify(join(import.meta.dir, "../pi/socket.ts"))});
@@ -118,9 +118,14 @@ const omp = sockets("omp", () => process.env.PI_CODING_AGENT_DIR);
 const send = await omp.message("s1", true, "");
 await send("review this");
 await omp.message("s2", true, "").then(other => { if (other) throw Error("OtherSession"); });
+await emit("auto_compaction_start");
+await send("while compacting").then(() => { throw Error("TakenWhileCompacting"); }, error => { if (error.message !== "MessageUnavailable") throw error; });
+await emit("auto_compaction_end");
+await send("after");
 `);
   expect(entries.filter((e: { type: string }) => e.type === "prompt")).toEqual([
     { type: "prompt", data: { prompt: "review this" } },
+    { type: "prompt", data: { prompt: "after" } },
   ]);
 });
 test("omp shows approvals, plan reviews and questions as waiting on the user", async () => {

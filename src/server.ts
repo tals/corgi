@@ -143,6 +143,17 @@ export class Server {
     for (const p of this.runtime.panes) p.terminal.applyTheme(this.theme);
     this.dirty = true;
   }
+  /** Runs an `agent.message` beside the job queue: a provider's channel can
+   * take seconds to answer, and the queue keeps every viewer going. */
+  async message(command: protocol.CommandInput): Promise<protocol.Result> {
+    importer.admit(this, "session.command");
+    const result = await session.execute(
+      this.runtime,
+      { socket: this.socket, executable: this.executable, theme: this.theme },
+      protocol.decodeCommand(command),
+    );
+    return { ...protocol.emptyResult(), ...result };
+  }
   async execute(command: protocol.CommandInput): Promise<protocol.Result> {
     importer.admit(this, "session.command");
     const lifecycle =
@@ -535,6 +546,18 @@ export class Server {
         setTimeout(() => void this.shutdown(), 0);
         return;
       case "session.command":
+        if ("agent.message" in request.payload.command) {
+          void this.message(request.payload.command)
+            .then(
+              result => reply.ok({ result }),
+              error => reply.send({ err: error instanceof Error ? error.message : String(error) }),
+            )
+            .finally(() => {
+              cl.done();
+              this.publish();
+            });
+          return "deferred";
+        }
         reply.ok({ result: await this.execute(request.payload.command) });
         return;
       case "workspace.archive.preview":

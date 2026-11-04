@@ -5,6 +5,7 @@ import { ScreenWatcher } from "../watcher";
 import * as commandLine from "../command_line";
 import { info } from "./info";
 import { API, configDir, validSession } from "./api";
+import * as message from "./message";
 import { prepare } from "./launch";
 import { OpenCode2 } from "./headless";
 import { Worker } from "./observer";
@@ -95,9 +96,7 @@ export const adapter: Adapter = {
     async channel(session) {
       const api = validSession(session) ? await API.open().catch(() => null) : null;
       if (!api) return null;
-      return async text => {
-        await api.call("POST", `/api/session/${session}/prompt`, { text, delivery: "steer" });
-      };
+      return text => message.send(api, session, text);
     },
   },
   headless: { start: at => OpenCode2.start(at, null), restore: (saved, live) => OpenCode2.restore(saved, live) },

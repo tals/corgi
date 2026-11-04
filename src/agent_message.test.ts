@@ -50,10 +50,11 @@ test("without a channel a message is typed and submitted", async () => {
   const { r, id, pane, pending } = setup(),
     channel = spyOn(adapter("claude").message!, "channel").mockResolvedValue(null);
   try {
+    // Before it knows its conversation, the agent has no channel to try.
+    pane.agent().provider = "claude";
     expect(await execute(r, ctx, message({ pane: id }, "ls"))).toMatchObject({ delivery: "typed", queued: false });
     expect(pending()).toBe("ls\r");
     expect(channel).not.toHaveBeenCalled();
-    pane.agent().provider = "claude";
     pane.agent().session = new Text("a-session");
     pane.agent().state = "working";
     pane.terminal.feed("\x1b[?2004h");
@@ -135,17 +136,30 @@ test("a headless agent gets a message as a prompt to its conversation", async ()
     r.destroy();
   }
 });
-test("a message needs text and a live pane", async () => {
-  const { r, id, pane, pending } = setup();
+test("a message needs text and a live agent, still there once its channel answers", async () => {
+  const { r, id, pane, pending } = setup(),
+    send = (target: number) => ({ "pane.send": { target, text: "x", enter: true } }),
+    channel = spyOn(adapter("claude").message!, "channel").mockImplementation(async () => async () => {
+      pane.dormant = true;
+      throw Error("MessageUnavailable");
+    });
   try {
-    await expect(execute(r, ctx, message({ pane: id }, ""))).rejects.toThrow("InvalidMessage");
+    for (const text of ["", " \n\t"])
+      await expect(execute(r, ctx, message({ pane: id }, text))).rejects.toThrow("InvalidMessage");
     await expect(execute(r, ctx, message({ pane: id + 1 }, "x"))).rejects.toThrow("NoPane");
+    // A pane without an agent is a shell, which would run the message.
+    await expect(execute(r, ctx, message({ pane: id }, "x"))).rejects.toThrow("NoAgent");
+    pane.agent().provider = "claude";
+    pane.agent().session = new Text("a-session");
+    await expect(execute(r, ctx, message({ pane: id }, "x"))).rejects.toThrow("PaneAsleep");
+    await expect(execute(r, ctx, send(id))).rejects.toThrow("PaneAsleep");
+    pane.dormant = false;
     pane.terminal.exited = true;
     await expect(execute(r, ctx, message({ pane: id }, "x"))).rejects.toThrow("PaneExited");
-    pane.dormant = true;
-    await expect(execute(r, ctx, message({ pane: id }, "x"))).rejects.toThrow("PaneAsleep");
+    await expect(execute(r, ctx, send(id))).rejects.toThrow("PaneExited");
     expect(pending()).toBe("");
   } finally {
+    channel.mockRestore();
     r.destroy();
   }
 });
@@ -153,8 +167,7 @@ test("a paste can't be ended early by its text", async () => {
   const terminal = new Terminal(80, 24);
   try {
     terminal.feed("\x1b[?2004h");
-    await agentMessage.paste(terminal, "a\x1b[201~y\r\x1b[20\x1b[201~1~b");
-    expect(terminal.native({ op: "takePending" })).toBe("\x1b[200~ay\rb\x1b[201~");
+    expect(agentMessage.paste(terminal, "a\x1b[201~y\r\x1b[20\x1b[201~1~b")).toBe("\x1b[200~ay\rb\x1b[201~");
   } finally {
     terminal.destroy();
   }
@@ -168,8 +181,7 @@ test("automated submissions use the agent's current keyboard protocol", async ()
       ["\x1b[<u", "\r"],
     ]) {
       terminal.feed(mode);
-      await agentMessage.submit(terminal);
-      expect(terminal.native({ op: "takePending" })).toBe(expected);
+      expect(agentMessage.enter(terminal)).toBe(expected);
     }
   } finally {
     terminal.destroy();

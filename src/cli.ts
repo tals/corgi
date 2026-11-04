@@ -513,7 +513,11 @@ export function list(reply: any): string {
       }
     }
     for (const s of reply.result?.headless_sessions ?? [])
-      if (s.workspace === w.id) out.push(`  headless:${s.id}${pane({ agent: s.agent, exited: s.exited })}`);
+      if (s.workspace === w.id) {
+        // The session's state covers its subagents and startup, as `message` sees it.
+        const agent = { ...s.agent, state: s.state ?? s.agent?.state, attention: s.attention ?? s.agent?.attention };
+        out.push(`  headless:${s.id}${pane({ agent, exited: s.exited })}`);
+      }
   }
   for (const v of reply.viewers ?? []) out.push(`viewer ${v.id}: workspace ${v.workspace}, pane ${v.pane}`);
   return out.join("\n") + "\n";

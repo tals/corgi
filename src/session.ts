@@ -372,8 +372,11 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
     case "pane.send": {
       const p = r.pane(request.payload.target);
       if (!p) throw Error("NoPane");
-      await agentMessage.paste(p.terminal, request.payload.text);
-      if (request.payload.enter) await agentMessage.submit(p.terminal);
+      // Nothing reads a sleeping or exited pane's input.
+      if (p.dormant) throw Error("PaneAsleep");
+      if (p.terminal.exited) throw Error("PaneExited");
+      const t = p.terminal;
+      await t.send(agentMessage.paste(t, request.payload.text) + (request.payload.enter ? agentMessage.enter(t) : ""));
       return location(r, request.payload.target);
     }
     case "pane.keys": {

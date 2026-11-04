@@ -78,7 +78,8 @@ export function rename(peer: Peer, session: string, name: string) {
 }
 /** Queues `text` as a prompt: it starts a turn when the session is idle, or
  * runs after the current one. Throws MessageUnavailable when the inbox
- * refused the connection. */
+ * refused the connection, and DeliveryUnknown when it failed after taking
+ * some of the frame. */
 export async function message(peer: Peer, session: string, text: string, timeout?: number) {
   const frame = {
     type: "user",
@@ -90,6 +91,6 @@ export async function message(peer: Peer, session: string, text: string, timeout
   try {
     await write(peer, frame, timeout);
   } catch (error) {
-    throw errors.is(error, "ConnectFailed") ? Error("MessageUnavailable") : error;
+    throw Error(errors.is(error, "ConnectFailed") ? "MessageUnavailable" : "DeliveryUnknown");
   }
 }

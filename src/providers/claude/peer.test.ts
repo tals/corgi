@@ -50,7 +50,7 @@ test("a message is a queued user prompt for the session, after the peer's auth l
     rmSync(root, { recursive: true, force: true });
   }
 });
-test("a message to a closed inbox is unavailable, and one a stopped session won't read times out", async () => {
+test("a message to a closed inbox is unavailable, and one a stopped session won't read may have arrived", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-peer-")),
     socket = join(root, "inbox.sock"),
     connections: import("node:net").Socket[] = [];
@@ -60,7 +60,9 @@ test("a message to a closed inbox is unavailable, and one a stopped session won'
     await expect(message({ socket, token: "secret" }, "live", "x")).rejects.toThrow("MessageUnavailable");
     await new Promise<void>(resolve => server.listen(socket, resolve));
     const started = performance.now();
-    await expect(message({ socket, token: "secret" }, "live", "x".repeat(4 << 20), 100)).rejects.toThrow("Timeout");
+    await expect(message({ socket, token: "secret" }, "live", "x".repeat(4 << 20), 100)).rejects.toThrow(
+      "DeliveryUnknown",
+    );
     expect(performance.now() - started).toBeLessThan(2000);
   } finally {
     for (const connection of connections) connection.destroy();

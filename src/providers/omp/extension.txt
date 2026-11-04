@@ -11,7 +11,7 @@ const sessions = new Map();
 export default function (pi) {
   const owner = process.env.CORGI_OMP_OWNER;
   if (owner && owner !== String(process.pid)) return;
-  let turn = "", result = "completed", escaped = false, prompts = 0, prompt = "", removeInput, server, serving = "";
+  let turn = "", result = "completed", escaped = false, prompts = 0, prompt = "", removeInput, server, serving = "", compacting = false;
   const inputs = new Map();
   let queue = Promise.resolve(), pendingActivity, activityTimer, activityCall = "", activityIntent = "", closed = false;
   const nativeIntent = value => {
@@ -154,7 +154,8 @@ export default function (pi) {
           if(r.session !== ctx.sessionManager.getSessionId()) return socket.end('{"ok":false}\n');
           if(r.prompt !== undefined) {
             // Without deliverAs, omp starts a turn when idle and steers a running one.
-            if(typeof r.prompt !== "string" || !r.prompt) return socket.end('{"ok":false}\n');
+            // While it compacts, Corgi types the prompt instead, as Pi's editor queues it.
+            if(typeof r.prompt !== "string" || !r.prompt || compacting) return socket.end('{"ok":false}\n');
             pi.sendUserMessage(r.prompt);
             return socket.end('{"ok":true,"prompted":true}\n');
           }
@@ -174,7 +175,7 @@ export default function (pi) {
   const started = async (_e, ctx) => {
     if (!connected() || (!active(ctx) && ctx.agent?.kind !== "sub")) return;
     resetActivity();
-    turn = ""; prompts = 0; prompt = ""; closed = false;
+    turn = ""; prompts = 0; prompt = ""; closed = false; compacting = false;
     if (current) sessions.delete(current.transcript);
     current = identity(ctx);
     sessions.set(current.transcript, { session: current.session, model: ctx.model ? ctx.model.provider + "/" + ctx.model.id : "" });
@@ -251,8 +252,8 @@ export default function (pi) {
   pi.on("plan_review_requested", (_e, ctx) => active(ctx) ? asked(ctx, "plan review") : undefined);
   pi.on("plan_review_resolved", (_e, ctx) => active(ctx) ? answered(ctx) : undefined);
   // A session_before_compact handler would switch off omp's background compaction.
-  pi.on("auto_compaction_start", (_e, ctx) => report(ctx, "PreCompact"));
-  pi.on("auto_compaction_end", (_e, ctx) => report(ctx, turn ? "PostCompact" : "Idle"));
+  pi.on("auto_compaction_start", (_e, ctx) => { compacting = true; return report(ctx, "PreCompact"); });
+  pi.on("auto_compaction_end", (_e, ctx) => { compacting = false; return report(ctx, turn ? "PostCompact" : "Idle"); });
   pi.on("agent_end", async (e, ctx) => {
     // A continuation keeps the turn; background work may wake a yielded one later.
     if (!active(ctx) || !turn || (e.willContinue && !e.awaitingAsyncWork)) return;

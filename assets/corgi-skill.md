@@ -94,13 +94,15 @@ read the text as the screen shows it.
 Prompt an agent with `message`. It uses the provider's own channel when one
 reaches the agent: Claude Code's session inbox queues it after a running turn,
 Codex's app server and Corgi's Pi and OMP extension steer a running turn with
-it, and OpenCode and headless sessions take it as a prompt. Otherwise it types the text and presses Enter,
-but not into an agent waiting on a prompt (`AgentBlocked`) or a composer
-holding a draft (`AgentBusy`); a hibernated pane fails with `PaneAsleep`. It
-prints `messaged …` or `typed into …`, adding `queued while it works` when the
-agent was mid-turn. `DeliveryUnknown` means the agent may have it: read its
-pane before sending again. Its target is a pane ID, `current`, or
-`headless:ID` for an agent without a pane, as `corgi list` prints them.
+it, and OpenCode and headless sessions take it as a prompt. Otherwise it types
+the text and presses Enter, but not into an agent waiting on a prompt
+(`AgentBlocked`) or a composer holding a draft (`AgentBusy`). A hibernated pane
+fails with `PaneAsleep`, and a pane without an agent with `NoAgent`: use
+`pane send` for a shell. It prints `messaged …` or `typed into …`, adding
+`queued while it works` when the agent was mid-turn. `DeliveryUnknown` means
+the agent may have it: read its pane before sending again. Its target is a
+pane ID, `current`, or `headless:ID` for an agent without a pane, as
+`corgi list` prints them.
 Send honors bracketed paste and optionally appends encoded Enter. Keys honor the
 terminal's keyboard protocol; all keys are validated before any bytes are sent.
 Use `--` before text beginning with `--`. Input delivery is not proof an agent
