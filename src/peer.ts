@@ -34,6 +34,8 @@ export class Client {
   interests: Interest[] = [];
   protocol_version: number | null = null;
   subscribed = false;
+  /** Whether terminal output alone pushes this subscriber a snapshot. */
+  subscribed_output = true;
   watching = false;
   watch_viewer = 0;
   woken = 0n;

@@ -581,6 +581,8 @@ const structures = {
 } as const satisfies Record<string, Fields>;
 const launch = { workspace: "u32", cwd: ["string", ""] } as const satisfies Fields;
 const requests = {
+  /** `output: false` leaves out pushes for terminal output alone, as a status display wants. */
+  "session.subscribe": { output: ["bool", true] },
   "launcher.models": { row: "string" },
   "session.locate": { pane: "u32" },
   "viewer.watch": { viewer: "u32" },

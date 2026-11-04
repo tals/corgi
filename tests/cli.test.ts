@@ -1,7 +1,7 @@
-import { mkdirSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { Runtime, EXE, layout_tree, Viewer } from "./runtime";
-import { registerCase, run, shellJoin } from "./support";
+import { Lines, registerCase, run, shellJoin } from "./support";
 import { write_ordinary_agent } from "./provider_sim";
 import { Provider } from "../src/providers";
 
@@ -536,6 +536,75 @@ class AgentCli extends Runtime {
     const reopened = await Viewer.create(this);
     this.assertEqual(reopened.state.workspace, ws);
     this.assertNotEqual(reopened.state.pane, one.pane);
+  }
+  async test_watch_prints_agent_changes_and_follows_the_daemon() {
+    const env = { ...this.env };
+    delete env.CORGI_PANE;
+    const watch = Bun.spawn([EXE, "watch", "--json"], { env, stdout: "pipe", stderr: "inherit" }),
+      lines = new Lines(),
+      printed: string[] = [];
+    void (async () => {
+      for await (const chunk of watch.stdout.pipeThrough(new TextDecoderStream())) lines.feed(chunk);
+      lines.end();
+    })();
+    /** The first summary from here on that `match` accepts. */
+    const seen = async (match: (summary: any) => boolean) => {
+      for (;;) {
+        const line = await lines.next(15000);
+        printed.push(line);
+        if (match(JSON.parse(line))) return JSON.parse(line);
+      }
+    };
+    try {
+      const first = await seen(() => true);
+      this.assertEqual([first.running, first.counts.agents, first.workspaces[0].id], [true, 0, 1]);
+      const executable = write_ordinary_agent(join(this.temp.name, "codex")),
+        one = await this.new("agent"),
+        agent = (summary: any) => summary.workspaces?.[0]?.agents.find((a: any) => a.pane === one.pane);
+      await this.cli(["pane", "send", one.pane, executable, "--enter"]);
+      const { status, detail, glyph, corgi, compacting_since, retry_at, ...appeared } = agent(
+        await seen(s => agent(s) !== undefined),
+      );
+      this.assertEqual(appeared, {
+        pane: one.pane,
+        headless: null,
+        title: "Codex",
+        provider: "codex",
+        starred: false,
+        section: "working",
+        needs_input: false,
+        unread: false,
+      });
+      // The sidebar's glyph and second line come with it.
+      this.assertIn(status, ["starting", "working"]);
+      this.assertEqual(
+        [typeof detail, typeof glyph, typeof corgi, compacting_since, retry_at],
+        ["string", "string", "string", 0, 0],
+      );
+      await this.cli(["pane", "send", one.pane, "block", "--enter"]);
+      const blocked = await seen(s => agent(s)?.needs_input === true);
+      this.assertEqual(
+        [agent(blocked).section, agent(blocked).status, blocked.counts.needs_input],
+        ["working", "needs_input", 1],
+      );
+      await this.cli(["pane", "send", one.pane, "stop", "--enter"]);
+      await seen(s => agent(s)?.needs_input === false);
+      // It keeps going through a restart, and says so while there's no daemon.
+      await this.run_cli("shutdown");
+      await seen(s => s.running === false);
+      await this.until(() => !existsSync(this.path));
+      await this.run_cli("start");
+      await seen(s => s.running === true);
+      // Only changes print.
+      this.assertTrue(
+        printed.every((line, i) => line !== printed[i - 1]),
+        printed,
+      );
+      this.assertEqual(watch.exitCode, null);
+    } finally {
+      watch.kill();
+      await watch.exited;
+    }
   }
 }
 registerCase("AgentCli", AgentCli, { inherited: false });

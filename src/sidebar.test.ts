@@ -54,6 +54,10 @@ import {
   type Hit,
   drawGitTooltip,
   indicator,
+  status,
+  rowDetail,
+  activityKind,
+  corgiMode,
 } from "./sidebar";
 
 const selected_bg = palette.bg("selected");
@@ -1901,4 +1905,11 @@ test("an agent waiting on a retry shows a warm pause and counts down", () => {
   const view = View.init(100, 30, true, 0, 1).withWidth(28 + lists_x);
   expect(hostText(draw(view, [e], [], 15_500))).toContain("◷  Retrying in 45s");
   expect(hostText(draw(view, [e], [], 60_000))).toContain("◷  Retrying…");
+  // `corgi watch --json` reports the same.
+  expect([status(e), rowDetail(e, 15_500), activityKind(e, 1), corgiMode({ ...e, activity: "" }, 1)]).toEqual([
+    "retrying",
+    "Retrying in 45s",
+    "waiting",
+    "content",
+  ]);
 });

@@ -280,6 +280,72 @@ export function orderTarget(e: Entry): OrderTarget | null {
 export function lessThan(order: OrderTarget[], left: Entry, right: Entry): boolean {
   return rank(order, orderTarget(left)!) < rank(order, orderTarget(right)!);
 }
+/** An agent row's name: its own, or else its provider's. */
+export function rowTitle(e: Pick<Entry, "name" | "provider">): string {
+  return e.name.length > 0 ? directoryLabel(e.name, null, 160) : e.provider ? adapter(e.provider).name : "";
+}
+/** The line under an agent's name: what it's doing, or why it isn't. With
+ * `now_ms` null, a retry leaves out its countdown. */
+export function rowDetail(e: Entry, now_ms: number | null = Date.now()): string {
+  const compacting = e.state === "working" && e.compacting,
+    waiting = e.state === "working" && e.subagents.waiting && !compacting;
+  if (retrying(e)) {
+    if (now_ms === null || e.retry_at <= now_ms) return i18n.t`Retrying…`;
+    const wait = elapsed(e.retry_at - now_ms + 999);
+    return i18n.t`Retrying in ${wait}`;
+  }
+  if (compacting) return i18n.t`Compacting…`;
+  if (waiting) return i18n.t`Waiting on agents`;
+  switch (e.state) {
+    case "working":
+      return e.activity;
+    case "blocked":
+      return i18n.t`Needs input`;
+    case "initializing":
+      return i18n.t`Starting session`;
+    case "done":
+      return i18n.t`Session ended`;
+    default:
+      return "";
+  }
+}
+/** The corgi on an agent row's second line, at the sidebar's corgi
+ * `intensity`, in a row with `room` columns for it. */
+export function corgiMode(e: Entry, intensity: number, room = Infinity): corgiAnimation.Mode {
+  const compacting = e.state === "working" && e.compacting,
+    waiting = e.state === "working" && e.subagents.waiting && !compacting;
+  // Narrow rows keep the text; the pile beside it still moves.
+  if (compacting && room >= corgiAnimation.herdWidth()) return "herding";
+  if (intensity === 0) return "content";
+  if (e.state === "working" && !compacting && !waiting && !retrying(e) && e.activity.length === 0) return "awake";
+  return e.state === "idle" ? "asleep" : "content";
+}
+/** The glyph before an agent row's second line; `corgi watch --json` reports it. */
+export function activityKind(e: Entry, intensity: number): corgiAnimation.Activity {
+  const compacting = e.state === "working" && e.compacting;
+  if ((e.state === "working" && e.subagents.waiting && !compacting) || retrying(e)) return "waiting";
+  if (e.tool_active && (e.state === "working" || e.state === "blocked")) return "tool";
+  if (e.state === "working") return compacting ? "compacting" : "thinking";
+  return e.state === "idle" && intensity === 0 ? "napping" : "none";
+}
+/** At work, held until Corgi starts its failed turn again. */
+function retrying(e: Pick<Entry, "state"> & Partial<Pick<Entry, "retry_at">>): boolean {
+  return e.state === "working" && (e.retry_at ?? 0) > 0;
+}
+/** What an agent row's glyph says; `corgi watch --json` reports it too. */
+export type Status =
+  "done" | "needs_input" | "retrying" | "working" | "paused" | "ready" | "starting" | "idle" | "other";
+export function status(e: Pick<Entry, "state" | "attention" | "paused"> & Partial<Pick<Entry, "retry_at">>): Status {
+  if (e.state === "done") return "done";
+  if (e.state === "blocked" || e.attention === "needs_input") return "needs_input";
+  if (retrying(e)) return "retrying";
+  if (e.state === "working") return "working";
+  if (e.state === "idle" && e.paused) return "paused";
+  if (e.attention === "finished") return "ready";
+  if (e.state === "initializing") return "starting";
+  if (e.state === "idle") return "idle";
+  return "other";
+}
 // The style guide's status glyphs; finished attention is the unseen-idle
 // state, and its name turns bold. Corgi also retains ended headless
 // sessions. A `selected` row takes muted where the guide says faint.
@@ -287,22 +353,30 @@ export function indicator(
   e: Pick<Entry, "state" | "attention" | "paused"> & Partial<Pick<Entry, "retry_at">>,
   selected: boolean,
 ): { icon: string; color: string; unread: boolean } {
-  const quiet = selected ? fg("muted") : fg("faint");
-  if (e.state === "done") return { icon: "○", color: quiet, unread: false };
-  if (e.state === "blocked" || e.attention === "needs_input")
-    return { icon: "●", color: "\x1b[1m" + fg("warm"), unread: false };
-  // At work, held until Corgi starts its failed turn again.
-  if (e.state === "working" && (e.retry_at ?? 0) > 0)
-    return { icon: "‖", color: "\x1b[1m" + fg("warm"), unread: false };
-  if (e.state === "working") return { icon: "▶", color: "\x1b[1m" + fg("accent"), unread: false };
-  if (e.state === "idle" && e.paused) {
-    if (e.attention === "finished") return { icon: "‖", color: "\x1b[1m" + fg("accent"), unread: true };
-    return { icon: "‖", color: fg("muted"), unread: false };
+  const quiet = selected ? fg("muted") : fg("faint"),
+    strong = "\x1b[1m" + fg("accent");
+  switch (status(e)) {
+    case "done":
+      return { icon: "○", color: quiet, unread: false };
+    case "needs_input":
+      return { icon: "●", color: "\x1b[1m" + fg("warm"), unread: false };
+    case "retrying":
+      return { icon: "‖", color: "\x1b[1m" + fg("warm"), unread: false };
+    case "working":
+      return { icon: "▶", color: strong, unread: false };
+    case "paused":
+      return e.attention === "finished"
+        ? { icon: "‖", color: strong, unread: true }
+        : { icon: "‖", color: fg("muted"), unread: false };
+    case "ready":
+      return { icon: "●", color: strong, unread: true };
+    case "starting":
+      return { icon: "◌", color: fg("muted"), unread: false };
+    case "idle":
+      return { icon: "○", color: fg("muted"), unread: false };
+    case "other":
+      return { icon: "·", color: quiet, unread: false };
   }
-  if (e.attention === "finished") return { icon: "●", color: "\x1b[1m" + fg("accent"), unread: true };
-  if (e.state === "initializing") return { icon: "◌", color: fg("muted"), unread: false };
-  if (e.state === "idle") return { icon: "○", color: fg("muted"), unread: false };
-  return { icon: "·", color: quiet, unread: false };
 }
 /** Each activity section's header: the glyph its rows would show, and its name. */
 export const sections: Record<SectionKind, { glyph: string; token: palette.Token; label: string }> = {
@@ -1543,16 +1617,6 @@ export class View {
         w.write(w.cup(v.middle() + 3 + row, v.width) + v.thumbStyle("agents") + "┃");
     w.write("\x1b[0m");
   }
-  /** The small glyph beside an agent's detail line: a wait clock (on its
-   * agents, or a retry), an active tool, the working spinner, or a napping
-   * "z" once idle. */
-  static activityGlyph(e: Entry, waiting: boolean, napping: boolean, spinner: string): string {
-    if (waiting) return "◷";
-    if (e.tool_active && (e.state === "working" || e.state === "blocked")) return "🔧";
-    if (e.state === "working") return spinner;
-    if (napping) return "ᶻ";
-    return "";
-  }
   drawAgent(
     w: Writer,
     e: Entry,
@@ -1601,8 +1665,6 @@ export class View {
     // Dotted lines start under the name, leaving the guide and activity clear.
     const underline_x = dotted ? 5 : 2;
     const compacting = e.state === "working" && e.compacting;
-    const waiting = e.state === "working" && e.subagents.waiting && !compacting;
-    const retrying = e.state === "working" && e.retry_at > 0;
     // Without sleeping corgis, a dim Z marks an idle agent; unseen ones are
     // brighter. Selected rows take muted, as faint is too dim on them.
     const napping = e.state === "idle" && v.corgi_intensity === 0;
@@ -1611,7 +1673,7 @@ export class View {
       : napping && e.attention !== "finished"
         ? "\x1b[22m" + nap_fg
         : "\x1b[22m" + fg("faint");
-    const name = e.name.length > 0 ? directoryLabel(e.name, null, 160) : e.provider ? adapter(e.provider).name : "";
+    const name = rowTitle(e);
     const figure = contextFigure(e, compacting, background);
     const figure_width = figure ? displayWidth(figure.text) : 0;
     const count = e.notes;
@@ -1636,40 +1698,15 @@ export class View {
       w.write(fgRgb(figure.color));
       w.write(figure.text);
     }
-    const wait = elapsed(e.retry_at - now_ms + 999);
-    const detail = retrying
-      ? e.retry_at > now_ms
-        ? i18n.t`Retrying in ${wait}`
-        : i18n.t`Retrying…`
-      : compacting
-        ? i18n.t`Compacting…`
-        : waiting
-          ? i18n.t`Waiting on agents`
-          : e.state === "working"
-            ? e.activity
-            : e.state === "blocked"
-              ? i18n.t`Needs input`
-              : e.state === "initializing"
-                ? i18n.t`Starting session`
-                : e.state === "done"
-                  ? i18n.t`Session ended`
-                  : "";
+    const detail = rowDetail(e, now_ms);
     const badge = subagentBadge(e.subagents, e.children);
     const badge_width = displayWidth(badge);
     const detail_room = sat(room, badge_width + (badge_width > 0 ? 1 : 0));
     const animation_key = animationKey(e);
-    const fallback = e.state === "working" && !compacting && !waiting && !retrying && e.activity.length === 0;
-    // Narrow rows keep the text; the pile beside it still moves.
-    const herding = compacting && detail_room >= corgiAnimation.herdWidth();
-    const mode: corgiAnimation.Mode = herding
-      ? "herding"
-      : fallback && v.corgi_intensity > 0
-        ? "awake"
-        : e.state === "idle" && v.corgi_intensity > 0
-          ? "asleep"
-          : "content";
+    const mode = corgiMode(e, v.corgi_intensity, detail_room);
+    const herding = mode === "herding";
     const detail_text = detail.length === 0 ? "" : directoryLabel(detail, null, 512);
-    const activity = View.activityGlyph(e, waiting || retrying, napping, corgiAnimation.spinner(compacting, now_ms));
+    const activity = corgiAnimation.activityGlyph(activityKind(e, v.corgi_intensity), now_ms);
     // Underline the existing second row, including its padding, without
     // consuming another terminal row or changing the entry hit area.
     w.write(`${w.cup(y + 2, x + underline_x)}${line}`);

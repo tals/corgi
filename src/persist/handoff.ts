@@ -31,6 +31,7 @@ const savedFields = [
   "last_control",
   "protocol_version",
   "subscribed",
+  "subscribed_output",
   "watching",
   "watch_viewer",
   "launch_preview",

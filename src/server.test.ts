@@ -32,8 +32,8 @@ test("session snapshots are shared by subscribers and skipped without them", () 
     publish();
     expect(snapshot).not.toHaveBeenCalled();
     server.clients.push(
-      { subscribed: true, queue: (value: unknown) => first.push(value) } as any,
-      { subscribed: true, queue: (value: unknown) => second.push(value) } as any,
+      { subscribed: true, subscribed_output: true, queue: (value: unknown) => first.push(value) } as any,
+      { subscribed: true, subscribed_output: true, queue: (value: unknown) => second.push(value) } as any,
     );
     server.runtime.wrote();
     publish();
@@ -45,6 +45,27 @@ test("session snapshots are shared by subscribers and skipped without them", () 
     server.runtime.wrote();
     publish();
     expect(snapshot).toHaveBeenCalledTimes(1);
+  } finally {
+    snapshot.mockRestore();
+    dispose();
+  }
+});
+test("a subscriber that leaves out output hears only what viewers would show changing", () => {
+  const { server, dispose } = fixture(),
+    snapshot = spyOn(session, "snapshot"),
+    heard: unknown[] = [];
+  try {
+    const publish = () => Reflect.get(server, "publish").call(server);
+    server.clients.push({ subscribed: true, subscribed_output: false, queue: (v: unknown) => heard.push(v) } as any);
+    server.runtime.refreshed();
+    publish();
+    expect(heard).toHaveLength(1);
+    server.runtime.wrote();
+    publish();
+    expect(heard).toHaveLength(1);
+    server.runtime.changed();
+    publish();
+    expect(heard).toHaveLength(2);
   } finally {
     snapshot.mockRestore();
     dispose();
@@ -394,6 +415,22 @@ test("provisional pane completions ring until their receipts are read", () => {
   }
 });
 
+test("a subscriber that leaves out output still does after a handoff", () => {
+  const source = fixture(),
+    target = fixture();
+  try {
+    const original = source.server.addClient(-1, false);
+    original.subscribed = true;
+    original.subscribed_output = false;
+    const saved = json.parse(json.stringify(handoff.captureManifest(source.server, original)));
+    handoff.restoreMetadata(target.server, saved);
+    const restored = handoff.restoreClient(target.server, saved.clients[0]);
+    expect(restored).toMatchObject({ subscribed: true, subscribed_output: false });
+  } finally {
+    source.dispose();
+    target.dispose();
+  }
+});
 test("handoff restoration normalizes small and wide viewer counters before waking", () => {
   for (const seq of [0n, 9007199254740993n]) {
     const source = fixture(),
