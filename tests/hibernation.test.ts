@@ -328,8 +328,10 @@ class Hibernation extends Runtime {
   async test_archiving_a_program_too_long_to_save_still_recovers() {
     const id = await this.shell();
     await this.command("workspace.create", { name: "active", cwd: this.temp.name });
-    const command = `bun -e "setInterval(() => {}, 1000)" ${"x".repeat(3000)}`;
-    await this.command("pane.send", { target: id, text: command, enter: true });
+    // macOS's terminal holds about 1 KiB of typed input, so a script runs the long command line.
+    const script = join(this.temp.name, "long.sh");
+    await Bun.write(script, `exec bun -e "setInterval(() => {}, 1000)" ${"x".repeat(3000)}\n`);
+    await this.command("pane.send", { target: id, text: "sh " + JSON.stringify(script), enter: true });
     await this.until(async () => (await this.pane(id)).command === "bun");
     await this.command("workspace.archive", { target: 1 });
     await this.restart_runtime();
