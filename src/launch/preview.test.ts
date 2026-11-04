@@ -405,6 +405,39 @@ test("accounts are read on the daemon's schedule with no one subscribed", async 
   }
 });
 
+test("a removed row shows who its last read found when its files don't say, and a signed-out account as such", async () => {
+  // OpenCode keeps no sign-in Corgi can read without asking it.
+  process.env.CORGI_OPENCODE2_BIN = process.execPath;
+  listed(["work"]);
+  const work = join(root, "work"),
+    worker = new Worker(),
+    removed = { ...worker.removed, account_hidden: [work] };
+  worker.launcher = async provider => ({
+    account: async () =>
+      Object.assign(reading(84), { account: new Text(provider === "opencode2" ? "me@chatgpt.dev" : "me@work.dev") }),
+    model: async () => ({ model: "", source: "test" }),
+    close() {},
+  });
+  try {
+    worker.follow(removed);
+    await worker.pump();
+    worker.preview("/project");
+    await worker.pump();
+    expect(worker.preview("/project").options.opencode2.account.text()).toBe("me@chatgpt.dev");
+    worker.follow({ ...removed, agent_hidden: byProvider(p => p === "opencode2") });
+    await worker.pump();
+    const preview = worker.preview("/project");
+    expect(preview.options.opencode2).toMatchObject({ pending: false, signed_in: true, limits: "none" });
+    expect(preview.options.opencode2.account.text()).toBe("me@chatgpt.dev");
+    // Its folder names no login, and it was never read.
+    expect(preview.accounts.map(a => [a.account, a.option.pending, a.option.signed_in])).toEqual([
+      [work, false, false],
+    ]);
+  } finally {
+    await worker.stop();
+  }
+});
+
 test("a removed agent isn't read, shows only who signed in, and is read again once added back", async () => {
   const pi = join(root, "pi");
   mkdirSync(pi);

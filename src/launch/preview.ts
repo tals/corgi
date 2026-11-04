@@ -98,18 +98,6 @@ class Login {
 function usable(info: Info) {
   return info.signed_in === true && info.usage_fetched_at > 0 && !info.usage_error.len;
 }
-/** A removed row's option: who signed in, as the provider's own files say,
- * so Add agent can offer it back. Nothing asks its servers. */
-function signedIn(provider: Provider, account: string): Option {
-  const option = new Option(),
-    who = accounts.identity(provider, account);
-  option.pending = false;
-  if (who) {
-    option.signed_in = true;
-    option.account = new Text(who.email);
-  }
-  return option;
-}
 /** Who signed in to `account`, or the folder itself when that's unknown. */
 function loginOf(provider: Provider, account: string) {
   const id = accounts.identity(provider, account)?.id;
@@ -411,9 +399,27 @@ export class Worker {
       ...preview.accounts,
     ].filter(l => !skip(l));
   }
+  /** A removed row's option: who signed in, so Add agent can offer it back.
+   * Nothing asks its servers: the provider's own files say, or for one whose
+   * files don't, such as OpenCode, this worker's last read of it. An
+   * account's folder that neither names is signed out. */
+  private signedIn({ provider, account }: row.Launch): Option {
+    const option = new Option(),
+      who = accounts.identity(provider, account),
+      last = who ? undefined : this.logins.get(provider + "\0" + loginOf(provider, account))?.infos.get(account);
+    option.pending = false;
+    if (who) {
+      option.signed_in = true;
+      option.account = new Text(who.email);
+    } else if (last) {
+      option.signed_in = last.signed_in;
+      option.account = last.account;
+    } else if (account) option.signed_in = false;
+    return option;
+  }
   /** `preview` with its skipped rows showing only who signed in. */
   private withSkipped(preview: Preview, skip: (l: row.Launch) => boolean): Preview {
-    const own = (l: row.Launch, option: Option) => (skip(l) ? signedIn(l.provider, l.account) : option);
+    const own = (l: row.Launch, option: Option) => (skip(l) ? this.signedIn(l) : option);
     return preview.with({
       options: byProvider(p => own({ provider: p, account: "" }, preview.options[p])),
       accounts: preview.accounts.map(a => ({ ...a, option: own(a, a.option) })),
