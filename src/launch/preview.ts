@@ -98,18 +98,6 @@ class Login {
 function usable(info: Info) {
   return info.signed_in === true && info.usage_fetched_at > 0 && !info.usage_error.len;
 }
-/** A removed row's option: who signed in, as the provider's own files say,
- * so Add agent can offer it back. Nothing asks its servers. */
-function signedIn(provider: Provider, account: string): Option {
-  const option = new Option(),
-    who = accounts.identity(provider, account);
-  option.pending = false;
-  if (who) {
-    option.signed_in = true;
-    option.account = new Text(who.email);
-  }
-  return option;
-}
 /** Who signed in to `account`, or the folder itself when that's unknown. */
 function loginOf(provider: Provider, account: string) {
   const id = accounts.identity(provider, account)?.id;
@@ -136,7 +124,7 @@ export class Worker {
   /** Seconds between account reads, which the daemon sets from its viewers. */
   every = idle_every;
   /** The rows taken out of Manage agents, which it doesn't read. */
-  removed: row.Removed = { agent_hidden: byProvider(() => false), account_hidden: [] };
+  removed: row.Removed = { agent_hidden: byProvider(() => false), account_hidden: [], commands: [] };
   private checked = 0;
   private sampling = false;
   private installs: { at: number; installed: Preview["installed"]; outdated: Preview["outdated"] } | null = null;
@@ -194,7 +182,17 @@ export class Worker {
   follow(removed: row.Removed) {
     if (row.sameRemoved(removed, this.removed)) return;
     this.removed = row.removedOf(removed);
+    this.close(this.skipped());
     this.reread();
+  }
+  /** Closes the launchers of the rows `gone` names. They keep a provider process each. */
+  private close(gone: (l: row.Launch) => boolean) {
+    for (const [key, launcher] of this.launchers) {
+      const [provider, account] = key.split("\0") as [Provider, string];
+      if (!gone({ provider, account })) continue;
+      void launcher.then(l => l?.close());
+      this.launchers.delete(key);
+    }
   }
   launcher(p: Provider, account = "") {
     const key = p + "\0" + account;
@@ -362,13 +360,9 @@ export class Worker {
     job.preview = this.withSkipped(this.list(job.preview).with({ pending: true }), skip);
     const rows = this.rows(job.preview, skip),
       groups = this.groups(rows);
-    // Launchers keep a provider process each, so those of accounts gone or removed close.
+    // Launchers of rows it no longer reads, such as accounts gone, close.
     const live = new Set(rows.map(l => l.provider + "\0" + l.account));
-    for (const [key, launcher] of this.launchers)
-      if (!live.has(key)) {
-        void launcher.then(l => l?.close());
-        this.launchers.delete(key);
-      }
+    this.close(l => !live.has(l.provider + "\0" + l.account));
     await Promise.all(
       rows.map(async ({ provider, account }) => {
         let option: Option;
@@ -399,7 +393,7 @@ export class Worker {
       job.updated = Date.now();
     }
   }
-  /** Which rows it doesn't read: those removed that no saved agent runs in. */
+  /** Which rows it doesn't read: those removed that no saved agent or command runs in. */
   private skipped(): (l: row.Launch) => boolean {
     const used = profiles.list();
     return l => row.removed(this.removed, l, used);
@@ -411,9 +405,27 @@ export class Worker {
       ...preview.accounts,
     ].filter(l => !skip(l));
   }
+  /** A removed row's option: who signed in, so Add agent can offer it back.
+   * Nothing asks its servers: the provider's own files say, or for one whose
+   * files don't, such as OpenCode, this worker's last read of it. An
+   * account's folder that neither names is signed out. */
+  private signedIn({ provider, account }: row.Launch): Option {
+    const option = new Option(),
+      who = accounts.identity(provider, account),
+      last = who ? undefined : this.logins.get(provider + "\0" + loginOf(provider, account))?.infos.get(account);
+    option.pending = false;
+    if (who) {
+      option.signed_in = true;
+      option.account = new Text(who.email);
+    } else if (last) {
+      option.signed_in = last.signed_in;
+      option.account = last.account;
+    } else if (account) option.signed_in = false;
+    return option;
+  }
   /** `preview` with its skipped rows showing only who signed in. */
   private withSkipped(preview: Preview, skip: (l: row.Launch) => boolean): Preview {
-    const own = (l: row.Launch, option: Option) => (skip(l) ? signedIn(l.provider, l.account) : option);
+    const own = (l: row.Launch, option: Option) => (skip(l) ? this.signedIn(l) : option);
     return preview.with({
       options: byProvider(p => own({ provider: p, account: "" }, preview.options[p])),
       accounts: preview.accounts.map(a => ({ ...a, option: own(a, a.option) })),
@@ -434,6 +446,8 @@ export class Worker {
   private async round() {
     const before = new Map([...this.logins].map(([key, login]) => [key, login.read_at])),
       skip = this.skipped();
+    // A saved agent that kept a removed row read may be gone.
+    this.close(skip);
     await Promise.all(this.groups(this.rows(this.list(new Preview()), skip)).map(group => this.read(group)));
     if (this.stopping || [...this.logins].every(([key, login]) => before.get(key) === login.read_at)) return;
     // A skipped row's folder may share a login read for another, or read before it was removed.

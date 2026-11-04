@@ -325,6 +325,10 @@ export type Fork = {
   /** Whether `args` names the fork; if not, core renames it once it shows up. */
   named: boolean;
 };
+/** What became of starting a failed turn again: "held" when someone worked
+ * in its pane meanwhile, so it may try once they stop; "declined" when it
+ * won't, as another turn came or the channel failed. */
+export type Retried = "started" | "held" | "declined";
 /** How a provider behaves, wherever core has to know. */
 export type Caps = {
   /** A prompt's hook ID names the turn it opens. */
@@ -351,6 +355,8 @@ export interface Conversation {
   /** Whether the process holding an actor's pause still runs. */
   holds?(pid: number): boolean;
 }
+/** What a launch's deferred effort came to on a conversation. */
+export type Settled = { session: string } | "changed" | null;
 /** Everything core asks a provider. Each one lives in `providers/<name>/`. */
 export interface Adapter extends Info {
   caps: Caps;
@@ -394,9 +400,11 @@ export interface Adapter extends Info {
      * shows; null when the effort stays on the command line. */
     deferred?(args: string[], account: string): { args: string[]; effort: Effort } | null;
     /** Sets `effort` on the session `named` names in `account`, in full or
-     * as `titleSession` reads it: the session it set, or null while that
-     * doesn't run where the provider's channel reaches it yet. */
-    settle?(named: string, account: string, effort: Effort): Promise<string | null>;
+     * as `titleSession` reads it, unless `last`, the session it set before,
+     * no longer has it: the session it set, "changed" when someone changed
+     * `last`'s effort since, or null while `named` doesn't run where the
+     * provider's channel reaches it yet. */
+    settle?(named: string, account: string, effort: Effort, last: string | null): Promise<Settled>;
     /** Arguments that start an agent. */
     start(s: Settings): string[];
     /** Arguments, after the ones it started with, that resume `session`. */
@@ -417,8 +425,9 @@ export interface Adapter extends Info {
   rename?: Rename;
   /** Starts `session`'s turn `turn`, which failed on a condition that may
    * pass, again through `account`'s own channel, if that turn is still its
-   * latest and nothing runs; whether it did. */
-  retry?(session: string, turn: string, account: string): Promise<boolean>;
+   * latest and nothing runs. It asks `clear` last, just before it starts
+   * the turn, whether no one has worked in its pane since it began. */
+  retry?(session: string, turn: string, account: string, clear: () => boolean): Promise<Retried>;
   /** Runs it headless, for a daemon-hosted session. */
   headless?: {
     start(at: Place): Client;

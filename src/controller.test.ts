@@ -451,6 +451,41 @@ function folders(...cwds: string[]) {
   };
 }
 
+test("attention and last workspace pass over archived workspaces", async () => {
+  const s = controller(),
+    snapshot: any = folders("/a", "/b", "/c");
+  // Archived 2's agent finished first, so attention would otherwise pick it.
+  snapshot.workspaces[1].archived = true;
+  for (const [i, changed_at] of [
+    [1, 10],
+    [2, 20],
+  ])
+    Object.assign(snapshot.panes[i].agent, {
+      provider: "claude",
+      attention: "finished",
+      changed_at,
+      observation: { completed: 1, read: 0 },
+    });
+  s.receiveSnapshot(snapshot);
+  try {
+    await s.perform({ name: "attention" });
+    expect(s.focused()!.id).toBe(3);
+    snapshot.panes[2].agent.attention = "none";
+    s.receiveSnapshot(snapshot);
+    s.focusPane(1);
+    await s.perform({ name: "attention" });
+    expect([s.focused()!.id, s.message]).toEqual([1, " Nothing needs your attention"]);
+    await s.perform({ name: "last-workspace" });
+    expect(s.current().id).toBe(3);
+    snapshot.workspaces[0].archived = true;
+    s.receiveSnapshot(snapshot);
+    await s.perform({ name: "last-workspace" });
+    expect([s.current().id, s.message]).toEqual([3, " No previous workspace"]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
 test("last tab follows keyboard, mouse and tab menu selection, including shell tabs", async () => {
   const s = controller(),
     snapshot = folders("/a", "/b", "/c");

@@ -4,12 +4,13 @@ import { Server } from "./server";
 import { Pane, Launch } from "./runtime";
 import { Terminal } from "./pane/terminal";
 import { Worker } from "./providers/codex/observer";
-import { Snapshot } from "./providers/snapshot";
+import { Snapshot, Turn } from "./providers/snapshot";
 import { Text } from "./providers/common";
 import { Path } from "./bounded_text";
 import * as codex from "./providers/codex";
 import * as checklist from "./activity/checklist";
 import * as omp from "./providers/omp";
+import * as agents from "./agents";
 import { Result as UsageResult } from "./usage/worker";
 import { Counts } from "./usage/tokens";
 import { Workspace } from "./workspace";
@@ -559,6 +560,31 @@ test("pausing for a handoff applies the usage counted since the last tick", asyn
   unpause(server);
   expect(workers.usage.paused).toBe(false);
 });
+test("a handoff whose usage results fail to apply leaves both workers running", async () => {
+  const { server, pane, terminal, registry } = fixture();
+  terminal.exited = true;
+  const workspace = new Workspace(1, "/tmp"),
+    actor = registry.get("claude", "bad-continuation");
+  server.runtime.workspaces.items.push(workspace);
+  actor.workspace = workspace.id;
+  pane.attachment.select(actor);
+  const workers = start(server);
+  workers.transcripts.stop();
+  workers.usage.stop();
+  workers.summaries.stop();
+  for (const { observer } of workers.observers.values()) observer.stop();
+  workers.observers.clear();
+  const result = new UsageResult();
+  result.actor = actor.id;
+  result.workspace = workspace.id;
+  result.since = workspace.away.since;
+  // A transcript can name a continuation that is not a session.
+  result.continued = new agents.Text("bad\x01session");
+  workers.usage.results.push(result);
+  await expect(pause(server)).rejects.toThrow("InvalidSession");
+  expect(workers.usage.pausing || workers.usage.paused).toBe(false);
+  expect(workers.summaries.pausing || workers.summaries.paused).toBe(false);
+});
 
 test("hooks sent before a pane knows its Codex conversation catch it up once it does", () => {
   const { server, pane, terminal, registry } = fixture();
@@ -604,4 +630,80 @@ test("hooks sent before a pane knows its Codex conversation catch it up once it 
   expect(actor.state.observation.completed).toBe(0n);
   send(5n, "Stop");
   expect(actor.state.observation.pending_stop).toBe(true);
+});
+
+/** A Codex pane whose title names `id` before Corgi knows that conversation. */
+function untitled() {
+  const { server, pane, terminal } = fixture();
+  const job = { provider: "codex" as const, pid: 42 };
+  return {
+    server,
+    pane,
+    detect(screen: string) {
+      terminal.feed("\x1b[2J\x1b[H" + screen);
+      for (let i = 0; i < 3; i++) detectPane(server, pane, job);
+    },
+    send(seq: bigint, name: string, turn = "turn") {
+      hook(server, {
+        pane: 1,
+        provider: "codex",
+        event: { hook_event_name: name, session_id: id, turn_id: turn },
+        seq,
+        pid: 42,
+        background: false,
+      });
+    },
+    snapshot(state: "idle" | "unknown") {
+      const request = {
+        pane: 1,
+        pid: 42,
+        actor: 0,
+        prefix: new Text(id),
+        generation: pane.attachment.generation,
+        title_revision: terminal.title_revision,
+      };
+      return new Snapshot(request, id, state);
+    },
+  };
+}
+const micros = () => BigInt(Date.now() * 1000);
+
+test("a resumed Codex conversation's hooks sent before its title leave its last turn as history", () => {
+  const { server, detect, send, snapshot } = untitled();
+  detect("› ");
+  send(micros() - 1000n, "SessionStart");
+  detect("› ");
+  const read = snapshot("idle");
+  read.turn = new Turn("earlier");
+  read.outcome = "completed";
+  const actor = snapshotActor(server, "codex", read)!;
+  expect(actor.observeSnapshot(read, false, Date.now() * 1000)).toBe(false);
+  expect(actor.state).toMatchObject({ state: "idle", attention: "none", observation: { completed: 0n } });
+  expect(actor.state.turnId()).toBe("earlier");
+});
+
+test("a first Codex turn the screen saw finish before its title counts once", () => {
+  const { server, pane, detect, send, snapshot } = untitled();
+  const sent = micros();
+  detect("› ");
+  send(sent - 3000n, "SessionStart");
+  send(sent - 2000n, "UserPromptSubmit");
+  detect("Working (esc to interrupt)");
+  send(sent - 1000n, "Stop");
+  detect("› ");
+  expect(pane.attachment.provisional.observation.completed).toBe(1n);
+  const read = snapshot("unknown");
+  read.lifecycle = false;
+  const actor = snapshotActor(server, "codex", read)!;
+  expect(actor.state).toMatchObject({ state: "idle", observation: { completed: 1n, pending_stop: false } });
+  detect("› ");
+  expect(actor.state).toMatchObject({ state: "idle", observation: { completed: 1n } });
+  // A hook sent after the screen saw that turn finish still catches the pane up.
+  send(micros() + 1n, "UserPromptSubmit", "next");
+  detect("› ");
+  const next = snapshot("unknown");
+  next.lifecycle = false;
+  expect(snapshotActor(server, "codex", next)).toBe(actor);
+  expect(actor.state).toMatchObject({ state: "working", observation: { completed: 1n, source: "hook" } });
+  expect(actor.state.turnId()).toBe("next");
 });

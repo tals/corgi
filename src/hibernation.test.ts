@@ -262,6 +262,21 @@ test("shell and agent hibernation survive cold recovery and live handoff", async
   }
 });
 
+test("an archived program waits apart from the launch and gives way to a later agent", async () => {
+  using original = world();
+  original.archiveWorkspace(1);
+  const p = original.panes[0];
+  p.manual_command = "npm run dev";
+  for (const live of [false, true]) {
+    using restored = new Runtime();
+    await checkpoint.restore(restored, checkpoint.capture(original, live), live, "", "");
+    expect([restored.panes[0].launch, restored.panes[0].restoring()]).toEqual([null, "npm run dev"]);
+  }
+  p.attachment.select(original.conversations.get("claude", "later-session"));
+  p.resume_hint.observe(p.agent());
+  expect(p.restoring()).toBe("claude --resume later-session");
+});
+
 test("checkpoints before archiving default to active workspaces", async () => {
   using original = world();
   original.hibernate([1, 3]);

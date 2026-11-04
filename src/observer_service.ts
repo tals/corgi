@@ -135,6 +135,7 @@ function changed(server: Server) {
 function running(server: Server, pane: Pane) {
   if (!pane.manual_resume || pane.dormant || pane.terminal.initial_input !== null) return;
   pane.manual_resume = false;
+  pane.manual_command = null;
   changed(server);
 }
 function attention(server: Server, ding: boolean, state: string) {
@@ -175,7 +176,8 @@ export function snapshotActor(server: Server, provider: Provider, snapshot: Snap
     return null;
   }
   const actor = runtime.conversations.get(provider, snapshot.session);
-  show(server, pane, actor);
+  // The snapshot, applied next, speaks for the hooks sent before it was read.
+  show(server, pane, actor, snapshot.lifecycle ? BigInt(snapshot.observed_at) : 0n);
   if (!actor.workspace || !runtime.workspaces.get(actor.workspace))
     actor.workspace = runtime.workspaces.owner(pane.id)?.id ?? actor.workspace;
   return actor;
@@ -454,11 +456,16 @@ function applyUsage(server: Server, workers: Workers) {
     changed(server);
   }
 }
-/** Shows `actor` in `pane`, caught up on the hooks it sent before the pane showed it. */
-function show(server: Server, pane: Pane, actor: Actor) {
+/** Shows `actor` in `pane`, caught up on the hooks it sent before the pane
+ * showed it; what the pane already saw speaks for those sent by `covered`. */
+function show(server: Server, pane: Pane, actor: Actor, covered = 0n) {
   pane.attachment.select(actor);
+  // A turn the screen already saw finish is the one those hooks would report again.
+  const finished = actor.state.screenFinished() ? BigInt(Math.trunc(actor.state.changed_at)) : 0n;
+  if (finished > covered) covered = finished;
   const now = clock.microTimestamp();
   for (const held of start(server).held.take(actor.provider(), actor.state.sessionId(), now)) {
+    if (held.seq <= covered) continue;
     if (!held.event.independent_child && held.seq <= pane.attachment.hook_seq) continue;
     const target = routed(server.runtime, pane, held, false);
     if (target) apply(server, target, held, now);
@@ -617,18 +624,19 @@ export async function settle(server: Server) {
 }
 
 /** Pauses the workers a handoff carries. Usage results are applied first: the next daemon
- * reads on from where usage counting stopped, so the checkpoint must hold what it found. */
+ * reads on from where usage counting stopped, so the checkpoint must hold what it found.
+ * A pause that fails leaves both running. */
 export async function pause(server: Server) {
   const workers = services.get(server);
   if (!workers) return;
   await workers.summaries.pause();
   try {
     await workers.usage.pause();
+    applyUsage(server, workers);
   } catch (error) {
-    workers.summaries.unpause();
+    unpause(server);
     throw error;
   }
-  applyUsage(server, workers);
 }
 export function unpause(server: Server) {
   const workers = services.get(server);

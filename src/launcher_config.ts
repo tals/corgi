@@ -1,7 +1,7 @@
 //! Shared launcher configuration, addressed by stable rows rather than display labels.
 import type { Runtime } from "./runtime";
 import { Provider, adapter } from "./providers";
-import { Row, removed } from "./launch/row";
+import { Row, hidden } from "./launch/row";
 import * as accounts from "./accounts";
 import * as profiles from "./agent_profiles";
 import * as options from "./agent_options";
@@ -34,7 +34,7 @@ export function catalog(r: Runtime): Agent[] {
       names: [name, ...(!account ? [`${provider}/default`] : [])].filter(Boolean),
       row: Row.of(provider, account),
       label: name || adapter(provider).label,
-      launcher: !removed(r, { provider, account }),
+      launcher: !hidden(r, { provider, account }),
       name,
       provider,
       account,

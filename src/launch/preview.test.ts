@@ -279,6 +279,57 @@ const reading = (used: number) =>
     limits: { windows: [null, new Window({ minutes: 10080, used, reset_at: 10080 * 60 })] },
   });
 
+test("taking a row out closes its launcher at once, with nothing asking for a preview", async () => {
+  const worker = new Worker(),
+    closed: Provider[] = [];
+  for (const p of installed)
+    worker.launchers.set(
+      p + "\0",
+      Promise.resolve({
+        account: async () => new Info(),
+        model: async () => ({ model: "", source: "test" }),
+        close: () => void closed.push(p),
+      }),
+    );
+  try {
+    worker.follow({ ...worker.removed, agent_hidden: byProvider(p => p === "pi") });
+    await turn();
+    expect(closed).toEqual(["pi"]);
+    expect([...worker.launchers.keys()]).not.toContain("pi\0");
+  } finally {
+    await worker.stop();
+  }
+});
+
+test("deleting the saved agent that kept a removed row read closes its launcher on the daemon's schedule", async () => {
+  const worker = new Worker(),
+    closed: Provider[] = [];
+  worker.launcher = async provider => ({
+    account: async () => reading(84),
+    model: async () => ({ model: "", source: "test" }),
+    close: () => void closed.push(provider),
+  });
+  mkdirSync(dirname(profiles.path()), { recursive: true });
+  writeFileSync(
+    profiles.path(),
+    JSON.stringify([{ id: "pi-fast", provider: "pi", account: "", name: "Pi fast", options: { flags: "", env: [] } }]),
+  );
+  try {
+    setSystemTime(new Date(1_000_000_000));
+    worker.follow({ ...worker.removed, agent_hidden: byProvider(p => p === "pi") });
+    await worker.pump();
+    worker.launchers.set("pi\0", worker.launcher("pi"));
+    rmSync(profiles.path());
+    worker.sample(idle_every);
+    await worker.pump();
+    await turn();
+    expect(closed).toEqual(["pi"]);
+  } finally {
+    setSystemTime();
+    await worker.stop();
+  }
+});
+
 test("sign-in refreshes during a pass run again as soon as it finishes", async () => {
   const worker = new Worker(),
     started = Promise.withResolvers<void>(),
@@ -405,6 +456,39 @@ test("accounts are read on the daemon's schedule with no one subscribed", async 
   }
 });
 
+test("a removed row shows who its last read found when its files don't say, and a signed-out account as such", async () => {
+  // OpenCode keeps no sign-in Corgi can read without asking it.
+  process.env.CORGI_OPENCODE2_BIN = process.execPath;
+  listed(["work"]);
+  const work = join(root, "work"),
+    worker = new Worker(),
+    removed = { ...worker.removed, account_hidden: [work] };
+  worker.launcher = async provider => ({
+    account: async () =>
+      Object.assign(reading(84), { account: new Text(provider === "opencode2" ? "me@chatgpt.dev" : "me@work.dev") }),
+    model: async () => ({ model: "", source: "test" }),
+    close() {},
+  });
+  try {
+    worker.follow(removed);
+    await worker.pump();
+    worker.preview("/project");
+    await worker.pump();
+    expect(worker.preview("/project").options.opencode2.account.text()).toBe("me@chatgpt.dev");
+    worker.follow({ ...removed, agent_hidden: byProvider(p => p === "opencode2") });
+    await worker.pump();
+    const preview = worker.preview("/project");
+    expect(preview.options.opencode2).toMatchObject({ pending: false, signed_in: true, limits: "none" });
+    expect(preview.options.opencode2.account.text()).toBe("me@chatgpt.dev");
+    // Its folder names no login, and it was never read.
+    expect(preview.accounts.map(a => [a.account, a.option.pending, a.option.signed_in])).toEqual([
+      [work, false, false],
+    ]);
+  } finally {
+    await worker.stop();
+  }
+});
+
 test("a removed agent isn't read, shows only who signed in, and is read again once added back", async () => {
   const pi = join(root, "pi");
   mkdirSync(pi);
@@ -416,7 +500,7 @@ test("a removed agent isn't read, shows only who signed in, and is read again on
   const worker = new Worker(),
     reads: Provider[] = [],
     closed: Provider[] = [],
-    none = { agent_hidden: byProvider(() => false), account_hidden: [] },
+    none = { agent_hidden: byProvider(() => false), account_hidden: [], commands: [] },
     removed = { ...none, agent_hidden: byProvider(p => p === "pi") };
   const fake = (provider: Provider) => ({
     account: async () => {
@@ -473,6 +557,37 @@ test("a removed agent isn't read, shows only who signed in, and is read again on
     expect(worker.preview("/project").options.pi.limits).toMatchObject({ windows: [null, { used: 84 }] });
   } finally {
     setSystemTime();
+    await worker.stop();
+  }
+});
+
+test("a saved command that runs in a removed default keeps it read", async () => {
+  const worker = new Worker(),
+    reads: Provider[] = [],
+    removed = { agent_hidden: byProvider(p => p === "pi"), account_hidden: [], commands: [] };
+  worker.launcher = async provider => ({
+    account: async () => {
+      reads.push(provider);
+      return reading(84);
+    },
+    model: async () => ({ model: "pi-model", source: "test" }),
+    close() {},
+  });
+  try {
+    worker.follow({ ...removed, commands: [{ provider: "pi", account: "" }] });
+    await worker.pump();
+    worker.preview("/project");
+    await worker.pump();
+    expect(reads).toContain("pi");
+    expect(worker.preview("/project").options.pi.model.text()).toBe("pi-model");
+    expect(worker.preview("/project").options.pi.limits).toMatchObject({ windows: [null, { used: 84 }] });
+    // Once the command goes, so does the reading.
+    reads.length = 0;
+    worker.follow(removed);
+    await worker.pump();
+    expect(reads).not.toContain("pi");
+    expect(worker.preview("/project").options.pi.limits).toBe("none");
+  } finally {
     await worker.stop();
   }
 });

@@ -21,6 +21,7 @@ import * as binary from "../base64";
 import * as json from "../json";
 import * as worktrees from "../worktrees";
 import * as breadcrumbs from "../breadcrumbs";
+import * as agentEffort from "../agent_effort";
 import { validateCheckpoint } from "./schema";
 import { testBuild } from "../build_assets";
 
@@ -232,6 +233,8 @@ export function capture(r: Runtime, live: boolean) {
         launch: p.launch,
         dormant: p.dormant,
         manual_resume: p.manual_resume,
+        effort: live ? agentEffort.save(r, p) : null,
+        manual_command: p.manual_command,
       };
     }),
     closed: r.closed.map(p => ({
@@ -456,7 +459,9 @@ export async function restore(
     pane.launch = p.launch ? Launch.from(p.launch) : null;
     pane.dormant = p.dormant === true;
     pane.manual_resume = p.manual_resume === true || r.workspaces.owner(p.id)!.archived;
+    pane.manual_command = pane.manual_resume && typeof p.manual_command === "string" ? p.manual_command : null;
     r.panes.push(pane);
+    if (live) agentEffort.restore(r, pane, p.effort);
   }
   for (const w of r.workspaces.items)
     for (const node of w.model.nodes)
@@ -542,7 +547,7 @@ async function recoverPane(p: Pane, socket: string, executable: string): Promise
     p.sleep();
     return;
   }
-  if (p.resume_hint.args() !== null || (p.manual_resume && p.launch)) return p.sleep();
+  if (p.resume_hint.args() !== null || (p.manual_resume && (p.launch || p.manual_command !== null))) return p.sleep();
   p.terminal.feed("\x1b[0m\r\n\r\n# Recovered saved output; new shell.\r\n");
   await p.terminal.spawn(p.cwd, socket, p.id, executable, null, false);
 }

@@ -166,7 +166,7 @@ test("the runtime wire matches protocol.version", () => {
   // `hello` and `server.reload` stay on 1 so new clients find old daemons; see HACKING.md.
   expect(protocol.management_version).toBe(1);
   expect(createHash("sha256").update(schemas.protocol).digest("hex")).toBe(
-    "0c054e4a8049f503cabc6dbe048b81252312332d6647bd6d0f10011563d71cd1",
+    "0d19bd2690eceac7f722b47f4b7dc51ee30a69200d9eec506e757c7c8e71e026",
   );
   const { server, client, dispose } = fixture();
   try {
@@ -193,6 +193,27 @@ test("the runtime wire matches protocol.version", () => {
       validate(schemas.protocol, { requests: { hook: request } });
       expect(request.event).toEqual(event);
     }
+  } finally {
+    dispose();
+  }
+});
+
+test("every agent view a snapshot carries lists the same fields", () => {
+  const fields = (prefix: string) =>
+    schemas.protocol
+      .split("\n")
+      .filter(line => line.startsWith(prefix))
+      .map(line => line.slice(prefix.length));
+  const listed = fields("$.snapshot.panes[].agent.");
+  // One function builds the views of panes, conversations and headless sessions.
+  expect(fields("$.snapshot.conversations[].agent.")).toEqual(listed);
+  expect(fields("$.snapshot.headless_sessions[].agent?.")).toEqual(listed);
+  const { server, dispose } = fixture();
+  try {
+    const snapshot = json.parse(json.stringify(session.snapshot(server.runtime)));
+    expect(Object.keys(snapshot.panes[0].agent).sort()).toEqual(
+      [...new Set(listed.map(field => field.split(/[.?:]/)[0]))].sort(),
+    );
   } finally {
     dispose();
   }

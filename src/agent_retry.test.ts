@@ -53,13 +53,36 @@ test("overloaded turns in a row wait longer each time, until it gives up", () =>
   expect(runtime.retries).toMatchObject([{ session, turn: "one", failures: 1, at: 1000 + delays_ms[0] }]);
   // Seeing the same failure again changes nothing.
   expect(observe(runtime, "codex", "", snapshot("one", "failed"), 5000, wall)).toBe(1000 + delays_ms[0]);
-  // The retry runs, then fails the same way.
+  // The retry runs, its turn showing before Codex answers the start, then
+  // fails the same way.
+  runtime.retries[0].busy = true;
   expect(observe(runtime, "codex", "", snapshot("two", null), 20000, wall)).toBe(0);
   expect(observe(runtime, "codex", "", snapshot("two", "failed"), 21000, wall)).toBe(21000 + delays_ms[1]);
   expect(runtime.retries).toMatchObject([{ turn: "two", failures: 2 }]);
-  for (let i = 3; i <= delays_ms.length; i++) observe(runtime, "codex", "", snapshot("t" + i, "failed"), 0, wall);
-  expect(observe(runtime, "codex", "", snapshot("last", "failed"), 0, wall)).toBe(0);
+  giveUp(runtime);
   expect(runtime.retries[0]).toMatchObject({ failures: delays_ms.length + 1, at: Infinity });
+});
+/** Starts each failed turn again, failing the same way, until it gives up. */
+function giveUp(runtime: Runtime) {
+  for (let n = runtime.retries[0].failures + 1; n <= delays_ms.length + 1; n++) {
+    runtime.retries[0].started = true;
+    observe(runtime, "codex", "", snapshot("t" + n, "failed"), 0, wall);
+  }
+}
+test("after it gives up, or Esc calls it off, someone's next prompt starts the count again", () => {
+  const { runtime } = world();
+  observe(runtime, "codex", "", snapshot("one", "failed"), 0, wall);
+  giveUp(runtime);
+  expect(runtime.retries[0]).toMatchObject({ failures: delays_ms.length + 1, at: Infinity });
+  expect(observe(runtime, "codex", "", snapshot("asked", null), 1000, wall)).toBe(0);
+  expect(runtime.retries).toEqual([]);
+  expect(observe(runtime, "codex", "", snapshot("asked", "failed"), 2000, wall)).toBe(2000 + delays_ms[0]);
+  expect(runtime.retries).toMatchObject([{ turn: "asked", failures: 1 }]);
+  cancel(runtime, 1);
+  expect(observe(runtime, "codex", "", snapshot("again", "failed"), 3000, wall)).toBe(3000 + delays_ms[0]);
+  // A prompt sent while it waits replaces it too.
+  expect(observe(runtime, "codex", "", snapshot("meanwhile", null), 4000, wall)).toBe(0);
+  expect(runtime.retries).toEqual([]);
 });
 test("a retry stays pending until the turn it started shows, or long enough that it won't", () => {
   const { runtime } = world();
@@ -98,6 +121,9 @@ test("a turn that ends any other way, or a failure that won't pass, leaves nothi
 test("a due retry starts the failed turn once, through the account's shared server", async () => {
   const account = mkdtempSync(tmpdir() + "/corgi-ts-retry-"),
     starts: unknown[] = [];
+  /** When someone last worked in the pane, and whether they do as it checks the thread. */
+  let typed_at = 0,
+    typing = false;
   mkdirSync(account + "/app-server-control");
   const server = Bun.serve({
     unix: account + "/app-server-control/app-server-control.sock",
@@ -109,6 +135,7 @@ test("a due retry starts the failed turn once, through the account's shared serv
         const value = JSON.parse(String(message));
         if (!value.id) return;
         if (value.method === "turn/start") starts.push(value.params);
+        if (value.method === "thread/turns/list" && typing) typed_at = Date.now();
         const result =
           value.method === "thread/read"
             ? { thread: { status: { type: "idle" } } }
@@ -129,20 +156,34 @@ test("a due retry starts the failed turn once, through the account's shared serv
     },
   });
   const { runtime, show } = world(account),
+    input_at = () => typed_at,
     settled = async () => {
       while (runtime.retries.some(r => r.busy)) await Bun.sleep(2);
     };
   try {
     observe(runtime, "codex", account, snapshot("one", "failed"), 0, wall);
-    advance(runtime, delays_ms[0] - 1, () => 0);
+    advance(runtime, delays_ms[0] - 1, input_at);
     await settled();
     expect(starts).toEqual([]);
-    advance(runtime, delays_ms[0], () => 0);
+    // A prompt `corgi pane send` types while it checks the thread holds it
+    // back, as Codex would steer the turn that prompt starts. It tries again
+    // once the pane has been quiet a while.
+    typing = true;
+    advance(runtime, delays_ms[0], input_at);
     await settled();
-    advance(runtime, delays_ms[0] + 1, () => 0);
+    expect(starts).toEqual([]);
+    expect(runtime.retries[0]).toMatchObject({ started: false, at: delays_ms[0] });
+    advance(runtime, delays_ms[0], input_at);
+    expect(runtime.retries[0].at).toBeGreaterThan(delays_ms[0] + quiet_ms - 1000);
+    typing = false;
+    typed_at = 0;
+    const due = runtime.retries[0].at;
+    advance(runtime, due, input_at);
+    await settled();
+    advance(runtime, due + 1, input_at);
     await settled();
     expect(starts).toEqual([{ threadId: session, input: [] }]);
-    expect(runtime.retries[0]).toMatchObject({ started: true, at: delays_ms[0] });
+    expect(runtime.retries[0]).toMatchObject({ started: true, at: due });
     // Once its pane shows another conversation, it is forgotten.
     show("01a19ea6-0000-7000-8000-000000000000");
     advance(runtime, 2 * delays_ms[0], () => 0);
@@ -170,8 +211,8 @@ test("with auto-retry off, or after Esc calls it off, a failed turn stays failed
   expect(observe(runtime, "codex", "", snapshot("one", "failed"), 0, wall)).toBe(delays_ms[0]);
   cancel(runtime, 1);
   expect(observe(runtime, "codex", "", snapshot("one", "failed"), 0, wall)).toBe(0);
-  // A later failure is retried again.
-  expect(observe(runtime, "codex", "", snapshot("two", "failed"), 0, wall)).toBe(delays_ms[1]);
+  // A later failure is retried again, from the first wait.
+  expect(observe(runtime, "codex", "", snapshot("two", "failed"), 0, wall)).toBe(delays_ms[0]);
 });
 test("a due retry waits while someone works in its focused pane", () => {
   const { runtime } = world("/nonexistent");

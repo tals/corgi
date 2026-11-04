@@ -45,6 +45,8 @@ export class Terminal extends EventEmitter {
   private waiting = false;
   /** An adopted pane's redraw nudge is under way. */
   redrawing = false;
+  /** When it last sent input to its program, in ms on the wall clock; 0 before any. */
+  sent_at = 0;
   static create(cols: number, rows: number): Terminal {
     return new Terminal(cols, rows);
   }
@@ -262,6 +264,7 @@ export class Terminal extends EventEmitter {
     if (data.length) {
       const result = n.terminal_send(this.handle, ptr(data), data.length);
       if (result) throw Error(result === -2 ? "InputBackpressure" : "OutOfMemory");
+      this.sent_at = Date.now();
     }
     this.arm();
   }

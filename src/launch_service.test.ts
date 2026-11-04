@@ -3,12 +3,17 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { service, publish, request, sample, stop, due } from "./launch_service";
+import { Entry } from "./launch/command";
 import { Preview, Worker as PreviewWorker, active_every, idle_every } from "./launch/preview";
 import { Text, byProvider } from "./providers";
 import * as protocol from "./protocol";
 import * as accounts from "./accounts";
-import type { Removed } from "./launch/row";
-const nothingRemoved = (): Removed => ({ agent_hidden: byProvider(() => false), account_hidden: [] });
+/** A runtime's launcher list with nothing taken out. */
+const nothingRemoved = () => ({
+  agent_hidden: byProvider(() => false),
+  account_hidden: [] as string[],
+  agent_commands: [] as Entry[],
+});
 // Previews list the user's accounts; these tests see none.
 const saved = { HOME: process.env.HOME, CORGI_ENV_BASE: process.env.CORGI_ENV_BASE },
   home = mkdtempSync(join(tmpdir(), "corgi-launch-service-"));
@@ -209,6 +214,34 @@ test("accounts are read often while someone uses a viewer and rarely otherwise",
     viewer.input_at = Date.now() - 60 * 1000;
     sample(server);
     expect(asked).toEqual([idle_every, idle_every, active_every]);
+  } finally {
+    stop(server);
+  }
+});
+test("a saved command keeps its provider's default read once its row is taken out", () => {
+  const command = (source: string, provider: "codex" | "pi", default_account: boolean, hidden = false) => {
+    const e = new Entry();
+    e.set(source);
+    e.hidden = hidden;
+    Object.assign(e.semantics, { provider, default_account });
+    return e;
+  };
+  const runtime = {
+      ...nothingRemoved(),
+      agent_hidden: byProvider(p => p === "codex" || p === "pi"),
+      agent_commands: [
+        command("codex --search", "codex", true),
+        command("CODEX_HOME=/elsewhere codex", "codex", false),
+        command("pi --fast", "pi", true, true),
+        new Entry(),
+      ],
+    },
+    server: any = { clients: [], runtime },
+    s = service(server);
+  s.launch_previews.sample = () => {};
+  try {
+    sample(server);
+    expect(s.launch_previews.removed.commands).toEqual([{ provider: "codex", account: "" }]);
   } finally {
     stop(server);
   }

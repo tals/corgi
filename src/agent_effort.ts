@@ -1,7 +1,7 @@
 //! Sets the effort a launch left off its agent's command line on each
 //! conversation that agent shows, through its provider's own channel.
 import { adapter, type Provider } from "./providers";
-import type { Effort } from "./providers/effort";
+import * as effort from "./providers/effort";
 import type { Pane, Runtime } from "./runtime";
 import type { Terminal } from "./pane/terminal";
 /** An effort for the agent `terminal` runs in pane `pane`, while it runs. */
@@ -13,13 +13,32 @@ export class WantedEffort {
   done = new Set<string>();
   /** When each conversation it waits on first showed. */
   seen = new Map<string, number>();
+  /** The session it set last, which keeps the effort until someone changes it. */
+  last = "";
   busy = false;
   next_at = 0;
   constructor(
     public pane: number,
     public terminal: Terminal,
-    public effort: Effort,
+    public effort: effort.Effort,
   ) {}
+}
+/** What a live handoff keeps of the effort `pane` wants: the agent keeps
+ * running without it on its command line. */
+export function save(runtime: Runtime, pane: Pane) {
+  const wanted = runtime.wanted_efforts.find(w => w.pane === pane.id && w.terminal === pane.terminal);
+  return wanted ? { value: wanted.effort, done: [...wanted.done], last: wanted.last } : null;
+}
+/** Wants the effort `saved` names again in `pane`, whose agent a live
+ * handoff kept running. */
+export function restore(runtime: Runtime, pane: Pane, saved: any) {
+  const value = effort.parse(saved?.value);
+  if (!value) return;
+  const wanted = new WantedEffort(pane.id, pane.terminal, value);
+  for (const named of Array.isArray(saved.done) ? saved.done : [])
+    if (typeof named === "string") wanted.done.add(named);
+  if (typeof saved.last === "string") wanted.last = saved.last;
+  runtime.wanted_efforts.push(wanted);
 }
 /** The conversation the agent in `pane` shows: as its title names it, which
  * a new one does before its first message, or as the agent reported it. */
@@ -52,9 +71,16 @@ export function advance(runtime: Runtime, now: number) {
     }
     wanted.busy = true;
     wanted.next_at = now + WantedEffort.retry_ms;
-    void settle(named, pane.account(), wanted.effort)
-      .then(session => {
-        if (session) wanted.done.add(named).add(session);
+    void settle(named, pane.account(), wanted.effort, wanted.last || null)
+      .then(settled => {
+        // Someone changed the effort in the agent: what it opens next keeps theirs.
+        if (settled === "changed") {
+          const at = runtime.wanted_efforts.indexOf(wanted);
+          if (at >= 0) runtime.wanted_efforts.splice(at, 1);
+        } else if (settled) {
+          wanted.done.add(named).add(settled.session);
+          wanted.last = settled.session;
+        }
       })
       .catch(error => {
         wanted.done.add(named);

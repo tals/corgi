@@ -275,6 +275,10 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     await this.rpc({ op: "server.reload", executable: EXE });
     this.assertIn(row, (await this.session()).workspaces[0].launcher_hidden);
     this.assertEqual((await this.session()).workspaces[0].launcher_order[0], row);
+    // Corgi's integration has Codex name its thread in its title, as the fixture's config/read says.
+    const config = join(this.env.CODEX_HOME!, "config.toml");
+    mkdirSync(this.env.CODEX_HOME!, { recursive: true });
+    writeFileSync(config, '[tui]\nterminal_title = ["thread-id"]\n');
     await this.command("agent.profile.create", { workspace: this.ws, id: profile.id, cwd: this.launchDir });
     await this.until(() => existsSync(this.launches));
     // Codex gets the effort over its shared server, which a `-c` would keep it off.
@@ -292,6 +296,11 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     } finally {
       typed.kill();
     }
+    // Without that title nothing names the pane's thread, so the flag stays too.
+    writeFileSync(config, "");
+    await this.command("agent.profile.create", { workspace: this.ws, id: profile.id, cwd: this.launchDir });
+    await this.until(() => lines(this.launches).length === 3);
+    this.assertEqual(JSON.parse(lines(this.launches)[2]).args, ["--model", "fixture-fast", ...high]);
   }
 
   async test_manage_remove_restore_edit_and_reload() {

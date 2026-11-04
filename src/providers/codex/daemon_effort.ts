@@ -3,13 +3,15 @@
 //! where the launcher's effort is the only one and nothing else keeps Codex
 //! off the shared server, the override comes off and Corgi sets the effort
 //! there once the thread runs.
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import * as effort from "../effort";
+import * as config from "./config";
 import { field, str, Text } from "../common";
 import * as socket from "./socket";
 import * as observer from "./observer";
 import * as errors from "../../errors";
+import type { Settled } from "../adapter";
 /** Options seen to keep Codex 0.166 on the shared server, and whether each
  * takes a value. */
 const shared: Record<string, boolean> = {
@@ -59,21 +61,58 @@ export function deferred(args: string[]): { args: string[]; effort: effort.Effor
   }
   return found ? { args: kept, effort: found } : null;
 }
-/** Whether Codex with settings in `home` starts the shared server when none
- * runs, as it does unless its config turns `daemon_auto_start` off. */
-export function autoStarts(home: string) {
-  let config: any;
+/** Whether Corgi can set the effort of the threads Codex with settings in
+ * `home` opens: Codex starts the shared server when none runs, unless its
+ * config turns `daemon_auto_start` off, and Corgi learns which thread a pane
+ * shows from the thread ID its integration puts in Codex's title. Nothing
+ * else ties a thread on that server to a pane, and Corgi's observer and
+ * retries skip a pane whose title doesn't name its thread too. */
+export function reachable(home: string) {
+  const path = join(home, "config.toml");
+  if (!existsSync(path)) return false;
+  let settings: any;
   try {
-    config = Bun.TOML.parse(readFileSync(join(home, "config.toml"), "utf8"));
+    settings = Bun.TOML.parse(readFileSync(path, "utf8"));
   } catch {
-    return true;
+    // Unread, it may turn the shared server off or leave the title out. Codex
+    // refuses a config.toml that doesn't parse, so the flag rarely matters.
+    return false;
   }
-  return config?.features?.daemon_auto_start !== false;
+  return settings?.features?.daemon_auto_start !== false && titled(settings);
+}
+/** The oldest Codex seen to start and join the shared server; older ones run
+ * a server of their own whatever their options, so the flag costs nothing. */
+const shared_since = [0, 162, 1];
+/** Whether Codex as `--version` says, null when Corgi hasn't asked it,
+ * joins the shared server. */
+export function joins(version: string | null) {
+  const found = /^codex-cli (\d+)\.(\d+)\.(\d+)/.exec(version ?? "");
+  if (!found) return true;
+  for (let i = 0; i < shared_since.length; i++) {
+    const ahead = Number(found[i + 1]) - shared_since[i];
+    if (ahead) return ahead > 0;
+  }
+  return true;
+}
+function titled(settings: any) {
+  try {
+    return config.titleItems(settings?.tui) === null;
+  } catch {
+    return false;
+  }
 }
 /** Sets `chosen` on the thread `named` names, in full or as the prefix its
- * title shows, through the server listening at `path`; the thread it set,
- * or null while that server doesn't run it, as before Codex has loaded it. */
-export async function settle(path: string, named: string, chosen: effort.Effort): Promise<string | null> {
+ * title shows, through the server listening at `path`, unless `last`, the
+ * thread it set before, no longer has it, as after a `/model` there: Codex
+ * starts a thread with the effort its TUI shows, which then is someone's own.
+ * The thread it set, "changed", or null while that server doesn't run it,
+ * as before Codex has loaded it. */
+export async function settle(
+  path: string,
+  named: string,
+  chosen: effort.Effort,
+  last: string | null = null,
+): Promise<Settled> {
   let client: socket.Client;
   try {
     client = await socket.Client.open(path);
@@ -89,11 +128,12 @@ export async function settle(path: string, named: string, chosen: effort.Effort)
       session = observer.unique(ids, new Text(named));
     }
     if (!session) return null;
-    const read = await client.call("thread/read", { threadId: session, includeTurns: false }),
-      status = str(field(field(field(read, "result"), "thread"), "status"), "type");
+    const status = str(field(await thread(client, session), "status"), "type");
     if (!status || status === "notLoaded") return null;
+    if (last && last !== session && str(await thread(client, last).catch(gone), "reasoningEffort") !== chosen)
+      return "changed";
     await client.call("thread/settings/update", { threadId: session, effort: chosen });
-    return session;
+    return { session };
   } catch (error) {
     switch (errors.name(error)) {
       case "RpcError":
@@ -107,4 +147,12 @@ export async function settle(path: string, named: string, chosen: effort.Effort)
   } finally {
     client.close();
   }
+}
+async function thread(client: socket.Client, session: string) {
+  return field(field(await client.call("thread/read", { threadId: session, includeTurns: false }), "result"), "thread");
+}
+/** A thread the server can't read any more, whose effort no one can tell. */
+function gone(error: unknown) {
+  if (errors.is(error, "RpcError")) return null;
+  throw error;
 }

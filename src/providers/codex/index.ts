@@ -13,6 +13,7 @@ export { ItemType, commandDirectory, writes } from "./headless";
 import { screen, Watcher } from "./screen";
 import * as renaming from "./rename";
 import * as daemonEffort from "./daemon_effort";
+import * as discovery from "../../discovery";
 import * as retrying from "./retry";
 export { screen };
 export { label as plan } from "./plan";
@@ -111,8 +112,12 @@ export const adapter: Adapter = {
   titleSession,
   launch: {
     options: (args, model, value) => effort.apply(null, model ? commandLine.withoutModel(args) : args, value),
-    deferred: (args, account) => (daemonEffort.autoStarts(dir(account)) ? daemonEffort.deferred(args) : null),
-    settle: (named, account, value) => daemonEffort.settle(control(account), named, value),
+    deferred: (args, account) =>
+      daemonEffort.joins(discovery.considered("codex").find(install => install.ok)?.version ?? null) &&
+      daemonEffort.reachable(dir(account))
+        ? daemonEffort.deferred(args)
+        : null,
+    settle: (named, account, value, last) => daemonEffort.settle(control(account), named, value, last),
     start: s => [
       // Its hooks report a run that never asks as bypassing permissions,
       // sandboxed or not, so approval and sandbox options it kept win.
@@ -133,7 +138,7 @@ export const adapter: Adapter = {
       session.length === 36 && connected ? name => renaming.rename(control(account), session, name) : null,
     typed: { command: renaming.command, empty: renaming.empty, holds: renaming.holds },
   },
-  retry: (session, turn, account) => retrying.retry(control(account), session, turn),
+  retry: (session, turn, account, clear) => retrying.retry(control(account), session, turn, clear),
   headless: {
     start: at => Codex.start(at, null),
     restore: Codex.restore,

@@ -2,20 +2,21 @@ import { test, expect, spyOn } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { WantedEffort, advance } from "./agent_effort";
-import { Launch, type Runtime } from "./runtime";
+import { Launch, Pane, Runtime } from "./runtime";
 import { Text } from "./providers";
-import type { Terminal } from "./pane/terminal";
+import { Terminal } from "./pane/terminal";
+import { Workspace } from "./workspace";
+import * as checkpoint from "./persist/checkpoint";
+import * as json from "./json";
 async function settled(wanted: WantedEffort) {
   while (wanted.busy) await Bun.sleep(2);
 }
-test("a launch's effort reaches each conversation its agent shows, once it runs on the shared server", async () => {
-  const account = mkdtempSync(tmpdir() + "/corgi-ts-effort-"),
-    one = "01a19d30-c663-7862-a13b-3df431ee1507",
-    two = "01a19d31-0000-7000-8000-000000000000",
-    three = "01a19d32-0000-7000-8000-000000000000",
+/** Codex's shared server for `account`, with the threads it has loaded and their efforts. */
+function sharedServer(account: string) {
+  const loaded = new Set<string>(),
+    efforts = new Map<string, string>(),
     updates: unknown[] = [];
   mkdirSync(account + "/app-server-control");
-  const loaded = new Set<string>();
   const server = Bun.serve({
     unix: account + "/app-server-control/app-server-control.sock",
     fetch(req, server) {
@@ -23,25 +24,31 @@ test("a launch's effort reaches each conversation its agent shows, once it runs 
     },
     websocket: {
       message(ws, message) {
-        const value = JSON.parse(String(message));
+        const value = JSON.parse(String(message)),
+          thread = value.params?.threadId;
         if (!value.id) return;
-        if (value.method === "thread/settings/update") updates.push(value.params);
-        const type = loaded.has(value.params?.threadId) ? "idle" : "notLoaded";
+        if (value.method === "thread/settings/update") {
+          updates.push(value.params);
+          efforts.set(thread, value.params.effort);
+        }
+        const type = loaded.has(thread) ? "idle" : "notLoaded";
         ws.send(
           JSON.stringify({
             id: value.id,
             result:
               value.method === "thread/loaded/list"
                 ? { data: [...loaded], nextCursor: null }
-                : { thread: { status: { type } } },
+                : { thread: { status: { type }, reasoningEffort: efforts.get(thread) ?? null } },
           }),
         );
       },
     },
   });
-  // A new conversation shows in the title, cut short, before the agent reports it.
-  let title = `codex | ${one.slice(0, 29)}... | corgi`;
-  const terminal = { exited: false, titleInfo: () => ({ text: title, pid: 7, revision: 1n }) } as unknown as Terminal,
+  return { server, loaded, efforts, updates };
+}
+/** A Codex pane in `account` whose title says `title()`, for `wanted`. */
+function codexPane(account: string, title: () => string, effort: WantedEffort["effort"]) {
+  const terminal = { exited: false, titleInfo: () => ({ text: title(), pid: 7, revision: 1n }) } as unknown as Terminal,
     agent = { provider: "codex", session: new Text() },
     pane = {
       terminal,
@@ -50,12 +57,23 @@ test("a launch's effort reaches each conversation its agent shows, once it runs 
       agent: () => ({ ...agent, sessionId: () => agent.session.text() }),
       account: () => account,
     },
-    wanted = new WantedEffort(1, terminal, "low"),
+    wanted = new WantedEffort(1, terminal, effort),
     runtime = { wanted_efforts: [wanted], pane: (id: number) => (id === 1 ? pane : null) } as unknown as Runtime;
   const step = async (now: number) => {
     advance(runtime, now);
     await settled(wanted);
   };
+  return { terminal, agent, wanted, runtime, step };
+}
+test("a launch's effort reaches each conversation its agent shows, once it runs on the shared server", async () => {
+  const account = mkdtempSync(tmpdir() + "/corgi-ts-effort-"),
+    one = "01a19d30-c663-7862-a13b-3df431ee1507",
+    two = "01a19d31-0000-7000-8000-000000000000",
+    three = "01a19d32-0000-7000-8000-000000000000",
+    { server, loaded, updates } = sharedServer(account);
+  // A new conversation shows in the title, cut short, before the agent reports it.
+  let title = `codex | ${one.slice(0, 29)}... | corgi`;
+  const { terminal, agent, wanted, runtime, step } = codexPane(account, () => title, "low");
   try {
     await step(0);
     expect(updates).toEqual([]);
@@ -96,13 +114,44 @@ test("a launch's effort reaches each conversation its agent shows, once it runs 
     rmSync(account, { recursive: true, force: true });
   }
 });
+test("once someone changes the effort in the agent, what it opens next keeps theirs", async () => {
+  const account = mkdtempSync(tmpdir() + "/corgi-ts-effort-"),
+    [one, two, three] = ["01a19d30", "01a19d31", "01a19d32"].map(id => id + "-0000-7000-8000-000000000000"),
+    { server, loaded, efforts, updates } = sharedServer(account),
+    { agent, runtime, step } = codexPane(account, () => "", "high");
+  try {
+    for (const id of [one, two, three]) loaded.add(id);
+    agent.session = new Text(one);
+    await step(0);
+    agent.session = new Text(two);
+    await step(WantedEffort.retry_ms);
+    expect(updates).toEqual([
+      { threadId: one, effort: "high" },
+      { threadId: two, effort: "high" },
+    ]);
+    // As `/model` does; Codex then starts a new thread with that effort.
+    efforts.set(two, "low");
+    agent.session = new Text(three);
+    await step(2 * WantedEffort.retry_ms);
+    expect(updates).toHaveLength(2);
+    expect(runtime.wanted_efforts).toEqual([]);
+  } finally {
+    server.stop(true);
+    rmSync(account, { recursive: true, force: true });
+  }
+});
+const titled = '[tui]\nterminal_title = ["app-name", "thread-id"]\n';
 test("Codex panes Corgi starts leave their launcher's effort to the shared server", () => {
   const home = mkdtempSync(tmpdir() + "/corgi-ts-effort-"),
     off = mkdtempSync(tmpdir() + "/corgi-ts-effort-"),
+    untitled = mkdtempSync(tmpdir() + "/corgi-ts-effort-"),
+    broken = mkdtempSync(tmpdir() + "/corgi-ts-effort-"),
     high = 'model_reasoning_effort="high"',
     launch = (account: string, flags = "") =>
       Launch.in("codex", account, false, { flags, env: [], model: "gpt-5", effort: "high" });
-  writeFileSync(off + "/config.toml", "[features]\ndaemon_auto_start = false\n");
+  writeFileSync(home + "/config.toml", titled);
+  writeFileSync(off + "/config.toml", "[features]\ndaemon_auto_start = false\n" + titled);
+  writeFileSync(broken + "/config.toml", "[features\n" + titled);
   try {
     const deferred = launch(home);
     expect(deferred.run("/bin/corgi", ["resume", "abc"])).toMatchObject({
@@ -131,9 +180,23 @@ test("Codex panes Corgi starts leave their launcher's effort to the shared serve
       command: "'/bin/corgi' agent codex attach",
       effort: null,
     });
+    // Without Corgi's integration nothing names the pane's thread, so the effort stays a
+    // flag, as it does with a config Corgi can't read.
+    for (const account of [untitled, broken])
+      expect(launch(account).run("/bin/corgi")).toMatchObject({
+        command: `'/bin/corgi' agent codex --model gpt-5 -c '${high}'`,
+        effort: null,
+      });
+    // At the launcher's default effort, nothing sets one, on the command or later.
+    for (const account of [home, off, untitled, broken])
+      expect(Launch.in("codex", account, false, { flags: "", env: [], model: "gpt-5" }).run("/bin/corgi")).toEqual({
+        command: "'/bin/corgi' agent codex --model gpt-5",
+        interactive_command: false,
+        env: [["CODEX_HOME", account]],
+        effort: null,
+      });
   } finally {
-    rmSync(home, { recursive: true, force: true });
-    rmSync(off, { recursive: true, force: true });
+    for (const dir of [home, off, untitled, broken]) rmSync(dir, { recursive: true, force: true });
   }
   expect(Launch.in("claude", "", false, { flags: "", env: [], effort: "high" }).run("/bin/corgi").effort).toBeNull();
   expect(new Launch(undefined, "codex").run("/bin/corgi", ["resume", "abc"])).toEqual({
@@ -141,4 +204,41 @@ test("Codex panes Corgi starts leave their launcher's effort to the shared serve
     interactive_command: true,
     env: [],
   });
+});
+test("a live reload keeps the effort a pane's agent runs without, and where it set it", async () => {
+  const one = "01a19d30-c663-7862-a13b-3df431ee1507";
+  using original = new Runtime();
+  const ws = new Workspace(1, "/tmp");
+  original.workspaces.items.push(ws);
+  original.workspaces.next_id = 2;
+  const [wanting, plain] = [0, 1].map(() => {
+    const pane = new Pane(ws.model.newTab(""), Terminal.create(20, 4), "/tmp");
+    pane.dormant = true;
+    original.panes.push(pane);
+    return pane;
+  });
+  original.workspaces.next_pane_id = ws.model.next_id;
+  const wanted = new WantedEffort(wanting.id, wanting.terminal, "high");
+  wanted.done.add(one);
+  wanted.last = one;
+  original.wanted_efforts.push(wanted);
+  for (const live of [true, false]) {
+    using next = new Runtime();
+    const saved = json.parse(json.stringify(checkpoint.capture(original, live)));
+    // A pane left at the launcher's default effort saves none.
+    expect(saved.panes.map((p: any) => p.effort)).toEqual([
+      live ? { value: "high", done: [one], last: one } : null,
+      null,
+    ]);
+    await checkpoint.restore(next, saved, live, "/tmp/unused-checkpoint.sock", "/tmp/corgi");
+    // A cold start resumes the agent, and the launch sets its effort again.
+    if (!live) expect(next.wanted_efforts).toEqual([]);
+    else {
+      expect(next.wanted_efforts).toHaveLength(1);
+      const [kept] = next.wanted_efforts;
+      expect([kept.pane, kept.effort, [...kept.done], kept.last]).toEqual([wanting.id, "high", [one], one]);
+      expect(kept.terminal).toBe(next.pane(wanting.id)!.terminal);
+      expect(next.pane(plain.id)).toBeDefined();
+    }
+  }
 });

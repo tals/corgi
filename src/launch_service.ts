@@ -3,9 +3,10 @@ import { Worker as CommandWorker } from "./launch/command";
 import { Worker as PreviewWorker, Option, active_every, idle_every, type Preview } from "./launch/preview";
 import { byProvider } from "./providers";
 import { Worker as HistoryWorker } from "./launch/history";
-import type { Removed } from "./launch/row";
+import type { Launch, Removed } from "./launch/row";
 import { stringify } from "./json";
 import type { Server } from "./server";
+import type { Runtime } from "./runtime";
 import { Reply, type Client } from "./peer";
 import type { DecodedRequest } from "./protocol";
 type Request = Extract<
@@ -38,6 +39,17 @@ export class Service {
     await Promise.all([this.command_previews.stop(), this.launch_previews.stop(), this.launch_history?.stop()]);
   }
 }
+/** What the workers leave unread: the rows Manage agents took out, but those
+ * a saved command in the list starts in, its provider's default account. */
+export function removed(r: Runtime): Removed {
+  return {
+    agent_hidden: r.agent_hidden,
+    account_hidden: r.account_hidden,
+    commands: r.agent_commands.flatMap(({ command, hidden, semantics: { provider, default_account } }): Launch[] =>
+      command && !hidden && default_account && provider ? [{ provider, account: "" }] : [],
+    ),
+  };
+}
 const services = new WeakMap<Server, Service>();
 export function service(server: Server) {
   let value = services.get(server);
@@ -54,10 +66,10 @@ export async function stop(server: Server) {
 }
 export async function request(server: Server, client: Client, request: Request, reply = new Reply(client)) {
   const s = service(server);
-  s.follow(server.runtime);
+  s.follow(removed(server.runtime));
   if (request.op === "agent.history") {
     const q = request.payload;
-    const reader = s.startHistory(server.runtime);
+    const reader = s.startHistory(removed(server.runtime));
     if (q.follow) {
       const subscription = client.launch_preview;
       if (!subscription) throw Error("NotSubscribed");
@@ -102,7 +114,7 @@ export function sample(server: Server) {
   const now = Date.now(),
     active = server.clients.some(c => c.viewer && !c.dead && now - c.input_at < active_ms),
     s = service(server);
-  s.follow(server.runtime);
+  s.follow(removed(server.runtime));
   s.launch_previews.sample(active ? active_every : idle_every);
 }
 /** Whether the worker holds a preview this subscription wasn't sent; reads nothing. */
@@ -120,7 +132,7 @@ export function publish(server: Server, client: Client) {
   if (!subscription || !s || client.dead || client.output.length || Date.now() - subscription.checked < 100) return;
   subscription.checked = Date.now();
   if (subscription.history_asked) {
-    s.startHistory(server.runtime);
+    s.startHistory(removed(server.runtime));
   }
   if (subscription.history_asked && s.launch_history) {
     const update = s.launch_history.update(subscription.history_epoch, subscription.history_sent);

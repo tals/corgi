@@ -1,5 +1,7 @@
 import { Runtime, EXE, Viewer, layout_tree, screen_text } from "./runtime";
-import { registerCase, run } from "./support";
+import { registerCase, run, quote } from "./support";
+import { write_ordinary_agent } from "./provider_sim";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 class Hibernation extends Runtime {
@@ -273,6 +275,67 @@ class Hibernation extends Runtime {
     this.assertEqual(await Bun.file(launches).text(), "started\n");
     await this.command("pane.send", { target: id, text: "", enter: true });
     await this.until(async () => (await Bun.file(launches).text()) === "started\nstarted\n");
+  }
+  /** A shell pane running a program that counts its starts, archived and woken with it typed at the prompt. */
+  async archived_program() {
+    this.env.SHELL = "/bin/bash";
+    await this.restart_runtime();
+    const id = await this.shell();
+    await this.command("workspace.create", { name: "active", cwd: this.temp.name });
+    const script = join(this.temp.name, "dev server.ts");
+    const launches = join(this.temp.name, "launches");
+    await Bun.write(
+      script,
+      `import { appendFileSync } from "node:fs"; appendFileSync(${JSON.stringify(launches)}, "started\\n"); setInterval(() => {}, 1000);`,
+    );
+    await this.command("pane.send", { target: id, text: "bun " + JSON.stringify(script), enter: true });
+    await this.until(
+      async () => (await Bun.file(launches).exists()) && (await Bun.file(launches).text()) === "started\n",
+    );
+    await this.command("workspace.archive", { target: 1 });
+    await this.command("pane.wake", { target: id });
+    await this.idle(id);
+    await this.until(async () => (await this.history(id)).includes("'" + script + "'"));
+    return { id, launches };
+  }
+  async test_an_agent_started_after_an_archived_program_resumes_as_itself() {
+    this.env.CORGI_CLAUDE_BIN = join(this.temp.name, "claude");
+    write_ordinary_agent(join(this.temp.name, "claude"));
+    mkdirSync(this.env.CLAUDE_CONFIG_DIR!, { recursive: true });
+    const { id, launches } = await this.archived_program();
+    await this.command("pane.input", { target: id, data: `\x15PATH=${quote(this.temp.name)}:$PATH claude\r` });
+    await this.until(async () => (await this.pane(id)).agent?.session === "ordinary-claude");
+    await this.command("pane.hibernate", { targets: [id] });
+    await this.restart_runtime();
+    this.assertEqual((await this.pane(id)).restoring, "claude --resume ordinary-claude");
+    await this.command("pane.wake", { target: id });
+    await this.until(async () => {
+      const p = await this.pane(id);
+      return !p.dormant && p.agent?.state === "idle" && p.agent.session === "ordinary-claude";
+    });
+    this.assertEqual(await Bun.file(launches).text(), "started\n");
+  }
+  async test_another_program_after_an_archived_one_drops_its_command() {
+    const { id, launches } = await this.archived_program();
+    await this.command("pane.input", { target: id, data: "\x15sleep 60\r" });
+    await this.until(async () => (await this.pane(id)).command === "sleep");
+    await this.command("pane.hibernate", { targets: [id] });
+    this.assertEqual((await this.pane(id)).restoring, "");
+    await this.command("pane.wake", { target: id });
+    await this.idle(id);
+    this.assertEqual(await Bun.file(launches).text(), "started\n");
+  }
+  async test_archiving_a_program_too_long_to_save_still_recovers() {
+    const id = await this.shell();
+    await this.command("workspace.create", { name: "active", cwd: this.temp.name });
+    // macOS's terminal holds about 1 KiB of typed input, so a script runs the long command line.
+    const script = join(this.temp.name, "long.sh");
+    await Bun.write(script, `exec bun -e "setInterval(() => {}, 1000)" ${"x".repeat(3000)}\n`);
+    await this.command("pane.send", { target: id, text: "sh " + JSON.stringify(script), enter: true });
+    await this.until(async () => (await this.pane(id)).command === "bun");
+    await this.command("workspace.archive", { target: 1 });
+    await this.restart_runtime();
+    this.assertEqual([(await this.pane(id)).dormant, (await this.pane(id)).restoring], [true, ""]);
   }
   async test_fresh_agent_without_session_restarts_after_hibernation_and_recovery() {
     this.env.CORGI_CLAUDE_BIN = join(this.temp.name, "claude");
