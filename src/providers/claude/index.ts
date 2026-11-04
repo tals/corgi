@@ -118,9 +118,11 @@ export const adapter: Adapter = {
       return found ? name => peer.rename(found, session, name) : null;
     },
   },
-  async message(session, _connected, account) {
-    const found = await peer.peerIn(path.join(dir(account), "sessions"), session);
-    return found ? text => peer.message(found, session, text) : null;
+  message: {
+    async channel(session, _connected, account) {
+      const found = await peer.peerIn(path.join(dir(account), "sessions"), session);
+      return found ? text => peer.message(found, session, text) : null;
+    },
   },
   headless: {
     start: at => Claude.start(at, stream_json, null),

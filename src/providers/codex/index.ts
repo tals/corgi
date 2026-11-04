@@ -15,7 +15,7 @@ import * as renaming from "./rename";
 import * as daemonEffort from "./daemon_effort";
 import * as discovery from "../../discovery";
 import * as retrying from "./retry";
-import * as messaging from "./message";
+import * as message from "./message";
 export { screen };
 export { label as plan } from "./plan";
 import { caps, identity, info, keeping, vocabulary } from "./info";
@@ -139,8 +139,11 @@ export const adapter: Adapter = {
       session.length === 36 && connected ? name => renaming.rename(control(account), session, name) : null,
     typed: { command: renaming.command, empty: renaming.empty, holds: renaming.holds },
   },
-  message: async (session, connected, account) =>
-    session.length === 36 && connected ? text => messaging.message(control(account), session, text) : null,
+  message: {
+    channel: async (session, connected, account) =>
+      session.length === 36 && connected ? text => message.send(control(account), session, text) : null,
+    empty: renaming.empty,
+  },
   retry: (session, turn, account, clear) => retrying.retry(control(account), session, turn, clear),
   headless: {
     start: at => Codex.start(at, null),

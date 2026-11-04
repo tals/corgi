@@ -1,8 +1,7 @@
-import * as viewerNative from "./viewer_native";
 import { adapter } from "./providers";
+import * as agentMessage from "./agent_message";
 import { milliTimestamp, microTimestamp } from "./clock";
 import type { Runtime, Pane } from "./runtime";
-import type { Terminal } from "./pane/terminal";
 export const max_name = 80;
 export function validName(value: string | Uint8Array) {
   let name: string;
@@ -12,13 +11,6 @@ export function validName(value: string | Uint8Array) {
     return false;
   }
   return name.length > 0 && Buffer.byteLength(name) <= max_name && !/[\x00-\x1f\x7f\ud800-\udfff]/u.test(name);
-}
-export async function paste(t: Terminal, text: string) {
-  const mode = t.bracketed_paste;
-  await t.send((mode ? "\x1b[200~" : "") + text + (mode ? "\x1b[201~" : ""));
-}
-export async function submit(t: Terminal) {
-  await t.send(viewerNative.encodeKey(t.handle, { codepoint: 13, mods: {} }));
 }
 function renamed(runtime: Runtime, pane: Pane, name: string) {
   pane.agent().setName(name);
@@ -49,7 +41,7 @@ export async function renamePane(pane: Pane, name: string | null, runtime: Runti
   const text = typed.command(name);
   if (Buffer.byteLength(text) + 4 > pane.terminal.cols) throw new Error("InvalidName");
   if (runtime.renames.some(r => r.pane === pane.id)) throw new Error("AgentBusy");
-  await paste(pane.terminal, text);
+  await agentMessage.paste(pane.terminal, text);
   runtime.renames.push({
     pane: pane.id,
     name,
@@ -67,7 +59,7 @@ export async function advance(runtime: Runtime, now: number) {
       continue;
     }
     if (typed.holds(pane.terminal, typed.command(pending.name))) {
-      await submit(pane.terminal);
+      await agentMessage.submit(pane.terminal);
       renamed(runtime, pane, pending.name);
     } else if (now < pending.deadline) continue;
     runtime.renames.splice(i, 1);

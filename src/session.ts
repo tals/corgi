@@ -39,7 +39,7 @@ export type Result = {
   workspace?: number;
   closed_panes?: number[];
   text?: string | null;
-  delivery?: agentMessage.Delivery;
+  delivery?: protocol.Delivery;
   queued?: boolean;
 };
 export function location(r: Runtime, pane: number): protocol.Result {
@@ -372,7 +372,8 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
     case "pane.send": {
       const p = r.pane(request.payload.target);
       if (!p) throw Error("NoPane");
-      await agentMessage.type(p, request.payload.text, request.payload.enter);
+      await agentMessage.paste(p.terminal, request.payload.text);
+      if (request.payload.enter) await agentMessage.submit(p.terminal);
       return location(r, request.payload.target);
     }
     case "pane.keys": {

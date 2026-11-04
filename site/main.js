@@ -2223,7 +2223,7 @@ function session(init = {}) {
     trees: null, menu: null, copiedUntil: 0, lights: null, alone: false,
     // The hackable band's terminals by pane: scrollback, the line being
     // typed, and the program holding it, if any. With `quiet`, agents show
-    // only what `corgi pane send` asked them, kept in `asked`.
+    // only what `corgi message` asked them, kept in `asked`.
     term: null, quiet: false, asked: {}, fixed: false,
     // With `idle`, the thruster tuning has finished, its pane still; with
     // `shot`, it has saved a screenshot of the game, and with `pr`, opened a
@@ -2801,6 +2801,15 @@ function interrupt(S, p, id) {
   p.rows = [...p.rows, p.program ? [["^C", A.text]] : [...(p.ps ?? prompt("~/moonlander")), [p.typed + "^C", A.text]]];
   Object.assign(p, { program: null, typed: "", scroll: 0 });
 }
+// Text typed into pane `id`: a shell at its prompt takes it, and Enter runs
+// it once the sender's command is done. A quiet agent starts on it.
+function typeInto(s, id, text, enter) {
+  const S = s.S, p = S.term[id];
+  if (p && !p.program) {
+    p.typed += text;
+    if (enter) setTimeout(() => !p.program && runLine(s, p, id, p.typed));
+  } else if (!p && S.quiet && enter) S.asked[id] = { text, at: now() };
+}
 // Whether a corgi command line asks for JSON: `--json` before any `--`.
 const wantsJson = (args) => args.slice(0, args.includes("--") ? args.indexOf("--") : args.length).includes("--json");
 // What `corgi ARGS` prints, run from the pane `from` (null outside Corgi).
@@ -2820,6 +2829,14 @@ function corgi(s, from, args) {
     if (!wantsJson(args)) return lines(listText(S));
     const panes = S.tabs.M.flatMap((root) => leafIds(root).filter((k) => S.ids[k]).map((k) => locate(S, k)));
     return [[[JSON.stringify({ ok: true, result: { workspaces: [{ id: MOON, name: "moonlander", cwd: "~/moonlander" }], panes }, viewers: [] }), JSON_OUT]]];
+  }
+  if (group === "message") {
+    const { pos } = cliArgs(args.slice(1)), id = paneArg(S, from, pos[0]?.replace(/^pane:/, "")), typed = !!S.term[id];
+    if (pos.length !== 2 || !pos[1]) throw Error("Usage");
+    typeInto(s, id, pos[1], true);
+    const where = locate(S, id), delivery = typed ? "typed" : "message";
+    if (wantsJson(args)) return ok({ ...where, delivery, queued: false });
+    return lines(`${typed ? "typed into" : "messaged"} pane ${where.pane} (tab ${where.tab}, workspace ${where.workspace})`);
   }
   const { pos, opt } = cliArgs(args.slice(2));
   switch (`${group} ${verb}`) {
@@ -2846,15 +2863,10 @@ function corgi(s, from, args) {
       if (opt.json) return ok({ ...locate(S, id), text });
       return lines((all.length > Number(count) ? `[corgi: last ${count} lines shown; --lines N reads more]\n` : "") + text);
     }
-    case "pane send": {
-      const id = paneArg(S, from, pos[0]), p = S.term[id];
+    case "pane type": {
+      const id = paneArg(S, from, pos[0]);
       if (pos.length !== 2) throw Error("Usage");
-      // A shell at its prompt takes it as typed, and Enter runs it once the
-      // sender's command is done. A quiet agent starts on it.
-      if (p && !p.program) {
-        p.typed += pos[1];
-        if (opt.enter) setTimeout(() => !p.program && runLine(s, p, id, p.typed));
-      } else if (!p && S.quiet && opt.enter) S.asked[id] = { text: pos[1], at: now() };
+      typeInto(s, id, pos[1], opt.enter);
       return ok(locate(S, id));
     }
     case "pane keys": {
@@ -2968,7 +2980,7 @@ function termKey(s, p, from, e) {
 const CLI_SCRIPT = [
   'corgi pane split 5 --right --command "bun test --watch"',
   "corgi pane read 7 | grep fail",
-  'corgi pane send 5 "fix the failing test" --enter',
+  'corgi message 5 "fix the failing test"',
   'corgi pane split 7 --down --command "bun run dev"',
 ];
 const CLI_INIT = {

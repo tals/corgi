@@ -4,6 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { createConnection } from "node:net";
+import * as errors from "../../errors";
 export interface Peer {
   socket: string;
   token: string;
@@ -39,18 +40,30 @@ export async function peerIn(folder: string, session: string): Promise<Peer | nu
   }
   return null;
 }
-/** Writes `frame` to `peer`'s inbox after its auth line. */
-function write(peer: Peer, frame: object) {
+/** Writes `frame` to `peer`'s inbox after its auth line. Throws ConnectFailed
+ * when the inbox refused the connection, and Timeout when the session didn't
+ * take the frame within `timeout` ms, as when it is stopped: the daemon waits
+ * on this. */
+function write(peer: Peer, frame: object, timeout = 2000) {
   const text = JSON.stringify({ type: "auth", token: peer.token }) + "\n" + JSON.stringify(frame) + "\n";
   return new Promise<void>((resolve, reject) => {
-    const connection = createConnection(peer.socket);
-    connection.once("error", reject);
-    connection.once("connect", () =>
-      connection.end(text, () => {
-        resolve();
-        connection.destroy();
-      }),
-    );
+    const connection = createConnection(peer.socket),
+      timer = setTimeout(() => settle(Error("Timeout")), timeout);
+    let connected = false,
+      settled = false;
+    const settle = (error?: Error | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve();
+      connection.destroy();
+    };
+    connection.once("error", error => settle(connected ? error : Error("ConnectFailed")));
+    connection.once("connect", () => {
+      connected = true;
+      connection.end(text, settle);
+    });
   });
 }
 export function rename(peer: Peer, session: string, name: string) {
@@ -64,13 +77,19 @@ export function rename(peer: Peer, session: string, name: string) {
   });
 }
 /** Queues `text` as a prompt: it starts a turn when the session is idle, or
- * runs after the current one. */
-export function message(peer: Peer, session: string, text: string) {
-  return write(peer, {
+ * runs after the current one. Throws MessageUnavailable when the inbox
+ * refused the connection. */
+export async function message(peer: Peer, session: string, text: string, timeout?: number) {
+  const frame = {
     type: "user",
     message: { role: "user", content: text },
     priority: "next",
     session_id: session,
     msg_id: randomUUID(),
-  });
+  };
+  try {
+    await write(peer, frame, timeout);
+  } catch (error) {
+    throw errors.is(error, "ConnectFailed") ? Error("MessageUnavailable") : error;
+  }
 }

@@ -82,6 +82,9 @@ export function command(value: Command): DecodedCommand {
   const op = Object.keys(value)[0] as CommandName;
   return { op, payload: (value as Record<string, unknown>)[op] } as DecodedCommand;
 }
+/** How `agent.message` reached its agent: its provider's channel, or the
+ * pane's keyboard. */
+export type Delivery = "message" | "typed";
 export type Result = {
   pane: number;
   tab: number;
@@ -89,7 +92,7 @@ export type Result = {
   text: string | null;
   closed_panes: number[];
   /** How `agent.message` reached its agent. */
-  delivery?: "message" | "typed";
+  delivery?: Delivery;
   queued?: boolean;
 };
 export const emptyResult = (): Result => ({ pane: 0, tab: 0, workspace: 0, text: null, closed_panes: [] });
