@@ -49,10 +49,17 @@ test("a bare provider name resolves past Corgi's own alias on PATH", () => {
 test("an install too old for Corgi isn't installed once a probe turns it down", async () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-discovery-")),
     pi = join(root, "pi"),
-    saved = { PATH: process.env.PATH, HOME: process.env.HOME, CORGI_PI_BIN: process.env.CORGI_PI_BIN };
+    saved = {
+      PATH: process.env.PATH,
+      HOME: process.env.HOME,
+      CORGI_PI_BIN: process.env.CORGI_PI_BIN,
+      CORGI_TEST_SYSTEM_ROOT: process.env.CORGI_TEST_SYSTEM_ROOT,
+    };
   try {
     process.env.PATH = root;
     process.env.HOME = root;
+    // Keep system installs, such as a Homebrew pi, out of the candidates.
+    process.env.CORGI_TEST_SYSTEM_ROOT = root;
     delete process.env.CORGI_PI_BIN;
     writeFileSync(pi, "#!/bin/sh\necho 0.84.2\n", { mode: 0o755 });
     expect(installed("pi")).toBe(true);
