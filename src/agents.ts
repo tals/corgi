@@ -177,6 +177,10 @@ export class Agent {
   finishedTurn(turn: string) {
     return turn ? turn === this.last_finished_turn.text() : this.finished_since_activity;
   }
+  /** The screen saw a turn finish before any hook reported this conversation. */
+  screenFinished() {
+    return this.last_seq === 0n && this.observation.source === "screen" && this.finished_since_activity;
+  }
   beginTurn(turn: string) {
     this.permission_review = null;
     if (turn) this.setTurn(turn);
@@ -260,7 +264,7 @@ export class Agent {
       session = hook.session,
       start = event === "session_start",
       reported = hook.turn,
-      screen_completed = this.last_seq === 0n && this.observation.source === "screen" && this.finished_since_activity,
+      screen_completed = this.screenFinished(),
       binds_completion = screen_completed && (event === "stop" || event === "interrupt");
     if ((this.session.len && session && session !== this.sessionId()) || (this.provider && this.provider !== provider))
       return null;

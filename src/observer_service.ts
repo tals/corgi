@@ -175,7 +175,8 @@ export function snapshotActor(server: Server, provider: Provider, snapshot: Snap
     return null;
   }
   const actor = runtime.conversations.get(provider, snapshot.session);
-  show(server, pane, actor);
+  // The snapshot, applied next, speaks for the hooks sent before it was read.
+  show(server, pane, actor, snapshot.lifecycle ? BigInt(snapshot.observed_at) : 0n);
   if (!actor.workspace || !runtime.workspaces.get(actor.workspace))
     actor.workspace = runtime.workspaces.owner(pane.id)?.id ?? actor.workspace;
   return actor;
@@ -454,11 +455,16 @@ function applyUsage(server: Server, workers: Workers) {
     changed(server);
   }
 }
-/** Shows `actor` in `pane`, caught up on the hooks it sent before the pane showed it. */
-function show(server: Server, pane: Pane, actor: Actor) {
+/** Shows `actor` in `pane`, caught up on the hooks it sent before the pane
+ * showed it; what the pane already saw speaks for those sent by `covered`. */
+function show(server: Server, pane: Pane, actor: Actor, covered = 0n) {
   pane.attachment.select(actor);
+  // A turn the screen already saw finish is the one those hooks would report again.
+  const finished = actor.state.screenFinished() ? BigInt(Math.trunc(actor.state.changed_at)) : 0n;
+  if (finished > covered) covered = finished;
   const now = clock.microTimestamp();
   for (const held of start(server).held.take(actor.provider(), actor.state.sessionId(), now)) {
+    if (held.seq <= covered) continue;
     if (!held.event.independent_child && held.seq <= pane.attachment.hook_seq) continue;
     const target = routed(server.runtime, pane, held, false);
     if (target) apply(server, target, held, now);
