@@ -336,12 +336,12 @@ afterEach(async () => {
   for (const f of cleanup.splice(0).reverse()) await f();
 });
 /** Runs `watch.run` against `path` until the test ends, collecting its lines. */
-function watching(path: string) {
+function watching(path: string, intensity: () => number = () => 1) {
   const lines: any[] = [],
     stop = new AbortController();
   let failed: unknown = null;
   const running = watch
-    .run(path, line => lines.push(JSON.parse(line)), { intensity: 1, grace_ms: 200, poll_ms: 50, signal: stop.signal })
+    .run(path, line => lines.push(JSON.parse(line)), { intensity, grace_ms: 200, poll_ms: 50, signal: stop.signal })
     .catch(error => {
       failed = error;
     });
@@ -470,4 +470,38 @@ test("a daemon that refuses the subscription ends the watch", async () => {
   for (let i = 0; i < 100 && w.failed() === null; i++) await Bun.sleep(10);
   expect((w.failed() as Error).message).toBe("UnsupportedProtocol");
   expect(w.lines).toEqual([]);
+});
+
+test("a daemon that hangs up on the subscription gets the grace period before it counts as gone", async () => {
+  const path = join(folder(), "control.sock"),
+    server = createServer(socket => socket.destroy());
+  cleanup.push(() => new Promise<void>(resolve => server.close(() => resolve())));
+  await new Promise<void>(resolve => server.listen(path, resolve));
+  const w = watching(path);
+  await Bun.sleep(100);
+  expect(w.lines).toEqual([]);
+  expect(await w.next(1)).toEqual({ running: false });
+});
+
+test("a socket that can't be opened for another reason ends the watch", async () => {
+  const w = watching(join(folder(), "x".repeat(300)));
+  for (let i = 0; i < 100 && w.failed() === null; i++) await Bun.sleep(10);
+  expect((w.failed() as any)?.code).toBe("EINVAL");
+  expect(w.lines).toEqual([]);
+});
+
+test("a change to the corgi intensity shows with the next push", async () => {
+  const path = join(folder(), "control.sock"),
+    fake = new FakeDaemon(path, () =>
+      session("api", { provider: "claude", state: "working", attention: "none", name: "Fix it" }),
+    );
+  cleanup.push(() => fake.stop());
+  await fake.listen();
+  let intensity = 1;
+  const w = watching(path, () => intensity),
+    before = await w.next(1);
+  intensity = 0;
+  fake.push(session("api", { provider: "claude", state: "working", attention: "none", name: "Fix it" }));
+  const after = await w.next(2);
+  expect(after.workspaces[0].agents[0].corgi).not.toBe(before.workspaces[0].agents[0].corgi);
 });

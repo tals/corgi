@@ -99,9 +99,10 @@ export function summary(
   since.keep(seen);
   return { running: true, counts, workspaces };
 }
-/** `ws`'s agents as the sidebar sorted by activity lists them: the starred,
- * then working, ready, idle and done, each section in the user's order, the
- * agent that entered it last on top. */
+/** `ws`'s agents as the sidebar sorted by activity lists them with nothing
+ * focused (this watcher has no viewer, so no read agent holds its place): the
+ * starred, then working, ready, idle and done, each section in the user's
+ * order, the agent that entered it last on top. */
 function arranged(
   runtime: mirror.Runtime,
   ws: mirror.Workspace,
@@ -166,8 +167,9 @@ export class Printer {
 }
 
 export interface Options {
-  /** How bright the sidebar's corgis are, where 0 turns them off. */
-  intensity: number;
+  /** How bright the sidebar's corgis are, where 0 turns them off; asked for
+   * with each summary, so a change shows without a restart. */
+  intensity: () => number;
   /** How long a dropped daemon has to come back before it counts as gone. */
   grace_ms: number;
   /** How often to look for a daemon while there is none. */
@@ -180,23 +182,36 @@ export interface Options {
 export async function run(path: string, write: (line: string) => void, o: Options): Promise<void> {
   const printer = new Printer(write);
   for (let until = 0; !o.signal?.aborted;) {
-    if (await follow(path, printer, o.intensity, o.signal)) until = Date.now() + o.grace_ms;
+    const seen = await follow(path, printer, o.intensity, o.signal);
+    // A daemon that hangs up before it answers gets one grace period, not
+    // a new one for each try.
+    if (seen === "followed" || (seen === "dropped" && until === 0)) until = Date.now() + o.grace_ms;
     if (o.signal?.aborted) return;
     if (Date.now() < until) {
       await Bun.sleep(Math.min(100, o.grace_ms));
       continue;
     }
     printer.print({ running: false });
+    until = 0;
     await Bun.sleep(o.poll_ms);
   }
 }
-/** No daemon is there to answer, or it went away. */
-function unreachable(error: unknown): boolean {
-  return errors.is(error, "ConnectionClosed") || (error instanceof Error && "code" in error);
+/** What a failed connection says about the daemon: none is listening, it hung
+ * up on us (a restart or handoff), or something else is wrong. */
+function lost(error: unknown): "absent" | "dropped" | null {
+  if (errors.is(error, "ConnectionClosed")) return "dropped";
+  const code = error instanceof Error && "code" in error ? error.code : null;
+  if (code === "ENOENT" || code === "ECONNREFUSED") return "absent";
+  return code === "ECONNRESET" || code === "EPIPE" ? "dropped" : null;
 }
-/** Prints the daemon's summaries until its connection closes; false when no
- * daemon answered. */
-async function follow(path: string, printer: Printer, intensity: number, signal?: AbortSignal): Promise<boolean> {
+/** Prints the daemon's summaries until its connection closes. Says whether
+ * it followed one that went away, one hung up before answering, or none was there. */
+async function follow(
+  path: string,
+  printer: Printer,
+  intensity: () => number,
+  signal?: AbortSignal,
+): Promise<"followed" | "dropped" | "absent"> {
   const connection = new rpc.Connection(path),
     stop = () => connection.close(),
     closed = new Promise<void>(resolve => connection.socket.once("close", () => resolve())),
@@ -211,7 +226,7 @@ async function follow(path: string, printer: Printer, intensity: number, signal?
       // A daemon on another protocol after a handoff: a matching client takes over.
       if (snapshot.protocol !== protocol.version) throw Error("UnsupportedProtocol");
       runtime.receive(transport, snapshot);
-      printer.print(summary(runtime, intensity, since));
+      printer.print(summary(runtime, intensity(), since));
     } catch (error) {
       failure = error;
       connection.close();
@@ -227,27 +242,35 @@ async function follow(path: string, printer: Printer, intensity: number, signal?
     else held = event;
   });
   signal?.addEventListener("abort", stop);
+  let dropped = false;
   try {
     show(await connection.call("session.subscribe", { output: false }));
     subscribed = true;
     if (held !== null) show(held);
   } catch (error) {
-    if (!unreachable(error)) failure = error;
+    const why = lost(error);
+    dropped = why === "dropped";
+    if (why === null) failure = error;
     connection.close();
   }
   await closed;
   signal?.removeEventListener("abort", stop);
   runtime.destroy();
   if (failure !== null) throw failure;
-  return subscribed;
+  return subscribed ? "followed" : dropped ? "dropped" : "absent";
 }
 
 /** The command: summaries on stdout until it closes. */
 export async function command(path: string): Promise<void> {
-  // The widget stops reading when it reloads.
+  // The widget stops reading when it reloads: a write fails, or, with nothing
+  // to write, we're left to its parent's exit.
   process.stdout.on("error", () => process.exit(0));
+  const parent = process.ppid;
+  setInterval(() => {
+    if (process.ppid !== parent) process.exit(0);
+  }, 1000).unref();
   await run(path, line => void process.stdout.write(line), {
-    intensity: preferences.load().corgi_intensity,
+    intensity: () => preferences.load().corgi_intensity,
     grace_ms: 1000,
     poll_ms: 1000,
   });
