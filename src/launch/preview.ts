@@ -182,7 +182,17 @@ export class Worker {
   follow(removed: row.Removed) {
     if (row.sameRemoved(removed, this.removed)) return;
     this.removed = row.removedOf(removed);
+    this.close(this.skipped());
     this.reread();
+  }
+  /** Closes the launchers of the rows `gone` names. They keep a provider process each. */
+  private close(gone: (l: row.Launch) => boolean) {
+    for (const [key, launcher] of this.launchers) {
+      const [provider, account] = key.split("\0") as [Provider, string];
+      if (!gone({ provider, account })) continue;
+      void launcher.then(l => l?.close());
+      this.launchers.delete(key);
+    }
   }
   launcher(p: Provider, account = "") {
     const key = p + "\0" + account;
@@ -350,13 +360,9 @@ export class Worker {
     job.preview = this.withSkipped(this.list(job.preview).with({ pending: true }), skip);
     const rows = this.rows(job.preview, skip),
       groups = this.groups(rows);
-    // Launchers keep a provider process each, so those of accounts gone or removed close.
+    // Launchers of rows it no longer reads, such as accounts gone, close.
     const live = new Set(rows.map(l => l.provider + "\0" + l.account));
-    for (const [key, launcher] of this.launchers)
-      if (!live.has(key)) {
-        void launcher.then(l => l?.close());
-        this.launchers.delete(key);
-      }
+    this.close(l => !live.has(l.provider + "\0" + l.account));
     await Promise.all(
       rows.map(async ({ provider, account }) => {
         let option: Option;
@@ -440,6 +446,8 @@ export class Worker {
   private async round() {
     const before = new Map([...this.logins].map(([key, login]) => [key, login.read_at])),
       skip = this.skipped();
+    // A saved agent that kept a removed row read may be gone.
+    this.close(skip);
     await Promise.all(this.groups(this.rows(this.list(new Preview()), skip)).map(group => this.read(group)));
     if (this.stopping || [...this.logins].every(([key, login]) => before.get(key) === login.read_at)) return;
     // A skipped row's folder may share a login read for another, or read before it was removed.

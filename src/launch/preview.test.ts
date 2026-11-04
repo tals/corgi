@@ -279,6 +279,57 @@ const reading = (used: number) =>
     limits: { windows: [null, new Window({ minutes: 10080, used, reset_at: 10080 * 60 })] },
   });
 
+test("taking a row out closes its launcher at once, with nothing asking for a preview", async () => {
+  const worker = new Worker(),
+    closed: Provider[] = [];
+  for (const p of installed)
+    worker.launchers.set(
+      p + "\0",
+      Promise.resolve({
+        account: async () => new Info(),
+        model: async () => ({ model: "", source: "test" }),
+        close: () => void closed.push(p),
+      }),
+    );
+  try {
+    worker.follow({ ...worker.removed, agent_hidden: byProvider(p => p === "pi") });
+    await turn();
+    expect(closed).toEqual(["pi"]);
+    expect([...worker.launchers.keys()]).not.toContain("pi\0");
+  } finally {
+    await worker.stop();
+  }
+});
+
+test("deleting the saved agent that kept a removed row read closes its launcher on the daemon's schedule", async () => {
+  const worker = new Worker(),
+    closed: Provider[] = [];
+  worker.launcher = async provider => ({
+    account: async () => reading(84),
+    model: async () => ({ model: "", source: "test" }),
+    close: () => void closed.push(provider),
+  });
+  mkdirSync(dirname(profiles.path()), { recursive: true });
+  writeFileSync(
+    profiles.path(),
+    JSON.stringify([{ id: "pi-fast", provider: "pi", account: "", name: "Pi fast", options: { flags: "", env: [] } }]),
+  );
+  try {
+    setSystemTime(new Date(1_000_000_000));
+    worker.follow({ ...worker.removed, agent_hidden: byProvider(p => p === "pi") });
+    await worker.pump();
+    worker.launchers.set("pi\0", worker.launcher("pi"));
+    rmSync(profiles.path());
+    worker.sample(idle_every);
+    await worker.pump();
+    await turn();
+    expect(closed).toEqual(["pi"]);
+  } finally {
+    setSystemTime();
+    await worker.stop();
+  }
+});
+
 test("sign-in refreshes during a pass run again as soon as it finishes", async () => {
   const worker = new Worker(),
     started = Promise.withResolvers<void>(),
