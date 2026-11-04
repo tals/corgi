@@ -3,7 +3,7 @@ import { transport } from "./fixtures/transport";
 import { expect, setSystemTime, spyOn, test } from "bun:test";
 import { Controller, agentMessage, cardEffect, forkName, breadcrumbs } from "./controller";
 import * as sim from "./providers/sim";
-import { byProvider } from "./providers";
+import { Provider, byProvider } from "./providers";
 import * as preferences from "./preferences";
 import { TabMenu, type Row } from "./commands";
 import { Dialog } from "./name_dialog";
@@ -3753,6 +3753,37 @@ test("the prompt's catalogs are read ahead of it, only where the launcher lists 
     s.pollPrompt();
     await Bun.sleep(1);
     expect(read.length).toBe(3);
+  } finally {
+    viewer.close(s);
+  }
+});
+test("the prompt offers an agent hidden in Manage agents that the user runs, and every one when it would offer none", async () => {
+  const s = controller(),
+    read: string[] = [];
+  s.model_cache = new agentModels.Cache(
+    () => {},
+    async (provider, account) => {
+      read.push(`${provider}:${account}`);
+      return [];
+    },
+  );
+  s.receiveSnapshot(folders("/a"));
+  Object.assign(s.launch_previews, {
+    received: true,
+    preview: agentLauncher.preview({
+      installed: { claude: true, codex: true, pi: true, opencode2: false, omp: false },
+      options: { claude: { signed_in: true }, codex: { signed_in: true }, pi: { signed_in: false } },
+    }),
+  });
+  for (const p of Provider.all) s.runtime.agent_hidden[p] = true;
+  try {
+    // Nothing listed or run: every signed-in agent.
+    s.pollPrompt();
+    await Bun.sleep(1);
+    expect(read.sort()).toEqual(["claude:", "codex:"]);
+    // Claude runs from a saved command in a pane: only it.
+    s.runtime.panes[0].agent.provider = "claude";
+    expect((s as any).promptPlaces().map((p: { provider: string }) => p.provider)).toEqual(["claude"]);
   } finally {
     viewer.close(s);
   }

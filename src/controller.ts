@@ -4552,13 +4552,20 @@ export class Controller {
     this.prompt.catalog(entries, this.prompt_suggested, briefs, this.prompt_auto, loading);
     this.dirty = true;
   }
-  /** Where the prompt offers models: each agent and account the launcher
-   * lists, signed in, and the one the user picked even if it's since hidden.
+  /** Where the prompt offers models: each signed-in agent and account the
+   * launcher lists, the user runs (one hidden in Manage agents may still run
+   * from a saved command) or picked; with none of those, every signed-in one.
    * Empty until the first preview says what's installed. */
   private promptPlaces(): PromptPlace[] {
     const preview = this.launch_previews.preview,
       pick = this.prefs.prompt_model === "auto" ? null : (this.prefs.prompt_model ?? null),
-      out: PromptPlace[] = [];
+      launched = this.runtime.inference.launches,
+      runs = (provider: Provider, account: string) =>
+        (!account && launched[provider] > 0) ||
+        this.runtime.panes.some(p => p.agent.provider === provider && p.account === account) ||
+        (!account && this.runtime.sessions.some(s => s.provider === provider)),
+      out: PromptPlace[] = [],
+      signed: PromptPlace[] = [];
     if (!this.launch_previews.received) return out;
     for (const provider of Provider.all) {
       if (!preview.installed[provider] || !adapter(provider).headless) continue;
@@ -4575,14 +4582,16 @@ export class Controller {
           })),
       ];
       for (const place of places) {
+        if (place.option.signed_in === false) continue;
         const picked = pick?.provider === provider && pick.account === place.account,
           hidden = place.account
             ? this.runtime.account_hidden.includes(place.account)
             : this.runtime.agent_hidden[provider];
-        if (place.option.signed_in !== false && (picked || !hidden)) out.push({ provider, ...place });
+        signed.push({ provider, ...place });
+        if (picked || !hidden || runs(provider, place.account)) out.push({ provider, ...place });
       }
     }
-    return out;
+    return out.length ? out : signed;
   }
   /** The models of every place the prompt offers, with each account's plan
    * and limits, and whether a catalog is still being read. */
