@@ -21,6 +21,7 @@ import * as binary from "../base64";
 import * as json from "../json";
 import * as worktrees from "../worktrees";
 import * as breadcrumbs from "../breadcrumbs";
+import * as agentEffort from "../agent_effort";
 import { validateCheckpoint } from "./schema";
 import { testBuild } from "../build_assets";
 
@@ -232,6 +233,7 @@ export function capture(r: Runtime, live: boolean) {
         launch: p.launch,
         dormant: p.dormant,
         manual_resume: p.manual_resume,
+        effort: live ? agentEffort.save(r, p) : null,
       };
     }),
     closed: r.closed.map(p => ({
@@ -457,6 +459,7 @@ export async function restore(
     pane.dormant = p.dormant === true;
     pane.manual_resume = p.manual_resume === true || r.workspaces.owner(p.id)!.archived;
     r.panes.push(pane);
+    if (live) agentEffort.restore(r, pane, p.effort);
   }
   for (const w of r.workspaces.items)
     for (const node of w.model.nodes)

@@ -2,9 +2,12 @@ import { test, expect, spyOn } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { WantedEffort, advance } from "./agent_effort";
-import { Launch, type Runtime } from "./runtime";
+import { Launch, Pane, Runtime } from "./runtime";
 import { Text } from "./providers";
-import type { Terminal } from "./pane/terminal";
+import { Terminal } from "./pane/terminal";
+import { Workspace } from "./workspace";
+import * as checkpoint from "./persist/checkpoint";
+import * as json from "./json";
 async function settled(wanted: WantedEffort) {
   while (wanted.busy) await Bun.sleep(2);
 }
@@ -141,4 +144,37 @@ test("Codex panes Corgi starts leave their launcher's effort to the shared serve
     interactive_command: true,
     env: [],
   });
+});
+test("a live reload keeps the effort a pane's agent runs without, and where it set it", async () => {
+  const one = "01a19d30-c663-7862-a13b-3df431ee1507";
+  using original = new Runtime();
+  const ws = new Workspace(1, "/tmp");
+  original.workspaces.items.push(ws);
+  original.workspaces.next_id = 2;
+  const [wanting, plain] = [0, 1].map(() => {
+    const pane = new Pane(ws.model.newTab(""), Terminal.create(20, 4), "/tmp");
+    pane.dormant = true;
+    original.panes.push(pane);
+    return pane;
+  });
+  original.workspaces.next_pane_id = ws.model.next_id;
+  const wanted = new WantedEffort(wanting.id, wanting.terminal, "high");
+  wanted.done.add(one);
+  original.wanted_efforts.push(wanted);
+  for (const live of [true, false]) {
+    using next = new Runtime();
+    const saved = json.parse(json.stringify(checkpoint.capture(original, live)));
+    // A pane left at the launcher's default effort saves none.
+    expect(saved.panes.map((p: any) => p.effort)).toEqual([live ? { value: "high", done: [one] } : null, null]);
+    await checkpoint.restore(next, saved, live, "/tmp/unused-checkpoint.sock", "/tmp/corgi");
+    // A cold start resumes the agent, and the launch sets its effort again.
+    if (!live) expect(next.wanted_efforts).toEqual([]);
+    else {
+      expect(next.wanted_efforts).toHaveLength(1);
+      const [kept] = next.wanted_efforts;
+      expect([kept.pane, kept.effort, [...kept.done]]).toEqual([wanting.id, "high", [one]]);
+      expect(kept.terminal).toBe(next.pane(wanting.id)!.terminal);
+      expect(next.pane(plain.id)).toBeDefined();
+    }
+  }
 });
