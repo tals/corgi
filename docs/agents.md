@@ -73,6 +73,9 @@ adapter member that touches the settings folder takes the account (hooks,
 launcher previews, history, the observer, rename and attach), and core keeps
 one of each per account it needs.
 
+An adapter's optional `accounts.service` names its own subscription. Usage reports
+prefer that provider when several agents share the same subscription login.
+
 A folder Corgi makes links the default's setup, as the adapter's
 `accounts.shared` lists, and keeps its own login and conversations. Corgi
 edits a linked settings file in place, and reads a history folder two

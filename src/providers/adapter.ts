@@ -286,9 +286,28 @@ export type Inspection = {
   /** It signs in as the user's own default account. */
   default_account: boolean;
 };
+/** A model provider's subscription, whose limits every agent signed in to it
+ * shares: Codex, Pi and omp can all sign in to one ChatGPT login. */
+export type Service = "chatgpt" | "claude";
 /** Who signed in: the email the provider shows, and what tells two logins
- * apart, since one email can sign in to a personal plan and a team's. */
-export type Login = { email: string; id: string };
+ * apart, since one email can sign in to a personal plan and a team's. A
+ * subscription login also names its `service` and its `workspace`, "" when
+ * the credential doesn't say which; an API key names neither. */
+export type Login = { email: string; id: string; service?: Service; workspace?: string };
+/** Login metadata carried by a daemon preview; absent from older peers. */
+export function login(value: unknown): Login | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.id !== "string" || typeof v.email !== "string") return null;
+  if (v.service !== undefined && v.service !== "chatgpt" && v.service !== "claude") return null;
+  if (v.workspace !== undefined && typeof v.workspace !== "string") return null;
+  return {
+    id: v.id,
+    email: v.email,
+    ...(v.service !== undefined && { service: v.service }),
+    ...(v.workspace !== undefined && { workspace: v.workspace }),
+  };
+}
 /** What a first run shows while someone signs in: how to sign in, a link
  * whose page comes back to this machine, a link whose page gives a code to
  * paste here, or a link and a code to type on the page. */
@@ -321,6 +340,8 @@ export type Signin = {
 /** How a provider keeps accounts: each in a settings directory of its own,
  * which a variable picks. */
 export type Accounts = {
+  /** Its own subscription; preferred when other agents share the same login. */
+  service?: Service;
   /** The variable that picks the directory. */
   env: string;
   /** The directory it uses when the variable is unset. */

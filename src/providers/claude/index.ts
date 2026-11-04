@@ -62,6 +62,7 @@ export const adapter: Adapter = {
     ...["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"].map(dir => root + dir + "/claude"),
   ],
   accounts: {
+    service: "claude",
     env: vocabulary.config_env,
     home: configDir,
     prefix: ".claude-",

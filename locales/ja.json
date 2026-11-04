@@ -50,6 +50,7 @@
   "  corgi update auto on|off      control automatic updates": "  corgi update auto on|off      自動更新を切り替え",
   "  corgi update rollback         return to the previous release": "  corgi update rollback         前のリリースに戻す",
   "  corgi update status           show update status": "  corgi update status           更新状況を表示",
+  "  corgi usage --json            print each account's limits and spend as JSON": "  corgi usage --json            各アカウントの上限と利用額を JSON で出力",
   "  corgi watch --json            print agent states as JSON lines as they change": "  corgi watch --json            エージェントの状態が変わるたびJSON行で出力",
   "  corgi which claude|codex      show automatically selected executable": "  corgi which claude|codex      自動選択された実行ファイルを表示",
   "  corgi workspace archive ID        hibernate panes and hide the workspace": "  corgi workspace archive ID        ペインを休止してワークスペースを非表示にする",

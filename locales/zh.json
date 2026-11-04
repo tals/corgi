@@ -50,6 +50,7 @@
   "  corgi update auto on|off      control automatic updates": "  corgi update auto on|off      开启或关闭自动更新",
   "  corgi update rollback         return to the previous release": "  corgi update rollback         回退到上一版本",
   "  corgi update status           show update status": "  corgi update status           查看更新状态",
+  "  corgi usage --json            print each account's limits and spend as JSON": "  corgi usage --json            以 JSON 输出各账号的额度和花费",
   "  corgi watch --json            print agent states as JSON lines as they change": "  corgi watch --json            状态变化时以 JSON 行输出智能体状态",
   "  corgi which claude|codex      show automatically selected executable": "  corgi which claude|codex      显示自动选择的可执行程序",
   "  corgi workspace archive ID        hibernate panes and hide the workspace": "  corgi workspace archive ID        休眠窗格并隐藏工作区",

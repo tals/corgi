@@ -20,6 +20,7 @@ import * as profiles from "./agent_profiles";
 import * as accountCommand from "./account_command";
 import * as signin from "./signin";
 import { Launch } from "./runtime";
+import { Database } from "bun:sqlite";
 
 const saved = { ...process.env },
   variables = ["HOME", "CORGI_ENV_BASE", "XDG_STATE_HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME"];
@@ -46,6 +47,53 @@ const signIn = (dir: string, email: string, id = email) => {
     JSON.stringify({ oauthAccount: { emailAddress: email, accountUuid: id, organizationUuid: "org" } }),
   );
 };
+
+test("a ChatGPT login is one subscription for Codex, Pi and omp", () => {
+  const claims = { sub: "user-1", email: "me@home.dev", "https://api.openai.com/auth": { chatgpt_account_id: "ws-1" } },
+    token = "header." + Buffer.from(JSON.stringify(claims)).toString("base64url") + ".signature";
+  const codex = join(home, ".codex"),
+    pi = join(home, ".pi", "agent"),
+    omp = join(home, ".omp", "agent");
+  for (const dir of [codex, pi, omp]) mkdirSync(dir, { recursive: true });
+  writeFileSync(join(codex, "auth.json"), JSON.stringify({ tokens: { id_token: token, account_id: "ws-1" } }));
+  writeFileSync(
+    join(pi, "auth.json"),
+    JSON.stringify({ "openai-codex": { type: "oauth", access: token, refresh: "r" } }),
+  );
+  writeFileSync(join(pi, "settings.json"), JSON.stringify({ defaultProvider: "openai-codex" }));
+  writeFileSync(join(omp, "config.yml"), "modelRoles:\n  default: openai-codex/gpt-6-luna\n");
+  const db = new Database(join(omp, "agent.db"));
+  db.exec(
+    "CREATE TABLE auth_credentials (id INTEGER, provider TEXT, credential_type TEXT, data TEXT, identity_key TEXT, disabled_cause TEXT)",
+  );
+  db.query("INSERT INTO auth_credentials VALUES (1, 'openai-codex', 'oauth', ?, 'u1', NULL)").run(
+    JSON.stringify({ email: "me@home.dev", accountId: "ws-1" }),
+  );
+  db.close();
+  signIn(home, "me@home.dev", "claude-user");
+  expect(accounts.identity("codex", "")).toMatchObject({ id: "user-1/ws-1", service: "chatgpt", workspace: "ws-1" });
+  expect(accounts.identity("pi", "")).toMatchObject({ email: "me@home.dev", service: "chatgpt", workspace: "ws-1" });
+  expect(accounts.identity("omp", "")).toMatchObject({ email: "me@home.dev", service: "chatgpt", workspace: "ws-1" });
+  expect(accounts.identity("claude", "")).toEqual({
+    email: "me@home.dev",
+    id: "claude-user/org",
+    service: "claude",
+    workspace: "org",
+  });
+  // A key is no subscription, and nor is a provider the model doesn't use.
+  const keyed = join(home, ".codex-key");
+  mkdirSync(keyed);
+  writeFileSync(join(keyed, "auth.json"), JSON.stringify({ OPENAI_API_KEY: "sk-test" }));
+  expect(accounts.identity("codex", keyed)).not.toHaveProperty("service");
+  const other = join(home, ".pi-other");
+  mkdirSync(other);
+  writeFileSync(
+    join(other, "auth.json"),
+    JSON.stringify({ "openai-codex": { type: "oauth", access: token, refresh: "r" } }),
+  );
+  writeFileSync(join(other, "settings.json"), JSON.stringify({ defaultProvider: "google" }));
+  expect(accounts.identity("pi", other)).not.toHaveProperty("service");
+});
 
 test("default-only providers reject account creation before creating a folder", () => {
   expect(() => accounts.stage("opencode2", "work")).toThrow("AccountManagementUnsupported");
@@ -90,7 +138,7 @@ test("Omarchy's accounts show under their labels, and a folder named like one do
 
 test("the default account's login is read from HOME", () => {
   writeFileSync(join(home, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "me@home.com" } }));
-  expect(accounts.identity("claude", "")).toEqual({ email: "me@home.com", id: "me@home.com/" });
+  expect(accounts.identity("claude", "")).toMatchObject({ email: "me@home.com", id: "me@home.com/" });
 });
 
 test("a new account's numbered folder waits in a private temporary folder until its sign-in works out", () => {

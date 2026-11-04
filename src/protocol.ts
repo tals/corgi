@@ -141,6 +141,7 @@ export const operations = [
   "onboarding.copy",
   "agent.command.preview",
   "agent.preview",
+  "agent.preview.cached",
   "agent.track_usage",
   "agent.history",
   "viewer.list",
@@ -593,6 +594,7 @@ const requests = {
   "viewer.watch": { viewer: "u32" },
   "agent.subscribe": launch,
   "agent.preview": launch,
+  "agent.preview.cached": launch,
   "agent.track_usage": launch,
   /** `pid` is the viewer's process, whose terminal window a desktop can raise. */
   "viewer.open": { cwd: ["string", ""], onboarding: ["bool", false], theme: ["theme", null], pid: ["u32", 0] },
@@ -790,6 +792,7 @@ export interface ReplyPayloads {
   };
   "agent.command.preview": Ok & { resolution: import("./launch/command").Resolution };
   "agent.preview": Ok & { preview: import("./launch/preview").Preview };
+  "agent.preview.cached": Ok & { preview: import("./launch/preview").Preview };
   "agent.track_usage": Ok & { preview: import("./launch/preview").Preview };
   "agent.subscribe": { type: "agent.preview"; cwd: string; preview: import("./launch/preview").Preview };
   /** Without history when following; updates arrive as `agent.history` events. */

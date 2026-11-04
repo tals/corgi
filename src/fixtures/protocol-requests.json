@@ -160,6 +160,9 @@
   "agent.preview": {
     "workspace": 1
   },
+  "agent.preview.cached": {
+    "workspace": 1
+  },
   "agent.track_usage": {
     "workspace": 1
   },

@@ -1,6 +1,6 @@
 import { isAbsolute } from "node:path";
 import { Worker as CommandWorker } from "./launch/command";
-import { Worker as PreviewWorker, Option, active_every, idle_every, type Preview } from "./launch/preview";
+import { Worker as PreviewWorker, Option, active_every, idle_every, Preview } from "./launch/preview";
 import { byProvider } from "./providers";
 import { Worker as HistoryWorker } from "./launch/history";
 import type { Launch, Removed } from "./launch/row";
@@ -11,7 +11,15 @@ import { Reply, type Client } from "./peer";
 import type { DecodedRequest } from "./protocol";
 type Request = Extract<
   DecodedRequest,
-  { op: "agent.history" | "agent.command.preview" | "agent.subscribe" | "agent.preview" | "agent.track_usage" }
+  {
+    op:
+      | "agent.history"
+      | "agent.command.preview"
+      | "agent.subscribe"
+      | "agent.preview"
+      | "agent.preview.cached"
+      | "agent.track_usage";
+  }
 >;
 export type Subscription = {
   cwd: string;
@@ -65,6 +73,14 @@ export async function stop(server: Server) {
   await service?.stop();
 }
 export async function request(server: Server, client: Client, request: Request, reply = new Reply(client)) {
+  if (request.op === "agent.preview.cached") {
+    const q = request.payload,
+      workspace = server.runtime.getWorkspace(q.workspace),
+      cwd = q.cwd || workspace.cwd;
+    if (!isAbsolute(cwd) || Buffer.byteLength(cwd) > 4096) throw Error("InvalidDirectory");
+    reply.ok({ preview: services.get(server)?.launch_previews.cached() ?? new Preview().with({ pending: false }) });
+    return;
+  }
   const s = service(server);
   s.follow(removed(server.runtime));
   if (request.op === "agent.history") {

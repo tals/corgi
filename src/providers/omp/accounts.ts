@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { YAML } from "bun";
 import type { Accounts, Login } from "../adapter";
-import { field, str } from "../common";
+import { field, service, str } from "../common";
 import { configDir } from "./integration";
 
 export type Credential = { provider: string; type: "oauth" | "api_key"; data: unknown; identity: string };
@@ -66,11 +66,20 @@ export function identity(root: string): Login | null {
   const hash = (value: string) => createHash("sha256").update(value).digest("hex").slice(0, 16);
   if (c.type === "api_key")
     return { email: `${c.provider} API key`, id: `${c.provider}:key:${hash(str(c.data, "key"))}` };
-  const email = clean(str(c.data, "email"));
-  return {
+  const email = clean(str(c.data, "email")),
+    workspace = str(c.data, "accountId");
+  const login: Login = {
     email: email || `${c.provider} OAuth`,
-    id: `${c.provider}:${c.identity || email || hash(str(c.data, "refresh"))}/${str(c.data, "accountId")}`,
+    id: `${c.provider}:${c.identity || email || hash(str(c.data, "refresh"))}/${workspace}`,
   };
+  // Only the default provider's sign-in is the subscription omp runs on.
+  const kind = service(c.provider),
+    preferred = defaultProvider(root);
+  if (email && kind !== null && (!preferred || c.provider === preferred)) {
+    login.service = kind;
+    login.workspace = kind === "chatgpt" ? workspace : "";
+  }
+  return login;
 }
 export const accounts: Accounts = {
   env: "PI_CODING_AGENT_DIR",

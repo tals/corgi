@@ -2,13 +2,41 @@ import { Locked } from "./account_cache";
 import type { Info } from "./account";
 import type { Provider } from "../providers";
 import type { Window } from "./account";
-import type { Reading } from "./spend";
+import * as spend from "./spend";
 export const cells = 14;
 /** Days in each cell of the spend spark, which covers the last four weeks. */
 export const spend_days = 2;
 const day = 86400;
 export type Spark = Array<number | null>;
 export const none = () => [Array(cells).fill(null), Array(cells).fill(null)] as [Spark, Spark];
+/** Stored readings in provider-window order, without display padding or clipping. */
+export function sparks(value: unknown): [Spark, Spark] {
+  const sent = Array.isArray(value) ? value : [];
+  return [0, 1].map(i =>
+    Array.isArray(sent[i])
+      ? sent[i].map((n: unknown) => (typeof n === "number" && Number.isFinite(n) && n >= 0 ? n : null))
+      : [],
+  ) as [Spark, Spark];
+}
+/** A UTC day's last spend reading. `day` is the day's start in Unix seconds. */
+export type SpendDay = { day: number; period_start: number; used_minor: number };
+export function spendDays(value: unknown): SpendDay[] {
+  return (Array.isArray(value) ? value : []).flatMap((entry: unknown): SpendDay[] => {
+    if (!entry || typeof entry !== "object") return [];
+    const { day, period_start, used_minor } = entry as Record<string, unknown>;
+    if (
+      typeof day !== "number" ||
+      !Number.isSafeInteger(day) ||
+      day < 0 ||
+      typeof period_start !== "number" ||
+      !Number.isSafeInteger(period_start) ||
+      period_start < 0 ||
+      !spend.amount(used_minor)
+    )
+      return [];
+    return [{ day, period_start, used_minor }];
+  });
+}
 /** The month's spend at the last reading in a cell's days, in the reading's
  * minor units; null when Corgi read none of them. `earlier` when the cell
  * ends before the current month began. */
@@ -66,7 +94,7 @@ export class State {
     return result;
   }
   /** Keeps each day's last reading, for about the last month. */
-  recordSpend(reading: Reading, at: number) {
+  recordSpend(reading: spend.Reading, at: number) {
     const today = Math.floor(at / day),
       entry: Daily = [today, reading.period_start, reading.used_minor],
       last = this.spend.at(-1);
@@ -78,7 +106,7 @@ export class State {
   /** The last four weeks of the month's running spend in two-day cells,
    * paired from the current month's first day so its start falls between
    * cells. Each cell holds its last day's reading. */
-  spendCells(reading: Reading, now: number): SpendCell[] {
+  spendCells(reading: spend.Reading, now: number): SpendCell[] {
     const today = Math.floor(now / day),
       first = Math.floor(reading.period_start / day),
       current = first + Math.floor((today - first) / spend_days) * spend_days;
@@ -119,7 +147,7 @@ function restore(value: any): State {
 
 const Store = Locked(() => new State(), "limit-history", restore);
 const fresh = (state: State) => state.spend.length === 0 && state.tracks.every(t => t.minutes === 0);
-/** Records `info`'s reading in its login's history and returns the sparks.
+/** Records `info`'s reading and returns its stored history and terminal cells.
  * `login` names whoever signed in, so folders signed in to one account share
  * a history and two workspaces of one email keep theirs apart. */
 export async function update(
@@ -127,8 +155,8 @@ export async function update(
   login: string,
   info: Info,
   stopping: any = false,
-): Promise<{ sparks: [Spark, Spark]; spend: SpendCell[] }> {
-  const empty = { sparks: none(), spend: noSpend() },
+): Promise<{ sparks: [Spark, Spark]; spend: SpendCell[]; daily: SpendDay[] }> {
+  const empty = { sparks: none(), spend: noSpend(), daily: [] },
     windows = typeof info.limits === "object" ? info.limits.windows : null;
   if (info.usage_fetched_at <= 0 || (windows === null && info.spend === null)) return empty;
   try {
@@ -147,7 +175,11 @@ export async function update(
       const sparks = windows ? file.state.record(windows, info.usage_fetched_at) : none();
       if (info.spend) file.state.recordSpend(info.spend, info.usage_fetched_at);
       if (JSON.stringify(file.state) !== before) await file.save();
-      return { sparks, spend: info.spend ? file.state.spendCells(info.spend, info.usage_fetched_at) : noSpend() };
+      return {
+        sparks,
+        spend: info.spend ? file.state.spendCells(info.spend, info.usage_fetched_at) : noSpend(),
+        daily: file.state.spend.map(([d, period_start, used_minor]) => ({ day: d * day, period_start, used_minor })),
+      };
     } finally {
       file.close();
     }

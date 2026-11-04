@@ -103,6 +103,7 @@ export function main(): string {
     i18n.t`  corgi headless events PROVIDER SESSION [SEQ]   journal + pending requests`,
     i18n.t`  corgi headless stop PROVIDER SESSION        stop headless session`,
     i18n.t`  corgi watch --json            print agent states as JSON lines as they change`,
+    i18n.t`  corgi usage --json            print each account's limits and spend as JSON`,
     i18n.t`  corgi rpc JSON                local JSON control protocol`,
     i18n.t`  corgi reload [ABSOLUTE_EXE]    replace daemon, preserve live processes`,
     i18n.t`  corgi checkpoint               save recovery context now`,

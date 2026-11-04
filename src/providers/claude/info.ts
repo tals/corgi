@@ -56,7 +56,8 @@ export function identity(root: string, home: boolean): Login | null {
     const account = state(dir)?.oauthAccount,
       email = account?.emailAddress;
     if (typeof email !== "string" || !email) return null;
-    return { email, id: `${account.accountUuid || email}/${account.organizationUuid || ""}` };
+    const workspace = String(account.organizationUuid || "");
+    return { email, id: `${account.accountUuid || email}/${workspace}`, service: "claude", workspace };
   };
   return read(root) ?? (home ? read(dirname(root)) : null);
 }

@@ -3,7 +3,7 @@ import { unlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { Accounts, Login, Signin } from "../adapter";
 import { cached } from "../command_line";
-import { field, str } from "../common";
+import { field, service, str } from "../common";
 import { configDir } from "./integration";
 import * as codexPlan from "../codex/plan";
 
@@ -58,10 +58,18 @@ export function identity(root: string): Login | null {
   const { claims, email: user } = oauth(c.value);
   const workspace =
     str(c.value, "accountId") || str(field(claims, "https://api.openai.com/auth"), "chatgpt_account_id");
-  return {
+  const login: Login = {
     email: user || `${c.provider} OAuth`,
     id: `${c.provider}:${str(claims, "sub") || user || workspace || hash(str(c.value, "refresh"))}/${workspace}`,
   };
+  // Only the default provider's sign-in is the subscription Pi runs on.
+  const kind = service(c.provider),
+    preferred = str(cached(root, "settings.json"), "defaultProvider");
+  if (user && kind !== null && (!preferred || c.provider === preferred)) {
+    login.service = kind;
+    login.workspace = kind === "chatgpt" ? workspace : "";
+  }
+  return login;
 }
 export const signin: Signin = {
   started: text => /\S/.test(text),

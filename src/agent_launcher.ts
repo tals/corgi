@@ -6,6 +6,7 @@ import * as i18n from "./i18n";
 import * as palette from "./palette";
 import { Style, keycap } from "./palette";
 import { Provider, byProvider, adapter } from "./providers";
+import { login, type Login } from "./providers/adapter";
 import type { ByProvider } from "./providers";
 import { Rect } from "./layout";
 import { Dialog, View as DialogView, writeField } from "./name_dialog";
@@ -55,13 +56,15 @@ export interface Option {
   source: string;
   account: string;
   plan: string;
+  login: Login | null;
   limits: Limits;
   spend: spend.Reading | null;
   usage_fetched_at: number;
   usage_error: string;
   usage_needs_consent: boolean;
-  history: unknown;
+  history: [limitHistory.Spark, limitHistory.Spark];
   spend_history: limitHistory.SpendCell[];
+  spend_daily: limitHistory.SpendDay[];
 }
 export function option(value: any = {}): Option {
   return {
@@ -72,13 +75,15 @@ export function option(value: any = {}): Option {
     source: value.source ?? "",
     account: value.account ?? "",
     plan: value.plan ?? "",
+    login: login(value.login),
     limits: restoreLimits(value.limits ?? "none"),
     spend: spend.restore(value.spend),
     usage_fetched_at: Number(value.usage_fetched_at ?? 0),
     usage_error: value.usage_error ?? "",
     usage_needs_consent: value.usage_needs_consent === true,
-    history: value.history ?? null,
+    history: limitHistory.sparks(value.history),
     spend_history: limitHistory.spendCells(value.spend_history),
+    spend_daily: limitHistory.spendDays(value.spend_daily),
   };
 }
 /** The model's name, or its id when it has none. */
