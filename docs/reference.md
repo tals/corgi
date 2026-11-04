@@ -306,8 +306,8 @@ expressions. See `corgi grep --help`.
 
 `pane send` types literal input; `--enter` submits it. `message` prompts an
 agent through its provider's own channel where there is one (Claude Code's
-session inbox, Codex's app server, OpenCode's server, a headless session's
-protocol), and otherwise types the text and presses Enter, refusing an agent
+session inbox, Codex's app server, OpenCode's server, Corgi's Pi and OMP
+extension, a headless session's protocol), and otherwise types the text and presses Enter, refusing an agent
 that is waiting on a prompt or has a draft in its composer. It takes a pane ID,
 `current`, or `headless:ID` as `list` prints it. `pane close` and
 `tab close` terminate their target processes without prompting. Layout changes

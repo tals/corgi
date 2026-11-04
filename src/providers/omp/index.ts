@@ -8,7 +8,7 @@ import { decode as decodePi } from "../pi";
 import { Omp, summaryArgs, nativeIntent } from "./headless";
 import { directory, extension, source } from "./integration";
 import { transcript } from "./transcript";
-import { sockets } from "../pi/rename";
+import { sockets } from "../pi/socket";
 import { info } from "./info";
 import { accounts, identity } from "./accounts";
 import * as locations from "./locations";
@@ -57,7 +57,7 @@ export function decode(v: unknown): Hook {
     hook.awaiting_async_work = hook.outcome === "completed" && field(v, "awaiting_async_work") === true;
   return hook;
 }
-const rename = sockets("omp", directory);
+const socket = sockets("omp", directory);
 export const adapter: Adapter = {
   ...info,
   caps: {
@@ -168,7 +168,8 @@ export const adapter: Adapter = {
         env: /^(?:HOME|PI_.+|OMP_.+|.+_API_KEY|.+_AUTH_TOKEN|.+_OAUTH_TOKEN|.+_BASE_URL)$/,
       }),
   },
-  rename: { channel: rename.channel },
+  rename: { channel: socket.channel },
+  message: { channel: socket.message },
   headless: { start: at => Omp.start(at), restore: (saved, live) => Omp.restore(saved, live) },
   inference: {
     model: "openai-codex/gpt-6-luna",

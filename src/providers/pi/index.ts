@@ -7,7 +7,7 @@ import * as commandLine from "../command_line";
 import { Pi, summaryArgs } from "./headless";
 import { directory, extension, source } from "./integration";
 import { transcript } from "./transcript";
-import { channel, suggest } from "./rename";
+import * as socket from "./socket";
 import { info } from "./info";
 import { accounts } from "./accounts";
 import * as locations from "./locations";
@@ -143,7 +143,8 @@ export const adapter: Adapter = {
         env: /^(?:HOME|PI_.+|.+_API_KEY|.+_AUTH_TOKEN|.+_BASE_URL)$/,
       }),
   },
-  rename: { channel, suggest },
+  rename: { channel: socket.channel, suggest: socket.suggest },
+  message: { channel: socket.message },
   headless: { start: at => Pi.start(at), restore: (saved, live) => Pi.restore(saved, live) },
   inference: {
     model: "openai-codex/gpt-6-luna",

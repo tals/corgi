@@ -93,8 +93,8 @@ trims line ends, shortens rules and collapses blank runs; pass `--no-agent` to
 read the text as the screen shows it.
 Prompt an agent with `message`. It uses the provider's own channel when one
 reaches the agent: Claude Code's session inbox queues it after a running turn,
-Codex's app server steers a running turn with it, and OpenCode and headless
-sessions take it as a prompt. Otherwise it types the text and presses Enter,
+Codex's app server and Corgi's Pi and OMP extension steer a running turn with
+it, and OpenCode and headless sessions take it as a prompt. Otherwise it types the text and presses Enter,
 but not into an agent waiting on a prompt (`AgentBlocked`) or a composer
 holding a draft (`AgentBusy`); a hibernated pane fails with `PaneAsleep`. It
 prints `messaged …` or `typed into …`, adding `queued while it works` when the

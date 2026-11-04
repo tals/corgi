@@ -32,7 +32,7 @@ import {writeFileSync,readFileSync,watch} from "node:fs";
 const hooks = new Map(), entries = [], events = new Map();
 const childPath=${JSON.stringify(join(root, "child.jsonl"))};
 let name, session="s1";
-extension({on:(event,handler)=>hooks.set(event,handler),events:{on:(event,handler)=>{events.set(event,handler);return ()=>events.delete(event)}},getSessionName:()=>name,setSessionName:async n=>{name=n},appendEntry:(type,data)=>entries.push({type,data})});
+extension({on:(event,handler)=>hooks.set(event,handler),events:{on:(event,handler)=>{events.set(event,handler);return ()=>events.delete(event)}},getSessionName:()=>name,setSessionName:async n=>{name=n},appendEntry:(type,data)=>entries.push({type,data}),sendUserMessage:(prompt,options)=>entries.push({type:"prompt",data:{prompt,options}})});
 const publish=(event,data)=>events.get("task:subagent:"+event)?.(data);
 const branch=[{type:"message",message:{role:"user",content:[{type:"text",text:"Fix the build"}]}}];
 const ctx={mode:"tui",cwd:"/tmp",agent:{kind:"main"},model:{provider:"openai-codex",id:"gpt-6-luna",contextWindow:1000},getContextUsage:()=>({tokens:10}),ui:{onTerminalInput:()=>()=>{}},sessionManager:{getSessionId:()=>session,getSessionFile:()=>"/tmp/s1.jsonl",getBranch:()=>branch}};
@@ -109,6 +109,19 @@ await emit("agent_end", { messages: [] });
     turn: hooks[1].turn,
     outcome: "completed",
   });
+});
+test("omp takes a prompt through Corgi's extension, as its own default delivery", async () => {
+  const { entries } = await drive(`
+await emit("session_start");
+const { sockets } = await import(${JSON.stringify(join(import.meta.dir, "../pi/socket.ts"))});
+const omp = sockets("omp", () => process.env.PI_CODING_AGENT_DIR);
+const send = await omp.message("s1", true, "");
+await send("review this");
+await omp.message("s2", true, "").then(other => { if (other) throw Error("OtherSession"); });
+`);
+  expect(entries.filter((e: { type: string }) => e.type === "prompt")).toEqual([
+    { type: "prompt", data: { prompt: "review this" } },
+  ]);
 });
 test("omp shows approvals, plan reviews and questions as waiting on the user", async () => {
   const { hooks } = await drive(`

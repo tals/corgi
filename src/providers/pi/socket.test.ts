@@ -1,11 +1,11 @@
 import { test, expect } from "bun:test";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { createServer } from "node:net";
 import { source } from "./integration";
-import { channel, suggest } from "./rename";
+import { channel, message, suggest } from "./socket";
 
 test("Pi outside Corgi never opens the naming channel or changes its name", async () => {
   const module = "data:text/javascript;base64," + Buffer.from(source).toString("base64");
@@ -50,6 +50,8 @@ test("older Pi extensions are never sent an automatic rename", async () => {
   await new Promise<void>(resolve => server.listen(path, resolve));
   try {
     expect(await suggest(session, "Automatic name", account)).toBe("unavailable");
+    // Nor a prompt: an old extension would answer ok without taking it.
+    expect(await message(session, true, account)).toBeNull();
     expect(requests.every(r => r.name === undefined)).toBe(true);
     const rename = await channel(session, true, account);
     await rename!("Manual name");
@@ -118,6 +120,88 @@ await hooks.get("session_shutdown")({}, ctx);
     expect(output).toContain('{"name":"Manual title"}');
     expect(output).toContain('{"name":"Generated title"}');
     expect(output).not.toContain('{"name":"Explicit title"}');
+  } finally {
+    proc.kill();
+    await proc.exited;
+    await rm(dir, { recursive: true, force: true });
+  }
+}, 15000);
+
+test("Pi takes prompts through Corgi's extension, but not while it compacts", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-prompt-"));
+  const session = crypto.randomUUID();
+  const extension = join(dir, "extension.mjs"),
+    driver = join(dir, "driver.mjs"),
+    log = join(dir, "prompts.jsonl");
+  await writeFile(extension, source);
+  await writeFile(
+    driver,
+    `
+import extension from ${JSON.stringify(extension)};
+import { createInterface } from "node:readline";
+import { appendFileSync } from "node:fs";
+const hooks = new Map();
+extension({ on: (event, handler) => hooks.set(event, handler), getSessionName: () => "", setSessionName: () => {},
+  sendUserMessage: (prompt, options) => appendFileSync(${JSON.stringify(log)}, JSON.stringify({ prompt, options }) + "\\n") });
+const ctx = {mode:"tui",cwd:"/tmp",ui:{onTerminalInput:()=>()=>{}},sessionManager:{getSessionId:()=>${JSON.stringify(session)},getSessionFile:()=>""}};
+await hooks.get("session_start")({}, ctx);
+console.log("ready");
+for await (const line of createInterface({ input: process.stdin })) {
+  if (line === "stop") break;
+  await hooks.get(line)({}, ctx);
+  console.log("did " + line);
+}
+await hooks.get("session_shutdown")({}, ctx);
+`,
+  );
+  const proc = Bun.spawn([process.execPath, driver], {
+    env: {
+      ...process.env,
+      CORGI_PI_OWNER: "",
+      CORGI_PANE: "1",
+      CORGI_SOCKET: "/tmp/not-used",
+      CORGI_BIN: "/usr/bin/true",
+      PI_CODING_AGENT_DIR: dir,
+    },
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const reader = proc.stdout.getReader();
+  let output = "";
+  const until = async (line: string) => {
+    while (!output.includes(line + "\n")) {
+      const chunk = await reader.read();
+      if (chunk.done) throw Error("ExtensionExited");
+      output += new TextDecoder().decode(chunk.value);
+    }
+  };
+  const hook = async (name: string) => {
+    proc.stdin.write(name + "\n");
+    await until("did " + name);
+  };
+  try {
+    await until("ready");
+    const send = await message(session, true, dir);
+    expect(send).not.toBeNull();
+    // Longer than a name, with characters split across reads.
+    const long = "é🐕".repeat(200000);
+    await send!("review this");
+    await send!(long);
+    await hook("session_before_compact");
+    await expect(send!("later")).rejects.toThrow("MessageUnavailable");
+    await hook("session_compact");
+    await send!("later");
+    proc.stdin.write("stop\n");
+    proc.stdin.end();
+    expect(await proc.exited, await new Response(proc.stderr).text()).toBe(0);
+    const prompts = (await readFile(log, "utf8"))
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line));
+    expect(prompts).toEqual(
+      ["review this", long, "later"].map(prompt => ({ prompt, options: { deliverAs: "steer" } })),
+    );
   } finally {
     proc.kill();
     await proc.exited;

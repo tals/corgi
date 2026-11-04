@@ -134,7 +134,7 @@ export default function (pi) {
     pi.events?.on("task:subagent:progress", progress),
   ];
   const close = () => new Promise(resolve => { const s = server; server = undefined; serving = ""; s ? s.close(() => resolve()) : resolve(); });
-  // A socket per session lets Corgi rename it.
+  // A socket per session lets Corgi rename it and send it prompts.
   const listen = async ctx => {
     const session = ctx.sessionManager.getSessionId();
     if (serving === session) return;
@@ -144,21 +144,27 @@ export default function (pi) {
     const socketPath = join(tmpdir(), `corgi-omp-${process.getuid?.() ?? 0}-${hash}-${process.pid}.sock`);
     server = createServer(socket => {
       let bytes = "";
-      socket.setTimeout(1500, () => socket.destroy()); socket.on("error", () => {});
+      socket.setEncoding("utf8"); socket.setTimeout(1500, () => socket.destroy()); socket.on("error", () => {});
       socket.on("data", chunk => {
         bytes += chunk;
-        if(bytes.length > 2048) return socket.destroy();
+        if(bytes.length > 8388608) return socket.destroy();
         if(!bytes.includes("\n")) return;
         try {
           const r = JSON.parse(bytes);
           if(r.session !== ctx.sessionManager.getSessionId()) return socket.end('{"ok":false}\n');
+          if(r.prompt !== undefined) {
+            // Without deliverAs, omp starts a turn when idle and steers a running one.
+            if(typeof r.prompt !== "string" || !r.prompt) return socket.end('{"ok":false}\n');
+            pi.sendUserMessage(r.prompt);
+            return socket.end('{"ok":true,"prompted":true}\n');
+          }
           if(r.name !== undefined) {
             if(typeof r.name !== "string" || r.name.length > 160 || /[\x00-\x1f]/.test(r.name)) return socket.end('{"ok":false}\n');
             if(r.only_unnamed && pi.getSessionName()) return socket.end('{"ok":false,"exists":true}\n');
             pi.setSessionName(r.name).then(() => socket.end('{"ok":true,"automatic":true}\n'), () => socket.end('{"ok":false}\n'));
             return;
           }
-          socket.end('{"ok":true,"automatic":true}\n');
+          socket.end('{"ok":true,"automatic":true,"prompts":true}\n');
         } catch { socket.destroy(); }
       });
     });
