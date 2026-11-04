@@ -472,6 +472,8 @@ export class Runtime {
   closed: ClosedAgent[] = [];
   stopped: number[] = [];
   sessions: Session[] = [];
+  /** When the prompt's unread sessions were last checked, so a long gap reads as the machine sleeping. */
+  sessions_retired_at = 0;
   renames: TypedRename[] = [];
   wanted_names: WantedName[] = [];
   wanted_efforts: WantedEffort[] = [];

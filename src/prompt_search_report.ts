@@ -56,7 +56,12 @@ export class Reporter {
   /** Tells the session a line `corgi memory` wrote, so its thread shows it
    * and /erase can strike it. */
   memory(change: Change): Promise<void> {
-    return this.call("headless.memory", { id: this.headless, ...change }, ++this.sent);
+    const { file, line, was } = change;
+    return this.call(
+      "headless.memory",
+      { id: this.headless, file, line, was_file: was?.file ?? "", was_line: was?.line ?? "" },
+      ++this.sent,
+    );
   }
   private async call<Op extends "headless.search" | "headless.memory">(
     op: Op,

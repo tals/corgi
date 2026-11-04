@@ -1,8 +1,9 @@
 //! Claude Code Corgi drives over stream-json: a daemon-hosted session, or a
 //! tool-less one for summaries. One conversation per process.
+import { isAbsolute } from "node:path";
 import { parse, stringify } from "../../json";
-import { field, imageData, number, str } from "../common";
-import type { Client, Event, Inference, Input, Place, Saved } from "../adapter";
+import { field, hostSummary, imageData, number, str } from "../common";
+import type { Client, Event, Host, Inference, Input, Place, Saved } from "../adapter";
 import { Stdio } from "../stdio";
 import * as instructions from "../instructions";
 import { Tokens } from "../../usage/live";
@@ -38,7 +39,24 @@ export function sessionArgs(at: Place, file: string) {
   if (at.persist === false) args.push("--no-session-persistence");
   // Auto mode, and leave to skip the checks should the account not have it.
   if (at.unattended) args.push("--permission-mode", "auto", "--allow-dangerously-skip-permissions");
+  if (at.host?.tools.length)
+    args.push(
+      "--mcp-config",
+      JSON.stringify({ mcpServers: { [host_server]: { type: "sdk", name: host_server } } }),
+      "--allowedTools",
+      at.host.tools.map(t => `mcp__${host_server}__${t.name}`).join(","),
+    );
   return args;
+}
+/** The host's tools reach Claude Code as an in-process MCP server: its
+ * messages come and go over this same pipe, so it runs no process. */
+const host_server = "corgi";
+/** The control response carrying an answer from the host's MCP server. */
+function mcpReply(id: string, reply: Record<string, unknown>) {
+  return {
+    type: "control_response",
+    response: { subtype: "success", request_id: id, response: { mcp_response: { jsonrpc: "2.0", ...reply } } },
+  };
 }
 /** What runs Claude Code as a tool-less model for `r`. */
 export function summaryArgs(r: Inference) {
@@ -56,6 +74,13 @@ function reported(usage: unknown) {
     created = number(usage, "cache_creation_input_tokens") ?? 0n;
   return new Tokens({ input: input + cached + created, cached_input: cached, output });
 }
+/** Claude Code's tools that write a file, and the input that names it. */
+const writers = new Map([
+  ["Edit", "file_path"],
+  ["MultiEdit", "file_path"],
+  ["Write", "file_path"],
+  ["NotebookEdit", "notebook_path"],
+]);
 /** What a tool request is about, in a few words. */
 function about(input: unknown) {
   for (const key of ["command", "file_path", "notebook_path", "pattern", "url", "query", "description", "skill"])
@@ -79,6 +104,13 @@ export class Claude implements Client {
   unattended = false;
   private events: Event[] = [];
   private failure: Error | null = null;
+  /** The file each running tool writes, until its result says it did. */
+  private writes = new Map<string, string>();
+  /** Who runs the host's tools, and the calls running now by control
+   * request, with the MCP request each answers. */
+  private host: Host | null = null;
+  private calls = new Map<string, { call: unknown; abort: AbortController; reply?: unknown }>();
+  private interrupted: [string, unknown][] = [];
   constructor(
     readonly io: Stdio,
     /** A summary answers with its result, as JSON when it has a schema. */
@@ -110,6 +142,7 @@ export class Claude implements Client {
       const client = Claude.start(at, sessionArgs(at, file), null);
       client.file = file;
       client.unattended = at.unattended === true;
+      client.host = at.host ?? null;
       return client;
     } catch (error) {
       instructions.remove(file);
@@ -199,7 +232,11 @@ export class Claude implements Client {
         const content = field(message, "content"),
           text: string[] = [];
         for (const block of Array.isArray(content) ? content : []) {
-          if (str(block, "type") === "tool_use")
+          const writes = str(field(block, "input"), writers.get(str(block, "name")) ?? "");
+          if (str(block, "type") === "tool_use" && isAbsolute(writes)) this.writes.set(str(block, "id"), writes);
+          if (str(block, "type") === "tool_use") {
+            const name = str(block, "name"),
+              hosted = name.startsWith(`mcp__${host_server}__`) ? name.slice(`mcp__${host_server}__`.length) : "";
             this.events.push({
               kind: "tool",
               session,
@@ -207,9 +244,10 @@ export class Claude implements Client {
               id: str(block, "id"),
               done: false,
               wrote: [],
-              name: str(block, "name"),
-              summary: about(field(block, "input")),
+              name: hosted || name,
+              summary: hosted ? hostSummary(field(block, "input")) : about(field(block, "input")),
             });
+          }
           if (str(block, "type") === "text") text.push(str(block, "text"));
         }
         // A subagent's text is its own report, not the conversation's reply.
@@ -222,8 +260,13 @@ export class Claude implements Client {
       case "user": {
         const content = field(field(v, "message"), "content");
         for (const block of Array.isArray(content) ? content : [])
-          if (str(block, "type") === "tool_result")
-            this.events.push({ kind: "tool", session, turn: "", id: str(block, "tool_use_id"), done: true, wrote: [] });
+          if (str(block, "type") === "tool_result") {
+            const id = str(block, "tool_use_id"),
+              path = this.writes.get(id);
+            this.writes.delete(id);
+            const wrote = path && field(block, "is_error") !== true ? [path] : [];
+            this.events.push({ kind: "tool", session, turn: "", id, done: true, wrote });
+          }
         return;
       }
       case "result": {
@@ -254,6 +297,7 @@ export class Claude implements Client {
           subtype = str(request, "subtype"),
           id = str(v, "request_id");
         if (!id) return;
+        if (subtype === "mcp_message") return this.mcp(id, str(request, "server_name"), field(request, "message"));
         if (subtype === "can_use_tool") this.inputs.set(id, field(request, "input"));
         this.events.push({
           kind: "request",
@@ -279,6 +323,69 @@ export class Claude implements Client {
       }
     }
   }
+  /** Answers a message for the host's tool server over the pipe it came on;
+   * a call answers once the host has run it. */
+  private mcp(id: string, server: string, message: unknown) {
+    const call = field(message, "id"),
+      params = field(message, "params"),
+      host = server === host_server ? this.host : null;
+    if (call === null) return this.answerMcp(id, { result: {} });
+    switch (str(message, "method")) {
+      case "initialize":
+        return this.answerMcp(id, {
+          id: call,
+          result: {
+            protocolVersion: str(params, "protocolVersion") || "2025-06-18",
+            capabilities: { tools: {} },
+            serverInfo: { name: host_server, version: "1" },
+          },
+        });
+      case "tools/list":
+        return this.answerMcp(id, {
+          id: call,
+          result: {
+            tools: (host?.tools ?? []).map(t => ({ name: t.name, description: t.description, inputSchema: t.input })),
+          },
+        });
+      case "tools/call": {
+        if (!host) return this.toolResult(id, call, "Corgi isn't running its tools here now. Try again.", true);
+        const abort = new AbortController();
+        this.calls.set(id, { call, abort });
+        void host
+          .call(str(params, "name"), field(params, "arguments"), abort.signal)
+          .catch(() => ({ text: "corgi: the call failed", failed: true }))
+          .then(r => {
+            const pending = this.calls.get(id);
+            if (!pending) return;
+            pending.reply = mcpReply(id, {
+              id: call,
+              result: { content: [{ type: "text", text: r.text }], isError: r.failed },
+            });
+            this.flushCalls();
+          });
+        return;
+      }
+    }
+    this.answerMcp(id, { id: call, error: { code: -32601, message: "Method not found" } });
+  }
+  private toolResult(id: string, call: unknown, text: string, failed: boolean) {
+    this.answerMcp(id, { id: call, result: { content: [{ type: "text", text }], isError: failed } });
+  }
+  private answerMcp(id: string, reply: Record<string, unknown>) {
+    this.io.write(mcpReply(id, reply));
+  }
+  private flushCalls() {
+    if (this.io.closed || this.io.exited) {
+      for (const { abort } of this.calls.values()) abort.abort();
+      this.calls.clear();
+      return;
+    }
+    for (const [id, call] of this.calls)
+      if (call.reply !== undefined && this.io.reply(call.reply)) this.calls.delete(id);
+  }
+  serve(host: Host) {
+    this.host = host;
+  }
   /** Auto mode isn't on for every account and model: without it, skip the checks. */
   private unattend(mode: string) {
     if (mode === "auto" || mode === "bypassPermissions") return;
@@ -295,6 +402,7 @@ export class Claude implements Client {
   }
   take(): Event[] {
     for (const value of this.io.read()) this.decode(value);
+    this.flushCalls();
     if (this.io.exited) {
       this.events.push({ kind: "ended" });
       this.release();
@@ -314,6 +422,8 @@ export class Claude implements Client {
   close() {
     // A process a handoff passed on may still read it.
     if (this.io.owner === "runtime") this.release();
+    for (const { abort } of this.calls.values()) abort.abort();
+    this.calls.clear();
     this.io.close();
   }
   private release() {
@@ -322,6 +432,8 @@ export class Claude implements Client {
   }
   adopt() {
     this.io.adopt();
+    for (const [id, call] of this.interrupted.splice(0))
+      this.toolResult(id, call, "Corgi restarted while this ran. Run it again.", true);
   }
   processes() {
     return this.io.pid > 0 ? [this.io.pid] : [];
@@ -340,6 +452,10 @@ export class Claude implements Client {
         streamed: this.streamed,
         file: this.file,
         unattended: this.unattended,
+        calls: [...this.calls].filter(([, c]) => c.reply === undefined).map(([id, { call }]) => [id, call]),
+        replies: [...this.calls].flatMap(([id, c]) =>
+          c.reply === undefined ? [] : [{ id, call: c.call, reply: c.reply }],
+        ),
       },
       handles: saved.handles,
     };
@@ -354,6 +470,17 @@ export class Claude implements Client {
     client.streamed = state.streamed ?? "";
     client.file = typeof state.file === "string" ? state.file : "";
     client.unattended = state.unattended === true;
+    // A call the last daemon ran never finishes: once this one takes over,
+    // the model hears so and can run it again.
+    if (live && Array.isArray(state.calls))
+      client.interrupted = state.calls.filter((c: unknown) => Array.isArray(c) && typeof c[0] === "string");
+    if (live)
+      for (const reply of state.replies ?? [])
+        client.calls.set(str(reply, "id"), {
+          call: field(reply, "call"),
+          abort: new AbortController(),
+          reply: field(reply, "reply"),
+        });
     // Requests an older Corgi kept as the lines it read.
     for (const line of state.lines ?? []) client.decode(typeof line === "string" ? parse(line) : line);
     return client;

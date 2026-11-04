@@ -2,10 +2,14 @@
 //! several threads in one process, or a tool-less one for summaries.
 import path from "node:path";
 import { parse, stringify } from "../../json";
-import { field, str } from "../common";
-import type { Client, Event, Image, Inference, Input, Place, Saved } from "../adapter";
+import { field, hostSummary, str } from "../common";
+import type { Client, Event, Host, HostTool, Image, Inference, Input, Place, Saved } from "../adapter";
 import { Stdio } from "../stdio";
 import { parseTokens } from "./usage";
+/** A host tool's answer to an app-server request. */
+function toolReply(id: unknown, text: string, success: boolean) {
+  return { id, result: { contentItems: [{ type: "inputText", text }], success } };
+}
 export const ItemType = [
   "commandExecution",
   "fileChange",
@@ -86,7 +90,10 @@ export function tool(item: unknown): { name: string; summary: string } {
     case "mcpToolCall":
       return { name: str(item, "tool"), summary: str(item, "server") };
     case "dynamicToolCall":
-      return { name: str(item, "tool"), summary: str(item, "namespace") };
+      // The host's own tools say what they were asked; others, whose namespace.
+      return field(field(item, "arguments"), "args") !== null
+        ? { name: str(item, "tool"), summary: hostSummary(field(item, "arguments")) }
+        : { name: str(item, "tool"), summary: str(item, "namespace") };
     case "collabAgentToolCall":
       return { name: "Agent", summary: str(item, "prompt") || str(item, "tool") };
     case "webSearch":
@@ -98,8 +105,11 @@ export function tool(item: unknown): { name: string; summary: string } {
   }
   return { name: "", summary: "" };
 }
-/** What a daemon-hosted thread starts with, besides the account's own settings. */
-export type Options = Pick<Place, "model" | "effort" | "instructions" | "persist" | "unattended">;
+/** What a daemon-hosted thread starts with, besides the account's own
+ * settings; `tools`, the host's, are the thread's alone. */
+export type Options = Pick<Place, "model" | "effort" | "instructions" | "persist" | "unattended"> & {
+  tools?: HostTool[];
+};
 /** Thread settings for a daemon-hosted session in `cwd`. */
 export function sessionThread(cwd: string, o: Options) {
   return {
@@ -109,6 +119,16 @@ export function sessionThread(cwd: string, o: Options) {
     ...(o.instructions ? { developerInstructions: o.instructions } : {}),
     ...(o.persist === false ? { ephemeral: true } : {}),
     ...(o.unattended ? { approvalPolicy: "never", sandbox: "danger-full-access" } : {}),
+    ...(o.tools?.length
+      ? {
+          dynamicTools: o.tools.map(t => ({
+            type: "function",
+            name: t.name,
+            description: t.description,
+            inputSchema: t.input,
+          })),
+        }
+      : {}),
   };
 }
 /** Thread settings for a summary: no tools, no approvals, nothing kept. */
@@ -169,6 +189,11 @@ export class Codex implements Client {
   streaming = new Map<string, { thread: string; text: string }>();
   private events: Event[] = [];
   private failure: Error | null = null;
+  /** Who runs the host's tools, and the calls running now by request key;
+   * the ones a handoff cut off, answered once this daemon takes over. */
+  private host: Host | null = null;
+  private calls = new Map<string, { id: unknown; abort: AbortController; reply?: unknown }>();
+  private interrupted: unknown[] = [];
   constructor(
     readonly io: Stdio,
     readonly cwd: string,
@@ -184,7 +209,9 @@ export class Codex implements Client {
             : undefined,
       }),
       { model, effort, instructions, persist, unattended } = at,
-      client = new Codex(io, at.cwd, summary, { model, effort, instructions, persist, unattended });
+      tools = at.host?.tools.length ? { tools: at.host.tools } : {},
+      client = new Codex(io, at.cwd, summary, { model, effort, instructions, persist, unattended, ...tools });
+    client.host = at.host ?? null;
     client.request(
       "initialize",
       { clientInfo: { name: "corgi", version: "1" }, capabilities: { experimentalApi: true } },
@@ -342,9 +369,10 @@ export class Codex implements Client {
     if (this.summary && thread && thread !== this.thread) return;
     if (method && id !== null) {
       const key = typeof id === "string" ? id : stringify(id);
+      if (method === "item/tool/call" && this.options.tools?.some(t => t.name === str(params, "tool")))
+        return this.call(key, id, str(params, "tool"), field(params, "arguments"));
       this.requests.set(key, { id, method });
-      // A command asks with the command itself, as Claude's Bash does, so it
-      // can be read, and run without asking when it's a safe Corgi one.
+      // A command asks with the command itself, as Claude's Bash does, so it can be read.
       const command = method === command_approval ? bareCommand(str(params, "command")) : "",
         summary = command || str(params, "reason") || str(params, "command") || str(field(params, "item"), "type");
       this.events.push({
@@ -454,6 +482,7 @@ export class Codex implements Client {
   }
   take(): Event[] {
     for (const value of this.io.read()) this.decode(value);
+    this.flushCalls();
     if (this.io.exited) this.events.push({ kind: "ended" });
     const out = this.events;
     this.events = [];
@@ -467,11 +496,45 @@ export class Codex implements Client {
   wait(deadline: number) {
     return this.io.wait(deadline);
   }
+  /** Runs a call to one of the host's tools, and answers it with what it printed. */
+  private call(key: string, id: unknown, tool: string, input: unknown) {
+    if (!this.host) return this.toolResult(id, "Corgi isn't running its tools here now. Try again.", false);
+    const abort = new AbortController();
+    this.calls.set(key, { id, abort });
+    void this.host
+      .call(tool, input, abort.signal)
+      .catch(() => ({ text: "corgi: the call failed", failed: true }))
+      .then(r => {
+        const call = this.calls.get(key);
+        if (!call) return;
+        call.reply = toolReply(id, r.text, !r.failed);
+        this.flushCalls();
+      });
+  }
+  private flushCalls() {
+    if (this.io.closed || this.io.exited) {
+      for (const { abort } of this.calls.values()) abort.abort();
+      this.calls.clear();
+      return;
+    }
+    for (const [key, call] of this.calls)
+      if (call.reply !== undefined && this.io.reply(call.reply)) this.calls.delete(key);
+  }
+  private toolResult(id: unknown, text: string, success: boolean) {
+    this.io.write(toolReply(id, text, success));
+  }
+  serve(host: Host) {
+    this.host = host;
+  }
   close() {
+    for (const { abort } of this.calls.values()) abort.abort();
+    this.calls.clear();
     this.io.close();
   }
   adopt() {
     this.io.adopt();
+    for (const id of this.interrupted.splice(0))
+      this.toolResult(id, "Corgi restarted while this ran. Run it again.", false);
   }
   processes() {
     return this.io.pid > 0 ? [this.io.pid] : [];
@@ -496,6 +559,8 @@ export class Codex implements Client {
         streaming: [...this.streaming],
         opening: [...this.opening],
         after_turn: [...this.after_turn],
+        calls: [...this.calls.values()].filter(c => c.reply === undefined).map(c => c.id),
+        replies: [...this.calls.values()].flatMap(c => (c.reply === undefined ? [] : [{ id: c.id, reply: c.reply }])),
       },
       handles: saved.handles,
     };
@@ -514,6 +579,13 @@ export class Codex implements Client {
     client.opening = new Map(state.opening ?? []);
     client.after_turn = new Map(state.after_turn ?? []);
     for (const asked of state.requests ?? []) client.requests.set(asked.key, { id: asked.id, method: asked.method });
+    if (live && Array.isArray(state.calls)) client.interrupted = state.calls;
+    if (live)
+      for (const reply of state.replies ?? []) {
+        const id = field(reply, "id"),
+          key = typeof id === "string" ? id : stringify(id);
+        client.calls.set(key, { id, abort: new AbortController(), reply: field(reply, "reply") });
+      }
     // Requests an older Corgi kept as the lines it read.
     for (const line of state.lines ?? []) client.decode(typeof line === "string" ? parse(line) : line);
     return client;

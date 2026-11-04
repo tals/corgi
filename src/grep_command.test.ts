@@ -165,6 +165,13 @@ test("invalid regex errors even when scope selects nothing; an unknown provider 
   expect(r.code).toBe(2);
   expect(r.stderr).toContain("Unknown provider nope; use codex, claude, pi, opencode2, omp");
 });
+test("--chat names a prompt chat by its ID", async () => {
+  for (const bad of ["0", "x"]) {
+    const r = await search("--chat", bad, "needle");
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("--chat takes a chat's ID");
+  }
+});
 
 test("a search that finds the index locked reads changes itself and names no cache file for them", async () => {
   const say = (text: string) => ({

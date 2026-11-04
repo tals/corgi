@@ -12,6 +12,7 @@ import {
   type Ask,
   type Client,
   type Event,
+  type Host,
   type Image,
   type Input,
   type Place,
@@ -34,8 +35,11 @@ import type { Runtime } from "./runtime";
 import type { Server } from "./server";
 import { Reply, type Client as Peer } from "./peer";
 import type { DecodedRequest } from "./protocol";
+import * as errors from "./errors";
 import type * as promptMemory from "./prompt_memory";
 import * as promptSearch from "./prompt_search";
+import * as promptTools from "./prompt_tools";
+import * as subprocess from "./subprocess";
 type Request = Extract<
   DecodedRequest,
   {
@@ -110,6 +114,24 @@ export function startOptions(query: Extract<Request, { op: "headless.start" }>["
     ...(query.instructions ? { instructions: query.instructions } : {}),
     ...(query.persist ? {} : { persist: false }),
   };
+}
+/** What a start asks of session `id`, and for one of the prompt's: it never
+ * stops to ask, and its model drives Corgi with a tool of its own or, where
+ * the provider takes none, in its shell, told which chat to name. */
+export function sessionOptions(
+  query: Extract<Request, { op: "headless.start" }>["payload"],
+  socket: string,
+  executable: string,
+  id: number,
+  cwd: string,
+): Options {
+  const options = startOptions(query);
+  if (!query.corgi) return options;
+  options.env = corgiEnv(socket, executable, id, query.persist);
+  options.unattended = true;
+  if (adapter(query.provider).headless?.tools) options.host = corgiHost(socket, executable, id, query.persist, cwd);
+  else options.instructions = [options.instructions, promptTools.chatFlag(id)].filter(Boolean).join("\n\n");
+  return options;
 }
 /** A tool's name or summary as the journal keeps it: one bounded line with
  * no control characters, so no escape sequence, and the session's folder
@@ -423,7 +445,8 @@ export class Session {
   }
   /** A line `corgi memory` wrote while running for it. */
   memory(change: promptMemory.Change): void {
-    if (!isAbsolute(change.file) || /[\r\n]/.test(change.line)) throw Error("InvalidMessage");
+    for (const w of change.was ? [change, change.was] : [change])
+      if (!isAbsolute(w.file) || /[\r\n]/.test(w.line)) throw Error("InvalidMessage");
     this.journal({ kind: "memory", session: this.session, ...change });
   }
   private journal(event: Event | promptSearch.Event | promptMemory.Event) {
@@ -694,14 +717,13 @@ export function sweep(runtime: Runtime, now = Date.now()) {
 /** How long a prompt session no pane holds may go unread while a viewer is
  * attached: its viewer quit while others stayed, and none took it up. */
 export const unread_ms = 10 * 60_000;
-let retired_at = 0;
 /** Stops the prompt's sessions no viewer reads. Until a viewer attaches, and
  * after a gap that means the machine slept, each gets its time again. True
  * when it stopped one. */
 export function retire(runtime: Runtime, attached: boolean, now = Date.now()) {
-  const rested = !attached || now - retired_at > 60_000,
+  const rested = !attached || now - runtime.sessions_retired_at > 60_000,
     gone: Session[] = [];
-  retired_at = now;
+  runtime.sessions_retired_at = now;
   for (const s of runtime.sessions) {
     if (!s.corgi || s.exited || s.pane !== null) continue;
     if (rested) s.read_at = now;
@@ -714,13 +736,51 @@ export function retire(runtime: Runtime, attached: boolean, now = Date.now()) {
   return true;
 }
 /** How a prompt session reaches this Corgi: its socket, and its own corgi
- * first on PATH. No pane, so provider hooks and extensions stay quiet. */
-export function corgiEnv(socket: string, executable: string, id?: number): Record<string, string | undefined> {
+ * first on PATH and as CORGI_BIN. No pane, so provider hooks and extensions
+ * stay quiet. One that saves nothing only reads memory. */
+export function corgiEnv(
+  socket: string,
+  executable: string,
+  id?: number,
+  persist = true,
+): Record<string, string | undefined> {
   return {
     CORGI_SOCKET: socket,
     CORGI_PANE: undefined,
     CORGI_HEADLESS_ID: id === undefined ? undefined : String(id),
+    CORGI_MEMORY: persist ? undefined : "read",
+    CORGI_BIN: executable,
     PATH: `${dirname(executable)}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+  };
+}
+/** The `corgi` tool for prompt session `id`: Corgi's own executable run
+ * with a call's words, no shell between, in `cwd` and the environment the
+ * session's own commands get, so what it runs reports to this session. */
+export function corgiHost(socket: string, executable: string, id: number, persist: boolean, cwd: string): Host {
+  return {
+    tools: [promptTools.tool],
+    async call(name, input, signal) {
+      const args = name === promptTools.tool.name ? promptTools.toolArgs(input) : null;
+      if (!args) return { text: "corgi: Usage", failed: true };
+      const quit = new subprocess.Quit();
+      signal?.addEventListener("abort", () => quit.signal());
+      try {
+        const out = await subprocess.run([executable, ...args], {
+          cwd,
+          env: { ...process.env, ...corgiEnv(socket, executable, id, persist) },
+          input: "",
+          timeout_ms: 10 * 60_000,
+          max_output: 256 * 1024,
+          cut: true,
+          stderr: true,
+          quit,
+        });
+        const text = (out.stdout.toString() + out.stderr.toString()).trimEnd();
+        return { text: (out.cut ? `${text}\n(output cut)` : text) || "(no output)", failed: !out.ok() && !out.cut };
+      } catch (error) {
+        return { text: `corgi: ${errors.name(error) ?? "unknown error"}`, failed: true };
+      }
+    },
   };
 }
 export async function request(server: Server, client: Peer, request: Request, reply = new Reply(client)) {
@@ -731,14 +791,15 @@ export async function request(server: Server, client: Peer, request: Request, re
       images = query.images === null ? [] : validImages(query.images);
     if (!query.prompt.trim() && !images.length) throw Error("InvalidMessage");
     if (runtime.sessions.length >= 16) throw Error("TooManyHeadlessSessions");
-    const workspace = query.workspace ? runtime.getWorkspace(query.workspace) : server.onlyWorkspace();
-    const session = await Session.start(runtime.next_session, query.provider, query.cwd || workspace.cwd, {
-      ...startOptions(query),
-      // The prompt never stops to ask.
-      ...(query.corgi
-        ? { env: corgiEnv(server.socket, server.executable, runtime.next_session), unattended: true }
-        : {}),
-    });
+    const workspace = query.workspace ? runtime.getWorkspace(query.workspace) : server.onlyWorkspace(),
+      id = runtime.next_session,
+      cwd = query.cwd || workspace.cwd;
+    const session = await Session.start(
+      id,
+      query.provider,
+      cwd,
+      sessionOptions(query, server.socket, server.executable, id, cwd),
+    );
     if (client.dead) {
       session.destroy();
       return;
@@ -764,6 +825,7 @@ export async function request(server: Server, client: Peer, request: Request, re
     reply.send({
       ok: true,
       sessions: runtime.sessions.map((session: Session) => ({
+        id: session.id,
         pid: session.client.processes?.()[0] ?? -1,
         session: session.session || null,
         provider: session.provider,
@@ -791,8 +853,8 @@ export async function request(server: Server, client: Peer, request: Request, re
     if (!session) throw Error("NoHeadlessSession");
     if (request.op === "headless.search") session.search(request.payload.search);
     else {
-      const { file, line, edited } = request.payload;
-      session.memory({ file, line, edited });
+      const { file, line, was_file, was_line } = request.payload;
+      session.memory({ file, line, was: was_file ? { file: was_file, line: was_line } : null });
     }
     server.dirty = true;
     reply.send({ ok: true });

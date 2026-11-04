@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { Codex, bareCommand, sessionThread, tool } from "./headless";
 import type { Stdio } from "../stdio";
+import type { Host } from "../adapter";
 /** A Codex client reading `lines` as its app server's output, recording what it writes. */
 function client(lines: unknown[], summary = false, options: Codex["options"] = {}) {
   const written: unknown[] = [];
@@ -9,6 +10,10 @@ function client(lines: unknown[], summary = false, options: Codex["options"] = {
     pid: -1,
     read: () => lines.splice(0),
     write: (value: unknown) => written.push(value),
+    reply: (value: unknown) => {
+      written.push(value);
+      return true;
+    },
     wait: async () => {},
     close() {},
     adopt() {},
@@ -380,4 +385,57 @@ test("a summary doesn't stream", () => {
   );
   codex.thread = "mine";
   expect(codex.take().some(e => e.kind === "partial")).toBe(false);
+});
+test("the host's tools are the thread's own, and Codex's calls to them are run and answered", async () => {
+  const corgi = { name: "corgi", description: "Runs Corgi", input: { type: "object" } };
+  expect(sessionThread("/repo", { tools: [corgi] })).toEqual({
+    cwd: "/repo",
+    dynamicTools: [{ type: "function", name: "corgi", description: "Runs Corgi", inputSchema: { type: "object" } }],
+  });
+  const calls: unknown[] = [];
+  let finish!: (r: { text: string; failed: boolean }) => void;
+  const h: Host = {
+    tools: [corgi],
+    call: (name, input) => {
+      calls.push([name, input]);
+      return new Promise(done => (finish = done));
+    },
+  };
+  const call = (id: number, tool: string) => ({
+      id,
+      method: "item/tool/call",
+      params: { threadId: "t", turnId: "u", callId: `c${id}`, tool, arguments: { args: ["list"] } },
+    }),
+    { codex, written } = client([call(4, "corgi"), call(5, "other")], false, { tools: [corgi] });
+  codex.serve(h);
+  const events = codex.take();
+  // Another dynamic tool still waits for the user; the host's goes to the host.
+  expect(events.filter(e => e.kind === "request").map(e => (e as any).id)).toEqual(["5"]);
+  expect(calls).toEqual([["corgi", { args: ["list"] }]]);
+  finish({ text: "workspace 1 /repo", failed: false });
+  await Bun.sleep(0);
+  expect(written.at(-1)).toEqual({
+    id: 4,
+    result: { contentItems: [{ type: "inputText", text: "workspace 1 /repo" }], success: true },
+  });
+  // Its row says what it runs.
+  expect(tool({ type: "dynamicToolCall", tool: "corgi", arguments: { args: ["grep", "flicker"] } })).toEqual({
+    name: "corgi",
+    summary: "grep flicker",
+  });
+});
+test("a Codex call cut off by a daemon reload fails once the next daemon takes over", () => {
+  const corgi = { name: "corgi", description: "", input: {} },
+    { codex } = client(
+      [{ id: 9, method: "item/tool/call", params: { threadId: "t", tool: "corgi", arguments: { args: ["list"] } } }],
+      false,
+      { tools: [corgi] },
+    );
+  codex.serve({ tools: [corgi], call: () => new Promise(() => {}) });
+  codex.take();
+  const restored: any = Codex.restore(codex.save(true), true),
+    written: unknown[] = [];
+  restored.io = { adopt() {}, write: (v: unknown) => written.push(v) };
+  restored.adopt();
+  expect(written).toEqual([{ id: 9, result: { contentItems: [expect.any(Object)], success: false } }]);
 });

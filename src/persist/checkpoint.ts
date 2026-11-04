@@ -486,7 +486,7 @@ export async function restore(
     r.closed.push(closed);
   }
   if (state.sessions.length) {
-    const { Session } = await import("../headless");
+    const { Session, corgiHost } = await import("../headless");
     for (const saved of state.sessions) {
       // The Corgi prompt's conversations end with the daemon that ran them.
       if (!live && saved.corgi === true) continue;
@@ -500,7 +500,11 @@ export async function restore(
           (tracker?.next_tool ?? 0) >= (tracker?.tools?.length ?? 256),
         () => `native session ${saved.id}'s usage tracker is out of range`,
       );
-      r.sessions.push(await Session.restore(saved, r.conversations, live, { repairs, strict }));
+      const session = await Session.restore(saved, r.conversations, live, { repairs, strict });
+      // The prompt's own tools run in this daemon now.
+      if (session.corgi && !session.exited)
+        session.client.serve?.(corgiHost(socket, executable, session.id, session.persist, session.cwd));
+      r.sessions.push(session);
     }
   }
   // `recover` false only checks the checkpoint: no shells start.

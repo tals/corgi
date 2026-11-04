@@ -4455,10 +4455,11 @@ export class Controller {
           await this.create(null, effect.cwd || this.currentCwd(), shellWords(effect.argv), "", () => (made = true));
         } catch (error) {
           const name = errors.name(error) ?? "unknown error";
-          // A pane the daemon made goes on with the conversation; the card
-          // takes it back only from one that never opened.
+          // A pane the daemon made goes on with the conversation. The card
+          // takes it back only when the daemon refused: after a lost reply, a
+          // pane may still start and read the handoff.
           if (made) return;
-          if (effect.handoff) this.prompt.reclaim(effect.handoff, name);
+          if (effect.handoff && errors.reply(error)) this.prompt.reclaim(effect.handoff, name);
           this.notice(` Couldn't open a pane: ${name}`);
         }
         return;
@@ -4575,14 +4576,19 @@ export class Controller {
   }
   /** Where the prompt offers models: each signed-in agent and account the
    * launcher lists, the user runs (one hidden in Manage agents may still run
-   * from a saved command) or picked; with none of those, every signed-in one.
-   * Empty until the first preview says what's installed. */
+   * from a saved command, or in a pane now) or picked; with none of those,
+   * every signed-in one. Empty until the first preview says what's installed. */
   private promptPlaces(): PromptPlace[] {
     const preview = this.launch_previews.preview,
       pick = this.prefs.prompt_model === "auto" ? null : (this.prefs.prompt_model ?? null),
-      launched = this.runtime.inference.launches,
+      // A saved command says only when it runs its provider's default account.
+      saved = new Set(
+        this.runtime.agent_commands.flatMap(({ command, hidden, semantics: s }) =>
+          command && !hidden && s.default_account && s.provider ? [s.provider] : [],
+        ),
+      ),
       runs = (provider: Provider, account: string) =>
-        (!account && launched[provider] > 0) ||
+        (!account && saved.has(provider)) ||
         this.runtime.panes.some(p => p.agent.provider === provider && p.account === account) ||
         (!account && this.runtime.sessions.some(s => s.provider === provider)),
       out: PromptPlace[] = [],

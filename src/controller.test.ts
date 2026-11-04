@@ -2920,23 +2920,32 @@ test("presses on one pane cell within the double-click window count up to three"
   }
 });
 
-test("the card takes its conversation back only from a pane that never opened", async () => {
-  const { s } = recording(folders("/a"));
+test("the card takes its conversation back only when the daemon refuses the pane", async () => {
+  const snapshot = folders("/a");
+  const s: any = new Controller({
+    socket: "",
+    request: transport(async op => (op === "session.command" ? { err: "NoWorkspace" } : snapshot)).request,
+  });
+  s.receiveSnapshot(snapshot);
+  s.input_state.attached = true;
   const reclaim = spyOn(s.prompt, "reclaim").mockImplementation(() => {}),
     effect = { kind: "pane", argv: ["corgi", "__chat"], cwd: "/w", handoff: "/tmp/h.json" };
   try {
+    await s.promptEffect(effect);
+    expect(reclaim).toHaveBeenCalledWith("/tmp/h.json", "NoWorkspace");
+    reclaim.mockClear();
     // Made, then reading the change failed: the pane goes on with it.
     const made = spyOn(s, "execute").mockImplementation(async (_command: unknown, done?: () => void) => {
       done?.();
       throw Error("ConnectionClosed");
     });
     await s.promptEffect(effect);
-    expect(reclaim).not.toHaveBeenCalled();
     made.mockRestore();
-    const refused = spyOn(s, "execute").mockRejectedValue(Error("NoWorkspace"));
+    // Lost before the reply: a pane may still open and read the handoff.
+    const lost = spyOn(s, "execute").mockRejectedValue(Error("ConnectionClosed"));
     await s.promptEffect(effect);
-    expect(reclaim).toHaveBeenCalledWith("/tmp/h.json", "NoWorkspace");
-    refused.mockRestore();
+    lost.mockRestore();
+    expect(reclaim).not.toHaveBeenCalled();
   } finally {
     reclaim.mockRestore();
     viewer.close(s);
@@ -3809,8 +3818,16 @@ test("the prompt offers an agent hidden in Manage agents that the user runs, and
     await Bun.sleep(1);
     expect(read.sort()).toEqual(["claude:", "codex:"]);
     // Claude runs from a saved command in a pane: only it.
+    const places = () => (s as any).promptPlaces().map((p: { provider: string }) => p.provider);
     s.runtime.panes[0].agent.provider = "claude";
-    expect((s as any).promptPlaces().map((p: { provider: string }) => p.provider)).toEqual(["claude"]);
+    expect(places()).toEqual(["claude"]);
+    // Launched once long ago isn't running it; a saved command that starts it is.
+    s.runtime.panes[0].agent.provider = null;
+    s.runtime.inference.launches.claude = 5;
+    const saved = s.runtime.agent_commands[0];
+    saved.command = "codex";
+    Object.assign(saved.semantics, { provider: "codex", default_account: true });
+    expect(places()).toEqual(["codex"]);
   } finally {
     viewer.close(s);
   }

@@ -202,6 +202,51 @@ fs.renameSync(${JSON.stringify(report + ".tmp")}, ${JSON.stringify(report)});
     rmSync(dir, { recursive: true, force: true });
   }
 });
+test("a Pi session with the host's tools loads them as an extension of its own, gone when it is", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "corgi-pi-")),
+    program = join(dir, "pi"),
+    report = join(dir, "report.json");
+  writeFileSync(
+    program,
+    `#!${process.execPath}
+const fs = require("node:fs");
+const args = process.argv.slice(2), file = args[args.indexOf("--extension") + 1];
+fs.writeFileSync(${JSON.stringify(report + ".tmp")}, JSON.stringify({ args, text: fs.readFileSync(file, "utf8") }));
+fs.renameSync(${JSON.stringify(report + ".tmp")}, ${JSON.stringify(report)});
+`,
+  );
+  chmodSync(program, 0o755);
+  const tool = { name: "corgi", description: "Runs Corgi", input: {} },
+    pi = Pi.start({
+      cwd: dir,
+      account: "",
+      executable: program,
+      host: { tools: [tool], call: async () => ({ text: "", failed: false }) },
+    }),
+    file = pi.tools_file;
+  try {
+    const deadline = Date.now() + 5000;
+    while ((!existsSync(report) || existsSync(file)) && Date.now() < deadline) {
+      pi.take();
+      await Bun.sleep(10);
+    }
+    const seen = JSON.parse(readFileSync(report, "utf8"));
+    expect(seen.text).toContain('[{"name":"corgi","description":"Runs Corgi"}]');
+    expect(seen.text).toContain("process.env.CORGI_BIN");
+    expect(existsSync(file)).toBe(false);
+  } finally {
+    pi.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+  // A session without them loads none.
+  expect(sessionArgs({ cwd: "/repo", account: "", executable: "pi" }, "")).not.toContain("--extension");
+});
+test("a call to the host's tool says what it runs", () => {
+  const { c, lines } = client();
+  c.tools = ["corgi"];
+  lines.push({ type: "tool_execution_start", toolCallId: "t", toolName: "corgi", args: { args: ["grep", "flicker"] } });
+  expect(c.take().find(e => e.kind === "tool")).toMatchObject({ name: "corgi", summary: "grep flicker" });
+});
 const textDelta = (contentIndex: number, delta: string) => ({
   type: "message_update",
   assistantMessageEvent: { type: "text_delta", contentIndex, delta },

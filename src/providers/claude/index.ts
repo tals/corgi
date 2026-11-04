@@ -127,6 +127,7 @@ export const adapter: Adapter = {
   headless: {
     start: at => Claude.session(at),
     restore: Claude.restore,
+    tools: true,
   },
   inference: {
     model: "claude-haiku-5-5",

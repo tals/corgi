@@ -1,6 +1,6 @@
 //! The prompt's conversation: one headless session the daemon hosts, driven
-//! over `headless.*` and folded into the rows the prompt draws. It answers
-//! memory edits itself and notices the lines they add.
+//! over `headless.*` and folded into the rows the prompt draws. Memory
+//! commands report the lines they add; other writes show an update.
 import { isAbsolute } from "node:path";
 import { adapter, type Provider } from "./providers";
 import type { Image, Input } from "./providers/adapter";
@@ -64,9 +64,6 @@ export type Used = { provider: Provider; session: string; account: string; persi
 export type Hooks = {
   /** Whether `path` is in the memory folder, links followed. */
   inside(path: string): boolean;
-  /** Whether a whole shell command only looks at Corgi or moves a viewer, so
-   * it runs without asking. */
-  corgi?(command: string): boolean;
   search?(command: string): boolean;
   /** Where a session's transcript is, "" when Corgi doesn't know; asked while it still runs. */
   transcript?(provider: Provider, session: string, account: string): string;
@@ -83,14 +80,6 @@ type Prompt = Extract<Input, { kind: "prompt" }>;
 function prompt(text: string, images: Image[]): Prompt {
   return { kind: "prompt", text, ...(images.length ? { images } : {}) };
 }
-/** The tools whose requests are allowed without asking when they edit one
- * absolute path in the memory folder: Claude Code's file edits. Codex asks
- * about file changes without naming their paths, and Pi and omp don't ask
- * about tools, so theirs always wait for the user. */
-const memory_edits: Partial<Record<Provider, string[]>> = { claude: ["Edit", "Write", "MultiEdit", "NotebookEdit"] };
-/** The tools whose requests carry a whole shell command as their summary:
- * Claude Code's Bash, and Codex's command approvals. */
-const shells: Partial<Record<Provider, string>> = { claude: "Bash", codex: "item/commandExecution/requestApproval" };
 const tab_stop = 4;
 
 /** Text from the daemon or memory made safe to measure and draw: escape
@@ -130,7 +119,7 @@ type Wire =
   | { kind: "turn"; session: string; phase: "started" }
   | { kind: "turn"; session: string; phase: "ended"; outcome: Outcome }
   | { kind: "message" | "partial"; session: string; text: string }
-  | { kind: "tool"; session: string; id: string; done: boolean; name: string; summary: string }
+  | { kind: "tool"; session: string; id: string; done: boolean; name: string; summary: string; wrote: string[] }
   | promptSearch.Event
   | MemoryEvent
   | { kind: "request"; session: string; id: string; name: string; summary: string }
@@ -145,14 +134,16 @@ function wire(value: unknown): Wire | null {
       const search = promptSearch.parse(field(value, "search"));
       return search ? { kind: "search", session, search } : null;
     }
-    case "memory":
+    case "memory": {
+      const was = field(value, "was");
       return {
         kind: "memory",
         session,
         file: str(value, "file"),
         line: str(value, "line"),
-        edited: field(value, "edited") === true,
+        was: str(was, "file") ? { file: str(was, "file"), line: str(was, "line") } : null,
       };
+    }
     case "conversation":
       return { kind: "conversation", session, parent: str(value, "parent") || null };
     case "turn": {
@@ -168,7 +159,8 @@ function wire(value: unknown): Wire | null {
     case "message":
     case "partial":
       return { kind: str(value, "kind") as "message" | "partial", session, text: clean(str(value, "text"), true) };
-    case "tool":
+    case "tool": {
+      const wrote = field(value, "wrote");
       return {
         kind: "tool",
         session,
@@ -176,7 +168,9 @@ function wire(value: unknown): Wire | null {
         done: field(value, "done") === true,
         name: clean(str(value, "name")),
         summary: clean(str(value, "summary")),
+        wrote: Array.isArray(wrote) ? wrote.filter((p): p is string => typeof p === "string" && isAbsolute(p)) : [],
       };
+    }
     case "request":
       return { kind: "request", session, id: str(value, "id"), ...ask(field(value, "ask")) };
     case "request_closed":
@@ -361,12 +355,24 @@ export class Conversation {
       this.input({ kind: "interrupt" });
     }
   }
-  /** Ends the session; the thread stays. */
-  stop(): Promise<void> {
+  /** Ends the session; the thread stays. Memory lines the session wrote
+   * that the thread hadn't read yet still count, so /erase finds them. */
+  async stop(): Promise<void> {
     const provider = this.provider,
-      session = this.session;
+      session = this.session,
+      after = this.after,
+      wrote = this.wrote;
     this.drop();
-    return provider && session ? this.end(provider, session) : Promise.resolve();
+    if (!provider || !session) return;
+    // Stopping drops its journal, so what's left is read first.
+    try {
+      const reply: any = await this.daemon.call("headless.events", { provider, session, after });
+      for (const entry of Array.isArray(reply?.events) ? reply.events : []) {
+        const e = wire(field(entry, "event"));
+        if (e?.kind === "memory") this.remember(e, wrote);
+      }
+    } catch {}
+    await this.end(provider, session);
   }
   /** Stops a session, whether or not it still runs. */
   end(provider: Provider, session: string): Promise<void> {
@@ -399,9 +405,8 @@ export class Conversation {
     this.dirty = true;
     return stopped;
   }
-  /** Sends `text` to a session no longer shown, answers what it asks (a safe
-   * Corgi command yes, anything else no), and stops it when that turn ends,
-   * or after a minute. */
+  /** Sends `text` to a session no longer shown, says no to anything it asks,
+   * since nobody sees it, and stops it when that turn ends, or after a minute. */
   private async flushThenEnd(provider: Provider, session: string, after: bigint, text: string): Promise<void> {
     const wait = this.hooks.wait ?? ((ms: number) => new Promise<void>(done => setTimeout(done, ms))),
       deadline = this.clock() + 60_000,
@@ -419,14 +424,13 @@ export class Conversation {
           if (event?.kind === "turn" && event.phase === "ended") ended = true;
         }
         for (const request of reply?.pending_requests ?? []) {
-          const id = str(request, "id"),
-            { name, summary } = ask(field(request, "ask"));
+          const id = str(request, "id");
           if (answered.has(id)) continue;
           answered.add(id);
           await this.daemon.call("headless.send", {
             provider,
             session,
-            input: { kind: "answer", request: id, allow: this.corgiCommand(name, summary, provider) },
+            input: { kind: "answer", request: id, allow: false },
           });
         }
       }
@@ -689,7 +693,9 @@ export class Conversation {
       case "search": {
         if (e.session !== this.session) return;
         const tool = this.tool();
-        if (tool && this.hooks.search?.(tool.summary)) tool.search = e.search.id;
+        // A shell's row names the command; Corgi's own tool's, the words after its name.
+        if (tool && (this.hooks.search?.(tool.summary) || this.hooks.search?.(`${tool.name} ${tool.summary}`)))
+          tool.search = e.search.id;
         const item = this.items.find(i => i.kind === "search" && i.search.id === e.search.id);
         if (item?.kind === "search") {
           if (!promptSearch.finished(item.search) && e.search.revision > item.search.revision) item.search = e.search;
@@ -739,10 +745,12 @@ export class Conversation {
         } else if (e.id && e.name)
           // An item that ends with no tool's name, as Codex's messages do, isn't a tool.
           this.push({ kind: "tool", id: e.id, name: e.name, summary: e.summary, done: e.done });
+        if (e.done && e.wrote.some(path => this.hooks.inside(path))) this.note("Memory updated", "faint", true);
         return;
       }
       case "memory":
-        return this.remember(e);
+        if (this.remember(e)) this.note(`${e.was ? "edited" : "remembered"} ${shownLine(e.line)}`, "faint", true);
+        return;
       case "request":
         return this.request(e.id, e.name, e.summary);
       case "request_closed": {
@@ -766,40 +774,11 @@ export class Conversation {
     }
     return null;
   }
+  /** A request the session makes waits for the user: the prompt's sessions
+   * run unattended, so one comes only when its agent asks anyway. */
   private request(id: string, name: string, summary: string): void {
     if (!id || this.answered.has(id) || this.items.some(item => item.kind === "ask" && item.id === id)) return;
-    if (this.memoryEdit(name, summary)) {
-      this.answered.add(id);
-      this.input(
-        this.memory_writes
-          ? { kind: "answer", request: id, allow: true }
-          : {
-              kind: "answer",
-              request: id,
-              allow: false,
-              message: "This conversation is incognito: don't write memory.",
-            },
-      );
-      return;
-    }
-    if (this.corgiCommand(name, summary)) {
-      this.answered.add(id);
-      this.input({ kind: "answer", request: id, allow: true });
-      return;
-    }
     this.push({ kind: "ask", id, name: clean(name) || "Tool", summary: clean(summary), answer: null });
-  }
-  /** Whether a tool is a file edit whose summary is one absolute path in
-   * the memory folder. Commands, searches and relative paths never are. */
-  private memoryEdit(name: string, summary: string): boolean {
-    const edits = this.provider ? (memory_edits[this.provider] ?? []) : [];
-    return edits.includes(name) && isAbsolute(summary) && clean(summary) === summary && this.hooks.inside(summary);
-  }
-  /** Whether a request is a shell running one Corgi command that only looks
-   * or moves a viewer. */
-  private corgiCommand(name: string, summary: string, provider = this.provider): boolean {
-    const shell = provider ? shells[provider] : undefined;
-    return !!shell && name === shell && clean(summary) === summary && (this.hooks.corgi?.(summary) ?? false);
   }
   /** Requests the journal no longer holds, and ones answered elsewhere. */
   private reconcile(pending: unknown[]): void {
@@ -823,12 +802,18 @@ export class Conversation {
     void this.end(provider, session).catch(() => {});
     this.note(text, "faint");
   }
-  /** A line `corgi memory` wrote for this session: a row, and when it's
-   * new, one /erase strikes. Only a line in the memory folder counts, and
-   * only while the conversation keeps memory. */
-  private remember(change: MemoryChange): void {
-    if (!this.memory_writes || !isAbsolute(change.file) || !this.hooks.inside(change.file)) return;
-    if (!change.edited) this.wrote.push({ file: change.file, line: change.line });
-    this.note(`${change.edited ? "edited" : "remembered"} ${shownLine(change.line)}`, "faint", true);
+  /** A line `corgi memory` wrote for this session: a row, and when it's new
+   * or replaced one it wrote, one /erase strikes. Only a line in the memory
+   * folder counts. An incognito chat's session can't write with `corgi
+   * memory`, so one that lands anyway is shown and struck the same way. */
+  private remember(change: MemoryChange, wrote = this.wrote): boolean {
+    if (!isAbsolute(change.file) || !this.hooks.inside(change.file)) return false;
+    const { was } = change,
+      own = was ? wrote.findIndex(w => w.file === was.file && w.line === was.line) : -1,
+      line = { file: change.file, line: change.line };
+    // A line it rewrote or moved stays its own; one it changed of the user's stays theirs.
+    if (own >= 0) wrote[own] = line;
+    else if (!was) wrote.push(line);
+    return true;
   }
 }

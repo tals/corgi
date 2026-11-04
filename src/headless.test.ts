@@ -5,15 +5,18 @@ import { join } from "node:path";
 import {
   Session,
   corgiEnv,
+  corgiHost,
   finishStarts,
   request,
   retire,
+  sessionOptions,
   startOptions,
   sweep,
   unread_ms,
   validImages,
 } from "./headless";
 import * as accounts from "./accounts";
+import { chatFlag } from "./prompt_tools";
 import * as json from "./json";
 import * as protocol from "./protocol";
 import type { Runtime } from "./runtime";
@@ -688,7 +691,7 @@ test("a prompt session left unread while a viewer is attached stops, unless a pa
   const left = session(),
     held = session(),
     ordinary = session(),
-    runtime = { sessions: [left, held, ordinary], changed() {} } as unknown as Runtime;
+    runtime = { sessions: [left, held, ordinary], sessions_retired_at: 0, changed() {} } as unknown as Runtime;
   left.corgi = held.corgi = true;
   held.pane = 7;
   // Ticks every 30 s, with the viewers attached or not.
@@ -737,6 +740,61 @@ test("a prompt session reaches this Corgi through its socket and its own corgi, 
   expect(env.CORGI_SOCKET).toBe("/tmp/corgi-test/control.sock");
   expect("CORGI_PANE" in env && env.CORGI_PANE === undefined).toBe(true);
   expect(env.PATH?.startsWith("/opt/corgi/bin:")).toBe(true);
+  // One that saves nothing only reads memory.
+  expect(env.CORGI_MEMORY).toBeUndefined();
+  expect(corgiEnv("/s", "/bin/corgi", 1, false).CORGI_MEMORY).toBe("read");
+});
+
+test("the prompt's sessions drive Corgi with its tool where the provider takes one, else in their shell with --chat", () => {
+  const start = (provider: string, corgi = true) =>
+      sessionOptions(
+        protocol.decode("headless.start", { provider, prompt: "hi", instructions: "Be brief.", corgi }) as any,
+        "/s",
+        "/bin/corgi",
+        7,
+        "/repo",
+      ),
+    claude = start("claude"),
+    opencode = start("opencode2");
+  expect(claude.host?.tools.map(t => t.name)).toEqual(["corgi"]);
+  expect(claude.instructions).toBe("Be brief.");
+  expect(claude).toMatchObject({ unattended: true, env: { CORGI_HEADLESS_ID: "7", CORGI_BIN: "/bin/corgi" } });
+  expect(opencode.host).toBeUndefined();
+  expect(opencode.instructions).toBe("Be brief.\n\n" + chatFlag(7));
+  // An ordinary headless session gets none of it.
+  expect(start("claude", false)).toEqual({ account: "", instructions: "Be brief." });
+});
+test("the corgi tool runs Corgi itself with the call's words, as the session's own commands would", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "corgi-host-"))),
+    program = join(dir, "corgi");
+  writeFileSync(
+    program,
+    `#!/bin/sh
+printf '%s|' "$@"
+echo "chat=$CORGI_HEADLESS_ID memory=$CORGI_MEMORY pane=$CORGI_PANE"
+[ "$1" = fail ] && { echo nope >&2; exit 3; }
+exit 0
+`,
+  );
+  chmodSync(program, 0o755);
+  try {
+    const host = corgiHost("/s", program, 7, false, dir);
+    expect(await host.call("corgi", { args: ["memory", "add", "it's; $(id)"] })).toEqual({
+      text: "memory|add|it's; $(id)|chat=7 memory=read pane=",
+      failed: false,
+    });
+    expect(await host.call("corgi", { args: ["fail"] })).toEqual({
+      text: "fail|chat=7 memory=read pane=\nnope",
+      failed: true,
+    });
+    for (const [name, input] of [
+      ["corgi", { args: "list" }],
+      ["other", { args: ["list"] }],
+    ] as const)
+      expect(await host.call(name, input)).toEqual({ text: "corgi: Usage", failed: true });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("a memory line corgi memory wrote reaches only its own prompt session's journal", async () => {
@@ -745,12 +803,17 @@ test("a memory line corgi memory wrote reaches only its own prompt session's jou
   shown(s, registry, "a");
   s.corgi = true;
   const p = pendingStart(s),
-    line = { file: "/memory/2026-10-30.md", line: "- Ships Fridays", edited: false };
+    line = { file: "/memory/2026-10-30.md", line: "- Ships Fridays", was_file: "", was_line: "" };
   await request(p.server, p.peer, { op: "headless.memory", payload: { id: s.id, ...line } });
-  expect(s.events.at(-1)?.event).toEqual({ kind: "memory", session: "a", ...line });
+  expect(s.events.at(-1)?.event).toEqual({ kind: "memory", session: "a", file: line.file, line: line.line, was: null });
+  // A line it replaced comes along, wherever it was.
+  const moved = { ...line, file: "/memory/MEMORY.md", was_file: "/memory/2026-10-30.md", was_line: "- Ships Fridays" };
+  await request(p.server, p.peer, { op: "headless.memory", payload: { id: s.id, ...moved } });
+  expect(s.events.at(-1)?.event).toMatchObject({ was: { file: "/memory/2026-10-30.md", line: "- Ships Fridays" } });
   for (const bad of [
     { ...line, file: "memory/x.md" },
     { ...line, line: "- one\n- two" },
+    { ...moved, was_file: "memory/x.md" },
   ])
     await expect(request(p.server, p.peer, { op: "headless.memory", payload: { id: s.id, ...bad } })).rejects.toThrow(
       "InvalidMessage",

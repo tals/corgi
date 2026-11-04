@@ -250,10 +250,14 @@ test("--replaces with a file named moves the line there", () => {
     line: 1,
     path: join(memory.dir, "MEMORY.md"),
     text: "- foo is baz",
+    was: { file: join(memory.dir, "2026-10-30.md"), line: "- foo = bar" },
   });
   expect(read("2026-10-30.md")).toBe("- other\n");
   expect(read("MEMORY.md")).toBe("- foo is baz\n");
   // Without, it's rewritten where it was.
-  expect(memory.add("other, changed", "today", now, { file: "2026-10-30.md", line: 1 }).file).toBe("2026-10-30.md");
+  expect(memory.add("other, changed", "today", now, { file: "2026-10-30.md", line: 1 })).toMatchObject({
+    file: "2026-10-30.md",
+    was: { file: join(memory.dir, "2026-10-30.md"), line: "- other" },
+  });
   expect(read("2026-10-30.md")).toBe("- other, changed\n");
 });

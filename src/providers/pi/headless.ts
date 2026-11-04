@@ -1,11 +1,12 @@
 //! Pi's persistent JSONL RPC transport. A run ends only at agent_settled.
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { field, imageData, str, number } from "../common";
-import type { Client, Event, Inference, Input, Place, Saved } from "../adapter";
+import { field, hostSummary, imageData, str, number } from "../common";
+import type { Client, Event, HostTool, Inference, Input, Place, Saved } from "../adapter";
 import type { Outcome } from "../../observation";
 import { Stdio } from "../stdio";
 import * as instructions from "../instructions";
+import tools_source from "./tools.txt" with { type: "text" };
 import { Tokens } from "../../usage/live";
 export function reported(usage: unknown) {
   const input = number(usage, "input"),
@@ -45,6 +46,10 @@ export function sessionArgs(at: Place, file: string) {
     ...(file ? ["--append-system-prompt", file] : []),
     ...(at.persist === false ? ["--no-session"] : []),
   ];
+}
+/** The extension that offers the host's tools in one session's process. */
+function toolsExtension(tools: HostTool[]): string {
+  return tools_source.replace("TOOLS", JSON.stringify(tools.map(({ name, description }) => ({ name, description }))));
 }
 /** What a tool call is about, in a few words. */
 export function about(args: unknown) {
@@ -92,6 +97,9 @@ export class Pi implements Client {
   streamed: string[] = [];
   /** The file its instructions are in, which goes with it. */
   file = "";
+  /** The host's tools, which its extension at `tools_file` runs as Corgi commands. */
+  tools: string[] = [];
+  tools_file = "";
   constructor(
     readonly io: Stdio,
     readonly cwd: string,
@@ -105,16 +113,22 @@ export class Pi implements Client {
     delete env.CORGI_PANE;
     delete env.CORGI_SOCKET;
     Object.assign(env, at.env);
-    const file = !args && at.instructions ? instructions.write(at.instructions) : "";
+    const file = !args && at.instructions ? instructions.write(at.instructions) : "",
+      hosted = !args ? (at.host?.tools ?? []) : [],
+      tools_file = hosted.length ? instructions.write(toolsExtension(hosted), "corgi-tools.js") : "";
     let io: Stdio;
     try {
-      io = Stdio.spawn([at.executable, "--mode", this.mode, ...(args ?? sessionArgs(at, file))], { cwd: at.cwd, env });
+      const session = [...sessionArgs(at, file), ...(tools_file ? ["--extension", tools_file] : [])];
+      io = Stdio.spawn([at.executable, "--mode", this.mode, ...(args ?? session)], { cwd: at.cwd, env });
     } catch (error) {
       instructions.remove(file);
+      instructions.remove(tools_file);
       throw error;
     }
     const c = new this(io, at.cwd);
     c.file = file;
+    c.tools = hosted.map(t => t.name);
+    c.tools_file = tools_file;
     c.io.write({ id: "corgi-state", type: "get_state" });
     return c;
   }
@@ -233,6 +247,7 @@ export class Pi implements Client {
       case "tool_execution_start": {
         const id = str(v, "toolCallId"),
           name = str(v, "toolName"),
+          hosted = this.tools.includes(name),
           p = str(field(v, "args"), "path");
         this.writes.set(id, ["write", "edit"].includes(name) && p ? [path.resolve(this.cwd, p)] : []);
         this.events.push({
@@ -242,8 +257,8 @@ export class Pi implements Client {
           id,
           done: false,
           wrote: [],
-          name: toolName(name),
-          summary: about(field(v, "args")),
+          name: hosted ? name : toolName(name),
+          summary: hosted ? hostSummary(field(v, "args")) : about(field(v, "args")),
         });
         return;
       }
@@ -357,7 +372,8 @@ export class Pi implements Client {
   }
   private release() {
     if (this.file) instructions.remove(this.file);
-    this.file = "";
+    if (this.tools_file) instructions.remove(this.tools_file);
+    this.file = this.tools_file = "";
   }
   adopt() {
     this.io.adopt();
@@ -386,6 +402,8 @@ export class Pi implements Client {
         awaiting: this.awaiting,
         streamed: this.streamed,
         file: this.file,
+        tools: this.tools,
+        tools_file: this.tools_file,
       },
     };
   }
@@ -406,6 +424,8 @@ export class Pi implements Client {
       awaiting: string;
       streamed?: string[];
       file?: string;
+      tools?: string[];
+      tools_file?: string;
     };
     const c = new this(Stdio.restore(saved, live), s.cwd);
     Object.assign(c, {
@@ -420,6 +440,8 @@ export class Pi implements Client {
       awaiting: s.awaiting ?? "",
       streamed: s.streamed ?? [],
       file: typeof s.file === "string" ? s.file : "",
+      tools: Array.isArray(s.tools) ? s.tools.filter(t => typeof t === "string") : [],
+      tools_file: typeof s.tools_file === "string" ? s.tools_file : "",
     });
     c.requests = new Map(s.requests);
     c.writes = new Map(s.writes);

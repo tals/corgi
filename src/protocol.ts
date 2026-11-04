@@ -695,7 +695,13 @@ const requests = {
   // A reader in a pane passes its pane, which claims the session: closing the pane stops it.
   "headless.events": { provider: "provider", session: "string", after: ["u64", 0], pane: ["?u32", null] },
   "headless.search": { id: "u32", search: "json" },
-  "headless.memory": { id: "u32", file: "string", line: "string", edited: ["bool", false] },
+  "headless.memory": {
+    id: "u32",
+    file: "string",
+    line: "string",
+    was_file: ["string", ""],
+    was_line: ["string", ""],
+  },
   theme: { theme: ["theme", null] },
   "viewer.terminal": { terminal: "json" },
   hook: {

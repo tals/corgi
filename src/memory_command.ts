@@ -86,8 +86,7 @@ export function run(memory: Memory, args: string[], now: Date, wrote: (change: C
           now,
           replaces && { ...replaces, moved },
         );
-      if (done.status !== "already")
-        wrote({ file: done.path, line: done.text, edited: done.status === "replaced" && !moved });
+      if (done.status !== "already") wrote({ file: done.path, line: done.text, was: done.was });
       return `${done.status === "already" ? "already in" : done.status} ${done.file}:${done.line}\n`;
     }
     case "forget": {

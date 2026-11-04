@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Claude, sessionArgs } from "./headless";
 import type { Stdio } from "../stdio";
+import type { Host } from "../adapter";
 /** A Claude client reading `lines` as its output, recording what it writes. */
 function client(lines: unknown[], summary: { schema: boolean } | null = null) {
   const written: unknown[] = [];
@@ -12,6 +13,10 @@ function client(lines: unknown[], summary: { schema: boolean } | null = null) {
     pid: -1,
     read: () => lines.splice(0),
     write: (value: unknown) => written.push(value),
+    reply: (value: unknown) => {
+      written.push(value);
+      return true;
+    },
     wait: async () => {},
     close() {},
     adopt() {},
@@ -206,6 +211,38 @@ test("Claude's tools say what they are", () => {
     { kind: "tool", session: "a", turn: "", id: "s", done: false, wrote: [], name: "WebSearch", summary: "bun ffi" },
   ]);
 });
+test("a tool that writes a file says which once it succeeds", () => {
+  const result = (id: string, error = false) => ({
+    type: "user",
+    session_id: "a",
+    message: { content: [{ type: "tool_result", tool_use_id: id, ...(error ? { is_error: true } : {}) }] },
+  });
+  const { claude } = client([
+    {
+      type: "assistant",
+      session_id: "a",
+      message: {
+        id: "m",
+        content: [
+          { type: "tool_use", id: "w", name: "Write", input: { file_path: "/repo/notes.md", content: "x" } },
+          { type: "tool_use", id: "n", name: "NotebookEdit", input: { notebook_path: "/repo/a.ipynb" } },
+          { type: "tool_use", id: "e", name: "Edit", input: { file_path: "relative.md" } },
+          { type: "tool_use", id: "r", name: "Read", input: { file_path: "/repo/src/x.ts" } },
+        ],
+      },
+    },
+    result("w"),
+    result("n", true),
+    result("e"),
+    result("r"),
+  ]);
+  expect(claude.take().flatMap(e => (e.kind === "tool" && e.done ? [[e.id, e.wrote]] : []))).toEqual([
+    ["w", ["/repo/notes.md"]],
+    ["n", []],
+    ["e", []],
+    ["r", []],
+  ]);
+});
 test("a stream half-way through survives a handoff", () => {
   const { claude } = client([delta("Half")]);
   claude.take();
@@ -239,4 +276,97 @@ test("an unattended session runs in auto mode, and skips its checks where auto m
   const { claude } = client([]);
   claude.unattended = true;
   expect(Claude.restore(claude.save(true), true).unattended).toBe(true);
+});
+/** A host with one tool, which records its calls and answers when told. */
+function host() {
+  const calls: [string, unknown][] = [];
+  let finish!: (r: { text: string; failed: boolean }) => void;
+  const h: Host = {
+    tools: [{ name: "corgi", description: "Runs Corgi", input: { type: "object" } }],
+    call: (name, input) => {
+      calls.push([name, input]);
+      return new Promise(done => (finish = done));
+    },
+  };
+  return { h, calls, finish: (r: { text: string; failed: boolean }) => finish(r) };
+}
+const mcp = (id: string, message: unknown) => ({
+  type: "control_request",
+  request_id: id,
+  request: { subtype: "mcp_message", server_name: "corgi", message },
+});
+const answered = (written: unknown[], id: string) =>
+  (written as any[]).find(w => w.type === "control_response" && w.response.request_id === id)?.response.response
+    .mcp_response;
+test("a session with the host's tools offers them in its own process, with no server of its own", () => {
+  const { h } = host(),
+    args = sessionArgs({ cwd: "/repo", account: "", executable: "claude", host: h }, "");
+  const config = JSON.parse(args[args.indexOf("--mcp-config") + 1]);
+  expect(config).toEqual({ mcpServers: { corgi: { type: "sdk", name: "corgi" } } });
+  expect(args[args.indexOf("--allowedTools") + 1]).toBe("mcp__corgi__corgi");
+  expect(sessionArgs({ cwd: "/repo", account: "", executable: "claude" }, "")).not.toContain("--mcp-config");
+});
+test("Claude reaches the host's tools over its own pipe, and a call answers once it's run", async () => {
+  const { h, calls, finish } = host(),
+    lines: unknown[] = [
+      mcp("c1", { jsonrpc: "2.0", id: 0, method: "initialize", params: { protocolVersion: "2025-11-25" } }),
+      mcp("c2", { jsonrpc: "2.0", method: "notifications/initialized" }),
+      mcp("c3", { jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      mcp("c4", {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "corgi", arguments: { args: ["list"] } },
+      }),
+      {
+        type: "assistant",
+        session_id: "a",
+        message: {
+          id: "m",
+          content: [{ type: "tool_use", id: "t", name: "mcp__corgi__corgi", input: { args: ["grep", "flicker"] } }],
+        },
+      },
+    ],
+    { claude, written } = client(lines);
+  claude.serve(h);
+  const events = claude.take();
+  expect(answered(written, "c1")).toMatchObject({ id: 0, result: { protocolVersion: "2025-11-25" } });
+  expect(answered(written, "c2")).toEqual({ jsonrpc: "2.0", result: {} });
+  expect(answered(written, "c3")).toEqual({
+    jsonrpc: "2.0",
+    id: 1,
+    result: { tools: [{ name: "corgi", description: "Runs Corgi", inputSchema: { type: "object" } }] },
+  });
+  // Its row says what it runs, as Corgi's own tool.
+  expect(events.find(e => e.kind === "tool")).toMatchObject({ name: "corgi", summary: "grep flicker" });
+  // Nothing asks the user.
+  expect(events.some(e => e.kind === "request")).toBe(false);
+  expect(calls).toEqual([["corgi", { args: ["list"] }]]);
+  expect(answered(written, "c4")).toBeUndefined();
+  finish({ text: "workspace 1 /repo", failed: false });
+  await Bun.sleep(0);
+  expect(answered(written, "c4")).toEqual({
+    jsonrpc: "2.0",
+    id: 2,
+    result: { content: [{ type: "text", text: "workspace 1 /repo" }], isError: false },
+  });
+});
+test("a call cut off by a daemon reload fails once the next daemon takes over, so the model can run it again", () => {
+  const { h } = host(),
+    { claude } = client([mcp("c9", { jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "corgi" } })]);
+  claude.serve(h);
+  claude.take();
+  const restored: any = Claude.restore(claude.save(true), true),
+    written: unknown[] = [];
+  restored.io = { adopt() {}, write: (v: unknown) => written.push(v) };
+  expect(written).toEqual([]);
+  restored.adopt();
+  expect(answered(written, "c9")).toMatchObject({ id: 5, result: { isError: true } });
+});
+test("without a host serving them, a call says so instead of hanging", () => {
+  const { claude, written } = client([
+    mcp("c1", { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "corgi" } }),
+  ]);
+  claude.take();
+  expect(answered(written, "c1")).toMatchObject({ id: 1, result: { isError: true } });
 });

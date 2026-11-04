@@ -45,7 +45,7 @@ export async function call<K extends protocol.Op>(
   ...args: protocol.Arguments<K>
 ): Promise<protocol.Reply<K>> {
   const reply = await conn.request(op, ...args);
-  if ("err" in reply) throw Error(reply.err);
+  if ("err" in reply) throw errors.fromReply(reply);
   // Before the payload, whose shape may differ between viewer protocols.
   if (protocol.check(op) === "viewer") viewerVersion.require(reply);
   return reply;

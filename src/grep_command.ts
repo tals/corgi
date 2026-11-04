@@ -45,6 +45,7 @@ function expandShort(args: string[]): string[] {
     "--workspace",
     "--max-age",
     "--session",
+    "--chat",
     "--provider",
     "--limit",
     "--max-line",
@@ -198,6 +199,7 @@ transcripts automatically; no setup needed.
   --max-age 24h|7d|4w|all   Latest message age (default 30d)
   --session PROVIDER:ID    Narrow to a returned conversation, of any age or workspace
   --provider NAME          codex, claude, pi, omp, opencode2
+  --chat ID                Show progress in Corgi prompt chat ID
   --tools                  Calls/results with recorded status and exit code
   -i -S -s -F -w -x        Case, literal, word and line flags, as in rg
   -e REGEX                 Additional pattern (OR)
@@ -233,7 +235,8 @@ async function main(raw: string[], socket: string) {
   }
   const args = expandShort(raw);
   let stats = false,
-    workspace: string | undefined;
+    workspace: string | undefined,
+    chat = 0;
   const display: output.Options = {
     workspace: "",
     json: false,
@@ -290,6 +293,10 @@ async function main(raw: string[], socket: string) {
         break;
       case "--session":
         options.session = take(i++);
+        break;
+      case "--chat":
+        chat = Number(take(i++));
+        if (!Number.isSafeInteger(chat) || chat <= 0) throw Error("--chat takes a chat's ID");
         break;
       case "--provider": {
         const name = take(i++);
@@ -379,9 +386,11 @@ async function main(raw: string[], socket: string) {
   options.workspace = display.workspace = where.root;
   options.folders = where.folders;
   if (display.onlyMatching) options.context = options.before = options.after = 0;
-  if (process.env.CORGI_SOCKET && process.env.CORGI_HEADLESS_ID) {
+  // A prompt chat's own command names it: by its environment, or with --chat
+  // where its tools run in someone else's.
+  if (chat || (process.env.CORGI_SOCKET && process.env.CORGI_HEADLESS_ID)) {
     const { Reporter } = await import("./prompt_search_report");
-    reporter = Reporter.here();
+    reporter = chat ? new Reporter(process.env.CORGI_SOCKET || socket, chat) : Reporter.here();
   }
   if (reporter) {
     progress = {

@@ -15,6 +15,12 @@ export function validRef(r: SessionRef) {
   );
 }
 export class Text extends BoundedText(Infinity) {}
+/** What a call to a host tool is about: the words it was given, which its
+ * row shows after the tool's name. */
+export function hostSummary(input: unknown): string {
+  const args = field(input, "args");
+  return (Array.isArray(args) ? args.filter(a => typeof a === "string") : []).join(" ");
+}
 /** A token count `v` reports at `key`: a whole number that fits 64 bits. */
 export function number(v: any, key: string): bigint | null {
   const n = field(v, key);

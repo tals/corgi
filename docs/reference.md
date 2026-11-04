@@ -339,13 +339,22 @@ to today's log; a log line its searches keep finding (three times, on two
 days) moves to `MEMORY.md` the next time a conversation starts. `/new` gives
 the conversation it ends one unseen turn to store what's worth keeping, and
 the conversation stays in Resume. `/erase` deletes it instead: its transcript
-and the memory lines it added with `corgi memory add`, not ones you wrote
-yourself. `/incognito` starts one that keeps neither.
+and the memory lines it added with `corgi memory`, not ones you wrote yourself.
+Direct file edits show "Memory updated"; `/erase` leaves those edits in place.
+`/incognito` starts one that keeps neither; its `corgi memory` only reads.
 `/memory` browses the files in the card: `/` or typing searches, Enter edits
 a line, Tab adds one to its file, Backspace twice removes it, Ctrl+E opens the
 file in your editor. The model searches and
 writes the same files with `corgi memory search`, `get`, `add` and `forget`,
 which run without asking.
+
+The model drives Corgi through a `corgi` tool that only its own session
+has: each call gives a command's words, and Corgi runs that command without a
+shell. Claude Code reaches it inside its own process, Codex as a tool of
+the thread, and Pi through an extension loaded into that session alone.
+OpenCode and omp take no such tool, so their sessions run `corgi` in their
+shell and pass `--chat ID` to `corgi memory` and `corgi grep`, as their
+instructions say.
 
 A message sent while Corgi works goes to the turn under way rather than
 waiting for it, and the conversation marks it steered. Ctrl+C stops the turn,

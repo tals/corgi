@@ -146,12 +146,24 @@ test("only a command run for a prompt session reports to it", () => {
 test("each memory line goes to the session in order, each waiting for its reply", async () => {
   const { socket, heard } = await daemon(),
     reporter = Reporter.here({ CORGI_SOCKET: socket, CORGI_HEADLESS_ID: "7" })!;
-  await reporter.memory({ file: "/m/2026-10-30.md", line: "- Ships Fridays", edited: false });
-  await reporter.memory({ file: "/m/MEMORY.md", line: "- CI is fast", edited: true });
+  await reporter.memory({ file: "/m/2026-10-30.md", line: "- Ships Fridays", was: null });
+  await reporter.memory({
+    file: "/m/MEMORY.md",
+    line: "- CI is fast",
+    was: { file: "/m/MEMORY.md", line: "- CI is slow" },
+  });
   reporter.close();
+  const sent = { op: "headless.memory", id: 7 };
   expect(heard).toEqual([
-    { op: "headless.memory", id: 7, file: "/m/2026-10-30.md", line: "- Ships Fridays", edited: false, request_id: 1 },
-    { op: "headless.memory", id: 7, file: "/m/MEMORY.md", line: "- CI is fast", edited: true, request_id: 2 },
+    { ...sent, file: "/m/2026-10-30.md", line: "- Ships Fridays", was_file: "", was_line: "", request_id: 1 },
+    {
+      ...sent,
+      file: "/m/MEMORY.md",
+      line: "- CI is fast",
+      was_file: "/m/MEMORY.md",
+      was_line: "- CI is slow",
+      request_id: 2,
+    },
   ]);
 });
 
@@ -160,7 +172,7 @@ test("a daemon that isn't there leaves the command to finish", async () => {
     CORGI_SOCKET: path.join(os.tmpdir(), "corgi-no-such.sock"),
     CORGI_HEADLESS_ID: "7",
   })!;
-  await reporter.memory({ file: "/m/MEMORY.md", line: "- x", edited: false });
-  await reporter.memory({ file: "/m/MEMORY.md", line: "- y", edited: false });
+  await reporter.memory({ file: "/m/MEMORY.md", line: "- x", was: null });
+  await reporter.memory({ file: "/m/MEMORY.md", line: "- y", was: null });
   reporter.close();
 });

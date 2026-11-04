@@ -373,7 +373,8 @@ $.requests|headless.search.search: any
 $.requests|headless.memory.id: u32
 $.requests|headless.memory.file: string
 $.requests|headless.memory.line: string
-$.requests|headless.memory.edited: bool
+$.requests|headless.memory.was_file: string
+$.requests|headless.memory.was_line: string
 $.requests|theme.theme: optional
 $.requests|theme.theme?.foreground: optional
 $.requests|theme.theme?.foreground?.r: u8

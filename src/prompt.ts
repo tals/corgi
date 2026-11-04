@@ -676,7 +676,6 @@ function shrink(t: Thumbnail, cols: number, rows: number): Thumbnail | null {
     r = Math.floor((t.height * scale) / t.cell.height);
   return r < 2 ? null : { width: c * t.cell.width, height: r * t.cell.height, cell: t.cell, of: t };
 }
-/** `segs` cut to `room` columns, ending in "…" when cut. */
 /** What a search's row says it's doing. */
 function searchLabel(phase: promptSearch.Phase): string {
   switch (phase) {
@@ -692,6 +691,7 @@ function searchLabel(phase: promptSearch.Phase): string {
       return "Found";
   }
 }
+/** `segs` cut to `room` columns, ending in "…" when cut. */
 function clip(segs: Seg[], room: number): Seg[] {
   if (width(segs) <= room) return segs;
   if (room <= 0) return [];
@@ -832,7 +832,6 @@ export class Prompt {
     this.conversation = new Conversation(deps.daemon, {
       inside: path => this.memory.inside(path),
       transcript: (provider, session, account) => this.transcript(provider, session, account),
-      corgi: command => promptTools.looks(command, this.binary),
       search: command => promptTools.searchTool(command, this.binary),
       clock: this.clock,
     });
@@ -1974,10 +1973,17 @@ export class Prompt {
     this.area = new TextArea("", true);
     this.history = null;
     this.back = 0;
+    this.post(text, this.chips.splice(0), choice);
+    return null;
+  }
+  /** A message for another model than the session's, running or starting,
+   * ends it: the message starts one of its own. Checked as the message goes,
+   * after any sent before it. */
+  private switchTo(choice: Choice): void {
     const c = this.conversation,
       started = c.started;
     if (
-      c.session &&
+      (c.session || c.state === "starting") &&
       started &&
       (started.provider !== choice.provider ||
         started.account !== choice.account ||
@@ -1987,8 +1993,6 @@ export class Prompt {
       this.stopping(c.stop());
       c.note(`${label(choice)} from here on, in a new session that doesn't see the messages above.`, "faint");
     }
-    this.post(text, this.chips.splice(0), choice);
-    return null;
   }
   /** Sends `text` with its attachments once they're read, or after a few
    * seconds with what's there. Messages go in the order they were sent. */
@@ -2015,6 +2019,7 @@ export class Prompt {
           (viewer ? promptTools.where(viewer, this.context?.workspace ?? "") + "\n" : "") +
           (this.conversation.session ? promptTools.replyFormat() : "") +
           message(text, attached);
+      this.switchTo(choice);
       this.conversation.send(
         text,
         () => this.start(choice),
@@ -2052,7 +2057,7 @@ export class Prompt {
     let instructions =
       this.memory.instructions(loaded.text, contextText(c), now, c?.workspace || null) +
       "\n\n" +
-      promptTools.instructions(this.binary);
+      promptTools.instructions(this.binary, adapter(choice.provider).headless?.tools === true);
     if (this.incognito) instructions += "\n\nThis conversation is incognito: write nothing to memory or any log.";
     return {
       provider: choice.provider,

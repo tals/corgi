@@ -1,10 +1,11 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { imageFiles, workspaceDiff } from "./prompt_attach";
+import * as subprocess from "./subprocess";
 
 const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13]);
 const folders: string[] = [];
@@ -63,4 +64,20 @@ test("a diff too big to read whole still attaches its start, cut", async () => {
   expect(text).toStartWith(" lock.json");
   expect(text).toEndWith("\n(diff cut at 32 KB)");
   expect(Buffer.byteLength(text)).toBeLessThan(33 * 1024);
+});
+test("a stat too long to read whole is cut too, not an error", async () => {
+  const run = spyOn(subprocess, "run").mockImplementation(async (argv: string[], options: subprocess.Options) => {
+    const out = (text: string, cut = false) =>
+      new subprocess.Output({ exited: cut ? 141 : 0 }, Buffer.from(text), Buffer.alloc(0), cut);
+    if (argv.includes("rev-parse")) return out("abc\n");
+    if (!options.cut) throw Error("OutputTooLarge");
+    return argv.includes("--stat") ? out(" vendor/a.js | 1 +\n".repeat(8000), true) : out("diff --git a/x b/x\n+x\n");
+  });
+  try {
+    const text = await workspaceDiff("/repo");
+    expect(text).toStartWith(" vendor/a.js | 1 +");
+    expect(text).toEndWith("\n(diff cut at 32 KB)");
+  } finally {
+    run.mockRestore();
+  }
 });

@@ -1,5 +1,9 @@
 import { test, expect, spyOn } from "bun:test";
-import { realpathSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Memory } from "./prompt_memory";
 import {
   asksHelp,
   handles,
@@ -402,6 +406,8 @@ test("list outlines workspaces, tabs, panes, headless agents and viewers", () =>
           attention: "none",
           agent: { ...idle, provider: "codex", state: "idle", name: "Triage" },
         },
+        // The Corgi prompt's chat isn't an agent to list.
+        { id: 5, workspace: 2, corgi: true, exited: false, state: "idle", agent: { ...idle, provider: "claude" } },
       ],
     },
     viewers: [{ id: 1, workspace: 2, pane: 9, watched: true }],
@@ -419,6 +425,70 @@ test("list outlines workspaces, tabs, panes, headless agents and viewers", () =>
       "",
     ].join("\n"),
   );
+});
+test("a chat whose commands run where its environment can't reach names itself with --chat", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "corgi-chat-"))),
+    socket = join(dir, "control.sock"),
+    heard: any[] = [],
+    saved = ["CORGI_SOCKET", "CORGI_HEADLESS_ID", "CORGI_MEMORY"].map(k => [k, process.env[k]] as const);
+  for (const [k] of saved) delete process.env[k];
+  const server = createServer(connection => {
+    let buffer = "";
+    connection.setEncoding("utf8");
+    connection.on("data", chunk => {
+      buffer += chunk;
+      for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
+        const request = JSON.parse(buffer.slice(0, end));
+        buffer = buffer.slice(end + 1);
+        heard.push(request);
+        const reply =
+          request.op === "headless.list"
+            ? {
+                ok: true,
+                sessions: [
+                  { id: 7, persist: true },
+                  { id: 8, persist: false },
+                ],
+              }
+            : { ok: true, request_id: request.request_id };
+        connection.write(JSON.stringify(reply) + "\n");
+      }
+    });
+  });
+  await new Promise<void>(resolve => server.listen(socket, resolve));
+  const root = spyOn(Memory, "root").mockReturnValue(join(dir, "memory")),
+    out = spyOn(process.stdout, "write").mockImplementation(() => true);
+  try {
+    await run(socket, ["memory", "add", "--chat", "7", "Ships on Fridays"]);
+    const log = readdirSync(join(dir, "memory")).find(f => f.endsWith(".md"))!;
+    expect(readFileSync(join(dir, "memory", log), "utf8")).toBe("- Ships on Fridays\n");
+    expect(heard.find(r => r.op === "headless.memory")).toMatchObject({ id: 7, line: "- Ships on Fridays" });
+    // An incognito chat's only reads; after `--` it's the line's own text.
+    await expect(run(socket, ["memory", "add", "--chat", "8", "a secret"])).rejects.toThrow("MemoryReadOnly");
+    await expect(run(socket, ["memory", "add", "--chat", "x", "y"])).rejects.toThrow("Usage");
+    await run(socket, ["memory", "add", "--", "--chat", "8"]);
+    expect(readFileSync(join(dir, "memory", log), "utf8")).toBe("- Ships on Fridays\n- --chat 8\n");
+  } finally {
+    out.mockRestore();
+    root.mockRestore();
+    server.close();
+    for (const [k, v] of saved) if (v !== undefined) process.env[k] = v;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+test("an incognito prompt session's memory commands only read", async () => {
+  const before = process.env.CORGI_MEMORY;
+  process.env.CORGI_MEMORY = "read";
+  try {
+    for (const args of [
+      ["memory", "add", "a secret"],
+      ["memory", "forget", "MEMORY.md:1"],
+    ])
+      await expect(run("/missing-corgi-memory-test.sock", args)).rejects.toThrow("MemoryReadOnly");
+  } finally {
+    if (before === undefined) delete process.env.CORGI_MEMORY;
+    else process.env.CORGI_MEMORY = before;
+  }
 });
 test("launcher names each agent and says where it shows", () => {
   const snapshot = {

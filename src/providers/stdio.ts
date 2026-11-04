@@ -66,6 +66,15 @@ export class Stdio {
     if (this.output.length + line.length - 1 > max_output) throw Error("HeadlessBackpressure");
     this.output = Buffer.concat([this.output, line]);
   }
+  /** Queues a tool reply, or waits for earlier output to drain. One large
+   * reply can fill an empty buffer; an exited process needs no reply. */
+  reply(value: unknown): boolean {
+    if (this.closed || this.exited) return true;
+    const line = Buffer.from(json.stringify(value) + "\n");
+    if (this.output.length && this.output.length + line.length - 1 > max_output) return false;
+    this.output = Buffer.concat([this.output, line]);
+    return true;
+  }
   flush() {
     while (this.output.length && this.stdin >= 0) {
       const size = n.probe_write(this.stdin, ptr(this.output), this.output.length);

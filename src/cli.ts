@@ -627,8 +627,8 @@ function panes(nodes: any[], index: number): number[] {
 }
 const quote = (name: string) => (name ? " " + JSON.stringify(name) : "");
 /** `corgi list` as an outline: workspaces, their tabs and panes and headless
- * agents, then viewers. A pane shows its cwd only where it differs from its
- * workspace's. */
+ * agents other than the Corgi prompt's, then viewers. A pane shows its cwd
+ * only where it differs from its workspace's. */
 export function list(reply: any): string {
   const out: string[] = [],
     byId = new Map<number, any>((reply.result?.panes ?? []).map((p: any) => [p.id, p]));
@@ -643,7 +643,7 @@ export function list(reply: any): string {
       }
     }
     for (const s of reply.result?.headless_sessions ?? [])
-      if (s.workspace === w.id) {
+      if (s.workspace === w.id && !s.corgi) {
         // The session's state covers its subagents and startup, as `message` sees it.
         const agent = { ...s.agent, state: s.state ?? s.agent?.state, attention: s.attention ?? s.agent?.attention };
         out.push(`  headless:${s.id}${pane({ agent, exited: s.exited })}`);
@@ -936,6 +936,19 @@ export function read(text: string, lines: number, agent = false): string {
 }
 /** Runs a control command and prints its reply in words, or with `--json` as
  * the daemon sent it. */
+/** Whether prompt chat `chat` keeps memory. One that ended, or a Corgi
+ * that doesn't answer, can't say it doesn't. */
+async function keepsMemory(path: string, chat: number): Promise<boolean> {
+  const conn = new Connection(path, { requestIds: false });
+  try {
+    const reply: any = await conn.call("headless.list");
+    return (reply.sessions ?? []).find((s: any) => s?.id === chat)?.persist !== false;
+  } catch {
+    return true;
+  } finally {
+    conn.close();
+  }
+}
 export async function run(path: string, args: string[], agent = false): Promise<void> {
   const group = args[0];
   if (group === "grep") {
@@ -952,12 +965,25 @@ export async function run(path: string, args: string[], agent = false): Promise<
     return;
   }
   // Memory is files on this machine: no runtime needed. Run for a prompt
-  // session, it tells the session what it wrote.
+  // chat, it tells the chat what it wrote; one that saves nothing only
+  // reads. A chat whose commands run where its environment can't reach names
+  // itself with --chat.
   if (group === "memory") {
+    const text = args.indexOf("--"),
+      flag = args.findIndex((a, i) => a === "--chat" && (text < 0 || i < text)),
+      chat = flag > 0 ? Number(args[flag + 1]) : 0,
+      words = flag > 0 ? [...args.slice(1, flag), ...args.slice(flag + 2)] : args.slice(1);
+    if (flag > 0 && (!Number.isSafeInteger(chat) || chat <= 0)) throw Error("Usage");
+    if (
+      ["add", "forget"].includes(words[0]) &&
+      (process.env.CORGI_MEMORY === "read" || (chat && !(await keepsMemory(path, chat))))
+    )
+      throw Error("MemoryReadOnly");
     const changes: Change[] = [];
-    process.stdout.write(memoryCommand.run(new Memory(Memory.root()), args.slice(1), new Date(), c => changes.push(c)));
-    if (changes.length && process.env.CORGI_HEADLESS_ID) {
-      const reporter = (await import("./prompt_search_report")).Reporter.here();
+    process.stdout.write(memoryCommand.run(new Memory(Memory.root()), words, new Date(), c => changes.push(c)));
+    if (changes.length && (chat || process.env.CORGI_HEADLESS_ID)) {
+      const { Reporter } = await import("./prompt_search_report"),
+        reporter = chat ? new Reporter(process.env.CORGI_SOCKET || path, chat) : Reporter.here();
       for (const change of changes) await reporter?.memory(change);
       reporter?.close();
     }

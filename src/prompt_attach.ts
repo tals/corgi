@@ -30,8 +30,8 @@ export async function paneScreen(call: (op: string, payload: object) => Promise<
   return tail(clean(typeof reply?.result?.text === "string" ? reply.result.text : "", true).trimEnd(), screen_bytes);
 }
 /** `git diff` of `cwd` against HEAD, its stat first, cut at 32 KB. It runs
- * off the UI path, with a timeout; a patch too long to keep is read only as
- * far as the cut. */
+ * off the UI path, with a timeout; a stat or patch too long to keep is read
+ * only as far as the cut. */
 export async function workspaceDiff(cwd: string): Promise<string> {
   let partial = false;
   const git = async (args: string[], cut = false) => {
@@ -51,7 +51,7 @@ export async function workspaceDiff(cwd: string): Promise<string> {
     () => ["HEAD"],
     () => [],
   );
-  const [stat, patch] = await Promise.all([git(["diff", "--stat", ...against]), git(["diff", ...against], true)]);
+  const [stat, patch] = await Promise.all([git(["diff", "--stat", ...against], true), git(["diff", ...against], true)]);
   if (!patch.trim()) return "No uncommitted changes.";
   const text = clean(`${stat.trimEnd()}\n\n${patch}`, true);
   if (!partial && Buffer.byteLength(text) <= diff_bytes) return text;

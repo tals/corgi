@@ -9,19 +9,21 @@ import { spacedControls } from "./text";
 
 /** A line as a file holds it, and the file. */
 export type Written = { file: string; line: string };
-/** A line `corgi memory add` wrote, its file a path: a new one, or with
- * `edited` one rewritten in place. */
-export type Change = Written & { edited: boolean };
+/** A line written to memory, its file a path, and the line it replaced,
+ * there or in another file, when it replaced one. */
+export type Change = Written & { was: Written | null };
 /** A change as a prompt session's journal keeps it, for the conversation it ran for. */
 export type Event = { kind: "memory"; session: string } & Change;
 /** What `add` did: the line's file relative to the memory folder and its
- * number from 1, then the file's path and the line as it holds it. */
+ * number from 1, then the file's path and the line as it holds it, and the
+ * line it replaced. */
 export type Added = {
   status: "added" | "already" | "replaced";
   file: string;
   line: number;
   path: string;
   text: string;
+  was: Written | null;
 };
 /** A line a search found: its file relative to the memory folder, its line
  * number from 1, and its text without the "- ". */
@@ -257,15 +259,17 @@ export class Memory {
   ): Added {
     const line = clean(text);
     if (!line) throw Error("EmptyLine");
+    let was: Written | null = null;
     if (replaces) {
       const file = this.resolve(replaces.file),
         lines = read(file).split("\n"),
         at = replaces.line - 1;
       if (at < 0 || at >= lines.length || !lines[at].trim()) throw Error("NoSuchLine");
+      was = { file, line: lines[at] };
       if (!replaces.moved) {
         lines[at] = `- ${line}`;
         writeFileSync(file, lines.join("\n"));
-        return { status: "replaced", file: replaces.file, line: replaces.line, path: file, text: lines[at] };
+        return { status: "replaced", file: replaces.file, line: replaces.line, path: file, text: lines[at], was };
       }
       lines.splice(at, 1);
       writeFileSync(file, lines.join("\n"));
@@ -280,7 +284,8 @@ export class Memory {
     for (const f of new Set([file, long])) {
       const held = read(f).split("\n"),
         at = held.findIndex(l => clean(l) === line);
-      if (at >= 0) return { status: "already", file: relative(this.dir, f), line: at + 1, path: f, text: held[at] };
+      if (at >= 0)
+        return { status: "already", file: relative(this.dir, f), line: at + 1, path: f, text: held[at], was: null };
     }
     const written = this.append(file, line);
     return {
@@ -289,6 +294,7 @@ export class Memory {
       line: read(file).split("\n").length - 1,
       path: file,
       text: written.line,
+      was,
     };
   }
   /** Drops line `line` of `name`, a file in the memory folder; the text it held. */
@@ -336,8 +342,7 @@ export class Memory {
     for (const [file, left] of files) if (left.join("\n") !== read(file)) writeFileSync(file, left.join("\n"));
     return missed;
   }
-  /** Whether `path` is in the memory folder once links are followed, so
-   * edits there need no approval. */
+  /** Whether `path` is in the memory folder once links are followed. */
   inside(path: string): boolean {
     const root = real(this.dir),
       target = real(path);
@@ -362,7 +367,9 @@ export class Memory {
     const out: Group[] = [
       { file: join(this.dir, long_name), title: long_name, loaded: true, lines: lines(join(this.dir, long_name)) },
       { file: today, title: "Today", loaded: true, lines: lines(today) },
-      ...(here ? [{ file: here, title: `Workspace ${shown(workspace!)}`, loaded: true, lines: lines(here) }] : []),
+      ...(here
+        ? [{ file: here, title: `Workspace ${spacedControls(workspace!)}`, loaded: true, lines: lines(here) }]
+        : []),
     ];
     const notes: Group[] = [],
       logs: Group[] = [];
@@ -370,7 +377,12 @@ export class Memory {
       const name = basename(file);
       if (file === today || file === here || name === long_name) continue;
       if (dirname(file) !== this.dir)
-        notes.push({ file, title: `Workspace ${shown(name.slice(0, -3))}`, loaded: name === note, lines: lines(file) });
+        notes.push({
+          file,
+          title: `Workspace ${spacedControls(name.slice(0, -3))}`,
+          loaded: name === note,
+          lines: lines(file),
+        });
       else if (daily.test(name)) {
         const date = name.slice(0, -3),
           title = date === yesterday ? "Yesterday" : date;
@@ -449,10 +461,6 @@ function noteKey(workspace: string): string {
     .replace(/^[.\s]+/, "")
     .slice(0, 120)
     .trim();
-}
-/** A name as the memory view draws it, its controls as spaces. */
-function shown(name: string): string {
-  return spacedControls(name);
 }
 /** A workspace's note file. */
 function noteName(workspace: string): string {

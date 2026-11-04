@@ -96,7 +96,16 @@ export interface Client {
   processes?(): number[];
   /** A client restored from a handoff is the old daemon's until adopted. */
   adopt?(): void;
+  /** Who runs the host's tools now: after a handoff, the next daemon. */
+  serve?(host: Host): void;
 }
+/** A tool the session's host offers its model beside the provider's own. */
+export type HostTool = { name: string; description: string; input: Record<string, unknown> };
+/** The tools a host offers, and how it runs a call to one. */
+export type Host = {
+  tools: HostTool[];
+  call(name: string, input: unknown, signal?: AbortSignal): Promise<{ text: string; failed: boolean }>;
+};
 /** Where a client runs: `account` names a provider account, "" the default.
  * Ordinary headless sessions omit the rest. */
 export type Place = {
@@ -116,6 +125,9 @@ export type Place = {
   /** Runs without asking: Claude in auto mode, or skipping its checks where
    * that's unavailable; Codex with no approvals or sandbox. */
   unattended?: boolean;
+  /** Tools the host runs for this session alone, for an adapter whose
+   * `headless.tools` says it takes them. */
+  host?: Host;
 };
 /** A provider's session transcripts, read as they grow. */
 export interface Transcript {
@@ -484,6 +496,8 @@ export interface Adapter extends Info {
   headless?: {
     start(at: Place): Client;
     restore(saved: Saved, live: boolean): Client;
+    /** Whether a session offers its model the host's tools, scoped to it alone. */
+    tools?: boolean;
   };
   inference: {
     model: string;

@@ -223,7 +223,9 @@ test("the model is told how to drive Corgi, and each message says which viewer i
   p.key(13);
   const start = d.starts[0];
   expect(start.instructions).toContain("corgi resume PROVIDER SESSION --viewer V");
-  expect(start.instructions).toContain("/opt/corgi/bin/corgi");
+  // Claude takes Corgi's own tool, so its shell isn't how it drives Corgi.
+  expect(start.instructions).toContain("with the `corgi` tool");
+  expect(start.instructions).not.toContain("/opt/corgi/bin/corgi");
   expect(start.prompt).toStartWith('<corgi viewer="7" workspace="corgi"/>\n');
   expect(start.prompt).toEndWith("open my parser chat");
 });
@@ -236,7 +238,7 @@ test("a line the model writes to the workspace's note is remembered as its own",
   const note = join(root, "workspaces", "corgi.md");
   d.add(
     { kind: "turn", session: "0193-session", turn: "t", phase: "started" },
-    { kind: "memory", session: "0193-session", file: note, line: "- Uses pnpm", edited: false },
+    { kind: "memory", session: "0193-session", file: note, line: "- Uses pnpm", was: null },
   );
   await poll(p, 0);
   expect(p.conversation.wrote).toEqual([{ file: note, line: "- Uses pnpm" }]);
@@ -287,7 +289,7 @@ test("mid-conversation: the thread, an approval and a remembered line", async ()
     session: "0193-session",
     file: today,
     line: "- CI runs unit tests in parallel",
-    edited: false,
+    was: null,
   });
   await poll(p, 200);
   expect(card(draw(p, 112, 34, 0))).toEqual([
@@ -955,6 +957,7 @@ test("a new model mid-conversation starts a new session", async () => {
   p.choice = { provider: "codex", account: "", model: "gpt-6-astra", name: "GPT-6 Astra", effort: "high" };
   type(p, "two");
   p.key(13);
+  await settle();
   expect(d.calls.some(c => c.op === "headless.stop")).toBe(true);
   expect(d.starts.map(s => s.provider)).toEqual(["claude", "codex"]);
 });
@@ -1618,6 +1621,34 @@ test("a chat can't be ended or handed on while its message reads an attachment",
   expect(p.conversation.items.some(i => i.kind === "user")).toBe(true);
 });
 
+test("a model picked while a message reads its attachments takes the next one, after it", async () => {
+  const d = new Fake();
+  let release!: (text: string) => void;
+  const p = new Prompt({
+    daemon: d,
+    memory_root: folder(),
+    resolve: m => (m.kind === "diff" ? new Promise(r => (release = r)) : Promise.resolve("")),
+  });
+  p.catalog(entries, [opus], []);
+  p.show({ ...context, focus: null });
+  type(p, "@diff");
+  p.key(13);
+  type(p, "summarize");
+  p.key(13);
+  p.choice = { provider: "codex", account: "", model: "gpt-6-astra", name: "GPT-6 Astra", effort: "high" };
+  type(p, "two");
+  p.key(13);
+  expect(d.starts).toEqual([]);
+  release("+line");
+  await settle();
+  await settle();
+  expect(d.starts.map(s => [s.provider, s.prompt.endsWith("summarize") ? "summarize" : s.prompt.slice(-3)])).toEqual([
+    ["claude", "summarize"],
+    ["codex", "two"],
+  ]);
+  expect(p.conversation.started?.model).toBe("gpt-6-astra");
+});
+
 test("the pointer hits the menu where it hangs, and no brand mark shows under it", () => {
   const { p } = prompt();
   type(p, "@");
@@ -2093,6 +2124,41 @@ test("a live search shows its expression, count and branded clickable matches be
   expect(find(p, "Found 10+ conversations").y).toBeGreaterThan(0);
   const at = find(p, "Unicode tabs PR #34");
   expect(p.click(at.x, at.y)).toMatchObject({ kind: "open", entry: { provider: "claude", session: "found" } });
+});
+
+test("a search Corgi's own tool runs takes its row as a shell's does", async () => {
+  const { p, d, clock } = prompt();
+  type(p, "find the PR");
+  p.key(13);
+  await settle();
+  const search = {
+    id: "q",
+    revision: 1,
+    phase: "searching",
+    expression: "needle",
+    workspace: "/work",
+    found: 0,
+    scanned: 1,
+    total: 4,
+    limited: false,
+    matches: [],
+    error: "",
+  };
+  d.add(
+    {
+      kind: "tool",
+      session: "0193-session",
+      id: "t",
+      name: "corgi",
+      summary: "grep --workspace /work needle",
+      done: false,
+    },
+    { kind: "search", session: "0193-session", search },
+  );
+  await poll(p, clock.now);
+  const rows = draw(p).join("\n");
+  expect(rows).toContain("Searching conversations");
+  expect(rows).not.toContain("corgi grep");
 });
 
 test("searches collapse earlier results, replace Bash rows and use saved titles instead of tool text", async () => {
