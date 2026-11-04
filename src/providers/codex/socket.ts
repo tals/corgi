@@ -70,17 +70,17 @@ export class Client {
     this.socket.terminate();
     this.fail(Error("Disconnected"));
   }
-  call(method: string, params: any) {
+  call(method: string, params: any, timeout = 1000) {
     const id = this.next_id++,
       bytes = stringify({ id, method, params });
     if (Buffer.byteLength(bytes) > 2 * 1024 * 1024) return Promise.reject(Error("TooLarge"));
     if (this.socket.readyState !== WebSocket.OPEN) return Promise.reject(Error("Disconnected"));
-    this.deadline = Date.now() + 1000;
+    this.deadline = Date.now() + timeout;
     return new Promise<any>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(Error("Timeout"));
-      }, 1000);
+      }, timeout);
       this.pending.set(id, { resolve, reject, timer });
       this.socket.send(bytes);
     });

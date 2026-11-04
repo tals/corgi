@@ -24,6 +24,8 @@ Agent controls (--json prints the daemon's reply as JSON):
   corgi pane read ID|current [--lines N] [--json]
   corgi pane send ID|current TEXT|--stdin [--enter]
   corgi pane keys ID|current KEY...    enter, esc, ctrl+c, arrows, etc.
+  corgi message ID|current|pane:ID|headless:ID TEXT|--stdin
+    prompt through the agent's own channel, or type it and press Enter
   corgi pane idle [--workspace ID] [--cwd DIR] [--first]  shells at their prompt
   corgi claim PROVIDER [--pane ID|current] [--owner PID]
   corgi claim --clear [--pane ID|current] [--owner PID]

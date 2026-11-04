@@ -3,6 +3,13 @@ export type Target = { pane: number } | { headless: number };
 export function key(target: Target): string {
   return "pane" in target ? `pane:${target.pane}` : `headless:${target.headless}`;
 }
+/** The target a `key` spells, or null. */
+export function parse(value: string): Target | null {
+  const match = /^(pane|headless):([1-9][0-9]*)$/.exec(value),
+    id = Number(match?.[2]);
+  if (!match || id > 0xffffffff) return null;
+  return match[1] === "pane" ? { pane: id } : { headless: id };
+}
 /** The agent list's activity sections, in the order it shows them. */
 export type Section = "starred" | "working" | "ready" | "idle" | "done";
 /** The section an agent's state puts it in. One waiting on the user, or

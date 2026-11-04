@@ -82,7 +82,19 @@ export function command(value: Command): DecodedCommand {
   const op = Object.keys(value)[0] as CommandName;
   return { op, payload: (value as Record<string, unknown>)[op] } as DecodedCommand;
 }
-export type Result = { pane: number; tab: number; workspace: number; text: string | null; closed_panes: number[] };
+/** How `agent.message` reached its agent: its provider's channel, or the
+ * pane's keyboard. */
+export type Delivery = "message" | "typed";
+export type Result = {
+  pane: number;
+  tab: number;
+  workspace: number;
+  text: string | null;
+  closed_panes: number[];
+  /** How `agent.message` reached its agent. */
+  delivery?: Delivery;
+  queued?: boolean;
+};
 export const emptyResult = (): Result => ({ pane: 0, tab: 0, workspace: 0, text: null, closed_panes: [] });
 export const operations = [
   "hello",
@@ -221,6 +233,7 @@ const commands = {
   "agent.move": { workspace: "u32", target: "target", before: ["?target", null] },
   "agent.pin": { workspace: "u32", target: "target", before: ["?target", null], pinned: ["bool", true] },
   "agent.place": { workspace: "u32", target: "target", before: ["?target", null] },
+  "agent.message": { target: "target", text: "string" },
   "agent.command": {
     index: "u64",
     command: "string",

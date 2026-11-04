@@ -8,7 +8,7 @@ import { join } from "node:path";
 export default function (pi) {
   const owner = process.env.CORGI_PI_OWNER;
   if (owner && owner !== String(process.pid)) return;
-  let turn = "", result = "completed", escaped = false, prompts = 0, prompt = "", removeInput;
+  let turn = "", result = "completed", escaped = false, prompts = 0, prompt = "", removeInput, compacting = false;
   const inputs = new Map();
   let server;
   const active = ctx => ctx.mode === "tui" && process.env.CORGI_PANE && process.env.CORGI_SOCKET && process.env.CORGI_BIN;
@@ -30,22 +30,29 @@ export default function (pi) {
     const session = ctx.sessionManager.getSessionId();
     const hash = createHash("sha256").update(root+"\n"+session).digest("hex").slice(0,24);
     const socketPath = join(tmpdir(), `corgi-pi-${process.getuid?.() ?? 0}-${hash}-${process.pid}.sock`);
+    // Corgi renames the session and sends it prompts through this socket.
     server = createServer(socket => {
       let bytes = "";
-      socket.setTimeout(1500, () => socket.destroy()); socket.on("error", () => {});
+      socket.setEncoding("utf8"); socket.setTimeout(1500, () => socket.destroy()); socket.on("error", () => {});
       socket.on("data", chunk => {
         bytes += chunk;
-        if(bytes.length > 2048) return socket.destroy();
+        if(bytes.length > 8388608) return socket.destroy();
         if(!bytes.includes("\n")) return;
         try {
           const r = JSON.parse(bytes);
           if(r.session !== ctx.sessionManager.getSessionId()) return socket.end('{"ok":false}\n');
+          if(r.prompt !== undefined) {
+            // Pi refuses a prompt while compacting; Corgi types it instead, and the editor queues it.
+            if(typeof r.prompt !== "string" || !r.prompt || compacting) return socket.end('{"ok":false}\n');
+            pi.sendUserMessage(r.prompt, { deliverAs: "steer" });
+            return socket.end('{"ok":true,"prompted":true}\n');
+          }
           if(r.name !== undefined) {
             if(typeof r.name !== "string" || r.name.length > 160 || /[\x00-\x1f]/.test(r.name)) return socket.end('{"ok":false}\n');
             if(r.only_unnamed && pi.getSessionName()) return socket.end('{"ok":false,"exists":true}\n');
             pi.setSessionName(r.name);
           }
-          socket.end('{"ok":true,"automatic":true}\n');
+          socket.end('{"ok":true,"automatic":true,"prompts":true}\n');
         } catch { socket.destroy(); }
       });
     });
@@ -55,6 +62,7 @@ export default function (pi) {
   });
   pi.on("before_agent_start", (e, ctx) => { prompt = active(ctx) && e.messageType !== "custom" ? e.prompt || "" : ""; });
   pi.on("agent_start", async (_e, ctx) => {
+    compacting = false;
     if (!active(ctx) || turn) return;
     turn = randomUUID(); result = "completed"; escaped = false;
     const opening = pi.getSessionName() ? undefined : ctx.sessionManager.getBranch().find(e => e.type === "message" && e.message.role === "user");
@@ -75,9 +83,9 @@ export default function (pi) {
   pi.on("tool_execution_end", (e, ctx) => { const input = inputs.get(e.toolCallId); inputs.delete(e.toolCallId); return report(ctx, e.isError ? "PostToolUseFailure" : "PostToolUse", { tool: e.toolName, input }); });
   pi.on("ui_prompt_start", (e, ctx) => { prompts++; return report(ctx, "PermissionRequest", { tool: e.title || e.kind }); });
   pi.on("ui_prompt_end", (_e, ctx) => { prompts = Math.max(0, prompts-1); return prompts ? undefined : report(ctx, turn ? "PostToolUse" : "Idle"); });
-  pi.on("session_before_compact", (_e, ctx) => report(ctx, "PreCompact"));
-  pi.on("session_compact", (_e, ctx) => report(ctx, turn ? "PostCompact" : "Idle"));
-  pi.on("session_compact_failed", (_e, ctx) => report(ctx, turn ? "PostCompact" : "Idle"));
+  pi.on("session_before_compact", (_e, ctx) => { compacting = true; return report(ctx, "PreCompact"); });
+  pi.on("session_compact", (_e, ctx) => { compacting = false; return report(ctx, turn ? "PostCompact" : "Idle"); });
+  pi.on("session_compact_failed", (_e, ctx) => { compacting = false; return report(ctx, turn ? "PostCompact" : "Idle"); });
   pi.on("agent_settled", async (e, ctx) => {
     if (!active(ctx) || !turn) return;
     const outcome = e.aborted === true || (e.aborted === undefined && escaped) ? "interrupted" : result;

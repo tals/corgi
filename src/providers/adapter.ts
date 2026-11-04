@@ -133,6 +133,17 @@ export interface Rename {
   /** Types the rename into its composer instead. */
   typed?: { command(name: string): string; empty(t: Terminal): boolean; holds(t: Terminal, text: string): boolean };
 }
+/** How a provider takes a prompt Corgi sends it. */
+export interface Message {
+  /** Sends a prompt to `session`, in `account`, through the provider's own
+   * channel, if one reaches it now; `connected` as for `Rename.channel`.
+   * Sending throws MessageUnavailable when nothing reached the session, so
+   * Corgi can type the prompt instead. */
+  channel(session: string, connected: boolean, account: string): Promise<((text: string) => Promise<void>) | null>;
+  /** Whether its composer shows and is empty, so typed text goes into it
+   * alone. Without this, Corgi can't tell and types anyway. */
+  empty?(t: Terminal): boolean;
+}
 /** The past sessions the launcher offers to resume. Corgi opens one per
  * history worker and closes it with that worker. */
 export interface SessionHistory {
@@ -424,6 +435,7 @@ export interface Adapter extends Info {
     keep?(c: CommandLine): Kept;
   };
   rename?: Rename;
+  message?: Message;
   /** Starts `session`'s turn `turn`, which failed on a condition that may
    * pass, again through `account`'s own channel, if that turn is still its
    * latest and nothing runs. It asks `clear` last, just before it starts

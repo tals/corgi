@@ -5,6 +5,7 @@ import { ScreenWatcher } from "../watcher";
 import * as commandLine from "../command_line";
 import { info } from "./info";
 import { API, configDir, validSession } from "./api";
+import * as message from "./message";
 import { prepare } from "./launch";
 import { OpenCode2 } from "./headless";
 import { Worker } from "./observer";
@@ -89,6 +90,14 @@ export const adapter: Adapter = {
       return async name => {
         await api.call("PATCH", `/api/session/${session}`, { title: name });
       };
+    },
+  },
+  message: {
+    // Messaging never starts OpenCode's service: one that isn't running holds
+    // no session to prompt, and the pane is typed into instead.
+    async channel(session) {
+      if (!validSession(session)) return null;
+      return API.peek(process.cwd(), async api => (text: string) => message.send(api, session, text), false);
     },
   },
   headless: { start: at => OpenCode2.start(at, null), restore: (saved, live) => OpenCode2.restore(saved, live) },
