@@ -133,7 +133,7 @@ export const adapter: Adapter = {
       session.length === 36 && connected ? name => renaming.rename(control(account), session, name) : null,
     typed: { command: renaming.command, empty: renaming.empty, holds: renaming.holds },
   },
-  retry: (session, turn, account) => retrying.retry(control(account), session, turn),
+  retry: (session, turn, account, clear) => retrying.retry(control(account), session, turn, clear),
   headless: {
     start: at => Codex.start(at, null),
     restore: Codex.restore,

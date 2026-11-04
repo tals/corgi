@@ -325,6 +325,10 @@ export type Fork = {
   /** Whether `args` names the fork; if not, core renames it once it shows up. */
   named: boolean;
 };
+/** What became of starting a failed turn again: "held" when someone worked
+ * in its pane meanwhile, so it may try once they stop; "declined" when it
+ * won't, as another turn came or the channel failed. */
+export type Retried = "started" | "held" | "declined";
 /** How a provider behaves, wherever core has to know. */
 export type Caps = {
   /** A prompt's hook ID names the turn it opens. */
@@ -417,8 +421,9 @@ export interface Adapter extends Info {
   rename?: Rename;
   /** Starts `session`'s turn `turn`, which failed on a condition that may
    * pass, again through `account`'s own channel, if that turn is still its
-   * latest and nothing runs; whether it did. */
-  retry?(session: string, turn: string, account: string): Promise<boolean>;
+   * latest and nothing runs. It asks `clear` last, just before it starts
+   * the turn, whether no one has worked in its pane since it began. */
+  retry?(session: string, turn: string, account: string, clear: () => boolean): Promise<Retried>;
   /** Runs it headless, for a daemon-hosted session. */
   headless?: {
     start(at: Place): Client;

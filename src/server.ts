@@ -219,9 +219,11 @@ export class Server {
       telemetry.end("daemon.publish", telemetry_started);
     }
   }
-  /** When a viewer focused on `pane` last had input from its user, in ms; 0 if none did. */
+  /** When someone last worked in `pane`, in ms: input it sent its program,
+   * from a viewer, `corgi pane send` or Corgi itself, or input from a viewer
+   * focused on it, such as the mouse; 0 if none did. */
   inputAt(pane: number) {
-    let at = 0;
+    let at = this.runtime.pane(pane)?.terminal.sent_at ?? 0;
     for (const c of this.clients) if (c.viewer && !c.dead && c.view_focus === pane) at = Math.max(at, c.input_at);
     return at;
   }

@@ -356,6 +356,22 @@ test("attention prioritizes input within a burst and releases the next completio
   }
 });
 
+test("input sent into a pane counts as work in it, as a focused viewer's does", () => {
+  const { server, dispose } = fixture();
+  try {
+    const pane = new Pane(1, new Terminal(20, 4), "/tmp");
+    server.runtime.panes.push(pane);
+    expect(server.inputAt(1)).toBe(0);
+    // As `corgi pane send` types a prompt, with no viewer about.
+    const before = Date.now();
+    pane.terminal.send("again\r");
+    expect(server.inputAt(1)).toBeGreaterThanOrEqual(before);
+    server.clients.push({ viewer: true, dead: false, view_focus: 1, input_at: before + 60_000 } as any);
+    expect(server.inputAt(1)).toBe(before + 60_000);
+  } finally {
+    dispose();
+  }
+});
 test("provisional pane completions ring until their receipts are read", () => {
   const { server, dispose } = fixture();
   try {

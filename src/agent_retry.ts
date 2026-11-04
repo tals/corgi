@@ -9,7 +9,7 @@ import type { Runtime } from "./runtime";
 export const delays_ms = [15_000, 60_000, 120_000, 300_000, 600_000];
 /** How old a failure may be when first seen, as after a reload, and still be retried. */
 export const fresh_s = 120;
-/** How long a retry waits after input from a viewer focused on its pane. */
+/** How long a retry waits after someone works in its pane. */
 export const quiet_ms = 10_000;
 /** Snapshots, about 10 s of them, that may still show the failed turn after
  * a retry started it again. */
@@ -110,31 +110,33 @@ export function cancel(runtime: Runtime, pane: number) {
   if (retry && !retry.busy && !retry.started) retry.at = Infinity;
 }
 /** Starts the failed turns that are due at `now`, unless someone worked in
- * their pane lately: `input_at` says when a viewer focused on a pane last had
- * input, in ms on the wall clock. */
+ * their pane lately: `input_at` says when someone last did, in ms on the wall
+ * clock. */
 export function advance(runtime: Runtime, now: number, input_at: (pane: number) => number) {
   for (let i = runtime.retries.length - 1; i >= 0; i--) {
     const retry = runtime.retries[i],
-      pane = runtime.panes.find(
+      panes = runtime.panes.filter(
         p => !p.terminal.exited && p.agent().provider === retry.provider && p.agent().sessionId() === retry.session,
       );
-    if (!pane) {
+    if (!panes.length) {
       runtime.retries.splice(i, 1);
       continue;
     }
     const start = adapter(retry.provider).retry;
     if (!start || retry.busy || retry.started || now < retry.at) continue;
-    // Someone at work in its pane may be answering it: wait until they stop.
-    const quiet = Date.now() - input_at(pane.id);
+    // Someone at work in its panes may be answering it: wait until they stop.
+    const lull = () => Date.now() - Math.max(...panes.map(p => input_at(p.id))),
+      quiet = lull();
     if (quiet < quiet_ms) {
       retry.at = now + quiet_ms - quiet;
       continue;
     }
     retry.busy = true;
-    void start(retry.session, retry.turn, retry.account)
-      .then(started => {
-        retry.started = started;
-        if (!started) retry.at = Infinity;
+    // Held back by work since, the next round waits for quiet again.
+    void start(retry.session, retry.turn, retry.account, () => lull() >= quiet_ms)
+      .then(result => {
+        retry.started = result === "started";
+        if (result === "declined") retry.at = Infinity;
       })
       .catch(error => {
         retry.at = Infinity;
