@@ -32,6 +32,11 @@ export class Retry {
     /** When it starts it again, on the policy clock; Infinity when it won't. */
     public at: number,
   ) {}
+  /** Whether it started the failed turn again or is starting it, so a later
+   * turn may be its own. */
+  tried() {
+    return this.started || this.busy;
+  }
 }
 const due = (retry: Retry) => (Number.isFinite(retry.at) ? retry.at : 0);
 /** Notes what `snapshot`, from `account`'s observer, says of its
@@ -45,10 +50,16 @@ export function observe(
   now: number,
   wall_s: number,
 ) {
-  const turn = snapshot.turn.text(),
-    i = runtime.retries.findIndex(r => r.provider === provider && r.session === snapshot.session),
-    old = i < 0 ? null : runtime.retries[i];
+  const turn = snapshot.turn.text();
+  let i = runtime.retries.findIndex(r => r.provider === provider && r.session === snapshot.session);
   if (!runtime.auto_retry || !snapshot.lifecycle || !snapshot.request.pane || !turn) return 0;
+  // Only the turn it started counts on from the failures before it. Any other,
+  // such as a prompt sent after it gave up or Esc called it off, starts over.
+  if (i >= 0 && runtime.retries[i].turn !== turn && !runtime.retries[i].tried()) {
+    runtime.retries.splice(i, 1);
+    i = -1;
+  }
+  const old = i < 0 ? null : runtime.retries[i];
   if (snapshot.outcome === "failed" && snapshot.transient_failure_at) {
     if (old?.turn === turn) {
       if (old.started && ++old.stale > settling) old.at = Infinity;
