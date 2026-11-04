@@ -252,7 +252,7 @@ async function run(binary: string, directory: string): Promise<Frame[]> {
     return frame;
   }
   async function command(pane: number, value: string) {
-    await cli("pane", "type", String(pane), value, "--enter");
+    await cli("pane", "send", String(pane), value, "--enter");
     await Bun.sleep(80);
   }
   try {

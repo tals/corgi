@@ -100,7 +100,7 @@ const results: object[] = [];
 const panes: number[] = [];
 let activeProducer: streamingFixture.Active<number> | null = null;
 let producerSource: ReturnType<typeof streamingFixture.install> | null = null;
-const sendProducer = (pane: number, command: string) => cli("pane", "type", String(pane), command, "--enter");
+const sendProducer = (pane: number, command: string) => cli("pane", "send", String(pane), command, "--enter");
 let shell = 0;
 function checkAgents(snapshot: any, state: "idle" | "working") {
   const agents = snapshot.panes.filter((p: { id: number }) => panes.includes(p.id));
@@ -310,7 +310,7 @@ async function run() {
     }
     if (matrix) await cli("focus", String(shell), "--viewer", "1");
     if (!streamOnly) await measure("idle-agents-viewer", true, "idle");
-    for (const pane of panes) await cli("pane", "type", String(pane), "work", "--enter");
+    for (const pane of panes) await cli("pane", "send", String(pane), "work", "--enter");
     if (!matrix) await measure("working-agents-viewer", true, "working");
     activeProducer = await streamingFixture.start(
       panes,
@@ -327,8 +327,8 @@ async function run() {
     await s.proc.exited;
     await measure("streaming-agents-detached", false, "working");
     for (const pane of panes) {
-      await cli("pane", "type", String(pane), "quiet", "--enter");
-      await cli("pane", "type", String(pane), "stop", "--enter");
+      await cli("pane", "send", String(pane), "quiet", "--enter");
+      await cli("pane", "send", String(pane), "stop", "--enter");
     }
     await measure("idle-agents-detached", false, "idle");
   } catch (error) {

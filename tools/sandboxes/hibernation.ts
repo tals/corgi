@@ -108,7 +108,7 @@ export const world: World = {
       server,
       'const server = Bun.serve({ port: 0, fetch: () => new Response("Hibernation sandbox") }); console.log("Serving http://localhost:" + server.port);',
     );
-    s.corgi(["pane", "type", String(app.pane), `bun '${server}'`, "--enter"]);
+    s.corgi(["pane", "send", String(app.pane), `bun '${server}'`, "--enter"]);
     s.corgi(["workspace", "new", "notes", "--cwd", join(s.dir, "notes")]);
     for (const ws of before)
       if ((ws.model?.tabs?.length ?? 0) === 0) s.corgi(["workspace", "close", String(ws.id)], false);

@@ -127,8 +127,7 @@ test("command lines are rejected before connecting", async () => {
     [["pane", "resize", "3", "--width", "95%"]],
     [["pane", "close", "3", "--cwd", "/tmp"]],
     [["pane", "read", "3", "--lines", "0"]],
-    [["pane", "type", "3"]],
-    [["pane", "send", "3", "text"]],
+    [["pane", "send", "3"]],
     [["message", "3"]],
     [["message", "3", ""]],
     [["message", "3", "hi", "--enter"]],
@@ -225,8 +224,8 @@ test("command lines parse to the request the daemon receives", async () => {
     ],
     [["pane", "close", "3"], { action: "pane.close", target: 3, command: { "pane.close": { target: 3 } } }],
     [
-      ["pane", "type", "3", "--enter", "--", "--literal"],
-      { action: "pane.type", target: 3, command: { "pane.send": { target: 3, text: "--literal", enter: true } } },
+      ["pane", "send", "3", "--enter", "--", "--literal"],
+      { action: "pane.send", target: 3, command: { "pane.send": { target: 3, text: "--literal", enter: true } } },
     ],
     [
       ["message", "3", "--", "--literal"],

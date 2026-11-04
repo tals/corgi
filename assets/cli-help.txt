@@ -22,7 +22,7 @@ Agent controls (--json prints the daemon's reply as JSON):
   corgi pane hibernate ID|current... hibernate panes and stop their processes
   corgi pane wake ID|current         resume or restart a pane
   corgi pane read ID|current [--lines N] [--json]
-  corgi pane type ID|current TEXT|--stdin [--enter]
+  corgi pane send ID|current TEXT|--stdin [--enter]
   corgi pane keys ID|current KEY...    enter, esc, ctrl+c, arrows, etc.
   corgi message ID|current|pane:ID|headless:ID TEXT|--stdin
     prompt through the agent's own channel, or type it and press Enter

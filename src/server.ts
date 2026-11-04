@@ -220,7 +220,7 @@ export class Server {
     }
   }
   /** When someone last worked in `pane`, in ms: input it sent its program,
-   * from a viewer, `corgi pane type` or Corgi itself, or input from a viewer
+   * from a viewer, `corgi pane send` or Corgi itself, or input from a viewer
    * focused on it, such as the mouse; 0 if none did. */
   inputAt(pane: number) {
     let at = this.runtime.pane(pane)?.terminal.sent_at ?? 0;

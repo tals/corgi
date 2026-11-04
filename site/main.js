@@ -2863,7 +2863,7 @@ function corgi(s, from, args) {
       if (opt.json) return ok({ ...locate(S, id), text });
       return lines((all.length > Number(count) ? `[corgi: last ${count} lines shown; --lines N reads more]\n` : "") + text);
     }
-    case "pane type": {
+    case "pane send": {
       const id = paneArg(S, from, pos[0]);
       if (pos.length !== 2) throw Error("Usage");
       typeInto(s, id, pos[1], opt.enter);

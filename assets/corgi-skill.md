@@ -1,6 +1,6 @@
 ---
 name: corgi
-description: Control Corgi terminal panes, tabs, agents, and workspaces when the user asks to use Corgi. Discover layout, arrange running terminals, read output, message agents and type input through its CLI.
+description: Control Corgi terminal panes, tabs, agents, and workspaces when the user asks to use Corgi. Discover layout, arrange running terminals, read output, message agents and send input through its CLI.
 ---
 
 # Corgi
@@ -74,14 +74,14 @@ viewer ID, then use `corgi focus 31 --viewer 1`. Do not guess which viewer belon
 to the user. Selection is preserved where its tab and pane still exist; removing
 a selected tab requires the viewer to choose a surviving location.
 
-## Read, message and type
+## Read, message and send
 
 ```sh
 corgi pane read 31 --lines 100
 corgi message 31 'prompt for the agent in pane 31'
 corgi message headless:4 --stdin < /path/to/prompt.txt
-corgi pane type 31 'literal text'
-corgi pane type 31 'shell command' --enter
+corgi pane send 31 'literal text'
+corgi pane send 31 'shell command' --enter
 corgi pane keys 31 ctrl+c
 corgi pane keys 31 esc
 ```
@@ -101,7 +101,7 @@ prints `messaged …` or `typed into …`, adding `queued while it works` when t
 agent was mid-turn. `DeliveryUnknown` means the agent may have it: read its
 pane before sending again. Its target is a pane ID, `current`, or
 `headless:ID` for an agent without a pane, as `corgi list` prints them.
-Type honors bracketed paste and optionally appends encoded Enter. Keys honor the
+Send honors bracketed paste and optionally appends encoded Enter. Keys honor the
 terminal's keyboard protocol; all keys are validated before any bytes are sent.
 Use `--` before text beginning with `--`. Input delivery is not proof an agent
 started or completed a turn. Inspect output and reported state; never blindly

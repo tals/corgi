@@ -74,7 +74,7 @@ const actions = new Set([
   "pane.hibernate",
   "pane.wake",
   "pane.read",
-  "pane.type",
+  "pane.send",
   "pane.keys",
   "pane.idle",
   "claim",
@@ -452,8 +452,8 @@ export async function parse(words: string[], caller = 0, input?: () => Promise<s
       set(action, { target, lines });
       break;
     }
-    case "pane.type":
-      set("pane.send", { target, text: await typed(args, input), enter: args.flag("enter") });
+    case "pane.send":
+      set(action, { target, text: await typed(args, input), enter: args.flag("enter") });
       break;
     case "message": {
       const text = await typed(args, input);

@@ -165,7 +165,7 @@ test("a due retry starts the failed turn once, through the account's shared serv
     advance(runtime, delays_ms[0] - 1, input_at);
     await settled();
     expect(starts).toEqual([]);
-    // A prompt `corgi pane type` types while it checks the thread holds it
+    // A prompt `corgi pane send` types while it checks the thread holds it
     // back, as Codex would steer the turn that prompt starts. It tries again
     // once the pane has been quiet a while.
     typing = true;

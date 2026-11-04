@@ -304,7 +304,7 @@ line 18 of it. The private index refreshes changed conversations automatically,
 Codex archives and OpenCode's database included. Patterns are JavaScript regular
 expressions. See `corgi grep --help`.
 
-`pane type` types literal input; `--enter` submits it. `message` prompts an
+`pane send` types literal input; `--enter` submits it. `message` prompts an
 agent through its provider's own channel where there is one (Claude Code's
 session inbox, Codex's app server, OpenCode's server, a headless session's
 protocol), and otherwise types the text and presses Enter, refusing an agent
