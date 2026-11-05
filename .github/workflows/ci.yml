@@ -6,20 +6,27 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  checks: write
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   linux:
+    name: Linux x64
     uses: ./.github/workflows/platform.yml
     with:
       os: ubuntu-latest
   linux-arm64:
+    name: Linux ARM64
     uses: ./.github/workflows/platform.yml
     with:
       os: ubuntu-24.04-arm
   macos:
+    name: macOS ARM64
     uses: ./.github/workflows/platform.yml
     with:
       os: macos-latest

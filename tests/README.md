@@ -10,13 +10,49 @@ bun build.ts --test       # dist/corgi-test, the default CORGI_TEST_BIN
 bun integration.ts        # or: bun run tests/run.ts
 ```
 
-The runner starts a separate Bun process for each suite and runs a couple at
-once (`--jobs N`, default a quarter of the cores, at most 2; `--jobs 1` runs
-them one by one with live output). Parallel suites print their output when
-they finish.
-Durations from the previous run, kept in `.zig-cache/test-timings.json`, start
-the slowest suites first. It prints a pass/fail table and exits nonzero when
-any suite fails.
+The wrapper selects suites and runs them with Bun's `--parallel` worker pool
+and file isolation (`--jobs N`, default a quarter of the cores, at most 2).
+Bun streams test results and owns scheduling, sharding, and duration history.
+`--list` lists eligible files before sharding; `--shard K/N` lets Bun choose
+one slice. `--retry` reruns failed files once more, alone in fresh processes,
+and reports recovered suites as flaky. The subprocess watchdog still checks
+for leaked daemons before the run succeeds.
+
+Local durations live in `.zig-cache/integration-timings/local.json`, in Bun's
+`--timings` format (milliseconds). CI restores the previous run's per-platform
+timings once in the build job and ships that same baseline to every shard.
+Bun balances shards by duration and starts slow files first. Each shard writes
+its own timings; successful runs combine and cache them for the next run.
+The old `.zig-cache/test-timings.json` is no longer used.
+
+`progress.ts` is both the runner's reporter and a Bun preload. Workers record
+individual test starts and finishes; the parent prints counts and updates an
+existing Actions job every ten seconds. In CI, `GITHUB_TOKEN` with `checks: write`
+and `CORGI_TEST_CHECK_ID` from `${{ job.check_run_id }}` select that job's check.
+The reporter never creates checks or commit statuses, so each integration shard
+has one row, with details such as `49/101 · 48% · ~2m left`. Job names are set in
+the workflow. GitHub still adds its workflow/event labels and status
+prefix. Actions owns the job's final result, including cancellation and failures
+in later steps. The details link and logs stay attached to the original job.
+Local runs and read-only fork tokens keep ordinary logs. GitHub API failures
+never change the test result.
+
+Live counts cover test attempts, with a separate phase for each retry. A quick
+Bun invocation filters out all tests and writes a JUnit inventory first, using
+the same shard and timing inputs without updating timing history. It imports
+suite modules but runs no test bodies or lifecycle hooks. This supplies the
+percentage's denominator, including skipped and name-filtered tests; skips
+are accounted for when the run finishes. If inventory is unavailable, the
+counts remain available in the detailed report. The final JUnit report supplies
+pass/fail/skip totals and the job summary. A failed test process or leaked daemon
+still fails the check even if the report has no failed assertions.
+Create suite resources in startup hooks so counting tests needs no cleanup.
+
+The time estimate uses cached durations for the selected shard and its worker
+count. It is omitted without complete timing history or with custom Bun flags.
+Retries use the preceding attempt's duration. It counts down from that estimate;
+if the run takes longer, it shows `past estimate` until completion. It estimates
+test execution only, excluding build and cleanup time.
 
 Cases within a suite run one at a time unless the suite registers with
 `registerCase(..., { concurrent: true })`, and then at most two at a time,
