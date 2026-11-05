@@ -361,12 +361,14 @@ export class Conversation {
     const provider = this.provider,
       session = this.session,
       after = this.after,
+      used = this.used,
       wrote = this.wrote;
     this.drop();
     if (!provider || !session) return;
     // Stopping drops its journal, so what's left is read first.
     try {
       const reply: any = await this.daemon.call("headless.events", { provider, session, after });
+      this.capturePath(provider, session, str(reply, "transcript"), used);
       for (const entry of Array.isArray(reply?.events) ? reply.events : []) {
         const e = wire(field(entry, "event"));
         if (e?.kind === "memory") this.remember(e, wrote);
@@ -529,6 +531,11 @@ export class Conversation {
     for (const u of this.used)
       if (u.persist && !u.transcript) u.transcript = this.hooks.transcript?.(u.provider, u.session, u.account) ?? "";
   }
+  private capturePath(provider: Provider, session: string, path: string, used = this.used): void {
+    if (!isAbsolute(path)) return;
+    const entry = used.find(u => u.provider === provider && u.session === session);
+    if (entry?.persist) entry.transcript = path;
+  }
   /** Forgets the session, leaving the thread. */
   private drop(): void {
     this.capture();
@@ -666,6 +673,7 @@ export class Conversation {
     }
     if (generation !== this.generation) return;
     this.warned.clear();
+    if (this.provider) this.capturePath(this.provider, this.session, str(reply, "transcript"));
     const pending: unknown[] | null = Array.isArray(reply?.pending_requests) ? reply.pending_requests : null,
       open = pending ? new Set(pending.map(request => str(request, "id"))) : null;
     for (const entry of Array.isArray(reply?.events) ? reply.events : []) {

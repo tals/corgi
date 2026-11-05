@@ -809,6 +809,7 @@ export interface ReplyPayloads {
   "headless.list": Ok & { sessions: unknown[] };
   "headless.events": Ok & {
     events: unknown[];
+    transcript: string;
     pending_requests: unknown;
     next_seq: bigint;
     first_seq: bigint;

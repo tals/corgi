@@ -895,6 +895,7 @@ export async function request(server: Server, client: Peer, request: Request, re
     reply.send({
       ok: true,
       events: session.events.filter(entry => entry.seq > after),
+      transcript: session.agent().transcriptPath(),
       pending_requests: session.pendingRequests(),
       next_seq: session.next_seq,
       first_seq: session.events[0]?.seq ?? session.next_seq,

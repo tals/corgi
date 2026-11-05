@@ -8,6 +8,7 @@ class Fake implements Daemon {
   starts: any[] = [];
   journal: { seq: number; event: unknown }[] = [];
   pending: unknown[] = [];
+  transcript = "";
   /** The next reply to `start`, or a session named s1. */
   starting: Promise<{ provider: any; session: string }> | null = null;
   /** Fails every events call with this name. */
@@ -24,6 +25,7 @@ class Fake implements Daemon {
     if (this.failing) throw Error(this.failing);
     return {
       ok: true,
+      transcript: this.transcript,
       events: this.journal.filter(e => BigInt(e.seq) > BigInt(payload.after)),
       pending_requests: this.pending,
       next_seq: this.journal.length + 1,
@@ -53,6 +55,23 @@ const start = (over: Partial<Start> = {}): Start => ({
   ...over,
 });
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+
+test("a pane learns its transcript from events, including the last read before erase", async () => {
+  for (const readFirst of [false, true]) {
+    const d = new Fake(),
+      c = conversation(d);
+    c.attach(start({ provider: "codex" }), "s1", true);
+    d.transcript = "/codex/sessions/s1.jsonl";
+    const used = c.used;
+    if (readFirst) {
+      await poll(c, 0);
+      expect(used[0].transcript).toBe(d.transcript);
+    }
+    await c.reset();
+    expect(used[0].transcript).toBe(d.transcript);
+    expect(d.calls.at(-1)?.op).toBe("headless.stop");
+  }
+});
 function conversation(d: Fake, clock = { now: 0 }, transcripts: Record<string, string> = {}) {
   return new Conversation(d, {
     inside: path => path.startsWith("/memory/"),
@@ -500,7 +519,7 @@ test("a session taken up after a reload that ended starts the next with instruct
   d.call = async (op, payload) => {
     d.calls.push({ op, payload });
     if (op === "headless.send") throw Error("HeadlessExited");
-    return { ok: true, events: [], pending_requests: [], next_seq: 1, first_seq: 1 };
+    return { ok: true, transcript: "", events: [], pending_requests: [], next_seq: 1, first_seq: 1 };
   };
   c.send("still there?", () => start({ instructions: "You are Corgi, again." }));
   await settle();
