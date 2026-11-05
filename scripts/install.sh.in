@@ -1,6 +1,7 @@
 #!/bin/sh
 # Installs Corgi: curl -fsSL https://corgi.computer/install.sh | bash
 # Uninstalls it:   curl -fsSL https://corgi.computer/install.sh | bash -s uninstall
+# On Omarchy it also adds Corgi's bar plugin; `bash -s -- --no-omarchy` doesn't.
 # Everything runs from main, so a truncated download runs nothing.
 set -eu
 
@@ -12,7 +13,9 @@ dir=$(dirname "$bin")
 path_line='case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac'
 fish_line='fish_add_path "$HOME/.local/bin"'
 fish_rc="${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/corgi.fish"
-tmp= watcher= tty_mode= on_path= below=
+tmp= watcher= tty_mode= on_path= below= no_omarchy=
+# Corgi's Omarchy bar plugin. Run by it, CORGI_INSTALL_PLUGIN names its folder.
+omarchy_repo=@OMARCHY_REPO@ omarchy_id=corgi.computer
 esc=$(printf '\033')
 
 @I18N@
@@ -131,6 +134,7 @@ install_corgi() {
     fail "$(msg 'Could not install corgi: ${error}' "$(cat "$tmp/error")")"
   write_launcher
   if [ -z "$installed" ]; then
+    remember_plugin
     case $was in
       other) ok "$(msg 'Installed corgi at ${path} (replaced the existing file)' "$(home "$bin")")" ;;
       *) ok "$(msg 'Installed corgi at ${path}' "$(home "$bin")")" ;;
@@ -145,17 +149,44 @@ install_corgi() {
   fi
 }
 
+# Installed by Omarchy's bar plugin, Corgi removes itself when the plugin is
+# removed: it watches the folder recorded here, then runs this script's
+# uninstall, kept beside it since the plugin's copy goes with the plugin.
+# A Corgi installed before the plugin isn't its to remove.
+remember_plugin() {
+  plugin=${CORGI_INSTALL_PLUGIN:-}
+  [ -n "$plugin" ] && [ -f "$plugin/manifest.json" ] && [ -f "$0" ] || return 0
+  printf '%s\n' "$plugin" >"$root/plugin"
+  cp "$0" "$root/uninstall.sh"
+}
+
+# Match the executable's physical path, including macOS's /tmp symlink.
+physical_root() {
+  (cd "$root" 2>/dev/null && pwd -P || printf '%s\n' "$root")
+}
+quote_root() {
+  physical_root | sed "s/'/'\\\\''/g"
+}
+
 # Writes the launcher that runs the current release over whatever is at $bin,
 # and sets was to what it found there: a launcher (same), nothing (missing) or
 # something else (other). Uninstall recognizes the launcher by its exec line.
 write_launcher() {
   mkdir -p "$dir"
-  quoted=$(printf %s "$root" | sed "s/'/'\\\\''/g")
+  quoted=$(quote_root)
+  quoted_bin=$(printf %s "$bin" | sed "s/'/'\\\\''/g")
   invalid_version=$(msg 'Invalid Corgi version' | sed "s/'/'\\\\''/g")
+  removed=$(msg 'Removed ${path}' "$(home "$bin")" | sed "s/'/'\\\\''/g")
   cat >"$bin.new" <<EOF
 #!/bin/sh
 set -eu
 root='$quoted'
+# The install went away without it, as when Omarchy removes Corgi's plugin.
+if [ ! -e "\$root/current" ]; then
+  rm -f '$quoted_bin'
+  printf '%s\n' '$removed' >&2
+  exit 127
+fi
 v=\$(cat "\$root/current")
 case "\$v" in ''|*[!0-9.a-fTZ-]*) printf '%s\n' '$invalid_version' >&2; exit 1;; esac
 exec "\$root/releases/\$v/corgi" "\$@"
@@ -166,6 +197,7 @@ EOF
   else was=other
   fi
   mv -f "$bin.new" "$bin"
+  printf %s "$bin" >"$root/launcher"
 }
 
 # A yes/no question on the terminal; Enter or y says yes.
@@ -257,41 +289,49 @@ launch() {
     printf '\n  %s\n\n' "$(msg 'Run ${command} to start.' "$bold$cmd$off")"
     return
   fi
-  # Drop keys pressed during the install so they don't press the button.
-  stty -icanon min 0 time 0 </dev/tty
-  dd bs=256 count=1 </dev/tty >/dev/null 2>&1 || true
-  stty time 2 </dev/tty
-  printf '\n  %s\n' "$(msg 'Press Enter to start Corgi.')"
-  printf '    %s╭───────────────────────╮%s\n\n' "$green" "$off"
-  printf '    %s╰───────────────────────╯%s\n' "$green" "$off"
-  printf '      %s%s%s%s[2A' "$dim" "$(msg 'esc to skip')" "$off" "$esc"
-  below=2
-  go=
-  while [ -z "$go" ]; do
-    for dog in '~ᐯ•ᴥ•ᐯ' '-ᐯ•ᴥ•ᐯ' '~ᐯ•ᴥ•ᐯ' '^ᐯ•ᴥ•ᐯ' '~ᐯ•ᴥ•ᐯ' '-ᐯ•ᴥ•ᐯ' '~ᐯ◡ᴥ◡ᐯ' '^ᐯ•ᴥ•ᐯ' \
-      '~ᐯ•ᴥ•ᐯ' '-ᐯ•ᴥ•ᐯ' '~ᐯ•ᴥ•ᐯ' '^ᐯ•ᴥ•ᐱ' '~ᐯ•ᴥ•ᐱ' '-ᐯ•ᴥ•ᐯ' '~ᐯ•ᴥ•ᐯ' '^ᐯ•ᴥ•ᐯ'; do
-      button "$dog"
-      case $(dd bs=1 count=1 </dev/tty 2>/dev/null | od -An -tx1 | tr -d ' \n') in
-        0a|0d) go=yes; break ;;
-        1b|71) go=no; break ;;
-      esac
+  opening=
+  if [ "${CORGI_INSTALL_START:-0}" = 1 ]; then
+    # Asked to start right away, as Omarchy's plugin does: no button, and
+    # onboarding first, even over an earlier setup.
+    opening=onboard
+    printf '\n'
+  else
+    # Drop keys pressed during the install so they don't press the button.
+    stty -icanon min 0 time 0 </dev/tty
+    dd bs=256 count=1 </dev/tty >/dev/null 2>&1 || true
+    stty time 2 </dev/tty
+    printf '\n  %s\n' "$(msg 'Press Enter to start Corgi.')"
+    printf '    %s╭───────────────────────╮%s\n\n' "$green" "$off"
+    printf '    %s╰───────────────────────╯%s\n' "$green" "$off"
+    printf '      %s%s%s%s[2A' "$dim" "$(msg 'esc to skip')" "$off" "$esc"
+    below=2
+    go=
+    while [ -z "$go" ]; do
+      for dog in '~ᐯ•ᴥ•ᐯ' '-ᐯ•ᴥ•ᐯ' '~ᐯ•ᴥ•ᐯ' '^ᐯ•ᴥ•ᐯ' '~ᐯ•ᴥ•ᐯ' '-ᐯ•ᴥ•ᐯ' '~ᐯ◡ᴥ◡ᐯ' '^ᐯ•ᴥ•ᐯ' \
+        '~ᐯ•ᴥ•ᐯ' '-ᐯ•ᴥ•ᐯ' '~ᐯ•ᴥ•ᐯ' '^ᐯ•ᴥ•ᐱ' '~ᐯ•ᴥ•ᐱ' '-ᐯ•ᴥ•ᐯ' '~ᐯ•ᴥ•ᐯ' '^ᐯ•ᴥ•ᐯ'; do
+        button "$dog"
+        case $(dd bs=1 count=1 </dev/tty 2>/dev/null | od -An -tx1 | tr -d ' \n') in
+          0a|0d) go=yes; break ;;
+          1b|71) go=no; break ;;
+        esac
+      done
     done
-  done
-  stty "$tty_mode" </dev/tty
-  tty_mode=
-  below=
-  if [ "$go" = no ]; then
-    printf '%s[2B\r%s[K      %s%s%s\n\n' "$esc" "$esc" \
-      "$dim" "$(msg 'Run ${command} anytime.' "$off$bold$cmd$off$dim")" "$off"
-    return
+    stty "$tty_mode" </dev/tty
+    tty_mode=
+    below=
+    if [ "$go" = no ]; then
+      printf '%s[2B\r%s[K      %s%s%s\n\n' "$esc" "$esc" \
+        "$dim" "$(msg 'Run ${command} anytime.' "$off$bold$cmd$off$dim")" "$off"
+      return
+    fi
+    button '~ᐯ◡ᴥ◡ᐯ'
+    printf '%s[2B\r%s[K\n' "$esc" "$esc"
   fi
-  button '~ᐯ◡ᴥ◡ᐯ'
-  printf '%s[2B\r%s[K\n' "$esc" "$esc"
   case ":$PATH:" in *":$dir:"*) ;; *) PATH="$dir:$PATH"; export PATH ;; esac
   trap - EXIT
   cleanup
   # Bun can't wait for input on /dev/tty on macOS, so corgi reads the terminal itself.
-  exec "$bin" <&1
+  exec "$bin" ${opening:+"$opening"} <&1
 }
 
 # Removes the installer's PATH lines, unless other programs still live in that directory.
@@ -360,14 +400,17 @@ unghostty() {
 # Removes what the installer added. Saved sessions and settings stay.
 uninstall() {
   printf '\n  %sCorgi%s %s%s%s\n\n' "$bold" "$off" "$dim" "$(msg 'uninstall')" "$off"
-  # Only processes that are a release binary; panes merely started through one don't count.
-  pids=$(pgrep -f -- "^$root/releases/" 2>/dev/null | tr '\n' ' ')
+  # Only processes that are a release binary; panes merely started through one
+  # don't count. Corgi runs this itself once its plugin is gone, as it exits.
+  pids=
+  [ -n "${CORGI_UNINSTALLING:-}" ] || pids=$(pgrep -f -- "^($root|$(physical_root))/releases/" 2>/dev/null | tr '\n' ' ')
   [ -z "$pids" ] || fail "$(msg 'Corgi is running from ${path} (PIDs ${pids}).
     Quit it, then run this again. corgi shutdown stops it and every pane in it.' "$(home "$root")" "${pids% }")"
   tmp=$(mktemp -d)
+  quoted=$(quote_root)
   if [ ! -e "$bin" ]; then
     already "$(msg 'Removed ${path}' "$(home "$bin")")"
-  elif grep -qF 'exec "$root/releases/$v/corgi"' "$bin" 2>/dev/null; then
+  elif grep -qF 'exec "$root/releases/$v/corgi"' "$bin" 2>/dev/null && grep -qxF "root='$quoted'" "$bin"; then
     rm -f "$bin"
     ok "$(msg 'Removed ${path}' "$(home "$bin")")"
   else
@@ -388,6 +431,24 @@ uninstall() {
   printf '\n  ~ᐯ•ᴥ•ᐯ  %s\n\n' "$(msg 'Bye! To reinstall: ${command}' "curl -fsSL $base/install.sh | bash")"
 }
 
+# On Omarchy, Corgi also goes in the bar: this adds its plugin. The plugin's
+# own installer runs with CORGI_INSTALL_PLUGIN, and leaves it be.
+omarchy_plugin() {
+  [ -z "$no_omarchy" ] && [ -z "${CORGI_INSTALL_ROOT:-}" ] && [ -z "${CORGI_INSTALL_PLUGIN:-}" ] &&
+    [ -n "$live" ] && command -v omarchy-plugin-add >/dev/null 2>&1
+}
+add_omarchy_plugin() {
+  plugin="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins/$omarchy_id"
+  [ ! -f "$plugin/manifest.json" ] || return 0
+  ok "$(msg 'Omarchy detected: installing Corgi as its bar plugin (--no-omarchy installs it on its own)')"
+  # Omarchy's own prompts need the terminal as it was.
+  [ -z "$tty_mode" ] || stty "$tty_mode" </dev/tty
+  printf '%s[?25h' "$esc"
+  omarchy plugin add "$omarchy_repo" --enable </dev/tty || fail "$(msg 'Could not add the Omarchy plugin')"
+  [ -z "$tty_mode" ] || stty -echo </dev/tty
+  printf '%s[?25l' "$esc"
+}
+
 main() {
   i18n_init
   trap cleanup EXIT
@@ -395,8 +456,9 @@ main() {
   trap interrupted INT
   case ${1:-} in
     '') ;;
+    --no-omarchy) no_omarchy=1 ;;
     uninstall | --uninstall) uninstall; return ;;
-    *) printf '%s\n' "$(msg 'Usage: install.sh [uninstall]')" >&2; exit 2 ;;
+    *) printf '%s\n' "$(msg 'Usage: install.sh [uninstall | --no-omarchy]')" >&2; exit 2 ;;
   esac
   case "$(uname -s)-$(uname -m)" in
     Darwin-arm64) target=macos-aarch64 platform='macOS arm64' expected=@MAC_SHA256@ size=@MAC_SIZE@ ;;
@@ -416,6 +478,7 @@ main() {
   printf '\n  %sCorgi%s %s%s · %s%s\n\n' "$bold" "$off" "$dim" "$version" "$platform" "$off"
   install_corgi
   setup_path
+  if omarchy_plugin; then add_omarchy_plugin; fi
   launch
 }
 

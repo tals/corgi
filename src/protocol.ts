@@ -884,11 +884,13 @@ export type PickResult = Omit<Reply<"viewer.pick">, "ok">;
 /** Unsolicited updates share a connection with correlated replies. */
 export type Event =
   | { type: "viewer.wake" }
+  /** The installation the daemon runs from was deleted, as `omarchy plugin remove` does; it's stopping. */
+  | { type: "uninstalled" }
   | Wire<SessionSnapshot>
   | Reply<"agent.subscribe">
   | { type: "agent.history"; update: Wire<import("./launch/history").Update> };
 /** What arrives without a request id; anything else untagged fails the connection. */
-export const event_types = ["viewer.wake", "session", "agent.preview", "agent.history"] as const;
+export const event_types = ["viewer.wake", "uninstalled", "session", "agent.preview", "agent.history"] as const;
 // Fails to compile while an `Event` type is missing from the list.
 true satisfies Exclude<Event["type"], (typeof event_types)[number]> extends never ? true : false;
 export function event(message: { type?: unknown }): Event | null {

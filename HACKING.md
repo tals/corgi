@@ -208,6 +208,11 @@ its own tab. History belongs to the viewer and daemon lifetime; another layout
 change, including a pane closing, invalidates it. Docking commands check the
 workspace revision before committing, including after a shell finishes spawning.
 
+To watch one of the corgi's animations without setting up what triggers
+it, such as the walk-off on uninstall, play it with
+`bun tools/anim.ts farewell`. Space pauses, the arrow keys step a frame, and
+`--speed 0.25` slows it; with no name it lists the rest.
+
 The [UI driver](tools/ui_driver.ts) drives a real viewer in an isolated PTY
 and records screens. It uses `dist/corgi`, so rebuild first. Scripts live in
 [tools/ui_scenarios/](tools/ui_scenarios/) and use the `.scenario` extension.

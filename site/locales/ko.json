@@ -123,7 +123,7 @@
   "Slow down the herd animation": "무리 애니메이션 속도 줄이기",
   "Splitting the audit": "점검 작업 분담 중",
   "Static Linux build": "Linux 정적 빌드",
-  "Supported on macOS, Linux and WSL": "macOS, Linux, WSL 지원",
+  "Supported on macOS, Linux, WSL and <button class=\"omarchy\" type=\"button\">Omarchy</button>": "macOS, Linux, WSL, <button class=\"omarchy\" type=\"button\">Omarchy</button> 지원",
   "Terminal multiplexer for humans (and agents).": "사람과 에이전트를 위한 터미널 멀티플렉서.",
   "The sidebar, showing what each agent is doing and which ones need you.": "각 에이전트의 작업과 확인이 필요한 에이전트를 보여주는 사이드바입니다.",
   "This project was made possible by:": "이 프로젝트는 다음 프로젝트 덕분에 가능했습니다:",

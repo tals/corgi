@@ -6,6 +6,8 @@ import * as terminal_info from "./terminal_info";
 import * as keyboard from "./keyboard";
 import * as hostBackground from "./host_background";
 import * as crash from "./crash";
+import * as errors from "./errors";
+import * as i18n from "./i18n";
 
 let keyboard_enabled = false;
 let cursor_blink_saved = false;
@@ -53,7 +55,14 @@ export async function onboard(path: string): Promise<void> {
   return attachMode(path, true);
 }
 async function attachMode(path: string, start_onboarding: boolean, folder: string | null = null): Promise<void> {
-  const executable = await attachOnce(path, start_onboarding, folder);
+  let executable: string | null;
+  try {
+    executable = await attachOnce(path, start_onboarding, folder);
+  } catch (error) {
+    if (!errors.is(error, "Uninstalled")) throw error;
+    console.log(i18n.t`Corgi was uninstalled.`);
+    return;
+  }
   if (executable) {
     process.execve!(executable, [executable, "attach"], process.env as Record<string, string>);
     throw Error("ExecFailed");

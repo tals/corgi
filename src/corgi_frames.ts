@@ -1,4 +1,7 @@
 // Approved single-row animation frames, mirrored from corgi_frames.zig.
+//! The Omarchy panel runs this in Qt's QML engine (corgi-omarchy/tools/motion-build.ts):
+//! no BigInt literals or `Intl`, and builtins Qt lacks only through
+//! the Omarchy plugin's qml_shims.js.
 /** The corgi asleep, eyes shut, as the sidebar shows an idle workspace. */
 export const asleep = "~ᐯ◡ᴥ◡ᐯ";
 export const wag = [

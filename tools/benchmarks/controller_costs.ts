@@ -67,7 +67,7 @@ function fixture(scenario: Scenario, inputs: SurfaceView[]) {
       presentation = corgiAnimation.observe(key, "asleep", now)!;
     // Reset each public presentation, including its private-to-the-viewer random sequence.
     Object.assign(presentation, new corgiAnimation.Presentation());
-    presentation.playback.random = new corgiAnimation.Random(BigInt(id));
+    presentation.playback.random = new corgiAnimation.Random(id);
   }
   corgiAnimation.endFrame();
   const controller = new Controller(

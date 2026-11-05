@@ -500,6 +500,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Corgi pastes PNG, JPEG, GIF and WebP images"]': () => `Corgi 支持粘贴 PNG、JPEG、GIF 和 WebP 图片`,
     '["Corgi prompt"]': () => `Corgi 对话`,
     '["Corgi setup"]': () => `Corgi 设置`,
+    '["Corgi was uninstalled."]': () => `Corgi 已卸载。`,
     "[\"Corgi's colors, or your terminal theme's.\"]": () => `使用 Corgi 或终端主题的配色。`,
     '["Corgi\'s own"]': () => `Corgi 配色`,
     '["Could not create that folder."]': () => `无法创建此文件夹。`,
@@ -974,6 +975,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["That pane would run the notes as commands; copied them instead."]': () =>
       `此窗格会将批注作为命令执行；已改为复制。`,
     '["That\'s a file, not a folder."]': () => `这是文件，不是文件夹。`,
+    '["The Farm"]': () => `农场`,
     '["The clipboard image was damaged"]': () => `剪贴板中的图片已损坏`,
     '["The commits to push changed. Review them and push again."]': () => `待推送的提交已改变。请重新审查后推送。`,
     '["The limit is 2 MB or 50,000 lines."]': () => `上限为 2 MB 或 50,000 行。`,
@@ -1897,6 +1899,7 @@ ${v1} 使用该账号。
     '["Corgi pastes PNG, JPEG, GIF and WebP images"]': () => `PNG、JPEG、GIF、WebP画像を貼り付けられます`,
     '["Corgi prompt"]': () => `Corgi プロンプト`,
     '["Corgi setup"]': () => `Corgi設定`,
+    '["Corgi was uninstalled."]': () => `Corgiはアンインストールされました。`,
     "[\"Corgi's colors, or your terminal theme's.\"]": () => `Corgi独自の配色か、端末のテーマの配色を選びます。`,
     '["Corgi\'s own"]': () => `Corgi標準`,
     '["Could not create that folder."]': () => `フォルダーを作成できませんでした。`,
@@ -2387,6 +2390,7 @@ ${v1} 使用该账号。
     '["That pane would run the notes as commands; copied them instead."]': () =>
       `このペインではコメントがコマンドとして実行されるため、コピーしました。`,
     '["That\'s a file, not a folder."]': () => `それはフォルダーではなくファイルです。`,
+    '["The Farm"]': () => `農場`,
     '["The clipboard image was damaged"]': () => `クリップボードの画像が破損しています`,
     '["The commits to push changed. Review them and push again."]': () =>
       `プッシュ対象のコミットが変わりました。確認してから再度プッシュしてください。`,
@@ -3314,6 +3318,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
       `Corgi는 PNG, JPEG, GIF, WebP 이미지를 붙여넣을 수 있습니다`,
     '["Corgi prompt"]': () => `Corgi 프롬프트`,
     '["Corgi setup"]': () => `Corgi 설정`,
+    '["Corgi was uninstalled."]': () => `Corgi가 제거되었습니다.`,
     "[\"Corgi's colors, or your terminal theme's.\"]": () => `Corgi 또는 터미널 테마의 색상을 사용합니다.`,
     '["Corgi\'s own"]': () => `Corgi 색상`,
     '["Could not create that folder."]': () => `폴더를 만들 수 없습니다.`,
@@ -3799,6 +3804,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["That pane would run the notes as commands; copied them instead."]': () =>
       `이 패널에서는 메모가 명령으로 실행되므로 대신 복사했습니다.`,
     '["That\'s a file, not a folder."]': () => `폴더가 아닌 파일입니다.`,
+    '["The Farm"]': () => `농장`,
     '["The clipboard image was damaged"]': () => `클립보드의 이미지가 손상되었습니다`,
     '["The commits to push changed. Review them and push again."]': () =>
       `푸시할 커밋이 변경되었습니다. 다시 리뷰하고 푸시하세요.`,
@@ -5135,6 +5141,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Corgi pastes PNG, JPEG, GIF and WebP images"]': () => `Corgi вставляет изображения PNG, JPEG, GIF и WebP`,
     '["Corgi prompt"]': () => `Диалог с Corgi`,
     '["Corgi setup"]': () => `Настройка Corgi`,
+    '["Corgi was uninstalled."]': () => `Corgi удалён.`,
     "[\"Corgi's colors, or your terminal theme's.\"]": () => `Цвета Corgi или темы вашего терминала.`,
     '["Corgi\'s own"]': () => `Цвета Corgi`,
     '["Could not create that folder."]': () => `Не удалось создать эту папку.`,
@@ -5651,6 +5658,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["That pane would run the notes as commands; copied them instead."]': () =>
       `Эта панель выполнила бы заметки как команды; они скопированы вместо отправки.`,
     '["That\'s a file, not a folder."]': () => `Это файл, а не папка.`,
+    '["The Farm"]': () => `Ферма`,
     '["The clipboard image was damaged"]': () => `Изображение в буфере обмена повреждено`,
     '["The commits to push changed. Review them and push again."]': () =>
       `Коммиты для отправки изменились. Просмотрите их и повторите отправку.`,

@@ -175,4 +175,4 @@ grep -q 'Signed by Apple?: *true' <<< "$analysis" ||
     { echo "rcodesign on $host could not read an Apple-issued certificate." >&2; exit 1; }
 echo "rcodesign on $host reads the signing certificate."
 [[ -n $notary_key ]] || echo 'No --notary-key: releases from Linux will be signed but not notarized.'
-echo "On $host: ./publish.sh --dry-run, then ./publish.sh"
+echo "On $host: ./scripts/release --dry-run, then ./scripts/release"

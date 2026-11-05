@@ -2,7 +2,7 @@
 // installation is touched. A test build at releases/<v>/corgi is release <v>.
 import { beforeAll, afterAll, beforeEach, afterEach, test, expect } from "bun:test";
 import { generateKeyPairSync, sign, createHash } from "node:crypto";
-import { mkdtemp, mkdir, writeFile, readFile, readdir, realpath, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, readdir, realpath, rm, symlink } from "node:fs/promises";
 import { closeSync, openSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -52,6 +52,8 @@ const server = Bun.serve({
       return Response.json(envelope);
     }
     const v = path.split("/")[2];
+    // A release's own manifest, which a plugin's pin names.
+    if (path === `/releases/${v}/${feed.name}` && manifests.has(v)) return new Response(manifests.get(v)!);
     if (path.endsWith("/corgi")) {
       await beforeDownload?.();
       const binary = binaries.get(v);
@@ -151,8 +153,9 @@ beforeEach(async () => {
 }, 30_000);
 afterEach(async () => {
   try {
-    await cli(["update", "auto", "off"], false);
-    await cli(["shutdown"], false);
+    // A launcher whose installation a test deleted removes itself when run.
+    for (const args of [["update", "auto", "off"], ["shutdown"]])
+      if (await Bun.file(bin).exists()) await cli(args, false);
   } finally {
     await scope.assertClean();
   }
@@ -442,6 +445,83 @@ test.skipIf(!!process.env.CORGI_OLD_EXE)(
   },
   30_000,
 );
+test("deleting the installation sends the corgi off in viewers and stops the runtime", async () => {
+  const terminal = await Pty.spawn([bin], { env });
+  try {
+    await terminal.waitFor("\x1b[?1049h", 15_000);
+    await waitFor(async () => (await rpc({ op: "hello" })).server_pid > 0);
+    // The notice goes to viewers already attached.
+    await waitFor(async () => ((await rpc({ op: "viewer.list" })).viewers ?? []).length > 0);
+    await rm(root, { recursive: true, force: true });
+    await terminal.waitFor("Corgi was uninstalled.", 10_000);
+    expect(await deadline(terminal.proc.exited, 10_000, "the viewer kept running")).toBe(0);
+  } finally {
+    await terminal.close();
+  }
+  const hello = await exec([fixture("1.0.1"), "rpc", JSON.stringify(versioned({ op: "hello" }))], env, false);
+  expect(hello.code).not.toBe(0);
+  // Saved sessions stay, as an uninstall keeps them.
+  expect(
+    await Bun.file(
+      join(home, "state/corgi/recovery", `runtime-${Bun.hash.wyhash(socket, 0n).toString(16)}.json`),
+    ).exists(),
+  ).toBe(true);
+}, 40_000);
+test("removing the Omarchy plugin that installed Corgi uninstalls it, viewers and all", async () => {
+  const plugin = join(home, "plugins", "corgi.computer"),
+    script = join(plugin, "install.sh"),
+    alias = join(home, "install-alias"),
+    other = join(home, ".local/share/corgi"),
+    otherBin = join(home, ".local/bin/corgi"),
+    otherLauncher = `#!/bin/sh\nroot='${other}'\nexec "$root/releases/$v/corgi" "$@"\n`;
+  await mkdir(plugin, { recursive: true });
+  await writeFile(join(plugin, "manifest.json"), "{}");
+  await mkdir(other, { recursive: true });
+  await mkdir(dirname(otherBin), { recursive: true });
+  await writeFile(join(other, "current"), "another-install");
+  await writeFile(otherBin, otherLauncher);
+  const body = installer(url, "1.0.0", {
+    "macos-aarch64": { sha256: "", size: 1 },
+    "linux-x86_64": { sha256: "", size: 1 },
+    "linux-aarch64": { sha256: "", size: 1 },
+  });
+  await writeFile(script, body);
+  // The executable resolves the alias, as macOS resolves /tmp to /private/tmp.
+  await symlink(root, alias, "dir");
+  // Only the install sees these overrides; the daemon starts without them.
+  await exec(["/bin/sh", "-c", body.replace(/\nmain "\$@"\n$/, "\nwrite_launcher\nremember_plugin\n"), script], {
+    ...env,
+    CORGI_INSTALL_ROOT: alias,
+    CORGI_INSTALL_BIN: bin,
+    CORGI_INSTALL_PLUGIN: plugin,
+  });
+  expect((await cli(["update", "status"])).err).toContain(`Installed by the Omarchy plugin in ${plugin}`);
+  const terminal = await Pty.spawn([bin], { env });
+  try {
+    await terminal.waitFor("\x1b[?1049h", 15_000);
+    await waitFor(async () => ((await rpc({ op: "viewer.list" })).viewers ?? []).length > 0);
+    // `omarchy plugin remove`.
+    await rm(plugin, { recursive: true, force: true });
+    await terminal.waitFor("Corgi was uninstalled.", 10_000);
+    expect(await deadline(terminal.proc.exited, 10_000, "the viewer kept running")).toBe(0);
+  } finally {
+    await terminal.close();
+  }
+  // The saved installer removes its original paths, leaving the default install alone.
+  await waitFor(async () => !(await Bun.file(join(root, "current")).exists()));
+  expect(await Bun.file(bin).exists()).toBe(false);
+  expect(await readFile(join(other, "current"), "utf8")).toBe("another-install");
+  expect(await readFile(otherBin, "utf8")).toBe(otherLauncher);
+  const hello = await exec([fixture("1.0.1"), "rpc", JSON.stringify(versioned({ op: "hello" }))], env, false);
+  expect(hello.code).not.toBe(0);
+}, 40_000);
+test("a plugin removed while Corgi wasn't running leaves Corgi installed", async () => {
+  await writeFile(join(root, "plugin"), join(home, "plugins", "corgi.computer") + "\n");
+  await cli(["start"]);
+  await waitFor(async () => !(await Bun.file(join(root, "plugin")).exists()));
+  expect((await rpc({ op: "hello" })).server_pid).toBeGreaterThan(0);
+  expect(await Bun.file(join(root, "current")).exists()).toBe(true);
+}, 40_000);
 test("two simultaneous starts activate once; a second runtime catches up later", async () => {
   await cli(["start"]);
   const secondEnv = { ...env, CORGI_SOCKET: join(home, "second/control.sock") };

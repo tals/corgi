@@ -18,6 +18,73 @@ beforeAll(async () => {
   html = await prerender.render(await Bun.file(join(import.meta.dir, "index.html")).text(), script);
 }, 30000);
 
+test.each(["unavailable", "rejected"] as const)(
+  "manual install-command copying settles animation when clipboard access is %s",
+  async clipboard => {
+    const dom = await tooling.dependency("happy-dom");
+    const { Window } = await import(join(dom, "lib", "index.js"));
+    const window = new Window({
+      width: 1200,
+      settings: { enableJavaScriptEvaluation: true, suppressInsecureJavaScriptEnvironmentWarning: true },
+    });
+    try {
+      window.structuredClone = structuredClone;
+      window.document.write(html.replace(/<script\b[\s\S]*?<\/script>/gi, "").replace(/<link\b[^>]*>/gi, ""));
+      Object.defineProperty(window.HTMLElement.prototype, "clientWidth", { get: () => 1200 });
+      let clock = 0,
+        next = 0;
+      const frames = new Map<number, (at: number) => void>();
+      Object.defineProperty(window.performance, "now", { value: () => clock });
+      window.setInterval = window.setTimeout = () => 0;
+      window.requestAnimationFrame = (callback: (at: number) => void) => {
+        frames.set(++next, callback);
+        return next;
+      };
+      window.cancelAnimationFrame = (id: number) => frames.delete(id);
+      Object.defineProperty(window.navigator, "clipboard", {
+        value: clipboard === "unavailable" ? undefined : { writeText: () => Promise.reject(Error("Denied")) },
+      });
+      const advance = (at: number) => {
+        clock = at;
+        const ready = [...frames.values()];
+        frames.clear();
+        ready.forEach(frame => frame(at));
+      };
+      window.eval(script);
+      const command = window.document.getElementById("install-cmd"),
+        copy = window.document.getElementById("copy"),
+        toggle = window.document.querySelector(".note .omarchy"),
+        everywhere = "curl -fsSL https://corgi.computer/install.sh | bash",
+        omarchy = "omarchy plugin add https://github.com/tals/corgi-omarchy --enable";
+      toggle.click();
+      advance(200);
+      expect(command.textContent).toMatch(/[\u2800-\u28ff]/);
+      copy.click();
+      // A delayed rejection must select the command the user switched to.
+      if (clipboard === "rejected") toggle.click();
+      await Promise.resolve();
+      const expected = clipboard === "rejected" ? everywhere : omarchy;
+      expect(window.getSelection().toString()).toBe("$ " + expected);
+      expect(command.style.width).toBe(`${expected.length + 2}ch`);
+      expect(command.style.transition).toBe("");
+      advance(1000);
+      expect(window.getSelection().toString()).toBe("$ " + expected);
+      // Cancelling a sweep must leave subsequent rapid switches working.
+      toggle.click();
+      advance(1100);
+      toggle.click();
+      advance(1200);
+      copy.click();
+      await Promise.resolve();
+      expect(window.getSelection().toString()).toBe("$ " + expected);
+      advance(2000);
+      expect(command.textContent).toBe("$ " + expected);
+    } finally {
+      await window.happyDOM.close();
+    }
+  },
+);
+
 for (const [name, width] of [
   ["desktop", heroConfig.mobile.breakpoint + 1],
   ["mobile", heroConfig.mobile.breakpoint - 1],

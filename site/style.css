@@ -92,6 +92,19 @@ h1 { margin: 0; font-size: 48px; line-height: 1.05; font-weight: 700; color: var
 .gh::after { right: 1.25ch; }
 .gh:hover { color: var(--strong); }
 .gh svg { width: 14px; height: 14px; margin-right: 1ch; vertical-align: -2px; fill: currentColor; }
+/* Omarchy in the supported line wears its mark, and a press trades the
+   install command for its plugin's, the old one crumbling into dust. */
+.note .omarchy { font: inherit; color: var(--muted); background: none; border: 0; padding: 0; cursor: pointer; white-space: nowrap; text-decoration: underline dotted; text-underline-offset: 3px; }
+.note .omarchy::before { content: ""; display: inline-block; width: 1em; height: 1em; margin-right: .45ch; vertical-align: -.15em; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'%3E%3Cpath transform='matrix(1 0 0 -1 0 1024)' d='M70 70H549V0H0V1024H1024V0H626V70H954V954H70ZM884 140H140V884H551V814H210V210H814V814H736V884H884ZM471 140H549V70H471ZM473 954H551V884H473ZM0 551H210V473H0Z'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'%3E%3Cpath transform='matrix(1 0 0 -1 0 1024)' d='M70 70H549V0H0V1024H1024V0H626V70H954V954H70ZM884 140H140V884H551V814H210V210H814V814H736V884H884ZM471 140H549V70H471ZM473 954H551V884H473ZM0 551H210V473H0Z'/%3E%3C/svg%3E") center / contain no-repeat; }
+.note .omarchy:hover, .note .omarchy[aria-pressed="true"] { color: var(--strong); }
+#install-cmd { transition: width .25s cubic-bezier(.23, 1, .32, 1); }
+/* The dust's braille comes from a fallback font whose glyphs aren't one
+   column wide; each sits in a cell of exactly one, so the line never shifts. */
+#install-cmd .c { display: inline-block; width: 1ch; height: 1.6em; line-height: 1.6em; vertical-align: top; text-align: center; overflow: hidden; }
+#install-cmd .t-text { color: var(--text); }
+#install-cmd .t-muted { color: var(--muted); }
+#install-cmd .t-faint { color: var(--faint); }
+#install-cmd .t-line { color: var(--line); }
 
 /* Cell screens */
 .screen {
@@ -228,7 +241,7 @@ h1 { margin: 0; font-size: 48px; line-height: 1.05; font-weight: 700; color: var
   .band > p, .band .line p { font-size: 13px; }
   .cmd { width: 100%; box-sizing: border-box; gap: 8px; padding: 6px 6px 6px 10px; }
   .cmd .ps { display: none; }
-  .cmd code { overflow: visible; font-size: min(14px, calc((100vw - 92px) / 30.4)); }
+  .cmd code { font-size: min(14px, calc((100vw - 92px) / 30.4)); }
   .btn .word { display: none; }
   .btn .ico { display: inline-block; }
   .cmd .btn { padding: 4px 6px; }

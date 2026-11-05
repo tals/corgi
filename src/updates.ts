@@ -9,12 +9,14 @@ import {
   openSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   unlinkSync,
 } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { spawn } from "node:child_process";
+import { homedir } from "node:os";
 import { atomicWrite } from "./os";
 import { flock } from "./native_bridge";
 import * as rpc from "./rpc";
@@ -112,6 +114,34 @@ export function managed(rel: Release, exe: string): string | null {
   if (read(root, "current") === null) return null;
   privateDirectory(root);
   return root;
+}
+/** The Omarchy plugin folder that installed the Corgi at `root`, as its
+ * installer recorded it, or null. Corgi removes itself when that folder goes. */
+export function pluginOf(root: string): string | null {
+  const dir = read(root, "plugin")?.trim() ?? "";
+  return isAbsolute(dir) ? dir : null;
+}
+/** Forgets the plugin that installed `root`, which then stays when it's gone. */
+export function forgetPlugin(root: string): void {
+  remove(root, "plugin");
+}
+/** The launcher's original path, independent of a later daemon's environment. */
+export function launcherOf(root: string): string {
+  const path = read(root, "launcher");
+  return path !== null && isAbsolute(path) ? path : join(process.env.HOME || homedir(), ".local", "bin", "corgi");
+}
+/** Removes what an installation at `root` leaves outside it once it's gone: the installer's launcher. */
+export function forget(root: string): void {
+  try {
+    const launcher = launcherOf(root);
+    const text = readFileSync(launcher, "utf8"),
+      roots = [root, existsSync(root) ? realpathSync(root) : root];
+    if (
+      text.includes('exec "$root/releases/$v/corgi"') &&
+      roots.some(path => text.includes(`root='${path.replaceAll("'", "'\\''")}'`))
+    )
+      unlinkSync(launcher);
+  } catch {}
 }
 async function lock(root: string, name: string, wait: boolean): Promise<(() => void) | null> {
   const fd = openSync(join(root, name), "a", 0o600);
@@ -682,8 +712,10 @@ export async function startup(socket: string, exe: string, args: string[], skip 
 }
 /** What `corgi update status` says about the install at `root`. */
 export function state(root: string): string[] {
+  const plugin = pluginOf(root);
   return [
     `Automatic updates: ${existsSync(join(root, "auto-off")) ? "off" : "on"}`,
+    ...(plugin ? [`Installed by the Omarchy plugin in ${plugin}; removing it removes Corgi`] : []),
     ...["current", "staged", "previous", "suppressed", "last-error"].flatMap(name => {
       const v = read(root, name);
       return v === null ? [] : [`${name}: ${v}`];
