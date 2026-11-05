@@ -99,7 +99,11 @@ test("a pane with no handed models loads them and refreshes when accounts change
       memory_root: folder(),
       mode: "pane",
     });
-  let modelReads = 0;
+  let modelReads = 0,
+    redraws = 0;
+  prompt.changed = () => {
+    redraws++;
+  };
   const conn = {
       request: async (op: string) =>
         op === "agent.preview"
@@ -122,8 +126,10 @@ test("a pane with no handed models loads them and refreshes when accounts change
     preview.installed.claude = true;
     preview.pending = false;
     models.poll(5000);
+    const before = redraws;
     await Bun.sleep(0);
     expect(prompt.current()?.model).toBe("claude-sonnet-5-5");
+    expect(redraws).toBeGreaterThan(before);
     preview.installed.claude = false;
     preview.installed.codex = true;
     models.poll(10000);

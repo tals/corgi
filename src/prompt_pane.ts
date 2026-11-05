@@ -191,7 +191,7 @@ export class Models {
       modelSuggest.auto(usage, entries),
       pending,
     );
-    this.prompt.changed?.();
+    this.prompt.conversation.changed();
   }
   close(): void {
     this.closed = true;
