@@ -62,8 +62,6 @@ import {
 export type Pointer = { x: number; y: number };
 /** The focused pane's outline. The divider tests parse it back. */
 export let divider_focused: string;
-/** How much ink a cut tab label's last two letters keep, in percent. */
-const tab_fade_ink = [65, 35];
 let tab_active: string,
   tab_inactive: string,
   tab_badge: string,
@@ -98,7 +96,7 @@ palette.derived(() => {
   tab_badge_end_active = new Style({ fg: "accent", bg: "selected" }).sgr();
   // A cut label's last two letters fade into the tab, so the name trails off.
   const fade = (style: string, ground: palette.Token, ink: palette.Token) =>
-    tab_fade_ink.map(
+    sidebar.trail_ink.map(
       share => style + palette.fgRgb(palette.mix(palette.colors[ground], palette.colors[ink], share)),
     ) as [string, string];
   tab_fade = fade(tab_inactive, "surface", "faint");

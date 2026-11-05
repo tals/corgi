@@ -230,6 +230,40 @@ test("all three workspace rows select while bottom controls remain distinct", ()
   expect(draw(paged, [], [], 0)).not.toContain(" <  > ");
 });
 
+test("a workspace list that runs past the rule trails off into it", () => {
+  /** What `frame` writes on row `y` (0-based). */
+  const row = (frame: string, y: number) =>
+    frame
+      .split(/(?=\x1b\[\d+;\d+H)/)
+      .filter(part => part.startsWith(`\x1b[${y + 1};`))
+      .join("");
+  const ink = (token: palette.Token, share: number) => `;2;${mix(colors.bg, colors[token], share).join(";")}`;
+  const workspaces = (active: number) =>
+    Array.from({ length: 8 }, (_, i) => workspaceEntry({ id: i + 1, name: `ws${i}`, cwd: "", active: i === active }));
+  const view = View.init(100, 30, true, 0, 0);
+  view.resources = { enabled: false };
+  // Five fit; the sixth's name takes the row above the rule, faintest.
+  const top = view.withWorkspaces(8, 0);
+  let frame = draw(top, [], workspaces(0));
+  expect(row(frame, 12)).toMatch(new RegExp(`${ink("muted", 35)}[;\\d]*mws5`));
+  expect(row(frame, 11)).toContain(ink("muted", 65));
+  expect(row(frame, 10)).not.toContain(ink("muted", 65));
+  expect(top.hit(24, 12)).toEqual(H("workspace", 5));
+  // The active workspace's tint fades with its text.
+  expect(row(draw(top, [], workspaces(5)), 12)).toContain(ink("selected", 35));
+  // Scrolled to the end, the last workspace sits on the rule as it is.
+  frame = draw(view.withWorkspaces(8, 99), [], workspaces(0));
+  expect(frame).not.toContain(ink("muted", 65));
+  expect(frame).not.toContain(ink("muted", 35));
+  // With readings, the fourth workspace's readings row gives way to the
+  // rule, and its name and status rows fade.
+  view.resources = { enabled: true };
+  frame = draw(view.withWorkspaces(8, 0), [], workspaces(0));
+  expect(row(frame, 11)).toMatch(new RegExp(`${ink("muted", 65)}[;\\d]*mws3`));
+  expect(row(frame, 12)).toContain(ink("muted", 35));
+  expect(frame).not.toContain("ws4");
+});
+
 test("unpushed badge retains its columns beside a long workspace name", () => {
   const view = View.init(100, 30, true, 0, 0).withWorkspaces(1, 0);
   const out = draw(
