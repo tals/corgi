@@ -763,18 +763,17 @@ test("a harness build fix becomes its own commit and the steps rerun; the next r
   expect(prompt).toContain("$ sh -c ! grep -rqs BROKEN");
   expect(prompt).toContain("- Do not commit, amend or rebase; leave your changes in the working tree.");
   expect(git(w.clone, "log", "-1", "--format=%B")).toBe("custom-build: fix typecheck (agent)\n\nFixed-By: harness");
-  const fix = head(w);
   expect(stamped(w).map(p => p.source)).toEqual(["bad"]);
   expect(result.out).toContain("agent fix");
   expect(git(w.clone, "status", "--porcelain")).toBe("");
-  // Rebuilding starts from upstream again: the old fix is gone, a new one is made.
+  // Rebuilding starts from upstream again: the old fix is gone, a new one is
+  // made. (Both runs within one second may produce the same commit ids.)
   expect((await cb(w, "rebuild")).code).toBe(0);
-  expect(head(w)).not.toBe(fix);
+  expect(h.calls()).toBe(2);
   expect(git(w.clone, "log", "--first-parent", "--format=%s", "upstream/main..HEAD").split("\n")).toEqual([
     "custom-build: fix typecheck (agent)",
     "Merge bad: about bad",
   ]);
-  expect(Bun.spawnSync(["git", "merge-base", "--is-ancestor", fix, "HEAD"], { cwd: w.clone }).exitCode).toBe(1);
 });
 test("a harness that changes nothing exhausts its attempts; upstream breakage never calls it", async () => {
   const w = world();
@@ -1142,12 +1141,23 @@ test("a stopped and continued run keeps one set of handoffs", async () => {
 test("a harness that times out takes its children with it", async () => {
   const w = world();
   conflicting(w);
-  const late = join(fresh("late"), "late.txt"),
-    h = stubHarness(`(sleep 2; echo late > "${late}") &\nexec sleep 30`);
+  // The harness and its background child hold a FIFO open; its reader sees
+  // the end only once both are gone.
+  const fifo = join(fresh("fifo"), "held");
+  expect(Bun.spawnSync(["mkfifo", fifo]).exitCode).toBe(0);
+  const reader = Bun.spawn(["cat", fifo], { stdout: "ignore" }),
+    h = stubHarness(`exec 3>"${fifo}"\n(exec sleep 30) &\nexec sleep 30`);
   configure(w, ["left", "right"], { harness: { command: h.command, attempts: 1, timeoutSeconds: 1 } });
-  expect((await cb(w, "rebuild")).code).toBe(5);
-  await Bun.sleep(2500);
-  expect(existsSync(late)).toBe(false);
+  try {
+    expect((await cb(w, "rebuild")).code).toBe(5);
+    const gone = await Promise.race([
+      reader.exited.then(() => true),
+      new Promise<boolean>(resolve => setTimeout(resolve, 5000, false)),
+    ]);
+    expect(gone).toBe(true);
+  } finally {
+    reader.kill();
+  }
 });
 test("a fix never commits the temporary files an interrupted bun build leaves", async () => {
   const w = world();
