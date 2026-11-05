@@ -6606,10 +6606,12 @@ export class Controller {
         this.queueEffect({ open_url: open.url });
     }
     if (!release && (button & 32) === 0) this.endSigninExit();
-    // A double-click needs two left presses on one sidebar row with the
-    // pointer still between them; any other press starts over. The sidebar's
-    // own presses reset it for what isn't a row.
-    if (!release && button === 32) this.clicks.motion(x, y);
+    // A double-click needs two left presses on one sidebar cell with the
+    // pointer still between them, held (32) or not (35); a wheel turn or any
+    // other press starts over. The sidebar's own presses reset it for what
+    // isn't a row.
+    if (!release && (button === 32 || button === 35)) this.clicks.motion(x, y);
+    else if (!release && (button & 64) !== 0) this.clicks.reset();
     else if (!release && (button & 0xe0) === 0 && (button !== 0 || x >= this.sidebarView([]).width))
       this.clicks.reset();
     if (this.signin) {

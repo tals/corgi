@@ -53,6 +53,14 @@ test("the pointer leaving the pressed cell ends the double-click", () => {
   expect(h.press({ agent: 1 }, 1001, 3, 4)).toBe(false);
 });
 
+test("a second press on another cell of the same row starts over", () => {
+  const h = new ClickHistory();
+  expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);
+  expect(h.press({ agent: 1 }, 1001, 5, 4)).toBe(false);
+  // It counts as the first press of a new double-click there.
+  expect(h.press({ agent: 1 }, 1002, 5, 4)).toBe(true);
+});
+
 test("motion within the pressed cell keeps the double-click", () => {
   const h = new ClickHistory();
   expect(h.press({ agent: 1 }, 1000, 3, 4)).toBe(false);

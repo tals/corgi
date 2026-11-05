@@ -23,14 +23,16 @@ export class ClickHistory {
   /** The pointer left the pressed cell, or a drag started, since the press. */
   moved = false;
 
-  /** Records a press; true when it completes a double-click, after which the
-   * next press starts over. */
+  /** Records a press; true when it completes a double-click on the first
+   * press's cell, after which the next press starts over. */
   press(target: RenameTarget, now: number, x: number, y: number): boolean {
     if (
       this.target !== null &&
       sameRenameTarget(this.target, target) &&
       now - this.at < double_click_ms &&
-      !this.moved
+      !this.moved &&
+      x === this.x &&
+      y === this.y
     ) {
       this.reset();
       return true;
@@ -42,7 +44,7 @@ export class ClickHistory {
     this.moved = false;
     return false;
   }
-  /** The held pointer is at `x`, `y`: another cell than the press ends the double-click. */
+  /** The pointer, held or not, is at `x`, `y`: another cell than the press ends the double-click. */
   motion(x: number, y: number): void {
     if (this.target === null) return;
     if (x !== this.x || y !== this.y) this.moved = true;
