@@ -108,6 +108,23 @@ export const transcript: Omit<Transcript, "reader"> = {
       return "interrupted";
     return null;
   },
+  // Claude Code writes no `turn_duration` while the session leads teammates,
+  // so a Stop hook summary the model doesn't answer ends the turn too. A
+  // blocking Stop hook hands its reason back, and the model goes on.
+  settling(agent, v) {
+    const decoded = Line.decode(v);
+    if (!decoded || decoded.sessionId !== agent.sessionId()) return null;
+    if (decoded.type === "system" && decoded.subtype === "stop_hook_summary") return "settles";
+    if (decoded.type === "user" || decoded.type === "assistant") return "continues";
+    const attachment = field(v, "attachment");
+    if (
+      decoded.type === "attachment" &&
+      str(attachment, "type") === "hook_blocking_error" &&
+      str(attachment, "hookEvent") === "Stop"
+    )
+      return "continues";
+    return null;
+  },
   fallback(r, agent) {
     if (r.name.len) agent.setName(r.name.text());
     if (agent.state === "working" && !agent.activity_inferred && r.update.len && r.update_at > agent.activity_at) {
