@@ -182,6 +182,9 @@ export class Hooks {
       session_crons: field(v, "session_crons"),
       subagent: agent || (launched ? str(response, "agentId") : ""),
       subagent_name: "",
+      /** A background task the tool started that wakes the conversation with
+       * each event it reports, when the provider tells one. */
+      wake_task: "",
       subagent_type: agent ? str(v, "agent_type") : launched ? str(input, "subagent_type") : "",
       target:
         ["file_path", "notebook_path", "pattern", "query", "url", "command", "skill"]

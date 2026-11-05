@@ -1,17 +1,17 @@
 //! What Claude Code's hooks tell beyond its lifecycle: the background shells
-//! and subagents a Stop lists, subagents it launches, and the pause while
-//! background work can wake it.
+//! and subagents a Stop lists, subagents and teammates it launches, and the
+//! pause while a Monitor or a wakeup can wake it.
 import path from "node:path";
 import { field, str, Text } from "../common";
 import { Children, Inventory, Shells, capacity } from "../../activity/background_tasks";
 import type { Actor, Registry } from "../../conversations";
 import { running } from "./process";
 import { subagentTranscript } from "./index";
-/** A Stop's background task that still runs, as a shell or a subagent. */
+/** A Stop's background task that still runs, as a shell, a subagent or a teammate. */
 function task(item: any) {
   if (["completed", "failed", "killed"].includes(str(item, "status"))) return null;
   const t = str(item, "type");
-  return ["shell", "subagent"].includes(t) ? t : null;
+  return ["shell", "subagent", "teammate"].includes(t) ? t : null;
 }
 export function inventory(value: any, now: number) {
   if (!Array.isArray(value)) return null;
@@ -38,16 +38,21 @@ export function children(value: any) {
   }
   return out;
 }
-/** The background shells a Stop lists as running: commands and Monitors
- * alike. Each one's end, and each event a Monitor prints, wakes the
- * conversation. Empty when the Stop lists no work at all. */
-export function shells(value: any) {
+/** How many teammates a Stop lists. It names each by a task id of its own,
+ * not the agent id its hooks carry, and lists it as running while it idles. */
+export function teammates(value: any) {
+  return Array.isArray(value) ? value.filter(item => task(item) === "teammate").length : 0;
+}
+/** The background shells a Stop lists as running that `monitors` started.
+ * Each event a Monitor prints wakes the conversation; a plain background
+ * command is often a server that never ends. Empty when the Stop lists none. */
+export function shells(value: any, monitors: ReadonlySet<string>) {
   const out = new Shells();
   if (!Array.isArray(value)) return out;
   for (const item of value) {
     if (task(item) !== "shell") continue;
     const id = str(item, "id");
-    if (!id || Buffer.byteLength(id) > 32 || out.listed(id) || out.len === capacity) continue;
+    if (!id || Buffer.byteLength(id) > 32 || !monitors.has(id) || out.listed(id) || out.len === capacity) continue;
     out.items.push(new Text(id));
   }
   return out;
@@ -56,16 +61,45 @@ export function shells(value: any) {
 export function wakeup(crons: any) {
   return Array.isArray(crons) && crons.some(c => field(c, "recurring") === false);
 }
+/** Adds what Claude's tool results tell to a decoded hook: the teammate the
+ * Agent tool spawned, and the task a Monitor started. */
+export function decoded<
+  T extends { kind: string; tool: string; subagent: string; subagent_type: string; wake_task: string },
+>(hook: T | null, v: unknown): T | null {
+  if (hook?.kind !== "tool_finish") return hook;
+  const response = field(v, "tool_response");
+  if (str(response, "status") === "teammate_spawned") {
+    hook.subagent = str(response, "agentId");
+    hook.subagent_type = str(response, "name");
+  }
+  if (hook.tool === "Monitor") hook.wake_task = str(response, "taskId");
+  return hook;
+}
+/** The Monitors each conversation started that may still run, by task id.
+ * A reload forgets them, so a Monitor started before it doesn't pause the
+ * conversation again. */
+const monitors = new WeakMap<Actor, Set<string>>();
 /** Keeps an actor's background shells and tasks as a hook reports them. */
 export function hooked(actor: Actor, event: any, now: number) {
   actor.state.subagents.waiting = false;
   const tasks = inventory(event.background_tasks, now);
   if (tasks) actor.background_tasks = tasks;
-  if (event.kind === "session_end") actor.background_tasks = new Inventory();
+  if (event.wake_task && Buffer.byteLength(event.wake_task) <= 32) {
+    const started = monitors.get(actor) ?? new Set<string>();
+    if (started.size < capacity) started.add(event.wake_task);
+    monitors.set(actor, started);
+  }
   // A Stop lists only the tasks of the process that runs the session
   // now, so a shell of an earlier one drops out.
-  if (event.kind === "stop") actor.shells = shells(event.background_tasks);
-  if (event.kind === "session_end") actor.shells = new Shells();
+  if (event.kind === "stop") {
+    actor.shells = shells(event.background_tasks, monitors.get(actor) ?? new Set());
+    monitors.set(actor, new Set(actor.shells.items.map(id => id.text())));
+  }
+  if (event.kind === "session_end") {
+    actor.background_tasks = new Inventory();
+    actor.shells = new Shells();
+    monitors.delete(actor);
+  }
 }
 /** Takes a subagent the parent launched or listed as its child. */
 function adopt(
@@ -92,20 +126,25 @@ function adopt(
   child.observed_at = now;
   return true;
 }
-/** Makes `found` the parent's subagents, and idles the ones a complete list leaves out. */
-function follow(registry: Registry, parent: Actor, found: Children, now: number) {
-  parent.state.subagents.running = found.running;
+/** Makes `found` the parent's subagents, and idles the ones a complete list
+ * leaves out. While the list has `teammates`, as many working children it
+ * doesn't name may be them; their own start and stop say when they work. */
+function follow(registry: Registry, parent: Actor, found: Children, teammates: number, now: number) {
   parent.children_observed_at = now;
   for (const meta of found.slice()) adopt(registry, parent, meta, now);
-  if (found.complete())
-    for (const child of registry.items)
-      if (child.parent === parent.id && child.state.state !== "idle" && !found.listed(child.state.sessionId())) {
-        child.state.state = "idle";
-        child.observed_at = now;
-      }
+  let busy = 0;
+  for (const child of registry.items) {
+    if (child.parent !== parent.id || child.state.state === "idle" || found.listed(child.state.sessionId())) continue;
+    if (busy < teammates) busy++;
+    else if (found.complete()) {
+      child.state.state = "idle";
+      child.observed_at = now;
+    }
+  }
+  parent.state.subagents.running = Math.min(0xffffffff, found.running + busy);
 }
 /** Follows a hook the parent applied: subagents it launched or a Stop lists,
- * and a pause while its background work can wake it. */
+ * and a pause while a Monitor or a wakeup can wake it. */
 export function applied(registry: Registry, actor: Actor, event: any, seq: bigint, now: number) {
   if (event.subagent && Buffer.byteLength(event.subagent) <= 96) {
     const known = registry.find(actor.provider(), event.subagent);
@@ -128,10 +167,9 @@ export function applied(registry: Registry, actor: Actor, event: any, seq: bigin
   }
   const listed = children(event.background_tasks);
   if (listed === null && event.kind !== "session_end") return;
-  const found = listed ?? new Children();
-  follow(registry, actor, found, now);
+  follow(registry, actor, listed ?? new Children(), teammates(event.background_tasks), now);
   if (event.kind !== "stop") return;
-  if (found.running > 0) actor.state.awaitSubagents(now);
+  if (actor.state.subagents.running > 0) actor.state.awaitSubagents(now);
   else {
     const wakes = wakeup(event.session_crons);
     if (actor.pid <= 0 || (!actor.shells.len && !wakes)) return;
@@ -142,14 +180,19 @@ export function applied(registry: Registry, actor: Actor, event: any, seq: bigin
 }
 /** A subagent's start or stop, which leaves its parent's own state alone. */
 export function child(registry: Registry, parent: Actor, event: any, now: number) {
+  const known = registry.find(parent.provider(), event.subagent);
   if (event.kind === "subagent_stop") {
+    // A teammate idles until a message starts it again.
+    if (known?.parent === parent.id && known.state.state !== "idle") {
+      known.state.state = "idle";
+      known.observed_at = now;
+    }
     // The list still has the stopping subagent running.
     const listed = children(event.background_tasks);
-    if (listed) follow(registry, parent, listed.without(event.subagent), now);
+    if (listed) follow(registry, parent, listed.without(event.subagent), teammates(event.background_tasks), now);
     return;
   }
   // A launch adopts a new subagent; a start only revives one a message resumed.
-  const known = registry.find(parent.provider(), event.subagent);
   if (!known || known.parent !== parent.id || known.state.state === "working") return;
   known.state.state = "working";
   known.observed_at = now;
