@@ -26,6 +26,7 @@ import {
 import { Model, Selection, View, Rect, type Axis } from "./layout";
 import * as palette from "./palette";
 import * as sidebar from "./sidebar";
+import * as docking from "./docking";
 import * as resourceTooltip from "./resource_tooltip";
 import * as corgiBadge from "./corgi_badge";
 import { TabMenu } from "./commands";
@@ -735,6 +736,45 @@ test("the launcher dims the panes behind it", () => {
   expect(frame(new View(m, selection), [pane], 100, 30, u)).toContain("plain");
   u.agent_launcher = new LauncherMenu({ workspace: 1, selected: "codex", last: "codex", pinned: true });
   expect(frame(new View(m, selection), [pane], 100, 30, u)).toContain("dimmed");
+});
+
+test("a swap preview on a single-pane tab stays below the tabs and inside the pane area", () => {
+  const model = new Model(),
+    source = model.newTab("Source");
+  model.split(source, "horizontal");
+  const target = model.newTab("Target"),
+    selection = new Selection();
+  selection.reconcile(model);
+  selection.focus(model, target);
+  const view = new View(model, selection),
+    drop = { kind: "swap" as const, pane: target },
+    plan = docking.arrange(model, { pane: source }, drop, source, model.next_id),
+    screen = new Terminal(120, 36);
+  try {
+    for (const open of [false, true]) {
+      const options = ui({ sidebar_open: open, message: "", copy_mode: false });
+      options.prefs.corgi_intensity = 0;
+      options.prefs.resources.enabled = false;
+      screen.feed(frame(view, [], 120, 36, options));
+      const before = screen.text().split("\n"),
+        area = sidebar.View.init(120, 36, open, 0, 0).area();
+      screen.feed(
+        frame(view, [], 120, 36, {
+          ...options,
+          docking: { plan, drop, dragging: true, cwd: null, reason: null, controls: [] },
+        }),
+      );
+      const after = screen.text().split("\n");
+      expect(after[0]).toBe(before[0]);
+      expect(after[area.y][area.x]).toBe("╭");
+      expect(after[area.y][area.x + area.w - 1]).toBe("╮");
+      expect(after[area.y + area.h - 1][area.x]).toBe("╰");
+      expect(after[area.y + area.h - 1][area.x + area.w - 1]).toBe("╯");
+      for (let y = area.y; y < area.y + area.h; y++) expect(after[y].slice(0, area.x)).toBe(before[y].slice(0, area.x));
+    }
+  } finally {
+    screen.destroy();
+  }
 });
 
 test("a ghost dims the bottom half of the pane area, each row where entering leaves it", () => {

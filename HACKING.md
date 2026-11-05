@@ -193,6 +193,21 @@ The sandbox supplies a seeded repository and fake agents with separate HOME,
 provider configuration and state. Add a world in [tools/sandboxes/](tools/sandboxes/)
 when a feature needs repeatable setup. Sandbox `--restart` discards that world.
 
+`./go.ts --sandbox docking` opens real shells in tabs and nested splits. Drag a
+tab to dock its whole tree, or a pane's `::` grip to move just that pane. The
+grip appears when the pointer is on the pane's top border. The
+broad middle zone around the root divider docks across the whole layout;
+elsewhere an edge splits only the pane under it. Holding over another tab
+opens it after half a second. Escape, right-click and focus loss cancel.
+Dragging a tab into itself starts a shell at its focused pane's working directory.
+The dotted preview uses the terminal's actual contents.
+
+The tab-bar Undo / Redo buttons (also prefix then Ctrl+Z / Ctrl+Y) restore docking
+arrangements without restarting processes. Undoing a shell creation moves it into
+its own tab. History belongs to the viewer and daemon lifetime; another layout
+change, including a pane closing, invalidates it. Docking commands check the
+workspace revision before committing, including after a shell finishes spawning.
+
 The [UI driver](tools/ui_driver.ts) drives a real viewer in an isolated PTY
 and records screens. It uses `dist/corgi`, so rebuild first. Scripts live in
 [tools/ui_scenarios/](tools/ui_scenarios/) and use the `.scenario` extension.

@@ -196,6 +196,8 @@ tmux tab numbering starts at zero; other presets start at one.
 
 | Action | Corgi | tmux | Herdr | cmux |
 | --- | --- | --- | --- | --- |
+| Undo layout change | `prefix Ctrl+Z` | `prefix Ctrl+Z` | `prefix Ctrl+Z` | `prefix Ctrl+Z` |
+| Redo layout change | `prefix Ctrl+Y` | `prefix Ctrl+Y` | `prefix Ctrl+Y` | `prefix Ctrl+Y` |
 | New tab (agent picker) | `prefix c`, `Ctrl+T` | `prefix c` | `prefix c` | `Cmd+T`, `prefix c` |
 | Next tab | `prefix n` | `prefix n` | `prefix n` | `Cmd+Shift+]`, `prefix n` |
 | Previous tab | `prefix p` | `prefix p` | `prefix p` | `Cmd+Shift+[`, `prefix p` |

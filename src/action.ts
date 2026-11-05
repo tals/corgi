@@ -2,6 +2,10 @@ import * as i18n from "./i18n";
 export type Direction = "left" | "right" | "up" | "down";
 export type Action = { name: string; value?: string | number };
 export const specs: Record<string, string> = {
+  dock: "void",
+  "cancel-dock": "void",
+  "undo-layout": "void",
+  "redo-layout": "void",
   new: "void",
   next: "void",
   prev: "void",
@@ -147,6 +151,8 @@ export function needsPane(action: Action): boolean {
 }
 export function title(action: Action): string {
   const titles: Record<string, string> = {
+    "undo-layout": i18n.t`Undo layout change`,
+    "redo-layout": i18n.t`Redo layout change`,
     onboard: i18n.t`Onboarding`,
     keybindings: i18n.t`Customize shortcuts`,
     new: i18n.t`New tab (agent picker)`,

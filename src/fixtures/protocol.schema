@@ -3,6 +3,21 @@ $.envelope.request_id?: u64
 $.requests: one of
 $.requests|hello: {}
 $.requests|session.command.command: one of
+$.requests|session.command.command|layout.dock.workspace: u32
+$.requests|session.command.command|layout.dock.viewer: u32
+$.requests|session.command.command|layout.dock.expected: u64
+$.requests|session.command.command|layout.dock.source: one of
+$.requests|session.command.command|layout.dock.source|tab: u32
+$.requests|session.command.command|layout.dock.source|pane: u32
+$.requests|session.command.command|layout.dock.drop: custom protocol.DockDrop
+$.requests|session.command.command|layout.dock.focus: u32
+$.requests|session.command.command|layout.dock.selected: u32
+$.requests|session.command.command|layout.dock.cols: u16
+$.requests|session.command.command|layout.dock.rows: u16
+$.requests|session.command.command|layout.history.workspace: u32
+$.requests|session.command.command|layout.history.viewer: u32
+$.requests|session.command.command|layout.history.expected: u64
+$.requests|session.command.command|layout.history.direction: enum undo redo
 $.requests|session.command.command|agent.move.workspace: u32
 $.requests|session.command.command|agent.move.target: one of
 $.requests|session.command.command|agent.move.target|pane: u32

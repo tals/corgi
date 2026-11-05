@@ -9,7 +9,9 @@ import * as surfaceFixture from "./fixtures/surface";
 import { Controller } from "./controller";
 import { Frame, same } from "./composition";
 import { Differ } from "./frame_diff";
-import { Rect, View as LayoutView } from "./layout";
+import { Model, Rect, View as LayoutView, max_panes } from "./layout";
+import * as docking from "./docking";
+import { validateInterests } from "./viewer_protocol";
 import type { RequestInput } from "./protocol";
 import { Writer } from "./text";
 import * as viewer from "./viewer";
@@ -334,6 +336,49 @@ function syncingView(state: object) {
   view.receiveSnapshot(state);
   return { view, requests, sync: () => viewer.sync(view, { seq: 0n }, false) };
 }
+
+test("tab reorders need no preview screens and swap previews stay within the subscription limit", async () => {
+  for (const count of [max_panes, 1]) {
+    const model = new Model(),
+      target = model.newTab("Visible");
+    for (let i = 1; i < count; i++) model.split(target, "horizontal");
+    const source = model.newTab("Dragged");
+    model.split(source, "vertical");
+    const ids = model.tabs.flatMap(tab => docking.panes(model, tab.root)),
+      state = snapshot(ids.length),
+      f = syncingView({
+        ...state,
+        workspaces: [{ ...state.workspaces[0], model: model.toJSON() }],
+        panes: state.panes.map((p, i) => ({ ...p, id: ids[i], tab: model.tabs[model.tabForPane(ids[i])!].id })),
+      }),
+      preview = spyOn(f.view, "dockingPreview");
+    try {
+      for (const drop of [
+        { kind: "tab", index: 0 },
+        { kind: "swap", pane: target },
+      ] as const) {
+        const plan = docking.arrange(
+          model,
+          drop.kind === "tab" ? { tab: model.tabs[1].id } : { pane: source },
+          drop,
+          source,
+          model.next_id,
+        );
+        preview.mockReturnValue({ plan, drop, dragging: true, cwd: null, reason: null, controls: [] });
+        await f.sync();
+        const interests = f.requests.at(-1)!.interests;
+        expect(() => validateInterests(interests.map(({ pane, cols, rows }) => ({ pane, cols, rows })))).not.toThrow();
+        const extra = drop.kind === "swap" && count < max_panes;
+        expect(interests).toHaveLength(count + Number(extra));
+        expect(interests.some(i => i.pane === source)).toBe(extra);
+        if (extra) expect(interests.find(i => i.pane === source)).toMatchObject({ cols: 132, rows: 47 });
+      }
+    } finally {
+      preview.mockRestore();
+      viewer.close(f.view);
+    }
+  }
+});
 
 test("same-stamp focus returns restore an evicted pane without an RPC surface", async () => {
   const f = syncingView(snapshot(2)),

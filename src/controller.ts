@@ -96,6 +96,9 @@ import * as launcherWorktree from "./launcher_worktree";
 import * as preferences from "./preferences";
 import { Preferences } from "./preferences";
 import { Drag as AgentDrag } from "./agent_drag";
+import * as docking from "./docking";
+import * as dockingDrag from "./docking_drag";
+import { Drag as TabDrag } from "./docking_drag";
 import { Drag as WorkspaceDrag } from "./workspace_drag";
 import { double_click_ms, milliTimestamp, microTimestamp } from "./clock";
 import * as ghosttyIntegration from "./ghostty_integration";
@@ -137,19 +140,6 @@ interface Stopped {
 }
 export type Effect = { write_terminal: string } | { open_url: string };
 type HoverMenu = "launcher" | "scope";
-interface TabDrag {
-  workspace_id: number;
-  tab_id: number;
-  start_x: number;
-  width: number;
-  tabs_x: number;
-  first: number;
-  ids: number[];
-  count: number;
-  dragging: boolean;
-  cancelled: boolean;
-  drop: render.TabDrop | null;
-}
 /** A paste goes to the text field that owned the keyboard when it began, or
  * to the focused pane when none did. */
 type Paste = { pane: number } | "launcher" | "setup" | "picker" | "name" | "review" | "signin" | "prompt" | "discard";
@@ -452,6 +442,7 @@ export class Controller {
   ui_mouse_down = false;
   sidebar_drag: "width" | "split" | null = null;
   agent_drag: AgentDrag | null = null;
+  private dock_history = new Map<number, { revision: bigint; undo: number; redo: number }>();
   workspace_drag: WorkspaceDrag | null = null;
   resize_mode = false;
   copy_mode = false;
@@ -2065,7 +2056,11 @@ export class Controller {
       moving = launch?.managing && (!this.corgi_setup || this.corgi_setup.managing()) && launch.manager.moving();
     if (this.sidebar_rows.moving(now) || moving) return 16;
     const smooth =
-      this.overlayOpen() || this.signin_exit || this.sidebar_rows.fading(now) || this.agent_drag?.scrolling();
+      this.overlayOpen() ||
+      this.signin_exit ||
+      this.sidebar_rows.fading(now) ||
+      this.agent_drag?.scrolling() ||
+      this.input_state.tab_drag?.dragging;
     return smooth ? 30 : corgiAnimation.frameDelay();
   }
   private async renamePane(id: number, name: string): Promise<void> {
@@ -2205,6 +2200,7 @@ export class Controller {
   }
   /** One automatic attempt per selection, including after a failed resume. */
   private wakeFocused(): Promise<void> | void {
+    if (this.input_state.tab_drag) return;
     this.observeFocus();
     const pane = this.wake_pending,
       workspace = this.unarchive_pending;
@@ -2294,6 +2290,14 @@ export class Controller {
   async perform(act: Action): Promise<void> {
     this.message = "";
     switch (act.name) {
+      case "dock":
+        return this.commitDock();
+      case "undo-layout":
+        return this.restoreDock("undo");
+      case "redo-layout":
+        return this.restoreDock("redo");
+      case "cancel-dock":
+        return this.cancelDock();
       case "worktrees": {
         const id = Number(act.value) || this.current().id;
         if (this.runtime.workspaces.index(id) === null) break;
@@ -4978,6 +4982,10 @@ export class Controller {
   private async key(byte: number, literal = false): Promise<void> {
     this.endSigninExit();
     const cl = this.input_state;
+    if (cl.tab_drag) {
+      this.cancelDock();
+      return;
+    }
     this.repeat_until = 0;
     if (this.archive_dialog) {
       const action = this.archive_dialog.key(String.fromCharCode(byte));
@@ -5274,10 +5282,6 @@ export class Controller {
       this.dirty = true;
     }
     this.cancelDividers();
-    if (cl.tab_drag) {
-      cl.tab_drag.cancelled = true;
-      this.dirty = true;
-    }
     if (this.tab_menu) {
       const context = this.tab_menu;
       switch (byte) {
@@ -5980,13 +5984,16 @@ export class Controller {
       } else if (parsed_key === "focus_in") {
         cl.watched = true;
       } else if (parsed_key === "focus_out") {
+        this.cancelDock();
         cl.watched = false;
         this.moonlander?.release();
         if (this.agent_drag) this.agent_drag.cancelled = true;
         this.pointer = null;
         this.dirty = true;
       } else if (text.startsWith("\x1b[<")) await this.mouse(text);
-      else if (this.archive_dialog) {
+      else if (cl.tab_drag) {
+        this.cancelDock();
+      } else if (this.archive_dialog) {
         const action = this.archive_dialog.key(parsed_key ?? text);
         if (action) await this.perform(action);
       } else if (this.moonlander) {
@@ -6115,8 +6122,10 @@ export class Controller {
   }
   /** Columns the tab bar's tabs may take, left of its "+" button. */
   private tabSpace(): number {
-    const side = this.sidebarView([]);
-    return sat(this.width - side.tabX() - side.panel, 3);
+    const area = this.area(),
+      controls = this.model().count ? dockingDrag.controls(area) : [];
+    const end = controls[0]?.rect.x ?? area.x + area.w;
+    return Math.max(0, end - this.sidebarView([]).tabX() - 3);
   }
   private scrollTabs(forward: boolean): void {
     const view = this.layoutView();
@@ -6132,27 +6141,107 @@ export class Controller {
     selection.revealed = selection.active;
   }
   private validTabDrag(drag: TabDrag): boolean {
-    const tabs_x = this.sidebarView([]).tabX();
-    const m = this.model();
-    if (
-      drag.workspace_id !== this.current().id ||
-      drag.width !== this.width ||
-      drag.tabs_x !== tabs_x ||
-      drag.count !== m.count ||
-      drag.first !== render.tabStart(this.layoutView(), this.tabSpace()) ||
-      this.hasMenu() ||
-      this.name_dialog !== null
-    )
-      drag.cancelled = true;
-    m.tabs.slice(0, m.count).forEach((tab, i) => {
-      if (i >= drag.count || drag.ids[i] !== tab.id) drag.cancelled = true;
+    if (this.hasMenu() || this.name_dialog !== null || (this.copy_mode && drag.dragging)) drag.cancelled = true;
+    return drag.valid(
+      this.current().id,
+      this.model(),
+      this.area(),
+      this.width,
+      this.height,
+      this.sidebarView([]).tabX(),
+    );
+  }
+  private cancelDock(): void {
+    const drag = this.input_state.tab_drag;
+    if (!drag) return;
+    if (drag.workspace_id === this.current().id) {
+      Object.assign(this.nav(), structuredClone(drag.before));
+      this.nav().reconcile(this.model());
+    }
+    this.input_state.tab_drag = null;
+    this.ui_mouse_down = true;
+    this.dirty = true;
+  }
+  private dockingHistory() {
+    const id = this.current().id,
+      history = this.dock_history.get(id);
+    if (history && history.revision === this.model().revision) return history;
+    this.dock_history.delete(id);
+    return { revision: this.model().revision, undo: 0, redo: 0 };
+  }
+  private async commitDock(): Promise<void> {
+    const drag = this.input_state.tab_drag;
+    if (!drag || !this.validTabDrag(drag) || !drag.plan || !drag.drop) return this.cancelDock();
+    const history = this.dockingHistory(),
+      workspace = this.current().id;
+    const command: CommandInput = {
+      "layout.dock": {
+        workspace,
+        viewer: this.input_state.viewer_id,
+        expected: drag.revision,
+        source: drag.source,
+        drop: drag.drop,
+        focus: drag.focus,
+        selected: drag.before.tab().focus,
+        cols: drag.area.w,
+        rows: drag.area.h,
+      },
+    };
+    // Consume the gesture before awaiting the daemon; no release can repeat it.
+    this.cancelDock();
+    const result = await this.execute(command, () => {
+      this.dock_history.set(workspace, { revision: drag.revision + 1n, undo: Math.min(32, history.undo + 1), redo: 0 });
     });
-    return !drag.cancelled;
+    this.focusPane(result.pane);
+    this.nav().tab().zoom = false;
+  }
+  private async restoreDock(direction: "undo" | "redo"): Promise<void> {
+    this.cancelDock();
+    const h = this.dockingHistory(),
+      workspace = this.current().id;
+    if (!h[direction]) return;
+    const result = await this.execute(
+      { "layout.history": { workspace, viewer: this.input_state.viewer_id, expected: h.revision, direction } },
+      () => {
+        this.dock_history.set(workspace, {
+          revision: h.revision + 1n,
+          undo: h.undo + (direction === "undo" ? -1 : 1),
+          redo: h.redo + (direction === "redo" ? -1 : 1),
+        });
+      },
+    );
+    this.focusPane(result.pane);
+    this.nav().tab().zoom = false;
+  }
+  dockingPreview(): render.Docking | null {
+    const drag = this.input_state.tab_drag;
+    if (drag && !this.validTabDrag(drag)) this.cancelDock();
+    const active = this.input_state.tab_drag;
+    if (!this.model().count) return null;
+    const h = this.dockingHistory(),
+      enabled = !this.hasMenu() && !this.name_dialog && !this.copy_mode;
+    return {
+      plan: active?.plan ?? null,
+      drop: active?.drop ?? null,
+      dragging: active?.dragging ?? false,
+      cwd: active?.plan?.shell != null ? this.pane(active.focus)?.cwd || this.current().cwd : null,
+      reason:
+        active?.reason === "small"
+          ? i18n.t`Not enough room for this split`
+          : active?.reason === "edge"
+            ? i18n.t`Choose an edge to split`
+            : null,
+      controls: dockingDrag.controls(this.area()).map(c => ({
+        ...c,
+        enabled:
+          enabled &&
+          (c.name === "undo-layout" ? h.undo > 0 : c.name === "redo-layout" ? h.redo > 0 : !!active?.dragging),
+      })),
+    };
   }
   tabDropX(): number | null {
     const drag = this.input_state.tab_drag;
-    if (drag && this.validTabDrag(drag) && drag.dragging && drag.drop) return drag.drop.x;
-    return null;
+    return drag && this.validTabDrag(drag) && drag.plan ? drag.drop_x : null;
   }
   private cancelDividers(): void {
     if (this.input_state.divider) this.input_state.divider.cancelled = true;
@@ -6169,6 +6258,64 @@ export class Controller {
     const x = sat(xs, 1);
     const y = sat(ys, 1);
     const release = seq[seq.length - 1] === "m";
+    if (cl.tab_drag) {
+      const drag = cl.tab_drag;
+      this.pointer = { x, y };
+      if (!release && (button === 2 || button === 35 || button === 0)) {
+        this.cancelDock();
+        if (button !== 0) return;
+        this.ui_mouse_down = false;
+      } else {
+        const valid = this.validTabDrag(drag);
+        if (!valid) {
+          this.cancelDock();
+          return;
+        }
+        const wheel = !release && y === 0 ? tabWheel(button) : null;
+        if (wheel !== null) {
+          this.scrollTabs(wheel);
+          drag.dragging = true;
+        }
+        if (!release && button === 32 && (Math.abs(x - drag.start_x) >= 2 || Math.abs(y - drag.start_y) >= 1))
+          drag.dragging = true;
+        if (this.copy_mode && drag.dragging) {
+          this.cancelDock();
+          return;
+        }
+        drag.update(this.layoutView(), x, y, this.tabSpace(), milliTimestamp());
+        if (dockingDrag.controls(this.area()).some(c => c.rect.contains(x, y))) {
+          drag.plan = null;
+          drag.drop = null;
+        }
+        if (release && (button & 3) === 0) {
+          if (drag.dragging) await this.perform({ name: "dock" });
+          else {
+            const click =
+              "tab" in drag.source
+                ? y === 0 &&
+                  render.tabAt(this.layoutView(), this.tabSpace() + 3, x - drag.tabs_x) ===
+                    this.model().tabIndex(drag.source.tab)
+                : docking
+                    .grips(this.layoutView(), this.area())
+                    .some(h => h.pane === drag.focus && h.rect.contains(x, y));
+            this.cancelDock();
+            if (click) this.focusPane(drag.focus);
+          }
+          this.ui_mouse_down = false;
+        }
+        this.dirty = true;
+        return;
+      }
+    }
+    if (!release && button === 0 && !this.hasMenu() && !this.name_dialog) {
+      const preview = this.dockingPreview(),
+        control = preview?.controls.find(c => c.rect.contains(x, y));
+      if (control) {
+        this.ui_mouse_down = true;
+        if (control.enabled) await this.perform({ name: control.name });
+        return;
+      }
+    }
     if (this.archive_dialog) {
       this.pointer = { x, y };
       this.dirty = true;
@@ -6433,6 +6580,26 @@ export class Controller {
       }
       return;
     }
+    if (!release && button === 0 && !this.hasMenu() && !this.name_dialog) {
+      const grip = docking.grips(this.layoutView(), this.area()).find(h => h.rect.contains(x, y));
+      if (grip) {
+        cl.tab_drag = new TabDrag(
+          this.current().id,
+          { pane: grip.pane },
+          grip.pane,
+          this.model(),
+          this.nav(),
+          this.area(),
+          this.sidebarView([]).tabX(),
+          this.width,
+          this.height,
+          x,
+          y,
+        );
+        this.dirty = true;
+        return;
+      }
+    }
     if (cl.divider) {
       const drag = cl.divider;
       if (!sameRect(drag.area, this.area())) drag.cancelled = true;
@@ -6611,31 +6778,6 @@ export class Controller {
       }
       return;
     }
-    if (cl.tab_drag) {
-      const drag = cl.tab_drag;
-      const valid = this.validTabDrag(drag);
-      const wheel = release ? null : tabWheel(button);
-      if (valid && wheel !== null) {
-        this.scrollTabs(wheel);
-        drag.first = render.tabStart(this.layoutView(), this.tabSpace());
-        drag.dragging = true;
-      }
-      const drop =
-        valid && y === 0 && x >= drag.tabs_x
-          ? render.tabDrop(this.layoutView(), this.width - drag.tabs_x, x - drag.tabs_x)
-          : null;
-      if ((button === 32 && !release) || wheel !== null) {
-        if (drop !== null && x !== drag.start_x) drag.dragging = true;
-        drag.drop = drop;
-      }
-      if (release && (button & 3) === 0) {
-        if (valid && drag.dragging && drop) await this.moveTab(drag.tab_id, drop.index);
-        cl.tab_drag = null;
-      }
-      // The tab owns this gesture, including motion/release over a pane.
-      this.dirty = true;
-      return;
-    }
     if (cl.pane_press !== null && (release || isDrag(button))) {
       const id = cl.pane_press;
       if (release) cl.pane_press = null;
@@ -6659,7 +6801,7 @@ export class Controller {
       return;
     }
     const tabs_x = this.sidebarView([]).tabX();
-    const tabs_width = this.width - tabs_x;
+    const tabs_width = this.tabSpace() + 3;
     const managerLaunch = this.launcherModel();
     if (managerLaunch?.managing && (!this.corgi_setup || this.corgi_setup.managing())) {
       this.pointer = { x, y };
@@ -7113,22 +7255,19 @@ export class Controller {
       if (x >= tabs_x) {
         const index = render.tabAt(this.layoutView(), tabs_width, x - tabs_x);
         if (index !== null) {
-          this.focusPane(this.nav().tabs[index].focus);
-          cl.tab_drag = {
-            workspace_id: this.current().id,
-            tab_id: this.model().tabs[index].id,
-            start_x: x,
-            width: this.width,
+          cl.tab_drag = new TabDrag(
+            this.current().id,
+            { tab: this.model().tabs[index].id },
+            this.nav().tabs[index].focus,
+            this.model(),
+            this.nav(),
+            this.area(),
             tabs_x,
-            first: render.tabStart(this.layoutView(), this.tabSpace()),
-            count: this.model().count,
-            ids: this.model()
-              .tabs.slice(0, this.model().count)
-              .map(tab => tab.id),
-            dragging: false,
-            cancelled: false,
-            drop: null,
-          };
+            this.width,
+            this.height,
+            x,
+            y,
+          );
           this.dirty = true;
         }
       }
@@ -7355,6 +7494,27 @@ export class Controller {
     this.dirty = true;
   }
   async expireInput(): Promise<void> {
+    const drag = this.input_state.tab_drag;
+    if (drag) {
+      if (!this.validTabDrag(drag)) this.cancelDock();
+      else if (drag.dragging && this.pointer) {
+        const now = milliTimestamp();
+        if (drag.hover && now - drag.hover.since >= 500) {
+          const index = this.model().tabIndex(drag.hover.tab);
+          drag.hover = null;
+          drag.edge = null;
+          if (index !== null) {
+            this.nav().active = index;
+            this.dirty = true;
+          }
+        }
+        if (drag.scroll && now >= drag.scroll.due) {
+          this.scrollTabs(drag.scroll.forward);
+          drag.scroll.due = now + 250;
+        }
+        drag.update(this.layoutView(), this.pointer.x, this.pointer.y, this.tabSpace(), now);
+      }
+    }
     const waking = this.wakeFocused();
     if (waking) await waking;
     this.pollPrompt();
@@ -7973,7 +8133,8 @@ export class Controller {
       this.name_dialog === null &&
       !this.copy_mode &&
       this.selection === null &&
-      this.workspace_drag === null
+      this.workspace_drag === null &&
+      this.input_state.tab_drag === null
     );
   }
   private linkAt(x: number, y: number): linkTooltip.Link | null {
@@ -8276,6 +8437,7 @@ export class Controller {
         paste_copied: card ? card.copied : false,
         inference: this.runtime.inference,
         tab_drop_x: this.tabDropX(),
+        docking: this.dockingPreview(),
         dialog: this.name_dialog,
         archive_dialog: this.archive_dialog,
         sidebar_open: this.sidebar_open,

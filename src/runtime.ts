@@ -636,11 +636,17 @@ export class Runtime {
     const w = this.workspaces.owner(id);
     if (w) w.last_agent = p;
   }
-  async create(opts: Create) {
+  async create(opts: Create, prepared?: { model: Model; pane: number; expected: bigint }) {
     const ws = this.getWorkspace(opts.workspace),
-      next = clone(ws.model);
-    next.next_id = this.workspaces.next_pane_id;
-    const id = opts.split ? next.split(opts.split.pane, opts.split.axis) : next.newTab(opts.title ?? "");
+      next = clone(prepared?.model ?? ws.model),
+      allocated = this.workspaces.next_pane_id;
+    if (prepared && ws.model.revision !== prepared.expected) throw Error("StaleLayout");
+    if (!prepared) next.next_id = allocated;
+    const id = prepared
+      ? prepared.pane
+      : opts.split
+        ? next.split(opts.split.pane, opts.split.axis)
+        : next.newTab(opts.title ?? "");
     if (opts.split?.before) next.swap(id, opts.split.pane);
     next.revision = BigInt.asUintN(64, next.revision + 1n);
     const dir = await Store.directory(opts.cwd),
@@ -658,6 +664,13 @@ export class Runtime {
           opts.interactive_command ?? false,
           opts.env ?? [],
         );
+      if (
+        prepared &&
+        (this.workspaces.get(ws.id) !== ws ||
+          ws.model.revision !== prepared.expected ||
+          this.workspaces.next_pane_id !== allocated)
+      )
+        throw Error("StaleLayout");
     } catch (e) {
       t.destroy();
       throw e;
