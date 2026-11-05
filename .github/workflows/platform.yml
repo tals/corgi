@@ -19,21 +19,37 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
+      # The native layer is built from the tracked files under native/, the compiler pin and
+      # the flags in build.ts and below, so the same trees reuse the last build's output.
+      - name: Native layer key
+        id: native-key
+        shell: bash
+        run: echo "hash=$(git rev-parse HEAD:native HEAD:scripts/zig HEAD:build.ts HEAD:.github/workflows/platform.yml | git hash-object --stdin)" >> "$GITHUB_OUTPUT"
+      - id: native
+        uses: actions/cache@v6
+        with:
+          path: native/zig-out
+          key: native-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-key.outputs.hash }}
       # scripts/zig pins the compiler and downloads it into .tools when the cache misses.
-      - uses: actions/cache@v6
+      - if: steps.native.outputs.cache-hit != 'true'
+        uses: actions/cache@v6
         with:
           path: .tools/zig-*
           key: zig-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/zig') }}
       - name: Install Zig
+        if: steps.native.outputs.cache-hit != 'true'
         run: ./scripts/zig version
       # Zig doesn't retry a failed package download, and Ghostty's mirror sometimes resets.
-      - uses: actions/cache@v6
+      - if: steps.native.outputs.cache-hit != 'true'
+        uses: actions/cache@v6
         with:
           path: native/zig-pkg
           key: zig-pkg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/build.zig.zon') }}
       - run: bun install --frozen-lockfile
       - name: Build
         shell: bash
+        env:
+          NATIVE_CACHED: ${{ steps.native.outputs.cache-hit }}
         run: |
           # Build the way releases do, for the oldest supported target: integration jobs
           # may land on a CPU without the build machine's extensions.
@@ -47,6 +63,7 @@ jobs:
           else
             args+=(--target linux-x64)
           fi
+          if [ "$NATIVE_CACHED" = true ]; then args+=(--no-native); fi
           bun build.ts --test --ci "${args[@]}"
       - name: Typecheck
         if: runner.os == 'Linux' && runner.arch == 'X64'
