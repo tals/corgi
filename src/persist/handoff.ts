@@ -295,6 +295,8 @@ export async function importAndRun(
     fdNative.fd_cloexec(m.listener);
     server.theme = Object.assign(new Theme(), m.theme);
     const repairs = await checkpoint.restore(server.runtime, m.runtime, true, socket, executable);
+    // The snapshot keeps what programs set, not the host colors under them.
+    for (const pane of server.runtime.panes) pane.terminal.applyTheme(server.theme);
     await recovery.recordRepairs(socket, m.runtime, repairs, executable);
     if (m.summaries) {
       server.summaries = SummaryWorker.restore(m.summaries);

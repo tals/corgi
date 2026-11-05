@@ -181,6 +181,29 @@ libc.symbols.lseek(fd, 0n, 0);
     return (await this.command("pane.read", { target: pane, view: "history" })).text;
   }
 
+  private queries = 0;
+  /** The background the pane's shell gets back when it asks with OSC 11. */
+  async background(pane: number) {
+    const mark = `BG${++this.queries}`;
+    await this.command("pane.input", {
+      target: pane,
+      data: `printf '%s:' ${mark}; printf '\\033]11;?\\033\\\\'; cat -v\r`,
+    });
+    let color = "";
+    await this.until(async () => {
+      color = new RegExp(`${mark}:[^\\n]*?11;(rgb:[0-9a-f/]+)`).exec(await this.screen(pane))?.[1] ?? "";
+      return color !== "";
+    });
+    await this.command("pane.input", { target: pane, data: "\x03" });
+    return color;
+  }
+  async test_handoff_keeps_the_host_theme_in_open_panes() {
+    const pane = await this.new();
+    await this.rpc({ op: "theme", theme: { background: { r: 30, g: 30, b: 30 } } });
+    this.assertEqual(await this.background(pane), "rgb:1e1e/1e1e/1e1e");
+    await this.reload();
+    this.assertEqual(await this.background(pane), "rgb:1e1e/1e1e/1e1e");
+  }
   async test_workspace_names_survive_handoff() {
     const first = await this.new(),
       folder = join(this.temp.name, "project");
