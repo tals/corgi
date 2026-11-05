@@ -105,7 +105,7 @@ export class Wake {
     // Until he's first woken he dreams on the page's schedule; after a nap, within a second.
     const since =
       now === null ? null : this.started_ms === null ? now + 3500 : now - this.started_ms - duration_ms - 700;
-    const dream = since === null || since < 0 ? null : corgiAnimation.dreamer([0n], since);
+    const dream = since === null || since < 0 ? null : corgiAnimation.dreamer(["footer"], since);
     return " ".repeat(sway) + corgiAnimation.idle(16, new corgiAnimation.Sleep({ puff_ms: dream?.puff_ms ?? null }));
   }
 }

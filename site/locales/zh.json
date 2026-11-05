@@ -123,7 +123,7 @@
   "Slow down the herd animation": "放慢羊群动画",
   "Splitting the audit": "分配审查任务",
   "Static Linux build": "Linux 静态构建",
-  "Supported on macOS, Linux and WSL": "支持 macOS、Linux 和 WSL",
+  "Supported on macOS, Linux, WSL and <button class=\"omarchy\" type=\"button\">Omarchy</button>": "支持 macOS、Linux、WSL 和 <button class=\"omarchy\" type=\"button\">Omarchy</button>",
   "Terminal multiplexer for humans (and agents).": "为人类（和智能体）打造的终端复用器。",
   "The sidebar, showing what each agent is doing and which ones need you.": "侧边栏显示每个智能体正在做什么，以及哪些需要你处理。",
   "This project was made possible by:": "感谢以下项目，让 Corgi 成为可能：",

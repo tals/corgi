@@ -147,7 +147,8 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '["Slow down the herd animation"]': () => `放慢羊群动画`,
     '["Splitting the audit"]': () => `分配审查任务`,
     '["Static Linux build"]': () => `Linux 静态构建`,
-    '["Supported on macOS, Linux and WSL"]': () => `支持 macOS、Linux 和 WSL`,
+    '["Supported on macOS, Linux, WSL and <button class=\\"omarchy\\" type=\\"button\\">Omarchy</button>"]': () =>
+      `支持 macOS、Linux、WSL 和 <button class="omarchy" type="button">Omarchy</button>`,
     '["Terminal multiplexer for humans (and agents)."]': () => `为人类（和智能体）打造的终端复用器。`,
     '["The sidebar, showing what each agent is doing and which ones need you."]': () =>
       `侧边栏显示每个智能体正在做什么，以及哪些需要你处理。`,
@@ -343,7 +344,8 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '["Slow down the herd animation"]': () => `群れのアニメーションをゆっくりに`,
     '["Splitting the audit"]': () => `監査を分担中`,
     '["Static Linux build"]': () => `Linux の静的ビルド`,
-    '["Supported on macOS, Linux and WSL"]': () => `macOS、Linux、WSL に対応`,
+    '["Supported on macOS, Linux, WSL and <button class=\\"omarchy\\" type=\\"button\\">Omarchy</button>"]': () =>
+      `macOS、Linux、WSL、<button class="omarchy" type="button">Omarchy</button> に対応`,
     '["Terminal multiplexer for humans (and agents)."]': () => `人とエージェントのためのターミナルマルチプレクサ。`,
     '["The sidebar, showing what each agent is doing and which ones need you."]': () =>
       `各エージェントの作業内容と、確認が必要な相手を表示するサイドバー。`,
@@ -543,7 +545,8 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '["Slow down the herd animation"]': () => `무리 애니메이션 속도 줄이기`,
     '["Splitting the audit"]': () => `점검 작업 분담 중`,
     '["Static Linux build"]': () => `Linux 정적 빌드`,
-    '["Supported on macOS, Linux and WSL"]': () => `macOS, Linux, WSL 지원`,
+    '["Supported on macOS, Linux, WSL and <button class=\\"omarchy\\" type=\\"button\\">Omarchy</button>"]': () =>
+      `macOS, Linux, WSL, <button class="omarchy" type="button">Omarchy</button> 지원`,
     '["Terminal multiplexer for humans (and agents)."]': () => `사람과 에이전트를 위한 터미널 멀티플렉서.`,
     '["The sidebar, showing what each agent is doing and which ones need you."]': () =>
       `각 에이전트의 작업과 확인이 필요한 에이전트를 보여주는 사이드바입니다.`,
@@ -738,7 +741,8 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '["Slow down the herd animation"]': () => `Замедлить анимацию стада`,
     '["Splitting the audit"]': () => `Распределяет проверку`,
     '["Static Linux build"]': () => `Статическая сборка для Linux`,
-    '["Supported on macOS, Linux and WSL"]': () => `Работает на macOS, Linux и WSL`,
+    '["Supported on macOS, Linux, WSL and <button class=\\"omarchy\\" type=\\"button\\">Omarchy</button>"]': () =>
+      `Работает на macOS, Linux, WSL и <button class="omarchy" type="button">Omarchy</button>`,
     '["Terminal multiplexer for humans (and agents)."]': () => `Терминальный мультиплексор для людей (и агентов).`,
     '["The sidebar, showing what each agent is doing and which ones need you."]': () =>
       `Боковая панель показывает, чем занят каждый агент и кому нужно ваше внимание.`,

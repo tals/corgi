@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Writer, shortPath, wrap, displayWidth } from "./text";
+import { Writer, compactCount, shortPath, wrap, displayWidth } from "./text";
 
 test("prose wrapping measures cells and breaks text without spaces", () => {
   expect(wrap("Choose familiar keys.", 16)).toEqual(["Choose familiar", "keys."]);
@@ -61,4 +61,9 @@ test("a short path keeps its first two components, then its last, then those nea
   expect(shortPath("$TMPDIR/corgi-wt/scroll-fix", 24)).toBe("$TMPDIR/…/scroll-fix");
   expect(shortPath("$TMPDIR/corgi-wt/scroll-fix", 18)).toBe("$TMPDIR/…/scroll-…");
   expect(shortPath("../corgi-remote-input", 18)).toBe("../corgi-remote-i…");
+});
+
+test("a compact count keeps its leading digits and a scale", () => {
+  expect([0, 999, 1000, 1999, 1_234_567, 5e9].map(compactCount)).toEqual(["0", "999", "1k", "1k", "1M", "5G"]);
+  expect([12n, 1000n, 2n ** 63n].map(compactCount)).toEqual(["12", "1k", "9E"]);
 });

@@ -1,4 +1,7 @@
 //! Locale negotiation shared by the CLI and browser-safe viewer code.
+//! The Omarchy panel runs this in Qt's QML engine (corgi-omarchy/tools/motion-build.ts):
+//! no BigInt literals or `Intl`, and builtins Qt lacks only through
+//! the Omarchy plugin's qml_shims.js.
 export const locales = ["en", "zh", "ja", "ko", "ru"] as const;
 export type Locale = (typeof locales)[number];
 export type TranslatedLocale = Exclude<Locale, "en">;
