@@ -1,4 +1,7 @@
 import { test, expect, afterEach, spyOn } from "bun:test";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Server } from "./server";
 import * as json from "./json";
 import type { View as WireView } from "./protocol";
@@ -286,6 +289,34 @@ test("the data connection reads its viewer's surfaces and receipts without becom
   expect(() => image(s, data, { pane: 2, image: "1", offset: 0 })).toThrow("NoPane");
   control.dead = true;
   expect(() => surfaces(s, data)).toThrow("NoViewer");
+});
+test("a fresh daemon's starter gives way to onboarding, and waits for any other viewer's folder", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "corgi-open-")));
+  try {
+    const opened = async (fields: object) => {
+      const s = new Server(join(dir, "control.sock"), "", "0".repeat(64));
+      servers.push(s);
+      await s.runtime.workspaces.add("", "/");
+      const client = s.addClient(-1, false),
+        reply = spyOn(client, "queue").mockImplementation(() => {});
+      spyOn(s, "execute").mockImplementation(async () => ({}) as any);
+      await open(s, client, protocol.decode("viewer.open", fields));
+      return { s, reply: reply.mock.calls[0][0] as any };
+    };
+    // Onboarding opens on the button that makes a workspace, and the first one made is still 1.
+    const fresh = await opened({ onboarding: true, cwd: dir });
+    expect([fresh.s.runtime.workspaces.items, fresh.s.default_folder_pending, fresh.reply.workspace]).toEqual([
+      [],
+      false,
+      Workspace.Id.none,
+    ]);
+    expect(await fresh.s.runtime.workspaces.add("", dir)).toBe(1);
+    const attached = await opened({ cwd: dir });
+    expect(attached.s.runtime.workspaces.items.map(w => [w.id, w.cwd])).toEqual([[1, dir]]);
+    expect(attached.reply.workspace).toBe(1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 test("a new viewer opens on the pane last used in the preferred workspace", async () => {
   const s = fixture(),

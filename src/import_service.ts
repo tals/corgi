@@ -7,38 +7,13 @@ import type { DecodedRequest } from "./protocol";
 import { exclusion } from "./protocol";
 import type { Server } from "./server";
 import { Reply, type Client } from "./peer";
-import type { Workspace } from "./workspace";
 type Request = Extract<DecodedRequest, { op: "onboarding.status" | "onboarding.handoff" | "onboarding.copy" }>;
 export { importBridge };
 class Service {
   herdr_import = new Manager();
   onboarding_copy = new Job();
   handoff_operation = 0n;
-  /** The workspace the daemon made for an onboarding viewer, while it
-   * still holds what it had then; an import replaces it. */
-  starter: { id: number; revision: bigint; name: string } | null = null;
   copying = false;
-  async finish(server: Server, destination: number | null) {
-    const starter = this.starter;
-    this.starter = null;
-    if (
-      !starter ||
-      destination === null ||
-      destination === starter.id ||
-      server.runtime.workspaces.index(destination) === null
-    )
-      return;
-    const ws = server.runtime.workspaces.get(starter.id);
-    if (!ws || ws.model.count || ws.model.revision !== starter.revision || ws.name() !== starter.name) return;
-    try {
-      await server.runtime.closeWorkspace(starter.id, false);
-    } catch {
-      return;
-    }
-    server.default_folder_pending = false;
-    server.preferred_workspace = destination;
-    for (const client of server.clients) if (client.view_workspace === starter.id) client.view_workspace = destination;
-  }
 }
 const services = new WeakMap<Server, Service>();
 export function service(server: Server): Service {
@@ -60,10 +35,6 @@ export function admit(server: Server, op: string): void {
     if (server.runtime.git_push.busy()) throw Error("GitPushInProgress");
   }
   if (kind === "shutdown" && importing) throw Error("ImportInProgress");
-}
-/** An onboarding viewer opened on the starter the daemon made for it. */
-export function onboardingStarter(server: Server, ws: Workspace): void {
-  service(server).starter = { id: ws.id, revision: ws.model.revision, name: ws.name() };
 }
 export async function request(
   server: Server,
@@ -122,9 +93,6 @@ export async function tick(server: Server): Promise<void> {
         socket: server.socket,
         executable: server.executable,
       });
-    if (handed) await s.finish(server, s.herdr_import.status().workspace);
-    if (copied && s.onboarding_copy.progress.phase === "complete")
-      await s.finish(server, s.onboarding_copy.progress.workspace);
     if (handed || copied) {
       server.dirty = true;
       await server.saveWorkspaces();

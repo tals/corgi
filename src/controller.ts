@@ -4924,7 +4924,7 @@ export class Controller {
       await this.refresh();
       this.switchWorkspace(target);
       if (this.model().count === 0) this.openLauncher(true);
-    } else if (mode === "welcome") this.openLauncher(true);
+    }
     this.dirty = true;
   }
   /** Saves the shortcut preset and prefix; true when Ghostty needs a reload. */
