@@ -18,6 +18,7 @@ import * as sound from "./sound";
 import { sshViewer } from "./trackers/ports";
 import * as palette from "./palette";
 import * as hostBackground from "./host_background";
+import * as corgiAnimation from "./corgi_animation";
 import type { Reply, RequestInput } from "./protocol";
 import type { State as ClipboardState } from "./host_clipboard";
 import { n, ptr } from "./native_ffi";
@@ -338,6 +339,7 @@ export async function run(
     let synced = 0;
     let next_sync = 0;
     let typed = false;
+    let uninstalled = false;
     let active_at = Date.now();
     let scroll_saved = 0;
     // A change is drawn once its output pauses, at the pane's own pace up to
@@ -351,6 +353,11 @@ export async function run(
     const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
     view.wake = () => poll.notify("host");
     const unwatch = connection.onEvent?.(event => {
+      if (event.type === "uninstalled") {
+        uninstalled = true;
+        poll.notify("waker");
+        return;
+      }
       if (event.type !== "viewer.wake") return;
       const at = Date.now(),
         due = wakeDue();
@@ -505,6 +512,12 @@ export async function run(
         }
         poll.stdin = false;
         poll.woken = false;
+        if (uninstalled) {
+          if (probe.badge.uploaded) writeAll(corgiBadge.remove);
+          writeAll(view.images.clear() + view.tab_icons.clear());
+          await farewell(view.width, view.height);
+          throw Error("Uninstalled");
+        }
         if (stdin.ended) return null;
       }
       return null;
@@ -532,6 +545,20 @@ export async function run(
     }
   } finally {
     close(view);
+  }
+}
+/** The corgi walking off to The Farm once the installation it ran from is gone. */
+async function farewell(width: number, height: number): Promise<void> {
+  const scene = new corgiAnimation.Farewell(width, height);
+  writeAll("\x1b[0m\x1b[2J\x1b[?25l");
+  for (let step = 0; step < scene.ticks; step++) {
+    writeAll(
+      scene
+        .rows(step)
+        .map((row, i) => `\x1b[${scene.top + i};1H${row}`)
+        .join("") + "\x1b[0m",
+    );
+    await Bun.sleep(corgiAnimation.farewell_tick_ms);
   }
 }
 /** Writes what the host needs to show `frame`, diffed against what it shows,

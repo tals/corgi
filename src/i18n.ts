@@ -1,4 +1,7 @@
 //! Ordinary template tags; catalogs contain generated native template functions.
+//! The Omarchy panel runs this in Qt's QML engine (corgi-omarchy/tools/motion-build.ts):
+//! no BigInt literals or `Intl`, and builtins Qt lacks only through
+//! the Omarchy plugin's qml_shims.js.
 import * as locale from "./locale";
 import * as generated from "./i18n.generated";
 export type { Locale } from "./locale";

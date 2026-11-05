@@ -5,8 +5,9 @@ import { Quit as ModelQuit } from "./subprocess";
 import * as telemetry from "./telemetry";
 import type { Worker as SummaryWorker } from "./activity/worker";
 import type { Worker as UsageWorker } from "./usage/worker";
-import { chmodSync } from "node:fs";
-import { isAbsolute } from "node:path";
+import { chmodSync, existsSync, watch, type FSWatcher } from "node:fs";
+import { spawn } from "node:child_process";
+import { dirname, isAbsolute, join } from "node:path";
 import { Runtime } from "./runtime";
 import * as agentEffort from "./agent_effort";
 import { Store, Workspace } from "./workspace";
@@ -73,6 +74,13 @@ export class Server {
   // Test builds stop with the test process that owns their runtime.
   private owner = testBuild ? Number(process.env.CORGI_TEST_OWNER) || 0 : 0;
   private ownerChecked = 0;
+  /** The installation this daemon runs from, once looked up; deleting it uninstalls Corgi. */
+  private install: string | null | undefined;
+  private installChecked = 0;
+  private uninstalling = false;
+  /** The folder holding the Omarchy plugin that installed this Corgi, watched
+   * so that removing the plugin removes Corgi too. */
+  private pluginWatch: FSWatcher | null = null;
   constructor(
     readonly socket: string,
     readonly executable: string,
@@ -273,6 +281,8 @@ export class Server {
       observers.start(this);
       for (const p of this.runtime.panes) if (p.terminal.imported) p.terminal.adopt(p.terminal.fd, p.terminal.pid);
       for (const c of this.clients) c.resume();
+      // Before anyone can connect, so a plugin removed after the daemon answers is seen.
+      this.watchInstall();
       this.startLoop();
       process.on("SIGTERM", () => void this.shutdown());
       process.on("SIGINT", () => void this.shutdown());
@@ -411,6 +421,19 @@ export class Server {
     }
   }
   private async collectNow(): Promise<void> {
+    if (Date.now() - this.installChecked >= 1000) {
+      this.installChecked = Date.now();
+      if (this.install === undefined)
+        try {
+          this.install = updates.managed(updates.release(this.executable), this.executable);
+        } catch {
+          this.install = null;
+        }
+      if (this.install && !existsSync(join(this.install, "current"))) {
+        void this.uninstalled(this.install);
+        return;
+      }
+    }
     if (this.owner && Date.now() - this.ownerChecked >= 1000) {
       this.ownerChecked = Date.now();
       if (!running(this.owner)) {
@@ -899,10 +922,69 @@ export class Server {
         release();
       });
   }
+  /** Its installation at `root` was deleted: viewers see the corgi leave, the
+   * launcher it left goes, and the runtime stops, keeping saved sessions. */
+  private watchInstall(): void {
+    try {
+      this.install = updates.managed(updates.release(this.executable), this.executable);
+    } catch {
+      this.install = null;
+    }
+    if (this.install) this.watchPlugin(this.install);
+  }
+  /** Omarchy tells a plugin nothing when it's removed, so Corgi watches the
+   * plugins folder (that folder alone, which changes only as plugins come and
+   * go) for the plugin that installed it to disappear. */
+  private watchPlugin(root: string): void {
+    const plugin = updates.pluginOf(root);
+    if (plugin === null) return;
+    const gone = () => !existsSync(join(plugin, "manifest.json"));
+    // Removed while Corgi wasn't running: Corgi is the user's own now.
+    if (gone()) {
+      updates.forgetPlugin(root);
+      return;
+    }
+    const check = () => {
+      if (gone()) void this.pluginRemoved(root, plugin);
+    };
+    try {
+      this.pluginWatch = watch(dirname(plugin), { persistent: false }, check);
+      this.pluginWatch.on("error", check);
+    } catch (error) {
+      console.error("watching the Omarchy plugin:", error);
+    }
+  }
+  /** Uninstalls this Corgi after the plugin that installed it: viewers say
+   * goodbye, the daemon saves and stops, then the installer it kept removes
+   * the rest, as its own uninstall would, keeping sessions and settings. */
+  private async pluginRemoved(root: string, plugin: string): Promise<void> {
+    if (this.stopped || this.uninstalling) return;
+    console.error(`The Omarchy plugin at ${plugin} was removed; uninstalling Corgi.`);
+    const script = join(root, "uninstall.sh"),
+      bin = updates.launcherOf(root);
+    await this.uninstalled(root);
+    if (!existsSync(script)) return;
+    // Its binary may go while it runs: Linux keeps a running file until it exits.
+    spawn("bash", [script, "uninstall"], {
+      detached: true,
+      stdio: ["ignore", "inherit", "inherit"],
+      env: { ...process.env, CORGI_UNINSTALLING: "1", CORGI_INSTALL_ROOT: root, CORGI_INSTALL_BIN: bin },
+    }).unref();
+  }
+  private async uninstalled(root: string): Promise<void> {
+    if (this.stopped || this.uninstalling) return;
+    this.uninstalling = true;
+    for (const c of this.clients) if (c.watching && !c.dead) c.queue({ type: "uninstalled" });
+    updates.forget(root);
+    // Long enough for viewers to hear it before their connections close.
+    await Bun.sleep(300);
+    await this.shutdown();
+  }
   async shutdown(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
     clearInterval(this.timer);
+    this.pluginWatch?.close();
     this.registration?.close();
     try {
       await recovery.save(this.runtime, this.socket);

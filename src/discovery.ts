@@ -5,6 +5,7 @@ import { Provider, adapter } from "./providers";
 import { PathSearch } from "./os";
 import { testBuild } from "./build_assets";
 import * as subprocess from "./subprocess";
+import * as metadata from "./install_metadata";
 function executable(path: string): boolean {
   const self = build_id.executablePath(
     import.meta.filename,
@@ -31,9 +32,23 @@ function installs(provider: Provider) {
     root: testBuild ? (process.env.CORGI_TEST_SYSTEM_ROOT ?? "") : "",
   });
 }
-/** What each candidate's `--version` said, while its file stays as it was:
- * whether it was the provider's, and its version line. */
-const verdicts = new Map<string, { stamp: string; ok: boolean; version: string }>();
+/** Installation metadata, or a standalone binary's answer, while its files stay unchanged. */
+const verdicts = new Map<
+  string,
+  { stamp: string; ok: boolean; version: string | null; file?: string; file_stamp?: string | null }
+>();
+const managed = new Map<string, string[]>();
+function context(provider: Provider, cwd: string) {
+  return [
+    provider,
+    cwd,
+    process.env.PATH,
+    process.env.HOME,
+    process.env.MISE_DATA_DIR,
+    process.env.MISE_CONFIG_DIR,
+    process.env.XDG_DATA_HOME,
+  ].join("\0");
+}
 function stamp(path: string): string | null {
   try {
     const s = statSync(realpathSync(path));
@@ -44,30 +59,55 @@ function stamp(path: string): string | null {
 }
 function verdict(path: string) {
   const v = verdicts.get(path);
-  return v && v.stamp === stamp(path) ? v : null;
+  return v && v.stamp === stamp(path) && (!v.file || v.file_stamp === stamp(v.file)) ? v : null;
+}
+function remember(provider: Provider, path: string, version: string | null, file?: string) {
+  const at = stamp(path);
+  if (!at) return null;
+  const v = {
+    stamp: at,
+    ok: version !== null && (adapter(provider).version?.(version) ?? true),
+    version,
+    ...(file ? { file, file_stamp: stamp(file) } : {}),
+  };
+  verdicts.set(path, v);
+  return v;
+}
+function packaged(provider: Provider, path: string) {
+  const distribution = adapter(provider).distribution,
+    found = distribution && metadata.packageVersion(path, distribution.packages);
+  return found && distribution ? remember(provider, path, distribution.version(found.version), found.file) : null;
 }
 /** The version line of an install `resolve` turned down, as when it is too
  * old, or null when none answered. */
-export function outdated(provider: Provider): string | null {
-  for (const candidate of candidates(provider)) {
+export function outdated(provider: Provider, cwd = process.cwd()): string | null {
+  for (const candidate of candidates(provider, cwd)) {
     const v = verdict(candidate);
-    if (v && !v.ok) return v.version;
+    if (v && !v.ok && v.version !== null) return v.version;
   }
   return null;
 }
-/** Each install found for `provider`, with what its `--version` said when
- * `resolve` asked: its version line and whether it was taken, or null for
- * one it never asked. */
-export function considered(provider: Provider): { path: string; version: string | null; ok: boolean | null }[] {
-  return candidates(provider).map(path => {
+/** Each real install, its known version and whether discovery accepted it. */
+export function considered(
+  provider: Provider,
+  cwd = process.cwd(),
+): { path: string; version: string | null; ok: boolean | null }[] {
+  return candidates(provider, cwd).map(path => {
     const v = verdict(path);
     return { path, version: v?.version ?? null, ok: v?.ok ?? null };
   });
 }
-function candidates(provider: Provider): string[] {
-  const command = adapter(provider).command,
-    path = (process.env.PATH ?? "").split(":").map(dir => absolute(dir, command));
-  return [...new Set([...path, ...installs(provider)])].filter(executable);
+function commands(provider: Provider): string[] {
+  const a = adapter(provider);
+  return [...new Set([a.command, ...a.programs.names])];
+}
+function candidates(provider: Provider, cwd = process.cwd()): string[] {
+  const path = (process.env.PATH ?? "")
+    .split(":")
+    .flatMap(dir => commands(provider).map(command => absolute(cwd, dir, command)));
+  return [...new Set([...(managed.get(context(provider, cwd)) ?? []), ...path, ...installs(provider)])].filter(
+    path => executable(path) && !metadata.shim(path),
+  );
 }
 /** The promise's value if it settles within `ms`, else null. */
 async function within<T>(promise: Promise<T>, ms: number): Promise<T | null> {
@@ -80,12 +120,32 @@ async function within<T>(promise: Promise<T>, ms: number): Promise<T | null> {
   }
 }
 export async function resolve(provider: Provider, cwd: string | null = null): Promise<string> {
-  const { command, version } = adapter(provider),
+  const { version } = adapter(provider),
     set = override(provider);
   if (set !== undefined && (set.length || !version)) return set;
-  if (!version) return command;
+  cwd ??= process.cwd();
+  const manager = onPath("mise"),
+    paths: string[] = [];
+  if (manager) {
+    const found = await Promise.all(commands(provider).map(name => metadata.mise(manager, name, cwd!)));
+    for (const install of found) {
+      if (!install || !executable(install.path) || metadata.shim(install.path)) continue;
+      paths.push(install.path);
+      if (!packaged(provider, install.path) && install.version !== null) {
+        const line = adapter(provider).distribution?.version(install.version);
+        if (line) remember(provider, install.path, line);
+      }
+    }
+  }
+  managed.set(context(provider, cwd), paths);
+  const available = candidates(provider, cwd);
+  if (!version) {
+    const path = available[0];
+    if (!path) throw Error("ProviderNotFound");
+    packaged(provider, path);
+    return path;
+  }
   const deadline = performance.now() + 2000,
-    path = (process.env.PATH ?? "").split(":").map(dir => absolute(cwd ?? process.cwd(), dir, command)),
     quit = subprocess.Quit.init(),
     probes: Promise<string | null>[] = [];
   let report!: (path: string) => void;
@@ -94,7 +154,10 @@ export async function resolve(provider: Provider, cwd: string | null = null): Pr
     try {
       const at = stamp(candidate),
         output = await subprocess.run([candidate, "--version"], { timeout_ms, max_output: 4096, quit });
-      if (!output.ok()) return null;
+      if (!output.ok()) {
+        if (at === stamp(candidate)) remember(provider, candidate, null);
+        return null;
+      }
       const stdout = output.stdout.toString(),
         ok = version(stdout);
       if (at) verdicts.set(candidate, { stamp: at, ok, version: stdout.trim().split("\n")[0] });
@@ -102,14 +165,15 @@ export async function resolve(provider: Provider, cwd: string | null = null): Pr
         report(candidate);
         return candidate;
       }
-    } catch {}
+    } catch {
+      if (!quit.aborted) remember(provider, candidate, null);
+    }
     return null;
   };
   try {
-    for (const candidate of new Set([...path, ...installs(provider)])) {
-      if (!executable(candidate)) continue;
-      const known = verdict(candidate);
-      if (known && probes.length === 0) {
+    for (const candidate of available) {
+      const known = packaged(provider, candidate) ?? verdict(candidate);
+      if (known && known.version !== null) {
         if (known.ok) return candidate;
         continue;
       }
@@ -128,7 +192,7 @@ export async function resolve(provider: Provider, cwd: string | null = null): Pr
   } finally {
     quit.signal();
   }
-  throw Error(outdated(provider) === null ? "ProviderNotFound" : "ProviderTooOld");
+  throw Error(outdated(provider, cwd) === null ? "ProviderNotFound" : "ProviderTooOld");
 }
 /** The first executable `name` on PATH that isn't Corgi itself: a pane-local
  * alias would otherwise exec Corgi again. */
@@ -137,19 +201,15 @@ export function onPath(name: string, path_list = process.env.PATH ?? ""): string
   for (let path = search.next(); path !== null; path = search.next()) if (executable(path)) return path;
   return null;
 }
-/** Whether the provider is there, short of an install whose `--version`
- * `resolve` turned down. */
-export function installed(provider: Provider): boolean {
+/** Whether a real install is present and hasn't failed discovery. */
+export function installed(provider: Provider, cwd = process.cwd()): boolean {
   const set = override(provider);
   if (set) return set.includes("/") ? executable(set) : onPath(set) !== null;
-  if (!adapter(provider).version)
-    return onPath(adapter(provider).command) !== null || installs(provider).some(executable);
-  return candidates(provider).some(candidate => verdict(candidate)?.ok !== false);
-}
-/** Asks each provider with a version check which install is its own, so
- * `installed` leaves out what is too old. */
-export async function check(): Promise<void> {
-  await Promise.all(
-    Provider.all.filter(p => adapter(p).version && override(p) === undefined).map(p => resolve(p).catch(() => {})),
+  return candidates(provider, cwd).some(
+    candidate => (packaged(provider, candidate) ?? verdict(candidate))?.ok !== false,
   );
+}
+/** Resolve mise selections and reject missing or unsupported installs. */
+export async function check(cwd = process.cwd()): Promise<void> {
+  await Promise.all(Provider.all.filter(p => override(p) === undefined).map(p => resolve(p, cwd).catch(() => {})));
 }

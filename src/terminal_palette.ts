@@ -5,6 +5,9 @@
 //! background. Every step is placed by contrast, so the readability rules
 //! hold for any theme, light or dark. A background too mid-toned for that is
 //! deepened and painted instead of left to the terminal.
+//! The Omarchy panel runs this in Qt's QML engine (corgi-omarchy/tools/motion-build.ts):
+//! no BigInt literals or `Intl`, and builtins Qt lacks only through
+//! the Omarchy plugin's qml_shims.js.
 import type { Rgb, Token } from "./palette";
 
 export interface Colors {

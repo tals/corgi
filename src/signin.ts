@@ -212,7 +212,7 @@ export class Signin {
   /** The steps the top border lists, and whether `add` asked for the agent. */
   constructor(
     readonly adding: boolean,
-    readonly asked_agent: boolean,
+    public asked_agent: boolean,
     readonly host: Host,
   ) {}
   get label() {
@@ -268,6 +268,18 @@ export class Signin {
     this.rows = rows;
     this.timers.push(setInterval(() => this.tick(), 33));
     this.timers.push(setInterval(() => void this.poll(), 1000));
+    if (this.adding && this.provider === null) {
+      await discovery.check(this.cwd);
+      if (this.over || this.provider !== null) return;
+      const installed = Provider.all.filter(
+        p => adapter(p).accounts.signin !== null && discovery.installed(p, this.cwd),
+      );
+      if (installed.length === 1) {
+        this.asked_agent = false;
+        await this.pick(installed[0]);
+      } else this.offer();
+      return;
+    }
     if (this.stage.kind === "signin") await this.begin();
     this.changed();
   }
@@ -597,7 +609,7 @@ export class Signin {
   }
   offer() {
     const supported = Provider.all.filter(p => adapter(p).accounts.signin !== null),
-      offered = supported.filter(p => discovery.installed(p));
+      offered = supported.filter(p => discovery.installed(p, this.cwd));
     this.stage = { kind: "agent", offered: offered.length ? offered : supported, choice: 0 };
     this.changed();
   }
@@ -746,12 +758,10 @@ export const problem = (error: unknown) => problems[errors.name(error) ?? ""] ??
  * comes from the login. */
 export function adding(provider: Provider | null, name: string | null, host: Host): Signin {
   if (provider && !adapter(provider).accounts.signin) throw Error("AccountManagementUnsupported");
-  const installed = Provider.all.filter(p => adapter(p).accounts.signin !== null && discovery.installed(p)),
-    chosen = provider ?? (installed.length === 1 ? installed[0] : null),
-    s = new Signin(true, chosen === null, host);
-  s.provider = chosen;
+  const s = new Signin(true, provider === null, host);
+  s.provider = provider;
   s.name = name;
-  if (chosen === null) s.offer();
+  if (provider === null) s.offer();
   return s;
 }
 /** Signs `account` out with its agent's own command, and stops what runs

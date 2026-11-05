@@ -1,74 +1,73 @@
 //! Viewer-local corgi motion policies mirrored from corgi_animation.zig.
 //! The landing page bundles this module, so it uses only what browsers have.
+//! The Omarchy panel runs this in Qt's QML engine (corgi-omarchy/tools/motion-build.ts):
+//! no BigInt literals or `Intl`, and builtins Qt lacks only through
+//! the Omarchy plugin's qml_shims.js.
 import * as palette from "./palette";
 import * as frames from "./corgi_frames";
 import * as i18n from "./i18n";
 import { displayWidth, ellipsis } from "./text";
-const golden = 0x9e3779b97f4a7c15n;
-/** SplitMix64's finalizer. */
-function mix(value: bigint): bigint {
-  let z = BigInt.asUintN(64, (value ^ (value >> 30n)) * 0xbf58476d1ce4e5b9n);
-  z = BigInt.asUintN(64, (z ^ (z >> 27n)) * 0x94d049bb133111ebn);
-  return z ^ (z >> 31n);
+const golden = 0x9e3779b9;
+/** Murmur3's 32-bit finalizer. Only 32-bit math, which QML's engine has too. */
+function mix(value: number): number {
+  let z = Math.imul(value ^ (value >>> 16), 0x85ebca6b);
+  z = Math.imul(z ^ (z >>> 13), 0xc2b2ae35);
+  return (z ^ (z >>> 16)) >>> 0;
 }
-const randomSeed = () => crypto.getRandomValues(new BigUint64Array(1))[0];
+/** FNV-1a: an animation key's 32 bits. */
+function hash(key: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 0x01000193);
+  return h >>> 0;
+}
+const randomSeed = () =>
+  typeof crypto !== "undefined"
+    ? crypto.getRandomValues(new Uint32Array(1))[0]
+    : Math.floor(Math.random() * 0x100000000);
+const rotate = (v: number, n: number) => ((v << n) | (v >>> (32 - n))) >>> 0;
+/** xoshiro128**, seeded through `mix`. */
 export class Random {
-  state: bigint[];
-  constructor(seed: bigint = 0n) {
-    let value = seed;
+  state: number[];
+  constructor(seed = 0) {
+    let value = seed >>> 0;
     this.state = Array.from({ length: 4 }, () => {
-      value = BigInt.asUintN(64, value + golden);
+      value = (value + golden) >>> 0;
       return mix(value);
     });
   }
-  next(): bigint {
-    const rotate = (v: bigint, n: bigint) => BigInt.asUintN(64, (v << n) | (v >> (64n - n)));
+  next(): number {
     const s = this.state,
-      r = BigInt.asUintN(64, rotate(BigInt.asUintN(64, s[0] + s[3]), 23n) + s[0]),
-      t = BigInt.asUintN(64, s[1] << 17n);
-    s[2] ^= s[0];
-    s[3] ^= s[1];
-    s[1] ^= s[2];
-    s[0] ^= s[3];
-    s[2] ^= t;
-    s[3] = rotate(s[3], 45n);
+      r = Math.imul(rotate(Math.imul(s[1], 5) >>> 0, 7), 9) >>> 0,
+      t = (s[1] << 9) >>> 0;
+    s[2] = (s[2] ^ s[0]) >>> 0;
+    s[3] = (s[3] ^ s[1]) >>> 0;
+    s[1] = (s[1] ^ s[2]) >>> 0;
+    s[0] = (s[0] ^ s[3]) >>> 0;
+    s[2] = (s[2] ^ t) >>> 0;
+    s[3] = rotate(s[3], 11);
     return r;
   }
+  /** Uniform in [0, 1), from 53 random bits. */
   float(): number {
-    const rand = this.next(),
-      leading = (v: bigint) => (v === 0n ? 64 : 64 - v.toString(2).length);
-    let lz = leading(rand);
-    if (lz >= 12) {
-      lz = 12;
-      while (lz < 1022) {
-        const additional = leading(this.next());
-        lz += additional;
-        if (additional !== 64) break;
-      }
-      lz = Math.min(lz, 1022);
-    }
-    const bits = new DataView(new ArrayBuffer(8));
-    bits.setBigUint64(0, (BigInt(1022 - lz) << 52n) | (rand & 0xfffffffffffffn));
-    return bits.getFloat64(0);
+    return ((this.next() >>> 5) * 0x4000000 + (this.next() >>> 6)) / 0x20000000000000;
   }
+  /** Uniform in [0, n), without modulo bias. */
   int(n: number): number {
-    const mask = 0xffffffffn,
-      limit = BigInt(n),
-      threshold = (0x100000000n - limit) % limit;
+    const threshold = (0x100000000 - n) % n;
     for (;;) {
-      const product = (this.next() & mask) * limit;
-      if ((product & mask) >= threshold) return Number(product >> 32n);
+      const product = this.next() * n;
+      if (product % 0x100000000 >= threshold) return Math.floor(product / 0x100000000);
     }
   }
   boolean() {
-    return (this.next() & 1n) !== 0n;
+    return (this.next() & 1) !== 0;
   }
 }
 export class Throw {
   speed = 1.6;
   lift = 1.1;
   spin = 0;
-  seed = 0n;
+  seed = 0;
   constructor(fields: Partial<Throw> = {}) {
     Object.assign(this, fields);
   }
@@ -309,7 +308,7 @@ export const bone_tick_ms = 40,
   bone_two_tries_width = 22;
 export class Bone {
   tries: 1 | 2 = 1;
-  seed = 0n;
+  seed = 0;
   constructor(fields: Partial<Bone> = {}) {
     Object.assign(this, fields);
   }
@@ -775,10 +774,11 @@ export class Fetch {
     );
   }
 }
-const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 function wordCells(word: string) {
   let start = 0;
-  return [...graphemes.segment(word)].map(({ segment: glyph }) => {
+  // Every translation of the word is one code point per letter, so no
+  // grapheme segmenter is needed, which Qt's QML engine doesn't have.
+  return Array.from(word).map(glyph => {
     const width = displayWidth(glyph),
       cell = { glyph, width, start };
     start += width;
@@ -789,7 +789,8 @@ export function herdWidth(): number {
   return displayWidth(i18n.t`Compacting`) + 8;
 }
 export const walk_left = ["‹o[/\\]~", "‹o[||]~", "‹o[\\/]~", "‹o[||]~"];
-const curl = [
+/** The poses a herding corgi curls into beside the word, and the gap it leaves. */
+export const curl = [
   { after: 2, pose: "ᐯ◡ᴥ◡ᐯ" },
   { after: 2, pose: "ᐯ◡ᴥ◡ᐯ" },
   { after: 3, pose: "◡ᴥ◡" },
@@ -864,6 +865,104 @@ export function writeHerd(width: number, step: number) {
     } else out += " ";
   }
   return out;
+}
+export const farewell_tick_ms = 35;
+/** Ticks the corgi sits before it walks off, and its stop by the signpost:
+ * it looks up at the sign, then is pleased. */
+const farewell_sit = 16,
+  farewell_read: Beat[] = [
+    [3, "‹o[||]~"],
+    [14, "~ᐱ•ᴥ•ᐱ"],
+    [10, "~ᐯ◡ᴥ◡ᐯ"],
+  ],
+  farewell_read_ticks = farewell_read.reduce((sum, [ticks]) => sum + ticks, 0);
+/** Rows the signpost's board takes above the corgi's. */
+export const farewell_board_rows = 3;
+const farewellHome = (width: number) => Math.max(0, Math.floor((width - 7) / 2));
+export type Signpost = { x: number; width: number; post: number; label: string };
+/** The signpost to The Farm, left of where the corgi sits, or null on a row too narrow for it. */
+export function signpost(width: number): Signpost | null {
+  const label = "← " + i18n.t`The Farm`,
+    board = displayWidth(label) + 4,
+    x = 2;
+  return x + board <= farewellHome(width) ? { x, width: board, post: x + Math.floor(board / 2), label } : null;
+}
+/** The corgi sitting a moment, then walking off the left edge, when Corgi is
+ * uninstalled under a viewer. With a `sign`, it stops beside the post on its way. */
+export function farewellScene(width: number, step: number, sign = signpost(width)): { dog: string; x: number } {
+  const home = farewellHome(width),
+    stop = sign ? sign.post + 2 : home;
+  let p = step;
+  const stage = (ticks: number) => {
+    if (p < ticks) return true;
+    p -= ticks;
+    return false;
+  };
+  if (stage(farewell_sit)) return { dog: p === 9 ? "~ᐯ◡ᴥ◡ᐯ" : "~ᐯ•ᴥ•ᐯ", x: home };
+  if (stage(home - stop)) return { dog: walk_left[p % 4], x: home - p };
+  if (sign) for (const [ticks, pose] of farewell_read) if (stage(ticks)) return { dog: pose, x: stop };
+  return { dog: walk_left[p % 4], x: stop - p };
+}
+/** Ticks until the corgi has left a `width`-column screen, the last one empty. */
+export function farewellTicks(width: number, sign = signpost(width)): number {
+  return farewell_sit + farewellHome(width) + (sign ? farewell_read_ticks : 0) + walk_left[0].length + 1;
+}
+/** The corgi's row, under the signpost's board when there is a `sign`. */
+export function writeFarewell(width: number, step: number, sign = signpost(width)): string[] {
+  const scene = farewellScene(width, step, sign),
+    dog = [...scene.dog],
+    wood = palette.fg("muted"),
+    text = palette.fg("text");
+  let ground = "",
+    color = "";
+  for (let col = 0; col < width; col++) {
+    const glyph = dog[col - scene.x],
+      [paint, cell] =
+        glyph !== undefined
+          ? [text, glyph === "~" ? wagTail(Math.floor(step / 2)) : glyph]
+          : col === sign?.post
+            ? [wood, "│"]
+            : [color, " "];
+    if (paint !== color) ground += color = paint;
+    ground += cell;
+  }
+  if (!sign) return [ground];
+  const left = " ".repeat(sign.x),
+    right = " ".repeat(width - sign.x - sign.width),
+    inner = sign.width - 2,
+    post = sign.post - sign.x - 1;
+  return [
+    left + wood + "╭" + "─".repeat(inner) + "╮" + right,
+    left + wood + "│ " + text + sign.label + wood + " │" + right,
+    left + wood + "╰" + "─".repeat(post) + "┬" + "─".repeat(inner - post - 1) + "╯" + right,
+    ground,
+  ];
+}
+/** The farewell on a `width`×`height` screen: the caption, a blank row and
+ * the scene, centered, with the signpost when there are rows for it. */
+export class Farewell {
+  readonly sign: Signpost | null;
+  /** The caption's row, 1-based; the rest follow it. */
+  readonly top: number;
+  readonly ticks: number;
+  constructor(
+    readonly width: number,
+    readonly height: number,
+  ) {
+    this.sign = height >= 3 + farewell_board_rows ? signpost(width) : null;
+    this.top = Math.max(1, Math.floor((height - (this.sign ? 3 + farewell_board_rows : 3)) / 2) + 1);
+    this.ticks = farewellTicks(width, this.sign);
+  }
+  rows(step: number): string[] {
+    const caption = ellipsis(i18n.t`Corgi was uninstalled.`, this.width),
+      pad = Math.max(0, Math.floor((this.width - displayWidth(caption)) / 2)),
+      rest = Math.max(0, this.width - pad - displayWidth(caption));
+    return [
+      palette.fg("text") + " ".repeat(pad) + caption + " ".repeat(rest),
+      " ".repeat(this.width),
+      ...writeFarewell(this.width, step, this.sign),
+    ];
+  }
 }
 export type Dig = "restoring" | "forking";
 export const Dig = {
@@ -973,12 +1072,12 @@ export class Sleep {
 }
 export const puff_duration_ms = 4500,
   dream_period_ms = 11000;
-export function pick(sleepers: bigint[], period: bigint, skip: bigint | null): bigint | null {
-  let best: bigint | null = null,
-    bestScore = 0n;
+export function pick(sleepers: string[], period: number, skip: string | null): string | null {
+  let best: string | null = null,
+    bestScore = 0;
   for (const key of sleepers) {
     if (key === skip) continue;
-    const score = mix(BigInt.asUintN(64, key ^ mix(BigInt.asUintN(64, period + golden))));
+    const score = mix((hash(key) ^ mix((period + golden) >>> 0)) >>> 0);
     if (best === null || score > bestScore) {
       best = key;
       bestScore = score;
@@ -986,14 +1085,14 @@ export function pick(sleepers: bigint[], period: bigint, skip: bigint | null): b
   }
   return best;
 }
-export type Dream = { key: bigint; puff_ms: number };
-export function dreamer(sleepers: bigint[], now_ms: number): { key: bigint; puff_ms: number } | null {
+export type Dream = { key: string; puff_ms: number };
+export function dreamer(sleepers: string[], now_ms: number): Dream | null {
   const keys = sleepers,
     now = Math.max(0, now_ms),
-    period = BigInt(Math.floor(now / 11000)),
+    period = Math.floor(now / 11000),
     elapsed = now % 11000;
   if (elapsed >= 4500) return null;
-  const previous = period > 0n && keys.length > 1 ? pick(keys, period - 1n, null) : null,
+  const previous = period > 0 && keys.length > 1 ? pick(keys, period - 1, null) : null,
     key = pick(keys, period, previous);
   return key === null ? null : { key, puff_ms: elapsed };
 }
@@ -1111,7 +1210,7 @@ export class Presentation {
   }
 }
 const slots = Array.from({ length: 256 }, () => ({
-  key: null as bigint | null,
+  key: null as string | null,
   seen: false,
   presentation: new Presentation(),
 }));
@@ -1129,7 +1228,7 @@ export function endFrame() {
 export function frameDelay(): number {
   return frame_delay;
 }
-export function observe(key: bigint, mode: Mode, now: number, herd_started_ms?: number): Presentation | null {
+export function observe(key: string, mode: Mode, now: number, herd_started_ms?: number): Presentation | null {
   const id = key;
   let slot = slots.find(s => s.key === id);
   if (!slot) {

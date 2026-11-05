@@ -78,6 +78,7 @@ export const adapter: Adapter = {
     ...appBundles(["Codex.app", "ChatGPT.app"], "codex", at),
   ],
   // Other tools are called codex too.
+  distribution: { packages: ["@openai/codex"], version: v => `codex-cli ${v}` },
   version(stdout) {
     const line = stdout.trim();
     return line.startsWith("codex-cli ") && /^\d/.test(line.slice("codex-cli ".length));
