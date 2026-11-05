@@ -392,17 +392,24 @@ test("merged and contained patches are skipped, closed PRs merged with a warning
   branch(w, "stacked", { "stacked.txt": "stacked\n" }, "lower");
   pullRequest(w, "tals/corgi", 3, { "pr3.txt": "three\n" });
   pullRequest(w, "tals/corgi", 4, { "pr4.txt": "four\n" });
+  pullRequest(w, "tals/corgi", 5, { "pr5.txt": "five\n" });
+  // #3 landed on upstream main as a squash commit, so its head isn't an ancestor.
+  const squash = commit(w.seed, { "pr3.txt": "three\n" }, "pr 3 (squashed)");
+  git(w.seed, "push", "-q", w.upstream, "HEAD:main");
   stubGh(w, {
-    "tals/corgi#3": { state: "MERGED", title: "merged one", mergeCommit: "abc" },
+    "tals/corgi#3": { state: "MERGED", title: "merged one", mergeCommit: squash },
     "tals/corgi#4": { state: "CLOSED", title: "closed one" },
+    // Merged per GitHub, but into a commit the fetched main lacks.
+    "tals/corgi#5": { state: "MERGED", title: "merged elsewhere", mergeCommit: "0".repeat(40) },
   });
-  configure(w, ["stacked", "lower", "#3", "#4"]);
+  configure(w, ["stacked", "lower", "#3", "#4", "#5"]);
   const result = await cb(w, "rebuild");
   expect(result.code).toBe(0);
   expect(result.out).toContain("skipped tals/corgi#3: merged upstream, it can be removed from the list");
   expect(result.out).toContain("skipped lower: already contained");
   expect(result.out).toContain("warning: tals/corgi#4");
-  expect(stamped(w).map(p => p.source)).toEqual(["stacked", "tals/corgi#4"]);
+  expect(result.out).toContain("note: tals/corgi#5: the PR is merged, but not into the fetched main; merging it");
+  expect(stamped(w).map(p => p.source)).toEqual(["stacked", "tals/corgi#4", "tals/corgi#5"]);
   expect(git(w.clone, "merge-base", "--is-ancestor", lower, "HEAD")).toBe("");
 });
 test("the after-build command runs only after a successful run", async () => {
@@ -917,6 +924,78 @@ test("rebuild --push sends the custom branch to origin; a plain rebuild never pu
   expect(pushed.out).toContain("pushed custom-build to origin");
   expect(git(w.clone, "ls-remote", fork, "refs/heads/custom-build")).toStartWith(head(w));
   expect(git(w.clone, "ls-remote", w.upstream, "refs/heads/custom-build")).toBe("");
+});
+test("rebuild refuses a patch named like a branch it resets, and --push to upstream under another name", async () => {
+  const w = world();
+  branch(w, "custom-build-prev", { "prev.txt": "prev\n" });
+  configure(w, ["custom-build-prev"]);
+  const start = head(w),
+    taken = await cb(w, "rebuild");
+  expect(taken.code).toBe(1);
+  expect(taken.err).toContain("the patch custom-build-prev is a branch the tool resets");
+  expect(head(w)).toBe(start);
+  expect(run(w)).toBeNull();
+  branch(w, "mine", { "mine.txt": "mine\n" });
+  configure(w, ["mine"]);
+  // origin pushes to upstream, spelled with a trailing slash.
+  git(w.clone, "remote", "set-url", "--push", "origin", `${w.upstream}/`);
+  const pushed = await cb(w, "rebuild", "--push");
+  expect(pushed.code).toBe(1);
+  expect(pushed.err).toContain("--push needs an origin remote of your own");
+  expect(git(w.clone, "ls-remote", w.upstream, "refs/heads/custom-build")).toBe("");
+});
+test("an own branch known only from a stale origin copy stops instead of building the old commit", async () => {
+  const w = world();
+  branch(w, "gone", { "gone.txt": "gone\n" });
+  git(w.clone, "push", "-q", "origin", "gone");
+  git(w.clone, "branch", "-q", "-D", "gone");
+  // Deleted on origin; the clone still has refs/remotes/origin/gone.
+  git(join(w.github, "me/corgi.git"), "update-ref", "-d", "refs/heads/gone");
+  configure(w, ["gone"]);
+  const result = await cb(w, "rebuild");
+  expect(result.code).toBe(1);
+  expect(result.err).toContain("cannot fetch origin/gone for gone");
+  expect(run(w)).toBeNull();
+});
+test("rollback of a stopped run keeps uncommitted edits on another branch", async () => {
+  const w = world();
+  conflicting(w);
+  configure(w, ["left", "right"]);
+  expect((await cb(w, "rebuild")).code).toBe(2);
+  git(w.clone, "merge", "--abort");
+  git(w.clone, "checkout", "-q", "left");
+  write(w.clone, { "base.txt": "my edit\n" });
+  const refused = await cb(w, "rollback");
+  expect(refused.code).toBe(1);
+  expect(refused.err).toContain("left has uncommitted changes");
+  expect(read(join(w.clone, "base.txt"))).toBe("my edit\n");
+  expect(run(w)).not.toBeNull();
+});
+test("install runs when nothing is installed yet, even with unchanged manifests", () => {
+  const w = world(),
+    start = head(w);
+  expect(steps.installNeeded(w.clone, start)).toBe(true);
+  mkdirSync(join(w.clone, "node_modules"));
+  expect(steps.installNeeded(w.clone, start)).toBe(false);
+});
+test("after a harness fix every step runs again, so a fix can't break a step that passed", async () => {
+  const w = world();
+  branch(w, "flaky", { "flaky.txt": "FAILTEST\n" });
+  // The first fix passes the tests by breaking typecheck; the second fixes typecheck.
+  const h = stubHarness("if grep -qs FAILTEST flaky.txt; then echo BROKEN > flaky.txt; else echo fine > flaky.txt; fi");
+  configure(w, ["flaky"], {
+    harness: { command: h.command },
+    steps: { ...stubSteps, test: ["sh", "-c", "! grep -rqs FAILTEST --include=*.txt ."] },
+  });
+  const result = await cb(w, "rebuild");
+  expect(result.code).toBe(0);
+  expect(h.calls()).toBe(2);
+  expect(read(join(w.clone, "flaky.txt"))).toBe("fine\n");
+  expect(git(w.clone, "log", "--first-parent", "--format=%s", "upstream/main..HEAD").split("\n")).toEqual([
+    "custom-build: fix typecheck (agent)",
+    "custom-build: fix test (agent)",
+    "Merge flaky: about flaky",
+  ]);
 });
 test("a recorded resolution replays before any harness is called", async () => {
   const w = world();

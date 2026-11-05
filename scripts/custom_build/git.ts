@@ -62,6 +62,14 @@ export function isAncestor(cwd: string, a: string, b: string): boolean {
 export function hasRemote(cwd: string, name: string): boolean {
   return git(cwd, ["remote", "get-url", name]).code === 0;
 }
+/** The repository a remote fetches from or pushes to, as `host/path` without
+ * scheme, user, port or `.git`, so two spellings of one repository compare equal. */
+export function remoteTarget(cwd: string, name: string, direction: "fetch" | "push"): string {
+  const url = git(cwd, ["remote", "get-url", ...(direction === "push" ? ["--push"] : []), name]).stdout.trim(),
+    m = /^(?:[a-z][a-z0-9+.-]*:\/\/)?(?:[^@/]+@)?([^/:]+)(?::\d*)?[:/](.+)$/i.exec(url),
+    where = m ? `${m[1].toLowerCase()}/${m[2]}` : url;
+  return where.replace(/\/+$/, "").replace(/\.git$/, "");
+}
 /** Fetches `refspec` from a URL or remote; the error text on failure. */
 export function fetch(cwd: string, from: string, refspec: string): string | null {
   const out = git(cwd, ["fetch", "--quiet", "--no-tags", from, refspec]);

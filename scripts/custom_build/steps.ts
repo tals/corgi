@@ -23,9 +23,13 @@ export function commands(step: StepName, config: Config, vars: Vars): string[][]
   return step === "test" && !config.steps?.test ? [["bun", "build.ts", "--native-only"], main] : [main];
 }
 
-/** Whether `bun install` must run: bun.lock or package.json changed since `since`. */
+/** Whether `bun install` must run: nothing is installed yet (a fresh clone), or
+ * bun.lock or package.json changed since `since`. */
 export function installNeeded(repo: string, since: string): boolean {
-  return git.git(repo, ["diff", "--quiet", since, "HEAD", "--", "bun.lock", "package.json"]).code !== 0;
+  return (
+    !existsSync(join(repo, "node_modules")) ||
+    git.git(repo, ["diff", "--quiet", since, "HEAD", "--", "bun.lock", "package.json"]).code !== 0
+  );
 }
 
 export type Run = {

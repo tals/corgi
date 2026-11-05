@@ -101,13 +101,15 @@ Progress goes to stderr, prefixed `custom-build:`; the summary goes to stdout.
 2. Fetches upstream and every patch. A patch that can't be fetched stops the
    run here, before anything changed.
 3. Skips PRs merged upstream (the report says they can be removed) and patches
-   already contained in the branch. A PR closed without merging is still
-   merged, with a warning.
+   already contained in the branch. A PR counts as merged upstream once the
+   fetched `main` contains its merge commit; one merged elsewhere is merged with
+   a note. A PR closed without merging is still merged, with a warning. The
+   custom branch and its `-prev` backup can't be patches themselves.
 4. Resets the custom branch to upstream `main` and merges each patch with
    `--no-ff` as `Merge <source>: <description>`. Conflict resolutions you made
    before replay through rerere.
-5. Runs `bun install --frozen-lockfile` when `bun.lock` or `package.json`
-   changed, then `bun typecheck.ts`, `bun test src` and
+5. Runs `bun install --frozen-lockfile` when nothing is installed yet or
+   `bun.lock` or `package.json` changed, then `bun typecheck.ts`, `bun test src` and
    `bun build.ts --outfile dist/corgi-custom`, which stamps the merges since
    upstream `main` into the binary.
 6. When a step fails, runs it on plain upstream in a throwaway worktree first.
@@ -122,10 +124,12 @@ leave it in the tree, which `continue` commits as a user fix), then run
 `continue`. If the run was interrupted while the harness was working,
 `continue` first checks what the harness left the same way it checks a finished
 result: accepted, it is committed as the agent's; rejected, the run stops with
-the conflict or failing step in place. `rollback` instead returns to where the
-run started. Without a
-stopped run, `rollback` restores `custom-build-prev` and
-`dist/corgi-custom.prev`.
+the conflict or failing step in place. After any fix, whether yours or the
+harness's, every step runs again from the first, so a fix can't break a step
+that passed before it. `rollback` instead returns to where the run started,
+discarding what the run left on the custom branch; it refuses while another
+branch has uncommitted changes. Without a stopped run, `rollback` restores
+`custom-build-prev` and `dist/corgi-custom.prev`.
 
 The tool copies itself into the config directory at the start of a run, so
 `continue`, `rollback` and `status` work even when upstream doesn't have the

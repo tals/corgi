@@ -76,10 +76,16 @@ function fetchPatch(ctx: Context, patch: Patch, remote: string, upstream: string
     });
   switch (s.kind) {
     case "branch": {
-      const local = git.revParse(ctx.repo, `refs/heads/${s.name}`);
-      if (git.hasRemote(ctx.repo, "origin"))
-        git.fetch(ctx.repo, "origin", `+refs/heads/${s.name}:refs/remotes/origin/${s.name}`);
-      const pushed = git.revParse(ctx.repo, `refs/remotes/origin/${s.name}`);
+      const local = git.revParse(ctx.repo, `refs/heads/${s.name}`),
+        failed = git.hasRemote(ctx.repo, "origin")
+          ? git.fetch(ctx.repo, "origin", `+refs/heads/${s.name}:refs/remotes/origin/${s.name}`)
+          : null,
+        stale = git.revParse(ctx.repo, `refs/remotes/origin/${s.name}`),
+        // An unfetched origin copy may be old or deleted, so only a fresh fetch counts.
+        pushed = failed ? null : stale;
+      if (failed && !local) throw Error(`cannot fetch origin/${s.name} for ${display}: ${failed}`);
+      if (failed && stale)
+        event(run, "note", { patch: display, detail: `could not fetch origin/${s.name}; using the local branch` });
       if (!local && !pushed) throw Error(`cannot find ${display}: no such local branch or origin/${s.name}`);
       if (!local) {
         event(run, "note", { patch: display, detail: `no local branch; using origin/${s.name}` });
@@ -109,10 +115,17 @@ function fetchPatch(ctx: Context, patch: Patch, remote: string, upstream: string
       if (failed) throw Error(`cannot fetch ${display}: ${failed}`);
       const p = planned(git.revParse(ctx.repo, ref)!, ref);
       if (s.kind === "pr") {
-        // MERGED on another repository means merged there, not upstream.
+        // MERGED on another repository means merged there, not upstream; on upstream it
+        // counts once the fetched branch has the merge (into another branch, or after the fetch, it doesn't).
         const info = github.prInfo(s.repo, s.number, ctx.env),
-          intoUpstream = s.repo === ctx.config.upstream.repo && info?.state === "MERGED";
+          mergedUpstream = s.repo === ctx.config.upstream.repo && info?.state === "MERGED",
+          intoUpstream = mergedUpstream && !!info.mergeCommit && git.isAncestor(ctx.repo, info.mergeCommit, upstream);
         if (intoUpstream || git.isAncestor(ctx.repo, p.commit!, upstream)) p.skip = "skipped-merged";
+        else if (mergedUpstream)
+          event(run, "note", {
+            patch: display,
+            detail: `the PR is merged, but not into the fetched ${ctx.config.upstream.branch}; merging it`,
+          });
         else if (info?.state === "CLOSED")
           event(run, "closed-warning", { patch: display, detail: "the PR was closed without merging" });
       }
@@ -133,9 +146,21 @@ export async function rebuild(ctx: Context, o: { push?: boolean } = {}): Promise
   const elsewhere = git.worktreeWith(repo, config.branch);
   if (elsewhere)
     throw Error(`${config.branch} is checked out in another worktree (${elsewhere}); switch it away first`);
+  // The run resets the custom branch and replaces its backup, so neither may be a patch.
+  const owned = [config.branch, `${config.branch}-prev`],
+    taken = config.patches.find(p => p.source.kind === "branch" && owned.includes(p.source.name));
+  if (taken)
+    throw Error(
+      `the patch ${sources.display(taken.source)} is a branch the tool resets (${owned.join(", ")}); rename it or set another branch`,
+    );
   const remote = git.resolveUpstreamRemote(repo, config);
   if (!git.hasRemote(repo, remote)) throw Error(`no ${remote} remote to fetch upstream from`);
-  if (o.push && (remote === "origin" || !git.hasRemote(repo, "origin")))
+  if (
+    o.push &&
+    (remote === "origin" ||
+      !git.hasRemote(repo, "origin") ||
+      git.remoteTarget(repo, "origin", "push") === git.remoteTarget(repo, remote, "fetch"))
+  )
     throw Error("--push needs an origin remote of your own, apart from upstream; nothing was changed");
 
   const run: RunState = {
@@ -357,7 +382,21 @@ async function verifyLoop(ctx: Context, run: RunState): Promise<Outcome | null> 
     }
     const h = harnessFor(ctx);
     if (h) {
-      if (await fixWithHarness(ctx, run, step, cmds, log, h)) continue;
+      if (await fixWithHarness(ctx, run, step, cmds, log, h)) {
+        // A fix can break a step that passed before it, so everything runs again;
+        // fixes that keep breaking each other stop the run instead of looping.
+        const agentFixes = run.fixes.filter(f => f.by === "agent").length;
+        if (agentFixes >= (h.attempts ?? 3) * configFile.stepNames.length)
+          return stop(
+            ctx,
+            run,
+            5,
+            [`the harness's ${agentFixes} fixes keep breaking other steps`, `last fixed: ${step}`],
+            ["fix it in the working tree (or commit the fix), then continue"],
+          );
+        i = -1;
+        continue;
+      }
       return stop(
         ctx,
         run,
@@ -524,7 +563,12 @@ async function stop(ctx: Context, run: RunState, code: Code, what: string[], nex
 async function writeReport(ctx: Context, run: RunState, code: Code, reason: string[]): Promise<string[]> {
   const { repo } = ctx,
     active = run.plan.filter(p => !p.skip),
-    rebase = rebaseCheck(ctx, run.upstream, active),
+    // The commits this run built, not the refs: a patch branch may have moved on during a stop.
+    rebase = rebaseCheck(
+      ctx,
+      run.upstream,
+      active.map(p => ({ display: p.display, ref: p.commit })),
+    ),
     pulled = run.startTip
       ? git
           .must(repo, ["log", "--no-merges", "--format=%H %s", `${run.startTip}..${run.upstream}`])
@@ -542,7 +586,7 @@ async function writeReport(ctx: Context, run: RunState, code: Code, reason: stri
         upstream: run.upstream,
         merged: active
           .filter(p => p.merge && run.merged.some(m => m.source === p.display))
-          .map(p => ({ display: p.display, ref: p.ref, merge: p.merge! })),
+          .map(p => ({ display: p.display, ref: p.commit!, merge: p.merge! })),
         fixFiles: fix.files,
         log: fix.log ?? "",
         config: ctx.config,
@@ -708,6 +752,8 @@ export async function resume(ctx: Context): Promise<Outcome> {
       event(run, "user-fix", { step: run.step });
     }
   }
+  // A fix may break a step that passed before it: verify from the first step again.
+  if (run.phase === "verify") run.step = null;
   run.stopped = null;
   save(ctx, run);
   return proceed(ctx, run);
@@ -768,6 +814,13 @@ export async function rollback(ctx: Context): Promise<Outcome> {
   const { repo, config } = ctx,
     run = configFile.loadRun(ctx.dir);
   if (run) {
+    // The forced checkout below discards the run's half-done work, which lives
+    // only on the custom branch; edits anywhere else are someone else's.
+    const current = git.currentBranch(repo);
+    if (current !== config.branch && !git.isClean(repo))
+      throw Error(
+        `${current ?? "the detached HEAD"} has uncommitted changes, and rollback would discard them; commit or stash them first`,
+      );
     if (git.mergeInProgress(repo)) git.git(repo, ["merge", "--abort"]);
     if (run.startTip) git.must(repo, ["checkout", "--quiet", "-f", "-B", config.branch, run.startTip]);
     else {
