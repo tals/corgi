@@ -369,6 +369,23 @@ test("a workspace hides launcher rows for itself, and a deleted command's slot c
     r.destroy();
   }
 });
+
+test("explicit additions are independent of automatic visibility and removal clears them", async () => {
+  const { r, home } = setup();
+  try {
+    const run = (cmd: protocol.CommandInput) => execute(r, ctx, protocol.decodeCommand(cmd));
+    expect(r.launcher_added).toEqual([]);
+    for (const row of ["pi", "omp", "pi", "claude:/accounts/work", "custom0"])
+      await run({ "agent.workspace_visibility": { workspace: home.id, row, shown: true } });
+    expect(snapshot(r).launcher_added).toEqual(["pi", "omp", "claude:/accounts/work"]);
+    await run({ "agent.workspace_visibility": { workspace: home.id, row: "pi", shown: false } });
+    expect(r.launcher_added).toContain("pi");
+    await run({ "agent.visibility": { hidden: { pi: true }, hidden_accounts: ["/accounts/work"] } });
+    expect(r.launcher_added).toEqual(["omp"]);
+  } finally {
+    r.destroy();
+  }
+});
 test("a command saved without semantics keeps its own until its text changes", async () => {
   const { r } = setup();
   try {

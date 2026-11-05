@@ -6,6 +6,21 @@ the user interface. This page covers the contracts behind it.
 
 [OpenCode](opencode.md) describes the v2 adapter and its remaining parity gaps.
 
+## Executable discovery
+
+Corgi asks `mise which` for each agent in the workspace directory before
+searching PATH and the provider's usual install locations. Explicit
+`CORGI_<PROVIDER>_BIN` overrides take precedence. Mise shims are dispatchers,
+not installed agents: a missing or inactive tool's shim never makes its
+launcher row visible and is never executed during discovery.
+
+Compatibility checks first read the resolved package's `package.json`, or
+the version recorded by mise (`mise which COMMAND --version`, which does
+not run COMMAND). Only standalone executables without that metadata need
+the bounded `--version` probe. A failed probe hides the row and is retried
+on the next discovery refresh. Both `opencode` and `opencode2` are searched;
+OpenCode v1 remains unsupported.
+
 ## Conversation ownership
 
 The daemon owns one [conversation actor](../src/conversations.ts) per provider

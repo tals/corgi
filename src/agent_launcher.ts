@@ -175,9 +175,12 @@ export class Menu {
   /** Conversations panes run now, which the list jumps to instead. */
   open: launcherResume.Open[] = [];
   selected: Row = Provider.first;
+  private discovering_selection: { row: Row; fallback: Row } | null = null;
   /** Each provider's own row's YOLO and Show; an account's row has its own. */
   yolo = byProvider(() => false);
   hidden = byProvider(() => false);
+  /** Explicit additions stay listed without a discovered sign-in. */
+  added: string[] = [];
   /** The accounts whose rows have YOLO on, and those the picker hides. */
   account_yolo: string[] = [];
   account_hidden: string[] = [];
@@ -252,6 +255,9 @@ export class Menu {
     const l = this.launchOf(row);
     return l === null ? false : l.account ? this.account_hidden.includes(l.account) : this.hidden[l.provider];
   }
+  private explicitlyAdded(row: Row): boolean {
+    return this.added.includes(row) || this.profileOf(row) !== null;
+  }
   /** The account a row signs in to instead of starting its agent: one signed out. */
   signsIn(row: Row): AccountOption | null {
     const a = this.accountOf(row);
@@ -298,6 +304,7 @@ export class Menu {
   }
   private accountCell(row: Row): string {
     const o = this.optionOf(row) ?? option();
+    if (o.signed_in === false) return i18n.t`Not signed in`;
     if (o.account) return o.account;
     if (o.pending ?? this.preview.pending) return i18n.t`Reading…`;
     return this.launchOf(row)?.provider === "pi" ? i18n.t`Pi provider selection` : i18n.t`Unavailable`;
@@ -313,7 +320,7 @@ export class Menu {
       adapter(this.launchOf(row)!.provider).bypass === false ? "—" : this.yoloOf(row) ? "✓" : "·",
       model.name + effort.suffix(model.effort),
       out ? "—" : this.accountCell(row),
-      out ? "—" : o.plan.length > 0 ? o.plan : pending ? "…" : i18n.t`Unknown`,
+      out || o.signed_in === false ? "—" : o.plan.length > 0 ? o.plan : pending ? "…" : i18n.t`Unknown`,
     ];
   }
   customCells(index: number): string[] {
@@ -360,10 +367,31 @@ export class Menu {
     if (row === "terminal") return true;
     const o = this.optionOf(row);
     if (o === null) return false;
-    // A signed-out account's row offers to sign in; a signed-out default's is left out.
+    // Explicit choices stay launchable; automatic defaults need a discovered sign-in.
     const l = this.launchOf(row);
     if (!l || (this.profileOf(row)?.account && !this.accountOf(row))) return false;
-    return this.preview.installed[l.provider] && !this.hiddenOf(row) && (l.account.length > 0 || o.signed_in !== false);
+    return (
+      this.preview.installed[l.provider] &&
+      !this.hiddenOf(row) &&
+      (this.explicitlyAdded(row) || (!this.discoveringRow(row) && (l.account.length > 0 || o.signed_in !== false)))
+    );
+  }
+  /** A row whose first account read has not established its availability yet. */
+  private discoveringRow(row: Row): boolean {
+    const o = this.optionOf(row);
+    return o !== null && (o.pending ?? this.preview.pending) && o.signed_in === null && !o.account;
+  }
+  discovering(): string {
+    const names = [
+      ...new Set(
+        this.rows()
+          .filter(
+            row => this.launchOf(row) && !this.hiddenOf(row) && !this.explicitlyAdded(row) && this.discoveringRow(row),
+          )
+          .map(row => this.label(row)),
+      ),
+    ].join(", ");
+    return names ? i18n.t`Discovering ${names}…` : "";
   }
   /** Every row, shown or not: each provider's and then its accounts'. */
   rows(): Row[] {
@@ -400,9 +428,20 @@ export class Menu {
   /** Keep the selection on a visible row after the installed set changes.
    * An account's row that went away leaves its provider's selected. */
   normalize(): void {
+    const waiting = this.discovering_selection;
+    if (waiting) {
+      if (this.selected !== waiting.fallback) this.discovering_selection = null;
+      else if (!this.discoveringRow(waiting.row)) {
+        this.discovering_selection = null;
+        if (this.shown(waiting.row)) this.selected = waiting.row;
+      }
+    }
     if (this.shown(this.selected)) return;
-    const provider = this.launchOf(this.selected)?.provider ?? null;
+    const previous = this.selected,
+      provider = this.launchOf(previous)?.provider ?? null;
     this.selected = provider !== null && this.shown(provider) ? provider : this.rowAt(0)!;
+    if (!this.discovering_selection && !this.hiddenOf(previous) && this.discoveringRow(previous))
+      this.discovering_selection = { row: previous, fallback: this.selected };
   }
   first(): Row {
     return this.rowAt(0)!;
@@ -418,6 +457,7 @@ export class Menu {
   }
   move(next: boolean, wrap: boolean): void {
     this.normalize();
+    this.discovering_selection = null;
     const n = this.count();
     const index = this.position(this.selected);
     this.selected = this.rowAt(
@@ -729,6 +769,7 @@ export class Menu {
       if (!l || !o) continue;
       const a = this.accountOf(row),
         installed = this.preview.installed[l.provider],
+        discovering = this.discoveringRow(row),
         out = installed && o.signed_in === false,
         version = this.preview.outdated[l.provider],
         requires = adapter(l.provider).requires ?? i18n.t`an update`;
@@ -738,15 +779,18 @@ export class Menu {
         account: l.account,
         name: this.profileOf(row)?.name ?? (l.account ? (a?.name ?? "") : this.preview.names[l.provider]),
         label: this.label(row),
-        who: !installed
-          ? this.preview.outdated[l.provider]
-            ? i18n.t`${version} · needs ${requires}`
-            : i18n.t`Not installed`
-          : out
-            ? i18n.t`Not signed in`
-            : this.accountCell(row),
+        available: installed,
+        who: discovering
+          ? i18n.t`Discovering…`
+          : !installed
+            ? this.preview.outdated[l.provider]
+              ? i18n.t`${version} · needs ${requires}`
+              : i18n.t`Not installed`
+            : out
+              ? i18n.t`Not signed in`
+              : this.accountCell(row),
         signed_out: out,
-        shown: !this.hiddenOf(row),
+        shown: installed && !this.hiddenOf(row) && (this.explicitlyAdded(row) || (!discovering && !out)),
         here: !this.workspace_hidden.includes(row),
         managed: a?.managed ?? false,
         usage: !installed || out || o.usage_needs_consent ? Cell.status("—") : this.usageCell(row),
@@ -754,6 +798,7 @@ export class Menu {
     }
     return {
       agents,
+      discovering: this.discovering(),
       commands: this.commands,
       workspace: this.workspace_name,
       here: index => !this.workspace_hidden.includes(Row.ofCommand(index)),
@@ -806,6 +851,7 @@ export class Menu {
     w.write(new Style({ fg: "text", bg: "surface" }).sgr());
   }
   draw(w: Writer, cols: number, rowsCount: number, side: SidebarView): void {
+    if (!this.managing) this.normalize();
     const body = new Writer();
     this.drawCard(body, cols, rowsCount, side);
     this.transition.draw(w, body.s, this.bounds(cols, rowsCount, side), cols, rowsCount);
@@ -971,7 +1017,7 @@ export class Menu {
       : m.worktree.adding
         ? i18n.t`adding ${folder}…`
         : i18n.t`new worktree from ${branch} · new tab`;
-    Menu.drawFooter(w, b, panel, what, hints);
+    Menu.drawFooter(w, b, panel, m.discovering() || what, hints);
     w.write("\x1b[0m\x1b[?25l");
     const bx = m.worktreeBox(cols, rowsCount, side);
     if (bx) m.drawWorktreeBox(w, bx, cols, rowsCount, side);

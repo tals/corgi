@@ -454,6 +454,7 @@ $.snapshot.system_usage.recent_tokens: u64
 $.snapshot.last_agent: provider
 $.snapshot.agent_yolo{provider}: bool
 $.snapshot.agent_hidden{provider}: bool
+$.snapshot.launcher_added[]: string
 $.snapshot.account_yolo[]: string
 $.snapshot.account_hidden[]: string
 $.snapshot.agent_commands[6].command: custom bounded_text.BoundedText(2048)

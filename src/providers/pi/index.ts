@@ -54,6 +54,10 @@ export const adapter: Adapter = {
     ...["/opt/homebrew/bin/pi", "/usr/local/bin/pi"].map(p => root + p),
   ],
   version: v => /^(?:[1-9]\d*)\.\d+\.\d+(?:[-+].*)?$/.test(v.trim()),
+  distribution: {
+    packages: ["@earendil-works/pi-coding-agent", "@mariozechner/pi-coding-agent"],
+    version: v => v,
+  },
   requires: "1.0.0 or newer",
   inspect(c) {
     const result = commandLine.inspect(c, {

@@ -72,8 +72,8 @@ export class Preview {
 }
 /** An account Corgi knows, as the launcher lists it. */
 export type Account = { provider: Provider; account: string; name: string; managed: boolean; option: Option };
-export function installed() {
-  return byProvider(p => discovery.installed(p));
+export function installed(cwd = process.cwd()) {
+  return byProvider(p => discovery.installed(p, cwd));
 }
 type Row = { provider: Provider; account: string };
 /** The folders of one provider signed in to one account. */
@@ -131,7 +131,8 @@ export class Worker {
   private checked = 0;
   private sampling = false;
   private cached_accounts = new Preview().with({ pending: false });
-  private installs: { at: number; installed: Preview["installed"]; outdated: Preview["outdated"] } | null = null;
+  private installs: { at: number; cwd: string; installed: Preview["installed"]; outdated: Preview["outdated"] } | null =
+    null;
   /** The folder of each file a launcher reads, watched by file. */
   watching = new Map<string, FSWatcher>();
   private settle: ReturnType<typeof setTimeout> | null = null;
@@ -238,7 +239,7 @@ export class Worker {
     let job = this.jobs.find(j => j.cwd === cwd);
     if (job) {
       job.used = now;
-      const listed = this.list(job.preview),
+      const listed = this.list(job.preview, cwd),
         moved =
           job.preview.accounts.length !== listed.accounts.length ||
           job.preview.accounts.some(
@@ -263,7 +264,10 @@ export class Worker {
       }
       return job.preview;
     }
-    const preview = this.list(new Preview());
+    const preview = this.list(new Preview(), cwd);
+    // Keep settled account availability when a different folder starts reading its models.
+    preview.options = byProvider(p => this.shown(p, "", preview.options[p]));
+    preview.accounts = preview.accounts.map(a => ({ ...a, option: this.shown(a.provider, a.account, a.option) }));
     job = {
       cwd,
       preview,
@@ -283,14 +287,15 @@ export class Worker {
     return preview;
   }
   /** Account rows come from local state, independently of provider reads. */
-  private list(previous: Preview): Preview {
+  private list(previous: Preview, cwd = process.cwd()): Preview {
     const now = performance.now();
-    if (!this.installs || now - this.installs.at >= 5000) {
-      const found = installed();
+    if (!this.installs || this.installs.cwd !== cwd || now - this.installs.at >= 5000) {
+      const found = installed(cwd);
       this.installs = {
         at: now,
+        cwd,
         installed: found,
-        outdated: byProvider(p => (found[p] ? "" : (discovery.outdated(p) ?? ""))),
+        outdated: byProvider(p => (found[p] ? "" : (discovery.outdated(p, cwd) ?? ""))),
       };
     }
     const { installed: available, outdated } = this.installs,
@@ -361,11 +366,18 @@ export class Worker {
     job.queued = false;
     job.accessing = job.request_access;
     job.request_access = false;
-    await discovery.check();
+    await discovery.check(job.cwd);
     if (this.stopping) return;
     this.installs = null;
     const skip = this.skipped();
-    job.preview = this.withSkipped(this.list(job.preview).with({ pending: true }), skip);
+    job.preview = this.withSkipped(this.list(job.preview, job.cwd).with({ pending: true }), skip);
+    job.preview = job.preview.with({
+      options: byProvider(p =>
+        job.preview.installed[p]
+          ? job.preview.options[p]
+          : Object.assign(new Option(), job.preview.options[p], { pending: false }),
+      ),
+    });
     const rows = this.rows(job.preview, skip),
       groups = this.groups(rows);
     // Launchers of rows it no longer reads, such as accounts gone, close.
@@ -454,6 +466,9 @@ export class Worker {
   /** Reads the accounts due a read, then shows what they read in every
    * folder's preview, so subscribers needn't wait for their next refresh. */
   private async round() {
+    await discovery.check();
+    if (this.stopping) return;
+    this.installs = null;
     const before = new Map([...this.logins].map(([key, login]) => [key, login.read_at])),
       skip = this.skipped(),
       listed = this.list(new Preview());

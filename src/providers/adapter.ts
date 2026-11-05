@@ -448,8 +448,10 @@ export interface Adapter extends Info {
   /** Where it may be installed besides PATH, most likely first. `root`
    * prefixes system locations so tests can stand in for them. */
   installs(at: { home: string | null; root: string }): string[];
-  /** Whether a candidate's `--version` says it is this provider. Without it,
-   * the first `command` on PATH is. */
+  /** Package names and how a package manager's version becomes its version line. */
+  distribution?: { packages: string[]; version(value: string): string };
+  /** Whether an installation's version line identifies a supported provider.
+   * Metadata supplies it first; standalone installs may need `--version`. */
   version?(stdout: string): boolean;
   /** The versions `version` takes, as a sign-in says it: "1.0.0 or newer". */
   requires?: string;

@@ -620,6 +620,7 @@ export class Runtime {
   last_agent: Provider = Provider.first;
   agent_yolo = byProvider(() => false);
   agent_hidden = byProvider(() => false);
+  launcher_added: string[] = [];
   /** The accounts whose rows have their own YOLO on, and those the picker hides. */
   account_yolo: string[] = [];
   account_hidden: string[] = [];
@@ -703,6 +704,7 @@ export class Runtime {
     this.last_agent = Provider.parse(snapshot.last_agent) ?? Provider.first;
     this.agent_yolo = byProvider(p => snapshot.agent_yolo?.[p] === true);
     this.agent_hidden = byProvider(p => snapshot.agent_hidden?.[p] === true);
+    this.launcher_added = strings(snapshot.launcher_added);
     this.account_yolo = strings(snapshot.account_yolo);
     this.account_hidden = strings(snapshot.account_hidden);
     this.agent_commands = Array.from({ length: 6 }, (_, i) => commandEntry(snapshot.agent_commands?.[i]));

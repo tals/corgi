@@ -364,7 +364,7 @@ class Smoke extends Runtime {
     await this.frame_with("New workspace");
     await this.input("Project\r");
     await this.until(async () => (await this.workspaces()).length === 2);
-    await this.frame_with("No agents yet");
+    await this.frame_with("Ctrl+T");
     const ws = (await this.workspaces()).find((w: any) => w.active);
     this.assertEqual([ws.name, ws.cwd], ["Project", realpathSync(this.temp.name)]);
     await this.click(4, 3);
@@ -380,7 +380,7 @@ class Smoke extends Runtime {
     const edited = (await this.workspaces()).find((w: any) => w.id === ws.id);
     this.assertEqual([edited.name, edited.cwd], ["Edited", realpathSync(this.temp.name)]);
     await this.input("\x02}");
-    await this.frame_with("No agents yet");
+    await this.frame_with("Ctrl+T");
     this.assertEqual((await this.workspaces()).find((w: any) => w.active).id, ws.id);
   }
   async test_workspace_and_agent_lists_scroll_independently() {
@@ -425,7 +425,7 @@ class Smoke extends Runtime {
       "Group-1",
     );
     this.assertEqual((await this.workspaces()).find((w: any) => w.active).name, "Group-1");
-    await this.frame_with("No agents yet");
+    await this.frame_with("Ctrl+T");
   }
   async test_headless_sessions_belong_to_their_workspace() {
     await this.open_pane({ cwd: this.temp.name, command: "sleep 30" });
@@ -439,7 +439,7 @@ class Smoke extends Runtime {
     await this.attach();
     await this.agent_frame("codex", "○");
     await this.new_workspace({ name: "Other", cwd: this.temp.name });
-    await this.frame_with("No agents yet");
+    await this.frame_with("Ctrl+T");
     await this.rpc({ op: "workspace.switch", workspace: original });
     await this.agent_frame("codex", "○");
   }

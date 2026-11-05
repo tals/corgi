@@ -487,6 +487,8 @@ export class Runtime {
   last_agent: Provider = Provider.first;
   agent_yolo = byProvider(() => false);
   agent_hidden = byProvider(() => false);
+  /** Native launcher rows the user explicitly added, independent of discovery. */
+  launcher_added: string[] = [];
   /** The accounts whose rows have their own YOLO on, and those the picker hides. */
   account_yolo: string[] = [];
   account_hidden: string[] = [];

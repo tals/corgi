@@ -400,15 +400,15 @@ test("Add agent opens an agent's accounts once it's selected, adds back removed 
   expect(opened).toBe(closed + 5);
   ({ lines } = screen(v, m));
   expect(lines[strip]).toMatch(/│›  †  Codex/);
-  expect(lines[strip + 1]).toMatch(/│  \+ Claude Code +me@example.com +Removed +│/);
+  expect(lines[strip + 1]).toMatch(/│  \+ Claude Code +me@example.com +Add to the list +│/);
   expect(lines[strip + 2]).toMatch(/│  ✓ work +me@acme.com +In the list +│/);
-  expect(lines[strip + 4]).toMatch(/│  \+ old +\/o\/old +Removed +│/);
+  expect(lines[strip + 4]).toMatch(/│  \+ old +\/o\/old +Add to the list +│/);
   expect(lines[strip + 5]).toContain("+ New Claude Code account");
   expect(lines[b(v, m).h - 2]).toMatch(/↓ +accounts +←→ +agents/);
   // Enter goes into its list, on the first row that adds something.
   expect(v.key(13, m)).toBeNull();
   expect(v.at).toBe("found:claude:");
-  expect(screen(v, m).lines[b(v, m).h - 2]).toMatch(/↵ +add back to the list +←→ +agents/);
+  expect(screen(v, m).lines[b(v, m).h - 2]).toMatch(/↵ +add to the list +←→ +agents/);
   expect(v.key(13, m)).toEqual({ kind: "show", agent: m.agents[1] });
   // A listed account's row goes to its row above, where the list closes and keeps its room.
   v.sequence("\x1b[B", m);

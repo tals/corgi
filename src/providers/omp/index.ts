@@ -73,6 +73,7 @@ export const adapter: Adapter = {
     ...["/opt/homebrew/bin/omp", "/usr/local/bin/omp"].map(p => root + p),
   ],
   version: v => /^omp\/\d+\.\d+\.\d+/.test(v.trim()),
+  distribution: { packages: ["@oh-my-pi/pi-coding-agent"], version: v => `omp/${v}` },
   inspect(c) {
     const result = commandLine.inspect(c, {
       config_env: "PI_CODING_AGENT_DIR",

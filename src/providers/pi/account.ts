@@ -10,6 +10,7 @@ import { field, str } from "../common";
 import * as codexPlan from "../codex/plan";
 import { credential, identity } from "./accounts";
 import { directory } from "./integration";
+import * as models from "./models";
 
 const log = getLogger("pi.account");
 function window(value: unknown) {
@@ -49,19 +50,29 @@ export class Client {
       provider = str(cached(root, "settings.json"), "defaultProvider") || c?.provider || "",
       info = new Info();
     info.account = new Text(who && c?.provider === provider ? who.email : provider);
-    if (!c || c.provider !== provider) return info;
-    info.plan = new Text(c.type === "oauth" ? "OAuth" : "API key");
-    // Other providers do not share ChatGPT's subscription endpoint.
-    if (provider !== "openai-codex" || c.type !== "oauth" || this.quit.aborted || quit.aborted) return info;
+    info.signed_in = !!c && c.provider === provider;
+    if (this.quit.aborted || quit.aborted) return info;
     const stopping = new Quit(),
       abort = () => stopping.signal();
     quit.abortSignal.addEventListener("abort", abort, { once: true });
     this.quit.abortSignal.addEventListener("abort", abort, { once: true });
     try {
+      if (!c || c.provider !== provider) {
+        // Native availability also covers environment keys and custom endpoints.
+        const available = await models.read(this.account, stopping).catch(() => []),
+          selected = available.find(m => !provider || m.id.startsWith(provider + "/"));
+        info.signed_in = selected !== undefined;
+        if (selected) info.account = new Text(selected.user || selected.id.split("/")[0]);
+        return info;
+      }
+      info.plan = new Text(c.type === "oauth" ? "OAuth" : "API key");
+      // Other providers do not share ChatGPT's subscription endpoint.
+      if (provider !== "openai-codex" || c.type !== "oauth") return info;
       // Folders signed in to one account share its reading.
       const cache = await Cache.open("pi", JSON.stringify([who?.id ?? root, provider]), stopping);
       try {
         const now = Math.floor(Date.now() / 1000);
+        cache.state.info.signed_in = info.signed_in;
         cache.state.info.account = info.account;
         if (!cache.state.info.plan.len) cache.state.info.plan = info.plan;
         if (max_age > 0 && (now < this.retry_at || now - cache.state.info.usage_fetched_at < max_age))

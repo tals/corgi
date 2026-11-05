@@ -885,6 +885,8 @@ test("the launcher reopens on the row from before a terminal", async () => {
   });
   s.receiveSnapshot(snapshot);
   s.input_state.attached = true;
+  s.launch_previews.preview = agentLauncher.preview({ pending: false });
+  s.launch_previews.cwd = "/src/app";
   s.openLauncher(true);
   s.agent_launcher.selected = "claude";
   s.closeLauncher();
@@ -1722,20 +1724,23 @@ function recording(snapshot: any) {
   return { s, sent };
 }
 
-test("both launch screens list snapshot accounts before any preview arrives", () => {
+test("both launch screens discover snapshot accounts before offering them", () => {
   const { s } = recording({
     ...folders("/src/app"),
     accounts: [{ provider: "claude", account: "/accounts/work", name: "work", managed: true }],
   });
   s.openLauncher(true);
   const launch: agentLauncher.Menu = s.agent_launcher;
+  launch.profiles = [];
   const row = agentLauncher.Row.of("claude", "/accounts/work");
   expect(launch.rows()).toContain(row);
-  expect(launch.shown(row)).toBe(true);
+  expect(launch.shown(row)).toBe(false);
+  expect(launch.discovering()).toContain("Claude Code · work");
   expect(launch.cells(row)).toContain("Claude Code · work");
   launch.manage();
   expect(launch.manageModel().agents.map(a => a.label)).toContain("Claude Code · work");
   expect(launch.manageModel().agents.find(a => a.account === "/accounts/work")?.managed).toBe(true);
+  expect(launch.manager.items(launch.manageModel()).have).toEqual([]);
 });
 
 test("an account's row starts its agent there, and resuming keeps a conversation's account", async () => {
@@ -1746,7 +1751,10 @@ test("an account's row starts its agent there, and resuming keeps a conversation
   const { s, sent } = recording(snapshot);
   Object.assign(s.launch_previews, {
     cwd: "/src/app",
-    preview: agentLauncher.preview({ accounts: [{ provider: "claude", account: "/accounts/work", name: "work" }] }),
+    preview: agentLauncher.preview({
+      pending: false,
+      accounts: [{ provider: "claude", account: "/accounts/work", name: "work" }],
+    }),
   });
   s.openLauncher(true);
   // Codex, Claude Code, then Claude Code · work.
@@ -1795,6 +1803,8 @@ test.each(["launcher", "settings"] as const)(
     accounts.reset();
     try {
       const { s, sent } = recording(folders("/src/app"));
+      s.launch_previews.preview = agentLauncher.preview({ pending: false });
+      s.launch_previews.cwd = "/src/app";
       const launch = await openManagement(s, source);
       launch.manager.at = agentManager.agentKey("claude", "");
       await s.key(13);
@@ -2128,6 +2138,28 @@ test("an account's row has a YOLO and launcher membership of its own, apart from
     "agent.visibility": { hidden: byProvider(p => p === "claude") },
   });
 });
+
+test.each(["pi", "omp"] as const)(
+  "Add agent keeps an explicit signed-out %s choice in the launcher",
+  async provider => {
+    const { s, sent } = withWork(),
+      launch = s.agent_launcher;
+    launch.preview.installed[provider] = true;
+    Object.assign(launch.preview.options[provider], { signed_in: false, pending: false });
+    expect(launch.shown(provider)).toBe(false);
+    launch.manage();
+    launch.manager.open(`found:${provider}:`);
+    const action = launch.manager.key(13, launch.manageModel());
+    expect(action?.kind).toBe("show");
+    await s.manageAction(action);
+    expect(sent.at(-1)).toEqual({
+      "agent.workspace_visibility": { workspace: s.current().id, row: provider, shown: true },
+    });
+    expect(launch.added).toContain(provider);
+    expect(launch.shown(provider)).toBe(true);
+    expect(launch.manageModel().agents.find((a: agentManager.Agent) => a.provider === provider)?.shown).toBe(true);
+  },
+);
 
 test("the launcher lights the checkout it starts agents in, as the overview lights a worktree", () => {
   const checkout = (path: string, branch: string, primary: boolean) => ({

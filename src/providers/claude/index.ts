@@ -61,6 +61,7 @@ export const adapter: Adapter = {
       : []),
     ...["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"].map(dir => root + dir + "/claude"),
   ],
+  distribution: { packages: ["@anthropic-ai/claude-code"], version: v => `${v} (Claude Code)` },
   accounts: {
     service: "claude",
     env: vocabulary.config_env,

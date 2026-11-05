@@ -3298,8 +3298,14 @@ export class Controller {
   private async showEverywhere(a: agentLauncher.Launch): Promise<void> {
     const row = Row.of(a.provider, a.account);
     if (this.runtime.account_hidden.includes(a.account)) await this.setLauncherShown(a, true);
-    for (const ws of this.runtime.workspaces.items.filter(ws => ws.launcher_hidden.includes(row)))
-      await this.execute({ "agent.workspace_visibility": { workspace: ws.id, row, shown: true } });
+    const workspaces = new Set([
+      this.launcherModel()?.workspace ?? this.current().id,
+      ...this.runtime.workspaces.items.filter(ws => ws.launcher_hidden.includes(row)).map(ws => ws.id),
+    ]);
+    for (const workspace of workspaces)
+      await this.execute({ "agent.workspace_visibility": { workspace, row, shown: true } });
+    const launch = this.launcherModel();
+    if (launch && !launch.added.includes(row)) launch.added = [...launch.added, row];
   }
   /** The slow logout and folder deletion must not hold up input or drawing. */
   private removeAccount(a: agentManager.Agent, launch: LauncherMenu): void {
@@ -3822,6 +3828,7 @@ export class Controller {
       return launch.manager.fail(signin.problem(error));
     }
     launch.workspace_hidden = toggled(launch.workspace_hidden, row, !shown);
+    if (shown && Row.launch(row) && !launch.added.includes(row)) launch.added = [...launch.added, row];
     this.dirty = true;
   }
   private rememberLauncherSelection(): void {
@@ -3894,6 +3901,7 @@ export class Controller {
       last: this.lastAgent(),
       yolo: { ...this.runtime.agent_yolo },
       hidden: { ...this.runtime.agent_hidden },
+      added: [...this.runtime.launcher_added],
       account_yolo: this.runtime.account_yolo,
       account_hidden: this.runtime.account_hidden,
       workspace_hidden: this.current().launcher_hidden,
@@ -3962,6 +3970,7 @@ export class Controller {
     if (launch) {
       launch.yolo = { ...this.runtime.agent_yolo };
       launch.hidden = { ...this.runtime.agent_hidden };
+      launch.added = [...this.runtime.launcher_added];
       launch.account_yolo = this.runtime.account_yolo;
       launch.account_hidden = this.runtime.account_hidden;
       const i = this.runtime.workspaces.index(launch.workspace);

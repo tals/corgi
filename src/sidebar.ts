@@ -614,6 +614,8 @@ export class View {
   search: Search | null = null;
   /** Header scope: "all" or the workspace whose agents are listed. */
   scope_label = "";
+  /** The current shortcut for the New agent picker, including its prefix. */
+  new_shortcut: string | null = null;
   corgi_badge: corgiBadge.Mode = "none";
   supports_kitty_graphics = false;
   /** The host's cell in pixels, for images placed by the pixel. */
@@ -1240,7 +1242,7 @@ export class View {
       const label = newAgentLabel(v.width);
       w.write(w.cup(v.middle() + 1, v.width - displayWidth(label) - 1) + button + label + panel);
       // The focused agent list shows where `/` opens its search.
-      if (v.focus === "agents") {
+      if (v.focus === "agents" && entries.length > 0) {
         v.line(w, v.middle() + 1, "/", new Style({ fg: "strong", bg: "bg", bold: true }).sgr());
         w.write(new Style({ fg: "faint", bg: "bg" }).sgr() + " " + i18n.t`search`);
       }
@@ -1485,10 +1487,21 @@ export class View {
   private drawAgents(w: Writer, entries: Entry[], now_ms: number): void {
     const v = this;
     if (entries.length === 0) {
-      v.line(w, v.middle() + 2, v.search !== null ? i18n.t`No matching agents` : i18n.t`No agents yet`, panel);
-      if (v.search === null) {
-        v.line(w, v.middle() + 4, i18n.t`Launch inside a pane:`, panel);
-        commands(v.width - 3).forEach((text, i) => v.line(w, v.middle() + 5 + i, text, panel));
+      if (v.search !== null) v.line(w, v.middle() + 2, i18n.t`No matching agents`, panel);
+      else {
+        const label = newAgentLabel(v.width),
+          arrow = v.width - displayWidth(label) + Math.floor((displayWidth(label) - 5) / 2),
+          cap = v.new_shortcut === null ? "" : ` ${v.new_shortcut} `,
+          beside = v.drawer === null && displayWidth(cap) + 2 <= arrow;
+        if (v.drawer === null) w.write(w.cup(v.middle() + 4, arrow) + panel + fg("muted") + "↑" + panel);
+        if (cap) {
+          const row = v.middle() + (beside ? 3 : 4);
+          if (row < v.rows) {
+            w.write(w.cup(row + 1, beside ? Math.max(2, arrow - displayWidth(cap) - 1) : 2) + palette.keycap);
+            writeEllipsis(w, cap, v.width - 3);
+            w.write(panel);
+          }
+        }
       }
     }
     const grouped = entries.some(e => isGroup(e.target));
@@ -1906,19 +1919,6 @@ export class View {
   }
 }
 const mod = (a: number, b: number) => ((a % b) + b) % b;
-/** Each provider's command, joined by "or" in lines up to `width` wide. */
-function commands(width: number): string[] {
-  const lines: string[] = [];
-  for (const p of Provider.all) {
-    const name = adapter(p).command,
-      last = lines.length - 1;
-    const conjunction = i18n.t`or  ${name}`;
-    if (last >= 0 && displayWidth(`${lines[last]}  ${conjunction}`) <= width) lines[last] += `  ${conjunction}`;
-    else lines.push(last >= 0 ? conjunction : name);
-  }
-  return lines;
-}
-
 /** Context colors for the row figure and the card's meter: muted, warm from
  * 70% of the way to compaction, hot from 85%, faded into the background while
  * the agent compacts. */

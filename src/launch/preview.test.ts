@@ -70,6 +70,47 @@ test("a launch preview names the model it shows and where it came from", () => {
   expect(o.source.text()).toBe("Project");
 });
 
+test("discovery settles absent providers and keeps signed-out accounts stable across folders", async () => {
+  const worker = new Worker(),
+    checked = Promise.withResolvers<void>(),
+    signIn = Promise.withResolvers<Info>(),
+    check = spyOn(discovery, "check").mockImplementation(() => checked.promise);
+  worker.launcher = async p => ({
+    account: async () => (p === "pi" || p === "omp" ? signIn.promise : Object.assign(new Info(), { signed_in: true })),
+    model: async () => ({ model: "", source: "test" }),
+    close() {},
+  });
+  try {
+    const first = worker.preview(root);
+    expect(first.options.pi.pending).toBe(true);
+    expect(first.options.opencode2.pending).toBe(true);
+    checked.resolve();
+    await turn();
+    const partial = worker.preview(root);
+    expect(partial.options.opencode2.pending).toBe(false);
+    expect(partial.installed.opencode2).toBe(false);
+    expect(partial.options.pi.pending).toBe(true);
+    expect(partial.options.codex.signed_in).toBe(true);
+    signIn.resolve(Object.assign(new Info(), { signed_in: false }));
+    await worker.pump();
+    const next = worker.preview(join(root, "other"));
+    expect(next.pending).toBe(true);
+    expect(next.options.pi.signed_in).toBe(false);
+    expect(next.options.omp.signed_in).toBe(false);
+    expect(next.options.codex.signed_in).toBe(true);
+    await worker.pump();
+    const refreshed = worker.preview(root, true);
+    expect(refreshed.options.pi.signed_in).toBe(false);
+    await worker.pump();
+    expect(worker.preview(root).options.pi.signed_in).toBe(false);
+  } finally {
+    checked.resolve();
+    signIn.resolve(new Info());
+    await worker.stop();
+    check.mockRestore();
+  }
+});
+
 test("unchanged launch previews retain identity across polling and installation refreshes", async () => {
   const worker = new Worker(),
     monotonic = spyOn(performance, "now").mockReturnValue(0);

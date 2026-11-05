@@ -187,6 +187,7 @@ export function capture(r: Runtime, live: boolean) {
     last_agent: r.last_agent,
     agent_yolo: r.agent_yolo,
     agent_hidden: r.agent_hidden,
+    launcher_added: r.launcher_added,
     account_yolo: r.account_yolo,
     account_hidden: r.account_hidden,
     agent_commands: r.agent_commands,
@@ -384,6 +385,7 @@ export async function restore(
   r.last_agent = state.last_agent ?? Provider.first;
   r.agent_yolo = hydrate(r.agent_yolo, state.agent_yolo);
   r.agent_hidden = hydrate(r.agent_hidden, state.agent_hidden);
+  r.launcher_added = hydrate(r.launcher_added, state.launcher_added);
   r.account_yolo = hydrate(r.account_yolo, state.account_yolo);
   r.account_hidden = hydrate(r.account_hidden, state.account_hidden);
   r.agent_commands = (state.agent_commands ?? r.agent_commands).map((entry: any) => hydrate(new Entry(), entry));

@@ -20,6 +20,7 @@ export const adapter: Adapter = {
     transcript_tools: false,
   },
   version: s => /^opencode v2\./m.test(s.trim()),
+  distribution: { packages: ["@opencode/cli", "opencode-ai"], version: v => `opencode v${v}` },
   requires: "v2",
   installs: ({ home, root }) => [
     ...(home ? [join(home, ".opencode/bin/opencode2"), join(home, ".opencode/bin/opencode")] : []),
