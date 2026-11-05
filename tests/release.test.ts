@@ -1048,7 +1048,8 @@ test("uninstall refuses while Corgi runs from the install", async () => {
   await rm(running);
   await symlink("/bin/sleep", running);
   const p = Bun.spawn([running, "30"]);
-  const pane = Bun.spawn(["/bin/sh", "-c", `sleep 30; : ${running}`]);
+  // A group of its own, so the sleep it starts goes with it.
+  const pane = Bun.spawn(["/bin/sh", "-c", `sleep 30; : ${running}`], { detached: true });
   try {
     await Bun.sleep(100);
     const result = uninstall(home);
@@ -1057,7 +1058,7 @@ test("uninstall refuses while Corgi runs from the install", async () => {
     expect(await Bun.file(bin).exists()).toBe(true);
   } finally {
     p.kill();
-    pane.kill();
+    process.kill(-pane.pid);
     await rm(home, { recursive: true, force: true });
   }
 });
