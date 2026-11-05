@@ -5,6 +5,7 @@ import { generateKeyPairSync, sign, createHash } from "node:crypto";
 import { mkdtemp, mkdir, writeFile, readFile, readdir, realpath, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { createServer } from "node:net";
 import { EXE, Pty, deadline, versioned } from "./support";
 import { running } from "./runtime";
 import { installer, manifests as releaseManifests } from "../scripts/release.ts";
@@ -20,6 +21,7 @@ let latest = "1.0.1",
   unavailable = false,
   badAbi = false;
 let requests = 0;
+let beforeDownload: (() => Promise<void>) | null = null;
 const binaries = new Map<string, Uint8Array>();
 const manifests = new Map<string, string>();
 // The manifest a release serves this platform, chosen as the updater does (every Mac is
@@ -31,7 +33,7 @@ const sha = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
 const server = Bun.serve({
   hostname: "127.0.0.1",
   port: 0,
-  fetch(req) {
+  async fetch(req) {
     requests++;
     if (unavailable) return new Response("unavailable", { status: 503 });
     const path = new URL(req.url).pathname;
@@ -48,6 +50,7 @@ const server = Bun.serve({
     }
     const v = path.split("/")[2];
     if (path.endsWith("/corgi")) {
+      await beforeDownload?.();
       const binary = binaries.get(v);
       return new Response(corrupt ? new Uint8Array([0, 1]) : binary && new Uint8Array(binary));
     }
@@ -109,6 +112,7 @@ beforeEach(async () => {
   latest = "1.0.1";
   invalid = corrupt = unavailable = badAbi = false;
   requests = 0;
+  beforeDownload = null;
   home = await mkdtemp("/tmp/cu-");
   root = join(home, "install");
   bin = join(home, "bin/corgi");
@@ -210,6 +214,46 @@ test("a newer download replaces the update waiting before it", async () => {
   await cli(["update", "--download-only"]);
   expect(await readFile(join(root, "staged"), "utf8")).toBe("1.0.2");
   expect((await readdir(join(root, "releases"))).sort()).toEqual(["1.0.0", "1.0.2"]);
+}, 30_000);
+test("an installer staging a newer release during a download keeps its update", async () => {
+  latest = "1.0.2";
+  beforeDownload = async () => {
+    const manifest = join(home, "newer-manifest.json");
+    await writeFile(manifest, manifests.get("1.0.3")!);
+    await exec([fixture("1.0.3"), "__install", root, manifest]);
+  };
+  await cli(["update", "--download-only"]);
+  expect(await readFile(join(root, "staged"), "utf8")).toBe("1.0.3");
+  expect((await readdir(join(root, "releases"))).sort()).toEqual(["1.0.0", "1.0.3"]);
+}, 30_000);
+test("pane commands use their socket's release through the stable launcher", async () => {
+  await cli(["update", "--download-only"]);
+  await writeFile(join(root, "current"), "1.0.1");
+  const target = join(root, "releases/1.0.0/corgi"),
+    asked: unknown[] = [],
+    daemon = createServer(peer => {
+      peer.on("data", chunk => {
+        asked.push(JSON.parse(chunk.toString()));
+        // A retained runtime can speak an older protocol and reply without request ids.
+        peer.write(JSON.stringify({ ok: true, protocol: 3, executable: target }) + "\n");
+      });
+    });
+  await mkdir(dirname(socket), { recursive: true });
+  await new Promise<void>(resolve => daemon.listen(socket, resolve));
+  await writeFile(target, `#!/bin/sh\nprintf '%s\\n' "$CORGI_APP_EXE" "$@"\n`, { mode: 0o700 });
+  try {
+    const launcher = join(root, "bin/corgi");
+    // Asking for hook snippets creates the same launcher that panes inherit.
+    await cli(["hooks", "claude"]);
+    const paneEnv = { ...env, CORGI_PANE: "1" };
+    for (const args of [["list"], ["pane", "read", "--contains", "a b"]]) {
+      const result = await exec([launcher, ...args], paneEnv);
+      expect(result.out).toBe([target, ...args, ""].join("\n"));
+    }
+    expect(asked).toEqual([versioned({ op: "hello" }), versioned({ op: "hello" })]);
+  } finally {
+    await new Promise<void>(resolve => daemon.close(() => resolve()));
+  }
 }, 30_000);
 test("background download stages without activating, next start works offline", async () => {
   await cli(["start"]);

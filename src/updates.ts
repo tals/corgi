@@ -261,16 +261,19 @@ async function feed(rel: Release, root: string, download: boolean, explicit: boo
       }
     }
     write(dir, "manifest.json", bytes);
-    write(root, "staged", m.version);
-    remove(root, "last-error");
-    // With activation held off as well, the update this one replaces can go.
-    const unlockActivation = await lock(root, "activation.lock", false);
-    if (unlockActivation)
-      try {
-        prune(root, true);
-      } finally {
-        unlockActivation();
-      }
+    const unlockActivation = await lock(root, "activation.lock", true);
+    try {
+      // An install or activation may have overtaken the download.
+      const current = read(root, "current"),
+        staged = read(root, "staged");
+      if (current === null) throw Error("MissingInstalledVersion");
+      if (compare(m.version, current) > 0 && (staged === null || compare(m.version, staged) >= 0))
+        write(root, "staged", m.version);
+      remove(root, "last-error");
+      prune(root, true);
+    } finally {
+      unlockActivation?.();
+    }
   } finally {
     unlock();
   }
@@ -282,6 +285,13 @@ async function hello(socket: string): Promise<any | null> {
     if (["ENOENT", "ECONNREFUSED"].includes((error as NodeJS.ErrnoException).code ?? "")) return null;
     throw error;
   }
+}
+/** Pane commands follow their runtime even when another socket changes the install's current release. */
+export async function route(socket: string, exe: string, args: string[]) {
+  if (args[0]?.startsWith("__") || !managed(release(exe), exe)) return;
+  const target = (await hello(socket))?.executable;
+  if (typeof target === "string" && target && target !== exe)
+    process.execve!(target, [target, ...args], { ...process.env, CORGI_APP_EXE: target } as Record<string, string>);
 }
 function switchCurrent(root: string, v: string) {
   const old = read(root, "current");

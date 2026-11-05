@@ -184,6 +184,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     return;
   }
   const alias = providerAlias(os.processArgs(process.pid)?.argv[0] ?? process.argv[0]);
+  if (!alias && process.env.CORGI_PANE !== undefined) await updates.route(os.socketPath(), executable, args);
   // Agent mode covers the control CLI and help; a provider alias keeps its own flags.
   const choice = agent_mode.flags(args),
     accountHelp =
