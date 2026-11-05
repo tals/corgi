@@ -53,9 +53,10 @@ export async function open(s: Server, cl: Client, q: Open, reply = new Reply(cl)
     const starter = s.default_folder_pending;
     if (starter && q.onboarding && !s.runtime.sessions.some(x => x.workspace_id === initial.id)) {
       // A fresh install starts with no workspace, on the button that makes
-      // one, and the first workspace made takes the starter's id.
+      // one. The next workspace takes the starter's id unless a later one
+      // was made, even one since closed.
       s.runtime.closeWorkspace(initial.id, false);
-      s.runtime.workspaces.next_id = initial.id;
+      if (s.runtime.workspaces.next_id === initial.id + 1) s.runtime.workspaces.next_id = initial.id;
       s.default_folder_pending = false;
       await s.saveWorkspaces();
     } else {

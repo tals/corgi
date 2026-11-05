@@ -293,10 +293,11 @@ test("the data connection reads its viewer's surfaces and receipts without becom
 test("a fresh daemon's starter gives way to onboarding, and waits for any other viewer's folder", async () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "corgi-open-")));
   try {
-    const opened = async (fields: object) => {
+    const opened = async (fields: object, before = (_: Server) => {}) => {
       const s = new Server(join(dir, "control.sock"), "", "0".repeat(64));
       servers.push(s);
       await s.runtime.workspaces.add("", "/");
+      await before(s);
       const client = s.addClient(-1, false),
         reply = spyOn(client, "queue").mockImplementation(() => {});
       spyOn(s, "execute").mockImplementation(async () => ({}) as any);
@@ -311,6 +312,16 @@ test("a fresh daemon's starter gives way to onboarding, and waits for any other 
       Workspace.Id.none,
     ]);
     expect(await fresh.s.runtime.workspaces.add("", dir)).toBe(1);
+    // A workspace made before onboarding attached keeps its id, and the next one doesn't repeat it.
+    const made = await opened({ onboarding: true, cwd: dir }, s => s.runtime.workspaces.add("", dir));
+    expect(made.s.runtime.workspaces.items.map(w => w.id)).toEqual([2]);
+    expect(await made.s.runtime.workspaces.add("", dir)).toBe(3);
+    // So does one made and closed again.
+    const closed = await opened({ onboarding: true, cwd: dir }, async s =>
+      s.runtime.closeWorkspace(await s.runtime.workspaces.add("", dir), false),
+    );
+    expect(closed.s.runtime.workspaces.items).toEqual([]);
+    expect(await closed.s.runtime.workspaces.add("", dir)).toBe(3);
     const attached = await opened({ cwd: dir });
     expect(attached.s.runtime.workspaces.items.map(w => [w.id, w.cwd])).toEqual([[1, dir]]);
     expect(attached.reply.workspace).toBe(1);
