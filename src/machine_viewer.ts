@@ -191,6 +191,7 @@ export async function run(
     const key = keyboard.decode(value);
     const codepoint = key?.codepoint ?? (input.bytes.length === 1 ? input.bytes[0] : null);
     const cp = key?.mods.ctrl && codepoint !== null && codepoint >= 64 && codepoint < 128 ? codepoint & 31 : codepoint;
+    if (!input.paste && cp === 27 && view.cancelWorkspaceDrag()) return;
     if (input.paste) {
       if (value === "\x1b[200~")
         paste_owner = !workspaces.open && active!.ready ? { endpoint: active!, epoch: active!.input_epoch } : null;
@@ -235,6 +236,7 @@ export async function run(
         }
         return;
       }
+      if (!workspaces.open && view.workspaceDragInput(x, y, button, !pressed)) return;
       const hit = !active!.ready || view.workspaceNavigation() ? side.hit(x, y) : { tag: "none" as const };
       if (hit.tag === "workspace_scope" && button === 0 && pressed) {
         show();
@@ -252,7 +254,7 @@ export async function run(
       if (!active!.ready && pressed && (button === 64 || button === 65) && x < side.width && y < side.middle()) {
         const offset = Math.max(
           0,
-          Math.min(side.workspace_count - side.workspaceCapacity(), side.workspace_offset + (button === 64 ? -1 : 1)),
+          Math.min(side.workspaceMaxOffset(), side.workspace_offset + (button === 64 ? -1 : 1)),
         );
         view.workspace_offset = offset;
         return;

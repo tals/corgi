@@ -764,7 +764,14 @@ export function sidebarView(u: Ui, width: number, height: number): SidebarView {
   side.drawer = u.sidebar_drawer;
   side.focus = u.sidebar_focus;
   side = side.withArchives(u.archived_workspaces.length, u.archived_expanded, u.archived_offset, u.archived_focused);
-  side = side.withWorkspaces(u.workspaces.length, u.workspace_offset).withEntries(entries);
+  const workspaces = u.dragged_workspace ? u.dragged_workspace.apply(u.workspaces) : u.workspaces;
+  side = side
+    .withWorkspaces(
+      workspaces.length,
+      u.workspace_offset,
+      workspaces.map(row => row.machine),
+    )
+    .withEntries(entries);
   side.corgi_badge = u.corgi_badge;
   side.supports_kitty_graphics = u.supports_kitty_graphics;
   side.cell = u.cell_pixels;

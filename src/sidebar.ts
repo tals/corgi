@@ -649,6 +649,7 @@ export class View {
   hovered: number | null = null;
   dragged_workspace: number | null = null;
   workspace_count = 0;
+  workspace_machines: string[] = [];
   workspace_offset = 0;
   archived_count = 0;
   archived_expanded = false;
@@ -709,6 +710,32 @@ export class View {
     if (this.framed()) return this.lists().splitHandle(x - lists_x, y);
     return this.width > 0 && x < this.width - 1 && y === this.middle() - 1;
   }
+  workspaceHeader(index: number, offset = this.workspace_offset): boolean {
+    return (
+      !!this.workspace_machines[index] &&
+      (index === offset || this.workspace_machines[index] !== this.workspace_machines[index - 1])
+    );
+  }
+  /** Name row, after any machine header; all workspace hit regions share this geometry. */
+  workspaceY(index: number): number {
+    let y = 2;
+    for (let i = this.workspace_offset; i <= index; i++) {
+      if (this.workspaceHeader(i)) y++;
+      if (i === index) return y;
+      y += this.workspaceRows();
+    }
+    return y;
+  }
+  workspaceAt(y: number, row: number): number | null {
+    if (y >= this.workspaceEnd()) return null;
+    for (
+      let i = this.workspace_offset;
+      i < Math.min(this.workspace_count, this.workspace_offset + this.workspaceCapacity());
+      i++
+    )
+      if (y === this.workspaceY(i) + row) return i;
+    return null;
+  }
   /** Name and status rows, plus the resource row unless readings are off. */
   workspaceRows(): number {
     return this.resources.enabled ? 3 : 2;
@@ -750,24 +777,47 @@ export class View {
   }
   /** Name and status rows end above the rule; only a trailing resource row
    * may give way to it. */
-  workspaceCapacity(): number {
+  workspaceCapacity(offset = this.workspace_offset): number {
+    if (this.workspace_machines.some(Boolean)) {
+      let n = 0,
+        y = 2;
+      for (let i = offset; i < this.workspace_count; i++) {
+        if (this.workspaceHeader(i, offset)) y++;
+        if (y + 1 >= this.workspaceEnd()) break;
+        n++;
+        y += this.workspaceRows();
+      }
+      return n;
+    }
     return Math.max(
       this.archived_count ? 0 : 1,
       Math.floor((sat(this.workspaceEnd(), 2) + (this.workspaceRows() - 2)) / this.workspaceRows()),
     );
   }
+  workspaceMaxOffset(): number {
+    if (!this.workspace_machines.some(Boolean)) return sat(this.workspace_count, this.workspaceCapacity());
+    let offset = sat(this.workspace_count, 1);
+    while (offset > 0 && this.workspace_count - offset + 1 <= this.workspaceCapacity(offset - 1)) offset--;
+    return offset;
+  }
+  workspaceReveal(index: number): number {
+    let offset = Math.min(this.workspace_offset, index);
+    while (offset < index && index >= offset + this.workspaceCapacity(offset)) offset++;
+    return Math.min(offset, this.workspaceMaxOffset());
+  }
   /** The workspace list's scrollbar thumb, like the agent list's. */
   workspaceThumb(): { start: number; len: number } | null {
     const track = sat(this.workspaceEnd(), 2);
-    const last = sat(this.workspace_count, this.workspaceCapacity());
+    const last = this.workspaceMaxOffset();
     if (last === 0 || track < 2) return null;
     const len = clamp(Math.floor((track * this.workspaceCapacity()) / this.workspace_count), 1, track - 1);
     return { start: Math.round(((track - len) * this.workspace_offset) / last), len };
   }
-  withWorkspaces(count: number, offset: number): View {
+  withWorkspaces(count: number, offset: number, machines: string[] = []): View {
     const result = this.clone();
     result.workspace_count = count;
-    result.workspace_offset = Math.min(offset, sat(count, this.workspaceCapacity()));
+    result.workspace_machines = machines;
+    result.workspace_offset = Math.max(0, Math.min(offset, result.workspaceMaxOffset()));
     return result;
   }
   static widthFor(cols: number, open: boolean, rows = 13, searching = false): number {
@@ -1096,11 +1146,14 @@ export class View {
           return { tag: "archived_workspace", workspace: v.archived_offset + Math.floor(row / 3) };
       }
       if (y < 2 || y >= v.workspaceEnd()) return hit("none");
-      const slot = Math.floor((y - 2) / v.workspaceRows());
-      const index = slot + v.workspace_offset;
-      return index < v.workspace_count && slot < v.workspaceCapacity()
-        ? { tag: "workspace", workspace: index }
-        : hit("none");
+      for (
+        let index = v.workspace_offset;
+        index < Math.min(v.workspace_count, v.workspace_offset + v.workspaceCapacity());
+        index++
+      )
+        if (y >= v.workspaceY(index) && y < v.workspaceY(index) + v.workspaceRows())
+          return { tag: "workspace", workspace: index };
+      return hit("none");
     }
     const end = v.drawEnd(below);
     if (y < v.middle() + 2 || y >= end) return hit("none");
@@ -1165,6 +1218,7 @@ export class View {
     let top = 2;
     const end = Math.min(v.workspace_count, v.workspace_offset + v.workspaceCapacity());
     for (let i = v.workspace_offset; i < end; i++) {
+      top = v.workspaceY(i);
       if (y < top + Math.floor((v.workspaceRows() + 1) / 2)) return { index: i, y: top - 1 };
       top += v.workspaceRows();
     }
@@ -1193,7 +1247,7 @@ export class View {
   }
   unreadHit(ws: WorkspaceEntry, x: number, y: number): boolean {
     if (this.framed()) return this.lists().unreadHit(ws, x - lists_x, y);
-    if (ws.unread === 0 || y < 3 || (y - 2) % this.workspaceRows() !== 1) return false;
+    if (ws.unread === 0 || this.workspaceAt(y, 1) === null) return false;
     const range = this.unreadRange(ws);
     return x >= range.start && x < range.end;
   }
@@ -1359,7 +1413,12 @@ export class View {
       Math.min(workspaces.length, v.workspace_offset + v.workspaceCapacity()),
     );
     shown.forEach((ws, index) => {
-      const y = 2 + index * v.workspaceRows();
+      const absolute = index + v.workspace_offset;
+      const y = v.workspaceY(absolute);
+      if (v.workspaceHeader(absolute)) {
+        w.write(`${w.cup(y, 2)}${panel}${fg("muted")}├─ `);
+        writeEllipsis(w, v.workspace_machines[absolute], sat(v.width, 6));
+      }
       const out = w;
       if (ws.unavailable) w = new Writer(out.column);
       const ghost = v.dragged_workspace === v.workspace_offset + index;
@@ -2026,19 +2085,11 @@ function subagentBadge(status: Subagents, children: number): string {
  * row select the workspace, just like its title and status rows. */
 export function resourceAt(v: View, workspaces: WorkspaceEntry[], x: number, y: number): WorkspaceEntry | null {
   if (v.framed()) return resourceAt(v.lists(), workspaces, x - lists_x, y);
-  if (
-    v.workspaceRows() < 3 ||
-    v.width === 0 ||
-    x < 1 ||
-    x >= v.width - 2 ||
-    y < 4 ||
-    y >= v.workspaceEnd() ||
-    (y - 2) % 3 !== 2
-  )
+  if (v.workspaceRows() < 3 || v.width === 0 || x < 1 || x >= v.width - 2 || y < 4 || y >= v.workspaceEnd())
     return null;
-  const i = Math.floor((y - 2) / 3);
-  if (i >= v.workspaceCapacity() || i + v.workspace_offset >= workspaces.length) return null;
-  const ws = workspaces[i + v.workspace_offset];
+  const i = v.workspaceAt(y, 2);
+  if (i === null || i >= workspaces.length) return null;
+  const ws = workspaces[i];
   if (ws.unavailable) return null;
   if (!resourceCardFits(v)) return null;
   for (let reading = 0; reading < 3; reading++) if (shownReading(v.resources, ws.resources, reading)) return ws;
@@ -2357,11 +2408,11 @@ export function worktreeBadge(v: View, workspaces: WorkspaceEntry[], id: number)
     slot = index - v.workspace_offset;
   if (v.width === 0 || index < 0 || slot < 0 || slot >= v.workspaceCapacity()) return null;
   const width = displayWidth(worktreeLabel(workspaces[index]));
-  return width ? new Rect(v.width - 2 - width, 3 + slot * v.workspaceRows(), width, 1) : null;
+  return width ? new Rect(v.width - 2 - width, v.workspaceY(index) + 1, width, 1) : null;
 }
 export function worktreeAt(v: View, workspaces: WorkspaceEntry[], x: number, y: number): WorkspaceEntry | null {
   if (v.framed()) return worktreeAt(v.lists(), workspaces, x - lists_x, y);
-  if (v.width === 0 || y < 3 || (y - 3) % v.workspaceRows() !== 0) return null;
+  if (v.width === 0 || v.workspaceAt(y, 1) === null) return null;
   const hit = v.hit(x, y);
   if (hit.tag !== "workspace") return null;
   const ws = workspaces[hit.workspace];
@@ -2402,10 +2453,9 @@ export function urlCount(ws: WorkspaceEntry): number {
 }
 export function portWorkspace(v: View, workspaces: WorkspaceEntry[], x: number, y: number): WorkspaceEntry | null {
   if (v.framed()) return portWorkspace(v.lists(), workspaces, x - lists_x, y);
-  if (v.width === 0 || x < 1 || y < 2 || y >= v.workspaceEnd() || (y - 2) % v.workspaceRows() !== 0) return null;
-  const offset = Math.floor((y - 2) / v.workspaceRows());
-  const index = v.workspace_offset + offset;
-  if (offset >= v.workspaceCapacity() || index >= workspaces.length) return null;
+  if (v.width === 0 || x < 1) return null;
+  const index = v.workspaceAt(y, 0);
+  if (index === null || index >= workspaces.length) return null;
   const ws = workspaces[index];
   if (ws.unavailable) return null;
   const link = linkRange(v, ws, workspaces);
@@ -2625,7 +2675,7 @@ export function gitActionWorkspace(
   y: number,
 ): WorkspaceEntry | null {
   if (v.framed()) return gitActionWorkspace(v.lists(), workspaces, expanded, x - lists_x, y);
-  if (v.width === 0 || y < 2 || (y - 2) % v.workspaceRows() !== 0) return null;
+  if (v.width === 0 || v.workspaceAt(y, 0) === null) return null;
   const found = v.hit(x, y);
   if (found.tag !== "workspace" || found.workspace >= workspaces.length) return null;
   const ws = workspaces[found.workspace];
@@ -2652,7 +2702,7 @@ export function drawGitAction(w: Writer, v: View, workspaces: WorkspaceEntry[], 
           ? new Style({ fg: "hot", bg: "selected", bold: true }).sgr()
           : new Style({ fg: "accent", bg: "selected", bold: true }).sgr();
     w.write(
-      `\x1b]8;;\x1b\\${w.cup(3 + i * v.workspaceRows(), v.width - 1 - displayWidth(label))}${style}${label}\x1b[0m`,
+      `\x1b]8;;\x1b\\${w.cup(v.workspaceY(i + v.workspace_offset) + 1, v.width - 1 - displayWidth(label))}${style}${label}\x1b[0m`,
     );
     return;
   }

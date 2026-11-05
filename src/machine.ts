@@ -34,6 +34,7 @@ export interface Presence {
   stale: boolean;
 }
 export class Machine {
+  order_scope = "";
   runtime = new Runtime();
   navigation = new Navigation();
   /** Work handed to this daemon; see tasks.ts. */

@@ -903,9 +903,7 @@ export class Controller {
   private revealWorkspace(index = this.workspaceIds().indexOf(this.rowKey(this.current().id))): void {
     if (index < 0) return;
     if (this.archived_expanded && this.sidebarView([]).workspaceCapacity() === 0) this.archived_expanded = false;
-    const capacity = this.sidebarView([]).workspaceCapacity();
-    if (index < this.workspace_offset) this.workspace_offset = index;
-    else if (index >= this.workspace_offset + capacity) this.workspace_offset = index + 1 - capacity;
+    this.workspace_offset = this.sidebarView([]).workspaceReveal(index);
   }
   /** Moves focus one step within the region that has the keyboard, and past
    * its edge on to the region beside it. */
@@ -1182,7 +1180,13 @@ export class Controller {
       this.archived_offset,
       this.sidebar_focus !== null && "archived" in this.sidebar_focus.cursor,
     );
-    view = view.withWorkspaces(this.workspaceRows().length, this.workspace_offset).withEntries(entries);
+    view = view
+      .withWorkspaces(
+        this.workspaceRows().length,
+        this.workspace_offset,
+        this.workspaceRows().map(row => row.machine),
+      )
+      .withEntries(entries);
     view.scope_label = this.scopeLabel();
     view.workspace_scope = this.machineScope();
     view.corgi_badge = this.host.corgi_badge;
@@ -1247,6 +1251,7 @@ export class Controller {
       if (existsSync(preferences.path()) && preferences.readExisting(preferences.path()) === null)
         this.notice(i18n.t`Invalid viewer.json; using default preferences until the file is repaired.`);
       this.closePreferences = keybindingFile.observe(preferences.path(), saved => {
+        if (saved) this.prefs.workspace_order = saved.workspace_order;
         if (saved && saved.language !== this.prefs.language) {
           this.prefs.language = saved.language;
           localeHost.initialize(saved.language);
@@ -1423,11 +1428,11 @@ export class Controller {
     return this.workspaceRows().map(ws => ws.id);
   }
   /** The sidebar's workspace rows for every machine shown, by row id; see `key`. */
-  workspaceRows(): WorkspaceEntry[] {
+  workspaceRows(all = false): WorkspaceEntry[] {
     if (this.machines.length === 1) return this.workspaceEntries();
     const labels = this.machineLabels();
-    return this.machines.flatMap(machine => {
-      if (this.machine_filter && this.machine_filter !== machine) return [];
+    const rows = this.machines.flatMap(machine => {
+      if (!all && this.machine_filter && this.machine_filter !== machine) return [];
       const presence = machine.presence(),
         rows = machine.runtime.workspaces.items.length > 0 ? this.workspaceEntries(machine) : presence.cached,
         unavailable = presence.online ? "" : presence.description,
@@ -1461,6 +1466,91 @@ export class Controller {
         connecting: presence.connecting,
       }));
     });
+    const order = new Map(this.prefs.workspace_order.map((key, i) => [key, i]));
+    return rows.sort(
+      (a, b) =>
+        (order.get(this.workspaceOrderKey(a.id)) ?? Infinity) - (order.get(this.workspaceOrderKey(b.id)) ?? Infinity),
+    );
+  }
+  private workspaceOrderKey(key: number): string {
+    const row = this.rowOf(key)!;
+    return JSON.stringify([row.machine.order_scope || row.machine.name, row.id]);
+  }
+  /** Global display order is viewer-owned; local-only order remains daemon-owned. */
+  private dropWorkspace(drag: WorkspaceDrag): void {
+    if (!drag.drop) return;
+    const source = drag.ids[drag.source];
+    if (this.machines.length > 1) {
+      const rows = this.workspaceRows(true)
+        .map(row => row.id)
+        .filter(id => id !== source);
+      const before = drag.drop.index >= drag.ids.length ? null : drag.ids[drag.drop.index];
+      const at = before === null ? rows.length : rows.indexOf(before);
+      if (at < 0) return;
+      rows.splice(at, 0, source);
+      this.prefs.workspace_order = rows.map(id => this.workspaceOrderKey(id));
+      try {
+        preferences.update({ workspace_order: this.prefs.workspace_order });
+      } catch (error) {
+        this.notice((error as Error).message);
+      }
+      this.dirty = true;
+      return;
+    }
+    const here = this.here();
+    this.later(async lane => {
+      await this.refresh();
+      if (!here() || !drag.valid(this.sidebarView([]), this.workspaceIds()) || !drag.drop) return;
+      const target = this.rowOf(source)!;
+      const before = drag.drop.index >= drag.ids.length ? target.id : this.rowOf(drag.ids[drag.drop.index])!.id;
+      await this.edit({ "workspace.move": { target: target.id, before } }, lane);
+    });
+  }
+  cancelWorkspaceDrag(): boolean {
+    if (!this.workspace_drag) return false;
+    this.workspace_drag.cancelled = true;
+    this.workspace_drag.drop = null;
+    this.workspace_drag.preview = null;
+    this.dirty = true;
+    return true;
+  }
+  /** Workspace gestures stay local even while the selected endpoint is stalled. */
+  workspaceDragInput(x: number, y: number, button: number, release: boolean): boolean {
+    const side = this.sidebarView([]),
+      ids = this.workspaceIds();
+    if (!this.workspace_drag) {
+      if (!this.workspaceNavigation() || this.copy_mode || this.overlayOpen()) return false;
+      const rows = this.workspaceRows();
+      if (sidebar.portWorkspace(side, rows, x, y) || sidebar.gitActionWorkspace(side, rows, this.git_hover, x, y))
+        return false;
+      const hit = side.hit(x, y);
+      if (release || button !== 0 || hit.tag !== "workspace" || y !== side.workspaceY(hit.workspace)) return false;
+      const key = ids[hit.workspace];
+      this.selectRow(key);
+      const after = this.sidebarView([]),
+        updated = this.workspaceIds(),
+        at = updated.indexOf(key);
+      if (after.workspace_offset === side.workspace_offset && at >= 0)
+        this.workspace_drag = WorkspaceDrag.init(after, updated, at, x, y);
+      return true;
+    }
+    const drag = this.workspace_drag;
+    if (button === 32 && (x !== drag.start_x || y !== drag.start_y)) drag.dragging = true;
+    if (!release && (button === 64 || button === 65) && drag.valid(side, ids)) {
+      this.workspace_offset = Math.max(
+        0,
+        Math.min(side.workspaceMaxOffset(), side.workspace_offset + (button === 64 ? -1 : 1)),
+      );
+      drag.dragging = true;
+    }
+    drag.update(this.sidebarView([]), this.workspaceIds(), x, y);
+    if (release && (button & 3) === 0) {
+      this.workspace_drag = null;
+      this.ui_mouse_down = false;
+      this.dropWorkspace(drag);
+    }
+    this.dirty = true;
+    return true;
   }
   /** The readings a row's machine sampled, its workspace under the row's id. */
   private rowResources(key: number): resources.Snapshot | null {
@@ -2111,8 +2201,12 @@ export class Controller {
   private openCurrentWorkspaceMenu(): void {
     this.revealWorkspace();
     const side = this.sidebarView([]),
-      slot = this.workspaceIds().indexOf(this.current().id) - side.workspace_offset;
-    const menu = this.openWorkspaceMenu(this.current().id, 0, side.width > 0 ? 3 + slot * side.workspaceRows() : 1);
+      slot = this.workspaceIds().indexOf(this.rowKey(this.current().id)) - side.workspace_offset;
+    const menu = this.openWorkspaceMenu(
+      this.current().id,
+      0,
+      side.width > 0 ? side.workspaceY(slot + side.workspace_offset) + 1 : 1,
+    );
     const across = side.width > 0 ? side.width : this.width;
     menu.anchor_x = Math.floor(sat(across, menu.bounds(this.width, this.height).width) / 2);
   }
@@ -5900,12 +5994,7 @@ export class Controller {
       return;
     }
     this.sidebar_drag = null;
-    if (this.workspace_drag) {
-      this.workspace_drag.cancelled = true;
-      this.workspace_drag.drop = null;
-      this.workspace_drag.preview = null;
-      this.dirty = true;
-    }
+    this.cancelWorkspaceDrag();
     if (this.agent_drag) {
       this.agent_drag.cancelled = true;
       this.agent_drag.drop = null;
@@ -7407,7 +7496,7 @@ export class Controller {
         this.workspace_offset =
           button === 64
             ? sat(side.workspace_offset, 1)
-            : Math.min(side.workspace_offset + 1, sat(ids.length, side.workspaceCapacity()));
+            : Math.min(side.workspace_offset + 1, side.workspaceMaxOffset());
         side = this.sidebarView([]);
         drag.dragging = true;
       }
@@ -7416,18 +7505,7 @@ export class Controller {
       if (release && (button & 3) === 0) {
         this.workspace_drag = null;
         this.ui_mouse_down = false;
-        // As with an agent, the drop is checked against current shared state.
-        const here = this.here();
-        this.later(async lane => {
-          await this.refresh();
-          if (!here()) return;
-          drag.update(this.sidebarView([]), this.workspaceIds(), x, y);
-          const before = drag.before();
-          const target = this.rowOf(drag.ids[drag.source]),
-            next = before === null ? null : this.rowOf(before);
-          if (target?.machine === this.machine && next?.machine === this.machine)
-            await this.edit({ "workspace.move": { target: target.id, before: next.id } }, lane);
-        });
+        this.dropWorkspace(drag);
       }
       this.dirty = true;
       return;
@@ -7851,7 +7929,7 @@ export class Controller {
           this.workspace_offset =
             button === 64
               ? sat(side.workspace_offset, 1)
-              : Math.min(side.workspace_offset + 1, sat(this.workspaceRows().length, side.workspaceCapacity()));
+              : Math.min(side.workspace_offset + 1, side.workspaceMaxOffset());
         else this.agentOffset().set(button === 64 ? sat(side.offset, 1) : Math.min(side.offset + 1, side.maxOffset()));
         this.dirty = true;
       } else if (!release && (button === 0 || button === 2)) {
@@ -7959,9 +8037,7 @@ export class Controller {
                 // Switching can scroll the list; capture the post-switch viewport.
                 const after = this.sidebarView([]);
                 const at = ids.indexOf(row.id);
-                // Workspaces reorder within one machine only.
-                const own = this.workspaceRows().every(r => !r.external);
-                if (own && after.workspace_offset === side.workspace_offset && at >= 0)
+                if (after.workspace_offset === side.workspace_offset && at >= 0)
                   this.workspace_drag = WorkspaceDrag.init(after, ids, at, x, y);
               }
             }

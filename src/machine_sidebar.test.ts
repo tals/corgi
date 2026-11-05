@@ -8,6 +8,7 @@ import * as corgiBadge from "./corgi_badge";
 import { Writer } from "./text";
 import { Terminal } from "./pane/terminal";
 import { Controller } from "./controller";
+import * as preferences from "./preferences";
 import { Snapshot, Work, Process } from "./trackers/resources";
 
 function endpoint(name: string): Endpoint {
@@ -264,4 +265,38 @@ test("cached rows stay bound to the old daemon while its replacement is loading"
   remote.workspaces_instance = remote.instance;
   view.selectRow(view.workspaceRows()[1].id);
   expect(chosen).toEqual([{ machine: "work", workspace: 1 }]);
+});
+
+test("workspaces can be interleaved across disconnected machines and keep their saved order", () => {
+  const {
+    endpoints: [local, remote],
+    view,
+  } = world("local", "work");
+  local.updated = remote.updated = 1;
+  local.workspaces.push(sidebar.workspaceEntry({ id: 2, name: "second local", cwd: "/second", active: false }));
+  view.width = 100;
+  view.height = 50;
+  const save = spyOn(preferences, "update").mockImplementation(() => {});
+  try {
+    const before = view.workspaceRows().map(row => row.id);
+    const side = view.sidebarView([]);
+    const from = side.workspaceY(2),
+      to = side.workspaceY(1);
+    expect(view.workspaceDragInput(5, from, 0, false)).toBe(true);
+    view.workspaceDragInput(5, to, 32, false);
+    view.workspaceDragInput(5, to, 0, true);
+    expect(view.workspaceRows().map(row => row.id)).toEqual([before[0], before[2], before[1]]);
+    const saved = [...view.prefs.workspace_order];
+    const other = world("local", "work");
+    for (const endpoint of other.endpoints)
+      endpoint.instance = endpoint.workspaces_instance = `${endpoint.name}-restarted`;
+    other.endpoints[0].workspaces = local.workspaces;
+    other.endpoints[0].updated = other.endpoints[1].updated = 1;
+    other.view.prefs.workspace_order = saved;
+    expect(other.view.workspaceRows().map(row => row.id)).toEqual([before[0], before[2], before[1]]);
+    const grouped = view.sidebarView([]);
+    expect([0, 1, 2].map(i => grouped.workspaceHeader(i))).toEqual([true, true, true]);
+  } finally {
+    save.mockRestore();
+  }
 });

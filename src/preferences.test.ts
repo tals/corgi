@@ -99,6 +99,7 @@ test("preferences round trip and fall back to defaults", async () => {
     p.sidebar_split = 9;
     p.review_tree_rows = 14;
     p.agent_scroll = { workspace: 2, offset: 7 };
+    p.workspace_order = [JSON.stringify(["work", 2]), JSON.stringify(["local", 1])];
     await write(file, p);
     await updateFile(file, { agents: "all" });
     expect(await read(file)).toMatchObject({
@@ -107,6 +108,7 @@ test("preferences round trip and fall back to defaults", async () => {
       sidebar_split: 9,
       review_tree_rows: 14,
       agent_scroll: { workspace: 2, offset: 7 },
+      workspace_order: p.workspace_order,
       instant_typing: "off",
     });
     await writeFile(file, '{"resources":{"enabled":false,"io":false,"alerts":true}}');

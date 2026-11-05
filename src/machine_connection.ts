@@ -115,6 +115,7 @@ export class Endpoint {
     private readonly start_local?: () => Promise<void>,
   ) {
     this.machine = new Machine(this.transport(), this.name, profile !== null);
+    this.machine.order_scope = JSON.stringify([this.name, profile?.target ?? "", profile?.socket ?? local]);
     // Links point at the daemon's machine: another one, or this one when the
     // viewer itself runs over SSH.
     this.machine.remote_links = profile !== null || sshViewer();

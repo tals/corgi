@@ -79,6 +79,48 @@ class Remote extends Runtime {
     await this.command("workspace.edit", { target: 1, name: "LOCAL_WORKSPACE" });
     await this.remote.command("workspace.edit", { target: 1, name: "REMOTE_WORKSPACE" });
   }
+  async test_workspaces_reorder_across_machines_while_remote_is_stalled() {
+    await this.command("workspace.create", { name: "SECOND_LOCAL", cwd: this.temp.name });
+    await this.remote!.command("pane.create", { workspace: 1, command: "cat" });
+    await this.startViewer("work", 100, 50);
+    await this.online();
+    await this.until(() => this.text().includes("SECOND_LOCAL"));
+    this.network!.set("blackhole");
+    await this.until(() => this.text().includes("Connection stalled"), 6);
+    const rows = () => this.text().split("\n");
+    const from = rows().findIndex(row => row.includes("REMOTE_WORKSPACE")) + 1;
+    const to = rows().findIndex(row => row.includes("SECOND_LOCAL")) + 1;
+    this.terminal!.write(`\x1b[<0;5;${from}M\x1b[<32;5;${to}M\x1b`);
+    await this.until(() => rows().findIndex(row => row.includes("REMOTE_WORKSPACE")) === from - 1, 1);
+    this.terminal!.write(`\x1b[<0;5;${to}m`);
+    this.terminal!.write(`\x1b[<0;5;${from}M\x1b[<32;5;${to}M\x1b[<0;5;${to}m`);
+    const ordered = () => {
+      const text = this.text();
+      return (
+        text.indexOf("LOCAL_WORKSPACE") < text.indexOf("REMOTE_WORKSPACE") &&
+        text.indexOf("REMOTE_WORKSPACE") < text.indexOf("SECOND_LOCAL")
+      );
+    };
+    await this.until(ordered, 1);
+    this.assertEqual(rows().filter(row => row.includes("├─ local")).length, 2);
+    this.assertEqual(rows().filter(row => row.includes("├─ work")).length, 1);
+    this.clickWorkspace("LOCAL");
+    await this.online("local", 1);
+    this.network!.set("healthy");
+    this.clickWorkspace("REMOTE");
+    await this.online();
+    this.assertTrue(ordered());
+    await this.sendRemote("REORDERED_REMOTE");
+    const instance = (await this.remote!.rpc({ op: "hello", protocol: 1 })).instance;
+    await this.remote!.run_cli("shutdown");
+    await this.remote!.until(() => !existsSync(this.remote!.path));
+    await this.remote!.run_cli("start");
+    this.assertNotEqual((await this.remote!.rpc({ op: "hello", protocol: 1 })).instance, instance);
+    await this.remote!.command("workspace.edit", { target: 1, name: "REMOTE_RESTARTED" });
+    await this.until(() => this.text().includes("REMOTE_RESTARTED") && !this.text().includes("Input paused"), 12);
+    this.assertTrue(this.text().indexOf("LOCAL_WORKSPACE") < this.text().indexOf("REMOTE_RESTARTED"));
+    this.assertTrue(this.text().indexOf("REMOTE_RESTARTED") < this.text().indexOf("SECOND_LOCAL"));
+  }
   async test_setup_installs_the_canonical_binary_over_real_ssh_and_preserves_shells() {
     const before = await this.remote!.rpc({ op: "session.snapshot" });
     await this.cli(["machine", "remove", "work"]);

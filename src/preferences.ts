@@ -52,6 +52,8 @@ export class Preferences {
   sidebar_split: number | null = null;
   /** The last viewer's agent list scroll seeds new viewers that show the same list. */
   agent_scroll: AgentScroll | null = null;
+  /** Machine-qualified workspace order in the combined sidebar. */
+  workspace_order: string[] = [];
   preset: Preset = "corgi";
   prefix: Prefix = "ctrl_b";
   /** Action overrides; omitted actions inherit the selected preset. */
@@ -256,6 +258,15 @@ export function readExisting(file: string): Preferences | null {
       if (scroll.workspace !== null && !(Number.isInteger(scroll.workspace) && scroll.workspace > 0)) return null;
       if (!Number.isInteger(scroll.offset) || scroll.offset < 0) return null;
       v.agent_scroll = { workspace: scroll.workspace, offset: scroll.offset };
+    }
+    if ("workspace_order" in d) {
+      if (
+        !Array.isArray(d.workspace_order) ||
+        d.workspace_order.length > 10000 ||
+        d.workspace_order.some((key: unknown) => typeof key !== "string")
+      )
+        return null;
+      v.workspace_order = [...new Set<string>(d.workspace_order)];
     }
     v.sidebar_width = Math.max(v.sidebar_width, 20);
     v.preset = supportedPreset(v.preset);
