@@ -6,7 +6,6 @@ import { parse as parseAction } from "./action";
 import * as surface from "./pane/surface";
 import * as session from "./session";
 import * as workspace from "./workspace";
-import * as importer from "./import_service";
 import { microTimestamp } from "./clock";
 import { stringify } from "./json";
 import { version as wire_version, type View as WireView, type Control, type Request } from "./protocol";
@@ -52,18 +51,27 @@ export async function open(s: Server, cl: Client, q: Open, reply = new Reply(cl)
   const initial = s.initialWorkspace();
   if (initial && s.runtime.panes.length === 0 && initial.model.count === 0) {
     const starter = s.default_folder_pending;
-    if (starter && q.cwd) {
-      // The starter waited for this folder, and takes its name.
-      await s.runtime.workspaces.edit(initial.id, null, q.cwd);
-      initial.rename(workspace.folderName(initial.cwd));
+    if (starter && q.onboarding && !s.runtime.sessions.some(x => x.workspace_id === initial.id)) {
+      // A fresh install starts with no workspace, on the button that makes
+      // one. The next workspace takes the starter's id unless a later one
+      // was made, even one since closed.
+      s.runtime.closeWorkspace(initial.id, false);
+      if (s.runtime.workspaces.next_id === initial.id + 1) s.runtime.workspaces.next_id = initial.id;
       s.default_folder_pending = false;
       await s.saveWorkspaces();
+    } else {
+      if (starter && q.cwd) {
+        // The starter waited for this folder, and takes its name.
+        await s.runtime.workspaces.edit(initial.id, null, q.cwd);
+        initial.rename(workspace.folderName(initial.cwd));
+        s.default_folder_pending = false;
+        await s.saveWorkspaces();
+      }
+      if (!q.onboarding)
+        await s.execute({
+          "pane.create": { workspace: initial.id },
+        });
     }
-    if (starter && q.onboarding) importer.onboardingStarter(s, initial);
-    if (!q.onboarding)
-      await s.execute({
-        "pane.create": { workspace: initial.id },
-      });
   }
   const first = !s.clients.some(other => other.viewer && !other.dead);
   cl.viewer = true;

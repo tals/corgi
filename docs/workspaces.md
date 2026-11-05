@@ -8,7 +8,8 @@ tabs or deleting a linked worktree a tab is in does not change that root.
 
 You can close every workspace. The pane area then holds a **Create workspace**
 button, chosen from the start: Enter, a click, or the sidebar's `[ + ]` opens
-the New workspace dialog. Corgi starts the same way until you make one.
+the New workspace dialog. A fresh install starts there after onboarding, and
+Corgi keeps starting there until you make one.
 
 ## Follow activity
 
