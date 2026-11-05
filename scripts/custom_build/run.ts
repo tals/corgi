@@ -382,18 +382,19 @@ async function verifyLoop(ctx: Context, run: RunState): Promise<Outcome | null> 
     }
     const h = harnessFor(ctx);
     if (h) {
+      // Fixes that keep breaking each other stop the run instead of looping; a
+      // tree the fixes repaired never gets here, so it isn't stopped.
+      const agentFixes = run.fixes.filter(f => f.by === "agent").length;
+      if (agentFixes >= (h.attempts ?? 3) * configFile.stepNames.length)
+        return stop(
+          ctx,
+          run,
+          5,
+          [`${step} fails again after the harness's ${agentFixes} fixes`, `log: ${log}`],
+          ["fix it in the working tree (or commit the fix), then continue"],
+        );
       if (await fixWithHarness(ctx, run, step, cmds, log, h)) {
-        // A fix can break a step that passed before it, so everything runs again;
-        // fixes that keep breaking each other stop the run instead of looping.
-        const agentFixes = run.fixes.filter(f => f.by === "agent").length;
-        if (agentFixes >= (h.attempts ?? 3) * configFile.stepNames.length)
-          return stop(
-            ctx,
-            run,
-            5,
-            [`the harness's ${agentFixes} fixes keep breaking other steps`, `last fixed: ${step}`],
-            ["fix it in the working tree (or commit the fix), then continue"],
-          );
+        // A fix can break a step that passed before it, so everything runs again.
         i = -1;
         continue;
       }

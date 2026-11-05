@@ -997,6 +997,28 @@ test("after a harness fix every step runs again, so a fix can't break a step tha
     "Merge flaky: about flaky",
   ]);
 });
+test("a fix for every step within one attempt each still finishes the run", async () => {
+  const w = world();
+  branch(w, "four", { "a.txt": "INSTALLX\n", "b.txt": "BROKEN\n", "c.txt": "FAILTEST\n", "d.txt": "BUILDX\n" });
+  const fails = (marker: string, then = "true") => ["sh", "-c", `! grep -rqs ${marker} --include=*.txt . && ${then}`];
+  // Each call repairs the first marker left, which is the one the failing step checks.
+  const h = stubHarness(
+    'for m in INSTALLX BROKEN FAILTEST BUILDX; do f=$(grep -rls --include=*.txt "$m" . | head -1); if [ -n "$f" ]; then echo fine > "$f"; exit 0; fi; done',
+  );
+  configure(w, ["four"], {
+    harness: { command: h.command, attempts: 1 },
+    steps: {
+      install: fails("INSTALLX"),
+      typecheck: fails("BROKEN"),
+      test: fails("FAILTEST"),
+      build: fails("BUILDX", "mkdir -p dist && touch {outfile}"),
+    },
+  });
+  const result = await cb(w, "rebuild");
+  expect(result.err).not.toContain("custom-build: cannot");
+  expect(result.code).toBe(0);
+  expect(h.calls()).toBe(4);
+});
 test("a recorded resolution replays before any harness is called", async () => {
   const w = world();
   conflicting(w);
