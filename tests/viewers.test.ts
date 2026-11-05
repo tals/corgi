@@ -776,8 +776,7 @@ class ViewerScenarios extends Viewers {
     this.assertIn("Enter a workspace name.", (await b.poll()).data);
     // A lone Esc counts once the escape timeout has passed.
     await b.input("\x1b");
-    await sleep(0.06);
-    this.assertFalse((await b.poll()).renaming);
+    await this.until(async () => !(await b.poll()).renaming);
     this.assertEqual((await this.session()).workspaces[0].name, "Custom");
     this.assertEqual(
       screen_text((await a.poll()).data, 100, 30)[2]
