@@ -15,6 +15,7 @@ import { specs as actionSpecs } from "./action";
 import type { Preset } from "./keymap";
 import { flock, n } from "./native_bridge";
 import * as updates from "./updates";
+import * as current_release from "./current_release";
 import { testBuild } from "./build_assets";
 import * as config from "./build_config";
 import * as crash from "./crash";
@@ -182,7 +183,8 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     await (await import("./prompt_pane")).run(args.slice(1));
     return;
   }
-  const alias = providerAlias(os.processArgs(process.pid)?.argv[0] ?? process.argv[0]);
+  const original = args,
+    alias = providerAlias(os.processArgs(process.pid)?.argv[0] ?? process.argv[0]);
   // Agent mode covers the control CLI and help; a provider alias keeps its own flags.
   const choice = agent_mode.flags(args),
     accountHelp =
@@ -222,6 +224,13 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     }
     return;
   }
+  if (
+    !alias &&
+    process.env.CORGI_PANE !== undefined &&
+    (cli.handles(args) ||
+      ["bugreport", "open", "onboard", "checkpoint", "action", "hook", "agent", "headless", "watch"].includes(command))
+  )
+    await updates.route(os.socketPath(), executable, original);
   const asJson = replies.includes(args[0]) && asksJson(args);
   if (asJson) args = args.filter(arg => arg !== "--json");
   const print = async <K extends protocol.Op>(path: string, op: K, ...rest: protocol.Arguments<K>) => {
@@ -270,6 +279,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       process.stdout.write((await import("./licenses")).text);
       return;
     case "serve": {
+      await updates.hold(executable);
       const { Server } = await import("./server");
       await new Server(path, executable, buildId()).run();
       return;
@@ -361,6 +371,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       await print(path, "server.reload", { executable: args[1] ?? executable });
       return;
     case "__handoff": {
+      await updates.hold(executable);
       const handoff = await import("./persist/handoff");
       await handoff.importAndRun(path, executable, Number(args[1]), Number(args[2]));
       return;
@@ -438,7 +449,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     }
     case "hooks": {
       if (args.length !== 2) throw Error("Usage");
-      process.stdout.write(adapter(provider(args[1])).integration.snippet(executable) + "\n");
+      process.stdout.write(adapter(provider(args[1])).integration.snippet(current_release.path(executable)) + "\n");
       return;
     }
     case "agent": {

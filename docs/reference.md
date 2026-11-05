@@ -521,8 +521,10 @@ Saved inference choices override inference environment defaults.
 | Installed Corgi seems out of date | `corgi update status` shows installed/running versions; `corgi update --check` checks for a release without installing it. |
 | A release needs reverting | `corgi update rollback` switches to the retained previous release, when available. |
 
-Update commands apply to installed releases. Development or unmanaged builds
-use the workflow in [HACKING](../HACKING.md).
+Update commands apply to installed releases. An installation keeps the
+current release, the one it replaced and a downloaded update waiting to apply;
+a release another runtime still runs stays as well. Development or unmanaged
+builds use the workflow in [HACKING](../HACKING.md).
 
 For remote work, run `ssh -t host corgi`; detaching or losing the connection
 leaves the runtime on that host. Image paste and sound behavior depend on the

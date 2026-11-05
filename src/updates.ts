@@ -7,8 +7,10 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   unlinkSync,
 } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
@@ -218,10 +220,11 @@ async function fetchBytes(rel: Release, url: string, limit: number): Promise<Buf
   }
   throw Error("UpdateSubprocessFailed");
 }
-function verifyFile(path: string, t: Target) {
+function verifyFile(path: string, t: Target): Buffer {
   const bytes = readFileSync(path);
   if (bytes.length !== t.size || createHash("sha256").update(bytes).digest("hex") !== t.sha256)
     throw Error("UpdateChecksumMismatch");
+  return bytes;
 }
 async function feed(rel: Release, root: string, download: boolean, explicit: boolean): Promise<void> {
   const unlock = await lock(root, "download.lock", explicit);
@@ -237,27 +240,48 @@ async function feed(rel: Release, root: string, download: boolean, explicit: boo
     }
     const suppressed = read(root, "suppressed");
     if (!explicit && suppressed && compare(m.version, suppressed) <= 0) return;
+    // A stale feed doesn't take back a newer update, such as one the installer staged.
+    const staged = read(root, "staged");
+    if (staged && compare(m.version, staged) < 0) return;
     if (explicit) console.error(`Corgi ${m.version} is available.${download ? " Downloading…" : ""}`);
     if (!download) return;
     const dest = executable(root, m.version),
       dir = dirname(dest);
-    privateDirectory(dir);
+    let binary: Buffer;
     try {
-      verifyFile(dest, own(m));
+      binary = verifyFile(dest, own(m));
     } catch {
-      const partial = join(dir, "download.tmp");
-      try {
-        atomicWrite(partial, await fetchBytes(rel, own(m).url, own(m).size), 0o700);
-        verifyFile(partial, own(m));
-        if (existsSync(dest)) throw Error("ExistingReleaseDiffers");
-        renameSync(partial, dest);
-      } finally {
-        remove(dir, "download.tmp");
-      }
+      binary = await fetchBytes(rel, own(m).url, own(m).size);
     }
-    write(dir, "manifest.json", bytes);
-    write(root, "staged", m.version);
-    remove(root, "last-error");
+    const unlockActivation = await lock(root, "activation.lock", true);
+    try {
+      // An install or activation may have overtaken the download.
+      const current = read(root, "current"),
+        staged = read(root, "staged");
+      if (current === null) throw Error("MissingInstalledVersion");
+      if (compare(m.version, current) > 0 && (staged === null || compare(m.version, staged) >= 0)) {
+        privateDirectory(dir);
+        try {
+          verifyFile(dest, own(m));
+        } catch {
+          if (existsSync(dest)) throw Error("ExistingReleaseDiffers");
+          const partial = join(dir, "download.tmp");
+          try {
+            atomicWrite(partial, binary, 0o700);
+            verifyFile(partial, own(m));
+            renameSync(partial, dest);
+          } finally {
+            remove(dir, "download.tmp");
+          }
+        }
+        write(dir, "manifest.json", bytes);
+        write(root, "staged", m.version);
+      }
+      remove(root, "last-error");
+      prune(root, true);
+    } finally {
+      unlockActivation?.();
+    }
   } finally {
     unlock();
   }
@@ -270,14 +294,88 @@ async function hello(socket: string): Promise<any | null> {
     throw error;
   }
 }
+/** Pane commands follow their runtime even when another socket changes the install's current release. */
+export async function route(socket: string, exe: string, args: string[]) {
+  if (args[0]?.startsWith("__") || !managed(release(exe), exe)) return;
+  const target = (await hello(socket))?.executable;
+  if (typeof target === "string" && target && target !== exe)
+    process.execve!(target, [target, ...args], { ...process.env, CORGI_APP_EXE: target } as Record<string, string>);
+}
 function switchCurrent(root: string, v: string) {
   const old = read(root, "current");
   if (old === null) throw Error("MissingInstalledVersion");
   if (old !== v) {
     write(root, "previous", old);
     write(root, "current", v);
+    prune(root);
   }
   if (read(root, "staged") === v) remove(root, "staged");
+}
+const runtimeLock = /^runtime-\d+\.lock$/;
+let holding: number | null = null;
+/** Keeps the release at `exe` from being pruned while this runtime runs it:
+ * prune skips a release with a held `runtime-<pid>.lock`, and the kernel lets
+ * go of the lock however the runtime exits. */
+export async function hold(exe: string) {
+  const root = managed(release(exe), exe);
+  if (holding !== null || !root) return;
+  const unlock = await lock(root, "releases.lock", true);
+  try {
+    if (!existsSync(exe)) throw Error("MissingInstalledVersion");
+    const file = join(dirname(exe), `runtime-${process.pid}.lock`),
+      fd = openSync(file, "a", 0o600);
+    if (!flock(fd)) {
+      closeSync(fd);
+      throw Error("ReleaseLockBusy");
+    }
+    holding = fd;
+    process.once("exit", () => remove(dirname(file), basename(file)));
+  } finally {
+    unlock?.();
+  }
+}
+/** Whether a runtime holds the release in `dir`. */
+function runtimeHolds(dir: string): boolean {
+  return readdirSync(dir).some(name => {
+    if (!runtimeLock.test(name)) return false;
+    const fd = openSync(join(dir, name), "r");
+    try {
+      if (!flock(fd)) return true;
+      flock(fd, false);
+      return false;
+    } finally {
+      closeSync(fd);
+    }
+  });
+}
+/** Removes the releases nothing needs: all but the current one, the previous
+ * one kept for rollback, a staged update and any a runtime runs. Normally
+ * only older releases go; `downloads` says the download lock is held too,
+ * so superseded downloads can go regardless of version. */
+export function prune(root: string, downloads = false) {
+  try {
+    const guard = openSync(join(root, "releases.lock"), "a", 0o600);
+    try {
+      if (!flock(guard)) return;
+      const current = read(root, "current"),
+        keep = [current, read(root, "previous"), read(root, "staged")],
+        dir = join(root, "releases");
+      if (current === null) return;
+      for (const v of readdirSync(dir))
+        try {
+          // Throws for what isn't a release.
+          const older = compare(v, current) < 0,
+            path = join(dir, v);
+          if (!keep.includes(v) && (older || downloads) && !runtimeHolds(path))
+            rmSync(path, { recursive: true, force: true });
+        } catch {
+          // Not a release, or it couldn't go; a later prune tries again.
+        }
+    } finally {
+      flock(guard, false);
+      closeSync(guard);
+    }
+  } catch {}
 }
 function recordError(root: string, error: unknown) {
   try {
