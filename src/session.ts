@@ -163,14 +163,23 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
       r.agent_hidden = { ...r.agent_hidden, ...request.payload.hidden };
       // An older viewer sends no accounts, which keeps the hidden ones.
       if (hidden) r.account_hidden = [...new Set(hidden)];
+      r.launcher_added = r.launcher_added.filter(row => {
+        const parsed = Row.parse(row),
+          launch = parsed && Row.launch(parsed);
+        return (
+          launch && !(launch.account ? r.account_hidden.includes(launch.account) : r.agent_hidden[launch.provider])
+        );
+      });
       r.changed();
       return {};
     }
     case "agent.workspace_visibility": {
       const { row, shown } = request.payload,
-        ws = r.getWorkspace(request.payload.workspace);
-      if (Row.parse(row) === null) throw Error("InvalidRow");
+        ws = r.getWorkspace(request.payload.workspace),
+        parsed = Row.parse(row);
+      if (parsed === null) throw Error("InvalidRow");
       ws.launcher_hidden = [...ws.launcher_hidden.filter(h => h !== row), ...(shown ? [] : [row])];
+      if (shown && Row.launch(parsed) && !r.launcher_added.includes(row)) r.launcher_added.push(row);
       r.changed();
       return {};
     }
@@ -187,6 +196,7 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
         before,
       );
       ws.launcher_hidden = [...ws.launcher_hidden.filter(h => h !== row), ...(q.shown ? [] : [row])];
+      if (q.shown && Row.launch(row) && !r.launcher_added.includes(row)) r.launcher_added.push(row);
       r.changed();
       return {};
     }
@@ -197,6 +207,7 @@ async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Pr
     }
     case "agent.launcher.configure": {
       const row = launcherConfig.configure(r, request.payload);
+      if (Row.launch(row) && !r.launcher_added.includes(row)) r.launcher_added.push(row);
       r.changed();
       return { text: row };
     }
@@ -674,6 +685,7 @@ function build(r: Runtime, viewer: boolean) {
     last_agent: r.last_agent,
     agent_yolo: r.agent_yolo,
     agent_hidden: r.agent_hidden,
+    launcher_added: r.launcher_added,
     account_yolo: r.account_yolo,
     account_hidden: r.account_hidden,
     agent_commands: r.agent_commands,

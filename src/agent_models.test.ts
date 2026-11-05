@@ -5,6 +5,8 @@ import { Picker, Cache, read, type Choice } from "./agent_models";
 import { Rect } from "./layout";
 import { Writer } from "./text";
 import { Terminal } from "./pane/terminal";
+import * as piModels from "./providers/pi/models";
+import * as ompModels from "./providers/omp/models";
 test("model arrows wrap between Auto and the last model", () => {
   const p = new Picker("");
   p.received([
@@ -88,6 +90,54 @@ test("prefetch shares in-flight reads, caches by account, and refreshes stale va
   expect(first.values).toEqual([{ id: "b", name: "B" }]);
 });
 
+test("model caches keep workspaces separate while sharing reads within one folder", async () => {
+  const requested: string[] = [],
+    finish = new Map<string, (models: Choice[]) => void>(),
+    cache = new Cache(
+      () => {},
+      async (_provider, _account, _quit, cwd) => {
+        requested.push(cwd!);
+        return new Promise(resolve => finish.set(cwd!, resolve));
+      },
+    );
+  try {
+    const first = cache.get("pi", "", "/workspace/first"),
+      second = cache.get("pi", "", "/workspace/second");
+    expect(cache.get("pi", "", "/workspace/first")).toBe(first);
+    expect(first).not.toBe(second);
+    expect(requested).toEqual(["/workspace/first", "/workspace/second"]);
+    finish.get("/workspace/second")!([{ id: "second/model", name: "Second" }]);
+    await Bun.sleep(0);
+    expect(first.pending).toBe(true);
+    expect(first.values).toEqual([]);
+    expect(second.pending).toBe(false);
+    expect(second.values[0].id).toBe("second/model");
+    finish.get("/workspace/first")!([{ id: "first/model", name: "First" }]);
+    await Bun.sleep(0);
+    expect(cache.get("pi", "", "/workspace/first").values[0].id).toBe("first/model");
+    expect(cache.get("pi", "", "/workspace/second").values[0].id).toBe("second/model");
+    expect(requested).toHaveLength(2);
+  } finally {
+    for (const resolve of finish.values()) resolve([]);
+    cache.close();
+  }
+});
+
+test.each(["pi", "omp"] as const)("%s model dropdown forwards the workspace through its adapter", async provider => {
+  const quit = new Quit(),
+    catalog = spyOn(provider === "pi" ? piModels : ompModels, "read").mockResolvedValue([
+      { id: "workspace/model", name: "Workspace", subscription: false, input_cost: null, output_cost: null },
+    ]);
+  try {
+    expect(await read(provider, "/account", quit, "/workspace")).toEqual([
+      { id: "workspace/model", name: "Workspace" },
+    ]);
+    expect(catalog).toHaveBeenCalledWith("/account", quit, "/workspace");
+  } finally {
+    catalog.mockRestore();
+  }
+});
+
 test("failed catalogs back off, and loading glimmers beneath Auto without becoming a choice", async () => {
   let now = 0,
     reads = 0;
@@ -106,7 +156,7 @@ test("failed catalogs back off, and loading glimmers beneath Auto without becomi
   expect(reads).toBe(1);
   // Read in the background, a failed catalog waits out its freshness instead.
   now = Cache.retry_ms;
-  cache.get("codex", "", Cache.fresh_ms);
+  cache.get("codex", "", "", Cache.fresh_ms);
   expect(reads).toBe(1);
   cache.get("codex", "");
   await Bun.sleep(0);

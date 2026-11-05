@@ -1,9 +1,13 @@
-import { test, expect } from "bun:test";
-import { parse, read } from "./models";
+import { test, expect, spyOn } from "bun:test";
+import { availability, parse, read } from "./models";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Quit } from "../../subprocess";
+import * as subprocess from "../../subprocess";
+import * as discovery from "../../discovery";
+import { Client } from "./account";
+import { Stdio } from "../stdio";
 const model = (provider: string, id: string, cost: unknown = { input: 1, output: 5 }) => ({
   provider,
   id,
@@ -37,6 +41,7 @@ createInterface({input:process.stdin}).on("line",line=>{
   const request=JSON.parse(line);
   console.log(JSON.stringify({type:"response",id:request.id,success:true,data:{models:["openai-codex","anthropic","unrelated"].map(provider=>({provider,id:"model",name:"Model",input:["text"],cost:{input:1,output:5}}))}}));
 });
+
 `,
     { mode: 0o755 },
   );
@@ -132,4 +137,57 @@ test("native thinking metadata supplies the supported ladder and default effort"
   );
   expect(values[0].efforts).toEqual(["low", "high"]);
   expect(values[0].default_effort).toBe("high");
+});
+
+test.each([
+  ["timeout", Error("TimedOut"), null],
+  ["cancellation", Error("Cancelled"), null],
+  ["malformed response", { code: 0, body: "not JSON" }, null],
+  ["wrong provider", { code: 0, body: '{"provider":"another","status":"ready"}' }, null],
+  ["unknown status", { code: 0, body: '{"provider":"custom","status":"checking"}' }, null],
+  ["unexpected exit", { code: 1, body: '{"provider":"custom","status":"ready"}' }, null],
+  ["invalid credentials", { code: 2, body: '{"provider":"custom","status":"invalid"}' }, false],
+  ["missing credentials", { code: 1, body: '{"provider":"custom","status":"not_ready"}' }, false],
+  ["ready credentials", { code: 0, body: '{"provider":"custom","status":"ready"}' }, true],
+] as const)("Pi distinguishes %s from unavailable models", async (_name, response, signed_in) => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-pi-availability-")),
+    client = new Client(root),
+    resolve = spyOn(discovery, "resolve").mockResolvedValue("/test/pi"),
+    spawn = spyOn(Stdio, "spawn").mockImplementation(() => new Stdio()),
+    messages = spyOn(Stdio.prototype, "read").mockReturnValue([
+      {
+        type: "response",
+        id: "corgi-models",
+        success: true,
+        data: { models: [model("custom", "model"), model("other", "model")] },
+      },
+    ]),
+    auth = spyOn(subprocess, "run").mockImplementation(async args => {
+      const provider = args[args.indexOf("--provider") + 1];
+      if (provider === "other")
+        return new subprocess.Output(
+          { exited: 0 },
+          Buffer.from('{"provider":"other","status":"ready"}'),
+          Buffer.alloc(0),
+        );
+      if (response instanceof Error) throw response;
+      return new subprocess.Output({ exited: response.code }, Buffer.from(response.body), Buffer.alloc(0));
+    });
+  writeFileSync(join(root, "settings.json"), '{"defaultProvider":"custom","defaultModel":"model"}');
+  try {
+    const result = await availability(root, new Quit());
+    expect([...result.unverified]).toEqual(signed_in === null ? ["custom"] : []);
+    expect(result.models.map(m => m.id)).toEqual(signed_in ? ["custom/model", "other/model"] : ["other/model"]);
+    expect((await read(root, new Quit())).map(m => m.id)).toEqual(result.models.map(m => m.id));
+    expect((await client.preview(new Quit())).signed_in).toBe(signed_in);
+    writeFileSync(join(root, "settings.json"), '{"defaultProvider":"other","defaultModel":"model"}');
+    expect((await client.preview(new Quit())).signed_in).toBe(true);
+  } finally {
+    client.close();
+    resolve.mockRestore();
+    spawn.mockRestore();
+    messages.mockRestore();
+    auth.mockRestore();
+    rmSync(root, { recursive: true, force: true });
+  }
 });

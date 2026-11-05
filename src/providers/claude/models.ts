@@ -7,14 +7,14 @@ import { configHome, field, str } from "../common";
 import { cached } from "../command_line";
 import * as nativeModels from "../../inference/native_models";
 
-export async function read(account: string, quit: Quit): Promise<InferenceModel[]> {
+export async function read(account: string, quit: Quit, cwd = process.cwd()): Promise<InferenceModel[]> {
   if (quit.aborted) throw Error("Cancelled");
   const env = account ? { ...process.env, [vocabulary.config_env]: account } : process.env,
     client = new Client(env);
   const abort = () => client.close();
   quit.abortSignal.addEventListener("abort", abort, { once: true });
   try {
-    const { info, models } = await client.models(quit);
+    const { info, models } = await client.models(quit, cwd);
     if (!Array.isArray(models)) throw Error("InvalidModels");
     const configured = effort.parse(
       field(cached(configHome(env, vocabulary.config_env, ".claude"), "settings.json"), "effortLevel"),

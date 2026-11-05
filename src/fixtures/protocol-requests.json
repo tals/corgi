@@ -12,7 +12,7 @@
   },
   "workspace.archive.preview": { "target": 1 },
   "session.list": {},
-  "launcher.catalog": {},
+  "launcher.catalog": { "workspace": 0, "cwd": "" },
   "launcher.models": { "row": "codex" },
   "session.snapshot": {},
   "session.subscribe": {},

@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { settingsModel } from "./launcher";
+import { settingsModel } from "./config";
 test("project settings override the user's, and ANTHROPIC_MODEL overrides both", () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-claude-model-")),
     config = join(root, "config"),

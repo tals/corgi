@@ -184,6 +184,7 @@ const settings = new Set([
   "link_labels",
   "agent_yolo",
   "agent_hidden",
+  "launcher_added",
   "account_yolo",
   "account_hidden",
   "last_agent",

@@ -43,6 +43,16 @@ function emptyView() {
 }
 const count = (haystack: string, needle: string) => haystack.split(needle).length - 1;
 
+test("the empty sidebar's New keycap prefers short direct bindings and falls back to the prefix", () => {
+  const u = ui({ sidebar_open: true, message: "", copy_mode: false });
+  u.prefs.prefix = "ctrl_a";
+  expect(frame(emptyView(), [], 100, 30, u)).toContain(palette.keycap + " Ctrl+T ");
+  u.prefs.keys = { new: ["Prefix+c", "Ctrl+Shift+n", "Alt+n"] };
+  expect(frame(emptyView(), [], 100, 30, u)).toContain(palette.keycap + " Opt+N ");
+  u.prefs.keys = { new: "Prefix+c" };
+  expect(frame(emptyView(), [], 100, 30, u)).toContain(palette.keycap + " Ctrl+A c ");
+});
+
 test("unread pointer follows the clickable workspace and respects overlays", () => {
   const view = emptyView();
   const workspaces = [
@@ -832,6 +842,7 @@ test("Manage rows advertise grab, model-pointer and search-text cursors without 
   const view = emptyView(),
     launch = new LauncherMenu({ workspace: 1, selected: "codex", last: "codex", pinned: true });
   launch.preview.installed.codex = true;
+  launch.preview.pending = false;
   launch.manage();
   launch.transition.tick(Date.now() + 1000);
   const u = ui({ agent_launcher: launch, message: "", copy_mode: false, pointer: null });
@@ -858,6 +869,7 @@ test("the launcher places provider marks with host images and falls back to glyp
     shown = (fields: Partial<Ui> = {}) =>
       frame(emptyView(), [], 120, 40, ui({ message: "", copy_mode: false, agent_launcher: launch, ...fields }));
   // Codex's glyph stands in for its mark.
+  launch.preview.pending = false;
   expect(shown()).not.toContain("\x1b_Ga=p");
   expect(shown()).toContain("†");
   expect(launch.marks).toBeNull();

@@ -44,6 +44,8 @@ export class Catalog {
     return this.job;
   }
   private async read(known: readonly accounts.Known[], key: string) {
+    await discovery.check();
+    if (this.quit.aborted) return;
     const found: Option[] = [];
     let failed = false;
     for (const provider of Provider.all) {

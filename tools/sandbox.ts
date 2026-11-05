@@ -18,6 +18,8 @@ import { dirname, join } from "node:path";
 
 /** What `tools/sandboxes/NAME.ts` exports as `world`. */
 export interface World {
+  /** Sets this world's environment on every launch, including a seeded world's. */
+  configure?(s: Sandbox): void;
   /** Builds the world under `s.dir`: once, and again after --restart. */
   seed(s: Sandbox): void;
   /** Opens the workspaces and tabs on a runtime that has none. */
@@ -228,6 +230,7 @@ export class Sandbox {
       saved = JSON.parse(readFileSync(prefs, "utf8"));
     } catch {}
     writeFileSync(prefs, JSON.stringify({ preset: "corgi", ...saved, onboarding_complete: true, prefix: this.prefix }));
+    this.world.configure?.(this);
   }
 }
 

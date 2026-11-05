@@ -7,18 +7,27 @@ import { Cache, cooldown } from "../../usage/account_cache";
 import { getLogger } from "../../log";
 import { Failure } from "../../failure";
 import * as errors from "../../errors";
+import * as discovery from "../../discovery";
 import { configDir } from "./index";
 import { identity } from "./info";
 import * as appServer from "./app_server";
 const log = getLogger("codex.account");
 /** What the launcher shows about `account`, "" for the default. */
 export function open(account = ""): Launcher {
-  const server = new appServer.AppServer(5000, null, account),
-    failure = new Failure();
+  const failure = new Failure();
+  let opened: appServer.AppServer | null = null;
+  const server = async (cwd: string) => {
+    const executable = await discovery.resolve("codex", cwd);
+    if (opened?.executable !== executable) {
+      opened?.close();
+      opened = new appServer.AppServer(5000, executable, account);
+    }
+    return opened;
+  };
   /** When this folder may try again after its read failed. */
   let retry_at = 0;
   return {
-    async account(quit, max_age) {
+    async account(quit, max_age, cwd = process.cwd()) {
       const root = account || configDir();
       // Folders signed in to one account share its reading.
       let login = identity(root)?.id;
@@ -35,7 +44,7 @@ export function open(account = ""): Launcher {
           return cache.state.display(now);
         const started = Date.now();
         try {
-          const fresh = await appServer.account(server, quit.abortSignal);
+          const fresh = await appServer.account(await server(cwd), quit.abortSignal);
           cache.state.update(fresh, Math.floor(Date.now() / 1000));
           if (fresh.usage_error.len) retry_at = now + cooldown;
           if (failure.clear()) log.info("Account read recovered", { account, ms: Date.now() - started });
@@ -54,13 +63,16 @@ export function open(account = ""): Launcher {
     async model(cwd, quit) {
       try {
         return {
-          model: (await appServer.model(server, cwd, quit.abortSignal)).text(),
+          model: (await appServer.model(await server(cwd), cwd, quit.abortSignal)).text(),
           source: "Effective Codex settings",
         };
       } catch {
         return { model: "", source: "Model resolved by Codex at startup" };
       }
     },
-    close: () => server.close(),
+    close() {
+      opened?.close();
+      opened = null;
+    },
   };
 }

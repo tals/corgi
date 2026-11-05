@@ -346,6 +346,24 @@ class AgentCli extends Runtime {
     this.assertEqual(await idle("--cwd", realpathSync(empty)), []);
     await this.cli(["pane", "idle", "--workspace", 99], { error: "NoWorkspace" });
   }
+  async test_launcher_models_works_without_a_pane_or_workspace_argument() {
+    const result = await this.cli(["launcher", "models", "codex"]);
+    this.assertTrue(Array.isArray(result.models));
+  }
+  async test_launcher_lists_each_workspace_without_a_filter() {
+    const other = (await this.command("workspace.create", { name: "other", cwd: this.temp.name })).workspace;
+    await this.cli(["launcher", "hide", "codex", "--workspace", 1]);
+    const listed = (await this.cli(["launcher", "list"])).workspaces;
+    this.assertEqual(
+      listed.map((w: any) => w.id),
+      [1, other],
+    );
+    this.assertTrue(listed[0].agents.find((a: any) => a.agent === "codex").hidden);
+    this.assertFalse(listed[1].agents.find((a: any) => a.agent === "codex").hidden);
+    const text = await this.run_cli("launcher", "list");
+    this.assertIn("workspace 1", text);
+    this.assertIn(`workspace ${other}`, text);
+  }
   async test_launcher_hides_agents_in_one_workspace() {
     const one = await this.new(),
       other = (await this.command("workspace.create", { name: "other", cwd: this.temp.name })).workspace,
@@ -357,18 +375,25 @@ class AgentCli extends Runtime {
     // Inside a pane, its own workspace.
     await this.cli(["launcher", "hide", ...Provider.all.filter(p => p !== "codex")], { caller: one.pane });
     this.assertEqual(await shown(1), []);
-    this.assertEqual(await shown(other), Provider.all);
+    this.assertEqual(await shown(other), ["codex", "claude"]);
     this.assertEqual((await this.snapshot()).workspaces[0].launcher_hidden, Provider.all);
     this.assertEqual((await this.cli(["launcher", "show", "codex", "--workspace", 1])).workspaces[0].agents, [
       { agent: "codex", label: "Codex", launcher: true, hidden: false, options: { flags: "", env: [] }, yolo: false },
     ]);
-    this.assertRegex(await this.run_cli("launcher", "list", "--workspace", "1"), /claude +Claude Code +hidden/);
+    // Explicitly adding Codex ends the unconfigured-agent fallback.
+    this.assertRegex(
+      await this.run_cli("launcher", "list", "--workspace", "1"),
+      /claude +Claude Code +not in the launcher/,
+    );
     await this.cli(["launcher", "hide", "codex", "nobody", "--workspace", 1], { error: "UnknownAgent" });
     await this.cli(["launcher", "hide", "codex", "--workspace", 99], { error: "NoWorkspace" });
     await this.cli(["launcher", "hide", "codex"], { error: "MissingWorkspace" });
     this.assertEqual(await shown(1), ["codex"]);
     await this.cli(["launcher", "show", "pi", "--workspace", 1]);
-    this.assertEqual(await shown(1), ["codex", "pi"]);
+    this.assertEqual(await shown(1), ["codex"]);
+    this.assertTrue((await this.snapshot()).launcher_added.includes("pi"));
+    await this.cli(["launcher", "show", "claude", "--workspace", 1]);
+    this.assertEqual(await shown(1), ["codex", "claude"]);
   }
   async test_launcher_configures_clones_and_copies_layout() {
     const other = (await this.command("workspace.create", { name: "other", cwd: this.temp.name })).workspace;

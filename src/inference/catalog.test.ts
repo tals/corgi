@@ -1,9 +1,16 @@
-import { expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { Catalog, refresh_ms } from "./catalog";
 import { adapter } from "../providers";
 import * as discovery from "../discovery";
 import * as accounts from "../accounts";
 import type { InferenceModel } from "../providers/adapter";
+
+let restoreCheck: () => void;
+beforeEach(() => {
+  const check = spyOn(discovery, "check").mockResolvedValue();
+  restoreCheck = () => check.mockRestore();
+});
+afterEach(() => restoreCheck());
 
 const model: InferenceModel = {
   id: "custom/model",
@@ -25,6 +32,7 @@ test("model picker requests share discovery, cache results, and retain them duri
     const first = catalog.refresh();
     expect(catalog.loading).toBe(true);
     expect(catalog.refresh()).toBe(first);
+    await Promise.resolve();
     expect(read).toHaveBeenCalledTimes(1);
     finish([model]);
     await first;
@@ -100,6 +108,7 @@ test("an account removed during discovery never publishes stale models and sched
   try {
     const first = catalog.refresh();
     // The default account finishes first; the work account is still being read.
+    await Promise.resolve();
     await Promise.resolve();
     expect(read).toHaveBeenCalledTimes(2);
     known.mockReturnValue([]);

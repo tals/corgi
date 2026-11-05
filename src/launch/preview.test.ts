@@ -10,6 +10,7 @@ import * as accounts from "../accounts";
 import * as discovery from "../discovery";
 import * as limitHistory from "../usage/limits";
 import * as profiles from "../agent_profiles";
+import * as visibility from "./visibility";
 
 const bin = (p: Provider) => `CORGI_${p.toUpperCase()}_BIN`;
 /** The providers these tests find installed. */
@@ -68,6 +69,243 @@ test("a launch preview names the model it shows and where it came from", () => {
   expect(o.model.text()).toBe("opus");
   expect(o.modelLabel()).toBe("Opus");
   expect(o.source.text()).toBe("Project");
+});
+
+test("account reads retain the workspace context during background refreshes", async () => {
+  const worker = new Worker(),
+    reads: (string | undefined)[] = [];
+  worker.launcher = async () => ({
+    account: async (_quit, _max_age, cwd?: string) => {
+      reads.push(cwd);
+      return new Info();
+    },
+    model: async () => ({ model: "", source: "test" }),
+    close() {},
+  });
+  try {
+    worker.preview(root);
+    await worker.pump();
+    expect(reads.length).toBeGreaterThan(0);
+    expect(new Set(reads)).toEqual(new Set([root]));
+    reads.length = 0;
+    setSystemTime(new Date(Date.now() + idle_every * 2000));
+    worker.sample(idle_every);
+    await worker.pump();
+    expect(reads.length).toBeGreaterThan(0);
+    expect(new Set(reads)).toEqual(new Set([root]));
+  } finally {
+    await worker.stop();
+    setSystemTime();
+  }
+});
+
+test("account availability stays scoped to each workspace through background refreshes", async () => {
+  const worker = new Worker(),
+    other = join(root, "other");
+  worker.launcher = async () => ({
+    account: async (_quit, _max_age, cwd) => Object.assign(new Info(), { signed_in: cwd === root }),
+    model: async () => ({ model: "", source: "test" }),
+    close() {},
+  });
+  try {
+    worker.preview(root);
+    await worker.pump();
+    worker.preview(other);
+    await worker.pump();
+    expect(worker.preview(root).options.pi.signed_in).toBe(true);
+    expect(worker.preview(other).options.pi.signed_in).toBe(false);
+    setSystemTime(new Date(Date.now() + idle_every * 2000));
+    worker.sample(idle_every);
+    await worker.pump();
+    expect(worker.preview(root).options.pi.signed_in).toBe(true);
+    expect(worker.preview(other).options.pi.signed_in).toBe(false);
+  } finally {
+    await worker.stop();
+    setSystemTime();
+  }
+});
+
+test("a slow sampling round lets queued workspace previews finish before sampling again", async () => {
+  const worker = new Worker(),
+    second = join(root, "second"),
+    fresh = join(root, "fresh"),
+    first_done = Promise.withResolvers<void>(),
+    second_started = Promise.withResolvers<void>(),
+    second_done = Promise.withResolvers<void>(),
+    repeated = Promise.withResolvers<void>(),
+    check = spyOn(discovery, "check").mockResolvedValue(),
+    start = 1_000_000_000;
+  worker.launcher = async () => ({
+    account: async () => new Info(),
+    model: async cwd => ({ model: cwd, source: "workspace" }),
+    close() {},
+  });
+  try {
+    setSystemTime(new Date(start));
+    for (const cwd of [root, second]) {
+      worker.preview(cwd);
+      await worker.pump();
+    }
+    check.mockClear();
+    let first = true;
+    check.mockImplementation(async cwd => {
+      if (cwd === root) {
+        if (!first) return repeated.promise;
+        first = false;
+        await first_done.promise;
+      } else if (cwd === second) {
+        second_started.resolve();
+        await second_done.promise;
+      }
+    });
+    worker.sample(idle_every);
+    const pending = worker.pump();
+    expect(worker.preview(fresh).pending).toBe(true);
+    setSystemTime(new Date(start + 20_000));
+    worker.sample(idle_every);
+    first_done.resolve();
+    await second_started.promise;
+    setSystemTime(new Date(start + 40_000));
+    worker.sample(active_every);
+    second_done.resolve();
+    await turn();
+    expect(check.mock.calls.map(([cwd]) => cwd)).toEqual([root, second, fresh]);
+    expect(worker.preview(fresh).pending).toBe(false);
+    expect(worker.preview(fresh).options.pi.model.text()).toBe(fresh);
+    await pending;
+    // Sampling waits a full interval from completion, even after a long round.
+    check.mockResolvedValue();
+    worker.sample(active_every);
+    setSystemTime(new Date(start + 54_999));
+    worker.sample(active_every);
+    expect(check).toHaveBeenCalledTimes(3);
+    setSystemTime(new Date(start + 55_000));
+    worker.sample(active_every);
+    await worker.pump();
+    expect(check).toHaveBeenCalledTimes(6);
+  } finally {
+    first_done.resolve();
+    second_done.resolve();
+    repeated.resolve();
+    await worker.stop();
+    check.mockRestore();
+    setSystemTime();
+  }
+});
+
+test("cached previews retain each workspace's installations without starting reads", async () => {
+  listed(["work"]);
+  const worker = new Worker(),
+    other = join(root, "other"),
+    check = spyOn(discovery, "check").mockResolvedValue(),
+    installed = spyOn(discovery, "installed").mockImplementation((p, cwd) =>
+      cwd === root ? p === "codex" : p === "claude",
+    );
+  let reads = 0;
+  worker.launcher = async () => ({
+    account: async () => {
+      reads++;
+      return reading(42);
+    },
+    model: async () => ({ model: "", source: "test" }),
+    close() {},
+  });
+  const snapshots = () => {
+    expect(worker.cached(root).installed.codex).toBe(true);
+    expect(worker.cached(root).installed.claude).toBe(false);
+    expect(worker.cached(root).accounts).toHaveLength(0);
+    expect(worker.cached(other).installed.codex).toBe(false);
+    expect(worker.cached(other).installed.claude).toBe(true);
+    expect(worker.cached(other).accounts.map(a => a.name)).toEqual(["work"]);
+    expect(worker.cached(other).accounts[0].option.limits).toMatchObject({ windows: [null, { used: 42 }] });
+  };
+  try {
+    for (const cwd of [root, other]) {
+      worker.preview(cwd);
+      await worker.pump();
+    }
+    snapshots();
+    setSystemTime(new Date(Date.now() + idle_every * 2000));
+    worker.sample(idle_every);
+    await worker.pump();
+    const before = { reads, checks: check.mock.calls.length };
+    snapshots();
+    expect(worker.cached(join(root, "unvisited"))).toMatchObject({ pending: false, accounts: [] });
+    expect({ reads, checks: check.mock.calls.length }).toEqual(before);
+    expect(worker.jobs).toHaveLength(2);
+  } finally {
+    await worker.stop();
+    check.mockRestore();
+    installed.mockRestore();
+    setSystemTime();
+  }
+});
+
+test("a project model keeps an agent visible after a failed account read", async () => {
+  process.env.PI_CODING_AGENT_DIR = join(root, "pi-home");
+  mkdirSync(join(root, ".pi"));
+  writeFileSync(join(root, ".pi", "settings.json"), JSON.stringify({ defaultModel: "project-model" }));
+  const worker = new Worker();
+  worker.launcher = async provider => ({
+    account: async () => {
+      if (provider === "pi") throw Error("Unavailable");
+      return Object.assign(new Info(), { signed_in: provider === "codex" });
+    },
+    model: async () => ({ model: "", source: "test" }),
+    close() {},
+  });
+  try {
+    worker.preview(root);
+    await worker.pump();
+    expect(visibility.defaults(worker.preview(root), [], [])).toMatchObject({ pi: true, codex: true });
+    const other = join(root, "other");
+    worker.preview(other);
+    await worker.pump();
+    expect(visibility.defaults(worker.preview(other), [], [])).toMatchObject({ pi: false, codex: true });
+  } finally {
+    await worker.stop();
+  }
+});
+
+test("discovery settles absent providers and reads account availability for each workspace", async () => {
+  const worker = new Worker(),
+    checked = Promise.withResolvers<void>(),
+    signIn = Promise.withResolvers<Info>(),
+    check = spyOn(discovery, "check").mockImplementation(() => checked.promise);
+  worker.launcher = async p => ({
+    account: async () => (p === "pi" || p === "omp" ? signIn.promise : Object.assign(new Info(), { signed_in: true })),
+    model: async () => ({ model: "", source: "test" }),
+    close() {},
+  });
+  try {
+    const first = worker.preview(root);
+    expect(first.options.pi.pending).toBe(true);
+    expect(first.options.opencode2.pending).toBe(true);
+    checked.resolve();
+    await turn();
+    const partial = worker.preview(root);
+    expect(partial.options.opencode2.pending).toBe(false);
+    expect(partial.installed.opencode2).toBe(false);
+    expect(partial.options.pi.pending).toBe(true);
+    expect(partial.options.codex.signed_in).toBe(true);
+    signIn.resolve(Object.assign(new Info(), { signed_in: false }));
+    await worker.pump();
+    const next = worker.preview(join(root, "other"));
+    expect(next.pending).toBe(true);
+    expect(next.options.pi.signed_in).toBeNull();
+    expect(next.options.omp.signed_in).toBeNull();
+    expect(next.options.codex.signed_in).toBeNull();
+    await worker.pump();
+    const refreshed = worker.preview(root, true);
+    expect(refreshed.options.pi.signed_in).toBe(false);
+    await worker.pump();
+    expect(worker.preview(root).options.pi.signed_in).toBe(false);
+  } finally {
+    checked.resolve();
+    signIn.resolve(new Info());
+    await worker.stop();
+    check.mockRestore();
+  }
 });
 
 test("unchanged launch previews retain identity across polling and installation refreshes", async () => {
@@ -474,6 +712,31 @@ test("previews carry each cached spend day across a billing reset", async () => 
   }
 });
 
+test("tracking usage in a newly visited workspace forces its first account read", async () => {
+  const worker = new Worker(),
+    other = join(root, "other"),
+    reads: { cwd: string | undefined; maxAge: number | undefined }[] = [];
+  worker.launcher = async () => ({
+    account: async (_quit, maxAge, cwd) => {
+      reads.push({ cwd, maxAge });
+      return reading(10);
+    },
+    model: async () => ({ model: "", source: "test" }),
+    close() {},
+  });
+  try {
+    worker.preview(root);
+    await worker.pump();
+    worker.trackUsage(other);
+    await worker.pump();
+    const forced = reads.filter(read => read.cwd === other);
+    expect(forced.length).toBeGreaterThan(0);
+    expect(forced.every(read => read.maxAge === 0)).toBe(true);
+  } finally {
+    await worker.stop();
+  }
+});
+
 test("accounts are read on the daemon's schedule with no one subscribed", async () => {
   const worker = new Worker();
   let reads = 0;
@@ -491,9 +754,9 @@ test("accounts are read on the daemon's schedule with no one subscribed", async 
     await worker.pump();
     expect(reads).toBe(1);
     // A subscriber's job shows the next reading without running again.
-    expect(worker.cached().options.claude.limits).toMatchObject({ windows: [null, { used: 11 }] });
+    expect(worker.cached(process.cwd()).options.claude.limits).toMatchObject({ windows: [null, { used: 11 }] });
     expect(worker.jobs).toHaveLength(0);
-    worker.preview("/project");
+    worker.preview(process.cwd());
     await worker.pump();
     expect(reads).toBe(1);
     setSystemTime(new Date(1_000_000_000 + 60_000));
@@ -505,7 +768,7 @@ test("accounts are read on the daemon's schedule with no one subscribed", async 
     worker.sample(active_every);
     await worker.pump();
     expect(reads).toBe(2);
-    expect(worker.preview("/project").options.claude.limits).toMatchObject({ windows: [null, { used: 12 }] });
+    expect(worker.preview(process.cwd()).options.claude.limits).toMatchObject({ windows: [null, { used: 12 }] });
   } finally {
     setSystemTime();
     await worker.stop();
@@ -533,7 +796,7 @@ test("cached readings follow account edits sampled after a workspace stops reque
     setSystemTime(new Date(start));
     worker.preview(root);
     await worker.pump();
-    const before = worker.cached(),
+    const before = worker.cached(root),
       initialReads = reads,
       initialModels = models;
     expect(before.accounts.map(a => a.name)).toEqual(["kept", "removed"]);
@@ -542,7 +805,7 @@ test("cached readings follow account edits sampled after a workspace stops reque
     setSystemTime(new Date(start + 60_000));
     worker.sample(idle_every);
     await worker.pump();
-    const added = worker.cached();
+    const added = worker.cached(root);
     expect(added.accounts.map(a => a.name)).toEqual(["kept", "added"]);
     expect(added.accounts[1].option.limits).toMatchObject({ windows: [null, { used: 42 }] });
     expect(reads).toBe(initialReads + 1);
@@ -552,7 +815,7 @@ test("cached readings follow account edits sampled after a workspace stops reque
     setSystemTime(new Date(start + 120_000));
     worker.sample(idle_every);
     await worker.pump();
-    const renamed = worker.cached();
+    const renamed = worker.cached(root);
     expect(renamed.accounts.map(a => a.name)).toEqual(["renamed", "added"]);
     expect(renamed.names.claude).toBe("personal");
     expect(reads).toBe(initialReads + 1);

@@ -54,6 +54,10 @@ export const adapter: Adapter = {
     ...["/opt/homebrew/bin/pi", "/usr/local/bin/pi"].map(p => root + p),
   ],
   version: v => /^(?:[1-9]\d*)\.\d+\.\d+(?:[-+].*)?$/.test(v.trim()),
+  distribution: {
+    packages: ["@earendil-works/pi-coding-agent", "@mariozechner/pi-coding-agent"],
+    version: v => v,
+  },
   requires: "1.0.0 or newer",
   inspect(c) {
     const result = commandLine.inspect(c, {
@@ -148,7 +152,7 @@ export const adapter: Adapter = {
   headless: { start: at => Pi.start(at), restore: (saved, live) => Pi.restore(saved, live), tools: true },
   inference: {
     model: "openai-codex/gpt-6-luna",
-    models: (account, quit) => import("./models").then(m => m.read(account, quit)),
+    models: (account, quit, cwd) => import("./models").then(m => m.read(account, quit, cwd)),
     start: (r, at) => Pi.start({ ...at, cwd: "/tmp" }, summaryArgs(r)),
     restore: (saved, live) => Pi.restore(saved, live),
   },
@@ -158,11 +162,12 @@ export const adapter: Adapter = {
   transcript,
   integration: {
     directory,
+    prepare_on_launch: true,
     install: async account => [extension("install", account)],
     status: async account => [extension("status", account)],
     uninstall: async account => [extension("uninstall", account)],
-    startup: async account => {
-      if (!(await import("../../discovery")).installed("pi")) return;
+    startup: async (account, _handoff, cwd) => {
+      if (!(await import("../../discovery")).installed("pi", cwd)) return;
       const r = extension("install", account);
       if (r.outcome === "failed") console.error("hook setup:", r.error);
     },

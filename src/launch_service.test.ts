@@ -36,10 +36,11 @@ test("cached previews neither create jobs nor refresh old ones", async () => {
     s = service(server),
     pump = spyOn(s.launch_previews, "pump"),
     follow = spyOn(s, "follow"),
-    cached = () =>
+    snapshot = spyOn(s.launch_previews, "cached"),
+    cached = (cwd = "") =>
       request(server, client, {
         op: "agent.preview.cached",
-        payload: protocol.decode("agent.preview.cached", { workspace: 1 }),
+        payload: protocol.decode("agent.preview.cached", { workspace: 1, cwd }),
       });
   try {
     await cached();
@@ -57,13 +58,17 @@ test("cached previews neither create jobs nor refresh old ones", async () => {
       };
     s.launch_previews.jobs.push(job);
     await cached();
-    expect(messages[1].preview).toBe(messages[0].preview);
+    expect(messages[1].preview).toEqual(messages[0].preview);
+    expect(snapshot).toHaveBeenLastCalledWith("/tmp");
+    await cached("/tmp/other");
+    expect(snapshot).toHaveBeenLastCalledWith("/tmp/other");
     expect(job).toMatchObject({ queued: false, updated: 1, used: 2 });
     expect(pump).not.toHaveBeenCalled();
     expect(follow).not.toHaveBeenCalled();
   } finally {
     pump.mockRestore();
     follow.mockRestore();
+    snapshot.mockRestore();
     await stop(server);
   }
 });

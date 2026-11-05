@@ -482,6 +482,36 @@ test("handoff restoration normalizes small and wide viewer counters before wakin
   }
 });
 
+test("model requests use their workspace or cwd and keep legacy requests valid", async () => {
+  const { server, dispose } = fixture(),
+    messages: unknown[] = [],
+    reader = spyOn(agentModels, "read").mockImplementation(async (_provider, _account, _quit, cwd) => [
+      { id: cwd!, name: "Workspace model" },
+    ]),
+    cl = { protocol_version: null, queue: (value: unknown) => messages.push(value), done: () => {} } as any;
+  server.runtime.workspaces.items.push(new Workspace(1, "/workspace"));
+  try {
+    for (const [context, cwd] of [
+      [{ workspace: 1 }, "/workspace"],
+      [{ workspace: 1, cwd: "/worktree" }, "/worktree"],
+      [{ cwd: "/outside" }, "/outside"],
+      [{}, process.cwd()],
+    ] as const) {
+      await server.request(cl, { op: "launcher.models", row: "pi", protocol: protocol.version, ...context });
+      await Bun.sleep(0);
+      expect(reader.mock.calls.at(-1)?.[3]).toBe(cwd);
+      expect(messages.at(-1)).toEqual({ ok: true, models: [{ id: cwd, name: "Workspace model" }] });
+    }
+    await expect(
+      server.request(cl, { op: "launcher.models", row: "pi", cwd: "relative", protocol: protocol.version }),
+    ).rejects.toThrow("InvalidDirectory");
+    expect(reader).toHaveBeenCalledTimes(4);
+  } finally {
+    reader.mockRestore();
+    dispose();
+  }
+});
+
 test("pending model discovery releases the shared request queue", async () => {
   const { server, dispose } = fixture(),
     messages: unknown[] = [],

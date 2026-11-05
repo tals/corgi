@@ -181,6 +181,7 @@ export class Models {
         this.cache,
         promptModels.places(this.runtime, this.preview, this.prompt.choice),
         Date.now() / 1000,
+        this.context.cwd,
       ),
       usage = promptModels.usage(this.runtime, this.prompt.choice);
     if (pending && !entries.length && this.prompt.current()) return;

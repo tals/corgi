@@ -2,7 +2,7 @@ import * as effort from "../effort";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { lstatSync } from "node:fs";
-import { configHome, Hooks, planLabel } from "../common";
+import { Hooks, planLabel } from "../common";
 import type { Adapter } from "../adapter";
 import * as hooksFile from "../hooks_file";
 import { Watcher } from "./screen";
@@ -17,9 +17,8 @@ export { BlockType, Line, MessageType, TaskNotice, TaskStatus, TranscriptLine } 
 import { caps, identity, info, keeping, vocabulary } from "./info";
 import { signin } from "./signin";
 import * as commandLine from "../command_line";
-export function configDir(env = process.env) {
-  return configHome(env, vocabulary.config_env, ".claude");
-}
+import { configDir, settingsModel } from "./config";
+export { configDir };
 /** Where `account` keeps its settings, "" for the default's. */
 const dir = (account: string) => account || configDir();
 export function subagentTranscript(transcript: string, session: string, agent: string) {
@@ -61,12 +60,14 @@ export const adapter: Adapter = {
       : []),
     ...["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"].map(dir => root + dir + "/claude"),
   ],
+  distribution: { packages: ["@anthropic-ai/claude-code"], version: v => `${v} (Claude Code)` },
   accounts: {
     service: "claude",
     env: vocabulary.config_env,
     home: configDir,
     prefix: ".claude-",
     identity: root => identity(root, root === configDir() && !process.env[vocabulary.config_env]),
+    configured: (root, cwd) => !!settingsModel(cwd, { ...process.env, [vocabulary.config_env]: root }).model,
     // Its setup; the login and the conversations stay the account's own.
     shared: {
       dirs: ["skills", "agents", "commands", "plugins", "hooks", "themes", "output-styles"],
@@ -134,7 +135,7 @@ export const adapter: Adapter = {
     model: "claude-haiku-5-5",
     catalog: "native",
     source: "Anthropic",
-    models: (account, quit) => import("./models").then(m => m.read(account, quit)),
+    models: (account, quit, cwd) => import("./models").then(m => m.read(account, quit, cwd)),
     start: (r, at) => Claude.start({ ...at, cwd: "/tmp" }, summaryArgs(r), { schema: r.schema !== null }),
     restore: Claude.restore,
   },

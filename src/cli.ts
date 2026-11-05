@@ -783,17 +783,31 @@ export function launcherText(workspaces: LauncherWorkspace[]): string {
  * then read back what it shows of the agents they name. */
 async function launcherCommand(conn: Connection, inv: any, caller: number): Promise<LauncherWorkspace[]> {
   const q = inv.launcher,
-    before = (await conn.call("session.list")).result,
-    agents = (await conn.call("launcher.catalog")).agents;
+    before = (await conn.call("session.list")).result;
   const read = async (workspace: number) =>
     launcher(
-      { ...(await conn.call("session.list")).result, launcher_agents: (await conn.call("launcher.catalog")).agents },
+      {
+        ...(await conn.call("session.list")).result,
+        launcher_agents: (await conn.call("launcher.catalog", { workspace })).agents,
+      },
       workspace,
     );
-  if (inv.action === "launcher.list") return launcher({ ...before, launcher_agents: agents }, q.workspace);
+  if (inv.action === "launcher.list") {
+    const workspaces = launcher(before, q.workspace),
+      result: LauncherWorkspace[] = [];
+    for (const workspace of workspaces) result.push(...(await read(workspace.id)));
+    return result;
+  }
+  const workspace =
+      q.workspace ||
+      (inv.action === "launcher.models" && !caller
+        ? 0
+        : (await conn.call("session.locate", { pane: caller })).result.workspace),
+    context = workspace ? { workspace } : { cwd: process.cwd() },
+    agents = (await conn.call("launcher.catalog", context)).agents;
   const chosen: LauncherAgent[] = q.agents.map((name: string) => launcherAgent(agents, name));
   if (inv.action === "launcher.models") {
-    const { models } = await conn.call("launcher.models", { row: chosen[0].row });
+    const { models } = await conn.call("launcher.models", { row: chosen[0].row, ...context });
     process.stdout.write(
       inv.json
         ? stringify({ ok: true, models }) + "\n"
@@ -806,7 +820,6 @@ async function launcherCommand(conn: Connection, inv: any, caller: number): Prom
     );
     return [];
   }
-  const workspace = q.workspace || (await conn.call("session.locate", { pane: caller })).result.workspace;
   launcher(before, workspace);
   const send = (command: CommandInput) => conn.call("session.command", { command });
   switch (inv.action) {

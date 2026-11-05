@@ -18,8 +18,9 @@ import type { Search } from "./search";
 export interface Launcher {
   /** Its account, plan and usage limits. Usage is fetched again once the
    * reading, which folders signed in to the same account share, is `max_age`
-   * seconds old; 0 fetches it now, even while a failed read waits. */
-  account(quit: Quit, max_age: number): Promise<Account>;
+   * seconds old; 0 fetches it now, even while a failed read waits.
+   * `cwd` selects the workspace's executable for isolated account probes. */
+  account(quit: Quit, max_age: number, cwd?: string): Promise<Account>;
   /** The model it would start with in `cwd`, and the setting that chose it.
    * Corgi asks after `account`, whose sign-in may name the default. */
   model(cwd: string, quit: Quit): Promise<{ model: string; model_name?: string; source: string }>;
@@ -351,6 +352,8 @@ export type Accounts = {
   prefix: string;
   /** Who signed in at `directory`, as it caches that; null when no one has. */
   identity(directory: string): Login | null;
+  /** Local setup for `cwd` beyond a saved login, without starting the provider. */
+  configured?(directory: string, cwd: string): boolean;
   /** What a directory Corgi makes links to in the default one: folders,
    * and files the default has. */
   shared: { dirs: string[]; files: string[] };
@@ -448,8 +451,10 @@ export interface Adapter extends Info {
   /** Where it may be installed besides PATH, most likely first. `root`
    * prefixes system locations so tests can stand in for them. */
   installs(at: { home: string | null; root: string }): string[];
-  /** Whether a candidate's `--version` says it is this provider. Without it,
-   * the first `command` on PATH is. */
+  /** Package names and how a package manager's version becomes its version line. */
+  distribution?: { packages: string[]; version(value: string): string };
+  /** Whether an installation's version line identifies a supported provider.
+   * Metadata supplies it first; standalone installs may need `--version`. */
   version?(stdout: string): boolean;
   /** The versions `version` takes, as a sign-in says it: "1.0.0 or newer". */
   requires?: string;
@@ -471,7 +476,7 @@ export interface Adapter extends Info {
     /** Merge configured model and effort overrides with extra flags. */
     options(args: string[], model?: string, effort?: Effort): string[];
     /** Read-only launcher catalog, when inference discovery would probe access. */
-    models?(account: string, quit: Quit): Promise<InferenceModel[]>;
+    models?(account: string, quit: Quit, cwd?: string): Promise<InferenceModel[]>;
     /** Prepares a terminal session before exec, reporting its identity when
      * the provider's UI cannot report it itself, and variables the session
      * needs that the pane's shell does not set. */
@@ -527,7 +532,7 @@ export interface Adapter extends Info {
     /** The model provider's display name for a native inference choice. */
     source?: string;
     /** Models for private inference; a provider may probe tool-less access. */
-    models?(account: string, quit: Quit): Promise<InferenceModel[]>;
+    models?(account: string, quit: Quit, cwd?: string): Promise<InferenceModel[]>;
     /** A private, tool-less client for `r`'s conversations. Its answer to a
      * prompt is the last message before the turn ends. */
     start(r: Inference, at: Place): Client;
@@ -554,7 +559,9 @@ export interface Adapter extends Info {
     status(account: string): Promise<IntegrationStepResult[]>;
     /** Runs for each account when the daemon starts or takes over from an
      * older one in a handoff, unless the user uninstalled it there. */
-    startup(account: string, handoff: boolean): Promise<void>;
+    startup(account: string, handoff: boolean, cwd?: string): Promise<void>;
+    /** Refreshes hooks in the launch wrapper's account environment before exec. */
+    prepare_on_launch?: boolean;
     /** Settings that make it report to Corgi, to add by hand. */
     snippet(executable: string): string;
   };

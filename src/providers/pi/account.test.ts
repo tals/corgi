@@ -6,6 +6,7 @@ import { applyUsage } from "./account";
 import { open } from "./launcher";
 import { Info } from "../../usage/account";
 import { Quit } from "../../subprocess";
+import * as models from "./models";
 
 const usage = {
   plan_type: "pro",
@@ -16,6 +17,7 @@ const usage = {
 };
 let root: string, account: string, executable: string | undefined, state: string | undefined;
 let request: ReturnType<typeof spyOn<typeof globalThis, "fetch">>;
+let available: ReturnType<typeof spyOn<typeof models, "availability">>;
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "corgi-pi-usage-"));
   account = join(root, "account");
@@ -36,9 +38,11 @@ console.log("fresh-secret-token");
   );
   auth();
   request = spyOn(globalThis, "fetch").mockResolvedValue(Response.json(usage));
+  available = spyOn(models, "availability").mockResolvedValue({ models: [], unverified: new Set() });
 });
 afterEach(() => {
   request.mockRestore();
+  available.mockRestore();
   if (executable === undefined) delete process.env.CORGI_PI_BIN;
   else process.env.CORGI_PI_BIN = executable;
   if (state === undefined) delete process.env.XDG_STATE_HOME;
@@ -98,14 +102,14 @@ test("Pi shows ChatGPT usage and its reset windows without a cached suffix", asy
   }
 });
 
-test("Pi leaves missing account identity empty for the viewer to label", async () => {
+test("Pi without credentials or available models is signed out", async () => {
   rmSync(join(account, "settings.json"));
   rmSync(join(account, "auth.json"));
   const launcher = open(account);
   try {
     const info = await launcher.account(new Quit(), 60);
     expect(info.account.text()).toBe("");
-    expect(info.signed_in).toBeNull();
+    expect(info.signed_in).toBe(false);
     expect(request).not.toHaveBeenCalled();
   } finally {
     launcher.close();
@@ -136,7 +140,7 @@ test.each(["anthropic", "custom"])("Pi keeps %s identity without inventing quota
     expect(info.account.text()).toBe("user@example.com");
     expect(info.plan.text()).toBe("OAuth");
     expect(info.limits).toBe("none");
-    expect(info.signed_in).toBeNull();
+    expect(info.signed_in).toBe(true);
     expect(request).not.toHaveBeenCalled();
   } finally {
     launcher.close();
@@ -150,7 +154,7 @@ test("Pi API keys do not query subscription quota", async () => {
     const info = await launcher.account(new Quit(), 60);
     expect(info.account.text()).toBe("openai-codex API key");
     expect(info.plan.text()).toBe("API key");
-    expect(info.signed_in).toBeNull();
+    expect(info.signed_in).toBe(true);
     expect(request).not.toHaveBeenCalled();
   } finally {
     launcher.close();
@@ -163,6 +167,7 @@ test("Pi does not borrow another provider's account or quota", async () => {
   try {
     const info = await launcher.account(new Quit(), 60);
     expect(info.account.text()).toBe("custom");
+    expect(info.signed_in).toBe(false);
     expect(info.plan.text()).toBe("");
     expect(info.limits).toBe("none");
     expect(request).not.toHaveBeenCalled();
@@ -194,7 +199,7 @@ test("a failed Pi usage refresh retains the last reading without making it fresh
     request.mockResolvedValue(Response.json({}, { status: 401 }));
     const other = await again.account(new Quit(), 60);
     expect(other.account.text()).toBe("other@example.com");
-    expect(other.signed_in).toBeNull();
+    expect(other.signed_in).toBe(true);
     expect(other.limits).toBe("none");
   } finally {
     setSystemTime();

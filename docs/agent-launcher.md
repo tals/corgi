@@ -17,7 +17,21 @@ plan a worktree; see [Create or choose a worktree](workspaces.md#create-or-choos
 Nothing is created merely by browsing.
 
 Built-in providers appear when installed and not known to be signed out.
-An inconclusive account check does not hide them. Use `corgi which codex` or
+An inconclusive account check does not hide them. Installed agents appear automatically when Corgi finds a saved login, a model
+choice or a successful account check. Explicit additions, named accounts and
+saved profiles stay available without a detected sign-in. Discovery settles
+before automatic rows appear. If none are configured or explicitly added,
+the picker falls back to genuinely installed agents so you can choose one to
+set up. Hidden rows stay hidden, and unavailable saved accounts or profiles
+do not suppress this fallback. A failed account check does not erase local
+configuration evidence.
+
+The picker, Manage agents, `corgi launcher list` and prompt model choices share
+this policy. Explicit additions are daemon preferences and survive recovery
+and live reload. Executable discovery and account availability follow each
+workspace, including its mise configuration.
+
+Use `corgi which codex` or
 `corgi which claude` to inspect binary discovery. `CORGI_CODEX_BIN` and
 `CORGI_CLAUDE_BIN` can select explicit executables before runtime startup.
 

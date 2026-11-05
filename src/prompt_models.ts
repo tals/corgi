@@ -1,5 +1,7 @@
 //! The model catalog and suggestions shared by prompt cards and panes.
 import * as accounts from "./accounts";
+import * as profiles from "./agent_profiles";
+import * as visibility from "./launch/visibility";
 import * as agentLauncher from "./agent_launcher";
 import type * as agentModels from "./agent_models";
 import type * as mirror from "./mirror";
@@ -23,6 +25,7 @@ export function places(
       (!account && saved.has(provider)) ||
       runtime.panes.some(p => p.agent.provider === provider && p.account === account) ||
       (!account && runtime.sessions.some(s => s.provider === provider)),
+    defaults = visibility.defaults(preview, runtime.launcher_added, profiles.list()),
     out: Place[] = [],
     signed: Place[] = [];
   for (const provider of Provider.all) {
@@ -43,8 +46,9 @@ export function places(
       if (place.option.signed_in === false) continue;
       const picked = pick?.provider === provider && pick.account === place.account,
         hidden = place.account ? runtime.account_hidden.includes(place.account) : runtime.agent_hidden[provider];
-      signed.push({ provider, ...place });
-      if (picked || !hidden || runs(provider, place.account)) out.push({ provider, ...place });
+      const listed = !!place.account || defaults[provider];
+      if (listed) signed.push({ provider, ...place });
+      if (picked || (!hidden && listed) || runs(provider, place.account)) out.push({ provider, ...place });
     }
   }
   return out.length ? out : signed;
@@ -53,6 +57,7 @@ export function catalog(
   cache: agentModels.Cache,
   offered: Place[],
   at: number,
+  cwd = "",
 ): { entries: modelPicker.Entry[]; briefs: modelPicker.Brief[]; pending: boolean } {
   const entries: modelPicker.Entry[] = [],
     briefs: modelPicker.Brief[] = [];
@@ -60,7 +65,7 @@ export function catalog(
   for (const { provider, account, name, option } of offered) {
     const stale = typeof option.limits === "object" && expired(option.usage_fetched_at, at);
     briefs.push(modelPicker.accountHeader(provider, account, { ...option, limits: stale ? "none" : option.limits }));
-    const catalog = cache.get(provider, account);
+    const catalog = cache.get(provider, account, cwd);
     pending ||= catalog.pending;
     for (const m of catalog.values)
       entries.push({

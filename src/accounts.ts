@@ -290,6 +290,18 @@ export function defaultNames(): Record<Provider, string> {
   const value = load();
   return byProvider(provider => value.defaults[provider] ?? "");
 }
+/** Evidence of setup, including a named default or saved launch options. */
+export function configured(provider: Provider, cwd = process.cwd()): boolean {
+  const value = load();
+  if (value.defaults[provider] || value.launch.some(a => a.provider === provider && !a.account)) return true;
+  const account = adapter(provider).accounts;
+  try {
+    const root = account.home();
+    return account.identity(root) !== null || account.configured?.(root, cwd) === true;
+  } catch {
+    return false;
+  }
+}
 /** Calls `provider`'s default account `name`, or nothing for "". The name
  * stays with the default, whoever signs in to it. */
 export function renameDefault(provider: Provider, name: string) {

@@ -45,6 +45,7 @@ export async function launch(provider: Provider, args: string[], _executable: st
   const binary = await discovery.resolve(provider),
     path = binary.includes("/") ? binary : discovery.onPath(binary);
   if (path === null) throw Error("ProviderNotFound");
+  if (adapter(provider).integration.prepare_on_launch) await prepare(provider, "", false, process.cwd());
   const prepared = await adapter(provider).launch.prepare?.(args, path);
   if (prepared) {
     args = prepared.args;
@@ -105,19 +106,23 @@ export async function startup(handoff: boolean) {
   for (const { provider, account } of everyAccount()) await prepare(provider, account, handoff);
 }
 /** Adds what an account needs before an agent starts in it, unless the
- * user took it out. Each account is set up once per process. */
-export function prepare(provider: Provider, account: string, handoff = false): Promise<void> {
-  const key = provider + "\0" + account;
+ * user took it out. Missing agents can retry once they are installed. */
+export function prepare(provider: Provider, account: string, handoff = false, cwd = process.cwd()): Promise<void> {
+  const key = [provider, account, cwd].join("\0");
   let done = prepared.get(key);
   if (!done)
     prepared.set(
       key,
       (done = (async () => {
         try {
-          if (!uninstalled(provider, account)) await adapter(provider).integration.startup(account, handoff);
+          if (!uninstalled(provider, account)) {
+            if (!discovery.installed(provider, cwd)) await discovery.resolve(provider, cwd).catch(() => {});
+            await adapter(provider).integration.startup(account, handoff, cwd);
+          }
         } catch (error) {
           console.error("hook setup:", error);
         }
+        if (!discovery.installed(provider, cwd)) prepared.delete(key);
       })()),
     );
   return done;

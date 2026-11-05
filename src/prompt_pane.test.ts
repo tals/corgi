@@ -91,9 +91,17 @@ function folder() {
 }
 const b64 = (text: string | Buffer) => Buffer.from(text).toString("base64");
 
-test("a pane with no handed models loads them and refreshes when accounts change", async () => {
+test("a pane loads workspace models and refreshes when accounts change", async () => {
   const preview = agentLauncher.preview({ installed: byProvider(() => false) }),
-    context = { cwd: "/tmp", workspace: "", workspace_id: 1, branch: "", focus: null, herd: [], mentions: [] },
+    context = {
+      cwd: "/workspace/project",
+      workspace: "",
+      workspace_id: 1,
+      branch: "",
+      focus: null,
+      herd: [],
+      mentions: [],
+    },
     prompt = new Prompt({
       daemon: { call: async () => ({ ok: true }), start: async () => ({ provider: "claude", session: "s" }) },
       memory_root: folder(),
@@ -113,8 +121,9 @@ test("a pane with no handed models loads them and refreshes when accounts change
               result: { workspaces: [{ id: 1, cwd: "/tmp", model: { nodes: [], tabs: [], revision: 0 } }] },
             },
     } as Transport,
-    models = new Models(conn, prompt, context, async provider => {
+    models = new Models(conn, prompt, context, async (provider, _account, _quit, cwd) => {
       modelReads++;
+      if (cwd !== context.cwd) return [];
       return [{ id: provider === "claude" ? "claude-sonnet-5-5" : "gpt-6-astra", name: provider }];
     });
   prompt.show(context);

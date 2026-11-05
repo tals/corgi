@@ -78,7 +78,7 @@ export async function request(server: Server, client: Client, request: Request, 
       workspace = server.runtime.getWorkspace(q.workspace),
       cwd = q.cwd || workspace.cwd;
     if (!isAbsolute(cwd) || Buffer.byteLength(cwd) > 4096) throw Error("InvalidDirectory");
-    reply.ok({ preview: services.get(server)?.launch_previews.cached() ?? new Preview().with({ pending: false }) });
+    reply.ok({ preview: services.get(server)?.launch_previews.cached(cwd) ?? new Preview().with({ pending: false }) });
     return;
   }
   const s = service(server);

@@ -339,10 +339,13 @@ test("an account's YOLO and Show come from the snapshot, and an older daemon's h
       workspaces,
       account_yolo: ["/accounts/work", 3],
       account_hidden: ["/accounts/side"],
+      launcher_added: ["pi", "omp"],
     });
     expect([runtime.account_yolo, runtime.account_hidden]).toEqual([["/accounts/work"], ["/accounts/side"]]);
+    expect(runtime.launcher_added).toEqual(["pi", "omp"]);
     runtime.receive(null as any, { workspaces });
     expect([runtime.account_yolo, runtime.account_hidden]).toEqual([[], []]);
+    expect(runtime.launcher_added).toEqual([]);
   } finally {
     runtime.destroy();
   }

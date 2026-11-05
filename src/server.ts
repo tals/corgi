@@ -560,11 +560,24 @@ export class Server {
           result: { ...protocol.emptyResult(), ...session.location(this.runtime, request.payload.pane) },
         });
         return;
-      case "launcher.catalog":
-        reply.ok({ agents: launcherConfig.catalog(this.runtime) });
+      case "launcher.catalog": {
+        const q = request.payload,
+          cwd = q.cwd || (q.workspace ? this.runtime.getWorkspace(q.workspace).cwd : process.cwd());
+        if (!isAbsolute(cwd) || Buffer.byteLength(cwd) > 4096) throw Error("InvalidDirectory");
+        this.defer(cl, reply, null, async () => {
+          const service = launch.service(this);
+          service.follow(launch.removed(this.runtime));
+          service.launch_previews.preview(cwd);
+          await service.launch_previews.pump();
+          return { agents: launcherConfig.catalog(this.runtime, service.launch_previews.preview(cwd)) };
+        });
         return;
+      }
       case "launcher.models": {
-        const agent = launcherConfig.get(this.runtime, request.payload.row);
+        const q = request.payload,
+          cwd = q.cwd || (q.workspace ? this.runtime.getWorkspace(q.workspace).cwd : process.cwd()),
+          agent = launcherConfig.get(this.runtime, q.row);
+        if (!isAbsolute(cwd) || Buffer.byteLength(cwd) > 4096) throw Error("InvalidDirectory");
         if (!agent.provider) throw Error("CustomCommandOptions");
         const quit = new ModelQuit();
         let settled = false;
@@ -579,7 +592,7 @@ export class Server {
         };
         const timeout = setTimeout(() => finish({ err: "TimedOut" }), 15000);
         this.modelReads.set(cl, () => finish({ err: "Cancelled" }));
-        void agentModels.read(agent.provider, agent.account, quit).then(
+        void agentModels.read(agent.provider, agent.account, quit, cwd).then(
           models => finish({ ok: true, models }),
           error => finish({ err: error instanceof Error ? error.message : String(error) }),
         );

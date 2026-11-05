@@ -1,21 +1,16 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { YAML } from "bun";
 import type { Accounts, Login } from "../adapter";
 import { field, service, str } from "../common";
 import { configDir } from "./integration";
+import { defaultModel, settingsModel } from "./config";
 
 export type Credential = { provider: string; type: "oauth" | "api_key"; data: unknown; identity: string };
 const clean = (s: string) => s.replace(/[\x00-\x1f\x7f-\x9f]/g, "").slice(0, 160);
-/** The model provider of the agent folder's default model, as its config.yml sets it. */
 export function defaultProvider(root: string) {
-  let config: unknown = null;
-  try {
-    config = YAML.parse(readFileSync(join(root, "config.yml"), "utf8"));
-  } catch {}
-  const model = str(field(config, "modelRoles"), "default");
+  const model = defaultModel(root);
   return model.includes("/") ? model.slice(0, model.indexOf("/")) : "";
 }
 /** The sign-ins omp keeps in the folder's database, enabled ones in the order it added them. */
@@ -86,6 +81,7 @@ export const accounts: Accounts = {
   home: configDir,
   prefix: ".omp-",
   identity,
+  configured: (root, cwd) => !!settingsModel(cwd, root).model,
   shared: { dirs: ["skills", "prompts", "themes", "rules", "agents"], files: ["models.yml"] },
   // omp keeps several sign-ins in one folder already; Corgi only follows the default one.
   signin: null,
