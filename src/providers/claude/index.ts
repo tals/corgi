@@ -75,7 +75,7 @@ export const adapter: Adapter = {
     signin,
   },
   watch: () => new Watcher(),
-  hook: v => hooks.decode(v),
+  hook: v => conversation.decoded(hooks.decode(v), v),
   origin: hookOrigin,
   unnest,
   launch: {
