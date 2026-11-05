@@ -220,10 +220,11 @@ async function fetchBytes(rel: Release, url: string, limit: number): Promise<Buf
   }
   throw Error("UpdateSubprocessFailed");
 }
-function verifyFile(path: string, t: Target) {
+function verifyFile(path: string, t: Target): Buffer {
   const bytes = readFileSync(path);
   if (bytes.length !== t.size || createHash("sha256").update(bytes).digest("hex") !== t.sha256)
     throw Error("UpdateChecksumMismatch");
+  return bytes;
 }
 async function feed(rel: Release, root: string, download: boolean, explicit: boolean): Promise<void> {
   const unlock = await lock(root, "download.lock", explicit);
@@ -246,29 +247,36 @@ async function feed(rel: Release, root: string, download: boolean, explicit: boo
     if (!download) return;
     const dest = executable(root, m.version),
       dir = dirname(dest);
-    privateDirectory(dir);
+    let binary: Buffer;
     try {
-      verifyFile(dest, own(m));
+      binary = verifyFile(dest, own(m));
     } catch {
-      const partial = join(dir, "download.tmp");
-      try {
-        atomicWrite(partial, await fetchBytes(rel, own(m).url, own(m).size), 0o700);
-        verifyFile(partial, own(m));
-        if (existsSync(dest)) throw Error("ExistingReleaseDiffers");
-        renameSync(partial, dest);
-      } finally {
-        remove(dir, "download.tmp");
-      }
+      binary = await fetchBytes(rel, own(m).url, own(m).size);
     }
-    write(dir, "manifest.json", bytes);
     const unlockActivation = await lock(root, "activation.lock", true);
     try {
       // An install or activation may have overtaken the download.
       const current = read(root, "current"),
         staged = read(root, "staged");
       if (current === null) throw Error("MissingInstalledVersion");
-      if (compare(m.version, current) > 0 && (staged === null || compare(m.version, staged) >= 0))
+      if (compare(m.version, current) > 0 && (staged === null || compare(m.version, staged) >= 0)) {
+        privateDirectory(dir);
+        try {
+          verifyFile(dest, own(m));
+        } catch {
+          if (existsSync(dest)) throw Error("ExistingReleaseDiffers");
+          const partial = join(dir, "download.tmp");
+          try {
+            atomicWrite(partial, binary, 0o700);
+            verifyFile(partial, own(m));
+            renameSync(partial, dest);
+          } finally {
+            remove(dir, "download.tmp");
+          }
+        }
+        write(dir, "manifest.json", bytes);
         write(root, "staged", m.version);
+      }
       remove(root, "last-error");
       prune(root, true);
     } finally {
@@ -308,23 +316,22 @@ let holding: number | null = null;
 /** Keeps the release at `exe` from being pruned while this runtime runs it:
  * prune skips a release with a held `runtime-<pid>.lock`, and the kernel lets
  * go of the lock however the runtime exits. */
-export function hold(exe: string) {
+export async function hold(exe: string) {
+  const root = managed(release(exe), exe);
+  if (holding !== null || !root) return;
+  const unlock = await lock(root, "releases.lock", true);
   try {
-    if (holding !== null || !managed(release(exe), exe)) return;
+    if (!existsSync(exe)) throw Error("MissingInstalledVersion");
     const file = join(dirname(exe), `runtime-${process.pid}.lock`),
       fd = openSync(file, "a", 0o600);
-    // A prune testing the file holds it for a moment.
-    for (let tries = 0; !flock(fd); tries++) {
-      if (tries === 50) {
-        closeSync(fd);
-        return;
-      }
-      Bun.sleepSync(2);
+    if (!flock(fd)) {
+      closeSync(fd);
+      throw Error("ReleaseLockBusy");
     }
     holding = fd;
     process.once("exit", () => remove(dirname(file), basename(file)));
-  } catch {
-    // Unheld, the release can go two updates later; the runtime keeps running.
+  } finally {
+    unlock?.();
   }
 }
 /** Whether a runtime holds the release in `dir`. */
@@ -342,25 +349,32 @@ function runtimeHolds(dir: string): boolean {
   });
 }
 /** Removes the releases nothing needs: all but the current one, the previous
- * one kept for rollback, a staged update and any a runtime runs. Under the
- * activation lock alone a download may be filling a newer release, so only
- * older ones go; `downloads` says the download lock is held too. */
+ * one kept for rollback, a staged update and any a runtime runs. Normally
+ * only older releases go; `downloads` says the download lock is held too,
+ * so superseded downloads can go regardless of version. */
 export function prune(root: string, downloads = false) {
   try {
-    const current = read(root, "current"),
-      keep = [current, read(root, "previous"), read(root, "staged")],
-      dir = join(root, "releases");
-    if (current === null) return;
-    for (const v of readdirSync(dir))
-      try {
-        // Throws for what isn't a release.
-        const older = compare(v, current) < 0,
-          path = join(dir, v);
-        if (!keep.includes(v) && (older || downloads) && !runtimeHolds(path))
-          rmSync(path, { recursive: true, force: true });
-      } catch {
-        // Not a release, or it couldn't go; a later prune tries again.
-      }
+    const guard = openSync(join(root, "releases.lock"), "a", 0o600);
+    try {
+      if (!flock(guard)) return;
+      const current = read(root, "current"),
+        keep = [current, read(root, "previous"), read(root, "staged")],
+        dir = join(root, "releases");
+      if (current === null) return;
+      for (const v of readdirSync(dir))
+        try {
+          // Throws for what isn't a release.
+          const older = compare(v, current) < 0,
+            path = join(dir, v);
+          if (!keep.includes(v) && (older || downloads) && !runtimeHolds(path))
+            rmSync(path, { recursive: true, force: true });
+        } catch {
+          // Not a release, or it couldn't go; a later prune tries again.
+        }
+    } finally {
+      flock(guard, false);
+      closeSync(guard);
+    }
   } catch {}
 }
 function recordError(root: string, error: unknown) {

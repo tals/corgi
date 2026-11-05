@@ -279,7 +279,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       process.stdout.write((await import("./licenses")).text);
       return;
     case "serve": {
-      updates.hold(executable);
+      await updates.hold(executable);
       const { Server } = await import("./server");
       await new Server(path, executable, buildId()).run();
       return;
@@ -371,7 +371,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       await print(path, "server.reload", { executable: args[1] ?? executable });
       return;
     case "__handoff": {
-      updates.hold(executable);
+      await updates.hold(executable);
       const handoff = await import("./persist/handoff");
       await handoff.importAndRun(path, executable, Number(args[1]), Number(args[2]));
       return;

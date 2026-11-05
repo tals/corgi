@@ -3,13 +3,16 @@
 import { beforeAll, afterAll, beforeEach, afterEach, test, expect } from "bun:test";
 import { generateKeyPairSync, sign, createHash } from "node:crypto";
 import { mkdtemp, mkdir, writeFile, readFile, readdir, realpath, rm } from "node:fs/promises";
+import { closeSync, openSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
-import { EXE, Pty, deadline, versioned } from "./support";
+import { EXE, Lines, Pty, deadline, versioned } from "./support";
 import { running } from "./runtime";
 import { installer, manifests as releaseManifests } from "../scripts/release.ts";
 import { Scope } from "../scripts/process_scope";
+import { flock } from "../src/native_bridge";
+import * as updates from "../src/updates";
 const base = await mkdtemp(join(tmpdir(), "corgi-updates-"));
 const keys = generateKeyPairSync("ed25519");
 const publicKey = Buffer.from(keys.publicKey.export({ type: "spki", format: "der" }))
@@ -225,6 +228,68 @@ test("an installer staging a newer release during a download keeps its update", 
   await cli(["update", "--download-only"]);
   expect(await readFile(join(root, "staged"), "utf8")).toBe("1.0.3");
   expect((await readdir(join(root, "releases"))).sort()).toEqual(["1.0.0", "1.0.3"]);
+}, 30_000);
+test("a newer activation can supersede a download without deleting files it is writing", async () => {
+  latest = "1.0.2";
+  beforeDownload = async () => {
+    expect(await readdir(join(root, "releases"))).not.toContain("1.0.2");
+    const manifest = join(home, "newer-manifest.json");
+    await writeFile(manifest, manifests.get("1.0.3")!);
+    await exec([fixture("1.0.3"), "__install", root, manifest]);
+    await rm(join(root, "auto-off"));
+    await cli(["start"]);
+    await cli(["update", "auto", "off"]);
+  };
+  await cli(["update", "--download-only"]);
+  expect(await readFile(join(root, "current"), "utf8")).toBe("1.0.3");
+  expect((await readdir(join(root, "releases"))).sort()).toEqual(["1.0.0", "1.0.3"]);
+  expect(await Bun.file(join(root, "staged")).exists()).toBe(false);
+}, 30_000);
+test("runtime registration and release cleanup share a guard", async () => {
+  const manifest = join(home, "newer-manifest.json");
+  await writeFile(manifest, manifests.get("1.0.2")!);
+  await exec([fixture("1.0.2"), "__install", root, manifest]);
+  await writeFile(join(root, "current"), "1.0.2");
+  const exe = join(root, "releases/1.0.0/corgi"),
+    guard = openSync(join(root, "releases.lock"), "a"),
+    source = `
+      import * as updates from ${JSON.stringify(join(import.meta.dir, "../src/updates.ts"))};
+      const pending = updates.hold(${JSON.stringify(exe)});
+      console.log("registering");
+      await pending;
+      console.log("held");
+      await Bun.stdin.text();
+    `;
+  expect(flock(guard)).toBe(true);
+  const runtime = Bun.spawn([process.execPath, "-e", source], {
+      env,
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+    }),
+    lines = new Lines(),
+    output = (async () => {
+      for await (const chunk of runtime.stdout) lines.feed(Buffer.from(chunk).toString());
+      lines.end();
+    })();
+  try {
+    expect(await lines.next()).toBe("registering");
+    expect((await readdir(dirname(exe))).filter(name => name.startsWith("runtime-"))).toEqual([]);
+    flock(guard, false);
+    expect(await lines.next()).toBe("held");
+    updates.prune(root);
+    expect(await Bun.file(exe).exists()).toBe(true);
+  } finally {
+    closeSync(guard);
+    runtime.stdin.end();
+    await deadline(runtime.exited, 5000);
+    await output;
+  }
+  updates.prune(root);
+  expect(await Bun.file(exe).exists()).toBe(false);
+  const missing = await exec([process.execPath, "-e", source], env, false);
+  expect(missing.code).not.toBe(0);
+  expect(missing.err).toContain("MissingInstalledVersion");
 }, 30_000);
 test("pane commands use their socket's release through the stable launcher", async () => {
   await cli(["update", "--download-only"]);

@@ -174,6 +174,21 @@ test("a release a runtime still runs stays until it stops", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+test("cleanup waits for runtime lock registration to finish", () => {
+  const root = installation(["1.0.0", "1.0.1", "1.0.2"], { current: "1.0.2", previous: "1.0.1" }),
+    guard = openSync(join(root, "releases.lock"), "a");
+  try {
+    expect(flock(guard)).toBe(true);
+    prune(root);
+    expect(releases(root)).toEqual(["1.0.0", "1.0.1", "1.0.2"]);
+    flock(guard, false);
+    prune(root);
+    expect(releases(root)).toEqual(["1.0.1", "1.0.2"]);
+  } finally {
+    closeSync(guard);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 test("only test builds take their release from the path and environment", () => {
   const original = process.env.CORGI_TEST_UPDATE_KEY;
   try {
