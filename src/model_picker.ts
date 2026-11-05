@@ -478,10 +478,11 @@ export class Picker {
         found = [...this.entries]
           .sort((a, b) => Number(this.old.has(a)) - Number(this.old.has(b)))
           .filter(e => {
-            const p = adapter(e.provider);
+            const p = adapter(e.provider),
+              header = this.headerOf(groupOf(e));
             return matches(
               query,
-              `${e.name} ${e.model} ${p.name} ${p.label} ${e.account_name} ${this.headerOf(groupOf(e))?.who ?? ""} ${routeName(e.model)}`,
+              `${e.name} ${e.model} ${p.name} ${p.label} ${e.account_name} ${header?.who ?? ""} ${header?.plan ?? ""} ${routeName(e.model)}`,
             );
           })
           .map((e): Choice => ({

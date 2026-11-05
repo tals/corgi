@@ -228,6 +228,19 @@ test("arrows move past headers and wrap; Home and End go to the ends", () => {
   expect(p.chosen()).toEqual(astra);
 });
 
+test("search finds models by their account's plan", () => {
+  for (const [plan, account] of [
+    ["Max", ""],
+    ["Team", "/home/me/.claude-work"],
+  ]) {
+    const p = new Picker(both, [], opus, headers);
+    p.key(47);
+    p.sequence(plan);
+    expect(p.chosen().provider).toBe("claude");
+    expect(p.chosen().account).toBe(account);
+  }
+});
+
 test("→ opens the model's efforts on the one it has; ⏎ chooses one and picks, ← goes back", () => {
   const p = picker();
   expect(p.sequence(right)).toBeNull();
