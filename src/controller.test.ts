@@ -3195,6 +3195,31 @@ test("a double-click on an agent row renames it in place, with the dialog's outc
   }
 });
 
+test("moving the free pointer off the cell or turning the wheel between presses opens no field", async () => {
+  const { s, sent, rect, press } = renaming();
+  const at = rect({ agent: 2 });
+  const report = (button: number, x: number, y: number) => s.input(bytes(`\x1b[<${button};${x + 1};${y + 1}M`));
+  try {
+    setSystemTime(new Date(1000));
+    await press(at.x, at.y);
+    await report(35, at.x + 1, at.y);
+    await report(35, at.x, at.y);
+    await press(at.x, at.y);
+    expect(s.inline_rename).toBeNull();
+    await report(65, at.x, at.y);
+    await press(at.x, at.y);
+    expect(s.inline_rename).toBeNull();
+    // Unheld motion within the cell keeps it.
+    await report(35, at.x, at.y);
+    await press(at.x, at.y);
+    expect(s.inline_rename?.target).toEqual({ agent: 2 });
+    expect(sent).toEqual([probe(2)]);
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
 test("scrolling, resizing or dragging off the cell ends a click series", async () => {
   const { s, at, mouse, click } = clickSeries();
   try {
