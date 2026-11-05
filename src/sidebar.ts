@@ -836,8 +836,8 @@ export class View {
     if (this.width === 0 || this.entries.length === 0 || this.search !== null || this.drawer === "workspaces")
       return null;
     const { counts, prev, next } = this.index;
-    // Rows end above a bottom badge.
-    const y = sat(this.rows, 1);
+    // Rows end above the selection footer or bottom badge.
+    const y = Math.min(this.listEnd(), sat(this.rows, 1));
     let found: BadgeCounts;
     let offset: number;
     if (side === "above") {

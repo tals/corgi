@@ -1577,6 +1577,53 @@ test("a badge scrolls no farther than keeps the nearest it counts in view", () =
   expect(scrolled.lists().badge("below")).not.toBeNull();
 });
 
+test.each(["working", "unread"] as const)("selection footers keep hidden %s agents counted and reachable", kind => {
+  for (const distant of [false, true]) {
+    const entries = Array.from({ length: 10 }, (_, i) => {
+      const marked = i === 3 || (distant && i === 7);
+      return entry({
+        target: { pane: i + 1 },
+        name: `agent ${i}`,
+        state: marked && kind === "working" ? "working" : "idle",
+        attention: marked && kind === "unread" ? "finished" : "none",
+      });
+    });
+    const initial = View.init(80, 21, true, 0, entries.length);
+    initial.focus = "agents";
+    initial.selection = { count: 1, hidden: 0, visual: false, toggle: "Space", menu: "m", range: "v", all: "a" };
+    const view = initial.withEntries(entries);
+    expect(hostText(draw(view, entries, []), 80, 21)).not.toContain("agent 3");
+    const below = view.lists().badge("below")!;
+    expect(below[kind]).toBe(distant ? 2 : 1);
+    const clicked = view.hit(below.x + lists_x + 1, below.y);
+    expect(clicked.tag).toBe("active");
+    if (clicked.tag !== "active") throw new Error("expected a badge click");
+    view.offset = clicked.offset;
+    const scrolled = view.withEntries(entries);
+    const shown = hostText(draw(scrolled, entries, []), 80, 21);
+    expect(shown).toContain("agent 3");
+    expect(shown).not.toContain("agent 7");
+    expect(scrolled.lists().badge("below")?.[kind] ?? 0).toBe(distant ? 1 : 0);
+  }
+});
+
+test("the top badge keeps its nearest agent above the selection footer", () => {
+  const entries = Array.from({ length: 10 }, (_, i) =>
+    entry({ target: { pane: i + 1 }, name: `agent ${i}`, state: i === 1 || i === 4 ? "working" : "idle" }),
+  );
+  const initial = View.init(80, 21, true, 5, entries.length);
+  initial.focus = "agents";
+  initial.selection = { count: 1, hidden: 0, visual: false, toggle: "Space", menu: "m", range: "v", all: "a" };
+  const view = initial.withEntries(entries);
+  const above = view.lists().badge("above")!;
+  expect(above.working).toBe(2);
+  view.offset = above.offset;
+  const scrolled = view.withEntries(entries);
+  const shown = hostText(draw(scrolled, entries, []), 80, 21);
+  expect(shown).toContain("agent 4");
+  expect(scrolled.lists().badge("above")?.working).toBe(1);
+});
+
 test("a focused agent list scrolls its last agent fully into view", () => {
   const entries = Array.from({ length: 10 }, (_, i) => entry({ target: { pane: i + 1 }, name: `agent ${i}` }));
   const view = View.init(80, 22, true, 99, entries.length);
