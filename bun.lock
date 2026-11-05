@@ -6,6 +6,7 @@
       "name": "corgi-bun",
       "dependencies": {
         "@earendil-works/pi-tui": "1.0.4",
+        "marked": "18.0.11",
       },
       "devDependencies": {
         "happy-dom": "21.0.4",

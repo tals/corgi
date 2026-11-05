@@ -1,4 +1,6 @@
 import { testBuild } from "./build_assets";
+/** How soon a press must follow the last one to extend a click series. */
+export const double_click_ms = 300;
 let offset_ms = 0;
 export function milliTimestamp(): number {
   return Date.now() + offset_ms;

@@ -1,10 +1,12 @@
 //! Pi's persistent JSONL RPC transport. A run ends only at agent_settled.
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { field, str, number } from "../common";
-import type { Client, Event, Inference, Input, Place, Saved } from "../adapter";
+import { field, hostSummary, imageData, str, number } from "../common";
+import type { Client, Event, HostTool, Inference, Input, Place, Saved } from "../adapter";
 import type { Outcome } from "../../observation";
 import { Stdio } from "../stdio";
+import * as instructions from "../instructions";
+import tools_source from "./tools.txt" with { type: "text" };
 import { Tokens } from "../../usage/live";
 export function reported(usage: unknown) {
   const input = number(usage, "input"),
@@ -34,6 +36,30 @@ export function outcome(message: unknown): Outcome {
     default:
       return "completed";
   }
+}
+/** What a daemon-hosted session at `at` starts with, besides its mode;
+ * `file` holds its instructions, which the flag reads when given a path. */
+export function sessionArgs(at: Place, file: string) {
+  return [
+    ...(at.model ? ["--model", at.model] : []),
+    ...(at.effort ? ["--thinking", at.effort] : []),
+    ...(file ? ["--append-system-prompt", file] : []),
+    ...(at.persist === false ? ["--no-session"] : []),
+  ];
+}
+/** The extension that offers the host's tools in one session's process. */
+function toolsExtension(tools: HostTool[]): string {
+  return tools_source.replace("TOOLS", JSON.stringify(tools.map(({ name, description }) => ({ name, description }))));
+}
+/** What a tool call is about, in a few words. */
+export function about(args: unknown) {
+  for (const key of ["command", "path", "file_path", "pattern", "url", "query", "description"])
+    if (str(args, key)) return str(args, key);
+  return "";
+}
+/** A built-in tool's name as Claude's are spelled: "read" is "Read". */
+export function toolName(name: string) {
+  return /^[a-z]+$/.test(name) ? name[0].toUpperCase() + name.slice(1) : name;
 }
 export function summaryArgs(r: Inference) {
   return [
@@ -67,18 +93,42 @@ export class Pi implements Client {
   ended = false;
   commands: { id: string; type: string; [key: string]: unknown }[] = [];
   awaiting = "";
+  /** The text blocks of the assistant message streaming now, by content index. */
+  streamed: string[] = [];
+  /** The file its instructions are in, which goes with it. */
+  file = "";
+  /** The host's tools, which its extension at `tools_file` runs as Corgi commands. */
+  tools: string[] = [];
+  tools_file = "";
   constructor(
     readonly io: Stdio,
     readonly cwd: string,
   ) {}
-  static start(at: Place, args: string[] = []) {
+  /** A summary with `args`, or without them a daemon-hosted session. */
+  static start(at: Place, args?: string[]) {
     const env = { ...process.env };
     if (at.account) {
       env.PI_CODING_AGENT_DIR = at.account;
     }
     delete env.CORGI_PANE;
     delete env.CORGI_SOCKET;
-    const c = new this(Stdio.spawn([at.executable, "--mode", this.mode, ...args], { cwd: at.cwd, env }), at.cwd);
+    Object.assign(env, at.env);
+    const file = !args && at.instructions ? instructions.write(at.instructions) : "",
+      hosted = !args ? (at.host?.tools ?? []) : [],
+      tools_file = hosted.length ? instructions.write(toolsExtension(hosted), "corgi-tools.js") : "";
+    let io: Stdio;
+    try {
+      const session = [...sessionArgs(at, file), ...(tools_file ? ["--extension", tools_file] : [])];
+      io = Stdio.spawn([at.executable, "--mode", this.mode, ...(args ?? session)], { cwd: at.cwd, env });
+    } catch (error) {
+      instructions.remove(file);
+      instructions.remove(tools_file);
+      throw error;
+    }
+    const c = new this(io, at.cwd);
+    c.file = file;
+    c.tools = hosted.map(t => t.name);
+    c.tools_file = tools_file;
     c.io.write({ id: "corgi-state", type: "get_state" });
     return c;
   }
@@ -102,11 +152,15 @@ export class Pi implements Client {
     if (input.kind !== "answer" && input.session && input.session !== this.session) throw Error("WrongSession");
     switch (input.kind) {
       case "prompt":
+        // One sent while it works steers the run, as Enter does in Pi.
         this.command({
           id: `corgi-prompt-${++this.next}`,
           type: "prompt",
           message: input.text,
-          streamingBehavior: "followUp",
+          ...(input.images?.length
+            ? { images: input.images.map(image => ({ type: "image", data: imageData(image), mimeType: image.mime })) }
+            : {}),
+          streamingBehavior: "steer",
         });
         return;
       case "interrupt":
@@ -172,9 +226,16 @@ export class Pi implements Client {
           this.events.push({ kind: "turn", session, turn: this.turn, phase: "started" });
         }
         return;
+      case "message_start":
+        this.streamed = [];
+        return;
+      case "message_update":
+        this.stream(v);
+        return;
       case "message_end": {
         const m = field(v, "message");
         if (str(m, "role") !== "assistant") return;
+        this.streamed = [];
         this.result = outcome(m);
         const text = messageText(m),
           tokens = reported(field(m, "usage"));
@@ -186,9 +247,19 @@ export class Pi implements Client {
       case "tool_execution_start": {
         const id = str(v, "toolCallId"),
           name = str(v, "toolName"),
+          hosted = this.tools.includes(name),
           p = str(field(v, "args"), "path");
         this.writes.set(id, ["write", "edit"].includes(name) && p ? [path.resolve(this.cwd, p)] : []);
-        this.events.push({ kind: "tool", session, turn: this.turn, id, done: false, wrote: [] });
+        this.events.push({
+          kind: "tool",
+          session,
+          turn: this.turn,
+          id,
+          done: false,
+          wrote: [],
+          name: hosted ? name : toolName(name),
+          summary: hosted ? hostSummary(field(v, "args")) : about(field(v, "args")),
+        });
         return;
       }
       case "tool_execution_end": {
@@ -233,6 +304,27 @@ export class Pi implements Client {
       }
     }
   }
+  /** Follows a streaming assistant message: whole, as older versions send
+   * it, or as text deltas. */
+  stream(v: unknown) {
+    const m = field(v, "message");
+    if (m !== null) {
+      if (str(m, "role") !== "assistant") return;
+      const text = messageText(m);
+      if (text && text !== this.streamed.join("\n")) {
+        this.streamed = [text];
+        this.events.push({ kind: "partial", session: this.session, text });
+      }
+      return;
+    }
+    const e = field(v, "assistantMessageEvent"),
+      index = field(e, "contentIndex"),
+      delta = str(e, "delta");
+    if (str(e, "type") !== "text_delta" || !delta || !Number.isInteger(index) || index < 0 || index > 1024) return;
+    while (this.streamed.length <= index) this.streamed.push("");
+    this.streamed[index] += delta;
+    this.events.push({ kind: "partial", session: this.session, text: this.streamed.filter(Boolean).join("\n") });
+  }
   /** The run is over, with nothing queued that would start another. */
   settled(aborted: boolean) {
     const session = this.session;
@@ -264,6 +356,7 @@ export class Pi implements Client {
     if (this.io.exited && !this.ended) {
       this.events.push({ kind: "ended" });
       this.ended = true;
+      this.release();
     }
     const out = this.events;
     this.events = [];
@@ -273,7 +366,14 @@ export class Pi implements Client {
     return this.io.wait(deadline);
   }
   close() {
+    // A process a handoff passed on may still read it.
+    if (this.io.owner === "runtime") this.release();
     this.io.close();
+  }
+  private release() {
+    if (this.file) instructions.remove(this.file);
+    if (this.tools_file) instructions.remove(this.tools_file);
+    this.file = this.tools_file = "";
   }
   adopt() {
     this.io.adopt();
@@ -300,6 +400,10 @@ export class Pi implements Client {
         ended: this.ended,
         commands: this.commands,
         awaiting: this.awaiting,
+        streamed: this.streamed,
+        file: this.file,
+        tools: this.tools,
+        tools_file: this.tools_file,
       },
     };
   }
@@ -318,6 +422,10 @@ export class Pi implements Client {
       ended: boolean;
       commands: Pi["commands"];
       awaiting: string;
+      streamed?: string[];
+      file?: string;
+      tools?: string[];
+      tools_file?: string;
     };
     const c = new this(Stdio.restore(saved, live), s.cwd);
     Object.assign(c, {
@@ -330,6 +438,10 @@ export class Pi implements Client {
       ended: live && s.ended,
       commands: s.commands ?? [],
       awaiting: s.awaiting ?? "",
+      streamed: s.streamed ?? [],
+      file: typeof s.file === "string" ? s.file : "",
+      tools: Array.isArray(s.tools) ? s.tools.filter(t => typeof t === "string") : [],
+      tools_file: typeof s.tools_file === "string" ? s.tools_file : "",
     });
     c.requests = new Map(s.requests);
     c.writes = new Map(s.writes);

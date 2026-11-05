@@ -1,21 +1,28 @@
 import { test, expect, spyOn } from "bun:test";
-import { realpathSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Memory } from "./prompt_memory";
 import {
   asksHelp,
   handles,
   help,
   helpFor,
+  historyText,
   idle,
   launcher,
   launcherText,
   layout,
   list,
   messaged,
+  openConversation,
   parse,
   read,
   run,
   usage,
   words,
+  workspaceFor,
 } from "./cli";
 import { Provider, adapter } from "./providers";
 import * as i18n from "./i18n";
@@ -166,6 +173,12 @@ test("command lines parse to the request the daemon receives", async () => {
     [["workspace", "list"], { action: "list" }],
     [["current"], { action: "current" }, 5],
     [["focus", "3", "--viewer", "9"], { action: "focus", target: 3, viewer: 9 }],
+    [["history"], { action: "history", history: { limit: 20 } }],
+    [["history", "--limit", "5", "--json"], { action: "history", json: true, history: { limit: 5 } }],
+    [
+      ["resume", "claude", "0f31-ab", "--viewer", "7"],
+      { action: "resume", open: { provider: "claude", session: "0f31-ab", workspace: null, viewer: 7 } },
+    ],
     [["workspace", "switch", "2"], { action: "workspace.switch", target: 2 }],
     [
       ["tab", "new", "--workspace", "2", "--name", "Build", "--command", "make"],
@@ -393,6 +406,8 @@ test("list outlines workspaces, tabs, panes, headless agents and viewers", () =>
           attention: "none",
           agent: { ...idle, provider: "codex", state: "idle", name: "Triage" },
         },
+        // The Corgi prompt's chat isn't an agent to list.
+        { id: 5, workspace: 2, corgi: true, exited: false, state: "idle", agent: { ...idle, provider: "claude" } },
       ],
     },
     viewers: [{ id: 1, workspace: 2, pane: 9, watched: true }],
@@ -410,6 +425,70 @@ test("list outlines workspaces, tabs, panes, headless agents and viewers", () =>
       "",
     ].join("\n"),
   );
+});
+test("a chat whose commands run where its environment can't reach names itself with --chat", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "corgi-chat-"))),
+    socket = join(dir, "control.sock"),
+    heard: any[] = [],
+    saved = ["CORGI_SOCKET", "CORGI_HEADLESS_ID", "CORGI_MEMORY"].map(k => [k, process.env[k]] as const);
+  for (const [k] of saved) delete process.env[k];
+  const server = createServer(connection => {
+    let buffer = "";
+    connection.setEncoding("utf8");
+    connection.on("data", chunk => {
+      buffer += chunk;
+      for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
+        const request = JSON.parse(buffer.slice(0, end));
+        buffer = buffer.slice(end + 1);
+        heard.push(request);
+        const reply =
+          request.op === "headless.list"
+            ? {
+                ok: true,
+                sessions: [
+                  { id: 7, persist: true },
+                  { id: 8, persist: false },
+                ],
+              }
+            : { ok: true, request_id: request.request_id };
+        connection.write(JSON.stringify(reply) + "\n");
+      }
+    });
+  });
+  await new Promise<void>(resolve => server.listen(socket, resolve));
+  const root = spyOn(Memory, "root").mockReturnValue(join(dir, "memory")),
+    out = spyOn(process.stdout, "write").mockImplementation(() => true);
+  try {
+    await run(socket, ["memory", "add", "--chat", "7", "Ships on Fridays"]);
+    const log = readdirSync(join(dir, "memory")).find(f => f.endsWith(".md"))!;
+    expect(readFileSync(join(dir, "memory", log), "utf8")).toBe("- Ships on Fridays\n");
+    expect(heard.find(r => r.op === "headless.memory")).toMatchObject({ id: 7, line: "- Ships on Fridays" });
+    // An incognito chat's only reads; after `--` it's the line's own text.
+    await expect(run(socket, ["memory", "add", "--chat", "8", "a secret"])).rejects.toThrow("MemoryReadOnly");
+    await expect(run(socket, ["memory", "add", "--chat", "x", "y"])).rejects.toThrow("Usage");
+    await run(socket, ["memory", "add", "--", "--chat", "8"]);
+    expect(readFileSync(join(dir, "memory", log), "utf8")).toBe("- Ships on Fridays\n- --chat 8\n");
+  } finally {
+    out.mockRestore();
+    root.mockRestore();
+    server.close();
+    for (const [k, v] of saved) if (v !== undefined) process.env[k] = v;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+test("an incognito prompt session's memory commands only read", async () => {
+  const before = process.env.CORGI_MEMORY;
+  process.env.CORGI_MEMORY = "read";
+  try {
+    for (const args of [
+      ["memory", "add", "a secret"],
+      ["memory", "forget", "MEMORY.md:1"],
+    ])
+      await expect(run("/missing-corgi-memory-test.sock", args)).rejects.toThrow("MemoryReadOnly");
+  } finally {
+    if (before === undefined) delete process.env.CORGI_MEMORY;
+    else process.env.CORGI_MEMORY = before;
+  }
 });
 test("launcher names each agent and says where it shows", () => {
   const snapshot = {
@@ -531,4 +610,114 @@ test("agent mode trims a read's line ends, rules and blank runs", () => {
   const rule = "─".repeat(80);
   expect(read(`${rule}\n❯ hi   \n\n\n\n${rule}`, 10)).toBe(`${rule}\n❯ hi   \n\n\n\n${rule}\n`);
   expect(read(`${rule}\n❯ hi   \n\n\n\n${rule}`, 10, true)).toBe("───\n❯ hi\n\n───\n");
+});
+
+test("history and resume reject what they can't use", async () => {
+  for (const words of [
+    ["resume"],
+    ["resume", "claude"],
+    ["resume", "nope", "abc"],
+    ["resume", "claude", "a b"],
+    ["history", "--limit", "0"],
+    ["history", "3"],
+  ])
+    await expect(parse(words)).rejects.toThrow();
+});
+test("history names each conversation the way resume takes it", () => {
+  const now = Date.UTC(2026, 9, 31, 12);
+  const entry = { account: "", first: "", last: "", branch: "", interrupted: false };
+  expect(
+    historyText(
+      [
+        {
+          ...entry,
+          provider: "claude",
+          session: "abc",
+          title: "Fix the parser",
+          cwd: "/p",
+          updated_at: now / 1000 - 3 * 3600,
+        },
+        {
+          ...entry,
+          provider: "codex",
+          session: "def",
+          title: "",
+          first: "hi",
+          cwd: "/q",
+          updated_at: now / 1000 - 300,
+        },
+      ],
+      now,
+    ),
+  ).toBe('claude abc "Fix the parser" /p 3h\ncodex def "hi" /q 5m\n');
+  expect(historyText([], now)).toBe("no conversations\n");
+});
+test("a conversation opens in the workspace whose folder holds it most closely", () => {
+  const ws = [
+    { id: 1, cwd: "/home/me" },
+    { id: 2, cwd: "/home/me/corgi" },
+    { id: 3, cwd: "/home/me/corgi-site" },
+  ];
+  expect(workspaceFor(ws, "/home/me/corgi/src", 9)).toBe(2);
+  expect(workspaceFor(ws, "/home/me/corgi-site", 9)).toBe(3);
+  expect(workspaceFor(ws, "/elsewhere", 9)).toBe(9);
+  expect(workspaceFor(ws, "/elsewhere", null)).toBeNull();
+  // An archived workspace isn't brought back for one.
+  expect(workspaceFor([...ws, { id: 4, cwd: "/home/me/corgi/x", archived: true }], "/home/me/corgi/x/y", 9)).toBe(2);
+});
+test("resume jumps to a conversation already showing, or resumes it and shows that", async () => {
+  const snapshot = {
+    result: {
+      workspaces: [
+        { id: 1, cwd: "/home/me", model: { nodes: [{ pane: 31 }], tabs: [{ id: 10, root: 0 }] } },
+        { id: 2, cwd: "/home/me/corgi", model: { nodes: [{ pane: 42 }], tabs: [{ id: 20, root: 0 }] } },
+      ],
+      panes: [
+        { id: 31, agent: null },
+        { id: 42, agent: { provider: "claude", session: "open-one" } },
+      ],
+    },
+    viewers: [{ id: 7, workspace: 1, pane: 31 }],
+  };
+  const calls: [string, any][] = [];
+  const conn = {
+    call: async (op: string, payload?: any) => {
+      calls.push([op, payload]);
+      if (op === "session.list") return snapshot;
+      if (op === "agent.history")
+        return {
+          history: {
+            pending: false,
+            entries: [
+              { provider: "codex", session: "past-one", account: "", cwd: "/home/me/corgi/site", updated_at: 1 },
+            ],
+          },
+        };
+      if (op === "session.command") return { result: { pane: 50 } };
+      return { ok: true };
+    },
+  } as any;
+  expect(
+    await openConversation(conn, { provider: "claude", session: "open-one", workspace: null, viewer: null }, null),
+  ).toEqual({ pane: 42, workspace: 2, opened: false, viewer: 7 });
+  expect(calls.at(-1)).toEqual(["focus", { pane: 42, viewer: 7 }]);
+  calls.length = 0;
+  expect(
+    await openConversation(conn, { provider: "codex", session: "past-one", workspace: null, viewer: null }, 7),
+  ).toEqual({
+    pane: 50,
+    workspace: 2,
+    opened: true,
+    viewer: 7,
+  });
+  expect(calls.map(c => c[0])).toEqual(["session.list", "agent.history", "session.command", "focus"]);
+  expect(calls[2][1].command["agent.resume"]).toEqual({
+    workspace: 2,
+    cwd: "/home/me/corgi/site",
+    provider: "codex",
+    session: "past-one",
+  });
+  await expect(
+    openConversation(conn, { provider: "codex", session: "missing", workspace: null, viewer: null }, 7),
+  ).rejects.toThrow("NoConversation");
 });

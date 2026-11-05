@@ -41,6 +41,8 @@ for await (const line of (await import('node:readline')).createInterface({input:
   else if (v.method === 'config/read') emit({id:v.id,result:{config:{},layers:[{name:{type:'user',file:process.env.CODEX_HOME+'/config.toml',profile:null},version:'fixture',config:{tui:{terminal_title:['thread-id']}}}]}});
   else if (v.method === 'thread/start') emit({id:v.id,result:{thread:{id:'t'}}});
   else if (v.method === 'turn/start') { command(v.params.input[0].text); emit({id:v.id,result:{turn:{id:activeTurn || lastTurn || 'turn'}}}); }
+  // A prompt sent while a turn runs steers it, as Codex takes it.
+  else if (v.method === 'turn/steer') { command(v.params.input[0].text); emit({id:v.id,result:{turnId:v.params.expectedTurnId}}); }
   else if (v.method === 'turn/interrupt') { finishTurn('interrupted', 'interrupted'); emit({id:v.id,result:{}}); }
   else if (v.type === 'user') command(typeof v.message.content === 'string' ? v.message.content : '');
   else if (v.id === 900 || v.type === 'control_response') finishTurn('complete');

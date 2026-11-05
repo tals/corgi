@@ -18,6 +18,7 @@ import * as notes from "./notes";
 import * as syntax from "./syntax";
 import * as tree from "./tree";
 import * as textArea from "../text_area";
+import type * as keys from "../keys";
 
 export type Scope = "all" | "uncommitted" | "commits";
 /** A key the panel reads: an edit, as every text box reads it, or one of its own. */
@@ -34,6 +35,23 @@ export type Named =
   | "ctrl_d"
   | "ctrl_u";
 export type Key = { named: Named } | { text: string };
+export const byte_keys: Partial<Record<number, Named>> = {
+  ...textArea.byte_edits,
+  4: "ctrl_d",
+  9: "tab",
+  10: "newline",
+  13: "enter",
+  21: "ctrl_u",
+  27: "escape",
+};
+export const sequence_keys: Partial<Record<keys.Key, Named>> = {
+  ...textArea.key_edits,
+  home: "home",
+  end: "end",
+  page_up: "page_up",
+  page_down: "page_down",
+  shift_tab: "shift_tab",
+};
 /** What a key does in the note box or find: its edit, with the panel's own
  * names for the line's ends and ctrl+d and ctrl+u as text boxes read them. */
 function typed(named: Named): textArea.Edit | null {
@@ -65,6 +83,7 @@ interface Ghost {
   target: Target;
   scope: Scope;
   pick: string | null;
+  source?: git.Revision;
 }
 /** How often an open panel rereads git. */
 export const refresh_ms = 2000;
@@ -176,6 +195,7 @@ class Review {
   /** The other way from how each sort starts: Z to A, or oldest edit first. */
   reversed = false;
   pick: string | null = null;
+  reference: git.Revision | null = null;
   /** The file shown alone, or on "All files" the one the cursor is in. */
   path: string | null = null;
   part: Part = "tree";
@@ -248,9 +268,9 @@ interface Now extends Listing {
   change: git.Change | null;
   file: Loaded | null;
 }
-const sourceKey = (s: git.Source) => (s.kind === "worktree" ? `w:${s.against}` : `c:${s.hash}`);
-const revOf = (s: git.Source): notes.Rev =>
-  s.kind === "worktree" ? { kind: "worktree" } : { kind: "commit", hash: s.hash };
+const sourceKey = (s: git.Source) =>
+  s.kind === "worktree" ? `w:${s.against}` : `${s.kind === "commit" ? "c" : "r"}:${git.revisionLabel(s)}`;
+const revOf = (s: git.Source): notes.Rev => (s.kind === "worktree" ? { kind: "worktree" } : s);
 
 // Colors that mix the palette for diffs: row tints, the brighter tint on
 // changed words, the cursor row, and find hits.
@@ -447,6 +467,8 @@ export class Panel {
   /** The focused pane, where a pinned panel's notes go. */
   dest: Target | null = null;
   private reviews = new Map<number, Review>();
+  /** References have no live pane; their negative IDs keep notes while switching links. */
+  private reference_panes = new Map<string, number>();
   private checkouts = new Map<string, Checkout>();
   private roots = new Map<string, string | null>();
   /** The pane whose checkout is shown. */
@@ -496,7 +518,7 @@ export class Panel {
   /** A press in the note box is dragging a selection. */
   private placing = false;
   /** A pasted character's bytes so far, and whether the last was a carriage return. */
-  private pasted: number[] = [];
+  private pasted = new textArea.Typed();
   private pasted_cr = false;
   /** A byte of a paste while typing. Whole characters go in at the caret;
    * a line break, however it's spelled, as one. */
@@ -507,26 +529,15 @@ export class Panel {
       cr = this.pasted_cr;
     this.pasted_cr = byte === 13;
     if (byte === 10 && cr) return;
-    let text: string | null = null;
-    if (byte < 0x80) {
-      this.pasted = [];
+    const typed = this.pasted.take(byte),
       text =
-        byte === 10 || byte === 13
+        typed === "\n" || typed === "\r"
           ? "\n"
-          : byte === 9
+          : typed === "\t"
             ? "    "
-            : byte >= 32 && byte !== 127
-              ? String.fromCharCode(byte)
+            : typed !== null && byte >= 32 && byte !== 127
+              ? typed
               : null;
-    } else {
-      this.pasted.push(byte);
-      const lead = this.pasted[0],
-        size = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1;
-      if (this.pasted.length < size) return;
-      text = Buffer.from(this.pasted).toString();
-      this.pasted = [];
-      if (text.includes("\ufffd")) text = null;
-    }
     if (text === null) return;
     if (r.compose) r.compose.area.insert(text);
     else if (r.find) {
@@ -566,7 +577,7 @@ export class Panel {
   }
   /** Forgets panes that closed. */
   keep(panes: Set<number>): void {
-    for (const id of this.reviews.keys()) if (!ghost_panes.includes(id) && !panes.has(id)) this.reviews.delete(id);
+    for (const id of this.reviews.keys()) if (id >= 0 && !panes.has(id)) this.reviews.delete(id);
   }
   /** Whether a ghost is shown, open or not. */
   get ghosted(): boolean {
@@ -575,9 +586,14 @@ export class Panel {
   /** Shows the checkout at `cwd` dimmed in `scope`, on commit `pick` for
    * "commits", until called with null. Keys and clicks still reach what the
    * panel follows. */
-  preview(ghost: { cwd: string; name: string; scope: Scope; pick: string | null } | null): void {
+  preview(ghost: { cwd: string; name: string; scope: Scope; pick: string | null; source?: git.Revision } | null): void {
     const same = (g: Ghost | null) =>
-      g !== null && ghost !== null && g.target.cwd === ghost.cwd && g.scope === ghost.scope && g.pick === ghost.pick;
+      g !== null &&
+      ghost !== null &&
+      g.target.cwd === ghost.cwd &&
+      g.scope === ghost.scope &&
+      g.pick === ghost.pick &&
+      JSON.stringify(g.source) === JSON.stringify(ghost.source);
     if (!ghost) {
       this.ghost = this.next_ghost = null;
       for (const id of ghost_panes) this.reviews.delete(id);
@@ -588,13 +604,35 @@ export class Panel {
     this.next_ghost = null;
     if (same(this.ghost)) return;
     const pane = ghost_panes.find(id => id !== this.ghost?.target.pane)!,
-      next = { target: { pane, cwd: ghost.cwd, name: ghost.name }, scope: ghost.scope, pick: ghost.pick };
+      next = {
+        target: { pane, cwd: ghost.cwd, name: ghost.name },
+        scope: ghost.scope,
+        pick: ghost.pick,
+        source: ghost.source,
+      };
     this.reviews.delete(pane);
-    Object.assign(this.review(pane), { scope: ghost.scope, pick: ghost.pick });
+    Object.assign(this.review(pane), { scope: ghost.scope, pick: ghost.pick, reference: ghost.source ?? null });
     // The first ghost shows at once; there is nothing to keep in its place.
     if (this.ghost) this.next_ghost = next;
     else this.ghost = next;
     void this.refresh();
+  }
+  /** Open an explicit repository revision, including one with no live pane. */
+  openReference(cwd: string, source: git.Revision, name = git.revisionLabel(source, true)): void {
+    this.preview(null);
+    const key = JSON.stringify([cwd, sourceKey(source)]);
+    let pane = this.reference_panes.get(key);
+    if (pane === undefined) {
+      pane = -3 - this.reference_panes.size;
+      this.reference_panes.set(key, pane);
+    }
+    Object.assign(this.review(pane), {
+      scope: "commits",
+      reference: source,
+      pick: source.kind === "commit" ? source.hash : null,
+    });
+    this.follow({ pane, cwd, name });
+    this.show();
   }
   /** Whether a ghost has what it shows first: its listing and the diff the cursor starts on. */
   private settled(g: Ghost): boolean {
@@ -660,6 +698,7 @@ export class Panel {
     return root ? (this.checkouts.get(root) ?? null) : null;
   }
   private source(co: Checkout, r: Review): git.Source | null {
+    if (r.reference) return r.reference;
     if (r.scope === "commits") return r.pick ? { kind: "commit", hash: r.pick } : null;
     if (r.scope === "all" && co.base) return { kind: "worktree", against: co.base.merge_base };
     return { kind: "worktree", against: co.head ?? git.empty_tree };
@@ -737,6 +776,7 @@ export class Panel {
     try {
       [co.head, co.branch, co.base] = await Promise.all([git.head(root), git.branch(root), git.base(root)]);
       co.commits = await git.commits(root, co.base);
+      if (r.reference) r.reference = await git.resolveRevision(root, r.reference);
       // A pick from elsewhere may name its commit short.
       const picked = r.pick && co.commits.find(cm => cm.hash.startsWith(r.pick!));
       if (picked) r.pick = picked.hash;
@@ -978,6 +1018,7 @@ export class Panel {
     if (load) this.loadSelected();
   }
   private setScope(r: Review, scope: Scope): void {
+    r.reference = null;
     r.scope = scope;
     r.top = 0;
     r.cur = 0;
@@ -1384,7 +1425,8 @@ export class Panel {
     return a < 0 ? null : [a, b];
   }
   private jumpToNote(r: Review, n: notes.Note): void {
-    const wanted: Scope = n.rev.kind === "commit" ? "commits" : r.scope === "commits" ? "all" : r.scope;
+    const wanted: Scope = n.rev.kind !== "worktree" ? "commits" : r.scope === "commits" ? "all" : r.scope;
+    r.reference = n.rev.kind === "range" ? n.rev : null;
     if (n.rev.kind === "commit") r.pick = n.rev.hash;
     if (wanted !== r.scope) r.scope = wanted;
     if (n.path !== r.path) r.anchor = null;
@@ -1776,8 +1818,9 @@ export class Panel {
         { label: i18n.t`all`, on: r.scope === "all", act: () => this.setScope(r, "all") },
         { label: i18n.t`uncommitted`, on: r.scope === "uncommitted", act: () => this.setScope(r, "uncommitted") },
         {
-          label:
-            r.scope === "commits" && r.pick
+          label: r.reference
+            ? `${git.revisionLabel(r.reference, true)} ${caret}`
+            : r.scope === "commits" && r.pick
               ? `${r.pick.slice(0, 7)} ${caret}`
               : co.base
                 ? i18n.t`commits ${caret} ${count}`
@@ -1864,7 +1907,9 @@ export class Panel {
             [picked.hash.slice(0, 7) + "  ", colors.faint],
             [picked.subject, colors.text],
           ]
-        : [[i18n.t`No commit picked yet. g opens the menu.`, colors.muted]];
+        : r.reference
+          ? [[git.revisionLabel(r.reference, true), colors.text]]
+          : [[i18n.t`No commit picked yet. g opens the menu.`, colors.muted]];
     } else if (r.scope === "uncommitted" || !co.base)
       parts = [
         [name, colors.text],
@@ -1965,8 +2010,8 @@ export class Panel {
   /** Where a file's change is: the commit reviewed, untracked, or for the
    * branch in its commits, the working copy, or both. */
   private originOf(co: Checkout, r: Review, source: git.Source, ch: git.Change): string {
-    return source.kind === "commit"
-      ? source.hash.slice(0, 7)
+    return source.kind !== "worktree"
+      ? git.revisionLabel(source, true)
       : ch.kind === "untracked"
         ? i18n.t`untracked`
         : r.scope === "uncommitted"

@@ -144,6 +144,9 @@ test("a headless agent gets a message as a prompt to its conversation", async ()
     session.exited = true;
     await expect(execute(r, ctx, message({ headless: 4 }, "x"))).rejects.toThrow("HeadlessExited");
     await expect(execute(r, ctx, message({ headless: 5 }, "x"))).rejects.toThrow("NoHeadlessSession");
+    // The Corgi prompt's sessions are the user's own chats.
+    Object.assign(session, { exited: false, session: "thread", corgi: true });
+    await expect(execute(r, ctx, message({ headless: 4 }, "x"))).rejects.toThrow("NoHeadlessSession");
   } finally {
     r.sessions = [];
     r.destroy();

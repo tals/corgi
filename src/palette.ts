@@ -118,12 +118,16 @@ export class Style {
       fg?: Token;
       bg?: Token;
       bold?: boolean;
+      italic?: boolean;
+      underline?: boolean;
       strike?: boolean;
     } = {},
   ) {}
   sgr() {
     const fields = ["0"];
     if (this.value.bold) fields.push("1");
+    if (this.value.italic) fields.push("3");
+    if (this.value.underline) fields.push("4");
     if (this.value.strike) fields.push("9");
     if (this.value.fg) fields.push("38", "2", ...colors[this.value.fg].map(String));
     if (this.value.bg) fields.push(...bgFields(this.value.bg, current));

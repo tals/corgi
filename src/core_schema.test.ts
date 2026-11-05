@@ -166,7 +166,7 @@ test("the runtime wire matches protocol.version", () => {
   // `hello` and `server.reload` stay on 1 so new clients find old daemons; see HACKING.md.
   expect(protocol.management_version).toBe(1);
   expect(createHash("sha256").update(schemas.protocol).digest("hex")).toBe(
-    "cb2e4858cb7610b3646ca92c3530ef33247330dc5d66bc543fa21308d48378da",
+    "a36902f796c0770d75d23ba5e39ae605799bc63f782ff083dabf653aa7ea612b",
   );
   const { server, client, dispose } = fixture();
   try {

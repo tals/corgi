@@ -2,10 +2,14 @@
 //! several threads in one process, or a tool-less one for summaries.
 import path from "node:path";
 import { parse, stringify } from "../../json";
-import { field, str } from "../common";
-import type { Client, Event, Inference, Input, Place, Saved } from "../adapter";
+import { field, hostSummary, str } from "../common";
+import type { Client, Event, Host, HostTool, Image, Inference, Input, Place, Saved } from "../adapter";
 import { Stdio } from "../stdio";
 import { parseTokens } from "./usage";
+/** A host tool's answer to an app-server request. */
+function toolReply(id: unknown, text: string, success: boolean) {
+  return { id, result: { contentItems: [{ type: "inputText", text }], success } };
+}
 export const ItemType = [
   "commandExecution",
   "fileChange",
@@ -17,8 +21,16 @@ export const ItemType = [
   "imageGeneration",
 ] as const;
 /** Requests that wait on a tool, as opposed to a question for the user. */
+/** The request Codex makes before running a command. */
+export const command_approval = "item/commandExecution/requestApproval";
+/** `command` without the login shell Codex may wrap it in, when the script
+ * it runs is quoted plainly; as it is otherwise. */
+export function bareCommand(command: string): string {
+  const m = /^(?:\S*\/)?(?:ba|z)?sh -l?c (?:'([^']*)'|"([^"$`\\]*)")$/.exec(command.trim());
+  return m ? (m[1] ?? m[2]) : command;
+}
 const tool_requests = [
-  "item/commandExecution/requestApproval",
+  command_approval,
   "item/fileChange/requestApproval",
   "item/tool/call",
   "item/tool/requestUserInput",
@@ -49,6 +61,76 @@ export function writes(items: unknown, cwd: string): string[] {
   }
   return paths;
 }
+/** What a tool item is about, in a few words. */
+export function tool(item: unknown): { name: string; summary: string } {
+  switch (str(item, "type")) {
+    case "commandExecution": {
+      const actions = field(item, "commandActions"),
+        list: unknown[] = Array.isArray(actions) ? actions : [],
+        only = list.length === 1 ? list[0] : null;
+      switch (str(only, "type")) {
+        case "read":
+          return { name: "Read", summary: str(only, "path") || str(only, "name") };
+        case "listFiles":
+          return { name: "List", summary: str(only, "path") };
+        case "search":
+          return { name: "Search", summary: str(only, "query") || str(only, "path") };
+      }
+      // Its actions name the commands without the shell that runs them.
+      const commands = list.map(a => str(a, "command")).filter(Boolean);
+      return { name: "Run", summary: commands.join(" && ") || str(item, "command") };
+    }
+    case "fileChange": {
+      const changes = field(item, "changes");
+      return {
+        name: "Edit",
+        summary: (Array.isArray(changes) ? changes.map(c => str(c, "path")).filter(Boolean) : []).join(", "),
+      };
+    }
+    case "mcpToolCall":
+      return { name: str(item, "tool"), summary: str(item, "server") };
+    case "dynamicToolCall":
+      // The host's own tools say what they were asked; others, whose namespace.
+      return field(field(item, "arguments"), "args") !== null
+        ? { name: str(item, "tool"), summary: hostSummary(field(item, "arguments")) }
+        : { name: str(item, "tool"), summary: str(item, "namespace") };
+    case "collabAgentToolCall":
+      return { name: "Agent", summary: str(item, "prompt") || str(item, "tool") };
+    case "webSearch":
+      return { name: "Search", summary: str(item, "query") };
+    case "imageView":
+      return { name: "View", summary: str(item, "path") };
+    case "imageGeneration":
+      return { name: "Image", summary: "" };
+  }
+  return { name: "", summary: "" };
+}
+/** What a daemon-hosted thread starts with, besides the account's own
+ * settings; `tools`, the host's, are the thread's alone. */
+export type Options = Pick<Place, "model" | "effort" | "instructions" | "persist" | "unattended"> & {
+  tools?: HostTool[];
+};
+/** Thread settings for a daemon-hosted session in `cwd`. */
+export function sessionThread(cwd: string, o: Options) {
+  return {
+    cwd,
+    ...(o.model ? { model: o.model } : {}),
+    ...(o.effort ? { config: { model_reasoning_effort: o.effort } } : {}),
+    ...(o.instructions ? { developerInstructions: o.instructions } : {}),
+    ...(o.persist === false ? { ephemeral: true } : {}),
+    ...(o.unattended ? { approvalPolicy: "never", sandbox: "danger-full-access" } : {}),
+    ...(o.tools?.length
+      ? {
+          dynamicTools: o.tools.map(t => ({
+            type: "function",
+            name: t.name,
+            description: t.description,
+            inputSchema: t.input,
+          })),
+        }
+      : {}),
+  };
+}
 /** Thread settings for a summary: no tools, no approvals, nothing kept. */
 function summaryThread(r: Inference, mcp: unknown) {
   const config: Record<string, boolean> = {};
@@ -71,9 +153,19 @@ function summaryThread(r: Inference, mcp: unknown) {
 type Step =
   | { kind: "initialize" }
   | { kind: "config"; text: string }
-  | { kind: "thread"; text: string }
-  | { kind: "turn" }
+  | ({ kind: "thread" } & Said)
+  | { kind: "turn"; thread?: string }
+  | ({ kind: "steer"; thread: string; turn: string } & Said)
   | { kind: "other" };
+/** What a prompt says: its text, and the images that go with it. */
+type Said = { text: string; images?: Image[] };
+/** A prompt as Codex takes it: its text, then each image by path. */
+function userInput(said: Said) {
+  return [
+    ...(said.text || !said.images?.length ? [{ type: "text", text: said.text }] : []),
+    ...(said.images ?? []).map(image => ({ type: "localImage", path: image.path })),
+  ];
+}
 /** A request Codex asked Corgi, and how to answer it. */
 type Asked = { id: unknown; method: string };
 export class Codex implements Client {
@@ -88,19 +180,38 @@ export class Codex implements Client {
   steps = new Map<string, Step>();
   /** Prompts sent before the handshake finished. */
   deferred: Input[] = [];
+  /** Threads whose turn/start hasn't named its turn yet, with the prompts
+   * and stop sent meanwhile. */
+  opening = new Map<string, { prompts: Said[]; interrupt: boolean }>();
+  /** Prompts a turn refused to be steered by, sent when it ends. */
+  after_turn = new Map<string, Said[]>();
+  /** The text so far of each answer streaming now, by item. */
+  streaming = new Map<string, { thread: string; text: string }>();
   private events: Event[] = [];
   private failure: Error | null = null;
+  /** Who runs the host's tools, and the calls running now by request key;
+   * the ones a handoff cut off, answered once this daemon takes over. */
+  private host: Host | null = null;
+  private calls = new Map<string, { id: unknown; abort: AbortController; reply?: unknown }>();
+  private interrupted: unknown[] = [];
   constructor(
     readonly io: Stdio,
     readonly cwd: string,
     public summary: Inference | null,
+    readonly options: Options = {},
   ) {}
   static start(at: Place, summary: Inference | null, args: string[] = []) {
     const io = Stdio.spawn([at.executable, "app-server", "--listen", "stdio://", ...args], {
         cwd: summary ? "/tmp" : at.cwd,
-        env: at.account ? { ...process.env, CODEX_HOME: at.account } : undefined,
+        env:
+          at.account || at.env
+            ? { ...process.env, ...at.env, ...(at.account ? { CODEX_HOME: at.account } : {}) }
+            : undefined,
       }),
-      client = new Codex(io, at.cwd, summary);
+      { model, effort, instructions, persist, unattended } = at,
+      tools = at.host?.tools.length ? { tools: at.host.tools } : {},
+      client = new Codex(io, at.cwd, summary, { model, effort, instructions, persist, unattended, ...tools });
+    client.host = at.host ?? null;
     client.request(
       "initialize",
       { clientInfo: { name: "corgi", version: "1" }, capabilities: { experimentalApi: true } },
@@ -113,27 +224,53 @@ export class Codex implements Client {
     this.steps.set(String(id), step);
     this.io.write({ id, method, params });
   }
-  private startTurn(text: string) {
+  private startTurn(said: Said, thread = this.thread) {
     const summary = this.summary;
+    this.opening.set(thread, { prompts: [], interrupt: false });
     this.request(
       "turn/start",
       {
-        threadId: this.thread,
-        input: [{ type: "text", text }],
+        threadId: thread,
+        input: userInput(said),
         ...(summary ? { effort: "low", outputSchema: summary.schema ? parse(summary.schema) : null } : {}),
       },
-      { kind: "turn" },
+      { kind: "turn", thread },
     );
+  }
+  /** A prompt for a thread: it steers the turn under way, or starts one. */
+  private prompt(thread: string, said: Said) {
+    const turn = this.active.get(thread),
+      waiting = this.opening.get(thread);
+    if (turn) this.steer(thread, turn, said);
+    else if (waiting) waiting.prompts.push(said);
+    else this.startTurn(said, thread);
+  }
+  private steer(thread: string, turn: string, said: Said) {
+    this.request(
+      "turn/steer",
+      { threadId: thread, input: userInput(said), expectedTurnId: turn },
+      { kind: "steer", thread, turn, ...said },
+    );
+  }
+  /** A turn this client started has its ID: what waited on it goes now. */
+  private opened(thread: string, turn: string) {
+    const waiting = this.opening.get(thread);
+    if (!waiting || !turn) return;
+    this.opening.delete(thread);
+    if (waiting.interrupt) this.request("turn/interrupt", { threadId: thread, turnId: turn }, { kind: "other" });
+    else for (const said of waiting.prompts) this.steer(thread, turn, said);
   }
   send(input: Input) {
     switch (input.kind) {
-      case "prompt":
+      case "prompt": {
         if (!this.ready) return void this.deferred.push(input);
         if (input.session) this.thread = input.session;
-        if (this.thread) return this.startTurn(input.text);
+        const said: Said = { text: input.text, ...(input.images?.length ? { images: input.images } : {}) };
+        if (this.thread) return this.prompt(this.thread, said);
         if (this.summary)
           return this.request("config/read", { includeLayers: false }, { kind: "config", text: input.text });
-        return this.request("thread/start", { cwd: this.cwd }, { kind: "thread", text: input.text });
+        return this.request("thread/start", sessionThread(this.cwd, this.options), { kind: "thread", ...said });
+      }
       case "answer": {
         const asked = this.requests.get(input.request);
         if (!asked) throw Error("NoRequest");
@@ -148,8 +285,13 @@ export class Codex implements Client {
       }
       case "interrupt": {
         const thread = input.session || this.thread,
-          turn = this.active.get(thread);
+          turn = this.active.get(thread),
+          waiting = this.opening.get(thread);
+        // Nothing sent to the turn starts after it.
+        this.after_turn.delete(thread);
         if (turn) this.request("turn/interrupt", { threadId: thread, turnId: turn }, { kind: "other" });
+        // A turn still starting stops once it has an ID, steering nothing.
+        else if (waiting) Object.assign(waiting, { prompts: [], interrupt: true });
         return;
       }
     }
@@ -189,11 +331,24 @@ export class Codex implements Client {
         this.thread = thread;
         if (this.summary) this.created++;
         this.events.push({ kind: "conversation", session: thread, parent: null, role: null, shown: true });
-        return this.startTurn(step.text);
+        return this.startTurn({ text: step.text, ...(step.images ? { images: step.images } : {}) });
       }
       case "turn":
-        if (failed) this.failure = Error("HarnessRejected");
+        if (failed) {
+          this.opening.delete(step.thread ?? "");
+          this.failure = Error("HarnessRejected");
+        } else this.opened(step.thread ?? "", str(field(result, "turn"), "id"));
         return;
+      case "steer": {
+        if (!failed) return;
+        const said: Said = { text: step.text, ...(step.images ? { images: step.images } : {}) };
+        // A turn that takes no steering has it start the next; one that
+        // ended meanwhile, at once.
+        if (this.active.get(step.thread) === step.turn)
+          this.after_turn.set(step.thread, [...(this.after_turn.get(step.thread) ?? []), said]);
+        else this.prompt(step.thread, said);
+        return;
+      }
     }
   }
   private decode(v: unknown) {
@@ -214,8 +369,12 @@ export class Codex implements Client {
     if (this.summary && thread && thread !== this.thread) return;
     if (method && id !== null) {
       const key = typeof id === "string" ? id : stringify(id);
+      if (method === "item/tool/call" && this.options.tools?.some(t => t.name === str(params, "tool")))
+        return this.call(key, id, str(params, "tool"), field(params, "arguments"));
       this.requests.set(key, { id, method });
-      const summary = str(params, "reason") || str(params, "command") || str(field(params, "item"), "type");
+      // A command asks with the command itself, as Claude's Bash does, so it can be read.
+      const command = method === command_approval ? bareCommand(str(params, "command")) : "",
+        summary = command || str(params, "reason") || str(params, "command") || str(field(params, "item"), "type");
       this.events.push({
         kind: "request",
         session: thread,
@@ -242,6 +401,7 @@ export class Codex implements Client {
         const started = str(field(params, "turn"), "id");
         this.active.set(thread, started);
         this.events.push({ kind: "turn", session: thread, turn: started, phase: "started" });
+        this.opened(thread, started);
         return;
       }
       case "turn/completed": {
@@ -249,6 +409,12 @@ export class Codex implements Client {
           status = str(t, "status"),
           ended = str(t, "id");
         if (!ended || this.active.get(thread) === ended) this.active.delete(thread);
+        // An interrupted stream still ends in the message it showed.
+        for (const [id, streamed] of this.streaming)
+          if (streamed.thread === thread) {
+            this.streaming.delete(id);
+            if (streamed.text) this.events.push({ kind: "message", session: thread, text: streamed.text });
+          }
         this.events.push({
           kind: "turn",
           session: thread,
@@ -256,26 +422,47 @@ export class Codex implements Client {
           phase: "ended",
           outcome: status === "interrupted" || status === "failed" ? status : "completed",
         });
+        const after = this.after_turn.get(thread) ?? [];
+        this.after_turn.delete(thread);
+        for (const said of after) this.prompt(thread, said);
         return;
       }
       case "item/started": {
-        const item = field(params, "item");
-        if (ItemType.includes(str(item, "type") as any))
-          this.events.push({ kind: "tool", session: thread, turn, id: str(item, "id"), done: false, wrote: [] });
+        const item = field(params, "item"),
+          type = str(item, "type"),
+          id = str(item, "id");
+        if (ItemType.includes(type as any))
+          this.events.push({ kind: "tool", session: thread, turn, id, done: false, wrote: [], ...tool(item) });
+        // Commentary between tools never becomes a message, so it doesn't stream either.
+        if (type === "agentMessage" && id && !this.summary && str(item, "phase") !== "commentary")
+          this.streaming.set(id, { thread, text: "" });
+        return;
+      }
+      case "item/agentMessage/delta": {
+        const streamed = this.streaming.get(str(params, "itemId")),
+          delta = str(params, "delta");
+        if (!streamed || !delta) return;
+        streamed.text += delta;
+        this.events.push({ kind: "partial", session: streamed.thread, text: streamed.text });
         return;
       }
       case "item/completed": {
         const item = field(params, "item"),
-          phase = str(item, "phase");
+          type = str(item, "type"),
+          id = str(item, "id"),
+          phase = str(item, "phase"),
+          streamed = this.streaming.get(id)?.text;
+        this.streaming.delete(id);
         this.events.push({
           kind: "tool",
           session: thread,
           turn,
-          id: str(item, "id"),
+          id,
           done: true,
           wrote: writes([item], this.cwd),
+          ...(ItemType.includes(type as any) ? tool(item) : {}),
         });
-        if (str(item, "type") === "agentMessage" && (!phase || phase === "final_answer"))
+        if (type === "agentMessage" && (!phase || phase === "final_answer" || streamed))
           this.events.push({ kind: "message", session: thread, text: str(item, "text") });
         return;
       }
@@ -295,6 +482,7 @@ export class Codex implements Client {
   }
   take(): Event[] {
     for (const value of this.io.read()) this.decode(value);
+    this.flushCalls();
     if (this.io.exited) this.events.push({ kind: "ended" });
     const out = this.events;
     this.events = [];
@@ -308,11 +496,45 @@ export class Codex implements Client {
   wait(deadline: number) {
     return this.io.wait(deadline);
   }
+  /** Runs a call to one of the host's tools, and answers it with what it printed. */
+  private call(key: string, id: unknown, tool: string, input: unknown) {
+    if (!this.host) return this.toolResult(id, "Corgi isn't running its tools here now. Try again.", false);
+    const abort = new AbortController();
+    this.calls.set(key, { id, abort });
+    void this.host
+      .call(tool, input, abort.signal)
+      .catch(() => ({ text: "corgi: the call failed", failed: true }))
+      .then(r => {
+        const call = this.calls.get(key);
+        if (!call) return;
+        call.reply = toolReply(id, r.text, !r.failed);
+        this.flushCalls();
+      });
+  }
+  private flushCalls() {
+    if (this.io.closed || this.io.exited) {
+      for (const { abort } of this.calls.values()) abort.abort();
+      this.calls.clear();
+      return;
+    }
+    for (const [key, call] of this.calls)
+      if (call.reply !== undefined && this.io.reply(call.reply)) this.calls.delete(key);
+  }
+  private toolResult(id: unknown, text: string, success: boolean) {
+    this.io.write(toolReply(id, text, success));
+  }
+  serve(host: Host) {
+    this.host = host;
+  }
   close() {
+    for (const { abort } of this.calls.values()) abort.abort();
+    this.calls.clear();
     this.io.close();
   }
   adopt() {
     this.io.adopt();
+    for (const id of this.interrupted.splice(0))
+      this.toolResult(id, "Corgi restarted while this ran. Run it again.", false);
   }
   processes() {
     return this.io.pid > 0 ? [this.io.pid] : [];
@@ -332,13 +554,20 @@ export class Codex implements Client {
         deferred: this.deferred,
         summary: this.summary,
         created: this.created,
+        // A thread that started has its instructions; one still to start needs them.
+        options: { ...this.options, instructions: this.thread ? undefined : this.options.instructions },
+        streaming: [...this.streaming],
+        opening: [...this.opening],
+        after_turn: [...this.after_turn],
+        calls: [...this.calls.values()].filter(c => c.reply === undefined).map(c => c.id),
+        replies: [...this.calls.values()].flatMap(c => (c.reply === undefined ? [] : [{ id: c.id, reply: c.reply }])),
       },
       handles: saved.handles,
     };
   }
   static restore(saved: Saved, live: boolean) {
     const state: any = saved.state ?? {},
-      client = new Codex(Stdio.restore(saved, live), state.cwd ?? "", state.summary ?? null);
+      client = new Codex(Stdio.restore(saved, live), state.cwd ?? "", state.summary ?? null, state.options ?? {});
     client.ready = state.ready === true;
     client.thread = state.thread ?? "";
     client.active = new Map(state.active ?? []);
@@ -346,7 +575,17 @@ export class Codex implements Client {
     client.next_id = BigInt(state.next_id ?? 1);
     client.steps = new Map(state.steps ?? []);
     client.deferred = state.deferred ?? [];
+    client.streaming = new Map(state.streaming ?? []);
+    client.opening = new Map(state.opening ?? []);
+    client.after_turn = new Map(state.after_turn ?? []);
     for (const asked of state.requests ?? []) client.requests.set(asked.key, { id: asked.id, method: asked.method });
+    if (live && Array.isArray(state.calls)) client.interrupted = state.calls;
+    if (live)
+      for (const reply of state.replies ?? []) {
+        const id = field(reply, "id"),
+          key = typeof id === "string" ? id : stringify(id);
+        client.calls.set(key, { id, abort: new AbortController(), reply: field(reply, "reply") });
+      }
     // Requests an older Corgi kept as the lines it read.
     for (const line of state.lines ?? []) client.decode(typeof line === "string" ? parse(line) : line);
     return client;

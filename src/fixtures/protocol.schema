@@ -351,6 +351,12 @@ $.requests|headless.start.prompt: string
 $.requests|headless.start.cwd: string
 $.requests|headless.start.workspace: optional
 $.requests|headless.start.workspace?: u32
+$.requests|headless.start.account: string
+$.requests|headless.start.model: string
+$.requests|headless.start.effort: string
+$.requests|headless.start.instructions: string
+$.requests|headless.start.persist: bool
+$.requests|headless.start.corgi: bool
 $.requests|headless.list: {}
 $.requests|headless.stop.provider: provider
 $.requests|headless.stop.session: string
@@ -360,6 +366,15 @@ $.requests|headless.send.input: any
 $.requests|headless.events.provider: provider
 $.requests|headless.events.session: string
 $.requests|headless.events.after: u64
+$.requests|headless.events.pane: optional
+$.requests|headless.events.pane?: u32
+$.requests|headless.search.id: u32
+$.requests|headless.search.search: any
+$.requests|headless.memory.id: u32
+$.requests|headless.memory.file: string
+$.requests|headless.memory.line: string
+$.requests|headless.memory.was_file: string
+$.requests|headless.memory.was_line: string
 $.requests|theme.theme: optional
 $.requests|theme.theme?.foreground: optional
 $.requests|theme.theme?.foreground?.r: u8
@@ -854,6 +869,14 @@ $.snapshot.headless_sessions[].session: string
 $.snapshot.headless_sessions[].workspace: u32
 $.snapshot.headless_sessions[].provider: provider
 $.snapshot.headless_sessions[].cwd: string
+$.snapshot.headless_sessions[].corgi: bool
+$.snapshot.headless_sessions[].account: string
+$.snapshot.headless_sessions[].model: string
+$.snapshot.headless_sessions[].effort: optional
+$.snapshot.headless_sessions[].effort?: string
+$.snapshot.headless_sessions[].persist: bool
+$.snapshot.headless_sessions[].pane: optional
+$.snapshot.headless_sessions[].pane?: u32
 $.snapshot.headless_sessions[].ready: bool
 $.snapshot.headless_sessions[].exited: bool
 $.snapshot.headless_sessions[].state: enum unknown initializing idle working blocked done

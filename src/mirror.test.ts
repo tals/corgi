@@ -50,6 +50,22 @@ test("a snapshot's sessions and last agents from a provider the viewer doesn't k
     runtime.destroy();
   }
 });
+test("the Corgi prompt's sessions are kept apart from the headless agents", () => {
+  const runtime = new mirror.Runtime();
+  try {
+    runtime.receive(null as any, {
+      workspaces: [{ id: 1, model: { nodes: [], tabs: [], revision: 0 } }],
+      headless_sessions: [
+        { id: 1, workspace: 1, provider: "claude", session: "a", corgi: true },
+        { id: 2, workspace: 1, provider: "codex", session: "b" },
+      ],
+    });
+    expect(runtime.sessions.map(s => s.id)).toEqual([2]);
+    expect(runtime.corgi_sessions.map(s => [s.id, s.corgi])).toEqual([[1, true]]);
+  } finally {
+    runtime.destroy();
+  }
+});
 test("a snapshot whose stars the viewer can't read shows none", () => {
   const runtime = new mirror.Runtime();
   try {

@@ -15,10 +15,15 @@ export class OpenCode2 implements Client {
     readonly inference = false,
   ) {}
   static start(at: Place, inference: Inference | null) {
+    // Its API reaches the one service the default settings run. Its tools
+    // run there too, in that service's environment, so `at.env` can't reach them.
+    if (at.account) throw Error("HeadlessAccountUnsupported");
     const command = import.meta.filename.startsWith("/$bunfs/")
       ? [process.execPath]
       : [process.execPath, resolve(import.meta.dir, "../../main.ts")];
-    const client = new OpenCode2(Stdio.spawn([...command, "__opencode2"], { cwd: at.cwd }), at, inference !== null);
+    // The worker hears the instructions over its pipe; saved state keeps none.
+    const { instructions: _, ...kept } = at;
+    const client = new OpenCode2(Stdio.spawn([...command, "__opencode2"], { cwd: at.cwd }), kept, inference !== null);
     client.io.write({ at, inference });
     return client;
   }
@@ -57,12 +62,11 @@ export class OpenCode2 implements Client {
     return this.io.wait(deadline);
   }
   close() {
+    // A session that keeps nothing goes with its client, as a summary's does.
+    const remove = this.inference || this.at?.persist === false;
     if (this.io.owner === "runtime" && this.at && this.session)
       void new API(this.at.executable, this.at.cwd)
-        .call(
-          this.inference ? "DELETE" : "POST",
-          `/api/session/${this.session}` + (this.inference ? "" : "/interrupt?resume=false"),
-        )
+        .call(remove ? "DELETE" : "POST", `/api/session/${this.session}` + (remove ? "" : "/interrupt?resume=false"))
         .catch(() => {});
     this.io.close();
   }

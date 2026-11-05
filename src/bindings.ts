@@ -121,6 +121,7 @@ const corgiPrefix: Binding[] = [
   { key: 113, mods: {}, prefixed: true, action: { name: "detach" } },
   { key: 98, mods: {}, prefixed: true, action: { name: "sidebar" } },
   { key: 101, mods: {}, prefixed: true, action: { name: "review" } },
+  { key: 32, mods: {}, prefixed: true, action: { name: "prompt" } },
   { key: 105, mods: {}, prefixed: true, action: { name: "setup" } },
   { key: 63, mods: {}, prefixed: true, action: { name: "help" } },
   {
@@ -141,6 +142,16 @@ const corgiPrefix: Binding[] = [
   { key: 65, mods: {}, prefixed: true, action: { name: "new-agent" } },
   { key: 1, mods: {}, prefixed: true, action: { name: "new-agent" } },
 ];
+/** Ctrl+Shift+K opens the prompt without the prefix. It matches only when
+ * the terminal reports Shift, as the Kitty keyboard protocol does, so a
+ * pane keeps plain Ctrl+K. cmux resizes up with it, so there it stays
+ * Prefix Space. */
+const prompt_chord: Binding = {
+  key: 107,
+  mods: { ctrl: true, shift: true },
+  prefixed: false,
+  action: { name: "prompt" },
+};
 const tables: Record<Preset, Binding[]> = {
   corgi: [
     ...corgiPrefix,
@@ -158,6 +169,7 @@ const tables: Record<Preset, Binding[]> = {
       action: { name: "undo-close" },
     },
     { key: 57364, mods: {}, prefixed: false, action: { name: "attention" } },
+    prompt_chord,
   ],
   tmux: [
     { key: 99, mods: {}, prefixed: true, action: { name: "new" } },
@@ -269,8 +281,10 @@ const tables: Record<Preset, Binding[]> = {
     { key: 100, mods: {}, prefixed: true, action: { name: "detach" } },
     { key: 98, mods: {}, prefixed: true, action: { name: "sidebar" } },
     { key: 101, mods: {}, prefixed: true, action: { name: "review" } },
+    { key: 32, mods: {}, prefixed: true, action: { name: "prompt" } },
     { key: 67, mods: {}, prefixed: true, action: { name: "setup" } },
     { key: 63, mods: {}, prefixed: true, action: { name: "help" } },
+    prompt_chord,
   ],
   herdr: [
     { key: 99, mods: {}, prefixed: true, action: { name: "new" } },
@@ -384,8 +398,10 @@ const tables: Record<Preset, Binding[]> = {
     { key: 113, mods: {}, prefixed: true, action: { name: "detach" } },
     { key: 98, mods: {}, prefixed: true, action: { name: "sidebar" } },
     { key: 101, mods: {}, prefixed: true, action: { name: "review" } },
+    { key: 32, mods: {}, prefixed: true, action: { name: "prompt" } },
     { key: 115, mods: {}, prefixed: true, action: { name: "setup" } },
     { key: 63, mods: {}, prefixed: true, action: { name: "help" } },
+    prompt_chord,
   ],
   cmux: [
     {

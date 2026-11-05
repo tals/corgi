@@ -189,6 +189,9 @@ test("keys whose legacy encoding loses an edit get the sequence text boxes read"
   expect(key(98, { alt: true })).toBe("\x1bb");
   expect(key(99, { super: true })).toBe("\x1b[99;9u");
   expect(key(99, { super: true, shift: true })).toBeNull();
+  // Ctrl+/ as a legacy terminal that has it sends it; Ghostty's legacy encoding drops the Ctrl.
+  expect(key(47, { ctrl: true })).toBe("\x1f");
+  expect(key(47, { ctrl: true, shift: true })).toBeNull();
   expect(key(127, {})).toBeNull();
   expect(key(97, { ctrl: true })).toBeNull();
 });

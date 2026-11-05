@@ -1,4 +1,6 @@
 // Approved single-row animation frames, mirrored from corgi_frames.zig.
+/** The corgi asleep, eyes shut, as the sidebar shows an idle workspace. */
+export const asleep = "~ᐯ◡ᴥ◡ᐯ";
 export const wag = [
   "~ᐯ•.•ᐯ",
   "-ᐯ•.•ᐯ",

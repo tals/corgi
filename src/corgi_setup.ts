@@ -35,16 +35,18 @@ import * as bugReport from "./bug_report";
 import type { Snapshot as TerminalSnapshot } from "./terminal_info";
 import * as os from "./os";
 import { Writer, clamp, directoryLabel, displayWidth, writeEllipsis, sat, wrap } from "./text";
-import { Dialog, View as DialogView, writeField } from "./name_dialog";
-import { matches } from "./search";
+import { Dialog } from "./name_dialog";
 import * as keys from "./keys";
 import type { Key } from "./keyboard";
 import * as worktreeFolder from "./worktree_folder";
 import * as shellPicker from "./shell_picker";
 import * as scrollThumb from "./scroll_thumb";
 import * as settingRow from "./setting_row";
-import * as dropdown from "./dropdown";
 import * as menuAim from "./menu_aim";
+import * as modelPicker from "./model_picker";
+import type { Marks } from "./provider_mark";
+import * as modelSuggest from "./model_suggest";
+import { routeName } from "./model_series";
 import { milliTimestamp } from "./clock";
 import type { ShellStatus } from "./launch/command";
 import {
@@ -93,7 +95,6 @@ export function status(value: any = {}): Status {
 }
 /** Who answers what Corgi asks the model; "off" only from an older daemon. */
 export type Summarizer = "auto" | Provider | "off";
-const summarizers: Summarizer[] = ["auto", ...Provider.all];
 export const Summarizer = {
   provider(choice: Summarizer): Provider | null {
     return Provider.parse(choice);
@@ -214,13 +215,12 @@ export type Apply =
   | { kind: "open"; url: string }
   /** A link to copy where Corgi can't open it, as over SSH. */
   | { kind: "copy"; text: string };
-/** A list row, an option, a choice in the open dropdown, the import picker
- * or the release's commit link under the pointer. */
+/** A list row, an option, the open model picker (at the cell under the
+ * pointer), the import picker or the release's commit link under the pointer. */
 export type Hit =
   | { item: Item }
   | { option: number }
-  | { choice: number }
-  | { model_search: number }
+  | { models: { x: number; y: number } }
   | { picker: importPicker.Hit }
   | { manager: Rect }
   | { intensity: number }
@@ -245,8 +245,8 @@ interface Option {
   /** An icon before a toggle's name, where other options keep their mark. */
   glyph?: string;
   /** A dropdown in a group: the choice in use at the right edge, green while
-   * `on`, and Enter opens `choices`. */
-  choice?: { text: string; on: boolean; choices: Choice[] };
+   * `on`, and Enter opens the model picker. */
+  choice?: { text: string; on: boolean };
   /** A text field, in a box, that takes typing while it has the cursor. */
   edit?: boolean;
   slider?: number;
@@ -271,20 +271,6 @@ const paste_found: Record<ClipboardState["support"], Found> = {
   denied: "fix",
   unsupported: "no",
 };
-/** One of a dropdown's choices. */
-interface Choice {
-  text: string;
-  note: string;
-  detail?: string;
-  pin?: boolean;
-  depth?: number;
-  inline_note?: boolean;
-  current: boolean;
-  heading?: boolean;
-  heading_tone?: Token;
-  more?: Provider;
-  apply: Apply | null;
-}
 type Line =
   | { tag: "title" | "lead" | "note" | "warn"; text: string }
   /** One line under a setting in a group, aligned with its name. */
@@ -560,20 +546,52 @@ export class Menu {
   private list_first = 0;
   /** Whether the prefix key came last; setup runs only detach after it. */
   after_prefix = false;
-  /** The open dropdown: its setting's option, and the highlighted choice. */
-  private dropdown: { option: number; at: number; top: number; visible: number[] } | null = null;
-  private expanded_models = new Set<Provider>();
+  /** Places brand marks in the model picker where the host shows images. */
+  marks: Marks | null = null;
+  /** The model picker Clever Corgi's Model opens, the prompt's own. */
+  private model_picker: modelPicker.Picker | null = null;
+  /** What the open picker was last given, and from which status and
+   * preview, so a republished status that changes nothing leaves it alone. */
+  private models_given: { s: Status; preview?: LauncherPreview; given: string } | null = null;
+  /** The picker's search as a text box, for pastes and copies. */
   private model_query = Dialog.init({ agent_command: 0 }, "");
   private models_visible = false;
+  /** The open model picker's search, as a text box; null while it's closed. */
   modelSearch(): Dialog | null {
-    return this.dropdown ? this.model_query : null;
+    const p = this.model_picker;
+    if (!p) return null;
+    if (this.model_query.raw() !== p.typed())
+      this.model_query = Object.assign(Dialog.init({ agent_command: 0 }, p.typed()), { selected: false });
+    return this.model_query;
   }
-  private searchedModels() {
-    if (this.dropdown) {
-      this.dropdown.at = 0;
-      this.dropdown.top = 0;
-    }
-    this.expanded_models.clear();
+  /** Opens the model picker on the model in use, or on Auto. */
+  private openModels(s: Status): void {
+    const m = cleverModels(s, this.agents?.preview);
+    this.model_picker = new modelPicker.Picker(m.entries, m.suggested, m.current, m.briefs, {
+      pins: m.pins,
+      current_pin: m.current ? null : auto_pin,
+    });
+    this.models_given = { s, preview: this.agents?.preview, given: given(m) };
+  }
+  /** The open picker, given the models, limits and suggestions `s` and the
+   * launcher's preview have now. */
+  private models(s: Status): modelPicker.Picker | null {
+    const p = this.model_picker,
+      preview = this.agents?.preview,
+      last = this.models_given;
+    if (!p || (last?.s === s && last.preview === preview)) return p;
+    const m = cleverModels(s, preview),
+      now = given(m);
+    if (now !== last?.given) p.update(m.entries, m.briefs, m.suggested, m.pins);
+    this.models_given = { s, preview, given: now };
+    return p;
+  }
+  /** Closes the picker on a pick or a close; a pick applies what it chose, unless it's in use. */
+  private picked(result: modelPicker.Result, s: Status): Apply | null {
+    const p = this.model_picker;
+    if (!p || result === null) return null;
+    this.model_picker = null;
+    return result === "pick" ? cleverApply(s, p, this.agents?.preview) : null;
   }
   /** Pointer adjustments preview until release, then save once. */
   private intensity_drag: number | null = null;
@@ -697,13 +715,15 @@ export class Menu {
     this.after_prefix = true;
     return "taken";
   }
-  /** The field's or the import picker's own keys while they have focus;
-   * false for the rest. Enter and Esc go on to save or cancel the field. */
+  /** The model picker's, the field's or the import picker's own keys while
+   * they have focus; false for the rest. Enter and Esc go on to save or
+   * cancel the field. */
   key(byte: number): boolean {
-    if (this.dropdown) {
-      if ([13, 27, 9, 14, 16].includes(byte)) return false;
-      this.model_query.key(byte);
-      this.searchedModels();
+    const models = this.model_picker;
+    if (models) {
+      // Enter, Esc and Tab, and Space outside a search, go on to pick, close or move.
+      if ([13, 27, 9, 14, 16].includes(byte) || (byte === 32 && !models.searching)) return false;
+      models.key(byte);
       return true;
     }
     if (this.editing) {
@@ -723,15 +743,15 @@ export class Menu {
       this.item === "keyboard" && this.focus === "options" && cols >= two_pane_cols && detailSize(cols, rows) !== null
     );
   }
-  /** Escape sequences the field takes while it has focus: caret movement
-   * and Delete. Arrows up and down stay with it rather than move. */
+  /** Escape sequences the model picker or the field takes while it has
+   * focus: the picker's arrows, or the field's caret movement and Delete.
+   * Arrows up and down stay with the field rather than move. */
   sequence(text: string): boolean {
-    if (this.dropdown) {
-      const k = keys.parse(text);
-      if (k === "up" || k === "down" || k === "shift_tab" || (k === "left" && !this.model_query.len)) return false;
-      const before = this.model_query.name();
-      this.model_query.sequence(text);
-      if (before !== this.model_query.name()) this.searchedModels();
+    const models = this.model_picker;
+    if (models) {
+      // Left goes back, unless there's a search to keep.
+      if (keys.parse(text) === "left" && !models.typed() && !models.editing) return false;
+      models.sequence(text);
       return true;
     }
     if (!this.editing) return false;
@@ -740,9 +760,10 @@ export class Menu {
     return true;
   }
   paste(byte: number): void {
-    if (this.dropdown) {
-      this.model_query.pasteByte(byte);
-      this.searchedModels();
+    if (this.model_picker) {
+      // A pasted line searches; its breaks are spaces.
+      const typed = byte === 9 || byte === 10 || byte === 13 ? 32 : byte;
+      if (typed >= 32 && typed !== 127) this.model_picker.key(typed);
       return;
     }
     if (this.managing()) {
@@ -765,16 +786,11 @@ export class Menu {
   move(next: boolean, s: Status, prefs: Preferences, wrap = true): void {
     this.clearAim();
     if (this.editing) return;
-    if (this.dropdown !== null) {
-      const d = this.dropdown,
-        n = this.choices(s, prefs).length;
-      const choices = this.choices(s, prefs);
-      for (let step = 0; step < n; step++) {
-        const at = wrap ? (d.at + (next ? 1 : n - 1)) % n : clamp(d.at + (next ? 1 : -1), 0, n - 1);
-        if (at === d.at) break;
-        d.at = at;
-        if (choices[at]?.apply || choices[at]?.more) break;
-      }
+    const models = this.models(s);
+    if (models) {
+      // Keys move and wrap; the wheel scrolls a long list.
+      if (wrap) models.key(next ? 14 : 16);
+      else models.scroll(next);
       return;
     }
     const picker = this.focus === "options" ? this.importing() : null;
@@ -819,7 +835,12 @@ export class Menu {
   /** Esc closes setup, except while adjusting a slider or copying sessions. */
   escape(): boolean {
     if (this.focus !== "options") return false;
-    if ((this.dropdown && this.model_query.len) || this.item === "flourishes" || this.importing()?.stage === "copying")
+    if (
+      this.model_picker?.searching ||
+      this.model_picker?.editing ||
+      this.item === "flourishes" ||
+      this.importing()?.stage === "copying"
+    )
       return this.back();
     return false;
   }
@@ -836,13 +857,9 @@ export class Menu {
       return true;
     }
     if (this.focus === "list") return false;
-    if (this.dropdown !== null) {
-      if (this.model_query.len) {
-        this.model_query = Dialog.init({ agent_command: 0 }, "");
-        this.searchedModels();
-        return true;
-      }
-      this.dropdown = null;
+    if (this.model_picker) {
+      if (this.model_picker.searching || this.model_picker.editing) this.model_picker.key(27);
+      else this.model_picker = null;
       return true;
     }
     const picker = this.importing();
@@ -868,21 +885,12 @@ export class Menu {
     }
     const picker = this.importing();
     if (this.focus === "options" && picker) return enterImport(picker);
-    if (this.dropdown !== null) return this.choose(this.dropdown.at, s, prefs);
+    const models = this.models(s);
+    if (models) return this.picked(models.key(13), s);
     if (this.focus === "options") {
       const option = this.options(s, prefs)[this.cursor];
       if (option?.choice !== undefined) {
-        this.model_query = Dialog.init({ agent_command: 0 }, "");
-        this.expanded_models.clear();
-        this.dropdown = {
-          option: this.cursor,
-          top: 0,
-          visible: [],
-          at: Math.max(
-            0,
-            option.choice.choices.findIndex(c => c.current),
-          ),
-        };
+        this.openModels(s);
         return null;
       }
       return option && !option.disabled ? option.apply : null;
@@ -920,19 +928,14 @@ export class Menu {
     // A click away from the field drops what it typed.
     const on_field = "option" in hit && this.options(s, prefs)[hit.option]?.edit === true;
     if (this.editing && !on_field) this.editing = null;
-    // The open dropdown takes the click, or closes.
-    if (this.dropdown !== null) {
-      if ("choice" in hit) return this.choose(hit.choice, s, prefs);
-      if ("model_search" in hit) {
-        const width = Math.max(1, (this.rendered?.layout.options.w ?? 20) - 10),
-          offset = DialogView.scroll(this.model_query, width);
-        this.model_query.position(this.model_query.byteAtColumn(offset, Math.max(0, hit.model_search)));
-        return null;
-      }
-      this.dropdown = null;
+    // The open picker takes the click, or closes.
+    const models = this.models(s);
+    if (models) {
+      if ("models" in hit) return this.picked(models.click(hit.models.x, hit.models.y), s);
+      this.model_picker = null;
       return null;
     }
-    if ("choice" in hit || "model_search" in hit) return null;
+    if ("models" in hit) return null;
     if ("url" in hit) return { kind: "open", url: hit.url };
     if ("picker" in hit) {
       const picker = this.importing();
@@ -962,31 +965,6 @@ export class Menu {
     }
     return option.apply;
   }
-  /** The open dropdown's choices. */
-  private choices(s: Status, prefs: Preferences): Choice[] {
-    if (!this.dropdown) return [];
-    const choices = this.options(s, prefs)[this.dropdown.option]?.choice?.choices ?? [];
-    const current = choices[this.dropdown.at];
-    if (!current?.apply && !current?.more)
-      this.dropdown.at = Math.max(
-        0,
-        choices.findIndex(c => c.apply || c.more),
-      );
-    return choices;
-  }
-  /** Closes the dropdown on choice `index`; Apply when it isn't the one in use. */
-  private choose(index: number, s: Status, prefs: Preferences): Apply | null {
-    const choice = this.choices(s, prefs)[index];
-    if (choice?.more) {
-      if (this.expanded_models.has(choice.more)) this.expanded_models.delete(choice.more);
-      else this.expanded_models.add(choice.more);
-      this.dropdown!.at = Math.min(index, this.choices(s, prefs).length - 1);
-      return null;
-    }
-    if (!choice?.apply) return null;
-    this.dropdown = null;
-    return choice && !choice.current ? choice.apply : null;
-  }
   private clearAim(): void {
     this.aim = null;
     this.pending_item = null;
@@ -997,7 +975,7 @@ export class Menu {
       hit = this.hit(cols, rows, x, y, s, prefs),
       from = this.aim;
     this.pending_item = null;
-    if (l && !l.single && l.list > 0 && this.focus === "list" && this.dropdown === null) {
+    if (l && !l.single && l.list > 0 && this.focus === "list" && this.model_picker === null) {
       if (hit && "item" in hit && hit.item === this.item) {
         const on = from !== null && from.at === null && from.item === this.item && from.y === y;
         // With no motion tracked before it, the pointer was resting.
@@ -1027,9 +1005,8 @@ export class Menu {
         this.aim = { x, y, entry_x: x, since: now, last_x: x, rightward: false, at: null, item: hit.item, cols, rows };
     } else this.clearAim();
     if (hit === null) return;
-    if ("choice" in hit) {
-      if (this.dropdown !== null) this.dropdown.at = hit.choice;
-    } else if (this.dropdown !== null) return;
+    if ("models" in hit) this.model_picker?.hover(hit.models.x, hit.models.y);
+    else if (this.model_picker) return;
     else if ("item" in hit) {
       if (this.focus === "list") this.item = hit.item;
     } else if ("option" in hit && this.focus === "options" && !this.options(s, prefs)[hit.option]?.disabled)
@@ -1087,17 +1064,7 @@ export class Menu {
     }
     const row = y - l.b.y - 2;
     if (row < 0 || row >= l.body) return null;
-    const open = this.dropdownBox(l, s, prefs);
-    if (open?.contains(x, y)) {
-      const choices = this.choices(s, prefs);
-      if (y === open.y + 1 && x > open.x && x < open.x + open.w - 1) {
-        const search_width = modelColumns(choices, open.w).detail - 2;
-        return x < open.x + 4 + search_width ? { model_search: x - open.x - 4 } : null;
-      }
-      const index = dropdown.hit(open, this.dropdown?.visible.length ?? 0, x, y, true),
-        at = index === null ? -1 : (this.dropdown?.visible[index] ?? -1);
-      return at < 0 || (!choices[at]?.apply && !choices[at]?.more) ? null : { choice: at };
-    }
+    if (this.modelBox(l, s, prefs)?.contains(x, y)) return { models: { x, y } };
     const list_shown = l.single ? this.focus === "list" : l.list > 0;
     if (list_shown) {
       const left = l.b.x + 1,
@@ -1151,45 +1118,8 @@ export class Menu {
     if (list_shown) this.drawList(w, b.x + 1, top, l.single ? b.w - 2 : list_w, l.body, s, prefs);
     const managing = this.item === "agents" && this.agents !== null && !(l.single && this.focus === "list");
     if (!(l.single && this.focus === "list") && !managing) this.drawOptions(w, l, s, prefs, now_ms);
-    const open = this.dropdownBox(l, s, prefs);
-    if (open) {
-      const choices = this.choices(s, prefs),
-        columns = modelColumns(choices, open.w);
-      dropdown.draw(
-        w,
-        open,
-        (this.dropdown?.visible ?? []).map(index => {
-          const choice = choices[index],
-            branch = choice.depth === 2 ? (choices[index + 1]?.depth === 2 ? "├" : "╰") : undefined;
-          return {
-            text: choice.text,
-            note: choice.note,
-            detail: choice.detail,
-            pin: choice.pin,
-            current: choice.current,
-            dim: choice.pin && !choice.apply,
-            heading: choice.heading,
-            heading_tone: choice.heading_tone,
-            depth: choice.depth,
-            inset: modelIndent(choice),
-            branch,
-            inline_note: choice.inline_note,
-            hovered: index === this.dropdown?.at,
-          };
-        }),
-        { text: "", note: "", detail: i18n.t`Billing` },
-        columns.note,
-        columns.detail,
-      );
-      const x = open.x + 4,
-        y = open.y + 1,
-        width = Math.max(1, columns.detail - 2);
-      w.write(at(x, y) + text);
-      const offset = DialogView.scroll(this.model_query, width);
-      const column = writeField(w, this.model_query, offset, width, text);
-      if (!this.model_query.len) w.write(border + i18n.t`Search models`);
-      this.caret = { x: x + column, y };
-    }
+    const open = this.modelBox(l, s, prefs);
+    if (open) this.model_picker!.draw(w, open, this.marks, now_ms);
     if (l.detail) {
       const d = l.detail;
       onboarding.drawPresetDetail(w, d.x, d.y, d.width, d.compact, {
@@ -1613,22 +1543,17 @@ export class Menu {
     }
     w.write("\x1b[22m");
   }
-  /** The open dropdown's box, under its setting's row with ✓ under the ›;
-   * null while it is closed. */
-  private dropdownBox(l: Layout, s: Status, prefs: Preferences): Rect | null {
-    const d = this.dropdown;
-    if (d === null) return null;
-    const row = this.lines(s, prefs, l).findIndex(line => line.tag === "option" && line.index === d.option);
+  /** The open model picker's box: under the Model row, its right edge with
+   * the options' and wider than them where the frame has room, raised to fit
+   * above the bottom; null while it is closed. */
+  private modelBox(l: Layout, s: Status, prefs: Preferences): Rect | null {
+    const models = this.models(s);
+    if (!models) return null;
+    const row = this.lines(s, prefs, l).findIndex(line => line.tag === "option" && line.option.choice !== undefined);
     if (row < 0) return null;
-    const choices = this.choices(s, prefs),
-      count = choices.length,
-      h = Math.min(count + 3, l.body),
-      capacity = h - 3,
-      width = Math.min(l.b.w - 4, Math.max(l.options.w - 3, modelPreferredWidth(choices))),
+    const width = Math.min(l.b.w - 4, Math.max(l.options.w - 3, picker_w)),
+      h = models.height(l.body),
       bottom = l.b.y + 2 + l.body;
-    const view = dropdown.viewport(choices, d.top, d.at, capacity);
-    d.top = view.first;
-    d.visible = view.indices;
     return new Rect(
       l.options.x + l.options.w - 1 - width,
       Math.max(l.b.y + 2, Math.min(l.b.y + 3 + row, bottom - h)),
@@ -1819,11 +1744,7 @@ export class Menu {
             mark: "none",
             apply: null,
             action: i18n.t`change`,
-            choice: {
-              text: inUse(s),
-              on: s.choice !== "off",
-              choices: summarizerChoices(s, this.expanded_models, this.model_query.name(), this.agents?.preview),
-            },
+            choice: { text: inUse(s), on: s.choice !== "off" },
           }),
           { tag: "brief", text: summary(s.choice, s), tone: "muted" },
           ...(second === null ? [] : [{ tag: "brief", text: second } as Line]),
@@ -2210,13 +2131,21 @@ export class Menu {
         ["end", i18n.t`bright`],
         ["esc", i18n.t`back`],
       ];
-    if (this.dropdown !== null)
-      return [
-        ["type", i18n.t`search`],
-        ["↑↓", i18n.t`move`],
-        ["enter", i18n.t`use`],
-        ["esc", i18n.t`close`],
-      ];
+    if (this.model_picker)
+      return this.model_picker.searching
+        ? [
+            ["type", i18n.t`search`],
+            ["↑↓", i18n.t`move`],
+            ["enter", i18n.t`use`],
+            ["esc", i18n.t`back`],
+          ]
+        : [
+            ["/", i18n.t`search`],
+            ["↑↓", i18n.t`move`],
+            ["enter", i18n.t`use`],
+            ["←", i18n.t`back`],
+            ["esc", i18n.t`close`],
+          ];
     const option = this.options(s, prefs)[this.cursor];
     const enter: [string, string][] =
       option && !option.disabled && (option.apply || option.choice !== undefined) ? [["enter", option.action]] : [];
@@ -2360,233 +2289,210 @@ function drawHints(w: Writer, x: number, y: number, room: number, hints: [string
     w.write(hint_key + key + panel + " " + label + border + (i < hints.length - 1 ? "   " : " "));
   });
 }
-function summarizerChoices(
-  s: Status,
-  expanded: ReadonlySet<Provider>,
-  query: string,
-  preview?: LauncherPreview,
-): Choice[] {
-  const choices = summarizers.flatMap(choice => {
-    const provider = Summarizer.provider(choice);
-    if (!provider) {
-      if (!matches(query, `${Summarizer.label(choice)} ${summary(choice, s)}`)) return [];
-      const providerName = s.provider ? adapter(s.provider).name : "",
-        model = s.provider ? Model.resolve(s.models[s.provider]).label() : "";
-      return [
-        {
-          text: Summarizer.label(choice),
-          inline_note: true,
-          note:
-            choice === "auto" && s.choice === "auto" && s.provider
-              ? s.locked
-                ? i18n.t`Use ${providerName} · ${model}`
-                : i18n.t`Follow ${providerName} · ${model}`
-              : choice === "auto"
-                ? i18n.t`Follow your agents`
-                : summary(choice, s),
-          current: choice === s.choice,
-          apply: { kind: "summaries", choice },
-        } as Choice,
-      ];
-    }
-    const native = adapter(provider).inference.catalog === "native";
-    if (!adapter(provider).inference.models || (native && !s.available.some(m => m.provider === provider))) {
-      const default_model = s.selection.provider === provider && s.selection.model ? "" : s.models[provider],
-        rows = [
-          {
-            account: "",
-            name: adapter(provider).inference.source || preview?.names[provider] || i18n.t`Default`,
-            option: preview?.options[provider],
-          },
-          ...(preview?.accounts.filter(a => a.provider === provider) ?? []).map(a => ({
-            account: a.account,
-            name: a.name,
-            option: a.option,
-          })),
-        ].flatMap(row => {
-          const explicit =
-              s.selection.provider === provider && s.selection.account === row.account && s.selection.model,
-            model = explicit || default_model || adapter(provider).inference.model,
-            label =
-              (row.option?.model === model ? row.option.model_name : "") ||
-              Model.resolve(model).label() ||
-              i18n.t`Default model`,
-            user = row.option?.account || "—",
-            plan = row.option?.plan ?? "",
-            kind: Billing | "signed_out" =
-              row.option?.signed_in === false
-                ? "signed_out"
-                : row.option?.limits === "metered"
-                  ? "tokens"
-                  : row.option && typeof row.option.limits === "object"
-                    ? "subscription"
-                    : "unknown";
-          if (!matches(query, `${adapter(provider).name} ${row.name} ${label} ${model} ${user} ${plan}`)) return [];
-          return [
-            modelHeading(row.name, 1, user, billingLabel(kind, plan)),
-            {
-              text: label,
-              note: "",
-              depth: 2,
-              current: s.choice === provider && s.account === row.account,
-              apply: row.account
-                ? { kind: "summaries", choice: provider, model, account: row.account }
-                : { kind: "summaries", choice: provider },
-            } as Choice,
-          ];
-        });
-      return rows.length ? [modelHeading(adapter(provider).name), ...rows] : [];
-    }
-    const all = s.available.filter(m => m.provider === provider);
-    if (native) all.sort(compare);
-    const recommended = automatic(all.filter(m => !native || !m.account)),
-      models = all.filter(m =>
-        matches(
-          query,
-          `${adapter(provider).name} ${modelSource(m, preview)} ${m.name} ${m.model} ${m.account_name} ${m.plan}`,
-        ),
-      ),
-      show_all = expanded.has(provider),
-      auto = s.selection.provider !== provider || !s.selection.model;
-    if (query && !models.length && !(s.loading && matches(query, adapter(provider).name))) return [];
-    const candidate = recommended;
-    const auto_choice: Choice = {
-      text: i18n.t`Auto`,
-      depth: 1,
-      inline_note: true,
-      note: candidate
-        ? ""
-        : all.length
-          ? i18n.t`No verified model yet`
-          : s.loading
-            ? i18n.t`Fetching models…`
-            : i18n.t`Sign in first`,
-      current: s.choice === provider && auto,
-      apply: s.loading && !all.length ? null : { kind: "summaries", choice: provider },
-    };
-    const count = models.length,
-      modelCount = count === 1 ? i18n.t`${count} model` : i18n.t`${count} models`;
-    const heading: Choice = {
-      text: adapter(provider).name,
-      note: all.length
-        ? modelCount + (s.loading ? " ◌" : "")
-        : s.loading
-          ? i18n.t`Fetching models…`
-          : i18n.t`No signed-in models`,
-      current: false,
-      heading: true,
-      heading_tone: "accent",
-      apply: null,
-    };
-    const counts = new Map<string, number>(),
-      shortlist = native
-        ? models.filter(m => {
-            const count = counts.get(m.account) ?? 0;
-            counts.set(m.account, count + 1);
-            return count < 5;
-          })
-        : models.slice(0, 5),
-      hidden = models.length - shortlist.length,
-      visible = show_all ? models.slice() : shortlist;
-    if (candidate) {
-      const index = visible.indexOf(candidate);
-      if (index >= 0) visible.splice(index, 1);
-      else if (!show_all && models.includes(candidate)) {
-        const last = visible.findLastIndex(m => !native || m.account === candidate.account);
-        if (last >= 0) visible.splice(last, 1);
-      }
-      visible.unshift(candidate);
-    }
-    const groups = new Map<string, ModelOption[]>();
-    for (const model of visible) {
-      const key = JSON.stringify([modelSource(model, preview), model.account, billing(model), model.plan]),
-        group = groups.get(key);
-      if (group) group.push(model);
-      else groups.set(key, [model]);
-    }
-    return [
-      heading,
-      ...(matches(query, `${auto_choice.text} ${auto_choice.note}`) ? [auto_choice] : []),
-      ...[...groups.values()].flatMap(group => [
-        modelHeading(
-          modelSource(group[0], preview),
-          1,
-          group[0].account_name || "—",
-          billingLabel(billing(group[0]), group[0].plan),
-        ),
-        ...group.map((m): Choice => ({
-          text: m.name,
-          depth: 2,
-          note: m === candidate ? i18n.t`(auto choice)` : m.ready === false ? i18n.t`Check failed` : "",
-          pin: m === candidate,
-          current: s.choice === provider && !auto && s.model === m.model && s.account === m.account,
-          apply: models.includes(m)
-            ? { kind: "summaries", choice: provider, model: m.model, account: m.account }
-            : null,
-        })),
-      ]),
-      ...(hidden > 0
-        ? [
-            {
-              text: show_all ? i18n.t`Show fewer` : i18n.t`Show ${hidden} more`,
-              depth: 1,
-              note: "",
-              current: false,
-              more: provider,
-              apply: null,
-            } as Choice,
-          ]
-        : []),
-    ];
-  });
-  let harness = false;
-  const spaced: Choice[] = [];
-  for (const choice of choices) {
-    if (choice.heading && (choice.depth ?? 0) === 0) {
-      if (harness) spaced.push({ text: "", note: "", depth: 0, current: false, apply: null });
-      harness = true;
-    }
-    spaced.push(choice);
-  }
-  return spaced.length
-    ? spaced
-    : [{ text: i18n.t`No matching models`, note: "", heading: true, current: false, apply: null }];
+/** The model picker's pin for Auto, which follows the agents you run. */
+const auto_pin = "auto";
+/** The model picker's least width; it keeps to the options when they are wider. */
+const picker_w = 64;
+/** What Clever Corgi's picker lists: Auto, then models from the catalogs. */
+interface CleverModels {
+  entries: modelPicker.Entry[];
+  suggested: modelPicker.Choice[];
+  /** The model in use; null under Auto. */
+  current: modelPicker.Choice | null;
+  briefs: modelPicker.Brief[];
+  pins: modelPicker.Pin[];
 }
-function modelHeading(text: string, depth = 0, note = "", detail = ""): Choice {
+function cleverModels(s: Status, preview?: LauncherPreview): CleverModels {
+  const rows = cleverRows(s, preview),
+    entries = rows.map(r => r.entry),
+    current = cleverCurrent(s, rows),
+    providerName = s.provider ? adapter(s.provider).name : "";
+  // The model in use first; "" asks for the in-use provider's own quick model.
+  const usage: modelSuggest.Usage = {
+    launches: s.launches,
+    agents: [],
+    last: current,
+    clever: s.provider ? { provider: s.provider, model: "" } : null,
+  };
   return {
-    text,
-    depth,
-    note,
-    detail,
-    heading: true,
-    heading_tone: depth === 0 ? "accent" : undefined,
-    current: false,
-    apply: null,
+    entries,
+    suggested: modelSuggest.suggest(usage, entries, false),
+    current,
+    briefs: cleverBriefs(s, rows, preview),
+    pins: [
+      {
+        id: auto_pin,
+        name: Summarizer.label("auto"),
+        detail:
+          s.choice === "auto" && s.provider
+            ? [
+                s.locked ? i18n.t`Use ${providerName}` : i18n.t`Follow ${providerName}`,
+                Model.resolve(s.models[s.provider]).label(),
+              ]
+            : [i18n.t`Follow your agents`],
+        glyph: "✦",
+      },
+    ],
   };
 }
-function modelProviderName(provider: string): string {
-  const names: Record<string, string> = {
-    "github-copilot": "GitHub Copilot",
-    "openai-codex": "OpenAI Codex",
-    openai: "OpenAI",
-    anthropic: "Anthropic",
-    google: "Google",
-    openrouter: "OpenRouter",
-  };
-  return names[provider] ?? provider;
+/** What the picker's open state was given, to tell a change from a republish. */
+function given(m: CleverModels): string {
+  return JSON.stringify([m.entries, m.suggested, m.briefs, m.pins]);
 }
-function modelSource(model: ModelOption, preview?: LauncherPreview): string {
-  const inference = adapter(model.provider).inference;
-  if (inference.catalog !== "native") return modelProviderName(model.model.split("/")[0]);
-  const source = inference.source || adapter(model.provider).name;
-  return model.account
-    ? preview?.accounts.find(a => a.provider === model.provider && a.account === model.account)?.name ||
-        model.account_name ||
-        source
-    : source;
+/** A model Clever Corgi can use, and what picking it asks for. */
+interface CleverRow {
+  entry: modelPicker.Entry;
+  /** Picking it follows its provider's own choice, which is this model for
+   * now, rather than keeping to this model. */
+  follows: boolean;
+  /** What's in use, so picking it changes nothing. */
+  current: boolean;
+}
+/** Whether a provider's models are its default in each account, as until a
+ * native catalog arrives; the rest list their catalog. */
+function fixedModels(s: Status, provider: Provider): boolean {
+  const inference = adapter(provider).inference;
+  return !inference.models || (inference.catalog === "native" && !s.available.some(m => m.provider === provider));
+}
+/** Every model Clever Corgi can use, without efforts: each catalog's, its
+ * recommended one following the provider's choice, or until a catalog
+ * arrives, the default model in each account, the default account's
+ * following the provider's. */
+function cleverRows(s: Status, preview?: LauncherPreview): CleverRow[] {
+  const entry = (provider: Provider, account: string, account_name: string, model: string, name: string) => ({
+    provider,
+    account,
+    account_name,
+    model,
+    name,
+    efforts: [],
+    default_effort: null,
+  });
+  return Provider.all.flatMap(provider => {
+    if (fixedModels(s, provider)) {
+      const default_model = s.selection.provider === provider && s.selection.model ? "" : s.models[provider];
+      return [
+        { account: "", name: preview?.names[provider] ?? "", option: preview?.options[provider] },
+        ...(preview?.accounts.filter(a => a.provider === provider) ?? []).map(a => ({
+          account: a.account,
+          name: a.name,
+          option: a.option,
+        })),
+      ].map((row): CleverRow => {
+        const explicit = s.selection.provider === provider && s.selection.account === row.account && s.selection.model,
+          model = explicit || default_model || adapter(provider).inference.model,
+          name = (row.option?.model === model ? row.option.model_name : "") || Model.resolve(model).label() || model;
+        return {
+          entry: entry(provider, row.account, row.name, model, name),
+          follows: !row.account && !explicit,
+          current: s.choice === provider && s.account === row.account,
+        };
+      });
+    }
+    const native = adapter(provider).inference.catalog === "native",
+      all = s.available.filter(m => m.provider === provider).sort(compare),
+      recommended = automatic(all.filter(m => !native || !m.account)),
+      auto = s.selection.provider !== provider || !s.selection.model;
+    return all.map((m): CleverRow => ({
+      entry: entry(
+        provider,
+        m.account,
+        (m.account && preview?.accounts.find(a => a.provider === provider && a.account === m.account)?.name) ||
+          m.account_name,
+        m.model,
+        m.name,
+      ),
+      follows: m === recommended,
+      current:
+        s.choice === provider && (m === recommended ? auto : !auto && s.model === m.model && s.account === m.account),
+    }));
+  });
+}
+/** The model in use, as the picker lists it; null under Auto. */
+function cleverCurrent(s: Status, rows: CleverRow[]): modelPicker.Choice | null {
+  const provider = Summarizer.provider(s.choice);
+  if (!provider) return null;
+  const e =
+    rows.find(r => r.current)?.entry ??
+    modelSuggest.lookup(
+      rows.map(r => r.entry),
+      provider,
+      s.account,
+      s.model,
+    );
+  return e
+    ? { provider, account: e.account, model: e.model, name: e.name, effort: null }
+    : { provider, account: s.account, model: s.model, name: Model.resolve(s.model).label(), effort: null };
+}
+/** What heads Clever Corgi's models: each account's plan and limits as the
+ * launcher reads them, or as its catalog bills them, and each source routed
+ * through it with the account and plan it bills; then what's true of a model
+ * alone: "auto" where it follows its provider's choice, "Check failed". */
+function cleverBriefs(s: Status, rows: CleverRow[], preview?: LauncherPreview): modelPicker.Brief[] {
+  const out: modelPicker.Brief[] = [],
+    /** Each heading's plan, by agent, account and route. */
+    plans = new Map<string, string>(),
+    head = (provider: Provider, account: string): modelPicker.Brief | null => {
+      const option = account
+        ? preview?.accounts.find(a => a.provider === provider && a.account === account)?.option
+        : preview?.options[provider];
+      if (option) return modelPicker.accountHeader(provider, account, option);
+      const billed = s.available.find(m => m.provider === provider && m.account === account);
+      if (!billed || adapter(provider).inference.catalog !== "native") return null;
+      const plan = billingLabel(billing(billed), billed.plan);
+      return {
+        ...modelPicker.brief(provider, account, [plan].filter(Boolean)),
+        who: billed.account_name,
+        plan,
+        limits: [],
+      };
+    };
+  for (const { entry: e, follows } of rows) {
+    const m = s.available.find(m => m.provider === e.provider && m.account === e.account && m.model === e.model),
+      native = adapter(e.provider).inference.catalog === "native",
+      route = routeName(e.model),
+      key = JSON.stringify([e.provider, e.account, native ? "" : route]),
+      own = m && !native ? billingLabel(billing(m), m.plan) : "";
+    if (!plans.has(key)) {
+      const plan = own,
+        brief =
+          m && !native && route
+            ? {
+                ...modelPicker.brief(e.provider, e.account, [route, plan].filter(Boolean)),
+                route,
+                who: m.account_name,
+                plan,
+                limits: [],
+              }
+            : head(e.provider, e.account);
+      if (brief) out.push(brief);
+      plans.set(key, brief?.plan ?? "");
+    }
+    // A model billed unlike its heading says how.
+    const parts = [
+      follows ? i18n.t`auto` : "",
+      m?.ready === false ? i18n.t`Check failed` : "",
+      own !== plans.get(key) ? own : "",
+    ].filter(Boolean);
+    if (parts.length) out.push(modelPicker.brief(e.provider, e.account, parts, e.model));
+  }
+  return out;
+}
+/** What a pick asks the daemon for; null for what's in use. */
+function cleverApply(s: Status, picker: modelPicker.Picker, preview?: LauncherPreview): Apply | null {
+  if (picker.pinned() === auto_pin) return s.choice === "auto" ? null : { kind: "summaries", choice: "auto" };
+  const c = picker.chosen(),
+    row = cleverRows(s, preview).find(
+      r => r.entry.provider === c.provider && r.entry.account === c.account && r.entry.model === c.model,
+    );
+  // A model in use that no catalog lists is only shown, as it is.
+  if (!row || row.current) return null;
+  return row.follows
+    ? { kind: "summaries", choice: c.provider }
+    : { kind: "summaries", choice: c.provider, model: c.model, account: c.account };
 }
 type Billing = "subscription" | "tokens" | "free" | "unknown";
-function billingLabel(kind: Billing | "signed_out", plan: string): string {
+function billingLabel(kind: Billing, plan: string): string {
   switch (kind) {
     case "subscription":
       return plan || i18n.t`Plan`;
@@ -2595,9 +2501,7 @@ function billingLabel(kind: Billing | "signed_out", plan: string): string {
     case "free":
       return i18n.t`Free`;
     case "unknown":
-      return plan || i18n.t`Unknown`;
-    case "signed_out":
-      return i18n.t`Signed out`;
+      return plan;
   }
 }
 function billing(model: ModelOption): Billing {
@@ -2605,34 +2509,6 @@ function billing(model: ModelOption): Billing {
   if (adapter(model.provider).inference.catalog === "native") return "tokens";
   if (model.input_cost === null || model.output_cost === null) return "unknown";
   return model.input_cost === 0 && model.output_cost === 0 ? "free" : "tokens";
-}
-/** Stable columns across groups and scroll positions; names keep room before metadata. */
-function modelIndent(choice: Choice): number {
-  return choice.depth === 2 ? 3 : 0;
-}
-function modelColumnWidths(choices: Choice[]): { name: number; account: number; billing: number } {
-  const accounts = choices.filter(c => c.heading && c.depth === 1);
-  return {
-    name: Math.max(
-      12,
-      ...accounts.map(c => displayWidth(c.text)),
-      ...choices.filter(c => c.pin).map(c => displayWidth(c.text) + modelIndent(c)),
-    ),
-    account: Math.max(12, ...accounts.map(c => displayWidth(c.note))),
-    billing: Math.max(7, ...accounts.map(c => displayWidth(c.detail ?? ""))),
-  };
-}
-function modelPreferredWidth(choices: Choice[]): number {
-  const columns = modelColumnWidths(choices);
-  return columns.name + columns.account + columns.billing + 10;
-}
-function modelColumns(choices: Choice[], width: number): { note: number; detail: number } {
-  const room = Math.max(0, width - 6),
-    wanted = modelColumnWidths(choices),
-    billing = Math.min(wanted.billing, Math.max(7, Math.floor(room / 3))),
-    name = Math.min(wanted.name, Math.max(8, room - billing - 10)),
-    account = Math.max(0, room - name - billing - 4);
-  return { note: name, detail: name + account + 4 };
 }
 function summary(choice: Summarizer, s: Status): string {
   switch (choice) {

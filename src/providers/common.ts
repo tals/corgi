@@ -1,9 +1,9 @@
 import type * as checklist from "../activity/checklist";
-import { readdirSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { BoundedText } from "../bounded_text";
 import path from "node:path";
 import { field, str } from "../json";
-import type { Permissions, Programs } from "./adapter";
+import { max_image_bytes, type Image, type Permissions, type Programs } from "./adapter";
 export { field, str } from "../json";
 export type Outcome = "completed" | "interrupted" | "failed";
 export type SessionRef = { id: string } | { path: string };
@@ -15,6 +15,12 @@ export function validRef(r: SessionRef) {
   );
 }
 export class Text extends BoundedText(Infinity) {}
+/** What a call to a host tool is about: the words it was given, which its
+ * row shows after the tool's name. */
+export function hostSummary(input: unknown): string {
+  const args = field(input, "args");
+  return (Array.isArray(args) ? args.filter(a => typeof a === "string") : []).join(" ");
+}
 /** A token count `v` reports at `key`: a whole number that fits 64 bits. */
 export function number(v: any, key: string): bigint | null {
   const n = field(v, key);
@@ -184,4 +190,17 @@ export function owns(programs: Programs, p: string): boolean {
     (programs.markers ?? []).some(marker => p.includes(marker)) ||
     (programs.scripts ?? []).some(script => p.endsWith(script))
   );
+}
+/** Whether the image file at `path` is too big to send; false for one that
+ * can't be read, which sending it reports. */
+export function oversized(path: string): boolean {
+  try {
+    return statSync(path).size > max_image_bytes;
+  } catch {
+    return false;
+  }
+}
+/** An image's bytes as base64, for a protocol that carries them inline. */
+export function imageData(image: Image): string {
+  return readFileSync(image.path).toString("base64");
 }

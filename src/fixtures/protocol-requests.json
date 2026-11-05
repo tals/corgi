@@ -182,7 +182,13 @@
     "provider": "codex",
     "cwd": "/tmp",
     "workspace": 1,
-    "prompt": "hello"
+    "prompt": "hello",
+    "model": "gpt-6-luna",
+    "effort": "high",
+    "instructions": "Be brief.",
+    "persist": false,
+    "corgi": true,
+    "images": [{ "path": "/tmp/a.png", "mime": "image/png" }]
   },
   "headless.list": {},
   "headless.stop": {
@@ -197,10 +203,19 @@
     },
     "provider": "codex"
   },
+  "headless.search": { "id": 1, "search": {} },
+  "headless.memory": {
+    "id": 1,
+    "file": "/memory/MEMORY.md",
+    "line": "- Ships Fridays",
+    "was_file": "/memory/2026-10-30.md",
+    "was_line": "- Ships on Fridays"
+  },
   "headless.events": {
     "session": "t",
     "after": 4,
-    "provider": "codex"
+    "provider": "codex",
+    "pane": 3
   },
   "theme": {
     "theme": {

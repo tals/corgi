@@ -602,6 +602,14 @@ test("badge redraw preserves cached pixels and shifts only the workspace heading
   expect(covered).toContain(corgiBadge.hide);
   expect(covered).not.toContain("a=p,i=730031");
   u.tab_menu = null;
+  // The prompt leaves it up unless what it drew reaches it.
+  u.prompt_draw = () => [new Rect(30, 5, 60, 12)];
+  expect(frame(view, [], 100, 30, u)).toContain("a=p,i=730031");
+  u.prompt_draw = () => [new Rect(30, 5, 60, 12), new Rect(1, 0, 40, 4)];
+  const under_prompt = frame(view, [], 100, 30, u);
+  expect(under_prompt).toContain(corgiBadge.hide);
+  expect(under_prompt).not.toContain("a=p,i=730031");
+  u.prompt_draw = null;
   u.sidebar_open = false;
   const hidden = frame(view, [], 100, 30, u);
   expect(hidden).toContain(corgiBadge.hide);
@@ -850,4 +858,79 @@ test("settings' Manage agents places the same provider marks as the launcher's",
   icons.begin();
   expect(shown(graphics)).toContain("\x1b_Ga=p");
   expect(launch.manager.marks).not.toBeNull();
+});
+
+test("the prompt draws over dimmed panes, with no pane cursor, and places brand marks", () => {
+  const m = new Model();
+  const selection = new Selection();
+  const id = m.newTab("");
+  selection.reconcile(m);
+  const pane: any = {
+    id,
+    label: "",
+    cwd: "/w/corgi",
+    command: "",
+    brand: null,
+    agent: agent({ provider: "claude" }),
+    restoring: "",
+    terminal: {
+      updateRender() {},
+      hyperlinks: () => [],
+      cursor: () => ({ x: 0, y: 0 }),
+      rows: (_id: number, x: number, y: number, _w: number, _h: number, dimmed: boolean) =>
+        `\x1b[${y + 1};${x + 1}H${dimmed ? "dimmed" : "plain"}`,
+    },
+  };
+  const icons = new Icons(),
+    cell = { width: 9, height: 18 },
+    view = new View(m, selection),
+    placed: string[] = [];
+  const u = ui({ message: "", copy_mode: false, sidebar_open: false, tab_icons: icons, cell_pixels: cell });
+  // The host holds the marks once a frame has asked for them.
+  frame(view, [pane], 100, 30, u);
+  icons.end();
+  icons.begin();
+  const plain = frame(view, [pane], 100, 30, u);
+  expect(plain).toContain("plain");
+  expect(plain).toContain("\x1b[?25h");
+  expect(plain).toMatch(/\x1b\[1;\d+H\x1b_Ga=p/);
+  icons.begin();
+  u.prompt_draw = (w, marks) => {
+    w.write("\x1b[10;20HPROMPT");
+    placed.push(marks!("claude", 30, 12), marks!("pi", 30, 13));
+    return [new Rect(19, 9, 40, 6)];
+  };
+  const out = frame(view, [pane], 100, 30, u);
+  expect(out).toContain("dimmed");
+  expect(out.indexOf("PROMPT")).toBeGreaterThan(out.indexOf("dimmed"));
+  expect(out).not.toContain("\x1b[?25h");
+  // Tab marks stay up unless what the prompt drew reaches them.
+  expect(out).toMatch(/\x1b\[1;\d+H\x1b_Ga=p/);
+  expect(placed[0]).toContain("\x1b[13;31H\x1b_Ga=p");
+  // Pi has no mark: the prompt writes its glyph.
+  expect(placed[1]).toBe("");
+  icons.begin();
+  u.prompt_draw = () => [new Rect(0, 0, 100, 30)];
+  expect(frame(view, [pane], 100, 30, u)).not.toMatch(/\x1b\[1;\d+H\x1b_Ga=p/);
+});
+
+test("put away, the prompt's cue takes the status line unless something else needs it", () => {
+  const shown = (fields: Partial<Ui>) =>
+    testVisible(frame(emptyView(), [], 60, 10, ui({ sidebar_open: false, copy_mode: false, message: "", ...fields })));
+  const cue = { text: "Corgi needs you · Ctrl+B Space", tone: "warm" as const };
+  expect(shown({ prompt_cue: cue })).toContain(" ● Corgi needs you · Ctrl+B Space ");
+  expect(shown({ prompt_cue: cue, message: " Copied" })).not.toContain("Corgi needs you");
+});
+
+test("setup's model picker places the same brand marks, only where the host shows images", () => {
+  const setup = SetupMenu.open(),
+    icons = new Icons(),
+    shown = (fields: Partial<Ui>) =>
+      frame(emptyView(), [], 100, 30, ui({ message: "", copy_mode: false, corgi_setup: setup, ...fields }));
+  shown({});
+  expect(setup.marks).toBeNull();
+  shown({ tab_icons: icons, cell_pixels: { width: 9, height: 18 } });
+  expect(setup.marks!("claude", 4, 4)).toBe("");
+  icons.end();
+  expect(setup.marks!("claude", 4, 4)).toContain("\x1b[5;5H\x1b_Ga=p");
 });

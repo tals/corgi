@@ -7,6 +7,9 @@ export type Options = {
   input?: string | Uint8Array;
   timeout_ms: number;
   max_output?: number;
+  /** Output past `max_output` ends the process and keeps the first
+   * `max_output` bytes, marked `cut`, instead of failing OutputTooLarge. */
+  cut?: boolean;
   stderr?: boolean;
   quit?: Quit;
   /** Keep short-lived helpers in a worker's process group so its owner can
@@ -33,6 +36,8 @@ export class Output {
     public term: Term,
     public stdout: Buffer,
     public stderr: Buffer,
+    /** Stopped at `max_output`, as `cut` asks. */
+    public cut = false,
   ) {}
   ok() {
     return "exited" in this.term && this.term.exited === 0;
@@ -64,6 +69,7 @@ export async function run(argv: string[], options: Options): Promise<Output> {
     stdout = Buffer.alloc(0),
     stderr = Buffer.alloc(0),
     failure: Error | undefined,
+    cut = false,
     finished = false;
   const close = (fd: number) => {
     n.probe_close(fd);
@@ -76,8 +82,7 @@ export async function run(argv: string[], options: Options): Promise<Output> {
     pipes.push(...pair);
     return [...pair];
   };
-  const stop = (name: string) => {
-    failure ??= Error(name);
+  const kill = () => {
     if (child?.pid)
       try {
         if (options.detached === false) child.kill("SIGKILL");
@@ -85,6 +90,10 @@ export async function run(argv: string[], options: Options): Promise<Output> {
       } catch {
         child.kill("SIGKILL");
       }
+  };
+  const stop = (name: string) => {
+    failure ??= Error(name);
+    kill();
   };
   const abort = () => stop("Cancelled");
   const drain = (fd: number, error: boolean) => {
@@ -94,12 +103,15 @@ export async function run(argv: string[], options: Options): Promise<Output> {
       if (size === -4) continue;
       if (size <= 0) break;
       if (error) stderr = Buffer.concat([stderr, buffer.subarray(0, size)]).subarray(-cap);
-      else {
-        if (stdout.length + size > cap) {
-          stop("OutputTooLarge");
-          return;
-        }
-        stdout = Buffer.concat([stdout, buffer.subarray(0, size)]);
+      else if (stdout.length + size <= cap) stdout = Buffer.concat([stdout, buffer.subarray(0, size)]);
+      else if (options.cut) {
+        // The rest is read and dropped, so the pipe doesn't stay ready.
+        stdout = Buffer.concat([stdout, buffer.subarray(0, cap - stdout.length)]);
+        if (!cut) kill();
+        cut = true;
+      } else {
+        stop("OutputTooLarge");
+        return;
       }
     }
   };
@@ -149,7 +161,7 @@ export async function run(argv: string[], options: Options): Promise<Output> {
     drain(outRead, false);
     if (errRead >= 0) drain(errRead, true);
     if (failure) throw failure;
-    return new Output(term, stdout, stderr);
+    return new Output(term, stdout, stderr, cut);
   } catch (error) {
     throw spawnError(error);
   } finally {

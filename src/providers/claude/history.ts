@@ -1,5 +1,6 @@
 //! Claude Code's past sessions, read from the transcripts under its
 //! `projects` directory.
+import { existsSync, readdirSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { SessionHistory } from "../adapter";
@@ -98,6 +99,19 @@ async function read(path: string, s: any): Promise<Entry | null> {
     e.first ||= e.last;
     return e.first ? copied(e) : null;
   }
+}
+/** Where `session`'s transcript is in `account`, "" for the default; ""
+ * when no project folder holds it. */
+export function locate(session: string, account = ""): string {
+  if (!/^[0-9A-Za-z-]+$/.test(session)) return "";
+  const projects = join(account || configDir(), "projects");
+  try {
+    for (const project of readdirSync(projects, { withFileTypes: true })) {
+      const path = join(projects, project.name, `${session}.jsonl`);
+      if (project.isDirectory() && existsSync(path)) return path;
+    }
+  } catch {}
+  return "";
 }
 /** The sessions of `account`, "" for the default. */
 export function open(account = ""): SessionHistory {

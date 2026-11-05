@@ -34,10 +34,15 @@ export function imagePath(uri: string): string | null {
 /** Places `t` in the card at `rect`, centered in the rows below its copy row's rule. */
 export function place(rect: Rect, t: Thumbnail): string {
   const left = Math.floor(((rect.w - 2) * t.cell.width - t.width) / 2),
-    top = Math.floor((thumbnailCells(t).rows * t.cell.height - t.height) / 2),
-    col = rect.x + 1 + Math.floor(left / t.cell.width),
-    row = rect.y + 3 + Math.floor(top / t.cell.height);
+    top = Math.floor((thumbnailCells(t).rows * t.cell.height - t.height) / 2);
+  return placeAt(rect.x + 1, rect.y + 3, t, left, top);
+}
+/** Places `t` with its corner at column `col` of row `row`, shifted `left`
+ * and `top` pixels further in. */
+export function placeAt(col: number, row: number, t: Thumbnail, left = 0, top = 0): string {
   const size = t.of ? `,c=${t.width / t.cell.width},r=${t.height / t.cell.height}` : "";
+  col += Math.floor(left / t.cell.width);
+  row += Math.floor(top / t.cell.height);
   return `\x1b7\x1b[${row + 1};${col + 1}H\x1b_Ga=p,i=${image_id},p=1,X=${left % t.cell.width},Y=${top % t.cell.height}${size},z=1,C=1,q=2\x1b\\\x1b8`;
 }
 /** A frame after the first: a picture drawn at (`x`, `y`) over frame `base`

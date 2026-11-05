@@ -170,6 +170,39 @@ test("the summary lists each workspace's agents as the sidebar sorted by activit
   }
 });
 
+test("watch and the sidebar list only Corgi chats held by a live pane", () => {
+  const { r, shell } = daemon(),
+    viewer = new Controller(transport(async () => ({ viewers: [] })));
+  let runtime: mirror.Runtime | undefined;
+  try {
+    const wire = {
+      ...snapshot(r),
+      headless_sessions: [
+        { id: 7, pane: shell.id, exited: false },
+        { id: 8, pane: null, exited: false },
+        { id: 9, pane: shell.id, exited: true },
+      ].map(s => ({ ...s, corgi: true, workspace: 1, provider: "claude", state: "idle", session: `s${s.id}` })),
+    };
+    runtime = received(wire);
+    viewer.receiveSnapshot(wire);
+    const summary = watch.summary(runtime);
+    if (!summary.running) throw Error("not running");
+    expect(summary.workspaces[0].agents.filter(a => a.headless !== null).map(a => [a.headless, a.title])).toEqual([
+      [7, "Corgi"],
+    ]);
+    expect(
+      viewer
+        .agentEntries()
+        .filter(e => "headless" in e.target)
+        .map(e => [e.target, e.name]),
+    ).toEqual([[{ headless: 7 }, "Corgi"]]);
+  } finally {
+    runtime?.destroy();
+    viewer.runtime.destroy();
+    r.destroy();
+  }
+});
+
 test("watch and the sidebar suppress stale child claims for pane and headless agents", () => {
   const now_ms = Date.now(),
     now = now_ms * 1000,

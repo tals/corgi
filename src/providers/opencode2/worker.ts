@@ -22,6 +22,9 @@ export class Engine {
   turns = new Map<string, string>();
   seen = new Map<string, string>();
   requests = new Map<string, { session: string; form: boolean }>();
+  /** Permissions granted unasked while unattended, and their sessions, until
+   * OpenCode stops listing them. */
+  replied = new Map<string, string>();
   answer = "";
   /** An event touched the conversation since the last poll. */
   due = true;
@@ -30,11 +33,18 @@ export class Engine {
   polled = 0;
   /** When a failed poll is tried again. */
   retry = Infinity;
+  /** The text parts so far of the answer streaming now. */
+  streamed: { message: string; parts: string[] } = { message: "", parts: [] };
+  /** Instructions still to go ahead of the first prompt. */
+  instructions: string;
   constructor(
     readonly api: API,
     readonly emit: (event: Event) => void,
     readonly inference: Inference | null = null,
-  ) {}
+    readonly at: Pick<Place, "model" | "instructions" | "unattended"> = {},
+  ) {
+    this.instructions = at.instructions ?? "";
+  }
   async start() {
     const info = data(
       await this.api.call("POST", "/api/session", {
@@ -45,7 +55,9 @@ export class Engine {
               permissions: [{ action: "*", resource: "*", effect: "deny" }],
               ...(this.inference.model ? { model: modelRef(this.inference.model) } : {}),
             }
-          : {}),
+          : this.at.model
+            ? { model: modelRef(this.at.model) }
+            : {}),
       }),
     );
     this.session = str(info, "id");
@@ -81,7 +93,14 @@ export class Engine {
       await this.api.call("POST", `/api/session/${session}/interrupt?resume=false`);
       return;
     }
-    await this.api.call("POST", `/api/session/${session}/prompt`, { text: input.text, delivery: "steer" });
+    // Its API takes no system prompt, so instructions lead the first prompt;
+    // nor images, so the prompt names their files for the agent to open.
+    const said = [input.text, ...(input.images ?? []).map(image => `[Image attached: ${image.path}]`)]
+        .filter(Boolean)
+        .join("\n\n"),
+      text = this.instructions && session === this.session ? this.instructions + "\n\n" + said : said;
+    await this.api.call("POST", `/api/session/${session}/prompt`, { text, delivery: "steer" });
+    if (session === this.session) this.instructions = "";
   }
   /** Decode a projected context in order. Repeated polls and streaming
    * updates count each completed message and tool only once. */
@@ -147,9 +166,23 @@ export class Engine {
       }
     }
   }
+  /** Streams the conversation's own answer as its text arrives. */
+  stream(value: unknown) {
+    const message = str(value, "assistantMessageID"),
+      ordinal = field(value, "ordinal"),
+      delta = str(value, "delta");
+    if (!message || !delta || !Number.isInteger(ordinal) || ordinal < 0 || ordinal > 1024) return;
+    if (message !== this.streamed.message) this.streamed = { message, parts: [] };
+    const parts = this.streamed.parts;
+    while (parts.length <= ordinal) parts.push("");
+    parts[ordinal] += delta;
+    this.emit({ kind: "partial", session: this.session, text: parts.filter(Boolean).join("\n") });
+  }
   /** Marks the conversation due when an event names it or one of its subagents. */
   observe(event: Record<string, unknown>) {
     const session = eventSession(event);
+    if (str(event, "type") === "session.text.delta" && session === this.session && !this.inference)
+      this.stream(field(event, "data"));
     if (!session || str(event, "type").endsWith(".delta")) return;
     if (session === this.session || this.turns.has(session) || str(field(event, "data"), "parentID") === this.session)
       this.due = true;
@@ -188,6 +221,7 @@ export class Engine {
         for (const form of [false, true]) {
           const pending = items(await this.api.call("GET", `/api/session/${session}/${form ? "form" : "permission"}`));
           const ids = new Set(pending.map(req => str(req, "id")));
+          if (!form) for (const [id, of] of this.replied) if (of === session && !ids.has(id)) this.replied.delete(id);
           for (const [id, request] of this.requests)
             if (request.session === session && request.form === form && !ids.has(id)) {
               this.requests.delete(id);
@@ -200,7 +234,9 @@ export class Engine {
             }
           for (const req of pending) {
             const id = str(req, "id");
-            if (!id || this.requests.has(id)) continue;
+            if (!id || this.requests.has(id) || this.replied.has(id)) continue;
+            // Unattended, a tool runs without asking; a question still waits.
+            if (!form && this.at.unattended && (await this.grant(session, id))) continue;
             this.requests.set(id, { session, form });
             this.emit({
               kind: "request",
@@ -219,6 +255,19 @@ export class Engine {
       this.polling = false;
     }
   }
+  /** Lets a tool run unasked, once; false when OpenCode refused the reply,
+   * so it's asked as any other. */
+  private async grant(session: string, id: string): Promise<boolean> {
+    try {
+      await this.api.call("POST", `/api/session/${session}/permission/${encodeURIComponent(id)}/reply`, {
+        decision: "once",
+      });
+    } catch {
+      return false;
+    }
+    this.replied.set(id, session);
+    return true;
+  }
 }
 export async function run() {
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
@@ -236,7 +285,7 @@ export async function run() {
       const input = JSON.parse(line);
       if (!engine) {
         const at = input.at as Place,
-          started = new Engine(new API(at.executable, at.cwd), emit, input.inference);
+          started = new Engine(new API(at.executable, at.cwd), emit, input.inference, at);
         engine = started;
         await started.start();
         void started.api.follow(abort.signal, {

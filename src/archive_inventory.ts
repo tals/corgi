@@ -14,7 +14,7 @@ import * as ports from "./trackers/ports";
 function inventory(runtime: Runtime, workspace: number): { result: Preview; roots: resources.Root[] } {
   const ws = runtime.getWorkspace(workspace);
   const panes = runtime.panes.filter(p => runtime.workspaces.owner(p.id)?.id === workspace);
-  const sessions = runtime.sessions.filter(s => s.workspace_id === workspace && !s.exited);
+  const sessions = runtime.sessions.filter(s => s.workspace_id === workspace && !s.exited && !s.corgi);
   const agents: (Preview["agents"][number] & { since: number })[] = [];
   const add = (
     agent: Agent,

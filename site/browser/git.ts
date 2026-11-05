@@ -4,7 +4,7 @@
  * this answers the panel the same for the one it reads, its times moved up to
  * now. package.json's "browser" field puts it in place of src/review/git.ts.
  */
-import type { Base, Change, Commit, Loaded, Source } from "../../src/review/git";
+import type { Base, Change, Commit, Loaded, Revision, Source } from "../../src/review/git";
 import * as diff from "../../src/review/diff";
 import DATA from "../frames.json";
 
@@ -28,10 +28,29 @@ const fixtures = (DATA as unknown as { review: Fixture[] }).review;
 const shift = Date.now() / 1000 - fixtures[0].at;
 /** The checkout at `root`: the one named so, else the first. */
 const at = (root: string) => fixtures.find(f => f.root === root) ?? fixtures[0];
-const sourceKey = (s: Source) => (s.kind === "worktree" ? `w:${s.against}` : `c:${s.hash}`);
+const sourceKey = (s: Source) =>
+  s.kind === "worktree" ? `w:${s.against}` : `${s.kind === "commit" ? "c" : "r"}:${revisionLabel(s)}`;
 
 /** As git.ts has it. */
 export const empty_tree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+export function revisionLabel(source: Revision, short = false): string {
+  const name = (ref: string) => (short && /^[0-9a-f]{7,64}$/i.test(ref) ? ref.slice(0, 7) : ref);
+  return source.kind === "commit" ? name(source.hash) : `${name(source.from)}..${name(source.to)}`;
+}
+/** The recordings name commits by their full hashes already. */
+export async function resolveRevision(_root: string, source: Revision): Promise<Revision> {
+  return source;
+}
+/** The commits a checkout recorded, by the prefixes asked for. */
+export async function recognizeCommits(root: string, candidates: string[]): Promise<Map<string, string>> {
+  const found = new Map<string, string>();
+  for (const prefix of candidates.map(c => c.toLowerCase()))
+    if (/^[0-9a-f]{7,64}$/.test(prefix)) {
+      const commit = at(root).commits.find(c => c.hash.startsWith(prefix));
+      if (commit) found.set(prefix, commit.hash);
+    }
+  return found;
+}
 export async function toplevel(cwd: string): Promise<string | null> {
   return cwd ? at(cwd).root : null;
 }

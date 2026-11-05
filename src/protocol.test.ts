@@ -397,3 +397,24 @@ test("headless commands require provider session IDs and a first prompt", () => 
     session: "t",
   });
 });
+test("a headless start defaults to an ordinary session the provider keeps", () => {
+  expect(protocol.decode("headless.start", { provider: "pi", prompt: "hi" })).toEqual({
+    provider: "pi",
+    prompt: "hi",
+    cwd: "",
+    workspace: null,
+    account: "",
+    model: "",
+    effort: "",
+    instructions: "",
+    persist: true,
+    corgi: false,
+    images: null,
+  });
+  expect(() => protocol.decode("headless.start", { provider: "pi", prompt: "hi", persist: "no" })).toThrow(
+    "UnexpectedToken",
+  );
+  expect(() => protocol.decode("headless.start", { provider: "pi", prompt: "hi", effort: 3 })).toThrow(
+    "UnexpectedToken",
+  );
+});

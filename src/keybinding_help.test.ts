@@ -487,6 +487,17 @@ test("help uses aligned prefix, chord and alternative columns", () => {
   expect(tab.indexOf("◇ Tab")).toBe(find.indexOf("◇ g"));
 });
 
+test("help pictures the Corgi prompt's input under its row, and a click on it opens the prompt", () => {
+  const s = new State(),
+    lines = screen(s, 148, 60),
+    heading = lines.findIndex(line => line.includes("CORGI ─"));
+  expect(lines[heading + 1]).toContain("Corgi prompt");
+  expect(lines[heading + 2]).toContain(" › Ask Corgi anything…");
+  expect(lines.slice(heading + 3).join("\n")).not.toContain("Corgi prompt");
+  for (const text of ["›", "Ask Corgi"])
+    expect(click(s, text, 148, 60)).toEqual({ name: "action", action: { name: "prompt" } });
+});
+
 test("range modifiers toggle independently and stay open", () => {
   const s = editor("tab");
   s.event(keys.parseChord("right")!);

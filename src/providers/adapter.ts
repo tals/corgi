@@ -27,10 +27,19 @@ export interface Launcher {
   watches?(): string[];
   close(): void;
 }
+/** An image a prompt carries: a file on this machine, and its type. */
+export type Image = { path: string; mime: string };
+/** The image types a prompt may carry. */
+export const image_types = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+/** The most images one prompt carries. */
+export const max_images = 8;
+/** The largest image file a prompt carries. Claude and Pi take its bytes
+ * inline, read and encoded on the daemon's loop. */
+export const max_image_bytes = 20 * 1024 * 1024;
 /** What core asks of a headless client. A prompt or interrupt without a
  * session goes to the conversation it shows. */
 export type Input =
-  | { kind: "prompt"; text: string; session?: string }
+  | { kind: "prompt"; text: string; session?: string; images?: Image[] }
   | { kind: "answer"; request: string; allow: boolean; message?: string }
   | { kind: "interrupt"; session?: string };
 /** What a request asks: `tool` when it is a tool waiting to run. */
@@ -44,7 +53,19 @@ export type Event =
   | { kind: "turn"; session: string; turn: string; phase: "ended"; outcome: Outcome }
   | { kind: "message"; session: string; text: string }
   | { kind: "activity"; session: string; turn: string; text: string; amend: boolean }
-  | { kind: "tool"; session: string; turn: string; id: string; done: boolean; wrote: string[] }
+  | {
+      kind: "tool";
+      session: string;
+      turn: string;
+      id: string;
+      done: boolean;
+      wrote: string[];
+      /** The tool's name and what it's about in a few words ("Read", "src/x.ts"). */
+      name?: string;
+      summary?: string;
+    }
+  /** The assistant message so far, cumulative; the complete `message` follows. */
+  | { kind: "partial"; session: string; text: string }
   | { kind: "request"; session: string; id: string; ask: Ask }
   | { kind: "request_closed"; session: string; id: string; running: boolean }
   | {
@@ -75,9 +96,39 @@ export interface Client {
   processes?(): number[];
   /** A client restored from a handoff is the old daemon's until adopted. */
   adopt?(): void;
+  /** Who runs the host's tools now: after a handoff, the next daemon. */
+  serve?(host: Host): void;
 }
-/** Where a client runs: `account` names a provider account, "" the default. */
-export type Place = { cwd: string; account: string; executable: string };
+/** A tool the session's host offers its model beside the provider's own. */
+export type HostTool = { name: string; description: string; input: Record<string, unknown> };
+/** The tools a host offers, and how it runs a call to one. */
+export type Host = {
+  tools: HostTool[];
+  call(name: string, input: unknown, signal?: AbortSignal): Promise<{ text: string; failed: boolean }>;
+};
+/** Where a client runs: `account` names a provider account, "" the default.
+ * Ordinary headless sessions omit the rest. */
+export type Place = {
+  cwd: string;
+  account: string;
+  executable: string;
+  model?: string;
+  effort?: Effort;
+  /** Appended to the provider's own system prompt. */
+  instructions?: string;
+  /** false: the provider keeps no session file (Claude --no-session-persistence,
+   * Codex ephemeral, Pi/omp --no-session). */
+  persist?: boolean;
+  /** Variables it runs with over the daemon's own, undefined to unset: how a
+   * prompt session reaches this Corgi with its CLI. */
+  env?: Record<string, string | undefined>;
+  /** Runs without asking: Claude in auto mode, or skipping its checks where
+   * that's unavailable; Codex with no approvals or sandbox. */
+  unattended?: boolean;
+  /** Tools the host runs for this session alone, for an adapter whose
+   * `headless.tools` says it takes them. */
+  host?: Host;
+};
 /** A provider's session transcripts, read as they grow. */
 export interface Transcript {
   /** Initial user evidence for Corgi naming, only when the provider has no automatic titles. */
@@ -445,6 +496,8 @@ export interface Adapter extends Info {
   headless?: {
     start(at: Place): Client;
     restore(saved: Saved, live: boolean): Client;
+    /** Whether a session offers its model the host's tools, scoped to it alone. */
+    tools?: boolean;
   };
   inference: {
     model: string;

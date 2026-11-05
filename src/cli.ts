@@ -9,6 +9,9 @@ import * as launcherOrder from "./launch/order";
 import * as effort from "./providers/effort";
 import { Row } from "./launch/row";
 import { Entry as CommandEntry } from "./launch/command";
+import type { History } from "./launch/history";
+import * as memoryCommand from "./memory_command";
+import { Memory, type Change } from "./prompt_memory";
 import helpText from "../assets/cli-help.txt" with { type: "text" };
 import * as i18n from "./i18n";
 import * as cli_help from "./cli_help";
@@ -29,9 +32,12 @@ const groups = new Set([
   "focus",
   "message",
   "grep",
+  "history",
+  "resume",
+  "memory",
   "--skill",
 ]);
-const nested = new Set(["tab", "pane", "workspace", "launcher"]);
+const nested = new Set(["tab", "pane", "workspace", "launcher", "memory"]);
 const flags = new Set(["json", "clear", "stdin", "enter", "new-tab", "first", "left", "right", "up", "down"]);
 const options = new Set([
   ...flags,
@@ -53,6 +59,7 @@ const options = new Set([
   "width",
   "height",
   "lines",
+  "limit",
   "left-of",
   "right-of",
   "above",
@@ -62,6 +69,8 @@ const actions = new Set([
   "list",
   "current",
   "focus",
+  "history",
+  "resume",
   "tab.new",
   "tab.rename",
   "tab.move",
@@ -260,7 +269,7 @@ export async function parse(words: string[], caller = 0, input?: () => Promise<s
     if ("pane" in agent) target = agent.pane;
   } else if (
     group !== "launcher" &&
-    !["list", "current", "tab.new", "workspace.new", "pane.idle", "claim"].includes(action)
+    !["list", "current", "tab.new", "workspace.new", "pane.idle", "claim", "history", "resume"].includes(action)
   ) {
     if (start === words.length) throw Error("Usage");
     current = words[start] === "current";
@@ -292,7 +301,9 @@ export async function parse(words: string[], caller = 0, input?: () => Promise<s
       command?: string;
       name?: string;
     } | null = null,
-    claim: { pane: number; provider: Provider | null; owner: number } | null = null;
+    claim: { pane: number; provider: Provider | null; owner: number } | null = null,
+    history: { limit: number } | null = null,
+    open: Open | null = null;
   const set = (op: string, payload: any) => {
     command = { [op]: payload };
   };
@@ -367,6 +378,23 @@ export async function parse(words: string[], caller = 0, input?: () => Promise<s
         owner: id(args.option("owner") ?? String(process.ppid)),
       };
       if (claim.owner <= 1 || claim.owner > 0x7fffffff) throw Error("Usage");
+      break;
+    }
+    case "history":
+      history = { limit: id(args.option("limit") ?? "20") };
+      break;
+    case "resume": {
+      const provider = Provider.parse(args.next()),
+        session = args.next();
+      if (!provider || !session || /[\x00-\x20\x7f]/.test(session)) throw Error("Usage");
+      const workspace = args.option("workspace"),
+        viewer = args.option("viewer");
+      open = {
+        provider,
+        session,
+        workspace: workspace === null ? null : id(workspace),
+        viewer: viewer === null ? null : id(viewer),
+      };
       break;
     }
     case "pane.idle":
@@ -475,7 +503,108 @@ export async function parse(words: string[], caller = 0, input?: () => Promise<s
   if (created?.workspace === 0 && !caller) throw Error("MissingWorkspace");
   if (launcher && action !== "launcher.list" && action !== "launcher.models" && !launcher.workspace && !caller)
     throw Error("MissingWorkspace");
-  return { action, target, current, json, viewer, command, idle, launcher, ...(claim ? { claim } : {}) };
+  return {
+    action,
+    target,
+    current,
+    json,
+    viewer,
+    command,
+    idle,
+    launcher,
+    ...(claim ? { claim } : {}),
+    ...(history ? { history } : {}),
+    ...(open ? { open } : {}),
+  };
+}
+/** `resume`'s target: a conversation, and where to show it. */
+export type Open = { provider: Provider; session: string; workspace: number | null; viewer: number | null };
+type Call = Pick<Connection, "call">;
+/** Past conversations, newest first, once the daemon has read them. */
+export async function conversations(conn: Call, wait_ms = 5000): Promise<History["entries"]> {
+  const until = Date.now() + wait_ms;
+  for (;;) {
+    const { history } = (await conn.call("agent.history", { follow: false })) as { history: History };
+    if (!history.pending || Date.now() >= until) return history.entries;
+    await Bun.sleep(200);
+  }
+}
+/** `history`: each conversation with what `resume` takes, its title, folder and age. */
+export function historyText(entries: History["entries"], now: number): string {
+  if (!entries.length) return "no conversations\n";
+  return entries
+    .map(e => {
+      const title = e.title || e.first || e.last;
+      return `${e.provider} ${e.session}${quote(title)} ${e.cwd} ${age(e.updated_at, now)}\n`;
+    })
+    .join("");
+}
+function age(at: number, now: number): string {
+  const ms = at < 1e12 ? at * 1000 : at,
+    minutes = Math.max(0, Math.floor((now - ms) / 60000));
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 48 * 60) return `${Math.floor(minutes / 60)}h`;
+  return `${Math.floor(minutes / 1440)}d`;
+}
+/** The workspace a conversation from `cwd` belongs in: the one whose folder
+ * holds it most closely, else `fallback`. An archived one stays put away. */
+export function workspaceFor(
+  workspaces: { id: number; cwd: string; archived?: boolean }[],
+  cwd: string,
+  fallback: number | null,
+) {
+  let best: { id: number; cwd: string } | null = null;
+  for (const w of workspaces)
+    if (!w.archived && w.cwd && (cwd === w.cwd || cwd.startsWith(w.cwd.endsWith("/") ? w.cwd : w.cwd + "/")))
+      if (!best || w.cwd.length > best.cwd.length) best = w;
+  return best?.id ?? fallback;
+}
+/** Shows a conversation in a viewer: the pane already showing it, else a new
+ * tab resuming it where its folder belongs. `viewer` falls back to
+ * `default_viewer`, then to the only viewer attached. */
+export async function openConversation(conn: Call, q: Open, default_viewer: number | null) {
+  const snapshot: any = await conn.call("session.list"),
+    workspaces: any[] = snapshot.result?.workspaces ?? [],
+    viewers: any[] = snapshot.viewers ?? [],
+    viewer = q.viewer ?? default_viewer ?? (viewers.length === 1 ? viewers[0].id : null),
+    shown = viewers.find(v => v.id === viewer)?.workspace ?? null,
+    owner = (pane: number) =>
+      workspaces.find(w => (w.model?.tabs ?? []).some((t: any) => panes(w.model.nodes, t.root).includes(pane)))?.id ??
+      null;
+  const open = (snapshot.result?.panes ?? []).find(
+    (p: any) => p.agent?.provider === q.provider && p.agent?.session === q.session,
+  );
+  let pane: number, workspace: number | null, opened: boolean;
+  if (open) {
+    pane = open.id;
+    workspace = owner(pane);
+    opened = false;
+  } else {
+    const e = (await conversations(conn)).find(e => e.provider === q.provider && e.session === q.session);
+    if (!e) throw Error("NoConversation");
+    workspace = q.workspace ?? workspaceFor(workspaces, e.cwd, shown);
+    if (workspace === null) throw Error("MissingWorkspace");
+    const reply: any = await conn.call("session.command", {
+      command: {
+        "agent.resume": {
+          workspace,
+          cwd: e.cwd,
+          provider: e.provider,
+          session: e.session,
+          ...(e.account ? { account: e.account } : {}),
+        },
+      },
+    });
+    pane = Number(reply.result?.pane);
+    opened = true;
+  }
+  if (viewer !== null) await conn.call("focus", { pane, viewer });
+  return { pane, workspace, opened, viewer };
+}
+function openedText(r: { pane: number; workspace: number | null; opened: boolean; viewer: number | null }): string {
+  const where = r.workspace === null ? "" : ` in workspace ${r.workspace}`,
+    shown = r.viewer === null ? " (no viewer to show it in)" : "";
+  return `${r.opened ? "resumed in pane" : "already open in pane"} ${r.pane}${where}${shown}\n`;
 }
 /** A tab's split tree from the layout's node array, in words: `3 left of (4
  * above 5)`. */
@@ -498,8 +627,8 @@ function panes(nodes: any[], index: number): number[] {
 }
 const quote = (name: string) => (name ? " " + JSON.stringify(name) : "");
 /** `corgi list` as an outline: workspaces, their tabs and panes and headless
- * agents, then viewers. A pane shows its cwd only where it differs from its
- * workspace's. */
+ * agents other than the Corgi prompt's, then viewers. A pane shows its cwd
+ * only where it differs from its workspace's. */
 export function list(reply: any): string {
   const out: string[] = [],
     byId = new Map<number, any>((reply.result?.panes ?? []).map((p: any) => [p.id, p]));
@@ -514,7 +643,7 @@ export function list(reply: any): string {
       }
     }
     for (const s of reply.result?.headless_sessions ?? [])
-      if (s.workspace === w.id) {
+      if (s.workspace === w.id && !s.corgi) {
         // The session's state covers its subagents and startup, as `message` sees it.
         const agent = { ...s.agent, state: s.state ?? s.agent?.state, attention: s.attention ?? s.agent?.attention };
         out.push(`  headless:${s.id}${pane({ agent, exited: s.exited })}`);
@@ -807,6 +936,19 @@ export function read(text: string, lines: number, agent = false): string {
 }
 /** Runs a control command and prints its reply in words, or with `--json` as
  * the daemon sent it. */
+/** Whether prompt chat `chat` keeps memory. One that ended, or a Corgi
+ * that doesn't answer, can't say it doesn't. */
+async function keepsMemory(path: string, chat: number): Promise<boolean> {
+  const conn = new Connection(path, { requestIds: false });
+  try {
+    const reply: any = await conn.call("headless.list");
+    return (reply.sessions ?? []).find((s: any) => s?.id === chat)?.persist !== false;
+  } catch {
+    return true;
+  } finally {
+    conn.close();
+  }
+}
 export async function run(path: string, args: string[], agent = false): Promise<void> {
   const group = args[0];
   if (group === "grep") {
@@ -822,6 +964,31 @@ export async function run(path: string, args: string[], agent = false): Promise<
     process.stdout.write(skill);
     return;
   }
+  // Memory is files on this machine: no runtime needed. Run for a prompt
+  // chat, it tells the chat what it wrote; one that saves nothing only
+  // reads. A chat whose commands run where its environment can't reach names
+  // itself with --chat.
+  if (group === "memory") {
+    const text = args.indexOf("--"),
+      flag = args.findIndex((a, i) => a === "--chat" && (text < 0 || i < text)),
+      chat = flag > 0 ? Number(args[flag + 1]) : 0,
+      words = flag > 0 ? [...args.slice(1, flag), ...args.slice(flag + 2)] : args.slice(1);
+    if (flag > 0 && (!Number.isSafeInteger(chat) || chat <= 0)) throw Error("Usage");
+    if (
+      ["add", "forget"].includes(words[0]) &&
+      (process.env.CORGI_MEMORY === "read" || (chat && !(await keepsMemory(path, chat))))
+    )
+      throw Error("MemoryReadOnly");
+    const changes: Change[] = [];
+    process.stdout.write(memoryCommand.run(new Memory(Memory.root()), words, new Date(), c => changes.push(c)));
+    if (changes.length && (chat || process.env.CORGI_HEADLESS_ID)) {
+      const { Reporter } = await import("./prompt_search_report"),
+        reporter = chat ? new Reporter(process.env.CORGI_SOCKET || path, chat) : Reporter.here();
+      for (const change of changes) await reporter?.memory(change);
+      reporter?.close();
+    }
+    return;
+  }
   const caller = Number(process.env.CORGI_PANE) || 0,
     inv = await parse(args, caller);
   // CLI calls are serial, including unversioned controls for older daemons.
@@ -833,6 +1000,18 @@ export async function run(path: string, args: string[], agent = false): Promise<
     if (inv.claim) {
       const reply = await conn.call("pane.agent", inv.claim);
       process.stdout.write(inv.json ? stringify(reply) + "\n" : words(reply));
+      return;
+    }
+    if (inv.history) {
+      const shown = (await conversations(conn)).slice(0, inv.history.limit);
+      process.stdout.write(
+        inv.json ? stringify({ ok: true, conversations: shown }) + "\n" : historyText(shown, Date.now()),
+      );
+      return;
+    }
+    if (inv.open) {
+      const reply = await openConversation(conn, inv.open, Number(process.env.CORGI_VIEWER) || null);
+      process.stdout.write(inv.json ? stringify({ ok: true, ...reply }) + "\n" : openedText(reply));
       return;
     }
     if (inv.launcher) {

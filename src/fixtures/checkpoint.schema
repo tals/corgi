@@ -458,6 +458,14 @@ $.sessions[].session: string
 $.sessions[].provider: provider
 $.sessions[].cwd: string
 $.sessions[].workspace_id: u32
+$.sessions[].corgi: bool
+$.sessions[].account: string
+$.sessions[].model: string
+$.sessions[].effort: optional
+$.sessions[].effort?: string
+$.sessions[].persist: bool
+$.sessions[].pane: optional
+$.sessions[].pane?: u32
 $.sessions[].client.state: any
 $.sessions[].client.handles[]: i32
 $.sessions[].ready: bool

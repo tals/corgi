@@ -9,14 +9,43 @@ import * as output from "./conversation_grep_output";
 import { Provider } from "./providers";
 import { Connection } from "./rpc";
 import type { Match, Options } from "./conversation_grep";
+import type { State as SearchProgress } from "./prompt_search";
 
 let release: (() => void) | undefined;
+/** Progress for the Corgi prompt's search card, when it runs this search. */
+let reporter: { send(state: SearchProgress): Promise<void>; close(): void } | null = null;
+let progress: SearchProgress | null = null;
+async function publish(update: Partial<SearchProgress>): Promise<void> {
+  if (!reporter || !progress) return;
+  progress = { ...progress, ...update, revision: progress.revision + 1 };
+  await reporter.send(progress);
+}
+function preview(matches: Match[]): SearchProgress["matches"] {
+  return matches.slice(0, 5).map(({ source, hits }) => {
+    const hit = hits.find(h => !h.context),
+      text = hit?.text ?? "",
+      at = Buffer.from(text)
+        .subarray(0, hit?.submatches[0]?.start ?? 0)
+        .toString().length,
+      start = Math.max(0, at - 60);
+    return {
+      provider: source.provider,
+      account: source.account,
+      session: source.session,
+      cwd: source.cwd,
+      title: source.title,
+      updated_at: source.updated_at,
+      excerpt: (start ? "…" : "") + text.slice(start, start + 240) + (text.length > start + 240 ? "…" : ""),
+    };
+  });
+}
 function expandShort(args: string[]): string[] {
   const result: string[] = [];
   const values = new Set([
     "--workspace",
     "--max-age",
     "--session",
+    "--chat",
     "--provider",
     "--limit",
     "--max-line",
@@ -170,6 +199,7 @@ transcripts automatically; no setup needed.
   --max-age 24h|7d|4w|all   Latest message age (default 30d)
   --session PROVIDER:ID    Narrow to a returned conversation, of any age or workspace
   --provider NAME          codex, claude, pi, omp, opencode2
+  --chat ID                Show progress in Corgi prompt chat ID
   --tools                  Calls/results with recorded status and exit code
   -i -S -s -F -w -x        Case, literal, word and line flags, as in rg
   -e REGEX                 Additional pattern (OR)
@@ -205,7 +235,8 @@ async function main(raw: string[], socket: string) {
   }
   const args = expandShort(raw);
   let stats = false,
-    workspace: string | undefined;
+    workspace: string | undefined,
+    chat = 0;
   const display: output.Options = {
     workspace: "",
     json: false,
@@ -262,6 +293,10 @@ async function main(raw: string[], socket: string) {
         break;
       case "--session":
         options.session = take(i++);
+        break;
+      case "--chat":
+        chat = Number(take(i++));
+        if (!Number.isSafeInteger(chat) || chat <= 0) throw Error("--chat takes a chat's ID");
         break;
       case "--provider": {
         const name = take(i++);
@@ -351,6 +386,30 @@ async function main(raw: string[], socket: string) {
   options.workspace = display.workspace = where.root;
   options.folders = where.folders;
   if (display.onlyMatching) options.context = options.before = options.after = 0;
+  // A prompt chat's own command names it: by its environment, or with --chat
+  // where its tools run in someone else's.
+  if (chat || (process.env.CORGI_SOCKET && process.env.CORGI_HEADLESS_ID)) {
+    const { Reporter } = await import("./prompt_search_report");
+    reporter = chat ? new Reporter(process.env.CORGI_SOCKET || socket, chat) : Reporter.here();
+  }
+  if (reporter) {
+    progress = {
+      id: crypto.randomUUID(),
+      revision: 0,
+      phase: "checking",
+      expression: options.patterns.join(" | "),
+      workspace: options.workspace,
+      found: 0,
+      scanned: 0,
+      total: 0,
+      limited: false,
+      matches: [],
+      error: "",
+    };
+    options.progress = async (matches, scanned, total, limited) =>
+      publish({ found: matches.length, scanned, total, limited, matches: preview(matches) });
+    await publish({ phase: "checking" });
+  }
 
   // Another search holds the index: read changed transcripts directly rather than wait.
   release = (await cacheIndex.tryLock(cache)) ?? undefined;
@@ -368,6 +427,7 @@ async function main(raw: string[], socket: string) {
   // Each conversation prints as soon as it's searched; changed transcripts are
   // indexed only when the search reaches them, newest first.
   let matches: Match[];
+  await publish({ phase: "searching", scanned: 0, total: sources.length });
   try {
     matches = await grep.search(cache, sources, {
       ...options,
@@ -397,6 +457,7 @@ async function main(raw: string[], socket: string) {
   } finally {
     session.save();
   }
+  await publish({ phase: "done", found: matches.length, matches: preview(matches) });
   const result = out.stats();
   const details = {
     as_of: manifest.as_of,
@@ -434,11 +495,15 @@ export async function run(raw: string[], socket: string): Promise<void> {
   try {
     await main(raw, socket);
   } catch (error) {
+    await publish({ phase: "failed", error: String(error) });
     console.error(String(error));
     process.exitCode = 2;
   } finally {
     release?.();
     release = undefined;
+    reporter?.close();
+    reporter = null;
+    progress = null;
   }
 }
 export { expandShort };

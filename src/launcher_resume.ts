@@ -220,11 +220,26 @@ interface Columns {
   folder: number;
   last: number;
 }
-let panel: string, rule: string, row_style: string, selected_style: string, dim: string;
+/** What the list sits on: the launcher's panel, or the Corgi prompt's card. */
+export type Ground = "surface" | "bg";
+/** Headings and notes, rules, and rows, on a ground. */
+type Look = { panel: string; rule: string; row: string };
+let looks: Record<Ground, Look>,
+  selected_style: string,
+  dim: string,
+  field: string,
+  field_strong: string,
+  field_muted: string;
 palette.derived(() => {
-  panel = new Style({ fg: "faint", bg: "surface" }).sgr();
-  rule = new Style({ fg: "line", bg: "surface" }).sgr();
-  row_style = new Style({ fg: "text", bg: "surface" }).sgr();
+  field = new Style({ fg: "text", bg: "selected" }).sgr();
+  field_strong = new Style({ fg: "strong", bg: "selected" }).sgr();
+  field_muted = new Style({ fg: "muted", bg: "selected" }).sgr();
+  const look = (bg: Ground): Look => ({
+    panel: new Style({ fg: "faint", bg }).sgr(),
+    rule: new Style({ fg: "line", bg }).sgr(),
+    row: new Style({ fg: "text", bg }).sgr(),
+  });
+  looks = { surface: look("surface"), bg: look("bg") };
   selected_style = new Style({ fg: "strong", bg: "selected" }).sgr();
   dim = palette.fg("faint");
 });
@@ -235,14 +250,20 @@ function rail(selected: boolean): string {
 
 export class View {
   expanded = false;
+  /** The list has been expanded since the launcher opened, and the launcher
+   * keeps the room it grew to until it closes. */
+  grown = false;
   /** The keyboard is in this list rather than on the agent rows. */
   focused = false;
   searching = false;
+  /** The list was expanded before the search began, so leaving it goes back there. */
+  searched_expanded = false;
   query = Dialog.init({ pane: 0 }, "");
   scope: Scope = "workspace";
   /** Kept by identity, so a refreshed list keeps the selection. */
   selected: Key | null = null;
   scroll = 0;
+  ground: Ground = "surface";
 
   constructor(fields: Partial<View> = {}) {
     Object.assign(this, fields);
@@ -368,12 +389,15 @@ export class View {
   }
   /** Select row `row`; false when it cannot be selected. */
   select(c: Context, row: number): boolean {
-    const rows = this.lines(c);
-    if (row >= rows.length) return false;
-    const k = keyOf(c, rows[row]);
+    if (!this.pick(c, this.lines(c), row)) return false;
+    this.focused = true;
+    return true;
+  }
+  /** Select `rows[at]`, rows laid out by the caller; false when it cannot be selected. */
+  pick(c: Context, rows: Line[], at: number): boolean {
+    const k = at < rows.length ? keyOf(c, rows[at]) : null;
     if (k === null) return false;
     this.selected = k;
-    this.focused = true;
     return true;
   }
   home(): void {
@@ -382,6 +406,7 @@ export class View {
   }
   expand(): void {
     this.expanded = true;
+    this.grown = true;
     this.focused = true;
     this.home();
   }
@@ -391,8 +416,19 @@ export class View {
     this.scope = "workspace";
   }
   startSearch(): void {
+    if (this.searching) return;
+    this.searched_expanded = this.expanded;
     this.expand();
     this.searching = true;
+  }
+  /** Leaves the search for where it began: all the conversations, or the newest few. */
+  leaveSearch(): void {
+    const expanded = this.searched_expanded;
+    this.stopSearch();
+    if (!expanded) {
+      this.expanded = false;
+      this.scope = "workspace";
+    }
   }
   stopSearch(): void {
     this.searching = false;
@@ -454,7 +490,8 @@ export class View {
     for (const e of c.history.entries) total += c.listed(e, "folder") ? 1 : 0;
     const active = ellipsis(i18n.t`Last active`, sat(width, 6));
     const heading_room = cols.last > 12 ? provider_width + cols.title : sat(width, displayWidth(active) + 7);
-    const resume = ellipsis(i18n.t`Resume`, heading_room);
+    const resume = ellipsis(i18n.t`Resume`, heading_room),
+      panel = looks[this.ground].panel;
     w.write(`\x1b[${y};${x + 3}H${panel}\x1b[1m` + palette.fg("strong") + resume + panel);
     // The launcher's title names the folder.
     writeEllipsis(
@@ -483,39 +520,19 @@ export class View {
     const viewport = this.viewport(c, rows, area.listHeight());
     const { first, height: list_height, context } = viewport;
     const list_top = area.listTop() + (context ? 1 : 0);
-    const cols = this.columns(sat(width, 4));
-    // Search line and scope.
-    w.write(`\x1b[${y};${x + 3}H${panel}`);
-    writeKey(w, "/", panel);
-    w.write(" ");
-    const scope = ellipsis(scopeLabel(this.scope), sat(width, 15));
-    const field = sat(width, displayWidth(scope) + 19);
-    if (this.searching) {
-      const room = sat(field, 1);
-      writeField(w, this.query, DialogView.scroll(this.query, room), room, panel + palette.fg("strong"), {
-        caret: true,
-      });
-    } else {
-      w.write(dim);
-      writeEllipsis(w, i18n.t`search titles, branches and messages`, field);
-    }
-    w.write(`\x1b[${y};${x + width - 2 - (displayWidth(scope) + 2 + 6)}H`);
-    writeKey(w, "tab", panel);
-    w.write(" ");
-    writeKey(w, scope, panel);
-    // Column headings.
-    w.write(`\x1b[${y + 1};${x + 3 + provider_width}H${panel}`);
-    writeEllipsis(w, i18n.t`Title`, cols.title);
-    if (cols.folder > 0) {
-      w.write(`\x1b[${y + 1};${x + 3 + provider_width + cols.title + 2}H`);
-      writeEllipsis(w, i18n.t`Where`, sat(cols.folder, 1));
-    }
-    if (cols.last > 12) {
-      w.write(`\x1b[${y + 1};${x + 3 + provider_width + cols.title + 2 + cols.folder}H`);
-      writeEllipsis(w, i18n.t`You last said`, cols.last);
-    }
-    const active = ellipsis(i18n.t`Last active`, sat(width, 6));
-    w.write(`\x1b[${y + 1};${x + width - 3 - displayWidth(active)}H${active}`);
+    const cols = this.columns(sat(width, 4)),
+      { panel, rule, row: row_style } = looks[this.ground];
+    const found = rows.filter(line => "entry" in line || "open" in line).length,
+      total = c.history.entries.filter(e => c.inScope(e, this.scope)).length;
+    this.drawSearch(
+      w,
+      x,
+      y,
+      width,
+      this.search().length > 0 ? i18n.t`${found} of ${total}` : "",
+      scopeLabel(this.scope),
+    );
+    this.drawHeadings(w, x, y + 1, width, cols);
     if (context) {
       const date = ellipsis(dayLabel(context.updated_at, c.now), sat(width, 6 + provider_width));
       w.write(`\x1b[${area.listTop()};${x + 3}H${row_style}`);
@@ -550,15 +567,69 @@ export class View {
         marks,
       );
     }
-    const bar = scrollThumb.thumb(list_height, rows.length, first);
-    if (bar)
-      for (let k = 0; k < list_height; k++)
-        w.write(
-          `\x1b[${list_top + k};${x + width - 2}H${k >= bar.start && k < bar.start + bar.len ? panel + "┃" : rule + "│"}`,
-        );
+    for (let k = 0; k < list_height; k++) {
+      const cell = this.track(k, list_height, rows.length, first);
+      if (cell) w.write(`\x1b[${list_top + k};${x + width - 2}H${cell}`);
+    }
+  }
+  /** Row `k` of the scroll track beside `height` rows that show `total` from
+   * `first`: the thumb or the rail; "" when they all fit. */
+  track(k: number, height: number, total: number, first: number): string {
+    const bar = scrollThumb.thumb(height, total, first);
+    if (!bar) return "";
+    const { panel, rule } = looks[this.ground];
+    return k >= bar.start && k < bar.start + bar.len ? panel + "┃" : rule + "│";
+  }
+  /** The search line at row `y`, as the model picker draws its search: a
+   * field with the key that searches, `cap` (none when ""), the query and its
+   * caret, and `count`, how many match; then the `scope` keys, when there is
+   * a scope to change. */
+  drawSearch(w: Writer, x: number, y: number, width: number, count: string, scope: string | null, cap = "/"): void {
+    const panel = looks[this.ground].panel,
+      shown = scope === null ? "" : ellipsis(scope, sat(width, 19)),
+      keys_x = scope === null ? x + width - 1 : x + width - 2 - (displayWidth(shown) + 2 + 6),
+      field_x = x + 3,
+      field_w = sat(keys_x - 1, field_x),
+      lead = cap ? displayWidth(cap) + 3 : 1,
+      counted = count !== "" && field_w >= displayWidth(count) + lead + 3,
+      room = sat(field_w, lead + (counted ? displayWidth(count) + 2 : 0));
+    w.write(`\x1b[${y};${field_x}H${field}`);
+    w.splat(" ", field_w);
+    w.write(`\x1b[${y};${field_x}H` + (cap ? `${keycap} ${cap} ${field} ` : " "));
+    if (this.searching) {
+      writeField(w, this.query, DialogView.scroll(this.query, room), room, field_strong, { caret: true });
+      if (this.query.len === 0 && room > 2) {
+        w.write(field_muted);
+        writeEllipsis(w, i18n.t`search titles, branches and messages`, room - 1);
+      }
+    } else {
+      w.write(field_muted);
+      writeEllipsis(w, i18n.t`search titles, branches and messages`, room);
+    }
+    if (counted) w.write(`\x1b[${y};${field_x + field_w - 1 - displayWidth(count)}H${field_muted}${count}`);
+    if (scope === null) return;
+    w.write(`\x1b[${y};${keys_x}H${panel}`);
+    writeKey(w, "tab", panel);
+    w.write(" ");
+    writeKey(w, shown, panel);
+  }
+  /** The column headings at row `y`. */
+  drawHeadings(w: Writer, x: number, y: number, width: number, cols: Columns): void {
+    w.write(`\x1b[${y};${x + 3 + provider_width}H${looks[this.ground].panel}`);
+    writeEllipsis(w, i18n.t`Title`, cols.title);
+    if (cols.folder > 0) {
+      w.write(`\x1b[${y};${x + 3 + provider_width + cols.title + 2}H`);
+      writeEllipsis(w, i18n.t`Where`, sat(cols.folder, 1));
+    }
+    if (cols.last > 12) {
+      w.write(`\x1b[${y};${x + 3 + provider_width + cols.title + 2 + cols.folder}H`);
+      writeEllipsis(w, i18n.t`You last said`, cols.last);
+    }
+    const active = ellipsis(i18n.t`Last active`, sat(width, 6));
+    w.write(`\x1b[${y};${x + width - 3 - displayWidth(active)}H${active}`);
   }
   /** `named` rows show their agent's name; the rows below continue its run as a rail. */
-  private drawLine(
+  drawLine(
     w: Writer,
     c: Context,
     rows: Line[],
@@ -572,6 +643,7 @@ export class View {
     marks: Marks | null = null,
   ): void {
     const line = rows[at],
+      { panel, row: row_style } = looks[this.ground],
       style = selected ? selected_style : row_style;
     if ("day" in line) {
       const before = at > 0 ? agentOf(c, rows[at - 1]) : null,

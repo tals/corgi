@@ -1,5 +1,8 @@
 import { test, expect } from "bun:test";
-import { entry } from "./history";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { entry, locate } from "./history";
 const lines = (...v: any[]) => v.map(x => JSON.stringify(x)).join("\n") + "\n";
 const user = (content: any, extra: any = {}) => ({
   type: "user",
@@ -65,4 +68,21 @@ test("a Claude conversation dates from its last prompt or reply, not its file", 
     { type: "custom-title", customTitle: "Release" },
   );
   expect(entry("s", t, t, false, 1790600000)!.updated_at).toBe(1790244000);
+});
+
+test("a Claude session's transcript is found in whichever project folder holds it", () => {
+  const account = mkdtempSync(join(tmpdir(), "corgi-claude-")),
+    session = "0f315d2b-dd8d-4ce2-93db-6831458ca975",
+    path = join(account, "projects", "-tmp-project", `${session}.jsonl`);
+  try {
+    mkdirSync(join(account, "projects", "-tmp-other"), { recursive: true });
+    mkdirSync(join(account, "projects", "-tmp-project"), { recursive: true });
+    writeFileSync(path, "{}\n");
+    expect(locate(session, account)).toBe(path);
+    expect(locate("1f315d2b-dd8d-4ce2-93db-6831458ca975", account)).toBe("");
+    expect(locate("../x", account)).toBe("");
+    expect(locate(session, join(account, "missing"))).toBe("");
+  } finally {
+    rmSync(account, { recursive: true, force: true });
+  }
 });

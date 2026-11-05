@@ -4,6 +4,7 @@ import { isAbsolute, join } from "node:path";
 import { BoundedText } from "./bounded_text";
 import * as errors from "./errors";
 import * as i18n from "./i18n";
+import type * as keyboard from "./keyboard";
 
 export type Support = "probing" | "on" | "unsupported" | "denied";
 export type Failure =
@@ -47,6 +48,16 @@ export function relayTypes(listing: string): string[] {
   if (image) types.push(image.mime);
   return types;
 }
+/** The type of the image `head` starts, by its magic bytes; null for anything else. */
+export function sniff(head: Uint8Array): string | null {
+  const bytes = Buffer.from(head);
+  const image = images.find(i => bytes.subarray(0, i.magic.length).equals(i.magic));
+  return image && (image.extension !== "webp" || bytes.subarray(8, 12).toString() === "WEBP") ? image.mime : null;
+}
+/** The type of an image `saveImage` wrote, from its extension; null for anything else. */
+export function imageType(path: string): string | null {
+  return images.find(i => path.endsWith("." + i.extension))?.mime ?? null;
+}
 export function choose(listing: string, pane: boolean): Choice {
   if (lists(listing, "text/plain")) return { read: "text/plain" };
   const image = images.find(i => lists(listing, i.mime));
@@ -54,6 +65,13 @@ export function choose(listing: string, pane: boolean): Choice {
   return listing.split(/\s+/).some(m => m.startsWith("image/")) ? { refuse: "unsupported_image" } : "nothing";
 }
 export type Key = "cmd" | "ctrl_shift" | "ctrl";
+/** The paste keys Ghostty passes on as keys when it has no text to paste. */
+export function pasteKey(k: keyboard.Key): Key | null {
+  if (k.codepoint !== 118 || k.mods.alt) return null;
+  if (k.mods.super && !k.mods.ctrl && !k.mods.shift) return "cmd";
+  if (k.mods.ctrl && k.mods.shift && !k.mods.super) return "ctrl_shift";
+  return null;
+}
 export class Notice {
   body = new (BoundedText(512))();
   parts: { kind: "text" | "link" | "key"; text: InstanceType<ReturnType<typeof BoundedText>> }[] = [];
@@ -364,12 +382,7 @@ const capitalized = (text: string) => (text ? text[0].toUpperCase() + text.slice
 export function saveImage(folder: string, mime: string, data: Uint8Array, now: number): string {
   const image = images.find(i => i.mime === mime),
     bytes = Buffer.from(data);
-  if (
-    !image ||
-    !bytes.subarray(0, image.magic.length).equals(image.magic) ||
-    (image.extension === "webp" && bytes.subarray(8, 12).toString() !== "WEBP")
-  )
-    throw Error("NotImage");
+  if (!image || sniff(bytes) !== mime) throw Error("NotImage");
   if (!isAbsolute(folder)) throw Error("RelativeFolder");
   mkdirSync(folder, { recursive: true, mode: 0o700 });
   const dir = lstatSync(folder);

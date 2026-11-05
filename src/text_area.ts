@@ -41,6 +41,25 @@ export const byte_edits: Partial<Record<number, Edit>> = {
   23: "word_backspace",
   127: "backspace",
 };
+/** A character typed a byte at a time, whole once its UTF-8 bytes are. */
+export class Typed {
+  private bytes: number[] = [];
+  /** The character `byte` completes: null while one is partial, and for a stray byte. */
+  take(byte: number): string | null {
+    if (byte < 0x80) {
+      this.bytes = [];
+      return String.fromCharCode(byte);
+    }
+    if (byte >= 0xc0) this.bytes = [];
+    else if (!this.bytes.length) return null;
+    this.bytes.push(byte);
+    const lead = this.bytes[0],
+      size = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : 2;
+    if (this.bytes.length < size) return null;
+    const text = new TextDecoder().decode(new Uint8Array(this.bytes.splice(0)));
+    return text.includes("\ufffd") ? null : text;
+  }
+}
 /** Keys every text box reads as edits. */
 export const key_edits: Partial<Record<keys.Key, Edit>> = {
   left: "left",
@@ -100,6 +119,9 @@ export class TextArea {
   anchor: number | null = null;
   /** Columns the lines wrap at, as last drawn. */
   width = 40;
+  /** Columns the first line leaves to what's drawn before it, such as
+   * attachments; the lines after it start at the left. */
+  lead = 0;
   /** The column up and down keep to across short lines. */
   private goal: number | null = null;
 
@@ -185,14 +207,16 @@ export class TextArea {
     this.caret = Math.max(from, reach);
     this.insert("");
   }
-  /** Puts the caret at column `col` of shown line `row`; with `select`, the selection follows it. */
+  /** Puts the caret at column `col` of the box on shown line `row`, the
+   * first line starting `lead` in; with `select`, the selection follows it. */
   place(row: number, col: number, select = false): void {
     const lines = this.lines(),
-      line = lines[Math.min(Math.max(row, 0), lines.length - 1)];
+      index = Math.min(Math.max(row, 0), lines.length - 1);
     if (select) this.anchor ??= this.caret;
     else this.anchor = null;
     this.goal = null;
-    this.caret = row < 0 ? 0 : row >= lines.length ? this.text.length : this.offsetAt(line, col);
+    this.caret =
+      row < 0 ? 0 : row >= lines.length ? this.text.length : this.offsetAt(lines[index], col - this.leadOf(index));
   }
   /** The caret's shown line and column. */
   position(): { row: number; col: number } {
@@ -203,13 +227,13 @@ export class TextArea {
   /** The lines as shown at `width` columns, broken after the last space that fits. */
   lines(width = this.width): Line[] {
     if (!this.multiline) return [{ start: 0, end: this.text.length }];
-    const out: Line[] = [],
-      room = Math.max(1, width);
+    const out: Line[] = [];
     let start = 0;
     for (const para of this.text.split("\n")) {
       const end = start + para.length;
       let s = start;
       do {
+        const room = Math.max(1, width - this.leadOf(out.length));
         let at = s,
           used = 0,
           space = -1;
@@ -241,11 +265,16 @@ export class TextArea {
   private vertical(step: -1 | 1): void {
     const lines = this.lines(),
       row = this.rowOf(lines, this.caret);
-    this.goal ??= this.span(lines[row].start, this.caret);
+    // The goal is a column of the box, so the first line's lead counts.
+    this.goal ??= this.leadOf(row) + this.span(lines[row].start, this.caret);
     const next = row + step;
     if (next < 0) this.caret = 0;
     else if (next >= lines.length) this.caret = this.text.length;
-    else this.caret = this.offsetAt(lines[next], this.goal);
+    else this.caret = this.offsetAt(lines[next], this.goal - this.leadOf(next));
+  }
+  /** Where shown line `row` starts in the box. */
+  leadOf(row: number): number {
+    return row === 0 ? this.lead : 0;
   }
   private target(to: Exclude<Move, "up" | "down">): number {
     const t = this.text;

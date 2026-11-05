@@ -1,6 +1,6 @@
 ---
 name: corgi
-description: Control Corgi terminal panes, tabs, agents, and workspaces when the user asks to use Corgi. Discover layout, arrange running terminals, read output, message agents and send input through its CLI.
+description: Use Corgi to manage panes, tabs, agents, and workspaces, message agents, or search past agent conversations for PRs, branches, commands, and decisions.
 ---
 
 # Corgi
@@ -10,8 +10,9 @@ running terminals; tabs hold split trees. Each attached viewer owns its selectio
 
 ## Discover before acting
 
-Run `corgi --help`, then `corgi list`. `corgi tab` and `corgi pane` print usage
-without making changes. Never run bare `corgi` for discovery: it attaches the UI.
+For runtime commands, run `corgi --help`, then `corgi list`. `corgi tab` and
+`corgi pane` print usage without making changes. Never run bare `corgi` for
+discovery: it attaches the UI.
 The installed binary is the authority for syntax. The runtime must already be
 running; new agent commands never start, upgrade, or restart it implicitly.
 
@@ -111,6 +112,23 @@ Use `--` before text beginning with `--`. Input delivery is not proof an agent
 started or completed a turn. Inspect output and reported state; never blindly
 resubmit after a timeout or connection error.
 
+## Show the user something
+
+```sh
+corgi focus 31 --viewer 7
+corgi workspace switch 2 --viewer 7
+corgi history --limit 30
+corgi resume claude 0f315d2b-dd8d-4ce2-93db-6831458ca975 --viewer 7
+```
+
+A viewer is one attached screen; `corgi list` ends with each viewer's ID, the
+workspace it shows and its selected pane. Focus selects a pane in that viewer,
+switching to its workspace. `history` lists past conversations newest first,
+with the provider and session that `resume` takes, the title, folder and age.
+`resume` focuses the pane already showing a conversation, or resumes it in a new
+tab in the workspace whose folder holds it (`--workspace` to choose). Without
+`--viewer` it uses `CORGI_VIEWER`, then the only attached viewer.
+
 ## Find past conversations
 
 `corgi grep` searches the workspace holding the current directory: its folder,
@@ -148,6 +166,14 @@ a mention of a command (especially in file contents) does not prove it ran.
 For execution evidence, inspect `--tools` call hits: `[call Bash success]` or
 `[call exec_command exit=0]`. Result hits may quote commands; `-l` omits evidence.
 JSON includes call/result IDs, references and recorded status; missing status stays unrecorded.
+The prompt shows progress and clickable titles automatically; don't narrate each
+search or manage the cache/transport. Earlier searches collapse into summaries.
+
+In prompt replies, use inline Markdown links with descriptive labels, e.g.
+`The [sidebar fix](abc1234@.) is in [this range](main..topic@/project).`
+Hover previews the diff; click opens review. Keep normal prose and formatting;
+don't use `commits` fences. Plain hashes also link to the prompt's workspace.
+Use `@FOLDER` for another repository; `a..b` compares the two endpoints.
 
 ## Launcher agents
 

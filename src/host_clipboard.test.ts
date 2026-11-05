@@ -1,7 +1,8 @@
 import { test, expect } from "bun:test";
 import { mkdtempSync, readFileSync, statSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { State, Notice, choose, relayTypes, saveImage, enable, type Result } from "./host_clipboard";
+import * as keyboard from "./keyboard";
+import { State, Notice, choose, pasteKey, relayTypes, saveImage, sniff, enable, type Result } from "./host_clipboard";
 const b64 = (value: string | Buffer) => Buffer.from(value).toString("base64");
 function event(s: State, types: string, pw = "cHc=") {
   s.packet(`type=read:status=OK:pw=${pw}`, 0);
@@ -41,6 +42,19 @@ test("text wins, and an image goes only into a pane", () => {
   expect(choose("application/pdf", true)).toBe("nothing");
   expect(() => saveImage("", "image/webp", Buffer.from("RIFF\0\0\0\0WAVE"), 0)).toThrow("NotImage");
   expect(() => saveImage("", "image/webp", Buffer.from("RIFF\0\0\0\0WEBPVP8 "), 0)).toThrow("RelativeFolder");
+});
+test("an image is known by its first bytes", () => {
+  expect(sniff(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]))).toBe("image/png");
+  expect(sniff(Buffer.from([255, 216, 255, 224]))).toBe("image/jpeg");
+  expect(sniff(Buffer.from("GIF89a"))).toBe("image/gif");
+  expect(sniff(Buffer.from("RIFF\0\0\0\0WEBPVP8 "))).toBe("image/webp");
+  expect(sniff(Buffer.from("RIFF\0\0\0\0WAVE"))).toBeNull();
+  expect(sniff(Buffer.from("%PDF-1.7"))).toBeNull();
+});
+test("Ghostty's paste keys, passed on when it had no text to paste", () => {
+  expect(pasteKey(keyboard.decode("\x1b[118;9u")!)).toBe("cmd");
+  expect(pasteKey(keyboard.decode("\x1b[118;6u")!)).toBe("ctrl_shift");
+  expect(pasteKey(keyboard.decode("\x1b[118;5u")!)).toBeNull();
 });
 test("paste events turn on only when the host supports them and allows reads", () => {
   const s = new State();

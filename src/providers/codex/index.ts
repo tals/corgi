@@ -148,6 +148,7 @@ export const adapter: Adapter = {
   headless: {
     start: at => Codex.start(at, null),
     restore: Codex.restore,
+    tools: true,
   },
   inference: {
     model: "gpt-6-luna",

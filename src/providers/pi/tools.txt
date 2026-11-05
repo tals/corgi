@@ -1,0 +1,38 @@
+// Corgi's tools for one prompt session, loaded into its process alone with -e.
+// Each runs Corgi itself with the call's words, no shell between, in this
+// process's environment, which names the session.
+import { spawn } from "node:child_process";
+import { Type } from "@sinclair/typebox";
+const tools = TOOLS;
+const max_output = 256 * 1024;
+export default function (pi) {
+  for (const tool of tools)
+    pi.registerTool({
+      name: tool.name,
+      label: "Corgi",
+      description: tool.description,
+      parameters: Type.Object({ args: Type.Array(Type.String(), { description: "The words after `corgi`." }) }),
+      async execute(_id, params, signal) {
+        const bin = process.env.CORGI_BIN;
+        if (!bin) throw new Error("Corgi isn't reachable from this session.");
+        const text = await new Promise((resolve, reject) => {
+          const child = spawn(bin, params.args, { stdio: ["ignore", "pipe", "pipe"], signal });
+          let out = "",
+            cut = false;
+          const take = chunk => {
+            if (out.length < max_output) out += chunk;
+            else cut = true;
+          };
+          child.stdout.setEncoding("utf8").on("data", take);
+          child.stderr.setEncoding("utf8").on("data", take);
+          child.on("error", reject);
+          child.on("close", code => {
+            const said = (out.trimEnd() + (cut ? "\n(output cut)" : "")) || "(no output)";
+            if (code === 0 || cut) resolve(said);
+            else reject(new Error(said));
+          });
+        });
+        return { content: [{ type: "text", text }], details: {} };
+      },
+    });
+}

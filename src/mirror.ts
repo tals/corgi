@@ -18,6 +18,8 @@ import { Provider, byProvider, adapter } from "./providers";
 import { type Conversation, conversation, usageView } from "./subagent_tooltip";
 import { View as UsageView } from "./usage/live";
 import * as errors from "./errors";
+import * as effort from "./providers/effort";
+import type { Effort } from "./providers/effort";
 import * as processName from "./process_name";
 import * as archiveSummary from "./archive_summary";
 import type { GitCommit, GitDiff } from "./sidebar";
@@ -43,7 +45,7 @@ export async function call<K extends protocol.Op>(
   ...args: protocol.Arguments<K>
 ): Promise<protocol.Reply<K>> {
   const reply = await conn.request(op, ...args);
-  if ("err" in reply) throw Error(reply.err);
+  if ("err" in reply) throw errors.fromReply(reply);
   // Before the payload, whose shape may differ between viewer protocols.
   if (protocol.check(op) === "viewer") viewerVersion.require(reply);
   return reply;
@@ -538,6 +540,15 @@ export interface Headless {
   workspace: number;
   provider: Provider;
   cwd: string;
+  /** The Corgi prompt's own conversation. */
+  corgi: boolean;
+  /** What it started with: "" for the default account or model. */
+  account: string;
+  model: string;
+  effort: Effort | null;
+  persist: boolean;
+  /** The pane whose Corgi chat holds it; null while the prompt card does. */
+  pane: number | null;
   ready: boolean;
   exited: boolean;
   state: string;
@@ -554,6 +565,12 @@ function headless(value: any): Headless {
     workspace: value.workspace,
     provider: value.provider,
     cwd: value.cwd ?? "",
+    corgi: value.corgi === true,
+    account: typeof value.account === "string" ? value.account : "",
+    model: typeof value.model === "string" ? value.model : "",
+    effort: effort.parse(value.effort),
+    persist: value.persist !== false,
+    pane: typeof value.pane === "number" ? value.pane : null,
     ready: value.ready === true,
     exited: value.exited === true,
     state: value.state ?? "unknown",
@@ -581,7 +598,10 @@ export class Runtime {
   snapshot_hash: bigint | null = null;
   workspaces = new Workspaces();
   panes: Pane[] = [];
+  /** Headless agents, besides the Corgi prompt's. */
   sessions: Headless[] = [];
+  /** The Corgi prompt's own sessions, which no agent list shows. */
+  corgi_sessions: Headless[] = [];
   conversations: Conversation[] = [];
   system_model = "";
   system_model_name = "";
@@ -662,7 +682,11 @@ export class Runtime {
     this.snapshot_hash = null;
     this.panes = panes;
     this.workspaces.items = parsed;
-    this.sessions = (snapshot.headless_sessions ?? []).filter((s: any) => Provider.parse(s?.provider)).map(headless);
+    const sessions: Headless[] = (snapshot.headless_sessions ?? [])
+      .filter((s: any) => Provider.parse(s?.provider))
+      .map(headless);
+    this.sessions = sessions.filter(s => !s.corgi);
+    this.corgi_sessions = sessions.filter(s => s.corgi);
     this.conversations = (snapshot.conversations ?? []).map(conversation);
     this.system_model = snapshot.system_model ?? "";
     this.system_model_name = snapshot.system_model_name ?? "";

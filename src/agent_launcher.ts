@@ -420,7 +420,9 @@ export class Menu {
     )!;
   }
   /** Rows the menu needs: border, headings, agent rows and a gap, the
-   * conversations and a gap, footer and border. */
+   * conversations and a gap, footer and border. The worktree box takes the
+   * rows of every checkout and From's list, so choosing in it doesn't
+   * resize the launcher. */
   rowsHeight(): number {
     if (this.managing) return this.manager.height(this.manageModel());
     const conversations = !this.hasResume()
@@ -429,24 +431,22 @@ export class Menu {
         ? 8
         : this.resume_view.collapsedHeight(this.resumeContext()) + 1;
     // The worktree box hangs from the title above the footer.
-    const c = this.worktree;
     const hanging =
-      c.mode !== "open"
+      this.worktree.mode !== "open"
         ? 0
         : launcherWorktree.boxHeight(
-            Math.min(c.count(this.worktrees), launcherWorktree.list_rows),
-            c.error.length > 0,
-            c.focus === "from" ? launcherWorktree.pickChoices(c, now()).length : null,
+            Math.min(launcherWorktree.checkouts(this.worktrees).length + 1, launcherWorktree.list_rows),
+            this.worktree.error.length > 0,
+            launcherWorktree.pick_rows,
           );
     return Math.max(5 + this.count() + conversations, hanging);
   }
   bounds(cols: number, rowsCount: number, side: SidebarView): Rect {
     const width = Math.min(cols, preferred_width);
     let height = Math.min(rowsCount, this.rowsHeight());
-    // Expanded conversations take the room a table of them needs.
-    if (this.resume_view.expanded && this.history.entries.length > 0) {
-      if (!this.managing) height = Math.min(rowsCount, Math.max(30, height));
-    }
+    // Expanded conversations take the room a table of them needs, and keep
+    // it until the launcher closes, so typing or collapsing doesn't resize it.
+    if (this.resume_view.grown && this.hasResume()) height = Math.min(rowsCount, Math.max(30, height));
     return new Rect(
       Math.min(sat(side.width, 10), cols - width),
       Math.min(side.middle() + 1, rowsCount - height),
@@ -917,17 +917,12 @@ export class Menu {
         ...(m.worktree.creating(m.worktrees) ? [{ key: "tab", label: i18n.t`from` }] : []),
         { key: "esc", label: i18n.t`close` },
       ];
-    else if (view.searching && view.query.len > 0)
-      hints = [
-        { key: "↵", label: i18n.t`resume` },
-        { key: "tab", label: i18n.t`scope` },
-        { key: "esc", label: i18n.t`clear` },
-      ];
     else if (view.searching)
       hints = [
+        { key: "↑↓", label: i18n.t`pick` },
         { key: "↵", label: i18n.t`resume` },
         { key: "tab", label: i18n.t`scope` },
-        { key: "esc", label: i18n.t`close` },
+        { key: "esc", label: i18n.t`back` },
       ];
     else if (view.focused && view.expanded)
       hints = [

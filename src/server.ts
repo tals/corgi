@@ -122,7 +122,7 @@ export class Server {
       const unread =
         this.runtime.conversations.items.some(actor => actor.state.observation.unread()) ||
         this.runtime.panes.some(pane => pane.agent().observation.unread()) ||
-        this.runtime.sessions.some(session => session.attention() === "finished");
+        this.runtime.sessions.some(session => !session.corgi && session.attention() === "finished");
       if (!unread) {
         this.bell = false;
         this.bell_kind = "none";
@@ -324,7 +324,7 @@ export class Server {
       this.runtime.wanted_names.length > 0 ||
       this.clients.some(c => c.headless_start !== null || launch.due(this, c)) ||
       this.runtime.panes.some(p => p.terminal.due() || p.ghost !== null) ||
-      this.runtime.sessions.some(s => !s.exited)
+      this.runtime.sessions.some(s => s.urgent())
     );
   }
   pause(): void {
@@ -740,6 +740,12 @@ export class Server {
       case "headless.stop":
       case "headless.send":
       case "headless.events": {
+        const headless = await import("./headless");
+        await headless.request(this, cl, request, reply);
+        return;
+      }
+      case "headless.search":
+      case "headless.memory": {
         const headless = await import("./headless");
         await headless.request(this, cl, request, reply);
         return;

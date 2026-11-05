@@ -2,13 +2,19 @@
 //! stdout. Clients that run their provider themselves build on it; a handoff
 //! passes its pipes to the next daemon.
 import { n, ptr } from "../native_bridge";
+import { closeSync, fstatSync, openSync, readSync, unlinkSync, writeSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { native as fdNative } from "../fd_loop";
 import * as json from "../json";
 import * as binary from "../base64";
-import type { Saved } from "./adapter";
-/** Input still to write, and a line still being read, at most. */
+import { max_image_bytes, max_images, type Saved } from "./adapter";
+/** Room for an accepted prompt's inline images, plus its text and controls.
+ * Providers may echo the same images back in a user message. */
 const max_output = 1024 * 1024,
-  max_line = 4 * 1024 * 1024;
+  max_prompt = max_images * Math.ceil(max_image_bytes / 3) * 4 + max_output,
+  max_line = max_prompt + 4 * 1024 * 1024;
 function pipe() {
   const fds = new Int32Array(2);
   if (n.probe_pipe(ptr(fds)) !== 0) throw Error("PipeFailed");
@@ -20,6 +26,7 @@ export class Stdio {
   stdout = -1;
   input: Buffer = Buffer.alloc(0);
   output: Buffer = Buffer.alloc(0);
+  private buffered = -1;
   /** A process restored from a handoff stays the old daemon's until adopted. */
   owner: "runtime" | "handoff" = "runtime";
   exited = false;
@@ -63,20 +70,34 @@ export class Stdio {
   write(value: unknown) {
     if (this.closed || this.exited) throw Error("HeadlessExited");
     const line = Buffer.from(json.stringify(value) + "\n");
-    if (this.output.length + line.length - 1 > max_output) throw Error("HeadlessBackpressure");
+    if (this.output.length + line.length - 1 > max_prompt) throw Error("HeadlessBackpressure");
     this.output = Buffer.concat([this.output, line]);
+  }
+  /** Queues a tool reply, or waits for earlier output to drain. One large
+   * reply can fill an empty buffer; an exited process needs no reply. */
+  reply(value: unknown): boolean {
+    if (this.closed || this.exited) return true;
+    const line = Buffer.from(json.stringify(value) + "\n");
+    if (this.output.length && this.output.length + line.length - 1 > max_output) return false;
+    this.output = Buffer.concat([this.output, line]);
+    return true;
   }
   flush() {
     while (this.output.length && this.stdin >= 0) {
       const size = n.probe_write(this.stdin, ptr(this.output), this.output.length);
       if (size <= 0) break;
-      this.output = Buffer.from(this.output.subarray(size));
+      this.output = this.output.subarray(size);
     }
   }
   /** The JSON values it printed since the last call; a line that isn't JSON is skipped. */
   read(): unknown[] {
     const values: unknown[] = [];
     if (this.closed) return values;
+    // A failed handoff resumed this process; its snapshot is no longer needed.
+    if (this.owner === "runtime" && this.buffered >= 0) {
+      closeSync(this.buffered);
+      this.buffered = -1;
+    }
     this.flush();
     const buffer = Buffer.alloc(16384);
     for (let i = 0; i < 8 && this.stdout >= 0; i++) {
@@ -103,14 +124,43 @@ export class Stdio {
     await Bun.sleep(Math.max(0, Math.min(10, deadline - Date.now())));
   }
   save(live: boolean): Saved {
+    let buffered: { input: number; output: number } | null = null;
+    if (live) {
+      if (this.buffered >= 0) closeSync(this.buffered);
+      this.buffered = -1;
+      if (this.input.length + this.output.length > max_output) {
+        // Pass large buffers as an unlinked file. Encoding inline images again
+        // in the manifest can exceed the handoff's total JSON budget.
+        const file = join(tmpdir(), `corgi-headless-${randomUUID()}`),
+          fd = openSync(file, "wx+", 0o600);
+        try {
+          unlinkSync(file);
+          fdNative.fd_cloexec(fd);
+          let position = 0;
+          for (const bytes of [this.input, this.output])
+            for (let offset = 0; offset < bytes.length;) {
+              const count = writeSync(fd, bytes, offset, bytes.length - offset, position);
+              if (!count) throw Error("WriteFailed");
+              offset += count;
+              position += count;
+            }
+          this.buffered = fd;
+          buffered = { input: this.input.length, output: this.output.length };
+        } catch (error) {
+          closeSync(fd);
+          throw error;
+        }
+      }
+    }
     return {
       state: {
         pid: live ? this.pid : -1,
-        input: binary.encode(live ? this.input : Buffer.alloc(0)),
-        output: binary.encode(live ? this.output : Buffer.alloc(0)),
+        input: binary.encode(live && !buffered ? this.input : Buffer.alloc(0)),
+        output: binary.encode(live && !buffered ? this.output : Buffer.alloc(0)),
+        ...(buffered ? { buffered } : {}),
         exited: this.exited,
       },
-      handles: live ? [this.stdin, this.stdout] : [],
+      handles: live ? [this.stdin, this.stdout, ...(buffered ? [this.buffered] : [])] : [],
     };
   }
   /** The process a handoff passed on, or, from a cold checkpoint, one that is gone. */
@@ -120,16 +170,49 @@ export class Stdio {
     io.owner = "handoff";
     io.exited = !live || state.exited === true;
     if (live) io.pid = Number(state.pid ?? -1);
-    if (live && saved.handles.length === 2 && saved.handles.every(fd => fd >= 0)) {
+    if (live && saved.handles.length >= 2 && saved.handles.slice(0, 2).every(fd => fd >= 0)) {
       [io.stdin, io.stdout] = saved.handles;
       io.input = binary.decode(state.input ?? "");
       io.output = binary.decode(state.output ?? "");
       for (const fd of saved.handles) fdNative.fd_cloexec(fd);
     }
+    if (live && state.buffered) {
+      const fd = saved.handles[2],
+        { input, output } = state.buffered;
+      if (
+        fd === undefined ||
+        fd < 0 ||
+        !Number.isSafeInteger(input) ||
+        input < 0 ||
+        input > max_line ||
+        !Number.isSafeInteger(output) ||
+        output < 0 ||
+        output > max_prompt ||
+        fstatSync(fd).size !== input + output
+      )
+        throw Error("InvalidCheckpoint");
+      io.buffered = fd;
+      fdNative.fd_cloexec(fd);
+      let position = 0;
+      const read = (length: number): Buffer => {
+        const bytes = Buffer.alloc(length);
+        for (let offset = 0; offset < length;) {
+          const count = readSync(fd, bytes, offset, length - offset, position);
+          if (!count) throw Error("InvalidCheckpoint");
+          offset += count;
+          position += count;
+        }
+        return bytes;
+      };
+      io.input = read(input);
+      io.output = read(output);
+    }
     return io;
   }
   adopt() {
     this.owner = "runtime";
+    if (this.buffered >= 0) closeSync(this.buffered);
+    this.buffered = -1;
   }
   close() {
     if (this.closed) return;
@@ -142,7 +225,8 @@ export class Stdio {
           process.kill(this.pid, "SIGKILL");
         } catch {}
       }
-    for (const fd of [this.stdin, this.stdout]) if (fd >= 0) n.probe_close(fd);
+    for (const fd of [this.stdin, this.stdout, this.buffered]) if (fd >= 0) n.probe_close(fd);
     this.stdin = this.stdout = -1;
+    this.buffered = -1;
   }
 }

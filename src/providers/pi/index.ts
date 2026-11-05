@@ -145,7 +145,7 @@ export const adapter: Adapter = {
   },
   rename: { channel: socket.channel, suggest: socket.suggest },
   message: { channel: socket.message },
-  headless: { start: at => Pi.start(at), restore: (saved, live) => Pi.restore(saved, live) },
+  headless: { start: at => Pi.start(at), restore: (saved, live) => Pi.restore(saved, live), tools: true },
   inference: {
     model: "openai-codex/gpt-6-luna",
     models: (account, quit) => import("./models").then(m => m.read(account, quit)),

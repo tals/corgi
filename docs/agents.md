@@ -96,6 +96,12 @@ JSON never leaves the adapter. A summary is a prompt and the last message
 before its turn ends. `save` keeps what a checkpoint or handoff needs, and a
 handoff passes the client's `handles` to the next daemon.
 
+A prompt sent while a turn runs steers it. Codex takes it with `turn/steer`,
+holding one that comes before a new turn has an ID, and starts the next turn
+with one its turn refuses; Pi and omp take it as a steer, OpenCode 2 with
+steer delivery, and Claude from its input stream. An interrupt that comes
+before Codex's turn has an ID stops the turn once it has one.
+
 A provider's `index.ts` must not statically import a module that imports
 `./providers` while loading (discovery, inference, usage, launch). Those load
 with `import()`, or loading fails with "Cannot access 'adapter' before
@@ -395,7 +401,8 @@ OAuth credentials alone do not verify sign-in or remaining quota.
 Extension-defined subagent relationships are not exposed through a standard
 interface, so Corgi does not invent them.
 
-Headless prompts received while busy are follow-ups. Stop waits for prompt
+Headless prompts received while busy steer the run, as Enter does in Pi's
+own interface. Stop waits for prompt
 acceptance, clears the queue, then aborts. Dialog answers use `message` for
 text or a selected option; confirmation uses `allow`. Timed-out dialogs
 are removed. Inference disables discovered extensions, context, skills and

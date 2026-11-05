@@ -41,7 +41,8 @@ function live(r: Runtime, target: { pane: number }): Pane {
 export async function send(r: Runtime, target: Target, text: string): Promise<Sent> {
   if (!text.trim()) throw Error("InvalidMessage");
   if ("headless" in target) {
-    const session = r.sessions.find(s => s.id === target.headless);
+    // The Corgi prompt's own sessions are the user's chats, not agents to prompt.
+    const session = r.sessions.find(s => s.id === target.headless && !s.corgi);
     if (!session) throw Error("NoHeadlessSession");
     if (session.exited) throw Error("HeadlessExited");
     // Before its conversation exists, a prompt would start a second one.

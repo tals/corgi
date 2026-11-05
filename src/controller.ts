@@ -6,6 +6,7 @@ import * as archiveSummary from "./archive_summary";
 import { hostname } from "node:os";
 import { existsSync } from "node:fs";
 import { basename, isAbsolute } from "node:path";
+import { pathToFileURL } from "node:url";
 import * as keys from "./keys";
 import * as keyboard from "./keyboard";
 import * as textArea from "./text_area";
@@ -70,6 +71,7 @@ import * as launcherOrder from "./launch/order";
 import * as accounts from "./accounts";
 import { Stream as LaunchPreviewStream } from "./launch_preview_stream";
 import * as launcherResume from "./launcher_resume";
+import { workspaceFor } from "./cli";
 import { Menu as SetupMenu, Summarizer, type Apply as SetupApply } from "./corgi_setup";
 import type { Use } from "./inference/setup";
 import * as shellPicker from "./shell_picker";
@@ -89,13 +91,13 @@ import { key as agentKey, section, type Section, type Target as OrderTarget } fr
 import * as worktrees from "./worktrees";
 import * as worktreeRemoval from "./worktree_removal";
 import * as rpc from "./rpc";
-import type { CommandInput, PickResult, PickUnit } from "./protocol";
+import type { CommandInput, Op, PickResult, PickUnit } from "./protocol";
 import * as launcherWorktree from "./launcher_worktree";
 import * as preferences from "./preferences";
 import { Preferences } from "./preferences";
 import { Drag as AgentDrag } from "./agent_drag";
 import { Drag as WorkspaceDrag } from "./workspace_drag";
-import { milliTimestamp, microTimestamp } from "./clock";
+import { double_click_ms, milliTimestamp, microTimestamp } from "./clock";
 import * as ghosttyIntegration from "./ghostty_integration";
 import * as hostClipboard from "./host_clipboard";
 import * as framePacing from "./frame_pacing";
@@ -108,9 +110,24 @@ import * as signin from "./signin";
 import * as signinExit from "./signin_exit";
 import { Terminal as NativeTerminal } from "./pane/terminal";
 import { Provider, adapter } from "./providers";
-import { sat, byteLength, byteSlice, clamp, displayWidth, ellipsis, type Writer } from "./text";
+import { sat, byteLength, byteSlice, clamp, displayWidth, ellipsis, shortPath, type Writer } from "./text";
 import * as errors from "./errors";
 import * as moonlanderTerminal from "./moonlander/terminal";
+import {
+  Prompt,
+  type Context as PromptContext,
+  type Effect as PromptEffect,
+  type Mention as PromptMention,
+  type Preview as PromptPreview,
+} from "./prompt";
+import { clean, type Attention as PromptAttention, type Daemon as PromptDaemon } from "./prompt_session";
+import * as promptAttach from "./prompt_attach";
+import { Memory } from "./prompt_memory";
+import * as modelPicker from "./model_picker";
+import type { Marks } from "./provider_mark";
+import * as modelSuggest from "./model_suggest";
+import * as promptModels from "./prompt_models";
+import { shellWords } from "./os";
 
 /** A conversation a pane stopped running, and when, in seconds. */
 interface Stopped {
@@ -135,7 +152,7 @@ interface TabDrag {
 }
 /** A paste goes to the text field that owned the keyboard when it began, or
  * to the focused pane when none did. */
-type Paste = { pane: number } | "launcher" | "setup" | "picker" | "name" | "review" | "signin" | "discard";
+type Paste = { pane: number } | "launcher" | "setup" | "picker" | "name" | "review" | "signin" | "prompt" | "discard";
 /** Where keys go when no menu or dialog takes them: the focused pane, the
  * sidebar's cursor, or the review panel. */
 type Keyboard = "pane" | "review" | { sidebar: sidebarFocus.State };
@@ -172,13 +189,6 @@ function parseU16(text: string): number | null {
   if (!/^\+?\d+$/.test(text)) return null;
   const value = Number(text);
   return value <= 0xffff ? value : null;
-}
-/** The paste keys Ghostty passes on as keys when it has no text to paste. */
-export function pasteKey(k: keyboard.Key): hostClipboard.Key | null {
-  if (k.codepoint !== 118 || k.mods.alt) return null;
-  if (k.mods.super && !k.mods.ctrl && !k.mods.shift) return "cmd";
-  if (k.mods.ctrl && k.mods.shift && !k.mods.super) return "ctrl_shift";
-  return null;
 }
 /** Whether a wheel report scrolls the tab bar toward later tabs, with either
  * wheel and any modifier; null for other buttons. */
@@ -219,8 +229,6 @@ const portClick = (fields: Partial<PortClick> & { x: number; y: number }): PortC
   at: milliTimestamp(),
   ...fields,
 });
-/** How soon a press must follow the last one to extend a click series. */
-export const double_click_ms = 300;
 /** An SGR button press or release: neither motion nor the wheel. */
 const isButton = (button: number): boolean => (button & 96) === 0;
 /** Motion with a button held. */
@@ -321,6 +329,9 @@ const toggled = <T extends string>(list: T[], item: T, on: boolean) => [
   ...(on ? [item] : []),
 ];
 
+/** The session a viewer's prompt runs, kept across the viewer's reload. */
+const prompt_session_env = "CORGI_PROMPT_SESSION";
+/** An agent's account the Corgi prompt offers models from. */
 type AccountRemoval = {
   agent: agentManager.Agent;
   launch: LauncherMenu;
@@ -331,6 +342,7 @@ type AccountRemoval = {
 
 export class Controller {
   readonly model_cache = new agentModels.Cache(() => {
+    this.prompt_stale = true;
     this.dirty = true;
     this.wake();
   });
@@ -417,6 +429,8 @@ export class Controller {
   iterm2_pointer = false;
   link_tooltip = new linkTooltip.State();
   link_copy_press: linkTooltip.Link | null = null;
+  /** The picture of the prompt's pasted image under the pointer, this frame. */
+  private prompt_preview: PromptPreview | null = null;
   thumbnails = new linkThumbnail.Loader(() => {
     this.dirty = true;
     this.wake();
@@ -488,9 +502,43 @@ export class Controller {
   private summary_hover: { cwd: string; since: number } | null = null;
   /** The folder this viewer started in, where a workspace made with none open starts. */
   start_folder = process.cwd();
+  /** The Corgi prompt: one conversation for the viewer's life, wherever it opens. */
+  readonly prompt: Prompt;
+  /** Models, accounts or usage changed since the prompt was last told. */
+  private prompt_stale = true;
+  /** What the prompt was last told, and when. */
+  private prompt_catalog = "";
+  private prompt_fed_at = 0;
+  private prompt_suggested: modelPicker.Choice[] = [];
+  /** What the prompt's Auto runs, settled with the suggestions. */
+  private prompt_auto: modelPicker.Choice | null = null;
+  private prompt_opened_at = 0;
+  /** When the prompt's catalogs were last read ahead of it. */
+  private prompt_warmed_at = 0;
+  /** The conversations the prompt's lists were last given, and when. */
+  private prompt_known: { key: unknown[]; at: number; context: launcherResume.Context } | null = null;
+  /** The first snapshot was checked for a prompt session this viewer left running. */
+  private prompt_resumed = false;
+  /** What the status line last said about the prompt while it was put away. */
+  private prompt_attention: PromptAttention = "none";
+  /** Corgi answered or needs you while put away; the viewer sounds it once. */
+  prompt_chime: "finished" | "needs_input" | null = null;
 
   constructor(connection: Transport) {
     this.connection = connection;
+    this.prompt = new Prompt({
+      daemon: this.promptDaemon(),
+      memory_root: Memory.root(),
+      transcript: (provider, session) =>
+        this.runtime.corgi_sessions.find(s => s.provider === provider && s.session === session)?.agent?.transcript ??
+        "",
+      resolve: mention => this.resolveMention(mention),
+      clock: milliTimestamp,
+      viewer: () => this.input_state.viewer_id || null,
+      conversations: () => this.promptConversations(),
+    });
+    // Its replies are read by the next poll, which says whether they show.
+    this.prompt.changed = () => this.wake();
     this.review.changed = () => {
       this.dirty = true;
       this.wake();
@@ -531,8 +579,14 @@ export class Controller {
   layoutView(): LayoutView {
     return new LayoutView(this.model(), this.nav());
   }
-  private async execute(command: CommandInput): Promise<{ pane: number; workspace: number; text: string | null }> {
+  /** Runs `command` in the daemon, then reads what changed; `done` hears
+   * that the daemon did it, even when the reading fails. */
+  private async execute(
+    command: CommandInput,
+    done?: () => void,
+  ): Promise<{ pane: number; workspace: number; text: string | null }> {
     const response = await call(this.connection, "session.command", { command });
+    done?.();
     const result = {
       pane: Number(response.result?.pane ?? 0),
       workspace: Number(response.result?.workspace ?? 0),
@@ -772,6 +826,7 @@ export class Controller {
    * repeat window. */
   private async runPrefixed(act: Action, repeats: boolean): Promise<void> {
     this.prefix = false;
+    if (this.prompt.open && act.name !== "prompt") this.prompt.hide();
     this.repeat_until = repeats ? Date.now() + bindings.repeat_ms : 0;
     if (!["focus", "choose-workspace", "choose-agent", "review"].includes(act.name)) this.giveKeyboard("pane");
     await this.perform(act);
@@ -963,6 +1018,7 @@ export class Controller {
       this.notice(i18n.t`Could not watch viewer.json for shortcut changes.`);
     }
     this.review.tree_rows = this.prefs.review_tree_rows;
+    this.prompt.choice = this.prefs.prompt_model === "auto" ? null : (this.prefs.prompt_model ?? null);
     if (!this.prefs.onboarding_complete)
       this.onboarding = Object.assign(new onboarding.State(), {
         preset: this.prefs.preset,
@@ -1130,7 +1186,7 @@ export class Controller {
         sidebar.tally(entry, p.agent.state, p.agent.attention);
         if (unread(p.agent.observation)) entry.unread += 1;
       }
-      for (const session of this.runtime.sessions) {
+      for (const session of this.listedSessions()) {
         if (session.workspace !== ws.id) continue;
         sidebar.tally(entry, session.state, session.attention);
         if (unread(session.observation)) entry.unread += 1;
@@ -1177,10 +1233,12 @@ export class Controller {
       const first_agent = entries.length,
         starts: number[] = [];
       for (const { entry, start } of agentRows.rows(this.runtime, ws, now_ms)) {
-        const t = entry.target;
+        const t = entry.target,
+          chat = "headless" in t ? this.runtime.corgi_sessions.find(s => s.id === t.headless) : null,
+          pane = "pane" in t ? t.pane : chat?.pane;
         entry.focused =
-          "pane" in t
-            ? this.headless_notice === null && focus === t.pane
+          pane != null
+            ? this.headless_notice === null && focus === pane
             : "headless" in t && this.headless_notice === t.headless;
         entries.push(entry);
         starts.push(start);
@@ -1312,9 +1370,14 @@ export class Controller {
       for (const p of this.runtime.panes)
         if (p.agent.provider !== null && ws.model.tabForPane(p.id) === tab_index && unread(p.agent.observation))
           return { pane: p.id };
-    for (const session of this.runtime.sessions)
+    for (const session of this.listedSessions())
       if (session.workspace === ws.id && unread(session.observation)) return { headless: session.id };
     return null;
+  }
+  /** The headless sessions the sidebar lists: the agents', and the prompt's
+   * own conversations while a Corgi pane holds one; in the card they don't show. */
+  private listedSessions(): Headless[] {
+    return agentRows.sessions(this.runtime);
   }
   private selectAgent(target: Target): void {
     if ("worktree" in target) return this.revealWorktree({ workspace: target.workspace, path: target.worktree }, true);
@@ -1334,8 +1397,12 @@ export class Controller {
       this.focusPane(target.pane);
       this.dirty = true;
     } else if ("headless" in target) {
-      const session = this.runtime.sessions.find(s => s.id === target.headless);
-      if (session) {
+      const session = this.listedSessions().find(s => s.id === target.headless);
+      // The prompt's conversation opens where it is: its Corgi pane, or the card.
+      if (session?.corgi && session.pane !== null && this.pane(session.pane)) this.focusPane(session.pane);
+      else if (session?.corgi) {
+        if (!this.prompt.open) void this.perform({ name: "prompt" });
+      } else if (session) {
         if (session.workspace !== this.current().id) this.switchWorkspace(session.workspace);
         this.noticeHeadlessSession(session);
       }
@@ -1369,7 +1436,7 @@ export class Controller {
   /** The workspace an agent's pane or session is in. */
   private agentWorkspace(target: OrderTarget): number | null {
     if ("pane" in target) return this.runtime.workspaces.owner(target.pane)?.id ?? null;
-    return this.runtime.sessions.find(s => s.id === target.headless)?.workspace ?? null;
+    return this.listedSessions().find(s => s.id === target.headless)?.workspace ?? null;
   }
   private focusedAgent(): Target | null {
     if (this.headless_notice !== null) {
@@ -1493,7 +1560,8 @@ export class Controller {
       this.agent_launcher !== null ||
       this.corgi_setup !== null ||
       this.scope_menu !== null ||
-      this.signin !== null
+      this.signin !== null ||
+      this.prompt.open
     );
   }
   /** Open UI that can change with no input, such as the launcher's preview
@@ -1509,7 +1577,7 @@ export class Controller {
   }
   /** Whether a tab menu's target (pane, workspace, or tab) has disappeared. */
   private tabMenuStale(context: TabMenu): boolean {
-    if (context.headless) return !this.runtime.sessions.some(session => session.id === context.tab);
+    if (context.headless) return !this.listedSessions().some(session => session.id === context.tab);
     if (context.worktree !== null) {
       const ws = this.runtime.workspaces.items.find(ws => ws.id === context.tab);
       return !worktrees.linked(ws?.worktrees ?? null).some(e => e.path === context.worktree);
@@ -1831,7 +1899,8 @@ export class Controller {
     // A prefixed arrow moves the keyboard on from where it is, so the prefix keeps it there.
     const keyboard = this.keyboard;
     this.keyboard = "pane";
-    this.closeMenu();
+    // The prompt waits for the key: Space closes it, Esc goes back to it, others leave it.
+    if (!this.prompt.open) this.closeMenu();
     this.keyboard = keyboard;
     this.cancelDividers();
     this.selection = null;
@@ -1927,6 +1996,7 @@ export class Controller {
     this.menu_highlight = null;
     this.prefix = false;
     this.resize_mode = false;
+    if (this.prompt.open) this.prompt.hide();
     this.dirty = true;
   }
   private pageMenu(next: boolean): void {
@@ -2087,7 +2157,13 @@ export class Controller {
     this.dismissName();
     this.message = "";
   }
-  private async create(split: Axis | null, cwd: string, command: string | null, title: string): Promise<number> {
+  private async create(
+    split: Axis | null,
+    cwd: string,
+    command: string | null,
+    title: string,
+    made?: () => void,
+  ): Promise<number> {
     const operation: CommandInput = split
       ? {
           "pane.split": {
@@ -2099,7 +2175,7 @@ export class Controller {
           },
         }
       : { "pane.create": { workspace: this.current().id, cwd, command, title } };
-    const id = (await this.execute(operation)).pane;
+    const id = (await this.execute(operation, made)).pane;
     this.focusPane(id);
     this.nav().tab().zoom = false;
     this.dirty = true;
@@ -2481,6 +2557,9 @@ export class Controller {
       case "review":
         if (this.current().id) this.toggleReview();
         break;
+      case "prompt":
+        this.togglePrompt();
+        break;
       case "mute":
         this.muted = !this.muted;
         this.notice(this.muted ? i18n.t` Dings muted; attention markers remain on` : i18n.t` Dings enabled`);
@@ -2512,7 +2591,7 @@ export class Controller {
         if (!dialog || dialog.pending || !agent) return;
         const target = agent.target;
         if ("pane" in target && !this.pane(target.pane)) return;
-        if ("headless" in target && !this.runtime.sessions.some(s => s.id === target.headless)) return;
+        if ("headless" in target && !this.listedSessions().some(s => s.id === target.headless)) return;
         this.archive_dialog = null;
         this.selectAgent(agent.target);
         this.dirty = true;
@@ -3927,6 +4006,7 @@ export class Controller {
   updateLaunchPreview(): void {
     const cwd = this.launcherModel()?.cwd ?? this.launcherCwd();
     if (!this.launch_previews.poll(this.current().id, cwd)) return;
+    this.prompt_stale = true;
     const launch = this.launcherModel();
     if (launch) {
       launch.preview = this.launch_previews.current(launch.cwd, this.runtime.accounts);
@@ -4008,10 +4088,11 @@ export class Controller {
     launch.manage();
     this.dirty = true;
   }
-  /** Move within the conversations; up from the first returns to the agents. */
+  /** Move within the conversations; up from the first returns to the agents.
+   * A search keeps the keyboard, as the prompt's menus do. */
   private moveResume(rows: launcherResume.Line[], delta: number): void {
     const launch = this.agent_launcher!;
-    if (launch.resume_view.move(launch.resumeContext(), rows, delta)) return;
+    if (launch.resume_view.move(launch.resumeContext(), rows, delta) || launch.resume_view.searching) return;
     launch.resume_view.focused = false;
     launch.selected = launch.lastRow();
   }
@@ -4022,11 +4103,17 @@ export class Controller {
     const rows = view.lines(c);
     if (view.searching) {
       switch (byte) {
+        // Esc, and Backspace with nothing typed, leave the search as the prompt's menus do.
         case 27:
-          if (view.query.len > 0) {
-            view.query.clear();
+          view.leaveSearch();
+          break;
+        case 127:
+        case 8:
+          if (view.query.len === 0) view.leaveSearch();
+          else {
+            view.query.key(byte);
             view.home();
-          } else return this.dismissLauncher();
+          }
           break;
         case 13:
           return this.resumeSelected();
@@ -4180,6 +4267,339 @@ export class Controller {
       ports: this.runtime.ports,
       remote_links: this.remote_links,
     });
+  }
+  /** Opens the prompt over the panes, told where it opened, or puts it away. */
+  private togglePrompt(): void {
+    this.dirty = true;
+    if (this.prompt.open) return this.prompt.hide();
+    // Full-screen flows keep the keyboard.
+    if (this.onboarding || this.signin) return;
+    const context = this.promptContext();
+    this.closeMenu();
+    this.copy_mode = false;
+    this.search_mode = false;
+    this.selection = null;
+    this.cancelDividers();
+    this.prompt.show(context);
+    this.prompt_opened_at = milliTimestamp();
+    this.feedPrompt();
+  }
+  /** Where the prompt opened: the workspace, the focused agent and the
+   * workspace's other agents, as the agent list shows them. */
+  private promptContext(): PromptContext {
+    const ws = this.current(),
+      p = this.focused(),
+      cwd = (p ? (p.agent.provider !== null && p.agent.cwd) || p.cwd : "") || ws.cwd,
+      checkout = launcherWorktree.containing(ws.worktrees ?? null, cwd);
+    return {
+      cwd,
+      workspace: ws.name,
+      workspace_id: ws.id,
+      branch: checkout ? worktreeAgents.label(checkout) : "",
+      focus: p ? { title: paneName(p), provider: p.agent.provider, activity: p.agent.activity, pane: p.id } : null,
+      herd: this.agentEntries(ws.id)
+        .filter(e => sidebar.isAgent(e.target))
+        .slice(0, 16)
+        .map(e => ({
+          name: e.name || (e.provider ? adapter(e.provider).name : "agent"),
+          state: herdState(e),
+          activity: e.activity,
+        })),
+      mentions: this.promptMentions(ws, p),
+    };
+  }
+  /** A workspace's panes as `@` offers them: its agents that have a pane, as
+   * the agent list names them, then its other panes, such as shells. */
+  private promptPanes(ws: Workspace): Extract<PromptMention, { kind: "agent" }>[] {
+    const agents = this.agentEntries(ws.id).flatMap(e =>
+      "pane" in e.target && e.provider
+        ? [
+            {
+              kind: "agent" as const,
+              pane: e.target.pane,
+              name: e.name || adapter(e.provider).name,
+              provider: e.provider,
+              activity: e.activity,
+            },
+          ]
+        : [],
+    );
+    return [
+      ...agents,
+      ...this.runtime.panes
+        .filter(p => ws.model.tabForPane(p.id) !== null && !agents.some(m => m.pane === p.id))
+        .map(p => ({
+          kind: "agent" as const,
+          pane: p.id,
+          name: paneName(p),
+          provider: null,
+          activity: shortPath(p.cwd || ws.cwd, 40),
+        })),
+    ];
+  }
+  /** What `@` offers where the prompt opens: the workspace's panes, the text
+   * selected in a pane, the workspace's diff, and the other workspaces. */
+  private promptMentions(ws: Workspace, focused: Pane | null): PromptMention[] {
+    const panes = this.runtime.panes.filter(p => ws.model.tabForPane(p.id) !== null),
+      selected = [focused, ...panes].find(p => p && p.terminal.selectedText().trim());
+    return [
+      ...this.promptPanes(ws),
+      ...(selected
+        ? [
+            {
+              kind: "selection" as const,
+              pane: selected.id,
+              name: paneName(selected),
+            },
+          ]
+        : []),
+      { kind: "diff", cwd: ws.cwd },
+      // The other workspaces, and what each holds once it's attached.
+      ...this.runtime.workspaces.items
+        .filter(w => w.id !== ws.id)
+        .flatMap(w => {
+          const where = { id: w.id, name: w.name };
+          return [
+            { kind: "workspace" as const, id: w.id, name: w.name, cwd: w.cwd },
+            ...this.promptPanes(w).map(m => ({ ...m, workspace: where })),
+            { kind: "diff" as const, cwd: w.cwd, workspace: where },
+          ];
+        }),
+    ];
+  }
+  /** What a prompt attachment holds: an agent pane's recent screen with its
+   * activity, the text selected in a pane, or the workspace's diff. */
+  async resolveMention(m: PromptMention): Promise<string> {
+    switch (m.kind) {
+      case "agent": {
+        const p = this.pane(m.pane);
+        let screen = "";
+        try {
+          screen = await promptAttach.paneScreen(
+            (op, payload) => call(this.connection, op as Op, payload as never),
+            m.pane,
+          );
+        } catch {
+          screen = promptAttach.tail(clean(p?.terminal.inner.text() ?? "", true).trimEnd(), promptAttach.screen_bytes);
+        }
+        const conversation = p ? this.runtime.conversations.find(c => c.id === p.agent.conversation) : undefined,
+          phases = (conversation?.timeline.points ?? []).slice(-5).map(point => point.activity),
+          lines = [screen];
+        if (p?.agent.activity) lines.push("", `Now: ${clean(p.agent.activity)}`);
+        if (phases.length) lines.push(`Recently: ${phases.map(phase => clean(phase)).join(" · ")}`);
+        return lines.join("\n");
+      }
+      case "selection":
+        return promptAttach.tail(
+          clean(this.pane(m.pane)?.terminal.selectedText() ?? "", true),
+          promptAttach.screen_bytes,
+        );
+      case "diff":
+        return promptAttach.workspaceDiff(m.cwd);
+      case "workspace":
+        return this.workspaceOverview(m.id);
+      // An image goes to the model as itself.
+      case "image":
+        return "";
+    }
+  }
+  /** An attached workspace as the model reads it: its folder, its agents as
+   * the list shows them, and its other panes. */
+  private workspaceOverview(id: number): string {
+    const ws = this.runtime.workspaces.items.find(w => w.id === id);
+    if (!ws) return "(That workspace is gone.)";
+    const agents = this.agentEntries(ws.id).filter(e => sidebar.isAgent(e.target)),
+      shells = this.runtime.panes.filter(p => ws.model.tabForPane(p.id) !== null && p.agent.provider === null),
+      lines = [`Workspace ${clean(ws.name)} (id ${ws.id}), in ${ws.cwd}.`];
+    if (agents.length) lines.push("Agents:");
+    for (const e of agents.slice(0, 24)) {
+      const pane = "pane" in e.target ? ` (pane ${e.target.pane})` : "";
+      lines.push(
+        `- ${clean(e.name || (e.provider ? adapter(e.provider).name : "agent"))}${pane}: ${herdState(e)}` +
+          (e.activity ? ` · ${clean(e.activity)}` : ""),
+      );
+    }
+    if (shells.length) lines.push("Other panes:");
+    for (const p of shells.slice(0, 24)) lines.push(`- ${clean(paneName(p))} (pane ${p.id}) in ${p.cwd || ws.cwd}`);
+    return lines.join("\n");
+  }
+  /** The daemon as the prompt calls it. A start holds its connection until
+   * the session has an ID, so it takes one of its own. */
+  private promptDaemon(): PromptDaemon {
+    return {
+      call: (op, payload) => call(this.connection, op as Op, payload as never),
+      start: async payload => {
+        const socket = this.connection.socket,
+          reply = socket
+            ? await rpc.request(socket, "headless.start", payload as never)
+            : await call(this.connection, "headless.start", payload as never),
+          provider = Provider.parse(reply.provider);
+        if (!provider || typeof reply.session !== "string") throw Error("InvalidReply");
+        return { provider, session: reply.session };
+      },
+    };
+  }
+  private async promptEffect(effect: PromptEffect | null): Promise<void> {
+    this.dirty = true;
+    switch (effect?.kind) {
+      case "pick":
+        return this.savePromptModel(effect.choice);
+      case "copy":
+        return this.copyText(effect.text);
+      case "open":
+        return this.showConversation(effect.entry);
+      case "pane": {
+        let made = false;
+        try {
+          await this.create(null, effect.cwd || this.currentCwd(), shellWords(effect.argv), "", () => (made = true));
+        } catch (error) {
+          const name = errors.name(error) ?? "unknown error";
+          // A pane the daemon made goes on with the conversation. The card
+          // takes it back only when the daemon refused: after a lost reply, a
+          // pane may still start and read the handoff.
+          if (made) return;
+          if (effect.handoff && errors.reply(error)) this.prompt.reclaim(effect.handoff, name);
+          this.notice(` Couldn't open a pane: ${name}`);
+        }
+        return;
+      }
+    }
+  }
+  /** The conversations the prompt's lists show, as the launcher has them:
+   * the same object until they change, and for at most half a minute. */
+  private promptConversations(): launcherResume.Context {
+    const history = this.launch_previews.history,
+      now = nowSeconds(),
+      key = [
+        history,
+        this.runtime.conversations,
+        this.stopped.length,
+        this.running.map(o => `${o.provider}:${o.session}:${o.pane}`).join(),
+      ],
+      kept = this.prompt_known;
+    if (kept && now - kept.at < 30 && key.every((k, i) => k === kept.key[i])) return kept.context;
+    const context = new launcherResume.Context(
+      { pending: history.pending, entries: this.mergedHistory() },
+      "",
+      "",
+      this.running.slice(),
+      now,
+      this.runtime.accounts,
+      this.launch_previews.preview.names,
+    );
+    this.prompt_known = { key, at: now, context };
+    return context;
+  }
+  /** Shows the conversation a prompt list picked: the pane running it, or
+   * resumed in a tab in the workspace that holds its folder. */
+  private async showConversation(e: launcherResume.Entry): Promise<void> {
+    const workspaces = this.runtime.workspaces.items.map(ws => ({ id: ws.id, cwd: ws.cwd, archived: ws.archived }));
+    try {
+      await this.resumeEntry(e, workspaceFor(workspaces, e.cwd, this.current().id)!);
+    } catch (error) {
+      this.notice(` Couldn't open it: ${errors.name(error) ?? "unknown error"}`);
+    }
+  }
+  private savePromptModel(choice: modelPicker.Choice | null): void {
+    this.prefs.prompt_model = choice ? { ...choice } : "auto";
+    // The last pick leads the suggestions.
+    this.prompt_stale = true;
+    try {
+      preferences.update({ prompt_model: this.prefs.prompt_model });
+    } catch (error) {
+      this.notice(` ${(error as Error).message}`);
+    }
+  }
+  /** The prompt goes on with the session this viewer ran before it reloaded,
+   * or, as the only viewer, the newest one a viewer left behind. Never one a
+   * Corgi pane holds, nor another live viewer's. */
+  private async resumePrompt(): Promise<void> {
+    const left = this.runtime.corgi_sessions.filter(s => !s.exited && s.session && s.pane === null),
+      mine = process.env[prompt_session_env];
+    let pick = mine ? left.find(s => `${s.provider}:${s.session}` === mine) : undefined;
+    if (!mine && left.length) {
+      const reply = await call(this.connection, "viewer.list", {}).catch(() => null);
+      if (reply?.viewers.length === 1) pick = left.at(-1);
+    }
+    if (pick && !this.prompt.conversation.session) {
+      this.prompt.attach(pick);
+      this.dirty = true;
+    }
+  }
+  /** Reads the prompt's session, and tells it the models while it shows.
+   * Put away, it redraws only for the status line's cue. */
+  private pollPrompt(): void {
+    const now = milliTimestamp();
+    // A reload execs this viewer in place, so its environment says which
+    // session is its prompt's, once the first snapshot has read it.
+    if (this.prompt_resumed) {
+      const c = this.prompt.conversation;
+      if (c.session && c.started) process.env[prompt_session_env] = `${c.started.provider}:${c.session}`;
+      else delete process.env[prompt_session_env];
+    }
+    if (this.prompt.open && (this.prompt_stale || now - this.prompt_fed_at >= 1000)) this.feedPrompt(now);
+    // Its catalogs are read in the background, so it opens with them.
+    else if (!this.prompt.open && now - this.prompt_warmed_at >= 5000) {
+      this.prompt_warmed_at = now;
+      for (const { provider, account } of this.promptPlaces())
+        this.model_cache.get(provider, account, agentModels.Cache.fresh_ms);
+    }
+    const changed = this.prompt.poll(now),
+      attention = this.prompt.open ? "none" : this.prompt.attention();
+    if ((this.prompt.open && changed) || attention !== this.prompt_attention) this.dirty = true;
+    // Put away, it sounds its own when it answers or needs you; the viewer plays it.
+    if (attention !== this.prompt_attention && (attention === "finished" || attention === "needs_input"))
+      this.prompt_chime = attention;
+    this.prompt_attention = attention;
+  }
+  /** Gives the prompt its models, suggestions and account briefs when they change.
+   * Asking keeps the catalogs fresh. */
+  private feedPrompt(now = milliTimestamp()): void {
+    this.prompt_stale = false;
+    this.prompt_fed_at = now;
+    const { entries, briefs, pending } = this.promptModels(),
+      // Suggestions wait for every catalog, a few seconds at most, so the
+      // model the prompt offers doesn't change while the user reads it.
+      waiting = pending && now - this.prompt_opened_at < 4000;
+    if (!waiting) {
+      const usage = this.promptUsage();
+      this.prompt_suggested = modelSuggest.suggest(usage, entries);
+      this.prompt_auto = modelSuggest.auto(usage, entries);
+    }
+    const loading = waiting && this.prompt_auto === null,
+      catalog = JSON.stringify([entries, this.prompt_suggested, briefs, this.prompt_auto, loading]);
+    if (catalog === this.prompt_catalog) return;
+    this.prompt_catalog = catalog;
+    this.prompt.catalog(entries, this.prompt_suggested, briefs, this.prompt_auto, loading);
+    this.dirty = true;
+  }
+  private promptPlaces(): promptModels.Place[] {
+    const pick = this.prefs.prompt_model === "auto" ? null : (this.prefs.prompt_model ?? null);
+    return this.launch_previews.received ? promptModels.places(this.runtime, this.launch_previews.preview, pick) : [];
+  }
+  private promptModels(): { entries: modelPicker.Entry[]; briefs: modelPicker.Brief[]; pending: boolean } {
+    if (!this.launch_previews.received) return { entries: [], briefs: [], pending: true };
+    return promptModels.catalog(this.model_cache, this.promptPlaces(), nowSeconds());
+  }
+  private promptUsage(): modelSuggest.Usage {
+    return promptModels.usage(
+      this.runtime,
+      this.prefs.prompt_model === "auto" ? null : (this.prefs.prompt_model ?? null),
+    );
+  }
+  /** What the status line says about the prompt while it is put away. */
+  private promptCue(): render.Cue | null {
+    if (this.prompt.open) return null;
+    const attention = this.prompt.attention();
+    if (attention !== "needs_input" && attention !== "finished") return null;
+    const binding = bindings.find(this.prefs.bindings(), { name: "prompt" }),
+      key = binding
+        ? (binding.prefixed ? keymap.prefixName(this.prefs.prefix) + " " : "") + bindings.format(binding)
+        : "";
+    return {
+      text: (attention === "needs_input" ? "Corgi needs you" : "Corgi answered") + (key ? ` · ${key}` : ""),
+      tone: attention === "needs_input" ? "warm" : "accent",
+    };
   }
   private openSetup(): void {
     this.closeMenu();
@@ -4577,6 +4997,12 @@ export class Controller {
       this.dirty = true;
       return;
     }
+    if (this.prompt.open && !this.prefix) {
+      if (byte === keymap.prefixByte(this.prefs.prefix)) return this.beginPrefix();
+      // Ctrl+V pastes the clipboard's image, as it does in the agents.
+      if (byte === 22) return this.promptClipboardImage();
+      return this.promptEffect(this.prompt.key(byte));
+    }
     if (this.worktreeDetail() !== null) {
       const phase = this.worktree_card.removal.phase;
       // Esc stops a removal under way, or keeps a locked worktree; otherwise it closes the overview.
@@ -4932,6 +5358,7 @@ export class Controller {
       this.prefix = false;
       this.dirty = true;
       if (byte === keymap.prefixByte(this.prefs.prefix)) {
+        if (this.prompt.open) return this.promptEffect(this.prompt.key(byte));
         const p = this.focused();
         if (p) this.sendInput(p.terminal, [byte]);
         return;
@@ -5026,10 +5453,16 @@ export class Controller {
       if (byte === 22 && p.agent.provider !== null) this.imageHint("ctrl");
     } else if (!this.current().id && (byte === 13 || byte === 32)) await this.perform({ name: "new-workspace" });
   }
+  /** Alt+Enter and Alt's edits from a legacy terminal, which the prompt reads
+   * as sequences where other menus take a lone Esc. */
+  private promptAlt(rest: number[]): boolean {
+    return this.prompt.open && !this.prefix && keys.parse(latin1(rest.slice(0, 2))) !== null;
+  }
   /** The keyboard's owner when a paste begins, in `key`'s order. */
   private pasteTarget(): Paste {
     if (this.archive_dialog) return "discard";
     if (this.signin) return "signin";
+    if (this.prompt.open) return "prompt";
     if (this.worktreeDetail() !== null) return "discard";
     if (this.agent_launcher)
       return (this.agent_launcher.managing && this.agent_launcher.manager.typing()) ||
@@ -5053,6 +5486,8 @@ export class Controller {
   }
   /** The text box that has the keyboard, which cmd+c and cmd+x copy from. */
   private textField(): textArea.TextArea | null {
+    // The prompt takes the keys while it's open, as `input` sends them.
+    if (this.prompt.open && !this.prefix) return this.prompt.textField();
     const launch = this.agent_launcher;
     if (launch) {
       if (this.resumeSearching()) return launch.resume_view.query.area;
@@ -5097,7 +5532,8 @@ export class Controller {
         return;
       }
     }
-    const choice = hostClipboard.choose(listing, typeof target === "object");
+    // A pane takes an image as its path; the prompt, as an image.
+    const choice = hostClipboard.choose(listing, typeof target === "object" || target === "prompt");
     if (choice === "nothing") return;
     if ("read" in choice) {
       if (clipboard.request(choice.read, Date.now())) this.paste_target = target;
@@ -5109,9 +5545,28 @@ export class Controller {
     if (target === null) return;
     this.paste_target = null;
     if ("text" in result) this.pasteClipboardText(target, result.text);
+    else if ("path" in result && target === "prompt") this.promptImage(result.path);
     else if ("path" in result) this.pasteText(target, result.path);
     else if ("relay" in result) await this.relayPaste(target, result.relay);
     else this.notice(hostClipboard.Failure.message(result.failed));
+  }
+  /** A pasted image becomes a chip on the prompt's next message. */
+  private promptImage(path: string): void {
+    const mime = hostClipboard.imageType(path);
+    if (!mime) return this.notice(hostClipboard.Failure.message("unsupported_image"));
+    this.prompt.attachImage(path, mime);
+    this.dirty = true;
+  }
+  /** Cmd+V or Ctrl+V in the prompt with no text to paste: the image on this
+   * machine's clipboard, read here. Over SSH that clipboard isn't the user's,
+   * so only a terminal that sends paste events brings one. */
+  private async promptClipboardImage(): Promise<void> {
+    const folder = this.host_clipboard?.folder;
+    if (this.remote_links || !folder)
+      return this.notice(i18n.t`Over SSH, images paste only from terminals that send them`);
+    const path = await promptAttach.clipboardImage(folder, Date.now());
+    if (path) this.promptImage(path);
+    else this.notice(i18n.t`No image on the clipboard`);
   }
   private pasteClipboardText(target: Paste, text: string): void {
     // The check Ghostty makes before a paste reaches Corgi.
@@ -5142,6 +5597,8 @@ export class Controller {
       const p = this.pane(target.pane);
       if (!p) return this.notice(i18n.t`The pane closed before the paste arrived`);
       this.sendInput(p.terminal, viewerNative.encodePaste(text, p.terminal.bracketedPaste()));
+    } else if (target === "prompt") {
+      this.prompt.paste(viewerNative.encodePaste(text, true, 1).toString());
     } else {
       for (const byte of viewerNative.encodePaste(text, true, 1)) void this.pasteByteSync(target, byte);
     }
@@ -5252,6 +5709,9 @@ export class Controller {
       case "review":
         this.review.pasteByte(byte);
         break;
+      case "prompt":
+        this.prompt.pasteByte(byte);
+        break;
       case "discard":
         break;
     }
@@ -5336,7 +5796,8 @@ export class Controller {
         !this.help_visible &&
         !this.corgi_setup?.after_prefix &&
         !(this.signin && this.prefix) &&
-        (this.hasMenu() || this.name_dialog !== null)
+        (this.hasMenu() || this.name_dialog !== null) &&
+        !this.promptAlt(rest)
       ) {
         await this.key(27);
         used += 1;
@@ -5412,7 +5873,13 @@ export class Controller {
           }
           // Ghostty passes its paste key on only when it had no text
           // to paste. Over SSH it can't be pasted here: say why.
-          const pressed = pasteKey(key_event);
+          const pressed = hostClipboard.pasteKey(key_event);
+          // Ghostty passes its paste key on when there was no text: an image, perhaps.
+          if (pressed !== null && this.prompt.open && !this.prefix) {
+            await this.promptClipboardImage();
+            used += len;
+            continue;
+          }
           if (pressed !== null && this.imageHint(pressed)) {
             used += len;
             continue;
@@ -5424,6 +5891,16 @@ export class Controller {
             continue;
           }
           if (repeated === null) this.repeat_until = 0;
+          // The prompt's own shortcut puts it away, as Prefix Space does.
+          if (
+            this.prompt.open &&
+            !this.prefix &&
+            bindings.chord(this.prefs.bindings(), false, key_event)?.name === "prompt"
+          ) {
+            await this.perform({ name: "prompt" });
+            used += len;
+            continue;
+          }
           if (
             this.onboarding === null &&
             this.name_dialog === null &&
@@ -5486,6 +5963,11 @@ export class Controller {
       const again = cl.paste === null ? bindings.repeatSequence(this.prefs.bindings(), text) : null;
       if (parsed_key === "paste_start" || parsed_key === "paste_end") {
         if (parsed_key === "paste_start") cl.paste = this.pasteTarget();
+        if (cl.paste === "prompt") {
+          if (parsed_key === "paste_start") this.prompt.pasteStart();
+          else this.prompt.pasteEnd();
+          this.dirty = true;
+        }
         // The markers reach only an application that asked for them.
         const p = this.pastePane();
         if (cl.paste === "signin") await this.signin?.input(text);
@@ -5510,7 +5992,8 @@ export class Controller {
       } else if (this.moonlander) {
         if (this.moonlander.sequence(text)) this.closeMoonlander();
         this.dirty = true;
-      } else if (this.repeats(again)) await this.perform(again);
+      } else if (this.prompt.open && !this.prefix) await this.promptEffect(this.prompt.sequence(text));
+      else if (this.repeats(again)) await this.perform(again);
       else if (this.worktree_card.pinned) {
         if (parsed_key === "up") await this.perform({ name: "worktree-prev" });
         else if (parsed_key === "down") await this.perform({ name: "worktree-next" });
@@ -5753,6 +6236,21 @@ export class Controller {
         await this.helpResult(this.help.click(x, y));
       } else if (!release && (button === 64 || button === 65)) this.help.move(button === 65, 3);
       if (release) this.ui_mouse_down = false;
+      this.dirty = true;
+      return;
+    }
+    // The prompt takes the pointer; a press outside its card closes it, and a drag selects.
+    if (this.prompt.open) {
+      this.pointer = { x, y };
+      if ((button & 32) !== 0) {
+        if ((button & 3) === 0 ? this.prompt.drag(x, y) : this.prompt.hover(x, y)) this.dirty = true;
+        return;
+      }
+      if (!release && (button & 0xe3) === 0) {
+        this.prefix = false;
+        await this.promptEffect(this.prompt.click(x, y));
+      } else if (release && (button & 0xe3) === 0) await this.promptEffect(this.prompt.release());
+      else if (!release && (button & 0xe0) === 64) this.prompt.scroll((button & 1) !== 0, x, y);
       this.dirty = true;
       return;
     }
@@ -6798,6 +7296,11 @@ export class Controller {
       live.add(key);
     }
     this.agent_since.keep(live);
+    this.prompt_stale = true;
+    if (!this.prompt_resumed) {
+      this.prompt_resumed = true;
+      void this.resumePrompt();
+    }
     if (this.agent_launcher) {
       const starred = this.historyStars();
       for (const entry of this.agent_launcher.history.entries)
@@ -6854,6 +7357,7 @@ export class Controller {
   async expireInput(): Promise<void> {
     const waking = this.wakeFocused();
     if (waking) await waking;
+    this.pollPrompt();
     if (this.agent_drag?.scrolling()) {
       const entries = this.sidebarEntries(),
         now = milliTimestamp(),
@@ -7690,7 +8194,13 @@ export class Controller {
     if (this.workspace_drag) this.workspace_drag.valid(this.sidebarView(entries), this.workspaceIds());
     const tooltip_ready = this.linkTooltipReady();
     const link_card = tooltip_ready ? this.linkCard() : null;
-    const thumbnail = this.thumbnails.sync(link_card?.thumbnail ?? null);
+    // The prompt's pasted image under the pointer shares the link card's picture.
+    const previewed = this.prompt.previewed(),
+      pictures = this.supports_kitty_graphics && this.cell_pixels !== null;
+    this.prompt_preview = previewed
+      ? { pictures, thumbnail: pictures ? this.thumbnails.get(pathToFileURL(previewed).href, this.cell_pixels!) : null }
+      : null;
+    const thumbnail = this.thumbnails.sync(link_card?.thumbnail ?? this.prompt_preview?.thumbnail ?? null);
     if (thumbnail) this.queueEffect({ write_terminal: thumbnail });
     const detail = this.resourceDetail();
     if (detail !== null) {
@@ -7841,6 +8351,11 @@ export class Controller {
         no_workspace: this.current().id
           ? null
           : { focused: this.keyboard === "pane" && !this.hasMenu() && this.name_dialog === null },
+        prompt_draw: this.prompt.open
+          ? (w: Writer, marks: Marks | null) =>
+              this.prompt.draw(w, this.width, this.height, marks, milliTimestamp(), this.prompt_preview ?? undefined)
+          : null,
+        prompt_cue: this.promptCue(),
       }),
       retained,
     );
@@ -7980,7 +8495,7 @@ export class Controller {
       return text.includes("\ufffd") ? null : { text };
     }
     this.review_bytes = [];
-    const named = byte_keys[byte];
+    const named = panel.byte_keys[byte];
     if (named) return { named };
     return byte >= 32 && byte < 127 ? { text: String.fromCharCode(byte) } : null;
   }
@@ -8028,29 +8543,8 @@ export class Controller {
     this.dirty = true;
   }
 }
-/** Control bytes the review panel reads as keys: a text box's, and its own,
- * whose meaning ctrl+d and ctrl+u take from what has the keys. */
-const byte_keys: Partial<Record<number, panel.Named>> = {
-  ...textArea.byte_edits,
-  4: "ctrl_d",
-  9: "tab",
-  10: "newline",
-  13: "enter",
-  21: "ctrl_u",
-  27: "escape",
-};
-/** Sequences the review panel reads as keys: a text box's, with its own
- * moves over the diff. */
-const sequence_keys: Partial<Record<keys.Key, panel.Named>> = {
-  ...textArea.key_edits,
-  home: "home",
-  end: "end",
-  page_up: "page_up",
-  page_down: "page_down",
-  shift_tab: "shift_tab",
-};
 function reviewNamed(key: keys.Key): panel.Named | null {
-  return sequence_keys[key] ?? null;
+  return panel.sequence_keys[key] ?? null;
 }
 function direction(key: number): Direction | null {
   switch (key) {
@@ -8141,6 +8635,17 @@ function gitPushMessage(err: string): string {
  * chose. Points outside `rect` reach the app only while a button is held. */
 function sendMouse(term: Terminal, rect: Rect, button: number, x: number, y: number, release: boolean): void {
   term.send(viewerNative.encodeMouse(term.handle, button, x - rect.x, y - rect.y, release));
+}
+/** What the prompt calls a pane: its label, its agent, or what runs in it. */
+function paneName(p: Pane): string {
+  return p.label || p.agent.name || (p.agent.provider ? providerName(p.agent) : p.command || "shell");
+}
+/** An agent's state as the prompt tells its model. */
+function herdState(e: Entry): string {
+  if (e.attention === "needs_input") return "needs input";
+  if (e.paused) return "paused";
+  if (e.unread) return "finished, unread";
+  return e.state;
 }
 function latin1(bytes: number[]): string {
   return String.fromCharCode(...bytes);

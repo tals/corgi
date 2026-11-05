@@ -594,13 +594,20 @@ export async function tick(server: Server) {
     if (runtime.pruneConversations()) changed(server);
   }
   for (const session of runtime.sessions) {
-    const seq = session.next_seq;
-    attention(server, session.poll(runtime.conversations), session.status());
+    const seq = session.next_seq,
+      ding = session.poll(runtime.conversations);
+    // The prompt's viewer sounds its own, only while its card is put away.
+    attention(server, ding && !session.corgi, session.status());
     const workspace = runtime.workspaces.get(session.workspace_id);
     if (workspace && !workspaceWatched(server, session.workspace_id))
       workspace.away.record(workspace.away.since, session.usage_pending);
     session.usage_pending = new Counts();
     if (session.next_seq !== seq || session.reap()) changed(server);
+  }
+  if (runtime.sessions.some(s => s.corgi)) {
+    const headless = await import("./headless"),
+      attached = server.clients.some(c => c.viewer && !c.dead);
+    if (headless.retire(runtime, attached)) changed(server);
   }
 }
 export async function settle(server: Server) {

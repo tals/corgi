@@ -177,6 +177,11 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     await (await import("./providers/opencode2/worker")).run();
     return;
   }
+  // The Corgi prompt as a pane of its own, which the prompt card opens.
+  if (args[0] === "__chat") {
+    await (await import("./prompt_pane")).run(args.slice(1));
+    return;
+  }
   const alias = providerAlias(os.processArgs(process.pid)?.argv[0] ?? process.argv[0]);
   // Agent mode covers the control CLI and help; a provider alias keeps its own flags.
   const choice = agent_mode.flags(args),
