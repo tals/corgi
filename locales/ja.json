@@ -1,4 +1,5 @@
 {
+  "    e.g. language ja; --model picks Clever Corgi's model": "    例：language ja。--model で Clever Corgi のモデルを選択",
   "    prompt through the agent's own channel, or type it and press Enter": "    エージェント自身のチャネルでプロンプトを送る。なければ入力して Enter を押す",
   "    search conversation text; --session PROVIDER:ID narrows, -o extracts matches": "    会話の本文を検索。--session PROVIDER:ID で絞り込み、-o で一致部分を抽出",
   "    to today's log, MEMORY.md or a workspace's note; an exact repeat isn't added": "    今日のログ、MEMORY.md、ワークスペースのメモに追加。完全な重複は追加しません",
@@ -44,6 +45,7 @@
   "  corgi reload [ABSOLUTE_EXE]    replace daemon, preserve live processes": "  corgi reload [ABSOLUTE_EXE]    実行中のプロセスを維持してデーモンを置き換え",
   "  corgi resume PROVIDER SESSION [--viewer ID] [--workspace ID]  show it: focus\n    the pane already showing it, or resume it in a tab where its folder belongs": "  corgi resume PROVIDER SESSION [--viewer ID] [--workspace ID]  会話を表示：\n    表示中のペインに移動するか、フォルダに対応するワークスペースのタブで再開",
   "  corgi rpc JSON                local JSON control protocol": "  corgi rpc JSON                ローカルJSON操作プロトコル",
+  "  corgi settings [--json]            Corgi setup's settings: values and choices": "  corgi settings [--json]            Corgi セットアップの設定値と選択肢を表示",
   "  corgi shutdown                terminate runtime and its panes": "  corgi shutdown                ランタイムとそのペインを終了",
   "  corgi start                   start detached runtime": "  corgi start                   バックグラウンドでランタイムを起動",
   "  corgi update                  download and safely apply an update": "  corgi update                  更新をダウンロードして安全に適用",

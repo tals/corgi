@@ -53,6 +53,9 @@ Agent controls (--json prints the daemon's reply as JSON):
   corgi memory add [--long|--workspace NAME] [--replaces FILE:LINE] TEXT...
     to today's log, MEMORY.md or a workspace's note; an exact repeat isn't added
   corgi memory forget FILE:LINE
+  corgi settings [--json]            Corgi setup's settings: values and choices
+  corgi settings set NAME VALUE [--model ID [--account NAME]]
+    e.g. language ja; --model picks Clever Corgi's model
   corgi --skill                      print bundled agent instructions
 
 IDs come from list; current means CORGI_PANE, never UI focus.

@@ -493,6 +493,10 @@ resolved by Corgi, preferring subscription-backed access, and does not pin a
 model in saved settings; an explicit pick does, saved apart from the prompt's.
 Neither changes an agent's normal chat model.
 
+`corgi settings` lists the same settings with their values and choices;
+`corgi settings set NAME VALUE` changes one, such as `language ja` or
+`shell fish`. Viewer settings apply at once in every viewer on this machine.
+
 For a standard runtime, state lives under `$XDG_STATE_HOME/corgi`, defaulting
 to `~/.local/state/corgi`:
 

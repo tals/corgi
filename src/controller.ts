@@ -328,6 +328,14 @@ const toggled = <T extends string>(list: T[], item: T, on: boolean) => [
   ...list.filter(x => x !== item),
   ...(on ? [item] : []),
 ];
+/** Settings a viewer takes from viewer.json whenever it changes, beside the
+ * language and shortcuts, which need more than the value. */
+const liveSettings = ({ theme, corgi_intensity, resources, worktree_folder }: Preferences) => ({
+  theme,
+  corgi_intensity,
+  resources,
+  worktree_folder,
+});
 
 /** The session a viewer's prompt runs, kept across the viewer's reload. */
 const prompt_session_env = "CORGI_PROMPT_SESSION";
@@ -980,6 +988,11 @@ export class Controller {
           this.prefs.language = saved.language;
           localeHost.initialize(saved.language);
           this.help.configure(this.prefs.preset, this.prefs.prefix, this.prefs.keys);
+          this.dirty = true;
+        }
+        // What another viewer's setup or `corgi settings` saved shows here too.
+        if (saved && JSON.stringify(liveSettings(saved)) !== JSON.stringify(liveSettings(this.prefs))) {
+          Object.assign(this.prefs, liveSettings(saved));
           this.dirty = true;
         }
         if (!saved) {
@@ -7285,6 +7298,9 @@ export class Controller {
       this.archived_offset = 0;
     }
     this.trackRunning();
+    // Open setup shows what another viewer or `corgi settings` changed.
+    if (this.corgi_setup)
+      Object.assign(this.corgi_setup, { shell: this.runtime.shell, smart_links: this.runtime.smart_links });
     const live = new Set<string>();
     for (const p of this.runtime.panes) {
       if (p.agent.provider === null) continue;

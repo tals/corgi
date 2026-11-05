@@ -1,4 +1,5 @@
 {
+  "    e.g. language ja; --model picks Clever Corgi's model": "    например, language ja; --model выбирает модель Clever Corgi",
   "    prompt through the agent's own channel, or type it and press Enter": "    отправить запрос через канал самого агента, а без него ввести текст и нажать Enter",
   "    search conversation text; --session PROVIDER:ID narrows, -o extracts matches": "    поиск по тексту бесед; --session PROVIDER:ID сужает поиск, -o выводит совпадения",
   "    to today's log, MEMORY.md or a workspace's note; an exact repeat isn't added": "    добавить в журнал за сегодня, MEMORY.md или заметку пространства; точные повторы пропускаются",
@@ -44,6 +45,7 @@
   "  corgi reload [ABSOLUTE_EXE]    replace daemon, preserve live processes": "  corgi reload [ABSOLUTE_EXE]    заменить сервер, сохранив работающие процессы",
   "  corgi resume PROVIDER SESSION [--viewer ID] [--workspace ID]  show it: focus\n    the pane already showing it, or resume it in a tab where its folder belongs": "  corgi resume PROVIDER SESSION [--viewer ID] [--workspace ID]  показать диалог:\n    перейти к его панели или возобновить во вкладке рабочего пространства его папки",
   "  corgi rpc JSON                local JSON control protocol": "  corgi rpc JSON                локальный протокол управления JSON",
+  "  corgi settings [--json]            Corgi setup's settings: values and choices": "  corgi settings [--json]            настройки Corgi: значения и варианты",
   "  corgi shutdown                terminate runtime and its panes": "  corgi shutdown                остановить сервер и его панели",
   "  corgi start                   start detached runtime": "  corgi start                   запустить сервер в фоне",
   "  corgi update                  download and safely apply an update": "  corgi update                  скачать и безопасно применить обновление",

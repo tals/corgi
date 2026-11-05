@@ -219,6 +219,25 @@ a named entry affects every workspace using it; clone it for independent setting
 `remove` deletes a clone or saved command globally. Hide native accounts instead.
 None of these operations launch, move or terminate running agents.
 
+## Settings
+
+`corgi settings` lists what Corgi setup sets, each with its value and what it
+takes; change one with `set`:
+
+```sh
+corgi settings
+corgi settings set language ja
+corgi settings set theme auto
+corgi settings set shell fish
+corgi settings set clever-corgi claude --model MODEL_ID
+```
+
+Viewer settings (language, theme, keymap, prefix, flourishes, resources,
+worktree-folder) apply at once to every viewer on this machine. Runtime settings
+(shell, smart-links, clever-corgi, activity-summaries, worktree-briefs) apply
+to everyone attached. `--json` also lists Clever Corgi's models. Change
+settings only through this command, never by editing Corgi's files.
+
 ## Scope and safety
 
 Only send input to agents or terminals when the user's task authorizes it.

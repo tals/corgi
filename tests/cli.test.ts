@@ -36,6 +36,25 @@ class AgentCli extends Runtime {
   async topology() {
     return (await this.snapshot()).workspaces.map((w: any) => [w.id, w.model.tabs]);
   }
+  async test_settings_save_viewer_preferences_offline_and_configure_the_runtime() {
+    const offline = { ...this.env, CORGI_SOCKET: join(this.temp.name, "absent.sock") };
+    const changed = await run([EXE, "settings", "set", "resources", "off", "--json"], { env: offline });
+    this.assertEqual(JSON.parse(changed.stdout).setting.value, "off");
+    const prefs = JSON.parse(readFileSync(join(this.env.XDG_STATE_HOME!, "corgi/viewer.json"), "utf8"));
+    this.assertEqual(prefs.resources.enabled, false);
+    this.assertFalse(existsSync(offline.CORGI_SOCKET));
+
+    const runtime = await this.cli(["settings", "set", "smart-links", "off"]);
+    this.assertEqual(runtime.setting.value, "off");
+    this.assertTrue(runtime.saved);
+    this.assertEqual((await this.snapshot()).smart_links, false);
+    const listed = await this.cli(["settings"]);
+    for (const name of ["resources", "smart-links"])
+      this.assertEqual(listed.settings.find((setting: { name: string }) => setting.name === name)?.value, "off");
+    await this.cli(["settings", "set", "smart-links", "yes"], { error: "BadValue" });
+    const help = await run([EXE, "settings", "--help"], { env: offline });
+    this.assertIn("corgi settings set NAME VALUE", help.stdout);
+  }
   async test_memory_lines_reach_the_prompt_session_they_ran_for() {
     const ident = (
       await this.rpc({ op: "headless.start", prompt: "test/init", provider: "codex", cwd: this.temp.name, corgi: true })
