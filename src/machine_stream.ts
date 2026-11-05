@@ -17,7 +17,7 @@ export class Stream {
   private frame: Frame | null = null;
   /** The frame waiting changes something, rather than only answering. */
   private news = false;
-  /** What the last frame said of the bell and the hashes. */
+  /** What the last frame said of the bell, hashes and Trick drawings. */
   private seen = "";
   private sequence = 0;
   private configured = "";
@@ -88,7 +88,7 @@ export class Stream {
       });
     } else if (this.incremental) throw Error("InvalidStreamFrame");
     // A heartbeat's answer that changes nothing leaves an idle viewer asleep.
-    const seen = `${frame.bell_seq} ${frame.session_hash} ${frame.resources_hash}`;
+    const seen = `${frame.bell_seq} ${frame.session_hash} ${frame.resources_hash} ${JSON.stringify(frame.tricks ?? [])}`;
     const news =
       !this.confirmed ||
       frame.session !== null ||

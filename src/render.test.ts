@@ -39,6 +39,10 @@ import { Menu as SetupMenu } from "./corgi_setup";
 import { Writer } from "./text";
 import { Terminal } from "./pane/terminal";
 import type { Prefix } from "./keymap";
+import * as trickStyle from "./trick_style";
+import * as markup from "./trick_markup";
+import * as tricks from "./tricks";
+import * as trickUi from "./trick_ui";
 
 function emptyView() {
   return new View(new Model(), new Selection());
@@ -205,6 +209,189 @@ test("machine headers highlight only the hovered band and clear under overlays",
     expect(draw()[2]).toBe(normal[2]);
   } finally {
     terminal.destroy();
+  }
+});
+
+test("trick brand icons share the image cache and stay beneath later overlays", () => {
+  const view = emptyView(),
+    icons = new Icons(),
+    brand = trickStyle.brand.of("claude");
+  const u = ui({
+    message: "",
+    copy_mode: false,
+    sidebar_open: true,
+    tab_icons: icons,
+    cell_pixels: { width: 9, height: 18 },
+    agents: [
+      sidebar.entry({
+        target: viewerRef.pane(1, 1),
+        name: "Brand",
+        provider: "claude",
+        decoration: { suffix: markup.parse(`!(${brand.icon})`) },
+      }),
+    ],
+    tricks: tricks.views([{ kind: "overlay", anchor: "top-right", lines: [markup.parse(`!(${brand.icon})`)] }]),
+  });
+  frame(view, [], 100, 30, u);
+  expect(icons.end()).toContain("i=730320,");
+  icons.begin();
+  expect(count(frame(view, [], 100, 30, u), "a=p,i=730320,")).toBe(2);
+  expect(icons.end()).toBe("");
+  icons.begin();
+  u.copy_feedback = true;
+  expect(count(frame(view, [], 100, 30, u), "a=p,i=730320,")).toBe(1);
+  icons.begin();
+  u.agent_launcher = new LauncherMenu({ workspace: 1, selected: "claude", last: "claude", pinned: true });
+  const launcher = frame(view, [], 100, 30, u);
+  u.tricks = [];
+  u.agents[0].decoration = { suffix: [] };
+  icons.begin();
+  expect(count(launcher, "a=p,i=730320,")).toBe(count(frame(view, [], 100, 30, u), "a=p,i=730320,"));
+});
+
+test("rich sidebar buttons align with their rendered cells and dialogs mask their hit areas", () => {
+  const view = new View(new Model(), new Selection());
+  const views = tricks.views([
+    { kind: "decorate", content: { kind: "button", spans: [{ text: "+" }], action: "test.1" } },
+  ]);
+  const entries = [
+    sidebar.entry({
+      target: viewerRef.pane(1, 1),
+      name: "Agent",
+      provider: "claude",
+      decoration: trickUi.decoration(views, {}),
+    }),
+  ];
+  const controls: trickUi.Controls = { hits: [], focus: null };
+  const state = ui({
+    sidebar_open: true,
+    agents: entries,
+    tricks: views,
+    trick_controls: controls,
+    message: "",
+    copy_mode: false,
+  });
+  const screen = new Terminal(100, 30);
+  try {
+    screen.feed(frame(view, [], 100, 30, state));
+    const lines = screen.text().split("\n"),
+      y = lines.findIndex((line, index) => index > 0 && line.includes("[ + ]"));
+    expect(y).toBeGreaterThan(0);
+    expect(controls.hits).toHaveLength(1);
+    expect(controls.hits[0].rect.x).toBe(lines[y].indexOf("[ + ]"));
+    expect(controls.hits[0].rect.y).toBe(y);
+    state.agent_launcher = new LauncherMenu({ workspace: 1, selected: "claude", last: "claude", pinned: true });
+    frame(view, [], 100, 30, state);
+    expect(controls.hits).toEqual([]);
+  } finally {
+    screen.destroy();
+  }
+});
+
+test("agent drawing hooks target their own pane and popover and keep logos above their own cards", () => {
+  const model = new Model(),
+    selection = new Selection(),
+    view = new View(model, selection);
+  const left = model.newTab(""),
+    right = model.split(left, "horizontal");
+  selection.reconcile(model);
+  const terminal = {
+    updateRender() {},
+    hyperlinks: () => [],
+    cursor: () => null,
+    cursorStyle: () => "default",
+    rows: () => "",
+  };
+  const panes = [left, right].map(
+    id =>
+      ({
+        id,
+        label: "",
+        cwd: "/tmp",
+        command: "",
+        brand: null,
+        account: "",
+        agent: agent({ provider: "claude", name: "Brand" }),
+        restoring: "",
+        terminal,
+      }) as unknown as Pane,
+  );
+  const views = tricks.views([
+    { kind: "decorate", surface: "sidebar", where: { id: `pane:${left}` }, suffix: markup.parse("Row") },
+    {
+      kind: "decorate",
+      surface: "popover",
+      where: { id: `pane:${left}` },
+      color: "warm",
+      marker: "accent",
+      suffix: markup.parse("**Card** !(brand:claude)"),
+    },
+    {
+      kind: "decorate",
+      surface: "pane",
+      where: { id: `pane:${left}` },
+      color: "hot",
+      suffix: markup.parse("Pane !(brand:claude)"),
+    },
+    { kind: "decorate", surface: "pane", where: { id: "pane:9999" }, suffix: markup.parse("Hidden agent") },
+  ]);
+  const entries = [left, right].map(id =>
+    sidebar.entry({
+      target: viewerRef.pane(1, id),
+      name: "Brand",
+      provider: "claude",
+      decoration: trickUi.decoration(views, { id: `pane:${id}` }),
+    }),
+  );
+  const top = sidebar.View.init(120, 40, true, 0, entries.length).middle() + 2;
+  const icons = new Icons();
+  const state = ui({ sidebar_open: true, agents: entries, tricks: views, message: "", copy_mode: false });
+  const screen = new Terminal(120, 40);
+  try {
+    screen.feed(frame(view, panes, 120, 40, state));
+    expect(screen.text()).toContain("Brand Row");
+    expect(screen.text()).toContain("Pane *");
+    expect(screen.text()).not.toContain("Card");
+    expect(screen.text()).not.toContain("Hidden agent");
+    const row = screen
+      .text()
+      .split("\n")
+      .find(line => line.includes("Pane *"))!;
+    const leftRect = view.placements(sidebar.View.init(120, 40, true, 0, entries.length).area())[0].rect;
+    expect(row.indexOf("Pane")).toBeGreaterThanOrEqual(leftRect.x);
+    expect(row.indexOf("Pane") + 6).toBeLessThanOrEqual(leftRect.x + leftRect.w);
+    state.pointer = { x: 5, y: top };
+    state.link_tooltip = true;
+    screen.feed(frame(view, panes, 120, 40, state));
+    expect(screen.text()).toContain("Card *");
+    state.tab_icons = icons;
+    state.cell_pixels = { width: 9, height: 18 };
+    icons.begin();
+    frame(view, panes, 120, 40, state);
+    icons.end();
+    icons.begin();
+    const graphics = frame(view, panes, 120, 40, state);
+    // Pane and popover marks survive their backing rectangles, beside the tab's mark.
+    expect(count(graphics, "a=p,i=730320,")).toBe(3);
+    state.pointer = { x: 5, y: top + 2 };
+    state.tab_icons = null;
+    screen.feed(frame(view, panes, 120, 40, state));
+    expect(screen.text()).not.toContain("Card");
+    entries[0].target = viewerRef.pane(2, left);
+    state.pointer = { x: 5, y: top };
+    state.agent_tricks = target => {
+      expect(target).toBe(viewerRef.pane(2, left));
+      return tricks.views([
+        { kind: "decorate", surface: "popover", where: { id: `pane:${left}` }, suffix: markup.parse("Remote card") },
+      ]);
+    };
+    screen.feed(frame(view, panes, 120, 40, state));
+    expect(screen.text()).toContain("Remote card");
+    expect(screen.text()).not.toContain("Card *");
+    state.agent_launcher = new LauncherMenu({ workspace: 1, selected: "claude", last: "claude", pinned: true });
+    expect(frame(view, panes, 120, 40, state)).not.toContain("Pane");
+  } finally {
+    screen.destroy();
   }
 });
 

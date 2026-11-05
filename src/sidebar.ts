@@ -3,6 +3,7 @@ import * as viewerRef from "./viewer_ref";
 import * as i18n from "./i18n";
 import type { Quality } from "./connection_stats";
 import * as signalBars from "./signal_bars";
+import * as trickUi from "./trick_ui";
 import * as palette from "./palette";
 import { Provider, adapter } from "./providers";
 import { Style, colors, fg, bg, fgRgb, bgRgb, mix, underline } from "./palette";
@@ -234,6 +235,7 @@ export interface Subagents {
   waiting: boolean;
 }
 export interface Entry<T = Target, Workspace = viewerRef.Workspace> {
+  decoration: trickUi.Decoration;
   worktree: { workspace: Workspace; path: string; ghost: boolean; end?: boolean } | null;
   conversation: number;
   children: number;
@@ -283,6 +285,7 @@ export function entry<const T = Target, Workspace = viewerRef.Workspace>(
   fields: Partial<Entry<T, Workspace>> & { target: T },
 ): Entry<T, Workspace> {
   return {
+    decoration: { suffix: [] },
     worktree: null,
     conversation: 0,
     children: 0,
@@ -714,6 +717,8 @@ export class Preview {
 }
 
 export class View {
+  trick_icons: trickUi.Icon[] | null = null;
+  trick_controls: trickUi.Controls | null = null;
   search: Search | null = null;
   /** Header scope: "all" or the workspace whose agents are listed. */
   scope_label = "";
@@ -2058,6 +2063,8 @@ export class View {
         v.hovered === absolute,
         frame_ms,
         dream,
+        row_writer === w ? v.trick_icons : null,
+        !cut && !gliding && !e.exit ? v.trick_controls : null,
       );
       v.drawGhost(row_writer, e, top);
       finish();
@@ -2081,6 +2088,8 @@ export class View {
     hovered: boolean,
     now_ms: number,
     dream: corgiAnimation.Dream | null,
+    icons = this.trick_icons,
+    controls = this.trick_controls,
   ): void {
     const v = this;
     // Focused and dragged rows take the selected tint, and a hovered one
@@ -2097,7 +2106,11 @@ export class View {
       // The guide sits in the margin column, so agent text keeps its columns.
       // Beside the selected agent it turns heavy and accented, without a gap,
       // and spans both rows even at the end of a group.
-      const rail = e.focused ? new Style({ fg: "accent" }).sgr() : new Style({ fg: "line" }).sgr();
+      const rail = e.decoration.marker
+        ? fgRgb(mix(trickUi.rgb(e.decoration.marker), background, e.focused ? 0 : 45))
+        : e.focused
+          ? new Style({ fg: "accent" }).sgr()
+          : new Style({ fg: "line" }).sgr();
       const branch = e.focused ? "┣" : last_in_group ? "╰" : "├";
       const through = e.focused || !last_in_group;
       w.write(`${w.cup(y + 1, x + 1)}${rail}${row_bg}${branch}`);
@@ -2151,8 +2164,28 @@ export class View {
     if (rename !== null) {
       v.drawField(w, rename, x + 4, y, sat(room, right));
       w.write(row_bg);
-    } else if (star) writeEllipsis(w, rowTitle(e), sat(room, right + 2));
-    else writeEllipsis(w, agentName(e), sat(room, right));
+    } else {
+      if (e.decoration.color) w.write(trickUi.fg(e.decoration.color));
+      const suffixWidth = trickUi.contentSize(e.decoration).w;
+      const suffixRoom = suffixWidth ? Math.min(1 + suffixWidth, Math.floor(sat(room, right) / 2)) : 0;
+      const name = star ? rowTitle(e) : agentName(e);
+      writeEllipsis(w, name, sat(room, right + suffixRoom + (star ? 2 : 0)));
+      if (suffixRoom > 1) {
+        const nameWidth = Math.min(displayWidth(name) + (star ? 2 : 0), sat(room, right + suffixRoom));
+        w.write(`${w.cup(y + 1, x + 5 + nameWidth)}\x1b[22m`);
+        w.write(" ");
+        trickUi.draw(
+          w,
+          trickUi.content(e.decoration),
+          new Rect(x + 5 + nameWidth, y, suffixRoom - 1, 1),
+          icons,
+          0,
+          controls,
+          e.decoration.color,
+          this.inner ? lists_x : 0,
+        );
+      }
+    }
     w.write("\x1b[22m");
     // Unsent review notes wait for the user, so they take warm.
     if (notes.length > 0 && room > right + 4)
@@ -2230,7 +2263,15 @@ export class View {
     }
     w.write("\x1b[24;59m");
     // Without the group rail, the focused agent takes the active workspace's bar.
-    const bar = ghost ? ghost_bar : e.focused && !grouped ? active_bar : gilded ? row_bg + star_trim + "▏" : "";
+    const bar = ghost
+      ? ghost_bar
+      : !grouped && e.decoration.marker
+        ? fgRgb(mix(trickUi.rgb(e.decoration.marker), background, e.focused ? 0 : 45)) + row_bg + "▌"
+        : e.focused && !grouped
+          ? active_bar
+          : gilded
+            ? row_bg + star_trim + "▏"
+            : "";
     if (bar.length > 0) for (let row = 0; row < 2; row++) w.write(`${w.cup(y + row + 1, x + 1)}${bar}\x1b[0m`);
     if (rename !== null && rename.message !== null) {
       const below = y + 1 < v.drawEnd(v.badge("below"));
