@@ -3,8 +3,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as hostClipboard from "./host_clipboard";
+import * as agentLauncher from "./agent_launcher";
+import { byProvider } from "./providers";
+import type { Transport } from "./mirror";
 import { Prompt } from "./prompt";
-import { clipboardPacket, legacy, tokens } from "./prompt_pane";
+import { Models, clipboardPacket, legacy, tokens } from "./prompt_pane";
 import { Writer } from "./text";
 
 const bytes = (text: string) => Buffer.from(text);
@@ -87,6 +90,50 @@ function folder() {
   return dir;
 }
 const b64 = (text: string | Buffer) => Buffer.from(text).toString("base64");
+
+test("a pane with no handed models loads them and refreshes when accounts change", async () => {
+  const preview = agentLauncher.preview({ installed: byProvider(() => false) }),
+    context = { cwd: "/tmp", workspace: "", workspace_id: 1, branch: "", focus: null, herd: [], mentions: [] },
+    prompt = new Prompt({
+      daemon: { call: async () => ({ ok: true }), start: async () => ({ provider: "claude", session: "s" }) },
+      memory_root: folder(),
+      mode: "pane",
+    });
+  let modelReads = 0;
+  const conn = {
+      request: async (op: string) =>
+        op === "agent.preview"
+          ? { ok: true, preview }
+          : {
+              ok: true,
+              result: { workspaces: [{ id: 1, cwd: "/tmp", model: { nodes: [], tabs: [], revision: 0 } }] },
+            },
+    } as Transport,
+    models = new Models(conn, prompt, context, async provider => {
+      modelReads++;
+      return [{ id: provider === "claude" ? "claude-sonnet-5-5" : "gpt-6-astra", name: provider }];
+    });
+  prompt.show(context);
+  try {
+    models.poll(0);
+    await Bun.sleep(0);
+    expect(prompt.current()).toBeNull();
+    expect(modelReads).toBe(0);
+    preview.installed.claude = true;
+    preview.pending = false;
+    models.poll(5000);
+    await Bun.sleep(0);
+    expect(prompt.current()?.model).toBe("claude-sonnet-5-5");
+    preview.installed.claude = false;
+    preview.installed.codex = true;
+    models.poll(10000);
+    await Bun.sleep(0);
+    expect(prompt.current()?.model).toBe("gpt-6-astra");
+    expect(modelReads).toBe(2);
+  } finally {
+    models.close();
+  }
+});
 
 test("a paste event brings the card its image, else its text", () => {
   const prompt = new Prompt({

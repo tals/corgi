@@ -6,6 +6,11 @@
 import { dirname, join } from "node:path";
 import { openConversation } from "./cli";
 import * as errors from "./errors";
+import * as agentLauncher from "./agent_launcher";
+import * as agentModels from "./agent_models";
+import * as mirror from "./mirror";
+import * as modelSuggest from "./model_suggest";
+import * as promptModels from "./prompt_models";
 import * as hostClipboard from "./host_clipboard";
 import * as keyboard from "./keyboard";
 import * as launcherResume from "./launcher_resume";
@@ -131,6 +136,69 @@ function attach(prompt: Prompt, path: string): void {
 // encoding turns into / and Enter; paste events, a pasted image.
 const enter = "\x1b[?1049h\x1b[?25l\x1b[?1003h\x1b[?1006h\x1b[?2004h" + hostClipboard.enable + keyboard.enable,
   leave = keyboard.disable + hostClipboard.disable + "\x1b[?2004l\x1b[?1006l\x1b[?1003l\x1b[?25h\x1b[?1049l";
+
+/** A pane keeps reading the same catalogs as the card, including when its
+ * handoff preceded the first model list. */
+export class Models {
+  private runtime = new mirror.Runtime();
+  private cache: agentModels.Cache;
+  private preview: agentLauncher.Preview | null = null;
+  private reading = false;
+  private read_at = -Infinity;
+  private closed = false;
+  constructor(
+    private connection: mirror.Transport,
+    private prompt: Prompt,
+    private context: Context,
+    read = agentModels.read,
+  ) {
+    this.cache = new agentModels.Cache(() => this.feed(), read);
+  }
+  poll(now: number): void {
+    if (this.closed || this.reading || now - this.read_at < (this.preview?.pending === false ? 5000 : 1000)) return;
+    this.reading = true;
+    this.read_at = now;
+    void this.refresh()
+      .catch(() => {})
+      .finally(() => {
+        this.reading = false;
+      });
+  }
+  private async refresh(): Promise<void> {
+    const snapshot = await mirror.call(this.connection, "session.list", {});
+    if (this.closed) return;
+    this.runtime.receive(this.connection, snapshot.result);
+    const workspace = this.context.workspace_id ?? this.runtime.workspaces.items[0]?.id;
+    if (!workspace) return;
+    const reply = await mirror.call(this.connection, "agent.preview", { workspace, cwd: this.context.cwd });
+    if (this.closed) return;
+    this.preview = agentLauncher.preview(reply.preview);
+    this.feed();
+  }
+  private feed(): void {
+    if (this.closed || !this.preview) return;
+    const { entries, briefs, pending } = promptModels.catalog(
+        this.cache,
+        promptModels.places(this.runtime, this.preview, this.prompt.choice),
+        Date.now() / 1000,
+      ),
+      usage = promptModels.usage(this.runtime, this.prompt.choice);
+    if (pending && !entries.length && this.prompt.current()) return;
+    this.prompt.catalog(
+      entries,
+      modelSuggest.suggest(usage, entries),
+      briefs,
+      modelSuggest.auto(usage, entries),
+      pending,
+    );
+    this.prompt.changed?.();
+  }
+  close(): void {
+    this.closed = true;
+    this.cache.close();
+    this.runtime.destroy();
+  }
+}
 
 /** Runs the Corgi chat in this pane until it closes. */
 export async function run(argv: string[]): Promise<void> {
@@ -260,6 +328,7 @@ export async function run(argv: string[]): Promise<void> {
       );
   }
   prompt.show(context);
+  const models = new Models({ request: (op, ...args) => call(op, args[0] ?? {}) }, prompt, context);
 
   const out = process.stdout;
   let dirty = true,
@@ -301,6 +370,7 @@ export async function run(argv: string[]): Promise<void> {
     if (done) return;
     done = true;
     clearInterval(loop);
+    models.close();
     try {
       await prompt.conversation.stop();
     } catch {}
@@ -416,6 +486,7 @@ export async function run(argv: string[]): Promise<void> {
     });
   out.write(enter);
   const loop = setInterval(() => {
+    models.poll(Date.now());
     if (prompt.poll(Date.now())) dirty = true;
     // A read that stalls gives up.
     if (clipboard.reading) pasted(null);

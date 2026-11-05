@@ -126,8 +126,8 @@ import { Memory } from "./prompt_memory";
 import * as modelPicker from "./model_picker";
 import type { Marks } from "./provider_mark";
 import * as modelSuggest from "./model_suggest";
+import * as promptModels from "./prompt_models";
 import { shellWords } from "./os";
-import { expired } from "./usage/account";
 
 /** A conversation a pane stopped running, and when, in seconds. */
 interface Stopped {
@@ -332,7 +332,6 @@ const toggled = <T extends string>(list: T[], item: T, on: boolean) => [
 /** The session a viewer's prompt runs, kept across the viewer's reload. */
 const prompt_session_env = "CORGI_PROMPT_SESSION";
 /** An agent's account the Corgi prompt offers models from. */
-type PromptPlace = { provider: Provider; account: string; name: string; option: agentLauncher.Option };
 type AccountRemoval = {
   agent: agentManager.Agent;
   launch: LauncherMenu;
@@ -4574,101 +4573,19 @@ export class Controller {
     this.prompt.catalog(entries, this.prompt_suggested, briefs, this.prompt_auto, loading);
     this.dirty = true;
   }
-  /** Where the prompt offers models: each signed-in agent and account the
-   * launcher lists, the user runs (one hidden in Manage agents may still run
-   * from a saved command, or in a pane now) or picked; with none of those,
-   * every signed-in one. Empty until the first preview says what's installed. */
-  private promptPlaces(): PromptPlace[] {
-    const preview = this.launch_previews.preview,
-      pick = this.prefs.prompt_model === "auto" ? null : (this.prefs.prompt_model ?? null),
-      // A saved command says only when it runs its provider's default account.
-      saved = new Set(
-        this.runtime.agent_commands.flatMap(({ command, hidden, semantics: s }) =>
-          command && !hidden && s.default_account && s.provider ? [s.provider] : [],
-        ),
-      ),
-      runs = (provider: Provider, account: string) =>
-        (!account && saved.has(provider)) ||
-        this.runtime.panes.some(p => p.agent.provider === provider && p.account === account) ||
-        (!account && this.runtime.sessions.some(s => s.provider === provider)),
-      out: PromptPlace[] = [],
-      signed: PromptPlace[] = [];
-    if (!this.launch_previews.received) return out;
-    for (const provider of Provider.all) {
-      if (!preview.installed[provider] || !adapter(provider).headless) continue;
-      const places = [
-        { account: "", name: preview.names[provider], option: preview.options[provider] },
-        ...this.runtime.accounts
-          .filter(a => a.provider === provider)
-          .map(a => ({
-            account: a.account,
-            name: a.name,
-            option:
-              preview.accounts.find(o => o.provider === provider && o.account === a.account)?.option ??
-              agentLauncher.option(),
-          })),
-      ];
-      for (const place of places) {
-        if (place.option.signed_in === false) continue;
-        const picked = pick?.provider === provider && pick.account === place.account,
-          hidden = place.account
-            ? this.runtime.account_hidden.includes(place.account)
-            : this.runtime.agent_hidden[provider];
-        signed.push({ provider, ...place });
-        if (picked || !hidden || runs(provider, place.account)) out.push({ provider, ...place });
-      }
-    }
-    return out.length ? out : signed;
+  private promptPlaces(): promptModels.Place[] {
+    const pick = this.prefs.prompt_model === "auto" ? null : (this.prefs.prompt_model ?? null);
+    return this.launch_previews.received ? promptModels.places(this.runtime, this.launch_previews.preview, pick) : [];
   }
-  /** The models of every place the prompt offers, with each account's plan
-   * and limits, and whether a catalog is still being read. */
   private promptModels(): { entries: modelPicker.Entry[]; briefs: modelPicker.Brief[]; pending: boolean } {
-    const entries: modelPicker.Entry[] = [],
-      briefs: modelPicker.Brief[] = [],
-      at = nowSeconds();
-    if (!this.launch_previews.received) return { entries, briefs, pending: true };
-    let pending = false;
-    for (const { provider, account, name, option } of this.promptPlaces()) {
-      const stale = typeof option.limits === "object" && expired(option.usage_fetched_at, at);
-      briefs.push(modelPicker.accountHeader(provider, account, { ...option, limits: stale ? "none" : option.limits }));
-      const catalog = this.model_cache.get(provider, account);
-      pending ||= catalog.pending;
-      for (const m of catalog.values)
-        entries.push({
-          provider,
-          account,
-          account_name: name,
-          model: m.id,
-          name: m.name,
-          efforts: m.efforts ?? [],
-          default_effort: m.default_effort ?? null,
-        });
-    }
-    return { entries, briefs, pending };
+    if (!this.launch_previews.received) return { entries: [], briefs: [], pending: true };
+    return promptModels.catalog(this.model_cache, this.promptPlaces(), nowSeconds());
   }
-  /** How this user runs agents, for the picker's suggestions: the models
-   * their agents report, at the effort their launcher rows set. */
   private promptUsage(): modelSuggest.Usage {
-    const s = this.runtime.inference,
-      agents: modelSuggest.Usage["agents"] = [];
-    const ran = (provider: Provider, account: string, conversation: number) => {
-      const configured = accounts.launchOptions(provider, account);
-      agents.push({
-        provider,
-        account,
-        model: this.runtime.conversations.find(c => c.id === conversation)?.model || configured.model || "",
-        effort: configured.effort ?? null,
-      });
-    };
-    for (const p of this.runtime.panes) if (p.agent.provider) ran(p.agent.provider, p.account, p.agent.conversation);
-    for (const session of this.runtime.sessions)
-      if (session.agent) ran(session.provider, "", session.agent.conversation);
-    return {
-      launches: s.launches,
-      agents,
-      last: this.prefs.prompt_model === "auto" ? null : (this.prefs.prompt_model ?? null),
-      clever: s.provider ? { provider: s.provider, model: s.model } : null,
-    };
+    return promptModels.usage(
+      this.runtime,
+      this.prefs.prompt_model === "auto" ? null : (this.prefs.prompt_model ?? null),
+    );
   }
   /** What the status line says about the prompt while it is put away. */
   private promptCue(): render.Cue | null {
