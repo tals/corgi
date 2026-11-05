@@ -1,3 +1,4 @@
+import { Stats } from "./connection_stats";
 import type { Output } from "./composition";
 import { Remote } from "./daemon_transport";
 import { Controller } from "./controller";
@@ -33,6 +34,16 @@ export const quiet_ms = 500;
 /** A remote machine silent this long gets a second connection beside the first. */
 export const race_ms = 4000;
 export class Endpoint {
+  readonly stats = new Stats();
+  get stallMs(): number {
+    return this.profile ? this.stats.stallMs : stalled_ms;
+  }
+  get raceMs(): number {
+    return Math.max(race_ms, this.stallMs * 2);
+  }
+  private healthAge(now: number): number {
+    return this.stream?.age(now) ?? now - Math.max(this.task_started, this.stats.lastReceived ?? this.task_started);
+  }
   status: Status = "connecting";
   error = "";
   generation = 0;
@@ -255,19 +266,21 @@ export class Endpoint {
   pump(visible: boolean, idle = false): void {
     if (this.stopped || this.status === "paused" || this.status === "incompatible") return;
     const now = performance.now();
-    if (this.stream && this.status === "online" && this.stream.age(now) >= stalled_ms) {
+    if (this.stream && this.status === "online" && this.stream.age(now) >= this.stallMs) {
       this.status = "stalled";
+      this.stats.stalled(now);
       this.fresh = false;
       this.clearInput();
     }
-    if (this.task && this.status === "online" && now - this.task_started >= stalled_ms) {
+    if (this.task && !this.stream && this.status === "online" && this.healthAge(now) >= this.stallMs) {
       this.status = "stalled";
+      this.stats.stalled(now);
       this.fresh = false;
       this.clearInput();
     }
-    const quiet = this.stream?.age(now) ?? (this.task ? now - this.task_started : 0);
-    const due = !this.racing && now - this.raced_at >= race_ms;
-    if (this.profile && this.link && due && (this.suspect || (this.status === "stalled" && quiet >= race_ms)))
+    const quiet = this.healthAge(now);
+    const due = !this.racing && now - this.raced_at >= this.raceMs;
+    if (this.profile && this.link && due && (this.suspect || (this.status === "stalled" && quiet >= this.raceMs)))
       void this.race(now);
     if (this.task) return;
     if (now < this.due()) return;
@@ -328,8 +341,13 @@ export class Endpoint {
     let conn: Connection | null = null;
     try {
       await tunnel.open();
-      conn = new Connection(tunnel.socket, 10_000);
+      let established = false;
+      conn = new Connection(tunnel.socket, {
+        timeout_ms: () => (established ? this.stats.timeoutMs : 30000),
+        stats: this.stats,
+      });
       const hello = await conn.call("hello");
+      established = true;
       // The old connection answering again, or anything else moving on, wins.
       if (interruption !== this.interruption || this.stopped || this.status !== "stalled") throw Error("RaceLost");
       if (compatible(hello) !== this.instance) throw Error("RaceLost");
@@ -380,8 +398,13 @@ export class Endpoint {
       }
       this.current(generation);
       const socket = this.tunnel?.socket ?? this.local;
-      conn = this.connection = new Connection(socket, 10_000);
+      let established = false;
+      conn = this.connection = new Connection(socket, {
+        timeout_ms: () => (this.profile ? (established ? this.stats.timeoutMs : 30000) : 10000),
+        stats: this.stats,
+      });
       hello = await conn.call("hello");
+      established = true;
       this.current(generation);
     }
     conn.onEvent(event => {
@@ -654,7 +677,7 @@ export class Endpoint {
       if (visible && selection === this.selection) {
         this.displayed = false;
         view.dirty = false;
-        if (reply && stream.fresh && stream.age() < stalled_ms) this.fresh = this.rendered = true;
+        if (reply && stream.fresh && stream.age() < this.stallMs) this.fresh = this.rendered = true;
         this.onEffects(view);
       }
     } else {
@@ -666,7 +689,7 @@ export class Endpoint {
       machine.runtime.receiveResources(snapshot.resources);
       changed = true;
     }
-    if (!this.stream || this.stream.age() < stalled_ms) {
+    if (!this.stream || this.stream.age() < this.stallMs) {
       this.status = "online";
       this.error = "";
     }

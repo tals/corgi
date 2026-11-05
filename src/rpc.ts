@@ -3,6 +3,7 @@ import * as errors from "./errors";
 import * as json from "./json";
 import * as telemetry from "./telemetry";
 import * as protocol from "./protocol";
+import type { Stats } from "./connection_stats";
 interface Pending {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
@@ -10,7 +11,8 @@ interface Pending {
 export interface ConnectionInit {
   /** Off: untagged requests, one at a time, as before runtime protocol 4. */
   requestIds?: boolean;
-  timeout_ms?: number;
+  stats?: Stats;
+  timeout_ms?: number | (() => number);
 }
 export class Connection {
   readonly socket: Socket;
@@ -20,14 +22,21 @@ export class Connection {
   private buffer = "";
   private closed: Error | null = null;
   private listeners = new Set<(event: protocol.Event) => void>();
-  readonly timeout_ms: number;
+  private readonly timeout: number | (() => number);
+  get timeout_ms(): number {
+    return typeof this.timeout === "function" ? this.timeout() : this.timeout;
+  }
+  private readonly stats?: Stats;
   constructor(target: string | Socket, options: ConnectionInit | number = {}) {
     const init = typeof options === "number" ? { timeout_ms: options } : options;
-    this.timeout_ms = init.timeout_ms ?? 0;
+    this.stats = init.stats;
+    if (this.stats) this.stats.connections++;
+    this.timeout = init.timeout_ms ?? 0;
     this.requestIds = init.requestIds ?? true;
     this.socket = typeof target === "string" ? createSocket(target) : target;
     this.socket.setEncoding("utf8");
     this.socket.on("data", chunk => {
+      this.stats?.traffic("received", Buffer.byteLength(chunk));
       this.buffer += chunk;
       if (Buffer.byteLength(this.buffer) > 64 * 1024 * 1024) {
         this.fail(Error("MessageTooLarge"));
@@ -105,22 +114,33 @@ export class Connection {
     if (this.pending.size >= 128) throw Error("RequestBackpressure");
     const id = this.requestIds ? this.next++ : 0;
     return new Promise((resolve, reject) => {
-      const timer = this.timeout_ms > 0 ? setTimeout(() => this.fail(Error("RequestTimedOut")), this.timeout_ms) : null;
-      const done = () => {
+      const timeout = this.timeout_ms;
+      const timer = timeout > 0 ? setTimeout(() => this.fail(Error("RequestTimedOut")), timeout) : null;
+      const started = performance.now();
+      if (this.stats) this.stats.pending++;
+      const done = (failed: boolean) => {
+        if (this.stats) {
+          this.stats.pending--;
+          const now = performance.now();
+          // Hello may include SSH authentication; it is not an established-path round trip.
+          this.stats.answer(now - started, failed, now, message.op !== "hello");
+        }
         if (timer) clearTimeout(timer);
       };
       this.pending.set(id, {
         resolve: value => {
-          done();
+          done(false);
           resolve(value);
         },
         reject: error => {
-          done();
+          done(true);
           reject(error);
         },
       });
       try {
-        this.socket.write(json.stringify(this.requestIds ? { ...message, request_id: id } : message) + "\n");
+        const bytes = json.stringify(this.requestIds ? { ...message, request_id: id } : message) + "\n";
+        this.stats?.traffic("sent", Buffer.byteLength(bytes));
+        this.socket.write(bytes);
       } catch (error) {
         this.fail(error as Error);
       }

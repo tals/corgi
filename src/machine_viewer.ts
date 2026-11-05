@@ -1,3 +1,5 @@
+import { Menu as ConnectivityMenu } from "./connectivity_menu";
+import { prefixByte } from "./keymap";
 import * as composition from "./composition";
 import { dirname, join } from "node:path";
 import { Endpoint, quiet_ms } from "./machine_connection";
@@ -93,6 +95,12 @@ export async function run(
   );
   side.resources = host.prefs.resources;
   const workspaces = new Workspaces(endpoints, view);
+  const connectivity = new ConnectivityMenu(endpoints);
+  view.onConnectivity = () => {
+    connectivity.toggle(endpoints.indexOf(active!));
+    wake.notify();
+  };
+  let stalled_prefix = false;
   /** Shows `endpoint`'s machine, on `focus` once it can. */
   const choose = (endpoint: Endpoint, focus: Focus | null) => {
     active!.deactivate();
@@ -191,7 +199,23 @@ export async function run(
     const key = keyboard.decode(value);
     const codepoint = key?.codepoint ?? (input.bytes.length === 1 ? input.bytes[0] : null);
     const cp = key?.mods.ctrl && codepoint !== null && codepoint >= 64 && codepoint < 128 ? codepoint & 31 : codepoint;
+    if (connectivity.open) {
+      if (!input.paste) {
+        const mouse = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/.exec(value);
+        if (mouse) connectivity.mouse(Number(mouse[2]) - 1, Number(mouse[3]) - 1, Number(mouse[1]), mouse[4] === "M");
+        else connectivity.key(value, cp);
+      }
+      return;
+    }
     if (!input.paste && cp === 27 && view.cancelWorkspaceDrag()) return;
+    if (!active!.ready && !input.paste) {
+      if (stalled_prefix && (value === "~" || (codepoint === 96 && key?.mods.shift))) {
+        stalled_prefix = false;
+        void view.perform({ name: "connectivity" });
+        return;
+      }
+      stalled_prefix = cp === prefixByte(host.prefs.prefix);
+    }
     if (input.paste) {
       if (value === "\x1b[200~")
         paste_owner = !workspaces.open && active!.ready ? { endpoint: active!, epoch: active!.input_epoch } : null;
@@ -335,6 +359,7 @@ export async function run(
   try {
     while (!quit && !stdin.ended) {
       const now = Date.now();
+      connectivity.tick();
       if (now - scroll_saved >= scroll_save_ms) {
         view.saveAgentScroll();
         scroll_saved = now;
@@ -391,7 +416,7 @@ export async function run(
       if (active.detached) break;
       // Idle with nothing new, the screen is as it was; it's drawn only now
       // and then, for what changes with time alone.
-      if (changed || !idle || view.dirty || workspaces.open || held || Date.now() >= next_draw) {
+      if (changed || !idle || view.dirty || workspaces.open || connectivity.open || held || Date.now() >= next_draw) {
         changed = false;
         next_draw = Date.now() + quiet_ms;
         let frame: composition.Output;
@@ -429,6 +454,8 @@ export async function run(
           frame += line(height, ` Ctrl+R retry now · Ctrl+X pause${machines} · Ctrl+C detach`, cols, "strong");
         }
         if (workspaces.open) frame = (typeof frame === "string" ? frame : frame.text()) + workspaces.draw(side);
+        if (connectivity.open)
+          frame = (typeof frame === "string" ? frame : frame.text()) + connectivity.draw(cols, height);
         if (view.dirty || !composition.same(frame, previous) || view.overlayOpen() || workspaces.open)
           active_at = Date.now();
         // A daemon that answers at once opens on its screen, not the sidebar alone.
@@ -437,7 +464,7 @@ export async function run(
           differ = viewer.present(differ, frame, cols, height, probe.pacer);
           previous = frame;
         }
-        if (!workspaces.open && composition.same(frame, previous)) active.presented();
+        if (!workspaces.open && !connectivity.open && composition.same(frame, previous)) active.presented();
         held = !composition.same(frame, previous);
       }
       typeahead();

@@ -7,6 +7,7 @@ export const specs: Record<string, string> = {
   "undo-layout": "void",
   "redo-layout": "void",
   machines: "void",
+  connectivity: "void",
   "instant-typing": "[]const u8",
   new: "void",
   next: "void",
@@ -160,6 +161,7 @@ export function needsPane(action: Action): boolean {
   ].includes(action.name);
 }
 export function title(action: Action): string {
+  if (action.name === "connectivity") return "Developer connectivity";
   const titles: Record<string, string> = {
     "undo-layout": i18n.t`Undo layout change`,
     "redo-layout": i18n.t`Redo layout change`,

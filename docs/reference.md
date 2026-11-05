@@ -199,6 +199,7 @@ tmux tab numbering starts at zero; other presets start at one.
 | Undo layout change | `prefix Ctrl+Z` | `prefix Ctrl+Z` | `prefix Ctrl+Z` | `prefix Ctrl+Z` |
 | Redo layout change | `prefix Ctrl+Y` | `prefix Ctrl+Y` | `prefix Ctrl+Y` | `prefix Ctrl+Y` |
 | Filter workspace machines | `prefix M`, `prefix Shift+M` | `prefix M`, `prefix Shift+M` | `prefix M`, `prefix Shift+M` | `prefix M`, `prefix Shift+M` |
+| Developer connectivity | `prefix ~`, `prefix Shift+`` | `prefix ~`, `prefix Shift+`` | `prefix ~`, `prefix Shift+`` | `prefix ~`, `prefix Shift+`` |
 | New tab (agent picker) | `prefix c`, `Ctrl+T` | `prefix c` | `prefix c` | `Cmd+T`, `prefix c` |
 | Next tab | `prefix n` | `prefix n` | `prefix n` | `Cmd+Shift+]`, `prefix n` |
 | Previous tab | `prefix p` | `prefix p` | `prefix p` | `Cmd+Shift+[`, `prefix p` |

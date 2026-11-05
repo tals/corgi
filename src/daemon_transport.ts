@@ -152,7 +152,7 @@ export class Remote {
       failure ??= Error("SshDisconnected");
     });
     try {
-      const until = performance.now() + 15_000;
+      const until = performance.now() + 30_000;
       while (!existsSync(this.socket)) {
         if (failure) throw failure;
         if (this.stopped) throw Error("TransportClosed");

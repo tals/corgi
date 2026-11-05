@@ -76,8 +76,9 @@ Normal stdio attachments and CLI commands share a private Corgi OpenSSH master,
 with ten minutes of idle persistence. Bulk image uploads, explicit machine
 checks, manual retries, and recovery probes use independent connections. Closing
 an attachment closes its channel, not the shared master. A stalled remote shows
-its age and pauses input; after four seconds a fresh connection is tested beside
-it. Retry and pause cancel both ordinary startup and recovery probes. Application
+its age and pauses input. Successful application round trips adapt the stall
+budget (4–30 seconds); a fresh connection is tested after twice that budget,
+before the old path times out. Initial SSH/hello has a separate 30-second budget. Retry and pause cancel both ordinary startup and recovery probes. Application
 health, replay, and fresh-screen fencing remain in `machine_connection.ts`; the
 render loop never awaits a remote request or SSH teardown.
 

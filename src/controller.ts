@@ -432,6 +432,7 @@ export class Controller {
   instant_ready = false;
   /** Opens the machine dropdown, in a viewer that shows several machines. */
   onMachines: (() => void) | null = null;
+  onConnectivity: (() => void) | null = null;
   paste_target: Paste | null = null;
   paste_progress: pasteProgress.State | null = null;
   /** Why a paste brought no image, over the pane it was meant for. */
@@ -2873,6 +2874,10 @@ export class Controller {
         this.dirty = true;
         break;
       }
+      case "connectivity":
+        this.closeMenu();
+        this.onConnectivity?.();
+        break;
       case "machines":
         if (this.onMachines) this.onMachines();
         else this.notice(i18n.t`Add a machine with corgi machine add NAME`);

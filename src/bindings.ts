@@ -17,6 +17,8 @@ export type Source = Preset | readonly Binding[];
  * `repeat-time` but twice its default. */
 export const repeat_ms = 1000;
 const machineBindings: Binding[] = [
+  { key: 126, mods: {}, prefixed: true, action: { name: "connectivity" } },
+  { key: 96, mods: { shift: true }, prefixed: true, action: { name: "connectivity" } },
   { key: 77, mods: {}, prefixed: true, action: { name: "machines" } },
   { key: 109, mods: { shift: true }, prefixed: true, action: { name: "machines" } },
 ];

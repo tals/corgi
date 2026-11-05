@@ -100,7 +100,7 @@ export class Stream {
   check(): void {
     if (this.failure) throw this.failure;
     if (this.connection.socket.destroyed) throw Error("ConnectionClosed");
-    if (this.age() >= 10_000) throw Error("RequestTimedOut");
+    if (this.age() >= (this.connection.timeout_ms || 10_000)) throw Error("RequestTimedOut");
   }
   send(start: () => Promise<void>, bytes = 0): void {
     if (this.bytes + bytes > 1024 * 1024 || this.writes.size >= 64) throw Error("InputBackpressure");

@@ -36,7 +36,7 @@ export function args(host: string, interactive: boolean, fresh = false): string[
     "-o",
     "ForkAfterAuthentication=no",
     "-o",
-    "ConnectTimeout=10",
+    "ConnectTimeout=30",
     "-o",
     "ServerAliveInterval=10",
     "-o",

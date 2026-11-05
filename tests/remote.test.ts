@@ -79,6 +79,47 @@ class Remote extends Runtime {
     await this.command("workspace.edit", { target: 1, name: "LOCAL_WORKSPACE" });
     await this.remote.command("workspace.edit", { target: 1, name: "REMOTE_WORKSPACE" });
   }
+  async test_one_second_one_way_latency_stays_online_and_delivers_typing() {
+    await this.command("pane.create", { workspace: 1, command: "cat" });
+    await this.remote!.command("pane.create", { workspace: 1, command: "cat" });
+    this.network!.cut();
+    this.network!.latency_ms = 1000;
+    await this.startViewer();
+    await this.online(undefined, 60);
+    const accepted = this.network!.accepted;
+    for (const marker of ["SLOW_ONE", "SLOW_TWO", "SLOW_THREE"]) {
+      this.terminal!.write(marker + "\r");
+      await this.until(() => {
+        this.assertNotIn("Input paused", this.text());
+        return this.text().includes(marker);
+      }, 15);
+    }
+    this.assertEqual(this.network!.accepted, accepted);
+  }
+  async test_raising_latency_then_reconnecting_keeps_local_navigation_responsive() {
+    await this.command("pane.create", { workspace: 1, command: "cat" });
+    await this.remote!.command("pane.create", { workspace: 1, command: "cat" });
+    await this.startViewer();
+    await this.online();
+    await this.sendRemote("FAST_BEFORE_LATENCY");
+    const accepted = this.network!.accepted;
+    this.network!.latency_ms = 1000;
+    for (const marker of ["SLOW_TRANSITION_ONE", "SLOW_TRANSITION_TWO", "SLOW_TRANSITION_THREE"]) {
+      this.terminal!.write(marker + "\r");
+      await this.until(() => {
+        this.assertNotIn("Input paused", this.text());
+        return this.text().includes(marker);
+      }, 15);
+    }
+    this.assertEqual(this.network!.accepted, accepted);
+    this.network!.cut();
+    this.clickWorkspace("LOCAL");
+    await this.online("local", 1);
+    this.clickWorkspace("REMOTE");
+    await this.until(() => this.network!.accepted > accepted, 3);
+    await this.online(undefined, 60);
+    await this.sendRemote("SLOW_AFTER_RECONNECT");
+  }
   async test_workspaces_reorder_across_machines_while_remote_is_stalled() {
     await this.command("workspace.create", { name: "SECOND_LOCAL", cwd: this.temp.name });
     await this.remote!.command("pane.create", { workspace: 1, command: "cat" });
@@ -643,7 +684,7 @@ class Remote extends Runtime {
     this.network!.set("healthy");
     await this.until(() => this.text().includes("REMOTE_WORKSPACE") && this.text().includes("all ▾"), 12);
     this.network!.set("blackhole");
-    await this.until(() => this.text().includes("work ↔"), 4);
+    await this.until(() => this.text().includes("work ↔"), 6);
     this.assertIn("REMOTE_WORKSPACE", this.text());
     this.assertNotIn("Input paused", this.text());
     this.terminal!.write("LOCAL_DURING_OUTAGE\r");
@@ -1022,7 +1063,7 @@ process.stdin.on("data", chunk => {
     this.assertEqual(this.network!.accepted, shared, "ordinary commands should reuse the viewer's Corgi master");
     this.network!.strandNext(1);
     this.network!.strand();
-    await this.until(() => this.text().includes("Connection stalled"), 3);
+    await this.until(() => this.text().includes("Connection stalled"), 6);
     this.terminal!.write("DISCARD_DURING_MASTER_STALL\r");
     await this.until(() => this.network!.accepted > shared, 8);
     // The first fresh TCP connection cannot finish SSH either. Local work still responds.
@@ -1050,7 +1091,7 @@ process.stdin.on("data", chunk => {
     // Strand the replacement as well: recovery cannot rely on the original master returning.
     const replacement = this.network!.accepted;
     this.network!.strand();
-    await this.until(() => this.text().includes("Connection stalled"), 3);
+    await this.until(() => this.text().includes("Connection stalled"), 6);
     await this.until(() => this.network!.accepted > replacement, 8);
     await this.online(undefined, 8);
     await this.sendRemote("AFTER_SECOND_MASTER_STALL");
@@ -1074,8 +1115,8 @@ process.stdin.on("data", chunk => {
       (await this.remote!.command("pane.read", { target: 1 })).text.includes("SENT_WITH_REPLY_BLOCKED"),
     );
     const started = performance.now();
-    await this.until(() => this.text().includes("Connection stalled"), 3);
-    this.assertTrue(performance.now() - started < 3000);
+    await this.until(() => this.text().includes("Connection stalled"), 6);
+    this.assertTrue(performance.now() - started < 6000);
     this.assertIn("Input paused", this.text());
     this.assertIn("BEFORE_HICCUP", this.text());
     this.assertIn("Ctrl+R retry now", this.text());
@@ -1124,7 +1165,7 @@ process.stdin.on("data", chunk => {
           break;
       }
       if (fault !== "cut") {
-        await this.until(() => this.text().includes("Connection stalled"), 4);
+        await this.until(() => this.text().includes("Connection stalled"), 6);
         this.assertIn("Input paused", this.text());
         const discard = `DISCARD_WHILE_STALLED_${index}`;
         dropped.push(discard);
@@ -1190,7 +1231,7 @@ process.stdin.on("data", chunk => {
     this.network!.set("blackhole");
     // Typed before the stall shows, so the viewer sends it into the void.
     this.terminal!.write("LANDS_AFTER_RESUME\r");
-    await this.until(() => this.text().includes("Connection stalled"), 3);
+    await this.until(() => this.text().includes("Connection stalled"), 6);
     this.assertNotIn("LANDS_AFTER_RESUME", (await this.remote!.command("pane.read", { target: 1 })).text);
     this.network!.cut();
     this.network!.set("healthy");
@@ -1213,10 +1254,10 @@ process.stdin.on("data", chunk => {
     this.network!.strand();
     // Typed before the stall shows: it goes into the dead connection.
     this.terminal!.write("RACED_THROUGH\r");
-    await this.until(() => this.network!.accepted > connections, 8);
+    await this.until(() => this.network!.accepted > connections, 10);
     await this.online(undefined, 8);
-    // Quicker than the old connection's ten-second request timeout.
-    this.assertLess(performance.now() - started, 9500);
+    // Quicker than the old connection's twelve-second minimum request timeout.
+    this.assertLess(performance.now() - started, 11500);
     await this.remote!.until(async () =>
       (await this.remote!.command("pane.read", { target: 1 })).text.includes("RACED_THROUGH"),
     );
@@ -1231,7 +1272,7 @@ process.stdin.on("data", chunk => {
     await this.online();
     const connections = this.network!.accepted;
     this.network!.set("blackhole");
-    await this.until(() => this.text().includes("Connection stalled"), 3);
+    await this.until(() => this.text().includes("Connection stalled"), 6);
     this.terminal!.write("NEVER_REPLAY_ME\r");
     // A second connection is tried beside the silent one, and again once it times out.
     await this.until(() => this.network!.accepted > connections, 12);
@@ -1247,7 +1288,7 @@ process.stdin.on("data", chunk => {
     await this.startViewer();
     await this.online();
     this.network!.set("blackhole");
-    await this.until(() => this.text().includes("Connection stalled"), 3);
+    await this.until(() => this.text().includes("Connection stalled"), 6);
     const stalled = this.network!.accepted;
     this.terminal!.write("\x12");
     await this.until(() => this.network!.accepted > stalled, 2);
@@ -1288,7 +1329,7 @@ process.stdin.on("data", chunk => {
       await this.sendRemote(`RECOVERY_${i}`);
     }
     this.network!.set("blackhole");
-    await this.until(() => this.text().includes("Connection stalled"), 3);
+    await this.until(() => this.text().includes("Connection stalled"), 6);
     this.terminal!.write("\x03");
     await deadline(this.ui!.exited, 1500);
     this.assertEqual(this.ui!.exitCode, 0);
@@ -1301,7 +1342,7 @@ process.stdin.on("data", chunk => {
     await this.sendRemote("OLD_DAEMON_FRAME");
     const instance = (await this.remote!.rpc({ op: "hello", protocol: 1 })).instance;
     this.network!.set("blackhole");
-    await this.until(() => this.text().includes("Connection stalled"), 3);
+    await this.until(() => this.text().includes("Connection stalled"), 6);
     this.terminal!.write("OLD_DAEMON_INPUT\r");
     await this.remote!.run_cli("shutdown");
     await this.remote!.until(() => !existsSync(this.remote!.path));
