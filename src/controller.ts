@@ -7369,30 +7369,32 @@ export class Controller {
       if (release && (button & 3) === 0) {
         this.agent_drag = null;
         this.ui_mouse_down = false;
-        if (drag.drop && sidebar.isAgent(drag.target)) {
+        const here = this.here();
+        this.later(async lane => {
+          await this.refresh();
+          if (!here()) return;
+          const live = this.sidebarEntries();
+          drag.update(this.sidebarView(live), this.current().id, x, y, milliTimestamp());
+          if (!drag.drop || !sidebar.isAgent(drag.target)) return;
           // Pins and section order belong to a workspace; above another's row,
           // the agent goes last in its own.
           const at = drag.before(),
             other = at === null ? null : sidebar.orderTarget(live[at]),
             before = other && this.agentWorkspace(other) === drag.workspace ? other : null,
             place = { workspace: drag.workspace, target: drag.target, before };
-          try {
-            // The preview already shows where it lands; nothing should glide there again.
-            this.sidebar_rows.discard();
-            await this.edit(
-              drag.action === "move"
-                ? { "agent.move": place }
-                : drag.action === "place"
-                  ? { "agent.place": place }
-                  : { "agent.pin": { ...place, pinned: true } },
-            );
-            if (drag.action === "place") this.agent_since.move(agentKey(drag.target), before ? agentKey(before) : null);
-            // Nor step back from the order shown before the daemon took the drop.
-            this.sidebar_rows.discard();
-          } catch (error) {
-            this.notice((error as Error).message);
-          }
-        }
+          this.sidebar_rows.discard();
+          await this.edit(
+            drag.action === "move"
+              ? { "agent.move": place }
+              : drag.action === "place"
+                ? { "agent.place": place }
+                : { "agent.pin": { ...place, pinned: true } },
+            lane,
+          );
+          if (!here()) return;
+          if (drag.action === "place") this.agent_since.move(agentKey(drag.target), before ? agentKey(before) : null);
+          this.sidebar_rows.discard();
+        });
       }
       this.dirty = true;
       return;

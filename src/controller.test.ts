@@ -1307,6 +1307,7 @@ test("dropping an opened ready agent keeps its new position", async () => {
     expect(from).toBeDefined();
     expect(to).toBeDefined();
     await s.input(bytes(mouse(0, from) + mouse(32, to) + mouse(0, to, true)));
+    await s.settle();
     expect(sent).toContainEqual({ "agent.place": { workspace: 1, target: { pane: 2 }, before: { pane: 1 } } });
     expect(ready()).toEqual([{ pane: 2 }, { pane: 1 }]);
     expect(s.focused().id).toBe(2);

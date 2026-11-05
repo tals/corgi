@@ -652,9 +652,8 @@ export class Endpoint {
       if (visible) view.input_state.active = false;
       if (visible && selection === this.selection) {
         this.displayed = false;
-        this.rendered = true;
         view.dirty = false;
-        if (reply && stream.fresh && stream.age() < stalled_ms) this.fresh = true;
+        if (reply && stream.fresh && stream.age() < stalled_ms) this.fresh = this.rendered = true;
         this.onEffects(view);
       }
     } else {

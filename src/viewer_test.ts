@@ -14,6 +14,7 @@ export async function runTest(connection: Transport, cwd = process.cwd()): Promi
   const view = new Controller(connection, attach(preferences.load(), null));
   const lines = new Lines();
   try {
+    view.loadPreferences();
     const bell = { seq: await viewer.open(view, cwd, {}) };
     for (let line = await lines.next(); line !== null; line = await lines.next()) {
       const value = parse(line);
