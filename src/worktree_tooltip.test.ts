@@ -469,6 +469,7 @@ async function removing() {
       if (i === 10) expect(screen()).toContain("Removing topic-0 · branch kept");
       clock.advance(50);
     }
+    await view.tasks.idle();
   };
   return { view, requests, report, screen, hold };
 }
@@ -771,6 +772,7 @@ test("a ghost previews a worktree's newest conversations as agents; Enter brings
     expect(text).toContain("Enter resume agents");
     expect(text).toContain("⌥ topic-0");
     await view.input(Buffer.from("\r"));
+    await view.tasks.idle();
     expect(view.worktreeDetail()).toBeNull();
     expect(requests.filter(r => r.op === "session.command").map(r => r.command)).toEqual(
       [0, 1, 2].map(i => ({
@@ -802,6 +804,7 @@ test("clicking a ghost's agent brings its group back and wakes it; entering a li
   const { view, requests } = browsing();
   const entries = (view as any).sidebarEntries();
   await view.perform({ name: "worktree-agent", value: entries.findIndex((e: any) => e.target.asleep === "session-1") });
+  await view.tasks.idle();
   expect(requests.filter(r => r.command?.["agent.resume"]?.asleep)).toHaveLength(3);
   expect(view.focused()?.id).toBe(3);
   const { view: live } = browsing();
@@ -935,6 +938,7 @@ test("e in the overview starts a reviewer in the browsed worktree and pins the r
   const { view, requests } = browsing();
   view.width = 200;
   await view.input(Buffer.from("e"));
+  await view.tasks.idle();
   expect(view.worktreeDetail()).toBeNull();
   const commands = requests.filter(r => r.op === "session.command").map(r => r.command);
   expect(commands[0]).toEqual({ "agent.create": { workspace: 1, cwd: "/repo/.worktrees/0", provider: null } });

@@ -303,6 +303,14 @@ $.clients[].launch_preview?.history_sent: u64
 $.clients[].snapshot_revision: optional
 $.clients[].snapshot_revision?: u64
 $.clients[].touched: i64
+$.clients[].link: optional
+$.clients[].link?: string
+$.links[].id: string
+$.links[].applied: u64
+$.links[].replies: any
+$.links[].viewer: any
+$.links[].detached_at: optional
+$.links[].detached_at?: i64
 $.theme.foreground: optional
 $.theme.foreground?.r: u8
 $.theme.foreground?.g: u8

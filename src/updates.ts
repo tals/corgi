@@ -28,7 +28,7 @@ import * as json from "./json";
 import type { Failure } from "./state_report";
 export const abi = "1-a826bd22ebcdbe60";
 const platforms = ["macos-aarch64", "linux-x86_64", "linux-aarch64"] as const;
-type Platform = (typeof platforms)[number];
+export type Platform = (typeof platforms)[number];
 export const platform: Platform =
   process.platform === "darwin" ? "macos-aarch64" : process.arch === "arm64" ? "linux-aarch64" : "linux-x86_64";
 const parsePlatform = (name: string): Platform | null => platforms.find(p => p === name) ?? null;
@@ -71,7 +71,7 @@ export function version(value: string): number[] {
   if (numbers.some(n => !Number.isSafeInteger(n))) throw Error("InvalidReleaseVersion");
   return numbers;
 }
-const compare = (a: string, b: string) => {
+export const compare = (a: string, b: string) => {
   const x = version(a),
     y = version(b);
   return Math.sign(x[0] - y[0] || x[1] - y[1] || x[2] - y[2]);
@@ -157,7 +157,7 @@ async function lock(root: string, name: string, wait: boolean): Promise<(() => v
     closeSync(fd);
   };
 }
-export function parse(rel: Release, bytes: string): Manifest {
+export function parse(rel: Release, bytes: string, targetPlatform: Platform = platform): Manifest {
   const envelope = record(json.parse(bytes), ["payload", "signature"]);
   string(envelope, "payload");
   string(envelope, "signature");
@@ -179,7 +179,7 @@ export function parse(rel: Release, bytes: string): Manifest {
   for (const field of ["version", "commit", "update_abi"]) string(m, field);
   const targets = record(m.targets, null);
   for (const key of Object.keys(targets)) if (parsePlatform(key) === null) throw Error("UnknownField");
-  if (!Object.hasOwn(targets, platform)) throw Error("MissingField");
+  if (!Object.hasOwn(targets, targetPlatform)) throw Error("MissingField");
   for (const key of Object.keys(targets)) {
     const target = record(targets[key], ["url", "sha256", "size"]);
     string(target, "url");
@@ -188,7 +188,7 @@ export function parse(rel: Release, bytes: string): Manifest {
   }
   if (m.schema_version !== 1) throw Error("UnknownUpdateSchema");
   version(m.version);
-  const t = m.targets?.[platform];
+  const t = m.targets?.[targetPlatform];
   if (
     !t ||
     !Number.isSafeInteger(t.size) ||
@@ -256,6 +256,19 @@ function verifyFile(path: string, t: Target): Buffer {
     throw Error("UpdateChecksumMismatch");
   return bytes;
 }
+/** Fetch one exact signed release, using the caller's existing update trust. */
+export async function artifact(rel: Release, v: string, target: Platform, directory: string): Promise<string> {
+  version(v);
+  const manifest = target === "linux-aarch64" ? "manifest-linux-aarch64.json" : "manifest.json";
+  const bytes = (await fetchBytes(rel, `${rel.feed_url}/releases/${v}/${manifest}`, 1024 * 1024)).toString();
+  const m = parse(rel, bytes, target);
+  if (m.version !== v) throw Error("WrongReleaseManifest");
+  atomicWrite(join(directory, "manifest.json"), bytes, 0o600);
+  const file = join(directory, "corgi");
+  atomicWrite(file, await fetchBytes(rel, m.targets[target]!.url, m.targets[target]!.size), 0o700);
+  verifyFile(file, m.targets[target]!);
+  return file;
+}
 async function feed(rel: Release, root: string, download: boolean, explicit: boolean): Promise<void> {
   const unlock = await lock(root, "download.lock", explicit);
   if (!unlock) return;
@@ -317,11 +330,14 @@ async function feed(rel: Release, root: string, download: boolean, explicit: boo
   }
 }
 async function hello(socket: string): Promise<any | null> {
+  const connection = new rpc.Connection(socket, { requestIds: false, timeout_ms: 10_000 });
   try {
-    return await rpc.request(socket, "hello");
+    return await connection.call("hello");
   } catch (error) {
     if (["ENOENT", "ECONNREFUSED"].includes((error as NodeJS.ErrnoException).code ?? "")) return null;
     throw error;
+  } finally {
+    connection.close();
   }
 }
 /** Pane commands follow their runtime even when another socket changes the install's current release. */
@@ -442,7 +458,7 @@ const recheck_ms = 3600000;
  * it advertised: one from another release may speak another. */
 export async function save(socket: string, h: { protocol?: number }) {
   // Untagged: a runtime before protocol 4 answers without the request id.
-  const conn = new rpc.Connection(socket, { requestIds: false });
+  const conn = new rpc.Connection(socket, { requestIds: false, timeout_ms: 30_000 });
   try {
     const reply: any = await conn.rawRequest({ op: "recovery.save", protocol: h.protocol });
     if (reply && "err" in reply) throw Error(reply.err);
@@ -823,13 +839,30 @@ async function install(rel: Release, exe: string, root: string, manifest: string
     unlock?.();
   }
 }
+export async function setupLock(root: string): Promise<() => void> {
+  const unlock = await lock(root, "activation.lock", false);
+  if (!unlock) throw Error("UpdateInProgress");
+  return unlock;
+}
+export function verifyArtifact(exe: string, manifest: string): void {
+  const rel = release(exe);
+  const m = parse(rel, readFileSync(manifest, "utf8"));
+  if (m.version !== rel.version || m.commit !== rel.commit) throw Error("WrongReleaseManifest");
+  verifyFile(exe, own(m));
+}
 export async function internal(args: string[], exe: string): Promise<boolean> {
   switch (args[0]) {
     case "__update-info": {
       const r = release(exe);
       console.log(
-        JSON.stringify({ version: r.version, commit: r.commit, update_abi: abi, platform, test_mode: r.test_mode }),
+        JSON.stringify({ ...(await import("./machine_build")).describe(exe), platform, test_mode: r.test_mode }),
       );
+      return true;
+    }
+    case "__machine-install": {
+      if (args.length !== 4) throw Error("Usage");
+      const target = await (await import("./machine_install")).install(exe, args[1], args[2], args[3]);
+      console.log(JSON.stringify({ executable: target }));
       return true;
     }
     case "__update-check": {

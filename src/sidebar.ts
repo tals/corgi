@@ -23,6 +23,7 @@ import { Rect } from "./layout";
 import {
   Writer,
   displayWidth,
+  clipped,
   writeClipped,
   writeEllipsis,
   ellipsis,
@@ -188,6 +189,8 @@ export interface Group {
   gap?: boolean;
   /** A subhead names a branch, under ⌥, rather than a workspace. */
   branch?: boolean;
+  /** The machine it's on, while rows name their machines. */
+  machine?: string;
 }
 export interface Subagents {
   running: number;
@@ -508,6 +511,10 @@ function portEndpoints(ports: PortsSnapshot, id: number): Endpoint[] {
 }
 export interface WorkspaceEntry {
   archived: boolean;
+  machine: string;
+  unavailable: string;
+  connecting: boolean;
+  external: boolean;
   resources: Work;
   ports: PortsSnapshot;
   remote_links: boolean;
@@ -532,6 +539,10 @@ export function workspaceEntry(
 ): WorkspaceEntry {
   return {
     archived: false,
+    machine: "",
+    unavailable: "",
+    connecting: false,
+    external: false,
     resources: work({ id: 0 }),
     ports: { workspaces: [] },
     remote_links: false,
@@ -589,6 +600,7 @@ export type Hit =
   | { tag: "workspace_new" }
   | { tag: "archives" }
   | { tag: "archived_workspace"; workspace: number }
+  | { tag: "workspace_scope" }
   | { tag: "workspace"; workspace: number };
 const hit = <T extends Hit["tag"]>(tag: T): Hit => ({ tag }) as Hit;
 
@@ -616,6 +628,7 @@ export class View {
   scope_label = "";
   /** The current shortcut for the New agent picker, including its prefix. */
   new_shortcut: string | null = null;
+  workspace_scope = "";
   corgi_badge: corgiBadge.Mode = "none";
   supports_kitty_graphics = false;
   /** The host's cell in pixels, for images placed by the pixel. */
@@ -1053,8 +1066,10 @@ export class View {
     if (v.width === 0) return v.cols >= 64 && x < 3 && y === 0 ? hit("toggle") : hit("none");
     if (x >= v.width - 1 || y >= v.rows) return hit("none");
     if (y === 0 && v.drawer !== "agents") {
-      if (x >= v.width - 5) return hit("toggle");
-      if (x >= v.width - 11 && x < v.width - 6) return hit("workspace_new");
+      if (v.workspaceScope()?.contains(x, y)) return hit("workspace_scope");
+      if (x >= v.width - (v.workspace_scope ? 2 : 5)) return hit("toggle");
+      if (v.workspace_scope ? x >= v.width - 8 && x < v.width - 3 : x >= v.width - 11 && x < v.width - 6)
+        return hit("workspace_new");
     }
     if (
       y === v.middle() &&
@@ -1161,7 +1176,7 @@ export class View {
       return { start: range.start + lists_x, end: range.end + lists_x };
     }
     const unread_width = View.unreadWidth(ws);
-    const metadata_width = statusMetadataWidth(ws);
+    const metadata_width = statusMetadataWidth(ws, this.width);
     const attention_width = ws.attention > 0 ? displayWidth(compactCount(ws.attention)) + 2 : 0;
     const working_width = ws.working > 0 ? displayWidth(compactCount(ws.working)) + 1 : 1;
     const room = sat(sat(sat(this.width, 3), metadata_width + 1), unread_width + 3);
@@ -1248,7 +1263,7 @@ export class View {
       }
     }
     if (v.drawer !== "agents") {
-      v.drawWorkspaces(w, workspaces);
+      v.drawWorkspaces(w, workspaces, now_ms);
       v.drawArchives(w, archived);
     }
     if (v.drawer === "workspaces") {
@@ -1303,18 +1318,40 @@ export class View {
     w.write("\x1b[0m");
   }
   /** The corgi, the title, and its buttons. */
+  /** The title row and the workspace list above the agents. */
+  workspaceScope(): Rect | null {
+    if (this.framed()) {
+      const box = this.lists().workspaceScope();
+      return box ? new Rect(box.x + lists_x, box.y, box.w, box.h) : null;
+    }
+    if (!this.workspace_scope || !this.width || this.drawer === "agents") return null;
+    const start = this.corgi_badge === "none" ? 1 : 5;
+    const room = Math.max(0, this.width - 9 - start);
+    const width = Math.min(Math.max(0, room - 2), 10, displayWidth(this.workspace_scope) + 2);
+    const title = Math.min(10, room - width - 1);
+    return width >= 3 ? new Rect(start + title + 1, 0, width, 1) : null;
+  }
   private drawTitle(w: Writer, create = false): void {
     const v = this;
-    w.write(`${w.cup(1, v.width - 4)}${panel} < `);
-    if (v.corgi_badge !== "none") {
+    const scope = v.workspaceScope();
+    w.write(`${w.cup(1, v.width - (scope ? 1 : 4))}${panel}` + (scope ? "<" : " < "));
+    if (scope) {
+      if (v.corgi_badge === "emoji") w.write(`${w.cup(1, 2)}${panel}${corgiBadge.emoji}`);
+      const start = v.corgi_badge === "none" ? 1 : 5;
+      w.write(`${w.cup(1, start + 1)}\x1b[1m` + fg("strong"));
+      writeEllipsis(w, "workspaces", sat(scope.x - start, 1));
+      w.write(`${w.cup(1, scope.x + 1)}\x1b[22m` + fg("muted"));
+      writeEllipsis(w, v.workspace_scope, sat(scope.w, 2));
+      w.write(" ▾");
+    } else if (v.corgi_badge !== "none") {
       if (v.corgi_badge === "emoji") w.write(`${w.cup(1, 2)}${panel}${corgiBadge.emoji}`);
       w.write(`${w.cup(1, 6)}\x1b[1m` + fg("strong"));
       writeEllipsis(w, i18n.t`workspaces`, sat(v.width, 17));
     } else v.line(w, 0, i18n.t`workspaces`, "\x1b[1m" + fg("strong"));
-    w.write(w.cup(1, v.width - 10) + (create ? palette.call_to_action : button) + `[ + ]${panel}`);
+    w.write(w.cup(1, v.width - (scope ? 7 : 10)) + (create ? palette.call_to_action : button) + `[ + ]${panel}`);
   }
   /** The title row and the workspace list above the agents. */
-  private drawWorkspaces(w: Writer, workspaces: WorkspaceEntry[]): void {
+  private drawWorkspaces(w: Writer, workspaces: WorkspaceEntry[], now_ms: number): void {
     const v = this;
     v.drawTitle(w);
     const shown = workspaces.slice(
@@ -1323,6 +1360,8 @@ export class View {
     );
     shown.forEach((ws, index) => {
       const y = 2 + index * v.workspaceRows();
+      const out = w;
+      if (ws.unavailable) w = new Writer(out.column);
       const ghost = v.dragged_workspace === v.workspace_offset + index;
       const tinted = ws.active || ghost;
       const style = tinted ? active_name : panel;
@@ -1368,7 +1407,7 @@ export class View {
       const attention_width = displayWidth(attention);
       const metadata = `⚒${tools}`;
       const metadata_width = displayWidth(metadata);
-      const left_room = sat(v.width - 3, statusMetadataWidth(ws) + 1);
+      const left_room = sat(v.width - 3, statusMetadataWidth(ws, v.width) + 1);
       const room = { value: sat(left_room, unread_width + 3) };
       let has_status = false;
       {
@@ -1388,10 +1427,11 @@ export class View {
         const unread_room = { value: unread_width };
         statusPart(w, unread, "\x1b[1m" + fg("accent"), unread_room);
       }
-      const worktree_label = worktreeLabel(ws);
-      if (worktree_label)
+      const worktree_label = machineLabel(ws, v.width) || worktreeLabel(ws);
+      if (worktree_label) {
         w.write(`${w.cup(y + 2, v.width - 1 - displayWidth(worktree_label))}${meta}${rule}${worktree_label}`);
-      else if (ws.stats.tools > 0) w.write(`${w.cup(y + 2, v.width - 1 - metadata_width)}${meta}${rule}${metadata}`);
+        if (ws.unavailable) w.write(`${w.cup(y + 2, v.width - 2)}${fg("muted")}${ws.connecting ? "↔" : "×"}`);
+      } else if (ws.stats.tools > 0) w.write(`${w.cup(y + 2, v.width - 1 - metadata_width)}${meta}${rule}${metadata}`);
       if (tinted) for (const row of [y + 1, y + 2]) w.write(`${w.cup(row, 1)}${bar}`);
       w.write(panel);
       if (v.workspaceRows() === 3 && y + 2 < v.workspaceEnd()) {
@@ -1405,6 +1445,22 @@ export class View {
         w.write("\x1b[24;59m");
         w.write(panel);
         if (tinted) w.write(`${w.cup(y + 3, 1)}${bar}${panel}`);
+      }
+      if (ws.unavailable) {
+        writeExit(out, w.buffered(), 0.5);
+        w = out;
+        if (ws.connecting) {
+          // Keep the cached card dim; let the names' glimmer reach full brightness.
+          w.write(`${w.cup(y + 1, 2)}`);
+          writeExit(w, style, 0.5);
+          if (!ws.archived) writeConnectionGlimmer(w, clipped(name, name_room), now_ms);
+          if (worktree_label) {
+            w.write(`${w.cup(y + 2, v.width - 1 - displayWidth(worktree_label))}`);
+            writeExit(w, meta + rule, 0.5);
+            writeConnectionGlimmer(w, worktree_label.slice(0, -1) + "↔", now_ms);
+          }
+          w.write(panel);
+        }
       }
     });
     const ws_thumb = v.workspaceThumb();
@@ -1809,12 +1865,20 @@ export class View {
       w.write(w.cup(y + 1, name_x + 1) + fg("faint") + "⌥");
       name_x += 2;
     }
-    // Name, then a rule that leaves one space on each side.
+    // Name and its machine's, then a rule that leaves one space on each side.
     const text = directoryLabel(e.name, null, 160);
-    const name_room = sat(status_x, name_x + 3);
+    const room = sat(status_x, name_x + 3);
+    // The machine's name takes at most half the room, as on workspace rows.
+    const machine_room = Math.floor(room / 2);
+    const machine = g.machine && machine_room > 4 ? `  ${ellipsis(g.machine, machine_room - 2)}` : "";
+    const name_room = room - displayWidth(machine);
     w.write(`${w.cup(y + 1, name_x + 1)}${g.current ? "\x1b[1m" + fg("strong") : "\x1b[1m" + fg("text")}`);
     writeEllipsis(w, text, name_room);
-    const name_end = name_x + Math.min(displayWidth(text), name_room);
+    let name_end = name_x + Math.min(displayWidth(text), name_room);
+    if (machine) {
+      w.write("\x1b[22m" + fg("muted") + machine);
+      name_end += displayWidth(machine);
+    }
     if (status_x > name_end + 2) {
       // A heavy, bright rule so each header stands out from its agents; a
       // worktree inside a workspace takes a thin one.
@@ -1975,6 +2039,7 @@ export function resourceAt(v: View, workspaces: WorkspaceEntry[], x: number, y: 
   const i = Math.floor((y - 2) / 3);
   if (i >= v.workspaceCapacity() || i + v.workspace_offset >= workspaces.length) return null;
   const ws = workspaces[i + v.workspace_offset];
+  if (ws.unavailable) return null;
   if (!resourceCardFits(v)) return null;
   for (let reading = 0; reading < 3; reading++) if (shownReading(v.resources, ws.resources, reading)) return ws;
   return null;
@@ -2262,8 +2327,26 @@ export function writePortLabel(w: Writer, label: string, width: number, naming: 
   const start = prefixWidth + 3;
   if (width > start) writeClipped(w, label.slice(prefix.length + 3), width - start);
 }
-function statusMetadataWidth(ws: WorkspaceEntry): number {
-  return displayWidth(worktreeLabel(ws)) || displayWidth(compactCount(ws.stats.tools)) + 1;
+function writeConnectionGlimmer(w: Writer, label: string, now_ms: number): void {
+  const phase = mod(Math.floor(now_ms / 80) * 80, 2000) / 2000;
+  const center = -4 + (displayWidth(label) + 8) * phase;
+  const dim = mix(colors.muted, colors.bg, 50);
+  let col = 0;
+  for (const ch of label) {
+    const width = codepointWidth(ch.codePointAt(0)!);
+    const glow = Math.max(0, 1 - Math.abs(col + width / 2 - center) / 4);
+    w.write(fgRgb(mix(dim, colors.strong, Math.round(glow * 100))) + ch);
+    col += width;
+  }
+}
+function machineLabel(ws: WorkspaceEntry, width: number): string {
+  if (!ws.machine) return ws.unavailable ? " " : "";
+  const room = Math.max(1, Math.floor((width - 4) / 2));
+  // Reserve the link slot even when online, so names and status never move.
+  return room > 2 ? `${ellipsis(ws.machine, room - 2)}  ` : " ";
+}
+function statusMetadataWidth(ws: WorkspaceEntry, width: number): number {
+  return displayWidth(machineLabel(ws, width) || worktreeLabel(ws)) || displayWidth(compactCount(ws.stats.tools)) + 1;
 }
 export function worktreeLabel(ws: WorkspaceEntry): string {
   const count = worktrees.linked(ws.worktrees).length;
@@ -2282,6 +2365,7 @@ export function worktreeAt(v: View, workspaces: WorkspaceEntry[], x: number, y: 
   const hit = v.hit(x, y);
   if (hit.tag !== "workspace") return null;
   const ws = workspaces[hit.workspace];
+  if (ws?.external || ws?.unavailable || ws?.machine) return null;
   const width = ws ? displayWidth(worktreeLabel(ws)) : 0;
   return width && x >= v.width - 2 - width && x < v.width - 2 ? ws : null;
 }
@@ -2323,6 +2407,7 @@ export function portWorkspace(v: View, workspaces: WorkspaceEntry[], x: number, 
   const index = v.workspace_offset + offset;
   if (offset >= v.workspaceCapacity() || index >= workspaces.length) return null;
   const ws = workspaces[index];
+  if (ws.unavailable) return null;
   const link = linkRange(v, ws, workspaces);
   if (x < link.start || x >= link.end) return null;
   return ws;
@@ -2544,6 +2629,7 @@ export function gitActionWorkspace(
   const found = v.hit(x, y);
   if (found.tag !== "workspace" || found.workspace >= workspaces.length) return null;
   const ws = workspaces[found.workspace];
+  if (ws.unavailable) return null;
   const size = displayWidth(gitLabel(ws, expanded === ws.id));
   const end = v.width - 2;
   return size > 0 && x >= sat(end, size) && x < end ? ws : null;

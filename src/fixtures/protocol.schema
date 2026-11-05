@@ -1119,3 +1119,5 @@ $.snapshot.startup_waits[].phase: enum discovering service session installing ag
 $.snapshot.startup_waits[].detail: string
 $.snapshot.startup_waits[].started_at: i64
 $.snapshot.startup_waits[].cancelled: bool
+$.requests|viewer.stream: versioned protocol.Request.Sync
+$.requests|viewer.stream.sequence: u32

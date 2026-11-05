@@ -1,5 +1,9 @@
 {
   "hello": {},
+  "link.open": {},
+  "link.resume": {
+    "link": "7d3a4b0e-5f61-4c2a-9a8e-2f1b6c0d9e47"
+  },
   "session.command": {
     "command": {
       "pane.close": {
@@ -278,5 +282,17 @@
   },
   "startup.kill": {
     "id": "test"
+  },
+  "viewer.stream": {
+    "viewer_protocol": 3,
+    "interests": [
+      {
+        "pane": 1,
+        "cols": 80,
+        "rows": 24
+      }
+    ],
+    "ack": 2,
+    "sequence": 1
   }
 }

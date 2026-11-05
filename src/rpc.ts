@@ -10,6 +10,7 @@ interface Pending {
 export interface ConnectionInit {
   /** Off: untagged requests, one at a time, as before runtime protocol 4. */
   requestIds?: boolean;
+  timeout_ms?: number;
 }
 export class Connection {
   readonly socket: Socket;
@@ -19,9 +20,10 @@ export class Connection {
   private buffer = "";
   private closed: Error | null = null;
   private listeners = new Set<(event: protocol.Event) => void>();
-  constructor(path: string, init?: ConnectionInit);
-  constructor(socket: Socket, init?: ConnectionInit);
-  constructor(target: string | Socket, init: ConnectionInit = {}) {
+  readonly timeout_ms: number;
+  constructor(target: string | Socket, options: ConnectionInit | number = {}) {
+    const init = typeof options === "number" ? { timeout_ms: options } : options;
+    this.timeout_ms = init.timeout_ms ?? 0;
     this.requestIds = init.requestIds ?? true;
     this.socket = typeof target === "string" ? createSocket(target) : target;
     this.socket.setEncoding("utf8");
@@ -72,6 +74,10 @@ export class Connection {
       // parse) answers no one request; it fails the connection under its name.
       throw Error(typeof message.err === "string" ? message.err : "UnexpectedReply");
     }
+    if (message.type === "viewer.stream") {
+      const event = protocol.event(message);
+      if (event) for (const listener of this.listeners) listener(event);
+    }
     const pending = this.pending.get(id);
     if (!pending) throw Error("UnexpectedReply");
     this.pending.delete(id);
@@ -96,9 +102,23 @@ export class Connection {
     if (this.closed) throw this.closed;
     const message = json.object(value);
     if (!this.requestIds && this.pending.size) throw Error("RequestInFlight");
+    if (this.pending.size >= 128) throw Error("RequestBackpressure");
     const id = this.requestIds ? this.next++ : 0;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timer = this.timeout_ms > 0 ? setTimeout(() => this.fail(Error("RequestTimedOut")), this.timeout_ms) : null;
+      const done = () => {
+        if (timer) clearTimeout(timer);
+      };
+      this.pending.set(id, {
+        resolve: value => {
+          done();
+          resolve(value);
+        },
+        reject: error => {
+          done();
+          reject(error);
+        },
+      });
       try {
         this.socket.write(json.stringify(this.requestIds ? { ...message, request_id: id } : message) + "\n");
       } catch (error) {
@@ -112,6 +132,7 @@ export class Connection {
     return reply;
   }
   close(): void {
+    this.fail(Error("ConnectionClosed"));
     this.socket.destroy();
   }
 }

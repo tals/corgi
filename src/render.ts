@@ -8,7 +8,7 @@ import * as dockingGrip from "./docking_grip";
 import type { DockDrop } from "./protocol";
 import * as composition from "./composition";
 import { Style, keycap } from "./palette";
-import { Rect, View as LayoutView, cleanLabel, type Axis, type Border } from "./layout";
+import { Rect, View as LayoutView, Model, Selection, cleanLabel, type Axis, type Border } from "./layout";
 import * as sidebar from "./sidebar";
 import {
   View as SidebarView,
@@ -32,6 +32,7 @@ import type { Cell } from "./fork_hero";
 import * as pasteCard from "./paste_card";
 import * as startupCard from "./startup_card";
 import type { Wait as StartupWait } from "./startup";
+import * as pasteProgress from "./paste_progress";
 import * as resourceTooltip from "./resource_tooltip";
 import * as gitTooltip from "./git_tooltip";
 import * as linkTooltip from "./link_tooltip";
@@ -229,6 +230,7 @@ export interface Ui {
    * click copied its link. */
   paste_card: Notice | null;
   paste_copied: boolean;
+  paste_progress: pasteProgress.State | null;
   inference: SetupStatus;
   message: string;
   copy_mode: boolean;
@@ -247,6 +249,7 @@ export interface Ui {
   port_menu: PortMenu | null;
   scope_menu: ScopeMenu | null;
   scope_label: string;
+  workspace_scope: string;
   agent_search: Search | null;
   tab_drop_x: number | null;
   dialog: Dialog | null;
@@ -322,6 +325,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     corgi_setup: null,
     paste_card: null,
     paste_copied: false,
+    paste_progress: null,
     inference: setupStatus(),
     copy_feedback: false,
     added_feedback: "",
@@ -335,6 +339,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     port_menu: null,
     scope_menu: null,
     scope_label: "",
+    workspace_scope: "",
     agent_search: null,
     tab_drop_x: null,
     docking: null,
@@ -585,10 +590,12 @@ function dimsPanes(u: Ui): boolean {
 function retainable(u: Ui, p: Pane, r: Rect, dim: boolean, hovered: bigint | null): boolean {
   return (
     noOverlay(u) &&
+    u.paste_progress === null &&
     !dim &&
     hovered === null &&
     p.restoring.length === 0 &&
     !p.dormant &&
+    !p.terminal.predicting() &&
     !p.terminal.selection &&
     p.terminal.images.length === 0 &&
     r.w === p.terminal.inner.cols &&
@@ -745,19 +752,9 @@ function drawTabs(
   w.write(button_edge + "▐" + button + "+" + button_edge + "▌");
   w.write("\x1b[0m");
 }
-export function frame(
-  view: LayoutView,
-  panes: Pane[],
-  width: number,
-  height: number,
-  u: Ui,
-  retained?: composition.Frame,
-): string {
-  const model = view.model;
-  const w = new Writer();
+/** The sidebar a frame of `u` draws, so hit tests find what it shows. */
+export function sidebarView(u: Ui, width: number, height: number): SidebarView {
   const entries = u.dragged_agent ? u.dragged_agent.apply(u.agents) : u.agents;
-  const workspaces = u.dragged_workspace ? u.dragged_workspace.apply(u.workspaces) : u.workspaces;
-  const dragging = u.dragged_agent !== null || u.dragged_workspace !== null || u.docking?.dragging === true;
   let side = SidebarView.init(width, height, u.sidebar_open, u.sidebar_offset, entries.length, u.prefs.sidebar_split)
     .withSearch(u.agent_search)
     .withWidth(u.prefs.sidebar_width)
@@ -781,10 +778,30 @@ export function frame(
   side.new_shortcut = new_binding
     ? `${new_binding.prefixed ? keymap.prefixName(u.prefs.prefix) + " " : ""}${bindings.format(new_binding)}`
     : null;
+  side.workspace_scope = u.workspace_scope;
   side.resource_hover = u.resource_hover;
   side.corgi_intensity = u.corgi_setup?.previewIntensity(u.prefs) ?? u.prefs.corgi_intensity;
   side.dragged = u.dragged_agent ? u.dragged_agent.destination : null;
   side.dragged_workspace = u.dragged_workspace ? u.dragged_workspace.destination : null;
+  return side;
+}
+/** The whole screen. Without `layout`, a machine that hasn't shown its
+ * screen yet, there are no tabs or panes beside the sidebar. */
+export function frame(
+  layout: LayoutView | null,
+  panes: Pane[],
+  width: number,
+  height: number,
+  u: Ui,
+  retained?: composition.Frame,
+): string {
+  const view = layout ?? new LayoutView(new Model(), new Selection());
+  const model = view.model;
+  const w = new Writer();
+  const entries = u.dragged_agent ? u.dragged_agent.apply(u.agents) : u.agents;
+  const workspaces = u.dragged_workspace ? u.dragged_workspace.apply(u.workspaces) : u.workspaces;
+  const dragging = u.dragged_agent !== null || u.dragged_workspace !== null || u.docking?.dragging === true;
+  const side = sidebarView(u, width, height);
   // Mouse tracking modes replace one another. Disabling first makes the host
   // briefly switch to a text pointer on every redraw.
   w.write("\x1b[?1003h");
@@ -799,7 +816,7 @@ export function frame(
   // Marks take room in their tabs only where the host can show them.
   const marks: TabMark[] | null = u.tab_icons && u.cell_pixels ? [] : null;
   // With every workspace closed, all but the way to create one steps back.
-  const none = u.no_workspace;
+  const none = layout ? u.no_workspace : null;
   const on_none =
     none !== null && u.pointer !== null && noPopup(u) ? noWorkspace.hit(side.area(), u.pointer.x, u.pointer.y) : null;
   const on_create =
@@ -810,7 +827,7 @@ export function frame(
     const tabs = new Writer();
     drawTabs(tabs, view, panes, u.prefs.preset, side.tabX(), tab_space, thumb, marks);
     sidebar.writeExit(w, tabs.buffered(), noWorkspace.dim);
-  } else drawTabs(w, view, panes, u.prefs.preset, side.tabX(), tab_space, thumb, marks);
+  } else if (layout) drawTabs(w, view, panes, u.prefs.preset, side.tabX(), tab_space, thumb, marks);
   if (u.tab_drop_x !== null)
     w.write(`\x1b[1;${side.tabX() + u.tab_drop_x + 1}H\x1b[1m` + palette.fg("strong") + "│\x1b[0m");
   if (none) {
@@ -819,7 +836,7 @@ export function frame(
     // Behind a dialog, like the panes.
     if (dimsPanes(u)) sidebar.writeExit(w, button.buffered(), sidebar.spotlight_dim);
     else w.write(button.buffered());
-  } else if (model.count === 0) {
+  } else if (layout && model.count === 0) {
     const prefix_key = keymap.prefixName(u.prefs.prefix);
     const hint = (name: string, label: string) => {
       const binding =
@@ -911,6 +928,7 @@ export function frame(
         switch (found.tag) {
           case "toggle":
           case "workspace_new":
+          case "workspace_scope":
           case "agent_scope":
           case "agent_new":
           case "agent_options":
@@ -929,7 +947,7 @@ export function frame(
         const git = sidebar.gitActionWorkspace(side, u.workspaces, u.git_hover, pointer.x, pointer.y);
         if (git) link_pointer = link_pointer || git.git_push.phase === "idle" || git.git_push.phase === "failed";
         if (on_create || on_none !== null) link_pointer = true;
-        if (pointer.y === 0 && pointer.x >= side.tabX()) {
+        if (layout && pointer.y === 0 && pointer.x >= side.tabX()) {
           const add_x = side.tabX() + addTabX(view, width - side.tabX() - side.panel);
           link_pointer = link_pointer || (pointer.x >= add_x && pointer.x < add_x + 3);
         }
@@ -1132,6 +1150,18 @@ export function frame(
     }
   }
   if (paste_at) w.write(pasteCard.draw(u.paste_card!, paste_at, u.paste_copied));
+  if (
+    u.paste_progress &&
+    !u.paste_card &&
+    !u.copy_mode &&
+    !u.prefix &&
+    !u.review_focused &&
+    !u.link_tooltip &&
+    noOverlay(u)
+  ) {
+    const at = pasteProgress.locate(view, panes, area, u.paste_progress);
+    if (at) w.write(pasteProgress.draw(u.paste_progress, at));
+  }
   if (u.worktree_card) {
     const ws = u.workspaces.find(ws => ws.id === u.worktree_card!.workspace);
     if (ws) {

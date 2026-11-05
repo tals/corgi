@@ -1,3 +1,5 @@
+import { Machine } from "./machine";
+import type { Progress as ImageProgress } from "./image_upload";
 import * as protocol from "./protocol";
 import { transport } from "./fixtures/transport";
 import { expect, setSystemTime, spyOn, test } from "bun:test";
@@ -585,6 +587,7 @@ for (const archived of [false, true])
     s.start_folder = "/src/next";
     try {
       await s.perform({ name: "close-workspace" });
+      await s.tasks.idle();
       expect(sent).toEqual([{ "workspace.close": { target: 1, close_contents: true } }]);
       expect([s.runtime.workspaces.items.length, s.current().id, s.model().count]).toEqual([archived ? 1 : 0, 0, 0]);
       expect(s.frame()).toContain("Create workspace");
@@ -809,7 +812,7 @@ test("keys stay on the name while the folder field doesn't fit", async () => {
 test("a paste read from the host clipboard goes where a paste would", async () => {
   const clipboard = Object.assign(new hostClipboard.State(), { support: "on" });
   const s = controller();
-  s.host_clipboard = clipboard;
+  s.host.clipboard = clipboard;
   s.name_dialog = Dialog.init({ rename: 1 }, "");
   // Text is read for the dialog; an image has nowhere to go.
   await s.pasteEvent("image/png text/plain");
@@ -832,7 +835,7 @@ test("an image pasted into the prompt becomes a chip, from the terminal or this 
   const s = controller();
   s.receiveSnapshot(folders("/a"));
   s.input_state.attached = true;
-  s.host_clipboard = clipboard;
+  s.host.clipboard = clipboard;
   const read = spyOn(promptAttach, "clipboardImage").mockResolvedValue("/tmp/paste/a.png"),
     dir = mkdtempSync(join(tmpdir(), "corgi-drop-"));
   try {
@@ -957,6 +960,7 @@ test.each([false, true])("a failed fallback terminal keeps the empty launcher at
       { command: { "pane.create": { workspace: 1, cwd: "/workspace", command: null, title: "" } } },
     ]);
     expect(s.agent_launcher?.pinned).toBe(true);
+    await s.tasks.idle();
     expect(s.message).toBe("ShellNotFound");
     expect(await viewer.sync(s, { seq: 0n }, false)).toBe(true);
   } finally {
@@ -1058,6 +1062,7 @@ test("Copy details stays available before the session is identified", async () =
   try {
     expect(s.pane(1).agent.session).toBe("");
     await s.openAgentMenu(1, 0, 0);
+    await s.tasks.idle();
     expect(s.tab_menu.off.has("copy-details")).toBe(false);
     expect(breadcrumbs(s.pane(1))).toBe("harness: Claude Code\nsession: agent 1");
   } finally {
@@ -1095,6 +1100,7 @@ test("an agent marked unread stays unread in view until focus moves onto it", as
     s.focusPane(1);
     s.tab_menu = new TabMenu({ tab: 2, agent: true, anchor_x: 0 });
     await s.tabMenuAction("mark-unread");
+    await s.tasks.idle();
     expect(sent.at(-1)).toEqual(["pane.mark_unread", { pane: 2, binding: 0n, conversation: 0, session: "" }]);
     s.receiveSnapshot(marked(2));
     expect(await acknowledged()).toEqual([]);
@@ -1103,6 +1109,7 @@ test("an agent marked unread stays unread in view until focus moves onto it", as
     // Marked while focused, it waits for focus to leave and come back.
     s.tab_menu = new TabMenu({ tab: 2, agent: true, anchor_x: 0 });
     await s.tabMenuAction("mark-unread");
+    await s.tasks.idle();
     s.receiveSnapshot(marked(2));
     expect(await acknowledged()).toEqual([]);
     s.focusPane(1);
@@ -1112,6 +1119,7 @@ test("an agent marked unread stays unread in view until focus moves onto it", as
     // Out of view, the mark is let go; showing the pane again reads it.
     s.tab_menu = new TabMenu({ tab: 1, agent: true, anchor_x: 0 });
     await s.tabMenuAction("mark-unread");
+    await s.tasks.idle();
     s.receiveSnapshot(marked(1));
     s.switchWorkspace(2);
     await acknowledged();
@@ -1148,6 +1156,7 @@ test("open shows the workspace already on that folder", async () => {
   s.receiveSnapshot(folders("/a", "/b"));
   try {
     await s.perform({ name: "open", value: "/b" });
+    await s.tasks.idle();
     expect(s.current().id).toBe(2);
     await expect(s.perform({ name: "open", value: "b" })).rejects.toThrow("InvalidDirectory");
   } finally {
@@ -1199,6 +1208,7 @@ test("open adds a workspace for a folder no workspace is on", async () => {
   s.receiveSnapshot(snapshot);
   try {
     await s.perform({ name: "open", value: "/b" });
+    await s.tasks.idle();
     expect(commands).toEqual([{ "workspace.create": { name: "", cwd: "/b" } }]);
     expect(s.current().id).toBe(2);
   } finally {
@@ -4299,5 +4309,552 @@ test("startup waits open from the shared banner and cancel the selected task thr
     await view.input(bytes("\x1b"));
   } finally {
     view.runtime.destroy();
+  }
+});
+
+test("an agent's review reads the checkout the list puts it under", () => {
+  const checkout = (path: string, branch: string, primary: boolean) => ({
+    path,
+    head: "4f1c2a9e0b",
+    branch: `refs/heads/${branch}`,
+    primary,
+    bare: false,
+    detached: false,
+    locked: null,
+    prunable: null,
+    available: true,
+    comparison: null,
+    changes: null,
+    stale: false,
+  });
+  const snapshot = folders("/src/app");
+  Object.assign(snapshot.panes[0], {
+    cwd: "/src/app",
+    agent: { ...snapshot.panes[0].agent, provider: "codex", cwd: "/src/app" },
+  });
+  Object.assign(snapshot.workspaces[0], {
+    worktrees: {
+      common_dir: "/src/app/.git",
+      base: { ref: "refs/heads/main", name: "main", head: "4f1c2a9e0b" },
+      entries: [checkout("/src/app", "main", true), checkout("/src/app-topic", "topic", false)],
+      agents: [],
+      stale: false,
+    },
+  });
+  const s: any = new Controller({ socket: "", request: transport(async () => snapshot).request });
+  s.receiveSnapshot(snapshot);
+  expect(s.reviewTarget().cwd).toBe("/src/app");
+  // Started on main but writing in topic, it's listed under topic.
+  (snapshot.workspaces[0] as any).worktrees.agents = [
+    { target: { pane: 1 }, path: "/src/app-topic", source: "write", stale: false },
+  ];
+  s.receiveSnapshot(snapshot);
+  expect(s.reviewTarget().cwd).toBe("/src/app-topic");
+});
+
+test("the instant typing action persists and drops every machine's previews", async () => {
+  const update = spyOn(preferences, "update").mockImplementation(() => {});
+  const s = controller();
+  const other = new Machine({ request: transport(async () => ({})).request }, "work", true);
+  s.adopt(other);
+  const pane = { terminal: { resetPrediction: () => resets.push("work") } } as any;
+  const resets: string[] = [];
+  other.runtime.panes = [pane];
+  try {
+    await s.perform({ name: "instant-typing", value: "off" });
+    expect(s.host.prefs.instant_typing).toBe("off");
+    expect(update).toHaveBeenLastCalledWith({ instant_typing: "off" });
+    await s.perform({ name: "instant-typing", value: "auto" });
+    expect(s.host.prefs.instant_typing).toBe("auto");
+    expect(resets).toEqual(["work", "work"]);
+    other.runtime.panes = [];
+  } finally {
+    update.mockRestore();
+    viewer.close(s);
+  }
+});
+
+test("switching machines shows the other's data and closes what named the old one's ids", () => {
+  const s = controller();
+  const other = new Machine({ socket: "/work", request: transport(async () => ({})).request }, "work", true);
+  s.adopt(other);
+  s.receiveSnapshot(folders("/a", "/b"));
+  s.receiveSnapshot(folders("/w"), other);
+  const chosen: [string, number | null][] = [];
+  s.onMachine = (machine: Machine, focus: any) => void chosen.push([machine.name, focus?.workspace ?? null]);
+  try {
+    const rows = s.workspaceRows();
+    expect(rows.map((row: any) => row.name)).toEqual(["/a", "/b", "/w"]);
+    s.selectRow(rows[2].id);
+    expect(chosen).toEqual([["work", 1]]);
+    s.tab_menu = new TabMenu({ tab: 1, anchor_x: 0 });
+    s.switchMachine(other);
+    expect(s.tab_menu).toBeNull();
+    expect(s.runtime).toBe(other.runtime);
+    expect(s.connection.socket).toBe("/work");
+    // Row ids don't change with the machine shown.
+    expect(s.workspaceRows().map((row: any) => row.id)).toEqual(rows.map((row: any) => row.id));
+    s.selectRow(rows[0].id);
+    expect(chosen).toEqual([
+      ["work", 1],
+      ["local", 1],
+    ]);
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
+test("all agents lists each online machine's under its name, and its rows switch to it", () => {
+  const s = controller();
+  const other = new Machine({ socket: "/work", request: transport(async () => ({})).request }, "work", true);
+  let online = true;
+  other.presence = () => ({ online, connecting: false, description: "", cached: [], seen: true, stale: false });
+  s.adopt(other);
+  const agents = (...cwds: string[]) => {
+    const snapshot = folders(...cwds);
+    for (const p of snapshot.panes) p.agent.provider = "codex" as any;
+    return snapshot;
+  };
+  s.receiveSnapshot(agents("/a"));
+  s.receiveSnapshot(agents("/w", "/x"), other);
+  s.host.prefs.agents = "all";
+  const chosen: [string, unknown][] = [];
+  s.onMachine = (machine: Machine, focus: unknown) => void chosen.push([machine.name, focus]);
+  try {
+    const entries = s.agentEntries();
+    const names = entries.map((e: any) => ("group" in e.target ? `${e.name} ${e.group.machine}` : e.target.pane));
+    // The shown machine's rows keep their ids; another's are set apart.
+    const away = 2 * 2 ** 32;
+    expect(names).toEqual(["/a local", 1, "/w work", away + 1, "/x work", away + 2]);
+    s.selectAgent(entries[3].target);
+    expect(chosen).toEqual([["work", { pane: 1 }]]);
+    // Folding another machine's group keeps to that machine.
+    s.selectAgent(entries[2].target);
+    expect(other.folded_groups).toEqual([1]);
+    expect(s.folded_groups).toEqual([]);
+    expect(s.agentEntries()).toHaveLength(5);
+    online = false;
+    expect(s.agentEntries()).toHaveLength(2);
+    online = true;
+    s.machine_filter = s.machine;
+    expect(s.agentEntries()).toHaveLength(2);
+  } finally {
+    viewer.close(s);
+    other.runtime.destroy();
+  }
+});
+
+test("remote image progress covers preparation, receipts and failure without leaking into a later paste", async () => {
+  let report!: ImageProgress;
+  let resolve!: (path: string) => void;
+  let reject!: (error: Error) => void;
+  const s = new Controller({
+    ...transport(async () => {
+      throw Error("UnexpectedRequest");
+    }),
+    image: (_path, _mime, progress) => {
+      report = progress!;
+      return new Promise<string>((yes, no) => {
+        resolve = yes;
+        reject = no;
+      });
+    },
+  });
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  s.host.clipboard = new hostClipboard.State();
+  try {
+    await s.pasteEvent("image/png");
+    expect(s.paste_progress?.phase).toBe("preparing");
+    const first = s.pasteResult({ path: "/tmp/image.png" });
+    report(512, 1024);
+    expect(s.paste_progress?.phase).toBe("uploading");
+    expect(s.paste_progress?.received).toBe(512);
+    resolve("/remote/image.png");
+    await first;
+    expect(s.paste_progress?.phase).toBe("done");
+    expect(s.runtime.panes[0].terminal.pending.length).toBeGreaterThan(0);
+
+    s.host.clipboard.reading = null;
+    await s.pasteEvent("image/png");
+    const failed = s.pasteResult({ path: "/tmp/image.png" });
+    reject(Error("ImageUploadFailed"));
+    // The paste is a task: its failure is told, not thrown at the viewer.
+    await failed;
+    expect(s.message).toBe("ImageUploadFailed");
+    expect(s.paste_progress?.phase).toBe("failed");
+
+    s.host.clipboard.reading = null;
+    await s.pasteEvent("image/png");
+    const canceled = s.pasteResult({ path: "/tmp/image.png" });
+    s.paste_progress = null;
+    s.host.clipboard.reading = null;
+    await s.pasteEvent("image/png");
+    report(1024, 1024);
+    reject(Error("StaleConnection"));
+    await canceled;
+    const current = () => s.paste_progress;
+    expect(current()?.phase).toBe("preparing");
+    expect(current()?.received).toBe(0);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("Copy ID names the harness, session, id and paths, leaving out what isn't known", () => {
+  const pane = (label: string, fields: object) => ({ label, cwd: "/repo/sub", agent: agent(fields) }) as Pane;
+  const claude = pane("", {
+    provider: "claude",
+    name: "fix sidebar hover",
+    session: "0b8e1c2a",
+    cwd: "/repo",
+    transcript: "/home/u/.claude/projects/-repo/0b8e1c2a.jsonl",
+  });
+  expect(breadcrumbs(claude)).toBe(
+    [
+      "harness: Claude Code",
+      "session: fix sidebar hover",
+      "id: 0b8e1c2a",
+      "cwd: /repo",
+      "transcript: /home/u/.claude/projects/-repo/0b8e1c2a.jsonl",
+    ].join("\n"),
+  );
+  // A pane's own name wins; the pane's folder stands in for the agent's.
+  expect(breadcrumbs(pane("review", { provider: "codex", name: "thread", session: "019a" }))).toBe(
+    ["harness: Codex", "session: review", "id: 019a", "cwd: /repo/sub"].join("\n"),
+  );
+});
+
+test("a split waiting on a slow daemon leaves input free and takes focus only where it opened", async () => {
+  const workspace = (id: number, panes: number[]) => ({
+    id,
+    name: `ws${id}`,
+    cwd: "/tmp",
+    model: {
+      nodes: panes.map(pane => ({ pane })),
+      tabs: panes.map((_, i) => ({ id: id * 10 + i, root: i, title: "" })),
+      revision: 0,
+    },
+  });
+  const pane = (id: number, ws: number, tab: number) => ({
+    id,
+    workspace: ws,
+    tab,
+    cols: 80,
+    rows: 24,
+    agent: { provider: null, attention: "none", observation: { completed: 0, read: 0 } },
+  });
+  const before = {
+    workspaces: [workspace(1, [1]), workspace(2, [2])],
+    panes: [pane(1, 1, 10), pane(2, 2, 20)],
+    conversations: [],
+    headless_sessions: [],
+  };
+  const after = {
+    ...before,
+    workspaces: [workspace(1, [1, 3]), workspace(2, [2])],
+    panes: [...before.panes, pane(3, 1, 11)],
+  };
+  for (const moved of [true, false]) {
+    let release!: () => void;
+    const commands: unknown[] = [];
+    const s: any = new Controller({
+      socket: "",
+      request: transport(async (op, fields: any) => {
+        if (op === "session.snapshot") return after;
+        commands.push(fields.command);
+        await new Promise<void>(resolve => (release = resolve));
+        return { ok: true, result: { pane: 3 } };
+      }).request,
+    });
+    try {
+      s.receiveSnapshot(before);
+      s.switchWorkspace(1);
+      await s.perform({ name: "split", value: "right" });
+      expect(commands).toHaveLength(1);
+      // The reply hasn't come; the viewer still takes input.
+      if (moved) s.switchWorkspace(2);
+      expect(s.current().id).toBe(moved ? 2 : 1);
+      release();
+      await s.tasks.idle();
+      expect(s.current().id).toBe(moved ? 2 : 1);
+      expect(s.focused()?.id).toBe(moved ? 2 : 3);
+    } finally {
+      viewer.close(s);
+    }
+  }
+});
+
+/** One workspace with panes 1 and 2, over a daemon whose commands wait until
+ * the test lets them go; snapshots answer at once. */
+function slowDaemon() {
+  const snapshot = {
+    workspaces: [
+      {
+        id: 1,
+        name: "one",
+        cwd: "/tmp",
+        model: {
+          nodes: [{ pane: 1 }, { pane: 2 }],
+          tabs: [
+            { id: 10, root: 0, title: "" },
+            { id: 11, root: 1, title: "" },
+          ],
+          revision: 4,
+        },
+      },
+    ],
+    panes: [1, 2].map(id => ({
+      id,
+      workspace: 1,
+      tab: id === 1 ? 10 : 11,
+      cols: 80,
+      rows: 24,
+      agent: { provider: "codex", attention: "none", observation: { completed: 0, read: 0 } },
+    })),
+    conversations: [],
+    headless_sessions: [],
+  };
+  const commands: any[] = [];
+  const replies: (() => void)[] = [];
+  const s: any = new Controller({
+    socket: "",
+    request: transport(async (op, fields: any) => {
+      if (op === "session.snapshot") return snapshot;
+      commands.push(fields.command);
+      await new Promise<void>(resolve => replies.push(resolve));
+      return { ok: true, result: { pane: 2 } };
+    }).request,
+  });
+  s.receiveSnapshot(snapshot);
+  /** Lets every reply go, including ones for requests the replies lead to. */
+  const answer = async () => {
+    let idle = false;
+    void s.tasks.idle().then(() => (idle = true));
+    while (!idle) {
+      while (replies.length) replies.shift()!();
+      await Bun.sleep(0);
+    }
+  };
+  return { s, commands, answer };
+}
+
+test("a name saved on a slow daemon waits for it, and a second Enter doesn't fork twice", async () => {
+  const { s, commands, answer } = slowDaemon();
+  try {
+    s.name_dialog = Dialog.init({ fork: 1 }, "copy");
+    s.finishName(true);
+    s.finishName(true);
+    expect(commands).toEqual([{ "agent.fork": { target: 1, name: "copy" } }]);
+    expect(s.name_dialog).not.toBeNull();
+    await answer();
+    expect(s.name_dialog).toBeNull();
+    expect(commands).toHaveLength(1);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a divider dragged over a slow daemon sends the latest ratio once the last one lands", async () => {
+  const { s, commands, answer } = slowDaemon();
+  try {
+    const drag = { cancelled: false };
+    for (const ratio of [0.3, 0.4, 0.5]) s.resizeSplit(drag, { target: 1, other: 2, ratio });
+    expect(commands).toEqual([{ "split.ratio": { target: 1, other: 2, ratio: 0.3, expected: 4n } }]);
+    await answer();
+    expect(commands.map(c => c["split.ratio"].ratio)).toEqual([0.3, 0.5]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("an agent menu opens once the daemon says what it allows, unless Esc came first", async () => {
+  for (const escaped of [false, true]) {
+    const { s, answer } = slowDaemon();
+    try {
+      s.openAgentMenu(1, 0, 0);
+      expect(s.tab_menu).toBeNull();
+      if (escaped) s.closeMenu();
+      await answer();
+      expect(s.tab_menu !== null).toBe(!escaped);
+    } finally {
+      viewer.close(s);
+    }
+  }
+});
+
+test("keys typed right after a split on a slow daemon wait for it and land in the new pane", async () => {
+  const { s, commands, answer } = slowDaemon();
+  try {
+    s.input_state.attached = true;
+    s.focusPane(1);
+    await s.input(bytes("\x02vls"));
+    expect(Object.keys(commands[0])).toEqual(["pane.split"]);
+    const pending = (id: number) => Buffer.from(s.pane(id).terminal.pending).toString();
+    expect(pending(1)).toBe("");
+    await answer();
+    await s.settle();
+    expect(s.focused()?.id).toBe(2);
+    expect(pending(2)).toBe("ls");
+    expect(pending(1)).toBe("");
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a delayed command refreshes its owning machine after the viewer switches", async () => {
+  const pending = Promise.withResolvers<unknown>();
+  let reads = 0;
+  const first = new Machine(
+    transport(async op => {
+      if (op === "session.command") return pending.promise;
+      if (op === "session.snapshot") {
+        reads++;
+        return folders("/updated");
+      }
+      throw Error("UnexpectedRequest");
+    }),
+  );
+  const second = new Machine(
+    transport(async () => {
+      throw Error("WrongMachine");
+    }),
+    "work",
+    true,
+  );
+  const s: any = new Controller(first);
+  s.adopt(second);
+  s.receiveSnapshot(folders("/local"));
+  s.receiveSnapshot(folders("/remote"), second);
+  try {
+    s.command({ "pane.rename": { target: 1, name: "renamed" } });
+    s.switchMachine(second);
+    pending.resolve({ ok: true, result: { pane: 1 } });
+    await first.tasks.idle();
+    expect(reads).toBe(1);
+    expect(first.runtime.workspaces.items[0].cwd).toBe("/updated");
+    expect(s.current().cwd).toBe("/remote");
+  } finally {
+    first.runtime.destroy();
+    viewer.close(s);
+  }
+});
+
+test("activity sections keep same-numbered agents on different machines distinct", () => {
+  const s = controller();
+  const other = new Machine(
+    transport(async () => ({})),
+    "work",
+    true,
+  );
+  s.adopt(other);
+  const snapshot = (cwd: string) => {
+    const value = folders(cwd);
+    value.panes[0].agent.provider = "codex" as any;
+    return value;
+  };
+  s.receiveSnapshot(snapshot("/local"));
+  s.receiveSnapshot(snapshot("/remote"), other);
+  s.prefs.agents = "all";
+  s.prefs.agent_sort = "activity";
+  const chosen: unknown[] = [];
+  s.onMachine = (machine: Machine, focus: unknown) => chosen.push([machine.name, focus]);
+  try {
+    const agents = s.agentEntries().filter((e: sidebar.Entry) => sidebar.isAgent(e.target));
+    expect(agents.map((e: sidebar.Entry) => e.target)).toEqual([{ pane: 1 }, { pane: 2 * 2 ** 32 + 1 }]);
+    s.selectAgent(agents[1].target);
+    expect(chosen).toEqual([["work", { pane: 1 }]]);
+  } finally {
+    other.runtime.destroy();
+    viewer.close(s);
+  }
+});
+
+test("remote sign-in never starts a local account process", () => {
+  const s: any = new Controller(
+    new Machine(
+      transport(async () => ({})),
+      "work",
+      true,
+    ),
+  );
+  let started = false;
+  s.openSignin(() => {
+    started = true;
+    throw Error("LocalSignin");
+  });
+  expect(started).toBe(false);
+  expect(s.message).toContain("remote machine");
+  viewer.close(s);
+});
+
+test("a remote resource card sends signals and pane navigation to its owner", async () => {
+  const s = controller(),
+    calls: unknown[] = [];
+  const other = new Machine(
+    transport(async (op, fields) => {
+      calls.push([op, fields]);
+      return { ok: true };
+    }),
+    "work",
+    true,
+  );
+  s.adopt(other);
+  s.receiveSnapshot(folders("/local"));
+  s.receiveSnapshot(folders("/remote"), other);
+  const process = { pid: 42, start: 7n, name: "cat", pane: 1, cpu: 0 };
+  const key = s.rowKey(1, other);
+  other.runtime.resources.workspaces = [{ id: 1, known: true, processes: [process] }] as any;
+  s.resource_card.update({ id: key, known: true, processes: [process] }, false);
+  s.resource_card.pin({ pid: 42, start: "7" });
+  const chosen: unknown[] = [];
+  s.onMachine = (machine: Machine, focus: unknown) => chosen.push([machine.name, focus]);
+  try {
+    expect(s.resourceDetail()).toBe(key);
+    await s.signalProcesses("term");
+    expect(calls).toEqual([]);
+    await s.signalProcesses("term");
+    expect(calls).toEqual([["process.signal", { workspace: 1, pid: 42, start: 7n, signal: "term" }]]);
+    await s.perform({ name: "resource-go" });
+    expect(chosen).toEqual([["work", { pane: 1 }]]);
+  } finally {
+    other.runtime.destroy();
+    viewer.close(s);
+  }
+});
+
+test("switching machines during an awaited key discards the old batch's tail", async () => {
+  const s = controller(),
+    pending = Promise.withResolvers<void>();
+  const other = new Machine(
+    transport(async () => ({})),
+    "work",
+    true,
+  );
+  s.adopt(other);
+  s.receiveSnapshot(folders("/local"));
+  s.receiveSnapshot(folders("/remote"), other);
+  s.input_state.attached = true;
+  const sent: [string, number][] = [];
+  s.key = async (byte: number) => {
+    sent.push([s.machine.name, byte]);
+    if (byte === 97) await pending.promise;
+  };
+  try {
+    const batch = s.input(bytes("ab"));
+    s.switchMachine(other);
+    await s.input(bytes("c"));
+    pending.resolve();
+    await batch;
+    expect(sent).toEqual([
+      ["local", 97],
+      ["work", 99],
+    ]);
+    expect(s.input_state.keybuf).toEqual([]);
+  } finally {
+    pending.resolve();
+    other.runtime.destroy();
+    viewer.close(s);
   }
 });

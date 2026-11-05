@@ -198,6 +198,7 @@ tmux tab numbering starts at zero; other presets start at one.
 | --- | --- | --- | --- | --- |
 | Undo layout change | `prefix Ctrl+Z` | `prefix Ctrl+Z` | `prefix Ctrl+Z` | `prefix Ctrl+Z` |
 | Redo layout change | `prefix Ctrl+Y` | `prefix Ctrl+Y` | `prefix Ctrl+Y` | `prefix Ctrl+Y` |
+| Filter workspace machines | `prefix M`, `prefix Shift+M` | `prefix M`, `prefix Shift+M` | `prefix M`, `prefix Shift+M` | `prefix M`, `prefix Shift+M` |
 | New tab (agent picker) | `prefix c`, `Ctrl+T` | `prefix c` | `prefix c` | `Cmd+T`, `prefix c` |
 | Next tab | `prefix n` | `prefix n` | `prefix n` | `Cmd+Shift+]`, `prefix n` |
 | Previous tab | `prefix p` | `prefix p` | `prefix p` | `Cmd+Shift+[`, `prefix p` |
@@ -483,6 +484,8 @@ commands. Clearing a
 claim or losing its owner does not complete a turn or erase existing unread
 receipts.
 
+For multiple machines, use `corgi machine add HOST` and `corgi --machine HOST list`. The terminal viewer lists all workspaces together; its **all** dropdown filters by machine and shows connection status. See [Machines over SSH](remote.md) for setup, authentication and reconnect behavior. You can also run Corgi directly through SSH (`ssh -t host corgi`); the runtime persists there when the connection drops. Corgi itself does not expose a TCP listener.
+
 ## Settings and troubleshooting
 
 Prefer **Corgi setup** for changes. **Panes → Shell** selects the shell for new
@@ -523,10 +526,8 @@ Saved inference choices override inference environment defaults.
 | Installed Corgi seems out of date | `corgi update status` shows installed/running versions; `corgi update --check` checks for a release without installing it. |
 | A release needs reverting | `corgi update rollback` switches to the retained previous release, when available. |
 
-Update commands apply to installed releases. An installation keeps the
-current release, the one it replaced and a downloaded update waiting to apply;
-a release another runtime still runs stays as well. Development or unmanaged
-builds use the workflow in [HACKING](../HACKING.md).
+Update commands apply to installed releases. Development or unmanaged builds
+use the workflow in [HACKING](../HACKING.md).
 
 For remote work, run `ssh -t host corgi`; detaching or losing the connection
 leaves the runtime on that host. Image paste and sound behavior depend on the

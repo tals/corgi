@@ -962,7 +962,7 @@ async function keepsMemory(path: string, chat: number): Promise<boolean> {
     conn.close();
   }
 }
-export async function run(path: string, args: string[], agent = false): Promise<void> {
+export async function run(path: string, args: string[], agent = false, connection?: Connection): Promise<void> {
   const group = args[0];
   if (group === "grep") {
     await (await import("./grep_command")).run(args.slice(1), path);
@@ -1004,8 +1004,7 @@ export async function run(path: string, args: string[], agent = false): Promise<
   }
   const caller = Number(process.env.CORGI_PANE) || 0,
     inv = await parse(args, caller);
-  // CLI calls are serial, including unversioned controls for older daemons.
-  const conn = new Connection(path, { requestIds: false });
+  const conn = connection ?? new Connection(path, { requestIds: false });
   const reading = inv.json ? null : inv.command?.["pane.read"],
     lines = reading?.lines;
   if (reading) reading.lines = Math.min(lines + 1, 10000);

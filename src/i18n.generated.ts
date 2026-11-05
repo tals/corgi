@@ -164,6 +164,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" Keep at least one workspace active"]': () => ` 请保留至少一个活动工作区`,
     '[" Keyboard shortcuts "]': () => ` 键盘快捷键 `,
     '[" Keys "]': () => ` 按键 `,
+    '[" Manage accounts and launch options on the remote machine"]': () => ` 在远程机器上管理账户和启动选项`,
     '[" Names are one line of up to 80 characters"]': () => ` 名称须为单行，最多 80 个字符`,
     '[" New agent  in  "]': () => ` 新建智能体  位置  `,
     '[" New panes start in ",""]': v0 => ` 新窗格将使用 ${v0}`,
@@ -206,6 +207,7 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '[" Shortcuts: "," · prefix ",". Reload Ghostty: Cmd+Shift+,"]': (v0, v1) =>
       ` 快捷键：${v0} · 前缀键 ${v1}。请按 Cmd+Shift+, 重载 Ghostty`,
     '[" Shortcuts: cmux. Reload Ghostty: Cmd+Shift+,"]': () => ` 快捷键：cmux。请按 Cmd+Shift+, 重载 Ghostty`,
+    '[" Sign in on the remote machine"]': () => ` 请在远程机器上登录`,
     '[" Smart Links off: Corgi won\'t connect to pane ports"]': () => ` 智能链接已关闭：Corgi 不会连接窗格中的端口`,
     '[" Smart Links on"]': () => ` 智能链接已开启`,
     '[" Split "]': () => ` 分屏 `,
@@ -359,6 +361,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Activity summaries"]': () => `活动摘要`,
     '["Activity text stays blank; links say Open Link"]': () => `不显示活动摘要；链接显示为“打开链接”`,
     '["Add $NAME, so each worktree gets a folder of its own"]': () => `请加入 $NAME，让每个工作树拥有独立文件夹`,
+    '["Add a machine with corgi machine add NAME"]': () => `使用 corgi machine add NAME 添加机器`,
     '["Add a shortcut with +"]': () => `用 + 添加快捷键`,
     '["Add agent"]': () => `添加智能体`,
     '["Add to the list"]': () => `添加到列表`,
@@ -1548,6 +1551,8 @@ ${v1} 使用该账号。
     '[" Keep at least one workspace active"]': () => ` 少なくとも1つのワークスペースを有効にしてください`,
     '[" Keyboard shortcuts "]': () => ` キーボードショートカット `,
     '[" Keys "]': () => ` キー `,
+    '[" Manage accounts and launch options on the remote machine"]': () =>
+      ` リモートマシンでアカウントと起動オプションを管理してください`,
     '[" Names are one line of up to 80 characters"]': () => ` 名前は80文字以内の1行で入力してください`,
     '[" New agent  in  "]': () => ` 新しいエージェント · `,
     '[" New panes start in ",""]': v0 => ` 新しいペインでは${v0}を起動します`,
@@ -1592,6 +1597,7 @@ ${v1} 使用该账号。
       ` ショートカット：${v0} · プレフィックス ${v1}。Cmd+Shift+,でGhosttyを再読み込み`,
     '[" Shortcuts: cmux. Reload Ghostty: Cmd+Shift+,"]': () =>
       ` ショートカット：cmux。Cmd+Shift+,でGhosttyを再読み込み`,
+    '[" Sign in on the remote machine"]': () => ` リモートマシンでサインインしてください`,
     '[" Smart Links off: Corgi won\'t connect to pane ports"]': () =>
       ` スマートリンクはオフです。ペインのポートには接続しません`,
     '[" Smart Links on"]': () => ` スマートリンクはオンです`,
@@ -1751,6 +1757,7 @@ ${v1} 使用该账号。
       `作業状況は空欄になり、リンクは「リンクを開く」と表示します`,
     '["Add $NAME, so each worktree gets a folder of its own"]': () =>
       `ワークツリーごとに別のフォルダーになるよう、$NAMEを含めてください`,
+    '["Add a machine with corgi machine add NAME"]': () => `corgi machine add NAME でマシンを追加してください`,
     '["Add a shortcut with +"]': () => `+でショートカットを追加`,
     '["Add agent"]': () => `エージェントを追加`,
     '["Add to the list"]': () => `一覧に追加`,
@@ -2966,6 +2973,8 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" Keep at least one workspace active"]': () => ` 작업 공간을 하나 이상 활성 상태로 유지하세요`,
     '[" Keyboard shortcuts "]': () => ` 키보드 단축키 `,
     '[" Keys "]': () => ` 키 `,
+    '[" Manage accounts and launch options on the remote machine"]': () =>
+      ` 원격 컴퓨터에서 계정과 실행 옵션을 관리하세요`,
     '[" Names are one line of up to 80 characters"]': () => ` 이름은 한 줄로 80자까지 입력할 수 있습니다`,
     '[" New agent  in  "]': () => ` 새 에이전트  위치  `,
     '[" New panes start in ",""]': v0 => ` 새 패널은 ${v0} 셸로 시작합니다`,
@@ -3008,6 +3017,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '[" Shortcuts: "," · prefix ",". Reload Ghostty: Cmd+Shift+,"]': (v0, v1) =>
       ` 단축키: ${v0} · 접두 키 ${v1}. Cmd+Shift+,로 Ghostty 다시 불러오기`,
     '[" Shortcuts: cmux. Reload Ghostty: Cmd+Shift+,"]': () => ` 단축키: cmux. Cmd+Shift+,로 Ghostty 다시 불러오기`,
+    '[" Sign in on the remote machine"]': () => ` 원격 컴퓨터에서 로그인하세요`,
     '[" Smart Links off: Corgi won\'t connect to pane ports"]': () =>
       ` 스마트 링크 꺼짐: Corgi가 패널의 포트에 연결하지 않습니다`,
     '[" Smart Links on"]': () => ` 스마트 링크 켜짐`,
@@ -3169,6 +3179,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
       `활동 요약을 표시하지 않고 링크는 ‘링크 열기’로 표시합니다`,
     '["Add $NAME, so each worktree gets a folder of its own"]': () =>
       `작업 트리마다 폴더를 만들도록 $NAME을 추가하세요`,
+    '["Add a machine with corgi machine add NAME"]': () => `corgi machine add NAME으로 컴퓨터를 추가하세요`,
     '["Add a shortcut with +"]': () => `+로 단축키 추가`,
     '["Add agent"]': () => `에이전트 추가`,
     '["Add to the list"]': () => `목록에 추가`,
@@ -4383,6 +4394,8 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" Keep at least one workspace active"]': () => ` Оставьте хотя бы одно рабочее пространство активным`,
     '[" Keyboard shortcuts "]': () => ` Сочетания клавиш `,
     '[" Keys "]': () => ` Клавиши `,
+    '[" Manage accounts and launch options on the remote machine"]': () =>
+      ` Управляйте аккаунтами и параметрами запуска на удалённом компьютере`,
     '[" Names are one line of up to 80 characters"]': () =>
       ` Имя должно занимать одну строку и не превышать 80 символов`,
     '[" New agent  in  "]': () => ` Новый агент в  `,
@@ -4452,6 +4465,7 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '[" Shortcuts: "," · prefix ",". Reload Ghostty: Cmd+Shift+,"]': (v0, v1) =>
       ` Сочетания: ${v0} · префикс ${v1}. Перезагрузите Ghostty: Cmd+Shift+,`,
     '[" Shortcuts: cmux. Reload Ghostty: Cmd+Shift+,"]': () => ` Сочетания: cmux. Перезагрузите Ghostty: Cmd+Shift+,`,
+    '[" Sign in on the remote machine"]': () => ` Войдите в аккаунт на удалённом компьютере`,
     '[" Smart Links off: Corgi won\'t connect to pane ports"]': () =>
       ` Умные ссылки выключены: Corgi не будет подключаться к портам панелей`,
     '[" Smart Links on"]': () => ` Умные ссылки включены`,
@@ -4963,6 +4977,7 @@ profile/ID, имя копии или command/N — как в выводе launch
       `Действия не описываются; ссылки подписаны «Открыть ссылку»`,
     '["Add $NAME, so each worktree gets a folder of its own"]': () =>
       `Добавьте $NAME, чтобы у каждого рабочего дерева была своя папка`,
+    '["Add a machine with corgi machine add NAME"]': () => `Добавьте компьютер командой corgi machine add NAME`,
     '["Add a shortcut with +"]': () => `Добавьте сочетание кнопкой +`,
     '["Add agent"]': () => `Добавить агента`,
     '["Add to the list"]': () => `Добавить в список`,

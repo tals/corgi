@@ -63,6 +63,42 @@ itself. Older viewers must reconnect with the matching binary. The CLI and
 session commands share the same lifecycle operations; see
 [hibernation and archiving](docs/workspaces.md#hibernate-panes-and-archive-workspaces).
 
+Remote daemon connectivity lives in `daemon_transport.ts`, separate from RPC,
+session resume, and the controller's asynchronous task queues. Machine setup
+records the bundled `corgi-remote-bridge` executable's path. SSH invokes that
+native helper directly: attachments do not start Bun on the remote host. The
+helper relays stdin/stdout to the daemon's Unix socket with bounded independent
+buffers. A local socket adapter preserves the interface used by RPC and preview
+clients. Old saved profiles without a bridge path retain dedicated SSH socket forwarding;
+remove and add the machine again to discover the helper.
+
+Normal stdio attachments and CLI commands share a private Corgi OpenSSH master,
+with ten minutes of idle persistence. Bulk image uploads, explicit machine
+checks, manual retries, and recovery probes use independent connections. Closing
+an attachment closes its channel, not the shared master. A stalled remote shows
+its age and pauses input; after four seconds a fresh connection is tested beside
+it. Retry and pause cancel both ordinary startup and recovery probes. Application
+health, replay, and fresh-screen fencing remain in `machine_connection.ts`; the
+render loop never awaits a remote request or SSH teardown.
+
+The optional `bridge` path is additive in the version 1 machine catalog and
+remote-info response. Runtime/viewer protocols and checkpoint/handoff formats
+are unchanged; the bridge forwards their existing bytes.
+
+Machine add/check reconcile builds before connecting. Setup installs into an
+existing canonical executable or, when absent, `~/.local/bin/corgi`. Managed
+installations keep their launcher and release history. Signed releases are fetched
+at the exact version using the local installation's update trust; development
+builds use binary/source identity and Git ancestry, never build timestamps.
+Cross-platform development setup requires a matching `dist/corgi-<target>` and
+its build metadata. Divergent development builds stop with an explicit error.
+When the remote is newer, setup upgrades the local installation and re-executes
+it to finish the command. State preflight and live handoff preserve running
+shells; setup refuses incompatible handoffs instead of restarting agents.
+Transfers and RPCs have deadlines. Upgrade work runs only in setup commands,
+not in the viewer's reconnect or render path. `__update-info` gains additive
+build metadata; wire and persisted-state versions do not change.
+
 Pane surfaces carry Kitty image placements; `viewer.image` transfers decoded
 pixels in bounded chunks. [pane_images.ts](src/pane_images.ts) gives each viewer
 its own image ids, clips pictures to their panes and frees images that leave

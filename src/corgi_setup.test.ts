@@ -282,8 +282,8 @@ test("setup aims only at the options a click acts on", () => {
   }
   // Terminal capabilities has nothing to click, so nothing guards it.
   const menu = Menu.open();
-  menu.hover(100, 30, 15, 15, s, prefs, 0);
-  menu.hover(100, 30, 22, 11, s, prefs, 100);
+  menu.hover(100, 30, 15, 16, s, prefs, 0);
+  menu.hover(100, 30, 22, 12, s, prefs, 100);
   expect(menu.item).toBe("source_control");
 });
 

@@ -19,6 +19,7 @@ import {
   drawPrefixBar,
   untitledTab,
   tabBrand,
+  sidebarView,
   type Pointer,
   type Ui,
   type Restoring,
@@ -631,6 +632,21 @@ test("badge redraw preserves cached pixels and shifts only the workspace heading
   expect(emoji).toContain(corgiBadge.emoji);
   expect(emoji).not.toContain("\x1b_G");
   expect(testDrawsAt(emoji, "\x1b[1;7H", "workspaces")).toBe(true);
+});
+
+test("before a machine shows its screen, the frame keeps the badge and drops the tabs", () => {
+  const u = ui({
+    message: "",
+    copy_mode: false,
+    corgi_badge: "image",
+    workspaces: [sidebar.workspaceEntry({ id: -1, name: "work", cwd: "", active: false, connecting: true })],
+  });
+  const shown = frame(null, [], 100, 30, u);
+  expect(shown).toContain("a=p,i=730031");
+  expect(testDrawsAt(shown, "\x1b[1;7H", "workspaces")).toBe(true);
+  expect(shown).toContain("work");
+  expect(shown).not.toContain(`\x1b[1;${sidebarView(u, 100, 30).tabX() + 1}H`);
+  expect(shown).not.toContain("No panes");
 });
 
 test("a reopened agent's card sits mid-pane: title centered, details left, command wrapped", () => {

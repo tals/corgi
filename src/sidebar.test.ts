@@ -929,6 +929,25 @@ test("grouped list draws one-row headers with a margin guide and measures rows p
   ]);
 });
 
+test("group headers name their machine, which takes at most half the room", () => {
+  const header = (name: string, machine: string) =>
+    entry({
+      target: { group: 1 },
+      name,
+      provider: "codex",
+      state: "idle",
+      group: { agents: 1, working: 0, attention: 0, folded: true, current: false, machine },
+    });
+  const entries = [header("corgi", "work"), header("a long project name", "a long machine name")];
+  const view = View.init(100, 30, true, 0, entries.length).withEntries(entries);
+  const top = view.middle() + 2;
+  const rows = hostText(draw(view, entries, []))
+    .split("\n")
+    .slice(top, top + 2)
+    .map(line => line.slice(0, 80).trimEnd());
+  expect(rows).toEqual([" ▸ corgi  work ━━━━━━━━ 1○ │", " ▸ a long p…  a long… ━ 1○ │"]);
+});
+
 test("grouped scrolling fits more rows when headers are shorter", () => {
   const entries = Array.from({ length: 7 }, (_, i) =>
     entry({ target: i % 3 === 0 ? { group: i } : { pane: i }, provider: "codex", state: "idle" }),

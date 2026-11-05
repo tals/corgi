@@ -115,6 +115,7 @@ export type Item =
   | "shell"
   | "keyboard"
   | "agents"
+  | "remote"
   | "source_control"
   | "terminal"
   | "about"
@@ -139,6 +140,7 @@ const list = (): ListRow[] => [
   "language",
   "shell",
   "keyboard",
+  "remote",
   "source_control",
   null,
   "agents",
@@ -168,6 +170,7 @@ const labels = (): Record<Item, string> => ({
   terminal: i18n.t`Terminal capabilities`,
   about: i18n.t`About`,
   report_bug: i18n.t`Report a bug`,
+  remote: "Remote",
   import_tmux: "tmux",
   import_herdr: "Herdr",
   import_cmux: "cmux",
@@ -194,6 +197,7 @@ function reportSettings(s: Status, prefs: Preferences): bugReport.Settings {
 /** What Enter or a click asks the controller to do. */
 export type Apply =
   | { kind: "summaries"; choice: Summarizer; model?: string; account?: string }
+  | { kind: "instant_typing"; mode: Preferences["instant_typing"] }
   | { kind: "inference_use"; use: Use; on: boolean }
   | { kind: "readings" | "smart_links" | "auto_retry" | "ghostty"; on: boolean }
   | { kind: "corgi_intensity"; value: number }
@@ -1788,6 +1792,22 @@ export class Menu implements LinkSource {
           blank,
           { tag: "note", text: i18n.t`Sampling stops once every viewer turns it off.` },
         ];
+      case "remote": {
+        const on = prefs.instant_typing === "auto";
+        return [
+          title("Remote"),
+          blank,
+          option({
+            label: "Predictive Rendering",
+            detail: "",
+            mark: "none",
+            apply: { kind: "instant_typing", mode: on ? "off" : "auto" },
+            action: on ? "turn off" : "turn on",
+            toggle: on,
+          }),
+          { tag: "brief", text: "Shows typing before the remote echoes it." },
+        ];
+      }
       case "clever_corgi": {
         const second = note(s.choice, s);
         return [
@@ -2144,6 +2164,8 @@ export class Menu implements LinkSource {
         return { text: this.shell.path ? this.shell.path.split("/").pop()! : "", tone: "muted" };
       case "keyboard":
         return { text: km.name(prefs.preset), tone: "muted" };
+      case "remote":
+        return { text: "", tone: "faint" };
       case "source_control":
         return prefs.worktree_folder === worktreeFolder.default_template
           ? { text: "", tone: "faint" }

@@ -56,6 +56,7 @@ export class Preferences {
   prefix: Prefix = "ctrl_b";
   /** Action overrides; omitted actions inherit the selected preset. */
   keys: keybindings.Config = {};
+  instant_typing: "auto" | "off" = "auto";
   onboarding_complete = false;
   /** Unset follows this viewer's locale; CORGI_LANG overrides an explicit choice. */
   language: locale.Locale | undefined = undefined;
@@ -185,6 +186,7 @@ const enums = {
   agent_sort: ["activity", "manual"],
   preset: ["corgi", "tmux", "herdr", "cmux"],
   prefix: ["ctrl_b", "ctrl_a"],
+  instant_typing: ["auto", "off"],
 } as const;
 export function readExisting(file: string): Preferences | null {
   try {
