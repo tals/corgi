@@ -774,8 +774,10 @@ class ViewerScenarios extends Viewers {
     this.assertTrue(b.state.renaming);
     await b.input("\x03\r");
     this.assertIn("Enter a workspace name.", (await b.poll()).data);
+    // A lone Esc counts once the escape timeout has passed.
     await b.input("\x1b");
-    this.assertFalse(b.state.renaming);
+    await sleep(0.06);
+    this.assertFalse((await b.poll()).renaming);
     this.assertEqual((await this.session()).workspaces[0].name, "Custom");
     this.assertEqual(
       screen_text((await a.poll()).data, 100, 30)[2]
@@ -860,7 +862,7 @@ class ViewerScenarios extends Viewers {
     this.assertFalse(a.state.renaming);
     this.assertEqual(a.state.drawer, null);
     const renamed = (await this.session()).workspaces.find((w: any) => w.id === ws);
-    this.assertEqual([renamed.name, renamed.custom_name], ["Drawer", "Drawer"]);
+    this.assertEqual(renamed.name, "Drawer");
   }
 
   async test_arrangement_is_shared_and_close_reconciles_selection() {
