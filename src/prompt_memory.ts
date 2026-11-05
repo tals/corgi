@@ -2,9 +2,20 @@
 //! is curated and always loaded, YYYY-MM-DD.md are append-only daily logs
 //! (today's and yesterday's loaded), and workspaces/<name>.md is loaded in
 //! that workspace. Each loads capped, its oldest lines dropped first.
-import { appendFileSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  closeSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import * as accounts from "./accounts";
+import { flock } from "./native_bridge";
+import * as os from "./os";
 import { spacedControls } from "./text";
 
 /** A line as a file holds it, and the file. */
@@ -54,11 +65,25 @@ export const flush =
  * when one moved to MEMORY.md. */
 type Recalls = {
   lines: Record<string, { n: number; days: string[] }>;
-  promoted: { text: string; on: string }[];
+  promoted: { text: string; on: string; from: Written }[];
 };
 
 export class Memory {
   constructor(readonly dir: string) {}
+  private writing = false;
+  /** Every Corgi writer locks the same inode, including appends and recalls. */
+  private locked<T>(write: () => T): T {
+    mkdirSync(this.dir, { recursive: true });
+    const fd = openSync(join(this.dir, ".write.lock"), "a", 0o600);
+    try {
+      if (!flock(fd)) throw Error("MemoryBusy");
+      this.writing = true;
+      return write();
+    } finally {
+      this.writing = false;
+      closeSync(fd);
+    }
+  }
   /** Beside accounts.json, under the base state directory every environment shares. */
   static root(): string {
     return join(dirname(accounts.path()), "memory");
@@ -98,6 +123,7 @@ export class Memory {
   }
   /** Counts the log lines a search brought back, by day, for `dream`. */
   recall(hits: Hit[], now: Date): void {
+    if (!this.writing) return this.locked(() => this.recall(hits, now));
     const logs = hits.filter(h => daily.test(h.file));
     if (!logs.length) return;
     const recalls = this.recalls(),
@@ -113,6 +139,7 @@ export class Memory {
    * back moves to MEMORY.md, where the model starts with it. The lines moved
    * there stay under a cap, the oldest leaving first. Returns the lines moved. */
   dream(now: Date): string[] {
+    if (!this.writing) return this.locked(() => this.dream(now));
     const recalls = this.recalls(),
       long = join(this.dir, long_name),
       moved: string[] = [];
@@ -121,12 +148,10 @@ export class Memory {
       const [file, text] = key.split("\t");
       delete recalls.lines[key];
       // A line edited or gone since, or in MEMORY.md already, stays as it is.
-      if (
-        !read(join(this.dir, file))
-          .split("\n")
-          .some(l => clean(l) === text)
-      )
-        continue;
+      const source = read(join(this.dir, file))
+        .split("\n")
+        .find(l => clean(l) === text);
+      if (!source) continue;
       if (
         read(long)
           .split("\n")
@@ -134,7 +159,7 @@ export class Memory {
       )
         continue;
       this.append(long, text);
-      recalls.promoted.push({ text, on: day(now) });
+      recalls.promoted.push({ text, on: day(now), from: { file: join(this.dir, file), line: source } });
       moved.push(text);
     }
     let size = recalls.promoted.reduce((n, p) => n + Buffer.byteLength(p.text) + 3, 0);
@@ -159,7 +184,7 @@ export class Memory {
   }
   private keep(recalls: Recalls): void {
     mkdirSync(this.dir, { recursive: true });
-    writeFileSync(join(this.dir, recalls_name), JSON.stringify(recalls));
+    replaceFile(join(this.dir, recalls_name), JSON.stringify(recalls));
   }
   /** The prompt's system instructions: who Corgi is, what it remembers,
    * where it was opened, and where it may write, `workspace`'s note among it. */
@@ -257,6 +282,7 @@ export class Memory {
     now: Date,
     replaces: { file: string; line: number; moved?: boolean } | null = null,
   ): Added {
+    if (!this.writing) return this.locked(() => this.add(text, where, now, replaces));
     const line = clean(text);
     if (!line) throw Error("EmptyLine");
     let was: Written | null = null;
@@ -268,11 +294,9 @@ export class Memory {
       was = { file, line: lines[at] };
       if (!replaces.moved) {
         lines[at] = `- ${line}`;
-        writeFileSync(file, lines.join("\n"));
+        replaceFile(file, lines.join("\n"));
         return { status: "replaced", file: replaces.file, line: replaces.line, path: file, text: lines[at], was };
       }
-      lines.splice(at, 1);
-      writeFileSync(file, lines.join("\n"));
     }
     const long = join(this.dir, long_name),
       file =
@@ -288,6 +312,13 @@ export class Memory {
         return { status: "already", file: relative(this.dir, f), line: at + 1, path: f, text: held[at], was: null };
     }
     const written = this.append(file, line);
+    if (!written.line) throw Error("NotInMemory");
+    if (replaces && was) {
+      // The destination keeps the line if removing its source fails.
+      const source = read(was.file).split("\n");
+      source.splice(replaces.line - 1, 1);
+      replaceFile(was.file, source.join("\n"));
+    }
     return {
       status: replaces ? "replaced" : "added",
       file: relative(this.dir, file),
@@ -299,12 +330,13 @@ export class Memory {
   }
   /** Drops line `line` of `name`, a file in the memory folder; the text it held. */
   forgetLine(name: string, line: number): string {
+    if (!this.writing) return this.locked(() => this.forgetLine(name, line));
     const file = this.resolve(name),
       lines = read(file).split("\n"),
       at = line - 1;
     if (at < 0 || at >= lines.length || !lines[at].trim()) throw Error("NoSuchLine");
     const [gone] = lines.splice(at, 1);
-    writeFileSync(file, lines.join("\n"));
+    replaceFile(file, lines.join("\n"));
     return clean(gone);
   }
   /** A file named relative to the memory folder, which it must stay in. */
@@ -326,20 +358,29 @@ export class Memory {
   /** Drops each written line once, from its own file, only while it reads
    * exactly as written: /erase. Returns the ones it didn't find. */
   strike(lines: Written[]): Written[] {
+    if (!this.writing) return this.locked(() => this.strike(lines));
     const missed: Written[] = [],
-      files = new Map<string, string[]>();
-    for (const w of lines) {
+      files = new Map<string, string[]>(),
+      recalls = this.recalls(),
+      promoted = recalls.promoted.filter(p => lines.some(w => p.from?.file === w.file && p.from.line === w.line)),
+      copies = promoted.map(p => ({ file: join(this.dir, long_name), line: `- ${p.text}` }));
+    for (const w of [...lines, ...copies]) {
       if (!w.line.trim() || !this.inside(w.file)) {
         missed.push(w);
         continue;
       }
       const left = files.get(w.file) ?? read(w.file).split("\n");
       const at = left.findIndex(line => line.trimEnd() === w.line.trimEnd());
-      if (at < 0) missed.push(w);
-      else left.splice(at, 1);
+      if (at < 0) {
+        if (lines.includes(w)) missed.push(w);
+      } else left.splice(at, 1);
       files.set(w.file, left);
     }
-    for (const [file, left] of files) if (left.join("\n") !== read(file)) writeFileSync(file, left.join("\n"));
+    for (const [file, left] of files) if (left.join("\n") !== read(file)) replaceFile(file, left.join("\n"));
+    if (promoted.length) {
+      recalls.promoted = recalls.promoted.filter(p => !promoted.includes(p));
+      this.keep(recalls);
+    }
     return missed;
   }
   /** Whether `path` is in the memory folder once links are followed. */
@@ -394,6 +435,7 @@ export class Memory {
   /** Replaces line `at` of `file` with `text`, or drops it when `text` is
    * null, only while it still reads `was`; false when it changed meanwhile. */
   edit(file: string, at: number, was: string, text: string | null): boolean {
+    if (!this.writing) return this.locked(() => this.edit(file, at, was, text));
     if (!this.inside(file)) return false;
     const lines = read(file).split("\n");
     if (at >= lines.length || clean(lines[at]) !== was) return false;
@@ -401,11 +443,12 @@ export class Memory {
     if (text !== null && !line) return false;
     if (text === null) lines.splice(at, 1);
     else lines[at] = `${/^\s*[-*] /.test(lines[at]) || !lines[at].trim() ? "- " : ""}${line}`;
-    writeFileSync(file, lines.join("\n"));
+    replaceFile(file, lines.join("\n"));
     return true;
   }
   /** Appends `- text` to `file`, a memory file; the line as written, "" for nothing. */
   append(file: string, text: string): Written {
+    if (!this.writing) return this.locked(() => this.append(file, text));
     const line = clean(text);
     if (!line || !this.inside(file)) return { file, line: "" };
     mkdirSync(dirname(file), { recursive: true });
@@ -519,4 +562,9 @@ function real(path: string): string {
       head = up;
     }
   }
+}
+
+/** Replace a memory file without truncating the previous contents on a failed write. */
+function replaceFile(file: string, text: string): void {
+  os.atomicWrite(real(file), text, 0o600, false);
 }

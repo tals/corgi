@@ -1,11 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { View } from "./memory_view";
 import { Memory } from "./prompt_memory";
 import { Rect } from "./layout";
 import { Writer } from "./text";
+import { flock } from "./native_bridge";
 
 /** The screen's text after replaying the cursor moves in `ansi`. */
 function screen(ansi: string, cols: number, rows: number): string[] {
@@ -50,6 +51,23 @@ function draw(view: View, w = 70, h = 16): string[] {
 const type = (view: View, text: string) => {
   for (const c of text) view.key(c.charCodeAt(0));
 };
+
+test("an edit stays in its text box when another process is writing memory", () => {
+  const { dir, view } = memory(),
+    fd = openSync(join(dir, ".write.lock"), "a");
+  view.key(13);
+  view.key(21);
+  type(view, "keep this edit");
+  try {
+    expect(flock(fd)).toBe(true);
+    expect(() => view.key(13)).not.toThrow();
+    expect(readFileSync(join(dir, "MEMORY.md"), "utf8")).toStartWith("- Prefers bun");
+  } finally {
+    closeSync(fd);
+  }
+  view.key(13);
+  expect(readFileSync(join(dir, "MEMORY.md"), "utf8")).toStartWith("- keep this edit\n");
+});
 
 test("every file shows under a heading that says whether the model starts with it", () => {
   const { view } = memory();

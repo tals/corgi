@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import * as accounts from "./accounts";
 import { Memory, caps } from "./prompt_memory";
+import { flock } from "./native_bridge";
 
 let base = "";
 let memory: Memory;
@@ -18,6 +19,54 @@ const write = (name: string, text: string) => {
   writeFileSync(join(memory.dir, name), text);
 };
 const read = (name: string) => readFileSync(join(memory.dir, name), "utf8");
+
+test("all memory writers leave files alone while another writer holds the lock", () => {
+  write("MEMORY.md", "- held\n");
+  const file = join(memory.dir, "MEMORY.md"),
+    fd = openSync(join(memory.dir, ".write.lock"), "a");
+  try {
+    expect(flock(fd)).toBe(true);
+    for (const write of [
+      () => memory.append(file, "new"),
+      () => memory.add("new", "long", now),
+      () => memory.edit(file, 0, "held", "changed"),
+      () => memory.forgetLine("MEMORY.md", 1),
+      () => memory.strike([{ file, line: "- held" }]),
+      () => memory.dream(now),
+      () => memory.recall([{ file: "2026-10-30.md", line: 1, text: "held" }], now),
+    ])
+      expect(write).toThrow("MemoryBusy");
+    expect(read("MEMORY.md")).toBe("- held\n");
+  } finally {
+    closeSync(fd);
+  }
+  memory.append(file, "new");
+  expect(read("MEMORY.md")).toBe("- held\n- new\n");
+});
+
+test("a failed move leaves its original line intact", () => {
+  write("MEMORY.md", "- original\n");
+  writeFileSync(join(memory.dir, "workspaces"), "not a directory");
+  expect(() =>
+    memory.add("moved", { workspace: "project" }, now, { file: "MEMORY.md", line: 1, moved: true }),
+  ).toThrow();
+  expect(read("MEMORY.md")).toBe("- original\n");
+});
+
+test("erasing a log line also removes only its unchanged promoted copy", () => {
+  const wrote = [memory.add("first", "today", now), memory.add("second", "today", now)].map(w => ({
+    file: w.path,
+    line: w.text,
+  }));
+  const other = new Memory(memory.dir);
+  for (const d of [28, 29, 30]) other.recall(other.search("first second"), new Date(2026, 9, d));
+  expect(other.dream(now)).toEqual(["second", "first"]);
+  expect(other.edit(join(memory.dir, "MEMORY.md"), 0, "second", "second edited by user")).toBe(true);
+  expect(memory.strike(wrote)).toEqual([]);
+  expect(read("MEMORY.md")).toBe("- second edited by user\n");
+  expect(other.dream(now)).toEqual([]);
+  expect(other.search("first")).toEqual([]);
+});
 /** Sets a file's modification time to local `date`. */
 
 test("the root sits beside accounts.json", () => {

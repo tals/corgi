@@ -4,6 +4,7 @@
 //! place. An edit applies only while the line still reads as shown, since the
 //! model writes to the same files; the list reads them again every second.
 import * as keys from "./keys";
+import * as errors from "./errors";
 import { Style, fg, keycap, type Token } from "./palette";
 import type { Rect } from "./layout";
 import type { Group, Memory } from "./prompt_memory";
@@ -299,13 +300,18 @@ export class View {
       else if (text) e.area.insert(text);
       return null;
     }
-    this.editing = null;
     const text = e.area.text.trim();
-    if (e.row.kind === "line") {
-      // Emptied, it goes; changed meanwhile, it stays as the file has it.
-      if (!this.memory.edit(e.row.group.file, e.row.at, e.row.text, text || null))
-        this.said = "That line changed meanwhile; it reads as the file has it now.";
-    } else if (text) this.memory.append(e.row.group.file, text);
+    try {
+      if (e.row.kind === "line") {
+        // Emptied, it goes; changed meanwhile, it stays as the file has it.
+        if (!this.memory.edit(e.row.group.file, e.row.at, e.row.text, text || null))
+          this.said = "That line changed meanwhile; it reads as the file has it now.";
+      } else if (text) this.memory.append(e.row.group.file, text);
+    } catch (error) {
+      this.said = `Couldn't save: ${errors.name(error) ?? "unknown error"}. Press Enter to retry.`;
+      return null;
+    }
+    this.editing = null;
     this.reload();
     if (e.row.kind !== "line" && text) this.select(e.row.group.file, -1);
     return null;
@@ -331,9 +337,14 @@ export class View {
       return;
     }
     this.deleting = false;
-    if (!this.memory.edit(row.group.file, row.at, row.text, null)) {
-      this.said = "That line changed meanwhile; nothing was deleted.";
-      return this.reload();
+    try {
+      if (!this.memory.edit(row.group.file, row.at, row.text, null)) {
+        this.said = "That line changed meanwhile; nothing was deleted.";
+        return this.reload();
+      }
+    } catch (error) {
+      this.said = `Couldn't delete: ${errors.name(error) ?? "unknown error"}. Try again.`;
+      return;
     }
     const at = this.index;
     this.reload();
