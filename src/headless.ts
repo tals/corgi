@@ -26,8 +26,11 @@ import { State as Observation } from "./observation";
 import { ResumeHint } from "./resume_hint";
 import { Counts, Tracker, add } from "./usage/tokens";
 import { Tokens } from "./usage/live";
-import * as accounts from "./accounts";
 import * as discovery from "./discovery";
+import * as accounts from "./accounts";
+import * as accountIdentity from "./account_identity";
+import * as agentEnv from "./agent_env";
+import * as os from "./os";
 import * as json from "./json";
 import { truncateUtf8 } from "./bounded_text";
 import * as worktrees from "./worktrees";
@@ -185,6 +188,7 @@ function validInput(value: any): Input {
 /** How long a session just sent something stays urgent, for the events it answers with. */
 const sent_ms = 10_000;
 export class Session {
+  env: Record<string, string> = {};
   static Id = { none: 0, first: 1, next: (id: number) => id + 1 };
   /** Provider identity of the root conversation; empty until creation completes. */
   session = "";
@@ -194,7 +198,6 @@ export class Session {
   /** The Corgi prompt's own conversation, which the sidebar leaves out. */
   corgi = false;
   /** What it started with, so a viewer can tell which choice it runs. */
-  account = "";
   model = "";
   effort: Effort | null = null;
   persist = true;
@@ -240,6 +243,7 @@ export class Session {
     public provider: Provider,
     public cwd: string,
     public client: Client,
+    public account = "",
   ) {
     this.attachment.provisional.provider = provider;
     this.attachment.provisional.state = client.ready ? "idle" : "initializing";
@@ -332,6 +336,10 @@ export class Session {
     accountLock.check(provider, options.account ?? "");
     const headless = adapter(provider).headless;
     if (!headless) throw Error("HeadlessUnsupported");
+    let account = options.account ?? "";
+    if (account && adapter(provider).accounts.native) throw Error("NativeAccountManagedByProvider");
+    if (account && !account.startsWith("/")) throw Error("InvalidAccount");
+    account = accounts.normalize(provider, account);
     // A shim would install the agent inside the daemon, where nobody sees it.
     await discovery.ready([provider], cwd);
     if (discovery.stubOf(provider, cwd)) throw Error("ProviderOnDemand");
@@ -342,13 +350,25 @@ export class Session {
       id,
       provider,
       directory,
-      headless.start({ ...options, cwd: directory, account: options.account ?? "", executable }),
+      headless.start({ ...options, cwd: directory, account, executable }),
+      account,
     );
-    session.account = options.account ?? "";
     session.model = options.model ?? "";
     session.effort = options.effort ?? null;
     session.persist = options.persist !== false;
+    session.readEnvironment();
     return session;
+  }
+  private readEnvironment() {
+    const pid = this.client.processes?.()[0],
+      info = pid ? os.processArgs(pid, undefined, { env: true }) : null;
+    if (!info) return;
+    this.env = agentEnv.read(
+      info.environ().flatMap(entry => {
+        const at = entry.indexOf("=");
+        return at > 0 ? [[entry.slice(0, at), entry.slice(at + 1)] as const] : [];
+      }),
+    );
   }
   destroy() {
     this.releaseRequests();
@@ -478,6 +498,7 @@ export class Session {
    * requests and usage. True when it should ring. */
   apply(registry: Registry, e: Event): boolean {
     if (e.kind === "ready") {
+      this.readEnvironment();
       if (this.attachment.provisional.state === "initializing") this.attachment.provisional.state = "idle";
       return false;
     }
@@ -530,6 +551,11 @@ export class Session {
       if (e.kind === "tool" && e.wrote.length) worktrees.recordWrites(actor.state, e.wrote);
     }
     const target = actor?.state ?? this.attachment.provisional;
+    if (e.kind === "account") {
+      target.account = accountIdentity.read(e.account);
+      this.journal({ ...e, account: target.account });
+      return false;
+    }
     target.provider = this.provider;
     if (target.state === "unknown" && this.ready) target.state = "idle";
     const old = target.state,
@@ -628,6 +654,7 @@ export class Session {
       id: this.id,
       session: this.session,
       provider: this.provider,
+      env: this.env,
       cwd: this.cwd,
       workspace_id: this.workspace_id,
       corgi: this.corgi,
@@ -659,7 +686,8 @@ export class Session {
         live && !saved.exited && headless
           ? headless.restore(saved.client ?? { state: null, handles: [] }, live)
           : new Gone(saved.ready === true);
-    const session = new Session(saved.id, saved.provider, saved.cwd, client);
+    const session = new Session(saved.id, saved.provider, saved.cwd, client, saved.account ?? "");
+    session.env = agentEnv.read(Object.entries(saved.env ?? {}));
     session.attachment = restoreBinding(registry, saved.binding, live, { ...how, what: `native session ${saved.id}` });
     session.exited = live ? saved.exited : true;
     session.workspace_id = saved.workspace_id;

@@ -108,6 +108,97 @@ test("notices keep Unicode while stripping controls and truncating at UTF-8 boun
   expect(Buffer.byteLength(s.message)).toBeLessThanOrEqual(512);
 });
 
+test("trick keyboard focus follows updated buttons, drops hidden targets and never pastes into a pane", async () => {
+  const s = controller(),
+    calls: unknown[] = [];
+  s.connection = transport(async (op, fields) => {
+    expect(op).toBe("tricks.press");
+    calls.push(fields);
+    return { ok: true, accepted: true };
+  });
+  s.receiveSnapshot(folders("/one"));
+  s.input_state.attached = true;
+  s.machine.viewer_id = 7;
+  const button = { kind: "button", spans: [{ text: "Press" }], action: "instance.old", slot: "instance.panel.0" };
+  const other = { kind: "button", spans: [{ text: "Other" }], action: "instance.other", slot: "instance.panel.1" };
+  s.runtime.tricks = [
+    { kind: "overlay", anchor: "top-right", lines: [], content: { kind: "row", children: [button, other] } },
+  ];
+  try {
+    await s.perform({ name: "tricks" });
+    expect(s.trick_controls.focus).toBe("instance.panel.0");
+    await s.input(bytes("\x1b[C"));
+    expect(s.trick_controls.focus).toBe("instance.panel.1");
+    await s.input(bytes("\x1b[Z"));
+    expect(s.trick_controls.focus).toBe("instance.panel.0");
+    button.action = "instance.new";
+    expect(s.frame()).toContain("\x1b[7m");
+    expect(s.trick_controls.focus).toBe("instance.panel.0");
+    await s.input(bytes("\r"));
+    expect(calls).toEqual([{ action: "instance.new", viewer: 7 }]);
+    await s.input(bytes("\x1b[200~echo should-not-run\r\x1b[201~"));
+    expect(calls).toHaveLength(1);
+    s.agent_launcher = new LauncherMenu({ workspace: 1, selected: "claude", last: "claude", pinned: true });
+    s.frame();
+    expect(s.trick_controls.hits).toEqual([]);
+    expect(s.trick_controls.focus).toBeNull();
+    await s.perform({ name: "trick-press", value: "instance.new" });
+    expect(calls).toHaveLength(1);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("a remote sidebar trick switches to its owner and sends daemon-local viewer and agent IDs", async () => {
+  const s = controller(),
+    local = s.machine,
+    calls: unknown[] = [],
+    other = new Machine(
+      transport(async (op, fields) => {
+        expect(op).toBe("tricks.press");
+        calls.push(fields);
+        return { ok: true, accepted: true };
+      }),
+      "work",
+      true,
+    );
+  s.receiveSnapshot(folders("/local"));
+  const remote = folders("/remote", "/second");
+  remote.panes[0].agent.provider = "codex" as any;
+  s.adopt(other);
+  s.receiveSnapshot(remote, other);
+  other.viewer_id = 29;
+  other.runtime.tricks = [
+    {
+      kind: "decorate",
+      surface: "sidebar",
+      where: { id: "pane:1" },
+      suffix: [],
+      content: { kind: "button", spans: [{ text: "Go" }], action: "remote-instance.go" },
+    },
+  ];
+  s.host.prefs.agents = "all";
+  s.host.prefs.agent_sort = "manual";
+  s.sidebar_open = true;
+  s.input_state.attached = true;
+  s.onMachine = (machine: Machine) => s.switchMachine(machine);
+  try {
+    s.frame();
+    const hit = s.trick_controls.hits.find((hit: { action: string }) => hit.action === "remote-instance.go");
+    expect(hit).toBeDefined();
+    await s.input(bytes(`\x1b[<0;${hit.rect.x + 1};${hit.rect.y + 1}M`));
+    expect(s.machine).toBe(other);
+    expect(calls).toEqual([{ action: "remote-instance.go", viewer: 29 }]);
+    await s.perform({ name: "focus-agent", value: "pane:2" });
+    expect(s.focused()?.id).toBe(2);
+    expect(s.machine).toBe(other);
+  } finally {
+    viewer.close(s);
+    if (s.machine !== local) local.runtime.destroy();
+    if (s.machine !== other) other.runtime.destroy();
+  }
+});
+
 test.each(["typing", "kitty key", "click", "resize", "flourishes off"])(
   "%s finishes the sign-in exit without swallowing input",
   async cause => {

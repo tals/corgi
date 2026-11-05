@@ -43,6 +43,11 @@ the provider's session ID. Later `send`, `events` and `stop` commands take
 `PROVIDER SESSION`; Corgi does not return another numeric session ID.
 Startup stays asynchronous; a live reload waits until a pending start has
 its session ID, since the reply goes back on the starter's connection.
+`--account DIR` selects a canonical provider config folder for a headless
+Claude, Codex, Pi or OMP session. It is also the `account` field of
+`headless.start`. The selection survives handoff and cold recovery; list and
+snapshot replies include it. Without a selection, the daemon's environment
+chooses the profile. OpenCode manages its native accounts itself.
 The numeric transport handles in snapshots and saved state are internal
 bookkeeping for viewer selection and ordering. See [CONTEXT.md](../CONTEXT.md).
 

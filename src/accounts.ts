@@ -25,6 +25,9 @@ import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { Provider, adapter, byProvider } from "./providers";
 import type { Login } from "./providers/adapter";
+import type { Identity } from "./account_identity";
+import * as accountIdentity from "./account_identity";
+import type { Info } from "./usage/account";
 import { atomicWrite } from "./os";
 import * as agentName from "./agent_name";
 import * as agentOptions from "./agent_options";
@@ -92,6 +95,56 @@ export function of(provider: Provider, env: readonly (readonly [string, string])
 /** The folder `account` keeps its settings in. */
 export function directory(provider: Provider, account: string) {
   return account || adapter(provider).accounts.home();
+}
+const descriptions = new Map<string, { at: number; value: Identity }>();
+const readings = new Map<string, ReturnType<typeof accountIdentity.details>>();
+/** Publish the existing reader's result for metadata consumers. No extra polling. */
+export function record(provider: Provider, account: string, info: Info, login: Login | null) {
+  const loginId = info.login_id ?? login?.id ?? null;
+  const key = JSON.stringify([provider, loginId, account || home(provider)]);
+  if (readings.size >= 512) readings.delete(readings.keys().next().value!);
+  readings.set(key, accountIdentity.details(info));
+  if (adapter(provider).accounts.native && loginId) {
+    const native = JSON.stringify([provider, loginId, null]);
+    if (readings.size >= 512) readings.delete(readings.keys().next().value!);
+    readings.set(native, accountIdentity.details(info));
+  }
+}
+/** Join a native identity to a reading for that same credential only. */
+export function metadata(provider: Provider, value: Identity | null): Identity | null {
+  if (!value) return null;
+  const reading = readings.get(JSON.stringify([provider, value.loginId, value.directory]));
+  return reading
+    ? {
+        ...value,
+        ...reading,
+        email: reading.email ?? value.email,
+        type: reading.type ?? value.type,
+        plan: reading.plan ?? value.plan,
+      }
+    : value;
+}
+/** The resolved profile and last observed login, without another account read. */
+export function describe(provider: Provider, account: string): Identity | null {
+  if (adapter(provider).accounts.native) return null;
+  const dir = account || home(provider),
+    id = JSON.stringify([provider, dir]),
+    found = descriptions.get(id),
+    now = Date.now();
+  if (!dir) return null;
+  if (found && now - found.at < 5000) return metadata(provider, found.value);
+  const value = accountIdentity.read({
+    id,
+    name: (account ? label(provider, account) : defaultName(provider) || basename(dir))
+      .replace(/[\x00-\x1f\x7f-\x9f]/g, "")
+      .slice(0, 160),
+    directory: dir,
+    loginId: found?.value.loginId ?? null,
+    email: found?.value.email ?? null,
+  })!;
+  if (descriptions.size >= 256) descriptions.delete(descriptions.keys().next().value!);
+  descriptions.set(id, { at: now, value });
+  return metadata(provider, value);
 }
 let homes: [string, string] = ["", ""];
 /** The folder `account` keeps its settings in, under `~` when it's in the
@@ -235,11 +288,20 @@ export function label(provider: Provider, account: string): string {
 }
 /** Who signed in to `account`, as its provider caches that. */
 export async function identity(provider: Provider, account: string): Promise<Login | null> {
+  let login: Login | null = null;
   try {
-    return await adapter(provider).accounts.identity(directory(provider, account));
-  } catch {
-    return null;
+    login = await adapter(provider).accounts.identity(directory(provider, account));
+  } catch {}
+  const profile = describe(provider, account);
+  if (profile) {
+    const cached = descriptions.get(profile.id)!;
+    cached.value = {
+      ...cached.value,
+      loginId: login?.id ?? null,
+      email: login?.email.includes("@") ? login.email : null,
+    };
   }
+  return login;
 }
 /** Another account of `provider` that `login` signed in to already: the
  * default or one Corgi knows. */
@@ -673,6 +735,8 @@ function make(provider: Provider, dir: string) {
 /** Forgets what `known` and `home` read, after the environment changes. */
 export function reset() {
   defaults.clear();
+  descriptions.clear();
+  readings.clear();
   saved = null;
   found = null;
   gone = null;

@@ -1011,6 +1011,7 @@ test("accounts are read on the daemon's schedule with no one subscribed", async 
     // A subscriber's job shows the next reading without running again.
     expect(worker.cached(process.cwd()).options.claude.limits).toMatchObject({ windows: [null, { used: 11 }] });
     expect(worker.jobs).toHaveLength(0);
+    expect(accounts.describe("claude", "")?.usage?.limits).toMatchObject({ windows: [null, { used: 11 }] });
     worker.preview(process.cwd());
     await worker.pump();
     expect(reads).toBe(1);
@@ -1027,6 +1028,40 @@ test("accounts are read on the daemon's schedule with no one subscribed", async 
   } finally {
     setSystemTime();
     await worker.stop();
+  }
+});
+
+test("the daemon's account schedule publishes login changes without a launcher subscription", async () => {
+  const dir = join(root, "claude"),
+    env = scopedEnv({ CLAUDE_CONFIG_DIR: dir }),
+    worker = new Worker();
+  mkdirSync(dir);
+  const file = join(dir, ".claude.json"),
+    signedIn = (name: string) =>
+      writeFileSync(file, JSON.stringify({ oauthAccount: { emailAddress: `${name}@example.com`, accountUuid: name } }));
+  worker.launcher = async () => stub(async () => new Info());
+  try {
+    accounts.reset();
+    signedIn("first");
+    setSystemTime(new Date(1_000_000_000));
+    worker.sample(idle_every);
+    await worker.pump();
+    expect(worker.jobs).toHaveLength(0);
+    expect(accounts.describe("claude", "")?.email).toBe("first@example.com");
+    signedIn("second");
+    setSystemTime(new Date(1_000_020_000));
+    worker.sample(idle_every);
+    await worker.pump();
+    expect(accounts.describe("claude", "")?.email).toBe("second@example.com");
+    writeFileSync(file, "{}");
+    setSystemTime(new Date(1_000_040_000));
+    worker.sample(idle_every);
+    await worker.pump();
+    expect(accounts.describe("claude", "")).toMatchObject({ loginId: null, email: null });
+  } finally {
+    setSystemTime();
+    await worker.stop();
+    env[Symbol.dispose]();
   }
 });
 

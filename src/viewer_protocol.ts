@@ -195,6 +195,7 @@ function capture(
     resources: resources_hash === resourcesHash ? null : readings,
     resources_hash: resourcesHash,
     surfaces: surfaces ? frames(s, cl) : [],
+    tricks: s.tricks.views(),
     bell_seq: s.bell_seq,
     bell_kind: s.last_bell_kind,
     controls: cl.controls,

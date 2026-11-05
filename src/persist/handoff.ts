@@ -158,6 +158,7 @@ export async function replace(
     throw error;
   }
   // Connections stay open and hold their requests until the candidate commits or fails.
+  await server.tricks.stop();
   server.pause();
   breadcrumbs.record("reloading");
   const fds = new Int32Array(2);
