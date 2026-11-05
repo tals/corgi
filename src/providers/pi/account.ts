@@ -7,7 +7,7 @@ import { Info, Text, Window, used, windows } from "../../usage/account";
 import { Cache, cooldown } from "../../usage/account_cache";
 import { field, str } from "../common";
 import * as codexPlan from "../codex/plan";
-import { credential, identity } from "./accounts";
+import { credential, identity, profile } from "./accounts";
 import { settingsProvider } from "./config";
 import { directory } from "./integration";
 import * as models from "./models";
@@ -67,6 +67,9 @@ export class Client {
         if (selected) info.account = new Text(selected.user || selected.id.split("/")[0]);
         return info;
       }
+      info.email = c.type === "oauth" ? profile(c.value).email || null : null;
+      info.type = c.type === "oauth" ? "oauth" : "api_key";
+      info.login_id = who?.id ?? null;
       info.plan = new Text(c.type === "oauth" ? "OAuth" : "API key");
       // Other providers do not share ChatGPT's subscription endpoint.
       if (provider !== "openai-codex" || c.type !== "oauth") return info;
@@ -76,6 +79,9 @@ export class Client {
         const now = Math.floor(Date.now() / 1000);
         cache.state.info.signed_in = info.signed_in;
         cache.state.info.account = info.account;
+        cache.state.info.email = info.email;
+        cache.state.info.type = info.type;
+        cache.state.info.login_id = info.login_id;
         if (!cache.state.info.plan.len) cache.state.info.plan = info.plan;
         if (max_age > 0 && (now < this.retry_at || now - cache.state.info.usage_fetched_at < max_age))
           return cache.state.display(now);

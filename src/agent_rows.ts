@@ -1,6 +1,7 @@
 //! A workspace's agent rows as the daemon's state builds them: the viewer's
 //! agent list and `corgi watch --json` start from the same rows.
 import * as startup from "./startup";
+import * as trickUi from "./trick_ui";
 import * as sidebar from "./sidebar";
 import * as mirror from "./mirror";
 import * as subagentTooltip from "./subagent_tooltip";
@@ -29,6 +30,14 @@ export function rows(runtime: mirror.Runtime, ws: mirror.Workspace, now_ms: numb
   }
   const rows: Row[] = tabs.flat().map(p => ({
     entry: sidebar.entry({
+      decoration: trickUi.decoration(runtime.tricks, {
+        id: `pane:${p.id}`,
+        provider: p.agent.provider ?? undefined,
+        account: p.agent.account,
+        workspace: ws.id,
+        session: p.agent.session,
+        state: p.agent.state,
+      }),
       conversation: p.agent.conversation,
       target: { pane: p.id },
       starred: starred({ pane: p.id }),
@@ -56,6 +65,14 @@ export function rows(runtime: mirror.Runtime, ws: mirror.Workspace, now_ms: numb
   for (const session of sessions(runtime)) {
     if (session.workspace !== ws.id) continue;
     const entry = sidebar.entry({
+      decoration: trickUi.decoration(runtime.tricks, {
+        id: `headless:${session.id}`,
+        provider: session.provider,
+        account: session.agent?.account,
+        workspace: ws.id,
+        session: session.session,
+        state: session.state,
+      }),
       target: { headless: session.id },
       starred: starred({ headless: session.id }),
       starting: starting({ headless: session.id }),

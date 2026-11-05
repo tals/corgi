@@ -1,5 +1,6 @@
 import { Text } from "../agents";
 import type { Reading } from "./spend";
+import type { Type } from "../account_identity";
 export { Text };
 /** Seconds a reading shows before it reads as stale: two idle reads apart,
  * so one failed read doesn't flag it. */
@@ -24,6 +25,10 @@ export function restoreLimits(value: any): Limits {
 }
 export class Info {
   signed_in: boolean | null = null;
+  /** Structured identity, separate from the account column's fallback text. */
+  email: string | null = null;
+  type: Type | null = null;
+  login_id: string | null = null;
   account = new Text();
   plan = new Text();
   limits: Limits = "none";

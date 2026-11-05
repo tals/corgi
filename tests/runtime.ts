@@ -150,6 +150,7 @@ export class Runtime extends TestCase {
       CODEX_HOME: join(this.temp.name, ".codex"),
       CLAUDE_CONFIG_DIR: join(this.temp.name, ".claude"),
       CORGI_SOCKET: this.path,
+      CORGI_TRICKS_DIR: join(this.temp.name, ".config/corgi/tricks"),
       // The daemon stops if this process dies before tearing it down.
       CORGI_TEST_OWNER: String(process.pid),
       CORGI_BELL: "off",

@@ -596,6 +596,7 @@ function agentView(r: Runtime, a: any, conversation: number) {
     changed_at: a.changed_at,
     working_since: a.working_since,
     provider: a.provider,
+    account: a.account,
     state: a.state,
     attention: a.attention,
     observation: a.observation,
@@ -737,14 +738,26 @@ function build(r: Runtime, viewer: boolean) {
       cols: p.terminal.vt.cols,
       rows: p.terminal.vt.rows,
       exited: p.terminal.exited,
-      agent: agentView(r, p.agent(), p.attachment.actor?.id ?? 0),
+      agent: {
+        ...agentView(r, p.agent(), p.attachment.actor?.id ?? 0),
+        account:
+          p.detection.claim || !p.agent().provider
+            ? null
+            : accounts.metadata(
+                p.agent().provider!,
+                p.agent().account ?? accounts.describe(p.agent().provider!, p.account()),
+              ),
+      },
       account: p.account(),
       restoring: p.restoring(),
       forking: p.ghost?.fork !== null && p.ghost !== null,
       dormant: p.dormant,
     })),
     headless_sessions: r.sessions.map(s => ({
-      agent: agentView(r, s.attachment.agent(), s.attachment.actor?.id ?? 0),
+      agent: {
+        ...agentView(r, s.attachment.agent(), s.attachment.actor?.id ?? 0),
+        account: accounts.metadata(s.provider, s.agent().account ?? accounts.describe(s.provider, s.account)),
+      },
       session: s.session,
       id: s.id,
       workspace: s.workspace_id,

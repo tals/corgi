@@ -100,3 +100,5 @@ $.view.controls[].name: string
 $.view.controls[].value: string
 $.view.viewer: u32
 $.view.detach: bool
+$.view.tricks: optional
+$.view.tricks[]: any

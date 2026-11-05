@@ -4,6 +4,7 @@ import type { Event, Inference, Input, Place } from "../adapter";
 import { API, data, eventSession, items, modelRef, object, tokens, validSession } from "./api";
 import { field, str } from "../common";
 import * as json from "../../json";
+import { Accounts } from "./identity";
 export const outcome = (value: unknown) =>
   value === "interrupted" ? "interrupted" : value === "failed" ? "failed" : "completed";
 export function messageText(value: unknown) {
@@ -37,6 +38,8 @@ export class Engine {
   streamed: { message: string; parts: string[] } = { message: "", parts: [] };
   /** Instructions still to go ahead of the first prompt. */
   instructions: string;
+  private accounts: Accounts;
+  private identities = new Map<string, string>();
   constructor(
     readonly api: API,
     readonly emit: (event: Event) => void,
@@ -44,6 +47,7 @@ export class Engine {
     readonly at: Pick<Place, "model" | "instructions" | "unattended"> = {},
   ) {
     this.instructions = at.instructions ?? "";
+    this.accounts = new Accounts(api);
   }
   async start() {
     const info = data(
@@ -180,6 +184,7 @@ export class Engine {
   }
   /** Marks the conversation due when an event names it or one of its subagents. */
   observe(event: Record<string, unknown>) {
+    if (this.accounts.invalidate(str(event, "type"))) this.due = true;
     const session = eventSession(event);
     if (str(event, "type") === "session.text.delta" && session === this.session && !this.inference)
       this.stream(field(event, "data"));
@@ -207,6 +212,12 @@ export class Engine {
         }
         const context = items(await this.api.call("GET", `/api/session/${session}/context`));
         const info = data(await this.api.call("GET", `/api/session/${session}`));
+        const account = await this.accounts.describe(info),
+          encoded = JSON.stringify(account);
+        if (this.identities.get(session) !== encoded) {
+          this.identities.set(session, encoded);
+          this.emit({ kind: "account", session, account });
+        }
         const last = context.findLast(m => m.type === "assistant" && m.tokens);
         this.emit({
           kind: "usage",

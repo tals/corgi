@@ -17,6 +17,7 @@ export type Source = Preset | readonly Binding[];
  * `repeat-time` but twice its default. */
 export const repeat_ms = 1000;
 const corgiPrefix: Binding[] = [
+  { key: 85, mods: {}, prefixed: true, action: { name: "tricks" } },
   { key: 99, mods: {}, prefixed: true, action: { name: "new" } },
   { key: 110, mods: {}, prefixed: true, action: { name: "next" } },
   { key: 112, mods: {}, prefixed: true, action: { name: "prev" } },

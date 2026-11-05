@@ -29,6 +29,7 @@ export type Request = {
 };
 /** A transcript file, and how far into it usage was counted. */
 export type Position = { inode: number; device: number; offset: number };
+export type RecordSink = (req: Request, record: unknown, bytes: number) => void;
 export class Result {
   actor = 0;
   workspace = 0;
@@ -168,7 +169,7 @@ export class Tail {
     const id = str(message, "model");
     if (id && id !== "<synthetic>") this.model = Model.resolve(id);
   }
-  ingest(req: Request, reader: TranscriptReader, bytes: Buffer | string, start_offset: number) {
+  ingest(req: Request, reader: TranscriptReader, bytes: Buffer | string, start_offset: number, sink?: RecordSink) {
     const telemetry_started = telemetry.begin();
     try {
       if (adapter(req.agent.provider!).caps.prompt_turns) this.progress.bind(req.agent.turnId());
@@ -195,6 +196,7 @@ export class Tail {
               stamp = timestampMs(str(value, "timestamp")),
               delta = reader.record(this, req, value, appended, stamp);
             if (appended && stamp !== null && stamp > req.since) found.add(delta);
+            if (appended) sink?.(req, value, this.partial.length);
           } catch {
             this.live.meter.lose();
           }
@@ -206,7 +208,7 @@ export class Tail {
       telemetry.end("agent.usage.ingest", telemetry_started);
     }
   }
-  async poll(req: Request, reader: TranscriptReader, window?: Window) {
+  async poll(req: Request, reader: TranscriptReader, window?: Window, sink?: RecordSink) {
     const telemetry_started = telemetry.begin();
     try {
       const current = await lstat(req.agent.transcriptPath());
@@ -271,7 +273,7 @@ export class Tail {
         this.offset += bytesRead;
         // Visits during file I/O must also bound the bytes about to be counted.
         req.since = window?.since ?? req.since;
-        return this.ingest(req, reader, bytes.subarray(0, bytesRead), start);
+        return this.ingest(req, reader, bytes.subarray(0, bytesRead), start, sink);
       } finally {
         await file.close();
       }
@@ -281,6 +283,7 @@ export class Tail {
   }
 }
 export class Worker {
+  record?: RecordSink;
   stopping = false;
   pausing = false;
   paused = false;
@@ -403,7 +406,7 @@ export class Worker {
         let delta = new Counts();
         if (req.agent.transcript.len)
           try {
-            delta = await t.poll(req, reader, window);
+            delta = await t.poll(req, reader, window, this.record);
           } catch {
             if (t.live.meter.value.known) t.live.meter.lose();
             t.closeFile();

@@ -585,6 +585,7 @@ export class Worker {
         login.daily = history.daily;
       }
       login.read_at = login.stale ? 0 : Date.now();
+      for (const folder of folders) this.shown(provider, folder, new Option(), cwd);
     })().finally(() => (login.reading = null));
     login.reading = reading;
     return reading;
@@ -609,6 +610,17 @@ export class Worker {
         (out as any)[key] = source[key];
     if (borrowed && source.plan.len) out.plan = source.plan;
     out.login = accounts.identity(provider, account);
+    accounts.record(
+      provider,
+      account,
+      Object.assign(new Info(), own, {
+        plan: out.plan,
+        limits: out.limits,
+        spend: out.spend,
+        usage_fetched_at: out.usage_fetched_at,
+        usage_error: out.usage_error,
+      }),
+    );
     out.history = login.history;
     out.spend_history = login.spend;
     out.spend_daily = login.daily;

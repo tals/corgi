@@ -178,6 +178,7 @@ export async function sync(s: Server, cl: Client, q: Sync, reply = new Reply(cl)
       resources: q.resources_hash === resourcesHash ? null : readings,
       resources_hash: resourcesHash,
       surfaces: q.surfaces ? frames(s, cl) : [],
+      tricks: s.tricks.views(),
       bell_seq: s.bell_seq,
       bell_kind: s.last_bell_kind,
       controls: cl.controls,
