@@ -183,8 +183,8 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     await (await import("./prompt_pane")).run(args.slice(1));
     return;
   }
-  const alias = providerAlias(os.processArgs(process.pid)?.argv[0] ?? process.argv[0]);
-  if (!alias && process.env.CORGI_PANE !== undefined) await updates.route(os.socketPath(), executable, args);
+  const original = args,
+    alias = providerAlias(os.processArgs(process.pid)?.argv[0] ?? process.argv[0]);
   // Agent mode covers the control CLI and help; a provider alias keeps its own flags.
   const choice = agent_mode.flags(args),
     accountHelp =
@@ -224,6 +224,13 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     }
     return;
   }
+  if (
+    !alias &&
+    process.env.CORGI_PANE !== undefined &&
+    (cli.handles(args) ||
+      ["bugreport", "open", "onboard", "checkpoint", "action", "hook", "agent", "headless", "watch"].includes(command))
+  )
+    await updates.route(os.socketPath(), executable, original);
   const asJson = replies.includes(args[0]) && asksJson(args);
   if (asJson) args = args.filter(arg => arg !== "--json");
   const print = async <K extends protocol.Op>(path: string, op: K, ...rest: protocol.Arguments<K>) => {

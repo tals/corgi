@@ -1,5 +1,5 @@
 import { test, expect, spyOn } from "bun:test";
-import { actionNames, ensureServer, failure, providerAlias, paneId, run, say } from "./main";
+import { actionNames, ensureServer, executable, failure, providerAlias, paneId, run, say } from "./main";
 import { specs } from "./action";
 import * as rpc from "./rpc";
 import * as crash from "./crash";
@@ -157,6 +157,29 @@ test("help after an unrelated option never reaches the daemon", async () => {
   } finally {
     request.mockRestore();
     output.mockRestore();
+  }
+});
+test("local pane commands and reload never look up the runtime's executable", async () => {
+  const previous = process.env.CORGI_PANE;
+  process.env.CORGI_PANE = "7";
+  const route = spyOn(updates, "route").mockRejectedValue(Error("UnexpectedRoute")),
+    request = spyOn(rpc, "request").mockResolvedValue({ ok: true }),
+    output = spyOn(process.stdout, "write").mockReturnValue(true);
+  try {
+    for (const args of [["--help"], ["help", "pane", "read"], ["pane", "read", "--help"], ["--version"], ["keys"]])
+      await run(args);
+    expect(request).not.toHaveBeenCalled();
+    await run(["reload"]);
+    expect(request.mock.calls[0]?.slice(1)).toEqual(["server.reload", { executable }]);
+    await run(["reload", "/other/corgi"]);
+    expect(request.mock.calls[1]?.slice(1)).toEqual(["server.reload", { executable: "/other/corgi" }]);
+    expect(route).not.toHaveBeenCalled();
+  } finally {
+    route.mockRestore();
+    request.mockRestore();
+    output.mockRestore();
+    if (previous === undefined) delete process.env.CORGI_PANE;
+    else process.env.CORGI_PANE = previous;
   }
 });
 test("account and integration help routes distinguish human and agent output", async () => {

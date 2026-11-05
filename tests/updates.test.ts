@@ -246,14 +246,21 @@ test("pane commands use their socket's release through the stable launcher", asy
     // Asking for hook snippets creates the same launcher that panes inherit.
     await cli(["hooks", "claude"]);
     const paneEnv = { ...env, CORGI_PANE: "1" };
-    for (const args of [["list"], ["pane", "read", "--contains", "a b"]]) {
+    for (const args of [["list"], ["--no-agent", "list"], ["pane", "read", "--contains", "a b"]]) {
       const result = await exec([launcher, ...args], paneEnv);
       expect(result.out).toBe([target, ...args, ""].join("\n"));
     }
-    expect(asked).toEqual([versioned({ op: "hello" }), versioned({ op: "hello" })]);
+    expect(asked).toEqual([versioned({ op: "hello" }), versioned({ op: "hello" }), versioned({ op: "hello" })]);
   } finally {
     await new Promise<void>(resolve => daemon.close(() => resolve()));
   }
+}, 30_000);
+test("reload from a pane uses the selected executable as its default target", async () => {
+  await cli(["start"]);
+  await cli(["update", "--download-only"]);
+  const target = join(root, "releases/1.0.1/corgi");
+  await exec([target, "reload"], { ...env, CORGI_PANE: "1" });
+  expect((await rpc({ op: "hello" })).executable).toBe(await realpath(target));
 }, 30_000);
 test("background download stages without activating, next start works offline", async () => {
   await cli(["start"]);
