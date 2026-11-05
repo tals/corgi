@@ -28,6 +28,8 @@ export function initial(current: number, entries: Entry[]): Cursor {
 }
 
 export class State {
+  /** Selection keeps the presented pane in view, even after the last mark is cleared. */
+  selecting = false;
   /** The cursor's place in its list, kept for when its row goes away. */
   private index = 0;
   /** The agent row the cursor left for the workspaces, to come back to. */

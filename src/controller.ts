@@ -610,12 +610,10 @@ export class Controller {
     const operation = navigation.moveTab(this.model(), id, gap);
     if (operation) await this.edit(operation);
   }
-  switchWorkspace(id: number, preserve_agents = false): void {
+  switchWorkspace(id: number): void {
     if (this.runtime.workspaces.index(id) === null) throw Error("NoWorkspace");
-    if (!preserve_agents) {
-      this.agent_selection.clear();
-      this.agent_selection_bindings.clear();
-    }
+    this.agent_selection.clear();
+    this.agent_selection_bindings.clear();
     this.observeFocus();
     this.rememberAgent();
     if (this.input_state.tab_drag) this.input_state.tab_drag.cancelled = true;
@@ -792,7 +790,15 @@ export class Controller {
   sidebarGhost(): render.Ghost | null {
     const focus = this.sidebar_focus;
     const cursor = focus?.cursor;
-    if (!focus || !cursor || !("entry" in cursor) || !("pane" in cursor.entry)) return null;
+    if (
+      !focus ||
+      focus.selecting ||
+      this.agent_selection.active() ||
+      !cursor ||
+      !("entry" in cursor) ||
+      !("pane" in cursor.entry)
+    )
+      return null;
     return this.agentGhost(cursor.entry.pane);
   }
   /** The same preview for the sidebar and the archive review, without entering its pane. */
@@ -886,12 +892,12 @@ export class Controller {
     this.repeat_until = again ? Date.now() + bindings.repeat_ms : 0;
     return again && !this.sidebar_focus && !this.reviewKeys();
   }
-  focusPane(id: number, remember = true, preserve_agents = false): void {
+  focusPane(id: number, remember = true): void {
     const owner = this.runtime.workspaces.owner(id);
     if (!owner) throw Error("NoPane");
     this.observeFocus();
     this.rememberAgent();
-    if (owner.id !== this.current().id) this.switchWorkspace(owner.id, preserve_agents);
+    if (owner.id !== this.current().id) this.switchWorkspace(owner.id);
     this.navigation.focus(this.runtime.workspaces, id, remember);
     this.headless_notice = null;
     this.rememberAgent();
@@ -997,6 +1003,7 @@ export class Controller {
   private async selectAgents(act: Action): Promise<void> {
     const focus = this.sidebar_focus;
     if (!focus || focus.section() !== "agents" || !("entry" in focus.cursor)) return;
+    focus.selecting = true;
     const entries = this.sidebarEntries(),
       target = focus.cursor.entry;
     switch (act.name) {
@@ -1054,6 +1061,7 @@ export class Controller {
       hit = view.hit(x, y);
     if (hit.tag === "agent_select" && (button & 3) === 0) {
       this.enterSidebar("agents");
+      if (this.sidebar_focus) this.sidebar_focus.selecting = true;
       this.ui_mouse_down = true;
       return true;
     }
@@ -1083,6 +1091,7 @@ export class Controller {
     }
     if (this.sidebar_focus?.section() !== "agents") this.enterSidebar("agents");
     this.sidebar_focus!.cursor = { entry: e.target };
+    this.sidebar_focus!.selecting = true;
     if (secondary) {
       if (!this.agent_selection.has(e.target)) {
         this.agent_selection.clear();
@@ -1101,14 +1110,6 @@ export class Controller {
       this.agent_selection.ordered(this.agentEntries(undefined, true));
       this.revealCursor(this.sidebarEntries());
     } else await this.perform({ name: "agent-select-toggle" });
-    if (toggle) {
-      const focus = this.sidebar_focus!;
-      this.selectAgent(e.target, true);
-      // Opening an agent in another workspace closes the list; keep its cursor and marks.
-      this.sidebar_open = true;
-      this.giveKeyboard({ sidebar: focus });
-      this.revealCursor(this.sidebarEntries());
-    }
     this.dirty = true;
     return true;
   }
@@ -1697,8 +1698,8 @@ export class Controller {
   private listedSessions(): Headless[] {
     return agentRows.sessions(this.runtime);
   }
-  private selectAgent(target: Target, preserve_agents = false): void {
-    if (sidebar.isAgent(target) && !preserve_agents) {
+  private selectAgent(target: Target): void {
+    if (sidebar.isAgent(target)) {
       this.agent_selection.clear();
       this.agent_selection.point(target);
       this.agent_selection_bindings.clear();
@@ -1717,17 +1718,16 @@ export class Controller {
     this.cancelDividers();
     this.message = "";
     if ("pane" in target) {
-      this.focusPane(target.pane, true, preserve_agents);
+      this.focusPane(target.pane, true);
       this.dirty = true;
     } else if ("headless" in target) {
       const session = this.listedSessions().find(s => s.id === target.headless);
       // The prompt's conversation opens where it is: its Corgi pane, or the card.
-      if (session?.corgi && session.pane !== null && this.pane(session.pane))
-        this.focusPane(session.pane, true, preserve_agents);
+      if (session?.corgi && session.pane !== null && this.pane(session.pane)) this.focusPane(session.pane, true);
       else if (session?.corgi) {
         if (!this.prompt.open) void this.perform({ name: "prompt" });
       } else if (session) {
-        if (session.workspace !== this.current().id) this.switchWorkspace(session.workspace, preserve_agents);
+        if (session.workspace !== this.current().id) this.switchWorkspace(session.workspace);
         this.noticeHeadlessSession(session);
       }
     } else if ("group" in target) this.toggleGroup(target.group);

@@ -100,9 +100,8 @@ export const world: World = {
       ...table([
         ["[Select]", `click below the agents header, or press ${s.prefixName} a`],
         ["Space", "select / deselect the cursor's agent; arrows or j/k move"],
-        ["v", "start a range; move, then v or Enter keeps it; Esc cancels"],
-        ["Shift+↑↓", "extend / shrink a range, keeping earlier separate marks"],
-        ["Ctrl-click", "toggle and focus one agent, when forwarded by the terminal"],
+        ["Shift+↑↓", "select consecutive agents; reverse direction to select fewer"],
+        ["Ctrl-click", "select / deselect an agent without opening it"],
         ["a / m", "select all shown / open bulk actions (star, unread, close panes)"],
         ["Esc", "clear marks, then return to the pane"],
       ]),

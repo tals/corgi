@@ -815,6 +815,32 @@ test("workspace drawer rows remain clickable with an active agent selection", ()
   expect(view.listEnd()).toBe(baseline.listEnd());
 });
 
+test("selection footer buttons match their labels and leave the count and gaps inert", () => {
+  for (const width of [20, 28, 40]) {
+    for (const menu of ["m", "Ctrl+B Opt+M"]) {
+      const view = View.init(100, 30, true, 0, 0).withWidth(width);
+      view.focus = "agents";
+      view.selection = { count: 5, hidden: 0, visual: false, toggle: "Space", menu, range: "v", all: "a" };
+      const lines = hostText(draw(view, [], []), 100, 30).split("\n");
+      expect(lines[27]).toContain("5 selected");
+      expect(lines[28]).toContain("Actions");
+      expect(lines[28]).toContain("[Clear]");
+      expect(lines[28]).not.toContain("range");
+      expect(lines[28]).not.toContain("all");
+      for (const [label, action] of [
+        ["Actions", "agent-select-menu"],
+        ["Clear", "agent-select-clear"],
+      ] as const)
+        for (let x = lines[28].indexOf(label); x < lines[28].indexOf(label) + label.length; x++)
+          expect(view.hit(x, 28)).toEqual({ tag: "agent_selection", action });
+      expect(view.hit(lines[28].indexOf("[Clear]") - 1, 28)).toEqual({ tag: "none" });
+      expect(view.hit(5, 27)).toEqual({ tag: "none" });
+      view.selection.count = 0;
+      expect(view.hit(lines[28].indexOf("Actions"), 28)).toEqual({ tag: "none" });
+    }
+  }
+});
+
 test("scope menu offers only the current workspace and all agents", () => {
   const workspaces = [
     workspaceEntry({ id: 4, name: "corgi", cwd: "/tmp", active: true, agents: 3, working: 2, attention: 1 }),

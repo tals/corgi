@@ -1103,11 +1103,12 @@ export function frame(
     const search = u.sidebar_focus === "agents" && u.sidebar_drawer === null ? i18n.t`/ search  ` : "";
     const toggle = u.agent_selection?.toggle ?? "",
       range = u.agent_selection?.range ?? "";
+    const escape = u.agent_selection?.count ? i18n.t`Esc clear` : i18n.t`Esc back`;
     const sidebar_hint =
       u.sidebar_focus === "agents" && u.agent_selection
         ? u.agent_selection.visual
-          ? i18n.t`RANGE  ↑↓/j/k extend  ${range}/↵ keep  Esc cancel`
-          : i18n.t`SIDEBAR  ↑↓/j/k move  ${toggle} toggle  ${range} range  ↵ open  ${search}Esc back`
+          ? i18n.t`↑↓ select more  ${range}/Enter done  Esc cancel`
+          : i18n.t`↑↓ move  ${toggle} select  ↵ open  ${escape}`
         : i18n.t`SIDEBAR  ↑↓/j/k move  ↵ open  ${search}Esc back`;
     const text =
       hovered_uri ??

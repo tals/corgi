@@ -8,16 +8,18 @@ Click **[Select]** below the agents header, or use **prefix, a** to focus the ag
 | --- | --- |
 | Space | Toggle one agent, keeping the cursor there. |
 | ↑ / ↓ or j / k | Move the cursor without changing existing marks. |
-| v, then movement | Start a contiguous range. v or Enter keeps it; Esc restores the marks from before the range. |
-| Shift+↑ / Shift+↓ | Extend or shrink from the anchor. Earlier independent marks stay selected. |
-| Ctrl-click | Toggle one agent and focus it, keeping other marks, when the terminal forwards the modifier. |
+| Shift+↑ / Shift+↓ | Select consecutive agents from the starting row. Reverse direction to shrink the block. Earlier independent marks stay selected. |
+| Ctrl-click | Select or deselect one agent without opening it or switching workspaces, when the terminal forwards the modifier. |
 | Shift-click | Extend from the anchor, when forwarded. A click during a `v` range chooses its end. |
 | a | Select all agents in unfolded groups in the current scope, including offscreen rows. |
-| m or right-click on a marked agent | Open selection actions. |
+| Actions, m, or right-click on a marked agent | Star, unstar, mark unread, or close the selected agents. |
+| Clear | Deselect all agents. |
 | Esc | Cancel a visual range, otherwise clear marks, then leave the list on the next press. |
 | Plain row click / Enter | Open that agent and clear marks. Enter first commits an active visual range. |
 
-`Space` and `v` are separate commands, not a chord. To collect disjoint groups, mark individual agents with Space, use v and movement for a block, commit it, move to another start, and repeat.
+For a block of consecutive agents, move to the first row and hold Shift while pressing ↑ or ↓. Use Space or Ctrl-click for separate agents. Selection moves the list cursor; the displayed agent stays unchanged until a plain click or Enter opens another one.
+
+An optional `v` shortcut also selects a block: press v on its first row, move to its last row, then press v or Enter to finish. Esc restores the selection from before that block. Space and v are separate commands, not a chord.
 
 The first Ctrl-click outside the focused list starts from the currently focused agent: clicking another adds it, and clicking the same agent deselects it.
 
@@ -27,6 +29,6 @@ All four keymap presets share these list-only defaults. The `agent-select-*` act
 
 Ctrl-click depends on the terminal forwarding SGR mouse modifiers. Shift is often reserved for terminal text selection, and standard SGR mouse reports have no dedicated Command modifier. Space and v work without mouse modifiers; Shift-arrow ranges accept both legacy modified-arrow sequences and Kitty keyboard events.
 
-Selection uses row color, with the existing bar or rail showing focus separately. Selection is private to the viewer. Folding retains marks and shows a hidden count. Search remains a navigation overlay; canceling it restores the marked list. Ordinary workspace switches and opening an agent clear the selection; Ctrl-click keeps it, including across workspaces in All scope. Departed agents and replacement conversations lose their marks.
+Selection uses row color, with the existing bar or rail showing the list cursor separately. Selection is private to the viewer. Folding retains marks and shows a hidden count. Search remains a navigation overlay; canceling it restores the marked list. Ordinary workspace switches and opening an agent clear the selection. Ctrl-click keeps the displayed agent and workspace unchanged, including when selecting across workspaces in All scope. Departed agents and replacement conversations lose their marks.
 
 Cache Alert: while marks or a visual range exist, each viewer holds the list's order and grouping in memory, plus agent identities for range members and bulk actions. Statuses refresh from snapshots, removed agents drop out, and new rows wait until selection clears or the scope or sort changes. Changing scope or sort keeps marks and commits the current range, then captures the new order. The held order prevents activity sorting from moving a range while it is being selected; it is released when selection ends and is never saved to disk.

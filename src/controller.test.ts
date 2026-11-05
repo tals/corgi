@@ -1239,7 +1239,7 @@ test("prefixed arrows walk the panes into the sidebar, which opens the agent und
     // Inside the repeat window, the next arrow needs no prefix.
     await s.input(bytes("\x1b[D"));
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 1 } });
-    expect(s.frame()).toContain("SIDEBAR");
+    expect(s.frame()).toContain("↑↓ move");
     // Plain arrows stay in the agent list and wrap, past its section's
     // header, inside the repeat window too.
     await s.input(bytes("\x1b[B"));
@@ -1324,7 +1324,7 @@ test("/ searches the focused agent list and Esc comes back to it; letters and th
     s.focusPane(1);
     await s.input(bytes("\x02\x1b[D"));
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 1 } });
-    expect(s.frame()).toContain("toggle");
+    expect(s.frame()).toContain("Space select");
     await s.input(bytes("x"));
     expect(s.agent_picker).toBeNull();
     await s.input(bytes("\x1b[B"));
@@ -1467,6 +1467,12 @@ test("the sidebar's cursor ghosts an agent no pane shows, where entering it puts
     const ghost = s.sidebarGhost();
     expect(ghost.pane.id).toBe(3);
     expect(ghost.area).toEqual(s.area());
+    // Selecting and then deselecting the row must keep the current pane visible.
+    await s.input(bytes(" "));
+    expect(s.sidebarGhost()).toBeNull();
+    await s.input(bytes(" "));
+    expect(s.agent_selection.targets).toEqual([]);
+    expect(s.sidebarGhost()).toBeNull();
     await s.key(13);
     expect(s.focused().id).toBe(3);
     expect(s.layoutView().placements(s.area())).toEqual([{ id: 3, rect: ghost.rect }]);
@@ -3081,7 +3087,7 @@ test("the prompt's conversation is a Corgi agent while a Corgi pane holds it, an
     expect(s.firstUnreadAgent(0)).toEqual({ headless: 7 });
     const focus = spyOn(s, "focusPane");
     s.selectAgent({ headless: 7 });
-    expect(focus).toHaveBeenCalledWith(1, true, false);
+    expect(focus).toHaveBeenCalledWith(1, true);
     expect(s.prompt.open).toBe(false);
     // Its row's menu stays open while the row does.
     const menu = new TabMenu({ tab: 7, headless: true, anchor_x: 0 });
@@ -4280,7 +4286,7 @@ test.each(["ctrl_a", "ctrl_b"] as const)("custom agent shortcuts retain the %s p
     expect(s.sidebar_focus).not.toBeNull();
     await s.input(bytes("\x1b[118;5u"));
     expect(s.agent_selection.visual).toBe(true);
-    expect(s.frame()).toContain("RANGE");
+    expect(s.frame()).toContain("↑↓ select more");
     await s.input(bytes(lead));
     expect(s.prefix).toBe(true);
   } finally {
@@ -4390,7 +4396,7 @@ test("changing agent sort refreshes held ordering and grouping without clearing 
   }
 });
 
-test("Ctrl-click toggles and focuses agents while Shift-click extends their selection", async () => {
+test("Ctrl-click toggles agents without opening them while Shift-click extends their selection", async () => {
   const { s } = steering();
   try {
     s.prefs.agent_sort = "manual";
@@ -4412,11 +4418,11 @@ test("Ctrl-click toggles and focuses agents while Shift-click extends their sele
     expect(s.agent_selection.targets).toEqual([{ pane: 1 }]);
     await click(16, 12, row(2));
     expect(s.agent_selection.targets).toEqual([{ pane: 1 }, { pane: 2 }]);
-    expect(s.focused().id).toBe(2);
+    expect(s.focused().id).toBe(1);
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 2 } });
     await click(16, 12, row(2));
     expect(s.agent_selection.targets).toEqual([{ pane: 1 }]);
-    expect(s.focused().id).toBe(2);
+    expect(s.focused().id).toBe(1);
     await s.input(bytes(" "));
     expect(s.agent_selection.targets).toEqual([{ pane: 1 }, { pane: 2 }]);
     await s.input(bytes(" "));
@@ -4426,11 +4432,11 @@ test("Ctrl-click toggles and focuses agents while Shift-click extends their sele
     await s.input(bytes("v"));
     await click(16, 12, row(2));
     expect(s.agent_selection.visual).toBe(false);
-    expect(s.focused().id).toBe(2);
+    expect(s.focused().id).toBe(1);
     // An ordinary click opens the row; its release refreshes from the daemon.
     s.refresh = async () => s.receiveSnapshot(pair());
-    await click(0, 2, row(1));
-    expect(s.focused().id).toBe(1);
+    await click(0, 2, row(2));
+    expect(s.focused().id).toBe(2);
     expect(s.agent_selection.targets).toEqual([]);
   } finally {
     viewer.close(s);
@@ -4455,7 +4461,7 @@ test.each([1, 2])("first Ctrl-click on pane %s starts from the previously focuse
       throw Error("MissingAgentRow");
     };
     await click();
-    expect(s.focused().id).toBe(clicked);
+    expect(s.focused().id).toBe(1);
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: clicked } });
     expect(s.agent_selection.targets).toEqual(clicked === 1 ? [] : [{ pane: 1 }, { pane: 2 }]);
     // Once the list owns focus, an empty set is deliberate and must stay empty until toggled.
@@ -4467,7 +4473,7 @@ test.each([1, 2])("first Ctrl-click on pane %s starts from the previously focuse
   }
 });
 
-test("Ctrl-click in All focuses another workspace without dropping marks or list focus", async () => {
+test("Ctrl-click in All selects across workspaces without switching the presented agent", async () => {
   const { s, sent } = steering();
   try {
     s.prefs.agent_sort = "manual";
@@ -4485,10 +4491,11 @@ test("Ctrl-click in All focuses another workspace without dropping marks or list
       throw Error("MissingAgentRow");
     };
     await click(3);
-    expect(s.current().id).toBe(2);
-    expect(s.focused().id).toBe(3);
+    expect(s.current().id).toBe(1);
+    expect(s.focused().id).toBe(1);
     expect(s.agent_selection.targets).toEqual([{ pane: 1 }, { pane: 3 }]);
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 3 } });
+    expect(s.sidebarGhost()).toBeNull();
     s.receiveSnapshot(pair());
     expect(s.agent_selection.targets).toEqual([{ pane: 1 }, { pane: 3 }]);
     await click(1);
@@ -4496,6 +4503,10 @@ test("Ctrl-click in All focuses another workspace without dropping marks or list
     expect(s.focused().id).toBe(1);
     expect(s.agent_selection.targets).toEqual([{ pane: 3 }]);
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 1 } });
+    await click(3);
+    expect(s.agent_selection.targets).toEqual([]);
+    expect(s.focused().id).toBe(1);
+    expect(s.sidebarGhost()).toBeNull();
     s.switchWorkspace(2);
     expect(s.agent_selection.targets).toEqual([]);
     expect(sent).toEqual([]);

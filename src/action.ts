@@ -217,7 +217,7 @@ export function title(action: Action): string {
     "find-agent": i18n.t`Find agent`,
     "choose-agent": i18n.t`Choose agent`,
     "agent-select-toggle": i18n.t`Agents: toggle selection`,
-    "agent-select-range": i18n.t`Agents: start / keep range`,
+    "agent-select-range": i18n.t`Agents: select consecutive agents`,
     "agent-select-all": i18n.t`Agents: select all shown`,
     "agent-select-clear": i18n.t`Agents: clear selection`,
     "agent-select-up": i18n.t`Agents: extend selection up`,

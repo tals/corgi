@@ -589,7 +589,7 @@ export type Hit =
   | { tag: "agent_select" }
   | {
       tag: "agent_selection";
-      action: "agent-select-menu" | "agent-select-clear" | "agent-select-range" | "agent-select-all";
+      action: "agent-select-menu" | "agent-select-clear";
     }
   /** A badge counting agents scrolled out of sight, and the scroll that shows the nearest. */
   | { tag: "active"; offset: number }
@@ -1064,25 +1064,34 @@ export class View {
   tabX(): number {
     return this.width > 0 && this.drawer === null ? this.width : this.cols >= 64 ? 3 : 0;
   }
+  private selectionButtons() {
+    const menu = this.selection!.menu;
+    const clear = i18n.t`[Clear]`;
+    const x = Math.max(2, this.width - 1 - displayWidth(clear));
+    const width = Math.max(0, x - 2);
+    const actions = i18n.t`[${menu} Actions]`;
+    return [
+      {
+        x: 1,
+        width,
+        text: menu !== "·" && displayWidth(actions) <= width ? actions : i18n.t`Actions`,
+        action: "agent-select-menu" as const,
+      },
+      { x, width: this.width - 1 - x, text: clear, action: "agent-select-clear" as const },
+    ];
+  }
   hit(x: number, y: number): Hit {
     if (this.framed()) return this.lists().hit(x - lists_x, y);
     const v = this;
     if (v.width === 0) return v.cols >= 64 && x < 3 && y === 0 ? hit("toggle") : hit("none");
     if (x >= v.width - 1 || y >= v.rows) return hit("none");
-    if (v.selection && !v.search && v.drawer !== "workspaces" && y >= v.rows - 3 && y < v.rows - 1)
-      return {
-        tag: "agent_selection",
-        action:
-          y === v.rows - 3
-            ? x >= v.width - 9
-              ? "agent-select-clear"
-              : "agent-select-menu"
-            : x < Math.floor(v.width / 3)
-              ? "agent-select-menu"
-              : x >= Math.floor((v.width * 2) / 3)
-                ? "agent-select-all"
-                : "agent-select-range",
-      };
+    if (v.selection && !v.search && v.drawer !== "workspaces" && y >= v.rows - 3 && y < v.rows - 1) {
+      if (y === v.rows - 2 && v.selection.count > 0)
+        for (const b of v.selectionButtons())
+          if (x >= b.x && x < b.x + Math.min(b.width, displayWidth(b.text)))
+            return { tag: "agent_selection", action: b.action };
+      return hit("none");
+    }
     if (!v.search && !v.selection && v.focus !== "agents" && v.drawer === null && y === v.middle() + 1 && x < 10)
       return hit("agent_select");
     if (y === 0 && v.drawer !== "agents") {
@@ -1304,20 +1313,16 @@ export class View {
       v.line(w, v.middle() + 1, i18n.t`[Select]`, new Style({ fg: "muted", bg: "bg" }).sgr());
     v.drawAgents(w, entries, now_ms);
     if (v.selection && !v.search) {
-      const { count, hidden, visual, menu, range, all } = v.selection;
+      const { count, hidden } = v.selection;
       const summary = hidden ? i18n.t`${count} · ${hidden} hidden` : i18n.t`${count} selected`;
       v.line(w, v.rows - 3, " ".repeat(v.width - 3), new Style({ fg: "strong", bg: "surface" }).sgr());
       w.write(w.cup(v.rows - 2, 2));
-      writeClipped(w, summary, v.width - 10);
-      w.write(w.cup(v.rows - 2, v.width - 7) + fg("muted") + "[Esc ×]");
-      const third = Math.floor(v.width / 3);
+      writeClipped(w, summary, v.width - 3);
       v.line(w, v.rows - 2, " ".repeat(v.width - 3), new Style({ fg: "muted", bg: "surface" }).sgr());
-      w.write(w.cup(v.rows - 1, 2));
-      writeClipped(w, i18n.t`${menu} menu`, third - 1);
-      w.write(w.cup(v.rows - 1, third + 1) + fg(visual ? "accent" : "muted"));
-      writeClipped(w, visual ? i18n.t`${range} keep` : i18n.t`${range} range`, third - 1);
-      w.write(w.cup(v.rows - 1, third * 2 + 1) + fg("muted"));
-      writeClipped(w, i18n.t`${all} all`, v.width - third * 2 - 2);
+      for (const b of v.selectionButtons()) {
+        w.write(w.cup(v.rows - 1, b.x + 1) + fg(count > 0 ? "strong" : "faint"));
+        writeEllipsis(w, b.text, b.width);
+      }
     }
   }
   /** The focused list's box: the lists' view draws its right edge and the

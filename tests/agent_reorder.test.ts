@@ -80,18 +80,22 @@ class AgentReorder extends Viewers {
     );
   }
 
-  async test_ctrl_click_focuses_the_clicked_agent_and_keeps_other_marks() {
+  async test_ctrl_click_selects_without_changing_the_presented_agent() {
     const [a, b] = await this.agents();
     const viewer = await this.newViewer();
     await viewer.focus(a);
     await viewer.input(mouse(16, 6, 18) + mouse(16, 6, 18, true));
-    this.assertEqual(viewer.state.pane, b);
+    this.assertEqual(viewer.state.pane, a);
     this.assertIn("2 selected", screen_text(viewer.state.data, 100, 30).join("\n"));
+    this.assertNotIn("↓ Agent-1 ↓", screen_text(viewer.state.data, 100, 30).join("\n"));
     await viewer.input(mouse(16, 6, 16) + mouse(16, 6, 16, true));
     this.assertEqual(viewer.state.pane, a);
     this.assertIn("1 selected", screen_text(viewer.state.data, 100, 30).join("\n"));
     await viewer.input("ms");
     this.assertEqual((await this.session()).workspaces[0].pinned_agents, [{ pane: b }]);
+    await viewer.input("\x1b[B\r");
+    this.assertEqual(viewer.state.pane, b);
+    this.assertNotIn("1 selected", screen_text(viewer.state.data, 100, 30).join("\n"));
   }
 
   async test_selection_menu_restores_the_agents_drawer_after_cancel_and_action() {
