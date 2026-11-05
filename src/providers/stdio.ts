@@ -5,10 +5,12 @@ import { n, ptr } from "../native_bridge";
 import { native as fdNative } from "../fd_loop";
 import * as json from "../json";
 import * as binary from "../base64";
-import type { Saved } from "./adapter";
-/** Input still to write, and a line still being read, at most. */
+import { max_image_bytes, max_images, type Saved } from "./adapter";
+/** Room for an accepted prompt's inline images, plus its text and controls.
+ * Providers may echo the same images back in a user message. */
 const max_output = 1024 * 1024,
-  max_line = 4 * 1024 * 1024;
+  max_prompt = max_images * Math.ceil(max_image_bytes / 3) * 4 + max_output,
+  max_line = max_prompt + 4 * 1024 * 1024;
 function pipe() {
   const fds = new Int32Array(2);
   if (n.probe_pipe(ptr(fds)) !== 0) throw Error("PipeFailed");
@@ -63,7 +65,7 @@ export class Stdio {
   write(value: unknown) {
     if (this.closed || this.exited) throw Error("HeadlessExited");
     const line = Buffer.from(json.stringify(value) + "\n");
-    if (this.output.length + line.length - 1 > max_output) throw Error("HeadlessBackpressure");
+    if (this.output.length + line.length - 1 > max_prompt) throw Error("HeadlessBackpressure");
     this.output = Buffer.concat([this.output, line]);
   }
   /** Queues a tool reply, or waits for earlier output to drain. One large
@@ -79,7 +81,7 @@ export class Stdio {
     while (this.output.length && this.stdin >= 0) {
       const size = n.probe_write(this.stdin, ptr(this.output), this.output.length);
       if (size <= 0) break;
-      this.output = Buffer.from(this.output.subarray(size));
+      this.output = this.output.subarray(size);
     }
   }
   /** The JSON values it printed since the last call; a line that isn't JSON is skipped. */
