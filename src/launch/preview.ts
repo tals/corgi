@@ -2,7 +2,7 @@ import { watch, type FSWatcher } from "node:fs";
 import { basename, dirname } from "node:path";
 import { Quit } from "../subprocess";
 import { Provider, adapter, byProvider, Text } from "../providers";
-import type { Launcher } from "../providers/adapter";
+import type { Launcher, Login as Identity } from "../providers/adapter";
 import { Model } from "../providers/model";
 import { Info, serializeLimits } from "../usage/account";
 import * as limitHistory from "../usage/limits";
@@ -35,6 +35,7 @@ export class Option {
   source = new Text();
   account = new Text();
   plan = new Text();
+  login: Identity | null = null;
   limits: Info["limits"] = "none";
   spend: Info["spend"] = null;
   usage_fetched_at = 0;
@@ -42,6 +43,7 @@ export class Option {
   usage_needs_consent = false;
   history = limitHistory.none();
   spend_history = limitHistory.noSpend();
+  spend_daily: limitHistory.SpendDay[] = [];
   toJSON() {
     return { ...this, limits: serializeLimits(this.limits) };
   }
@@ -93,6 +95,7 @@ class Login {
   infos = new Map<string, Info>();
   history = limitHistory.none();
   spend = limitHistory.noSpend();
+  daily: limitHistory.SpendDay[] = [];
 }
 /** A fresh usage reading, which other folders of its account can show. */
 function usable(info: Info) {
@@ -127,6 +130,7 @@ export class Worker {
   removed: row.Removed = { agent_hidden: byProvider(() => false), account_hidden: [], commands: [] };
   private checked = 0;
   private sampling = false;
+  private cached_accounts = new Preview().with({ pending: false });
   private installs: { at: number; installed: Preview["installed"]; outdated: Preview["outdated"] } | null = null;
   /** The folder of each file a launcher reads, watched by file. */
   watching = new Map<string, FSWatcher>();
@@ -202,6 +206,10 @@ export class Worker {
   }
   preview(cwd: string, refresh = false) {
     return this.request(cwd, false, refresh);
+  }
+  /** Latest account snapshot: no job, discovery, provider read or refresh. */
+  cached() {
+    return this.cached_accounts;
   }
   trackUsage(cwd: string) {
     return this.request(cwd, true);
@@ -384,11 +392,13 @@ export class Worker {
               }
             : { options: { ...job.preview.options, [provider]: option } },
         );
+        this.cached_accounts = job.preview;
       }),
     );
     if (this.stopping) return;
     if (this.jobs.includes(job)) {
       job.preview = job.preview.with({ pending: job.queued });
+      this.cached_accounts = job.preview;
       job.accessing = false;
       job.updated = Date.now();
     }
@@ -445,13 +455,20 @@ export class Worker {
    * folder's preview, so subscribers needn't wait for their next refresh. */
   private async round() {
     const before = new Map([...this.logins].map(([key, login]) => [key, login.read_at])),
-      skip = this.skipped();
+      skip = this.skipped(),
+      listed = this.list(new Preview());
     // A saved agent that kept a removed row read may be gone.
     this.close(skip);
-    await Promise.all(this.groups(this.rows(this.list(new Preview()), skip)).map(group => this.read(group)));
-    if (this.stopping || [...this.logins].every(([key, login]) => before.get(key) === login.read_at)) return;
+    await Promise.all(this.groups(this.rows(listed, skip)).map(group => this.read(group)));
+    if (this.stopping) return;
     // A skipped row's folder may share a login read for another, or read before it was removed.
     const shown = (l: row.Launch, option: Option) => (skip(l) ? option : this.shown(l.provider, l.account, option));
+    this.cached_accounts = listed.with({
+      pending: false,
+      options: byProvider(p => shown({ provider: p, account: "" }, listed.options[p])),
+      accounts: listed.accounts.map(a => ({ ...a, option: shown(a, a.option) })),
+    });
+    if ([...this.logins].every(([key, login]) => before.get(key) === login.read_at)) return;
     for (const job of this.jobs)
       job.preview = job.preview.with({
         options: byProvider(p => shown({ provider: p, account: "" }, job.preview.options[p])),
@@ -497,6 +514,7 @@ export class Worker {
         const history = await limitHistory.update(provider, id, shown, this.stopping);
         login.history = history.sparks;
         login.spend = history.spend;
+        login.daily = history.daily;
       }
       login.read_at = login.stale ? 0 : Date.now();
     })().finally(() => (login.reading = null));
@@ -522,8 +540,10 @@ export class Worker {
       for (const key of ["limits", "spend", "usage_fetched_at", "usage_error"] as const)
         (out as any)[key] = source[key];
     if (borrowed && source.plan.len) out.plan = source.plan;
+    out.login = accounts.identity(provider, account);
     out.history = login.history;
     out.spend_history = login.spend;
+    out.spend_daily = login.daily;
     return out;
   }
   /** What `account` of `p` would start with in `cwd`. */

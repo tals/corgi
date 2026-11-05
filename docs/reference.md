@@ -427,6 +427,21 @@ or put them back, as Manage agents' **Show in** column does; `launcher list`
 says what each workspace shows.
 Commands do not implicitly start a missing runtime.
 
+`corgi usage --json` returns cached usage and history once, one account per
+subscription in launcher order. With no daemon it returns
+`{"running":false,"accounts":[]}`. It uses the read-only `agent.preview.cached`
+RPC and requires a daemon running the updated binary. Each account has raw
+`limits`, `history` in the provider's window order, `spend`, `spend_history`, `usage_fetched_at` and
+`usage_error`. Limit samples divide each window evenly from its start to its
+reset; gaps stay null and decreases remain. Limit history currently retains
+14 samples per window. Spend history returns every retained daily reading,
+including prior billing periods, as `{day, period_start, used_minor}`; `day` is
+the UTC day's start in Unix seconds. The cache retains up to 32 daily readings.
+Spend amounts use `spend.exponent` minor units and `spend.currency` (null means
+provider credits). Stale readings keep their timestamp and error so consumers
+can decide freshness. Consumers choose their own range, sampling, labels and
+formatting.
+
 When a coding agent (Claude Code, Codex, Cursor, Gemini CLI, Copilot, or one
 that sets `AI_AGENT`) runs these commands through a pipe, `pane read` trims
 line ends, shortens rules and collapses blank runs. `--agent` and `--no-agent`

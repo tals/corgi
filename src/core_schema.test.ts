@@ -126,6 +126,7 @@ function fixture() {
   server.clients.push(client);
   const preview = new Preview();
   preview.options.claude.limits = "metered";
+  preview.options.claude.login = { id: "user/org", email: "me@work.dev", service: "claude", workspace: "org" };
   preview.options.claude.spend = {
     used_minor: 59,
     limit_minor: null,
@@ -134,6 +135,10 @@ function fixture() {
     period_start: 1790812800,
     reset_at: 1793491200,
   };
+  preview.options.claude.spend_daily = [
+    { day: 1790726400, period_start: 1788220800, used_minor: 12000 },
+    { day: 1790812800, period_start: 1790812800, used_minor: 59 },
+  ];
   preview.options.codex.limits = "metered";
   preview.options.codex.spend = {
     used_minor: 38820,
@@ -166,7 +171,7 @@ test("the runtime wire matches protocol.version", () => {
   // `hello` and `server.reload` stay on 1 so new clients find old daemons; see HACKING.md.
   expect(protocol.management_version).toBe(1);
   expect(createHash("sha256").update(schemas.protocol).digest("hex")).toBe(
-    "a36902f796c0770d75d23ba5e39ae605799bc63f782ff083dabf653aa7ea612b",
+    "d094d26db751ea30812d3f177ab16581cb9f119b5c70086355bbbb53020d169b",
   );
   const { server, client, dispose } = fixture();
   try {
@@ -177,6 +182,14 @@ test("the runtime wire matches protocol.version", () => {
     validate(schemas.protocol, { launch_preview: preview });
     expect(restorePreview(preview).options.claude.spend).toEqual(client.launch_preview!.preview.options.claude.spend);
     expect(restorePreview(preview).options.codex.spend).toEqual(client.launch_preview!.preview.options.codex.spend);
+    expect(restorePreview(preview).options.claude.login).toEqual(client.launch_preview!.preview.options.claude.login);
+    delete preview.options.claude.login;
+    expect(restorePreview(preview).options.claude.login).toBeNull();
+    expect(restorePreview(preview).options.claude.spend_daily).toEqual(
+      client.launch_preview!.preview.options.claude.spend_daily,
+    );
+    delete preview.options.claude.spend_daily;
+    expect(restorePreview(preview).options.claude.spend_daily).toEqual([]);
     delete preview.options.claude.spend;
     expect(restorePreview(preview).options.claude.spend).toBeNull();
     expect(snapshot.panes[0].agent.session).toBe("schema-session");
@@ -263,7 +276,7 @@ test("saved handoff format matches its version", async () => {
   expect(handoff_version).toBe(6);
   expect(checkpoint_version).toBe(6);
   expect(createHash("sha256").update(schemas.handoff).digest("hex")).toBe(
-    "f877e2dac9f54ca468b7ed1c3bd3bb2bead06b4e66c544308c9e1492b9954ebb",
+    "b08ebd85fba209d688e118a6587a52759cf118cb07ec6200b64d1e3f782ddce1",
   );
   const { server, client, dispose } = fixture();
   const summaries = new Worker();
@@ -293,6 +306,12 @@ test("saved handoff format matches its version", async () => {
     expect(captured.runtime.panes[0].binding.actor).toBe(1);
     expect(captured.clients).toHaveLength(1);
     expect(captured.clients[0].launch_preview.preview.options.claude.spend.used_minor).toBe(59);
+    expect(captured.clients[0].launch_preview.preview.options.claude.login).toEqual(
+      client.launch_preview!.preview.options.claude.login,
+    );
+    expect(captured.clients[0].launch_preview.preview.options.claude.spend_daily).toEqual(
+      client.launch_preview!.preview.options.claude.spend_daily,
+    );
     expect(captured.summaries.pool.slots).toHaveLength(4);
     expect(captured.usage[0].position.offset).toBe(42);
     expect(captured.usage[0].file.offset).toBe(42);

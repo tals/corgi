@@ -154,7 +154,12 @@ test("omp identity follows the default model's provider in its credential databa
     db.close();
     expect(identity(root)?.email).toBe("anthropic API key");
     writeFileSync(join(root, "config.yml"), "modelRoles:\n  default: openai-codex/gpt-6.1-sol\n");
-    expect(identity(root)).toEqual({ email: "me@x.dev", id: "openai-codex:u1/a1" });
+    expect(identity(root)).toEqual({
+      email: "me@x.dev",
+      id: "openai-codex:u1/a1",
+      service: "chatgpt",
+      workspace: "a1",
+    });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

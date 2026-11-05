@@ -83,6 +83,7 @@ export const adapter: Adapter = {
     return line.startsWith("codex-cli ") && /^\d/.test(line.slice("codex-cli ".length));
   },
   accounts: {
+    service: "chatgpt",
     env: vocabulary.config_env,
     home: configDir,
     prefix: ".codex-",

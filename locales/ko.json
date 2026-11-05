@@ -50,6 +50,7 @@
   "  corgi update auto on|off      control automatic updates": "  corgi update auto on|off      자동 업데이트 켜기 / 끄기",
   "  corgi update rollback         return to the previous release": "  corgi update rollback         이전 릴리스로 되돌리기",
   "  corgi update status           show update status": "  corgi update status           업데이트 상태 표시",
+  "  corgi usage --json            print each account's limits and spend as JSON": "  corgi usage --json            각 계정의 한도와 사용액을 JSON으로 출력",
   "  corgi watch --json            print agent states as JSON lines as they change": "  corgi watch --json            에이전트 상태가 바뀔 때마다 JSON 줄로 출력",
   "  corgi which claude|codex      show automatically selected executable": "  corgi which claude|codex      자동 선택된 실행 파일 표시",
   "  corgi workspace archive ID        hibernate panes and hide the workspace": "  corgi workspace archive ID        창을 최대 절전 모드로 전환하고 작업 공간 숨기기",

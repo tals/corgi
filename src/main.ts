@@ -496,6 +496,13 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
       await watch.command(path);
       return;
     }
+    case "usage": {
+      // Never starts a daemon either; one that isn't running has no readings.
+      if (args.length !== 2 || args[1] !== "--json") throw Error("Usage");
+      const usage = await import("./usage_report");
+      await usage.command(path);
+      return;
+    }
     default:
       throw Error("UnknownCommand");
   }

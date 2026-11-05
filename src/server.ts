@@ -754,6 +754,7 @@ export class Server {
         await launch.request(this, cl, request, reply);
         return;
       case "agent.preview":
+      case "agent.preview.cached":
       case "agent.track_usage":
       case "agent.subscribe":
       case "agent.history": {

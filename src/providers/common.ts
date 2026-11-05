@@ -3,9 +3,20 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { BoundedText } from "../bounded_text";
 import path from "node:path";
 import { field, str } from "../json";
-import { max_image_bytes, type Image, type Permissions, type Programs } from "./adapter";
+import { max_image_bytes, type Image, type Permissions, type Programs, type Service } from "./adapter";
 export { field, str } from "../json";
 export type Outcome = "completed" | "interrupted" | "failed";
+/** The subscription behind a Pi or omp model provider's OAuth sign-in. */
+export function service(model_provider: string): Service | null {
+  switch (model_provider) {
+    case "openai-codex":
+      return "chatgpt";
+    case "anthropic":
+      return "claude";
+    default:
+      return null;
+  }
+}
 export type SessionRef = { id: string } | { path: string };
 export const refText = (r: SessionRef) => ("id" in r ? r.id : r.path);
 export function validRef(r: SessionRef) {

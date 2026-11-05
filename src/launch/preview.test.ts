@@ -401,6 +401,7 @@ test("folders signed in to one account share a read, through the folder that wor
     for (const a of worker.preview("/project").accounts) {
       expect(a.option.usage_error.text()).toBe("");
       expect(a.option.limits).toMatchObject({ windows: [null, { used: 40 }] });
+      expect(a.option.login).toEqual({ id: "user/org", email: "me@work.dev", service: "claude", workspace: "org" });
     }
     // The next read starts with the folder that worked; the other only checks its sign-in.
     calls.length = 0;
@@ -416,6 +417,59 @@ test("folders signed in to one account share a read, through the folder that wor
     await worker.pump();
     expect(calls[0]).toEqual(["fresh", 0]);
   } finally {
+    await worker.stop();
+  }
+});
+
+test("previews carry each cached spend day across a billing reset", async () => {
+  sameLogin(["fresh"]);
+  const worker = new Worker(),
+    day = 86400;
+  let at = 99 * day + day / 2,
+    period_start = 70 * day,
+    used_minor = 12000;
+  worker.launcher = async (provider, account = "") => ({
+    account: async () =>
+      provider === "claude" && account
+        ? Object.assign(reading(0), {
+            usage_fetched_at: at,
+            limits: "metered",
+            spend: {
+              used_minor,
+              limit_minor: 100000,
+              currency: "USD",
+              exponent: 2,
+              period_start,
+              reset_at: period_start + 31 * day,
+            },
+          })
+        : new Info(),
+    model: async () => ({ model: "", source: "test" }),
+    close() {},
+  });
+  try {
+    for (const values of [
+      [99, 70, 12000],
+      [100, 100, 200],
+      [101, 100, 150],
+    ]) {
+      at = values[0] * day + day / 2;
+      period_start = values[1] * day;
+      used_minor = values[2];
+      setSystemTime(new Date(at * 1000));
+      worker.preview("/project", true);
+      await worker.pump();
+    }
+    const option = worker.preview("/project").accounts[0].option;
+    expect(option.spend_daily).toEqual([
+      { day: 99 * day, period_start: 70 * day, used_minor: 12000 },
+      { day: 100 * day, period_start: 100 * day, used_minor: 200 },
+      { day: 101 * day, period_start: 100 * day, used_minor: 150 },
+    ]);
+    expect(option.spend_history).toHaveLength(14);
+    expect(option.spend!.used_minor).toBe(150);
+  } finally {
+    setSystemTime();
     await worker.stop();
   }
 });
@@ -437,6 +491,8 @@ test("accounts are read on the daemon's schedule with no one subscribed", async 
     await worker.pump();
     expect(reads).toBe(1);
     // A subscriber's job shows the next reading without running again.
+    expect(worker.cached().options.claude.limits).toMatchObject({ windows: [null, { used: 11 }] });
+    expect(worker.jobs).toHaveLength(0);
     worker.preview("/project");
     await worker.pump();
     expect(reads).toBe(1);
@@ -453,6 +509,61 @@ test("accounts are read on the daemon's schedule with no one subscribed", async 
   } finally {
     setSystemTime();
     await worker.stop();
+  }
+});
+
+test("cached readings follow account edits sampled after a workspace stops requesting previews", async () => {
+  listed(["kept", "removed"]);
+  const worker = new Worker(),
+    start = 1_000_000_000;
+  let reads = 0,
+    models = 0;
+  worker.launcher = async () => ({
+    account: async () => {
+      reads++;
+      return reading(42);
+    },
+    model: async () => {
+      models++;
+      return { model: "opus", source: "test" };
+    },
+    close() {},
+  });
+  try {
+    setSystemTime(new Date(start));
+    worker.preview(root);
+    await worker.pump();
+    const before = worker.cached(),
+      initialReads = reads,
+      initialModels = models;
+    expect(before.accounts.map(a => a.name)).toEqual(["kept", "removed"]);
+
+    listed(["kept", "added"]);
+    setSystemTime(new Date(start + 60_000));
+    worker.sample(idle_every);
+    await worker.pump();
+    const added = worker.cached();
+    expect(added.accounts.map(a => a.name)).toEqual(["kept", "added"]);
+    expect(added.accounts[1].option.limits).toMatchObject({ windows: [null, { used: 42 }] });
+    expect(reads).toBe(initialReads + 1);
+
+    accounts.rename(accounts.known()[0], "renamed");
+    accounts.renameDefault("claude", "personal");
+    setSystemTime(new Date(start + 120_000));
+    worker.sample(idle_every);
+    await worker.pump();
+    const renamed = worker.cached();
+    expect(renamed.accounts.map(a => a.name)).toEqual(["renamed", "added"]);
+    expect(renamed.names.claude).toBe("personal");
+    expect(reads).toBe(initialReads + 1);
+    expect(models).toBe(initialModels);
+    expect(worker.jobs).toHaveLength(1);
+    expect(worker.jobs[0]).toMatchObject({ used: start, updated: start, queued: false });
+    expect(before.accounts.map(a => a.name)).toEqual(["kept", "removed"]);
+    expect(added.accounts.map(a => a.name)).toEqual(["kept", "added"]);
+  } finally {
+    await worker.stop();
+    setSystemTime();
   }
 });
 

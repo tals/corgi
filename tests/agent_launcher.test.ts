@@ -1,7 +1,18 @@
 /** Real viewer launch controls and read-only agent previews. */
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { registerCase, writeExecutable, shellJoin, quote, sleep, EXE, ROOT, JsonSocket, versioned } from "./support";
+import {
+  registerCase,
+  writeExecutable,
+  shellJoin,
+  quote,
+  sleep,
+  run,
+  EXE,
+  ROOT,
+  JsonSocket,
+  versioned,
+} from "./support";
 import { Runtime, screen_text } from "./runtime";
 import { Viewer } from "./viewer_client";
 import { byProvider } from "../src/providers";
@@ -460,6 +471,47 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     const row = rows.find(row => row.includes("Work") && row.includes("work@example.com"));
     this.assertIn("✓", row);
     this.assertIn("(cached)", row);
+  }
+  async test_usage_json_reads_cached_data_with_daemon_account_identities() {
+    const work = join(this.temp.name, "work-account");
+    mkdirSync(work);
+    const identity = (workspace: string) => ({
+      oauthAccount: { emailAddress: "claude@example.com", accountUuid: "user", organizationUuid: workspace },
+    });
+    writeFileSync(join(this.env.CLAUDE_CONFIG_DIR!, ".claude.json"), JSON.stringify(identity("personal")));
+    writeFileSync(join(work, ".claude.json"), JSON.stringify(identity("team")));
+    writeFileSync(join(work, "metadata.json"), "{}");
+    writeFileSync(
+      join(this.env.XDG_STATE_HOME!, "corgi", "accounts.json"),
+      JSON.stringify({ accounts: [{ provider: "claude", dir: work, name: "work", managed: false }] }),
+    );
+    await this.restart_runtime();
+    const preview = async () =>
+      (await this.rpc({ op: "agent.preview", workspace: this.ws, cwd: this.launchDir })).preview;
+    await this.until(async () => !(await preview()).pending, 12);
+    const before = [this.metadataRequests(), lines(join(work, "metadata-requests.jsonl"))];
+    const expected = JSON.parse(await this.run_cli("usage", "--json"));
+    const actual = JSON.parse(
+      (await run([EXE, "usage", "--json"], { env: { ...this.env, CLAUDE_CONFIG_DIR: work }, cwd: this.temp.name }))
+        .stdout,
+    );
+    this.assertEqual(actual, expected);
+    const claude = actual.accounts.filter((a: any) => a.provider === "claude");
+    this.assertEqual(
+      claude.map((a: any) => a.name),
+      ["", "work"],
+    );
+    for (const account of claude) {
+      this.assertEqual(windows(account), claudeWindows);
+      this.assertEqual(account.history.length, 2);
+      this.assertFalse("windows" in account);
+      this.assertFalse("amount" in account);
+    }
+    const unvisited = join(this.temp.name, "unvisited");
+    const cached = (await this.rpc({ op: "agent.preview.cached", workspace: this.ws, cwd: unvisited })).preview;
+    this.assertEqual(cached.options.claude.login.workspace, "personal");
+    this.assertEqual(cached.accounts[0].option.login.workspace, "team");
+    this.assertEqual([this.metadataRequests(), lines(join(work, "metadata-requests.jsonl"))], before);
   }
   async test_signed_out_claude_is_hidden_but_manageable() {
     await this.run_cli("shutdown");

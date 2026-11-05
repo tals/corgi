@@ -330,6 +330,8 @@ $.requests|agent.command.preview.request: u64
 $.requests|agent.command.preview.command: string
 $.requests|agent.preview.workspace: u32
 $.requests|agent.preview.cwd: string
+$.requests|agent.preview.cached.workspace: u32
+$.requests|agent.preview.cached.cwd: string
 $.requests|agent.track_usage.workspace: u32
 $.requests|agent.track_usage.cwd: string
 $.requests|agent.history.follow: bool
@@ -1025,6 +1027,11 @@ $.launch_preview.options{provider}.model_name: custom bounded_text.BoundedText(1
 $.launch_preview.options{provider}.source: custom bounded_text.BoundedText(160)
 $.launch_preview.options{provider}.account: custom bounded_text.BoundedText(160)
 $.launch_preview.options{provider}.plan: custom bounded_text.BoundedText(160)
+$.launch_preview.options{provider}.login: optional
+$.launch_preview.options{provider}.login?.id: string
+$.launch_preview.options{provider}.login?.email: string
+$.launch_preview.options{provider}.login?.service: enum chatgpt claude
+$.launch_preview.options{provider}.login?.workspace: string
 $.launch_preview.options{provider}.limits: one of
 $.launch_preview.options{provider}.limits|none: {}
 $.launch_preview.options{provider}.limits|metered: {}
@@ -1052,6 +1059,9 @@ $.launch_preview.options{provider}.history[2][14]?: u8
 $.launch_preview.options{provider}.spend_history[14].minor: optional
 $.launch_preview.options{provider}.spend_history[14].minor?: f64
 $.launch_preview.options{provider}.spend_history[14].earlier: bool
+$.launch_preview.options{provider}.spend_daily[].day: i64
+$.launch_preview.options{provider}.spend_daily[].period_start: i64
+$.launch_preview.options{provider}.spend_daily[].used_minor: f64
 $.launch_preview.installed{provider}: bool
 $.launch_preview.outdated{provider}: string
 $.launch_history.epoch: u64

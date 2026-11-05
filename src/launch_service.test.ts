@@ -29,6 +29,45 @@ afterAll(() => {
   accounts.reset();
   rmSync(home, { recursive: true, force: true });
 });
+test("cached previews neither create jobs nor refresh old ones", async () => {
+  const server: any = { runtime: { ...nothingRemoved(), getWorkspace: () => ({ cwd: "/tmp" }) } },
+    messages: any[] = [],
+    client: any = { queue: (value: any) => messages.push(value) },
+    s = service(server),
+    pump = spyOn(s.launch_previews, "pump"),
+    follow = spyOn(s, "follow"),
+    cached = () =>
+      request(server, client, {
+        op: "agent.preview.cached",
+        payload: protocol.decode("agent.preview.cached", { workspace: 1 }),
+      });
+  try {
+    await cached();
+    expect(messages[0].preview.pending).toBe(false);
+    expect(s.launch_previews.jobs).toHaveLength(0);
+    const before = new Preview().with({ pending: false }),
+      job = {
+        cwd: "/tmp",
+        preview: before,
+        queued: false,
+        updated: 1,
+        used: 2,
+        accessing: false,
+        request_access: false,
+      };
+    s.launch_previews.jobs.push(job);
+    await cached();
+    expect(messages[1].preview).toBe(messages[0].preview);
+    expect(job).toMatchObject({ queued: false, updated: 1, used: 2 });
+    expect(pump).not.toHaveBeenCalled();
+    expect(follow).not.toHaveBeenCalled();
+  } finally {
+    pump.mockRestore();
+    follow.mockRestore();
+    await stop(server);
+  }
+});
+
 test("new preview subscribers refresh sign-in after a pending pass", async () => {
   const server: any = { runtime: { ...nothingRemoved(), getWorkspace: () => ({ cwd: "/tmp" }) } },
     messages: any[] = [],

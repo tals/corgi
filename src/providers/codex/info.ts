@@ -47,7 +47,9 @@ export function identity(root: string): Login | null {
     const claims = JSON.parse(Buffer.from(auth.tokens?.id_token?.split(".")[1] ?? "", "base64url").toString()),
       email = claims.email,
       workspace = auth.tokens?.account_id || claims["https://api.openai.com/auth"]?.chatgpt_account_id || "";
-    return typeof email === "string" && email ? { email, id: `${claims.sub || email}/${workspace}` } : null;
+    return typeof email === "string" && email
+      ? { email, id: `${claims.sub || email}/${workspace}`, service: "chatgpt", workspace }
+      : null;
   } catch {
     return null;
   }

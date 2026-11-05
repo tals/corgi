@@ -106,6 +106,8 @@ export const messages: Record<TranslatedLocale, Record<string, Message>> = {
     '["  corgi update rollback         return to the previous release"]': () =>
       `  corgi update rollback         回退到上一版本`,
     '["  corgi update status           show update status"]': () => `  corgi update status           查看更新状态`,
+    '["  corgi usage --json            print each account\'s limits and spend as JSON"]': () =>
+      `  corgi usage --json            以 JSON 输出各账号的额度和花费`,
     '["  corgi watch --json            print agent states as JSON lines as they change"]': () =>
       `  corgi watch --json            状态变化时以 JSON 行输出智能体状态`,
     '["  corgi which claude|codex      show automatically selected executable"]': () =>
@@ -1461,6 +1463,8 @@ ${v1} 使用该账号。
     '["  corgi update rollback         return to the previous release"]': () =>
       `  corgi update rollback         前のリリースに戻す`,
     '["  corgi update status           show update status"]': () => `  corgi update status           更新状況を表示`,
+    '["  corgi usage --json            print each account\'s limits and spend as JSON"]': () =>
+      `  corgi usage --json            各アカウントの上限と利用額を JSON で出力`,
     '["  corgi watch --json            print agent states as JSON lines as they change"]': () =>
       `  corgi watch --json            エージェントの状態が変わるたびJSON行で出力`,
     '["  corgi which claude|codex      show automatically selected executable"]': () =>
@@ -2856,6 +2860,8 @@ Corgiに登録された全アカウントが対象になります。--accountで
       `  corgi update rollback         이전 릴리스로 되돌리기`,
     '["  corgi update status           show update status"]': () =>
       `  corgi update status           업데이트 상태 표시`,
+    '["  corgi usage --json            print each account\'s limits and spend as JSON"]': () =>
+      `  corgi usage --json            각 계정의 한도와 사용액을 JSON으로 출력`,
     '["  corgi watch --json            print agent states as JSON lines as they change"]': () =>
       `  corgi watch --json            에이전트 상태가 바뀔 때마다 JSON 줄로 출력`,
     '["  corgi which claude|codex      show automatically selected executable"]': () =>
@@ -4246,6 +4252,8 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
       `  corgi update rollback         вернуться к предыдущей версии`,
     '["  corgi update status           show update status"]': () =>
       `  corgi update status           показать состояние обновления`,
+    '["  corgi usage --json            print each account\'s limits and spend as JSON"]': () =>
+      `  corgi usage --json            вывести лимиты и расходы каждого аккаунта в JSON`,
     '["  corgi watch --json            print agent states as JSON lines as they change"]': () =>
       `  corgi watch --json            выводить состояния агентов строками JSON при изменении`,
     '["  corgi which claude|codex      show automatically selected executable"]': () =>

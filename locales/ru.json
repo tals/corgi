@@ -50,6 +50,7 @@
   "  corgi update auto on|off      control automatic updates": "  corgi update auto on|off      настроить автообновления",
   "  corgi update rollback         return to the previous release": "  corgi update rollback         вернуться к предыдущей версии",
   "  corgi update status           show update status": "  corgi update status           показать состояние обновления",
+  "  corgi usage --json            print each account's limits and spend as JSON": "  corgi usage --json            вывести лимиты и расходы каждого аккаунта в JSON",
   "  corgi watch --json            print agent states as JSON lines as they change": "  corgi watch --json            выводить состояния агентов строками JSON при изменении",
   "  corgi which claude|codex      show automatically selected executable": "  corgi which claude|codex      показать автоматически выбранный исполняемый файл",
   "  corgi workspace archive ID        hibernate panes and hide the workspace": "  corgi workspace archive ID        усыпить панели и скрыть рабочее пространство",
