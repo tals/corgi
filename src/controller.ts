@@ -1151,6 +1151,7 @@ export class Controller {
     this.closeMenu();
     if (back) {
       this.giveKeyboard({ sidebar: back });
+      if (back.drawer) this.sidebar_open = true;
       this.revealCursor(this.sidebarEntries());
     }
   }

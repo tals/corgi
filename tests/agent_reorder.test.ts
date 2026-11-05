@@ -94,6 +94,29 @@ class AgentReorder extends Viewers {
     this.assertEqual((await this.session()).workspaces[0].pinned_agents, [{ pane: b }]);
   }
 
+  async test_selection_menu_restores_the_agents_drawer_after_cancel_and_action() {
+    const [a] = await this.agents(),
+      viewer = await this.newViewer();
+    const sidebar = () =>
+      screen_text(viewer.state.data, 100, 30)
+        .slice(1)
+        .map(row => row.slice(0, 27))
+        .join("\n");
+    await viewer.focus(a);
+    await viewer.input("\x02b\x02a ");
+    this.assertIn("1 selected", sidebar());
+    await viewer.input("m");
+    await viewer.input("\x1b[27u");
+    this.assertIn("1 selected", sidebar());
+    await viewer.input("ms");
+    this.assertEqual((await this.session()).workspaces[0].pinned_agents, [{ pane: a }]);
+    this.assertIn("1 selected", sidebar());
+    await viewer.input("\x1b[27u");
+    this.assertIn("0 selected", sidebar());
+    await viewer.input("\x1b[27u");
+    this.assertNotIn("agents:", sidebar());
+  }
+
   async test_iterm2_drag_uses_open_hand_and_resets_after_release() {
     await this.agents();
     this.env.TERM_PROGRAM = "iTerm.app";
