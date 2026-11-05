@@ -7,6 +7,9 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ${{ inputs.os }}
@@ -50,8 +53,16 @@ jobs:
         run: bun typecheck.ts --ci
       - name: Unit tests
         run: bun test src
+      - name: Restore integration timings
+        uses: actions/cache/restore@v6
+        with:
+          path: .zig-cache/integration-timings/baseline
+          key: integration-timings-v1-${{ inputs.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: integration-timings-v1-${{ inputs.os }}-
       - name: Pack build
-        run: tar -czf build.tgz dist/corgi-test dist/corgi-test.build.json native/zig-out
+        run: |
+          mkdir -p .zig-cache/integration-timings/baseline
+          tar -czf build.tgz dist/corgi-test dist/corgi-test.build.json native/zig-out .zig-cache/integration-timings/baseline
       - uses: actions/upload-artifact@v7
         with:
           name: build-${{ inputs.os }}
@@ -80,7 +91,10 @@ jobs:
       - run: bun run landingpage:build
 
   integration:
-    name: integration (${{ matrix.shard }}/4)
+    permissions:
+      contents: read
+      checks: write
+    name: integration · ${{ matrix.shard }}/4
     needs: build
     strategy:
       fail-fast: false
@@ -104,4 +118,30 @@ jobs:
           name: build-${{ inputs.os }}
       - run: tar -xzf build.tgz
       - name: Integration tests
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CORGI_TEST_CHECK_ID: ${{ job.check_run_id }}
         run: bun integration.ts --shard ${{ matrix.shard }}/4 --retry
+      - name: Upload integration timings
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: integration-timings-${{ inputs.os }}-${{ matrix.shard }}
+          path: .zig-cache/integration-timings/current/*.json
+          if-no-files-found: ignore
+          retention-days: 3
+
+  timings:
+    name: save integration timings
+    needs: integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: integration-timings-${{ inputs.os }}-*
+          path: .zig-cache/integration-timings/baseline
+          merge-multiple: true
+      - uses: actions/cache/save@v6
+        with:
+          path: .zig-cache/integration-timings/baseline
+          key: integration-timings-v1-${{ inputs.os }}-${{ github.run_id }}-${{ github.run_attempt }}

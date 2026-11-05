@@ -13,7 +13,7 @@ import { installer, manifests as releaseManifests } from "../scripts/release.ts"
 import { Scope } from "../scripts/process_scope";
 import { flock } from "../src/native_bridge";
 import * as updates from "../src/updates";
-const base = await mkdtemp(join(tmpdir(), "corgi-updates-"));
+let base: string;
 const keys = generateKeyPairSync("ed25519");
 const publicKey = Buffer.from(keys.publicKey.export({ type: "spki", format: "der" }))
   .subarray(-32)
@@ -85,6 +85,7 @@ async function waitFor(fn: () => Promise<boolean>) {
   throw new Error("Timed out");
 }
 beforeAll(async () => {
+  base = await mkdtemp(join(tmpdir(), "corgi-updates-"));
   const current = await readFile(EXE);
   for (const v of ["1.0.0", "1.0.1", "1.0.2", "1.0.3"]) {
     const binary = v === "1.0.0" && process.env.CORGI_OLD_EXE ? await readFile(process.env.CORGI_OLD_EXE) : current;

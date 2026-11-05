@@ -4,7 +4,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 // Lower this when you remove a sleep.
-const budget = 77;
+// Reporter fixtures exercise overlapping tests, timeouts, and updates before exit.
+const budget = 82;
 
 test("the suites sleep no more than the budget", () => {
   let count = 0;
