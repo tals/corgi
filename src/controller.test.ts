@@ -3382,6 +3382,15 @@ test("a double-click on a workspace row edits its name; Escape keeps the old one
     await s.input(bytes("\x03Edited\r"));
     expect(sent).toEqual([{ "workspace.edit": { target: 1, name: "Edited" } }]);
     expect(s.inline_rename).toBeNull();
+    // An empty name is refused, as in the dialog; the field stays open.
+    await twice({ workspace: 1 });
+    await s.input(bytes("\x03\r"));
+    expect(sent).toHaveLength(1);
+    expect(s.inline_rename.message).toBe("Enter a workspace name.");
+    expect(s.frame()).toContain("Enter a workspace name.");
+    await s.key(27);
+    expect(s.inline_rename).toBeNull();
+    expect(sent).toHaveLength(1);
   } finally {
     setSystemTime();
     viewer.close(s);

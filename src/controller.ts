@@ -2270,6 +2270,12 @@ export class Controller {
     if (open.saving) return;
     const name = open.field.name();
     if ("agent" in open.target && name.length === 0) return this.closeInlineRename();
+    // As in the dialog, a workspace keeps a name: an empty one is refused.
+    if (name.length === 0) {
+      open.message = i18n.t`Enter a workspace name.`;
+      this.dirty = true;
+      return;
+    }
     open.saving = true;
     const failure = await this.applyName(open.target, name);
     open.saving = false;
