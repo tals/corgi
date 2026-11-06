@@ -687,6 +687,111 @@ test("a paste goes to the field that owned the keyboard when it began", async ()
   expect(s.pasteTarget()).toBe("discard");
 });
 
+test.each([false, true])("large pane pastes arrive in chunks (bracketed: %s)", async bracketed => {
+  const s = controller();
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  const term = s.focused().terminal,
+    sent = spyOn(term, "send"),
+    payload = "hé🐶\t\r\n\x02".repeat(8192);
+  if (bracketed) term.inner.feed("\x1b[?2004h");
+  try {
+    await s.input(bytes(`\x1b[200~${payload}\x1b[201~z`));
+    expect(Buffer.from(term.pending).toString()).toBe(bracketed ? `\x1b[200~${payload}\x1b[201~z` : payload + "z");
+    expect(sent).toHaveBeenCalledTimes(bracketed ? 4 : 2);
+    expect(s.input_state.paste).toBeNull();
+    expect(s.input_state.keybuf).toEqual([]);
+    expect(s.prefix).toBe(false);
+  } finally {
+    sent.mockRestore();
+    viewer.close(s);
+  }
+});
+
+test("paste markers and UTF-8 survive every read boundary", async () => {
+  const data = bytes("x\x1b[200~hé🐶\r\nok\x1b[201~y");
+  for (let split = 1; split < data.length; split++) {
+    const s = controller();
+    s.receiveSnapshot(folders("/a"));
+    s.input_state.attached = true;
+    try {
+      await s.perform({ name: "prompt" });
+      await s.input(data.subarray(0, split));
+      await s.input(data.subarray(split));
+      expect(s.prompt.area.text).toBe("xhé🐶\noky");
+      expect(s.input_state.paste).toBeNull();
+      expect(s.input_state.keybuf).toEqual([]);
+      expect(s.focused().terminal.pending).toEqual([]);
+    } finally {
+      viewer.close(s);
+    }
+  }
+});
+
+test("a paste terminator waits across delayed reads", async () => {
+  const s = controller();
+  s.input_state.attached = true;
+  s.name_dialog = Dialog.init({ rename: 1 }, "");
+  try {
+    setSystemTime(new Date(1000));
+    await s.input(bytes("\x1b[200~a"));
+    for (const byte of bytes("\x1b[201~")) {
+      await s.input(Uint8Array.of(byte));
+      setSystemTime(new Date(Date.now() + 2000));
+      await s.expireInput();
+    }
+    await s.input(bytes("b"));
+    expect(s.name_dialog.name()).toBe("ab");
+    expect(s.input_state.paste).toBeNull();
+    expect(s.input_state.keybuf).toEqual([]);
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("paste chunks keep their pane when a dialog opens and stop if the pane closes", async () => {
+  const s = controller();
+  s.receiveSnapshot(folders("/a"));
+  s.input_state.attached = true;
+  const term = s.focused().terminal;
+  try {
+    await s.input(bytes("\x1b[200~first"));
+    s.name_dialog = Dialog.init({ rename: 1 }, "");
+    await s.input(bytes(" second\x1b[A\x1b[O\x1b[<0;1;1M"));
+    expect(Buffer.from(term.pending).toString()).toBe("first second\x1b[A\x1b[O\x1b[<0;1;1M");
+    expect(s.input_state.watched).toBe(true);
+    expect(s.name_dialog.name()).toBe("");
+    s.receiveSnapshot(folders());
+    s.name_dialog = Dialog.init({ rename: 2 }, "");
+    await s.input(bytes("discarded\x1b[201~typed"));
+    expect(s.name_dialog.name()).toBe("typed");
+    expect(s.input_state.paste).toBeNull();
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("discarded paste chunks cannot invoke shortcuts", async () => {
+  const s = controller();
+  s.input_state.attached = true;
+  const key = spyOn(s, "key").mockResolvedValue(undefined),
+    mouse = spyOn(s, "mouse").mockResolvedValue(undefined),
+    payload = "\x02c\r\x1b[A\x1b[O\x1b[<0;1;1Mé🐶".repeat(2048);
+  try {
+    await s.input(bytes(`\x1b[200~${payload}\x1b[201~z`));
+    expect(key.mock.calls).toEqual([[122]]);
+    expect(mouse).not.toHaveBeenCalled();
+    expect(s.input_state.watched).toBe(true);
+    expect(s.input_state.paste).toBeNull();
+    expect(s.input_state.keybuf).toEqual([]);
+  } finally {
+    key.mockRestore();
+    mouse.mockRestore();
+    viewer.close(s);
+  }
+});
+
 test("keys stay on the name while the folder field doesn't fit", async () => {
   const s = controller();
   s.input_state.attached = true;

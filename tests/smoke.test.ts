@@ -717,10 +717,26 @@ process.stdin.on('data',data=>appendFileSync(log,data));process.stdin.resume();`
     await other.request({ op: "input", data: "\x02n" });
     this.assertEqual(other.state.pane, panes[1]);
     this.assertEqual(this.client!.state.pane, panes[0]);
+    // A possible terminator waits for the next read, even past the real Escape timeout.
     await this.input("\x1b[");
-    await this.until(() => readFileSync(logs[0], "utf8") === "\x1b[200~\x1b[");
-    await this.input("PASTED_TEXT\x1b[201~");
-    await this.until(() => readFileSync(logs[0], "utf8") === "\x1b[200~\x1b[PASTED_TEXT\x1b[201~");
+    await sleep(0.1);
+    await this.settle();
+    this.assertEqual(readFileSync(logs[0], "utf8"), "\x1b[200~");
+    await this.input("PASTED_TEXT");
+    const pasted = "\x1b[200~\x1b[PASTED_TEXT";
+    await this.until(() => readFileSync(logs[0], "utf8") === pasted);
+    // An incomplete sequence that cannot end the paste still expires to its owner.
+    await this.input("\x1b[9");
+    await sleep(0.1);
+    await this.until(() => readFileSync(logs[0], "utf8") === pasted + "\x1b[9");
+    await this.input("\x1b[20");
+    await sleep(0.1);
+    await this.settle();
+    this.assertEqual(readFileSync(logs[0], "utf8"), pasted + "\x1b[9");
+    await this.input("1~");
+    await this.until(() => readFileSync(logs[0], "utf8") === pasted + "\x1b[9\x1b[201~");
+    await this.input("\x02n");
+    this.assertEqual(this.client!.state.pane, panes[1]);
     this.assertEqual(readFileSync(logs[1], "utf8"), "");
   }
   async test_paused_viewer_receives_latest_state_on_next_sync() {

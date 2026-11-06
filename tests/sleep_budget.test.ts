@@ -5,7 +5,8 @@ import { join } from "node:path";
 
 // Lower this when you remove a sleep.
 // Reporter fixtures exercise overlapping tests, timeouts, and updates before exit.
-const budget = 82;
+// Paste markers exercise the real Escape timeout across delayed reads.
+const budget = 85;
 
 test("the suites sleep no more than the budget", () => {
   let count = 0;
