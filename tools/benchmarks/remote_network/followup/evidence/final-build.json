@@ -1,0 +1,12 @@
+{
+  "builtAt": "2026-11-06T18:52:36.334Z",
+  "target": "linux-x64",
+  "bunVersion": "1.4.4",
+  "testBuild": false,
+  "releaseVersion": "0.1.0-dev",
+  "releaseCommit": "59a7fa4c81211a48065f7c56fb2383126b44468c-dirty",
+  "sha256": "e526d0b2aea5d3ebc4a3e18979f65127f3dea28f3b14b62a0f45eba1d98eb07b",
+  "sourceSHA256": "9324e9f7bebfe7f881ebdf3b24d03845ea5827d9b19182edb6e22e1dc211acb5",
+  "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+  "inputsSHA256": "b98f0bb0e02034babf86c0edf0261306013779ac13187d599b276ea337e5dac8"
+}

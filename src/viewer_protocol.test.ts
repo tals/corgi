@@ -20,6 +20,8 @@ import {
   sync,
   surfaces,
   image,
+  start,
+  receipt,
 } from "./viewer_protocol";
 import { Pane, Ghost } from "./runtime";
 import { Terminal } from "./pane/terminal";
@@ -185,6 +187,22 @@ test("viewer wire version checked on every exchange", () => {
   expect(compatible({ viewer_protocol: version })).toBe(true);
   for (const value of [null, version, {}, { viewer_protocol: String(version) }, { viewer_protocol: version - 1 }])
     expect(() => requireVersion(value)).toThrow("IncompatibleViewerProtocol");
+});
+test("incremental streams are opt-in and missing handoff state asks for a fresh base", async () => {
+  const server = fixture(),
+    client = peer(server);
+  const request = protocol.decode("viewer.stream", { sequence: 1, interests: [] });
+  const legacy = await start(server, client, request);
+  expect(legacy.frame).toBeUndefined();
+  expect(legacy.view.patches).toBeUndefined();
+  expect(client.stream?.delivery).toBeUndefined();
+  const next = await start(server, client, { ...request, incremental: true, sequence: 2 });
+  expect(next.frame).toBe(1n);
+  expect(next.view.patches).toEqual([]);
+  expect(receipt(server, client, { sequence: 1, frame: 99n, active: false })).toBe(false);
+  expect(receipt(server, client, { sequence: 2, frame: 1n, active: false })).toBe(true);
+  client.stream = null;
+  expect(receipt(server, client, { sequence: 2, frame: 1n, active: false })).toBe(false);
 });
 test("interest bounds and repeated pane validation match daemon", () => {
   expect(() => validateInterests([{ pane: 1, cols: 500, rows: 200 }])).not.toThrow();

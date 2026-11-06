@@ -20,7 +20,7 @@ Each direction has a token-bucket bandwidth limiter (`tbf`) and a child
 The host's interfaces,
 routes, firewall, SSH configuration and running application sessions are not
 changed. The harness removes its processes, namespaces, keys and temporary
-runtime on exit; application logs and workload receipts are retained.
+runtime on exit; SSH logs, terminal recordings and workload receipts are retained.
 
 ```mermaid
 flowchart LR

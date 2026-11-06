@@ -24,6 +24,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("summary")
     parser.add_argument("output")
+    parser.add_argument("--note", help="Context to place above the measurement tables")
     args = parser.parse_args()
     summary = json.loads(Path(args.summary).read_text())
     output = Path(args.output).resolve()
@@ -38,6 +39,8 @@ def main():
         "are counted separately and do not become zero-second successes. These "
         "small samples do not estimate population reliability or confidence intervals.\n",
     ]
+    if args.note:
+        parts.append(args.note + "\n")
 
     def table(title, headings, rows):
         parts.append(f"\n## {title}\n")

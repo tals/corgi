@@ -1,0 +1,114 @@
+Counting tests · 0 finished · 0 running
+Testing · 0% · 0/61 finished · 0 running · ~8m left
+bun test v1.4.4 (38afee6c8) 1x PARALLEL
+
+tests/reloads.test.ts:
+(pass) Reloads > test_candidate_rejects_incompatible_or_partly_restored_state_without_killing_panes [2332.13ms]
+(pass) Reloads > test_cold_migration_upgrades_only_after_successful_restore [3024.34ms]
+(pass) Reloads > test_cold_recovery_preserves_layout_cwd_history_and_resume_hint [3206.26ms]
+Testing · 4% · 3/61 finished · 1 running · ~8m left
+(pass) Reloads > test_cold_recovery_resumes_the_agent_in_its_pane_once_focused [3845.57ms]
+(pass) Reloads > test_failed_candidate_rolls_back_and_can_retry [1765.49ms]
+(pass) Reloads > test_fragmented_rpc_and_paste_survive [1779.91ms]
+(pass) Reloads > test_handoff_keeps_the_host_theme_in_open_panes [1547.24ms]
+Testing · 11% · 7/61 finished · 1 running · ~8m left
+(pass) Reloads > test_handoff_preserves_processes_viewers_and_queued_controls [2767.30ms]
+(pass) Reloads > test_headless_cold_recovery_displays_resume_without_starting_agent [3011.84ms]
+(pass) Reloads > test_headless_partial_initialization_and_deferred_request_survive [2215.06ms]
+(pass) Reloads > test_headless_session_retains_pid_approvals_and_transport [2430.78ms]
+(pass) Reloads > test_management_version_is_strict_and_independent_of_runtime [1527.40ms]
+Testing · 19% · 12/61 finished · 1 running · ~8m left
+(pass) Reloads > test_missing_directory_and_removed_socket_directory_do_not_lose_recovery [1916.92ms]
+(pass) Reloads > test_pipelined_requests_remain_ordered_across_handoff [1517.53ms]
+(pass) Reloads > test_recovery_prefills_editable_command_until_enter [5291.88ms]
+Testing · 24% · 15/61 finished · 1 running · ~7m left
+(pass) Reloads > test_reload_drops_input_a_blocked_pane_never_read [3175.74ms]
+(pass) Reloads > test_removed_attachment_cannot_create_a_shell_or_block_reload [1758.48ms]
+(pass) Reloads > test_v2_migration_preserves_processes_viewers_and_inference_counts [2186.39ms]
+(pass) Reloads > test_workspace_names_survive_handoff [1978.99ms]
+
+tests/remote.test.ts:
+Testing · 31% · 19/61 finished · 1 running · ~7m left
+(pass) SSH machines > test_a_network_change_is_raced_without_waiting_for_the_timeout_and_typing_lands_once [12447.43ms]
+(pass) SSH machines > test_a_pane_exit_with_a_live_stream_keeps_the_machine_usable [4314.38ms]
+(pass) SSH machines > test_all_agents_lists_both_machines_and_clicking_a_remote_agent_focuses_it_there [4370.51ms]
+Testing · 36% · 22/61 finished · 1 running · ~7m left
+(pass) SSH machines > test_all_workspaces_default_inline_dropdown_and_cross_machine_mouse_and_keyboard_navigation [4838.03ms]
+Testing · 37% · 23/61 finished · 1 running · ~7m left
+(pass) SSH machines > test_blackhole_times_out_and_reconnects_automatically_without_replaying_queued_input [12293.20ms]
+Testing · 39% · 24/61 finished · 1 running · ~7m left
+(pass) SSH machines > test_clearing_then_typing_does_not_flicker_when_an_empty_redraw_catches_up [7751.28ms]
+(pass) SSH machines > test_cli_routes_paths_input_and_context_to_the_selected_machine [5434.90ms]
+Testing · 42% · 26/61 finished · 1 running · ~6m left
+(pass) SSH machines > test_dropdown_retry_bypasses_backoff_and_repeated_disconnects_do_not_mix_generations [9761.14ms]
+Testing · 44% · 27/61 finished · 1 running · ~6m left
+(pass) SSH machines > test_image_paste_cancels_on_switch_or_disconnect_and_the_next_paste_works [13355.24ms]
+image upload receiver progress: 6, 50, 68, 87%
+(pass) SSH machines > test_image_upload_progress_follows_the_caret_until_remote_delivery [6484.72ms]
+Testing · 47% · 29/61 finished · 1 running · ~6m left
+instant editing at 240ms RTT: [11,7,5,5,7,5,7,5,5,5,5,5,5,5,6,5,5,5,5,5,5,5,10,5,5,5,5,5,5]ms; exact input delivery verified
+(pass) SSH machines > test_instant_editing_keeps_wrapped_drafts_and_recovers_after_completion [9317.44ms]
+Testing · 49% · 30/61 finished · 1 running · ~6m left
+instant remote wrap: 12.1ms with 240ms RTT; off and blackhole recovery verified
+(pass) SSH machines > test_instant_typing_wraps_locally_off_waits_and_a_blackhole_discards_only_the_preview [9695.62ms]
+Testing · 50% · 31/61 finished · 1 running · ~6m left
+(pass) SSH machines > test_local_starts_and_remains_usable_during_the_initial_remote_handshake [10765.04ms]
+Testing · 52% · 32/61 finished · 1 running · ~5m left
+(pass) SSH machines > test_native_stdio_and_cli_share_ssh_without_socket_forwarding [4995.82ms]
+Testing · 54% · 33/61 finished · 1 running · ~5m left
+(pass) SSH machines > test_one_second_one_way_latency_stays_online_and_delivers_typing [40383.13ms]
+(pass) SSH machines > test_paste_started_before_an_outage_cannot_finish_in_a_new_connection [4471.15ms]
+Testing · 57% · 35/61 finished · 1 running · ~5m left
+(pass) SSH machines > test_pause_and_retry_abort_an_inflight_request_and_a_hung_ssh_handshake_immediately [10964.27ms]
+Testing · 59% · 36/61 finished · 1 running · ~4m left
+(pass) SSH machines > test_pinned_host_keys_and_image_uploads [4350.43ms]
+Testing · 60% · 37/61 finished · 1 running · ~4m left
+(pass) SSH machines > test_raising_latency_then_reconnecting_keeps_local_navigation_responsive [39408.31ms]
+(pass) SSH machines > test_remote_reload_rebuilds_the_stream_without_replacing_its_panes [4654.18ms]
+Testing · 63% · 39/61 finished · 1 running · ~4m left
+(pass) SSH machines > test_reopening_retains_ghost_workspace_cards_while_local_input_starts [6314.52ms]
+Testing · 65% · 40/61 finished · 1 running · ~3m left
+(pass) SSH machines > test_resource_hover_follows_workspace_ownership_without_selecting_it [8490.77ms]
+Testing · 67% · 41/61 finished · 1 running · ~3m left
+(pass) SSH machines > test_resource_readings_keep_updating_on_both_machines_across_workspace_switches [18815.92ms]
+Testing · 68% · 42/61 finished · 1 running · ~3m left
+(pass) SSH machines > test_restarted_daemon_uses_fresh_surfaces_and_does_not_replay_into_reused_pane_ids [9605.80ms]
+(pass) SSH machines > test_setup_installs_the_canonical_binary_over_real_ssh_and_preserves_shells [9158.32ms]
+Testing · 72% · 44/61 finished · 1 running · ~3m left
+Testing · 72% · 44/61 finished · 1 running · ~2m left
+(pass) SSH machines > test_shared_master_and_failed_recovery_handshake_keep_navigation_responsive [25256.97ms]
+Testing · 73% · 45/61 finished · 1 running · ~2m left
+(pass) SSH machines > test_short_network_hiccup_shows_stall_discards_input_and_recovers_on_the_same_connection [9170.96ms]
+Testing · 75% · 46/61 finished · 1 running · ~2m left
+(pass) SSH machines > test_slow_image_paste_keeps_the_viewer_live_and_delivers_remote_bytes [6742.54ms]
+(pass) SSH machines > test_slow_image_paste_relays_to_the_remote_program [6676.14ms]
+Testing · 78% · 48/61 finished · 1 running · ~2m left
+Testing · 78% · 48/61 finished · 1 running · <1m left
+Spotty SSH at 160ms RTT / 128KiB/s: [{"fault":"replies","navigation_ms":101,"recovery_ms":4886},{"fault":"blackhole","navigation_ms":100,"recovery_ms":4753},{"fault":"strand","navigation_ms":100,"recovery_ms":10157},{"fault":"cut","navigation_ms":101,"recovery_ms":2227},{"fault":"blackhole","navigation_ms":100,"recovery_ms":4887}]
+(pass) SSH machines > test_spotty_connection_repeatedly_recovers_without_freezing_navigation_or_duplicating_input [34641.46ms]
+Testing · 80% · 49/61 finished · 1 running · <1m left
+(pass) SSH machines > test_typing_a_cut_connection_never_delivered_lands_after_the_link_resumes [9215.11ms]
+Testing · 81% · 50/61 finished · 1 running · <1m left
+Typing echo at 120ms RTT {"ssh":[123,138,121,124,132,141,133,129,126,124,133,138,137,133,137,123,125,139,131,136,132,125,129,122,141,139],"corgi":[135,132,143,136,128,127,127,128,127,133,127,128,126,124,126,126,126,129,125,125,126,125,127,126,124,125]}
+(pass) SSH machines > test_typing_latency_matches_ssh_without_waiting_for_poll_or_acknowledgement [14899.17ms]
+Testing · 83% · 51/61 finished · 1 running · <1m left
+(pass) SSH machines > test_typing_whose_reply_a_cut_connection_lost_lands_once_after_the_link_resumes [4466.16ms]
+(pass) SSH machines > test_workspace_filters_keep_local_interaction_live_while_a_host_is_down [4967.80ms]
+Testing · 86% · 53/61 finished · 1 running · <1m left
+(pass) SSH machines > test_workspaces_reorder_across_machines_while_remote_is_stalled [10646.94ms]
+
+tests/viewer_sync.test.ts:
+(pass) ViewerSync > test_idle_sync_omits_surfaces_and_metadata_but_delivers_controls [1093.84ms]
+(pass) ViewerSync > test_output_modes_viewport_resize_and_theme_invalidate_receipts [1142.58ms]
+Testing · 91% · 56/61 finished · 1 running · <1m left
+(pass) ViewerSync > test_search_updates_selection_on_an_unchanged_viewport [1274.27ms]
+(pass) ViewerSync > test_synchronized_output_timeout_publishes_held_changes [2139.19ms]
+(pass) ViewerSync > test_unapplied_surface_is_retried_and_handoff_invalidates_receipts [1420.54ms]
+(pass) ViewerSync > test_watch_ignores_output_the_viewer_does_not_show [2244.66ms]
+(pass) ViewerSync > test_watch_survives_a_reload [1868.46ms]
+(pass) ViewerSync > test_watch_wakes_a_viewer_only_when_something_changed [1657.76ms]
+
+ 62 pass
+ 0 fail
+Ran 62 tests across 3 files. [459.46s]
+Cleanup · 62 finished · 0 running

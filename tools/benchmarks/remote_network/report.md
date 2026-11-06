@@ -1,5 +1,7 @@
 # Corgi remote networking vs Herdr
 
+[Follow-up: fixes, repeated measurements and remaining gaps](followup/report.md).
+
 **Corgi connects faster and recovers faster from long outages in this fixture.
 Herdr keeps the screen much fresher on constrained links.** Corgi's next
 priorities should be the startup crash and accumulated stale output.

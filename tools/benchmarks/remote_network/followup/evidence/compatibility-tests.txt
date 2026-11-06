@@ -1,0 +1,27 @@
+bun test v1.4.4 (38afee6c8)
+
+src/viewer_protocol.test.ts:
+(pass) a throttled stream sends its latest frame at the deadline without a maintenance tick [7.41ms]
+(pass) a blocked stream retains one latest frame and resumes when output drains [0.84ms]
+(pass) stream reconfiguration and client pause cancel deferred frames [0.58ms]
+(pass) a viewer reads the view the daemon writes [0.31ms]
+(pass) viewer wire version checked on every exchange [0.15ms]
+(pass) incremental streams are opt-in and missing handoff state asks for a fresh base [1.88ms]
+(pass) interest bounds and repeated pane validation match daemon [0.18ms]
+(pass) unqualified controls target oldest live viewer and pane routes reject ambiguity [0.70ms]
+(pass) controls remain ordered and bounded, and wake their viewer [0.65ms]
+(pass) OSC52 copy chooses most recently active interested viewer and replaces pending copy [0.65ms]
+(pass) relaunch validates absolute executable and goes to viewer showing pane [0.78ms]
+(pass) viewers are listed in order with their process and how recently each was used [0.42ms]
+(pass) open from a pane goes to the viewer showing it [0.49ms]
+(pass) an empty workspace does not ask older viewers to detach [1.78ms]
+(pass) resource receipts reuse published samples across viewers and follow detail and replacement [1.72ms]
+(pass) surface modes follow the live terminal while a restored ghost supplies its screen [3.70ms]
+(pass) the data connection reads its viewer's surfaces and receipts without becoming a viewer [1.46ms]
+(pass) a fresh daemon's starter gives way to onboarding, and waits for any other viewer's folder [15.90ms]
+(pass) a new viewer opens on the pane last used in the preferred workspace [1.90ms]
+
+ 19 pass
+ 0 fail
+ 99 expect() calls
+Ran 19 tests across 1 file. [182.00ms]
