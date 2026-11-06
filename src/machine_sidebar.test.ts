@@ -81,6 +81,18 @@ test("all workspaces list each machine's rows by their own ids, cached ones unti
     { machine: "work", workspace: null },
   ]);
 });
+test("selecting a cached row on the shown machine waits for its live workspace", () => {
+  const {
+    endpoints: [, remote],
+    view,
+    chosen,
+  } = world("local", "work");
+  view.switchMachine(remote.machine);
+  const row = view.workspaceRows().find(row => view.rowOf(row.id)?.machine === remote.machine)!;
+  expect(remote.machine.runtime.workspaces.items).toHaveLength(0);
+  view.selectRow(row.id);
+  expect(chosen).toEqual([{ machine: "work", workspace: 1 }]);
+});
 test("a local-only viewer has the unchanged header and no machine decoration", () => {
   const {
     endpoints: [local],

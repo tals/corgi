@@ -690,7 +690,8 @@ export class Controller {
       this.onMachine(row.machine, null);
       return;
     }
-    if (row.machine === this.machine && row.id !== 0) return this.switchWorkspace(row.id);
+    if (row.machine === this.machine && this.runtime.workspaces.index(row.id) !== null)
+      return this.switchWorkspace(row.id);
     this.leaveSidebar();
     this.onMachine(row.machine, row.id ? { workspace: row.id } : null);
   }
