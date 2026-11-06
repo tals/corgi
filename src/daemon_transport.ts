@@ -5,6 +5,9 @@ import { Transform } from "node:stream";
 import * as ssh from "./ssh";
 import type { Profile } from "./machines";
 
+/** SSH authentication and channel setup precede the first daemon reply. */
+export const startup_ms = 30_000;
+
 const marker = Buffer.from("\ncorgi-bridge-v1\n");
 /** Shell banners end at the native bridge's versioned boundary. */
 export class Preamble extends Transform {
@@ -152,7 +155,7 @@ export class Remote {
       failure ??= Error("SshDisconnected");
     });
     try {
-      const until = performance.now() + 30_000;
+      const until = performance.now() + startup_ms;
       while (!existsSync(this.socket)) {
         if (failure) throw failure;
         if (this.stopped) throw Error("TransportClosed");

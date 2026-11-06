@@ -1,6 +1,7 @@
+import * as ssh from "./ssh";
 import { Stats } from "./connection_stats";
 import type { Output } from "./composition";
-import { Remote } from "./daemon_transport";
+import { Remote, startup_ms } from "./daemon_transport";
 import { Controller } from "./controller";
 import { Machine, type Focus } from "./machine";
 import type { Transport } from "./mirror";
@@ -11,9 +12,10 @@ import * as errors from "./errors";
 import type { Probe } from "./terminal_info";
 import type { Host } from "./host";
 import type { WorkspaceEntry } from "./sidebar";
-import { Cache } from "./machine_cache";
+import { Cache, metadata } from "./machine_cache";
 import { Stream } from "./machine_stream";
 import * as protocol from "./protocol";
+import * as i18n from "./i18n";
 import { sshViewer } from "./trackers/ports";
 
 /** A request that must run once, waiting for its reply. It gets its number
@@ -27,7 +29,7 @@ interface Numbered {
 /** Requests waiting on a machine's replies, at most. */
 const numbered_limit = 256;
 
-export type Status = "connecting" | "online" | "stalled" | "offline" | "paused" | "incompatible";
+export type Status = "connecting" | "online" | "stalled" | "offline" | "paused" | "incompatible" | "attention";
 export const stalled_ms = 1000;
 /** How often an idle viewer's machines are stepped. */
 export const quiet_ms = 500;
@@ -46,6 +48,7 @@ export class Endpoint {
   }
   status: Status = "connecting";
   error = "";
+  issue: ssh.Failure = "error";
   generation = 0;
   instance = "";
   workspaces_instance = "";
@@ -54,8 +57,6 @@ export class Endpoint {
   input_epoch = 0;
   updated = 0;
   workspaces: WorkspaceEntry[] = [];
-  /** The machine has shown a fresh screen, which the controller can draw. */
-  private rendered = false;
   private displayed = false;
   private acknowledging = false;
   /** This daemon as the viewer sees it. */
@@ -104,11 +105,14 @@ export class Endpoint {
   private stopped = false;
   private next = 0;
   private opened = false;
+  private connected = false;
   private input: number[] = [];
+  private ui_task: Promise<void> | null = null;
   private resource_detail: number | null = null;
   private bell = { seq: 0n };
   private retries = 0;
   private selection = 0;
+  private navigation_revision = 0;
   private cancellation = new AbortController();
   private focus: { instance: string; at: Focus } | null = null;
   private local_started = false;
@@ -132,7 +136,9 @@ export class Endpoint {
     this.machine.remote_links = profile !== null || sshViewer();
     this.machine.presence = () => ({
       online: this.status === "online",
+      link_quality: this.profile ? (this.status === "online" ? this.stats.quality : 0) : null,
       connecting: this.status === "connecting" || this.status === "stalled" || this.status === "offline",
+      connection_status: this.headerStatus(),
       description: this.description(),
       cached: this.workspaces,
       seen: this.updated > 0,
@@ -144,12 +150,17 @@ export class Endpoint {
       this.instance = this.workspaces_instance = cached.instance;
       this.workspaces = cached.workspaces;
       this.updated = cached.updated;
+      if (cached.metadata) {
+        this.machine.runtime.receive(this.machine.connection, cached.metadata);
+        this.machine.runtime.workspaces.loaded = false;
+      }
     }
   }
   get name(): string {
     return this.profile?.name ?? "local";
   }
   activate(): void {
+    this.navigation_revision = this.machine.navigation.revision;
     this.selection++;
     this.stream?.reset();
     this.fresh = false;
@@ -168,19 +179,24 @@ export class Endpoint {
     this.next = 0;
   }
   choose(at: Focus, instance: string): void {
-    this.focus = { at, instance };
+    this.focus = null;
+    if (instance !== this.instance) {
+      this.activate();
+      return;
+    }
+    if ("workspace" in at) this.view().switchWorkspace(at.workspace);
+    else {
+      if (this.machine.runtime.workspaces.loaded) show(this.view(), at);
+      else this.focus = { at, instance };
+    }
     this.activate();
   }
-  /** The machine's screen, once it has shown a fresh one; the controller
-   * must be showing it. */
+  /** Draw organization immediately, with placeholders for missing screens. */
   render(): Output {
-    if (!this.can_render) return "";
+    this.syncNavigation();
     const view = this.view();
     view.instant_ready = this.profile !== null && this.ready && this.fresh && this.status === "online";
     return view.compose();
-  }
-  get can_render(): boolean {
-    return this.rendered;
   }
   /** The view, made for this machine alone when none is shared. */
   private view(): Controller {
@@ -195,7 +211,6 @@ export class Endpoint {
     this.onChange();
   }
   enqueue(bytes: Uint8Array): void {
-    if (!this.ready || !this.fresh || this.status !== "online") return;
     if (this.input.length + bytes.length > 1024 * 1024) {
       this.error = "Input queue full; unsent input discarded";
       this.clearInput();
@@ -204,6 +219,34 @@ export class Endpoint {
     }
     for (const byte of bytes) this.input.push(byte);
     this.wake();
+  }
+  private syncNavigation(): void {
+    if (this.navigation_revision === this.machine.navigation.revision) return;
+    this.navigation_revision = this.machine.navigation.revision;
+    this.stream?.reset();
+    this.fresh = this.ready = false;
+    this.next = 0;
+  }
+  /** UI work never waits behind a connection's snapshot or attachment. */
+  private pumpUi(): void {
+    if (this.ui_task || !this.shown || this.stopped) return;
+    const view = this.view(),
+      selection = this.selection,
+      dirty = view.dirty;
+    if (!view.input_state.attached) return;
+    const current = () => this.shown && selection === this.selection && !this.stopped;
+    const input = this.input.splice(0);
+    this.ui_task = (async () => {
+      try {
+        if (input.length) await view.input(Uint8Array.from(input), current);
+        if (current()) await view.expireInput(current);
+      } catch (error) {
+        if (current()) view.notice(errors.name(error) ?? "ActionFailed");
+      } finally {
+        this.ui_task = null;
+        if (current() && (input.length || (!dirty && view.dirty))) this.onChange();
+      }
+    })();
   }
   watchResources(workspace: number | null): void {
     if (this.resource_detail === workspace) return;
@@ -214,7 +257,7 @@ export class Endpoint {
     if (this.stopped) return;
     this.interruption++;
     this.disconnect();
-    this.fresh_connection = true;
+    this.fresh_connection = this.issue === "error";
     this.status = "connecting";
     this.error = "";
     this.next = 0;
@@ -229,10 +272,36 @@ export class Endpoint {
     this.status = "paused";
     this.error = "";
   }
+  headerStatus(now = performance.now()): WorkspaceEntry["connection_status"] {
+    if (this.error && this.profile)
+      return { label: this.issue === "auth" ? "! auth" : "! error", seconds: null, color: "hot", diagnostic: true };
+    switch (this.status) {
+      case "attention":
+        return { label: "! error", seconds: null, color: "hot" };
+      case "connecting":
+        return {
+          label: this.connected ? i18n.t`reconnecting` : i18n.t`connecting`,
+          seconds: this.task ? Math.max(0, Math.floor((now - this.task_started) / 1000)) : 0,
+          color: "warm",
+        };
+      case "stalled":
+        return { label: i18n.t`stalled`, seconds: Math.max(1, Math.floor(this.healthAge(now) / 1000)), color: "warm" };
+      case "offline":
+        return { label: i18n.t`retry in`, seconds: Math.max(0, Math.ceil((this.next - now) / 1000)), color: "hot" };
+      case "paused":
+        return { label: i18n.t`paused`, seconds: null, color: "muted" };
+      case "incompatible":
+        return { label: i18n.t`incompatible`, seconds: null, color: "hot" };
+      case "online":
+        return null;
+    }
+  }
   description(now = performance.now()): string {
     switch (this.status) {
+      case "attention":
+        return `Attention · ${this.error}`;
       case "connecting":
-        return `${this.instance ? "Reconnecting" : "Connecting"}…${this.tunnel ? ` · ${this.tunnel.progress()}` : ""}${this.task && now - this.task_started >= stalled_ms ? ` (${Math.floor((now - this.task_started) / 1000)}s)` : ""}`;
+        return `${this.connected ? "Reconnecting" : "Connecting"}…${this.task ? ` ${Math.max(0, Math.floor((now - this.task_started) / 1000))}s` : ""}${this.tunnel ? ` · ${this.tunnel.progress()}` : ""}`;
       case "stalled":
         return `Connection stalled (${Math.max(1, Math.floor((this.stream?.age(now) ?? now - this.task_started) / 1000))}s)${this.racing ? " · trying a fresh SSH connection" : ""}`;
       case "offline":
@@ -264,6 +333,10 @@ export class Endpoint {
   /** Steps the machine when it's due; `idle` says no one is typing or
    * watching anything move. */
   pump(visible: boolean, idle = false): void {
+    if (visible) {
+      this.syncNavigation();
+      this.pumpUi();
+    }
     if (this.stopped || this.status === "paused" || this.status === "incompatible") return;
     const now = performance.now();
     if (this.stream && this.status === "online" && this.stream.age(now) >= this.stallMs) {
@@ -279,6 +352,7 @@ export class Endpoint {
       this.clearInput();
     }
     const quiet = this.healthAge(now);
+    this.stats.progress(quiet, this.stallMs);
     const due = !this.racing && now - this.raced_at >= this.raceMs;
     if (this.profile && this.link && due && (this.suspect || (this.status === "stalled" && quiet >= this.raceMs)))
       void this.race(now);
@@ -301,12 +375,15 @@ export class Endpoint {
         if (!this.profile && incompatible(error)) this.fatal = Error("IncompatibleViewerProtocol");
         this.error = errors.name(error) ?? "ConnectionFailed";
         const diagnostic = this.tunnel?.diagnostic();
+        this.issue = ssh.failure(diagnostic ?? "");
         if (diagnostic) this.error += ` · ${diagnostic}`;
         this.status =
           errors.is(error, "IncompatibleRemoteCorgi") || errors.is(error, "IncompatibleViewerProtocol")
             ? "incompatible"
-            : "offline";
-        this.fresh_connection = this.profile !== null;
+            : this.issue === "error"
+              ? "offline"
+              : "attention";
+        this.fresh_connection = this.profile !== null && this.issue === "error";
         this.disconnect(true);
         this.retries++;
       })
@@ -314,6 +391,7 @@ export class Endpoint {
         if (this.task !== task) return;
         this.task = null;
         if (interruption !== this.interruption) return;
+        if (this.status === "attention") this.next = performance.now() + 30_000;
         // The first retry goes at once; later ones back off to 15 s.
         if (this.status === "offline")
           this.next =
@@ -343,7 +421,7 @@ export class Endpoint {
       await tunnel.open();
       let established = false;
       conn = new Connection(tunnel.socket, {
-        timeout_ms: () => (established ? this.stats.timeoutMs : 30000),
+        timeout_ms: () => (established ? this.stats.timeoutMs : startup_ms),
         stats: this.stats,
       });
       const hello = await conn.call("hello");
@@ -400,7 +478,7 @@ export class Endpoint {
       const socket = this.tunnel?.socket ?? this.local;
       let established = false;
       conn = this.connection = new Connection(socket, {
-        timeout_ms: () => (this.profile ? (established ? this.stats.timeoutMs : 30000) : 10000),
+        timeout_ms: () => (this.profile ? (established ? this.stats.timeoutMs : startup_ms) : 10000),
         stats: this.stats,
       });
       hello = await conn.call("hello");
@@ -424,9 +502,11 @@ export class Endpoint {
     const view = this.view();
     if (!same) {
       this.focus = null;
-      this.rendered = false;
       if (this.shown) view.closeMachineUi();
       this.machine.forget();
+      this.workspaces = [];
+      this.workspaces_instance = this.instance;
+      this.updated = 0;
     }
     this.resumed = hello.capabilities.includes("link.resume") && (await this.relink(conn, same));
     this.current(generation);
@@ -518,6 +598,12 @@ export class Endpoint {
       },
       remote: profile !== null,
       predictionMs: () => this.stats.predictionMs,
+      inputReady: pane =>
+        this.ready &&
+        this.fresh &&
+        this.status === "online" &&
+        this.navigation_revision === this.machine.navigation.revision &&
+        this.machine.runtime.pane(pane)?.terminal.known != null,
       image: profile
         ? async (path, mime, progress) => {
             const generation = this.generation,
@@ -541,7 +627,10 @@ export class Endpoint {
           }
         : undefined,
       request: async (op, ...args) => {
-        if (this.link && protocol.once(op)) return this.sendOnce(op, args[0]);
+        if (protocol.once(op)) {
+          if (!this.checked || !this.machine.runtime.workspaces.loaded) throw Error("StaleConnection");
+          if (this.link) return this.sendOnce(op, args[0]);
+        }
         const generation = this.generation,
           conn = this.checked;
         if (!conn) throw Error("StaleConnection");
@@ -570,8 +659,6 @@ export class Endpoint {
         view.launch_previews.connect(machine.connection);
         view.updateLaunchPreview();
       } else {
-        const navigation = machine.navigation;
-        const workspace = navigation.workspace_id;
         this.bell.seq = await viewer.openMode(
           view,
           this.profile?.home ?? process.cwd(),
@@ -580,10 +667,6 @@ export class Endpoint {
         );
         this.current(generation);
         this.onboarding = false;
-        if (navigation.entries.length) {
-          navigation.workspace_id = workspace;
-          machine.navigation = navigation;
-        }
       }
       machine.remote_links = this.profile !== null || sshViewer();
       this.opened = true;
@@ -645,22 +728,6 @@ export class Endpoint {
           if (focus.instance === this.instance) show(view, focus.at);
           changed = true;
         }
-        const input = this.input.splice(0);
-        if (input.length) changed = true;
-        view.instant_ready = this.profile !== null && this.ready && this.fresh && this.status === "online";
-        try {
-          const current = () => this.shown && selection === this.selection && generation === this.generation;
-          if (input.length) await view.input(Uint8Array.from(input), current);
-          this.current(generation);
-          if (!current()) return changed;
-          await view.expireInput(current);
-          if (!current()) return changed;
-        } catch (error) {
-          this.current(generation);
-          if (!this.shown || selection !== this.selection) return changed;
-          if (this.connection?.socket.destroyed) throw error;
-          view.notice(errors.name(error) ?? "ActionFailed");
-        }
         await this.onClipboard(view);
         this.current(generation);
       }
@@ -678,7 +745,7 @@ export class Endpoint {
       if (visible && selection === this.selection) {
         this.displayed = false;
         view.dirty = false;
-        if (reply && stream.fresh && stream.age() < this.stallMs) this.fresh = this.rendered = true;
+        if (reply && stream.fresh && stream.age() < this.stallMs) this.fresh = true;
         this.onEffects(view);
       }
     } else {
@@ -695,10 +762,16 @@ export class Endpoint {
       this.error = "";
     }
     this.retries = 0;
+    this.connected = true;
     this.workspaces = view.workspaceEntries(machine);
     this.workspaces_instance = this.instance;
     this.updated = Date.now();
-    this.cache.write({ instance: this.instance, updated: this.updated, workspaces: this.workspaces });
+    this.cache.write({
+      instance: this.instance,
+      updated: this.updated,
+      workspaces: this.workspaces,
+      metadata: metadata(machine.runtime),
+    });
     return changed;
   }
   private clearInput(): void {
@@ -748,6 +821,7 @@ export class Endpoint {
     this.disconnect();
     this.settleNumbered(() => true);
     await this.task;
+    await this.ui_task;
     this.machine.runtime.destroy();
   }
 }

@@ -1,8 +1,9 @@
-import { Remote } from "./daemon_transport";
+import { Remote, startup_ms } from "./daemon_transport";
 import { nativeRoot } from "./native_paths";
 import { homedir } from "node:os";
 import * as machines from "./machines";
 import * as setup from "./machine_setup";
+import * as ssh from "./ssh";
 import * as protocol from "./protocol";
 import * as json from "./json";
 import * as cli from "./cli";
@@ -14,6 +15,8 @@ export const help = `
 Machines (SSH):
   corgi machine add NAME [SSH_TARGET] [--executable /path/to/corgi]
   corgi machine list
+  corgi machine status NAME
+  corgi machine reconnect NAME
   corgi machine check NAME
   corgi machine remove NAME
   corgi --machine NAME [attach | open PATH | COMMAND...]
@@ -51,6 +54,22 @@ export async function manage(args: string[]): Promise<void> {
         return [...profiles, profile];
       });
       process.stdout.write(json.stringify({ ok: true, machine: name, target }) + "\n");
+      return;
+    }
+    case "status":
+    case "reconnect": {
+      if (args.length !== 2) throw Error("Usage");
+      const profile = machines.find(args[1]);
+      if (args[0] === "reconnect") {
+        const child = Bun.spawn(["ssh", ...ssh.args(profile.target, true), "true"], {
+          stdin: "inherit",
+          stdout: "inherit",
+          stderr: "inherit",
+        });
+        if (await child.exited) throw Error("SshAuthenticationFailed");
+      }
+      await check(profile);
+      process.stdout.write(json.stringify({ ok: true, machine: profile.name, status: "reachable" }) + "\n");
       return;
     }
     case "remove": {
@@ -93,7 +112,7 @@ async function check(profile: machines.Profile, fresh = false): Promise<void> {
   let conn: Connection | null = null;
   try {
     await tunnel.open();
-    conn = new Connection(tunnel.socket, 10_000);
+    conn = new Connection(tunnel.socket, startup_ms);
     machines.compatible(await conn.call("hello"));
   } catch (error) {
     process.stderr.write(

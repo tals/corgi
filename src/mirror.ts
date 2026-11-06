@@ -41,6 +41,8 @@ export interface Transport {
   watches?(): boolean;
   remote?: boolean;
   predictionMs?(): number;
+  /** Whether program input can use this pane's displayed surface. */
+  inputReady?(pane: number): boolean;
   image?: (path: string, mime: string, progress?: ImageProgress) => Promise<string>;
   request<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>>;
 }
@@ -129,6 +131,9 @@ export class Terminal {
       native.destroy();
       throw error;
     }
+  }
+  get loaded(): boolean {
+    return this.installed !== null;
   }
   get inner(): NativeTerminal {
     return this.ensure();
@@ -262,6 +267,7 @@ export class Terminal {
     return true;
   }
   send(bytes: string | Uint8Array | number[]): void {
+    if (this.conn.inputReady?.(this.id) === false) return;
     const data = typeof bytes === "string" ? Buffer.from(bytes) : bytes;
     if (this.pending.length + data.length > 1024 * 1024) throw Error("InputBackpressure");
     for (const byte of data) this.pending.push(byte);
@@ -628,6 +634,8 @@ function headless(value: any): Headless {
   };
 }
 export class Workspaces {
+  /** A daemon snapshot has confirmed this catalog, including removals. */
+  loaded = false;
   items: Workspace[] = [];
   /** What stands for the current workspace once every one is closed: no
    * tabs, and no folder for anything to start in. */
@@ -734,6 +742,7 @@ export class Runtime {
     this.snapshot_hash = null;
     this.panes = panes;
     this.workspaces.items = parsed;
+    this.workspaces.loaded = true;
     const sessions: Headless[] = (snapshot.headless_sessions ?? [])
       .filter((s: any) => Provider.parse(s?.provider))
       .map(headless);

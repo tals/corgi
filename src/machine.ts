@@ -22,7 +22,9 @@ export type Focus = { workspace: number } | OrderTarget;
 /** How a machine's connection stands, as its sidebar rows say. */
 export interface Presence {
   online: boolean;
+  link_quality: WorkspaceEntry["link_quality"];
   connecting: boolean;
+  connection_status: WorkspaceEntry["connection_status"];
   /** Why it isn't online. */
   description: string;
   /** Its rows from the last time it answered, until it does this session. */
@@ -35,6 +37,7 @@ export interface Presence {
 }
 export class Machine {
   order_scope = "";
+  collapsed = false;
   runtime = new Runtime();
   navigation = new Navigation();
   /** Work handed to this daemon; see tasks.ts. */
@@ -60,7 +63,9 @@ export class Machine {
   stopped: Stopped[] = [];
   presence: () => Presence = () => ({
     online: true,
+    link_quality: null,
     connecting: false,
+    connection_status: null,
     description: "",
     cached: [],
     seen: false,

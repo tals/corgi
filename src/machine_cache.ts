@@ -6,12 +6,65 @@ import * as os from "./os";
 import * as json from "./json";
 import * as sidebar from "./sidebar";
 import type { Profile } from "./machines";
-import { max_workspaces } from "./layout";
+import type { Runtime } from "./mirror";
+import { Model, max_workspaces } from "./layout";
 
 interface Snapshot {
   instance: string;
   updated: number;
   workspaces: sidebar.WorkspaceEntry[];
+  metadata?: Metadata;
+}
+interface Metadata {
+  workspaces: { id: number; name: string; cwd: string; archived: boolean; model: ReturnType<Model["toJSON"]> }[];
+  panes: { id: number; name: string; cwd: string; cols: number; rows: number }[];
+}
+/** Only organization and labels are cached, never terminal contents. */
+export function metadata(runtime: Runtime): Metadata {
+  return {
+    workspaces: runtime.workspaces.items.map(w => ({
+      id: w.id,
+      name: w.name,
+      cwd: w.cwd,
+      archived: w.archived,
+      model: w.model.toJSON(),
+    })),
+    panes: runtime.panes.map(p => ({ id: p.id, name: p.label, cwd: p.cwd, cols: 80, rows: 24 })),
+  };
+}
+function record(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("InvalidCache");
+  return value as Record<string, unknown>;
+}
+function parseMetadata(value: unknown): Metadata | undefined {
+  if (value === undefined) return undefined;
+  const data = record(value);
+  if (!Array.isArray(data.workspaces) || data.workspaces.length > max_workspaces || !Array.isArray(data.panes))
+    throw Error("InvalidCache");
+  const pane_ids = new Set<number>(),
+    workspace_ids = new Set<number>();
+  const panes = data.panes.map(value => {
+    const p = record(value),
+      id = count(p.id);
+    if (!id || pane_ids.has(id)) throw Error("InvalidCache");
+    pane_ids.add(id);
+    return { id, name: label(p.name), cwd: label(p.cwd), cols: 80, rows: 24 };
+  });
+  const placed = new Set<number>();
+  const workspaces = data.workspaces.map(value => {
+    const w = record(value),
+      id = count(w.id);
+    if (!id || workspace_ids.has(id)) throw Error("InvalidCache");
+    workspace_ids.add(id);
+    const model = Model.jsonParse(json.stringify(w.model));
+    for (const node of model.nodes) {
+      if (!node || !("pane" in node)) continue;
+      if (!pane_ids.has(node.pane) || placed.has(node.pane)) throw Error("InvalidCache");
+      placed.add(node.pane);
+    }
+    return { id, name: label(w.name), cwd: label(w.cwd), archived: w.archived === true, model: model.toJSON() };
+  });
+  return { workspaces, panes };
 }
 const limit = 256 * 1024;
 function count(value: unknown): number {
@@ -28,7 +81,7 @@ function bytes(value: unknown): bigint | null {
   if (result < 0n || result > 0xffffffffffffffffn) throw Error("InvalidCache");
   return result;
 }
-/** Display summaries only. Identity is checked again before any workspace can be used. */
+/** Cached organization is navigable; live identity is checked before commands can use it. */
 export class Cache {
   private saved = "";
   private next = 0;
@@ -76,7 +129,12 @@ export class Cache {
         });
         return ws;
       });
-      return { instance: label(data.instance), updated: count(data.updated), workspaces };
+      return {
+        instance: label(data.instance),
+        updated: count(data.updated),
+        workspaces,
+        metadata: parseMetadata(data.metadata),
+      };
     } catch {
       return null;
     }
@@ -105,9 +163,15 @@ export class Cache {
         },
       }),
     );
-    const summary = json.stringify({ instance: snapshot.instance, workspaces });
+    const summary = json.stringify({ instance: snapshot.instance, workspaces, metadata: snapshot.metadata });
     if (summary === this.saved) return;
-    const data = json.stringify({ version: 1, updated: snapshot.updated, instance: snapshot.instance, workspaces });
+    const data = json.stringify({
+      version: 1,
+      updated: snapshot.updated,
+      instance: snapshot.instance,
+      workspaces,
+      metadata: snapshot.metadata,
+    });
     if (Buffer.byteLength(data) > limit) return;
     try {
       os.atomicWrite(this.path, data);

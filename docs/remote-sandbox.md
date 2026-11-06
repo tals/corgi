@@ -29,18 +29,36 @@ parser handles split escape sequences and bracketed pastes. Recognized composers
 can predict the first edit without the shell's echo-training step.
 
 **Prefix + ~** opens developer connectivity on any machine, including real ones.
-Tab or clicking the machine name cycles machines; Escape closes it. The popover
-shows RPC latency mean/deviation and peak, failures, pending requests, connection
-attempts, traffic rates and a scrolling history. RPC latency includes daemon work;
-it is not ICMP ping. History covers up to two minutes in this viewer and survives
-reconnects. It also shows the current stall and fresh-path probe budgets.
-Successful application round trips adapt these budgets to latency and jitter;
+The split console lists machines under **Remote** on the left. Click a machine,
+or use Up/Down in the list. Tab switches between the list and details; Escape
+closes the console. The right side shows response time as mean ± standard deviation
+with its peak, traffic averaged over five seconds, request counts, and a two-minute
+response heatmap. Fixed latency bands keep spikes from changing
+the scale; brighter cells mean more replies in that band and time slice. Dark
+cells mean none. A separate amber row counts failed requests. Time slices stay
+aligned to the clock.
+Values use milliseconds or seconds for readability.
+Scroll the detail panel (or use Page Up/Down) to reach controls on short terminals.
+RPC latency includes daemon work; it is not ICMP ping. History survives reconnects.
+Successful application round trips adapt stall and fresh-path probe budgets to latency and jitter;
 failed requests, SSH bootstrap time and replies spanning a detected stall do not
 inflate them. A slow link can stay online while it continues making progress.
 Traffic counts protocol bytes, excluding SSH overhead and independent bulk uploads. Failed requests include cancellation and closure, not just timeouts.
 
 Drag workspace names to arrange any mix of local and remote workspaces. Small
 machine headers repeat wherever ownership changes, including after scrolling.
+Hover over a machine header for one second to see that machine's summary and
+history without opening the developer console. This card uses measurements
+already held by the viewer, including during an outage.
+The shaded headers show reception bars for remote links. The rating combines
+response time and variation, recent interruptions, and delayed delivery. Recent
+failures cap the rating even when successful replies are fast. Outages lower it
+immediately; ordinary deterioration must persist for three seconds, and an
+improvement for ten. Interruptions remain relevant for thirty seconds.
+These describe application responsiveness and reliability, not wireless signal
+or measured bandwidth capacity. Local machines omit the bars.
+Kitty-capable terminals use pixel bars with a one-pixel gap between cells;
+other terminals use block glyphs. While reconnecting, **retrying** replaces them.
 The combined order is saved on this computer and can be changed during an outage.
 
 Sandbox machines also show sliders for one-way latency (0–2000 ms), bandwidth

@@ -1,5 +1,5 @@
 import * as ssh from "./ssh";
-import { Remote } from "./daemon_transport";
+import { Remote, startup_ms } from "./daemon_transport";
 import * as preferences from "./preferences";
 import { readFileSync, existsSync, openSync, closeSync, statSync } from "node:fs";
 import { join, dirname, isAbsolute } from "node:path";
@@ -218,8 +218,10 @@ export async function listing(profile: Profile | null, local: string): Promise<u
   let conn: Connection | null = null;
   try {
     if (tunnel) await tunnel.open();
-    conn = new Connection(tunnel?.socket ?? local, 10_000);
+    let established = !profile;
+    conn = new Connection(tunnel?.socket ?? local, { timeout_ms: () => (established ? 10_000 : startup_ms) });
     if (profile) compatible(await conn.call("hello"));
+    established = true;
     const result = await conn.call("session.list");
     return { machine: profile?.name ?? "local", ...result };
   } catch (error) {

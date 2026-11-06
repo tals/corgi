@@ -29,21 +29,45 @@ cross-platform development artifacts and release verification.
 
 With saved profiles, `corgi` starts locally and connects to the other machines
 independently in the background. The sidebar shows **all workspaces**, with a
-small machine label on each row. Click any workspace or use the ordinary
+shaded machine header above each group and reception bars for remote link
+responsiveness and reliability. Hover over a header for one second to see that
+machine's response time, traffic and recent history. Headers repeat when workspaces
+from different machines are mixed. Click a machine header to collapse or expand
+its workspaces without switching the active pane. Collapsing preserves their
+saved order, including workspaces interleaved with other machines.
+Click any workspace or use the ordinary
 workspace keyboard navigation to open it. Connecting or disconnected workspaces
 stay visible but dimmed; local work remains usable during a remote outage.
 With **agents: all**, the agent list shows every online machine's agents, each
 workspace's header naming its machine. Clicking one, or moving to it with the
 agent keys, opens it on its machine; folding a group folds it on that machine.
 
-Once a remote machine has connected, **all ▾** appears beside **workspaces**.
+With a saved remote machine, **all ▾** appears beside **workspaces**, even before
+its first successful connection.
 Click it, press **Ctrl+]**, or use **prefix + Shift+M** for a dropdown of machines
-and connection status. Arrows and Enter filter the list; Escape closes it.
+and connection status. Arrows and Enter filter the list without switching the
+active workspace; click a workspace to open it. Escape closes the dropdown.
+Ctrl+F folds or unfolds the highlighted machine. Workspace keyboard navigation
+skips paused machines and machines needing attention, but includes machines
+that are connecting or automatically retrying. Opening a workspace unfolds its
+machine.
 Ctrl+R cancels the highlighted machine's current request or connection attempt
 and retries immediately. Ctrl+X pauses it and stops automatic retries. A machine
 stays in the dropdown through outages so these controls remain available.
 Local-only Corgi has the same header as before, with no machine dropdown, and
 Ctrl+] goes to the pane.
+
+Failed connections show **! auth** for authentication problems or **! error** for
+other failures. Click the badge, or press **!** on a machine in the dropdown,
+to read the diagnostic and a suggested command. The notice stays open until
+dismissed; use arrow keys or the mouse wheel to read long diagnostics.
+`corgi machine status NAME` checks reachability without changing the installation.
+`corgi machine reconnect NAME` opens normal SSH authentication, then verifies the
+saved machine without installing, upgrading or restarting Corgi. Authentication
+and host-key failures recheck every 30 seconds so an open viewer can recover
+after authentication is repaired. Ctrl+R retries immediately. Host-key approval
+still requires verifying the host identity. `machine check` remains the explicit
+build-reconciliation command and can upgrade an installation.
 
 Each machine retains its own workspace and pane selection. Only the selected
 workspace's machine streams terminal surfaces; other machines update metadata
@@ -92,15 +116,21 @@ private directory. They contain names, SSH targets and remote paths. The daemon'
 Unix socket remains its access boundary: authenticating as that user permits
 control of that user's Corgi sessions, including running commands.
 
-After a request stalls for one second, the viewer keeps the last frame, shows
-**Connection stalled**, and pauses input. A brief hiccup recovers on the existing
-connection. RPC requests time out after ten seconds; a broken connection closes
-immediately. A lost connection is retried at once, then after 1, 2, 4, 8 and at
-most 15 seconds, with a visible countdown. SSH setup has its own bounded timeout.
-A remote machine silent for four seconds gets a second connection beside the
-first, and after the computer sleeps one is tried at once: a changed network
-recovers without waiting out the ten-second timeout, while a daemon that is only
-busy keeps its connection. Numbered actions retain their replies across that handover. A worktree checkout
+The viewer learns a stall budget from successful application round trips (4–30
+seconds), keeping the last frame and pausing input when that budget is exceeded.
+A brief hiccup recovers on the existing connection. Established RPC requests get
+three times that budget; SSH authentication and the first daemon reply have a
+separate 30-second allowance, including machine checks and remote listings.
+A broken connection closes immediately. A lost connection is retried at once,
+then after 1, 2, 4, 8 and at most 15 seconds, with a visible countdown.
+A remote silent for twice its stall budget gets a second connection beside the
+first, and after the computer sleeps one is tried at once. A changed network
+can recover before the original request deadline, while a daemon that is only
+busy keeps its connection. Cached workspaces do not mean the current viewer has
+connected: initial attempts say **Connecting… 4s**, including retries before the
+first success. **Reconnecting… 4s** follows a previously working link. The timer
+shows time spent in the current attempt.
+Numbered actions retain their replies across that handover. A worktree checkout
 uses a separate connection and is not automatically replayed; if that connection
 is lost, check the remote worktree before retrying.
 
@@ -137,11 +167,10 @@ Pausing or detaching closes only the viewer's connections; remote agents keep
 running. Background retries never install, upgrade or restart a remote daemon.
 
 Workspace names, activity counts and the last resource readings are cached locally
-in private files. Reopening shows these cards dimmed with a connection link (`↔`)
-until fresh metadata arrives. A bright glimmer travels across the workspace name,
-machine name and link; counts and readings remain steady. A fixed link slot keeps
-all content in place through every connection state. Paused or incompatible
-connections have a static `×` indicator. The cache contains no
+in private files. Reopening shows these cards dimmed with **retrying**
+in the machine header until fresh metadata arrives. A bright glimmer travels
+across reconnecting workspace names; counts and readings remain steady.
+The header keeps connection status separate from workspace controls. The cache contains no
 terminal contents and grants no authority to reuse workspace IDs from a different
 daemon or machine profile.
 

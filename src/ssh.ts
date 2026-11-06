@@ -61,3 +61,17 @@ export function command(executable: string, args: string[]): string {
 export function shell(script: string): string {
   return 'sh -c "' + script.replace(/[\\$"`]/g, "\\$&") + '"';
 }
+
+/** Classify OpenSSH's stderr once at the transport boundary. */
+export type Failure = "auth" | "host-key" | "error";
+export function failure(message: string): Failure {
+  if (/host key verification failed|remote host identification has changed|no .*host key is known/i.test(message))
+    return "host-key";
+  if (
+    /permission denied \(|authentication failed|too many authentication failures|sign_and_send_pubkey: signing failed|no supported authentication methods/i.test(
+      message,
+    )
+  )
+    return "auth";
+  return "error";
+}

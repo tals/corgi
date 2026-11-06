@@ -83,6 +83,8 @@ import * as paneImages from "./pane_images";
 import * as tabIcons from "./tab_icons";
 import * as startupCard from "./startup_card";
 import * as resourceTooltip from "./resource_tooltip";
+import type { Card as ConnectionCard } from "./connectivity_card";
+import * as signalBars from "./signal_bars";
 import * as gitTooltip from "./git_tooltip";
 import type { Signal } from "./trackers/resources";
 import * as worktreeTooltip from "./worktree_tooltip";
@@ -490,6 +492,9 @@ export class Controller {
   startup_card: startupCard.State | null = null;
   private startup_second = 0;
   resource_card = new resourceTooltip.State();
+  connection_card: ConnectionCard | null = null;
+  signal_bars = new signalBars.Images();
+  hide_connection_signals = false;
   resource_aim: resourceTooltip.Aim | null = null;
   ui_mouse_down = false;
   sidebar_drag: "width" | "split" | null = null;
@@ -633,7 +638,7 @@ export class Controller {
     this.selected_pane = null;
     this.wake_pending = this.unarchive_pending = null;
     this.agent_since = new agentSections.Since();
-    this.launch_previews.connect(machine.connection);
+    if (machine.viewer_id !== 0) this.launch_previews.connect(machine.connection);
     this.dirty = true;
   }
   /** Closes what names the shown machine's ids, which a switch or a replaced
@@ -678,7 +683,13 @@ export class Controller {
   /** Shows the workspace a sidebar row names, on its own machine. */
   selectRow(key: number): void {
     const row = this.rowOf(key);
-    if (!row || this.stale(row.machine)) return;
+    if (!row) return;
+    row.machine.collapsed = false;
+    if (this.stale(row.machine)) {
+      this.leaveSidebar();
+      this.onMachine(row.machine, null);
+      return;
+    }
     if (row.machine === this.machine && row.id !== 0) return this.switchWorkspace(row.id);
     this.leaveSidebar();
     this.onMachine(row.machine, row.id ? { workspace: row.id } : null);
@@ -723,7 +734,7 @@ export class Controller {
   }
   /** Whether rows name their machine: another machine has answered. */
   private machineLabels(): boolean {
-    return this.machines.some(m => m.remote && m.presence().seen);
+    return this.machines.some(m => m.remote);
   }
   /** What the sidebar's machine filter says, while rows name machines. */
   machineScope(): string {
@@ -870,7 +881,7 @@ export class Controller {
     });
   }
   switchWorkspace(id: number): void {
-    if (this.runtime.workspaces.index(id) === null) throw Error("NoWorkspace");
+    if (this.runtime.workspaces.loaded && this.runtime.workspaces.index(id) === null) throw Error("NoWorkspace");
     this.observeFocus();
     this.rememberAgent();
     if (this.input_state.tab_drag) this.input_state.tab_drag.cancelled = true;
@@ -1186,6 +1197,7 @@ export class Controller {
         this.workspaceRows().length,
         this.workspace_offset,
         this.workspaceRows().map(row => row.machine),
+        this.workspaceRows().map(row => row.collapsed),
       )
       .withEntries(entries);
     view.scope_label = this.scopeLabel();
@@ -1311,7 +1323,8 @@ export class Controller {
     machine.runtime.snapshot_hash = null;
     machine.runtime.resources_hash = null;
     if (machine !== this.machine) return;
-    this.input_state = new InputState();
+    this.launch_previews.disconnect();
+    this.input_state = Object.assign(new InputState(), { attached: this.input_state.attached });
     this.executable = "";
   }
   /** Opens onboarding when the preferences say it never finished. */
@@ -1429,13 +1442,16 @@ export class Controller {
     return this.workspaceRows().map(ws => ws.id);
   }
   /** The sidebar's workspace rows for every machine shown, by row id; see `key`. */
-  workspaceRows(all = false): WorkspaceEntry[] {
+  workspaceRows(all = false, expanded = false): WorkspaceEntry[] {
     if (this.machines.length === 1) return this.workspaceEntries();
     const labels = this.machineLabels();
     const rows = this.machines.flatMap(machine => {
       if (!all && this.machine_filter && this.machine_filter !== machine) return [];
       const presence = machine.presence(),
-        rows = machine.runtime.workspaces.items.length > 0 ? this.workspaceEntries(machine) : presence.cached,
+        rows =
+          machine.runtime.workspaces.loaded || machine.runtime.workspaces.items.length > 0
+            ? this.workspaceEntries(machine)
+            : presence.cached,
         unavailable = presence.online ? "" : presence.description,
         shown = machine === this.machine;
       if (!rows.length)
@@ -1445,8 +1461,11 @@ export class Controller {
             name: machine.name,
             cwd: "",
             active: false,
+            machine: labels ? machine.name : "",
+            link_quality: presence.link_quality,
             unavailable: unavailable || "Loading workspaces…",
             connecting: presence.connecting,
+            connection_status: presence.connection_status,
             external: !shown,
           }),
         ];
@@ -1460,18 +1479,49 @@ export class Controller {
             .filter(w => w.id === row.id)
             .map(w => ({ ...w, id: this.rowKey(w.id, machine) })),
         },
-        active: shown && row.active,
+        active: shown && row.id === machine.navigation.workspace_id,
         machine: labels ? machine.name : "",
+        link_quality: presence.link_quality,
         external: !shown,
         unavailable,
         connecting: presence.connecting,
+        connection_status: presence.connection_status,
       }));
     });
     const order = new Map(this.prefs.workspace_order.map((key, i) => [key, i]));
-    return rows.sort(
+    rows.sort(
       (a, b) =>
         (order.get(this.workspaceOrderKey(a.id)) ?? Infinity) - (order.get(this.workspaceOrderKey(b.id)) ?? Infinity),
     );
+    if (all || expanded) return rows;
+    const folded = new Set<Machine>();
+    return rows.flatMap(row => {
+      const machine = this.rowOf(row.id)!.machine;
+      if (!machine.collapsed) return [row];
+      if (folded.has(machine)) return [];
+      folded.add(machine);
+      return [{ ...row, collapsed: true }];
+    });
+  }
+  toggleMachine(machine: Machine): void {
+    machine.collapsed = !machine.collapsed;
+    this.cancelWorkspaceDrag();
+    this.workspace_offset = this.sidebarView([]).workspace_offset;
+    this.dirty = true;
+  }
+  /** Keyboard cycling retains reconnecting rows, but skips machines needing intervention. */
+  navigateWorkspace(forward: boolean): void {
+    const ids = this.workspaceRows(false, true)
+      .filter(row => {
+        const presence = this.rowOf(row.id)!.machine.presence();
+        return presence.online || presence.connecting;
+      })
+      .map(row => row.id);
+    if (!ids.length) return;
+    const current = ids.indexOf(this.rowKey(this.current().id));
+    const index =
+      current < 0 ? (forward ? 0 : ids.length - 1) : (current + (forward ? 1 : ids.length - 1)) % ids.length;
+    this.selectRow(ids[index]);
   }
   private workspaceOrderKey(key: number): string {
     const row = this.rowOf(key)!;
@@ -1590,7 +1640,12 @@ export class Controller {
   }
   private sidebarWorkspaceIds(): number[] {
     return [
-      ...this.workspaceIds(),
+      ...this.workspaceRows()
+        .filter(row => {
+          const presence = this.rowOf(row.id)!.machine.presence();
+          return presence.online || presence.connecting;
+        })
+        .map(row => row.id),
       ...(this.archived_expanded ? this.archivedWorkspaces().map(ws => this.rowKey(ws.id)) : []),
     ];
   }
@@ -3127,14 +3182,8 @@ export class Controller {
       case "onboard":
         return this.openOnboarding("welcome");
       case "workspace-next":
-      case "workspace-prev": {
-        const ids = this.workspaceIds();
-        const count = ids.length;
-        if (!count) break;
-        const current = ids.indexOf(this.rowKey(this.current().id));
-        const index = act.name === "workspace-next" ? (current + 1) % count : (current + count - 1) % count;
-        return this.selectRow(ids[index]);
-      }
+      case "workspace-prev":
+        return this.navigateWorkspace(act.name === "workspace-next");
       case "last-workspace": {
         const id = this.navigation.lastWorkspace(this.runtime.workspaces);
         if (id !== null) this.switchWorkspace(id);
@@ -9219,10 +9268,10 @@ export class Controller {
   compose(retain = true): composition.Output {
     if (this.paste_progress && Date.now() >= this.paste_progress.until) this.paste_progress = null;
     this.updateInstant();
-    const hide = this.images.begin() + this.tab_icons.begin();
+    const hide = this.images.begin() + this.tab_icons.begin() + this.signal_bars.begin();
     const retained = retain ? new composition.Frame() : undefined;
     const frame = this.renderFrame(retained);
-    const writes = this.images.end() + this.tab_icons.end();
+    const writes = this.images.end() + this.tab_icons.end() + this.signal_bars.end();
     if (writes) this.queueEffect({ write_terminal: writes });
     const prefix = hide ? "\x1b[?2026h" + hide : "",
       suffix = hide ? "\x1b[?2026l" : "";
@@ -9340,6 +9389,8 @@ export class Controller {
         resources: readings,
         resource_hover: this.link_tooltip.target?.resource ?? null,
         resource_card: (tooltip_ready || this.resource_card.pinned) && detail !== null ? this.resource_card : null,
+        connection_card: this.connection_card,
+        signal_bars: this.supports_kitty_graphics && !this.hide_connection_signals ? this.signal_bars : null,
         git_hover: this.hoverIdle() ? this.git_hover : null,
         grip_hover: this.grip_hover,
         git_card: (tooltip_ready || this.git_card.pinned) && git_ws ? this.git_card : null,
@@ -9443,9 +9494,11 @@ export class Controller {
               }
             : null,
         signin_draw: this.signin ? (w: Writer, pointer: render.Pointer | null) => this.drawSignin(w, pointer) : null,
-        no_workspace: this.current().id
-          ? null
-          : { focused: this.keyboard === "pane" && !this.hasMenu() && this.name_dialog === null },
+        workspace_loading: !this.runtime.workspaces.loaded,
+        no_workspace:
+          this.current().id || !this.runtime.workspaces.loaded
+            ? null
+            : { focused: this.keyboard === "pane" && !this.hasMenu() && this.name_dialog === null },
         prompt_draw: this.prompt.open
           ? (w: Writer, marks: Marks | null) =>
               this.prompt.draw(w, this.width, this.height, marks, milliTimestamp(), this.prompt_preview ?? undefined)

@@ -1,6 +1,8 @@
+import { Runtime } from "./mirror";
+import { transport } from "./fixtures/transport";
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, statSync } from "node:fs";
-import { Cache } from "./machine_cache";
+import { mkdtempSync, rmSync, writeFileSync, statSync, readFileSync } from "node:fs";
+import { Cache, metadata } from "./machine_cache";
 import * as sidebar from "./sidebar";
 
 test("workspace display caches survive reopening with private permissions and profile isolation", () => {
@@ -24,6 +26,50 @@ test("workspace display caches survive reopening with private permissions and pr
       expect(reopened.read()).toBeNull();
     }
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("cached metadata restores tabs and splits before any terminal surface, and rejects broken layouts", () => {
+  const dir = mkdtempSync("/tmp/corgi-layout-cache-");
+  const runtime = new Runtime(),
+    restored = new Runtime();
+  const conn = transport(async () => {
+    throw Error("UnexpectedRequest");
+  });
+  try {
+    runtime.receive(conn, {
+      workspaces: [
+        {
+          id: 4,
+          name: "project",
+          cwd: "/project",
+          model: {
+            nodes: [{ pane: 1 }, { pane: 2 }, { split: { axis: "horizontal", first: 0, second: 1, ratio: 500 } }],
+            tabs: [{ id: 7, title: "editor", root: 2 }],
+            revision: 9,
+          },
+        },
+      ],
+      panes: [
+        { id: 1, name: "shell", cwd: "/project" },
+        { id: 2, name: "editor", cwd: "/project" },
+      ],
+    });
+    const cache = new Cache(null, "metadata-test", dir);
+    cache.write({ instance: "daemon-a", updated: 123, workspaces: [], metadata: metadata(runtime) }, 2000);
+    const cached = cache.read()!;
+    restored.receive(conn, cached.metadata);
+    expect(restored.workspaces.items[0].model.toJSON()).toEqual(runtime.workspaces.items[0].model.toJSON());
+    expect(restored.panes.map(p => p.label)).toEqual(["shell", "editor"]);
+    expect(restored.panes.every(p => p.terminal.known === null)).toBe(true);
+    const bad = JSON.parse(readFileSync(cache.path, "utf8"));
+    bad.metadata.workspaces[0].model.nodes[2].split.first = 2;
+    writeFileSync(cache.path, JSON.stringify(bad));
+    expect(cache.read()).toBeNull();
+  } finally {
+    runtime.destroy();
+    restored.destroy();
     rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -4425,7 +4425,16 @@ test("all agents lists each online machine's under its name, and its rows switch
   const s = controller();
   const other = new Machine({ socket: "/work", request: transport(async () => ({})).request }, "work", true);
   let online = true;
-  other.presence = () => ({ online, connecting: false, description: "", cached: [], seen: true, stale: false });
+  other.presence = () => ({
+    online,
+    link_quality: null,
+    connecting: false,
+    connection_status: null,
+    description: "",
+    cached: [],
+    seen: true,
+    stale: false,
+  });
   s.adopt(other);
   const agents = (...cwds: string[]) => {
     const snapshot = folders(...cwds);

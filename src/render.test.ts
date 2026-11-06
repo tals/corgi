@@ -33,6 +33,7 @@ import * as corgiBadge from "./corgi_badge";
 import { TabMenu } from "./commands";
 import { agent, type Pane } from "./mirror";
 import { Icons } from "./tab_icons";
+import { Images as SignalBars } from "./signal_bars";
 import { Menu as LauncherMenu } from "./agent_launcher";
 import { Menu as SetupMenu } from "./corgi_setup";
 import { Writer } from "./text";
@@ -52,6 +53,98 @@ test("the empty sidebar's New keycap prefers short direct bindings and falls bac
   expect(frame(emptyView(), [], 100, 30, u)).toContain(palette.keycap + " Opt+N ");
   u.prefs.keys = { new: "Prefix+c" };
   expect(frame(emptyView(), [], 100, 30, u)).toContain(palette.keycap + " Ctrl+A c ");
+});
+
+test("machine reception uses cached Kitty pixels, falls back to blocks, and yields to retry text and cards", () => {
+  const images = new SignalBars();
+  const row = sidebar.workspaceEntry({
+    id: 1,
+    name: "project",
+    cwd: "/tmp",
+    active: true,
+    machine: "atlas",
+    link_quality: 4,
+  });
+  const u = ui({
+    message: "",
+    workspaces: [row],
+    sidebar_open: true,
+    copy_mode: false,
+    signal_bars: images,
+    cell_pixels: { width: 10, height: 20 },
+  });
+  const draw = () => frame(null, [], 120, 40, u);
+  expect(draw()).toContain("█");
+  expect(images.end()).toContain("f=32");
+  const withImage = draw();
+  expect(withImage).toContain("a=p,i=730404");
+  row.connecting = true;
+  row.connection_status = { label: "connecting", seconds: 4, color: "warm" };
+  expect(draw()).toContain("connecting 4s");
+  expect(draw()).not.toContain("a=p,i=730404");
+  row.connecting = false;
+  row.connection_status = null;
+  u.connection_card = { rect: new Rect(1, 1, 70, 20), lines: [{ text: "atlas · online" }] };
+  expect(draw()).not.toContain("a=p,i=730404");
+  u.connection_card = null;
+  u.signal_bars = null;
+  expect(draw()).toContain("█");
+});
+
+test("setup clips signal bars at its border and restores them when closed", () => {
+  const images = new SignalBars(),
+    host = Terminal.create(130, 30);
+  const u = ui({
+    message: "",
+    copy_mode: false,
+    sidebar_open: true,
+    workspaces: [
+      sidebar.workspaceEntry({ id: 1, name: "project", cwd: "/tmp", active: true, machine: "atlas", link_quality: 4 }),
+    ],
+    signal_bars: images,
+    cell_pixels: { width: 8, height: 16 },
+  });
+  const draw = () => {
+    host.feed(images.begin() + frame(null, [], 130, 30, u) + images.end());
+    return host.surface(1).surface.images!.filter(p => p.image.width === 32);
+  };
+  try {
+    draw();
+    const [shown] = draw();
+    expect(shown.source_width).toBe(32);
+    u.corgi_setup = SetupMenu.open();
+    const [clipped] = draw();
+    expect(clipped.x).toBe(shown.x);
+    expect(clipped.source_width).toBe(8);
+    u.corgi_setup = null;
+    expect(draw()[0].source_width).toBe(32);
+  } finally {
+    host.destroy();
+  }
+});
+
+test("machine headers highlight only the hovered band and clear under overlays", () => {
+  const row = sidebar.workspaceEntry({ id: 1, name: "project", cwd: "/tmp", active: false, machine: "atlas" });
+  const u = ui({ message: "", workspaces: [row], sidebar_open: true, copy_mode: false });
+  const terminal = new Terminal(120, 40);
+  const draw = () => {
+    terminal.feed(frame(null, [], 120, 40, u));
+    return terminal.surface(0).surface.lines;
+  };
+  try {
+    const normal = draw();
+    u.pointer = { x: 10, y: 2 };
+    const hovered = draw();
+    expect(hovered[2]).toContain(`48;2;${palette.colors.selected.join(";")}`);
+    expect(hovered.filter((line, i) => line !== normal[i])).toHaveLength(1);
+    u.pointer.y = 3;
+    expect(draw()[2]).toBe(normal[2]);
+    u.pointer.y = 2;
+    u.scope_menu = new sidebar.ScopeMenu();
+    expect(draw()[2]).toBe(normal[2]);
+  } finally {
+    terminal.destroy();
+  }
 });
 
 test("unread pointer follows the clickable workspace and respects overlays", () => {

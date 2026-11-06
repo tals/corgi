@@ -34,7 +34,8 @@ export async function openMode(
   theme: RequestInput<"viewer.open">["theme"],
   start_onboarding: boolean,
 ): Promise<bigint> {
-  const machine = view.machine;
+  const machine = view.machine,
+    navigation = machine.navigation;
   view.start_folder = cwd;
   view.remote_links = !!view.connection.remote || sshViewer();
   view.offerOnboarding();
@@ -54,11 +55,17 @@ export async function openMode(
   } catch (error) {
     throw incompatible(error as Error);
   }
-  machine.navigation.workspace_id = opened.workspace;
+  if (machine.navigation === navigation && navigation.revision === 0) navigation.workspace_id = opened.workspace;
   if (view.machine === machine) view.input_state.attached = true;
   await view.refresh(machine);
   if (view.machine !== machine) return BigInt(opened.bell_seq ?? 0n);
-  if (opened.focus && view.runtime.workspaces.owner(opened.focus)) view.focusPane(opened.focus);
+  if (
+    machine.navigation === navigation &&
+    navigation.revision === 0 &&
+    opened.focus &&
+    view.runtime.workspaces.owner(opened.focus)
+  )
+    view.focusPane(opened.focus);
   view.restoreAgentScroll();
   view.launch_previews.connect(view.connection);
   view.launch_previews.changedEvent = () => {

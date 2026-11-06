@@ -357,3 +357,35 @@ test("out-of-order numbered replies only acknowledge a contiguous prefix", async
     await endpoint.close();
   }
 });
+
+test("cached identity does not describe the first connection as a reconnect", async () => {
+  const endpoint = new Endpoint(null, "/tmp/corgi-status-test/control.sock", new Probe(), new Host());
+  try {
+    endpoint.instance = "cached-daemon";
+    expect(endpoint.description()).toBe("Connecting…");
+    expect(endpoint.headerStatus(5000)).toEqual({ label: "connecting", seconds: 0, color: "warm" });
+    Reflect.set(endpoint, "retries", 1);
+    expect(endpoint.description()).toBe("Connecting…");
+    Reflect.set(endpoint, "task", Promise.resolve());
+    Reflect.set(endpoint, "task_started", 1000);
+    expect(endpoint.description(5000)).toBe("Connecting… 4s");
+    expect(endpoint.headerStatus(5000)).toEqual({ label: "connecting", seconds: 4, color: "warm" });
+    expect(endpoint.headerStatus(6000)?.seconds).toBe(5);
+    Reflect.set(endpoint, "connected", true);
+    expect(endpoint.description(5000)).toBe("Reconnecting… 4s");
+    expect(endpoint.headerStatus(5000)?.label).toBe("reconnecting");
+    endpoint.status = "stalled";
+    expect(endpoint.headerStatus(5000)).toEqual({ label: "stalled", seconds: 4, color: "warm" });
+    endpoint.status = "offline";
+    Reflect.set(endpoint, "next", 8000);
+    expect(endpoint.headerStatus(5000)).toEqual({ label: "retry in", seconds: 3, color: "hot" });
+    expect(endpoint.headerStatus(6000)?.seconds).toBe(2);
+    expect(endpoint.headerStatus(9000)?.seconds).toBe(0);
+    endpoint.status = "paused";
+    expect(endpoint.headerStatus(5000)).toEqual({ label: "paused", seconds: null, color: "muted" });
+    endpoint.status = "online";
+    expect(endpoint.headerStatus(5000)).toBeNull();
+  } finally {
+    await endpoint.close();
+  }
+});

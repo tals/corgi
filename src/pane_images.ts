@@ -89,7 +89,7 @@ export class Images {
       let pieces = [whole];
       for (const box of covered) {
         const hole = new Rect(box.x * cell.width, box.y * cell.height, box.w * cell.width, box.h * cell.height);
-        pieces = pieces.flatMap(piece => cut(piece, hole));
+        pieces = pieces.flatMap(piece => piece.cut(hole));
       }
       for (const piece of pieces) {
         const col = Math.floor(piece.x / cell.width),
@@ -160,21 +160,6 @@ function clip(p: ImagePlacement, rect: Rect, cell: Cell): Crop | null {
   const height = Math.min(full_height - top, rect.h * cell.height - Math.max(0, y));
   if (width <= 0 || height <= 0 || width * height > 16_000_000) return null;
   return { x: Math.max(0, x), y: Math.max(0, y), width, height, left, top, full_width, full_height };
-}
-
-/** `r` without `hole`: the strips above and below it, then those beside it. */
-function cut(r: Rect, hole: Rect): Rect[] {
-  const top = Math.max(r.y, hole.y),
-    bottom = Math.min(r.y + r.h, hole.y + hole.h);
-  const left = Math.max(r.x, hole.x),
-    right = Math.min(r.x + r.w, hole.x + hole.w);
-  if (top >= bottom || left >= right) return [r];
-  return [
-    new Rect(r.x, r.y, r.w, top - r.y),
-    new Rect(r.x, bottom, r.w, r.y + r.h - bottom),
-    new Rect(r.x, top, left - r.x, bottom - top),
-    new Rect(right, top, r.x + r.w - right, bottom - top),
-  ].filter(piece => piece.w > 0 && piece.h > 0);
 }
 
 /** Resample the visible source rectangle into exact host pixels. Sending it at

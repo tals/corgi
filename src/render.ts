@@ -34,6 +34,9 @@ import * as startupCard from "./startup_card";
 import type { Wait as StartupWait } from "./startup";
 import * as pasteProgress from "./paste_progress";
 import * as resourceTooltip from "./resource_tooltip";
+import * as connectivityCard from "./connectivity_card";
+import type { Images as SignalBars } from "./signal_bars";
+import type { Quality } from "./connection_stats";
 import * as gitTooltip from "./git_tooltip";
 import * as linkTooltip from "./link_tooltip";
 import * as linkThumbnail from "./link_thumbnail";
@@ -215,6 +218,8 @@ export interface Ui {
   resource_card: resourceTooltip.State | null;
   startup_waits: StartupWait[];
   startup_card: startupCard.State | null;
+  connection_card: connectivityCard.Card | null;
+  signal_bars: SignalBars | null;
   git_hover: number | null;
   /** Panes whose grips showed last frame. */
   grip_hover: readonly number[];
@@ -299,6 +304,7 @@ export interface Ui {
   signin_draw: ((w: Writer, pointer: Pointer | null) => linkTooltip.Link | null) | null;
   /** With every workspace closed, the button that creates one. */
   no_workspace: noWorkspace.State | null;
+  workspace_loading: boolean;
   /** Draws the Corgi prompt over everything, placing brand marks where it can. */
   /** Draws the prompt and returns the boxes it drew over. */
   prompt_draw: ((w: Writer, marks: Marks | null) => Rect[]) | null;
@@ -316,6 +322,8 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     resource_card: null,
     startup_waits: [],
     startup_card: null,
+    connection_card: null,
+    signal_bars: null,
     git_hover: null,
     grip_hover: [],
     git_card: null,
@@ -378,6 +386,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     review_ghost: null,
     signin_draw: null,
     no_workspace: null,
+    workspace_loading: false,
     prompt_draw: null,
     prompt_cue: null,
     ...fields,
@@ -608,6 +617,7 @@ function badgeCovered(u: Ui, side: SidebarView, width: number, height: number, p
   // The agents drawer has no title row for the badge.
   if (u.sidebar_drawer === "agents") return true;
   const boxes = [...menuBoxes(u, width, height, side.area()), ...prompt];
+  if (u.connection_card && noOverlay(u)) boxes.push(u.connection_card.rect);
   if (u.agent_launcher) boxes.push(u.agent_launcher.bounds(width, height, side));
   if (u.agent_search) boxes.push(new Rect(0, side.middle() + 1, side.width, 1));
   if (u.dialog) {
@@ -770,6 +780,7 @@ export function sidebarView(u: Ui, width: number, height: number): SidebarView {
       workspaces.length,
       u.workspace_offset,
       workspaces.map(row => row.machine),
+      workspaces.map(row => row.collapsed),
     )
     .withEntries(entries);
   side.corgi_badge = u.corgi_badge;
@@ -809,6 +820,12 @@ export function frame(
   const workspaces = u.dragged_workspace ? u.dragged_workspace.apply(u.workspaces) : u.workspaces;
   const dragging = u.dragged_agent !== null || u.dragged_workspace !== null || u.docking?.dragging === true;
   const side = sidebarView(u, width, height);
+  const signals: { quality: Quality; x: number; y: number }[] = [];
+  if (u.signal_bars && u.cell_pixels)
+    side.signal_marks = (quality, x, y) => {
+      signals.push({ quality, x, y });
+      return u.signal_bars!.ready(quality, u.cell_pixels!);
+    };
   // Mouse tracking modes replace one another. Disabling first makes the host
   // briefly switch to a text pointer on every redraw.
   w.write("\x1b[?1003h");
@@ -823,7 +840,7 @@ export function frame(
   // Marks take room in their tabs only where the host can show them.
   const marks: TabMark[] | null = u.tab_icons && u.cell_pixels ? [] : null;
   // With every workspace closed, all but the way to create one steps back.
-  const none = layout ? u.no_workspace : null;
+  const none = layout && !u.workspace_loading ? u.no_workspace : null;
   const on_none =
     none !== null && u.pointer !== null && noPopup(u) ? noWorkspace.hit(side.area(), u.pointer.x, u.pointer.y) : null;
   const on_create =
@@ -834,6 +851,12 @@ export function frame(
     const tabs = new Writer();
     drawTabs(tabs, view, panes, u.prefs.preset, side.tabX(), tab_space, thumb, marks);
     sidebar.writeExit(w, tabs.buffered(), noWorkspace.dim);
+  } else if (u.workspace_loading && model.count === 0) {
+    w.write(`\x1b[1;${side.tabX() + 1}H` + palette.fg("faint"));
+    writeEllipsis(w, " ▰▰▰▰▰▰▰▰   ▰▰▰▰▰▰   ▰▰▰▰▰▰▰▰ ", tab_space);
+    w.write(`\x1b[3;${side.area().x + 2}H` + palette.fg("muted"));
+    writeEllipsis(w, i18n.t`Loading tabs…`, Math.max(0, side.area().w - 2));
+    w.write("\x1b[0m");
   } else if (layout) drawTabs(w, view, panes, u.prefs.preset, side.tabX(), tab_space, thumb, marks);
   if (u.tab_drop_x !== null)
     w.write(`\x1b[1;${side.tabX() + u.tab_drop_x + 1}H\x1b[1m` + palette.fg("strong") + "│\x1b[0m");
@@ -843,7 +866,7 @@ export function frame(
     // Behind a dialog, like the panes.
     if (dimsPanes(u)) sidebar.writeExit(w, button.buffered(), sidebar.spotlight_dim);
     else w.write(button.buffered());
-  } else if (layout && model.count === 0) {
+  } else if (layout && model.count === 0 && !u.workspace_loading) {
     const prefix_key = keymap.prefixName(u.prefs.prefix);
     const hint = (name: string, label: string) => {
       const binding =
@@ -1012,6 +1035,12 @@ export function frame(
     const p = panes.find(pane => pane.id === place.id);
     if (!p) continue;
     const r = place.rect;
+    if (p.terminal.loaded === false && !p.dormant && !p.restoring) {
+      w.write(w.cup(r.y + 1, r.x + 1) + palette.fg("muted"));
+      writeEllipsis(w, i18n.t`Loading pane…`, Math.max(0, r.w - 2));
+      w.write("\x1b[0m");
+      continue;
+    }
     p.terminal.updateRender();
     let hovered: bigint | null = null;
     if (u.pointer && r.contains(u.pointer.x, u.pointer.y) && !on_card && !on_link_card && noOverlay(u)) {
@@ -1080,8 +1109,11 @@ export function frame(
   }
   if (u.docking) for (const rect of drawDocking(w, u.docking, panes, side.area())) cover(rect);
   // The host may leave its last mouse report at the window edge.
-  if (u.pointer && u.pointer.x > 0 && !dragging && !on_card && noOverlay(u))
+  if (u.pointer && u.pointer.x > 0 && !dragging && !on_card && noOverlay(u)) {
     side.hovered = sidebar.agentIndexAt(side, entries, u.pointer.x, u.pointer.y);
+    if (!on_link_card && !on_git && !u.connection_card?.rect.contains(u.pointer.x, u.pointer.y))
+      side.machine_hover = sidebar.machineHeaderAt(side, u.pointer.x, u.pointer.y)?.rect.y ?? null;
+  }
   side.spotlight = u.worktree_spotlight;
   // A moving row's tint and a link's thumbnail are placed again by each frame that shows them.
   if (u.supports_kitty_graphics)
@@ -1149,7 +1181,7 @@ export function frame(
     for (const place of view.placements(area)) {
       if (place.id !== view.selection.tabs[view.selection.active].focus || place.rect.h === 0) continue;
       const p = panes.find(pane => pane.id === place.id && pane.restoring.length === 0);
-      if (!p) continue;
+      if (!p || p.terminal.loaded === false) continue;
       const cursor = p.terminal.cursor();
       if (cursor && cursor.x < place.rect.w && cursor.y < place.rect.h && place.rect.y + cursor.y < cursor_rows) {
         pane_cursor = { x: place.rect.x + cursor.x, y: place.rect.y + cursor.y };
@@ -1290,7 +1322,9 @@ export function frame(
       const i = model.tabs.slice(0, model.count).findIndex(tab => tab.id === target);
       if (i >= 0) number = i + 1;
     }
-    NameView.init(width, height, dialog).draw(dialog, w, number);
+    const box = NameView.init(width, height, dialog);
+    box.draw(dialog, w, number);
+    cover(new Rect(box.x, box.y, box.width, box.height));
   }
   if (u.scope_menu) {
     u.scope_menu.draw(w, side, width, height, u.workspaces, u.prefs.agents as Scope, u.prefs.agentSort());
@@ -1323,12 +1357,13 @@ export function frame(
     // None under the setup drawn over the launcher.
     u.agent_launcher.marks = u.corgi_setup ? null : menu_marks;
     u.agent_launcher.draw(w, width, height, side);
+    cover(u.agent_launcher.bounds(width, height, side));
   }
   // Settings' Manage agents and model picker wear them as the launcher's does.
   if (u.corgi_setup?.agents) u.corgi_setup.agents.manager.marks = menu_marks;
   if (u.corgi_setup) {
     u.corgi_setup.marks = menu_marks;
-    u.corgi_setup.draw(w, u.inference, u.prefs, width, height);
+    cover(u.corgi_setup.draw(w, u.inference, u.prefs, width, height));
   }
   if (managed?.manager.last_box && !managed.transition.active)
     w.write(managed.manager.glideImage(managed.manager.last_box, managed.manageModel()));
@@ -1353,6 +1388,11 @@ export function frame(
     if (u.link_card.thumbnail) w.write(linkThumbnail.place(link_rect, u.link_card.thumbnail));
     cover(link_rect);
   }
+  if (u.connection_card && noOverlay(u)) {
+    connectivityCard.draw(w, u.connection_card);
+    cover(u.connection_card.rect);
+    pane_cursor = null;
+  }
   if (u.images && u.cell_pixels) {
     const { images, cell_pixels } = u;
     for (const { pane, rect, hidden } of pictured) {
@@ -1373,6 +1413,8 @@ export function frame(
         u.cell_pixels!,
       ),
     );
+  if (u.signal_bars && u.cell_pixels && !u.signin_draw && !u.signin_exit)
+    for (const { quality, x, y } of signals) w.write(u.signal_bars.place(quality, x, y, u.cell_pixels, covered));
   if (u.tab_icons && u.cell_pixels && !u.agent_launcher && !u.corgi_setup && !u.signin_draw && !u.signin_exit)
     for (const { brand, x, y } of archive_marks)
       if (!covered.some(box => box.y <= y && box.y + box.h > y && box.x < x + tabIcons.cols && box.x + box.w > x))

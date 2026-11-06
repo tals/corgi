@@ -79,6 +79,18 @@ class Remote extends Runtime {
     await this.command("workspace.edit", { target: 1, name: "LOCAL_WORKSPACE" });
     await this.remote.command("workspace.edit", { target: 1, name: "REMOTE_WORKSPACE" });
   }
+  async test_cold_remote_listing_allows_ssh_authentication_on_a_slow_link() {
+    this.network!.cut();
+    this.network!.latency_ms = 800;
+    const result = await run([EXE, "list", "--all-machines"], { env: this.env, timeout: 40000 });
+    const remote = JSON.parse(result.stdout).machines.find(
+      (machine: { machine: string }) => machine.machine === "work",
+    );
+    this.assertTrue(remote.ok);
+    this.assertTrue(
+      remote.result.workspaces.some((workspace: { name: string }) => workspace.name === "REMOTE_WORKSPACE"),
+    );
+  }
   async test_one_second_one_way_latency_stays_online_and_delivers_typing() {
     await this.command("pane.create", { workspace: 1, command: "cat" });
     await this.remote!.command("pane.create", { workspace: 1, command: "cat" });
@@ -95,6 +107,11 @@ class Remote extends Runtime {
       }, 15);
     }
     this.assertEqual(this.network!.accepted, accepted);
+    this.assertTrue(
+      this.text()
+        .split("\n")
+        .some(row => row.includes("▾  work") && row.includes("▂▁▁▁")),
+    );
   }
   async test_raising_latency_then_reconnecting_keeps_local_navigation_responsive() {
     await this.command("pane.create", { workspace: 1, command: "cat" });
@@ -143,8 +160,8 @@ class Remote extends Runtime {
       );
     };
     await this.until(ordered, 1);
-    this.assertEqual(rows().filter(row => row.includes("├─ local")).length, 2);
-    this.assertEqual(rows().filter(row => row.includes("├─ work")).length, 1);
+    this.assertEqual(rows().filter(row => row.includes("▾  local")).length, 2);
+    this.assertEqual(rows().filter(row => row.includes("▾  work")).length, 1);
     this.clickWorkspace("LOCAL");
     await this.online("local", 1);
     this.network!.set("healthy");
@@ -623,10 +640,14 @@ process.stdin.on('data', data => {
     const remoteRow = this.text()
       .split("\n")
       .findIndex(row => row.includes("REMOTE_WORKSPACE"));
-    const status = () => this.text().split("\n")[remoteRow + 1].slice(0, 28);
-    this.assertIn("work ↔", status());
+    const status = () => this.text().split("\n")[remoteRow].slice(0, 28);
+    this.assertTrue(
+      this.text()
+        .split("\n")
+        .some(row => row.includes("▾  work") && row.includes("▁▁▁▁")),
+    );
     const first = status();
-    const style = () => this.screen!.surface(0).surface.lines[remoteRow + 1];
+    const style = () => this.screen!.surface(0).surface.lines[remoteRow];
     const first_style = style();
     await this.until(() => style() !== first_style, 1);
     this.assertEqual(status(), first);
@@ -736,6 +757,33 @@ process.stdin.on('data', data => {
       hidden.close();
     }
   }
+  async test_workspace_selection_and_tabs_are_immediate_before_slow_attachment() {
+    await this.command("pane.create", { workspace: 1, command: "cat" });
+    const target = (
+      await this.remote!.command("workspace.create", { name: "SLOW_WORKSPACE", cwd: this.remote!.temp.name })
+    ).workspace;
+    const pane = await this.remote!.command("pane.create", { workspace: target, command: "cat" });
+    await this.remote!.command("tab.rename", { target: pane.tab, name: "PREFETCHED_TAB" });
+    await this.startViewer("local");
+    await this.online("local");
+    await this.until(() => this.text().includes("SLOW"));
+    this.network!.latency_ms = 800;
+    for (let i = 0; i < 3; i++) {
+      this.clickWorkspace("SLOW");
+      await this.until(() => this.text().includes("▌SLOW_WORKSPACE") && this.text().includes("PREFETCHED_TAB"), 0.5);
+      if (i < 2) {
+        this.clickWorkspace("LOCAL");
+        await this.until(() => this.text().includes("▌LOCAL_WORKSPACE"), 0.5);
+      }
+    }
+    this.assertIn("Input paused", this.text());
+    this.assertIn("Loading pane…", this.text());
+    await this.until(() => {
+      this.assertIn("▌SLOW_WORKSPACE", this.text());
+      return !this.text().includes("Input paused");
+    }, 25);
+    this.assertIn("PREFETCHED_TAB", this.text());
+  }
   async test_all_workspaces_default_inline_dropdown_and_cross_machine_mouse_and_keyboard_navigation() {
     await this.command("pane.create", { workspace: 1, command: "cat" });
     await this.remote!.command("pane.create", { workspace: 1, command: "cat" });
@@ -758,14 +806,52 @@ process.stdin.on('data', data => {
     const x = this.text().split("\n")[0].indexOf("all ▾");
     this.click(x, 0);
     await this.until(() => this.text().includes("All workspaces"));
-    await this.until(() => /local\s+● online/.test(this.text()) && /work\s+● online/.test(this.text()));
+    await this.until(() => /local\s+● online/.test(this.text()) && /work\s+(?:● |▂▄▆█ )online/.test(this.text()));
     this.assertIn("MOUSE_REMOTE", this.text());
     this.terminal!.write("l\r");
+    await this.until(() => this.text().includes("local ▾"));
+    this.assertIn("MOUSE_REMOTE", this.text());
+    this.clickWorkspace("LOCAL");
     await this.online("local");
     this.assertIn("local ▾", this.text().split("\n")[0]);
     this.assertNotIn("REMOTE_WORKSPACE", this.text());
     this.terminal!.write("\x1da\r");
     await this.until(() => this.text().includes("all ▾") && this.text().includes("REMOTE_WORKSPACE"));
+  }
+  async test_machine_collapse_and_authentication_diagnostics_keep_local_input_usable() {
+    const sshPath = join(this.temp.name, "bin/ssh");
+    const original = readFileSync(sshPath, "utf8");
+    const before = (await this.remote!.rpc({ op: "hello", protocol: 1 })).server_pid;
+    this.assertEqual((await this.cli(["machine", "status", "work"])).status, "reachable");
+    writeExecutable(sshPath, "#!/bin/sh\nprintf '%s\\n' 'Permission denied (publickey).' >&2\nexit 255\n");
+    await this.command("pane.create", { workspace: 1, command: "cat" });
+    await this.startViewer("local");
+    await this.online("local");
+    await this.until(() => this.text().includes("! auth"));
+    let lines = this.text().split("\n");
+    let y = lines.findIndex(line => line.includes("! auth"));
+    this.click(lines[y].indexOf("! auth"), y);
+    await this.until(() => this.text().includes("corgi machine reconnect work"));
+    this.assertIn("Permission denied (publickey).", this.text());
+    this.terminal!.write("\x1b");
+    await this.until(() => !this.text().includes("corgi machine reconnect work"));
+    writeExecutable(sshPath, original);
+    this.assertEqual((await this.cli(["machine", "reconnect", "work"])).status, "reachable");
+    this.assertEqual((await this.remote!.rpc({ op: "hello", protocol: 1 })).server_pid, before);
+    this.terminal!.write("\x1dw\x12\x1b");
+    await this.until(() => this.text().includes("REMOTE_WORKSPACE"));
+    lines = this.text().split("\n");
+    y = lines.findIndex(line => line.includes("▾  work"));
+    this.assertTrue(y >= 0);
+    this.click(2, y);
+    await this.until(() => this.text().includes("▸  work") && !this.text().includes("REMOTE_WORKSPACE"));
+    this.terminal!.write("LOCAL_WHILE_COLLAPSED\r");
+    await this.until(async () =>
+      (await this.command("pane.read", { target: 1 })).text.includes("LOCAL_WHILE_COLLAPSED"),
+    );
+    this.click(2, y);
+    await this.until(() => this.text().includes("REMOTE_WORKSPACE"));
+    this.assertIn("▌LOCAL_WORKSPACE", this.text());
   }
   async test_all_agents_lists_both_machines_and_clicking_a_remote_agent_focuses_it_there() {
     const mark = async (runtime: Runtime, name: string) => {
@@ -824,7 +910,13 @@ process.stdin.on('data', data => {
     this.network!.set("healthy");
     await this.until(() => this.text().includes("REMOTE_WORKSPACE") && this.text().includes("all ▾"), 12);
     this.network!.set("blackhole");
-    await this.until(() => this.text().includes("work ↔"), 6);
+    await this.until(
+      () =>
+        this.text()
+          .split("\n")
+          .some(row => row.includes("▾  work") && row.includes("▁▁▁▁")),
+      6,
+    );
     this.assertIn("REMOTE_WORKSPACE", this.text());
     this.assertNotIn("Input paused", this.text());
     this.terminal!.write("LOCAL_DURING_OUTAGE\r");
@@ -1149,8 +1241,10 @@ process.stdin.on("data", chunk => {
     await this.until(() => screen().includes("all ▾"), 8);
     this.terminal.write("\x1d");
     await this.until(() => screen().includes("All workspaces"), 5);
-    await this.until(() => /local\s+● online/.test(screen()) && /work\s+● online/.test(screen()), 5);
+    await this.until(() => /local\s+● online/.test(screen()) && /work\s+(?:● |▂▄▆█ )online/.test(screen()), 5);
     this.terminal.write("w\r");
+    await this.until(() => screen().includes("work ▾") && !screen().includes("All workspaces"));
+    this.clickWorkspace("REMOTE");
     await this.until(() => screen().includes("▌REMOTE_WORKSPACE") && !screen().includes("Input paused"), 8);
     this.terminal.write("FROM_REMOTE_VIEW\r");
     await this.remote!.until(
@@ -1165,6 +1259,8 @@ process.stdin.on("data", chunk => {
       this.terminal.write("\x1d");
       await this.until(() => screen().includes("All workspaces"), 2);
       this.terminal.write("l\r");
+      await this.until(() => screen().includes("local ▾") && !screen().includes("All workspaces"));
+      this.clickWorkspace("LOCAL");
       await this.until(() => screen().includes("▌LOCAL_WORKSPACE") && !screen().includes("Input paused"), 5);
       this.terminal.write("FROM_LOCAL_VIEW\r");
       await this.until(
@@ -1174,6 +1270,8 @@ process.stdin.on("data", chunk => {
       this.terminal.write("\x1d");
       await this.until(() => screen().includes("All workspaces"), 2);
       this.terminal.write("w\r");
+      await this.until(() => screen().includes("work ▾") && !screen().includes("All workspaces"));
+      this.clickWorkspace("REMOTE");
       // Stalled, retrying or offline: input waits either way.
       await this.until(() => screen().includes("Input paused"), 12);
       this.terminal.write("OFFLINE_SHOULD_NOT_RUN\r\x1d");
