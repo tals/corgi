@@ -2,7 +2,7 @@ import { createConnection, createServer, type Server, type Socket } from "node:n
 import { join } from "node:path";
 import { Runtime } from "./runtime";
 import { Viewer } from "./viewer_client";
-import { EXE, JsonSocket, Lines, Pty, registerCase, run, versioned } from "./support";
+import { EXE, JsonSocket, Lines, Pty, registerCase, run, shellJoin, versioned } from "./support";
 import * as protocol from "../src/protocol";
 
 const current = protocol.viewer_version,
@@ -13,6 +13,7 @@ class ReplyProxy {
   connections: Socket[] = [];
   sync_reply: any = null;
   open_reply: any = null;
+  uninstall_on_sync = false;
   synced = false;
   constructor(
     public path: string,
@@ -64,6 +65,12 @@ class ReplyProxy {
         if (op === "viewer.sync") {
           replacement = this.sync_reply;
           this.synced = true;
+          if (this.uninstall_on_sync) {
+            this.uninstall_on_sync = false;
+            // Deliver the uninstall event, then close without answering the pending sync.
+            client.end(JSON.stringify({ type: "uninstalled" }) + "\n");
+            return;
+          }
         }
         const reply = replacement === null ? line : JSON.stringify({ ...replacement, request_id: id });
         client.write(reply + "\n");
@@ -188,6 +195,26 @@ class ViewerCompatibility extends Runtime {
       check: false,
     });
     this.assert_explanation(process.code, process.stderr);
+  }
+  async test_uninstall_during_a_pending_sync_shows_farewell_and_exits_successfully() {
+    const [proxy, env] = await this.proxy(),
+      pty = new Pty(80, 24);
+    this.addCleanup(() => pty.close());
+    const before = await pty.settings();
+    const shell = `${shellJoin([EXE, "--no-update"])}; viewer_status=$?; printf 'AFTER_FAREWELL_READY\n'; IFS= read -r line; printf 'AFTER_FAREWELL:%s\n' "$line"; exit "$viewer_status"`;
+    pty.start(["/bin/sh", "-c", shell], { env, cwd: this.temp.name });
+    await this.until(() => proxy.synced);
+    proxy.uninstall_on_sync = true;
+    await pty.waitFor("The Farm", 10_000);
+    pty.write("ignored-during-farewell\n");
+    await pty.waitFor("Corgi was uninstalled.", 10_000);
+    await pty.waitFor("AFTER_FAREWELL_READY");
+    pty.write("after-farewell\n");
+    await pty.waitFor("AFTER_FAREWELL:after-farewell");
+    this.assertEqual(await pty.proc.exited, 0);
+    this.assertIn("The Farm", pty.output);
+    this.assertNotIn("ConnectionClosed", pty.output);
+    this.assertEqual(await pty.settings(), before);
   }
 }
 registerCase("ViewerCompatibility", ViewerCompatibility, { inherited: false });

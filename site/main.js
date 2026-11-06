@@ -176,7 +176,7 @@ function animate(g, now, dreamKey = 0) {
   const wag = WAG[still ? 0 : Math.floor(now / 200) % WAG.length];
   for (const [r, c] of bits.awake) put(out, r, c, wag);
   // One sleeper dreams per period, as corgi picks it; screens dream out of step.
-  const dream = still ? null : corgiAnimation.dreamer(bits.sleep.map((_, i) => BigInt(i)), now + dreamKey * 2300);
+  const dream = still ? null : corgiAnimation.dreamer(bits.sleep.map((_, i) => String(i)), now + dreamKey * 2300);
   if (dream) {
     const [r, c] = bits.sleep[Number(dream.key)];
     const ground = STYLES[out[r][c][1]][1] ?? "pane", grey = ground === "selected" ? "muted" : "faint";
@@ -1775,9 +1775,124 @@ function frame(now) {
 frame(performance.now());
 if (!still) setInterval(() => frame(performance.now()), 50);
 
+// The install line's command: Corgi's installer, or on Omarchy its bar plugin.
+// Pressing Omarchy in the supported line trades one for the other: the command
+// crumbles into braille dust, as a worktree does when Corgi removes it, and the
+// new one settles out of it. Toward Omarchy the dust sweeps left to right, back
+// right to left, and the box's edge travels with it.
+const installCode = document.getElementById("install-cmd");
+const installs = {
+  everywhere: "curl -fsSL https://corgi.computer/install.sh | bash",
+  omarchy: "omarchy plugin add https://github.com/tals/corgi-omarchy --enable",
+};
+let install = "everywhere",
+  sweep = 0;
+const dust_ms = 650;
+// Corgi's cell hash, so a cell's dust is the same on every frame of a tick.
+const cellHash = (a, b, c) => {
+  let h = Math.imul(a, 374761393) + Math.imul(b, 668265263) + Math.imul(c, 2147483647);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+};
+const unit = (v) => Math.max(0, Math.min(1, v));
+const braille = (bits) => String.fromCharCode(0x2800 + bits);
+// A cell's braille with `n` of its 8 dots, picked by the cell.
+const dustBits = (col, n, salt) => {
+  const order = [0, 1, 2, 3, 4, 5, 6, 7].sort((a, b) => cellHash(col, a, salt) - cellHash(col, b, salt));
+  let bits = 0;
+  for (let i = 0; i < Math.round(n); i++) bits |= 1 << order[i];
+  return bits;
+};
+// A column's progress through the sweep: below 0 untouched, from 1 settled.
+const dustLocal = (col, t, w, forward) =>
+  (t - ((forward ? col : w - 1 - col) / Math.max(1, w - 1)) * 0.62 - cellHash(col, 7, 1) * 0.08) / 0.3;
+// A column's glyph and gray at `local`: the old letter crumbling, dust drifting, the new letter settling.
+function dustCell(local, col, from, to, tick) {
+  if (local < 0) return [from, "strong"];
+  if (local >= 1) return [to, "strong"];
+  if (from === " " && to === " ")
+    return local > 0.3 && local < 0.6 && cellHash(col, tick, 3) < 0.25 ? [braille(dustBits(col + tick, 1, 4)), "line"] : [" ", "line"];
+  if (local < 0.35) return [braille(dustBits(col, 8 * (1 - local / 0.35) + 1, 2)), local < 0.15 ? "muted" : "faint"];
+  if (local < 0.6)
+    return cellHash(col, tick, 5) < 0.5 ? [braille(dustBits(col + tick, 1 + cellHash(col, tick, 6) * 2, 7)), "line"] : [" ", "line"];
+  if (to === " ") return [" ", "line"];
+  if (local < 0.88) return [braille(dustBits(col, 1 + ((local - 0.6) / 0.28) * 7, 9)), local < 0.75 ? "faint" : "muted"];
+  return [to, "text"];
+}
+// The box's width in columns: a column past the shorter command's end opens
+// just before the new letters settle there, or closes as its dust clears.
+function dustWidth(t, w, from, to, forward) {
+  const shrinking = to.length < from.length;
+  let width = Math.min(from.length, to.length);
+  for (let col = width; col < w; col++) {
+    const local = dustLocal(col, t, w, forward);
+    width += shrinking ? 1 - unit((local - 0.4) / 0.25) : unit((local - 0.3) / 0.3);
+  }
+  return width;
+}
+const escapeHtml = (text) => text.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+// Runs of ASCII in one gray share a span; braille, from a fallback font, gets a one-column cell each.
+function paintInstall(cells) {
+  let html = '<span class="ps">$ </span>',
+    run = "",
+    tone = "strong";
+  const flush = () => {
+    if (run) html += tone === "strong" ? escapeHtml(run) : `<span class="t-${tone}">${escapeHtml(run)}</span>`;
+    run = "";
+  };
+  for (const [ch, t] of cells) {
+    if (ch > "~") { flush(); html += `<span class="c t-${t}">${ch}</span>`; continue; }
+    if (t !== tone) { flush(); tone = t; }
+    run += ch;
+  }
+  flush();
+  installCode.innerHTML = html;
+}
+// The box eases between the two commands' lengths ("$ " included) when it isn't sweeping.
+const sizeInstall = (columns) => { installCode.style.width = `${columns + 2}ch`; };
+const pressInstall = () => {
+  for (const button of document.querySelectorAll(".note .omarchy")) button.setAttribute("aria-pressed", String(install === "omarchy"));
+};
+function switchInstall(next) {
+  const from = installs[install], to = installs[next];
+  install = next;
+  pressInstall();
+  cancelAnimationFrame(sweep);
+  installCode.style.transition = "";
+  if (!installCode.style.width) { sizeInstall(from.length); void installCode.offsetWidth; }
+  if (still) { paintInstall([...to].map((ch) => [ch, "strong"])); sizeInstall(to.length); return; }
+  const forward = next === "omarchy",
+    w = Math.max(from.length, to.length),
+    a = from.padEnd(w),
+    b = to.padEnd(w),
+    start = performance.now();
+  // The sweep sizes the box itself, every frame.
+  installCode.style.transition = "none";
+  sizeInstall(dustWidth(0, w, from, to, forward));
+  const frame = (now) => {
+    const t = unit((now - start) / dust_ms);
+    if (t >= 1) {
+      paintInstall([...to].map((ch) => [ch, "strong"]));
+      sizeInstall(to.length);
+      installCode.style.transition = "";
+      return;
+    }
+    const tick = Math.floor((now - start) / 40);
+    sizeInstall(dustWidth(t, w, from, to, forward));
+    paintInstall([...a].map((_, col) => dustCell(dustLocal(col, t, w, forward), col, a[col], b[col], tick)));
+    sweep = requestAnimationFrame(frame);
+  };
+  sweep = requestAnimationFrame(frame);
+}
+// The supported line is rewritten when the language changes, so its button is found on each press.
+document.addEventListener("click", (event) => {
+  if (event.target.closest(".note .omarchy")) switchInstall(install === "omarchy" ? "everywhere" : "omarchy");
+});
+pressInstall();
+
 const copyBtn = document.getElementById("copy");
 copyBtn.addEventListener("click", () => {
-  const text = "curl -fsSL https://corgi.computer/install.sh | bash";
+  const text = installs[install];
   const cmd = copyBtn.closest(".cmd");
   const reset = () => { copyBtn.classList.remove("copied"); copyBtn.setAttribute("aria-label", i18n.t`Copy the install command`); };
   // The check shows on the click itself; the glint runs alongside it.
@@ -1793,6 +1908,11 @@ copyBtn.addEventListener("click", () => {
   const select = () => {
     clearTimeout(copyBtn.timer);
     reset();
+    cancelAnimationFrame(sweep);
+    const text = installs[install];
+    paintInstall([...text].map((ch) => [ch, "strong"]));
+    sizeInstall(text.length);
+    installCode.style.transition = "";
     const range = document.createRange(); range.selectNodeContents(document.getElementById("install-cmd")); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
   };
   try { navigator.clipboard.writeText(text).catch(select); } catch { select(); }

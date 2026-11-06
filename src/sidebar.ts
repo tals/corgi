@@ -1536,7 +1536,7 @@ export class View {
     let glide = "";
     const end = v.drawEnd(v.badge("below"));
     const visible = entries.slice(v.offset, Math.min(entries.length, v.offset + v.shown(end)));
-    const sleepers: bigint[] = [];
+    const sleepers: string[] = [];
     for (const e of visible) {
       if (!isAgent(e.target) || e.state !== "idle" || e.exit !== null) continue;
       sleepers.push(animationKey(e));
@@ -1943,10 +1943,10 @@ function contextFigure(
   const text = `${percent < 999n ? percent : 999n}%`;
   return { text, color: contextColor(band, compacting, background) };
 }
-export function animationKey(e: Entry): bigint {
-  if ("pane" in e.target) return BigInt(e.target.pane) * 17n;
-  if ("headless" in e.target) return (BigInt(e.target.headless) + 0x100000000n) * 17n;
-  if ("asleep" in e.target) return BigInt(Bun.hash.wyhash(e.target.asleep, 0n)) + (1n << 64n);
+export function animationKey(e: Entry): string {
+  if ("pane" in e.target) return `pane:${e.target.pane}`;
+  if ("headless" in e.target) return `headless:${e.target.headless}`;
+  if ("asleep" in e.target) return `asleep:${e.target.asleep}`;
   throw Error("unreachable");
 }
 function subagentBadge(status: Subagents, children: number): string {

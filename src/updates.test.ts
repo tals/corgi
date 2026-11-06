@@ -1,10 +1,34 @@
 import { test, expect } from "bun:test";
 import { generateKeyPairSync, sign } from "node:crypto";
-import { closeSync, mkdirSync, mkdtempSync, openSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
-import { version, parse, managed, release, abi, platform, check, save, prune, type Release } from "./updates";
+import {
+  version,
+  parse,
+  managed,
+  release,
+  abi,
+  platform,
+  check,
+  save,
+  prune,
+  pluginOf,
+  forget,
+  type Release,
+} from "./updates";
 import { releaseVersion } from "./build_config";
 import { flock } from "./native_bridge";
 const keys = () => generateKeyPairSync("ed25519");
@@ -187,6 +211,52 @@ test("cleanup waits for runtime lock registration to finish", () => {
   } finally {
     closeSync(guard);
     rmSync(root, { recursive: true, force: true });
+  }
+});
+test("an installation remembers the Omarchy plugin that installed it", () => {
+  const root = mkdtempSync(join(tmpdir(), "corgi-plugin-"));
+  try {
+    expect(pluginOf(root)).toBeNull();
+    writeFileSync(join(root, "plugin"), "/home/u/.config/omarchy/plugins/corgi.computer\n");
+    expect(pluginOf(root)).toBe("/home/u/.config/omarchy/plugins/corgi.computer");
+    writeFileSync(join(root, "plugin"), "plugins/corgi.computer\n");
+    expect(pluginOf(root)).toBeNull();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+test("forgetting an installation removes only the launcher that ran it", () => {
+  const home = mkdtempSync(join(tmpdir(), "corgi-forget-")),
+    original = process.env.HOME,
+    root = join(home, "plugins", "corgi.computer", "app"),
+    launcher = join(home, ".local", "bin", "corgi"),
+    script = (at: string) => `#!/bin/sh\nroot='${at}'\nexec "$root/releases/$v/corgi" "$@"\n`;
+  try {
+    process.env.HOME = home;
+    mkdirSync(join(home, ".local", "bin"), { recursive: true });
+    writeFileSync(launcher, script("/elsewhere"));
+    forget(root);
+    expect(existsSync(launcher)).toBe(true);
+    writeFileSync(launcher, script(root));
+    forget(root);
+    expect(existsSync(launcher)).toBe(false);
+    const custom = join(home, "custom launcher ");
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, "launcher"), custom);
+    writeFileSync(launcher, script("/elsewhere"));
+    writeFileSync(custom, script(root));
+    forget(root);
+    expect(existsSync(custom)).toBe(false);
+    expect(existsSync(launcher)).toBe(true);
+    const alias = join(home, "install-alias");
+    symlinkSync(root, alias, "dir");
+    writeFileSync(custom, script(realpathSync(root)));
+    forget(alias);
+    expect(existsSync(custom)).toBe(false);
+    expect(existsSync(launcher)).toBe(true);
+  } finally {
+    process.env.HOME = original;
+    rmSync(home, { recursive: true, force: true });
   }
 });
 test("only test builds take their release from the path and environment", () => {

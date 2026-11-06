@@ -123,7 +123,7 @@
   "Slow down the herd animation": "群れのアニメーションをゆっくりに",
   "Splitting the audit": "監査を分担中",
   "Static Linux build": "Linux の静的ビルド",
-  "Supported on macOS, Linux and WSL": "macOS、Linux、WSL に対応",
+  "Supported on macOS, Linux, WSL and <button class=\"omarchy\" type=\"button\">Omarchy</button>": "macOS、Linux、WSL、<button class=\"omarchy\" type=\"button\">Omarchy</button> に対応",
   "Terminal multiplexer for humans (and agents).": "人とエージェントのためのターミナルマルチプレクサ。",
   "The sidebar, showing what each agent is doing and which ones need you.": "各エージェントの作業内容と、確認が必要な相手を表示するサイドバー。",
   "This project was made possible by:": "このプロジェクトを支えてくれた皆さん：",

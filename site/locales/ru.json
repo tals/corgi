@@ -123,7 +123,7 @@
   "Slow down the herd animation": "Замедлить анимацию стада",
   "Splitting the audit": "Распределяет проверку",
   "Static Linux build": "Статическая сборка для Linux",
-  "Supported on macOS, Linux and WSL": "Работает на macOS, Linux и WSL",
+  "Supported on macOS, Linux, WSL and <button class=\"omarchy\" type=\"button\">Omarchy</button>": "Работает на macOS, Linux, WSL и <button class=\"omarchy\" type=\"button\">Omarchy</button>",
   "Terminal multiplexer for humans (and agents).": "Терминальный мультиплексор для людей (и агентов).",
   "The sidebar, showing what each agent is doing and which ones need you.": "Боковая панель показывает, чем занят каждый агент и кому нужно ваше внимание.",
   "This project was made possible by:": "Этот проект стал возможен благодаря:",

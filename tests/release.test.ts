@@ -10,6 +10,8 @@ import {
   versionParts,
   releaseOptions,
   releasePaths,
+  testConfiguration,
+  preparePlugin,
   releaseCommit,
   withReleaseCheckout,
   clean,
@@ -23,7 +25,7 @@ import {
   requirePushed,
   type Store,
 } from "../scripts/release.ts";
-import { mkdtemp, mkdir, readFile, writeFile, chmod, rm, stat, symlink } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, chmod, rm, stat, symlink, realpath } from "node:fs/promises";
 import { generateKeyPairSync } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -289,21 +291,135 @@ test("publishing only accepts valid timestamp IDs tied to HEAD", () => {
 test("release modes accept an explicit version and reject ambiguous arguments", () => {
   const version = timestampVersion("a".repeat(40));
   for (const mode of ["--dry-run", "--build-only", "--publish-only"]) {
-    expect(releaseOptions([mode, version])).toEqual({ mode, version, skipTests: false });
-    expect(releaseOptions([version, mode])).toEqual({ mode, version, skipTests: false });
+    expect(releaseOptions([mode, version])).toEqual({
+      mode,
+      version,
+      skipTests: false,
+      test: false,
+      omarchySkip: false,
+    });
+    expect(releaseOptions([version, mode])).toEqual({
+      mode,
+      version,
+      skipTests: false,
+      test: false,
+      omarchySkip: false,
+    });
   }
-  expect(releaseOptions([])).toEqual({ mode: "", version: undefined, skipTests: false });
-  expect(releaseOptions(["--skip-tests", version])).toEqual({ mode: "", version, skipTests: true });
+  expect(releaseOptions([])).toEqual({
+    mode: "",
+    version: undefined,
+    skipTests: false,
+    test: false,
+    omarchySkip: false,
+  });
+  expect(releaseOptions(["--skip-tests", version])).toEqual({
+    mode: "",
+    version,
+    skipTests: true,
+    test: false,
+    omarchySkip: false,
+  });
+  expect(releaseOptions(["--test", "--omarchy-skip", "--dry-run"])).toMatchObject({
+    test: true,
+    omarchySkip: true,
+    mode: "--dry-run",
+  });
   for (const args of [
     ["--dry-run", "--dry-run"],
     ["--skip-tests", "--skip-tests"],
     ["--dry-run", "--build-only"],
     ["--unknown"],
+    ["--test", "--test"],
+    ["--omarchy-skip", "--omarchy-skip"],
     ["--publish-only"],
     [version, version],
   ]) {
     expect(() => releaseOptions(args)).toThrow();
   }
+});
+
+test("test releases have a persistent private key and separate artifact paths", async () => {
+  await releaseFixture(async dir => {
+    const config = {
+      publicBaseUrl: "https://example.invalid",
+      endpoint: "https://bucket.invalid",
+      region: "auto",
+      bucket: "release",
+      signingKey: "stable-key",
+    };
+    const state = join(dir, ".git");
+    const first = await testConfiguration(config, state);
+    const key = await readFile(first.signingKey);
+    expect(first.publicBaseUrl).toBe("https://example.invalid/test");
+    expect(first.signingKey).not.toBe(config.signingKey);
+    expect((await stat(first.signingKey)).mode & 0o777).toBe(0o600);
+    expect(await readFile((await testConfiguration(config, state)).signingKey)).toEqual(key);
+    expect(releasePaths(dir, true).releases).not.toBe(releasePaths(dir).releases);
+    expect(releasePaths(dir, true).lock).toBe(releasePaths(dir).lock);
+    expect(config.publicBaseUrl).toBe("https://example.invalid");
+    await mkdir(releasePaths(dir, true).releases);
+    await mkdir(join(releasePaths(dir, true).releases, "one"));
+    expect((await clean(dir)).releases).toBe(1);
+    expect(await readFile(first.signingKey)).toEqual(key);
+  });
+});
+
+test("test installers add the plugin from the matching channel", () => {
+  const generated = installer(
+    "https://example.invalid/test",
+    "1.2.3",
+    {
+      "macos-aarch64": { sha256: "mac", size: 1 },
+      "linux-x86_64": { sha256: "linux", size: 2 },
+      "linux-aarch64": { sha256: "arm", size: 3 },
+    },
+    undefined,
+    undefined,
+    "https://example.invalid/test/corgi.computer.git",
+  );
+  expect(generated).toContain("omarchy_repo='https://example.invalid/test/corgi.computer.git'");
+  expect(generated).not.toContain("@OMARCHY_REPO@");
+});
+
+test("plugin preparation receives release context and a retry keeps its saved result", async () => {
+  await releaseFixture(async (dir, git) => {
+    git("branch", "-M", "main");
+    await mkdir(join(dir, "scripts"));
+    await writeFile(
+      join(dir, "scripts/release-plugin.ts"),
+      `
+      import { join } from 'node:path';
+      const env = process.env;
+      if (env.CORGI_RELEASE_PHASE !== 'prepare' || !process.argv.includes('--test')) throw Error('wrong phase');
+      const installer = await Bun.file(join(env.CORGI_RELEASE_DIR!, 'install.sh')).text();
+      await Bun.write('.git/corgi-release.json', JSON.stringify({installer, source: env.CORGI_RELEASE_SOURCE, base: env.CORGI_TEST_BASE_URL}));
+    `,
+    );
+    git("add", ".");
+    git("commit", "-m", "plugin hook");
+    const out = join(dir, "artifacts");
+    await mkdir(out);
+    await writeFile(join(out, "install.sh"), "pinned installer");
+    const old = process.env.CORGI_OMARCHY_REMOTE;
+    process.env.CORGI_OMARCHY_REMOTE = dir;
+    try {
+      await preparePlugin(dir, out, true, "https://example.invalid/test");
+      const saved = join(out, "plugin/.git/corgi-release.json");
+      const first = await readFile(saved, "utf8");
+      expect(JSON.parse(first)).toEqual({
+        installer: "pinned installer",
+        source: dir,
+        base: "https://example.invalid/test",
+      });
+      await writeFile(join(out, "install.sh"), "different");
+      await preparePlugin(dir, out, true, "https://example.invalid/test");
+      expect(await readFile(saved, "utf8")).toBe(first);
+    } finally {
+      if (old === undefined) delete process.env.CORGI_OMARCHY_REMOTE;
+      else process.env.CORGI_OMARCHY_REMOTE = old;
+    }
+  });
 });
 
 async function releaseFixture(run: (dir: string, git: (...args: string[]) => string) => Promise<void>) {
@@ -596,6 +712,17 @@ test("macOS builds use the configured SDK, else the copy in .tools", async () =>
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("a linked release checkout finds the main checkout's macOS SDK", async () => {
+  await releaseFixture(async (dir, git) => {
+    const sdk = join(dir, ".tools/macos-sdk");
+    await mkdir(sdk, { recursive: true });
+    await writeFile(join(sdk, "SDKSettings.json"), "{}");
+    await withReleaseCheckout(dir, git("rev-parse", "HEAD"), async source => {
+      expect(await realpath(macosSdk(source, {}, "linux"))).toBe(await realpath(sdk));
+    });
+  });
 });
 
 test("binaries must match their platform", () => {
@@ -955,6 +1082,147 @@ test("the launch button gives corgi the terminal device, not /dev/tty", async ()
   }
 });
 
+test("asked to start, the installer opens onboarding with no button", async () => {
+  const { home, root, env } = await releaseHome("start");
+  const [master, slave] = pair(true);
+  try {
+    await writeFile(join(root, "releases/1.2.3/corgi"), '#!/bin/sh\necho "corgi $* started."\n');
+    env.TERM = "xterm-256color";
+    env.CORGI_INSTALL_START = "1";
+    delete env.NO_COLOR;
+    const p = Bun.spawn([`${nativeRoot}/bin/pty-exec`, "/bin/sh", "-c", testInstaller()], {
+      env,
+      stdin: slave,
+      stdout: slave,
+      stderr: slave,
+    });
+    const out = await readUntil(master, "corgi onboard started.", 10_000);
+    expect(out).not.toContain("esc to skip");
+    expect(out).not.toContain("╭");
+    expect(await p.exited).toBe(0);
+  } finally {
+    n.probe_close(master);
+    n.probe_close(slave);
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+/** Omarchy's plugin commands, faked: `omarchy plugin add` logs its arguments
+ * and leaves a plugin whose installer says where it would install. */
+async function fakeOmarchy(home: string, env: Record<string, string | undefined>) {
+  const stub = join(home, "omarchy-bin");
+  await mkdir(stub);
+  await writeFile(join(stub, "omarchy-plugin-add"), "#!/bin/sh\nexit 0\n");
+  await writeFile(
+    join(stub, "omarchy"),
+    `#!/bin/sh
+echo "$@" >>"$HOME/omarchy.log"
+dir="$HOME/.config/omarchy/plugins/corgi.computer"
+mkdir -p "$dir"
+echo '{}' >"$dir/manifest.json"
+`,
+  );
+  for (const name of ["omarchy-plugin-add", "omarchy"]) await chmod(join(stub, name), 0o755);
+  env.PATH = `${stub}:${env.PATH}`;
+  env.TERM = "xterm-256color";
+  delete env.XDG_CONFIG_HOME;
+  delete env.NO_COLOR;
+}
+/** Runs the installer with `args` in a terminal until `until` shows, then presses `key` if given. */
+async function installInTerminal(env: Record<string, string | undefined>, args: string[], until: string, key = "") {
+  const [master, slave] = pair(true);
+  try {
+    const p = Bun.spawn([`${nativeRoot}/bin/pty-exec`, "/bin/sh", "-c", testInstaller(), "sh", ...args], {
+      env,
+      stdin: slave,
+      stdout: slave,
+      stderr: slave,
+    });
+    const out = await readUntil(master, until, 10_000);
+    if (key) write(master, key);
+    // macOS waits for the terminal's output to drain when restoring its mode.
+    await readUntil(master, "\x1b[?25h", 10_000);
+    return { out, code: await p.exited };
+  } finally {
+    n.probe_close(master);
+    n.probe_close(slave);
+  }
+}
+
+test("on Omarchy, the installer installs Corgi where it always does and adds its bar plugin", async () => {
+  const { home, root, env } = await releaseHome("omarchy");
+  try {
+    await fakeOmarchy(home, env);
+    const { out, code } = await installInTerminal(env, [], "esc to skip", "\x1b");
+    expect(code).toBe(0);
+    expect(out).toContain("Omarchy detected: installing Corgi as its bar plugin");
+    expect(await readFile(join(home, "omarchy.log"), "utf8")).toBe(
+      "plugin add https://github.com/tals/corgi-omarchy --enable\n",
+    );
+    // Corgi installed this way is the user's own; removing the plugin leaves it.
+    expect(await Bun.file(join(root, "current")).exists()).toBe(true);
+    expect(await Bun.file(join(root, "plugin")).exists()).toBe(false);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("on Omarchy, --no-omarchy and the plugin's own runs install Corgi on its own", async () => {
+  const { home, root, env } = await releaseHome("no omarchy");
+  try {
+    await fakeOmarchy(home, env);
+    const own = await installInTerminal(env, ["--no-omarchy"], "esc to skip", "\x1b");
+    expect(own.code).toBe(0);
+    expect(own.out).not.toContain("Omarchy detected");
+    const folder = join(home, ".config/omarchy/plugins/corgi.computer");
+    const plugin = await installInTerminal({ ...env, CORGI_INSTALL_PLUGIN: folder }, [], "esc to skip", "\x1b");
+    expect(plugin.code).toBe(0);
+    expect(plugin.out).not.toContain("Omarchy detected");
+    expect(await Bun.file(join(home, "omarchy.log")).exists()).toBe(false);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("the plugin's installer records its plugin and keeps itself to uninstall with", async () => {
+  const { home, root, env } = await releaseHome("plugin record");
+  try {
+    const folder = join(home, ".config/omarchy/plugins/corgi.computer"),
+      script = join(folder, "install.sh"),
+      body = testInstaller().replace(/\nmain "\$@"\n$/, "\nremember_plugin\n");
+    await mkdir(folder, { recursive: true });
+    await writeFile(script, body);
+    // Run as the plugin runs it, but for a folder that isn't a plugin: nothing to remember.
+    expect(Bun.spawnSync(["bash", script], { env: { ...env, CORGI_INSTALL_PLUGIN: folder } }).exitCode).toBe(0);
+    expect(await Bun.file(join(root, "plugin")).exists()).toBe(false);
+    await writeFile(join(folder, "manifest.json"), "{}");
+    expect(Bun.spawnSync(["bash", script], { env: { ...env, CORGI_INSTALL_PLUGIN: folder } }).exitCode).toBe(0);
+    expect(await readFile(join(root, "plugin"), "utf8")).toBe(folder + "\n");
+    expect(await readFile(join(root, "uninstall.sh"), "utf8")).toBe(body);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("a launcher whose install is gone removes itself", async () => {
+  const { home, root, bin, env } = await releaseHome("orphaned");
+  try {
+    expect(
+      Bun.spawnSync(["/bin/sh", "-c", testInstaller().replace(/\nmain "\$@"\n$/, "\ni18n_init\nwrite_launcher\n")], {
+        env,
+      }).exitCode,
+    ).toBe(0);
+    expect(Bun.spawnSync([bin, "hi"]).stdout.toString()).toBe("release 1.2.3 hi\n");
+    await rm(root, { recursive: true, force: true });
+    const orphaned = Bun.spawnSync([bin], { env });
+    expect(orphaned.exitCode).toBe(127);
+    expect(orphaned.stderr.toString()).toBe("Removed ~/.local/bin/corgi\n");
+    expect(await Bun.file(bin).exists()).toBe(false);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 // A home with an installed Corgi, the installer's PATH lines, Ghostty keybindings and saved state.
 async function installedHome(name: string) {
   const { home, root, bin, env } = await releaseHome(name);
@@ -976,9 +1244,10 @@ async function installedHome(name: string) {
   await mkdir(join(home, ".local/state/corgi"), { recursive: true });
   return { home, root, bin, ghostty };
 }
-function uninstall(home: string) {
+function uninstall(home: string, extra: Record<string, string> = {}) {
   const env: Record<string, string | undefined> = {
     ...process.env,
+    ...extra,
     HOME: home,
     SHELL: "/bin/bash",
     PATH: "/usr/bin:/bin",
@@ -1042,9 +1311,23 @@ test("uninstall keeps ~/.local/bin on PATH while other programs live there", asy
     await rm(home, { recursive: true, force: true });
   }
 });
+test("uninstall keeps a launcher repointed at another installation", async () => {
+  const { home, root, bin } = await installedHome("reused launcher");
+  try {
+    const other = '#!/bin/sh\nroot=\'/another/install\'\nexec "$root/releases/$v/corgi" "$@"\n';
+    await writeFile(bin, other);
+    expect(uninstall(home).code).toBe(0);
+    expect(await Bun.file(bin).text()).toBe(other);
+    expect(await Bun.file(join(root, "current")).exists()).toBe(false);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
 test("uninstall refuses while Corgi runs from the install", async () => {
   const { home, root, bin } = await installedHome("running");
-  const running = join(root, "releases/1.2.3/corgi");
+  const alias = join(home, "alias");
+  await symlink(home, alias, "dir");
+  const running = join(await realpath(root), "releases/1.2.3/corgi");
   await rm(running);
   await symlink("/bin/sleep", running);
   const p = Bun.spawn([running, "30"]);
@@ -1052,10 +1335,15 @@ test("uninstall refuses while Corgi runs from the install", async () => {
   const pane = Bun.spawn(["/bin/sh", "-c", `sleep 30; : ${running}`], { detached: true });
   try {
     await Bun.sleep(100);
-    const result = uninstall(home);
+    const result = uninstall(alias);
     expect(result.code).toBe(1);
     expect(result.err).toContain(`Corgi is running from ~/.local/share/corgi (PIDs ${p.pid}).`);
     expect(await Bun.file(bin).exists()).toBe(true);
+    // Corgi uninstalling itself, once its Omarchy plugin is gone, doesn't wait for itself.
+    const own = uninstall(home, { CORGI_UNINSTALLING: "1" });
+    expect(own.code).toBe(0);
+    expect(await Bun.file(bin).exists()).toBe(false);
+    expect(await Bun.file(join(root, "current")).exists()).toBe(false);
   } finally {
     p.kill();
     process.kill(-pane.pid);

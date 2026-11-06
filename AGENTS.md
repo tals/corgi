@@ -20,6 +20,9 @@ See [HACKING.md](HACKING.md) for development workflows and architecture.
 - **Try a feature by hand:** `./go.ts --sandbox NAME` opens a seeded world
   with fake agents, apart from your own Corgi (`tools/sandboxes/`). Add one
   when a feature needs a particular world to poke at.
+- **Animations:** `bun tools/anim.ts NAME` plays one of
+  `src/corgi_animation.ts`'s animations, such as the uninstall `farewell`,
+  in your terminal; with no name it lists them. Add an entry there for a new one.
 - **UI driver:** `bun tools/ui_driver.ts run current -e 'key ctrl+b c; snap'` drives a
   viewer in a PTY and records its screens. See `tools/ui_driver.ts`.
 - **Screenshots:** `bun tools/ghostty_screenshot.ts --sandbox NAME -o shot.png`

@@ -10,7 +10,7 @@ const windup = 16,
   react = 4;
 const playback = (seed: number) => {
   const x = new a.Playback();
-  x.random = new a.Random(BigInt(seed));
+  x.random = new a.Random(seed);
   return x;
 };
 test("the corgi perks up as the ball lands, chases it while it moves, and pauses to hold it", () => {
@@ -29,7 +29,7 @@ test("the corgi perks up as the ball lands, chases it while it moves, and pauses
   expect(a.fetchScene(18, value, tick + 10).dog).toBe("●‹o[||]~");
 });
 test("the corgi catches the ball low at its nose, and waits beside it while it is high", () => {
-  const r = new a.Random(11n);
+  const r = new a.Random(11);
   let waited = false;
   for (const width of [18, 26, 40])
     for (let n = 0; n < 40; n++) {
@@ -53,7 +53,7 @@ test("the corgi catches the ball low at its nose, and waits beside it while it i
   expect(waited).toBe(true);
 });
 test("every throw carries off, from lobs under the ceiling to smashes that bounce off it", () => {
-  const r = new a.Random(1n);
+  const r = new a.Random(1);
   let under = false,
     smashed = false;
   for (let n = 0; n < 100; n++) {
@@ -80,7 +80,7 @@ test("a roll skips before it rolls, the slant kicks it up, and lights while the 
       speed: 1.8,
       lift: -0.6,
       spin: -1.4,
-      seed: BigInt(seed),
+      seed,
     });
     let landed = false;
     for (let tick = windup; tick < a.fetchTicks(26, value); tick++) {
@@ -177,7 +177,7 @@ test("each spawn fetches or digs up a bone five times in a hundred", () => {
 const digging = (room: number, value: a.Bone) =>
   Array.from({ length: a.boneTicks(value.tries) + 1 }, (_, tick) => plain(a.writeBone(room, value, tick)));
 test("the corgi digs up a bone, steps back to sniff it, chews it, and trots home", () => {
-  const value = new a.Bone({ tries: 1, seed: 5n }),
+  const value = new a.Bone({ tries: 1, seed: 5 }),
     scenes = digging(22, value),
     at = (pattern: RegExp) => scenes.findIndex(scene => pattern.test(scene));
   for (const scene of scenes) expect(displayWidth(scene)).toBe(22);
@@ -198,7 +198,7 @@ test("the corgi digs up a bone, steps back to sniff it, chews it, and trots home
   expect(a.writeBone(22, value, a.boneTicks(1))).not.toContain(p.fgRgb(a.dirt));
 });
 test("a second try digs past a pebble when the row has room, and every dig fits its budget", () => {
-  const value = new a.Bone({ tries: 2, seed: 9n }),
+  const value = new a.Bone({ tries: 2, seed: 9 }),
     scenes = digging(22, value),
     pebble = scenes.findIndex(scene => scene.includes("∘")),
     bone = scenes.findIndex(scene => scene.includes("ε=з"));
@@ -216,7 +216,7 @@ test("a second try digs past a pebble when the row has room, and every dig fits 
     for (let tick = 0; tick < a.boneTicks(1); tick += 7)
       expect(displayWidth(plain(a.writeBone(room, value, tick)))).toBeLessThanOrEqual(room);
   const tries = new Set<number>(),
-    r = new a.Random(3n);
+    r = new a.Random(3);
   for (let n = 0; n < 20; n++) tries.add(a.Bone.random(r).tries);
   expect([...tries].sort()).toEqual([1, 2]);
 });
@@ -267,7 +267,7 @@ test("a delayed activity transition stays idle without another roll", () => {
   expect(x.random).toEqual(random);
 });
 test("every throw fits the row, bounces off its walls, and keeps clear of the corgi", () => {
-  const r = new a.Random(7n);
+  const r = new a.Random(7);
   for (const width of [18, 22, 40, 80, 294]) {
     let far = false,
       ceiling = false;
@@ -372,6 +372,9 @@ test.each(["zh", "ja", "ko", "ru"] as const)(
         label = i18n.t`Compacting…`,
         minimum = a.herdWidth();
       expect(word).not.toBe("Compacting");
+      // The herd splits the word by code point; each must be a whole letter.
+      const letters = [...new Intl.Segmenter(locale, { granularity: "grapheme" }).segment(word)];
+      expect(letters.length).toBe(Array.from(word).length);
       expect(minimum).toBe(displayWidth(word) + 8);
       for (const width of [minimum, minimum + 8]) {
         const presentation = new a.Presentation();
@@ -450,9 +453,9 @@ test("the corgi is gray: faint awake or asleep, muted asleep on a selected row",
 });
 test("one sleeper dreams per period, holds through its puff, and rarely repeats", () => {
   expect(a.dreamer([], 0)).toBeNull();
-  const keys = [17n, 34n, 51n, 68n, 85n, 102n, 119n, 136n, 153n],
+  const keys = Array.from({ length: 9 }, (_, i) => `pane:${i + 1}`),
     seen = new Set();
-  let previous: bigint | null = null,
+  let previous: string | null = null,
     repeats = 0;
   for (let period = 1; period < 300; period++) {
     const start = period * a.dream_period_ms,
@@ -460,7 +463,7 @@ test("one sleeper dreams per period, holds through its puff, and rarely repeats"
     expect(dream.puff_ms).toBe(100);
     expect(a.dreamer(keys, start + 4499)!.key).toBe(dream.key);
     expect(a.dreamer(keys, start + 4500)).toBeNull();
-    const top = a.pick(keys, BigInt(period - 1), null);
+    const top = a.pick(keys, period - 1, null);
     let woke = false;
     const awake = keys.filter(key => {
       if (!woke && key !== dream.key && key !== top) {
@@ -476,7 +479,8 @@ test("one sleeper dreams per period, holds through its puff, and rarely repeats"
   }
   expect(seen.size).toBe(keys.length);
   expect(repeats).toBeLessThan(15);
-  for (let period = 0; period < 5; period++) expect(a.dreamer([7n], period * a.dream_period_ms)!.key).toBe(7n);
+  for (let period = 0; period < 5; period++)
+    expect(a.dreamer(["pane:7"], period * a.dream_period_ms)!.key).toBe("pane:7");
 });
 
 test("sidebar intensity dims non-fetch corgis on the row background and zero hides fetch too", () => {
@@ -543,8 +547,8 @@ test("content reveal paints over a corgi that keeps playing and cancels when a c
 });
 test("only visible throws, digging and reveals need faster animation frames", () => {
   a.beginFrame();
-  const row = a.observe(999999n, "awake", 0)!;
-  a.observe(999998n, "asleep", 0);
+  const row = a.observe("test:999999", "awake", 0)!;
+  a.observe("test:999998", "asleep", 0);
   row.playback.enter("idle", 0);
   a.endFrame();
   expect(a.frameDelay()).toBe(75);
@@ -554,19 +558,19 @@ test("only visible throws, digging and reveals need faster animation frames", ()
     expect(a.frameDelay()).toBe(30);
   }
   row.playback.enter("idle", 100);
-  a.observe(999999n, "content", 200);
+  a.observe("test:999999", "content", 200);
   a.endFrame();
   expect(a.frameDelay()).toBe(30);
-  a.observe(999999n, "content", 650);
+  a.observe("test:999999", "content", 650);
   a.endFrame();
   expect(a.frameDelay()).toBe(75);
-  a.observe(999999n, "awake", 700);
+  a.observe("test:999999", "awake", 700);
   row.playback.enter("fetch", 700);
-  a.observe(999999n, "content", 750);
+  a.observe("test:999999", "content", 750);
   row.skipReveal();
   a.endFrame();
   expect(a.frameDelay()).toBe(75);
-  a.observe(999999n, "awake", 800);
+  a.observe("test:999999", "awake", 800);
   row.playback.enter("fetch", 800);
   a.beginFrame();
   a.endFrame();
@@ -626,4 +630,53 @@ test("bundles for a browser, where the landing page plays it", async () => {
     code = await build.outputs[0].text();
   expect(code).not.toContain("node:");
   expect(code).not.toMatch(/\bBun\.|\bBuffer\b/);
+});
+test("on uninstall the corgi sits, blinks once, then walks off to The Farm", () => {
+  const width = 40,
+    sign = a.signpost(width)!,
+    ticks = a.farewellTicks(width),
+    strip = (line: string) => line.replace(/\x1b\[[0-9;]*m/g, ""),
+    ground = (step: number) => strip(a.writeFarewell(width, step).at(-1)!);
+  expect(sign).toEqual({ x: 2, width: 14, post: 9, label: "← The Farm" });
+  expect(a.writeFarewell(width, 0).map(strip)).toEqual([
+    "  ╭────────────╮" + " ".repeat(24),
+    "  │ ← The Farm │" + " ".repeat(24),
+    "  ╰──────┬─────╯" + " ".repeat(24),
+    "         │      ~ᐯ•ᴥ•ᐯ" + " ".repeat(18),
+  ]);
+  expect(a.farewellScene(width, 9).dog).toBe("~ᐯ◡ᴥ◡ᐯ");
+  expect(a.farewellScene(width, 17).dog).toBe(a.walk_left[1]);
+  // It stops beside the post to look up at the sign, then walks past it.
+  const scenes = Array.from({ length: ticks }, (_, step) => a.farewellScene(width, step));
+  expect(scenes.some(scene => scene.dog === "~ᐱ•ᴥ•ᐱ" && scene.x === sign.post + 2)).toBe(true);
+  expect(scenes.findLastIndex(scene => scene.dog === "~ᐱ•ᴥ•ᐱ")).toBeLessThan(
+    scenes.findIndex(scene => scene.x < sign.post),
+  );
+  for (let step = 0; step < ticks; step++)
+    for (const line of a.writeFarewell(width, step)) expect(displayWidth(strip(line))).toBe(width);
+  expect(ground(ticks - 1).trim()).toBe("│");
+  expect(ground(ticks - 2).trim()).not.toBe("│");
+  // Without room for the sign it walks straight off.
+  expect(a.signpost(29)).toBeNull();
+  const bare = a.farewellTicks(width, null);
+  expect(bare).toBeLessThan(ticks);
+  expect(a.writeFarewell(width, 0, null)).toHaveLength(1);
+  expect(strip(a.writeFarewell(width, bare - 1, null)[0])).toBe(" ".repeat(width));
+  expect(strip(a.writeFarewell(width, bare - 2, null)[0]).trim()).not.toBe("");
+});
+test("the farewell centers the caption over the scene, and drops the sign on a short screen", () => {
+  const strip = (line: string) => line.replace(/\x1b\[[0-9;]*m/g, ""),
+    tall = new a.Farewell(40, 24),
+    short = new a.Farewell(40, 5);
+  expect(tall.sign).not.toBeNull();
+  expect(tall.top).toBe(10);
+  expect(tall.rows(0).map(strip)).toEqual([
+    "         Corgi was uninstalled.         ",
+    " ".repeat(40),
+    ...a.writeFarewell(40, 0).map(strip),
+  ]);
+  expect(short.sign).toBeNull();
+  expect(short.top).toBe(2);
+  expect(short.rows(0)).toHaveLength(3);
+  expect(short.ticks).toBe(a.farewellTicks(40, null));
 });
