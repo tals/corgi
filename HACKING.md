@@ -463,6 +463,26 @@ the time and scope; polling jobs keep their own `Failure` to suppress repeats.
 the daemon starts. Activity-summary records include exact
 model inputs and outputs, so inspect and redact before sharing logs.
 
+Remote recovery traces use the existing opt-in recorder. Start a viewer with
+`CORGI_TELEMETRY_DIR=/tmp/corgi-trace CORGI_TELEMETRY_TRACE=1
+CORGI_TELEMETRY_FILTER=remote.` and send its PID `SIGUSR2` to flush. The filter
+keeps the bounded timeline focused while all aggregate counters still run.
+`remote.connection`, `remote.race`, `remote.transport`, and `remote.rpc` record
+machine name, connection generation, recovery phases, SSH child IDs and RPC
+operation/duration/outcome. They contain no input bytes, request bodies or SSH
+credentials. Trace timestamps use epoch microseconds for comparison with
+external fault events. Nothing is recorded unless telemetry is enabled.
+
+A silent remote gets a spare SSH connection beside its existing one. Primary
+request timeouts retain that spare; it can win while the endpoint reconnects or
+waits to retry. Previously connected endpoints continue probing during a hung
+reconnect, measuring silence from received traffic rather than each new dial.
+Only one spare is active. The initial race waits for two latency-adaptive stall
+budgets; during reconnect, spare attempts are spaced by one stall budget. Spare
+handshakes use the learned request timeout capped at 30 s.
+Initial connections keep their original startup budget. Successful recovery
+still resumes the numbered link, and pause, retry and close cancel both paths.
+
 Use `corgi integration status` for hook installation/trust and `corgi which codex`
 or `corgi which claude` for executable discovery. `corgi rpc` can inspect a
 snapshot; [protocol.ts](src/protocol.ts) defines the requests. Test failures

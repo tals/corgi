@@ -105,12 +105,18 @@ class Remote extends Runtime {
         this.assertNotIn("Input paused", this.text());
         return this.text().includes(marker);
       }, 15);
+      await this.remote!.until(
+        async () => (await this.remote!.command("pane.read", { target: 1 })).text.includes(marker),
+        15,
+      );
     }
     this.assertEqual(this.network!.accepted, accepted);
-    this.assertTrue(
-      this.text()
-        .split("\n")
-        .some(row => row.includes("▾  work") && row.includes("▂▁▁▁")),
+    await this.until(
+      () =>
+        this.text()
+          .split("\n")
+          .some(row => row.includes("▾  work") && row.includes("▂▄▆█")),
+      10,
     );
   }
   async test_raising_latency_then_reconnecting_keeps_local_navigation_responsive() {
@@ -644,7 +650,7 @@ process.stdin.on('data', data => {
     this.assertTrue(
       this.text()
         .split("\n")
-        .some(row => row.includes("▾  work") && row.includes("▁▁▁▁")),
+        .some(row => row.includes("▾  work") && row.includes("connecting")),
     );
     const first = status();
     const style = () => this.screen!.surface(0).surface.lines[remoteRow];
@@ -658,8 +664,14 @@ process.stdin.on('data', data => {
     );
     this.network!.cut();
     this.network!.set("healthy");
-    await this.until(() => !/[↔×]/.test(status()), 12);
-    this.assertEqual(status(), first.replace("↔", " "));
+    await this.until(
+      () =>
+        this.text()
+          .split("\n")
+          .some(row => row.includes("▾  work") && row.includes("▂▄▆█")),
+      12,
+    );
+    this.assertEqual(status(), first);
     this.assertEqual(
       this.text()
         .split("\n")
@@ -896,7 +908,7 @@ process.stdin.on('data', data => {
     this.network!.set("blackhole");
     await this.startViewer();
     await this.until(() => this.text().includes("LOCAL_WORKSPACE"), 5);
-    this.assertNotIn("all ▾", this.text().split("\n")[0]);
+    this.assertIn("all ▾", this.text().split("\n")[0]);
     this.clickWorkspace("LOCAL");
     await this.online("local");
     await this.command("pane.create", { workspace: 1, command: "cat" });
@@ -908,13 +920,19 @@ process.stdin.on('data', data => {
     );
     this.network!.cut();
     this.network!.set("healthy");
-    await this.until(() => this.text().includes("REMOTE_WORKSPACE") && this.text().includes("all ▾"), 12);
+    await this.until(
+      () =>
+        this.text()
+          .split("\n")
+          .some(row => row.includes("▾  work") && row.includes("▂▄▆█")),
+      12,
+    );
     this.network!.set("blackhole");
     await this.until(
       () =>
         this.text()
           .split("\n")
-          .some(row => row.includes("▾  work") && row.includes("▁▁▁▁")),
+          .some(row => row.includes("▾  work") && row.includes("stalled")),
       6,
     );
     this.assertIn("REMOTE_WORKSPACE", this.text());
@@ -1517,6 +1535,25 @@ process.stdin.on("data", chunk => {
     await this.sendRemote("AFTER_RESUME");
     const text = (await this.remote!.command("pane.read", { target: 1 })).text;
     this.assertEqual(text.split("LANDS_AFTER_RESUME").length - 1, 1);
+  }
+  async test_a_hung_reconnect_is_raced_without_waiting_for_the_ssh_timeout() {
+    await this.remote!.command("pane.create", { workspace: 1, command: "stty -echo; cat" });
+    await this.startViewer();
+    await this.online();
+    await this.sendRemote("BEFORE_HUNG_RECONNECT");
+    const pid = (await this.remote!.session()).panes[0].pid;
+    const connections = this.network!.accepted;
+    this.network!.strandNext(1);
+    this.network!.cut();
+    await this.until(() => this.network!.accepted > connections, 5);
+    const started = performance.now();
+    await this.until(() => this.network!.accepted > connections + 1, 12);
+    await this.online(undefined, 5);
+    this.assertLess(performance.now() - started, 14000);
+    await this.sendRemote("AFTER_HUNG_RECONNECT");
+    this.assertEqual((await this.remote!.session()).panes[0].pid, pid);
+    const output = (await this.remote!.command("pane.read", { target: 1 })).text;
+    this.assertEqual(output.split("AFTER_HUNG_RECONNECT").length - 1, 1);
   }
   async test_a_network_change_is_raced_without_waiting_for_the_timeout_and_typing_lands_once() {
     await this.remote!.command("pane.create", { workspace: 1, command: "stty -echo; cat" });

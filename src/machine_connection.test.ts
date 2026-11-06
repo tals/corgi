@@ -4,6 +4,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Endpoint } from "./machine_connection";
+import { Remote } from "./daemon_transport";
 import { Probe } from "./terminal_info";
 import { Host } from "./host";
 import * as protocol from "./protocol";
@@ -387,5 +388,97 @@ test("cached identity does not describe the first connection as a reconnect", as
     expect(endpoint.headerStatus(5000)).toBeNull();
   } finally {
     await endpoint.close();
+  }
+});
+
+const recoveryProfile = {
+  name: "test-recovery",
+  target: "unused",
+  executable: "/unused",
+  socket: "/unused",
+  home: "/tmp",
+  bridge: "/unused",
+};
+
+test("a primary timeout preserves the spare handshake, while pause cancels it", async () => {
+  const endpoint = new Endpoint(recoveryProfile, "/unused", new Probe(), new Host());
+  const close = { calls: 0 };
+  const probe = { close: () => close.calls++ };
+  const step = spyOn(endpoint as any, "step").mockRejectedValue(Error("RequestTimedOut"));
+  Reflect.set(endpoint, "probe_tunnel", probe);
+  Reflect.set(endpoint, "racing", true);
+  try {
+    endpoint.pump(false);
+    await Reflect.get(endpoint, "task");
+    expect(endpoint.status).toBe("offline");
+    expect(close.calls).toBe(0);
+    expect(Reflect.get(endpoint, "probe_tunnel")).toBe(probe);
+    expect(Reflect.get(endpoint, "racing")).toBe(true);
+    endpoint.pause();
+    expect(close.calls).toBe(1);
+    expect(Reflect.get(endpoint, "racing")).toBe(false);
+  } finally {
+    await endpoint.close();
+    step.mockRestore();
+  }
+});
+
+test("a hung reconnect gets a spare dial without racing a first connection", async () => {
+  const endpoint = new Endpoint(recoveryProfile, "/unused", new Probe(), new Host());
+  const clock = spyOn(performance, "now").mockReturnValue(1000);
+  let finish!: (value: boolean) => void;
+  const step = spyOn(endpoint as any, "step").mockImplementation(
+    () => new Promise<boolean>(resolve => (finish = resolve)),
+  );
+  const race = spyOn(endpoint as any, "race").mockResolvedValue(undefined);
+  Reflect.set(endpoint, "link", "saved-link");
+  try {
+    endpoint.pump(false);
+    clock.mockReturnValue(10000);
+    endpoint.pump(false);
+    expect(race).not.toHaveBeenCalled();
+    Reflect.set(endpoint, "connected", true);
+    endpoint.stats.traffic("received", 1, 1000);
+    // A newly failed dial must not restart the silence clock for recovery.
+    Reflect.set(endpoint, "task_started", 9999);
+    endpoint.pump(false);
+    expect(race).toHaveBeenCalledTimes(1);
+    Reflect.set(endpoint, "raced_at", 10000);
+    clock.mockReturnValue(13999);
+    endpoint.pump(false);
+    expect(race).toHaveBeenCalledTimes(1);
+    clock.mockReturnValue(14000);
+    endpoint.pump(false);
+    expect(race).toHaveBeenCalledTimes(2);
+  } finally {
+    finish(false);
+    await Reflect.get(endpoint, "task");
+    await endpoint.close();
+    clock.mockRestore();
+    step.mockRestore();
+    race.mockRestore();
+  }
+});
+
+test("a spare that answers during reconnect takes over and resumes the same link", async () => {
+  const daemon = await flakyDaemon();
+  const endpoint = daemon.endpoint;
+  const open = spyOn(Remote.prototype, "open").mockImplementation(async function (this: Remote) {
+    Reflect.set(this, "socket", endpoint.local);
+  });
+  try {
+    await daemon.connect();
+    Reflect.set(endpoint, "profile", recoveryProfile);
+    endpoint.status = "connecting";
+    const generation = endpoint.generation;
+    await Reflect.get(endpoint, "race").call(endpoint, performance.now());
+    expect(endpoint.generation).toBeGreaterThan(generation);
+    expect(Reflect.get(endpoint, "dialed")).not.toBeNull();
+    await daemon.connect();
+    expect(daemon.seen.filter(request => request.op === "link.resume")).toHaveLength(1);
+    expect(endpoint.instance).toBe("first");
+  } finally {
+    open.mockRestore();
+    await daemon.close();
   }
 });

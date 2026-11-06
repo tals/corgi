@@ -3,6 +3,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
 import { Transform } from "node:stream";
 import * as ssh from "./ssh";
+import * as telemetry from "./telemetry";
 import type { Profile } from "./machines";
 
 /** SSH authentication and channel setup precede the first daemon reply. */
@@ -53,6 +54,7 @@ export class Remote {
   constructor(
     readonly profile: Profile,
     private readonly fresh = false,
+    private readonly timeoutMs = startup_ms,
   ) {}
   async open(): Promise<void> {
     if (this.stopped || this.started) throw Error("TransportClosed");
@@ -98,6 +100,12 @@ export class Remote {
     }
     const preamble = new Preamble(() => {
       this.bridge_ready = true;
+      telemetry.event("remote.transport", {
+        machine: this.profile.name,
+        phase: "bridge",
+        pid: child.pid ?? 0,
+        fresh: Number(this.fresh),
+      });
     });
     const close = () => {
       client.destroy();
@@ -120,10 +128,25 @@ export class Remote {
   private spawn(args: string[]): ChildProcess {
     const child = spawn("ssh", args, { stdio: ["pipe", "pipe", "pipe"] });
     this.children.add(child);
+    telemetry.event("remote.transport", {
+      machine: this.profile.name,
+      phase: "spawn",
+      pid: child.pid ?? 0,
+      fresh: Number(this.fresh),
+    });
     child.stderr!.on("data", (chunk: Buffer) => {
       this.stderr = (this.stderr + chunk.toString()).slice(-4096);
     });
-    child.once("close", () => this.children.delete(child));
+    child.once("close", (code, signal) => {
+      this.children.delete(child);
+      telemetry.event("remote.transport", {
+        machine: this.profile.name,
+        phase: "exit",
+        pid: child.pid ?? 0,
+        code: code ?? -1,
+        signal: signal ?? "",
+      });
+    });
     return child;
   }
   private stop(child: ChildProcess): void {
@@ -155,7 +178,7 @@ export class Remote {
       failure ??= Error("SshDisconnected");
     });
     try {
-      const until = performance.now() + startup_ms;
+      const until = performance.now() + this.timeoutMs;
       while (!existsSync(this.socket)) {
         if (failure) throw failure;
         if (this.stopped) throw Error("TransportClosed");

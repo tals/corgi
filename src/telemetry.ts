@@ -4,6 +4,10 @@ import { join } from "node:path";
 import { isMainThread, threadId } from "node:worker_threads";
 
 export const names = [
+  "remote.connection",
+  "remote.race",
+  "remote.transport",
+  "remote.rpc",
   "daemon.collect",
   "daemon.import",
   "daemon.observers",
@@ -74,14 +78,17 @@ export const names = [
 ] as const;
 export type Name = (typeof names)[number];
 const ids = Object.fromEntries(names.map((name, id) => [name, id])) as Record<Name, number>;
-type Details = Record<string, number | string>;
+export type Details = Record<string, number | string>;
 
 export class Recorder {
   private totals = new Float64Array(names.length * 4);
   private events: Float64Array;
   private written = 0;
   private details: (Details | undefined)[];
-  constructor(readonly capacity = 0) {
+  constructor(
+    readonly capacity = 0,
+    private readonly filter: (name: Name) => boolean = () => true,
+  ) {
     if (!Number.isInteger(capacity) || capacity < 0) throw Error("InvalidTelemetryCapacity");
     this.events = new Float64Array(capacity * 3);
     this.details = new Array(capacity);
@@ -94,7 +101,7 @@ export class Recorder {
     this.totals[index + 1] += duration;
     this.totals[index + 2] = Math.max(this.totals[index + 2], duration);
     this.totals[index + 3] += bytes;
-    if (this.capacity) {
+    if (this.capacity && this.filter(name)) {
       const event = (this.written++ % this.capacity) * 3;
       this.events[event] = id;
       this.events[event + 1] = start;
@@ -129,7 +136,13 @@ export class Recorder {
 
 const directory = process.env.CORGI_TELEMETRY_DIR;
 export const enabled = !!directory;
-const recorder = enabled ? new Recorder(process.env.CORGI_TELEMETRY_TRACE ? 65536 : 0) : null;
+const prefixes = process.env.CORGI_TELEMETRY_FILTER?.split(",").filter(Boolean);
+const recorder = enabled
+  ? new Recorder(
+      process.env.CORGI_TELEMETRY_TRACE ? 65536 : 0,
+      name => !prefixes?.length || prefixes.some(prefix => name.startsWith(prefix)),
+    )
+  : null;
 type Worker = { postMessage(message: { telemetry: true }): void };
 const workers = new Set<WeakRef<Worker>>();
 export function attach(worker: Worker): void {
@@ -141,8 +154,8 @@ export function detach(worker: Worker | null): void {
 export function begin(): number {
   return enabled ? performance.now() : 0;
 }
-export function end(name: Name, start: number, bytes = 0): void {
-  if (recorder) recorder.record(name, start, performance.now(), bytes);
+export function end(name: Name, start: number, bytes = 0, details?: Details): void {
+  if (recorder) recorder.record(name, start, performance.now(), bytes, details);
 }
 export function count(name: Name): void {
   if (recorder) {

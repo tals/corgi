@@ -12,6 +12,7 @@ export interface ConnectionInit {
   /** Off: untagged requests, one at a time, as before runtime protocol 4. */
   requestIds?: boolean;
   stats?: Stats;
+  trace?: telemetry.Details;
   timeout_ms?: number | (() => number);
 }
 export class Connection {
@@ -27,9 +28,11 @@ export class Connection {
     return typeof this.timeout === "function" ? this.timeout() : this.timeout;
   }
   private readonly stats?: Stats;
+  private readonly trace?: telemetry.Details;
   constructor(target: string | Socket, options: ConnectionInit | number = {}) {
     const init = typeof options === "number" ? { timeout_ms: options } : options;
     this.stats = init.stats;
+    this.trace = init.trace;
     if (this.stats) this.stats.connections++;
     this.timeout = init.timeout_ms ?? 0;
     this.requestIds = init.requestIds ?? true;
@@ -125,6 +128,14 @@ export class Connection {
           // Hello may include SSH authentication; it is not an established-path round trip.
           this.stats.answer(now - started, failed, now, message.op !== "hello");
         }
+        if (telemetry.enabled && this.trace)
+          telemetry.end("remote.rpc", started, 0, {
+            ...this.trace,
+            op: typeof message.op === "string" ? message.op : "unknown",
+            request: id,
+            failed: Number(failed),
+            timeout_ms: timeout,
+          });
         if (timer) clearTimeout(timer);
       };
       this.pending.set(id, {

@@ -1,4 +1,5 @@
 import * as ssh from "./ssh";
+import * as telemetry from "./telemetry";
 import { Stats } from "./connection_stats";
 import type { Output } from "./composition";
 import { Remote, startup_ms } from "./daemon_transport";
@@ -157,6 +158,19 @@ export class Endpoint {
       }
     }
   }
+  private trace(name: "remote.connection" | "remote.race", phase: string, details: telemetry.Details = {}): void {
+    if (telemetry.enabled)
+      telemetry.event(name, {
+        machine: this.name,
+        generation: this.generation,
+        phase,
+        status: this.status,
+        age_ms: this.healthAge(performance.now()),
+        stall_ms: this.stallMs,
+        race_ms: this.raceMs,
+        ...details,
+      });
+  }
   get name(): string {
     return this.profile?.name ?? "local";
   }
@@ -169,7 +183,10 @@ export class Endpoint {
     this.next = 0;
   }
   presented(): void {
-    if (this.fresh && this.status === "online") this.ready = this.displayed = true;
+    if (this.fresh && this.status === "online") {
+      if (!this.ready) this.trace("remote.connection", "presented");
+      this.ready = this.displayed = true;
+    }
   }
   deactivate(): void {
     this.selection++;
@@ -343,19 +360,31 @@ export class Endpoint {
     if (this.stream && this.status === "online" && this.stream.age(now) >= this.stallMs) {
       this.status = "stalled";
       this.stats.stalled(now);
+      this.trace("remote.connection", "stalled");
       this.fresh = false;
       this.clearInput();
     }
     if (this.task && !this.stream && this.status === "online" && this.healthAge(now) >= this.stallMs) {
       this.status = "stalled";
       this.stats.stalled(now);
+      this.trace("remote.connection", "stalled");
       this.fresh = false;
       this.clearInput();
     }
     const quiet = this.healthAge(now);
     this.stats.progress(quiet, this.stallMs);
-    const due = !this.racing && now - this.raced_at >= this.raceMs;
-    if (this.profile && this.link && due && (this.suspect || (this.status === "stalled" && quiet >= this.raceMs)))
+    // Failed dials are not progress: keep probing from the last received byte.
+    const recovering =
+      this.connected &&
+      (this.status === "connecting" || this.status === "offline") &&
+      now - (this.stats.lastReceived ?? this.task_started) >= this.raceMs;
+    const due = !this.racing && now - this.raced_at >= (recovering ? this.stallMs : this.raceMs);
+    if (
+      this.profile &&
+      this.link &&
+      due &&
+      (this.suspect || recovering || (this.status === "stalled" && quiet >= this.raceMs))
+    )
       void this.race(now);
     if (this.task) return;
     if (now < this.due()) return;
@@ -375,6 +404,7 @@ export class Endpoint {
         if (this.stopped || interruption !== this.interruption) return;
         if (!this.profile && incompatible(error)) this.fatal = Error("IncompatibleViewerProtocol");
         this.error = errors.name(error) ?? "ConnectionFailed";
+        this.trace("remote.connection", "failed", { error: this.error });
         const diagnostic = this.tunnel?.diagnostic();
         this.issue = ssh.failure(diagnostic ?? "");
         if (diagnostic) this.error += ` · ${diagnostic}`;
@@ -385,7 +415,8 @@ export class Endpoint {
               ? "offline"
               : "attention";
         this.fresh_connection = this.profile !== null && this.issue === "error";
-        this.disconnect(true);
+        // A spare handshake can still answer after the primary has timed out.
+        this.disconnect(true, this.status === "offline");
         this.retries++;
       })
       .finally(() => {
@@ -412,25 +443,34 @@ export class Endpoint {
   private async race(now: number): Promise<void> {
     const profile = this.profile!,
       interruption = this.interruption,
-      tunnel = new Remote(profile, true);
+      tunnel = new Remote(profile, true, Math.min(startup_ms, this.stats.timeoutMs));
     this.probe_tunnel = tunnel;
     this.racing = true;
     this.raced_at = now;
+    this.trace("remote.race", "start");
     this.suspect = false;
     let conn: Connection | null = null;
     try {
       await tunnel.open();
       let established = false;
       conn = new Connection(tunnel.socket, {
-        timeout_ms: () => (established ? this.stats.timeoutMs : startup_ms),
+        timeout_ms: () => (established ? this.stats.timeoutMs : Math.min(startup_ms, this.stats.timeoutMs)),
         stats: this.stats,
+        trace: { machine: this.name, generation: this.generation, path: "race" },
       });
       const hello = await conn.call("hello");
       established = true;
+      this.trace("remote.race", "hello");
       // The old connection answering again, or anything else moving on, wins.
-      if (interruption !== this.interruption || this.stopped || this.status !== "stalled") throw Error("RaceLost");
+      if (
+        interruption !== this.interruption ||
+        this.stopped ||
+        (this.status !== "stalled" && this.status !== "connecting" && this.status !== "offline")
+      )
+        throw Error("RaceLost");
       if (compatible(hello) !== this.instance) throw Error("RaceLost");
       // The old connection is let go; the next connect resumes the link here.
+      this.trace("remote.race", "won");
       this.interruption++;
       this.probe_tunnel = null;
       this.disconnect();
@@ -439,7 +479,8 @@ export class Endpoint {
       this.next = 0;
       this.retries = 0;
       this.wake();
-    } catch {
+    } catch (error) {
+      this.trace("remote.race", "failed", { error: errors.name(error) ?? "ConnectionFailed" });
       conn?.close();
       tunnel.close();
     } finally {
@@ -456,6 +497,7 @@ export class Endpoint {
   private async connect(): Promise<void> {
     const previous = this.instance;
     const generation = ++this.generation;
+    this.trace("remote.connection", "start");
     if (this.profile === null && this.start_local && !this.local_started) {
       await this.start_local();
       this.current(generation);
@@ -481,11 +523,13 @@ export class Endpoint {
       conn = this.connection = new Connection(socket, {
         timeout_ms: () => (this.profile ? (established ? this.stats.timeoutMs : startup_ms) : 10000),
         stats: this.stats,
+        trace: { machine: this.name, generation, path: "primary" },
       });
       hello = await conn.call("hello");
       established = true;
       this.current(generation);
     }
+    this.trace("remote.connection", "hello");
     conn.onEvent(event => {
       if (this.connection !== conn) return;
       if (event.type === "uninstalled" && !this.profile) {
@@ -511,10 +555,12 @@ export class Endpoint {
       this.updated = 0;
     }
     this.resumed = hello.capabilities.includes("link.resume") && (await this.relink(conn, same));
+    this.trace("remote.connection", "linked", { resumed: Number(this.resumed) });
     this.current(generation);
     // A resumed viewer keeps what its connection agreed with the daemon.
     if (!this.resumed) view.resetConnection(this.machine);
     const snapshot = await conn.call("session.snapshot", { resources: this.host.prefs.resources.enabled });
+    this.trace("remote.connection", "snapshot");
     this.current(generation);
     view.receiveSnapshot(snapshot, this.machine);
     this.machine.runtime.receiveResources(snapshot.resources);
@@ -764,6 +810,7 @@ export class Endpoint {
       changed = true;
     }
     if (!this.stream || this.stream.age() < this.stallMs) {
+      if (this.status !== "online") this.trace("remote.connection", "online");
       this.status = "online";
       this.error = "";
     }
@@ -799,12 +846,14 @@ export class Endpoint {
     view.paste_progress = null;
     view.prefix = false;
   }
-  private disconnect(keepTask = false): void {
+  private disconnect(keepTask = false, keepProbe = false): void {
     this.generation++;
     if (!keepTask) this.task = null;
-    this.racing = false;
-    this.probe_tunnel?.close();
-    this.probe_tunnel = null;
+    if (!keepProbe) {
+      this.racing = false;
+      this.probe_tunnel?.close();
+      this.probe_tunnel = null;
+    }
     this.connection?.close();
     this.connection = null;
     this.checked = null;
