@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test, expect, setSystemTime, spyOn } from "bun:test";
 import { Server } from "./server";
 import * as agentModels from "./agent_models";
@@ -721,5 +724,108 @@ test("startup cancellation survives the reporter connection's live handoff", asy
       for (const client of f.server.clients) client.close();
       f.dispose();
     }
+  }
+});
+
+test("a numbered command sent again over a link gets its reply without running twice", async () => {
+  const { server, dispose } = fixture();
+  // The new workspace is saved; keep it out of the user's state.
+  const state = mkdtempSync(join(tmpdir(), "corgi-link-state-")),
+    env = process.env.CORGI_ENV_DIR;
+  process.env.CORGI_ENV_DIR = state;
+  try {
+    const cl = server.addClient(-1, false),
+      queued = spyOn(cl, "queue");
+    await server.request(cl, { op: "link.open", protocol: protocol.version });
+    const link = cl.link!;
+    const create = {
+      op: "session.command",
+      protocol: protocol.version,
+      command: { "workspace.create": { name: "b", cwd: "/tmp" } },
+    };
+    const before = server.runtime.workspaces.items.length;
+    await (server as any).once(cl, link, 1n, { ...create, request_id: 10 });
+    await (server as any).once(cl, link, 1n, { ...create, request_id: 20 });
+    const replies = queued.mock.calls.map(([value]) => value) as any[];
+    expect(server.runtime.workspaces.items.length).toBe(before + 1);
+    expect(replies[2]).toEqual({ ...replies[1], request_id: 20 });
+    expect(replies[1].request_id).toBe(10);
+    expect(replies[1].ok).toBe(true);
+  } finally {
+    await (server as any).workspaceWrites;
+    if (env === undefined) delete process.env.CORGI_ENV_DIR;
+    else process.env.CORGI_ENV_DIR = env;
+    dispose();
+    rmSync(state, { recursive: true, force: true });
+  }
+});
+
+test("resuming a link brings its viewer back and takes it from a connection that still held it", async () => {
+  const { server, dispose } = fixture();
+  try {
+    const old = server.addClient(-1, false),
+      next = server.addClient(-1, false),
+      replies: any[] = [];
+    spyOn(old, "queue").mockImplementation(() => {});
+    spyOn(next, "queue").mockImplementation(value => void replies.push(value));
+    await server.request(old, { op: "link.open", protocol: protocol.version });
+    Object.assign(old, { viewer: true, viewer_id: 5, active_seq: 2, next_control: 4n, last_control: 1n });
+    old.controls = [{ seq: 3n, kind: "focus", id: 1 }];
+    await server.request(next, { op: "link.resume", protocol: protocol.version, link: old.link!.id });
+    expect(replies[0]).toEqual({ ok: true, link: next.link!.id, viewer: true });
+    expect(old.dead).toBe(true);
+    expect([next.viewer, next.viewer_id, next.next_control, next.last_control]).toEqual([true, 5, 4n, 1n]);
+    expect(next.controls).toEqual([{ seq: 3n, kind: "focus", id: 1 }]);
+    await expect(server.request(next, { op: "link.resume", protocol: protocol.version, link: "gone" })).rejects.toThrow(
+      "NoLink",
+    );
+  } finally {
+    dispose();
+  }
+});
+
+test("a link no connection comes back for is dropped after its grace", async () => {
+  const { server, dispose } = fixture();
+  try {
+    const cl = server.addClient(-1, false);
+    spyOn(cl, "queue").mockImplementation(() => {});
+    await server.request(cl, { op: "link.open", protocol: protocol.version });
+    const id = cl.link!.id;
+    cl.close();
+    expect(server.links.get(id)?.detached_at).not.toBeNull();
+    const detached = server.links.get(id)!.detached_at!;
+    (server as any).expireLinks(detached + 60_000);
+    expect(server.links.has(id)).toBe(true);
+    (server as any).expireLinks(detached + 11 * 60_000);
+    expect(server.links.has(id)).toBe(false);
+  } finally {
+    dispose();
+  }
+});
+
+test("deferred checkout requests cannot record a synthetic replay success", async () => {
+  const { server, dispose } = fixture();
+  const cl = server.addClient(-1, false),
+    queued = spyOn(cl, "queue");
+  try {
+    await server.request(cl, { op: "link.open", protocol: protocol.version });
+    const request = {
+      op: "worktree.add",
+      protocol: protocol.version,
+      workspace: 1,
+      path: "/not-created",
+      branch: "topic",
+      base: "main",
+    };
+    expect(protocol.once("worktree.add")).toBe(false);
+    await (server as any).once(cl, cl.link!, 1n, request);
+    await (server as any).once(cl, cl.link!, 1n, request);
+    expect(queued.mock.calls.slice(1).map(([value]) => value)).toEqual([
+      { err: "UnnumberedOperation" },
+      { err: "UnnumberedOperation" },
+    ]);
+  } finally {
+    cl.close();
+    dispose();
   }
 });

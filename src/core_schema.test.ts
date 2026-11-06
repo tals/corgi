@@ -16,6 +16,7 @@ import { Tokens } from "./usage/live";
 import { Call } from "./activity/tools";
 import { parseLabel } from "./activity/summary";
 import { captureManifest } from "./persist/handoff";
+import { Link } from "./link";
 import { checkpoint_version, handoff_version } from "./persist/migrations";
 import { validateCheckpoint } from "./persist/schema";
 import { Preview } from "./launch/preview";
@@ -171,7 +172,7 @@ test("the runtime wire matches protocol.version", () => {
   // `hello` and `server.reload` stay on 1 so new clients find old daemons; see HACKING.md.
   expect(protocol.management_version).toBe(1);
   expect(createHash("sha256").update(schemas.protocol).digest("hex")).toBe(
-    "662003cf92db2fab76829a6be42dfb20363eb747f21d5cb9a10386dce30f21a2",
+    "e5e7245fd8d71b58b1b60db760c0514aa0a17d72755225c86087a19ae3b59947",
   );
   const { server, client, dispose } = fixture();
   try {
@@ -236,7 +237,7 @@ test("every agent view a snapshot carries lists the same fields", () => {
 test("the viewer wire matches viewer_version.version", async () => {
   expect(protocol.viewer_version).toBe(4);
   expect(createHash("sha256").update(schemas.viewer).digest("hex")).toBe(
-    "02c529552ab0ee6562f3fcc15cb1a8cbfd55d73983b5a725035cea17361d60d9",
+    "651216e9633e81cd092e16947c51d77e9411ceb6e845be672d381205a857f04e",
   );
   const { server, client, dispose } = fixture();
   let view: any;
@@ -277,7 +278,7 @@ test("saved handoff format matches its version", async () => {
   expect(handoff_version).toBe(6);
   expect(checkpoint_version).toBe(6);
   expect(createHash("sha256").update(schemas.handoff).digest("hex")).toBe(
-    "97b10f94cc3b20aea90080c39241ea10071afbc17c20efb6949bcea4cb188c35",
+    "d7ac789b51dc3a9a38fcd8125329a7c65be653085ef08fb2136b75cba04d5520",
   );
   const { server, client, dispose } = fixture();
   const summaries = new Worker();
@@ -300,9 +301,19 @@ test("saved handoff format matches its version", async () => {
   usage.watchers.set(1, tail);
   server.usage = usage;
   await usage.pause();
+  // One link a connection carries, one waiting with the viewer it had.
+  const carried = new Link(),
+    waiting = new Link();
+  carried.record(1n, { ok: true, result: { pane: 1 } });
+  waiting.viewer = { viewer_id: 2, active_seq: 3, view_workspace: 1, controls: [], next_control: 1n, last_control: 0n };
+  waiting.detached_at = 1_700_000_000_000;
+  for (const l of [carried, waiting]) server.links.set(l.id, l);
+  client.link = carried;
   try {
     const captured = json.parse(json.stringify(captureManifest(server, client)));
     validate(schemas.handoff, captured);
+    expect(captured.links).toHaveLength(2);
+    expect(captured.clients[0].link).toBe(carried.id);
     validateCheckpoint(captured.runtime);
     expect(captured.runtime.panes[0].binding.actor).toBe(1);
     expect(captured.clients).toHaveLength(1);

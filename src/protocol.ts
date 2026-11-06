@@ -1,6 +1,6 @@
 import * as json from "./json";
 import { Theme } from "./theme";
-import type { View as SurfaceView } from "./pane/surface";
+import type { View as SurfaceView, InputReceipt } from "./pane/surface";
 import { Provider, type ByProvider } from "./providers";
 import type { Target } from "./agent_order";
 import * as checklist from "./activity/checklist";
@@ -94,10 +94,13 @@ export type Result = {
   /** How `agent.message` reached its agent. */
   delivery?: Delivery;
   queued?: boolean;
+  input_receipt?: InputReceipt;
 };
 export const emptyResult = (): Result => ({ pane: 0, tab: 0, workspace: 0, text: null, closed_panes: [] });
 export const operations = [
   "hello",
+  "link.open",
+  "link.resume",
   "session.command",
   "session.locate",
   "workspace.archive.preview",
@@ -111,6 +114,7 @@ export const operations = [
   "viewer.open",
   "viewer.sync",
   "viewer.surfaces",
+  "viewer.stream",
   "viewer.search",
   "viewer.pick",
   "viewer.image",
@@ -187,7 +191,7 @@ const local = new Set([
 ]);
 export function check(op: string): "none" | "management" | "runtime" | "viewer" {
   if (op === "hello" || op === "server.reload") return "management";
-  if (op === "viewer.open" || op === "viewer.sync") return "viewer";
+  if (op === "viewer.open" || op === "viewer.sync" || op === "viewer.stream") return "viewer";
   return local.has(op) ? "none" : "runtime";
 }
 export const capabilities = operations.filter(op => op !== "hello" && check(op) !== "none");
@@ -198,6 +202,30 @@ export function versions(op: string): { protocol?: number; runtime_protocol?: nu
     ...(op === "hello" ? { runtime_protocol: version } : {}),
     ...(check(op) === "viewer" ? { viewer_protocol: viewer_version } : {}),
   };
+}
+/** Requests a client numbers over a link, so each runs once even when it's
+ * sent again after a reconnect. Reads, and requests the daemon can safely
+ * take twice, go unnumbered. Deferred checkouts use a separate connection
+ * and report a lost result rather than replaying before completion. */
+export function once(op: Op): boolean {
+  switch (op) {
+    case "session.command":
+    case "pane.paste":
+    case "pane.mark_unread":
+    case "git.push":
+    case "worktree.remove":
+    case "worktree.stop":
+    case "worktree.brief":
+    case "inference.configure":
+    case "shell.configure":
+    case "smart_links.configure":
+    case "agent.track_usage":
+    case "onboarding.copy":
+    case "onboarding.handoff":
+      return true;
+    default:
+      return false;
+  }
 }
 export function envelope(op: string, payload: Record<string, unknown> = {}): object {
   const fields = op === "viewer.open" ? { cwd: "", onboarding: false, theme: null, ...payload } : payload;
@@ -633,7 +661,9 @@ const requests = {
   "session.subscribe": { output: ["bool", true] },
   "launcher.catalog": { workspace: ["u32", 0], cwd: ["string", ""] },
   "launcher.models": { row: "string", workspace: ["u32", 0], cwd: ["string", ""] },
+  "link.resume": { link: "string" },
   "session.locate": { pane: "u32" },
+  "session.snapshot": { resources: ["?bool", null] },
   "viewer.watch": { viewer: "u32" },
   "agent.subscribe": launch,
   "agent.preview": launch,
@@ -657,6 +687,20 @@ const requests = {
     resources_hash: ["?u64", null],
   },
   "viewer.surfaces": {},
+  "viewer.stream": {
+    sequence: "u32",
+    interests: "[]interest",
+    session_hash: ["?u64", null],
+    focus: ["?u32", null],
+    watched: ["bool", true],
+    workspace: ["u32", 0],
+    ack: ["u64", 0],
+    active: ["bool", false],
+    resource_detail: ["?u32", null],
+    worktree_detail: ["?u32", null],
+    resources: ["bool", true],
+    resources_hash: ["?u64", null],
+  },
   "viewer.search": { pane: "u32", needle: "string", skip: ["u64", 0] },
   "viewer.pick": {
     pane: "u32",
@@ -796,8 +840,13 @@ export interface ReplyPayloads {
     executable: string;
     release_version: string;
     update_abi: string;
+    viewer_protocol?: number;
+    instance?: string;
   };
   ping: Ok & { pid: number };
+  "link.open": Ok & { link: string };
+  /** `viewer` when the link was a viewer's, which is now this connection's. */
+  "link.resume": Ok & { link: string; viewer: boolean };
   startup: Ok & { cancelled: boolean };
   "startup.kill": Ok;
   "session.command": Ok & { result: Result };
@@ -811,6 +860,12 @@ export interface ReplyPayloads {
   "viewer.open": Ok & Opened;
   "viewer.sync": View<ViewerSnapshot, import("./trackers/resources").Snapshot>;
   "viewer.surfaces": Ok & { surfaces: SurfaceView[] };
+  "viewer.stream": {
+    type: "viewer.stream";
+    viewer_protocol: number;
+    sequence: number;
+    view: View<ViewerSnapshot, import("./trackers/resources").Snapshot>;
+  };
   "viewer.search": Ok & {
     offset: bigint | null;
     match?: { x: number; y: number; end_x: number; end_y: number } | null;
@@ -883,6 +938,8 @@ export type PickUnit = Request<"viewer.pick">["unit"];
 export type PickResult = Omit<Reply<"viewer.pick">, "ok">;
 /** Unsolicited updates share a connection with correlated replies. */
 export type Event =
+  | Reply<"viewer.stream">
+  | { type: "viewer.frame"; sequence: number; view: Reply<"viewer.sync"> }
   | { type: "viewer.wake" }
   /** The installation the daemon runs from was deleted, as `omarchy plugin remove` does; it's stopping. */
   | { type: "uninstalled" }
@@ -890,7 +947,15 @@ export type Event =
   | Reply<"agent.subscribe">
   | { type: "agent.history"; update: Wire<import("./launch/history").Update> };
 /** What arrives without a request id; anything else untagged fails the connection. */
-export const event_types = ["viewer.wake", "uninstalled", "session", "agent.preview", "agent.history"] as const;
+export const event_types = [
+  "viewer.stream",
+  "viewer.frame",
+  "viewer.wake",
+  "uninstalled",
+  "session",
+  "agent.preview",
+  "agent.history",
+] as const;
 // Fails to compile while an `Event` type is missing from the list.
 true satisfies Exclude<Event["type"], (typeof event_types)[number]> extends never ? true : false;
 export function event(message: { type?: unknown }): Event | null {

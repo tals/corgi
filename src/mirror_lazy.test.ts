@@ -12,12 +12,12 @@ import { Differ } from "./frame_diff";
 import { Model, Rect, View as LayoutView, max_panes } from "./layout";
 import * as docking from "./docking";
 import { validateInterests } from "./viewer_protocol";
-import type { RequestInput } from "./protocol";
+import { emptyResult, type RequestInput } from "./protocol";
 import { Writer } from "./text";
 import * as viewer from "./viewer";
 import * as viewerVersion from "./viewer_version";
 
-const connection = transport(async () => ({}));
+const connection = transport(async op => (op === "session.command" ? { ok: true, result: emptyResult() } : {}));
 function snapshot(count: number) {
   const ids = Array.from({ length: count }, (_, index) => index + 1);
   return {

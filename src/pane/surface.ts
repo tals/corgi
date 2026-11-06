@@ -46,11 +46,19 @@ export interface Stamp {
   offset: number | null;
 }
 export interface View {
+  input_ack?: InputReceipt;
   surface: Surface;
   bottom: number;
   offset: number;
   modes: Modes;
   stamp: Stamp;
+}
+export interface InputReceipt {
+  epoch: string;
+  sequence: bigint;
+}
+export function inputReceipt(value: Wire<InputReceipt> | InputReceipt): InputReceipt {
+  return { epoch: value.epoch, sequence: BigInt(value.sequence) };
 }
 export function captureView(id: number, t: Terminal, offset: number | null = null): View {
   return t.surface(id, offset);
@@ -72,6 +80,7 @@ type NativeView = Omit<View, "stamp"> & {
 export function view(value: Wire<View> | NativeView): View {
   return {
     ...value,
+    input_ack: value.input_ack ? inputReceipt(value.input_ack) : undefined,
     stamp: {
       ...value.stamp,
       identity: BigInt(value.stamp.identity),

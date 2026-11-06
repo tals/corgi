@@ -8,7 +8,7 @@ import * as dockingGrip from "./docking_grip";
 import type { DockDrop } from "./protocol";
 import * as composition from "./composition";
 import { Style, keycap } from "./palette";
-import { Rect, View as LayoutView, cleanLabel, type Axis, type Border } from "./layout";
+import { Rect, View as LayoutView, Model, Selection, cleanLabel, type Axis, type Border } from "./layout";
 import * as sidebar from "./sidebar";
 import {
   View as SidebarView,
@@ -32,7 +32,11 @@ import type { Cell } from "./fork_hero";
 import * as pasteCard from "./paste_card";
 import * as startupCard from "./startup_card";
 import type { Wait as StartupWait } from "./startup";
+import * as pasteProgress from "./paste_progress";
 import * as resourceTooltip from "./resource_tooltip";
+import * as connectivityCard from "./connectivity_card";
+import type { Images as SignalBars } from "./signal_bars";
+import type { Quality } from "./connection_stats";
 import * as gitTooltip from "./git_tooltip";
 import * as linkTooltip from "./link_tooltip";
 import * as linkThumbnail from "./link_thumbnail";
@@ -214,6 +218,8 @@ export interface Ui {
   resource_card: resourceTooltip.State | null;
   startup_waits: StartupWait[];
   startup_card: startupCard.State | null;
+  connection_card: connectivityCard.Card | null;
+  signal_bars: SignalBars | null;
   git_hover: number | null;
   /** Panes whose grips showed last frame. */
   grip_hover: readonly number[];
@@ -229,6 +235,7 @@ export interface Ui {
    * click copied its link. */
   paste_card: Notice | null;
   paste_copied: boolean;
+  paste_progress: pasteProgress.State | null;
   inference: SetupStatus;
   message: string;
   copy_mode: boolean;
@@ -247,6 +254,7 @@ export interface Ui {
   port_menu: PortMenu | null;
   scope_menu: ScopeMenu | null;
   scope_label: string;
+  workspace_scope: string;
   agent_search: Search | null;
   tab_drop_x: number | null;
   dialog: Dialog | null;
@@ -296,6 +304,7 @@ export interface Ui {
   signin_draw: ((w: Writer, pointer: Pointer | null) => linkTooltip.Link | null) | null;
   /** With every workspace closed, the button that creates one. */
   no_workspace: noWorkspace.State | null;
+  workspace_loading: boolean;
   /** Draws the Corgi prompt over everything, placing brand marks where it can. */
   /** Draws the prompt and returns the boxes it drew over. */
   prompt_draw: ((w: Writer, marks: Marks | null) => Rect[]) | null;
@@ -313,6 +322,8 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     resource_card: null,
     startup_waits: [],
     startup_card: null,
+    connection_card: null,
+    signal_bars: null,
     git_hover: null,
     grip_hover: [],
     git_card: null,
@@ -322,6 +333,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     corgi_setup: null,
     paste_card: null,
     paste_copied: false,
+    paste_progress: null,
     inference: setupStatus(),
     copy_feedback: false,
     added_feedback: "",
@@ -335,6 +347,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     port_menu: null,
     scope_menu: null,
     scope_label: "",
+    workspace_scope: "",
     agent_search: null,
     tab_drop_x: null,
     docking: null,
@@ -373,6 +386,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     review_ghost: null,
     signin_draw: null,
     no_workspace: null,
+    workspace_loading: false,
     prompt_draw: null,
     prompt_cue: null,
     ...fields,
@@ -585,10 +599,12 @@ function dimsPanes(u: Ui): boolean {
 function retainable(u: Ui, p: Pane, r: Rect, dim: boolean, hovered: bigint | null): boolean {
   return (
     noOverlay(u) &&
+    u.paste_progress === null &&
     !dim &&
     hovered === null &&
     p.restoring.length === 0 &&
     !p.dormant &&
+    !p.terminal.predicting() &&
     !p.terminal.selection &&
     p.terminal.images.length === 0 &&
     r.w === p.terminal.inner.cols &&
@@ -601,6 +617,7 @@ function badgeCovered(u: Ui, side: SidebarView, width: number, height: number, p
   // The agents drawer has no title row for the badge.
   if (u.sidebar_drawer === "agents") return true;
   const boxes = [...menuBoxes(u, width, height, side.area()), ...prompt];
+  if (u.connection_card && noOverlay(u)) boxes.push(u.connection_card.rect);
   if (u.agent_launcher) boxes.push(u.agent_launcher.bounds(width, height, side));
   if (u.agent_search) boxes.push(new Rect(0, side.middle() + 1, side.width, 1));
   if (u.dialog) {
@@ -745,19 +762,9 @@ function drawTabs(
   w.write(button_edge + "▐" + button + "+" + button_edge + "▌");
   w.write("\x1b[0m");
 }
-export function frame(
-  view: LayoutView,
-  panes: Pane[],
-  width: number,
-  height: number,
-  u: Ui,
-  retained?: composition.Frame,
-): string {
-  const model = view.model;
-  const w = new Writer();
+/** The sidebar a frame of `u` draws, so hit tests find what it shows. */
+export function sidebarView(u: Ui, width: number, height: number): SidebarView {
   const entries = u.dragged_agent ? u.dragged_agent.apply(u.agents) : u.agents;
-  const workspaces = u.dragged_workspace ? u.dragged_workspace.apply(u.workspaces) : u.workspaces;
-  const dragging = u.dragged_agent !== null || u.dragged_workspace !== null || u.docking?.dragging === true;
   let side = SidebarView.init(width, height, u.sidebar_open, u.sidebar_offset, entries.length, u.prefs.sidebar_split)
     .withSearch(u.agent_search)
     .withWidth(u.prefs.sidebar_width)
@@ -767,7 +774,15 @@ export function frame(
   side.drawer = u.sidebar_drawer;
   side.focus = u.sidebar_focus;
   side = side.withArchives(u.archived_workspaces.length, u.archived_expanded, u.archived_offset, u.archived_focused);
-  side = side.withWorkspaces(u.workspaces.length, u.workspace_offset).withEntries(entries);
+  const workspaces = u.dragged_workspace ? u.dragged_workspace.apply(u.workspaces) : u.workspaces;
+  side = side
+    .withWorkspaces(
+      workspaces.length,
+      u.workspace_offset,
+      workspaces.map(row => row.machine),
+      workspaces.map(row => row.collapsed),
+    )
+    .withEntries(entries);
   side.corgi_badge = u.corgi_badge;
   side.supports_kitty_graphics = u.supports_kitty_graphics;
   side.cell = u.cell_pixels;
@@ -781,10 +796,36 @@ export function frame(
   side.new_shortcut = new_binding
     ? `${new_binding.prefixed ? keymap.prefixName(u.prefs.prefix) + " " : ""}${bindings.format(new_binding)}`
     : null;
+  side.workspace_scope = u.workspace_scope;
   side.resource_hover = u.resource_hover;
   side.corgi_intensity = u.corgi_setup?.previewIntensity(u.prefs) ?? u.prefs.corgi_intensity;
   side.dragged = u.dragged_agent ? u.dragged_agent.destination : null;
   side.dragged_workspace = u.dragged_workspace ? u.dragged_workspace.destination : null;
+  return side;
+}
+/** The whole screen. Without `layout`, a machine that hasn't shown its
+ * screen yet, there are no tabs or panes beside the sidebar. */
+export function frame(
+  layout: LayoutView | null,
+  panes: Pane[],
+  width: number,
+  height: number,
+  u: Ui,
+  retained?: composition.Frame,
+): string {
+  const view = layout ?? new LayoutView(new Model(), new Selection());
+  const model = view.model;
+  const w = new Writer();
+  const entries = u.dragged_agent ? u.dragged_agent.apply(u.agents) : u.agents;
+  const workspaces = u.dragged_workspace ? u.dragged_workspace.apply(u.workspaces) : u.workspaces;
+  const dragging = u.dragged_agent !== null || u.dragged_workspace !== null || u.docking?.dragging === true;
+  const side = sidebarView(u, width, height);
+  const signals: { quality: Quality; x: number; y: number }[] = [];
+  if (u.signal_bars && u.cell_pixels)
+    side.signal_marks = (quality, x, y) => {
+      signals.push({ quality, x, y });
+      return u.signal_bars!.ready(quality, u.cell_pixels!);
+    };
   // Mouse tracking modes replace one another. Disabling first makes the host
   // briefly switch to a text pointer on every redraw.
   w.write("\x1b[?1003h");
@@ -799,7 +840,7 @@ export function frame(
   // Marks take room in their tabs only where the host can show them.
   const marks: TabMark[] | null = u.tab_icons && u.cell_pixels ? [] : null;
   // With every workspace closed, all but the way to create one steps back.
-  const none = u.no_workspace;
+  const none = layout && !u.workspace_loading ? u.no_workspace : null;
   const on_none =
     none !== null && u.pointer !== null && noPopup(u) ? noWorkspace.hit(side.area(), u.pointer.x, u.pointer.y) : null;
   const on_create =
@@ -810,7 +851,13 @@ export function frame(
     const tabs = new Writer();
     drawTabs(tabs, view, panes, u.prefs.preset, side.tabX(), tab_space, thumb, marks);
     sidebar.writeExit(w, tabs.buffered(), noWorkspace.dim);
-  } else drawTabs(w, view, panes, u.prefs.preset, side.tabX(), tab_space, thumb, marks);
+  } else if (u.workspace_loading && model.count === 0) {
+    w.write(`\x1b[1;${side.tabX() + 1}H` + palette.fg("faint"));
+    writeEllipsis(w, " ▰▰▰▰▰▰▰▰   ▰▰▰▰▰▰   ▰▰▰▰▰▰▰▰ ", tab_space);
+    w.write(`\x1b[3;${side.area().x + 2}H` + palette.fg("muted"));
+    writeEllipsis(w, i18n.t`Loading tabs…`, Math.max(0, side.area().w - 2));
+    w.write("\x1b[0m");
+  } else if (layout) drawTabs(w, view, panes, u.prefs.preset, side.tabX(), tab_space, thumb, marks);
   if (u.tab_drop_x !== null)
     w.write(`\x1b[1;${side.tabX() + u.tab_drop_x + 1}H\x1b[1m` + palette.fg("strong") + "│\x1b[0m");
   if (none) {
@@ -819,7 +866,7 @@ export function frame(
     // Behind a dialog, like the panes.
     if (dimsPanes(u)) sidebar.writeExit(w, button.buffered(), sidebar.spotlight_dim);
     else w.write(button.buffered());
-  } else if (model.count === 0) {
+  } else if (layout && model.count === 0 && !u.workspace_loading) {
     const prefix_key = keymap.prefixName(u.prefs.prefix);
     const hint = (name: string, label: string) => {
       const binding =
@@ -911,6 +958,7 @@ export function frame(
         switch (found.tag) {
           case "toggle":
           case "workspace_new":
+          case "workspace_scope":
           case "agent_scope":
           case "agent_new":
           case "agent_options":
@@ -929,7 +977,7 @@ export function frame(
         const git = sidebar.gitActionWorkspace(side, u.workspaces, u.git_hover, pointer.x, pointer.y);
         if (git) link_pointer = link_pointer || git.git_push.phase === "idle" || git.git_push.phase === "failed";
         if (on_create || on_none !== null) link_pointer = true;
-        if (pointer.y === 0 && pointer.x >= side.tabX()) {
+        if (layout && pointer.y === 0 && pointer.x >= side.tabX()) {
           const add_x = side.tabX() + addTabX(view, width - side.tabX() - side.panel);
           link_pointer = link_pointer || (pointer.x >= add_x && pointer.x < add_x + 3);
         }
@@ -987,6 +1035,12 @@ export function frame(
     const p = panes.find(pane => pane.id === place.id);
     if (!p) continue;
     const r = place.rect;
+    if (p.terminal.loaded === false && !p.dormant && !p.restoring) {
+      w.write(w.cup(r.y + 1, r.x + 1) + palette.fg("muted"));
+      writeEllipsis(w, i18n.t`Loading pane…`, Math.max(0, r.w - 2));
+      w.write("\x1b[0m");
+      continue;
+    }
     p.terminal.updateRender();
     let hovered: bigint | null = null;
     if (u.pointer && r.contains(u.pointer.x, u.pointer.y) && !on_card && !on_link_card && noOverlay(u)) {
@@ -1055,8 +1109,11 @@ export function frame(
   }
   if (u.docking) for (const rect of drawDocking(w, u.docking, panes, side.area())) cover(rect);
   // The host may leave its last mouse report at the window edge.
-  if (u.pointer && u.pointer.x > 0 && !dragging && !on_card && noOverlay(u))
+  if (u.pointer && u.pointer.x > 0 && !dragging && !on_card && noOverlay(u)) {
     side.hovered = sidebar.agentIndexAt(side, entries, u.pointer.x, u.pointer.y);
+    if (!on_link_card && !on_git && !u.connection_card?.rect.contains(u.pointer.x, u.pointer.y))
+      side.machine_hover = sidebar.machineHeaderAt(side, u.pointer.x, u.pointer.y)?.rect.y ?? null;
+  }
   side.spotlight = u.worktree_spotlight;
   // A moving row's tint and a link's thumbnail are placed again by each frame that shows them.
   if (u.supports_kitty_graphics)
@@ -1124,7 +1181,7 @@ export function frame(
     for (const place of view.placements(area)) {
       if (place.id !== view.selection.tabs[view.selection.active].focus || place.rect.h === 0) continue;
       const p = panes.find(pane => pane.id === place.id && pane.restoring.length === 0);
-      if (!p) continue;
+      if (!p || p.terminal.loaded === false) continue;
       const cursor = p.terminal.cursor();
       if (cursor && cursor.x < place.rect.w && cursor.y < place.rect.h && place.rect.y + cursor.y < cursor_rows) {
         pane_cursor = { x: place.rect.x + cursor.x, y: place.rect.y + cursor.y };
@@ -1132,6 +1189,18 @@ export function frame(
     }
   }
   if (paste_at) w.write(pasteCard.draw(u.paste_card!, paste_at, u.paste_copied));
+  if (
+    u.paste_progress &&
+    !u.paste_card &&
+    !u.copy_mode &&
+    !u.prefix &&
+    !u.review_focused &&
+    !u.link_tooltip &&
+    noOverlay(u)
+  ) {
+    const at = pasteProgress.locate(view, panes, area, u.paste_progress);
+    if (at) w.write(pasteProgress.draw(u.paste_progress, at));
+  }
   if (u.worktree_card) {
     const ws = u.workspaces.find(ws => ws.id === u.worktree_card!.workspace);
     if (ws) {
@@ -1253,7 +1322,9 @@ export function frame(
       const i = model.tabs.slice(0, model.count).findIndex(tab => tab.id === target);
       if (i >= 0) number = i + 1;
     }
-    NameView.init(width, height, dialog).draw(dialog, w, number);
+    const box = NameView.init(width, height, dialog);
+    box.draw(dialog, w, number);
+    cover(new Rect(box.x, box.y, box.width, box.height));
   }
   if (u.scope_menu) {
     u.scope_menu.draw(w, side, width, height, u.workspaces, u.prefs.agents as Scope, u.prefs.agentSort());
@@ -1286,12 +1357,13 @@ export function frame(
     // None under the setup drawn over the launcher.
     u.agent_launcher.marks = u.corgi_setup ? null : menu_marks;
     u.agent_launcher.draw(w, width, height, side);
+    cover(u.agent_launcher.bounds(width, height, side));
   }
   // Settings' Manage agents and model picker wear them as the launcher's does.
   if (u.corgi_setup?.agents) u.corgi_setup.agents.manager.marks = menu_marks;
   if (u.corgi_setup) {
     u.corgi_setup.marks = menu_marks;
-    u.corgi_setup.draw(w, u.inference, u.prefs, width, height);
+    cover(u.corgi_setup.draw(w, u.inference, u.prefs, width, height));
   }
   if (managed?.manager.last_box && !managed.transition.active)
     w.write(managed.manager.glideImage(managed.manager.last_box, managed.manageModel()));
@@ -1316,6 +1388,11 @@ export function frame(
     if (u.link_card.thumbnail) w.write(linkThumbnail.place(link_rect, u.link_card.thumbnail));
     cover(link_rect);
   }
+  if (u.connection_card && noOverlay(u)) {
+    connectivityCard.draw(w, u.connection_card);
+    cover(u.connection_card.rect);
+    pane_cursor = null;
+  }
   if (u.images && u.cell_pixels) {
     const { images, cell_pixels } = u;
     for (const { pane, rect, hidden } of pictured) {
@@ -1336,6 +1413,8 @@ export function frame(
         u.cell_pixels!,
       ),
     );
+  if (u.signal_bars && u.cell_pixels && !u.signin_draw && !u.signin_exit)
+    for (const { quality, x, y } of signals) w.write(u.signal_bars.place(quality, x, y, u.cell_pixels, covered));
   if (u.tab_icons && u.cell_pixels && !u.agent_launcher && !u.corgi_setup && !u.signin_draw && !u.signin_exit)
     for (const { brand, x, y } of archive_marks)
       if (!covered.some(box => box.y <= y && box.y + box.h > y && box.x < x + tabIcons.cols && box.x + box.w > x))

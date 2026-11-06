@@ -31,12 +31,19 @@ import {
   type Removal,
   type Snapshot as Worktrees,
 } from "./worktrees";
+import { Prediction, timeout_ms, type Target as PredictionTarget } from "./instant_input";
+import type { Progress as ImageProgress } from "./image_upload";
 
 export interface Transport {
   socket?: string;
   onEvent?(listener: (event: protocol.Event) => void): () => void;
   /** Whether the daemon sends this viewer `viewer.wake`. */
   watches?(): boolean;
+  remote?: boolean;
+  predictionMs?(): number;
+  /** Whether program input can use this pane's displayed surface. */
+  inputReady?(pane: number): boolean;
+  image?: (path: string, mime: string, progress?: ImageProgress) => Promise<string>;
   request<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>>;
 }
 /** An RPC call that throws the daemon's error name, as Zig's `call` does. */
@@ -93,6 +100,10 @@ export class Terminal {
   private installed: surface.View | null = null;
   private changed_rows = new Uint16Array(0);
   private rendered: { key: string; rows: string } | null = null;
+  private prediction = new Prediction(() => this.conn.predictionMs?.() ?? timeout_ms);
+  private predicted: NativeTerminal | null = null;
+  private projected: surface.Surface | null = null;
+  private received: surface.View | null = null;
 
   constructor(
     public conn: Transport,
@@ -121,6 +132,9 @@ export class Terminal {
       throw error;
     }
   }
+  get loaded(): boolean {
+    return this.installed !== null;
+  }
   get inner(): NativeTerminal {
     return this.ensure();
   }
@@ -128,6 +142,7 @@ export class Terminal {
     return this.inner.handle;
   }
   hyperlinks(): Link[] {
+    if (this.prediction.surface()) return [];
     this.updateRender();
     return (this.links ??= this.inner.hyperlinks());
   }
@@ -153,6 +168,10 @@ export class Terminal {
   }
   destroy(): void {
     if (this.closed) return;
+    this.predicted?.destroy();
+    this.predicted = null;
+    this.projected = null;
+    this.received = null;
     this.closed = true;
     this.native?.destroy();
     this.native = null;
@@ -248,19 +267,26 @@ export class Terminal {
     return true;
   }
   send(bytes: string | Uint8Array | number[]): void {
+    if (this.conn.inputReady?.(this.id) === false) return;
     const data = typeof bytes === "string" ? Buffer.from(bytes) : bytes;
     if (this.pending.length + data.length > 1024 * 1024) throw Error("InputBackpressure");
     for (const byte of data) this.pending.push(byte);
+    this.prediction.input(bytes);
   }
   async flush(): Promise<void> {
     if (this.pending.length === 0) return;
     const data = Buffer.from(this.pending).toString();
+    const through = this.prediction.sequence;
+    // Over a link the input lands once, even across a reconnect; without one
+    // its delivery is uncertain after a disconnect, so it's never sent again.
+    this.pending = [];
     try {
-      await call(this.conn, "session.command", { command: { "pane.input": { target: this.id, data } } });
+      const reply = await call(this.conn, "session.command", { command: { "pane.input": { target: this.id, data } } });
+      if (reply.result.input_receipt)
+        this.prediction.delivered(through, surface.inputReceipt(reply.result.input_receipt));
     } catch (error) {
       if (!errors.is(error, "NoPane")) throw error;
     }
-    this.pending = [];
   }
   receive(value: protocol.Reply<"viewer.sync">["surfaces"][number]): void {
     if (this.closed) throw Error("TerminalClosed");
@@ -270,6 +296,8 @@ export class Terminal {
     const view = surface.view(value);
     const frame = view.surface;
     if (!frame || frame.cols === 0 || frame.rows === 0) return;
+    this.received = view;
+    this.prediction.receive(view);
     const previous = this.installed;
     let changed: Uint16Array | undefined;
     if (
@@ -327,18 +355,43 @@ export class Terminal {
   }
   /** The render state's cursor in the viewport, when visible. */
   cursor(): { x: number; y: number } | null {
-    return viewerNative.cursor(this.handle, true);
+    return viewerNative.cursor(this.displayHandle(), true);
   }
   /** The render state's cursor in the viewport, shown or not. */
   caret(): { x: number; y: number } | null {
     return viewerNative.cursor(this.handle, false);
   }
   rows(pane: number, x: number, y: number, w: number, h: number, dimmed: boolean, hovered: bigint | null): string {
+    if (this.predicting()) return viewerNative.rows(this.displayHandle(), pane, x, y, w, h, dimmed, hovered);
     this.updateRender();
     const key = `${pane}:${x}:${y}:${w}:${h}:${dimmed}:${hovered}`;
     if (this.rendered?.key !== key)
       this.rendered = { key, rows: viewerNative.rows(this.handle, pane, x, y, w, h, dimmed, hovered) };
     return this.rendered.rows;
+  }
+  predicting(): boolean {
+    return !!this.prediction.surface() && !this.holding_selection && !this.selection && this.atBottom();
+  }
+  instant(provider: PredictionTarget | null, context = "", dim = false): void {
+    this.prediction.configure(
+      this.conn.remote && this.atBottom() && !this.selection && !this.holding_selection ? provider : null,
+      context,
+      dim,
+    );
+  }
+  resetPrediction(): void {
+    this.prediction.reset();
+  }
+  private displayHandle() {
+    const frame = this.prediction.surface();
+    if (!frame || !this.received || this.holding_selection || this.selection || !this.atBottom()) return this.handle;
+    if (frame !== this.projected) {
+      this.predicted ??= NativeTerminal.create(frame.cols, frame.rows);
+      viewerNative.receiveFrame(this.predicted.handle, { ...this.received, surface: frame });
+      viewerNative.updateRender(this.predicted.handle);
+      this.projected = frame;
+    }
+    return this.predicted!.handle;
   }
 }
 
@@ -581,6 +634,8 @@ function headless(value: any): Headless {
   };
 }
 export class Workspaces {
+  /** A daemon snapshot has confirmed this catalog, including removals. */
+  loaded = false;
   items: Workspace[] = [];
   /** What stands for the current workspace once every one is closed: no
    * tabs, and no folder for anything to start in. */
@@ -598,6 +653,7 @@ export class Runtime {
   startup_waits: startup.Wait[] = [];
   snapshot: any = null;
   snapshot_hash: bigint | null = null;
+  snapshot_epoch = 0;
   workspaces = new Workspaces();
   panes: Pane[] = [];
   /** Headless agents, besides the Corgi prompt's. */
@@ -641,6 +697,7 @@ export class Runtime {
     this.resources = resources.fromJSON(value);
   }
   receive(conn: Transport, value: any): void {
+    this.snapshot_epoch++;
     // Own the decoded snapshot. Metadata is used directly; only terminal
     // surfaces and interaction state survive independently between snapshots.
     const snapshot = value;
@@ -685,6 +742,7 @@ export class Runtime {
     this.snapshot_hash = null;
     this.panes = panes;
     this.workspaces.items = parsed;
+    this.workspaces.loaded = true;
     const sessions: Headless[] = (snapshot.headless_sessions ?? [])
       .filter((s: any) => Provider.parse(s?.provider))
       .map(headless);

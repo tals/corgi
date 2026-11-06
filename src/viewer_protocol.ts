@@ -115,88 +115,136 @@ function viewport(value: bigint | null): number | null {
 export async function sync(s: Server, cl: Client, q: Sync, reply = new Reply(cl)) {
   const telemetry_started = telemetry.begin();
   try {
-    if (!cl.viewer) throw new Error("NotAttached");
-    const interests: Interest[] = q.interests.map(i => ({
-      ...i,
-      offset: viewport(i.offset),
-      known: i.known ? { ...i.known, offset: viewport(i.known.offset) } : null,
-    }));
-    validateInterests(interests);
-    if (q.ack >= cl.next_control || q.ack < cl.last_control) throw new Error("InvalidAcknowledgement");
-    cl.controls = cl.controls.filter(c => c.seq > q.ack);
-    cl.last_control = q.ack;
-    cl.interests = interests.filter(i => s.runtime.pane(i.pane) !== null);
-    const before = cl.view_focus;
-    cl.view_focus = cl.interests.some(i => i.pane === q.focus) ? q.focus : null;
-    cl.watched = q.watched;
-    cl.resources = q.resources;
-    cl.resource_detail =
-      q.resource_detail !== null && s.runtime.workspaces.get(q.resource_detail) ? q.resource_detail : null;
-    cl.worktree_detail =
-      q.worktree_detail !== null && s.runtime.workspaces.get(q.worktree_detail) ? q.worktree_detail : null;
-    if (q.active) {
-      cl.active_seq = ++s.next_active;
-      cl.input_at = Date.now();
-    }
-    if (s.runtime.workspaces.index(q.workspace) !== null) cl.view_workspace = q.workspace;
-    if (cl.watched) {
-      s.visitWorkspace(cl.view_workspace);
-      if (s.preferred_workspace !== cl.view_workspace) {
-        s.preferred_workspace = cl.view_workspace;
-        await s.saveWorkspaces();
-      }
-      // Only a move counts, so two watched viewers don't trade it every sync.
-      const ws = s.runtime.workspaces.get(cl.view_workspace);
-      if (
-        ws &&
-        cl.view_focus !== null &&
-        cl.view_focus !== before &&
-        ws.focus !== cl.view_focus &&
-        ws.model.tabForPane(cl.view_focus) !== null
-      ) {
-        ws.focus = cl.view_focus;
-        s.runtime.wrote();
-      }
-    }
-    await resize(s);
-    const bucket = Math.floor(microTimestamp() / 5e6),
-      rebuild =
-        cl.session_shown !== s.runtime.shown || cl.session_bucket !== bucket || q.session_hash !== cl.session_hash;
-    let snapshot: View["session"] = null;
-    if (rebuild) {
-      snapshot = session.viewerSnapshot(s.runtime);
-      cl.session_hash = hash(stringify(snapshot));
-      cl.session_shown = s.runtime.shown;
-      cl.session_bucket = bucket;
-    }
-    const { readings, hash: resourcesHash } = resourceView(s.runtime.resources.current, cl.resource_detail);
-    const view: View = {
-      type: "view",
-      viewer_protocol: version,
-      session: q.session_hash === cl.session_hash ? null : (snapshot ?? session.viewerSnapshot(s.runtime)),
-      session_hash: cl.session_hash,
-      resources: q.resources_hash === resourcesHash ? null : readings,
-      resources_hash: resourcesHash,
-      surfaces: q.surfaces ? frames(s, cl) : [],
-      bell_seq: s.bell_seq,
-      bell_kind: s.last_bell_kind,
-      controls: cl.controls,
-      viewer: cl.viewer_id,
-      detach: false,
-    };
-    reply.send(view);
+    reply.send(await synchronize(s, cl, q));
   } finally {
     telemetry.end("daemon.viewer_sync", telemetry_started);
   }
 }
+export async function synchronize(s: Server, cl: Client, q: Sync) {
+  if (!cl.viewer) throw new Error("NotAttached");
+  const interests: Interest[] = q.interests.map(i => ({
+    ...i,
+    offset: viewport(i.offset),
+    known: i.known ? { ...i.known, offset: viewport(i.known.offset) } : null,
+  }));
+  validateInterests(interests);
+  if (q.ack >= cl.next_control || q.ack < cl.last_control) throw new Error("InvalidAcknowledgement");
+  cl.controls = cl.controls.filter(c => c.seq > q.ack);
+  cl.last_control = q.ack;
+  cl.interests = interests.filter(i => s.runtime.pane(i.pane) !== null);
+  const before = cl.view_focus;
+  cl.view_focus = cl.interests.some(i => i.pane === q.focus) ? q.focus : null;
+  cl.watched = q.watched;
+  cl.resources = q.resources;
+  cl.resource_detail =
+    q.resource_detail !== null && s.runtime.workspaces.get(q.resource_detail) ? q.resource_detail : null;
+  cl.worktree_detail =
+    q.worktree_detail !== null && s.runtime.workspaces.get(q.worktree_detail) ? q.worktree_detail : null;
+  if (q.active) {
+    cl.active_seq = ++s.next_active;
+    cl.input_at = Date.now();
+  }
+  if (s.runtime.workspaces.index(q.workspace) !== null) cl.view_workspace = q.workspace;
+  if (cl.watched) {
+    s.visitWorkspace(cl.view_workspace);
+    if (s.preferred_workspace !== cl.view_workspace) {
+      s.preferred_workspace = cl.view_workspace;
+      await s.saveWorkspaces();
+    }
+    // Only a move counts, so two watched viewers don't trade it every sync.
+    const ws = s.runtime.workspaces.get(cl.view_workspace);
+    if (
+      ws &&
+      cl.view_focus !== null &&
+      cl.view_focus !== before &&
+      ws.focus !== cl.view_focus &&
+      ws.model.tabForPane(cl.view_focus) !== null
+    ) {
+      ws.focus = cl.view_focus;
+      s.runtime.wrote();
+    }
+  }
+  await resize(s);
+  return capture(s, cl, q.session_hash, q.resources_hash, q.surfaces);
+}
+function capture(
+  s: Server,
+  cl: Client,
+  session_hash: bigint | null,
+  resources_hash: bigint | null,
+  surfaces = true,
+): View {
+  const bucket = Math.floor(microTimestamp() / 5e6),
+    rebuild = cl.session_shown !== s.runtime.shown || cl.session_bucket !== bucket || session_hash !== cl.session_hash;
+  let snapshot: View["session"] = null;
+  if (rebuild) {
+    snapshot = session.viewerSnapshot(s.runtime);
+    cl.session_hash = hash(stringify(snapshot));
+    cl.session_shown = s.runtime.shown;
+    cl.session_bucket = bucket;
+  }
+  const { readings, hash: resourcesHash } = resourceView(s.runtime.resources.current, cl.resource_detail);
+  const view: View = {
+    type: "view",
+    viewer_protocol: version,
+    session: session_hash === cl.session_hash ? null : (snapshot ?? session.viewerSnapshot(s.runtime)),
+    session_hash: cl.session_hash,
+    resources: resources_hash === resourcesHash ? null : readings,
+    resources_hash: resourcesHash,
+    surfaces: surfaces ? frames(s, cl) : [],
+    bell_seq: s.bell_seq,
+    bell_kind: s.last_bell_kind,
+    controls: cl.controls,
+    viewer: cl.viewer_id,
+    detach: false,
+  };
+  return view;
+}
+/** Stream messages have their own envelope; they never consume an RPC reply. */
+export function publish(s: Server, cl: Client, wake: bigint, now = Date.now()): void {
+  const stream = cl.stream;
+  if (!stream || cl.dead || !cl.viewer) return;
+  if (stream.wake === wake && now - stream.sent < 250) return;
+  if (cl.output.length || now - stream.sent < 16) {
+    cl.deferFrame(stream.sent + 16, () => {
+      if (cl.stream === stream) publish(s, cl, wake);
+    });
+    return;
+  }
+  const view = capture(s, cl, stream.session_hash, stream.resources_hash);
+  remember(cl, view, wake, now);
+  cl.queue({ type: "viewer.frame", sequence: stream.sequence, view });
+}
+export function remember(cl: Client, view: View, wake: bigint, now = Date.now()): void {
+  cl.cancelFrame();
+  if (!cl.stream) return;
+  cl.stream.sent = now;
+  cl.stream.wake = wake;
+  cl.stream.session_hash = view.session_hash;
+  cl.stream.resources_hash = view.resources_hash;
+  for (const frame of view.surfaces) {
+    const interest = cl.interests.find(i => i.pane === frame.surface.pane);
+    if (interest) interest.known = frame.stamp;
+  }
+}
+const input_acks = new WeakMap<Client, Map<number, surface.InputReceipt>>();
 function frames(s: Server, cl: Client): surface.View[] {
   const frames: surface.View[] = [];
+  let sent = input_acks.get(cl);
+  if (!sent) input_acks.set(cl, (sent = new Map()));
+  for (const id of sent.keys()) if (!cl.interests.some(i => i.pane === id)) sent.delete(id);
   for (const interest of cl.interests) {
     const pane = s.runtime.pane(interest.pane);
     if (!pane) continue;
     const shown = pane.displayed();
-    if (interest.known && equal(interest.known, surface.stamp(shown, interest.offset ?? null))) continue;
+    const ack = pane.terminal.input_ack.ack;
+    const previous = sent.get(interest.pane);
+    const acknowledged = previous?.epoch !== ack.epoch || previous?.sequence !== ack.sequence;
+    if (!acknowledged && interest.known && equal(interest.known, surface.stamp(shown, interest.offset ?? null)))
+      continue;
     const view = surface.captureView(interest.pane, shown, interest.offset ?? null);
+    if (shown === pane.terminal && view.stamp.offset === null) view.input_ack = ack;
+    sent.set(interest.pane, ack);
     if (shown !== pane.terminal) view.modes = surface.modes(pane.terminal);
     frames.push(view);
   }

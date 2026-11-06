@@ -91,6 +91,8 @@ test("preferences round trip and fall back to defaults", async () => {
     const p = new Preferences();
     p.agents = "all";
     p.language = "ja";
+    p.instant_typing = "off";
+    p.dim_predictions = false;
     await write(file, p);
     expect(await read(file)).toEqual(p);
     p.agents = "workspace";
@@ -98,6 +100,7 @@ test("preferences round trip and fall back to defaults", async () => {
     p.sidebar_split = 9;
     p.review_tree_rows = 14;
     p.agent_scroll = { workspace: 2, offset: 7 };
+    p.workspace_order = [JSON.stringify(["work", 2]), JSON.stringify(["local", 1])];
     await write(file, p);
     await updateFile(file, { agents: "all" });
     expect(await read(file)).toMatchObject({
@@ -106,9 +109,13 @@ test("preferences round trip and fall back to defaults", async () => {
       sidebar_split: 9,
       review_tree_rows: 14,
       agent_scroll: { workspace: 2, offset: 7 },
+      workspace_order: p.workspace_order,
+      instant_typing: "off",
     });
     await writeFile(file, '{"resources":{"enabled":false,"io":false,"alerts":true}}');
     expect((await read(file)).resources).toEqual({ enabled: false });
+    expect(read(file).instant_typing).toBe("auto");
+    expect(read(file).dim_predictions).toBe(true);
     await writeFile(file, '{"preset":"cmux","onboarding_complete":true}');
     expect((await read(file)).preset).toBe(process.platform === "darwin" ? "cmux" : "corgi");
     await writeFile(file, '{"theme":"animal_style","sleeping_corgis":false}');

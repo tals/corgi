@@ -1,5 +1,6 @@
 import { expect, spyOn, test } from "bun:test";
 import { Frame, cursorBytes, same, type Cursor } from "./composition";
+import { State as PasteProgress } from "./paste_progress";
 import { Differ } from "./frame_diff";
 import { Model, Rect, Selection, View } from "./layout";
 import * as mirror from "./mirror";
@@ -533,6 +534,24 @@ test("a rejected retained batch retries with fresh chrome", () => {
     }
     f.update(0, "AFTER FALLBACK");
     f.present(f.compose());
+  } finally {
+    f.close();
+  }
+});
+
+test("image upload progress stays above panes with retained rendering enabled", () => {
+  const f = fixture(false);
+  try {
+    f.update(0, "Ready");
+    f.present(f.compose());
+    const progress = new PasteProgress(f.panes[0].id);
+    progress.update(50, 100);
+    const drawn = f.compose({ paste_progress: progress });
+    expect(drawn.frame.panes).toHaveLength(0);
+    f.present(drawn);
+    expect(f.result.text()).toContain("50%");
+    f.present(f.compose());
+    expect(f.result.text()).not.toContain("50%");
   } finally {
     f.close();
   }

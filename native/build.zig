@@ -65,6 +65,10 @@ pub fn build(b: *std.Build) void {
     const pty_exec = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
     pty_exec.addCSourceFile(.{ .file = b.path("pty-exec.c"), .flags = &.{ "-O2", "-Wall", "-Wextra" } });
     install(b, sysroot, b.addExecutable(.{ .name = "pty-exec", .root_module = pty_exec }));
+
+    const remote_bridge = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    remote_bridge.addCSourceFile(.{ .file = b.path("remote-bridge.c"), .flags = &.{ "-O2", "-Wall", "-Wextra" } });
+    install(b, sysroot, b.addExecutable(.{ .name = "corgi-remote-bridge", .root_module = remote_bridge }));
 }
 
 fn install(b: *std.Build, sysroot: ?[]const u8, artifact: *std.Build.Step.Compile) void {

@@ -14,6 +14,8 @@ import {
   copy,
   action,
   viewers,
+  publish,
+  remember,
   open,
   sync,
   surfaces,
@@ -24,6 +26,7 @@ import { Terminal } from "./pane/terminal";
 import { Snapshot, Work, Process } from "./trackers/resources";
 import { Workspace } from "./workspace";
 import { version, compatible, require as requireVersion } from "./viewer_version";
+import { pair, n } from "./native_ffi";
 const servers: Server[] = [];
 afterEach(() => {
   for (const server of servers) {
@@ -37,8 +40,8 @@ function fixture() {
   servers.push(server);
   return server;
 }
-function peer(server: Server, id = 1) {
-  const client = server.addClient(-1, false);
+function peer(server: Server, id = 1, fd = -1) {
+  const client = server.addClient(fd, fd !== -1);
   client.viewer = true;
   client.viewer_id = id;
   client.view_workspace = 1;
@@ -47,6 +50,110 @@ function peer(server: Server, id = 1) {
   client.interests = [{ pane: 1, cols: 80, rows: 24 }];
   return client;
 }
+
+function scheduledViewer() {
+  const server = fixture(),
+    [fd, remote] = pair(),
+    client = peer(server, 1, fd);
+  let now = 100,
+    next = 0;
+  const timers = new Map<number, { at: number; run: () => void }>();
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const timer = spyOn(globalThis, "setTimeout").mockImplementation(((run: () => void, ms: number) => {
+    const id = ++next;
+    timers.set(id, { at: now + ms, run });
+    return id;
+  }) as typeof setTimeout);
+  const cancel = spyOn(globalThis, "clearTimeout").mockImplementation(id => {
+    timers.delete(Number(id));
+  });
+  const output: any[] = [];
+  const queue = spyOn(client, "queue").mockImplementation(value => {
+    output.push(value);
+  });
+  client.stream = { sequence: 1, sent: now, wake: 0n, session_hash: null, resources_hash: null };
+  return {
+    server,
+    client,
+    timers,
+    output,
+    advance(to: number) {
+      now = to;
+      for (const [id, task] of timers)
+        if (task.at <= now) {
+          timers.delete(id);
+          task.run();
+        }
+    },
+    close() {
+      client.close();
+      n.probe_close(remote);
+      queue.mockRestore();
+      timer.mockRestore();
+      cancel.mockRestore();
+      clock.mockRestore();
+    },
+  };
+}
+
+test("a throttled stream sends its latest frame at the deadline without a maintenance tick", () => {
+  const f = scheduledViewer();
+  try {
+    f.advance(110);
+    publish(f.server, f.client, 1n);
+    f.advance(115);
+    publish(f.server, f.client, 2n);
+    expect(f.timers.size).toBe(1);
+    expect([...f.timers.values()][0].at).toBe(116);
+    expect(f.output).toHaveLength(0);
+    f.advance(116);
+    expect(f.output).toHaveLength(1);
+    expect(f.client.stream?.wake).toBe(2n);
+    expect(f.timers.size).toBe(0);
+    publish(f.server, f.client, 2n);
+    expect(f.timers.size).toBe(0);
+  } finally {
+    f.close();
+  }
+});
+
+test("a blocked stream retains one latest frame and resumes when output drains", () => {
+  const f = scheduledViewer();
+  try {
+    f.client.output = Buffer.from("pending reply");
+    publish(f.server, f.client, 1n);
+    f.advance(150);
+    publish(f.server, f.client, 2n);
+    expect(f.timers.size).toBe(0);
+    expect(f.output).toHaveLength(0);
+    f.client.sent = f.client.output.length;
+    f.client.flush();
+    expect(f.timers.size).toBe(1);
+    f.advance(150);
+    expect(f.output).toHaveLength(1);
+    expect(f.client.stream?.wake).toBe(2n);
+  } finally {
+    f.close();
+  }
+});
+
+test("stream reconfiguration and client pause cancel deferred frames", () => {
+  const f = scheduledViewer();
+  try {
+    publish(f.server, f.client, 1n);
+    expect(f.timers.size).toBe(1);
+    remember(f.client, { session_hash: 0n, resources_hash: 0n, surfaces: [] } as any, 1n);
+    expect(f.timers.size).toBe(0);
+    publish(f.server, f.client, 2n);
+    expect(f.timers.size).toBe(1);
+    f.client.pause();
+    f.advance(200);
+    expect(f.output).toHaveLength(0);
+    expect(f.timers.size).toBe(0);
+  } finally {
+    f.close();
+  }
+});
 test("a viewer reads the view the daemon writes", () => {
   const written: WireView<{ revision: number }> = {
     type: "view",
@@ -286,6 +393,15 @@ test("the data connection reads its viewer's surfaces and receipts without becom
   control.interests[0].known = reply.surfaces[0].stamp;
   surfaces(s, data);
   expect(content.mock.calls[1][0]).toEqual({ ok: true, surfaces: [] });
+  const receipt = pane.terminal.input_ack.sent(0);
+  pane.terminal.input_ack.advance(50);
+  surfaces(s, data);
+  const acknowledged = (content.mock.calls[2][0] as protocol.ReplyPayloads["viewer.surfaces"]).surfaces[0];
+  expect(acknowledged.input_ack).toEqual(receipt);
+  expect(acknowledged.stamp).toEqual(reply.surfaces[0].stamp);
+  expect(acknowledged.surface.lines).toEqual(reply.surfaces[0].surface.lines);
+  surfaces(s, data);
+  expect(content.mock.calls[3][0]).toEqual({ ok: true, surfaces: [] });
   expect(() => image(s, data, { pane: 2, image: "1", offset: 0 })).toThrow("NoPane");
   control.dead = true;
   expect(() => surfaces(s, data)).toThrow("NoViewer");

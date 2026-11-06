@@ -4,14 +4,17 @@
 import { parse, stringify } from "./json";
 import * as viewer from "./viewer";
 import { Controller } from "./controller";
+import { attach } from "./host";
+import * as preferences from "./preferences";
 import { parse as parseAction } from "./action";
 import { advance } from "./clock";
 import type { Transport } from "./mirror";
 
 export async function runTest(connection: Transport, cwd = process.cwd()): Promise<void> {
-  const view = new Controller(connection);
+  const view = new Controller(connection, attach(preferences.load(), null));
   const lines = new Lines();
   try {
+    view.loadPreferences();
     const bell = { seq: await viewer.open(view, cwd, {}) };
     for (let line = await lines.next(); line !== null; line = await lines.next()) {
       const value = parse(line);
@@ -32,14 +35,14 @@ export async function runTest(connection: Transport, cwd = process.cwd()): Promi
       if (op === "workspace") view.switchWorkspace(typedId(value, "workspace"));
       // The stdio driver has no host terminal to negotiate image support.
       if (op === "badge") {
-        view.corgi_badge = !value.visible
+        view.host.corgi_badge = !value.visible
           ? "none"
           : value.emoji !== undefined
             ? value.emoji
               ? "emoji"
               : "image"
             : "image";
-        view.supports_kitty_graphics = view.corgi_badge === "image";
+        view.host.supports_kitty_graphics = view.host.corgi_badge === "image";
       }
       if (op === "size") {
         view.width = Number(value.cols);
@@ -48,8 +51,12 @@ export async function runTest(connection: Transport, cwd = process.cwd()): Promi
         view.input_state.active = true;
       }
       await view.expireInput();
+      // Each reply shows what the request led to, daemon work included.
+      await view.settle();
       const previous_bell = bell.seq;
       let active = await viewer.sync(view, bell, false);
+      // Controls the sync delivered may have started daemon work too.
+      await view.settle();
       // A layout change from another viewer can change the visible set. A
       // second exchange captures the newly reconciled selection immediately.
       if (active) active = await viewer.sync(view, bell, false);

@@ -16,6 +16,7 @@ import * as build_id from "../build_id";
 import * as setup from "../inference/setup";
 import * as breadcrumbs from "../breadcrumbs";
 import * as observers from "../observer_service";
+import { Link } from "../link";
 
 export const terminal_abi = 0xa826bd22ebcdbe60n;
 export const update_abi = `1-${terminal_abi.toString(16)}`;
@@ -50,14 +51,16 @@ function captureClient(client: Client) {
     fd: client.fd,
     input: client.savedInput().toString("base64"),
     output: client.output.subarray(client.sent).toString("base64"),
+    link: client.link?.id ?? null,
     ...Object.fromEntries(savedFields.map(key => [key, client[key]])),
   };
 }
 export function restoreClient(server: Server, value: unknown): Client {
-  const { fd, input, output, ...fields } = json.object(value),
+  const { fd, input, output, link, ...fields } = json.object(value),
     client = server.addClient(fd, false);
   checkpoint.hydrate(client, fields);
   client.startup_wait = startup.decode([fields.startup_wait])[0] ?? null;
+  client.link = typeof link === "string" ? (server.links.get(link) ?? null) : null;
   if (client.snapshot_revision !== null) client.snapshot_revision = BigInt(client.snapshot_revision);
   for (const control of client.controls) control.seq = BigInt(control.seq);
   for (const interest of client.interests) {
@@ -87,6 +90,7 @@ export function captureManifest(server: Server, requester: Client, request_id: n
     usage: server.usage?.capture() ?? null,
     // A one-shot HTTP request is not handed over; its sender sees the close.
     clients: server.clients.filter(client => client.http === "no").map(captureClient),
+    links: [...server.links.values()].map(l => l.capture()),
     theme: server.theme,
     preferred_workspace: server.preferred_workspace,
     default_folder_pending: server.default_folder_pending,
@@ -109,6 +113,10 @@ export function restoreMetadata(server: Server, value: unknown): void {
   ] as const)
     if (saved[key] !== undefined) Object.assign(server, { [key]: saved[key] });
   if (saved.bell_seq !== undefined) server.bell_seq = BigInt(saved.bell_seq);
+  for (const l of saved.links ?? []) {
+    const restored = Link.restore(l);
+    server.links.set(restored.id, restored);
+  }
 }
 async function line(control: AsyncFD, limit = 1024): Promise<string> {
   const bytes = Buffer.alloc(limit);

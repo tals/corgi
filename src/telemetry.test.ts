@@ -27,3 +27,11 @@ test("aggregate-only telemetry stores no timeline", () => {
   expect(recorder.snapshot().traceEvents).toEqual([]);
   expect(recorder.snapshot().metrics.find(m => m.name === "viewer.compose")?.wall_ms).toBe(2);
 });
+
+test("prediction trace metadata is bounded and cannot leak into later events", () => {
+  const recorder = new Recorder(2);
+  recorder.record("prediction.hidden", 10, 10, 0, { pane: 7, pending: 3, height: 2 });
+  recorder.record("prediction.predicting", 20, 20, 0, { pane: 7, pending: 1, height: 3 });
+  recorder.record("viewer.compose", 30, 32);
+  expect(recorder.snapshot().traceEvents.map(e => e.args)).toEqual([{ pane: 7, pending: 1, height: 3 }, undefined]);
+});

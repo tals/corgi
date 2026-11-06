@@ -5,14 +5,17 @@ import * as json from "./json";
 import type { Control } from "./protocol";
 import type { Interest } from "./viewer_protocol";
 import type { Subscription } from "./launch_service";
+import type { Link } from "./link";
 /** A request owns its response even when it completes after another request. */
 export class Reply {
   constructor(
     private client: Client,
     readonly id: number | null = null,
+    private readonly sent?: (value: object) => void,
   ) {}
   send(value: object): void {
-    this.client.queue(this.id === null ? value : { ...value, request_id: this.id });
+    if (this.sent) this.sent(value);
+    else this.client.queue(this.id === null ? value : { ...value, request_id: this.id });
   }
   ok(value: object = {}): void {
     this.send({ ok: true, ...value });
@@ -38,6 +41,13 @@ export class Client {
   subscribed = false;
   /** Whether terminal output alone pushes this subscriber a snapshot. */
   subscribed_output = true;
+  stream: {
+    sequence: number;
+    session_hash: bigint | null;
+    resources_hash: bigint | null;
+    sent: number;
+    wake: bigint;
+  } | null = null;
   watching = false;
   watch_viewer = 0;
   woken = 0n;
@@ -53,7 +63,10 @@ export class Client {
   resource_detail: number | null = null;
   worktree_detail: number | null = null;
   resources = true;
+  resource_observer = false;
   dead = false;
+  /** The link this connection carries, once the client opened or resumed one. */
+  link: Link | null = null;
   touched = Date.now();
   input: Buffer = Buffer.alloc(0);
   output: Buffer = Buffer.alloc(0);
@@ -66,6 +79,9 @@ export class Client {
   pending: any[] = [];
   private busy = false;
   private paused = false;
+  private frame_timer: ReturnType<typeof setTimeout> | null = null;
+  private frame_pending: (() => void) | null = null;
+  private frame_deadline = 0;
   private registration: ReturnType<ReadyLoop["watch"]> | null = null;
   private scratch = Buffer.alloc(65536);
   constructor(
@@ -106,6 +122,29 @@ export class Client {
     this.flush();
     this.arm();
   }
+  reply(_op: string, value: object): void {
+    this.queue({ ok: true, ...value });
+  }
+  deferFrame(deadline: number, send: () => void): void {
+    this.frame_pending = send;
+    this.frame_deadline = deadline;
+    this.armFrame();
+  }
+  cancelFrame(): void {
+    if (this.frame_timer !== null) clearTimeout(this.frame_timer);
+    this.frame_timer = this.frame_pending = null;
+  }
+  private armFrame(): void {
+    if (this.paused || this.dead || this.output.length || this.frame_timer !== null || !this.frame_pending) return;
+    this.frame_timer = setTimeout(
+      () => {
+        const send = this.frame_pending;
+        this.frame_timer = this.frame_pending = null;
+        send?.();
+      },
+      Math.max(0, this.frame_deadline - Date.now()),
+    );
+  }
   flush(): void {
     if (this.paused) return;
     while (this.sent < this.output.length && !this.dead) {
@@ -124,6 +163,7 @@ export class Client {
       this.sent = 0;
       if (this.http === "replied") this.close();
       else this.drained(this);
+      this.armFrame();
     }
   }
   private read(): void {
@@ -219,6 +259,7 @@ export class Client {
   }
   pause(): void {
     this.paused = true;
+    this.cancelFrame();
     this.registration?.close();
     this.registration = null;
   }

@@ -282,8 +282,8 @@ test("setup aims only at the options a click acts on", () => {
   }
   // Terminal capabilities has nothing to click, so nothing guards it.
   const menu = Menu.open();
-  menu.hover(100, 30, 15, 15, s, prefs, 0);
-  menu.hover(100, 30, 22, 11, s, prefs, 100);
+  menu.hover(100, 30, 15, 16, s, prefs, 0);
+  menu.hover(100, 30, 22, 12, s, prefs, 100);
   expect(menu.item).toBe("source_control");
 });
 
@@ -1796,4 +1796,51 @@ test("a setup choice or provider the viewer doesn't know reads as auto and none"
     "off",
     "codex",
   ]);
+});
+
+test("predictive rendering dropdown selects all three modes and cancels without applying", () => {
+  const s = status(),
+    prefs = new Preferences(),
+    menu = Menu.open();
+  menu.item = "remote";
+  menu.openOptions(s, prefs);
+  expect(menu.enter(s, prefs)).toBeNull();
+  const rows = draw(menu, 100, 30, 0, s, prefs);
+  expect(rows.join("\n")).toContain("On (dim unacknowledged typing)");
+  expect(rows.join("\n")).not.toContain("Dim unconfirmed typing");
+  expect(hits(menu, 100, 30, s, prefs).filter(hit => "prediction" in hit)).toEqual([
+    { prediction: 0 },
+    { prediction: 1 },
+    { prediction: 2 },
+  ]);
+  menu.move(true, s, prefs);
+  expect(menu.enter(s, prefs)).toEqual({ kind: "instant_typing", mode: "off", dim: false });
+  prefs.instant_typing = "off";
+  menu.enter(s, prefs);
+  menu.move(true, s, prefs);
+  expect(menu.enter(s, prefs)).toEqual({ kind: "instant_typing", mode: "auto", dim: false });
+  prefs.instant_typing = "auto";
+  prefs.dim_predictions = false;
+  menu.click({ option: 0 }, s, prefs);
+  expect(menu.click({ prediction: 2 }, s, prefs)).toEqual({ kind: "instant_typing", mode: "auto", dim: true });
+  menu.enter(s, prefs);
+  menu.move(true, s, prefs);
+  expect(menu.escape()).toBe(true);
+  expect(hits(menu, 100, 30, s, prefs).some(hit => "prediction" in hit)).toBe(false);
+  expect(prefs.dim_predictions).toBe(false);
+  menu.enter(s, prefs);
+  expect(menu.click({ item: "theme" }, s, prefs)).toBeNull();
+  expect(menu.item).toBe("remote");
+  expect(menu.focus).toBe("options");
+  for (const [cols, height] of [
+    [44, 12],
+    [70, 24],
+    [100, 30],
+  ]) {
+    menu.enter(s, prefs);
+    const screen = draw(menu, cols, height, 0, s, prefs);
+    expect(screen.join("\n")).toContain("On (dim unacknowledged typing)");
+    expect(hits(menu, cols, height, s, prefs).filter(hit => "prediction" in hit)).toHaveLength(3);
+    menu.back();
+  }
 });

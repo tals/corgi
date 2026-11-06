@@ -1,5 +1,6 @@
 //! The sidebar: workspaces above, agents below. Mirrors sidebar.zig.
 import * as i18n from "./i18n";
+import type { Quality } from "./connection_stats";
 import * as palette from "./palette";
 import { Provider, adapter } from "./providers";
 import { Style, colors, fg, bg, fgRgb, bgRgb, mix, underline } from "./palette";
@@ -23,6 +24,7 @@ import { Rect } from "./layout";
 import {
   Writer,
   displayWidth,
+  clipped,
   writeClipped,
   writeEllipsis,
   ellipsis,
@@ -90,9 +92,13 @@ let selected_bg: string,
   button_glyph: string,
   button_warm: string,
   ghost_underline: string,
+  machine_header: string,
+  machine_header_hover: string,
   outline: string;
 palette.derived(() => {
   selected_bg = bg("selected");
+  machine_header = new Style({ fg: "text", bg: "surface", bold: true }).sgr();
+  machine_header_hover = new Style({ fg: "strong", bg: "selected", bold: true }).sgr();
   panel = new Style({ fg: "muted", bg: "bg" }).sgr();
   outline = new Style({ bg: "bg" }).sgr() + fgRgb(palette.outline);
   button = new Style({ fg: "strong", bg: "surface", bold: true }).sgr();
@@ -188,6 +194,8 @@ export interface Group {
   gap?: boolean;
   /** A subhead names a branch, under ⌥, rather than a workspace. */
   branch?: boolean;
+  /** The machine it's on, while rows name their machines. */
+  machine?: string;
 }
 export interface Subagents {
   running: number;
@@ -506,8 +514,21 @@ export interface PortsSnapshot {
 function portEndpoints(ports: PortsSnapshot, id: number): Endpoint[] {
   return (ports?.workspaces ?? []).find(w => w.id === id)?.endpoints ?? [];
 }
+export interface ConnectionStatus {
+  diagnostic?: boolean;
+  label: string;
+  seconds: number | null;
+  color: palette.Token;
+}
 export interface WorkspaceEntry {
   archived: boolean;
+  collapsed: boolean;
+  machine: string;
+  link_quality: Quality | null;
+  unavailable: string;
+  connecting: boolean;
+  connection_status: ConnectionStatus | null;
+  external: boolean;
   resources: Work;
   ports: PortsSnapshot;
   remote_links: boolean;
@@ -532,6 +553,13 @@ export function workspaceEntry(
 ): WorkspaceEntry {
   return {
     archived: false,
+    collapsed: false,
+    machine: "",
+    link_quality: null,
+    unavailable: "",
+    connecting: false,
+    connection_status: null,
+    external: false,
     resources: work({ id: 0 }),
     ports: { workspaces: [] },
     remote_links: false,
@@ -589,6 +617,7 @@ export type Hit =
   | { tag: "workspace_new" }
   | { tag: "archives" }
   | { tag: "archived_workspace"; workspace: number }
+  | { tag: "workspace_scope" }
   | { tag: "workspace"; workspace: number };
 const hit = <T extends Hit["tag"]>(tag: T): Hit => ({ tag }) as Hit;
 
@@ -616,11 +645,13 @@ export class View {
   scope_label = "";
   /** The current shortcut for the New agent picker, including its prefix. */
   new_shortcut: string | null = null;
+  workspace_scope = "";
   corgi_badge: corgiBadge.Mode = "none";
   supports_kitty_graphics = false;
   /** The host's cell in pixels, for images placed by the pixel. */
   cell: Cell | null = null;
   archive_marks: ((brand: Brand, col: number, row: number) => void) | null = null;
+  signal_marks: ((quality: Quality, col: number, row: number) => boolean) | null = null;
   cols = 0;
   rows = 0;
   width = 0;
@@ -636,6 +667,9 @@ export class View {
   hovered: number | null = null;
   dragged_workspace: number | null = null;
   workspace_count = 0;
+  workspace_machines: string[] = [];
+  workspace_collapsed: boolean[] = [];
+  machine_hover: number | null = null;
   workspace_offset = 0;
   archived_count = 0;
   archived_expanded = false;
@@ -696,6 +730,32 @@ export class View {
     if (this.framed()) return this.lists().splitHandle(x - lists_x, y);
     return this.width > 0 && x < this.width - 1 && y === this.middle() - 1;
   }
+  workspaceHeader(index: number, offset = this.workspace_offset): boolean {
+    return (
+      !!this.workspace_machines[index] &&
+      (index === offset || this.workspace_machines[index] !== this.workspace_machines[index - 1])
+    );
+  }
+  /** Name row, after any machine header; all workspace hit regions share this geometry. */
+  workspaceY(index: number): number {
+    let y = 2;
+    for (let i = this.workspace_offset; i <= index; i++) {
+      if (this.workspaceHeader(i)) y++;
+      if (i === index) return y;
+      y += this.workspace_collapsed[i] ? 0 : this.workspaceRows();
+    }
+    return y;
+  }
+  workspaceAt(y: number, row: number): number | null {
+    if (y >= this.workspaceEnd()) return null;
+    for (
+      let i = this.workspace_offset;
+      i < Math.min(this.workspace_count, this.workspace_offset + this.workspaceCapacity());
+      i++
+    )
+      if (!this.workspace_collapsed[i] && y === this.workspaceY(i) + row) return i;
+    return null;
+  }
   /** Name and status rows, plus the resource row unless readings are off. */
   workspaceRows(): number {
     return this.resources.enabled ? 3 : 2;
@@ -737,24 +797,48 @@ export class View {
   }
   /** Name and status rows end above the rule; only a trailing resource row
    * may give way to it. */
-  workspaceCapacity(): number {
+  workspaceCapacity(offset = this.workspace_offset): number {
+    if (this.workspace_machines.some(Boolean)) {
+      let n = 0,
+        y = 2;
+      for (let i = offset; i < this.workspace_count; i++) {
+        if (this.workspaceHeader(i, offset)) y++;
+        if (this.workspace_collapsed[i] ? y > this.workspaceEnd() : y + 1 >= this.workspaceEnd()) break;
+        n++;
+        y += this.workspace_collapsed[i] ? 0 : this.workspaceRows();
+      }
+      return n;
+    }
     return Math.max(
       this.archived_count ? 0 : 1,
       Math.floor((sat(this.workspaceEnd(), 2) + (this.workspaceRows() - 2)) / this.workspaceRows()),
     );
   }
+  workspaceMaxOffset(): number {
+    if (!this.workspace_machines.some(Boolean)) return sat(this.workspace_count, this.workspaceCapacity());
+    let offset = sat(this.workspace_count, 1);
+    while (offset > 0 && this.workspace_count - offset + 1 <= this.workspaceCapacity(offset - 1)) offset--;
+    return offset;
+  }
+  workspaceReveal(index: number): number {
+    let offset = Math.min(this.workspace_offset, index);
+    while (offset < index && index >= offset + this.workspaceCapacity(offset)) offset++;
+    return Math.min(offset, this.workspaceMaxOffset());
+  }
   /** The workspace list's scrollbar thumb, like the agent list's. */
   workspaceThumb(): { start: number; len: number } | null {
     const track = sat(this.workspaceEnd(), 2);
-    const last = sat(this.workspace_count, this.workspaceCapacity());
+    const last = this.workspaceMaxOffset();
     if (last === 0 || track < 2) return null;
     const len = clamp(Math.floor((track * this.workspaceCapacity()) / this.workspace_count), 1, track - 1);
     return { start: Math.round(((track - len) * this.workspace_offset) / last), len };
   }
-  withWorkspaces(count: number, offset: number): View {
+  withWorkspaces(count: number, offset: number, machines: string[] = [], collapsed: boolean[] = []): View {
     const result = this.clone();
     result.workspace_count = count;
-    result.workspace_offset = Math.min(offset, sat(count, this.workspaceCapacity()));
+    result.workspace_machines = machines;
+    result.workspace_collapsed = collapsed;
+    result.workspace_offset = Math.max(0, Math.min(offset, result.workspaceMaxOffset()));
     return result;
   }
   static widthFor(cols: number, open: boolean, rows = 13, searching = false): number {
@@ -1053,8 +1137,10 @@ export class View {
     if (v.width === 0) return v.cols >= 64 && x < 3 && y === 0 ? hit("toggle") : hit("none");
     if (x >= v.width - 1 || y >= v.rows) return hit("none");
     if (y === 0 && v.drawer !== "agents") {
-      if (x >= v.width - 5) return hit("toggle");
-      if (x >= v.width - 11 && x < v.width - 6) return hit("workspace_new");
+      if (v.workspaceScope()?.contains(x, y)) return hit("workspace_scope");
+      if (x >= v.width - (v.workspace_scope ? 2 : 5)) return hit("toggle");
+      if (v.workspace_scope ? x >= v.width - 8 && x < v.width - 3 : x >= v.width - 11 && x < v.width - 6)
+        return hit("workspace_new");
     }
     if (
       y === v.middle() &&
@@ -1081,11 +1167,14 @@ export class View {
           return { tag: "archived_workspace", workspace: v.archived_offset + Math.floor(row / 3) };
       }
       if (y < 2 || y >= v.workspaceEnd()) return hit("none");
-      const slot = Math.floor((y - 2) / v.workspaceRows());
-      const index = slot + v.workspace_offset;
-      return index < v.workspace_count && slot < v.workspaceCapacity()
-        ? { tag: "workspace", workspace: index }
-        : hit("none");
+      for (
+        let index = v.workspace_offset;
+        index < Math.min(v.workspace_count, v.workspace_offset + v.workspaceCapacity());
+        index++
+      )
+        if (!v.workspace_collapsed[index] && y >= v.workspaceY(index) && y < v.workspaceY(index) + v.workspaceRows())
+          return { tag: "workspace", workspace: index };
+      return hit("none");
     }
     const end = v.drawEnd(below);
     if (y < v.middle() + 2 || y >= end) return hit("none");
@@ -1150,8 +1239,9 @@ export class View {
     let top = 2;
     const end = Math.min(v.workspace_count, v.workspace_offset + v.workspaceCapacity());
     for (let i = v.workspace_offset; i < end; i++) {
+      top = v.workspaceY(i);
       if (y < top + Math.floor((v.workspaceRows() + 1) / 2)) return { index: i, y: top - 1 };
-      top += v.workspaceRows();
+      top += v.workspace_collapsed[i] ? 0 : v.workspaceRows();
     }
     return { index: end, y: top - 1 };
   }
@@ -1178,7 +1268,7 @@ export class View {
   }
   unreadHit(ws: WorkspaceEntry, x: number, y: number): boolean {
     if (this.framed()) return this.lists().unreadHit(ws, x - lists_x, y);
-    if (ws.unread === 0 || y < 3 || (y - 2) % this.workspaceRows() !== 1) return false;
+    if (ws.unread === 0 || this.workspaceAt(y, 1) === null) return false;
     const range = this.unreadRange(ws);
     return x >= range.start && x < range.end;
   }
@@ -1248,7 +1338,7 @@ export class View {
       }
     }
     if (v.drawer !== "agents") {
-      v.drawWorkspaces(w, workspaces);
+      v.drawWorkspaces(w, workspaces, now_ms);
       v.drawArchives(w, archived);
     }
     if (v.drawer === "workspaces") {
@@ -1303,18 +1393,40 @@ export class View {
     w.write("\x1b[0m");
   }
   /** The corgi, the title, and its buttons. */
+  /** The title row and the workspace list above the agents. */
+  workspaceScope(): Rect | null {
+    if (this.framed()) {
+      const box = this.lists().workspaceScope();
+      return box ? new Rect(box.x + lists_x, box.y, box.w, box.h) : null;
+    }
+    if (!this.workspace_scope || !this.width || this.drawer === "agents") return null;
+    const start = this.corgi_badge === "none" ? 1 : 5;
+    const room = Math.max(0, this.width - 9 - start);
+    const width = Math.min(Math.max(0, room - 2), 10, displayWidth(this.workspace_scope) + 2);
+    const title = Math.min(10, room - width - 1);
+    return width >= 3 ? new Rect(start + title + 1, 0, width, 1) : null;
+  }
   private drawTitle(w: Writer, create = false): void {
     const v = this;
-    w.write(`${w.cup(1, v.width - 4)}${panel} < `);
-    if (v.corgi_badge !== "none") {
+    const scope = v.workspaceScope();
+    w.write(`${w.cup(1, v.width - (scope ? 1 : 4))}${panel}` + (scope ? "<" : " < "));
+    if (scope) {
+      if (v.corgi_badge === "emoji") w.write(`${w.cup(1, 2)}${panel}${corgiBadge.emoji}`);
+      const start = v.corgi_badge === "none" ? 1 : 5;
+      w.write(`${w.cup(1, start + 1)}\x1b[1m` + fg("strong"));
+      writeEllipsis(w, "workspaces", sat(scope.x - start, 1));
+      w.write(`${w.cup(1, scope.x + 1)}\x1b[22m` + fg("muted"));
+      writeEllipsis(w, v.workspace_scope, sat(scope.w, 2));
+      w.write(" ▾");
+    } else if (v.corgi_badge !== "none") {
       if (v.corgi_badge === "emoji") w.write(`${w.cup(1, 2)}${panel}${corgiBadge.emoji}`);
       w.write(`${w.cup(1, 6)}\x1b[1m` + fg("strong"));
       writeEllipsis(w, i18n.t`workspaces`, sat(v.width, 17));
     } else v.line(w, 0, i18n.t`workspaces`, "\x1b[1m" + fg("strong"));
-    w.write(w.cup(1, v.width - 10) + (create ? palette.call_to_action : button) + `[ + ]${panel}`);
+    w.write(w.cup(1, v.width - (scope ? 7 : 10)) + (create ? palette.call_to_action : button) + `[ + ]${panel}`);
   }
   /** The title row and the workspace list above the agents. */
-  private drawWorkspaces(w: Writer, workspaces: WorkspaceEntry[]): void {
+  private drawWorkspaces(w: Writer, workspaces: WorkspaceEntry[], now_ms: number): void {
     const v = this;
     v.drawTitle(w);
     const shown = workspaces.slice(
@@ -1322,7 +1434,39 @@ export class View {
       Math.min(workspaces.length, v.workspace_offset + v.workspaceCapacity()),
     );
     shown.forEach((ws, index) => {
-      const y = 2 + index * v.workspaceRows();
+      const absolute = index + v.workspace_offset;
+      const y = v.workspaceY(absolute);
+      if (v.workspaceHeader(absolute)) {
+        const hovered = v.machine_hover === y - 1;
+        w.write(w.cup(y, 1) + (hovered ? machine_header_hover : machine_header));
+        w.splat(" ", sat(v.width, 1));
+        w.write(`${w.cup(y, 2)}${fg("muted")}${ws.collapsed ? "▸" : "▾"}  ${fg(hovered ? "strong" : "text")}`);
+        const quality = ws.link_quality;
+        const status = ws.connection_status;
+        const timer = !status || status.seconds === null ? "" : ` ${status.seconds}s`;
+        const status_room = sat(v.width, 12);
+        const label = status ? ellipsis(status.label, sat(status_room, displayWidth(timer))) + timer : "";
+        const status_width = displayWidth(label);
+        writeEllipsis(
+          w,
+          v.workspace_machines[absolute],
+          sat(v.width, status ? status_width + 8 : quality === null ? 6 : 12),
+        );
+        if (status) {
+          w.write(w.cup(y, v.width - status_width - 1) + fg(status.color) + label);
+        } else if (quality !== null) {
+          w.write(w.cup(y, v.width - 5));
+          if (v.signal_marks?.(quality, w.column + v.width - 6, y - 1)) w.splat(" ", 4);
+          else {
+            const color = quality >= 3 ? "accent" : "warm";
+            for (const [i, bar] of [..."▂▄▆█"].entries()) w.write(fg(i < quality ? color : "line") + bar);
+          }
+        }
+        w.write(panel);
+      }
+      if (ws.collapsed) return;
+      const out = w;
+      if (ws.unavailable) w = new Writer(out.column);
       const ghost = v.dragged_workspace === v.workspace_offset + index;
       const tinted = ws.active || ghost;
       const style = tinted ? active_name : panel;
@@ -1389,9 +1533,9 @@ export class View {
         statusPart(w, unread, "\x1b[1m" + fg("accent"), unread_room);
       }
       const worktree_label = worktreeLabel(ws);
-      if (worktree_label)
+      if (worktree_label) {
         w.write(`${w.cup(y + 2, v.width - 1 - displayWidth(worktree_label))}${meta}${rule}${worktree_label}`);
-      else if (ws.stats.tools > 0) w.write(`${w.cup(y + 2, v.width - 1 - metadata_width)}${meta}${rule}${metadata}`);
+      } else if (ws.stats.tools > 0) w.write(`${w.cup(y + 2, v.width - 1 - metadata_width)}${meta}${rule}${metadata}`);
       if (tinted) for (const row of [y + 1, y + 2]) w.write(`${w.cup(row, 1)}${bar}`);
       w.write(panel);
       if (v.workspaceRows() === 3 && y + 2 < v.workspaceEnd()) {
@@ -1405,6 +1549,17 @@ export class View {
         w.write("\x1b[24;59m");
         w.write(panel);
         if (tinted) w.write(`${w.cup(y + 3, 1)}${bar}${panel}`);
+      }
+      if (ws.unavailable) {
+        writeExit(out, w.buffered(), 0.5);
+        w = out;
+        if (ws.connecting) {
+          // Keep the cached card dim; let the workspace name glimmer at full brightness.
+          w.write(`${w.cup(y + 1, 2)}`);
+          writeExit(w, style, 0.5);
+          if (!ws.archived) writeConnectionGlimmer(w, clipped(name, name_room), now_ms);
+          w.write(panel);
+        }
       }
     });
     const ws_thumb = v.workspaceThumb();
@@ -1809,12 +1964,20 @@ export class View {
       w.write(w.cup(y + 1, name_x + 1) + fg("faint") + "⌥");
       name_x += 2;
     }
-    // Name, then a rule that leaves one space on each side.
+    // Name and its machine's, then a rule that leaves one space on each side.
     const text = directoryLabel(e.name, null, 160);
-    const name_room = sat(status_x, name_x + 3);
+    const room = sat(status_x, name_x + 3);
+    // The machine's name takes at most half the room, as on workspace rows.
+    const machine_room = Math.floor(room / 2);
+    const machine = g.machine && machine_room > 4 ? `  ${ellipsis(g.machine, machine_room - 2)}` : "";
+    const name_room = room - displayWidth(machine);
     w.write(`${w.cup(y + 1, name_x + 1)}${g.current ? "\x1b[1m" + fg("strong") : "\x1b[1m" + fg("text")}`);
     writeEllipsis(w, text, name_room);
-    const name_end = name_x + Math.min(displayWidth(text), name_room);
+    let name_end = name_x + Math.min(displayWidth(text), name_room);
+    if (machine) {
+      w.write("\x1b[22m" + fg("muted") + machine);
+      name_end += displayWidth(machine);
+    }
     if (status_x > name_end + 2) {
       // A heavy, bright rule so each header stands out from its agents; a
       // worktree inside a workspace takes a thin one.
@@ -1958,23 +2121,30 @@ function subagentBadge(status: Subagents, children: number): string {
   return "";
 }
 
+/** Each visible machine group has its own hover target, including repeated groups. */
+export function machineHeaderAt(v: View, x: number, y: number): { machine: string; rect: Rect } | null {
+  if (v.framed()) {
+    const header = machineHeaderAt(v.lists(), x - lists_x, y);
+    if (header) header.rect.x += lists_x;
+    return header;
+  }
+  if (!v.width || x < 1 || x >= v.width - 1 || y >= v.workspaceEnd()) return null;
+  for (let i = v.workspace_offset; i < v.workspace_offset + v.workspaceCapacity(); i++)
+    if (v.workspaceHeader(i) && y === v.workspaceY(i) - 1)
+      return { machine: v.workspace_machines[i], rect: new Rect(1, y, v.width - 2, 1) };
+  return null;
+}
+
 /** Resource hover stays on the third workspace row. Clicks and drags on that
  * row select the workspace, just like its title and status rows. */
 export function resourceAt(v: View, workspaces: WorkspaceEntry[], x: number, y: number): WorkspaceEntry | null {
   if (v.framed()) return resourceAt(v.lists(), workspaces, x - lists_x, y);
-  if (
-    v.workspaceRows() < 3 ||
-    v.width === 0 ||
-    x < 1 ||
-    x >= v.width - 2 ||
-    y < 4 ||
-    y >= v.workspaceEnd() ||
-    (y - 2) % 3 !== 2
-  )
+  if (v.workspaceRows() < 3 || v.width === 0 || x < 1 || x >= v.width - 2 || y < 4 || y >= v.workspaceEnd())
     return null;
-  const i = Math.floor((y - 2) / 3);
-  if (i >= v.workspaceCapacity() || i + v.workspace_offset >= workspaces.length) return null;
-  const ws = workspaces[i + v.workspace_offset];
+  const i = v.workspaceAt(y, 2);
+  if (i === null || i >= workspaces.length) return null;
+  const ws = workspaces[i];
+  if (ws.unavailable) return null;
   if (!resourceCardFits(v)) return null;
   for (let reading = 0; reading < 3; reading++) if (shownReading(v.resources, ws.resources, reading)) return ws;
   return null;
@@ -2262,6 +2432,18 @@ export function writePortLabel(w: Writer, label: string, width: number, naming: 
   const start = prefixWidth + 3;
   if (width > start) writeClipped(w, label.slice(prefix.length + 3), width - start);
 }
+function writeConnectionGlimmer(w: Writer, label: string, now_ms: number): void {
+  const phase = mod(Math.floor(now_ms / 80) * 80, 2000) / 2000;
+  const center = -4 + (displayWidth(label) + 8) * phase;
+  const dim = mix(colors.muted, colors.bg, 50);
+  let col = 0;
+  for (const ch of label) {
+    const width = codepointWidth(ch.codePointAt(0)!);
+    const glow = Math.max(0, 1 - Math.abs(col + width / 2 - center) / 4);
+    w.write(fgRgb(mix(dim, colors.strong, Math.round(glow * 100))) + ch);
+    col += width;
+  }
+}
 function statusMetadataWidth(ws: WorkspaceEntry): number {
   return displayWidth(worktreeLabel(ws)) || displayWidth(compactCount(ws.stats.tools)) + 1;
 }
@@ -2272,16 +2454,18 @@ export function worktreeLabel(ws: WorkspaceEntry): string {
 export function worktreeBadge(v: View, workspaces: WorkspaceEntry[], id: number): Rect | null {
   const index = workspaces.findIndex(ws => ws.id === id),
     slot = index - v.workspace_offset;
-  if (v.width === 0 || index < 0 || slot < 0 || slot >= v.workspaceCapacity()) return null;
+  if (v.width === 0 || index < 0 || slot < 0 || slot >= v.workspaceCapacity() || workspaces[index].collapsed)
+    return null;
   const width = displayWidth(worktreeLabel(workspaces[index]));
-  return width ? new Rect(v.width - 2 - width, 3 + slot * v.workspaceRows(), width, 1) : null;
+  return width ? new Rect(v.width - 2 - width, v.workspaceY(index) + 1, width, 1) : null;
 }
 export function worktreeAt(v: View, workspaces: WorkspaceEntry[], x: number, y: number): WorkspaceEntry | null {
   if (v.framed()) return worktreeAt(v.lists(), workspaces, x - lists_x, y);
-  if (v.width === 0 || y < 3 || (y - 3) % v.workspaceRows() !== 0) return null;
+  if (v.width === 0 || v.workspaceAt(y, 1) === null) return null;
   const hit = v.hit(x, y);
   if (hit.tag !== "workspace") return null;
   const ws = workspaces[hit.workspace];
+  if (ws?.external || ws?.unavailable) return null;
   const width = ws ? displayWidth(worktreeLabel(ws)) : 0;
   return width && x >= v.width - 2 - width && x < v.width - 2 ? ws : null;
 }
@@ -2318,11 +2502,11 @@ export function urlCount(ws: WorkspaceEntry): number {
 }
 export function portWorkspace(v: View, workspaces: WorkspaceEntry[], x: number, y: number): WorkspaceEntry | null {
   if (v.framed()) return portWorkspace(v.lists(), workspaces, x - lists_x, y);
-  if (v.width === 0 || x < 1 || y < 2 || y >= v.workspaceEnd() || (y - 2) % v.workspaceRows() !== 0) return null;
-  const offset = Math.floor((y - 2) / v.workspaceRows());
-  const index = v.workspace_offset + offset;
-  if (offset >= v.workspaceCapacity() || index >= workspaces.length) return null;
+  if (v.width === 0 || x < 1) return null;
+  const index = v.workspaceAt(y, 0);
+  if (index === null || index >= workspaces.length) return null;
   const ws = workspaces[index];
+  if (ws.unavailable) return null;
   const link = linkRange(v, ws, workspaces);
   if (x < link.start || x >= link.end) return null;
   return ws;
@@ -2540,10 +2724,11 @@ export function gitActionWorkspace(
   y: number,
 ): WorkspaceEntry | null {
   if (v.framed()) return gitActionWorkspace(v.lists(), workspaces, expanded, x - lists_x, y);
-  if (v.width === 0 || y < 2 || (y - 2) % v.workspaceRows() !== 0) return null;
+  if (v.width === 0 || v.workspaceAt(y, 0) === null) return null;
   const found = v.hit(x, y);
   if (found.tag !== "workspace" || found.workspace >= workspaces.length) return null;
   const ws = workspaces[found.workspace];
+  if (ws.unavailable) return null;
   const size = displayWidth(gitLabel(ws, expanded === ws.id));
   const end = v.width - 2;
   return size > 0 && x >= sat(end, size) && x < end ? ws : null;
@@ -2556,7 +2741,7 @@ export function drawGitAction(w: Writer, v: View, workspaces: WorkspaceEntry[], 
   );
   for (let i = 0; i < shown.length; i++) {
     const ws = shown[i];
-    if (ws.id !== id) continue;
+    if (ws.id !== id || ws.collapsed) continue;
     const label = gitLabel(ws, true);
     if (label.length === 0) return;
     const style =
@@ -2566,7 +2751,7 @@ export function drawGitAction(w: Writer, v: View, workspaces: WorkspaceEntry[], 
           ? new Style({ fg: "hot", bg: "selected", bold: true }).sgr()
           : new Style({ fg: "accent", bg: "selected", bold: true }).sgr();
     w.write(
-      `\x1b]8;;\x1b\\${w.cup(3 + i * v.workspaceRows(), v.width - 1 - displayWidth(label))}${style}${label}\x1b[0m`,
+      `\x1b]8;;\x1b\\${w.cup(v.workspaceY(i + v.workspace_offset) + 1, v.width - 1 - displayWidth(label))}${style}${label}\x1b[0m`,
     );
     return;
   }
@@ -2757,4 +2942,18 @@ export function relativeTime(timestamp: number, now: number): string {
             : { seconds: 365 * 86400, name: "year" };
   const n = Math.floor(seconds / unit.seconds);
   return `${timestamp > now ? "in " : ""}${n} ${unit.name}${n === 1 ? "" : "s"}${timestamp > now ? "" : " ago"}`;
+}
+
+/** The diagnostic badge shares the header's clipping and placement. */
+export function machineDiagnosticAt(v: View, rows: WorkspaceEntry[], x: number, y: number): boolean {
+  if (v.framed()) return machineDiagnosticAt(v.lists(), rows, x - lists_x, y);
+  if (!machineHeaderAt(v, x, y)) return false;
+  for (let i = v.workspace_offset; i < v.workspace_offset + v.workspaceCapacity(); i++) {
+    const status = rows[i]?.connection_status;
+    if (!status?.diagnostic || y !== v.workspaceY(i) - 1) continue;
+    const timer = status.seconds === null ? "" : ` ${status.seconds}s`;
+    const label = ellipsis(status.label, sat(sat(v.width, 12), displayWidth(timer))) + timer;
+    return x >= v.width - displayWidth(label) - 2 && x < v.width - 2;
+  }
+  return false;
 }

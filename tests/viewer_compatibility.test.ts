@@ -62,7 +62,7 @@ class ReplyProxy {
         if (id !== null) pending.delete(id);
         let replacement: object | null = null;
         if (op === "viewer.open") replacement = this.open_reply;
-        if (op === "viewer.sync") {
+        if (op === "viewer.sync" || op === "viewer.stream") {
           replacement = this.sync_reply;
           this.synced = true;
           if (this.uninstall_on_sync) {
