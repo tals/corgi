@@ -214,6 +214,34 @@ test("Claude waits on a teammate while it works, and not once it idles", () => {
   expect(parent.state.subagents.running).toBe(0);
   expect(parent.state.subagents.waiting).toBe(false);
 });
+test("Claude keeps its working teammate, not a finished subagent, while a Stop lists teammates", () => {
+  const r = new Registry(),
+    parent = r.get("claude", "s"),
+    teammate = { id: "te2dh1366", type: "teammate", status: "running", description: "Sleep then report" };
+  let seq = 0n;
+  const send = (v: any) =>
+    r.observeHook(parent, adapter("claude").hook({ session_id: "s", ...v })!, ++seq, false, Number(seq) * 1000);
+  parent.pid = process.pid;
+  send({
+    hook_event_name: "PostToolUse",
+    tool_name: "Agent",
+    tool_input: { description: "Lane A", subagent_type: "Explore" },
+    tool_response: { status: "async_launched", agentId: "a1" },
+  });
+  send({
+    hook_event_name: "PostToolUse",
+    tool_name: "Agent",
+    tool_input: { name: "sleeper", description: "Sleep then report" },
+    tool_response: { status: "teammate_spawned", agentId: "asleeper-a4d6", name: "sleeper" },
+  });
+  send({ hook_event_name: "SubagentStart", agent_id: "asleeper-a4d6", agent_type: "sleeper" });
+  // The subagent finished without its SubagentStop reaching Corgi, so only
+  // the Stop, which lists the teammate alone, says it is done.
+  send({ hook_event_name: "Stop", background_tasks: [teammate] });
+  expect(r.find("claude", "a1")!.state.state).toBe("idle");
+  expect(r.find("claude", "asleeper-a4d6")!.state.state).toBe("working");
+  expect(parent.state.subagents).toEqual({ running: 1, blocked: 0, waiting: true });
+});
 
 function hook(kind: string, session: string, extra: any = {}) {
   return {
