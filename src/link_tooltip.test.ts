@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Signin } from "./signin";
 import { Terminal } from "./pane/terminal";
+import { Menu } from "./corgi_setup";
 const source = { updateRender() {}, hyperlinks: () => [] };
 test("the resource card opens and wakes the viewer after 150 ms", () => {
   const s = new State(),
@@ -453,4 +454,51 @@ test("an arrow over the resource card selects its top row first, or else moves f
   s.resource_card.selected = s.resource_card.order[1];
   await s.input(Buffer.from("\x1b[B"));
   expect([s.resource_card.pinned, s.resource_card.selected?.pid]).toEqual([true, 12]);
+});
+
+test("setup's issue link shows the link card, which copies it", async () => {
+  const s = linkViewer("");
+  const setup = Menu.open();
+  setup.item = "report_bug";
+  // Already under way, so drawing doesn't ask the real daemon.
+  (setup as unknown as { gathering: boolean }).gathering = true;
+  setup.report = {
+    corgi: "1.2.3 (abc1234), linux-x64",
+    install: { path: "/usr/bin/corgi", auto_update: null },
+    system: {
+      os: "Ubuntu 24.04.1 LTS",
+      os_timed_out: false,
+      kernel: "Linux 6.8.0",
+      locale: "C.UTF-8",
+      shell: { path: "/usr/bin/fish", version: "fish, version 3.7.1" },
+      agents: [],
+    },
+    daemon: null,
+    slow: { daemon: false, sessions: false, report: false },
+    terminal: null,
+    overrides: [],
+    logs: { server: "/tmp/server.log", crashes: 0 },
+    warnings: [],
+    inference: null,
+  };
+  s.corgi_setup = setup;
+  try {
+    setSystemTime(new Date(1000));
+    s.frame();
+    const [link] = setup.hyperlinks();
+    expect(link.uri).toContain("https://github.com/tals/corgi/issues/new?body=");
+    await s.input(mouse(35, link.start + 2, link.row));
+    s.frame();
+    setSystemTime(new Date(1150));
+    await s.expireInput();
+    expect(s.frame()).toContain("Copy link");
+    await s.input(mouse(35, link.start + 4, link.row + 2));
+    await s.input(mouse(0, link.start + 4, link.row + 2));
+    await s.input(mouse(0, link.start + 4, link.row + 2, true));
+    expect(s.clipboard).toBe(link.uri);
+    expect(s.frame()).toContain("✓  Copied");
+  } finally {
+    setSystemTime();
+    close(s);
+  }
 });

@@ -861,7 +861,7 @@ export function frame(
       }
     }
   }
-  if (u.corgi_setup !== null && u.pointer)
+  if (u.corgi_setup !== null && u.pointer && !on_link_card)
     link_pointer = u.corgi_setup.hit(width, height, u.pointer.x, u.pointer.y, u.inference, u.prefs) !== null;
   if (u.pointer) {
     const pointer = u.pointer;

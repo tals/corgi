@@ -472,14 +472,15 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Connect your Command keys"]': () => `连接你的 Command 键`,
     '["Connecting to Herdr"]': () => `正在连接 Herdr`,
     '["Control Corgi panes, agents, or workspaces:"]': () => `控制 Corgi 窗格、智能体或工作区：`,
+    '["Copied"]': () => `已复制`,
     '["Copied "," note."]': v0 => `已复制 ${v0} 条批注。`,
     '["Copied "," notes."]': v0 => `已复制 ${v0} 条批注。`,
-    '["Copied the link; paste it into your browser."]': () => `链接已复制；请粘贴到浏览器中。`,
     '["Copies the conversation into a new tab"]': () => `将对话复制到新标签页`,
     '["Copies the workspaces; their processes stay in Herdr."]': () => `复制工作区；进程继续在 Herdr 中运行。`,
     '["Copy"]': () => `复制`,
     '["Copy an image, then paste it to an agent."]': () => `复制图片后，将其粘贴给智能体。`,
     '["Copy details"]': () => `复制详情`,
+    '["Copy details for a bug report"]': () => `复制问题报告所需信息`,
     '["Copy full path"]': () => `复制完整路径`,
     '["Copy hovered link"]': () => `复制光标下的链接`,
     '["Copy sessions, scrollback and commands. Source processes stay in tmux."]': () =>
@@ -582,7 +583,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["From"]': () => `基于`,
     '["GPU use from device totals"]': () => `GPU 用量按设备统计`,
     '["GPU use shared out by memory"]': () => `按显存比例分摊 GPU 用量`,
-    '["Gathering details about this machine…"]': () => `正在收集本机信息…`,
+    '["Gathering bug report info…"]': () => `正在收集问题报告信息…`,
     '["Generated file · +"," −",""]': (v0, v1) => `生成的文件 · +${v0} −${v1}`,
     '["Generated file · enter loads its diff"]': () => `生成的文件 · Enter 加载差异`,
     '["Ghostty is set to refuse clipboard reads."]': () => `Ghostty 已设置为拒绝读取剪贴板。`,
@@ -961,8 +962,6 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["That\'s a file, not a folder."]': () => `这是文件，不是文件夹。`,
     '["The clipboard image was damaged"]': () => `剪贴板中的图片已损坏`,
     '["The commits to push changed. Review them and push again."]': () => `待推送的提交已改变。请重新审查后推送。`,
-    '["The issue starts with these details. Nothing is sent until you submit it on GitHub."]': () =>
-      `问题报告会包含以下信息。只有在 GitHub 上提交后才会发送。`,
     '["The limit is 2 MB or 50,000 lines."]': () => `上限为 2 MB 或 50,000 行。`,
     '["The notes hold an end-of-paste marker; they\'re kept."]': () => `批注含有粘贴结束标记；已保留批注。`,
     '["The pane closed before the paste arrived"]': () => `粘贴内容到达前，窗格已关闭`,
@@ -1169,6 +1168,7 @@ ${v1} 使用该账号。
     '["committed"]': () => `已提交`,
     '["committed + working copy"]': () => `已提交 + 工作副本`,
     '["context "]': () => `上下文 `,
+    '["copy"]': () => `复制`,
     '["copy link"]': () => `复制链接`,
     '["corgi — a small Ghostty-powered agent terminal"]': () => `corgi — 基于 Ghostty 的小巧智能体终端`,
     '["create"]': () => `创建`,
@@ -1846,16 +1846,16 @@ ${v1} 使用该账号。
     '["Connecting to Herdr"]': () => `Herdrに接続中`,
     '["Control Corgi panes, agents, or workspaces:"]': () =>
       `Corgiのペイン、エージェント、ワークスペースを操作するには：`,
+    '["Copied"]': () => `コピーしました`,
     '["Copied "," note."]': v0 => `${v0}件のコメントをコピーしました。`,
     '["Copied "," notes."]': v0 => `${v0}件のコメントをコピーしました。`,
-    '["Copied the link; paste it into your browser."]': () =>
-      `リンクをコピーしました。ブラウザーに貼り付けてください。`,
     '["Copies the conversation into a new tab"]': () => `会話を新しいタブにコピーします`,
     '["Copies the workspaces; their processes stay in Herdr."]': () =>
       `ワークスペースをコピーします。プロセスはHerdrに残ります。`,
     '["Copy"]': () => `コピー`,
     '["Copy an image, then paste it to an agent."]': () => `画像をコピーして、エージェントに貼り付けてください。`,
     '["Copy details"]': () => `詳細をコピー`,
+    '["Copy details for a bug report"]': () => `バグ報告用の情報をコピー`,
     '["Copy full path"]': () => `フルパスをコピー`,
     '["Copy hovered link"]': () => `カーソル下のリンクをコピー`,
     '["Copy sessions, scrollback and commands. Source processes stay in tmux."]': () =>
@@ -1962,7 +1962,7 @@ ${v1} 使用该账号。
     '["From"]': () => `元`,
     '["GPU use from device totals"]': () => `GPU使用率（デバイス全体）`,
     '["GPU use shared out by memory"]': () => `GPU使用率（メモリ比で按分）`,
-    '["Gathering details about this machine…"]': () => `このマシンの情報を収集中…`,
+    '["Gathering bug report info…"]': () => `バグ報告用の情報を収集中…`,
     '["Generated file · +"," −",""]': (v0, v1) => `生成ファイル · +${v0} −${v1}`,
     '["Generated file · enter loads its diff"]': () => `生成ファイル · Enterで差分を読み込む`,
     '["Ghostty is set to refuse clipboard reads."]': () => `Ghosttyでクリップボードの読み取りが拒否されています。`,
@@ -2354,8 +2354,6 @@ ${v1} 使用该账号。
     '["The clipboard image was damaged"]': () => `クリップボードの画像が破損しています`,
     '["The commits to push changed. Review them and push again."]': () =>
       `プッシュ対象のコミットが変わりました。確認してから再度プッシュしてください。`,
-    '["The issue starts with these details. Nothing is sent until you submit it on GitHub."]': () =>
-      `次の情報をIssueに含めます。GitHubで送信するまで、情報は送られません。`,
     '["The limit is 2 MB or 50,000 lines."]': () => `上限は2 MBまたは50,000行です。`,
     '["The notes hold an end-of-paste marker; they\'re kept."]': () =>
       `コメントに貼り付け終了マーカーが含まれています。送信せず保持しました。`,
@@ -2565,6 +2563,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '["committed"]': () => `コミット済み`,
     '["committed + working copy"]': () => `コミット済み + 作業コピー`,
     '["context "]': () => `コンテキスト `,
+    '["copy"]': () => `コピー`,
     '["copy link"]': () => `リンクをコピー`,
     '["corgi — a small Ghostty-powered agent terminal"]': () => `corgi — Ghosttyを使った小さなエージェント用端末`,
     '["create"]': () => `作成`,
@@ -3241,15 +3240,16 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Connect your Command keys"]': () => `Command 키 연결하기`,
     '["Connecting to Herdr"]': () => `Herdr에 연결 중`,
     '["Control Corgi panes, agents, or workspaces:"]': () => `Corgi 패널, 에이전트 또는 작업 공간 제어:`,
+    '["Copied"]': () => `복사됨`,
     '["Copied "," note."]': v0 => `메모 ${v0}개를 복사했습니다.`,
     '["Copied "," notes."]': v0 => `메모 ${v0}개를 복사했습니다.`,
-    '["Copied the link; paste it into your browser."]': () => `링크를 복사했습니다. 브라우저에 붙여넣으세요.`,
     '["Copies the conversation into a new tab"]': () => `대화를 새 탭으로 복사합니다`,
     '["Copies the workspaces; their processes stay in Herdr."]': () =>
       `작업 공간을 복사합니다. 프로세스는 Herdr에서 계속 실행됩니다.`,
     '["Copy"]': () => `복사`,
     '["Copy an image, then paste it to an agent."]': () => `이미지를 복사한 후 에이전트에 붙여넣으세요.`,
     '["Copy details"]': () => `상세 정보 복사`,
+    '["Copy details for a bug report"]': () => `버그 신고용 정보 복사`,
     '["Copy full path"]': () => `전체 경로 복사`,
     '["Copy hovered link"]': () => `가리킨 링크 복사`,
     '["Copy sessions, scrollback and commands. Source processes stay in tmux."]': () =>
@@ -3356,7 +3356,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["From"]': () => `기준`,
     '["GPU use from device totals"]': () => `기기 전체의 GPU 사용량`,
     '["GPU use shared out by memory"]': () => `메모리 비율로 나눈 GPU 사용량`,
-    '["Gathering details about this machine…"]': () => `이 컴퓨터의 정보 수집 중…`,
+    '["Gathering bug report info…"]': () => `버그 신고 정보 수집 중…`,
     '["Generated file · +"," −",""]': (v0, v1) => `생성된 파일 · +${v0} −${v1}`,
     '["Generated file · enter loads its diff"]': () => `생성된 파일 · Enter로 차이 불러오기`,
     '["Ghostty is set to refuse clipboard reads."]': () => `Ghostty가 클립보드 읽기를 거부하도록 설정되어 있습니다.`,
@@ -3744,8 +3744,6 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["The clipboard image was damaged"]': () => `클립보드의 이미지가 손상되었습니다`,
     '["The commits to push changed. Review them and push again."]': () =>
       `푸시할 커밋이 변경되었습니다. 다시 리뷰하고 푸시하세요.`,
-    '["The issue starts with these details. Nothing is sent until you submit it on GitHub."]': () =>
-      `이슈에 아래 정보를 넣습니다. GitHub에서 직접 제출하기 전에는 전송하지 않습니다.`,
     '["The limit is 2 MB or 50,000 lines."]': () => `최대 2 MB 또는 50,000행입니다.`,
     '["The notes hold an end-of-paste marker; they\'re kept."]': () =>
       `메모에 붙여넣기 종료 표식이 있습니다. 메모는 유지됩니다.`,
@@ -3956,6 +3954,7 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '["committed"]': () => `커밋됨`,
     '["committed + working copy"]': () => `커밋 + 작업 사본`,
     '["context "]': () => `컨텍스트 `,
+    '["copy"]': () => `복사`,
     '["copy link"]': () => `링크 복사`,
     '["corgi — a small Ghostty-powered agent terminal"]': () => `corgi — Ghostty 기반의 작은 에이전트 터미널`,
     '["create"]': () => `만들기`,
@@ -5015,6 +5014,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Connect your Command keys"]': () => `Подключите клавиши Command`,
     '["Connecting to Herdr"]': () => `Подключение к Herdr`,
     '["Control Corgi panes, agents, or workspaces:"]': () => `Управление панелями, агентами и пространствами Corgi:`,
+    '["Copied"]': () => `Скопировано`,
     '["Copied "," note."]': v0 => {
       switch (plural("ru", Number(v0))) {
         case "one":
@@ -5043,13 +5043,13 @@ profile/ID, имя копии или command/N — как в выводе launch
           return `Скопировано ${v0} заметки.`;
       }
     },
-    '["Copied the link; paste it into your browser."]': () => `Ссылка скопирована; вставьте её в браузер.`,
     '["Copies the conversation into a new tab"]': () => `Копирует диалог в новую вкладку`,
     '["Copies the workspaces; their processes stay in Herdr."]': () =>
       `Копирует пространства; процессы остаются в Herdr.`,
     '["Copy"]': () => `Копировать`,
     '["Copy an image, then paste it to an agent."]': () => `Скопируйте изображение и вставьте его агенту.`,
     '["Copy details"]': () => `Скопировать сведения`,
+    '["Copy details for a bug report"]': () => `Скопировать сведения для отчёта об ошибке`,
     '["Copy full path"]': () => `Скопировать полный путь`,
     '["Copy hovered link"]': () => `Скопировать ссылку под курсором`,
     '["Copy sessions, scrollback and commands. Source processes stay in tmux."]': () =>
@@ -5158,7 +5158,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["From"]': () => `Из`,
     '["GPU use from device totals"]': () => `Загрузка GPU по данным устройства`,
     '["GPU use shared out by memory"]': () => `Загрузка GPU распределена по использованию памяти`,
-    '["Gathering details about this machine…"]': () => `Сбор сведений об этом компьютере…`,
+    '["Gathering bug report info…"]': () => `Собираем сведения для отчёта…`,
     '["Generated file · +"," −",""]': (v0, v1) => `Сгенерированный файл · +${v0} −${v1}`,
     '["Generated file · enter loads its diff"]': () => `Сгенерированный файл · Enter загружает изменения`,
     '["Ghostty is set to refuse clipboard reads."]': () => `В Ghostty запрещено чтение буфера обмена.`,
@@ -5574,8 +5574,6 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["The clipboard image was damaged"]': () => `Изображение в буфере обмена повреждено`,
     '["The commits to push changed. Review them and push again."]': () =>
       `Коммиты для отправки изменились. Просмотрите их и повторите отправку.`,
-    '["The issue starts with these details. Nothing is sent until you submit it on GitHub."]': () =>
-      `Эти сведения будут в обращении. Ничего не отправится, пока вы не опубликуете его на GitHub.`,
     '["The limit is 2 MB or 50,000 lines."]': () => `Ограничение: 2 MB или 50 000 строк.`,
     '["The notes hold an end-of-paste marker; they\'re kept."]': () =>
       `Заметки содержат маркер конца вставки; они сохранены.`,
@@ -5811,6 +5809,7 @@ ${v1}, чтобы использовать этот аккаунт.
     '["committed"]': () => `закоммичено`,
     '["committed + working copy"]': () => `коммиты + рабочая копия`,
     '["context "]': () => `контекст `,
+    '["copy"]': () => `скопировать`,
     '["copy link"]': () => `скопировать ссылку`,
     '["corgi — a small Ghostty-powered agent terminal"]': () =>
       `corgi — небольшой терминал для агентов на базе Ghostty`,

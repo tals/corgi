@@ -33,6 +33,8 @@ import * as config from "./build_config";
 import * as releaseLabel from "./release_label";
 import * as bugReport from "./bug_report";
 import type { Snapshot as TerminalSnapshot } from "./terminal_info";
+import type { Source as LinkSource } from "./link_tooltip";
+import type { Link as DrawnLink } from "./pane/hyperlinks";
 import * as os from "./os";
 import { Writer, clamp, directoryLabel, displayWidth, writeEllipsis, sat, wrap } from "./text";
 import { Dialog } from "./name_dialog";
@@ -213,8 +215,13 @@ export type Apply =
   | { kind: "moonlander" }
   /** A link the user clicked. */
   | { kind: "open"; url: string }
-  /** A link to copy where Corgi can't open it, as over SSH. */
-  | { kind: "copy"; text: string };
+  /** Text for the clipboard: a link where Corgi can't open it, as over
+   * SSH, or the report's details. */
+  | { kind: "copy"; text: string; copied: Copied };
+/** What Report a bug last put on the clipboard. */
+export type Copied = "link" | "details";
+/** How long a copy option says it copied. */
+const copied_ms = 1500;
 /** A list row, an option, the open model picker (at the cell under the
  * pointer), the import picker or the release's commit link under the pointer. */
 export type Hit =
@@ -238,6 +245,9 @@ interface Option {
   disabled?: boolean;
   warn?: boolean;
   arrow?: boolean;
+  /** Where the label links, for the terminal and the link card; an `open`
+   * option links where it opens. */
+  link?: string;
   /** Status glyphs on the theme's background, before the detail. */
   swatch?: palette.Theme;
   /** A toggle in a group: On or Off at the right edge, as in the list. */
@@ -300,7 +310,11 @@ type Line =
   | { tag: "spark"; text: string }
   | { tag: "option"; option: Option; index: number }
   /** The import picker, down to the bottom of the pane. */
-  | { tag: "picker" };
+  | { tag: "picker" }
+  /** The corgi shaking off his fleas, over and over. */
+  | { tag: "fleas" }
+  /** Words in an option's place, glimmering while what it needs is found. */
+  | { tag: "glimmer"; text: string };
 /** Lines a click acts on; a field's box stands for its field. */
 function clickable(line: Line): boolean {
   switch (line.tag) {
@@ -492,7 +506,7 @@ function layout(cols: number, rows: number, grown: number, expanded = 0): Layout
   };
 }
 
-export class Menu {
+export class Menu implements LinkSource {
   item: Item = "clever_corgi";
   /** The same model and manager the new-tab picker uses. */
   agents: LauncherMenu | null = null;
@@ -534,8 +548,10 @@ export class Menu {
   private gathering = false;
   /** Asks for a redraw when something arrives without input, as the report does. */
   changed: () => void = () => {};
-  /** Whether the issue link went to the clipboard, where no browser opens it. */
-  link_copied = false;
+  /** What Report a bug put on the clipboard, and until when its option says so. */
+  copied: { what: Copied; until: number } | null = null;
+  /** The option links the last frame drew, in screen cells, for the link card. */
+  private drawn_links: DrawnLink[] = [];
   /** Where the field's caret was drawn, for the terminal's cursor. */
   private caret: { x: number; y: number } | null = null;
   /** Sessions from the import source under the list's cursor. */
@@ -1034,9 +1050,10 @@ export class Menu {
     if (this.gathering || this.report !== null) return;
     this.gathering = true;
     const socket = os.socketPath();
+    // The report and its full copy arrive together, so the link changes once.
     void bugReport.collect(socket, this.host_terminal).then(async report => {
-      this.report = report;
       this.full_path = await bugReport.writeFull(report, reportSettings(s, prefs), socket);
+      this.report = report;
       this.changed();
     });
   }
@@ -1091,7 +1108,16 @@ export class Menu {
   draw(w: Writer, s: Status, prefs: Preferences, cols: number, rows: number): void {
     return this.drawAt(w, s, prefs, cols, rows, Date.now());
   }
+  noteCopied(what: Copied, now = Date.now()): void {
+    this.copied = { what, until: now + copied_ms };
+  }
+  /** Links are drawn, not rendered from a terminal. */
+  updateRender(): void {}
+  hyperlinks(): DrawnLink[] {
+    return this.drawn_links;
+  }
   drawAt(w: Writer, s: Status, prefs: Preferences, cols: number, rows: number, now_ms: number): void {
+    this.drawn_links = [];
     const grown = this.grow.toward(this.growing(cols, rows) ? 1 : 0, now_ms),
       expanded = this.expand.toward(this.managing() ? 1 : 0, now_ms),
       l = layout(cols, rows, grown, expanded);
@@ -1313,6 +1339,25 @@ export class Menu {
           return writeEllipsis(w, line.name, right - x0 - 4);
         case "chart":
           return this.drawChart(w, line.row, x0 + 4, right, y, now_ms);
+        case "glimmer": {
+          w.write(at(x0 + 4, y) + panel);
+          let room = sat(right, x0 + 4);
+          for (const [i, ch] of [...line.text].entries()) {
+            if ((room -= displayWidth(ch)) < 0) break;
+            w.write(palette.fgRgb(sidebar.pulse(i / 4, now_ms)) + ch);
+          }
+          return;
+        }
+        case "fleas": {
+          // Still while flourishes are off.
+          const tick =
+            prefs.corgi_intensity === 0
+              ? 0
+              : Math.floor(now_ms / corgiAnimation.fleas_tick_ms) % corgiAnimation.flea_cycle_ticks;
+          // The corgi stands under the labels, with room for fleas on his left.
+          w.write(at(x, y) + panel + corgiAnimation.writeFleaCycle(sat(right, x), tick));
+          return;
+        }
         case "spark": {
           const end = sat(right, displayWidth(line.text) + 2);
           let shown = "";
@@ -1507,10 +1552,20 @@ export class Menu {
     const p = settingRow.fill(w, x, y, width, here);
     if (o.mark !== "none")
       w.write(at(x0 + 2, y) + (o.mark === "on" && !o.disabled ? p.accent : p.quiet) + (o.mark === "on" ? "●" : "○"));
-    w.write(at(x0 + 4, y) + (o.disabled ? p.quiet : p.label));
-    if (o.apply?.kind === "open") w.write(`\x1b]8;;${o.apply.url}\x1b\\`);
-    writeEllipsis(w, o.label, Math.min(label_w, sat(right, x0 + 4)));
-    if (o.apply?.kind === "open") w.write("\x1b]8;;\x1b\\");
+    // A copy option says it copied in place of its label, for a moment.
+    const copied = o.apply?.kind === "copy" && this.copied?.what === o.apply.copied && now_ms < this.copied.until,
+      label = copied ? `✓ ${i18n.t`Copied`}` : o.label;
+    w.write(at(x0 + 4, y) + (o.disabled ? p.quiet : copied ? p.accent : p.label));
+    const link = o.link ?? (o.apply?.kind === "open" ? o.apply.url : null),
+      label_room = Math.min(label_w, sat(right, x0 + 4));
+    if (link !== null) {
+      w.write(`\x1b]8;;${link}\x1b\\`);
+      const id = BigInt(this.drawn_links.length),
+        end = x0 + 4 + Math.min(displayWidth(label), label_room);
+      this.drawn_links.push({ row: y, start: x0 + 4, end, uri: link, id });
+    }
+    writeEllipsis(w, label, label_room);
+    if (link !== null) w.write("\x1b]8;;\x1b\\");
     let dx = x0 + 4 + label_w + 3;
     if (o.swatch && right - dx >= 7) {
       w.write(
@@ -1931,26 +1986,24 @@ export class Menu {
         ];
       }
       case "report_bug": {
-        if (this.report === null)
-          return [title(i18n.t`Report a bug`), lead(i18n.t`Gathering details about this machine…`)];
-        const settings = reportSettings(s, prefs),
-          url = bugReport.issueUrl(this.report, settings, this.full_path !== null) ?? bugReport.issues_url,
-          path = this.full_path ? bugReport.tilde(this.full_path) : "",
-          brief = (text: string): Line => ({ tag: "brief", text, tone: "muted" });
+        const report = this.report,
+          settings = reportSettings(s, prefs),
+          // The blank new-issue page until the details are in.
+          url = (report && bugReport.issueUrl(report, settings, this.full_path !== null)) ?? bugReport.issues_url,
+          path = this.full_path ? bugReport.tilde(this.full_path) : "";
         return [
           title(i18n.t`Report a bug`),
-          lead(i18n.t`The issue starts with these details. Nothing is sent until you submit it on GitHub.`),
           blank,
           option({
             label: i18n.t`Open an Issue on GitHub`,
             detail: "",
             mark: "none",
+            link: url,
             // Over SSH the browser would open on the other machine, if at all.
-            apply: this.terminal.ssh ? { kind: "copy", text: url } : { kind: "open", url },
+            apply: this.terminal.ssh ? { kind: "copy", text: url, copied: "link" } : { kind: "open", url },
             action: this.terminal.ssh ? i18n.t`copy link` : i18n.t`open`,
             arrow: true,
           }),
-          ...(this.link_copied ? [brief(i18n.t`Copied the link; paste it into your browser.`)] : []),
           ...(this.full_path
             ? [
                 {
@@ -1962,10 +2015,17 @@ export class Menu {
               ]
             : []),
           blank,
-          ...bugReport
-            .rows(this.report, settings)
-            .filter(row => !row.local)
-            .map((row): Line => ({ tag: "variable", name: "  ".repeat(row.depth) + row.label, value: row.value })),
+          report === null
+            ? { tag: "glimmer", text: i18n.t`Gathering bug report info…` }
+            : option({
+                label: i18n.t`Copy details for a bug report`,
+                detail: "",
+                mark: "none",
+                apply: { kind: "copy", text: bugReport.text(report, settings, true), copied: "details" },
+                action: i18n.t`copy`,
+              }),
+          blank,
+          { tag: "fleas" },
         ];
       }
       case "detach":
