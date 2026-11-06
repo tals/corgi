@@ -71,6 +71,35 @@ test("a launch preview names the model it shows and where it came from", () => {
   expect(o.source.text()).toBe("Project");
 });
 
+test("saved accounts behind install-on-use shims settle without starting a provider", async () => {
+  listed(["work"]);
+  const worker = new Worker(),
+    found = spyOn(discovery, "installed").mockReturnValue(false),
+    lazy = spyOn(discovery, "onDemand").mockImplementation(p => p === "claude"),
+    check = spyOn(discovery, "check").mockResolvedValue(),
+    launcher = spyOn(worker, "launcher").mockResolvedValue(null);
+  try {
+    worker.preview(root);
+    await worker.pump();
+    const account = { provider: "claude" as const, account: join(root, "work") },
+      settled = worker.preview(root);
+    expect(settled.pending).toBe(false);
+    expect(settled.accounts[0].option.pending).toBe(false);
+    expect(visibility.account(settled, account, [])).toBe(true);
+    worker.sample(idle_every);
+    await worker.pump();
+    expect(worker.cached(root).accounts[0].option.pending).toBe(false);
+    expect(visibility.account(worker.cached(root), account, [])).toBe(true);
+    expect(launcher).not.toHaveBeenCalled();
+  } finally {
+    await worker.stop();
+    found.mockRestore();
+    lazy.mockRestore();
+    check.mockRestore();
+    launcher.mockRestore();
+  }
+});
+
 test("account reads retain the workspace context during background refreshes", async () => {
   const worker = new Worker(),
     reads: (string | undefined)[] = [];
@@ -264,6 +293,54 @@ test("a project model keeps an agent visible after a failed account read", async
     expect(visibility.defaults(worker.preview(other), [], [])).toMatchObject({ pi: false, codex: true });
   } finally {
     await worker.stop();
+  }
+});
+
+test.each([
+  ["pi", ".pi/settings.json", '{"defaultModel":"project-model"}'],
+  ["omp", ".omp/config.yml", "modelRoles:\n  default: local/project-model\n"],
+] as const)("a project model shows the %s shim only in its workspace", async (provider, path, settings) => {
+  process.env.PI_CODING_AGENT_DIR = join(root, "agent-home");
+  const file = join(root, path),
+    other = join(root, "other");
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, settings);
+  const worker = new Worker(),
+    found = spyOn(discovery, "installed").mockImplementation(p => p === "codex"),
+    lazy = spyOn(discovery, "onDemand").mockImplementation(p => p === provider),
+    check = spyOn(discovery, "check").mockResolvedValue(),
+    launcher = spyOn(worker, "launcher").mockImplementation(async () => ({
+      account: async () => Object.assign(new Info(), { signed_in: true }),
+      model: async () => ({ model: "", source: "test" }),
+      close() {},
+    }));
+  const snapshots = () => {
+    for (const cwd of [root, other]) {
+      const preview = worker.cached(cwd);
+      expect(preview.installed[provider]).toBe(false);
+      expect(preview.on_demand[provider]).toBe(true);
+      expect(preview.configured[provider]).toBe(cwd === root);
+      expect(preview.options[provider].pending).toBe(false);
+      expect(visibility.defaults(preview, [], [])).toMatchObject({ [provider]: cwd === root, codex: true });
+    }
+    expect(launcher).toHaveBeenCalled();
+    expect(launcher.mock.calls.every(([p]) => p === "codex")).toBe(true);
+  };
+  try {
+    for (const cwd of [root, other]) {
+      worker.preview(cwd);
+      await worker.pump();
+    }
+    snapshots();
+    worker.sample(idle_every);
+    await worker.pump();
+    snapshots();
+  } finally {
+    await worker.stop();
+    found.mockRestore();
+    lazy.mockRestore();
+    check.mockRestore();
+    launcher.mockRestore();
   }
 });
 

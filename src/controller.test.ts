@@ -4079,3 +4079,120 @@ test.each([
     viewer.close(s);
   }
 });
+
+test("a viewer finds agents the first time it opens Manage agents, and again from Find agents", async () => {
+  const asked: unknown[] = [],
+    snapshot = folders("/src/app");
+  let refuse = false;
+  let finish!: () => void;
+  const s: any = new Controller({
+    socket: "",
+    request: transport(async (op, fields) => {
+      if (op === "agent.discover") {
+        asked.push(fields);
+        if (asked.length === 2) await new Promise<void>(resolve => (finish = resolve));
+        return refuse ? { err: "UnknownOperation" } : { ok: true };
+      }
+      if (op === "session.command") return { result: { pane: 1 } };
+      return snapshot;
+    }).request,
+  });
+  s.receiveSnapshot(snapshot);
+  s.input_state.attached = true;
+  const settle = async () => {
+    await s.expireInput();
+    await s.finding_agents;
+    await s.expireInput();
+  };
+  setSystemTime(new Date(1000));
+  try {
+    let launch = await openManagement(s, "launcher");
+    await settle();
+    expect(asked).toEqual([{ provider: null, cwd: "/src/app" }]);
+    // A quick reply keeps the spinner and disables refresh for 150 ms.
+    setSystemTime(new Date(1149));
+    await s.expireInput();
+    expect(launch.finding).toBe(true);
+    await s.manageAction({ kind: "find" });
+    expect(asked).toHaveLength(1);
+    setSystemTime(new Date(1150));
+    s.dirty = false;
+    await s.expireInput();
+    expect(launch.finding).toBe(false);
+    expect(s.dirty).toBe(true);
+    // Opening it again doesn't look again; the button does.
+    s.closeLauncher();
+    launch = await openManagement(s, "launcher");
+    await settle();
+    expect(asked).toHaveLength(1);
+    await s.manageAction({ kind: "find" });
+    await s.expireInput();
+    expect(launch.finding).toBe(true);
+    setSystemTime(new Date(1550));
+    await s.expireInput();
+    expect(launch.finding).toBe(true);
+    finish();
+    await settle();
+    expect(launch.finding).toBe(false);
+    expect(asked).toHaveLength(2);
+    // An older daemon can't, so the button goes, until Manage agents opens
+    // again: the daemon may have reloaded since.
+    refuse = true;
+    setSystemTime(new Date(2000));
+    await s.manageAction({ kind: "find" });
+    await settle();
+    expect(launch.finding).toBeNull();
+    expect(asked).toHaveLength(3);
+    refuse = false;
+    setSystemTime(new Date(2500));
+    s.closeLauncher();
+    await s.expireInput();
+    launch = await openManagement(s, "launcher");
+    await settle();
+    expect(asked).toHaveLength(4);
+    setSystemTime(new Date(2700));
+    await s.expireInput();
+    expect(launch.finding).toBe(false);
+  } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("startup waits open from the shared banner and cancel the selected task through the daemon", async () => {
+  const requests: unknown[] = [],
+    view = new Controller({
+      socket: "",
+      request: transport(async (op, fields) => {
+        requests.push({ op, fields });
+        return { ok: true };
+      }).request,
+    });
+  try {
+    view.receiveSnapshot({
+      ...folders("/a"),
+      startup_waits: [
+        {
+          id: "slow-start",
+          pane: 1,
+          provider: "opencode2",
+          phase: "installing",
+          detail: "mise downloading",
+          started_at: Date.now() - 12000,
+          cancelled: false,
+        },
+      ],
+    });
+    view.input_state.attached = true;
+    expect(view.frame()).toContain("1 waiting");
+    await view.input(bytes(`\x1b[<0;${view.width - 2};${view.height}M`));
+    expect(view.startup_card).not.toBeNull();
+    await view.input(bytes("x"));
+    expect(requests).toContainEqual({ op: "startup.kill", fields: { id: "slow-start" } });
+    expect(view.runtime.startup_waits[0].cancelled).toBe(true);
+    expect(view.frame()).toContain("Stopping OpenCode");
+    await view.input(bytes("\x1b"));
+  } finally {
+    view.runtime.destroy();
+  }
+});

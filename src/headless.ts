@@ -330,6 +330,9 @@ export class Session {
   static async start(id: number, provider: Provider, cwd: string, options: Options = {}) {
     const headless = adapter(provider).headless;
     if (!headless) throw Error("HeadlessUnsupported");
+    // A shim would install the agent inside the daemon, where nobody sees it.
+    await discovery.ready([provider], cwd);
+    if (discovery.stubOf(provider, cwd)) throw Error("ProviderOnDemand");
     const directory = realpathSync(cwd),
       executable = await discovery.resolve(provider, directory);
     const session = new Session(

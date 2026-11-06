@@ -35,6 +35,26 @@ Use `corgi which codex` or
 `corgi which claude` to inspect binary discovery. `CORGI_CODEX_BIN` and
 `CORGI_CLAUDE_BIN` can select explicit executables before runtime startup.
 
+**Find agents** (`f`) in Manage agents refreshes discovery for the selected
+workspace. Opening Manage agents also refreshes once per viewer.
+
+A mise shim whose tool is missing appears under Add agent as **Installs on
+use**. It can stay in the picker when configured or explicitly added, but
+never enters the fallback list of installed agents. Only starting that agent
+in a pane may run the shim; background reads and headless sessions cannot
+install it. Once the agent starts, Corgi refreshes its workspace discovery.
+
+Slow launches show a shared **waiting** count at the bottom right. Click it
+(or run `corgi action startup-waits`) for the stage, elapsed time and latest
+output. Enter shows the pane; `x` kills the selected startup. OpenCode's
+service startup has no fixed deadline, and installer output remains visible
+in the pane. Network requests retain their deadlines. Closing the pane also
+stops its startup helper.
+
+Preparation waits and cancellation survive a live daemon reload; cold
+recovery starts without active waits. Older viewers ignore startup reports.
+Older daemons do not show the Find agents button.
+
 Each provider has its own **YOLO** checkbox, initially off. Click it or press
 `y` on that row to change it; this does not launch anything. The choice is
 remembered across viewers and recovery:

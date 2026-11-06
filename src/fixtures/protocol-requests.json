@@ -10,7 +10,9 @@
   "session.locate": {
     "pane": 1
   },
-  "workspace.archive.preview": { "target": 1 },
+  "workspace.archive.preview": {
+    "target": 1
+  },
   "session.list": {},
   "launcher.catalog": { "workspace": 0, "cwd": "" },
   "launcher.models": { "row": "codex" },
@@ -46,8 +48,20 @@
     "needle": "x",
     "skip": 1
   },
-  "viewer.pick": { "pane": 1, "offset": 0, "unit": "word", "x": 3, "y": 2, "to_x": 9, "to_y": 2 },
-  "viewer.image": { "pane": 1, "image": "1-1", "offset": 0 },
+  "viewer.pick": {
+    "pane": 1,
+    "offset": 0,
+    "unit": "word",
+    "x": 3,
+    "y": 2,
+    "to_x": 9,
+    "to_y": 2
+  },
+  "viewer.image": {
+    "pane": 1,
+    "image": "1-1",
+    "offset": 0
+  },
   "pane.acknowledge": {
     "pane": 1,
     "session": "s",
@@ -166,6 +180,9 @@
   "agent.track_usage": {
     "workspace": 1
   },
+  "agent.discover": {
+    "provider": "codex"
+  },
   "agent.history": {},
   "viewer.list": {},
   "action": {
@@ -245,7 +262,21 @@
     "ms": 1000
   },
   "viewer.terminal": {
-    "terminal": { "name": "kitty(0.39.1)", "cols": 120, "rows": 40 }
+    "terminal": {
+      "name": "kitty(0.39.1)",
+      "cols": 120,
+      "rows": 40
+    }
   },
-  "bugreport": {}
+  "bugreport": {},
+  "startup": {
+    "id": "test",
+    "pane": 1,
+    "provider": "opencode2",
+    "phase": "service",
+    "started_at": 1
+  },
+  "startup.kill": {
+    "id": "test"
+  }
 }

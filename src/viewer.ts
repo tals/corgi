@@ -13,6 +13,7 @@ import * as corgiBadge from "./corgi_badge";
 import * as terminal_info from "./terminal_info";
 import * as linkThumbnail from "./link_thumbnail";
 import * as rowGlide from "./row_glide";
+import * as discovery from "./discovery";
 import { Differ } from "./frame_diff";
 import * as composition from "./composition";
 import * as framePacing from "./frame_pacing";
@@ -329,6 +330,8 @@ export async function run(
   folder: string | null = null,
 ): Promise<string | null> {
   const view = new Controller(connection);
+  // Sign-in asks which agents are there; mise answers for its shims meanwhile.
+  void discovery.ready();
   try {
     const bell = { seq: await openMode(view, folder ?? process.cwd(), probe.theme, start_onboarding) };
     if (folder !== null)

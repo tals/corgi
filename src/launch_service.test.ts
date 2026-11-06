@@ -2,12 +2,15 @@ import { afterAll, beforeAll, test, expect, spyOn } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { service, publish, request, sample, stop, due } from "./launch_service";
+import { service, publish, request, sample, stop, due, agentRan, discover } from "./launch_service";
 import { Entry } from "./launch/command";
 import { Preview, Worker as PreviewWorker, active_every, idle_every } from "./launch/preview";
 import { Text, byProvider } from "./providers";
 import * as protocol from "./protocol";
 import * as accounts from "./accounts";
+import * as discovery from "./discovery";
+import * as integration from "./integration";
+import * as os from "./os";
 /** A runtime's launcher list with nothing taken out. */
 const nothingRemoved = () => ({
   agent_hidden: byProvider(() => false),
@@ -401,6 +404,105 @@ test("a subscription is due only while the worker holds a preview it wasn't sent
     expect(due(server, client)).toBe(false);
     expect(due(server, { launch_preview: null } as any)).toBe(false);
   } finally {
+    await stop(server);
+  }
+});
+
+test("install-on-use processes rescan once even when the installed version is unsupported", async () => {
+  const server: any = {},
+    cwd = spyOn(os, "processCwd").mockReturnValue("/workspace/local"),
+    executable = spyOn(os, "processPath").mockReturnValue("/installed/bin/pi"),
+    onDemand = spyOn(discovery, "onDemand").mockReturnValue(true),
+    installed = spyOn(discovery, "installed").mockReturnValue(false),
+    prepare = spyOn(integration, "prepare").mockResolvedValue(),
+    rescan = spyOn(discovery, "rescan").mockResolvedValue();
+  try {
+    const settle = () => new Promise(resolve => setImmediate(resolve));
+    // Every hook a running agent sends asks; only the first from each process finds again.
+    for (let i = 0; i < 3; i++) agentRan(server, "pi", 42);
+    await settle();
+    agentRan(server, "pi", 42);
+    await settle();
+    expect(rescan.mock.calls).toEqual([[["pi"], "/workspace/local"]]);
+    expect(onDemand).toHaveBeenCalledWith("pi", "/workspace/local");
+    agentRan(server, "pi", 43);
+    await settle();
+    expect(rescan).toHaveBeenCalledTimes(2);
+    // Once it's found, nothing asks.
+    onDemand.mockReturnValue(false);
+    agentRan(server, "pi", 44);
+    await settle();
+    expect(rescan).toHaveBeenCalledTimes(2);
+  } finally {
+    cwd.mockRestore();
+    executable.mockRestore();
+    onDemand.mockRestore();
+    installed.mockRestore();
+    prepare.mockRestore();
+    rescan.mockRestore();
+    await stop(server);
+  }
+});
+
+for (const previewFound of [false, true])
+  test(`mise handing off the same PID sets up the installed agent (preview found it: ${previewFound})`, async () => {
+    const server: any = {},
+      cwd = spyOn(os, "processCwd").mockReturnValue("/workspace/local"),
+      executable = spyOn(os, "processPath").mockReturnValue("/bin/mise"),
+      onDemand = spyOn(discovery, "onDemand").mockReturnValue(true),
+      installed = spyOn(discovery, "installed").mockReturnValue(false),
+      known = spyOn(accounts, "known").mockReturnValue([
+        { provider: "codex", dir: "/accounts/work", name: "work", managed: false },
+      ]),
+      prepare = spyOn(integration, "prepare").mockResolvedValue(),
+      rescan = spyOn(discovery, "rescan").mockImplementation(async () => {
+        installed.mockReturnValue(true);
+      }),
+      settle = () => new Promise(resolve => setImmediate(resolve));
+    try {
+      for (let i = 0; i < 3; i++) agentRan(server, "codex", 42);
+      await settle();
+      expect(rescan).not.toHaveBeenCalled();
+      expect(prepare).not.toHaveBeenCalled();
+      // The preview may discover the executable while mise still owns the PID.
+      installed.mockReturnValue(previewFound);
+      onDemand.mockReturnValue(!previewFound);
+      agentRan(server, "codex", 42);
+      await settle();
+      expect(rescan).not.toHaveBeenCalled();
+      executable.mockReturnValue("/installed/bin/codex");
+      for (let i = 0; i < 3; i++) agentRan(server, "codex", 42);
+      await settle();
+      agentRan(server, "codex", 42);
+      await settle();
+      expect(rescan.mock.calls).toEqual([[["codex"], "/workspace/local"]]);
+      expect(prepare.mock.calls).toEqual([
+        ["codex", "", false, "/workspace/local"],
+        ["codex", "/accounts/work", false, "/workspace/local"],
+      ]);
+    } finally {
+      cwd.mockRestore();
+      executable.mockRestore();
+      onDemand.mockRestore();
+      installed.mockRestore();
+      known.mockRestore();
+      prepare.mockRestore();
+      rescan.mockRestore();
+      await stop(server);
+    }
+  });
+
+test("Find agents rescans the requested workspace rather than the daemon directory", async () => {
+  const server: any = {},
+    installed = spyOn(discovery, "installed").mockReturnValue(false),
+    rescan = spyOn(discovery, "rescan").mockResolvedValue();
+  try {
+    await discover(server, ["pi"], "/workspace/local");
+    expect(rescan.mock.calls).toEqual([[["pi"], "/workspace/local"]]);
+    expect(installed.mock.calls).toEqual([["pi", "/workspace/local"]]);
+  } finally {
+    installed.mockRestore();
+    rescan.mockRestore();
     await stop(server);
   }
 });

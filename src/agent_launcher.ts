@@ -105,6 +105,7 @@ export interface Preview {
   options: ByProvider<Option>;
   installed: ByProvider<boolean>;
   configured: ByProvider<boolean>;
+  on_demand: ByProvider<boolean>;
   /** The version of each agent that is there but too old for Corgi, or "". */
   outdated: ByProvider<string>;
   /** What each default account is called; "" for one that goes by its agent's name. */
@@ -117,6 +118,7 @@ export function preview(value: any = {}): Preview {
     options: byProvider(p => option(value.options?.[p])),
     installed: byProvider(p => value.installed?.[p] !== false),
     configured: byProvider(p => value.configured?.[p] !== false),
+    on_demand: byProvider(p => value.on_demand?.[p] === true),
     outdated: byProvider(p => (typeof value.outdated?.[p] === "string" ? value.outdated[p] : "")),
     names: byProvider(p => (typeof value.names?.[p] === "string" ? value.names[p] : "")),
     accounts: (Array.isArray(value.accounts) ? value.accounts : []).flatMap((a: any): AccountOption[] => {
@@ -178,6 +180,8 @@ export class Menu {
   /** Conversations panes run now, which the list jumps to instead. */
   open: launcherResume.Open[] = [];
   selected: Row = Provider.first;
+  /** Whether Find agents is running; null when unsupported. */
+  finding: boolean | null = null;
   private discovering_selection: { row: Row; fallback: Row } | null = null;
   /** Each provider's own row's YOLO and Show; an account's row has its own. */
   yolo = byProvider(() => false);
@@ -261,8 +265,9 @@ export class Menu {
   private explicitlyAdded(row: Row): boolean {
     return this.added.includes(row) || this.profileOf(row) !== null;
   }
-  /** The account a row signs in to instead of starting its agent: one signed out. */
+  /** A signed-out account to sign in to once its agent is installed. */
   signsIn(row: Row): AccountOption | null {
+    if (this.onDemand(row)) return null;
     const a = this.accountOf(row);
     return a !== null && a.option.signed_in === false && adapter(a.provider).accounts.signin !== null ? a : null;
   }
@@ -307,6 +312,7 @@ export class Menu {
   }
   private accountCell(row: Row): string {
     const o = this.optionOf(row) ?? option();
+    if (this.onDemand(row)) return i18n.t`Installs on use`;
     if (o.signed_in === false) return i18n.t`Not signed in`;
     if (o.account) return o.account;
     if (o.pending ?? this.preview.pending) return i18n.t`Reading…`;
@@ -323,8 +329,18 @@ export class Menu {
       adapter(this.launchOf(row)!.provider).bypass === false ? "—" : this.yoloOf(row) ? "✓" : "·",
       model.name + effort.suffix(model.effort),
       out ? "—" : this.accountCell(row),
-      out || o.signed_in === false ? "—" : o.plan.length > 0 ? o.plan : pending ? "…" : i18n.t`Unknown`,
+      out || o.signed_in === false || this.onDemand(row)
+        ? "—"
+        : o.plan.length > 0
+          ? o.plan
+          : pending
+            ? "…"
+            : i18n.t`Unknown`,
     ];
+  }
+  private onDemand(row: Row): boolean {
+    const provider = this.launchOf(row)?.provider;
+    return provider !== undefined && this.preview.on_demand[provider];
   }
   customCells(index: number): string[] {
     const entry = this.commands[index];
@@ -794,16 +810,18 @@ export class Menu {
         account: l.account,
         name: this.profileOf(row)?.name ?? (l.account ? (a?.name ?? "") : this.preview.names[l.provider]),
         label: this.label(row),
-        available: installed,
-        who: discovering
-          ? i18n.t`Discovering…`
-          : !installed
-            ? this.preview.outdated[l.provider]
-              ? i18n.t`${version} · needs ${requires}`
-              : i18n.t`Not installed`
-            : out
-              ? i18n.t`Not signed in`
-              : this.accountCell(row),
+        available: installed || this.preview.on_demand[l.provider],
+        who: this.preview.on_demand[l.provider]
+          ? this.accountCell(row)
+          : discovering
+            ? i18n.t`Discovering…`
+            : !installed
+              ? this.preview.outdated[l.provider]
+                ? i18n.t`${version} · needs ${requires}`
+                : i18n.t`Not installed`
+              : out
+                ? i18n.t`Not signed in`
+                : this.accountCell(row),
         signed_out: out,
         shown: this.listed(row),
         here: !this.workspace_hidden.includes(row),
@@ -814,6 +832,7 @@ export class Menu {
     return {
       agents,
       discovering: this.discovering(),
+      finding: this.finding,
       commands: this.commands,
       workspace: this.workspace_name,
       here: index => !this.workspace_hidden.includes(Row.ofCommand(index)),

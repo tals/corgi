@@ -80,6 +80,7 @@ import * as linkTooltip from "./link_tooltip";
 import * as linkThumbnail from "./link_thumbnail";
 import * as paneImages from "./pane_images";
 import * as tabIcons from "./tab_icons";
+import * as startupCard from "./startup_card";
 import * as resourceTooltip from "./resource_tooltip";
 import * as gitTooltip from "./git_tooltip";
 import type { Signal } from "./trackers/resources";
@@ -408,6 +409,11 @@ export class Controller {
   private account_removals = new Map<string, AccountRemoval>();
   /** The launcher row last left selected in any workspace. */
   launcher_selection: LauncherRow | null = null;
+  /** Whether this viewer has asked the daemon to find agents yet, or can't. */
+  private find_agents: "not_yet" | "asked" | "unsupported" = "not_yet";
+  private finding_agents: Promise<void> | null = null;
+  private finding_agents_until = 0;
+  private was_managing = false;
   launch_previews = new LaunchPreviewStream();
   /** Conversations panes run, and recent ones that stopped, with when. */
   running: launcherResume.Open[] = [];
@@ -437,6 +443,8 @@ export class Controller {
   /** The worktree the overview selects once the removed one is gone. */
   private removal_next: string | null = null;
   worktree_agents = new worktreeAgents.State();
+  startup_card: startupCard.State | null = null;
+  private startup_second = 0;
   resource_card = new resourceTooltip.State();
   resource_aim: resourceTooltip.Aim | null = null;
   ui_mouse_down = false;
@@ -1536,6 +1544,7 @@ export class Controller {
   }
   private hasMenu(): boolean {
     return (
+      this.startup_card !== null ||
       this.archive_dialog !== null ||
       this.worktree_card.pinned ||
       this.resource_card.pinned ||
@@ -1967,6 +1976,7 @@ export class Controller {
     this.moonlander?.reply(sequence, this.width, this.height);
   }
   closeMenu(): void {
+    this.startup_card = null;
     this.archive_dialog = null;
     this.closeMoonlander();
     this.leaveSidebar();
@@ -2298,6 +2308,46 @@ export class Controller {
         return this.restoreDock("redo");
       case "cancel-dock":
         return this.cancelDock();
+      case "startup-waits":
+        this.closeMenu();
+        this.startup_card = new startupCard.State();
+        this.startup_card.sync(this.runtime.startup_waits);
+        this.dirty = true;
+        break;
+      case "startup-close":
+        this.startup_card = null;
+        this.dirty = true;
+        break;
+      case "startup-next":
+      case "startup-prev":
+        this.startup_card?.move(this.runtime.startup_waits, act.name === "startup-next" ? 1 : -1);
+        this.dirty = true;
+        break;
+      case "startup-select":
+        if (this.startup_card) this.startup_card.selected = String(act.value);
+        this.dirty = true;
+        break;
+      case "startup-go": {
+        const wait = this.runtime.startup_waits.find(w => w.id === act.value);
+        if (wait) {
+          this.closeMenu();
+          this.focusPane(wait.pane);
+        }
+        break;
+      }
+      case "startup-kill": {
+        const wait = this.runtime.startup_waits.find(w => w.id === act.value);
+        if (wait && !wait.cancelled) {
+          try {
+            await this.rpc().call("startup.kill", { id: wait.id });
+            wait.cancelled = true;
+          } catch (error) {
+            if (!errors.is(error, "NoProcess")) this.notice(i18n.t`Could not stop startup`);
+          }
+        }
+        this.dirty = true;
+        break;
+      }
       case "worktrees": {
         const id = Number(act.value) || this.current().id;
         if (this.runtime.workspaces.index(id) === null) break;
@@ -3097,6 +3147,28 @@ export class Controller {
   private launcherModel(): LauncherMenu | null {
     return this.agent_launcher ?? this.corgi_setup?.agents ?? null;
   }
+  /** Asks the daemon to find agents afresh, as Find agents does, and the
+   * first time this viewer opens Manage agents. An older daemon can't, and
+   * the button goes. */
+  private findAgents(): void {
+    const now = milliTimestamp();
+    if (this.finding_agents || now < this.finding_agents_until) return;
+    this.finding_agents_until = now + 150;
+    this.finding_agents = call(this.connection, "agent.discover", {
+      provider: null,
+      cwd: this.launcherModel()?.cwd ?? "",
+    })
+      .then(() => undefined)
+      .catch(error => {
+        // XXX: Remove for next protocol bump. An older daemon refuses agent.discover.
+        if (errors.is(error, "UnknownOperation")) this.find_agents = "unsupported";
+      })
+      .finally(() => {
+        this.finding_agents = null;
+        this.dirty = true;
+      });
+    this.dirty = true;
+  }
   /** Does what Manage agents asked for. */
   private async manageAction(action: agentManager.Action | null): Promise<void> {
     const launch = this.launcherModel();
@@ -3104,6 +3176,9 @@ export class Controller {
     if (!launch || !action) return;
     launch.pinned = true;
     switch (action.kind) {
+      case "find":
+        this.findAgents();
+        return;
       case "close":
         if (this.corgi_setup) return this.closeMenu();
         return this.dismissLauncher();
@@ -5038,6 +5113,11 @@ export class Controller {
         return;
       }
     }
+    if (this.startup_card) {
+      const act = this.startup_card.key(String.fromCharCode(byte));
+      if (act) await this.perform(act);
+      return;
+    }
     if (this.resource_card.pinned) {
       const act = this.resourceKey(String.fromCharCode(byte));
       if (act) await this.perform(act);
@@ -6015,6 +6095,9 @@ export class Controller {
         if (parsed_key === "up") await this.perform({ name: "worktree-prev" });
         else if (parsed_key === "down") await this.perform({ name: "worktree-next" });
         else if (parsed_key === "delete") await this.perform({ name: "worktree-remove" });
+      } else if (this.startup_card) {
+        const act = this.startup_card.key(text);
+        if (act) await this.perform(act);
       } else if (this.resource_card.pinned) {
         const act = this.resourceKey(text);
         if (act) await this.perform(act);
@@ -6325,6 +6408,23 @@ export class Controller {
         if (control.enabled) await this.perform({ name: control.name });
         return;
       }
+    }
+    if (this.startup_card) {
+      const rect = startupCard.geometry(this.width, this.height, this.runtime.startup_waits.length);
+      if (!release && button === 0) {
+        const act = rect ? this.startup_card.hit(rect, this.runtime.startup_waits, x, y) : { name: "startup-close" };
+        if (act) await this.perform(act);
+      } else if (!release && (button === 64 || button === 65))
+        await this.perform({ name: button === 65 ? "startup-next" : "startup-prev" });
+      this.dirty = true;
+      return;
+    }
+    const startup_bar = startupCard.banner(this.runtime.startup_waits, this.width, this.height, Date.now());
+    if (!this.hasMenu() && !this.name_dialog && startup_bar?.rect.contains(x, y)) {
+      this.pointer = { x, y };
+      this.dirty = true;
+      if (!release && button === 0) await this.perform({ name: "startup-waits" });
+      return;
     }
     if (this.archive_dialog) {
       this.pointer = { x, y };
@@ -7525,6 +7625,11 @@ export class Controller {
         drag.update(this.layoutView(), this.pointer.x, this.pointer.y, this.tabSpace(), now);
       }
     }
+    const startup_second = Math.floor(Date.now() / 1000);
+    if (this.runtime.startup_waits.length && startup_second !== this.startup_second) {
+      this.startup_second = startup_second;
+      this.dirty = true;
+    }
     const waking = this.wakeFocused();
     if (waking) await waking;
     this.pollPrompt();
@@ -7597,6 +7702,22 @@ export class Controller {
     const launch = this.agent_launcher;
     if (launch?.transition.tick(milliTimestamp())) this.dirty = true;
     const model = this.launcherModel();
+    // Opening Manage agents looks for agents once per viewer, and again while
+    // the daemon couldn't, as one reloaded since may.
+    const opened = !!model?.managing && !this.was_managing;
+    this.was_managing = !!model?.managing;
+    if (model?.managing) {
+      if (opened && this.find_agents !== "asked") {
+        this.find_agents = "asked";
+        this.findAgents();
+      }
+      const finding =
+        this.find_agents === "unsupported"
+          ? null
+          : this.finding_agents !== null || milliTimestamp() < this.finding_agents_until;
+      if (finding || model.finding !== finding) this.dirty = true;
+      model.finding = finding;
+    }
     if (
       model?.managing &&
       (!this.corgi_setup || this.corgi_setup.managing()) &&
@@ -8419,6 +8540,8 @@ export class Controller {
         iterm2_pointer: this.iterm2_pointer,
         link_tooltip: tooltip_ready,
         link_card,
+        startup_waits: this.runtime.startup_waits,
+        startup_card: this.startup_card,
         resources: this.runtime.resources,
         resource_hover: this.link_tooltip.target?.resource ?? null,
         resource_card: (tooltip_ready || this.resource_card.pinned) && detail !== null ? this.resource_card : null,

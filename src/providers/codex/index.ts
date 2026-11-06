@@ -56,9 +56,9 @@ export const events = [
 ];
 const settings = (account: string) =>
   new hooksFile.File("codex", dir(account), "hooks.json", events, account ? configDir() : null);
-async function title(directory: string) {
+async function title(directory: string, cwd?: string) {
   try {
-    return await integration.installTitle(directory);
+    return await integration.installTitle(directory, cwd);
   } catch (error) {
     return hooksFile.failed("title", join(directory, "config.toml"), error);
   }
@@ -199,12 +199,14 @@ export const adapter: Adapter = {
       }
       return [hooks, integration.titleStatus(file.directory)];
     },
-    async startup(account, handoff) {
+    async startup(account, handoff, cwd) {
       const file = settings(account),
         hooks = file.install();
       if (hooks.outcome === "failed") console.error("hook setup:", hooks.error);
       if (!handoff)
-        void title(file.directory).then(r => r.outcome === "failed" && console.error("Codex title setup:", r.error));
+        void title(file.directory, cwd).then(
+          r => r.outcome === "failed" && console.error("Codex title setup:", r.error),
+        );
     },
     snippet: executable => hooksFile.snippet("codex", events, executable),
   },

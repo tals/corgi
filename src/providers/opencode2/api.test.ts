@@ -1,3 +1,4 @@
+import { Quit } from "../../subprocess";
 import { afterEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -186,4 +187,47 @@ test("with a login, reads borrow a private server unless told not to", async () 
   expect(runs()).toBe("");
   await expect(API.peek("/tmp", async () => "read")).rejects.toThrow("OpenCodeServiceUnavailable");
   expect(runs()).toBe("serve --stdio --port 0\n");
+});
+
+test("a user startup streams installation past ten seconds before starting the API deadline", async () => {
+  const http = serve("secret", () => Response.json({ data: { ready: true } })),
+    url = `http://127.0.0.1:${http.port}`;
+  advertise(url, "secret");
+  const state = process.env.XDG_STATE_HOME!,
+    file = join(state, "opencode/service.json"),
+    helper = join(state, "opencode-cli"),
+    messages: string[] = [],
+    phases: string[] = [];
+  rmSync(file);
+  writeFileSync(
+    helper,
+    `#!/bin/sh\necho 'mise opencode@2 downloading' >&2\nsleep 10.2\nprintf '%s' '${JSON.stringify({ url, password: "secret" })}' > '${file}'\n`,
+    { mode: 0o755 },
+  );
+  const api = new API(helper, state, true, {
+    quit: new Quit(),
+    update: phase => phases.push(phase),
+    output: bytes => messages.push(bytes.toString()),
+  });
+  const started = Date.now(),
+    result = await api.call("GET", "/api/info", undefined, undefined, 1000);
+  expect(Date.now() - started).toBeGreaterThan(10000);
+  expect(result).toEqual({ data: { ready: true } });
+  expect(messages.join("")).toContain("mise opencode@2 downloading");
+  expect(phases).toEqual(["service", "session"]);
+}, 15000);
+
+test("a user can cancel an unbounded service startup", async () => {
+  advertise("http://127.0.0.1:1", "secret");
+  const state = process.env.XDG_STATE_HOME!,
+    helper = join(state, "opencode-cli"),
+    quit = new Quit();
+  rmSync(join(state, "opencode/service.json"));
+  writeFileSync(helper, "#!/bin/sh\necho starting >&2\nsleep 20 & wait\n", { mode: 0o755 });
+  const api = new API(helper, state, true, {
+    quit,
+    update: () => {},
+    output: () => quit.signal(),
+  });
+  await expect(api.call("GET", "/api/info")).rejects.toThrow("Cancelled");
 });

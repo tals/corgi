@@ -1,3 +1,4 @@
+import { Reporter } from "./startup_reporter";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -41,24 +42,34 @@ export async function hook(provider: Provider, path: string): Promise<void> {
 }
 export async function launch(provider: Provider, args: string[], _executable: string): Promise<never> {
   if (process.env.CORGI_PANE === undefined) throw Error("LaunchInsideCorgi");
-  // Like execvp: a bare name (Claude, or an override) is looked up on PATH.
-  const binary = await discovery.resolve(provider),
+  const progress = new Reporter(provider, Number(process.env.CORGI_PANE), process.env.CORGI_SOCKET!);
+  let binary: string, path: string | null;
+  try {
+    // Like execvp: a bare name (Claude, or an override) is looked up on PATH.
+    // Someone started it, so a stub may install it here, where they see it.
+    binary = await discovery.resolve(provider, null, { stubs: true });
     path = binary.includes("/") ? binary : discovery.onPath(binary);
-  if (path === null) throw Error("ProviderNotFound");
-  if (adapter(provider).integration.prepare_on_launch) await prepare(provider, "", false, process.cwd());
-  const prepared = await adapter(provider).launch.prepare?.(args, path);
-  if (prepared) {
-    args = prepared.args;
-    for (const [key, value] of prepared.env ?? []) process.env[key] = value;
-    if (prepared.event)
-      await rpc.request(process.env.CORGI_SOCKET!, "hook", {
-        provider,
-        event: prepared.event,
-        pane: Number(process.env.CORGI_PANE),
-        seq: Date.now() * 1000,
-        background: false,
-        pid: process.pid,
-      });
+    progress.check();
+    if (path === null) throw Error("ProviderNotFound");
+    if (adapter(provider).integration.prepare_on_launch) await prepare(provider, "", false, process.cwd());
+    const prepared = await adapter(provider).launch.prepare?.(args, path, progress);
+    progress.check();
+    if (prepared) {
+      args = prepared.args;
+      for (const [key, value] of prepared.env ?? []) process.env[key] = value;
+      if (prepared.event)
+        await rpc.request(process.env.CORGI_SOCKET!, "hook", {
+          provider,
+          event: prepared.event,
+          pane: Number(process.env.CORGI_PANE),
+          seq: Date.now() * 1000,
+          background: false,
+          pid: process.pid,
+        });
+    }
+    progress.check();
+  } finally {
+    progress.close();
   }
   process.execve!(path, [binary, ...args], process.env as Record<string, string>);
   throw Error("ExecFailed");

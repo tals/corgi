@@ -293,7 +293,9 @@ $.clients[].launch_preview?.preview.options{provider}.spend_daily[].day: i64
 $.clients[].launch_preview?.preview.options{provider}.spend_daily[].period_start: i64
 $.clients[].launch_preview?.preview.options{provider}.spend_daily[].used_minor: f64
 $.clients[].launch_preview?.preview.installed{provider}: bool
+$.clients[].launch_preview?.preview.configured{provider}: bool
 $.clients[].launch_preview?.preview.outdated{provider}: string
+$.clients[].launch_preview?.preview.on_demand{provider}: bool
 $.clients[].launch_preview?.checked: i64
 $.clients[].launch_preview?.history_asked: bool
 $.clients[].launch_preview?.history_epoch: u64
@@ -324,3 +326,11 @@ $.clients[].headless_start?.id: u32
 $.clients[].headless_start?.deadline: i64
 $.clients[].headless_start?.request_id: optional
 $.clients[].headless_start?.request_id?: u64
+$.clients[].startup_wait: optional
+$.clients[].startup_wait?.id: string
+$.clients[].startup_wait?.pane: u32
+$.clients[].startup_wait?.provider: enum claude codex pi omp opencode2
+$.clients[].startup_wait?.phase: enum discovering service session installing agent
+$.clients[].startup_wait?.detail: string
+$.clients[].startup_wait?.started_at: i64
+$.clients[].startup_wait?.cancelled: bool

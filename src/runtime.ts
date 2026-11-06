@@ -1,3 +1,4 @@
+import type { Wait as StartupWait } from "./startup";
 import * as json from "./json";
 import * as clock from "./clock";
 import * as telemetry from "./telemetry";
@@ -467,6 +468,7 @@ function clone(m: Model) {
   return next;
 }
 export class Runtime {
+  startup_waits: StartupWait[] = [];
   workspaces = new Store();
   panes: Pane[] = [];
   closed: ClosedAgent[] = [];

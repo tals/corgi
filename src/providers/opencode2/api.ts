@@ -3,6 +3,7 @@
 //! reads that shouldn't start it borrow a private server instead. Model
 //! names cross only through its API; the TUI's model choice is read from its
 //! state directory.
+import type { Progress } from "../../startup";
 import { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -170,6 +171,7 @@ export class API {
     readonly cwd = process.cwd(),
     /** Whether the CLI may start the background service. */
     readonly starts = true,
+    readonly progress?: Progress,
   ) {}
   static async open(cwd = process.cwd()) {
     return new API(await discovery.resolve("opencode2", cwd), cwd);
@@ -194,23 +196,38 @@ export class API {
     if (!this.starts) throw Error("OpenCodeServiceUnavailable");
     let found = endpoint();
     if (!found || (failed && found.url === failed.url && found.authorization === failed.authorization)) {
-      await subprocess.run([this.executable, "api", "GET", "/api/info"], {
+      this.progress?.update("service");
+      const result = await subprocess.run([this.executable, "api", "GET", "/api/info"], {
         cwd: this.cwd,
-        timeout_ms: 10000,
-        detached: false,
+        timeout_ms: this.progress ? null : 10000,
+        detached: this.progress ? true : false,
+        quit: this.progress?.quit,
+        stderr: !!this.progress,
+        capture: !this.progress,
+        on_output: this.progress ? (bytes, stream) => this.progress!.output(bytes, stream) : undefined,
       });
+      if (!result.ok()) throw Error("OpenCodeServiceUnavailable");
       found = endpoint();
     }
     if (!found) throw Error("OpenCodeServiceUnavailable");
+    this.progress?.update("session");
     return (this.service = found);
   }
   /** A request that never reached the service is sent once more, past a restart. */
-  async request(path: string, init: RequestInit & { headers?: Record<string, string> }) {
+  async request(path: string, init: RequestInit & { headers?: Record<string, string> }, timeout?: number) {
     let at = this.service ?? (await this.locate());
     for (let retried = false; ; retried = true) {
       let reply: Response;
       try {
-        reply = await fetch(at.url + path, { ...init, headers: { ...init.headers, authorization: at.authorization } });
+        const signal =
+          timeout === undefined
+            ? init.signal
+            : AbortSignal.any([AbortSignal.timeout(timeout), ...(init.signal ? [init.signal] : [])]);
+        reply = await fetch(at.url + path, {
+          ...init,
+          signal,
+          headers: { ...init.headers, authorization: at.authorization },
+        });
       } catch (error) {
         const code = field(error, "code");
         if (retried || (code !== "ConnectionRefused" && code !== "ECONNREFUSED")) throw error;
@@ -222,14 +239,19 @@ export class API {
     }
   }
   async call(method: string, path: string, body?: unknown, quit?: subprocess.Quit, timeout = 10000): Promise<unknown> {
+    quit ??= this.progress?.quit;
     if (quit?.aborted) throw Error("Cancelled");
     try {
-      const reply = await this.request(path, {
-        method,
-        headers: body === undefined ? {} : { "content-type": "application/json" },
-        body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.any([AbortSignal.timeout(timeout), ...(quit ? [quit.abortSignal] : [])]),
-      });
+      const reply = await this.request(
+        path,
+        {
+          method,
+          headers: body === undefined ? {} : { "content-type": "application/json" },
+          body: body === undefined ? undefined : JSON.stringify(body),
+          signal: quit?.abortSignal,
+        },
+        timeout,
+      );
       if (!reply.ok) throw Error("OpenCodeRequestFailed");
       const out = await text(reply);
       return out ? JSON.parse(out) : null;

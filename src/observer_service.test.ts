@@ -1,5 +1,5 @@
 import { stringify } from "./json";
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { Server } from "./server";
 import { Pane, Launch } from "./runtime";
 import { Terminal } from "./pane/terminal";
@@ -11,6 +11,7 @@ import * as codex from "./providers/codex";
 import * as checklist from "./activity/checklist";
 import * as omp from "./providers/omp";
 import * as agents from "./agents";
+import * as launch_service from "./launch_service";
 import { Result as UsageResult } from "./usage/worker";
 import { Counts } from "./usage/tokens";
 import { Workspace } from "./workspace";
@@ -100,6 +101,19 @@ test("foreground detection shares its title read with local reattachment", () =>
   detectPane(server, pane, { provider: "codex", pid: 42 });
   expect(pane.attachment.actor).toBe(actor);
   expect(terminal.titleReads).toBe(1);
+});
+
+test("foreground detection checks installation again when the agent keeps its PID", async () => {
+  const { server, pane } = fixture(),
+    found = spyOn(launch_service, "agentRan").mockImplementation(() => {});
+  try {
+    for (let i = 0; i < 3; i++) detectPane(server, pane, { provider: "codex", pid: 42 });
+    await new Promise(resolve => setImmediate(resolve));
+    expect(found).toHaveBeenCalledTimes(3);
+    expect(found).toHaveBeenLastCalledWith(server, "codex", 42);
+  } finally {
+    found.mockRestore();
+  }
 });
 
 test("agent detection consumes a staged restore before hooks can save its state", () => {

@@ -678,6 +678,7 @@ function build(r: Runtime, viewer: boolean) {
     auto_retry: r.auto_retry,
     system_usage: r.system_usage,
     system_working: r.system_working,
+    startup_waits: r.startup_waits,
     server_pid: process.pid,
     ports: r.link_labels.snapshot?.(r.ports.current) ?? [],
     resources: viewer ? {} : (r.resources.current ?? {}),

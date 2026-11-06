@@ -5,7 +5,10 @@ export type Options = {
   cwd?: string;
   env?: Record<string, string | undefined>;
   input?: string | Uint8Array;
-  timeout_ms: number;
+  /** Null only for a user-owned, cancellable operation. */
+  timeout_ms: number | null;
+  capture?: boolean;
+  on_output?(bytes: Buffer, stream: "stdout" | "stderr"): void;
   max_output?: number;
   /** Output past `max_output` ends the process and keeps the first
    * `max_output` bytes, marked `cut`, instead of failing OutputTooLarge. */
@@ -66,8 +69,10 @@ export async function run(argv: string[], options: Options): Promise<Output> {
     watches: ReturnType<ReadyLoop["watch"]>[] = [];
   let child: ChildProcess | undefined,
     timer: ReturnType<typeof setTimeout> | undefined,
+    abort_timer: ReturnType<typeof setTimeout> | undefined,
     stdout = Buffer.alloc(0),
     stderr = Buffer.alloc(0),
+    rejectExit: ((error: Error) => void) | undefined,
     failure: Error | undefined,
     cut = false,
     finished = false;
@@ -95,13 +100,19 @@ export async function run(argv: string[], options: Options): Promise<Output> {
     failure ??= Error(name);
     kill();
   };
-  const abort = () => stop("Cancelled");
+  const abort = () => {
+    stop("Cancelled");
+    // Reap a normal exit first; a lost Bun notification must still settle cancellation.
+    abort_timer ??= setTimeout(() => rejectExit?.(failure!), 100);
+  };
   const drain = (fd: number, error: boolean) => {
     const buffer = Buffer.alloc(16384);
     for (let i = 0; i < 16; i++) {
       const size = n.probe_read(fd, ptr(buffer), buffer.length);
       if (size === -4) continue;
       if (size <= 0) break;
+      options.on_output?.(Buffer.from(buffer.subarray(0, size)), error ? "stderr" : "stdout");
+      if (options.capture === false) continue;
       if (error) stderr = Buffer.concat([stderr, buffer.subarray(0, size)]).subarray(-cap);
       else if (stdout.length + size <= cap) stdout = Buffer.concat([stdout, buffer.subarray(0, size)]);
       else if (options.cut) {
@@ -127,6 +138,7 @@ export async function run(argv: string[], options: Options): Promise<Output> {
     close(outWrite);
     if (errWrite >= 0) close(errWrite);
     const exited = new Promise<Term>((resolve, reject) => {
+      rejectExit = reject;
       const ended = (code: number | null, signal: string | null) =>
         resolve(signal ? { signal: signal.replace(/^SIG/, "") } : { exited: code ?? 0 });
       child!.once("error", error => reject(spawnError(error)));
@@ -135,10 +147,11 @@ export async function run(argv: string[], options: Options): Promise<Output> {
       // listener (oven-sh/bun#45483); its status is set by then.
       if (child!.exitCode !== null || child!.signalCode !== null) ended(child!.exitCode, child!.signalCode);
       // Nor does a lost exit outlive the deadline.
-      timer = setTimeout(() => {
-        stop("TimedOut");
-        reject(failure);
-      }, options.timeout_ms);
+      if (options.timeout_ms !== null)
+        timer = setTimeout(() => {
+          stop("TimedOut");
+          reject(failure);
+        }, options.timeout_ms);
     });
     options.quit?.abortSignal.addEventListener("abort", abort, { once: true });
     if (options.quit?.aborted) abort();
@@ -167,6 +180,7 @@ export async function run(argv: string[], options: Options): Promise<Output> {
   } finally {
     finished = true;
     if (timer) clearTimeout(timer);
+    if (abort_timer) clearTimeout(abort_timer);
     options.quit?.abortSignal.removeEventListener("abort", abort);
     for (const watch of watches) watch.close();
     loop.close();

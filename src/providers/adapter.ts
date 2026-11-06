@@ -1,3 +1,4 @@
+import type { Progress } from "../startup";
 import type { Effort } from "./effort";
 import type { Hook, Text } from "./common";
 import type { Quit } from "../subprocess";
@@ -483,6 +484,7 @@ export interface Adapter extends Info {
     prepare?(
       args: string[],
       executable: string,
+      progress?: Progress,
     ): Promise<{ args: string[]; event?: unknown; env?: [string, string][] }>;
     /** Options `args` without the effort they set, for `settle` to set on
      * each conversation the agent a pane starts with them in `account`

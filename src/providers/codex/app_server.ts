@@ -51,9 +51,11 @@ export class AppServer {
   private async start(signal: AbortSignal) {
     // Imported late: discovery reaches back into the provider registry.
     const discovery = await import("../../discovery");
+    // Nobody asked for Codex here, so a stub that would install it doesn't start.
+    const executable = this.executable ?? (await discovery.resolve("codex"));
     if (signal.aborted) throw Error("Cancelled");
     const env = this.account ? { ...process.env, CODEX_HOME: this.account } : undefined,
-      rpc = Rpc.spawn(this.executable ?? discovery.override("codex") ?? "codex", toolless, "/tmp", env);
+      rpc = Rpc.spawn(executable, toolless, "/tmp", env);
     try {
       await rpc.request(
         "initialize",
