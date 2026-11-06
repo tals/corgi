@@ -5694,7 +5694,7 @@ export class Controller {
     } else if (target === "prompt") {
       this.prompt.paste(viewerNative.encodePaste(text, true, 1).toString());
     } else {
-      for (const byte of viewerNative.encodePaste(text, true, 1)) void this.pasteByteSync(target, byte);
+      void this.pasteBytes(target, viewerNative.encodePaste(text, true, 1));
     }
   }
   /** Explains, over SSH, why a key that usually pastes an image didn't.
@@ -5764,55 +5764,62 @@ export class Controller {
     this.paste_card = null;
     this.dirty = true;
   }
-  private async pasteByte(target: Paste, byte: number): Promise<void> {
+  private async pasteBytes(target: Paste, bytes: number[] | Uint8Array): Promise<void> {
     if (typeof target === "object") {
       const p = this.pane(target.pane);
-      if (p) this.sendInput(p.terminal, [byte]);
+      if (p) this.sendInput(p.terminal, bytes);
       return;
     }
     switch (target) {
       // Its owner can close mid-paste, when a snapshot removes the target.
       case "launcher":
         if (this.resumeSearching()) {
-          this.agent_launcher!.resume_view.query.pasteByte(byte);
+          for (const byte of bytes) this.agent_launcher!.resume_view.query.pasteByte(byte);
           this.agent_launcher!.resume_view.home();
         } else if (this.agent_launcher) {
           const launch = this.agent_launcher,
             c = launch.worktree;
-          if (launch.managing) launch.manager.paste(byte, launch.manageModel());
-          else if (c.mode === "open" && c.focus === "from") c.search(from => from.pasteByte(byte));
-          else if (c.mode === "open") c.edit(field => field.pasteByte(byte === 32 ? 45 : byte));
-          else launch.input().pasteByte(byte);
+          if (launch.managing) {
+            const model = launch.manageModel();
+            for (const byte of bytes) launch.manager.paste(byte, model);
+          } else if (c.mode === "open" && c.focus === "from") {
+            c.search(from => {
+              for (const byte of bytes) from.pasteByte(byte);
+            });
+          } else if (c.mode === "open") {
+            c.edit(field => {
+              for (const byte of bytes) field.pasteByte(byte === 32 ? 45 : byte);
+            });
+          } else for (const byte of bytes) launch.input().pasteByte(byte);
         }
         break;
       case "setup":
-        this.corgi_setup?.paste(byte);
+        for (const byte of bytes) this.corgi_setup?.paste(byte);
         break;
       case "picker":
-        if (this.agent_picker && byte >= 32 && byte < 127) await this.key(byte);
+        if (this.agent_picker) {
+          for (const byte of bytes) if (byte >= 32 && byte < 127) this.agent_picker.query.key(byte);
+          this.pickerEntries();
+        }
         break;
       case "name":
         if (this.name_dialog) {
           this.fitNameDialog();
-          this.name_dialog.pasteByte(byte);
+          for (const byte of bytes) this.name_dialog.pasteByte(byte);
         }
         break;
       case "signin":
-        await this.signin?.input(Uint8Array.of(byte));
+        await this.signin?.input(Uint8Array.from(bytes));
         break;
       case "review":
-        this.review.pasteByte(byte);
+        for (const byte of bytes) this.review.pasteByte(byte);
         break;
       case "prompt":
-        this.prompt.pasteByte(byte);
+        for (const byte of bytes) this.prompt.pasteByte(byte);
         break;
       case "discard":
         break;
     }
-  }
-  /** `pasteByte` for targets that never need the daemon. */
-  private pasteByteSync(target: Paste, byte: number): Promise<void> {
-    return this.pasteByte(target, byte);
   }
   async input(data: Uint8Array): Promise<void> {
     const cl = this.input_state;
@@ -5824,10 +5831,21 @@ export class Controller {
         cl.keybuf = [];
         return;
       }
-      const rest = cl.keybuf.slice(used);
-      if (rest[0] !== 27) {
-        if (cl.paste === null && rest[0] >= 128) {
-          const decoded = keyboard.textKey(rest);
+      const buf = cl.keybuf,
+        byte = buf[used];
+      if (byte !== 27) {
+        if (cl.paste !== null) {
+          let end = used + 1;
+          while (end < buf.length && buf[end] !== 27) end++;
+          this.closePasteCard();
+          this.link_tooltip.cancel();
+          this.dirty = true;
+          if (cl.paste !== "discard") await this.pasteBytes(cl.paste, buf.slice(used, end));
+          used = end;
+          continue;
+        }
+        if (byte >= 128) {
+          const decoded = keyboard.textKey(buf.slice(used, used + 4));
           if (decoded.length === 0) break;
           if (decoded.key && (await this.helpKey(decoded.key))) {
             used += decoded.length;
@@ -5858,26 +5876,24 @@ export class Controller {
             }
           }
           if (this.prefix) this.prefix = false;
-          else for (const byte of rest.slice(0, decoded.length)) await this.key(byte, true);
+          else for (let i = used; i < used + decoded.length; i++) await this.key(buf[i], true);
           used += decoded.length;
           continue;
         }
         this.closePasteCard();
-        this.pinWorktreeInput(String.fromCharCode(rest[0]));
-        const opened =
-          this.pinResourceInput(String.fromCharCode(rest[0])) || this.pinGitInput(String.fromCharCode(rest[0]));
+        this.pinWorktreeInput(String.fromCharCode(byte));
+        const opened = this.pinResourceInput(String.fromCharCode(byte)) || this.pinGitInput(String.fromCharCode(byte));
         this.link_tooltip.cancel();
         this.dirty = true;
         if (opened) {
           used += 1;
           continue;
         }
-        if (cl.paste !== null) await this.pasteByte(cl.paste, rest[0]);
-        else await this.key(rest[0]);
+        await this.key(byte);
         used += 1;
         continue;
       }
-      if (rest.length < 2) {
+      if (buf.length - used < 2) {
         this.pinWorktreeInput("\x1b");
         this.link_tooltip.cancel();
         this.dirty = true;
@@ -5885,27 +5901,27 @@ export class Controller {
       }
       if (
         cl.paste === null &&
-        rest[1] !== 0x5b &&
-        rest[1] !== 0x4f &&
+        buf[used + 1] !== 0x5b &&
+        buf[used + 1] !== 0x4f &&
         !this.help_visible &&
         !this.corgi_setup?.after_prefix &&
         !(this.signin && this.prefix) &&
         (this.hasMenu() || this.name_dialog !== null) &&
-        !this.promptAlt(rest)
+        !this.promptAlt(buf.slice(used, used + 2))
       ) {
         await this.key(27);
         used += 1;
         continue;
       }
       let len = 2;
-      if (rest[1] === 0x5b || rest[1] === 0x4f) {
-        while (len < rest.length && !(rest[len] >= 0x40 && rest[len] <= 0x7e)) len += 1;
-        if (len === rest.length) break;
+      if (buf[used + 1] === 0x5b || buf[used + 1] === 0x4f) {
+        while (len < buf.length - used && !(buf[used + len] >= 0x40 && buf[used + len] <= 0x7e)) len += 1;
+        if (len === buf.length - used) break;
         len += 1;
       }
       let alt_key: keyboard.Key | null = null;
-      if (rest[1] !== 0x5b && rest[1] !== 0x4f) {
-        const decoded = keyboard.textKey(rest.slice(1));
+      if (buf[used + 1] !== 0x5b && buf[used + 1] !== 0x4f) {
+        const decoded = keyboard.textKey(buf.slice(used + 1, used + 5));
         if (decoded.length === 0) break;
         len = 1 + decoded.length;
         if (decoded.key)
@@ -5914,7 +5930,7 @@ export class Controller {
             mods: { alt: true, shift: decoded.key.codepoint >= 65 && decoded.key.codepoint <= 90 },
           };
       }
-      let seq: number[] = rest.slice(0, len);
+      let seq: number[] = buf.slice(used, used + len);
       if (this.paste_card !== null) {
         const effect = this.cardInput(latin1(seq));
         if (effect === "close") this.closePasteCard();
@@ -7734,6 +7750,8 @@ export class Controller {
     if (
       cl.attached &&
       cl.keybuf.length > 0 &&
+      // A paste terminator can straddle slow reads; it isn't a lone Escape key.
+      !(cl.paste !== null && keys.paste_end.startsWith(latin1(cl.keybuf))) &&
       Date.now() - cl.escape_at > (cl.paste !== null || cl.keybuf.length === 1 ? 40 : 1000)
     ) {
       if (cl.paste !== null) {
