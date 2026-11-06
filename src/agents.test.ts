@@ -3,7 +3,7 @@ import { Agent, Text, toolActivity, type Presence } from "./agents";
 import { State } from "./observation";
 import { Hooks } from "./providers/common";
 import * as codex from "./providers/codex";
-import { Tail, completion } from "./transcript";
+import { Tail, completion, settle_ms } from "./transcript";
 import * as worktrees from "./worktrees";
 test("late receipts cannot read newer completions", () => {
   const s = new State();
@@ -104,6 +104,58 @@ test("Claude Stop hooks cancelled by Esc end the turn as interrupted", () => {
   expect(completion(a, JSON.stringify(v))).toBe("interrupted");
   v.attachment.timedOut = true;
   expect(completion(a, JSON.stringify(v))).toBeNull();
+});
+// Claude Code writes no `turn_duration` while the session leads teammates;
+// its Stop hook summary is then the only record a turn ended.
+function claudeStop(timestamp = "1970-01-01T00:00:02.000Z") {
+  const a = new Agent({ provider: "claude", last_seq: 1000000n });
+  a.session.value = "s";
+  const record = (v: object) => JSON.stringify({ sessionId: "s", timestamp, ...v }) + "\n";
+  return {
+    a,
+    summary: record({ type: "system", subtype: "stop_hook_summary", hookErrors: [], preventedContinuation: false }),
+    record,
+  };
+}
+test("a Claude Stop hook summary ends the turn once the transcript stays quiet", () => {
+  const { a, summary } = claudeStop(),
+    t = new Tail();
+  expect(t.ingest(a, summary, 10_000)).toBeNull();
+  expect(t.settled(10_000 + settle_ms - 1)).toBeNull();
+  expect(t.settled(10_000 + settle_ms)).toBe("completed");
+});
+test("a Claude turn that goes on after its Stop hook summary stays open", () => {
+  const { a, summary, record } = claudeStop(),
+    t = new Tail();
+  t.ingest(a, summary, 10_000);
+  // A blocking Stop hook hands its reason back and the model answers it.
+  t.ingest(
+    a,
+    record({ type: "user", message: { role: "user", content: "Stop hook feedback: run the tests" } }),
+    10_001,
+  );
+  expect(t.settled(10_000 + 10 * settle_ms)).toBeNull();
+  t.ingest(a, summary, 20_000);
+  t.ingest(a, record({ type: "attachment", attachment: { type: "hook_blocking_error", hookEvent: "Stop" } }), 20_001);
+  expect(t.settled(20_000 + 10 * settle_ms)).toBeNull();
+});
+test("a Claude turn_duration after the Stop hook summary confirms at once", () => {
+  const { a, summary, record } = claudeStop(),
+    t = new Tail();
+  expect(t.ingest(a, summary + record({ type: "system", subtype: "turn_duration" }), 10_000)).toBe("completed");
+});
+test("a Claude Stop hook summary older than the Stop hook does not end the turn", () => {
+  const { a, summary } = claudeStop("1970-01-01T00:00:00.500Z"),
+    t = new Tail();
+  t.ingest(a, summary, 10_000);
+  expect(t.settled(10_000 + 10 * settle_ms)).toBeNull();
+});
+test("closing a tail forgets the Stop hook summary it saw", () => {
+  const { a, summary } = claudeStop(),
+    t = new Tail();
+  t.ingest(a, summary, 10_000);
+  t.close();
+  expect(t.settled(10_000 + 10 * settle_ms)).toBeNull();
 });
 
 function observe(
