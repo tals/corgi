@@ -4,6 +4,9 @@ export interface Faults {
   latency_ms: number;
   bandwidth_kib: number;
   outage_until: number;
+  hang_seconds: number;
+  hang_every_seconds: number;
+  next_hang_at: number;
   accepted: number;
 }
 export interface Command {
@@ -11,6 +14,8 @@ export interface Command {
   latency_ms?: number;
   bandwidth_kib?: number;
   outage_seconds?: number;
+  hang_seconds?: number;
+  hang_every_seconds?: number;
   drop?: boolean;
 }
 export function request(path: string, command: Command = {}): Promise<Record<string, Faults>> {

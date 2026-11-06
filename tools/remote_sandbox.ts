@@ -6,6 +6,8 @@ import { userInfo } from "node:os";
 import { TcpFault } from "../tests/tcp_fault";
 import { request, type Command, type Faults } from "../src/remote_lab";
 import { shellQuote } from "../src/os";
+import { Policy } from "./remote_policy";
+import { workloads } from "./remote_workloads";
 
 const args = process.argv.slice(2);
 if (args[0] !== "serve") {
@@ -25,7 +27,7 @@ if (args[0] !== "serve") {
       command.outage_seconds = Number(value);
       break;
     case "reset":
-      Object.assign(command, { latency_ms: 0, bandwidth_kib: 0, outage_seconds: 0 });
+      Object.assign(command, { latency_ms: 0, bandwidth_kib: 0, outage_seconds: 0, hang_every_seconds: 0 });
       break;
     case "set": {
       const flags = [value, ...rest];
@@ -33,6 +35,8 @@ if (args[0] !== "serve") {
       for (let i = 0; i < flags.length; i += 2) {
         if (flags[i] === "--latency-ms") command.latency_ms = Number(flags[i + 1]);
         else if (flags[i] === "--bandwidth-kib") command.bandwidth_kib = Number(flags[i + 1]);
+        else if (flags[i] === "--hang-seconds") command.hang_seconds = Number(flags[i + 1]);
+        else if (flags[i] === "--hang-every-seconds") command.hang_every_seconds = Number(flags[i + 1]);
         else throw Error("Unknown fault option");
       }
       break;
@@ -51,7 +55,17 @@ async function serve(dir: string, exe: string): Promise<void> {
   const children: ReturnType<typeof Bun.spawn>[] = [],
     proxies = new Map<string, TcpFault>();
   const states: Record<string, Faults> = {};
-  const timers = new Map<string, ReturnType<typeof setTimeout>>();
+  const policies = new Map<string, Policy>();
+  const tick = () => {
+    for (const [name, proxy] of proxies) {
+      const policy = policies.get(name)!;
+      proxy.latency_ms = policy.state.latency_ms;
+      proxy.bytes_per_second = policy.state.bandwidth_kib * 1024;
+      proxy.set(policy.tick() ? "blackhole" : "healthy");
+      policy.state.accepted = proxy.accepted;
+    }
+  };
+  const timer = setInterval(tick, 100);
   const env = { ...process.env };
   for (const key of ["CORGI_PANE", "CORGI_VIEWER", "CORGI_MACHINE", "CORGI_APP_EXE", "CORGI_ENV_BASE", "CORGI_ENV_DIR"])
     delete env[key];
@@ -86,6 +100,8 @@ async function serve(dir: string, exe: string): Promise<void> {
           ["latency_ms", 2000],
           ["bandwidth_kib", 4096],
           ["outage_seconds", 60],
+          ["hang_seconds", 60],
+          ["hang_every_seconds", 120],
         ] as const) {
           const n = c[key];
           if (n !== undefined && (typeof n !== "number" || !Number.isFinite(n) || n < 0 || n > max))
@@ -95,29 +111,10 @@ async function serve(dir: string, exe: string): Promise<void> {
         if (!names.length && Object.keys(c).length) throw Error("Machine required");
         for (const name of names) if (!proxies.has(name)) throw Error("Unknown sandbox machine");
         for (const name of names) {
-          const proxy = proxies.get(name)!,
-            state = states[name];
-          if (c.latency_ms !== undefined) state.latency_ms = proxy.latency_ms = c.latency_ms;
-          if (c.bandwidth_kib !== undefined) {
-            state.bandwidth_kib = c.bandwidth_kib;
-            proxy.bytes_per_second = c.bandwidth_kib * 1024;
-          }
-          if (c.drop) proxy.cut();
-          if (c.outage_seconds !== undefined) {
-            clearTimeout(timers.get(name));
-            state.outage_until = c.outage_seconds ? Date.now() + c.outage_seconds * 1000 : 0;
-            proxy.set(c.outage_seconds ? "blackhole" : "healthy");
-            if (c.outage_seconds)
-              timers.set(
-                name,
-                setTimeout(() => {
-                  proxy.set("healthy");
-                  state.outage_until = 0;
-                }, c.outage_seconds * 1000),
-              );
-          }
+          policies.get(name)!.apply(c);
+          if (c.drop) proxies.get(name)!.cut();
         }
-        for (const [name, proxy] of proxies) states[name].accepted = proxy.accepted;
+        tick();
         client.end(JSON.stringify(states) + "\n");
       } catch (error) {
         client.end(JSON.stringify({ error: (error as Error).message }) + "\n");
@@ -127,7 +124,7 @@ async function serve(dir: string, exe: string): Promise<void> {
   const stop = async () => {
     if (stopping) return;
     stopping = true;
-    for (const timer of timers.values()) clearTimeout(timer);
+    clearInterval(timer);
     server.close();
     for (const proxy of proxies.values()) await proxy.close();
     for (const child of children) child.kill();
@@ -177,7 +174,7 @@ async function serve(dir: string, exe: string): Promise<void> {
     const profiles = [],
       configs: string[] = [],
       known: string[] = [];
-    for (const name of ["atlas", "borealis", "cirrus"]) {
+    for (const name of ["slowloris", "finnicky", "goodboy"]) {
       const home = join(dir, name),
         socket = join(home, "run/control.sock");
       mkdirSync(dirname(socket), { recursive: true, mode: 0o700 });
@@ -209,7 +206,9 @@ async function serve(dir: string, exe: string): Promise<void> {
       const proxy = new TcpFault(port, true);
       await proxy.start();
       proxies.set(name, proxy);
-      states[name] = { latency_ms: 0, bandwidth_kib: 0, outage_until: 0, accepted: 0 };
+      const policy = new Policy();
+      policies.set(name, policy);
+      states[name] = policy.state;
       configs.push(
         `Host ${name}\n HostName 127.0.0.1\n Port ${proxy.port}\n User ${userInfo().username}\n IdentityFile ${dir}/client\n IdentitiesOnly yes\n UserKnownHostsFile ${dir}/known_hosts\n`,
       );
@@ -217,22 +216,34 @@ async function serve(dir: string, exe: string): Promise<void> {
       profiles.push({ name, target: name, executable: exe, socket, home, bridge: info.bridge });
       const ws = JSON.parse(await run([exe, "workspace", "new", name, "--cwd", home, "--json"], remoteEnv)).result
         .workspace;
-      for (const [label, command] of [
-        [
-          "builder",
-          "i=0; while :; do i=$((i+1)); printf 'build step %s: compiling worker and running tests\\n' \"$i\"; sleep 0.15; done",
-        ],
-        ["agent", "claude --sandbox-state working --sandbox-name testing-network-recovery"],
-        ["shell", "cat"],
-      ]) {
-        const pane = JSON.parse(
-          await run(
-            [exe, "tab", "new", "--workspace", String(ws), "--name", label, "--command", command, "--json"],
-            remoteEnv,
-          ),
-        ).result.pane;
-        if (label === "agent") await run([exe, "pane", "send", String(pane), "work", "--enter"], remoteEnv);
+      mkdirSync(remoteEnv.CLAUDE_CONFIG_DIR, { recursive: true });
+      writeFileSync(
+        join(remoteEnv.CLAUDE_CONFIG_DIR, ".claude.json"),
+        JSON.stringify({ oauthAccount: { emailAddress: "sandbox@example.com" } }),
+      );
+      for (const [label, command] of workloads(dirname(import.meta.path), name)) {
+        await run(
+          [
+            exe,
+            "tab",
+            "new",
+            "--workspace",
+            String(ws),
+            "--name",
+            label,
+            ...(command ? ["--command", command] : []),
+            "--json",
+          ],
+          remoteEnv,
+        );
       }
+      policy.apply(
+        name === "slowloris"
+          ? { latency_ms: 800 }
+          : name === "goodboy"
+            ? { latency_ms: 100 }
+            : { hang_seconds: 5, hang_every_seconds: 30 },
+      );
     }
     writeFileSync(join(dir, "ssh_config"), configs.join("\n"));
     writeFileSync(join(dir, "known_hosts"), known.join("\n") + "\n");
@@ -241,7 +252,7 @@ async function serve(dir: string, exe: string): Promise<void> {
     writeFileSync(catalog, JSON.stringify({ version: 1, machines: profiles }), { mode: 0o600 });
     await new Promise<void>(resolve => server.listen(control, resolve));
     chmodSync(control, 0o600);
-    console.log("Remote lab ready: atlas, borealis, cirrus. Prefix + ~ opens connectivity controls.");
+    console.log("Remote lab ready: slowloris, finnicky, goodboy + local. Prefix + ~ opens Developer → Remote.");
     // If a child dies, don't leave a partially alive sandbox behind.
     await Promise.race(children.map(child => child.exited));
   } finally {

@@ -282,7 +282,7 @@ async function start(o: Options, prepare?: Recipe["prepare"]): Promise<Session> 
     await terminal?.exited;
     xvfb?.kill();
     await xvfb?.exited;
-    sandbox?.shutdown();
+    await sandbox?.shutdown();
     if (sandbox) rmSync(sandbox.dir, { recursive: true, force: true });
     rmSync(scratch, { recursive: true, force: true });
   };

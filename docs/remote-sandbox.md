@@ -1,11 +1,32 @@
 # Remote connectivity lab
 
 Run `./go.ts --sandbox remote` (or add `--restart` for a fresh world). It needs
-local `ssh`, `sshd` and `ssh-keygen`. No root access or host network changes are
-needed. Local, atlas, borealis and cirrus run actual Corgi daemons; the three
+local `ssh`, `sshd`, `ssh-keygen`, Claude Code and Codex. No root access or host network changes are
+needed. Local, slowloris, finnicky and goodboy run actual Corgi daemons; the three
 synthetic remotes connect through OpenSSH and separate loopback fault proxies.
-Builder output, fake working agents and interactive shells keep the world busy.
-No model calls or real remote hosts are involved.
+Every machine has an interactive shell, a working fake agent (one progress line
+every eight seconds), **idle Claude** and **idle Codex** tabs running the real
+terminal apps, and a
+quiet demo server with a live HTTP link. Slowloris starts with 800 ms one-way lag;
+goodboy with 100 ms. Finnicky holds traffic for five seconds every thirty seconds
+(start to start), leaving TCP connections open. Local has no injected faults.
+The idle apps use disposable homes and local fake API backends, with onboarding
+and workspace trust already configured. No login or paid model calls are needed.
+Each backend answers with a canned sandbox reply; the input boxes, key handling
+and rendering are the installed apps' own. Their helper owns the backend and
+Codex app server, and closes them with the tab. No real remote hosts are involved.
+
+To try Predictive Rendering, type a character in a shell, `cat`, or the fake
+agent's sign-in prompt and wait for its remote echo. Start with a nonblank ASCII
+character; further typing and ordinary editing within the learned line appear locally.
+Unsupported controls and mismatches reset this training. Confirmed echo can retrain on
+the same row. Setup → Remote → **Dim unconfirmed typing** shades the preview gray
+until confirmed and is on by default.
+Latency is one-way, so 1000 ms adds at least two seconds to authoritative echo.
+The fake agents have bounded multiline composers: arrows move the caret,
+Backspace/Delete edit around it, and Shift/Alt+Enter insert newlines. Their key
+parser handles split escape sequences and bracketed pastes. Recognized composers
+can predict the first edit without the shell's echo-training step.
 
 **Prefix + ~** opens developer connectivity on any machine, including real ones.
 Tab or clicking the machine name cycles machines; Escape closes it. The popover
@@ -23,12 +44,14 @@ machine headers repeat wherever ownership changes, including after scrolling.
 The combined order is saved on this computer and can be changed during an outage.
 
 Sandbox machines also show sliders for one-way latency (0–2000 ms), bandwidth
-per direction per SSH connection (0–4096 KiB/s, zero unlimited), and outage
-duration (0–60 seconds).
+per direction per SSH connection (0–4096 KiB/s, zero unlimited), hang duration (0–60 seconds), repeat interval (0–120 seconds, zero disables
+repeats), and one-shot outage duration (0–60 seconds). Changing either repeat
+control restarts its countdown. A duration longer than the interval keeps traffic
+held continuously until the policy changes.
 Click or drag a slider, or select it with Up/Down and adjust with Left/Right.
 Enter activates the selected button. Start outage withholds traffic while keeping
 connections open, exercising stall detection; Drop connections now severs current
-connections, exercising reconnect. Reset restores healthy, unrestricted traffic.
+connections, exercising reconnect. Reset restores healthy, unrestricted traffic and disables repeating hangs.
 Already queued bytes retain their scheduling deadline when settings change.
 Real machines have diagnostics only and gain no fault-injection buffers.
 
@@ -36,9 +59,10 @@ The sandbox introduction prints its private control socket. From another shell:
 
 ```sh
 bun tools/remote_sandbox.ts --socket /tmp/corgi-sandbox-$UID/remote/network.sock status
-bun tools/remote_sandbox.ts --socket /tmp/corgi-sandbox-$UID/remote/network.sock set atlas --latency-ms 120 --bandwidth-kib 128
-bun tools/remote_sandbox.ts --socket /tmp/corgi-sandbox-$UID/remote/network.sock outage atlas 8
-bun tools/remote_sandbox.ts --socket /tmp/corgi-sandbox-$UID/remote/network.sock drop atlas
+bun tools/remote_sandbox.ts --socket /tmp/corgi-sandbox-$UID/remote/network.sock set slowloris --latency-ms 120 --bandwidth-kib 128
+bun tools/remote_sandbox.ts --socket /tmp/corgi-sandbox-$UID/remote/network.sock set finnicky --hang-seconds 5 --hang-every-seconds 30
+bun tools/remote_sandbox.ts --socket /tmp/corgi-sandbox-$UID/remote/network.sock outage slowloris 8
+bun tools/remote_sandbox.ts --socket /tmp/corgi-sandbox-$UID/remote/network.sock drop slowloris
 bun tools/remote_sandbox.ts --socket /tmp/corgi-sandbox-$UID/remote/network.sock reset all
 ```
 
