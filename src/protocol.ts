@@ -235,7 +235,24 @@ export function exclusion(op: string): "none" | "layout" | "import" | "push" | "
   if (op === "shutdown") return "shutdown";
   return "none";
 }
+export type DockSource = { tab: number } | { pane: number };
+export type DockDrop =
+  | { kind: "beside"; pane: number; direction: "left" | "right" | "up" | "down"; whole: boolean }
+  | { kind: "swap"; pane: number }
+  | { kind: "tab"; index: number };
 const commands = {
+  "layout.dock": {
+    workspace: "u32",
+    viewer: "u32",
+    expected: "u64",
+    source: "dockSource",
+    drop: "dockDrop",
+    focus: "u32",
+    selected: "u32",
+    cols: "u16",
+    rows: "u16",
+  },
+  "layout.history": { workspace: "u32", viewer: "u32", expected: "u64", direction: "undo|redo" },
   "agent.move": { workspace: "u32", target: "target", before: ["?target", null] },
   "agent.pin": { workspace: "u32", target: "target", before: ["?target", null], pinned: ["bool", true] },
   "agent.place": { workspace: "u32", target: "target", before: ["?target", null] },
@@ -349,6 +366,8 @@ type Alternatives<T extends string> = T extends `${infer Head}|${infer Tail}`
   : Member<T>;
 // Types with hand-written validators.
 type CustomValues = {
+  dockSource: DockSource;
+  dockDrop: DockDrop;
   target: Target;
   paneDestination: PaneDestination;
   tabDestination: TabDestination;
@@ -458,6 +477,25 @@ function validate(value: any, type: string, strict = false): any {
     return value.map(v => validate(v, type.slice(2), strict));
   }
   if (type === "json") return value;
+  if (type === "dockSource") {
+    const source = json.object(value),
+      keys = Object.keys(source);
+    if (keys.length !== 1 || (keys[0] !== "tab" && keys[0] !== "pane")) throw Error("InvalidDestination");
+    return { [keys[0]]: validate(source[keys[0]], "u32") };
+  }
+  if (type === "dockDrop") {
+    const source = json.object(value);
+    switch (source.kind) {
+      case "beside":
+        return struct(source, { kind: "beside", pane: "u32", direction: "left|right|up|down", whole: "bool" }, true);
+      case "swap":
+        return struct(source, { kind: "swap", pane: "u32" }, true);
+      case "tab":
+        return struct(source, { kind: "tab", index: "u32" }, true);
+      default:
+        throw Error("InvalidDestination");
+    }
+  }
   if (type === "target") return target(value);
   if (type === "paneDestination" || type === "tabDestination") return destination(value, type === "paneDestination");
   if (type === "visibility") {
@@ -498,7 +536,7 @@ function validate(value: any, type: string, strict = false): any {
     if (n < min || n > max) throw Error("Overflow");
     return bits < 64n ? Number(n) : n;
   }
-  if (type.includes("|") || type === "provider") {
+  if (type.includes("|") || type === "provider" || type === "beside" || type === "swap" || type === "tab") {
     if (typeof value !== "string") throw Error("UnexpectedToken");
     const members = type.split("|").flatMap(m => (m === "provider" ? Provider.all : [m]));
     if (!members.includes(value)) throw Error("InvalidEnumTag");

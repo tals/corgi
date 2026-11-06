@@ -18,6 +18,7 @@ import * as integration from "./integration";
 import * as worktreeAgents from "./worktree_agents";
 import * as agentRetry from "./agent_retry";
 import * as agentMessage from "./agent_message";
+import * as dockingSession from "./docking_session";
 import { Row } from "./launch/row";
 import type { Provider } from "./providers";
 export type Context = { socket: string; executable: string; theme: any };
@@ -92,6 +93,10 @@ function spawnOptions(r: Runtime, ctx: Context, workspace: number, from: number 
 async function executeInner(r: Runtime, ctx: Context, cmd: protocol.Command): Promise<Result> {
   const request = protocol.command(cmd);
   switch (request.op) {
+    case "layout.dock":
+      return dockingSession.dock(r, ctx, request.payload);
+    case "layout.history":
+      return dockingSession.restore(r, request.payload);
     case "agent.move": {
       const ws = r.getWorkspace(request.payload.workspace);
       ws.agent_order.move(r.agentTargets(ws), request.payload.target, request.payload.before ?? null);

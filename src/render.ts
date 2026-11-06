@@ -3,6 +3,9 @@ import * as i18n from "./i18n";
 //! One complete frame of the viewer: tabs, panes, sidebar and overlays.
 //! Mirrors render.zig.
 import * as palette from "./palette";
+import * as docking from "./docking";
+import * as dockingGrip from "./docking_grip";
+import type { DockDrop } from "./protocol";
 import * as composition from "./composition";
 import { Style, keycap } from "./palette";
 import { Rect, View as LayoutView, cleanLabel, type Axis, type Border } from "./layout";
@@ -136,7 +139,79 @@ export interface WorkspaceGhost {
   view: LayoutView;
 }
 
+export interface Docking {
+  plan: docking.Plan | null;
+  drop: DockDrop | null;
+  dragging: boolean;
+  cwd: string | null;
+  reason: string | null;
+  controls: { name: string; label: string; rect: Rect; enabled: boolean }[];
+}
+function drawDocking(w: Writer, state: Docking, panes: Pane[], area: Rect): Rect[] {
+  const covered: Rect[] = [],
+    style = new Style({ fg: "faint", bg: "bg" }).sgr();
+  const plan = state.plan;
+  if (plan && state.drop?.kind !== "tab") {
+    const ids = [...plan.moved, ...(state.drop?.kind === "swap" ? [state.drop.pane] : [])],
+      preview = docking.view(plan),
+      inset = preview.hasFrame(area) ? 0 : 1;
+    for (const place of preview.placements(area).filter(p => ids.includes(p.id))) {
+      // A single-pane tab needs room for the preview's border inside its area.
+      const r = new Rect(
+          place.rect.x + inset,
+          place.rect.y + inset,
+          place.rect.w - 2 * inset,
+          place.rect.h - 2 * inset,
+        ),
+        pane = panes.find(p => p.id === place.id);
+      const border = new Rect(r.x - 1, r.y - 1, r.w + 2, r.h + 2);
+      if (border.w < 2 || border.h < 2) continue;
+      const cwd = directoryLabel(state.cwd ?? "", null, 256);
+      const label =
+        place.id === plan.shell
+          ? i18n.t`shell at ${cwd}`
+          : pane?.label || pane?.agent.name || pane?.command || i18n.t`Shell`;
+      covered.push(border);
+      for (let y = r.y; y < r.y + r.h; y++) {
+        w.write(w.cup(y + 1, r.x + 1) + ghost_band);
+        w.splat(" ", r.w);
+      }
+      if (pane && place.id !== plan.shell && r.w > 0 && r.h > 0) {
+        pane.terminal.updateRender();
+        w.write(pane.terminal.rows(pane.id, r.x, r.y, r.w, r.h, true, null));
+      }
+      w.write(w.cup(border.y + 1, border.x + 1) + style + "╭" + "┄".repeat(border.w - 2) + "╮");
+      w.write(w.cup(border.y + border.h, border.x + 1) + style + "╰" + "┄".repeat(border.w - 2) + "╯");
+      for (let y = r.y; y < r.y + r.h; y++)
+        w.write(w.cup(y + 1, border.x + 1) + style + "┊" + w.cup(y + 1, border.x + border.w) + "┊");
+      if (border.w >= 6) {
+        w.write(w.cup(border.y + 1, border.x + 3) + style + " ");
+        writeEllipsis(w, printable(label), border.w - 6);
+        w.write(" ");
+      }
+    }
+  }
+  for (const control of state.controls) {
+    const r = control.rect;
+    covered.push(r);
+    w.write(
+      w.cup(r.y + 1, r.x + 1) +
+        new Style({ fg: control.enabled ? "strong" : "faint", bg: "surface" }).sgr() +
+        control.label,
+    );
+  }
+  if (state.reason) {
+    const r = new Rect(area.x, area.y + area.h - 2, area.w, 1);
+    covered.push(r);
+    w.write(w.cup(r.y + 1, r.x + 1) + new Style({ fg: "warm", bg: "surface" }).sgr());
+    writeEllipsis(w, state.reason, r.w);
+  }
+  w.write("\x1b[0m");
+  return covered;
+}
+
 export interface Ui {
+  docking: Docking | null;
   prefs: Preferences;
   pointer: Pointer | null;
   iterm2_pointer: boolean;
@@ -263,6 +338,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     scope_label: "",
     agent_search: null,
     tab_drop_x: null,
+    docking: null,
     dialog: null,
     archive_dialog: null,
     sidebar_open: true,
@@ -470,7 +546,7 @@ function placeCard(view: LayoutView, panes: Pane[], area: Rect, notice: Notice, 
 }
 /** No modal overlay, menu, or dialog is covering the panes. */
 function noOverlay(u: Ui): boolean {
-  return noPopup(u) && !u.sidebar_focus;
+  return noPopup(u) && !u.sidebar_focus && !u.docking?.dragging && !u.docking?.plan;
 }
 /** Nothing open over the screen, though the sidebar may have the keyboard. */
 function noPopup(u: Ui): boolean {
@@ -681,7 +757,7 @@ export function frame(
   const w = new Writer();
   const entries = u.dragged_agent ? u.dragged_agent.apply(u.agents) : u.agents;
   const workspaces = u.dragged_workspace ? u.dragged_workspace.apply(u.workspaces) : u.workspaces;
-  const dragging = u.dragged_agent !== null || u.dragged_workspace !== null;
+  const dragging = u.dragged_agent !== null || u.dragged_workspace !== null || u.docking?.dragging === true;
   let side = SidebarView.init(width, height, u.sidebar_open, u.sidebar_offset, entries.length, u.prefs.sidebar_split)
     .withSearch(u.agent_search)
     .withWidth(u.prefs.sidebar_width)
@@ -706,10 +782,11 @@ export function frame(
   // Erase from home to the end, preserving Kitty image storage. ED 2
   // deletes cached images in Ghostty, even those without a placement.
   w.write("\x1b[?2026h\x1b[?25l\x1b[0m\x1b[H\x1b[J");
-  const tab_space = sat(width - side.tabX() - side.panel, 3);
+  const tab_end = u.docking?.controls[0]?.rect.x ?? width - side.panel;
+  const tab_space = sat(tab_end - side.tabX(), 3);
   // The scrollbar shows while the pointer is where the wheel scrolls the tabs.
   const over_tabs = u.pointer !== null && u.pointer.y === 0 && u.pointer.x >= side.tabX() && noOverlay(u);
-  const thumb = over_tabs ? tabThumb(view, width - side.tabX() - side.panel) : null;
+  const thumb = over_tabs ? tabThumb(view, tab_end - side.tabX()) : null;
   // Marks take room in their tabs only where the host can show them.
   const marks: TabMark[] | null = u.tab_icons && u.cell_pixels ? [] : null;
   // With every workspace closed, all but the way to create one steps back.
@@ -949,6 +1026,25 @@ export function frame(
   // Under the sidebar, which covers what a drawer hides.
   if (u.ghost) cover(drawGhost(w, u.ghost, side.drawer !== null ? side.width : u.ghost.area.x));
   if (u.workspace_ghost) cover(drawWorkspaceGhost(w, u.workspace_ghost, panes, side, width, u.prefs.preset));
+  const grips =
+    noPopup(u) && !u.copy_mode && !u.sidebar_focus
+      ? docking.grips(view, side.area()).filter(g => u.pointer !== null && g.near.contains(u.pointer.x, u.pointer.y))
+      : [];
+  const grip_images = u.supports_kitty_graphics && u.cell_pixels !== null;
+  if (u.supports_kitty_graphics) w.write(dockingGrip.hide);
+  for (const grip of grips) {
+    if (grip_images && grip.rect.w === 4) {
+      w.write(w.cup(grip.rect.y + 1, grip.rect.x + 1) + new Style({ fg: "faint", bg: "bg" }).sgr());
+      writeEllipsis(w, " :: ", grip.rect.w);
+    } else {
+      w.write(w.cup(grip.rect.y + 1, grip.rect.x + 1) + divider_focused);
+      writeEllipsis(w, "┤", Math.min(1, grip.rect.w));
+      if (grip.rect.w >= 3) w.write("\x1b[53;4m::\x1b[55;24m");
+      if (grip.rect.w === 4) w.write("├");
+      w.write("\x1b[0m");
+    }
+  }
+  if (u.docking) for (const rect of drawDocking(w, u.docking, panes, side.area())) cover(rect);
   // The host may leave its last mouse report at the window edge.
   if (u.pointer && u.pointer.x > 0 && !dragging && !on_card && noOverlay(u))
     side.hovered = sidebar.agentIndexAt(side, entries, u.pointer.x, u.pointer.y);
@@ -1202,6 +1298,18 @@ export function frame(
     }
   }
   // Like pane images, a mark goes under nothing drawn over it.
+  if (grip_images && !u.signin_draw && !u.signin_exit)
+    w.write(
+      dockingGrip.draw(
+        grips
+          .map(g => g.rect)
+          .filter(
+            r =>
+              r.w === 4 && !covered.some(b => b.x < r.x + r.w && r.x < b.x + b.w && b.y < r.y + r.h && r.y < b.y + b.h),
+          ),
+        u.cell_pixels!,
+      ),
+    );
   if (u.tab_icons && u.cell_pixels && !u.agent_launcher && !u.corgi_setup && !u.signin_draw && !u.signin_exit)
     for (const { brand, x, y } of archive_marks)
       if (!covered.some(box => box.y <= y && box.y + box.h > y && box.x < x + tabIcons.cols && box.x + box.w > x))
@@ -1225,6 +1333,11 @@ export function frame(
   // iTerm2 has a pointing hand and an open hand, but no closed-hand shape.
   // "default" also clears its override because unrecognized names reset it.
   const axis = u.resizing ?? resize_hover;
+  const over_grip =
+    u.resizing === null &&
+    u.pointer !== null &&
+    grips.some(g => g.rect.contains(u.pointer!.x, u.pointer!.y)) &&
+    !covered.some(b => b.contains(u.pointer!.x, u.pointer!.y));
   const manager_box = managed?.manager.last_box,
     manager_shape =
       managed &&
@@ -1246,17 +1359,21 @@ export function frame(
         ? u.iterm2_pointer
           ? "fleur"
           : "grabbing"
-        : axis !== null
-          ? axis === "horizontal"
-            ? u.iterm2_pointer
-              ? "sb_h_double_arrow"
-              : "ew-resize"
-            : u.iterm2_pointer
-              ? "sb_v_double_arrow"
-              : "ns-resize"
-          : link_pointer || hovered_uri !== null
-            ? handShape(u.iterm2_pointer)
-            : "default";
+        : over_grip
+          ? u.iterm2_pointer
+            ? "fleur"
+            : "grab"
+          : axis !== null
+            ? axis === "horizontal"
+              ? u.iterm2_pointer
+                ? "sb_h_double_arrow"
+                : "ew-resize"
+              : u.iterm2_pointer
+                ? "sb_v_double_arrow"
+                : "ns-resize"
+            : link_pointer || hovered_uri !== null
+              ? handShape(u.iterm2_pointer)
+              : "default";
   w.write(`\x1b]22;${shape}\x1b\\`);
   w.write("\x1b[?2026l");
   if (retained) for (const rect of covered) retained.cover(rect);

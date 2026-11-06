@@ -2,6 +2,9 @@
 //! sends shared session organization and terminal surfaces, never Corgi frames.
 //! Mirrors viewer.zig.
 import * as telemetry from "./telemetry";
+import * as docking from "./docking";
+import * as dockingGrip from "./docking_grip";
+import { max_panes } from "./layout";
 import { dirname, join } from "node:path";
 import { Controller } from "./controller";
 import { call, unread, acknowledge, type Transport } from "./mirror";
@@ -141,6 +144,29 @@ export async function sync(view: Controller, bell: { seq: bigint }, play_sound: 
         known: ghost.pane.terminal.known,
         cell: view.cell_pixels,
       });
+    const dock = view.dockingPreview();
+    if (dock?.plan && dock.drop?.kind !== "tab") {
+      for (const place of docking.view(dock.plan).placements(view.area())) {
+        if (interests.length >= max_panes) break;
+        if (
+          !dock.plan.moved.includes(place.id) ||
+          place.id === dock.plan.shell ||
+          interests.some(i => i.pane === place.id)
+        )
+          continue;
+        const p = view.runtime.pane(place.id);
+        if (p)
+          interests.push({
+            pane: p.id,
+            // Crop the live screen into the ghost; resize its process on commit.
+            cols: p.terminal.inner.cols,
+            rows: p.terminal.inner.rows,
+            offset: p.terminal.offset,
+            known: p.terminal.known,
+            cell: view.cell_pixels,
+          });
+      }
+    }
     releaseUninterested(view, interests);
     let reply: Reply<"viewer.sync">;
     try {
@@ -525,6 +551,7 @@ export async function run(
       if (view.thumbnails.sent !== null) writeAll(linkThumbnail.remove);
       writeAll(view.images.clear());
       writeAll(view.tab_icons.clear());
+      if (view.supports_kitty_graphics) writeAll(dockingGrip.clear);
       if (view.moonlander) {
         writeAll(view.moonlander.close());
         view.moonlander = null;

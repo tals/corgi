@@ -201,7 +201,8 @@ test("retained hyperlink groups stay distinct across panes, fallback transitions
     f.present(hovered);
     groups();
     const lines = f.result.surface(0).surface.lines;
-    expect(lines.join("").match(/\x1b\[4m/g)).toHaveLength(2);
+    const content = lines.filter((_, y) => rects.some(r => y >= r.y && y < r.y + r.h));
+    expect(content.join("").match(/\x1b\[4m/g)).toHaveLength(2);
     f.present(f.compose());
     f.present(f.compose());
     expect(groups()).toEqual(retainedIds);

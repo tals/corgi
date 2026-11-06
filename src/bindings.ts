@@ -671,6 +671,11 @@ const tables: Record<Preset, Binding[]> = {
     ...corgiPrefix,
   ],
 };
+for (const table of Object.values(tables))
+  table.push(
+    { key: 122, mods: { ctrl: true }, prefixed: true, action: { name: "undo-layout" } },
+    { key: 121, mods: { ctrl: true }, prefixed: true, action: { name: "redo-layout" } },
+  );
 export function table(preset: Source): readonly Binding[] {
   return typeof preset === "string" ? tables[preset] : preset;
 }
