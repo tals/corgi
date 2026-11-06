@@ -485,7 +485,7 @@ test("focus outline includes the outer edges and corners of the focused pane", (
   );
   expect(cells[1][28].glyph).toBe("┌");
   expect(cells[29][28].glyph).toBe("└");
-  expect(cells[1][63].glyph).toBe("┬");
+  expect(cells[1][63].glyph).toBe("┐");
   const split = view.placements(area);
   expect(split[0].rect).toEqual(new Rect(29, 2, 34, 27));
   expect(split[1].rect).toEqual(new Rect(64, 2, 35, 27));
@@ -771,7 +771,7 @@ test("a swap preview on a single-pane tab stays below the tabs and inside the pa
       screen.feed(
         frame(view, [], 120, 36, {
           ...options,
-          docking: { plan, drop, dragging: true, cwd: null, reason: null, controls: [] },
+          docking: { plan, drop, dragging: true, cwd: null, reason: null },
         }),
       );
       const after = screen.text().split("\n");

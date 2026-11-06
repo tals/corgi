@@ -25,7 +25,7 @@ class Splits extends Viewers {
       b = await this.newViewer();
     await a.focus(left);
     this.assertIn("\x1b[3;64H│", a.state.data);
-    this.assertIn("├", a.state.data);
+    this.assertIn("┤", a.state.data);
     this.assertIn("─", a.state.data);
     await a.input("\x1b[<0;64;5M");
     await a.input("\x1b[<32;70;5M");
@@ -44,7 +44,7 @@ class Splits extends Viewers {
     this.assertGreater((await this.tree()).second.split.ratio, 500);
     await a.input("\x1b[<0;90;21m");
     await a.action("zoom");
-    this.assertNotIn("├", a.state.data);
+    this.assertNotIn("┤", a.state.data);
     this.assertNotIn("\x1b[3;80H│", a.state.data);
   }
 
