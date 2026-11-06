@@ -216,7 +216,7 @@ tmux tab numbering starts at zero; other presets start at one.
 | Find agent | `prefix g` | `prefix G` | `prefix f` | `Cmd+Shift+P`, `prefix g` |
 | Choose agent | `prefix a` |  |  | `prefix a` |
 | Agents: toggle selection | `Space` | `Space` | `Space` | `Space` |
-| Agents: start / keep range | `v` | `v` | `v` | `v` |
+| Agents: select consecutive agents | `v` | `v` | `v` | `v` |
 | Agents: select all shown | `a` | `a` | `a` | `a` |
 | Agents: extend selection up | `Shift+↑` | `Shift+↑` | `Shift+↑` | `Shift+↑` |
 | Agents: extend selection down | `Shift+↓` | `Shift+↓` | `Shift+↓` | `Shift+↓` |

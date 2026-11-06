@@ -1092,7 +1092,15 @@ export class View {
             return { tag: "agent_selection", action: b.action };
       return hit("none");
     }
-    if (!v.search && !v.selection && v.focus !== "agents" && v.drawer === null && y === v.middle() + 1 && x < 10)
+    if (
+      v.count > 0 &&
+      !v.search &&
+      !v.selection &&
+      v.focus !== "agents" &&
+      v.drawer === null &&
+      y === v.middle() + 1 &&
+      x < 10
+    )
       return hit("agent_select");
     if (y === 0 && v.drawer !== "agents") {
       if (x >= v.width - 5) return hit("toggle");
@@ -1309,7 +1317,7 @@ export class View {
       if (grip) w.write(boxed ? grip : fg("faint") + grip + fg("line"));
       w.write(stroke.repeat(run - left - grip.length) + (boxed ? "┤" : "┥"));
     }
-    if (!v.search && !v.selection && v.focus !== "agents" && v.drawer === null)
+    if (v.count > 0 && !v.search && !v.selection && v.focus !== "agents" && v.drawer === null)
       v.line(w, v.middle() + 1, i18n.t`[Select]`, new Style({ fg: "muted", bg: "bg" }).sgr());
     v.drawAgents(w, entries, now_ms);
     if (v.selection && !v.search) {

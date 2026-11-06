@@ -360,6 +360,7 @@ test("an empty agent list points to New beside the shortcut keycap", () => {
     expect(hint).toContain("Ctrl+A c");
     expect(view.hit(hint.indexOf("↑"), view.middle())).toEqual(H("agent_new"));
     expect(rows[view.middle() + 1].slice(0, width - 1).trim()).toBe("");
+    expect(view.hit(3, view.middle() + 1)).toEqual(H("none"));
     expect(rows[view.middle() + 2].slice(0, width - 1).trim()).toBe("");
     expect(out).not.toContain("No agents yet");
     expect(out).not.toContain("Launch inside a pane:");
@@ -1428,7 +1429,7 @@ test("the focused list sits in a box in the focused pane's outline, sharing the 
   expect(lines[1]).toBe(edge("┌", "┤"));
   expect(lines[13]).toBe(rule("└─", "─", "┤"));
   expect(lines[29]).toBe(" ".repeat(27) + "│");
-  expect(lines[15]).toContain("[Select]");
+  expect(lines[15].trim()).toBe("│");
   expect(lines[17]).toBe(" ".repeat(20) + "↑" + " ".repeat(6) + "│");
   expect([0, 12, 13, 29].map(y => view.outlines(y))).toEqual([false, true, true, false]);
   view.drawer = "workspaces";
