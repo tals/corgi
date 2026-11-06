@@ -649,12 +649,12 @@
       "other": "Скопировано ${count} заметки."
     }
   },
-  "Copied the link; paste it into your browser.": "Ссылка скопирована; вставьте её в браузер.",
   "Copies the conversation into a new tab": "Копирует диалог в новую вкладку",
   "Copies the workspaces; their processes stay in Herdr.": "Копирует пространства; процессы остаются в Herdr.",
   "Copy": "Копировать",
   "Copy an image, then paste it to an agent.": "Скопируйте изображение и вставьте его агенту.",
   "Copy details": "Скопировать сведения",
+  "Copy details for a bug report": "Скопировать сведения для отчёта об ошибке",
   "Copy full path": "Скопировать полный путь",
   "Copy hovered link": "Скопировать ссылку под курсором",
   "Copy sessions, scrollback and commands. Source processes stay in tmux.": "Копирует сеансы, историю и команды. Исходные процессы остаются в tmux.",
@@ -765,7 +765,7 @@
   "From": "Из",
   "GPU use from device totals": "Загрузка GPU по данным устройства",
   "GPU use shared out by memory": "Загрузка GPU распределена по использованию памяти",
-  "Gathering details about this machine…": "Сбор сведений об этом компьютере…",
+  "Gathering bug report info…": "Собираем сведения для отчёта…",
   "Generated file · +${adds} −${dels}": "Сгенерированный файл · +${adds} −${dels}",
   "Generated file · enter loads its diff": "Сгенерированный файл · Enter загружает изменения",
   "Ghostty is set to refuse clipboard reads.": "В Ghostty запрещено чтение буфера обмена.",
@@ -1169,7 +1169,6 @@
   "That's a file, not a folder.": "Это файл, а не папка.",
   "The clipboard image was damaged": "Изображение в буфере обмена повреждено",
   "The commits to push changed. Review them and push again.": "Коммиты для отправки изменились. Просмотрите их и повторите отправку.",
-  "The issue starts with these details. Nothing is sent until you submit it on GitHub.": "Эти сведения будут в обращении. Ничего не отправится, пока вы не опубликуете его на GitHub.",
   "The limit is 2 MB or 50,000 lines.": "Ограничение: 2 MB или 50 000 строк.",
   "The notes hold an end-of-paste marker; they're kept.": "Заметки содержат маркер конца вставки; они сохранены.",
   "The pane closed before the paste arrived": "Панель закрылась до получения вставки",
@@ -1365,6 +1364,7 @@
   "committed": "закоммичено",
   "committed + working copy": "коммиты + рабочая копия",
   "context ": "контекст ",
+  "copy details": "скопировать сведения",
   "copy link": "скопировать ссылку",
   "corgi — a small Ghostty-powered agent terminal": "corgi — небольшой терминал для агентов на базе Ghostty",
   "create": "создать",
@@ -1571,5 +1571,6 @@
   "◇ Prefix = ${prefixName}": "◇ Префикс = ${prefixName}",
   "○ Corgi (Activity summarizer)": "○ Corgi (Описания действий)",
   "● Jump to who needs you": "● Перейти к тому, кому вы нужны",
+  "✓ Copied": "✓ Скопировано",
   "🐕 badge; animations stay still.": "🐕 значок; без анимаций."
 }

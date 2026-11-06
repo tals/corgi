@@ -4687,7 +4687,7 @@ export class Controller {
         return this.queueEffect({ open_url: apply.url });
       case "copy":
         this.copyQuietly(apply.text);
-        if (this.corgi_setup) this.corgi_setup.link_copied = true;
+        this.corgi_setup?.noteCopied(apply.copied);
         return;
       case "imported":
         this.closeMenu();
@@ -8146,6 +8146,7 @@ export class Controller {
         r = this.signinRect();
       return linkTooltip.at(s.child!, new Rect(r.x + body.x, r.y + body.y, body.cols, body.rows), x, y);
     }
+    if (this.corgi_setup) return linkTooltip.at(this.corgi_setup, new Rect(0, 0, this.width, this.height), x, y);
     if (this.sidebarView([]).hit(x, y).tag !== "none") return null;
     for (const place of this.layoutView().placements(this.area())) {
       if (!place.rect.contains(x, y)) continue;
@@ -8156,7 +8157,10 @@ export class Controller {
     return null;
   }
   private linkHoverIdle(): boolean {
-    return this.signin ? this.signin.typing && !this.signin.working && this.signin_drag === null : this.hoverIdle();
+    if (this.signin) return this.signin.typing && !this.signin.working && this.signin_drag === null;
+    // Setup's own links are all it shows a card for.
+    if (this.corgi_setup) return !this.corgi_setup.draggingIntensity();
+    return this.hoverIdle();
   }
   private linkCard(): linkTooltip.Card | null {
     const link = this.link_tooltip.target?.link;
@@ -8236,7 +8240,7 @@ export class Controller {
     const pointer = this.pointer;
     if (pointer && this.linkHoverIdle() && !this.ui_mouse_down) {
       if (this.linkHoverContains(pointer.x, pointer.y)) return true;
-      if (!this.signin) {
+      if (!this.signin && !this.corgi_setup) {
         if (this.worktreeHoverContains(pointer.x, pointer.y)) return true;
         if (this.resourceHoverContains(pointer.x, pointer.y)) return true;
         if (this.gitHoverContains(pointer.x, pointer.y)) return true;

@@ -1704,14 +1704,20 @@ test("expanded settings and the popup render the same account rows and usage bar
   expect(accountRows(expanded)[1]).toContain("$5.9k / $10k");
 });
 
-test("Report a bug shows what the issue will say, and opens it, or copies its link over SSH", () => {
+test("Report a bug opens an issue at once, filled in once its details are in, and copies them", () => {
   const s = status(),
     prefs = new Preferences(),
     menu = Menu.open();
   menu.item = "report_bug";
   // Already under way, so drawing doesn't ask the real daemon.
   (menu as unknown as { gathering: boolean }).gathering = true;
-  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("Gathering details");
+  // While the details are gathered, the button opens a blank issue.
+  const gathering = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  expect(gathering).toContain("Gathering bug report info…");
+  expect(gathering).not.toContain("Copy details");
+  const early = hits(menu, 100, 30, s, prefs).filter(hit => "option" in hit);
+  expect(early).toHaveLength(1);
+  expect(menu.click(early[0], s, prefs)).toEqual({ kind: "open", url: "https://github.com/tals/corgi/issues/new" });
   menu.report = {
     corgi: "1.2.3 (abc1234), linux-x64",
     install: { path: "/usr/bin/corgi", auto_update: null },
@@ -1742,26 +1748,40 @@ test("Report a bug shows what the issue will say, and opens it, or copies its li
   };
   const shown = draw(menu, 100, 30, 0, s, prefs),
     text = shown.join("\n");
-  expect(text).toMatch(/Shell +fish, version 3\.7\.1 \(\/usr\/bin\/fish\)/);
-  expect(text).toMatch(/ {2}Codex +codex-cli 0\.46\.0 \(\/usr\/bin\/codex\),/);
-  expect(text).toMatch(/Settings +theme Corgi \(automatic\), keymap/);
-  expect(text).not.toContain("only local");
-  // The button sits above the report, so a short frame still shows it.
-  const at = (needle: string) => shown.findIndex(row => row.includes(needle));
-  expect(at("Open an Issue on GitHub")).toBeLessThan(at("1.2.3 (abc1234)"));
-  expect(draw(menu, 100, 16, 0, s, prefs).join("\n")).toContain("Open an Issue on GitHub");
-  const button = hits(menu, 100, 30, s, prefs).find(hit => "option" in hit)!,
+  // The details go in the issue and on the clipboard, not on the page.
+  expect(text).not.toContain("fish, version 3.7.1");
+  expect(text).toContain("ᴥ");
+  const [button, copy] = hits(menu, 100, 30, s, prefs).filter(hit => "option" in hit),
     open = menu.click(button, s, prefs);
   expect(open?.kind).toBe("open");
   const url = (open as { url: string }).url;
   expect(url).toContain("https://github.com/tals/corgi/issues/new?body=");
   expect(decodeURIComponent(url)).toContain("- Shell: fish, version 3.7.1 (/usr/bin/fish)");
+  // The label is a link the terminal and the link card take, under its own cells.
+  const [link] = menu.hyperlinks(),
+    row = shown.findIndex(line => line.includes("Open an Issue on GitHub"));
+  expect(link).toMatchObject({ uri: url, row, start: shown[row].indexOf("Open") });
+  const details = menu.click(copy, s, prefs) as { kind: string; text: string; copied: string };
+  expect(details).toMatchObject({ kind: "copy", copied: "details" });
+  expect(details.text).toContain("- Shell: fish, version 3.7.1 (/usr/bin/fish)");
+  expect(details.text).not.toContain("only local");
+  expect(text).not.toContain("Gathering bug report info");
+  // It says so in place of its label, then goes back.
+  menu.noteCopied("details", 0);
+  const copied = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  expect(copied).toContain("✓ Copied");
+  expect(copied).not.toContain("Copy details for a bug report");
+  expect(draw(menu, 100, 30, 1500, s, prefs).join("\n")).toContain("Copy details for a bug report");
   // No browser opens over SSH, so the same button copies the link and says so.
   menu.terminal = { ...menu.terminal, ssh: true };
-  expect(menu.click(button, s, prefs)).toEqual({ kind: "copy", text: url });
+  expect(menu.click(button, s, prefs)).toEqual({ kind: "copy", text: url, copied: "link" });
   expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("enter copy link");
-  menu.link_copied = true;
-  expect(draw(menu, 100, 30, 0, s, prefs).join("\n")).toContain("Copied the link; paste it into your browser.");
+  expect(menu.hyperlinks()[0]?.uri).toBe(url);
+  menu.noteCopied("link", 0);
+  const linked = draw(menu, 100, 30, 0, s, prefs).join("\n");
+  expect(linked).toContain("✓ Copied");
+  expect(linked).not.toContain("Open an Issue on GitHub");
+  expect(linked).toContain("Copy details for a bug report");
   menu.full_path = "/tmp/full_bug_report.txt";
   const attach = draw(menu, 100, 30, 0, s, prefs).join("\n");
   expect(attach).toContain("Please attach /tmp/full_bug_report.txt,");
