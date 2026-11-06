@@ -398,7 +398,6 @@
   "Connect your Command keys": "Command 키 연결하기",
   "Connecting to Herdr": "Herdr에 연결 중",
   "Control Corgi panes, agents, or workspaces:": "Corgi 패널, 에이전트 또는 작업 공간 제어:",
-  "Copied": "복사됨",
   "Copied ${count} note.": "메모 ${count}개를 복사했습니다.",
   "Copied ${count} notes.": "메모 ${count}개를 복사했습니다.",
   "Copies the conversation into a new tab": "대화를 새 탭으로 복사합니다",
@@ -1080,7 +1079,7 @@
   "committed": "커밋됨",
   "committed + working copy": "커밋 + 작업 사본",
   "context ": "컨텍스트 ",
-  "copy": "복사",
+  "copy details": "정보 복사",
   "copy link": "링크 복사",
   "corgi — a small Ghostty-powered agent terminal": "corgi — Ghostty 기반의 작은 에이전트 터미널",
   "create": "만들기",
@@ -1270,5 +1269,6 @@
   "◇ Prefix = ${prefixName}": "◇ 접두 키 = ${prefixName}",
   "○ Corgi (Activity summarizer)": "○ Corgi (활동 요약)",
   "● Jump to who needs you": "● 응답이 필요한 에이전트로 이동",
+  "✓ Copied": "✓ 복사됨",
   "🐕 badge; animations stay still.": "🐕 배지; 애니메이션은 멈춰 있습니다."
 }

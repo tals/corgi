@@ -472,7 +472,6 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Connect your Command keys"]': () => `连接你的 Command 键`,
     '["Connecting to Herdr"]': () => `正在连接 Herdr`,
     '["Control Corgi panes, agents, or workspaces:"]': () => `控制 Corgi 窗格、智能体或工作区：`,
-    '["Copied"]': () => `已复制`,
     '["Copied "," note."]': v0 => `已复制 ${v0} 条批注。`,
     '["Copied "," notes."]': v0 => `已复制 ${v0} 条批注。`,
     '["Copies the conversation into a new tab"]': () => `将对话复制到新标签页`,
@@ -1168,7 +1167,7 @@ ${v1} 使用该账号。
     '["committed"]': () => `已提交`,
     '["committed + working copy"]': () => `已提交 + 工作副本`,
     '["context "]': () => `上下文 `,
-    '["copy"]': () => `复制`,
+    '["copy details"]': () => `复制信息`,
     '["copy link"]': () => `复制链接`,
     '["corgi — a small Ghostty-powered agent terminal"]': () => `corgi — 基于 Ghostty 的小巧智能体终端`,
     '["create"]': () => `创建`,
@@ -1359,6 +1358,7 @@ ${v1} 使用该账号。
     '["◇ Prefix = ",""]': v0 => `◇ 前缀键 = ${v0}`,
     '["○ Corgi (Activity summarizer)"]': () => `○ Corgi（活动摘要）`,
     '["● Jump to who needs you"]': () => `● 跳转到需要你的智能体`,
+    '["✓ Copied"]': () => `✓ 已复制`,
     '["🐕 badge; animations stay still."]': () => `🐕 图标；动画保持静止。`,
   },
   "ja": {
@@ -1846,7 +1846,6 @@ ${v1} 使用该账号。
     '["Connecting to Herdr"]': () => `Herdrに接続中`,
     '["Control Corgi panes, agents, or workspaces:"]': () =>
       `Corgiのペイン、エージェント、ワークスペースを操作するには：`,
-    '["Copied"]': () => `コピーしました`,
     '["Copied "," note."]': v0 => `${v0}件のコメントをコピーしました。`,
     '["Copied "," notes."]': v0 => `${v0}件のコメントをコピーしました。`,
     '["Copies the conversation into a new tab"]': () => `会話を新しいタブにコピーします`,
@@ -2563,7 +2562,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '["committed"]': () => `コミット済み`,
     '["committed + working copy"]': () => `コミット済み + 作業コピー`,
     '["context "]': () => `コンテキスト `,
-    '["copy"]': () => `コピー`,
+    '["copy details"]': () => `情報をコピー`,
     '["copy link"]': () => `リンクをコピー`,
     '["corgi — a small Ghostty-powered agent terminal"]': () => `corgi — Ghosttyを使った小さなエージェント用端末`,
     '["create"]': () => `作成`,
@@ -2754,6 +2753,7 @@ Corgiに登録された全アカウントが対象になります。--accountで
     '["◇ Prefix = ",""]': v0 => `◇ プレフィックス = ${v0}`,
     '["○ Corgi (Activity summarizer)"]': () => `○ Corgi（作業の要約）`,
     '["● Jump to who needs you"]': () => `● 対応待ちのエージェントへ`,
+    '["✓ Copied"]': () => `✓ コピーしました`,
     '["🐕 badge; animations stay still."]': () => `🐕 バッジを表示。アニメーションは停止します。`,
   },
   "ko": {
@@ -3240,7 +3240,6 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Connect your Command keys"]': () => `Command 키 연결하기`,
     '["Connecting to Herdr"]': () => `Herdr에 연결 중`,
     '["Control Corgi panes, agents, or workspaces:"]': () => `Corgi 패널, 에이전트 또는 작업 공간 제어:`,
-    '["Copied"]': () => `복사됨`,
     '["Copied "," note."]': v0 => `메모 ${v0}개를 복사했습니다.`,
     '["Copied "," notes."]': v0 => `메모 ${v0}개를 복사했습니다.`,
     '["Copies the conversation into a new tab"]': () => `대화를 새 탭으로 복사합니다`,
@@ -3954,7 +3953,7 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '["committed"]': () => `커밋됨`,
     '["committed + working copy"]': () => `커밋 + 작업 사본`,
     '["context "]': () => `컨텍스트 `,
-    '["copy"]': () => `복사`,
+    '["copy details"]': () => `정보 복사`,
     '["copy link"]': () => `링크 복사`,
     '["corgi — a small Ghostty-powered agent terminal"]': () => `corgi — Ghostty 기반의 작은 에이전트 터미널`,
     '["create"]': () => `만들기`,
@@ -4145,6 +4144,7 @@ ${v1} 환경 변수를 설정하여 해당 계정을 사용할 수 있습니다.
     '["◇ Prefix = ",""]': v0 => `◇ 접두 키 = ${v0}`,
     '["○ Corgi (Activity summarizer)"]': () => `○ Corgi (활동 요약)`,
     '["● Jump to who needs you"]': () => `● 응답이 필요한 에이전트로 이동`,
+    '["✓ Copied"]': () => `✓ 복사됨`,
     '["🐕 badge; animations stay still."]': () => `🐕 배지; 애니메이션은 멈춰 있습니다.`,
   },
   "ru": {
@@ -5014,7 +5014,6 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Connect your Command keys"]': () => `Подключите клавиши Command`,
     '["Connecting to Herdr"]': () => `Подключение к Herdr`,
     '["Control Corgi panes, agents, or workspaces:"]': () => `Управление панелями, агентами и пространствами Corgi:`,
-    '["Copied"]': () => `Скопировано`,
     '["Copied "," note."]': v0 => {
       switch (plural("ru", Number(v0))) {
         case "one":
@@ -5809,7 +5808,7 @@ ${v1}, чтобы использовать этот аккаунт.
     '["committed"]': () => `закоммичено`,
     '["committed + working copy"]': () => `коммиты + рабочая копия`,
     '["context "]': () => `контекст `,
-    '["copy"]': () => `скопировать`,
+    '["copy details"]': () => `скопировать сведения`,
     '["copy link"]': () => `скопировать ссылку`,
     '["corgi — a small Ghostty-powered agent terminal"]': () =>
       `corgi — небольшой терминал для агентов на базе Ghostty`,
@@ -6027,6 +6026,7 @@ ${v1}, чтобы использовать этот аккаунт.
     '["◇ Prefix = ",""]': v0 => `◇ Префикс = ${v0}`,
     '["○ Corgi (Activity summarizer)"]': () => `○ Corgi (Описания действий)`,
     '["● Jump to who needs you"]': () => `● Перейти к тому, кому вы нужны`,
+    '["✓ Copied"]': () => `✓ Скопировано`,
     '["🐕 badge; animations stay still."]': () => `🐕 значок; без анимаций.`,
   },
 };

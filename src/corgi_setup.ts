@@ -1554,7 +1554,7 @@ export class Menu implements LinkSource {
       w.write(at(x0 + 2, y) + (o.mark === "on" && !o.disabled ? p.accent : p.quiet) + (o.mark === "on" ? "●" : "○"));
     // A copy option says it copied in place of its label, for a moment.
     const copied = o.apply?.kind === "copy" && this.copied?.what === o.apply.copied && now_ms < this.copied.until,
-      label = copied ? `✓ ${i18n.t`Copied`}` : o.label;
+      label = copied ? i18n.t`✓ Copied` : o.label;
     w.write(at(x0 + 4, y) + (o.disabled ? p.quiet : copied ? p.accent : p.label));
     const link = o.link ?? (o.apply?.kind === "open" ? o.apply.url : null),
       label_room = Math.min(label_w, sat(right, x0 + 4));
@@ -2022,7 +2022,7 @@ export class Menu implements LinkSource {
                 detail: "",
                 mark: "none",
                 apply: { kind: "copy", text: bugReport.text(report, settings, true), copied: "details" },
-                action: i18n.t`copy`,
+                action: i18n.t`copy details`,
               }),
           blank,
           { tag: "fleas" },

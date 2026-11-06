@@ -398,7 +398,6 @@
   "Connect your Command keys": "连接你的 Command 键",
   "Connecting to Herdr": "正在连接 Herdr",
   "Control Corgi panes, agents, or workspaces:": "控制 Corgi 窗格、智能体或工作区：",
-  "Copied": "已复制",
   "Copied ${count} note.": "已复制 ${count} 条批注。",
   "Copied ${count} notes.": "已复制 ${count} 条批注。",
   "Copies the conversation into a new tab": "将对话复制到新标签页",
@@ -1080,7 +1079,7 @@
   "committed": "已提交",
   "committed + working copy": "已提交 + 工作副本",
   "context ": "上下文 ",
-  "copy": "复制",
+  "copy details": "复制信息",
   "copy link": "复制链接",
   "corgi — a small Ghostty-powered agent terminal": "corgi — 基于 Ghostty 的小巧智能体终端",
   "create": "创建",
@@ -1270,5 +1269,6 @@
   "◇ Prefix = ${prefixName}": "◇ 前缀键 = ${prefixName}",
   "○ Corgi (Activity summarizer)": "○ Corgi（活动摘要）",
   "● Jump to who needs you": "● 跳转到需要你的智能体",
+  "✓ Copied": "✓ 已复制",
   "🐕 badge; animations stay still.": "🐕 图标；动画保持静止。"
 }

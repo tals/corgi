@@ -630,7 +630,6 @@
   "Connect your Command keys": "Подключите клавиши Command",
   "Connecting to Herdr": "Подключение к Herdr",
   "Control Corgi panes, agents, or workspaces:": "Управление панелями, агентами и пространствами Corgi:",
-  "Copied": "Скопировано",
   "Copied ${count} note.": {
     "plural": "count",
     "forms": {
@@ -1360,7 +1359,7 @@
   "committed": "закоммичено",
   "committed + working copy": "коммиты + рабочая копия",
   "context ": "контекст ",
-  "copy": "скопировать",
+  "copy details": "скопировать сведения",
   "copy link": "скопировать ссылку",
   "corgi — a small Ghostty-powered agent terminal": "corgi — небольшой терминал для агентов на базе Ghostty",
   "create": "создать",
@@ -1566,5 +1565,6 @@
   "◇ Prefix = ${prefixName}": "◇ Префикс = ${prefixName}",
   "○ Corgi (Activity summarizer)": "○ Corgi (Описания действий)",
   "● Jump to who needs you": "● Перейти к тому, кому вы нужны",
+  "✓ Copied": "✓ Скопировано",
   "🐕 badge; animations stay still.": "🐕 значок; без анимаций."
 }
