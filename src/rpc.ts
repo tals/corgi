@@ -3,7 +3,10 @@ import * as errors from "./errors";
 import * as json from "./json";
 import * as telemetry from "./telemetry";
 import * as protocol from "./protocol";
+import * as flow from "./flow";
+import * as text from "./text";
 interface Pending {
+  bytes: number;
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
 }
@@ -16,6 +19,7 @@ export class Connection {
   private readonly requestIds: boolean;
   private pending = new Map<number, Pending>();
   private next = 1;
+  private retained = 0;
   private buffer = "";
   private closed: Error | null = null;
   private listeners = new Set<(event: protocol.Event) => void>();
@@ -27,11 +31,6 @@ export class Connection {
     this.socket.setEncoding("utf8");
     this.socket.on("data", chunk => {
       this.buffer += chunk;
-      if (Buffer.byteLength(this.buffer) > 64 * 1024 * 1024) {
-        this.fail(Error("MessageTooLarge"));
-        this.socket.destroy();
-        return;
-      }
       for (;;) {
         const newline = this.buffer.indexOf("\n");
         if (newline < 0) break;
@@ -39,15 +38,17 @@ export class Connection {
         this.buffer = this.buffer.slice(newline + 1);
         if (!line) continue;
         try {
+          if (text.byteLength(line) + 1 > flow.output_bytes) throw Error("MessageTooLarge");
           const decode_started = telemetry.begin();
           const message = json.parse(line);
-          telemetry.end("wire.decode", decode_started, telemetry.enabled ? Buffer.byteLength(line) : 0);
+          telemetry.end("wire.decode", decode_started, telemetry.enabled ? text.byteLength(line) : 0);
           this.receive(message);
         } catch (error) {
           this.fail(error as Error);
           return;
         }
       }
+      if (text.byteLength(this.buffer) >= flow.output_bytes) this.fail(Error("MessageTooLarge"));
     });
     this.socket.on("error", error => this.fail(error));
     this.socket.on("close", () => this.fail(Error("ConnectionClosed")));
@@ -57,6 +58,7 @@ export class Connection {
     this.closed = error;
     for (const p of this.pending.values()) p.reject(error);
     this.pending.clear();
+    this.retained = 0;
     this.socket.destroy();
   }
   private receive(value: unknown): void {
@@ -75,6 +77,7 @@ export class Connection {
     const pending = this.pending.get(id);
     if (!pending) throw Error("UnexpectedReply");
     this.pending.delete(id);
+    this.retained -= pending.bytes;
     if (!this.requestIds) {
       pending.resolve(message);
       return;
@@ -96,11 +99,18 @@ export class Connection {
     if (this.closed) throw this.closed;
     const message = json.object(value);
     if (!this.requestIds && this.pending.size) throw Error("RequestInFlight");
-    const id = this.requestIds ? this.next++ : 0;
+    if (this.pending.size >= flow.requests) throw Error("TooManyRequests");
+    const id = this.requestIds ? this.next++ : 0,
+      line = json.stringify(this.requestIds ? { ...message, request_id: id } : message) + "\n",
+      bytes = text.byteLength(line);
+    if (bytes > flow.request_bytes) throw Error("MessageTooLarge");
+    if (this.retained + bytes > flow.request_bytes || this.socket.writableLength + bytes > flow.request_bytes)
+      throw Error("TooManyRequests");
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      this.pending.set(id, { resolve, reject, bytes });
+      this.retained += bytes;
       try {
-        this.socket.write(json.stringify(this.requestIds ? { ...message, request_id: id } : message) + "\n");
+        this.socket.write(line);
       } catch (error) {
         this.fail(error as Error);
       }

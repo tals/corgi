@@ -348,6 +348,26 @@ and viewer protocol 3 are unchanged, and older callers still receive surfaces fr
 `viewer.sync`. Handoff already saves
 both connections and their association; no saved-format change or migration is needed.
 
+Socket admission counts decoded requests and running operations as well as raw
+input: at most 64 requests and 4 MiB of request bytes per connection. Reads and
+request execution pause behind backed-up replies. Individual replies still fit
+within 4 MiB; oversized unchunked replies return `MessageTooLarge`.
+
+Viewers fetch metadata separately and request `viewer.surfaces` with
+`chunked: true`, then follow each chunk's `next` cursor. Each chunk carries at
+most 32 Ki UTF-16 code units of surface JSON. A transfer holds one captured pane
+at a time, capped at 16 MiB, and only complete panes supply revision receipts.
+A lost data socket, handoff, or cursor idle for 30 seconds discards the partial
+transfer; the viewer starts again. The optional fields preserve ordinary
+unchunked callers and require no protocol or saved-state version change.
+Images retain their existing bounded reads.
+
+Terminal output uses writable notifications and a 256 KiB write budget per
+callback. Its queue holds at most 16 MiB and 128 records. A partially sent frame
+finishes before the next diff; intervening screen changes collapse into the
+next composition, while image and control bytes remain ordered. Normal detach
+drains output before restoring stdout's original descriptor flags.
+
 The id is optional, so a script can speak plain JSON lines or HTTP `POST`.
 Requests without one are answered in the order they were sent; a slow request
 holds that connection's later ones until it replies. Older runtime protocols

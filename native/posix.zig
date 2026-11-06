@@ -29,6 +29,10 @@ pub export fn probe_nonblock(fd: c_int) c_int {
     return c.fcntl(fd, c.F_SETFL, c.fcntl(fd, c.F_GETFL) | @as(c_int, c.O_NONBLOCK));
 }
 
+pub export fn probe_flags(fd: c_int, flags: c_int) c_int {
+    return if (flags < 0) c.fcntl(fd, c.F_GETFL) else c.fcntl(fd, c.F_SETFL, flags);
+}
+
 pub export fn probe_close(fd: c_int) c_int {
     return c.close(fd);
 }

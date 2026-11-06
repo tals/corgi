@@ -360,3 +360,42 @@ test.each([false, true])("reload waits out a busy daemon until its deadline (exp
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("RPC bounds outstanding requests and returns capacity with each reply", async () => {
+  const replies: (() => void)[] = [];
+  const remote = await peer((message, socket) =>
+    replies.push(() => send(socket, { request_id: message.request_id, ok: true, pid: 7 })),
+  );
+  try {
+    const pending = Array.from({ length: 64 }, () => remote.conn.call("ping"));
+    await expect(remote.conn.call("ping")).rejects.toThrow("TooManyRequests");
+    const deadline = Date.now() + 1000;
+    while (replies.length < 64 && Date.now() < deadline) await Bun.sleep(1);
+    expect(replies).toHaveLength(64);
+    for (const reply of replies) reply();
+    await Promise.all(pending);
+    const last = remote.conn.call("ping");
+    while (replies.length < 65 && Date.now() < deadline) await Bun.sleep(1);
+    replies[64]();
+    expect(await last).toEqual({ ok: true, pid: 7 });
+  } finally {
+    await remote.close();
+  }
+});
+
+test("RPC bounds UTF-8 request bytes before writing them", async () => {
+  let requests = 0;
+  const remote = await peer((message, socket) => {
+    requests++;
+    send(socket, { request_id: message.request_id, ok: true, pid: 7 });
+  });
+  try {
+    await expect(remote.conn.rawRequest({ op: "ping", text: "界".repeat(2 * 1024 * 1024) })).rejects.toThrow(
+      "MessageTooLarge",
+    );
+    expect(await remote.conn.call("ping")).toEqual({ ok: true, pid: 7 });
+    expect(requests).toBe(1);
+  } finally {
+    await remote.close();
+  }
+});

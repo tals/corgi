@@ -1,4 +1,5 @@
 import * as rpc from "./rpc";
+import { Assembly } from "./surface_transfer";
 import type * as protocol from "./protocol";
 import type { Transport } from "./mirror";
 import * as viewerVersion from "./viewer_version";
@@ -49,6 +50,7 @@ export class Connection implements Transport {
       case "viewer.sync":
         return this.sync(args[0] as protocol.RequestInput<"viewer.sync">) as Promise<protocol.Response<K>>;
       case "viewer.surfaces":
+        return this.surfaces() as Promise<protocol.Response<K>>;
       case "viewer.image":
       case "viewer.search":
       case "viewer.pick":
@@ -70,17 +72,42 @@ export class Connection implements Transport {
     return this.control.request(op, ...args);
   }
   private async sync(q: protocol.RequestInput<"viewer.sync">): Promise<protocol.Response<"viewer.sync">> {
-    // Unwatched, one request on control brings the view and its surfaces.
     const attached = this.attached;
-    const view = await this.control.request("viewer.sync", { ...q, surfaces: !attached });
+    const view = await this.control.request("viewer.sync", { ...q, surfaces: false });
     if ("err" in view) return view;
     viewerVersion.require(view);
     if (this.watching?.viewer !== view.viewer) this.watch(view.viewer);
-    if (!attached) return view;
-    const frames = await this.content("viewer.surfaces");
+    const frames = await this.surfaces();
     if ("err" in frames) return frames;
-    this.watched = this.attached;
+    this.watched = attached && this.attached;
     return { ...view, surfaces: frames.surfaces };
+  }
+  private async surfaces(): Promise<protocol.Response<"viewer.surfaces">> {
+    // A handoff or data-socket loss discards an unfinished transfer. Start it again,
+    // including its receipts, instead of joining chunks from different captures.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const assembly = new Assembly(),
+        connection = this.attached && this.data ? this.data : this.control;
+      let cursor: string | null = null;
+      for (;;) {
+        let reply: protocol.Response<"viewer.surfaces">;
+        try {
+          reply = await connection.request("viewer.surfaces", { chunked: true, cursor });
+        } catch (error) {
+          if (connection === this.control || this.closed || attempt > 0) throw error;
+          this.dropData(connection);
+          break;
+        }
+        if ("err" in reply) {
+          if (reply.err === "SurfaceExpired" && attempt === 0) break;
+          return reply;
+        }
+        if (!reply.chunk) return { ok: true, surfaces: [...assembly.finish(), ...reply.surfaces] };
+        assembly.add(reply.chunk);
+        cursor = reply.chunk.next;
+      }
+    }
+    throw Error("SurfaceExpired");
   }
   /** Sent beside the sync; until the daemon accepts, the viewer syncs every
    * frame, and a refusal is asked again on the next sync. */
