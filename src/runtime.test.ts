@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { test, expect, spyOn } from "bun:test";
 import { Runtime, Pane, Launch, Ghost, ending } from "./runtime";
 import { program } from "./process_name";
 import { Terminal } from "./pane/terminal";
@@ -9,6 +9,7 @@ import { Attachment } from "./conversations";
 import { Agent } from "./agents";
 import { ResumeHint } from "./resume_hint";
 import type { Session } from "./headless";
+import * as session from "./session";
 function add(r: Runtime, w: Workspace, split: number | null = null) {
   w.model.next_id = r.workspaces.next_pane_id;
   const id = split === null ? w.model.newTab("") : w.model.split(split, "horizontal");
@@ -23,6 +24,28 @@ function setup() {
   r.workspaces.items = [w];
   return { r, w };
 }
+test("closing a pane drains its final output while its workspace still owns it", () => {
+  const { r, w } = setup(),
+    p = add(r, w);
+  let snapshots = 0;
+  p.terminal.on("change", () => {
+    const snapshot = session.viewerSnapshot(r);
+    expect(snapshot.panes.map(pane => pane.id)).toEqual([p.id]);
+    snapshots++;
+  });
+  const read = spyOn(p.terminal, "read").mockImplementation(() => {
+    p.terminal.feed("final output");
+    return true;
+  });
+  try {
+    r.close(p.id);
+    expect(snapshots).toBe(1);
+    expect(session.viewerSnapshot(r).panes).toEqual([]);
+  } finally {
+    read.mockRestore();
+    r.destroy();
+  }
+});
 test("agent targets follow tab order and keep creation order within split tabs", () => {
   const { r, w } = setup(),
     other = new Workspace(2, "/other");

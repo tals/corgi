@@ -1338,6 +1338,26 @@ process.stdin.on("data", chunk => {
       this.assertEqual(output.split(marker).length - 1, 1);
     this.assertNotIn("DISCARD_DURING_MASTER_STALL", output);
   }
+  async test_a_pane_exit_with_a_live_stream_keeps_the_machine_usable() {
+    await this.remote!.command("pane.create", {
+      workspace: 1,
+      command: "stty -echo; read -r line; printf 'FINAL_OUTPUT\\n'",
+    });
+    await this.startViewer();
+    await this.online();
+    this.terminal!.write("EXIT_NOW\r");
+    await this.remote!.until(async () => (await this.remote!.session()).panes.length === 0);
+    const { pane } = await this.remote!.command("pane.create", {
+      workspace: 1,
+      command: "printf 'AFTER_EXIT_READY\\n'; cat",
+    });
+    await this.until(() => this.text().includes("AFTER_EXIT_READY"));
+    this.terminal!.write("AFTER_EXIT_INPUT\r");
+    await this.remote!.until(async () =>
+      (await this.remote!.command("pane.read", { target: pane })).text.includes("AFTER_EXIT_INPUT"),
+    );
+    await this.until(() => this.text().includes("AFTER_EXIT_INPUT"));
+  }
   async test_remote_reload_rebuilds_the_stream_without_replacing_its_panes() {
     await this.remote!.command("pane.create", { workspace: 1, command: "stty -echo; cat" });
     await this.startViewer();
