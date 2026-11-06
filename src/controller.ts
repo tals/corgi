@@ -4815,6 +4815,15 @@ export class Controller {
           this.notice((error as Error).message);
         }
         return;
+      case "workspace_tint":
+        if (this.prefs.workspace_tint === apply.value) return;
+        this.prefs.workspace_tint = apply.value;
+        try {
+          preferences.update({ workspace_tint: apply.value });
+        } catch (error) {
+          this.notice((error as Error).message);
+        }
+        return;
       case "theme":
         this.prefs.theme = apply.theme;
         try {
@@ -6129,11 +6138,11 @@ export class Controller {
       } else if (this.corgi_setup) {
         const setup = this.corgi_setup,
           s = this.runtime.inference,
-          intensity = setup.intensityKey(parsed_key, this.prefs);
+          slider = setup.sliderKey(parsed_key, this.prefs);
         if (setup.managing()) {
           const launch = setup.agents!;
           await this.manageAction(launch.manager.sequence(text, launch.manageModel()));
-        } else if (intensity) await this.applySetup(intensity);
+        } else if (slider) await this.applySetup(slider);
         else if (setup.sequence(text)) {
           // The worktree folder field took it.
         } else if (parsed_key === "up" || parsed_key === "shift_tab") setup.move(false, s, this.prefs);
@@ -6899,10 +6908,10 @@ export class Controller {
       }
       return;
     }
-    if (this.corgi_setup?.draggingIntensity()) {
+    if (this.corgi_setup?.draggingSlider()) {
       const setup = this.corgi_setup;
-      if (release || button === 32) setup.dragIntensity(this.width, this.height, x);
-      if (release) await this.applySetup(setup.finishIntensity());
+      if (release || button === 32) setup.dragSlider(this.width, this.height, x);
+      if (release) await this.applySetup(setup.finishSlider());
       this.dirty = true;
       return;
     }
@@ -6946,7 +6955,7 @@ export class Controller {
         s = this.runtime.inference,
         hit = setup.hit(this.width, this.height, x, y, s, this.prefs);
       if (!release && button === 0) {
-        this.ui_mouse_down = hit === null || !("intensity" in hit);
+        this.ui_mouse_down = hit === null || !("slider" in hit);
         if (hit && "manager" in hit) {
           setup.openOptions(s, this.prefs);
           const launch = setup.agents!;

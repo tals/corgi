@@ -33,7 +33,7 @@ import { TabMenu } from "./commands";
 import { agent, type Pane } from "./mirror";
 import { Icons } from "./tab_icons";
 import { Menu as LauncherMenu } from "./agent_launcher";
-import { Menu as SetupMenu } from "./corgi_setup";
+import { Menu as SetupMenu, status as setupStatus } from "./corgi_setup";
 import { Writer } from "./text";
 import { Terminal } from "./pane/terminal";
 import type { Prefix } from "./keymap";
@@ -116,6 +116,48 @@ test("the agent under the pointer takes the hover tint until the pointer leaves 
       for (const row of [0, 1]) expect(output).toContain(`\x1b[${c.tinted + row + 1};2H\x1b[0m${tint}`);
     } else expect(output).not.toContain(tint);
   }
+});
+
+test("the workspace under the pointer takes the hover tint, and setup's tint shows while it moves", () => {
+  const view = emptyView();
+  const workspaces = [
+    sidebar.workspaceEntry({ id: 1, name: "Here", cwd: "/tmp", active: true }),
+    sidebar.workspaceEntry({ id: 2, name: "There", cwd: "/tmp", active: false }),
+  ];
+  const hover = palette.bgRgb(palette.mix(palette.colors.bg, palette.colors.selected, 50));
+  // The second workspace's three rows start at row 5.
+  for (const c of [
+    { pointer: { x: 5, y: 5 }, hovered: true },
+    { pointer: { x: 20, y: 7 }, hovered: true },
+    { pointer: { x: 5, y: 2 }, hovered: false },
+    { pointer: { x: 0, y: 5 }, hovered: false },
+    { pointer: null, hovered: false },
+    { pointer: { x: 5, y: 5 }, hovered: false, scope_menu: true },
+  ]) {
+    const output = frame(
+      view,
+      [],
+      100,
+      30,
+      ui({
+        pointer: c.pointer,
+        message: "",
+        copy_mode: false,
+        workspaces,
+        scope_menu: c.scope_menu ? new sidebar.ScopeMenu() : null,
+      }),
+    );
+    expect(output.includes(hover), JSON.stringify(c)).toBe(c.hovered);
+  }
+  // Dragging the setup slider tints the section before anything is saved.
+  const setup = SetupMenu.open(),
+    u = ui({ message: "", copy_mode: false, workspaces, corgi_setup: setup });
+  const tinted = palette.bgRgb(palette.sectionTint(100)!);
+  expect(frame(view, [], 100, 30, u)).not.toContain(tinted);
+  setup.item = "flourishes";
+  setup.click({ slider: "workspace_tint", value: 100 }, setupStatus(), u.prefs);
+  expect(u.prefs.workspace_tint).toBe(0);
+  expect(frame(view, [], 100, 30, u)).toContain(tinted);
 });
 
 test("resource card points only at its sortable column headers", () => {

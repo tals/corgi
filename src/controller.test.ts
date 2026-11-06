@@ -398,7 +398,7 @@ test("setup previews intensity drags and saves once on release, including outsid
     for (let y = 0; y < 30 && !point; y++)
       for (let x = 0; x < 100; x++) {
         const hit = menu.hit(100, 30, x, y, s.runtime.inference, s.prefs);
-        if (hit && "intensity" in hit && hit.intensity === 0) {
+        if (hit && "slider" in hit && hit.slider === "corgi_intensity" && hit.value === 0) {
           point = { x, y };
           break;
         }
@@ -426,6 +426,58 @@ test("setup previews intensity drags and saves once on release, including outsid
     expect(menu.focus).toBe("list");
     await s.input(bytes("\x1b[27u"));
     expect(s.corgi_setup).toBeNull();
+  } finally {
+    update.mockRestore();
+    viewer.close(s);
+  }
+});
+test("setup previews workspace tint drags and saves once on release, leaving the corgi alone", async () => {
+  const update = spyOn(preferences, "update").mockImplementation(() => {});
+  const s = controller();
+  s.receiveSnapshot(folders("/a"));
+  s.width = 100;
+  s.height = 30;
+  s.input_state.attached = true;
+  s.corgi_setup = SetupMenu.open();
+  const menu: SetupMenu = s.corgi_setup;
+  menu.item = "flourishes";
+  menu.openOptions(s.runtime.inference, s.prefs);
+  const bar = (value: number) => {
+    for (let y = 0; y < 30; y++)
+      for (let x = 0; x < 100; x++) {
+        const hit = menu.hit(100, 30, x, y, s.runtime.inference, s.prefs);
+        if (hit && "slider" in hit && hit.slider === "workspace_tint" && hit.value === value) return { x, y };
+      }
+    return null;
+  };
+  try {
+    const point = bar(0);
+    expect(point).not.toBeNull();
+    await s.mouse(`\x1b[<0;${point!.x + 1};${point!.y + 1}M`);
+    expect(menu.cursor).toBe(1);
+    expect(menu.previewSlider("workspace_tint", s.prefs)).toBe(0);
+    await s.mouse("\x1b[<32;150;35M");
+    // The sidebar shows the dragged value before anything is saved.
+    expect(menu.previewSlider("workspace_tint", s.prefs)).toBe(100);
+    expect(s.prefs.workspace_tint).toBe(0);
+    expect(update).not.toHaveBeenCalled();
+    await s.mouse("\x1b[<0;150;35m");
+    expect(s.prefs.workspace_tint).toBe(100);
+    expect(s.prefs.corgi_intensity).toBe(50);
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenLastCalledWith({ workspace_tint: 100 });
+    // Releasing on the value already saved saves nothing.
+    const full = bar(100);
+    expect(full).not.toBeNull();
+    await s.mouse(`\x1b[<0;${full!.x + 1};${full!.y + 1}M`);
+    await s.mouse(`\x1b[<0;${full!.x + 1};${full!.y + 1}m`);
+    expect(s.prefs.workspace_tint).toBe(100);
+    expect(update).toHaveBeenCalledTimes(1);
+    // Keys step the slider under the cursor.
+    await s.input(bytes("\x1b[D"));
+    expect(s.prefs.workspace_tint).toBe(95);
+    expect(update).toHaveBeenLastCalledWith({ workspace_tint: 95 });
+    expect(s.prefs.corgi_intensity).toBe(50);
   } finally {
     update.mockRestore();
     viewer.close(s);

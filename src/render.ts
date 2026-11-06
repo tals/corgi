@@ -790,6 +790,7 @@ export function frame(
     : null;
   side.resource_hover = u.resource_hover;
   side.corgi_intensity = u.corgi_setup?.previewIntensity(u.prefs) ?? u.prefs.corgi_intensity;
+  side.workspace_tint = u.corgi_setup?.previewSlider("workspace_tint", u.prefs) ?? u.prefs.workspace_tint;
   side.dragged = u.dragged_agent ? u.dragged_agent.destination : null;
   side.dragged_workspace = u.dragged_workspace ? u.dragged_workspace.destination : null;
   // Mouse tracking modes replace one another. Disabling first makes the host
@@ -1062,8 +1063,10 @@ export function frame(
   }
   if (u.docking) for (const rect of drawDocking(w, u.docking, panes, side.area())) cover(rect);
   // The host may leave its last mouse report at the window edge.
-  if (u.pointer && u.pointer.x > 0 && !dragging && !on_card && noOverlay(u))
+  if (u.pointer && u.pointer.x > 0 && !dragging && !on_card && noOverlay(u)) {
     side.hovered = sidebar.agentIndexAt(side, entries, u.pointer.x, u.pointer.y);
+    side.workspace_hover = sidebar.workspaceIndexAt(side, u.pointer.x, u.pointer.y);
+  }
   side.spotlight = u.worktree_spotlight;
   // A moving row's tint and a link's thumbnail are placed again by each frame that shows them.
   if (u.supports_kitty_graphics)
