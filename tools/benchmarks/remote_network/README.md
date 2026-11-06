@@ -47,6 +47,13 @@ The same seeded producer runs for both products. The dense case represents a
 rapidly changing screen; it is not a typical chat transcript. No models,
 provider accounts, internet access or paid services are involved.
 
+The follow-up harness keeps the producer's PTY blocking and completes partial
+writes. Setting stdin nonblocking can also affect stdout when both share the
+same open-file description. An early follow-up pilot exposed that failure under
+local PTY pressure. Stream results now record all twelve producer PIDs and
+their liveness; a producer exit marks the trial invalid. Workload text, cadence,
+network shaping and measurement definitions are unchanged.
+
 `observe.ts` runs the actual viewer in a PTY and feeds its output into Ghostty's
 terminal emulator. A marker is accepted only when header and footer sequences
 agree. The observer and producer explicitly use Linux `CLOCK_MONOTONIC`;

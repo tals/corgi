@@ -16,13 +16,22 @@ import tty
 root, machine = Path(sys.argv[1]), sys.argv[2]
 root.mkdir(parents=True, exist_ok=True)
 tty.setraw(0)
-os.set_blocking(0, False)
+# PTY stdin/stdout may share an open-file description. Making stdin
+# nonblocking also makes writes fail under local PTY backpressure.
 rng = random.Random(42)
 seq, ack, pending = 0, "NONE", b""
 events = (root / f"{machine}-input.jsonl").open("a", buffering=1)
 state = root / "mode.json"
 last_mode, lines = None, []
 next_frame = time.monotonic()
+
+
+def write_frame(data):
+    remaining = memoryview(data)
+    while remaining:
+        remaining = remaining[os.write(1, remaining):]
+
+
 while True:
     readable, _, _ = select.select([0], [], [], max(0, next_frame - time.monotonic()))
     if readable:
@@ -43,7 +52,7 @@ while True:
         mode = {"kind": "sparse", "hz": 20}
     seq += 1
     if mode != last_mode:
-        os.write(1, b"\x1b[2J\x1b[?25l")
+        write_frame(b"\x1b[2J\x1b[?25l")
         last_mode = mode
     if mode["kind"] == "dense":
         lines = ["".join(rng.choices("abcdefghijklmnopqrstuvwxyz0123456789", k=108)) for _ in range(22)]
@@ -54,7 +63,7 @@ while True:
     frame = f"\x1b[HNETEVAL_{machine} S{seq:08d} T{stamp}\x1b[K"
     frame += "".join(f"\x1b[{i+2};1H{line}\x1b[K" for i, line in enumerate(lines))
     frame += f"\x1b[25;1HEND_{machine} S{seq:08d} ACK_{ack}\x1b[K"
-    os.write(1, frame.encode())
+    write_frame(frame.encode())
     if seq % 20 == 0:
         rows, cols, _, _ = struct.unpack("HHHH", fcntl.ioctl(0, termios.TIOCGWINSZ, b"\0" * 8))
         temporary = root / f"{machine}-source.tmp"

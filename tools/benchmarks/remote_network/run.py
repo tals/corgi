@@ -532,6 +532,16 @@ class Lab:
             ack = next((e for e in view.events[first:] if e["event"] == "frame" and e["machine"] == "atlas" and e["ack"] == probe["token"] and probe["sent"] <= e["at"] <= end), None)
             probe.update({"ok": ack is not None, "seconds": ack["at"] - probe["sent"] if ack else None, "observation_seconds": end - probe["sent"]})
         self.network_snapshot(f"{snapshot_prefix}-end")
+        producers = []
+        for machine in self.ns:
+            for source in sorted((self.root / machine / "work").glob("*-source.json")):
+                state = json.loads(source.read_text())
+                command = Path(f"/proc/{state['pid']}/cmdline")
+                try:
+                    alive = b"workload.py" in command.read_bytes()
+                except FileNotFoundError:
+                    alive = False
+                producers.append({"machine": machine, "source": source.name, "alive": alive, **state})
         frames = [e for e in view.events[first:] if e["event"] == "frame" and e["machine"] == "atlas" and start <= e["at"] <= end]
         self.shape()
         restored = time.monotonic()
@@ -544,7 +554,9 @@ class Lab:
                      "snapshot_prefix": snapshot_prefix,
                      "start": start, "end": end, "frames": len(frames), "frame_ages": [e["at"] - e["source"] for e in frames],
                      "frame_times": [e["at"] for e in frames], "frame_sources": [e["source"] for e in frames],
-                     "initial_frame": initial_frame, "probes": probes, "catchup_seconds": catchup})
+                     "initial_frame": initial_frame, "probes": probes, "catchup_seconds": catchup,
+                     "producers": producers,
+                     "failure": None if len(producers) == 3 * self.args.panes and all(p["alive"] for p in producers) else "producer_exit"})
 
     def sleep(self, seconds):
         view = self.viewer
