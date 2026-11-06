@@ -1,0 +1,54 @@
+Corgi cached-workspace startup failure
+Application commit: eeef7b27d46316dec1fc216541337c5c1785f67e
+Binary SHA-256: 9703db557f5d6db72a286eb83a1396cfd1a976d019ac901537225571183330d1
+
+Three separate application environments; saved remote selected as soon as its row is visible.
+Each block tests cold/warm attaches at 0, 20, 120 and 300 ms RTT.
+Cold means the previous SSH masters were terminated; daemons and cached workspace metadata remain.
+All three cold 300 ms attempts exited with NoWorkspace. All other main startup attempts completed.
+These observations are a reproduction, not an estimate of crash probability.
+
+Trial: startup-1-corgi
+Raw source: dist/remote-network-20261106/raw/startup-1-corgi/viewer-7.jsonl
+Viewer exit code: 1
+Final terminal screen:
+37 |   stream.read = function(size) {
+38 |     let ret = originalRead.@call(this, size);
+39 |     if (size !== 0 && reader === @undefined && !stream_destroyed)
+40 |       own();
+41 |     return ret;
+42 |   function rethrowUncaught(err) {
+                               ^
+error: NoWorkspace
+      at rethrowUncaught (42:27)
+Bun v1.4.4 (Linux x64)
+
+Trial: startup-2-corgi
+Raw source: dist/remote-network-20261106/raw/startup-2-corgi/viewer-7.jsonl
+Viewer exit code: 1
+Final terminal screen:
+37 |   stream.read = function(size) {
+38 |     let ret = originalRead.@call(this, size);
+39 |     if (size !== 0 && reader === @undefined && !stream_destroyed)
+40 |       own();
+41 |     return ret;
+42 |   function rethrowUncaught(err) {
+                               ^
+error: NoWorkspace
+      at rethrowUncaught (42:27)
+Bun v1.4.4 (Linux x64)
+
+Trial: startup-3-corgi
+Raw source: dist/remote-network-20261106/raw/startup-3-corgi/viewer-7.jsonl
+Viewer exit code: 1
+Final terminal screen:
+37 |   stream.read = function(size) {
+38 |     let ret = originalRead.@call(this, size);
+39 |     if (size !== 0 && reader === @undefined && !stream_destroyed)
+40 |       own();
+41 |     return ret;
+42 |   function rethrowUncaught(err) {
+                               ^
+error: NoWorkspace
+      at rethrowUncaught (42:27)
+Bun v1.4.4 (Linux x64)

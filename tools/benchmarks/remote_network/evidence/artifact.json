@@ -1,0 +1,9 @@
+{
+  "archive": "dist/remote-network-20261106/raw.tar.gz",
+  "sha256": "1cd56cb3fea1369606f63fa21c474f7fdcb0b13724a728be0e2ff51c0f5d49d5",
+  "bytes": 13652920,
+  "files": 2403,
+  "unpacked": "dist/remote-network-20261106/raw",
+  "main_measurements": 130,
+  "compression_diagnostic_measurements": 3
+}

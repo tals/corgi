@@ -1,0 +1,42 @@
+[
+  {
+    "rate": null,
+    "rtt": 120,
+    "ping": "PING 10.203.1.2 (10.203.1.2) 56(84) bytes of data.\n64 bytes from 10.203.1.2: icmp_seq=1 ttl=64 time=120 ms\n64 bytes from 10.203.1.2: icmp_seq=2 ttl=64 time=120 ms\n64 bytes from 10.203.1.2: icmp_seq=3 ttl=64 time=120 ms\n64 bytes from 10.203.1.2: icmp_seq=4 ttl=64 time=120 ms\n64 bytes from 10.203.1.2: icmp_seq=5 ttl=64 time=120 ms\n\n--- 10.203.1.2 ping statistics ---\n5 packets transmitted, 5 received, 0% packet loss, time 801ms\nrtt min/avg/max/mdev = 120.099/120.106/120.118/0.007 ms\n",
+    "tcp": {
+      "bytes": 131072,
+      "seconds": 0.4811300723813474,
+      "tail64_kbit_s": 4361.140614191983
+    }
+  },
+  {
+    "rate": "1mbit",
+    "rtt": 120,
+    "ping": "PING 10.203.1.2 (10.203.1.2) 56(84) bytes of data.\n64 bytes from 10.203.1.2: icmp_seq=1 ttl=64 time=120 ms\n64 bytes from 10.203.1.2: icmp_seq=2 ttl=64 time=120 ms\n64 bytes from 10.203.1.2: icmp_seq=3 ttl=64 time=120 ms\n64 bytes from 10.203.1.2: icmp_seq=4 ttl=64 time=120 ms\n64 bytes from 10.203.1.2: icmp_seq=5 ttl=64 time=120 ms\n\n--- 10.203.1.2 ping statistics ---\n5 packets transmitted, 5 received, 0% packet loss, time 800ms\nrtt min/avg/max/mdev = 120.079/120.097/120.140/0.022 ms\n",
+    "tcp": {
+      "bytes": 131072,
+      "seconds": 1.2044941801577806,
+      "tail64_kbit_s": 971.883358458801
+    }
+  },
+  {
+    "rate": "256kbit",
+    "rtt": 120,
+    "ping": "PING 10.203.1.2 (10.203.1.2) 56(84) bytes of data.\n64 bytes from 10.203.1.2: icmp_seq=1 ttl=64 time=120 ms\n64 bytes from 10.203.1.2: icmp_seq=2 ttl=64 time=120 ms\n64 bytes from 10.203.1.2: icmp_seq=3 ttl=64 time=120 ms\n64 bytes from 10.203.1.2: icmp_seq=4 ttl=64 time=120 ms\n64 bytes from 10.203.1.2: icmp_seq=5 ttl=64 time=120 ms\n\n--- 10.203.1.2 ping statistics ---\n5 packets transmitted, 5 received, 0% packet loss, time 801ms\nrtt min/avg/max/mdev = 120.073/120.092/120.123/0.018 ms\n",
+    "tcp": {
+      "bytes": 131072,
+      "seconds": 4.3661504979245365,
+      "tail64_kbit_s": 247.58643254292892
+    }
+  },
+  {
+    "rate": "64kbit",
+    "rtt": 120,
+    "ping": "PING 10.203.1.2 (10.203.1.2) 56(84) bytes of data.\n64 bytes from 10.203.1.2: icmp_seq=1 ttl=64 time=120 ms\n64 bytes from 10.203.1.2: icmp_seq=2 ttl=64 time=120 ms\n64 bytes from 10.203.1.2: icmp_seq=3 ttl=64 time=120 ms\n64 bytes from 10.203.1.2: icmp_seq=4 ttl=64 time=120 ms\n64 bytes from 10.203.1.2: icmp_seq=5 ttl=64 time=120 ms\n\n--- 10.203.1.2 ping statistics ---\n5 packets transmitted, 5 received, 0% packet loss, time 800ms\nrtt min/avg/max/mdev = 120.087/120.106/120.132/0.017 ms\n",
+    "tcp": {
+      "bytes": 131072,
+      "seconds": 17.102686767000705,
+      "tail64_kbit_s": 61.90851127777999
+    }
+  }
+]
