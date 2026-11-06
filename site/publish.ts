@@ -1,16 +1,18 @@
 /**
  * Builds the landing page and deploys it to corgi.computer with wrangler, as
- * an assets-only Worker routed on / and /moonlander (site/wrangler.jsonc).
- * Other paths go straight to the release bucket, install.sh among them.
+ * an assets-only Worker with query-compatible routes (site/wrangler.jsonc).
+ * Release paths bypass Workers through scriptless bucket routes.
  */
 import { join } from "node:path";
 import * as locale from "../src/locale";
+import * as bucketRoutes from "./bucket_routes";
 
 const run = (argv: string[]) =>
   Bun.spawnSync(argv, { cwd: join(import.meta.dir, ".."), stdin: "inherit", stdout: "inherit", stderr: "inherit" })
     .success;
 if (!run([process.execPath, join(import.meta.dir, "build.ts")])) process.exit(1);
 const deploy = [process.execPath, "run", "wrangler", "deploy", "--config", join(import.meta.dir, "wrangler.jsonc")];
+if (!process.argv.includes("--dry-run")) await bucketRoutes.prepare();
 if (!run([...deploy, ...process.argv.slice(2)])) process.exit(1);
 if (process.argv.includes("--dry-run")) process.exit(0);
 
@@ -23,9 +25,13 @@ const checks = [
   ...locale.locales.flatMap(language => [
     { path: `/${language}/`, file: `${language}/index.html` },
     { path: `/${language}/moonlander`, file: `${language}/moonlander.html` },
+    { path: `/${language}/?ref=deploy-check`, file: `${language}/index.html` },
+    { path: `/${language}/moonlander?ref=deploy-check`, file: `${language}/moonlander.html` },
   ]),
   { path: "/install.sh", file: null },
   { path: "/channels/stable.json", file: null },
+  { path: "/install.sh?ref=deploy-check", file: null },
+  { path: "/channels/stable.json?ref=deploy-check", file: null },
 ];
 let failed = false;
 for (const check of checks) {
