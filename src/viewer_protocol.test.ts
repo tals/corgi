@@ -25,6 +25,7 @@ import {
 } from "./viewer_protocol";
 import { Pane, Ghost } from "./runtime";
 import { Terminal } from "./pane/terminal";
+import { Frames } from "./viewer_stream";
 import { Snapshot, Work, Process } from "./trackers/resources";
 import { Workspace } from "./workspace";
 import { version, compatible, require as requireVersion } from "./viewer_version";
@@ -134,6 +135,37 @@ test("a blocked stream retains one latest frame and resumes when output drains",
     f.advance(150);
     expect(f.output).toHaveLength(1);
     expect(f.client.stream?.wake).toBe(2n);
+  } finally {
+    f.close();
+  }
+});
+
+test("a rejected stream frame keeps an input receipt pending until it is sent", () => {
+  const f = scheduledViewer();
+  const ws = new Workspace(1, "/tmp"),
+    pane = new Pane(1, new Terminal(80, 24), "/tmp"),
+    delivery = new Frames();
+  ws.model.newTab("pane");
+  f.server.runtime.workspaces.items.push(ws);
+  f.server.runtime.panes.push(pane);
+  pane.terminal.feed("unchanged screen");
+  f.client.stream!.delivery = delivery;
+  try {
+    f.advance(120);
+    publish(f.server, f.client, 1n);
+    delivery.acknowledge(1n);
+    const ack = pane.terminal.input_ack.sent(0);
+    pane.terminal.input_ack.advance(50);
+    const offer = spyOn(delivery, "offer").mockReturnValueOnce(null);
+    f.advance(140);
+    publish(f.server, f.client, 2n);
+    expect(f.output).toHaveLength(1);
+    offer.mockRestore();
+    f.advance(160);
+    publish(f.server, f.client, 2n);
+    expect(f.output).toHaveLength(2);
+    const view = f.output[1].view;
+    expect([...view.surfaces, ...view.patches][0]?.input_ack).toEqual(ack);
   } finally {
     f.close();
   }
@@ -378,6 +410,9 @@ test("surface modes follow the live terminal while a restored ghost supplies its
   view = (sent.mock.calls.at(-1)![0] as WireView).surfaces[0];
   expect(view.modes.bracketed_paste).toBe(true);
   expect(view.surface.lines.join("")).toContain("RESTORED");
+  client.interests[0].known = view.stamp;
+  surfaces(s, client);
+  expect(sent.mock.calls.at(-1)![0]).toEqual({ ok: true, surfaces: [] });
 });
 test("the data connection reads its viewer's surfaces and receipts without becoming a viewer", async () => {
   const s = fixture(),

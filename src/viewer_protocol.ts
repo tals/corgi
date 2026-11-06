@@ -116,7 +116,9 @@ function viewport(value: bigint | null): number | null {
 export async function sync(s: Server, cl: Client, q: Sync, reply = new Reply(cl)) {
   const telemetry_started = telemetry.begin();
   try {
-    reply.send(await synchronize(s, cl, q));
+    const view = await synchronize(s, cl, q);
+    rememberInputs(cl, view.surfaces);
+    reply.send(view);
   } finally {
     telemetry.end("daemon.viewer_sync", telemetry_started);
   }
@@ -264,29 +266,34 @@ export function remember(cl: Client, view: View, wake: bigint, now = Date.now())
   cl.stream.wake = wake;
   cl.stream.session_hash = view.session_hash;
   cl.stream.resources_hash = view.resources_hash;
+  rememberInputs(cl, view.surfaces);
   for (const frame of view.surfaces) {
     const interest = cl.interests.find(i => i.pane === frame.surface.pane);
     if (interest) interest.known = frame.stamp;
   }
 }
 const input_acks = new WeakMap<Client, Map<number, surface.InputReceipt>>();
-function frames(s: Server, cl: Client): surface.View[] {
-  const frames: surface.View[] = [];
+function rememberInputs(cl: Client, frames: surface.View[]): void {
   let sent = input_acks.get(cl);
   if (!sent) input_acks.set(cl, (sent = new Map()));
   for (const id of sent.keys()) if (!cl.interests.some(i => i.pane === id)) sent.delete(id);
+  for (const frame of frames) if (frame.input_ack) sent.set(frame.surface.pane, frame.input_ack);
+}
+function frames(s: Server, cl: Client): surface.View[] {
+  const frames: surface.View[] = [],
+    sent = input_acks.get(cl);
   for (const interest of cl.interests) {
     const pane = s.runtime.pane(interest.pane);
     if (!pane) continue;
     const shown = pane.displayed();
     const ack = pane.terminal.input_ack.ack;
-    const previous = sent.get(interest.pane);
-    const acknowledged = previous?.epoch !== ack.epoch || previous?.sequence !== ack.sequence;
+    const previous = sent?.get(interest.pane);
+    const live = shown === pane.terminal && (interest.offset ?? null) === null;
+    const acknowledged = live && (previous?.epoch !== ack.epoch || previous?.sequence !== ack.sequence);
     if (!acknowledged && interest.known && equal(interest.known, surface.stamp(shown, interest.offset ?? null)))
       continue;
     const view = surface.captureView(interest.pane, shown, interest.offset ?? null);
     if (shown === pane.terminal && view.stamp.offset === null) view.input_ack = ack;
-    sent.set(interest.pane, ack);
     if (shown !== pane.terminal) view.modes = surface.modes(pane.terminal);
     frames.push(view);
   }
@@ -299,7 +306,10 @@ function owner(s: Server, cl: Client): Client {
   return targetViewer(s, cl.watch_viewer);
 }
 export function surfaces(s: Server, cl: Client, reply = new Reply(cl)) {
-  reply.ok({ surfaces: frames(s, owner(s, cl)) });
+  const viewer = owner(s, cl),
+    captured = frames(s, viewer);
+  rememberInputs(viewer, captured);
+  reply.ok({ surfaces: captured });
 }
 export async function search(s: Server, cl: Client, q: Request<"viewer.search">, reply = new Reply(cl)) {
   const p = s.runtime.pane(q.pane);
