@@ -1379,7 +1379,7 @@ test("the focused list sits in a box in the focused pane's outline, sharing the 
   view.focus = "agents";
   lines = box(view);
   expect(lines[12]).toBe(" ".repeat(27) + "│");
-  expect(lines[13]).toBe(rule("┌─", "─", "┤"));
+  expect(lines[13]).toBe(rule("┌─", "─", "┐"));
   expect(lines[15]).toBe("│" + " ".repeat(26) + "│");
   expect(lines[17]).toBe("│" + " ".repeat(19) + "↑" + " ".repeat(6) + "│");
   expect(lines[22]).toBe("│" + " ".repeat(26) + "│");
@@ -1387,15 +1387,15 @@ test("the focused list sits in a box in the focused pane's outline, sharing the 
   expect([0, 12, 13, 29].map(y => view.outlines(y))).toEqual([false, false, true, true]);
   view.focus = "workspaces";
   lines = box(view);
-  expect(lines[1]).toBe(edge("┌", "┤"));
-  expect(lines[13]).toBe(rule("└─", "─", "┤"));
+  expect(lines[1]).toBe(edge("┌", "┐"));
+  expect(lines[13]).toBe(rule("└─", "─", "┘"));
   expect(lines[29]).toBe(" ".repeat(27) + "│");
   expect(lines[15].trim()).toBe("│");
   expect(lines[17]).toBe(" ".repeat(20) + "↑" + " ".repeat(6) + "│");
   expect([0, 12, 13, 29].map(y => view.outlines(y))).toEqual([false, true, true, false]);
   view.drawer = "workspaces";
   lines = box(view);
-  expect(lines[1]).toBe(edge("┌", "┤"));
+  expect(lines[1]).toBe(edge("┌", "┐"));
   expect(lines[29]).toBe(edge("└", "┘"));
   // A focused list's thumb takes its outline's color; the other keeps the plain one.
   const many = Array.from({ length: 20 }, (_, i) =>

@@ -63,3 +63,26 @@ test("grip images disappear under overlays and when grips are hidden; text hosts
   expect(plain).not.toContain("i=730410");
   expect(plain).toContain("\x1b[53;4m::\x1b[55;24m");
 });
+
+test("a shown grip stays until the pointer is more than a row from its border", () => {
+  const model = new Model(),
+    pane = model.newTab("Work"),
+    selection = new Selection();
+  model.split(pane, "horizontal");
+  selection.reconcile(model);
+  const view = new View(model, selection),
+    options = render.ui({
+      message: "",
+      copy_mode: false,
+      sidebar_open: false,
+      supports_kitty_graphics: true,
+      cell_pixels: { width: 11, height: 25 },
+    }),
+    shown = (y: number, grip_hover: number[]) =>
+      render.frame(view, [], 120, 36, { ...options, pointer: { x: 30, y }, grip_hover }).includes("a=p,i=730410");
+  expect(shown(2, [])).toBe(false);
+  expect(shown(1, [])).toBe(true);
+  expect(shown(2, [pane])).toBe(true);
+  expect(shown(0, [pane])).toBe(true);
+  expect(shown(3, [pane])).toBe(false);
+});

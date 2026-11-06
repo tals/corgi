@@ -1,9 +1,7 @@
-import * as i18n from "./i18n";
 import * as layout from "./layout";
 import * as docking from "./docking";
 import * as render from "./render";
 import * as errors from "./errors";
-import * as text from "./text";
 import type { DockSource, DockDrop } from "./protocol";
 
 export class Drag {
@@ -103,20 +101,4 @@ export class Drag {
       if (!errors.is(error, "AlreadyHere")) this.reason = "invalid";
     }
   }
-}
-
-export function controls(area: layout.Rect) {
-  const entries = [
-    { name: "undo-layout", label: `[ ${i18n.t`Undo`} ]` },
-    { name: "redo-layout", label: `[ ${i18n.t`Redo`} ]` },
-    { name: "cancel-dock", label: `[ ${i18n.t`Cancel`} ]` },
-  ];
-  const width = entries.reduce((n, entry) => n + text.displayWidth(entry.label) + 1, 0);
-  if (area.w < width + 24) return [];
-  let x = area.x + area.w - width;
-  return entries.map(entry => {
-    const rect = new layout.Rect(x, 0, text.displayWidth(entry.label), 1);
-    x += rect.w + 1;
-    return { ...entry, rect };
-  });
 }

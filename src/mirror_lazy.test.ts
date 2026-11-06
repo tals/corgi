@@ -364,7 +364,7 @@ test("tab reorders need no preview screens and swap previews stay within the sub
           source,
           model.next_id,
         );
-        preview.mockReturnValue({ plan, drop, dragging: true, cwd: null, reason: null, controls: [] });
+        preview.mockReturnValue({ plan, drop, dragging: true, cwd: null, reason: null });
         await f.sync();
         const interests = f.requests.at(-1)!.interests;
         expect(() => validateInterests(interests.map(({ pane, cols, rows }) => ({ pane, cols, rows })))).not.toThrow();

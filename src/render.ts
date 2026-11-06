@@ -147,7 +147,6 @@ export interface Docking {
   dragging: boolean;
   cwd: string | null;
   reason: string | null;
-  controls: { name: string; label: string; rect: Rect; enabled: boolean }[];
 }
 function drawDocking(w: Writer, state: Docking, panes: Pane[], area: Rect): Rect[] {
   const covered: Rect[] = [],
@@ -193,15 +192,6 @@ function drawDocking(w: Writer, state: Docking, panes: Pane[], area: Rect): Rect
       }
     }
   }
-  for (const control of state.controls) {
-    const r = control.rect;
-    covered.push(r);
-    w.write(
-      w.cup(r.y + 1, r.x + 1) +
-        new Style({ fg: control.enabled ? "strong" : "faint", bg: "surface" }).sgr() +
-        control.label,
-    );
-  }
   if (state.reason) {
     const r = new Rect(area.x, area.y + area.h - 2, area.w, 1);
     covered.push(r);
@@ -225,6 +215,8 @@ export interface Ui {
   startup_waits: StartupWait[];
   startup_card: startupCard.State | null;
   git_hover: number | null;
+  /** Panes whose grips showed last frame. */
+  grip_hover: readonly number[];
   /** The push card, shown or held open, with the row whose review shows dimmed. */
   git_card: gitTooltip.State | null;
   worktree_card: worktreeTooltip.State | null;
@@ -322,6 +314,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     startup_waits: [],
     startup_card: null,
     git_hover: null,
+    grip_hover: [],
     git_card: null,
     worktree_card: null,
     worktree_spotlight: null,
@@ -798,7 +791,7 @@ export function frame(
   // Erase from home to the end, preserving Kitty image storage. ED 2
   // deletes cached images in Ghostty, even those without a placement.
   w.write("\x1b[?2026h\x1b[?25l\x1b[0m\x1b[H\x1b[J");
-  const tab_end = u.docking?.controls[0]?.rect.x ?? width - side.panel;
+  const tab_end = width - side.panel;
   const tab_space = sat(tab_end - side.tabX(), 3);
   // The scrollbar shows while the pointer is where the wheel scrolls the tabs.
   const over_tabs = u.pointer !== null && u.pointer.y === 0 && u.pointer.x >= side.tabX() && noOverlay(u);
@@ -1043,8 +1036,8 @@ export function frame(
   if (u.ghost) cover(drawGhost(w, u.ghost, side.drawer !== null ? side.width : u.ghost.area.x));
   if (u.workspace_ghost) cover(drawWorkspaceGhost(w, u.workspace_ghost, panes, side, width, u.prefs.preset));
   const grips =
-    noPopup(u) && !u.copy_mode && !u.sidebar_focus
-      ? docking.grips(view, side.area()).filter(g => u.pointer !== null && g.near.contains(u.pointer.x, u.pointer.y))
+    u.pointer && noPopup(u) && !u.copy_mode && !u.sidebar_focus
+      ? docking.hovered(docking.grips(view, side.area()), u.pointer.x, u.pointer.y, u.grip_hover)
       : [];
   const grip_images = u.supports_kitty_graphics && u.cell_pixels !== null;
   if (u.supports_kitty_graphics) w.write(dockingGrip.hide);
@@ -1660,6 +1653,13 @@ export function drawDividers(w: Writer, view: LayoutView, area: Rect, outline = 
           if (x + 1 < area.x + area.w && other.rect.contains(x + 1, y)) right = true;
           if (y > area.y && other.rect.contains(x, y - 1)) up = true;
           if (y + 1 < area.y + area.h && other.rect.contains(x, y + 1)) down = true;
+        }
+        // The outline turns its corners rather than run on into a plain divider.
+        if (selected) {
+          up &&= touchesPane(focused, x, y - 1);
+          down &&= touchesPane(focused, x, y + 1);
+          left &&= touchesPane(focused, x - 1, y);
+          right &&= touchesPane(focused, x + 1, y);
         }
         w.write(dividerGlyph(up, down, left, right, border.axis === "horizontal"));
       }

@@ -195,14 +195,15 @@ when a feature needs repeatable setup. Sandbox `--restart` discards that world.
 
 `./go.ts --sandbox docking` opens real shells in tabs and nested splits. Drag a
 tab to dock its whole tree, or a pane's `::` grip to move just that pane. The
-grip appears when the pointer is on the pane's top border. The
+grip appears when the pointer is on the pane's top border and stays until
+the pointer is more than a row away. The
 broad middle zone around the root divider docks across the whole layout;
 elsewhere an edge splits only the pane under it. Holding over another tab
 opens it after half a second. Escape, right-click and focus loss cancel.
 Dragging a tab into itself starts a shell at its focused pane's working directory.
 The dotted preview uses the terminal's actual contents.
 
-The tab-bar Undo / Redo buttons (also prefix then Ctrl+Z / Ctrl+Y) restore docking
+Prefix then Ctrl+Z / Ctrl+Y undo and redo docking, restoring
 arrangements without restarting processes. Undoing a shell creation moves it into
 its own tab. History belongs to the viewer and daemon lifetime; another layout
 change, including a pane closing, invalidates it. Docking commands check the

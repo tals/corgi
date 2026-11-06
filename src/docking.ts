@@ -173,7 +173,8 @@ export function edge(rect: layout.Rect, x: number, y: number, previous: Edge | n
   return horizontal ? (side < 0 ? "left" : "right") : side < 0 ? "up" : "down";
 }
 
-export function grips(view: layout.View, area: layout.Rect): { pane: number; rect: layout.Rect; near: layout.Rect }[] {
+export type Grip = { pane: number; rect: layout.Rect; near: layout.Rect; far: layout.Rect };
+export function grips(view: layout.View, area: layout.Rect): Grip[] {
   if (!view.hasFrame(area)) return [];
   return view
     .placements(area)
@@ -182,5 +183,11 @@ export function grips(view: layout.View, area: layout.Rect): { pane: number; rec
       pane: p.id,
       rect: new layout.Rect(p.rect.x + 2, p.rect.y - 1, Math.min(4, p.rect.w - 3), 1),
       near: new layout.Rect(p.rect.x - 1, p.rect.y - 1, p.rect.w + 2, 1),
+      far: new layout.Rect(p.rect.x - 1, p.rect.y - 2, p.rect.w + 2, 3),
     }));
+}
+/** A grip appears with the pointer on its pane's top border and stays until
+ * the pointer is more than a row away, so a shaky hand doesn't flicker it. */
+export function hovered(grips: Grip[], x: number, y: number, shown: readonly number[]): Grip[] {
+  return grips.filter(g => g.near.contains(x, y) || (shown.includes(g.pane) && g.far.contains(x, y)));
 }

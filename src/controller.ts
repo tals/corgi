@@ -98,7 +98,6 @@ import * as preferences from "./preferences";
 import { Preferences } from "./preferences";
 import { Drag as AgentDrag } from "./agent_drag";
 import * as docking from "./docking";
-import * as dockingDrag from "./docking_drag";
 import { Drag as TabDrag } from "./docking_drag";
 import { Drag as WorkspaceDrag } from "./workspace_drag";
 import { double_click_ms, milliTimestamp, microTimestamp } from "./clock";
@@ -437,6 +436,7 @@ export class Controller {
   });
   tab_icons = new tabIcons.Icons();
   git_hover: number | null = null;
+  grip_hover: number[] = [];
   git_card = new gitTooltip.State();
   git_aim: gitTooltip.Aim | null = null;
   worktree_card = new worktreeTooltip.State();
@@ -6215,10 +6215,8 @@ export class Controller {
   }
   /** Columns the tab bar's tabs may take, left of its "+" button. */
   private tabSpace(): number {
-    const area = this.area(),
-      controls = this.model().count ? dockingDrag.controls(area) : [];
-    const end = controls[0]?.rect.x ?? area.x + area.w;
-    return Math.max(0, end - this.sidebarView([]).tabX() - 3);
+    const area = this.area();
+    return Math.max(0, area.x + area.w - this.sidebarView([]).tabX() - 3);
   }
   private scrollTabs(forward: boolean): void {
     const view = this.layoutView();
@@ -6311,8 +6309,6 @@ export class Controller {
     if (drag && !this.validTabDrag(drag)) this.cancelDock();
     const active = this.input_state.tab_drag;
     if (!this.model().count) return null;
-    const h = this.dockingHistory(),
-      enabled = !this.hasMenu() && !this.name_dialog && !this.copy_mode;
     return {
       plan: active?.plan ?? null,
       drop: active?.drop ?? null,
@@ -6324,12 +6320,6 @@ export class Controller {
           : active?.reason === "edge"
             ? i18n.t`Choose an edge to split`
             : null,
-      controls: dockingDrag.controls(this.area()).map(c => ({
-        ...c,
-        enabled:
-          enabled &&
-          (c.name === "undo-layout" ? h.undo > 0 : c.name === "redo-layout" ? h.redo > 0 : !!active?.dragging),
-      })),
     };
   }
   tabDropX(): number | null {
@@ -6376,10 +6366,6 @@ export class Controller {
           return;
         }
         drag.update(this.layoutView(), x, y, this.tabSpace(), milliTimestamp());
-        if (dockingDrag.controls(this.area()).some(c => c.rect.contains(x, y))) {
-          drag.plan = null;
-          drag.drop = null;
-        }
         if (release && (button & 3) === 0) {
           if (drag.dragging) await this.perform({ name: "dock" });
           else {
@@ -6397,15 +6383,6 @@ export class Controller {
           this.ui_mouse_down = false;
         }
         this.dirty = true;
-        return;
-      }
-    }
-    if (!release && button === 0 && !this.hasMenu() && !this.name_dialog) {
-      const preview = this.dockingPreview(),
-        control = preview?.controls.find(c => c.rect.contains(x, y));
-      if (control) {
-        this.ui_mouse_down = true;
-        if (control.enabled) await this.perform({ name: control.name });
         return;
       }
     }
@@ -8486,6 +8463,11 @@ export class Controller {
       );
       this.git_hover = hit ? hit.id : null;
     } else this.git_hover = null;
+    this.grip_hover = this.pointer
+      ? docking
+          .hovered(docking.grips(this.layoutView(), this.area()), this.pointer.x, this.pointer.y, this.grip_hover)
+          .map(g => g.pane)
+      : [];
     if (this.agent_drag) this.agent_drag.valid(this.sidebarView(entries), this.current().id);
     if (this.workspace_drag) this.workspace_drag.valid(this.sidebarView(entries), this.workspaceIds());
     const tooltip_ready = this.linkTooltipReady();
@@ -8546,6 +8528,7 @@ export class Controller {
         resource_hover: this.link_tooltip.target?.resource ?? null,
         resource_card: (tooltip_ready || this.resource_card.pinned) && detail !== null ? this.resource_card : null,
         git_hover: this.hoverIdle() ? this.git_hover : null,
+        grip_hover: this.grip_hover,
         git_card: (tooltip_ready || this.git_card.pinned) && git_ws ? this.git_card : null,
         worktree_card: this.worktreeCard(),
         worktree_spotlight: this.spotlight(),

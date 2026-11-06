@@ -28,7 +28,7 @@ class Docking extends Viewers {
     selection.focus(model, pane);
     return new layout.View(model, selection).placements(new layout.Rect(0, 1, 120, 35));
   }
-  async test_live_preview_commit_mouse_undo_redo_and_grip_extraction() {
+  async test_live_preview_commit_undo_redo_and_grip_extraction() {
     const a = await this.new("sleep 60", "Alpha"),
       b = await this.new("printf 'BETA_OUTPUT\\n'; sleep 60", "Beta"),
       view = await this.view(a);
@@ -58,17 +58,15 @@ class Docking extends Viewers {
       (await this.session()).panes.map((p: any) => p.pid),
       pids,
     );
-    let screen = screen_text(view.state.data, 120, 36);
-    await this.mouse(view, 0, screen[0].indexOf("Undo") + 1, 0);
-    await this.mouse(view, 0, screen[0].indexOf("Undo") + 1, 0, true);
+    await view.action("undo-layout");
     this.assertEqual((await this.session()).workspaces[0].model.tabs.length, 2);
-    screen = screen_text(view.state.data, 120, 36);
-    await this.mouse(view, 0, screen[0].indexOf("Redo") + 1, 0);
-    await this.mouse(view, 0, screen[0].indexOf("Redo") + 1, 0, true);
+    await view.action("redo-layout");
     const right = (await this.places(b)).find(p => p.id === b)!;
     await this.mouse(view, 35, right.rect.x + Math.floor(right.rect.w / 2), right.rect.y - 1);
     this.assertIn("::", screen_text(view.state.data, 120, 36)[right.rect.y - 1]);
     await this.mouse(view, 35, right.rect.x + 2, right.rect.y);
+    this.assertIn("::", screen_text(view.state.data, 120, 36)[right.rect.y - 1]);
+    await this.mouse(view, 35, right.rect.x + 2, right.rect.y + 1);
     this.assertNotIn("::", screen_text(view.state.data, 120, 36)[right.rect.y - 1]);
     await this.mouse(view, 35, right.rect.x + 2, 0);
     this.assertNotIn("::", screen_text(view.state.data, 120, 36)[right.rect.y - 1]);

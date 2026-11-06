@@ -1265,7 +1265,7 @@ export class View {
         left = Math.floor((run - grip.length) / 2);
       w.write(w.cup(v.middle(), 2) + (boxed ? outline : panel + fg("line")) + stroke.repeat(left));
       if (grip) w.write(boxed ? grip : fg("faint") + grip + fg("line"));
-      w.write(stroke.repeat(run - left - grip.length) + (boxed ? "┤" : "┥"));
+      w.write(stroke.repeat(run - left - grip.length) + (!boxed ? "┥" : v.focus === "agents" ? "┐" : "┘"));
     }
     v.drawAgents(w, entries, now_ms);
   }
@@ -1283,7 +1283,7 @@ export class View {
       // The rule already runs to the border from the lists' first column.
       const end = y === rule ? 1 + lists_x : v.width - 1;
       w.write(w.cup(y + 1, 2) + "─".repeat(sat(end, 1)));
-      if (y !== rule) w.write(y === v.rows - 1 ? "┘" : y > 0 ? "┤" : "┐");
+      if (y !== rule) w.write(y === box.top ? "┐" : "┘");
     }
     w.write("\x1b[0m");
   }
