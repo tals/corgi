@@ -75,6 +75,7 @@ export class Endpoint {
   private connection: Connection | null = null;
   /** The connection once its hello checked out; the view's requests use it. */
   private checked: Connection | null = null;
+  private incremental = false;
   /** The daemon's hold on this endpoint across reconnects; see link.ts. */
   private link: string | null = null;
   /** Whether the current connection carries the link, so numbered requests go out. */
@@ -495,6 +496,7 @@ export class Endpoint {
     });
     this.instance = compatible(hello);
     if (!hello.capabilities.includes("viewer.stream")) throw Error("IncompatibleRemoteCorgi");
+    this.incremental = hello.capabilities.includes("viewer.receipt");
     this.checked = conn;
     // A view outlives its connections to one daemon. Another daemon's ids
     // mean nothing to it.
@@ -670,9 +672,13 @@ export class Endpoint {
       }
       machine.remote_links = this.profile !== null || sshViewer();
       this.opened = true;
-      this.stream = new Stream(this.connection!, () => {
-        if (generation === this.generation && !this.stopped) this.wake();
-      });
+      this.stream = new Stream(
+        this.connection!,
+        () => {
+          if (generation === this.generation && !this.stopped) this.wake();
+        },
+        this.incremental,
+      );
       visible &&= this.shown && selection === this.selection;
       if (visible && this.folder !== null) {
         const folder = this.folder;

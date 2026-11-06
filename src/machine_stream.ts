@@ -2,6 +2,7 @@ import { Connection } from "./rpc";
 import type { Reply, RequestInput } from "./protocol";
 import * as json from "./json";
 import * as viewerVersion from "./viewer_version";
+import * as surface from "./pane/surface";
 
 type Frame = Reply<"viewer.sync">;
 /** One coalesced frame and bounded, independently acknowledged writes. No replay. */
@@ -20,9 +21,12 @@ export class Stream {
   private writes = new Map<Promise<void>, number>();
   private last = performance.now();
   private confirmed = false;
+  private retained = new Map<number, surface.View>();
+  private received = 0n;
   constructor(
     private readonly connection: Connection,
     private readonly changed: () => void = () => {},
+    private readonly incremental = false,
   ) {
     connection.socket.once("close", changed);
     connection.onEvent(value => {
@@ -37,17 +41,36 @@ export class Stream {
         if (!("sequence" in value) || typeof value.sequence !== "number" || !("view" in value))
           throw Error("InvalidStreamFrame");
         viewerVersion.require(value.view);
-        this.receive(value.sequence, value.view as Frame);
+        const serial = "frame" in value && value.frame !== undefined ? BigInt(value.frame) : null;
+        this.receive(value.sequence, value.view as Frame, serial);
       } catch (error) {
         this.failure = error as Error;
         this.changed();
       }
     });
   }
-  private receive(sequence: number, frame: Frame): void {
+  private receive(sequence: number, frame: Frame, serial: bigint | null): void {
     viewerVersion.require(frame);
     this.last = performance.now();
     if (sequence !== this.sequence) return;
+    if (serial !== null) {
+      if (!this.incremental || serial !== this.received + 1n) throw Error("InvalidStreamFrame");
+      const surfaces = frame.surfaces.map(value => surface.view(value));
+      for (const value of surfaces) this.retained.set(value.surface.pane, value);
+      for (const patch of frame.patches ?? []) {
+        const value = surface.apply(this.retained.get(patch.surface.pane), patch);
+        this.retained.set(value.surface.pane, value);
+        surfaces.push(value);
+      }
+      frame = { ...frame, surfaces, patches: undefined };
+      this.received = serial;
+      // Decode every delta before coalescing. The next frame may use it as
+      // its base even when the UI never displays this intermediate frame.
+      void this.receipt(sequence).catch(error => {
+        this.failure = error;
+        this.changed();
+      });
+    } else if (this.incremental) throw Error("InvalidStreamFrame");
     // A heartbeat's answer that changes nothing leaves an idle viewer asleep.
     const seen = `${frame.bell_seq} ${frame.session_hash} ${frame.resources_hash}`;
     const news =
@@ -88,6 +111,8 @@ export class Stream {
     this.news = false;
     this.configured = "";
     this.confirmed = false;
+    this.retained.clear();
+    this.received = 0n;
     // In-flight frames belong to the model before a command's explicit refresh.
     this.sequence++;
   }
@@ -122,6 +147,17 @@ export class Stream {
   due(): number | null {
     return this.pending ? null : this.next;
   }
+  private async receipt(sequence: number, active = false): Promise<void> {
+    const reply = await this.connection.call("viewer.receipt", { sequence, frame: this.received, active });
+    if (sequence !== this.sequence) return;
+    this.last = performance.now();
+    // Handoff restores the viewer but deliberately discards stream caches.
+    if (!reply.stream) {
+      this.reset();
+      this.next = 0;
+      this.changed();
+    }
+  }
   configure(request: RequestInput<"viewer.sync">, selection: number): void {
     this.check();
     const key = json.stringify({
@@ -138,8 +174,10 @@ export class Stream {
       this.sequence++;
       this.frame = null;
       this.confirmed = false;
+      this.retained.clear();
+      this.received = 0n;
     }
-    if (!this.configured)
+    if (this.incremental ? changed : !this.configured)
       request = {
         ...request,
         session_hash: null,
@@ -149,12 +187,14 @@ export class Stream {
     this.configured = key;
     this.pending = true;
     const sequence = this.sequence;
-    void this.connection
-      .call("viewer.stream", { ...request, sequence })
+    const task =
+      this.incremental && !changed
+        ? this.receipt(sequence, request.active)
+        : this.connection.call("viewer.stream", { ...request, sequence, incremental: this.incremental }).then(reply => {
+            viewerVersion.require(reply);
+          });
+    void task
       // A daemon on another viewer protocol says so in its reply.
-      .then(reply => {
-        viewerVersion.require(reply);
-      })
       .catch(error => {
         this.failure = error;
         this.changed();

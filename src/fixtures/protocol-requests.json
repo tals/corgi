@@ -283,6 +283,7 @@
   "startup.kill": {
     "id": "test"
   },
+  "viewer.receipt": { "sequence": 1, "frame": 2 },
   "viewer.stream": {
     "viewer_protocol": 3,
     "interests": [

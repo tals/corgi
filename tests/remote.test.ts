@@ -682,7 +682,7 @@ process.stdin.on('data', data => {
         this.text()
           .split("\n")
           .findIndex(row => row.includes(`${name}_WORKSPACE`)) + 2;
-      await this.until(() => /CPU \d+%/.test(this.text().split("\n")[y]));
+      await this.until(() => /C \d+%/.test(this.text().split("\n")[y]));
       this.terminal!.write(`\x1b[<35;5;${y + 1}M`);
       await this.until(() => this.screen!.surface(0).surface.lines[y].includes(`38;2;${PALETTE.text}`));
       await this.until(() => this.text().includes("TOP PROCESSES"));
@@ -1337,6 +1337,22 @@ process.stdin.on("data", chunk => {
     for (const marker of ["BEFORE_MASTER_STALL", "AFTER_FAILED_RECOVERY", "AFTER_SECOND_MASTER_STALL"])
       this.assertEqual(output.split(marker).length - 1, 1);
     this.assertNotIn("DISCARD_DURING_MASTER_STALL", output);
+  }
+  async test_remote_reload_rebuilds_the_stream_without_replacing_its_panes() {
+    await this.remote!.command("pane.create", { workspace: 1, command: "stty -echo; cat" });
+    await this.startViewer();
+    await this.online();
+    await this.sendRemote("BEFORE_RELOAD");
+    await this.until(() => this.text().includes("BEFORE_RELOAD"));
+    const before = (await this.remote!.session()).panes.map((pane: { pid: number }) => pane.pid);
+    await this.remote!.rpc({ op: "server.reload", executable: EXE });
+    await this.sendRemote("AFTER_RELOAD");
+    await this.until(() => this.text().includes("AFTER_RELOAD"));
+    this.assertEqual(
+      (await this.remote!.session()).panes.map((pane: { pid: number }) => pane.pid),
+      before,
+    );
+    this.assertEqual((await this.remote!.command("pane.read", { target: 1 })).text.split("AFTER_RELOAD").length - 1, 1);
   }
   async test_short_network_hiccup_shows_stall_discards_input_and_recovers_on_the_same_connection() {
     await this.remote!.command("pane.create", { workspace: 1, command: "stty -echo; cat" });

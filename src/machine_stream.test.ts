@@ -4,6 +4,8 @@ import { Connection } from "./rpc";
 import { Stream } from "./machine_stream";
 import * as protocol from "./protocol";
 import * as json from "./json";
+import { Terminal } from "./pane/terminal";
+import * as surface from "./pane/surface";
 
 function frame(hash = 1): protocol.Reply<"viewer.sync"> {
   return {
@@ -21,7 +23,7 @@ function frame(hash = 1): protocol.Reply<"viewer.sync"> {
     detach: false,
   };
 }
-async function fixture(changed: () => void = () => {}) {
+async function fixture(changed: () => void = () => {}, incremental = false) {
   let socket: Socket;
   const requests: Record<string, any>[] = [];
   const server = createServer(peer => {
@@ -40,7 +42,7 @@ async function fixture(changed: () => void = () => {}) {
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const address = server.address() as import("node:net").AddressInfo;
   const connection = new Connection(createConnection(address.port, "127.0.0.1"), 1000);
-  const stream = new Stream(connection, changed);
+  const stream = new Stream(connection, changed, incremental);
   const until = async (done: () => boolean) => {
     const end = performance.now() + 1000;
     while (!done()) {
@@ -77,6 +79,66 @@ async function fixture(changed: () => void = () => {}) {
     },
   };
 }
+test("incremental frames decode before UI coalescing and rebuild after a daemon handoff", async () => {
+  const f = await fixture(() => {}, true),
+    terminal = Terminal.create(40, 5);
+  try {
+    f.stream.configure({ interests: [{ pane: 1, cols: 40, rows: 5 }] }, 1);
+    await f.until(() => f.requests.length === 1);
+    const sequence = f.requests[0].sequence;
+    terminal.feed("one");
+    const first = surface.captureView(1, terminal);
+    f.send({
+      type: "viewer.stream",
+      viewer_protocol: protocol.viewer_version,
+      sequence,
+      frame: 1n,
+      view: { ...frame(), surfaces: [first] },
+    });
+    await f.until(() => f.requests.length === 2);
+    expect(f.requests[1]).toMatchObject({ op: "viewer.receipt", sequence, frame: 1 });
+    f.send({ ok: true, stream: true });
+    terminal.feed("\rtwo");
+    const second = surface.captureView(1, terminal);
+    terminal.feed("\rthree");
+    const third = surface.captureView(1, terminal);
+    f.send(
+      ...[
+        [2n, surface.difference(first, second)],
+        [3n, surface.difference(second, third)],
+      ].map(([serial, patch]) => ({
+        type: "viewer.frame",
+        sequence,
+        frame: serial,
+        view: { ...frame(), patches: [patch] },
+      })),
+    );
+    await f.until(() => f.requests.length === 4);
+    expect(f.stream.take()?.frame.surfaces).toEqual([third]);
+    f.send({ ok: true, stream: true });
+    f.send({ ok: true, stream: false });
+    await f.until(() => !f.stream.fresh);
+    f.stream.configure({ interests: [{ pane: 1, cols: 40, rows: 5, known: third.stamp }] }, 1);
+    await f.until(() => f.requests.length === 5);
+    expect(f.requests[4].op).toBe("viewer.stream");
+    expect(f.requests[4].sequence).toBeGreaterThan(sequence);
+    expect(f.requests[4].interests[0].known).toBeNull();
+    // An old generation cannot replace the new base or produce a receipt.
+    f.send({ type: "viewer.frame", sequence, frame: 4n, view: { ...frame(), patches: [] } });
+    f.send({
+      type: "viewer.stream",
+      viewer_protocol: protocol.viewer_version,
+      sequence: f.requests[4].sequence,
+      frame: 1n,
+      view: { ...frame(), surfaces: [third] },
+    });
+    await f.until(() => f.stream.fresh);
+    expect(f.stream.take()?.frame.surfaces).toEqual([third]);
+  } finally {
+    terminal.destroy();
+    f.close();
+  }
+});
 test("only frames that change something wake the viewer", async () => {
   let woken = 0;
   const f = await fixture(() => woken++);

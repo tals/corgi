@@ -12,6 +12,7 @@ import { version as wire_version, type View as WireView, type Control, type Requ
 import type { Server } from "./server";
 import { Reply, type Client } from "./peer";
 import type { Snapshot as Resources } from "./trackers/resources";
+import { Frames } from "./viewer_stream";
 export type { Control } from "./protocol";
 export type View = WireView<ReturnType<typeof session.viewerSnapshot>, Resources>;
 export interface Interest {
@@ -201,9 +202,43 @@ function capture(
   return view;
 }
 /** Stream messages have their own envelope; they never consume an RPC reply. */
+export async function start(s: Server, cl: Client, q: Request<"viewer.stream">) {
+  cl.cancelFrame();
+  cl.stream = null;
+  const view = await synchronize(s, cl, { ...q, surfaces: true });
+  cl.stream = {
+    sequence: q.sequence,
+    session_hash: null,
+    resources_hash: null,
+    sent: 0,
+    wake: 0n,
+    delivery: q.incremental ? new Frames() : undefined,
+  };
+  const encoded = cl.stream.delivery?.offer(view);
+  remember(cl, view, s.wakeSeq(cl.viewer_id));
+  return {
+    type: "viewer.stream" as const,
+    viewer_protocol: version,
+    sequence: q.sequence,
+    view: encoded?.view ?? view,
+    ...(encoded ? { frame: encoded.frame } : {}),
+  };
+}
+export function receipt(s: Server, cl: Client, q: Request<"viewer.receipt">): boolean {
+  if (!cl.viewer) throw Error("NotAttached");
+  if (cl.stream?.sequence !== q.sequence || !cl.stream.delivery) return false;
+  if (q.active) {
+    cl.active_seq = ++s.next_active;
+    cl.input_at = Date.now();
+  }
+  cl.stream.delivery.acknowledge(q.frame);
+  publish(s, cl, s.wakeSeq(cl.viewer_id));
+  return true;
+}
 export function publish(s: Server, cl: Client, wake: bigint, now = Date.now()): void {
   const stream = cl.stream;
   if (!stream || cl.dead || !cl.viewer) return;
+  if (stream.delivery && !stream.delivery.available) return;
   if (stream.wake === wake && now - stream.sent < 250) return;
   if (cl.output.length || now - stream.sent < 16) {
     cl.deferFrame(stream.sent + 16, () => {
@@ -212,8 +247,15 @@ export function publish(s: Server, cl: Client, wake: bigint, now = Date.now()): 
     return;
   }
   const view = capture(s, cl, stream.session_hash, stream.resources_hash);
+  const encoded = stream.delivery?.offer(view);
+  if (stream.delivery && !encoded) return;
   remember(cl, view, wake, now);
-  cl.queue({ type: "viewer.frame", sequence: stream.sequence, view });
+  cl.queue({
+    type: "viewer.frame",
+    sequence: stream.sequence,
+    view: encoded?.view ?? view,
+    ...(encoded ? { frame: encoded.frame } : {}),
+  });
 }
 export function remember(cl: Client, view: View, wake: bigint, now = Date.now()): void {
   cl.cancelFrame();

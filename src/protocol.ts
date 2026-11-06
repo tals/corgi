@@ -1,6 +1,6 @@
 import * as json from "./json";
 import { Theme } from "./theme";
-import type { View as SurfaceView, InputReceipt } from "./pane/surface";
+import type { View as SurfaceView, Patch as SurfacePatch, InputReceipt } from "./pane/surface";
 import { Provider, type ByProvider } from "./providers";
 import type { Target } from "./agent_order";
 import * as checklist from "./activity/checklist";
@@ -59,6 +59,7 @@ export interface View<Session = unknown, Resources = unknown> {
   resources: Resources | null;
   resources_hash: bigint;
   surfaces: SurfaceView[];
+  patches?: SurfacePatch[];
   bell_seq: bigint;
   bell_kind: "none" | "finished" | "needs_input";
   controls: Control[];
@@ -115,6 +116,7 @@ export const operations = [
   "viewer.sync",
   "viewer.surfaces",
   "viewer.stream",
+  "viewer.receipt",
   "viewer.search",
   "viewer.pick",
   "viewer.image",
@@ -191,7 +193,8 @@ const local = new Set([
 ]);
 export function check(op: string): "none" | "management" | "runtime" | "viewer" {
   if (op === "hello" || op === "server.reload") return "management";
-  if (op === "viewer.open" || op === "viewer.sync" || op === "viewer.stream") return "viewer";
+  if (op === "viewer.open" || op === "viewer.sync" || op === "viewer.stream" || op === "viewer.receipt")
+    return "viewer";
   return local.has(op) ? "none" : "runtime";
 }
 export const capabilities = operations.filter(op => op !== "hello" && check(op) !== "none");
@@ -689,6 +692,7 @@ const requests = {
   "viewer.surfaces": {},
   "viewer.stream": {
     sequence: "u32",
+    incremental: ["bool", false],
     interests: "[]interest",
     session_hash: ["?u64", null],
     focus: ["?u32", null],
@@ -701,6 +705,7 @@ const requests = {
     resources: ["bool", true],
     resources_hash: ["?u64", null],
   },
+  "viewer.receipt": { sequence: "u32", frame: "u64", active: ["bool", false] },
   "viewer.search": { pane: "u32", needle: "string", skip: ["u64", 0] },
   "viewer.pick": {
     pane: "u32",
@@ -860,10 +865,12 @@ export interface ReplyPayloads {
   "viewer.open": Ok & Opened;
   "viewer.sync": View<ViewerSnapshot, import("./trackers/resources").Snapshot>;
   "viewer.surfaces": Ok & { surfaces: SurfaceView[] };
+  "viewer.receipt": Ok & { stream: boolean };
   "viewer.stream": {
     type: "viewer.stream";
     viewer_protocol: number;
     sequence: number;
+    frame?: bigint;
     view: View<ViewerSnapshot, import("./trackers/resources").Snapshot>;
   };
   "viewer.search": Ok & {
@@ -939,7 +946,7 @@ export type PickResult = Omit<Reply<"viewer.pick">, "ok">;
 /** Unsolicited updates share a connection with correlated replies. */
 export type Event =
   | Reply<"viewer.stream">
-  | { type: "viewer.frame"; sequence: number; view: Reply<"viewer.sync"> }
+  | { type: "viewer.frame"; sequence: number; frame?: Wire<bigint>; view: Reply<"viewer.sync"> }
   | { type: "viewer.wake" }
   /** The installation the daemon runs from was deleted, as `omarchy plugin remove` does; it's stopping. */
   | { type: "uninstalled" }

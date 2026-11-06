@@ -370,6 +370,24 @@ connection on an untagged reply; subscription events remain untagged. With
 `server.reload` and the CLI do. Unversioned CLI controls such as `focus` and
 `workspace.switch` still accept replies from older daemons.
 
+Machine viewers negotiate incremental streams through the `viewer.receipt`
+capability and the defaulted `viewer.stream.incremental` flag. A stream sends
+full surfaces initially, then changed rows against the preceding sent surface.
+The receiver checks the base stamp and reconstructs every delta before it
+coalesces frames for display. Cumulative receipts bound outstanding render data
+to three frames and 16 KiB of encoded JSON; an oversized snapshot travels alone.
+While blocked, the daemon captures the latest screen after a receipt, without
+queuing intermediate screens. These receipts confirm transport decoding, not
+display or agent activity; `pane.acknowledge` still follows presentation.
+
+Idle receipts replace periodic stream reconfiguration. They also detect a live
+handoff, which preserves viewer state but discards the stream's ephemeral cache:
+the viewer then requests a full base. New peers opt in; older viewers still get
+full frames, and a new viewer uses the original stream with older daemons.
+Runtime/viewer protocol 4 and saved-format versions are unchanged because the
+new operation and optional fields are negotiated and no cache is persisted.
+Remote SSH connections enable compression for terminal text and metadata.
+
 Each viewer keeps two daemon connections in `viewer_connection.ts`. The control
 connection owns the viewer, commands, pane input, metadata and launcher/history
 subscriptions. The data connection carries surfaces, images, searches and wake

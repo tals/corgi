@@ -195,7 +195,7 @@ export class Server {
         pane.terminal.on("ioError", error => console.error("terminal:", error));
       }
   }
-  private wakeSeq(id: number): bigint {
+  wakeSeq(id: number): bigint {
     let seq = this.runtime.shown + this.bell_seq;
     for (const c of this.clients)
       if (c.viewer && c.viewer_id === id) {
@@ -768,17 +768,12 @@ export class Server {
         viewer.surfaces(this, cl, reply);
         return;
       case "viewer.stream": {
-        const view = await viewer.synchronize(this, cl, { ...request.payload, surfaces: true });
-        cl.stream = { sequence: request.payload.sequence, session_hash: null, resources_hash: null, sent: 0, wake: 0n };
-        viewer.remember(cl, view, this.wakeSeq(cl.viewer_id));
-        reply.send({
-          type: "viewer.stream",
-          viewer_protocol: protocol.viewer_version,
-          sequence: request.payload.sequence,
-          view,
-        });
+        reply.send(await viewer.start(this, cl, request.payload));
         return;
       }
+      case "viewer.receipt":
+        reply.ok({ stream: viewer.receipt(this, cl, request.payload) });
+        return;
       case "viewer.search":
         await viewer.search(this, cl, request.payload, reply);
         return;

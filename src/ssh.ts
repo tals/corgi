@@ -25,6 +25,7 @@ export function args(host: string, interactive: boolean, fresh = false): string[
   return [
     ...sharing(host, fresh),
     "-T",
+    "-C",
     "-o",
     "ForwardAgent=no",
     "-o",

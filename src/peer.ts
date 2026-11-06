@@ -6,6 +6,7 @@ import type { Control } from "./protocol";
 import type { Interest } from "./viewer_protocol";
 import type { Subscription } from "./launch_service";
 import type { Link } from "./link";
+import type { Frames } from "./viewer_stream";
 /** A request owns its response even when it completes after another request. */
 export class Reply {
   constructor(
@@ -42,6 +43,7 @@ export class Client {
   /** Whether terminal output alone pushes this subscriber a snapshot. */
   subscribed_output = true;
   stream: {
+    delivery?: Frames;
     sequence: number;
     session_hash: bigint | null;
     resources_hash: bigint | null;
