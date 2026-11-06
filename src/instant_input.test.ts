@@ -113,6 +113,19 @@ test("enabling on a fresh existing surface predicts the very first key", () => {
   prediction.input("e");
   expect(composer.inspect(prediction.surface()!, "codex")!.lines).toEqual(["he"]);
 });
+test("agent identity arriving after an idle surface seeds the first edit without another frame", () => {
+  const prediction = new Prediction();
+  prediction.configure(null, "unclaimed");
+  prediction.receive(view(fixtures[0].cases[0].surface));
+  prediction.configure("codex", "session-1");
+  prediction.input("e");
+  expect(prediction.surface()).not.toBeNull();
+  expect(composer.inspect(prediction.surface()!, "codex")!.lines).toEqual(["he"]);
+  prediction.configure("codex", "session-2");
+  expect(prediction.surface()).toBeNull();
+  prediction.input("i");
+  expect(composer.inspect(prediction.surface()!, "codex")!.lines).toEqual(["hi"]);
+});
 
 test("Claude's painted caret enables prediction without leaving a second block behind", () => {
   const { shape } = setup("claude");

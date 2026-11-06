@@ -51,7 +51,9 @@ export class Prediction {
       this.refresh(performance.now());
     }
     if (provider === this.provider && context === this.context) return;
-    const view = context === this.context || !this.context ? this.view : null;
+    // Identity can arrive after an idle screen. Discard old speculation,
+    // then inspect the last authoritative surface with the new provider.
+    const view = this.view;
     this.reset();
     this.view = null;
     this.provider = provider;
