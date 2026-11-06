@@ -242,6 +242,34 @@ test("Claude keeps its working teammate, not a finished subagent, while a Stop l
   expect(r.find("claude", "asleeper-a4d6")!.state.state).toBe("working");
   expect(parent.state.subagents).toEqual({ running: 1, blocked: 0, waiting: true });
 });
+test("Claude keeps a teammate restored from before a reload working beside a new one", () => {
+  const r = new Registry(),
+    parent = r.get("claude", "s"),
+    restored = r.get("claude", "aolder-b1c2");
+  let seq = 0n;
+  const send = (v: any) =>
+    r.observeHook(parent, adapter("claude").hook({ session_id: "s", ...v })!, ++seq, false, Number(seq) * 1000);
+  parent.pid = process.pid;
+  // A reload brings the child back without the hooks that spawned it.
+  expect(r.linkChild(parent, restored)).toBe(true);
+  restored.state.state = "working";
+  send({
+    hook_event_name: "PostToolUse",
+    tool_name: "Agent",
+    tool_input: { name: "sleeper", description: "Sleep then report" },
+    tool_response: { status: "teammate_spawned", agentId: "asleeper-a4d6", name: "sleeper" },
+  });
+  send({
+    hook_event_name: "Stop",
+    background_tasks: [
+      { id: "te1", type: "teammate", status: "running" },
+      { id: "te2", type: "teammate", status: "running" },
+    ],
+  });
+  expect(restored.state.state).toBe("working");
+  expect(r.find("claude", "asleeper-a4d6")!.state.state).toBe("working");
+  expect(parent.state.subagents).toEqual({ running: 2, blocked: 0, waiting: true });
+});
 
 function hook(kind: string, session: string, extra: any = {}) {
   return {

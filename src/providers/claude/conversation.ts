@@ -80,9 +80,10 @@ export function decoded<
  * A reload forgets them, so a Monitor started before it doesn't pause the
  * conversation again. */
 const monitors = new WeakMap<Actor, Set<string>>();
-/** The teammates each conversation spawned, by agent id, since its Stop
- * names them only by task ids of their own. A reload forgets them. */
-const spawned = new WeakMap<Actor, Set<string>>();
+/** The children a conversation launched or a Stop listed as plain subagents,
+ * not teammates. A reload forgets them, so a child restored from before it
+ * may be either. */
+const plain = new WeakSet<Actor>();
 /** Keeps an actor's background shells and tasks as a hook reports them. */
 export function hooked(actor: Actor, event: any, now: number) {
   actor.state.subagents.waiting = false;
@@ -103,14 +104,14 @@ export function hooked(actor: Actor, event: any, now: number) {
     actor.background_tasks = new Inventory();
     actor.shells = new Shells();
     monitors.delete(actor);
-    spawned.delete(actor);
   }
 }
-/** Takes a subagent the parent launched or listed as its child. */
+/** Takes a subagent or teammate the parent launched or listed as its child. */
 function adopt(
   registry: Registry,
   parent: Actor,
   meta: { id: Text; description: Text; agent_type: Text },
+  teammate: boolean,
   now: number,
 ) {
   let child: Actor;
@@ -120,6 +121,8 @@ function adopt(
     return false;
   }
   if (!registry.linkChild(parent, child)) return false;
+  if (teammate) plain.delete(child);
+  else plain.add(child);
   if (!child.state.transcript.len && path.isAbsolute(parent.state.transcriptPath()))
     child.state.transcript = new Text(
       subagentTranscript(parent.state.transcriptPath(), parent.state.sessionId(), meta.id.text()),
@@ -132,17 +135,15 @@ function adopt(
   return true;
 }
 /** Makes `found` the parent's subagents, and idles the ones a complete list
- * leaves out. While the list has `teammates`, as many working teammates it
- * spawned stay; their own start and stop say when they work. Once a reload
- * forgot which children are teammates, any working child may be one. */
+ * leaves out. While the list has `teammates`, as many working children that
+ * aren't plain subagents may be them; their own start and stop say when they work. */
 function follow(registry: Registry, parent: Actor, found: Children, teammates: number, now: number) {
   parent.children_observed_at = now;
-  for (const meta of found.slice()) adopt(registry, parent, meta, now);
-  const known = spawned.get(parent);
+  for (const meta of found.slice()) adopt(registry, parent, meta, false, now);
   let busy = 0;
   for (const child of registry.items) {
     if (child.parent !== parent.id || child.state.state === "idle" || found.listed(child.state.sessionId())) continue;
-    if (busy < teammates && (!known || known.has(child.state.sessionId()))) busy++;
+    if (busy < teammates && !plain.has(child)) busy++;
     else if (found.complete()) {
       child.state.state = "idle";
       child.observed_at = now;
@@ -154,11 +155,6 @@ function follow(registry: Registry, parent: Actor, found: Children, teammates: n
  * and a pause while a Monitor or a wakeup can wake it. */
 export function applied(registry: Registry, actor: Actor, event: any, seq: bigint, now: number) {
   if (event.subagent && Buffer.byteLength(event.subagent) <= 96) {
-    if (event.teammate === true) {
-      const ids = spawned.get(actor) ?? new Set<string>();
-      if (ids.size < capacity) ids.add(event.subagent);
-      spawned.set(actor, ids);
-    }
     const known = registry.find(actor.provider(), event.subagent);
     if (
       known?.state.state !== "working" &&
@@ -170,6 +166,7 @@ export function applied(registry: Registry, actor: Actor, event: any, seq: bigin
           description: new Text(event.description),
           agent_type: new Text(event.subagent_type),
         },
+        event.teammate === true,
         now,
       )
     ) {
