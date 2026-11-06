@@ -35,6 +35,7 @@ import { cpuText, memoryText } from "../src/trackers/resources";
 import * as cli_help from "../src/cli_help";
 import CLI_SKILL from "../assets/corgi-skill.md" with { type: "text" };
 
+(() => {
 language.rememberChoices();
 const helpText = cli_help.commands();
 const WAG = corgiFrames.wag;
@@ -275,6 +276,38 @@ class Screen {
 const visible = new Set();
 const watch = new IntersectionObserver((entries) => entries.forEach((e) => (e.isIntersecting ? visible.add(e.target) : visible.delete(e.target))));
 const T = { text: style("text"), strong: style("strong", null, true), muted: style("muted"), faint: style("faint"), cursor: style(null, "text") };
+const WATCH_COLS = 124, WATCH_ROWS_N = 24;
+
+function launchFrame(cols, rows, ms) {
+  const g = blank(rows, cols);
+  const typed = Math.max(0, Math.min(5, Math.floor((ms - 100) / 140)));
+  put(g, 1, 2, "~/dev", T.faint);
+  let c = put(g, 2, 2, "$ ", T.faint);
+  c = put(g, 2, c, "corgi".slice(0, typed), T.strong);
+  put(g, 2, c, " ", T.cursor);
+  return g;
+}
+
+// The prerendered container query supplies the width in the browser;
+// without it, the band's width picks the layout.
+function heroColumns(el) {
+  el.style.removeProperty("--cols");
+  const styled = +getComputedStyle(el).getPropertyValue("--cols");
+  const single = styled ? styled === heroConfig.mobile.cols : el.closest(".band").clientWidth < heroConfig.mobile.breakpoint;
+  const cols = single ? heroConfig.mobile.cols : WATCH_COLS;
+  if (!styled) el.style.setProperty("--cols", cols);
+  return cols;
+}
+
+// Only the opening prompt is saved in the HTML. The other demos start
+// when the browser loads the page.
+if (document.documentElement.dataset.prerender === "hero") {
+  const el = document.getElementById("v-sim"), cols = heroColumns(el);
+  const screen = new Screen(el, WATCH_COLS, WATCH_ROWS_N, { badge: true });
+  screen.paint(launchFrame(cols, WATCH_ROWS_N, 0));
+  screen.badge.hidden = true;
+  return;
+}
 
 // ---------------------------------------------------------------- feature screens
 // New tab: the real picker. The pointer and the arrows select, a click or
@@ -898,7 +931,7 @@ new ResizeObserver(() => requestAnimationFrame(() => {
 // visitor's own pointer takes over until 5 s after it leaves. Phones get corgi
 // as a 54-column terminal (its narrowest sidebar, shorter names, packed
 // cards) and taps: one opens an agent's card, the next only dismisses it.
-const WATCH_COLS = 124, WATCH_ROWS_N = 24, CARD_LEFT = 30, CARD_WIDTH_AT = 34;
+const CARD_LEFT = 30, CARD_WIDTH_AT = 34;
 const WIDTHS = [26, 30, 34, 38, 42];
 // The agent list starts at AGENT_TOP, two rows an agent.
 const AGENT_TOP = 13;
@@ -2829,27 +2862,13 @@ function drawHero(t) {
       ? i18n.t`A Corgi session. Tap an agent to see its pane.`
       : i18n.t`A Corgi session with Claude and Codex agents. Click an agent to switch to it.`);
   if (heroReady) heroScreen.paint(crop(hero.compose(t), 0, 0, ROWS, H.cols));
-  else {
-    const g = blank(ROWS, H.cols);
-    const typed = Math.max(0, Math.min(5, Math.floor((ms - 100) / 140)));
-    put(g, 1, 2, "~/dev", T.faint);
-    let c = put(g, 2, 2, "$ ", T.faint);
-    c = put(g, 2, c, "corgi".slice(0, typed), T.strong);
-    put(g, 2, c, " ", T.cursor);
-    heroScreen.paint(g);
-  }
+  else heroScreen.paint(launchFrame(H.cols, ROWS, ms));
   heroScreen.badge.hidden = !heroReady;
 }
 point(simEl, () => hero, () => [0, 0, ROWS, H.cols], { touch: "link git unread agent res ws tab pane", cards: "hover" });
-// The prerendered page's container query sets --cols, so the band has its new
-// size before the observer runs; without it (the prerender itself), the
-// band's width picks and the script sets it.
 function fitHero() {
-  simEl.style.removeProperty("--cols");
-  const styled = +getComputedStyle(simEl).getPropertyValue("--cols");
-  const single = styled ? styled === heroConfig.mobile.cols : simEl.closest(".band").clientWidth < heroConfig.mobile.breakpoint;
-  Object.assign(H, { single, cols: single ? heroConfig.mobile.cols : COLS, hover: null, card: null, res: null, resHeld: false, linkHover: false, gitHover: false });
-  if (!styled) simEl.style.setProperty("--cols", H.cols);
+  const cols = heroColumns(simEl);
+  Object.assign(H, { single: cols === heroConfig.mobile.cols, cols, hover: null, card: null, res: null, resHeld: false, linkHover: false, gitHover: false });
   drawHero(now());
 }
 new ResizeObserver(fitHero).observe(simEl.closest(".band"));
@@ -3986,5 +4005,6 @@ function run() {
 }
 run();
 setInterval(run, 50);
+})();
 })();
 
