@@ -21,7 +21,7 @@ The publisher also needs push access to `tals/corgi-omarchy` (SSH by default).
 Create and back up the release signing key:
 
 ```sh
-./scripts/release --init-key "$HOME/.config/corgi/release-key.pem"
+bun run publish --init-key "$HOME/.config/corgi/release-key.pem"
 ```
 
 Create `~/.config/corgi/release.json` (or select it with `CORGI_RELEASE_CONFIG`):
@@ -46,7 +46,7 @@ The public URL must serve the bucket root over HTTPS without authentication.
 Honor the `no-cache` headers on `channels/*` and `install.sh`.
 Optional `notaryProfile` enables notarization. Optional `sentry` supplies `dsn`,
 `org` and `project`; publishing then needs an authenticated `sentry-cli` to upload
-debug symbols. Configuration fields live in [scripts/release.ts](../scripts/release.ts).
+debug symbols. Configuration fields live in [scripts/publish.ts](../scripts/publish.ts).
 
 ### Publishing from Linux
 
@@ -86,8 +86,8 @@ signature (and Apple's notarization), not run.
 
 1. Commit and push the changes to ship. Review compatibility changes using
    [HACKING.md](../HACKING.md).
-2. Check the selected commit and output paths with `./scripts/release --dry-run`.
-3. Run `./scripts/release`. It tests, builds, signs and verifies the public downloads
+2. Check the selected commit and output paths with `bun run publish --dry-run`.
+3. Run `bun run publish`. It tests, builds, signs and verifies the public downloads
    before advancing the stable channel, then tags the commit on GitHub and updates
    the Omarchy plugin when needed. Wait for the command to finish.
 4. From an installed copy, run `corgi update --check` to confirm the offered release.
@@ -98,15 +98,16 @@ remain available for existing installers and rollback.
 
 Local binaries and debug symbols stay under `.git/corgi-releases/` (the common
 Git directory for linked worktrees). Keep the symbols needed for crash diagnosis;
-with `sentry` configured, publishing uploads them. `./scripts/release --clean` then
+with `sentry` configured, publishing uploads them. `bun run publish --clean` then
 deletes every saved release, published or not, and the checkouts that
 interrupted runs left behind.
-For build-only and retry options, use `./scripts/release --help`.
+For build-only and retry options, use `bun run publish --help`.
 
 ## Omarchy and test releases
 
-`./scripts/release` fetches `corgi-omarchy` into the saved release directory and
-calls its `scripts/release-plugin` with the exact Corgi source and installer.
+`bun run publish` first fetches `corgi-omarchy` into the saved release directory,
+before running tests or builds. Once Corgi is built, it calls the plugin's
+`scripts/release-plugin` with the exact Corgi source and installer.
 The plugin owns regeneration, checks, and deciding whether anything needs pushing.
 It keeps its installer pin for binary-only Corgi releases. Plugin preparation runs
 before Corgi is published; the plugin push follows verified Corgi downloads.
@@ -115,13 +116,13 @@ Use `--omarchy-skip` to skip both steps. No companion checkout is required.
 If the plugin push fails after Corgi is published, retry the saved release:
 
 ```sh
-./scripts/release VERSION --publish-only
+bun run publish VERSION --publish-only
 ```
 
 To publish a build for your own testing:
 
 ```sh
-./scripts/release --test
+bun run publish --test
 ```
 
 This builds the same production binaries, with a separate update key and downloads

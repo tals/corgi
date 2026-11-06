@@ -11,6 +11,7 @@ import {
   releaseOptions,
   releasePaths,
   testConfiguration,
+  fetchPlugin,
   preparePlugin,
   releaseCommit,
   withReleaseCheckout,
@@ -24,7 +25,7 @@ import {
   tagRelease,
   requirePushed,
   type Store,
-} from "../scripts/release.ts";
+} from "../scripts/publish.ts";
 import { mkdtemp, mkdir, readFile, writeFile, chmod, rm, stat, symlink, realpath } from "node:fs/promises";
 import { generateKeyPairSync } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -400,10 +401,13 @@ test("plugin preparation receives release context and a retry keeps its saved re
     git("commit", "-m", "plugin hook");
     const out = join(dir, "artifacts");
     await mkdir(out);
-    await writeFile(join(out, "install.sh"), "pinned installer");
     const old = process.env.CORGI_OMARCHY_REMOTE;
     process.env.CORGI_OMARCHY_REMOTE = dir;
     try {
+      await fetchPlugin(dir, out);
+      expect(await Bun.file(join(out, "plugin/scripts/release-plugin.ts")).exists()).toBe(true);
+      expect(await Bun.file(join(out, "plugin/.git/corgi-release.json")).exists()).toBe(false);
+      await writeFile(join(out, "install.sh"), "pinned installer");
       await preparePlugin(dir, out, true, "https://example.invalid/test");
       const saved = join(out, "plugin/.git/corgi-release.json");
       const first = await readFile(saved, "utf8");
@@ -413,6 +417,7 @@ test("plugin preparation receives release context and a retry keeps its saved re
         base: "https://example.invalid/test",
       });
       await writeFile(join(out, "install.sh"), "different");
+      await fetchPlugin(dir, out);
       await preparePlugin(dir, out, true, "https://example.invalid/test");
       expect(await readFile(saved, "utf8")).toBe(first);
     } finally {
@@ -749,7 +754,7 @@ test("binaries must match their platform", () => {
 test("CLI dry run accepts dirty HEAD without creating release state", async () => {
   await releaseFixture(async (dir, git) => {
     await mkdir(join(dir, "scripts"));
-    for (const name of ["release.ts", "install.sh.in", "install_i18n.generated.sh"])
+    for (const name of ["publish.ts", "install.sh.in", "install_i18n.generated.sh"])
       await writeFile(join(dir, "scripts", name), await Bun.file(join(import.meta.dir, "../scripts", name)).text());
     git("add", "scripts");
     git("commit", "-m", "publisher");
@@ -759,7 +764,7 @@ test("CLI dry run accepts dirty HEAD without creating release state", async () =
     const index = await readFile(join(dir, ".git/index"));
     const worktrees = git("worktree", "list", "--porcelain");
     const run = (...args: string[]) =>
-      Bun.spawnSync([process.execPath, "run", "scripts/release.ts", ...args], { cwd: dir });
+      Bun.spawnSync([process.execPath, "run", "scripts/publish.ts", ...args], { cwd: dir });
     const dry = run("--dry-run");
     expect(dry.exitCode).toBe(0);
     expect(dry.stdout.toString()).toContain(`Source: ${commit} (isolated committed tree; pending edits excluded)`);
@@ -773,7 +778,7 @@ test("CLI dry run accepts dirty HEAD without creating release state", async () =
 test("CLI runs the committed build script and cleans up after failure", async () => {
   await releaseFixture(async (dir, git) => {
     await mkdir(join(dir, "scripts"));
-    for (const name of ["release.ts", "install.sh.in", "install_i18n.generated.sh"])
+    for (const name of ["publish.ts", "install.sh.in", "install_i18n.generated.sh"])
       await writeFile(join(dir, "scripts", name), await Bun.file(join(import.meta.dir, "../scripts", name)).text());
     await writeFile(
       join(dir, "build.ts"),
@@ -802,7 +807,7 @@ test("CLI runs the committed build script and cleans up after failure", async ()
         codesignIdentity: "-",
       }),
     );
-    const child = Bun.spawn([process.execPath, "run", "scripts/release.ts", "--build-only"], {
+    const child = Bun.spawn([process.execPath, "run", "scripts/publish.ts", "--build-only"], {
       cwd: dir,
       env: { ...process.env, CORGI_RELEASE_CONFIG: configPath },
       stdout: "pipe",
@@ -829,7 +834,7 @@ test("CLI runs the committed build script and cleans up after failure", async ()
     await mkdir(out, { recursive: true });
     await writeFile(join(out, "prepared.json"), JSON.stringify({ commit, version, publishable: false }));
     git("commit", "--allow-empty", "-m", "new development commit");
-    const resumed = Bun.spawn([process.execPath, "run", "scripts/release.ts", version, "--publish-only"], {
+    const resumed = Bun.spawn([process.execPath, "run", "scripts/publish.ts", version, "--publish-only"], {
       cwd: dir,
       env: {
         ...process.env,

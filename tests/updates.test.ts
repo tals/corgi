@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { createServer } from "node:net";
 import { EXE, Lines, Pty, deadline, versioned } from "./support";
 import { running } from "./runtime";
-import { installer, manifests as releaseManifests } from "../scripts/release.ts";
+import { installer, manifests as releaseManifests } from "../scripts/publish.ts";
 import { Scope } from "../scripts/process_scope";
 import { flock } from "../src/native_bridge";
 import * as updates from "../src/updates";

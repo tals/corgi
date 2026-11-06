@@ -6,6 +6,7 @@
   "scripts": {
     "start": "bun src/main.ts",
     "build": "bun build.ts",
+    "publish": "bun scripts/publish.ts",
     "test": "bun test src",
     "typecheck": "bun typecheck.ts",
     "integration": "bun integration.ts",

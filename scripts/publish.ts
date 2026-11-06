@@ -269,11 +269,12 @@ async function pluginCommand(source: string, out: string, phase: "prepare" | "pu
   );
 }
 
-export async function preparePlugin(source: string, out: string, test: boolean, base: string) {
+export async function fetchPlugin(source: string, out: string) {
   const checkout = join(out, "plugin");
   if (existsSync(join(checkout, ".git/corgi-release.json"))) return;
   // A failed preparation can be retried; a completed one retains the exact plugin commit.
   await rm(checkout, { recursive: true, force: true });
+  await mkdir(out, { recursive: true });
   await command(source, process.env, [
     "git",
     "clone",
@@ -283,6 +284,10 @@ export async function preparePlugin(source: string, out: string, test: boolean, 
     process.env.CORGI_OMARCHY_REMOTE ?? "git@github.com:tals/corgi-omarchy.git",
     checkout,
   ]);
+}
+
+export async function preparePlugin(source: string, out: string, test: boolean, base: string) {
+  if (existsSync(join(out, "plugin/.git/corgi-release.json"))) return;
   await pluginCommand(source, out, "prepare", test, base);
 }
 
@@ -609,7 +614,7 @@ async function main() {
   const argv = process.argv.slice(2);
   if (argv[0] === "--help") {
     console.log(
-      "Usage: ./scripts/release [VERSION] [--dry-run | --build-only | --publish-only] [--skip-tests] [--test] [--omarchy-skip]\n       ./scripts/release --init-key PATH\n       ./scripts/release --clean\n\nBuilds macOS arm64 + Linux amd64 and arm64, signs the macOS binary (keychain on a Mac, or rcodesign with\ncodesignP12 anywhere), then publishes to an S3-compatible bucket and tags the commit on origin. Config: ~/.config/corgi/release.json or CORGI_RELEASE_CONFIG.\nCredentials: private credentialsFile in config, or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (R2/S3).\nBuilds committed HEAD in an isolated checkout, leaving pending edits and development build outputs alone.\nOmit VERSION for UTC datetime + Git hash. --build-only does not upload, and runs on Linux too.\n--publish-only requires VERSION and resumes the saved commit without rebuilding/signing, even if HEAD has moved.\n--skip-tests builds without running the typecheck and test suites.\n--test publishes under /test, with its own signing key, channels, and plugin.\n--omarchy-skip skips the automatic corgi-omarchy update.\n--clean deletes every saved release, published or not, and checkouts left by interrupted runs.",
+      "Usage: bun run publish [VERSION] [--dry-run | --build-only | --publish-only] [--skip-tests] [--test] [--omarchy-skip]\n       bun run publish --init-key PATH\n       bun run publish --clean\n\nBuilds macOS arm64 + Linux amd64 and arm64, signs the macOS binary (keychain on a Mac, or rcodesign with\ncodesignP12 anywhere), then publishes to an S3-compatible bucket and tags the commit on origin. Config: ~/.config/corgi/release.json or CORGI_RELEASE_CONFIG.\nCredentials: private credentialsFile in config, or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (R2/S3).\nBuilds committed HEAD in an isolated checkout, leaving pending edits and development build outputs alone.\nOmit VERSION for UTC datetime + Git hash. --build-only does not upload, and runs on Linux too.\n--publish-only requires VERSION and resumes the saved commit without rebuilding/signing, even if HEAD has moved.\n--skip-tests builds without running the typecheck and test suites.\n--test publishes under /test, with its own signing key, channels, and plugin.\n--omarchy-skip skips the automatic corgi-omarchy update.\n--clean deletes every saved release, published or not, and checkouts left by interrupted runs.",
     );
     return;
   }
@@ -645,7 +650,7 @@ async function main() {
   const out = join(releases, version);
   if (mode === "--dry-run") {
     console.log(
-      `Release ${version}: ${options.skipTests ? "" : "test → "}build Linux amd64 and arm64 and macOS arm64 → sign macOS → smoke-test → sign manifests → ${options.test ? "" : "upload debug files to Sentry → "}upload/verify assets → publish channels → tag on origin.\nSource: ${commit} (isolated committed tree; pending edits excluded)\nArtifacts: ${out}\nConfig: ${process.env.CORGI_RELEASE_CONFIG || join(homedir(), ".config/corgi/release.json")}\nDestination: ${options.test ? "test (separate key, /test downloads and plugin)" : "stable"}\nOmarchy: ${options.omarchySkip ? "skipped" : "prepare/check before publication; push afterward only if the plugin decides it changed"}\nNo builds, tags, uploads, or remote changes performed.`,
+      `Release ${version}: ${options.skipTests ? "" : "test → "}build Linux amd64 and arm64 and macOS arm64 → sign macOS → smoke-test → sign manifests → ${options.test ? "" : "upload debug files to Sentry → "}upload/verify assets → publish channels → tag on origin.\nSource: ${commit} (isolated committed tree; pending edits excluded)\nArtifacts: ${out}\nConfig: ${process.env.CORGI_RELEASE_CONFIG || join(homedir(), ".config/corgi/release.json")}\nDestination: ${options.test ? "test (separate key, /test downloads and plugin)" : "stable"}\nOmarchy: ${options.omarchySkip ? "skipped" : "fetch before tests/builds; prepare/check before publication; push afterward only if the plugin decides it changed"}\nNo builds, tags, uploads, or remote changes performed.`,
     );
     return;
   }
@@ -720,6 +725,10 @@ async function main() {
     };
     checkSource();
     console.log(`Release ${version} from ${commit} (isolated committed tree).\nArtifacts: ${out}`);
+    if (!options.omarchySkip && mode !== "--build-only") {
+      step("Fetching the Omarchy plugin");
+      await fetchPlugin(source, out);
+    }
     if (mode !== "--publish-only") {
       // Rebuilding a prepared version could change timestamped macOS signatures.
       if (await Bun.file(join(out, "prepared.json")).exists())
@@ -910,7 +919,7 @@ async function main() {
         await preparePlugin(source, out, options.test, config.publicBaseUrl);
       } catch (error) {
         throw new Error(
-          `Corgi is built, but plugin preparation failed: ${(error as Error).message}\nRetry: ./scripts/release ${version} --publish-only${options.test ? " --test" : ""}`,
+          `Corgi is built, but plugin preparation failed: ${(error as Error).message}\nRetry: bun run publish ${version} --publish-only${options.test ? " --test" : ""}`,
         );
       }
     }
@@ -997,7 +1006,7 @@ async function main() {
         await pluginCommand(source, out, "publish", options.test, config.publicBaseUrl);
       } catch (error) {
         throw new Error(
-          `Corgi is published, but the plugin update failed: ${(error as Error).message}\nRetry: ./scripts/release ${version} --publish-only${options.test ? " --test" : ""}`,
+          `Corgi is published, but the plugin update failed: ${(error as Error).message}\nRetry: bun run publish ${version} --publish-only${options.test ? " --test" : ""}`,
         );
       }
     }
