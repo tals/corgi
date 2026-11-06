@@ -181,6 +181,10 @@ bun tools/site_frames.ts --all-languages
 A separate CI job runs these, the site tests and the static site build.
 Record just one locale with `--language ja` while iterating. Each built page
 contains only its own recordings; `site/.generated/` remains disposable.
+The dev server reports bundling and prerender progress on startup and saves,
+preparing up to three languages in parallel.
+Prerendering draws only the hero's opening prompt through the page's shared
+screen renderer; the other demos initialize when the browser loads the page.
 
 ## Try the UI
 

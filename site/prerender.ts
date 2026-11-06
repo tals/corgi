@@ -1,5 +1,6 @@
 /** The first hero frame, drawn by the same page bundle that takes it over. */
 import { mkdirSync, renameSync } from "node:fs";
+import { availableParallelism } from "node:os";
 import { join } from "node:path";
 import * as tooling from "../scripts/tooling";
 import * as i18n from "./i18n";
@@ -45,6 +46,7 @@ export async function render(html: string, bundle: string): Promise<string> {
     try {
       window.structuredClone = structuredClone;
       window.document.write(html.replace(/<script\b[\s\S]*?<\/script>/gi, "").replace(/<link\b[^>]*>/gi, ""));
+      window.document.documentElement.dataset.prerender = "hero";
       // No layout engine or animation clock is needed to draw the cell grid.
       Object.defineProperty(window.HTMLElement.prototype, "clientWidth", { get: () => width });
       Object.defineProperty(window.performance, "now", { value: () => 0 });
@@ -138,7 +140,13 @@ export async function page(source: string, language: locale.Locale, path = "/"):
 
 /** Writes a language's page and its bundle into .generated/. The dev
  * server's bundle stays readable, with source maps. */
-export async function prepare(language: locale.Locale = "en", dev = false): Promise<string> {
+export async function prepare(
+  language: locale.Locale = "en",
+  dev = false,
+  progress?: (message: string) => void,
+): Promise<string> {
+  const started = Bun.nanoseconds();
+  progress?.("bundling…");
   const result = await Bun.build({
     entrypoints: [join(root, "main.js")],
     target: "browser",
@@ -148,6 +156,7 @@ export async function prepare(language: locale.Locale = "en", dev = false): Prom
     plugins: [bundle.frames(language)],
   });
   if (!result.success) throw new AggregateError(result.logs, "Hero prerender bundle failed");
+  progress?.(`prerendering desktop and mobile (bundle ${elapsed(started)})…`);
   const html = await render(
     await page(await Bun.file(join(root, "index.html")).text(), language),
     await result.outputs[0].text(),
@@ -160,13 +169,55 @@ export async function prepare(language: locale.Locale = "en", dev = false): Prom
   await write(path, prepared);
   const moon = await page(await Bun.file(join(root, "moonlander.html")).text(), language, "/moonlander");
   await write(join(directory, language, "moonlander.html"), moon.replace(/\b(src|href)="\.\//g, '$1="../../'));
+  progress?.(`ready in ${elapsed(started)}`);
   return path;
+}
+
+function elapsed(started: number): string {
+  return `${((Bun.nanoseconds() - started) / 1e9).toFixed(1)}s`;
 }
 
 /** Reload both generated catalogs and their imports on each dev rebuild. */
 export async function refresh(): Promise<void> {
-  const child = Bun.spawn([process.execPath, import.meta.path, "--dev"], { stdout: "inherit", stderr: "inherit" });
-  if ((await child.exited) !== 0) throw Error("Site prerender failed");
+  const started = Bun.nanoseconds();
+  // Each DOM is large; bound memory as well as CPU use. Separate processes
+  // isolate the active language and reload imported catalogs on every save.
+  const jobs = Math.min(3, availableParallelism());
+  console.log(`landing page: preparing ${locale.locales.length} languages (${jobs} at a time)…`);
+  await tooling.dependency("happy-dom");
+  const pending = [...locale.locales];
+  const children = new Set<Bun.Subprocess>();
+  const stop = () => {
+    for (const child of children) child.kill();
+  };
+  process.on("exit", stop);
+  const workers = Array.from({ length: jobs }, async () => {
+    for (let language = pending.shift(); language; language = pending.shift()) {
+      const child = Bun.spawn([process.execPath, import.meta.path, "--dev", "--language", language], {
+        stdout: "inherit",
+        stderr: "inherit",
+      });
+      children.add(child);
+      const code = await child.exited;
+      children.delete(child);
+      if (code !== 0) throw Error(`Site prerender failed (${language})`);
+    }
+  });
+  try {
+    await Promise.all(workers);
+    console.log(`landing page: prepared all languages in ${elapsed(started)}`);
+  } finally {
+    pending.length = 0;
+    stop();
+    await Promise.allSettled(workers);
+    process.off("exit", stop);
+  }
 }
 
-if (import.meta.main) for (const language of locale.locales) await prepare(language, process.argv.includes("--dev"));
+if (import.meta.main) {
+  const at = process.argv.indexOf("--language");
+  const language = at < 0 ? null : locale.parse(process.argv[at + 1] ?? "");
+  if (at >= 0 && !language) throw Error("Expected --language en, zh, ja, ko or ru");
+  for (const selected of language ? [language] : locale.locales)
+    await prepare(selected, process.argv.includes("--dev"), message => console.log(`  ${selected}: ${message}`));
+}

@@ -18,6 +18,26 @@ beforeAll(async () => {
   html = await prerender.render(await Bun.file(join(import.meta.dir, "index.html")).text(), script);
 }, 30000);
 
+test("prerender needs only the hero, without initializing the other demos", async () => {
+  const source =
+    '<!doctype html><html lang="en"><head></head><body><section class="band"><div id="v-sim"></div></section></body></html>';
+  const rendered = await prerender.render(source, script);
+  const dom = await tooling.dependency("happy-dom");
+  const { Window } = await import(join(dom, "lib", "index.js"));
+  const window = new Window();
+  try {
+    const hero = (page: string) => {
+      const container = window.document.createElement("div");
+      container.innerHTML = page.replace(/<script\b[\s\S]*?<\/script>/gi, "").replace(/<link\b[^>]*>/gi, "");
+      return container.querySelector("#v-sim")!.innerHTML;
+    };
+    expect(hero(rendered)).toBe(hero(html));
+    expect(rendered).not.toContain("data-prerender");
+  } finally {
+    await window.happyDOM.close();
+  }
+});
+
 test.each(["unavailable", "rejected"] as const)(
   "manual install-command copying settles animation when clipboard access is %s",
   async clipboard => {
