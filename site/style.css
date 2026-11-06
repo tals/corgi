@@ -60,6 +60,17 @@ h2 s { color: var(--faint); font-weight: 400; text-decoration-thickness: 1px; }
 .sprite { display: flex; width: max-content; padding: 0; border: 0; background: none; color: var(--text); font: 22px/1.3 var(--mono); cursor: pointer; }
 .sprite span { flex: 0 0 1ch; width: 1ch; text-align: center; white-space: pre; }
 .sprite span.slant { color: var(--faint); }
+/* With Omarchy picked, corgi-omarchy's heart and Omarchy's logo, in its red
+   and green, stand on the corgi's baseline after its last cell, taking no
+   room in the row; main.js draws them in. */
+.sprite .love { flex: none; width: 0; text-align: left; }
+.love > svg { width: 2.467em; height: .766em; overflow: visible; }
+.love path { fill: none; stroke-width: 80; }
+.love .heart { transform-box: view-box; transform-origin: 27.5px 24.5px; }
+.love .heart path { stroke: #f7768e; }
+.love .heart .fill { fill: #f7768e; stroke: none; }
+.love .logo path { stroke: #9ece6a; }
+.love .draw { stroke-dasharray: 1 2; }
 h1 { margin: 0; font-size: 48px; line-height: 1.05; font-weight: 700; color: var(--strong); letter-spacing: -0.01em; }
 .lede { margin: 0; font-size: 19px; line-height: 1.45; color: var(--strong); }
 .get { --gap: 6px; --hang: 4px; margin-top: 10px; display: grid; justify-items: center; gap: var(--gap); max-width: 100%; }

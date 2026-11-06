@@ -1707,11 +1707,118 @@ function laneNow() {
   const cell = spriteCells[0].getBoundingClientRect();
   return Math.max(10, Math.min(ROOM, Math.floor((document.documentElement.clientWidth - cell.left) / cell.width)));
 }
+// With Omarchy picked, the corgi wears corgi-omarchy's title beside it: a
+// heart that draws itself in and beats, and Omarchy's logo stroking in. A
+// throw needs their room, so they undraw quickly before the ball flies, and
+// draw back in once the corgi has settled at home.
+const HEART = "M680 1160L139.8 620.6A340 340 0 1 1 680 220A340 340 0 1 1 1220 620.6Z",
+  HEART_IN = "M680 380A160 160 0 0 1 538.8 295.3A180 180 0 1 0 252.8 507.4L680 933.9L1107 507.4A180 180 0 1 0 821.2 295.3A160 160 0 0 1 680 380Z",
+  LOGO = ["M640 1160H40V40H1160V1160H720", "M600 40V200", "M640 200H200V1000H1000V200H880", "M600 1160V1040", "M40 600H200"];
+const drawn = (cls, d) => `<path class="draw ${cls}" pathLength="1" d="${d}"/>`;
+// Laid out as the title lays them out after its corgi, in its 32px units.
+const LOVE_SVG =
+  `<svg viewBox="0 0 78.95 24.5"><g class="heart"><svg x="13.617" width="27.767" height="24.5" viewBox="0 0 1360 1200" overflow="visible" stroke-linejoin="round">` +
+  `<path class="fill" d="${HEART}"/>${drawn("outer", HEART)}<path class="outer-solid" d="${HEART}"/>${drawn("inner", HEART_IN)}<path class="inner-solid" d="${HEART_IN}"/></svg></g>` +
+  `<svg class="logo" x="54.45" width="24.5" height="24.5" viewBox="0 0 1200 1200">${LOGO.map((d, i) => drawn(`m${i + 1}`, d)).join("")}</svg></svg>`;
+// The title's timeline as [part, keyframes, start, length, easing]: the heart's
+// outline and inner line draw and go solid, then it fills; the logo's strokes
+// draw in turn, the last two from their far ends.
+const STROKE = "cubic-bezier(.45,0,.25,1)";
+const drawIn = (from) => [{ strokeDashoffset: `${from}px` }, { strokeDashoffset: "0px" }];
+const showUp = [{ opacity: 0 }, { opacity: 1 }];
+const LOVE_STEPS = [
+  [".outer", drawIn(1.05), 0, 650, STROKE],
+  [".outer-solid", showUp, 650, 10, "linear"],
+  [".inner", drawIn(1.05), 360, 470, STROKE],
+  [".inner-solid", showUp, 830, 10, "linear"],
+  [".fill", showUp, 830, 150, "ease-out"],
+  [".m1", drawIn(1.05), 0, 650, STROKE],
+  [".m2", drawIn(1.05), 250, 110, "ease-out"],
+  [".m3", drawIn(1.05), 360, 470, STROKE],
+  [".m4", drawIn(-1.05), 540, 70, STROKE],
+  [".m5", drawIn(-1.05), 600, 70, STROKE],
+];
+const BEAT = [[0, 1], [0.08, 1.12], [0.16, 1], [0.24, 1.08], [0.36, 1], [1, 1]].map(([offset, scale]) => ({ offset, transform: `scale(${scale})`, easing: "ease-in-out" }));
+// The timeline's length, when the heart starts beating, the lane the corgi
+// needs to wear them clear of the slant, and how long it rests after a fetch.
+const LOVE_END = 980, LOVE_BEAT = 900, LOVE_ROOM = 13, LOVE_REST = 300;
+// How much faster they undraw than draw: out of a throw's way, or about as
+// long as the install line's dust when Omarchy is unpicked.
+const CLEAR_RATE = 5, LEAVE_RATE = 1.5;
+const love = {
+  el: Object.assign(document.createElement("span"), { className: "love", hidden: true, innerHTML: LOVE_SVG }),
+  omarchy: false,
+  steps: null,
+  beat: null,
+  // Where the timeline is and where it's headed, in ms.
+  p: 0,
+  goal: 0,
+  rate: 1,
+  at: 0,
+  frame: 0,
+  thenThrow: false,
+  fetchedAt: -Infinity,
+};
+spriteCells[5].after(love.el);
+// They're worn with Omarchy picked, unless a throw needs their room or the lane is too narrow.
+function steerLove(now) {
+  const fetching = !still && play.tick(lane, now) !== null;
+  if (fetching) love.fetchedAt = now;
+  const room = !love.thenThrow && !fetching && now - love.fetchedAt >= LOVE_REST && lane >= LOVE_ROOM;
+  aimLove(love.omarchy && room ? LOVE_END : 0, room ? LEAVE_RATE : CLEAR_RATE);
+}
+// The timeline runs from wherever it is, so a change of mind mid-draw reverses it.
+function aimLove(goal, rate) {
+  love.rate = rate;
+  if (goal === love.goal) return;
+  love.goal = goal;
+  love.steps ??= LOVE_STEPS.map(([part, keyframes, delay, duration, easing]) => {
+    const step = love.el.querySelector(part).animate(keyframes, { delay, duration, easing, fill: "both" });
+    step.pause();
+    return step;
+  });
+  if (still) {
+    love.p = goal;
+    return paintLove();
+  }
+  beatLove(goal > 0);
+  if (!love.frame) {
+    love.at = performance.now();
+    love.frame = requestAnimationFrame(runLove);
+  }
+}
+function runLove(now) {
+  const step = Math.max(0, now - love.at) * (love.goal > love.p ? 1 : love.rate);
+  love.at = now;
+  love.p = love.goal > love.p ? Math.min(love.goal, love.p + step) : Math.max(love.goal, love.p - step);
+  paintLove();
+  love.frame = love.p === love.goal ? 0 : requestAnimationFrame(runLove);
+  if (love.frame || !love.thenThrow) return;
+  love.thenThrow = false;
+  play.throwBall(lane, now);
+}
+function paintLove() {
+  love.el.hidden = love.p === 0;
+  for (const step of love.steps) step.currentTime = love.p;
+}
+// The heart beats once it's whole. Undrawing, it finishes the beat it's in,
+// and keeps beating if it's drawn back in before that ends.
+function beatLove(on) {
+  const iteration = love.beat?.effect.getComputedTiming().currentIteration ?? null;
+  if (on && iteration !== null) love.beat.effect.updateTiming({ iterations: Infinity });
+  else if (on) love.beat = love.el.querySelector(".heart").animate(BEAT, { delay: Math.max(0, LOVE_BEAT - love.p), duration: 1200, iterations: Infinity });
+  else love.beat?.effect.updateTiming({ iterations: iteration === null ? 0 : iteration + 1 });
+}
 // A click throws a ball, unless the corgi is still fetching the last one.
 sprite.addEventListener("click", () => {
   const now = performance.now();
-  if (still || play.tick(lane, now) !== null) return;
+  if (still || love.thenThrow || play.tick(lane, now) !== null) return;
   lane = laneNow();
+  // The heart and the logo clear the ball's way first.
+  if (love.p > 0) {
+    love.thenThrow = true;
+    return aimLove(0, CLEAR_RATE);
+  }
   play.throwBall(lane, now);
 });
 function drawSprite(now) {
@@ -1729,6 +1836,7 @@ function drawSprite(now) {
     // The slant is faint, and lit while the ball shares its cell.
     cell.classList.toggle("slant", fg === "faint");
   });
+  steerLove(now);
 }
 // Reduced motion stops the animation clock, but fonts and viewport sizes
 // can still change how much room the fetch lane has.
@@ -1779,7 +1887,8 @@ if (!still) setInterval(() => frame(performance.now()), 50);
 // Pressing Omarchy in the supported line trades one for the other: the command
 // crumbles into braille dust, as a worktree does when Corgi removes it, and the
 // new one settles out of it. Toward Omarchy the dust sweeps left to right, back
-// right to left, and the box's edge travels with it.
+// right to left, and the box's edge travels with it. The hero corgi puts on
+// Omarchy's heart and logo, or takes them off.
 const installCode = document.getElementById("install-cmd");
 const installs = {
   everywhere: "curl -fsSL https://corgi.computer/install.sh | bash",
@@ -1857,6 +1966,8 @@ function switchInstall(next) {
   const from = installs[install], to = installs[next];
   install = next;
   pressInstall();
+  love.omarchy = next === "omarchy";
+  steerLove(performance.now());
   cancelAnimationFrame(sweep);
   installCode.style.transition = "";
   if (!installCode.style.width) { sizeInstall(from.length); void installCode.offsetWidth; }
