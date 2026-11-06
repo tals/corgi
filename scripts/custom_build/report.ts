@@ -86,6 +86,10 @@ export function writeReport(run: RunState, r: Results): string {
       ...section("Warnings and notes", [
         ...of("closed-warning").map(e => `- ${e.patch}: ${e.detail}`),
         ...of("note").map(e => `- ${e.patch}: ${e.detail}`),
+        ...of("flaky").map(
+          e =>
+            `- ${e.step} failed once and passed when run again; it may be flaky (log: steps/${basename(e.detail ?? "")})`,
+        ),
       ]),
       ...section(
         "Agent-resolved merges",
@@ -95,7 +99,13 @@ export function writeReport(run: RunState, r: Results): string {
       ),
       ...section(
         "Fix commits",
-        run.fixes.map(f => `- ${short(f.commit)} ${f.step} (${f.by}): ${f.files.join(", ")}`),
+        run.fixes.map(
+          f =>
+            `- ${short(f.commit)} ${f.step} (${f.by}): ${f.files.join(", ")}` +
+            (f.by === "agent" && f.attribution?.length === 0
+              ? " (no merged patch touches these files or the files the failure names; no handoff)"
+              : ""),
+        ),
       ),
       ...section("Verification", stepResults(run, r.outcome.code)),
       ...section(

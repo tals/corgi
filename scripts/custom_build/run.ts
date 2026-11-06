@@ -367,7 +367,22 @@ async function verifyLoop(ctx: Context, run: RunState): Promise<Outcome | null> 
       save(ctx, run);
       continue;
     }
-    ctx.progress(`${step} failed; trying it on plain upstream`);
+    // A flaky failure would otherwise cost an upstream run and an agent fix.
+    const flaky = join(
+      run.reportDir,
+      "steps",
+      `${step}-flaky-${run.events.filter(e => e.kind === "flaky").length + 1}.log`,
+    );
+    copyFileSync(log, flaky);
+    ctx.progress(`${step} failed; running it once more in case the failure is flaky`);
+    if (await steps.runStep(cmds, { cwd: repo, log, env: ctx.env, echo: ctx.echo })) {
+      event(run, "flaky", { step, detail: flaky });
+      event(run, "passed", { step });
+      save(ctx, run);
+      continue;
+    }
+    rmSync(flaky, { force: true });
+    ctx.progress(`${step} failed again; trying it on plain upstream`);
     const alone = await isolated(ctx, run, step, "upstream", []);
     if (alone !== "passed") {
       event(run, "upstream-broken", { step });
@@ -594,6 +609,7 @@ async function writeReport(ctx: Context, run: RunState, code: Code, reason: stri
         logDir: join(run.reportDir, "isolated"),
         env: ctx.env,
         echo: ctx.echo,
+        progress: ctx.progress,
       });
       save(ctx, run);
     }
@@ -699,6 +715,9 @@ function summary(run: RunState): string[] {
     ...of("already-contained").map(p => `  skipped ${p}: already contained`),
     ...of("agent-resolved").map(p => `  agent resolved the conflict in ${p}`),
     ...run.fixes.map(f => `  ${f.by === "agent" ? "agent" : "user"} fix ${f.commit.slice(0, 7)} for ${f.step}`),
+    ...run.events
+      .filter(e => e.kind === "flaky")
+      .map(e => `  warning: ${e.step} failed once and passed when run again; it may be flaky (${e.detail})`),
     ...run.events.filter(e => e.kind === "closed-warning").map(e => `  warning: ${e.patch} ${e.detail}`),
     ...run.events.filter(e => e.kind === "note").map(e => `  note: ${e.patch}: ${e.detail}`),
     `  report: ${join(run.reportDir, "report.md")}`,

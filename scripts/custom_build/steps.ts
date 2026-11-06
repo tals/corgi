@@ -106,12 +106,23 @@ export async function runIsolated(o: {
   }
 }
 
+/** The failing output without the commands the tool logged and without lines
+ * that hold nothing but a path, such as the file headers a test runner prints
+ * for every file it runs, so only files the failure itself names remain. */
+export function failureText(log: string): string {
+  return log
+    .split("\n")
+    .filter(line => !line.startsWith("$ ") && !/^\s*[^\s:()]+:?\s*$/.test(line))
+    .join("\n");
+}
+
 export type Merged = { display: string; ref: string; merge: string };
 export type Attribution = { kind: "build-drift" | "build-clash"; patch: string; others: string[] };
 /** Who an agent fix for `step` answered: the implicated patches (touching a
- * file the fix changed or the failing log names, else all of them), each run
- * merged alone onto upstream. Those that fail alone drifted from upstream; if
- * none does, the implicated patches clash with each other. */
+ * file the fix changed or the failure names), each run merged alone onto
+ * upstream. Those that fail alone drifted from upstream; if none does, the
+ * implicated patches clash with each other. With no implicated patch, nothing
+ * points at a patch and nothing is run. */
 export async function attribute(o: {
   repo: string;
   workDir: string;
@@ -124,14 +135,19 @@ export async function attribute(o: {
   logDir: string;
   env: Record<string, string | undefined>;
   echo?: (chunk: Uint8Array) => void;
+  progress?: (line: string) => void;
 }): Promise<Attribution[]> {
-  const text = existsSync(o.log) ? readFileSync(o.log, "utf8") : "",
-    touching = o.merged.filter(m =>
+  const text = existsSync(o.log) ? failureText(readFileSync(o.log, "utf8")) : "",
+    implicated = o.merged.filter(m =>
       git.filesTouchedByMerge(o.repo, m.merge).some(file => o.fixFiles.includes(file) || text.includes(file)),
     ),
-    implicated = touching.length ? touching : o.merged,
     failing: string[] = [];
-  for (const m of implicated) {
+  if (!implicated.length) {
+    o.progress?.(`no merged patch touches what the ${o.step} fix changed or the failure names; not attributed`);
+    return [];
+  }
+  for (const [i, m] of implicated.entries()) {
+    o.progress?.(`running ${o.step} with ${m.display} alone on upstream (${i + 1} of ${implicated.length})`);
     const alone = await runIsolated({
       repo: o.repo,
       workDir: o.workDir,

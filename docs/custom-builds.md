@@ -112,8 +112,10 @@ Progress goes to stderr, prefixed `custom-build:`; the summary goes to stdout.
    `bun.lock` or `package.json` changed, then `bun typecheck.ts`, `bun test src` and
    `bun build.ts --outfile dist/corgi-custom`, which stamps the merges since
    upstream `main` into the binary.
-6. When a step fails, runs it on plain upstream in a throwaway worktree first.
-   If upstream fails too, the run stops with exit 4 and blames nobody.
+6. When a step fails, runs it once more. If it passes then, the run goes on
+   and the report warns that the step may be flaky. If it fails again, runs it
+   on plain upstream in a throwaway worktree first. If upstream fails too, the
+   run stops with exit 4 and blames nobody.
 7. On success, keeps the build the run started from as `custom-build-prev`
    and `dist/corgi-custom.prev`, then runs the after-build command if there is
    one.
@@ -218,7 +220,11 @@ At the end of every run each patch is test-merged alone onto upstream without
 touching the working tree. One that conflicts gets a `rebase` handoff. After an
 agent build fix, the step runs again for each implicated patch merged alone
 onto upstream: a patch that fails alone gets a `build-drift` handoff; if none
-does, each implicated patch gets a `build-clash` handoff naming the others.
+does, each implicated patch gets a `build-clash` handoff naming the others. A
+patch is implicated when it touches a file the fix changed or the failure
+names; lines that hold only a path, like the file list of a test run, don't
+count. When no patch is implicated, nothing runs and the report says the fix
+has no handoff.
 Conflicts between two patches that are each clean against upstream are only
 noted in the report.
 

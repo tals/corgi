@@ -1187,6 +1187,70 @@ test("an agent fix touching a single patch that passes alone names the other mer
   expect(handoffs(w)).toEqual(["a.md"]);
   expect(read(join(latest(w), "handoffs", "a.md"))).toContain("clashes with: b");
 });
+test("a failure log names a file only outside lines that hold nothing but a path", () => {
+  const log = [
+    "$ sh -c test -f src/e.ts",
+    "src/a.test.ts:",
+    "(pass) works",
+    "  src/b.test.ts",
+    "src/c.ts(3,4): error",
+    "at x (/r/src/d.ts:1:2)",
+  ];
+  const text = steps.failureText(log.join("\n"));
+  expect(["src/a.test.ts", "src/b.test.ts", "src/c.ts", "src/d.ts", "src/e.ts"].map(f => text.includes(f))).toEqual([
+    false,
+    false,
+    true,
+    true,
+    false,
+  ]);
+});
+test("an agent fix that no patch is named for runs nothing to attribute it and hands off nothing", async () => {
+  const w = world();
+  branch(w, "a", { "a.txt": "a\n" });
+  branch(w, "b", { "b.txt": "b\n" });
+  // A test runner's file list names every patch's file; the failure names none.
+  const steps = {
+    ...stubSteps,
+    typecheck: ["sh", "-c", 'printf "a.txt:\\nb.txt:\\n"; test -f ok.txt || ! test -f a.txt'],
+  };
+  configure(w, ["a", "b"], { steps, harness: { command: stubHarness("echo ok > ok.txt").command } });
+  const result = await cb(w, "rebuild");
+  expect(result.code).toBe(0);
+  expect(result.err).toContain("the typecheck fix changed or the failure names; not attributed");
+  expect(result.err).not.toContain("alone on upstream (");
+  expect(handoffs(w)).toEqual([]);
+  expect(read(join(latest(w), "report.md"))).toMatch(/typecheck \(agent\): ok\.txt \(no merged patch .*; no handoff\)/);
+});
+test("attribution says which patch it runs alone and how many are left", async () => {
+  const w = world();
+  branch(w, "fine", { "fine.txt": "fine\n" });
+  branch(w, "bad", { "bad.txt": "BROKEN\n" });
+  configure(w, ["fine", "bad"], { harness: { command: stubHarness(fixBroken).command } });
+  const result = await cb(w, "rebuild");
+  expect(result.code).toBe(0);
+  expect(result.err).toContain("running typecheck with bad alone on upstream (1 of 1)");
+});
+test("a step that fails once and passes when run again is reported as flaky, never fixed or blamed", async () => {
+  const w = world();
+  branch(w, "a", { "a.txt": "a\n" });
+  const tried = join(fresh("flaky"), "tried");
+  const steps = { ...stubSteps, typecheck: ["sh", "-c", `test -f "${tried}" || { touch "${tried}"; false; }`] };
+  const h = stubHarness("echo ok > ok.txt");
+  configure(w, ["a"], { steps, harness: { command: h.command } });
+  const result = await cb(w, "rebuild");
+  expect(result.code).toBe(0);
+  expect(h.calls()).toBe(0);
+  expect(git(w.clone, "log", "--first-parent", "--format=%s", "upstream/main..HEAD")).toBe("Merge a: about a");
+  expect(existsSync(join(latest(w), "isolated", "upstream-typecheck.log"))).toBe(false);
+  expect(result.out).toContain("warning: typecheck failed once and passed when run again; it may be flaky");
+  const text = read(join(latest(w), "report.md"));
+  expect(text).toContain(
+    "- typecheck failed once and passed when run again; it may be flaky (log: steps/typecheck-flaky-1.log)",
+  );
+  expect(text).toContain("- typecheck: passed");
+  expect(existsSync(join(latest(w), "steps", "typecheck-flaky-1.log"))).toBe(true);
+});
 
 /** Turns a stopped run into one interrupted during a harness call: the marker
  * the tool writes before calling it, with the tree as it was then. */
