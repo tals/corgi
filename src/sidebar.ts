@@ -59,18 +59,26 @@ export function unlit(entries: Entry[], spot: Spotlight | null): boolean[] {
 export const lists_x = 1;
 /** The drag grip in the middle of the rule between the lists. */
 const split_grip = " ⠶⠶⠶ ";
+/** How much of its colors a list or label keeps in its last two cells where
+ * it runs on past its edge, in percent, so it trails off. */
+export const trail_ink = [65, 35];
+/** `bytes` with each part that moves the cursor replaced by `part`'s answer
+ * for its row (0-based). */
+function mapRows(bytes: string, part: (row: number, text: string) => string): string {
+  return bytes
+    .split(/(?=\x1b\[\d+;\d+H)/)
+    .map(text => {
+      const row = /^\x1b\[(\d+);\d+H/.exec(text);
+      return row ? part(Number(row[1]) - 1, text) : text;
+    })
+    .join("");
+}
 /** Drops what `bytes` writes from row `end` (0-based) down and above row
  * `start`, keeping its colors so the writes after it start in the same style. */
 function clipRows(bytes: string, end: number, start = 0): string {
-  return bytes
-    .split(/(?=\x1b\[\d+;\d+H)/)
-    .map(part => {
-      const row = /^\x1b\[(\d+);\d+H/.exec(part);
-      return row && (Number(row[1]) > end || Number(row[1]) <= start)
-        ? (part.match(/\x1b\[[\d;:]*m/g) ?? []).join("")
-        : part;
-    })
-    .join("");
+  return mapRows(bytes, (row, text) =>
+    row >= end || row < start ? (text.match(/\x1b\[[\d;:]*m/g) ?? []).join("") : text,
+  );
 }
 // Styles that code or tests concatenate.
 export let panel: string,
@@ -1081,11 +1089,9 @@ export class View {
           return { tag: "archived_workspace", workspace: v.archived_offset + Math.floor(row / 3) };
       }
       if (y < 2 || y >= v.workspaceEnd()) return hit("none");
-      const slot = Math.floor((y - 2) / v.workspaceRows());
-      const index = slot + v.workspace_offset;
-      return index < v.workspace_count && slot < v.workspaceCapacity()
-        ? { tag: "workspace", workspace: index }
-        : hit("none");
+      // The workspace the rule cuts takes clicks too.
+      const index = Math.floor((y - 2) / v.workspaceRows()) + v.workspace_offset;
+      return index < v.workspace_count ? { tag: "workspace", workspace: index } : hit("none");
     }
     const end = v.drawEnd(below);
     if (y < v.middle() + 2 || y >= end) return hit("none");
@@ -1317,100 +1323,111 @@ export class View {
   private drawWorkspaces(w: Writer, workspaces: WorkspaceEntry[]): void {
     const v = this;
     v.drawTitle(w);
-    const shown = workspaces.slice(
-      v.workspace_offset,
-      Math.min(workspaces.length, v.workspace_offset + v.workspaceCapacity()),
-    );
-    shown.forEach((ws, index) => {
-      const y = 2 + index * v.workspaceRows();
-      const ghost = v.dragged_workspace === v.workspace_offset + index;
-      const tinted = ws.active || ghost;
-      const style = tinted ? active_name : panel;
-      const meta = tinted ? active_meta : panel;
-      // The dragged workspace takes the selected tint and a strong bar, like a dragged agent row.
-      const bar = ghost ? ghost_bar : active_bar;
-      w.write(`${w.cup(y + 1, 1)}${style}`);
-      w.splat(" ", v.width - 1);
-      const badge = gitLabel(ws, false);
-      const badge_width = displayWidth(badge);
-      w.write(`${w.cup(y + 1, 2)}${style}`);
-      const link = linkRange(v, ws, workspaces);
-      const name = directoryLabel(ws.name, null, 4097),
-        name_room = sat(link.start, 2);
-      if (ws.archived) {
-        const suffix = i18n.t` (archived)`;
-        writeEllipsis(w, name, sat(name_room, displayWidth(suffix)));
-        writeClipped(w, suffix, name_room);
-      } else writeClipped(w, name, name_room);
-      if (link.end > link.start) {
-        w.write(w.cup(y + 1, link.start + 1));
-        drawPorts(w, ws, link.end - link.start, false);
-      }
-      if (badge_width > 0) w.write(`${w.cup(y + 1, v.width - 1 - badge_width)}${gitColor(ws.git_push.phase)}${badge}`);
-      if (tinted) {
-        w.write(`${w.cup(y + 2, 1)}${meta}`);
-        w.splat(" ", v.width - 1);
-      }
-      const divider = index + 1 < Math.min(workspaces.length - v.workspace_offset, v.workspaceCapacity());
-      // Without a resource row, the separator underlines the status row,
-      // text included, as between agents.
-      const rule = divider && v.workspaceRows() === 2 ? rule_underline : "";
-      w.write(`${w.cup(y + 2, 2)}${meta}${rule}`);
-      if (rule.length > 0) {
-        w.splat(" ", v.width - 3);
-        w.write(w.cup(y + 2, 2));
-      }
-      const tools = compactCount(ws.stats.tools);
-      const count = compactCount(ws.unread);
-      const unread = ws.unread > 0 ? i18n.t`${count} unread →` : "";
-      const attention = ws.attention > 0 ? ` ●${compactCount(ws.attention)}` : "";
-      const unread_width = View.unreadWidth(ws);
-      const attention_width = displayWidth(attention);
-      const metadata = `⚒${tools}`;
-      const metadata_width = displayWidth(metadata);
-      const left_room = sat(v.width - 3, statusMetadataWidth(ws) + 1);
-      const room = { value: sat(left_room, unread_width + 3) };
-      let has_status = false;
-      {
-        const text = ws.working === 0 ? "○" : `▶${compactCount(ws.working)}`;
-        if (displayWidth(text) + attention_width <= room.value) {
-          statusPart(w, text, ws.working > 0 ? "\x1b[1m" + fg("accent") : fg("muted"), room);
-          has_status = true;
-        }
-      }
-      if (attention_width > 0) {
-        statusPart(w, attention, "\x1b[1m" + fg("warm"), room);
-        has_status = true;
-      }
-      if (ws.unread > 0) {
-        if (has_status) w.write(tinted ? "\x1b[22m" + fg("muted") + " · " : "\x1b[22m" + fg("faint") + " · ");
-        w.write(w.cup(y + 2, v.unreadRange(ws).start + 1));
-        const unread_room = { value: unread_width };
-        statusPart(w, unread, "\x1b[1m" + fg("accent"), unread_room);
-      }
-      const worktree_label = worktreeLabel(ws);
-      if (worktree_label)
-        w.write(`${w.cup(y + 2, v.width - 1 - displayWidth(worktree_label))}${meta}${rule}${worktree_label}`);
-      else if (ws.stats.tools > 0) w.write(`${w.cup(y + 2, v.width - 1 - metadata_width)}${meta}${rule}${metadata}`);
-      if (tinted) for (const row of [y + 1, y + 2]) w.write(`${w.cup(row, 1)}${bar}`);
-      w.write(panel);
-      if (v.workspaceRows() === 3 && y + 2 < v.workspaceEnd()) {
-        if (tinted) {
-          w.write(`${w.cup(y + 3, 1)}${meta}`);
-          w.splat(" ", v.width - 1);
-        }
-        w.write(`${w.cup(y + 3, 2)}${meta}`);
-        if (divider) w.write(rule_underline);
-        drawResources(w, ws.resources, v, v.resource_hover === ws.id, tinted);
-        w.write("\x1b[24;59m");
-        w.write(panel);
-        if (tinted) w.write(`${w.cup(y + 3, 1)}${bar}${panel}`);
-      }
-    });
+    const end = v.workspaceEnd(),
+      rows = v.workspaceRows();
+    // While more lie below, the list runs on into the rule and trails off,
+    // as a cut tab label does.
+    const trails = v.workspace_offset + v.workspaceCapacity() < workspaces.length;
+    const shown = Math.min(workspaces.length - v.workspace_offset, v.workspaceCapacity() + Number(trails));
+    for (let index = 0; index < shown; index++) {
+      const y = 2 + index * rows;
+      if (y >= end) break;
+      const cut = trails && y + rows > end - trail_ink.length;
+      const out = cut ? new Writer(w.column) : w;
+      v.drawWorkspace(out, workspaces, v.workspace_offset + index, y, index + 1 < shown);
+      if (cut) w.write(trailOff(clipRows(out.buffered(), end), end));
+    }
     const ws_thumb = v.workspaceThumb();
     if (ws_thumb)
       for (let row = ws_thumb.start; row < ws_thumb.start + ws_thumb.len; row++)
         w.write(w.cup(3 + row, v.width) + v.thumbStyle("workspaces") + "┃");
+  }
+  /** Workspace `index`'s rows from row `y`; `divider` rules off the one below. */
+  private drawWorkspace(w: Writer, workspaces: WorkspaceEntry[], index: number, y: number, divider: boolean): void {
+    const v = this,
+      ws = workspaces[index];
+    const ghost = v.dragged_workspace === index;
+    const tinted = ws.active || ghost;
+    const style = tinted ? active_name : panel;
+    const meta = tinted ? active_meta : panel;
+    // The dragged workspace takes the selected tint and a strong bar, like a dragged agent row.
+    const bar = ghost ? ghost_bar : active_bar;
+    w.write(`${w.cup(y + 1, 1)}${style}`);
+    w.splat(" ", v.width - 1);
+    const badge = gitLabel(ws, false);
+    const badge_width = displayWidth(badge);
+    w.write(`${w.cup(y + 1, 2)}${style}`);
+    const link = linkRange(v, ws, workspaces);
+    const name = directoryLabel(ws.name, null, 4097),
+      name_room = sat(link.start, 2);
+    if (ws.archived) {
+      const suffix = i18n.t` (archived)`;
+      writeEllipsis(w, name, sat(name_room, displayWidth(suffix)));
+      writeClipped(w, suffix, name_room);
+    } else writeClipped(w, name, name_room);
+    if (link.end > link.start) {
+      w.write(w.cup(y + 1, link.start + 1));
+      drawPorts(w, ws, link.end - link.start, false);
+    }
+    if (badge_width > 0) w.write(`${w.cup(y + 1, v.width - 1 - badge_width)}${gitColor(ws.git_push.phase)}${badge}`);
+    if (tinted) {
+      w.write(`${w.cup(y + 2, 1)}${meta}`);
+      w.splat(" ", v.width - 1);
+    }
+    // Without a resource row, the separator underlines the status row,
+    // text included, as between agents.
+    const rule = divider && v.workspaceRows() === 2 ? rule_underline : "";
+    w.write(`${w.cup(y + 2, 2)}${meta}${rule}`);
+    if (rule.length > 0) {
+      w.splat(" ", v.width - 3);
+      w.write(w.cup(y + 2, 2));
+    }
+    const tools = compactCount(ws.stats.tools);
+    const count = compactCount(ws.unread);
+    const unread = ws.unread > 0 ? i18n.t`${count} unread →` : "";
+    const attention = ws.attention > 0 ? ` ●${compactCount(ws.attention)}` : "";
+    const unread_width = View.unreadWidth(ws);
+    const attention_width = displayWidth(attention);
+    const metadata = `⚒${tools}`;
+    const metadata_width = displayWidth(metadata);
+    const left_room = sat(v.width - 3, statusMetadataWidth(ws) + 1);
+    const room = { value: sat(left_room, unread_width + 3) };
+    let has_status = false;
+    {
+      const text = ws.working === 0 ? "○" : `▶${compactCount(ws.working)}`;
+      if (displayWidth(text) + attention_width <= room.value) {
+        statusPart(w, text, ws.working > 0 ? "\x1b[1m" + fg("accent") : fg("muted"), room);
+        has_status = true;
+      }
+    }
+    if (attention_width > 0) {
+      statusPart(w, attention, "\x1b[1m" + fg("warm"), room);
+      has_status = true;
+    }
+    if (ws.unread > 0) {
+      if (has_status) w.write(tinted ? "\x1b[22m" + fg("muted") + " · " : "\x1b[22m" + fg("faint") + " · ");
+      w.write(w.cup(y + 2, v.unreadRange(ws).start + 1));
+      const unread_room = { value: unread_width };
+      statusPart(w, unread, "\x1b[1m" + fg("accent"), unread_room);
+    }
+    const worktree_label = worktreeLabel(ws);
+    if (worktree_label)
+      w.write(`${w.cup(y + 2, v.width - 1 - displayWidth(worktree_label))}${meta}${rule}${worktree_label}`);
+    else if (ws.stats.tools > 0) w.write(`${w.cup(y + 2, v.width - 1 - metadata_width)}${meta}${rule}${metadata}`);
+    if (tinted) for (const row of [y + 1, y + 2]) w.write(`${w.cup(row, 1)}${bar}`);
+    w.write(panel);
+    if (v.workspaceRows() === 3 && y + 2 < v.workspaceEnd()) {
+      if (tinted) {
+        w.write(`${w.cup(y + 3, 1)}${meta}`);
+        w.splat(" ", v.width - 1);
+      }
+      w.write(`${w.cup(y + 3, 2)}${meta}`);
+      if (divider) w.write(rule_underline);
+      drawResources(w, ws.resources, v, v.resource_hover === ws.id, tinted);
+      w.write("\x1b[24;59m");
+      w.write(panel);
+      if (tinted) w.write(`${w.cup(y + 3, 1)}${bar}${panel}`);
+    }
   }
   private drawArchives(w: Writer, archived: ArchivedWorkspace[]): void {
     const header = this.archivedHeader();
@@ -2068,6 +2085,15 @@ export function writeExit(w: Writer, frame: string, progress: number, background
   w.write(
     recolor(frame, (_, value, n) => Math.round(colors[background][n] + (value - colors[background][n]) * opacity)),
   );
+}
+/** `frame` with its last rows above `end` (0-based) mixed into the panel,
+ * keeping `trail_ink` of their colors, as `palette.mix` does. */
+function trailOff(frame: string, end: number): string {
+  return mapRows(frame, (row, text) => {
+    const ink = trail_ink[row - (end - trail_ink.length)];
+    if (ink === undefined) return text;
+    return recolor(text, (_, value, n) => Math.floor((colors.bg[n] * (100 - ink) + value * ink + 50) / 100));
+  });
 }
 /** Tints the backgrounds in `frame` toward accent, as far as `amount`. */
 export function writeTint(w: Writer, frame: string, amount: number): void {
