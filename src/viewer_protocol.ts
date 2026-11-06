@@ -227,14 +227,24 @@ export function remember(cl: Client, view: View, wake: bigint, now = Date.now())
     if (interest) interest.known = frame.stamp;
   }
 }
+const input_acks = new WeakMap<Client, Map<number, surface.InputReceipt>>();
 function frames(s: Server, cl: Client): surface.View[] {
   const frames: surface.View[] = [];
+  let sent = input_acks.get(cl);
+  if (!sent) input_acks.set(cl, (sent = new Map()));
+  for (const id of sent.keys()) if (!cl.interests.some(i => i.pane === id)) sent.delete(id);
   for (const interest of cl.interests) {
     const pane = s.runtime.pane(interest.pane);
     if (!pane) continue;
     const shown = pane.displayed();
-    if (interest.known && equal(interest.known, surface.stamp(shown, interest.offset ?? null))) continue;
+    const ack = pane.terminal.input_ack.ack;
+    const previous = sent.get(interest.pane);
+    const acknowledged = previous?.epoch !== ack.epoch || previous?.sequence !== ack.sequence;
+    if (!acknowledged && interest.known && equal(interest.known, surface.stamp(shown, interest.offset ?? null)))
+      continue;
     const view = surface.captureView(interest.pane, shown, interest.offset ?? null);
+    if (shown === pane.terminal && view.stamp.offset === null) view.input_ack = ack;
+    sent.set(interest.pane, ack);
     if (shown !== pane.terminal) view.modes = surface.modes(pane.terminal);
     frames.push(view);
   }

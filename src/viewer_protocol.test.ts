@@ -393,6 +393,15 @@ test("the data connection reads its viewer's surfaces and receipts without becom
   control.interests[0].known = reply.surfaces[0].stamp;
   surfaces(s, data);
   expect(content.mock.calls[1][0]).toEqual({ ok: true, surfaces: [] });
+  const receipt = pane.terminal.input_ack.sent(0);
+  pane.terminal.input_ack.advance(50);
+  surfaces(s, data);
+  const acknowledged = (content.mock.calls[2][0] as protocol.ReplyPayloads["viewer.surfaces"]).surfaces[0];
+  expect(acknowledged.input_ack).toEqual(receipt);
+  expect(acknowledged.stamp).toEqual(reply.surfaces[0].stamp);
+  expect(acknowledged.surface.lines).toEqual(reply.surfaces[0].surface.lines);
+  surfaces(s, data);
+  expect(content.mock.calls[3][0]).toEqual({ ok: true, surfaces: [] });
   expect(() => image(s, data, { pane: 2, image: "1", offset: 0 })).toThrow("NoPane");
   control.dead = true;
   expect(() => surfaces(s, data)).toThrow("NoViewer");

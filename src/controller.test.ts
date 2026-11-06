@@ -3333,7 +3333,8 @@ function picking() {
     socket: "",
     request: transport(async (op, fields) => {
       // A sync sees nothing new, and focus changes are accepted.
-      if (op === "viewer.sync" || op === "session.command") return { ok: true, viewer_protocol: 4 };
+      if (op === "viewer.sync") return { ok: true, viewer_protocol: 4 };
+      if (op === "session.command") return { ok: true, result: protocol.emptyResult() };
       if (op !== "viewer.pick") throw Error("UnexpectedRequest");
       asks.push(fields);
       return { ok: true, match: { x: 2, y: 0, end_x: 6, end_y: 0 }, shown: reply.shown, copy: "hello" };
@@ -4369,6 +4370,20 @@ test("the instant typing action persists and drops every machine's previews", as
     expect(s.host.prefs.instant_typing).toBe("auto");
     expect(resets).toEqual(["work", "work"]);
     other.runtime.panes = [];
+  } finally {
+    update.mockRestore();
+    viewer.close(s);
+  }
+});
+
+test("the prediction shading setting persists without disabling prediction", async () => {
+  const update = spyOn(preferences, "update").mockImplementation(() => {});
+  const s = controller();
+  try {
+    await s.applySetup({ kind: "instant_typing", mode: "auto", dim: false });
+    expect(s.host.prefs.dim_predictions).toBe(false);
+    expect(s.host.prefs.instant_typing).toBe("auto");
+    expect(update).toHaveBeenLastCalledWith({ instant_typing: "auto", dim_predictions: false });
   } finally {
     update.mockRestore();
     viewer.close(s);

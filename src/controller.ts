@@ -5426,11 +5426,15 @@ export class Controller {
         return;
       case "instant_typing":
         this.host.prefs.instant_typing = apply.mode;
+        if (apply.dim !== undefined) this.host.prefs.dim_predictions = apply.dim;
         // Turning it on or off drops every machine's previews.
         for (const machine of this.machines) for (const pane of machine.runtime.panes) pane.terminal.resetPrediction();
         this.updateInstant();
         try {
-          preferences.update({ instant_typing: apply.mode });
+          preferences.update({
+            instant_typing: apply.mode,
+            ...(apply.dim === undefined ? {} : { dim_predictions: apply.dim }),
+          });
         } catch (error) {
           this.notice((error as Error).message);
         }
@@ -9202,8 +9206,9 @@ export class Controller {
     for (const pane of this.runtime.panes) {
       const eligible = pane === focus && !pane.dormant && !pane.restoring && pane.agent.attention !== "needs_input";
       pane.terminal.instant(
-        eligible ? pane.agent.provider : null,
+        eligible ? (pane.agent.provider ?? "terminal") : null,
         `${pane.binding}:${pane.agent.conversation}:${pane.agent.session}`,
+        this.host.prefs.dim_predictions,
       );
     }
   }

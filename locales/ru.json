@@ -960,6 +960,7 @@
   "Off": "Выкл.",
   "Omarchy detected: installing Corgi as its bar plugin (--no-omarchy installs it on its own)": "Обнаружен Omarchy: Corgi ставится как плагин панели (--no-omarchy ставит его отдельно)",
   "On": "Вкл.",
+  "On (dim unacknowledged typing)": "Вкл. (приглушать неподтверждённый ввод)",
   "Onboarding": "Первоначальная настройка",
   "Open": "Открыть",
   "Open ": "Открыть ",

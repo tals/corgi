@@ -181,35 +181,85 @@ Browser access, HTTPS and browser/device pairing belong to phase two.
 ## Instant typing
 
 **Predictive Rendering** is on by default in Corgi setup → **Remote**. Corgi
-previews ordinary ASCII text, backspace, delete and left/right cursor movement
-in a recognized Codex or Claude composer. A recognizable draft or dim placeholder
+previews ordinary ASCII insertion, backspace, delete, cursor movement within the
+draft, word and line edits, and Shift/Alt+Enter newlines in a recognized Codex or
+Claude composer. A recognizable draft or dim placeholder
 can start immediately, without a training edit. An unstyled placeholder waits
 until the first real draft arrives. Words wrap using the agent's own input width,
-and edits preserve known soft wraps. The agent still owns the native input box.
+and edits preserve tracked hard breaks and soft wraps. The agent still owns the native input box.
 Local panes use their ordinary input path.
+
+Shells and other plain terminal prompts (including agent sign-in screens) learn
+echo from the first confirmed ASCII character, then preview insertion, deletion,
+left/right movement and word or line edits within that learned suffix. The prompt
+and any text preceding the learned suffix stay outside the editable region.
+A changed prompt, unsupported control keys, paste, Unicode input or an unknown
+line wrap resets this training.
+Return retains an already visible preview while matching earlier echoes arrive,
+so the caret does not jump back before submission reaches the remote. Further
+typing waits for remote echo until the submission changes the screen or is
+acknowledged; the existing expiry budget still applies.
+Hidden cursors, mouse-driven interfaces and editing outside the learned region use remote
+echo. Prediction stops before screen borders and uncertain wraps, preserving the
+UI's cell colors and surrounding content. A mismatch discards the preview and
+starts a tentative epoch: guesses stay hidden until a new nonblank character is
+confirmed, even if the caret stays on the same row. Blank echo alone cannot
+establish confidence. Generic prediction cannot infer invisible box margins or
+their indentation; a wrap there can briefly be wrong before remote echo resets it.
+Once a native agent composer is recognized, its stricter rules take over.
 
 Turn it off to always wait for the remote screen, or use
 `corgi --machine workbox action instant-typing off` (`auto` turns it back on).
 The choice applies across machines in this viewer and persists for new viewers.
+The optional **Dim unconfirmed typing** toggle in the same section shades changed
+input cells gray until their echo arrives, retaining the UI's backgrounds and
+borders. It is on by default.
 
 This is conservative prediction, not an acknowledgement from the agent. Incoming
 screens confirm pending edits or immediately replace a wrong prediction. It does
-not predict submit, history/word navigation, paste, Unicode text, completion menus, or layouts
-it cannot recognize. Existing multiline drafts cannot reliably reveal their hard
-and soft breaks; prediction starts from a simple single-line draft and tracks its
-wraps. Completion tokens such as `@file` pause the preview while being edited;
+not predict submit, history navigation, paste, Unicode text, completion menus, or layouts
+it cannot recognize. Existing multiline drafts can start prediction when their
+short rows prove where hard breaks are; ambiguous soft wraps need a known draft.
+The editor keeps its text, hard newlines and caret separately from the displayed
+box. Claude's line edits follow visual rows; Codex's follow hard lines. Ghostty
+normalizes encoded control keys and renders the private preview surface.
+Completion tokens such as `@file` pause the preview while being edited;
 literal punctuation elsewhere does not disable the whole draft. Closing a popup
 and receiving a matching plain composer resumes preview without retraining,
-including for a draft whose soft wraps are already known. Ambiguous cursor
-positions wait for a later edit to distinguish them. Uncertain URL/hyphenation
-wrapping also uses remote echo.
+including for a draft whose soft wraps are already known. Intermediate screens
+that match the pending editing trajectory retain its latest preview. Repeated
+pixels, such as typing then erasing, do not confirm an edit count: the bounded
+history stays pending until a later screen distinguishes it or its deadline expires.
+Unknown keys, temporary missing boxes, changed geometry and timed-out previews
+retain a bounded draft journal, so matching output can recover a multiline draft
+without clearing the field. Uncertain URL/hyphenation wrapping also uses remote echo.
 
-Unconfirmed previews expire after 750 ms, even if typing continues. Disconnect,
-machine/pane changes, scrolling, selection, resize and agent replacement discard
-them. Previews never modify the real terminal, copied text or input queue, and
-never cause input to be replayed. Old and new daemons use the same wire protocol;
-this feature is entirely in the viewer. The new `instant_typing` viewer preference
-defaults to `auto` in older preference files; no saved-session migration is needed.
+Unconfirmed previews expire after a latency-adjusted budget (750 ms–30 seconds),
+fixed when each edit is typed. Continuing to type does not extend older edits.
+Only successful round trips teach the budget; failures and detected outages do not.
+
+Input command replies carry a terminal-lifetime receipt. Screens carry a late
+acknowledgement after a 50 ms settling interval, including when the pixels did
+not change. Generic shell prediction uses this heuristic to reject no-echo guesses.
+Recognized Claude and Codex editors use matching screens and the expiry budget;
+delivery receipts never invalidate a matching older editor frame. The delay gives
+the program time to respond, but does not prove it processed or drew the input.
+
+Disconnect, machine/pane changes, scrolling, selection and agent replacement
+discard previews. A recognized editor reflows its known draft after resize;
+unrecognized geometry hides the preview until a matching box returns.
+Previews never modify the real terminal, copied text
+or input queue, and never cause input to be replayed. The `instant_typing` viewer
+preference defaults to `auto` in older preference files; `dim_predictions`
+defaults to true. No saved-session migration is needed.
+
+To diagnose prediction pauses, launch the viewer with
+`CORGI_TELEMETRY_DIR=/tmp/corgi-prediction CORGI_TELEMETRY_TRACE=1`.
+The existing telemetry JSON records `prediction.*` transitions: unknown input,
+unmatched frames, expiry, hidden boxes, unsupported layout, and resumed prediction.
+Trace arguments include the pane/provider, input and delivery sequence counts,
+pending edits, box size and relative caret. They contain no typed text or screen
+contents. Files flush on normal viewer exit or its existing SIGUSR2 telemetry hook.
 
 ## Connectivity tests
 
@@ -246,7 +296,9 @@ full-line cursors and long-word handling. It covers corrections, coalesced frame
 ambiguous acknowledgements, expiry, reconnect/resize, unsupported input and copy/
 replay isolation. The SSH suite replays these captures in a real PTY behind 240 ms
 round-trip delay and withheld responses, testing local wrap/unwrap, the off switch
-and automatic recovery without duplicate input. No model calls are needed.
+and automatic recovery without duplicate input. Shell and sign-in tests use a
+one-second one-way delay; a raw no-echo prompt verifies acknowledgement-driven
+retraction and retraining on the same row. No model calls are needed.
 
 OpenSSH documents [Unix-socket forwarding](https://man.openbsd.org/ssh#L~4)
 and the [client configuration](https://man.openbsd.org/ssh_config).
@@ -272,12 +324,14 @@ No daemon/viewer protocol or saved format changes are needed.
 
 This implementation was ported from `feature/remote-ssh` onto the current
 TypeScript daemon and viewer. It retains native provider UIs and conservative
-Codex/Claude typing prediction. Other providers use authoritative remote echo.
+Codex/Claude composer prediction and learned plain-terminal echo for other prompts.
 Transport is currently native stdio over OpenSSH, with Unix-socket forwarding
 as a compatibility fallback; WebTransport negotiation
 and direct agent presentation remain future work described in `remote-access.md`.
 
 The current runtime and viewer protocols are both 4.
+The optional `input_receipt` result and `input_ack` surface fields are additive;
+older viewers ignore them. Receipts are ephemeral and do not change saved formats.
 Correlated request IDs belong to one connection; link sequence numbers survive
 reconnects. Cached replies acquire the new request ID when replayed, and only
 contiguous acknowledgments release cached results. Links and streaming are

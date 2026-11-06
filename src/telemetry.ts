@@ -45,6 +45,16 @@ export const names = [
   "viewer.retained",
   "viewer.composite",
   "viewer.replay",
+  "prediction.input",
+  "prediction.mismatch",
+  "prediction.timeout",
+  "prediction.capacity",
+  "prediction.ready",
+  "prediction.predicting",
+  "prediction.layout",
+  "prediction.hidden",
+  "prediction.completion",
+  "prediction.unseeded",
   "surface.capture",
   "surface.receive",
   "native.encode",
@@ -64,16 +74,19 @@ export const names = [
 ] as const;
 export type Name = (typeof names)[number];
 const ids = Object.fromEntries(names.map((name, id) => [name, id])) as Record<Name, number>;
+type Details = Record<string, number | string>;
 
 export class Recorder {
   private totals = new Float64Array(names.length * 4);
   private events: Float64Array;
   private written = 0;
+  private details: (Details | undefined)[];
   constructor(readonly capacity = 0) {
     if (!Number.isInteger(capacity) || capacity < 0) throw Error("InvalidTelemetryCapacity");
     this.events = new Float64Array(capacity * 3);
+    this.details = new Array(capacity);
   }
-  record(name: Name, start: number, end: number, bytes = 0) {
+  record(name: Name, start: number, end: number, bytes = 0, details?: Details) {
     const id = ids[name],
       index = id * 4,
       duration = Math.max(0, end - start);
@@ -86,6 +99,7 @@ export class Recorder {
       this.events[event] = id;
       this.events[event + 1] = start;
       this.events[event + 2] = duration;
+      this.details[event / 3] = details;
     }
   }
   snapshot() {
@@ -106,6 +120,7 @@ export class Recorder {
         tid: threadId,
         ts: (performance.timeOrigin + this.events[offset + 1]) * 1000,
         dur: this.events[offset + 2] * 1000,
+        ...(this.details[offset / 3] ? { args: this.details[offset / 3] } : {}),
       });
     }
     return { metrics, traceEvents, dropped_events: Math.max(0, this.written - this.capacity) };
@@ -134,6 +149,11 @@ export function count(name: Name): void {
     const now = performance.now();
     recorder.record(name, now, now);
   }
+}
+export function event(name: Name, details: Details): void {
+  if (!recorder) return;
+  const now = performance.now();
+  recorder.record(name, now, now, 0, details);
 }
 export function native(request: object, start: number, bytes: number): void {
   if (!recorder) return;

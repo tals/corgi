@@ -712,6 +712,7 @@
   "Off": "オフ",
   "Omarchy detected: installing Corgi as its bar plugin (--no-omarchy installs it on its own)": "Omarchy を検出しました：Corgi をバーのプラグインとしてインストールします（--no-omarchy で単体インストール）",
   "On": "オン",
+  "On (dim unacknowledged typing)": "オン（未確認の入力を薄く表示）",
   "Onboarding": "初期設定",
   "Open": "開く",
   "Open ": "開く ",

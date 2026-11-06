@@ -31,7 +31,7 @@ import {
   type Removal,
   type Snapshot as Worktrees,
 } from "./worktrees";
-import { Prediction } from "./instant_input";
+import { Prediction, timeout_ms, type Target as PredictionTarget } from "./instant_input";
 import type { Progress as ImageProgress } from "./image_upload";
 
 export interface Transport {
@@ -40,6 +40,7 @@ export interface Transport {
   /** Whether the daemon sends this viewer `viewer.wake`. */
   watches?(): boolean;
   remote?: boolean;
+  predictionMs?(): number;
   image?: (path: string, mime: string, progress?: ImageProgress) => Promise<string>;
   request<K extends protocol.Op>(op: K, ...args: protocol.Arguments<K>): Promise<protocol.Response<K>>;
 }
@@ -97,7 +98,7 @@ export class Terminal {
   private installed: surface.View | null = null;
   private changed_rows = new Uint16Array(0);
   private rendered: { key: string; rows: string } | null = null;
-  private prediction = new Prediction();
+  private prediction = new Prediction(() => this.conn.predictionMs?.() ?? timeout_ms);
   private predicted: NativeTerminal | null = null;
   private projected: surface.Surface | null = null;
   private received: surface.View | null = null;
@@ -269,11 +270,14 @@ export class Terminal {
   async flush(): Promise<void> {
     if (this.pending.length === 0) return;
     const data = Buffer.from(this.pending).toString();
+    const through = this.prediction.sequence;
     // Over a link the input lands once, even across a reconnect; without one
     // its delivery is uncertain after a disconnect, so it's never sent again.
     this.pending = [];
     try {
-      await call(this.conn, "session.command", { command: { "pane.input": { target: this.id, data } } });
+      const reply = await call(this.conn, "session.command", { command: { "pane.input": { target: this.id, data } } });
+      if (reply.result.input_receipt)
+        this.prediction.delivered(through, surface.inputReceipt(reply.result.input_receipt));
     } catch (error) {
       if (!errors.is(error, "NoPane")) throw error;
     }
@@ -362,10 +366,11 @@ export class Terminal {
   predicting(): boolean {
     return !!this.prediction.surface() && !this.holding_selection && !this.selection && this.atBottom();
   }
-  instant(provider: Provider | null, context = ""): void {
+  instant(provider: PredictionTarget | null, context = "", dim = false): void {
     this.prediction.configure(
       this.conn.remote && this.atBottom() && !this.selection && !this.holding_selection ? provider : null,
       context,
+      dim,
     );
   }
   resetPrediction(): void {

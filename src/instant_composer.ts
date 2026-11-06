@@ -1,14 +1,21 @@
 import type { Surface } from "./pane/surface";
 import type { Provider } from "./providers";
+import * as keys from "./keys";
+import * as text_area from "./text_area";
+import * as text from "./text";
+import * as keyboard from "./keyboard";
+import * as viewer_native from "./viewer_native";
 
 /** A proposed draft, never application state. Only matching remote pixels confirm it. */
 export interface Draft {
   text: string;
   cursor: number;
+  goal?: number;
 }
 export interface Layout {
   lines: string[];
   cursor: { x: number; y: number };
+  starts: number[];
 }
 export interface Composer {
   provider: Provider;
@@ -24,12 +31,13 @@ export interface Composer {
  * custom prompts and completion menus. A changed agent UI falls back to remote echo. */
 export function inspect(surface: Surface, provider: Provider): Composer | null {
   if (provider !== "codex" && provider !== "claude") return null;
-  const { cols, cursor } = surface;
-  if (!cursor || cols < 12) return null;
+  const { cols } = surface;
+  let cursor = surface.cursor;
+  if (cols < 12 || (!cursor && provider !== "claude")) return null;
   const rows = surface.lines.map(line => Bun.stripANSI(line));
   const prompt = provider === "codex" ? "› " : "❯\u00a0";
   let top = -1;
-  for (let y = 0; y <= cursor.y; y++) if (rows[y]?.startsWith(prompt)) top = y;
+  for (let y = 0; y <= (cursor?.y ?? rows.length - 1); y++) if (rows[y]?.startsWith(prompt)) top = y;
   if (top < 1) return null;
   const rule = (row: string) => /^─{10,}$/.test(row.trim());
   let end = top + 1;
@@ -39,11 +47,17 @@ export function inspect(surface: Surface, provider: Provider): Composer | null {
     if (end === rows.length) return null;
   } else {
     if (rows[top - 1].trim()) return null;
-    // A full final line has an empty continuation row holding the cursor.
-    while (end < rows.length && (rows[end].trim() || end <= cursor.y)) end++;
-    if (end + 1 >= rows.length || !/shortcuts|context left|tab to queue|GPT-|gpt-/.test(rows[end + 1])) return null;
+    // The footer bounds the box even when hard newlines leave empty rows below
+    // the caret. A blank row by itself is not necessarily the end of the draft.
+    const footer = rows.findLastIndex(
+      (row, i) => i > top + 1 && !rows[i - 1].trim() && /shortcuts|context left|tab to queue|GPT-|gpt-/.test(row),
+    );
+    if (footer < 0) return null;
+    end = footer - 1;
   }
-  if (cursor.y >= end || cursor.x < 2 || end - top > 8) return null;
+  if (end - top > 8) return null;
+  cursor ??= paintedCaret(surface.lines, top, end);
+  if (!cursor || cursor.y < top || cursor.y >= end || cursor.x < 2) return null;
   const footer = rows.slice(end).join("\n");
   if (/enter to (?:select|confirm|submit)|esc to cancel|\b(?:NORMAL|VISUAL|INSERT)\b/.test(footer)) return null;
   const width = cols - (provider === "codex" ? 3 : 4);
@@ -63,8 +77,41 @@ export function inspect(surface: Surface, provider: Provider): Composer | null {
   };
 }
 
+/** Claude hides the terminal cursor and paints one inverted cell in its box.
+ * Surfaces serialize resolved colors, so inverse video appears as swapped RGBs. */
+function paintedCaret(lines: string[], top: number, end: number): Surface["cursor"] {
+  const colors = /^\x1b\[0;38;2;(\d+;\d+;\d+);48;2;(\d+;\d+;\d+)m/.exec(lines[top]);
+  if (!colors || colors[1] === colors[2]) return null;
+  let cursor: Surface["cursor"] = null;
+  for (let y = top; y < end; y++) {
+    for (const run of lines[y].matchAll(/\x1b\[0;38;2;(\d+;\d+;\d+);48;2;(\d+;\d+;\d+)m([^\x1b]*)/g)) {
+      if (run[1] !== colors[2] || run[2] !== colors[1]) continue;
+      // Selections, multiple highlights, and rich input are not a caret.
+      if (cursor || !/^[\x20-\x7e]$/.test(run[3])) return null;
+      cursor = { x: text.displayWidth(Bun.stripANSI(lines[y].slice(0, run.index))), y };
+    }
+  }
+  return cursor;
+}
+
 export function seed(composer: Composer): Draft | null {
-  if (composer.height !== 1) return null; // Soft and hard breaks cannot be recovered from pixels.
+  if (composer.height !== 1) {
+    const value = composer.lines.join("\n");
+    if (!plain(value) || /[\[\]]/.test(value)) return null;
+    const draft = locate(composer, value);
+    if (!draft) return null;
+    // Short rows can prove hard breaks. If either soft join produces the same
+    // pixels, keep waiting for a known draft instead of guessing its newlines.
+    for (let row = 1; row < composer.lines.length; row++) {
+      for (const separator of ["", " "]) {
+        const lines = composer.lines.slice();
+        lines.splice(row - 1, 2, lines[row - 1] + separator + lines[row]);
+        const joined = wrap({ text: lines.join("\n"), cursor: 0 }, composer.width, composer.provider);
+        if (sameLines(composer, joined)) return null;
+      }
+    }
+    return draft;
+  }
   const line = composer.lines[0],
     cursor = composer.cursor.x;
   // Never erase an unrecognized placeholder or arbitrary text after the caret.
@@ -73,19 +120,60 @@ export function seed(composer: Composer): Draft | null {
   return { text: line, cursor };
 }
 
+/** Recover a moved caret without reconstructing known hard breaks from pixels. */
+export function locate(composer: Composer, value: string): Draft | null {
+  const layout = wrap({ text: value, cursor: 0 }, composer.width, composer.provider);
+  if (!sameLines(composer, layout)) return null;
+  const cursor = layout.starts[composer.cursor.y] + composer.cursor.x;
+  const draft = { text: value, cursor };
+  if (cursor > value.length || !matches(composer, draft)) return null;
+  // Hanging spaces can put several logical offsets at the same cell.
+  for (const neighbor of [cursor - 1, cursor + 1])
+    if (neighbor >= 0 && neighbor <= value.length && matches(composer, { text: value, cursor: neighbor })) return null;
+  return draft;
+}
+
+function sameLines(composer: Composer, layout: Layout): boolean {
+  return layout.lines.length === composer.lines.length && layout.lines.every((line, i) => line === composer.lines[i]);
+}
+
+/** Ghostty translates the pane's keyboard protocol to the editor's legacy keys. */
+export function input(data: string): string {
+  const decoded = keyboard.decode(data);
+  return decoded ? viewer_native.encodeKey(null, decoded) : data;
+}
+
 function plain(value: string): boolean {
-  return /^[\x20-\x7e]*$/.test(value) && !/^[!/]/.test(value);
+  return /^[\x20-\x7e\n]*$/.test(value) && !/^[!/]/.test(value);
 }
 
 /** A completion token only suspends preview while the caret is in that token. */
 export function predictable(draft: Draft): boolean {
   const before = draft.text.slice(0, draft.cursor);
-  const start = before.lastIndexOf(" ") + 1;
+  const start = Math.max(before.lastIndexOf(" "), before.lastIndexOf("\n")) + 1;
   return plain(draft.text) && !/[@$]/.test(draft.text[start] ?? "");
 }
 
 /** The agents' ordinary ASCII word wrapping, including an insertion row at the edge. */
 export function wrap(draft: Draft, width: number, provider: Provider = "codex"): Layout {
+  if (draft.text.includes("\n")) {
+    const lines: string[] = [],
+      starts: number[] = [];
+    let offset = 0,
+      cursor = { x: 0, y: 0 };
+    for (const paragraph of draft.text.split("\n")) {
+      const part = wrap(
+        { text: paragraph, cursor: Math.max(0, Math.min(paragraph.length, draft.cursor - offset)) },
+        width,
+        provider,
+      );
+      if (draft.cursor >= offset) cursor = { x: part.cursor.x, y: lines.length + part.cursor.y };
+      lines.push(...part.lines);
+      starts.push(...part.starts.map(start => offset + start));
+      offset += paragraph.length + 1;
+    }
+    return { lines, cursor, starts };
+  }
   const starts: number[] = [0];
   let start = 0;
   while (draft.text.length - start > width || (provider === "codex" && draft.text.length - start === width)) {
@@ -109,6 +197,7 @@ export function wrap(draft: Draft, width: number, provider: Provider = "codex"):
   // Codex hangs overflowing separators at the following row's first column.
   if (provider === "codex" && row + 1 < starts.length && draft.cursor - starts[row] >= width) row++;
   return {
+    starts,
     lines: starts.map((at, i) =>
       draft.text
         .slice(at, starts[i + 1])
@@ -119,36 +208,79 @@ export function wrap(draft: Draft, width: number, provider: Provider = "codex"):
   };
 }
 
-export function edit(draft: Draft, data: string): Draft | null {
-  let { text, cursor } = draft;
-  switch (data) {
-    case "\x1b[D":
-    case "\x1bOD":
-      if (!predictable(draft)) return null;
-      cursor = Math.max(0, cursor - 1);
-      break;
-    case "\x1b[C":
-    case "\x1bOC":
-      if (!predictable(draft)) return null;
-      cursor = Math.min(text.length, cursor + 1);
-      break;
-    case "\x1b[3~":
-      if (!predictable(draft)) return null;
-      text = text.slice(0, cursor) + text.slice(cursor + 1);
-      break;
-    case "\x7f":
-    case "\b":
-      if (cursor === 0) return null;
-      text = text.slice(0, cursor - 1) + text.slice(cursor);
-      cursor--;
-      break;
-    // History, paste, submit and modified keys still belong to the agent.
-    default:
-      if (!/^[\x20-\x7e]+$/.test(data)) return null;
-      text = text.slice(0, cursor) + data + text.slice(cursor);
-      cursor += data.length;
+export function edit(
+  draft: Draft,
+  data: string,
+  multiline = true,
+  geometry?: Pick<Composer, "width" | "provider">,
+): Draft | null {
+  data = input(data);
+  const key = keys.parse(data);
+  const operation =
+    (data === "\n" || key === "ctrl_j") && multiline
+      ? "newline"
+      : key
+        ? text_area.key_edits[key]
+        : data.length === 1
+          ? text_area.byte_edits[data.charCodeAt(0)]
+          : undefined;
+  const area = new text_area.TextArea(draft.text, multiline);
+  area.caret = draft.cursor;
+  area.width = 2049;
+  if (operation) {
+    if (operation === "up" || operation === "down") {
+      if (!multiline || !geometry || !predictable(draft)) return null;
+      const layout = wrap(draft, geometry.width, geometry.provider);
+      const row = layout.cursor.y + (operation === "up" ? -1 : 1);
+      if (row < 0 || row >= layout.lines.length) {
+        if (layout.lines.length === 1) return null; // May navigate prompt history.
+        return geometry.provider === "claude" ? draft : { ...draft, cursor: row < 0 ? 0 : draft.text.length };
+      }
+      const goal = draft.goal ?? layout.cursor.x;
+      return { text: draft.text, cursor: layout.starts[row] + Math.min(layout.lines[row].length, goal), goal };
+    }
+    if (
+      multiline &&
+      geometry?.provider === "claude" &&
+      ["line_start", "line_end", "line_backspace", "line_delete"].includes(operation)
+    ) {
+      const layout = wrap(draft, geometry.width, geometry.provider);
+      const row = layout.cursor.y;
+      const start = layout.starts[row];
+      // Include spaces hanging at a soft wrap, but not a hard newline.
+      const next = layout.starts[row + 1] ?? draft.text.length;
+      const end = draft.text[next - 1] === "\n" ? next - 1 : next;
+      switch (operation) {
+        case "line_start":
+          return { text: draft.text, cursor: start };
+        case "line_end":
+          return { text: draft.text, cursor: end };
+        case "line_backspace": {
+          const from = start === draft.cursor ? Math.max(0, start - 1) : start;
+          return { text: draft.text.slice(0, from) + draft.text.slice(draft.cursor), cursor: from };
+        }
+        case "line_delete": {
+          const to = end === draft.cursor ? Math.min(draft.text.length, end + 1) : end;
+          return { text: draft.text.slice(0, draft.cursor) + draft.text.slice(to), cursor: draft.cursor };
+        }
+      }
+    }
+    // Selection and history need application state that is not present in a draft.
+    if (operation.startsWith("select_") || ["cut", "up", "down"].includes(operation)) return null;
+    if (operation === "newline" && !multiline) return null;
+    if (multiline && operation !== "backspace" && !predictable(draft)) return null;
+    area.apply(operation);
+    if (geometry?.provider === "codex" && area.caret === draft.cursor) {
+      if (operation === "line_start") area.caret = 0;
+      if (operation === "line_end") area.caret = draft.text.length;
+    }
+  } else {
+    if (!/^[\x20-\x7e]+$/.test(data)) return null;
+    area.insert(data);
   }
-  return text.length <= 2048 && plain(text) ? { text, cursor } : null;
+  return area.text.length <= 2048 && (multiline ? plain(area.text) : /^[\x20-\x7e]*$/.test(area.text))
+    ? { text: area.text, cursor: area.caret }
+    : null;
 }
 
 export function matches(composer: Composer, draft: Draft): boolean {

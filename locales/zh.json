@@ -712,6 +712,7 @@
   "Off": "关闭",
   "Omarchy detected: installing Corgi as its bar plugin (--no-omarchy installs it on its own)": "检测到 Omarchy：将 Corgi 作为状态栏插件安装（--no-omarchy 则单独安装）",
   "On": "开启",
+  "On (dim unacknowledged typing)": "开启（调暗未确认的输入）",
   "Onboarding": "入门设置",
   "Open": "打开",
   "Open ": "打开 ",

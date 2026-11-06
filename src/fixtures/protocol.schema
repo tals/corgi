@@ -1121,3 +1121,6 @@ $.snapshot.startup_waits[].started_at: i64
 $.snapshot.startup_waits[].cancelled: bool
 $.requests|viewer.stream: versioned protocol.Request.Sync
 $.requests|viewer.stream.sequence: u32
+$.replies.session.command.result.input_receipt: optional
+$.replies.session.command.result.input_receipt?.epoch: string
+$.replies.session.command.result.input_receipt?.sequence: u64

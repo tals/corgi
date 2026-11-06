@@ -54,3 +54,15 @@ test("replies delayed by a detected outage do not make the next outage slower to
   stats.answer(2000, false, 12000);
   expect(stats.stallMs).toBeGreaterThan(before);
 });
+
+test("prediction budgets cover slow input and surface round trips and stay bounded", () => {
+  const stats = new Stats();
+  expect(stats.predictionMs).toBe(750);
+  for (let i = 0; i < 30; i++) stats.answer(2000, false);
+  expect(stats.predictionMs).toBeGreaterThan(6000);
+  const budget = stats.predictionMs;
+  stats.answer(90000, true);
+  expect(stats.predictionMs).toBe(budget);
+  for (let i = 0; i < 30; i++) stats.answer(60000, false);
+  expect(stats.predictionMs).toBe(30000);
+});

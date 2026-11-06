@@ -251,12 +251,152 @@ class Remote extends Runtime {
   click(x: number, y: number) {
     this.terminal!.write(`\x1b[<0;${x + 1};${y + 1}M\x1b[<0;${x + 1};${y + 1}m`);
   }
-  clickWorkspace(name: "LOCAL" | "REMOTE") {
+  clickWorkspace(name: "LOCAL" | "REMOTE" | "SLOW") {
     const y = this.text()
       .split("\n")
       .findIndex(line => line.includes(`${name}_WORKSPACE`));
     this.assertTrue(y >= 0, this.text());
     this.click(3, y);
+  }
+  async test_shell_prediction_at_one_second_one_way_latency() {
+    const received = join(this.remote!.temp.name, "shell-input");
+    await this.checkTerminalPrediction(`printf 'ECHO_READY\\n'; tee ${quote(received)}`, received);
+  }
+  async test_readline_edits_keep_the_latest_draft_through_delayed_echoes() {
+    const { pane } = await this.remote!.command("pane.create", {
+      workspace: 1,
+      command: `env PS1='ECHO_READY$ ' ${quote(Bun.which("bash")!)} --noprofile --norc -i`,
+    });
+    this.network!.latency_ms = 1000;
+    await this.startViewer();
+    await this.online(undefined, 60);
+    const shown = (draft: string) =>
+      this.text()
+        .split("\n")
+        .some(row => row.slice(28).trim() === ("ECHO_READY$ " + draft).trimEnd());
+    await this.until(() => shown(""), 20);
+    this.terminal!.write("a");
+    await this.until(() => shown("a"), 15);
+    for (const [key, draft] of [
+      ["b", "ab"],
+      ["c", "abc"],
+      ["\x1b[D", "abc"],
+      ["\x7f", "ac"],
+      ["b", "abc"],
+      ["\x1b[3~", "ab"],
+      ["\x1b[D", "ab"],
+      ["X", "aXb"],
+      ["\x7f", "ab"],
+      ["Z", "aZb"],
+    ]) {
+      this.terminal!.write(key);
+      await this.until(() => shown(draft), 0.2);
+      // Cursor-only edits must reach the predictor before the following key.
+      await Bun.sleep(15);
+    }
+    const caret = this.screen!.surface(0).surface.cursor;
+    for (let i = 0; i < 150; i++) {
+      await Bun.sleep(20);
+      this.assertTrue(shown("aZb"), this.text());
+      this.assertEqual(this.screen!.surface(0).surface.cursor, caret);
+    }
+    this.assertTrue((await this.remote!.command("pane.read", { target: pane })).text.includes("ECHO_READY$ aZb"));
+  }
+  async test_no_echo_acknowledgement_retracts_prediction_and_retrains_on_the_same_row() {
+    const log = join(this.remote!.temp.name, "echo-input.log");
+    const program = writeExecutable(
+      join(this.remote!.temp.name, "echo-probe"),
+      `
+import { writeFileSync } from 'node:fs';
+process.stdin.setRawMode(true);
+let echo = true, received = '';
+process.stdout.write('ECHO_READY\\r\\n$ ');
+process.stdin.on('data', data => {
+  for (const char of data.toString()) {
+    received += char;
+    if (char === '!') echo = !echo;
+    else if (echo) process.stdout.write(char);
+  }
+  writeFileSync(${JSON.stringify(log)}, received);
+});
+`,
+    );
+    await this.remote!.command("pane.create", { workspace: 1, command: quote(program) });
+    this.network!.latency_ms = 1000;
+    await this.startViewer();
+    await this.online(undefined, 60);
+    await this.until(() => this.text().includes("ECHO_READY"), 20);
+    const shown = (draft: string) =>
+      this.text()
+        .split("\n")
+        .some(row => row.slice(28).trim() === "$ " + draft);
+    this.terminal!.write("a");
+    await this.until(() => shown("a"), 15);
+    this.terminal!.write("!");
+    await this.until(() => shown("a!"), 0.2);
+    // No output follows this key. The late receipt must wake the stream and
+    // retract the guess before the slow-link prediction budget (over six seconds).
+    await this.until(() => shown("a"), 5);
+    this.terminal!.write("b");
+    await this.until(() => existsSync(log) && readFileSync(log, "utf8") === "a!b", 5);
+    this.assertTrue(shown("a"), this.text());
+    this.terminal!.write("!");
+    await this.until(() => readFileSync(log, "utf8") === "a!b!", 5);
+    await Bun.sleep(2500);
+    this.terminal!.write("c");
+    await this.until(() => shown("ac"), 10);
+    this.terminal!.write("d");
+    await this.until(() => shown("acd"), 0.2);
+    await this.until(() => readFileSync(log, "utf8") === "a!b!cd", 5);
+  }
+  async test_agent_signin_prediction_at_one_second_one_way_latency() {
+    const received = join(this.remote!.temp.name, "signin-input");
+    const agent = writeExecutable(
+      join(this.remote!.temp.name, "claude"),
+      `#!/bin/sh\nprintf 'ECHO_READY\\nPaste code > '\ntee ${quote(received)}\n`,
+    );
+    await this.checkTerminalPrediction(quote(agent), received, "Paste code > ");
+  }
+  private async checkTerminalPrediction(command: string, received: string, prompt = "") {
+    await this.remote!.command("pane.create", {
+      workspace: 1,
+      command,
+    });
+    this.network!.latency_ms = 1000;
+    await this.startViewer();
+    await this.online(undefined, 60);
+    await this.until(() => this.text().includes("ECHO_READY"), 20);
+    this.terminal!.write("a");
+    const shown = (value: string) =>
+      this.text()
+        .split("\n")
+        .some(row => row.slice(28).trim() === prompt + value);
+    await this.until(() => shown("a"), 15);
+    const started = performance.now();
+    this.terminal!.write("b");
+    while (!shown("ab")) {
+      this.assertLess(performance.now() - started, 200, this.text());
+      await Bun.sleep(2);
+    }
+    const elapsed = performance.now() - started;
+    // Still visible past the old 750ms expiry, before the server can echo it.
+    await Bun.sleep(1100);
+    this.assertTrue(shown("ab"), this.text());
+    this.terminal!.write("c");
+    await this.until(() => shown("abc"), 0.2);
+    const caret = this.screen!.surface(0).surface.cursor;
+    this.terminal!.write("\r");
+    // Return and the delayed echo of "b" must not rewind the visible "abc"
+    // draft or caret while the submission is still travelling to the remote.
+    for (let i = 0; i < 50; i++) {
+      await Bun.sleep(20);
+      this.assertTrue(shown("abc"), this.text());
+      this.assertEqual(this.screen!.surface(0).surface.cursor, caret);
+    }
+    await this.until(() => existsSync(received) && readFileSync(received, "utf8") === "abc\n", 15);
+    console.log(
+      `${prompt ? "sign-in" : "shell"} prediction: ${elapsed.toFixed(1)}ms at 2000ms RTT; exact input delivery verified`,
+    );
   }
   async test_instant_typing_wraps_locally_off_waits_and_a_blackhole_discards_only_the_preview() {
     const agent = instantAgent(this.remote!.temp.name);

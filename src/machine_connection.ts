@@ -517,6 +517,7 @@ export class Endpoint {
         };
       },
       remote: profile !== null,
+      predictionMs: () => this.stats.predictionMs,
       image: profile
         ? async (path, mime, progress) => {
             const generation = this.generation,

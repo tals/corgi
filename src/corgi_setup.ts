@@ -36,9 +36,10 @@ import type { Snapshot as TerminalSnapshot } from "./terminal_info";
 import type { Source as LinkSource } from "./link_tooltip";
 import type { Link as DrawnLink } from "./pane/hyperlinks";
 import * as os from "./os";
-import { Writer, clamp, directoryLabel, displayWidth, writeEllipsis, sat, wrap } from "./text";
+import { Writer, clamp, clipped, directoryLabel, displayWidth, writeEllipsis, sat, wrap } from "./text";
 import { Dialog } from "./name_dialog";
 import * as keys from "./keys";
+import * as dropdown from "./dropdown";
 import type { Key } from "./keyboard";
 import * as worktreeFolder from "./worktree_folder";
 import * as shellPicker from "./shell_picker";
@@ -197,7 +198,7 @@ function reportSettings(s: Status, prefs: Preferences): bugReport.Settings {
 /** What Enter or a click asks the controller to do. */
 export type Apply =
   | { kind: "summaries"; choice: Summarizer; model?: string; account?: string }
-  | { kind: "instant_typing"; mode: Preferences["instant_typing"] }
+  | { kind: "instant_typing"; mode: Preferences["instant_typing"]; dim?: boolean }
   | { kind: "inference_use"; use: Use; on: boolean }
   | { kind: "readings" | "smart_links" | "auto_retry" | "ghostty"; on: boolean }
   | { kind: "corgi_intensity"; value: number }
@@ -232,6 +233,7 @@ export type Hit =
   | { item: Item }
   | { option: number }
   | { models: { x: number; y: number } }
+  | { prediction: number }
   | { picker: importPicker.Hit }
   | { manager: Rect }
   | { intensity: number }
@@ -510,6 +512,13 @@ function layout(cols: number, rows: number, grown: number, expanded = 0): Layout
   };
 }
 
+const predictionChoices = () => [
+  { text: i18n.t`Off`, mode: "off" as const, dim: false },
+  { text: i18n.t`On`, mode: "auto" as const, dim: false },
+  { text: i18n.t`On (dim unacknowledged typing)`, mode: "auto" as const, dim: true },
+];
+const predictionIndex = (prefs: Preferences) => (prefs.instant_typing === "off" ? 0 : prefs.dim_predictions ? 2 : 1);
+
 export class Menu implements LinkSource {
   item: Item = "clever_corgi";
   /** The same model and manager the new-tab picker uses. */
@@ -568,6 +577,7 @@ export class Menu implements LinkSource {
   after_prefix = false;
   /** Places brand marks in the model picker where the host shows images. */
   marks: Marks | null = null;
+  private prediction_cursor: number | null = null;
   /** The model picker Clever Corgi's Model opens, the prompt's own. */
   private model_picker: modelPicker.Picker | null = null;
   /** What the open picker was last given, and from which status and
@@ -805,6 +815,11 @@ export class Menu implements LinkSource {
    * other when `wrap`. */
   move(next: boolean, s: Status, prefs: Preferences, wrap = true): void {
     this.clearAim();
+    if (this.prediction_cursor !== null) {
+      const next_index = this.prediction_cursor + (next ? 1 : -1);
+      this.prediction_cursor = wrap ? (next_index + 3) % 3 : clamp(next_index, 0, 2);
+      return;
+    }
     if (this.editing) return;
     const models = this.models(s);
     if (models) {
@@ -856,6 +871,7 @@ export class Menu implements LinkSource {
   escape(): boolean {
     if (this.focus !== "options") return false;
     if (
+      this.prediction_cursor !== null ||
       this.model_picker?.searching ||
       this.model_picker?.editing ||
       this.item === "flourishes" ||
@@ -867,6 +883,10 @@ export class Menu implements LinkSource {
   /** Returns focus to the list. False when it already has it. */
   back(): boolean {
     this.clearAim();
+    if (this.prediction_cursor !== null) {
+      this.prediction_cursor = null;
+      return true;
+    }
     if (this.intensity_drag !== null) {
       this.intensity_drag = null;
       return true;
@@ -894,6 +914,7 @@ export class Menu implements LinkSource {
   /** Enter: an on/off setting flips from the list; the rest open their options. */
   enter(s: Status, prefs: Preferences): Apply | null {
     this.clearAim();
+    if (this.prediction_cursor !== null) return this.pickPrediction(this.prediction_cursor);
     if (this.editing) {
       // A template with a problem stays open; the line under it says why.
       // Saving an empty field saves the default it shows.
@@ -910,7 +931,8 @@ export class Menu implements LinkSource {
     if (this.focus === "options") {
       const option = this.options(s, prefs)[this.cursor];
       if (option?.choice !== undefined) {
-        this.openModels(s);
+        if (this.item === "remote") this.prediction_cursor = predictionIndex(prefs);
+        else this.openModels(s);
         return null;
       }
       return option && !option.disabled ? option.apply : null;
@@ -938,6 +960,12 @@ export class Menu implements LinkSource {
   /** A click: the list selects, then opens; an option applies. */
   click(hit: Hit, s: Status, prefs: Preferences): Apply | null {
     this.clearAim();
+    if (this.prediction_cursor !== null) {
+      if ("prediction" in hit) return this.pickPrediction(hit.prediction);
+      this.prediction_cursor = null;
+      return null;
+    }
+    if ("prediction" in hit) return null;
     if ("manager" in hit) return null;
     if ("intensity" in hit) {
       this.focus = "options";
@@ -995,6 +1023,10 @@ export class Menu implements LinkSource {
       hit = this.hit(cols, rows, x, y, s, prefs),
       from = this.aim;
     this.pending_item = null;
+    if (this.prediction_cursor !== null) {
+      if (hit && "prediction" in hit) this.prediction_cursor = hit.prediction;
+      return;
+    }
     if (l && !l.single && l.list > 0 && this.focus === "list" && this.model_picker === null) {
       if (hit && "item" in hit && hit.item === this.item) {
         const on = from !== null && from.at === null && from.item === this.item && from.y === y;
@@ -1073,6 +1105,11 @@ export class Menu implements LinkSource {
   hit(cols: number, rows: number, x: number, y: number, s: Status, prefs: Preferences): Hit | null {
     const l = this.rest(cols, rows);
     if (!l) return null;
+    const prediction = this.predictionBox(l);
+    if (prediction) {
+      const index = dropdown.hit(prediction, 3, x, y);
+      if (index !== null) return { prediction: index };
+    }
     if (y === l.b.y) {
       const spot = this.releaseAt(l);
       if (spot === null || x < spot.link || x >= spot.link + displayWidth(releaseLabel.short(this.release)))
@@ -1109,7 +1146,7 @@ export class Menu implements LinkSource {
     if (line?.tag === "intensity") return { intensity: this.intensityAt(l, x) };
     return line && (line.tag === "option" || line.tag === "art") ? { option: line.index } : null;
   }
-  draw(w: Writer, s: Status, prefs: Preferences, cols: number, rows: number): void {
+  draw(w: Writer, s: Status, prefs: Preferences, cols: number, rows: number): Rect | null {
     return this.drawAt(w, s, prefs, cols, rows, Date.now());
   }
   noteCopied(what: Copied, now = Date.now()): void {
@@ -1120,14 +1157,14 @@ export class Menu implements LinkSource {
   hyperlinks(): DrawnLink[] {
     return this.drawn_links;
   }
-  drawAt(w: Writer, s: Status, prefs: Preferences, cols: number, rows: number, now_ms: number): void {
+  drawAt(w: Writer, s: Status, prefs: Preferences, cols: number, rows: number, now_ms: number): Rect | null {
     this.drawn_links = [];
     const grown = this.grow.toward(this.growing(cols, rows) ? 1 : 0, now_ms),
       expanded = this.expand.toward(this.managing() ? 1 : 0, now_ms),
       l = layout(cols, rows, grown, expanded);
     if (!l) {
       this.rendered = null;
-      return;
+      return null;
     }
     this.rendered = { cols, rows, layout: l };
     const b = l.b,
@@ -1175,6 +1212,27 @@ export class Menu implements LinkSource {
         });
       else w.write(at(area.x + 2, area.y + 1) + text + i18n.t`Make the terminal taller to manage agents.`);
     }
+    const prediction = this.predictionBox(l);
+    if (prediction) dropdown.draw(w, prediction, this.predictionRows(prefs));
+    return b;
+  }
+  private predictionRows(prefs: Preferences | null = null): dropdown.Choice[] {
+    return predictionChoices().map((choice, index) => ({
+      text: choice.text,
+      note: "",
+      current: prefs !== null && index === predictionIndex(prefs),
+      hovered: index === this.prediction_cursor,
+    }));
+  }
+  private predictionBox(l: Layout): Rect | null {
+    if (this.prediction_cursor === null) return null;
+    const width = Math.min(l.options.w, dropdown.width(this.predictionRows()));
+    return new Rect(l.options.x + l.options.w - width, l.b.y + 6, width, 5);
+  }
+  private pickPrediction(index: number): Apply | null {
+    this.prediction_cursor = null;
+    const choice = predictionChoices()[index];
+    return choice ? { kind: "instant_typing", mode: choice.mode, dim: choice.dim } : null;
   }
   /** The setting the options belong to, on the top border while the list is hidden. */
   private crumb(l: Layout): string | null {
@@ -1551,7 +1609,8 @@ export class Menu implements LinkSource {
         disabled: o.disabled,
         glyph: o.glyph,
       });
-    if (o.choice !== undefined) return settingRow.drawChoice(w, x, y, width, o.label, o.choice.text, o.choice.on, here);
+    if (o.choice !== undefined)
+      return settingRow.drawChoice(w, x, y, width, o.label, clipped(o.choice.text, sat(width, 12)), o.choice.on, here);
     if (o.edit) return this.drawField(w, x0, y, right, prefs);
     const p = settingRow.fill(w, x, y, width, here);
     if (o.mark !== "none")
@@ -1793,17 +1852,18 @@ export class Menu implements LinkSource {
           { tag: "note", text: i18n.t`Sampling stops once every viewer turns it off.` },
         ];
       case "remote": {
-        const on = prefs.instant_typing === "auto";
+        const choice = predictionChoices()[predictionIndex(prefs)];
         return [
           title("Remote"),
           blank,
+          lead("Predictive Rendering"),
           option({
-            label: "Predictive Rendering",
+            label: "",
             detail: "",
             mark: "none",
-            apply: { kind: "instant_typing", mode: on ? "off" : "auto" },
-            action: on ? "turn off" : "turn on",
-            toggle: on,
+            apply: null,
+            action: i18n.t`change`,
+            choice: { text: choice.text, on: choice.mode !== "off" },
           }),
           { tag: "brief", text: "Shows typing before the remote echoes it." },
         ];
@@ -2211,6 +2271,12 @@ export class Menu implements LinkSource {
         ["←→", i18n.t`adjust`],
         ["home", i18n.t`off`],
         ["end", i18n.t`bright`],
+        ["esc", i18n.t`back`],
+      ];
+    if (this.prediction_cursor !== null)
+      return [
+        ["↑↓", i18n.t`move`],
+        ["enter", i18n.t`use`],
         ["esc", i18n.t`back`],
       ];
     if (this.model_picker)
