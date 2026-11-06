@@ -383,49 +383,52 @@ test("test installers add the plugin from the matching channel", () => {
   expect(generated).not.toContain("@OMARCHY_REPO@");
 });
 
-test("plugin preparation receives release context and a retry keeps its saved result", async () => {
-  await releaseFixture(async (dir, git) => {
-    git("branch", "-M", "main");
-    await mkdir(join(dir, "scripts"));
-    await writeFile(
-      join(dir, "scripts/release-plugin.ts"),
-      `
+test.each(["tools", "scripts"])(
+  "plugin preparation via %s receives release context and preserves retries",
+  async folder => {
+    await releaseFixture(async (dir, git) => {
+      git("branch", "-M", "main");
+      await mkdir(join(dir, folder));
+      await writeFile(
+        join(dir, folder, "release-plugin.ts"),
+        `
       import { join } from 'node:path';
       const env = process.env;
       if (env.CORGI_RELEASE_PHASE !== 'prepare' || !process.argv.includes('--test')) throw Error('wrong phase');
       const installer = await Bun.file(join(env.CORGI_RELEASE_DIR!, 'install.sh')).text();
       await Bun.write('.git/corgi-release.json', JSON.stringify({installer, source: env.CORGI_RELEASE_SOURCE, base: env.CORGI_TEST_BASE_URL}));
     `,
-    );
-    git("add", ".");
-    git("commit", "-m", "plugin hook");
-    const out = join(dir, "artifacts");
-    await mkdir(out);
-    const old = process.env.CORGI_OMARCHY_REMOTE;
-    process.env.CORGI_OMARCHY_REMOTE = dir;
-    try {
-      await fetchPlugin(dir, out);
-      expect(await Bun.file(join(out, "plugin/scripts/release-plugin.ts")).exists()).toBe(true);
-      expect(await Bun.file(join(out, "plugin/.git/corgi-release.json")).exists()).toBe(false);
-      await writeFile(join(out, "install.sh"), "pinned installer");
-      await preparePlugin(dir, out, true, "https://example.invalid/test");
-      const saved = join(out, "plugin/.git/corgi-release.json");
-      const first = await readFile(saved, "utf8");
-      expect(JSON.parse(first)).toEqual({
-        installer: "pinned installer",
-        source: dir,
-        base: "https://example.invalid/test",
-      });
-      await writeFile(join(out, "install.sh"), "different");
-      await fetchPlugin(dir, out);
-      await preparePlugin(dir, out, true, "https://example.invalid/test");
-      expect(await readFile(saved, "utf8")).toBe(first);
-    } finally {
-      if (old === undefined) delete process.env.CORGI_OMARCHY_REMOTE;
-      else process.env.CORGI_OMARCHY_REMOTE = old;
-    }
-  });
-});
+      );
+      git("add", ".");
+      git("commit", "-m", "plugin hook");
+      const out = join(dir, "artifacts");
+      await mkdir(out);
+      const old = process.env.CORGI_OMARCHY_REMOTE;
+      process.env.CORGI_OMARCHY_REMOTE = dir;
+      try {
+        await fetchPlugin(dir, out);
+        expect(await Bun.file(join(out, "plugin", folder, "release-plugin.ts")).exists()).toBe(true);
+        expect(await Bun.file(join(out, "plugin/.git/corgi-release.json")).exists()).toBe(false);
+        await writeFile(join(out, "install.sh"), "pinned installer");
+        await preparePlugin(dir, out, true, "https://example.invalid/test");
+        const saved = join(out, "plugin/.git/corgi-release.json");
+        const first = await readFile(saved, "utf8");
+        expect(JSON.parse(first)).toEqual({
+          installer: "pinned installer",
+          source: dir,
+          base: "https://example.invalid/test",
+        });
+        await writeFile(join(out, "install.sh"), "different");
+        await fetchPlugin(dir, out);
+        await preparePlugin(dir, out, true, "https://example.invalid/test");
+        expect(await readFile(saved, "utf8")).toBe(first);
+      } finally {
+        if (old === undefined) delete process.env.CORGI_OMARCHY_REMOTE;
+        else process.env.CORGI_OMARCHY_REMOTE = old;
+      }
+    });
+  },
+);
 
 async function releaseFixture(run: (dir: string, git: (...args: string[]) => string) => Promise<void>) {
   const dir = await mkdtemp(join(tmpdir(), "corgi release test "));

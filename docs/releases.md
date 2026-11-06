@@ -107,7 +107,7 @@ For build-only and retry options, use `bun run publish --help`.
 
 `bun run publish` first fetches `corgi-omarchy` into the saved release directory,
 before running tests or builds. Once Corgi is built, it calls the plugin's
-`scripts/release-plugin` with the exact Corgi source and installer.
+`tools/release-plugin` with the exact Corgi source and installer.
 The plugin owns regeneration, checks, and deciding whether anything needs pushing.
 It keeps its installer pin for binary-only Corgi releases. Plugin preparation runs
 before Corgi is published; the plugin push follows verified Corgi downloads.
@@ -145,7 +145,7 @@ Test artifacts live under `.git/corgi-test-releases/`. The persistent test signi
 key is `.git/corgi-test-signing.pem`; `--clean` removes artifacts but keeps this key.
 Back it up if you want existing test installations to keep accepting new updates.
 
-For plugin-only changes, run `./scripts/release-plugin` in `corgi-omarchy`, or add
+For plugin-only changes, run `./tools/release-plugin` in `corgi-omarchy`, or add
 `--test` to publish its test version. It fetches the Corgi sources it needs without
 building Corgi. See that repository's HACKING.md for the plugin's release policy.
 

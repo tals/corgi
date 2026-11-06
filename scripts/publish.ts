@@ -256,6 +256,9 @@ export async function testConfiguration(config: Config, state: string): Promise<
 
 async function pluginCommand(source: string, out: string, phase: "prepare" | "publish", test: boolean, base: string) {
   const checkout = join(out, "plugin");
+  const script = existsSync(join(checkout, "tools/release-plugin.ts"))
+    ? "tools/release-plugin.ts"
+    : "scripts/release-plugin.ts";
   await command(
     checkout,
     {
@@ -265,7 +268,7 @@ async function pluginCommand(source: string, out: string, phase: "prepare" | "pu
       CORGI_RELEASE_DIR: out,
       CORGI_TEST_BASE_URL: test ? base : `${base}/test`,
     },
-    [process.execPath, "scripts/release-plugin.ts", ...(test ? ["--test"] : [])],
+    [process.execPath, script, ...(test ? ["--test"] : [])],
   );
 }
 
