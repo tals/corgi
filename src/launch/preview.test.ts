@@ -833,6 +833,7 @@ test("accounts are read on the daemon's schedule with no one subscribed", async 
     // A subscriber's job shows the next reading without running again.
     expect(worker.cached(process.cwd()).options.claude.limits).toMatchObject({ windows: [null, { used: 11 }] });
     expect(worker.jobs).toHaveLength(0);
+    expect(accounts.describe("claude", "")?.usage?.limits).toMatchObject({ windows: [null, { used: 11 }] });
     worker.preview(process.cwd());
     await worker.pump();
     expect(reads).toBe(1);

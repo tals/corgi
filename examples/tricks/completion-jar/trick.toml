@@ -1,0 +1,4 @@
+version = 1
+id = "completion-jar"
+description = "Collect a star for each finished turn."
+entry = "main.mjs"

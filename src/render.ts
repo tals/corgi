@@ -2,6 +2,8 @@ import type * as workspaceArchive from "./workspace_archive";
 import * as i18n from "./i18n";
 //! One complete frame of the viewer: tabs, panes, sidebar and overlays.
 //! Mirrors render.zig.
+import * as trickUi from "./trick_ui";
+import type { View as TrickView } from "./tricks";
 import * as palette from "./palette";
 import * as docking from "./docking";
 import * as dockingGrip from "./docking_grip";
@@ -214,6 +216,8 @@ function drawDocking(w: Writer, state: Docking, panes: Pane[], area: Rect): Rect
 
 export interface Ui {
   docking: Docking | null;
+  tricks: TrickView[];
+  trick_controls: trickUi.Controls | null;
   prefs: Preferences;
   pointer: Pointer | null;
   iterm2_pointer: boolean;
@@ -311,6 +315,8 @@ export interface Ui {
 }
 export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }): Ui {
   return {
+    tricks: [],
+    trick_controls: null,
     prefs: new Preferences(),
     pointer: null,
     iterm2_pointer: false,
@@ -805,6 +811,14 @@ export function frame(
   const thumb = over_tabs ? tabThumb(view, tab_end - side.tabX()) : null;
   // Marks take room in their tabs only where the host can show them.
   const marks: TabMark[] | null = u.tab_icons && u.cell_pixels ? [] : null;
+  const trick_icons: trickUi.Icon[] | null = marks ? [] : null;
+  side.trick_icons = trick_icons;
+  const controls = u.trick_controls;
+  const heldPopover =
+    controls && u.pointer && trickUi.containsPopover(controls, u.pointer.x, u.pointer.y) ? controls.popover : null;
+  if (controls) controls.hits.length = 0;
+  if (controls) controls.popover = null;
+  side.trick_controls = controls;
   // With every workspace closed, all but the way to create one steps back.
   const none = u.no_workspace;
   const on_none =
@@ -1037,6 +1051,20 @@ export function frame(
       p.restoring.length > 0 ||
       p.dormant;
     if (u.supports_kitty_graphics) pictured.push({ pane: p, rect: r, hidden });
+    if (!hidden) {
+      const patch = trickUi.decoration(
+        u.tricks,
+        {
+          id: `pane:${p.id}`,
+          provider: p.agent.provider ?? undefined,
+          account: p.agent.account,
+          session: p.agent.session,
+          state: p.agent.state,
+        },
+        "pane",
+      );
+      for (const box of trickUi.pane(w, patch, r, trick_icons, covered.length, controls)) cover(box);
+    }
   }
   drawDividers(w, view, area, !u.sidebar_focus);
   // Under the sidebar, which covers what a drawer hides.
@@ -1085,6 +1113,7 @@ export function frame(
   }
   if (u.git_hover !== null) sidebar.drawGitAction(w, side, u.workspaces, u.git_hover);
   if (u.review_draw) u.review_draw(w);
+  for (const rect of trickUi.overlays(w, u.tricks, area, trick_icons, covered.length, controls)) cover(rect);
   const paste_at = u.paste_card ? placeCard(view, panes, area, u.paste_card, u) : null;
   if (paste_at && u.pointer && pasteCard.linkAt(u.paste_card!, paste_at, u.pointer.x, u.pointer.y)) link_pointer = true;
   if (paste_at) {
@@ -1174,7 +1203,7 @@ export function frame(
     resourceTooltip.draw(w, card_rect, name, u.resources, u.resource_card!, u.pointer);
     cover(card_rect);
   } else if (u.link_tooltip && !u.link_card && u.agent_launcher === null && u.corgi_setup === null && u.pointer) {
-    const pointer = u.pointer;
+    const pointer = heldPopover?.anchor ?? u.pointer;
     if (u.resource_card) {
       if (card_rect) {
         const name = u.workspaces.find(ws => ws.id === u.resource_card!.workspace)?.name ?? "workspace";
@@ -1200,8 +1229,35 @@ export function frame(
       if (git) cover(sidebar.drawGitTooltip(w, git, width, height, pointer.x, pointer.y));
       else {
         const agent = sidebar.agentAt(side, u.agents, pointer.x, pointer.y);
-        if (agent)
-          cover(subagentTooltip.draw(w, u.conversations, agent, width, height, pointer.x, pointer.y, u.accounts));
+        if (agent) {
+          const id =
+            "pane" in agent.target
+              ? `pane:${agent.target.pane}`
+              : "headless" in agent.target
+                ? `headless:${agent.target.headless}`
+                : "";
+          const patch = trickUi.decoration(
+            u.tricks,
+            { id, provider: agent.provider ?? undefined, state: agent.state },
+            "popover",
+          );
+          const box = subagentTooltip.draw(
+            w,
+            u.conversations,
+            agent,
+            width,
+            height,
+            pointer.x,
+            pointer.y,
+            u.accounts,
+            patch,
+            trick_icons,
+            covered.length + 1,
+            controls,
+          );
+          cover(box);
+          if (box && controls && patch.content) controls.popover = { rect: box, anchor: pointer };
+        }
       }
     }
   }
@@ -1351,6 +1407,37 @@ export function frame(
     for (const { brand, x } of marks)
       if (!covered.some(box => box.y === 0 && box.h > 0 && box.x < x + tabIcons.cols && box.x + box.w > x))
         w.write(u.tab_icons.place(brand, x, 0, u.cell_pixels));
+  if (
+    trick_icons &&
+    u.tab_icons &&
+    u.cell_pixels &&
+    !u.agent_launcher &&
+    !u.corgi_setup &&
+    !u.signin_draw &&
+    !u.signin_exit
+  )
+    for (const { brand, x, y, covered: from } of trick_icons)
+      if (!covered.slice(from).some(box => box.y <= y && box.y + box.h > y && box.x < x + 2 && box.x + box.w > x))
+        w.write(u.tab_icons.place(brand, x, y, u.cell_pixels));
+  if (controls) {
+    if (!noOverlay(u)) controls.popover = null;
+    controls.hits =
+      noOverlay(u) && !dragging && !u.copy_mode && !u.review_keys
+        ? controls.hits.filter(
+            hit =>
+              !covered
+                .slice(hit.covered)
+                .some(
+                  box =>
+                    box.x < hit.rect.x + hit.rect.w &&
+                    box.x + box.w > hit.rect.x &&
+                    box.y < hit.rect.y + hit.rect.h &&
+                    box.y + box.h > hit.rect.y,
+                ),
+          )
+        : [];
+    if (u.pointer && controls.hits.some(hit => hit.rect.contains(u.pointer!.x, u.pointer!.y))) link_pointer = true;
+  }
   if (dragging) {
     w.write("\x1b[?25l");
     pane_cursor = null;

@@ -37,6 +37,16 @@ export function credential(provider: unknown, credentials: unknown): unknown {
   );
 }
 
+/** An email claim, without the display label's provider-name fallback. */
+export function email(credential: unknown): string | null {
+  const value = field(credential, "value"),
+    claims = accessClaims(value);
+  return (
+    label(
+      str(value, "email") || str(field(claims, "https://api.openai.com/profile"), "email") || str(claims, "email"),
+    ) || null
+  );
+}
 /** Only the active credential's own metadata, without another provider's fallback. */
 export function profile(credential: unknown, provider: string): { user: string; plan: string } {
   if (field(credential, "active") !== true) return { user: "", plan: "" };
@@ -49,12 +59,7 @@ export function profile(credential: unknown, provider: string): { user: string; 
         ? str(field(claims, "https://api.openai.com/auth"), "chatgpt_plan_type")
         : "";
   return {
-    user: label(
-      str(value, "email") ||
-        str(field(claims, "https://api.openai.com/profile"), "email") ||
-        str(claims, "email") ||
-        credentialLabel(credential, provider),
-    ),
+    user: email(credential) || label(credentialLabel(credential, provider)),
     plan: code ? label(codexPlan.label(code).text()) : "",
   };
 }
