@@ -1,5 +1,6 @@
 //! A workspace's agent rows as the daemon's state builds them: the viewer's
 //! agent list and `corgi watch --json` start from the same rows.
+import * as startup from "./startup";
 import * as sidebar from "./sidebar";
 import * as mirror from "./mirror";
 import * as subagentTooltip from "./subagent_tooltip";
@@ -44,7 +45,10 @@ export function rows(runtime: mirror.Runtime, ws: mirror.Workspace, now_ms: numb
       retry_at: p.agent.retry_at,
       subagents: { ...p.agent.subagents },
       unread: mirror.unread(p.agent.observation),
-      activity: p.agent.activity,
+      activity: (() => {
+        const wait = runtime.startup_waits.find(w => w.pane === p.id);
+        return wait ? startup.label(wait) : p.agent.activity;
+      })(),
       reopened: p.restoring.length > 0 && !p.dormant,
     }),
     start: stateStart(p.agent),

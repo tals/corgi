@@ -1,3 +1,4 @@
+import type { Progress } from "../../startup";
 import { API, data, model, modelRef, validSession } from "./api";
 import { str } from "../common";
 import { resolve } from "node:path";
@@ -11,7 +12,7 @@ function environment(): [string, string][] {
     : [];
 }
 /** Corgi-only options are consumed here, before the UI sees them. */
-export async function prepare(args: string[], executable: string) {
+export async function prepare(args: string[], executable: string, progress?: Progress) {
   if (
     args.some(v => ["--help", "-h", "--version", "-v", "--wizard", "--completions"].includes(v)) ||
     [
@@ -89,7 +90,7 @@ export async function prepare(args: string[], executable: string) {
         kept.push(word);
     }
   }
-  const api = new API(executable, cwd);
+  const api = new API(executable, cwd, true, progress);
   if (continuing && !session) {
     const history = await api.sessions("&parentID=null&directory=" + encodeURIComponent(cwd), () => false);
     session = str(history.entries[0], "id");

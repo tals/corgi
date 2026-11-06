@@ -50,6 +50,7 @@ export class Stream {
     result.installed = { ...this.preview.installed };
     result.configured = { ...this.preview.configured };
     result.outdated = { ...this.preview.outdated };
+    result.on_demand = { ...this.preview.on_demand };
     result.names = { ...this.preview.names };
     const inFolder = (option: Preview["options"][Provider]) =>
       optionValue({ ...option, pending: true, signed_in: null, account: "", model: "", model_name: "", source: "" });
@@ -136,6 +137,7 @@ export class Stream {
         preview.installed = sent.installed;
         preview.configured = sent.configured;
         preview.outdated = sent.outdated;
+        preview.on_demand = sent.on_demand;
       } else if (preview.accounts.length === 0) {
         // A folder's first read lists no accounts yet; keep the ones carried over.
         preview.accounts = this.preview.accounts;

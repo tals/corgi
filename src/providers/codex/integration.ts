@@ -9,10 +9,11 @@ import type { IntegrationStepResult } from "../adapter";
 import { AppServer } from "./app_server";
 /** Adds the thread ID to Codex's terminal title, which is how Corgi learns
  * which thread a pane shows. */
-export async function installTitle(directory: string): Promise<IntegrationStepResult> {
+export async function installTitle(directory: string, cwd = process.cwd()): Promise<IntegrationStepResult> {
   const path = join(directory, "config.toml");
   if (!existsSync(directory)) return { item: "title", subject: "thread ID", outcome: "no_config", path: directory };
-  const server = new AppServer(3000, null, directory);
+  const discovery = await import("../../discovery"),
+    server = new AppServer(3000, await discovery.resolve("codex", cwd), directory);
   try {
     const reply = await server.request("config/read", { includeLayers: true });
     const edit = config.edit(reply.result, path);

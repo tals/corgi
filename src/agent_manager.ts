@@ -8,6 +8,7 @@ import * as i18n from "./i18n";
 //! its card; settings shows it beside its section list.
 import * as palette from "./palette";
 import { Style, keycap } from "./palette";
+import * as corgiAnimation from "./corgi_animation";
 import { type Provider, adapter } from "./providers";
 import { Rect } from "./layout";
 import { Dialog, View as DialogView, writeField } from "./name_dialog";
@@ -87,6 +88,9 @@ export type Model = {
   suggest(agent: Agent): string;
   options(agent: Agent): Options;
   order?: Row[];
+  /** Whether Find agents is looking; null when the daemon can't look, so
+   * there's no button. */
+  finding?: boolean | null;
 };
 /** What a key or click asks the host to do. */
 export type Action =
@@ -105,7 +109,8 @@ export type Action =
   | { kind: "remove_command"; index: number }
   | { kind: "add"; provider: Provider }
   | { kind: "restore"; provider: Provider; account: string }
-  | { kind: "save" };
+  | { kind: "save" }
+  | { kind: "find" };
 
 /** A row: the list's accounts and commands, then Add agent's strip, open on
  * the focused agent's accounts, listed or not, and what can be added. */
@@ -921,6 +926,7 @@ export class View {
       return null;
     }
     if (this.focus === "list" && byte === 109 && item?.kind === "agent") return this.models(item.agent, model);
+    if (this.focus === "list" && byte === 102 && model.finding === false) return { kind: "find" };
     switch (byte) {
       case 47:
         if (this.focus === "list" || !this.query.len) {
@@ -1060,6 +1066,8 @@ export class View {
     }
     const row = this.rows(b, model).find(r => r.y === y);
     if (y === b.y + b.h - 3) {
+      const find = this.findButton(b, model, 0);
+      if (find && x >= find.x && x < find.x + find.width) return model.finding === false ? { kind: "find" } : null;
       const button = this.buttons(b, model).find(button => x >= button.x && x < button.x + displayWidth(button.label));
       const item = this.selected(model);
       switch (button?.kind) {
@@ -1101,6 +1109,14 @@ export class View {
     return again ? this.act(row.item, model) : null;
   }
 
+  /** Find agents stays at the action row's right edge while its glyph spins. */
+  private findButton(b: Rect, model: Model, now: number): { x: number; width: number; label: string } | null {
+    if (model.finding === null || model.finding === undefined) return null;
+    const label = ` ${model.finding ? corgiAnimation.spinner(false, now) : "↻"} ${i18n.t`Find agents`} `,
+      width = 3 + displayWidth(label),
+      x = b.x + b.w - 3 - width;
+    return x >= b.x + 3 ? { x, width, label } : null;
+  }
   /** Where the title's Esc hint starts, as the launcher's Manage button sits. */
   private static closeX = (b: Rect) =>
     b.x + b.w - 8 - Math.max(displayWidth(i18n.t` back `), displayWidth(i18n.t` close `));
@@ -1248,13 +1264,13 @@ export class View {
     const reserved = this.removable(item, model)
       ? displayWidth(i18n.t` hold ⌫ `) + displayWidth(i18n.t` remove`) + 1
       : 0;
+    const find = this.findButton(b, model, 0),
+      right = find ? find.x - 2 : b.x + b.w - 2;
     let x = b.x + 3;
     return labels.flatMap(([kind, label]) => {
       const at = x;
       x += displayWidth(label) + 1;
-      return x + reserved <= b.x + b.w - 2
-        ? [{ kind: kind as "edit" | "clone" | "toggle" | "up" | "down", label, x: at }]
-        : [];
+      return x + reserved <= right ? [{ kind: kind as "edit" | "clone" | "toggle" | "up" | "down", label, x: at }] : [];
     });
   }
   private pickerBounds(b: Rect, model: Model): Rect {
@@ -1277,11 +1293,12 @@ export class View {
     if (this.tileAt(b, model, x, y) !== null) return "pointer";
     const row = this.rows(b, model).find(row => row.y === y);
     if (row) return itemRow(row.item) && !this.query.len && x < View.columns(b).key ? "grab" : "pointer";
-    if (
-      y === b.y + b.h - 3 &&
-      this.buttons(b, model).some(button => x >= button.x && x < button.x + displayWidth(button.label))
-    )
-      return "pointer";
+    if (y === b.y + b.h - 3) {
+      const find = this.findButton(b, model, 0);
+      if (model.finding === false && find && x >= find.x && x < find.x + find.width) return "pointer";
+      if (this.buttons(b, model).some(button => x >= button.x && x < button.x + displayWidth(button.label)))
+        return "pointer";
+    }
     return "default";
   }
   pointer(b: Rect, x: number, y: number, button: number, release: boolean, model: Model): Action | null {
@@ -1614,7 +1631,9 @@ export class View {
         } else writeTint(w, frame, rowGlide.tint(glide.ms));
       }
     }
-    const buttons = this.buttons(b, model);
+    const find = this.findButton(b, model, now),
+      right = find ? find.x - 2 : b.x + b.w - 2,
+      buttons = this.buttons(b, model);
     for (const button of buttons) w.write(at(button.x, b.y + b.h - 3) + keycap + button.label);
     const last = buttons.at(-1),
       remove_x = last ? last.x + displayWidth(last.label) + 2 : b.x + 3;
@@ -1624,7 +1643,7 @@ export class View {
       !this.removal &&
       chosen &&
       this.removable(chosen, model) &&
-      remove_x + displayWidth(removeKey) + displayWidth(removeLabel) <= b.x + b.w - 2
+      remove_x + displayWidth(removeKey) + displayWidth(removeLabel) <= right
     )
       w.write(at(remove_x, b.y + b.h - 3) + keycap + removeKey + faint + removeLabel);
     if (this.error) {
@@ -1633,13 +1652,18 @@ export class View {
     } else if (this.removal) {
       const r = this.removal;
       w.write(at(b.x + 3, b.y + b.h - 3) + new Style({ fg: "strong", bg: "surface" }).sgr());
-      writeEllipsis(w, `${r.phase === "held" ? i18n.t`Hold ⌫ to remove` : i18n.t`Removing`} ${r.label}`, sat(b.w, 6));
+      writeEllipsis(
+        w,
+        `${r.phase === "held" ? i18n.t`Hold ⌫ to remove` : i18n.t`Removing`} ${r.label}`,
+        sat(right, b.x + 3),
+      );
       w.write(at(b.x + 3, b.y + b.h - 2) + new Style({ fg: "muted", bg: "surface" }).sgr());
       writeEllipsis(w, `${r.note}${r.phase === "held" ? i18n.t` · release to cancel` : ""}`, sat(b.w, 6));
     } else if (model.discovering) {
       w.write(at(b.x + 3, b.y + b.h - 2) + faint);
       writeEllipsis(w, model.discovering, sat(b.w, 6));
     } else if (focused && this.buttons(b, model).length === 0) View.footer(w, b, this.hints(chosen, model));
+    if (find) w.write(at(find.x, b.y + b.h - 3) + keycap + " f " + faint + find.label);
     return caret;
   }
   /** An Add agent account's columns: who signed in, its folder, and

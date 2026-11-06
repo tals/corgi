@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import * as build_id from "./build_id";
-import { check, considered, installed, onPath, outdated, resolve as find } from "./discovery";
+import { check, considered, installed, onDemand, onPath, outdated, rescan, resolve as find } from "./discovery";
 import { Provider } from "./providers";
 test("provider discovery follows current files, permissions and symlink targets", () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-discovery-")),
@@ -108,6 +108,8 @@ test("a missing mise tool is hidden and its shim is never executed", async () =>
     script("bin/mise", "exit 1");
     expect(installed("opencode2", root)).toBe(false);
     await expect(find("opencode2", root)).rejects.toThrow("ProviderNotFound");
+    expect(onDemand("opencode2", root)).toBe(true);
+    expect(await find("opencode2", root, { stubs: true })).toBe(join(shims, "opencode"));
     expect(installed("opencode2", root)).toBe(false);
     expect(existsSync(called)).toBe(false);
   });
@@ -143,7 +145,37 @@ test("mise's old OpenCode version is rejected without running OpenCode", async (
 if [ "$3" = --version ]; then echo 1.2.3; else echo '${path}'; fi`,
     );
     await expect(find("opencode2", root)).rejects.toThrow("ProviderTooOld");
+    await expect(find("opencode2", root, { stubs: true })).rejects.toThrow("ProviderTooOld");
     expect(installed("opencode2", root)).toBe(false);
+    expect(existsSync(called)).toBe(false);
+  });
+});
+
+test("rescanning a workspace replaces its missing-tool shim with the installed agent", async () => {
+  await isolated(async (root, script) => {
+    const shims = join(root, "custom-shims"),
+      workspace = join(root, "workspace"),
+      called = join(root, "shim-called"),
+      ready = join(root, "installed-ready"),
+      executable = script("installed/pi", `echo called > '${called}'; exit 1`);
+    mkdirSync(workspace);
+    process.env.MISE_SHIMS_DIR = shims;
+    process.env.PATH += ":" + shims;
+    script("custom-shims/pi", `echo called > '${called}'; exit 1`);
+    script(
+      "bin/mise",
+      `
+[ "$PWD" = '${workspace}' ] && [ "$2" = pi ] && [ -f '${ready}' ] || exit 1
+if [ "$3" = --version ]; then echo 1.20.0; else echo '${executable}'; fi`,
+    );
+    await rescan(["pi"], workspace);
+    expect(onDemand("pi", workspace)).toBe(true);
+    writeFileSync(ready, "");
+    await rescan(["pi"], workspace);
+    expect(installed("pi", workspace)).toBe(true);
+    expect(onDemand("pi", workspace)).toBe(false);
+    expect(installed("pi", root)).toBe(false);
+    expect(onDemand("pi", root)).toBe(true);
     expect(existsSync(called)).toBe(false);
   });
 });

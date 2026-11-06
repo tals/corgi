@@ -1,5 +1,8 @@
+import * as startup from "./startup_service";
 import * as archiveInventory from "./archive_inventory";
 import * as launcherConfig from "./launcher_config";
+import { Provider } from "./providers";
+import * as discovery from "./discovery";
 import * as agentModels from "./agent_models";
 import { Quit as ModelQuit } from "./subprocess";
 import * as telemetry from "./telemetry";
@@ -267,6 +270,8 @@ export class Server {
         chmodSync(this.socket, 0o600);
         this.socketPath = SocketPath.claim(this.socket);
       } else this.socketPath = SocketPath.claim(this.socket);
+      // Setup asks which agents are there, so mise answers for its shims first.
+      await discovery.ready();
       // A handoff to a newer Corgi may hook more events than the old one did.
       await integration.startup(handoff);
       this.bindPanes();
@@ -401,6 +406,9 @@ export class Server {
       else this.addClient(fd);
     }
   }
+  private collectStartups(): void {
+    startup.collect(this.runtime, this.clients);
+  }
   private async collect(): Promise<void> {
     if (this.stopped || this.frozen) return;
     const telemetry_started = telemetry.begin();
@@ -444,6 +452,7 @@ export class Server {
         if (p.keepFailed()) this.dirty = true;
       } else if (p.terminal.exited && !p.dormant) this.runtime.close(p.id);
     }
+    this.collectStartups();
     this.runtime.reapStopped();
     if (this.runtime.raiseEntered()) this.runtime.changed();
     await this.runtime.advanceRenames(clock.milliTimestamp());
@@ -713,6 +722,13 @@ export class Server {
         });
         return;
       }
+      case "startup":
+        reply.send(startup.update(this.runtime, cl, request.payload));
+        return;
+      case "startup.kill":
+        startup.kill(this.runtime, request.payload.id);
+        reply.send({ ok: true });
+        return;
       case "hook":
         await observers.hook(this, request.payload);
         reply.send({ ok: true });
@@ -766,6 +782,16 @@ export class Server {
       case "agent.command.preview":
         await launch.request(this, cl, request, reply);
         return;
+      case "agent.discover": {
+        const launch = await import("./launch_service"),
+          provider = request.payload.provider;
+        // Probes take seconds; other requests don't wait on them.
+        this.defer(cl, reply, null, async () => {
+          await launch.discover(this, provider ? [provider] : Provider.all, request.payload.cwd || process.cwd());
+          return {};
+        });
+        return;
+      }
       case "agent.preview":
       case "agent.preview.cached":
       case "agent.track_usage":

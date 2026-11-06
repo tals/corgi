@@ -402,8 +402,17 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     }
     case "which": {
       if (args.length !== 2) throw Error("Usage");
-      const d = await import("./discovery");
-      process.stdout.write((await d.resolve(provider(args[1]))) + "\n");
+      const d = await import("./discovery"),
+        p = provider(args[1]);
+      await d.ready([p]);
+      const stub = d.stubOf(p);
+      // What Corgi runs; a stub isn't the agent, as running it installs the agent first.
+      if (stub) {
+        process.stderr.write(`corgi: ${adapter(p).name} isn't installed; ${stub} installs it the first time it runs\n`);
+        process.exitCode = 1;
+        return;
+      }
+      process.stdout.write((await d.resolve(p)) + "\n");
       return;
     }
     case "keys": {
@@ -538,6 +547,10 @@ export function failure(args: string[], error: unknown): string {
     }
     case "UnknownCommand":
       return `corgi: unknown command ${args[0]}; see corgi --help\n`;
+    case "ProviderOnDemand": {
+      const agent = Provider.parse(args[2] ?? "");
+      return `corgi: ${agent ? adapter(agent).name : "the agent"} installs the first time it runs; start it once in a pane\n`;
+    }
     case "ServerUnreachableFromPane":
       return `corgi: can't reach the Corgi server at ${os.socketPath()}, and won't start one from inside a Corgi pane.\n`;
     case "IncompatibleViewerProtocol":

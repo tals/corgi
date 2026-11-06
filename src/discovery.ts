@@ -119,7 +119,11 @@ async function within<T>(promise: Promise<T>, ms: number): Promise<T | null> {
     clearTimeout(timer);
   }
 }
-export async function resolve(provider: Provider, cwd: string | null = null): Promise<string> {
+export async function resolve(
+  provider: Provider,
+  cwd: string | null = null,
+  { stubs = false }: { stubs?: boolean } = {},
+): Promise<string> {
   const { version } = adapter(provider),
     set = override(provider);
   if (set !== undefined && (set.length || !version)) return set;
@@ -139,6 +143,10 @@ export async function resolve(provider: Provider, cwd: string | null = null): Pr
   }
   managed.set(context(provider, cwd), paths);
   const available = candidates(provider, cwd);
+  if (stubs && !available.length) {
+    const stub = stubOf(provider, cwd);
+    if (stub) return stub;
+  }
   if (!version) {
     const path = available[0];
     if (!path) throw Error("ProviderNotFound");
@@ -224,4 +232,26 @@ export function installed(provider: Provider, cwd = process.cwd()): boolean {
 /** Resolve mise selections and reject missing or unsupported installs. */
 export async function check(cwd = process.cwd()): Promise<void> {
   await Promise.all(Provider.all.filter(p => override(p) === undefined).map(p => resolve(p, cwd).catch(() => {})));
+}
+/** A missing tool's mise dispatcher, which only an explicit launch may run. */
+export function stubOf(provider: Provider, cwd = process.cwd()): string | null {
+  if (override(provider) !== undefined || candidates(provider, cwd).length) return null;
+  for (const dir of (process.env.PATH ?? "").split(":"))
+    for (const command of commands(provider)) {
+      const path = absolute(cwd, dir, command);
+      if (executable(path) && metadata.shim(path)) return path;
+    }
+  return null;
+}
+export function onDemand(provider: Provider, cwd = process.cwd()): boolean {
+  return stubOf(provider, cwd) !== null;
+}
+/** Wait for workspace discovery without invoking install-on-use dispatchers. */
+export async function ready(providers: readonly Provider[] = Provider.all, cwd = process.cwd()): Promise<void> {
+  await Promise.all(providers.map(provider => resolve(provider, cwd).catch(() => {})));
+}
+/** Discard version verdicts and resolve the selected workspace again. */
+export async function rescan(providers: readonly Provider[] = Provider.all, cwd = process.cwd()): Promise<void> {
+  for (const provider of providers) for (const candidate of candidates(provider, cwd)) verdicts.delete(candidate);
+  await ready(providers, cwd);
 }

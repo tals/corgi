@@ -61,6 +61,8 @@ export class Preview {
   options = byProvider(() => new Option());
   installed = byProvider(() => true);
   configured = byProvider(() => false);
+  /** Missing mise tools that can install during an explicit launch. */
+  on_demand = byProvider(() => false);
   /** The version of each agent too old to count as installed, or "". */
   outdated = byProvider(() => "");
   /** What each default account is called; "" for one that goes by its agent's name. */
@@ -140,6 +142,7 @@ export class Worker {
     installed: Preview["installed"];
     configured: Preview["configured"];
     outdated: Preview["outdated"];
+    on_demand: Preview["on_demand"];
   } | null = null;
   /** The folder of each file a launcher reads, watched by file. */
   watching = new Map<string, FSWatcher>();
@@ -191,6 +194,22 @@ export class Worker {
       job.preview = job.preview.with({ pending: true });
     }
     void this.pump();
+  }
+  private finding = new Map<string, Promise<void>>();
+  /** Rescan the requested workspace and invalidate every cached preview. */
+  async rediscover(providers: readonly Provider[], cwd = process.cwd()) {
+    await Promise.all(
+      providers.map(provider => {
+        const key = provider + "\0" + cwd;
+        let pending = this.finding.get(key);
+        if (!pending) {
+          pending = discovery.rescan([provider], cwd).finally(() => this.finding.delete(key));
+          this.finding.set(key, pending);
+        }
+        return pending;
+      }),
+    );
+    this.reread();
   }
   /** Follows the rows Manage agents took out, reading again once they changed. */
   follow(removed: row.Removed) {
@@ -300,23 +319,26 @@ export class Worker {
   private list(previous: Preview, cwd = process.cwd()): Preview {
     const now = performance.now();
     if (!this.installs || this.installs.cwd !== cwd || now - this.installs.at >= 5000) {
-      const found = installed(cwd);
+      const found = installed(cwd),
+        on_demand = byProvider(p => !found[p] && discovery.onDemand(p, cwd));
       this.installs = {
         at: now,
         cwd,
         installed: found,
-        configured: byProvider(p => found[p] && accounts.configured(p, cwd)),
+        configured: byProvider(p => (found[p] || on_demand[p]) && accounts.configured(p, cwd)),
+        on_demand,
         outdated: byProvider(p => (found[p] ? "" : (discovery.outdated(p, cwd) ?? ""))),
       };
     }
-    const { installed: available, configured, outdated } = this.installs,
+    const { installed: available, configured, outdated, on_demand } = this.installs,
       names = accounts.defaultNames(),
-      listed = accounts.known().filter(a => available[a.provider]);
+      listed = accounts.known().filter(a => available[a.provider] || on_demand[a.provider]);
     if (
       Provider.all.every(
         p =>
           previous.installed[p] === available[p] &&
           previous.configured[p] === configured[p] &&
+          previous.on_demand[p] === on_demand[p] &&
           previous.outdated[p] === outdated[p] &&
           previous.names[p] === names[p],
       ) &&
@@ -333,6 +355,7 @@ export class Worker {
     return previous.with({
       installed: available,
       configured,
+      on_demand,
       outdated,
       names,
       accounts: listed.map(a => ({
@@ -442,7 +465,7 @@ export class Worker {
     return [
       ...Provider.all.filter(p => preview.installed[p]).map(provider => ({ provider, account: "" })),
       ...preview.accounts,
-    ].filter(l => !skip(l));
+    ].filter(l => !preview.on_demand[l.provider] && !skip(l));
   }
   /** A removed row's option: who signed in, so Add agent can offer it back.
    * Nothing asks its servers: the provider's own files say, or for one whose
@@ -466,7 +489,8 @@ export class Worker {
   }
   /** `preview` with its skipped rows showing only who signed in. */
   private withSkipped(preview: Preview, skip: (l: row.Launch) => boolean, cwd: string): Preview {
-    const own = (l: row.Launch, option: Option) => (skip(l) ? this.signedIn(l, cwd) : option);
+    const own = (l: row.Launch, option: Option) =>
+      preview.on_demand[l.provider] || skip(l) ? this.signedIn(l, cwd) : option;
     return preview.with({
       options: byProvider(p => own({ provider: p, account: "" }, preview.options[p])),
       accounts: preview.accounts.map(a => ({ ...a, option: own(a, a.option) })),
@@ -496,7 +520,9 @@ export class Worker {
       await Promise.all(this.groups(this.rows(listed, skip)).map(group => this.read(group, cwd)));
       if (this.stopping) return;
       const shown = (l: row.Launch, option: Option) =>
-        skip(l) ? this.signedIn(l, cwd) : this.shown(l.provider, l.account, option, cwd);
+        listed.on_demand[l.provider] || skip(l)
+          ? this.signedIn(l, cwd)
+          : this.shown(l.provider, l.account, option, cwd);
       this.cached_accounts.set(
         cwd,
         listed.with({

@@ -22,7 +22,7 @@ function fakeCodex(root: string, script: string) {
 test("inference starts in the selected account and old handoffs default to the original account", async () => {
   const unregister = sim.register(),
     start = sim.adapter.inference.start;
-  using p = new Pool({ config: { provider: sim.sim, account: "/private/pi-work" } });
+  using p = new Pool({ config: { provider: sim.sim, account: "/private/pi-work", executable: fixture } });
   let account = "";
   sim.adapter.inference.start = (_request, place) => {
     account = place.account;

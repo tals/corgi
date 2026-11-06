@@ -1,5 +1,5 @@
 /** Real viewer launch controls and read-only agent previews. */
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   registerCase,
@@ -63,9 +63,10 @@ class Launcher extends Runtime {
     writeFileSync(this.path + ".viewer.json", JSON.stringify({ onboarding_complete: true }));
     this.launches = join(this.temp.name, "launches.jsonl");
     const harness = join(ROOT, "tests/inference_harness.ts");
-    writeExecutable(
-      this.env.CORGI_CODEX_BIN!,
-      `import { appendFileSync } from 'node:fs';
+    if (this.env.CORGI_CODEX_BIN)
+      writeExecutable(
+        this.env.CORGI_CODEX_BIN,
+        `import { appendFileSync } from 'node:fs';
 const args = process.argv.slice(2);
 if (args.includes('app-server')) { const p = Bun.spawn([process.execPath, ${JSON.stringify(harness)}, ...args], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' }); process.exit(await p.exited); }
 if (args.includes('--version')) { console.log('codex fixture'); process.exit(0); }
@@ -75,7 +76,7 @@ if (args.at(-1) === 'refused') { console.log('That session is running in the bac
 if (args.at(-1) === 'quits') process.exit(0);
 console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
 `,
-    );
+      );
     const settings = join(this.env.CLAUDE_CONFIG_DIR!, "settings.json");
     const data = existsSync(settings) ? json(settings) : {};
     data.model = "opus";
@@ -1671,3 +1672,119 @@ for await (const chunk of Bun.stdin.stream()) writeSync(fd, chunk);
 }
 
 registerCase("agent launcher", Launcher, { timeout: 120_000 });
+
+/** Omarchy's agents: mise shims for tools mise installs the first time each runs. */
+class LazyShims extends Launcher {
+  ran = "";
+  installs = "";
+  async configure() {
+    await super.configure();
+    const shims = join(this.temp.name, "shims"),
+      mise = join(this.temp.name, "mise-bin", "mise");
+    this.ran = join(this.temp.name, "ran.log");
+    this.installs = join(this.temp.name, "installs");
+    mkdirSync(this.installs);
+    mkdirSync(shims);
+    mkdirSync(join(mise, ".."));
+    // mise has installed what installs/ holds, at first nothing. Run as an
+    // agent, it notes what would have installed it.
+    writeFileSync(
+      mise,
+      `#!/bin/sh\ncase "\${0##*/}" in\n` +
+        // What mise has installed sits in installs/.
+        `mise) [ -x "${this.installs}/$2" ] && echo "${this.installs}/$2" && exit 0; exit 1;;\n` +
+        `*) printf '%s\\n' "\${0##*/} $*" >>"${this.ran}"; ` +
+        `printf '%s\\n' "$CLAUDE_CONFIG_DIR" >"${this.ran}.account"; exit 1;;\nesac\n`,
+      { mode: 0o755 },
+    );
+    for (const command of ["claude", "codex", "pi", "omp", "opencode"]) symlinkSync(mise, join(shims, command));
+    for (const provider of ["CODEX", "CLAUDE", "PI", "OMP", "OPENCODE2"]) delete this.env[`CORGI_${provider}_BIN`];
+    // Only the shims: the agents installed on this machine stay out of reach.
+    this.env.PATH = `${join(mise, "..")}:${shims}:/usr/bin:/bin`;
+  }
+  async setUp() {
+    await super.setUp();
+    // A fresh machine: nothing chose a model for Codex or Claude Code, which would keep their rows.
+    rmSync(join(this.env.CODEX_HOME!, "config.toml"), { force: true });
+    rmSync(join(this.env.CLAUDE_CONFIG_DIR!, "settings.json"), { force: true });
+  }
+  async test_corgi_runs_no_lazy_shim_until_an_agent_is_started() {
+    const preview = async () =>
+      (await this.rpc({ op: "agent.preview", workspace: this.ws, cwd: this.launchDir })).preview;
+    await this.until(async () => !(await preview()).pending, 12);
+    const found = await preview();
+    for (const provider of ["claude", "codex", "pi", "omp", "opencode2"]) {
+      this.assertFalse(found.installed[provider]);
+      this.assertTrue(found.on_demand[provider]);
+    }
+    const view = await Viewer.create(this, 120, 30);
+    await view.input("\x02A");
+    const picker = screen_text((await view.poll()).data, 120, 30).join("\n");
+    for (const label of ["Claude Code", "Codex", "Pi", "OpenCode"]) this.assertNotIn(label, picker);
+    await this.clickText(view, "Manage agents");
+    await this.managerStrip(view, "Oh My Pi");
+    this.assertIn("Installs on use", (await view.poll()).data);
+    // `which` names the stub instead of a binary, and fails as for a missing agent.
+    const which = await run([EXE, "which", "pi"], { env: this.env, cwd: this.temp.name, check: false });
+    this.assertEqual([which.code, which.stdout], [1, ""]);
+    this.assertIn(`${join(this.temp.name, "shims", "pi")} installs it the first time it runs`, which.stderr);
+    // Asking for usage reads every agent again, which would run a shim.
+    await this.rpc({ op: "agent.track_usage", workspace: this.ws, cwd: this.launchDir });
+    await this.until(async () => !(await preview()).pending, 12);
+    this.assertFalse(existsSync(this.ran));
+    await this.run_cli("launcher", "show", "pi", "--workspace", String(this.ws));
+    await this.clickText(view, "← New tab");
+    await this.until(async () => (await view.poll()).data.includes("Installs on use"));
+    await this.clickText(view, "Installs on use");
+    await this.until(() => existsSync(this.ran));
+    this.assertEqual(
+      readFileSync(this.ran, "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map(line => line.split(" ")[0]),
+      ["pi"],
+    );
+    // Once mise has installed Pi, finding agents again sees it without running the shim.
+    writeFileSync(join(this.installs, "pi"), "#!/bin/sh\necho 1.5.0\n", { mode: 0o755 });
+    await this.rpc({ op: "agent.discover", provider: "pi", cwd: this.launchDir });
+    await this.until(async () => (await preview()).installed.pi, 12);
+    this.assertFalse((await preview()).on_demand.pi);
+    this.assertEqual(readFileSync(this.ran, "utf8").split("\n").filter(Boolean).length, 1);
+  }
+  async test_a_saved_signed_out_account_starts_its_install_on_use_shim() {
+    const directory = join(this.temp.name, "unsigned-account"),
+      link = join(this.temp.name, "account-link");
+    mkdirSync(directory);
+    // Exercise canonical account paths even where /tmp is not a symlink.
+    symlinkSync(directory, link);
+    const account = realpathSync(link);
+    writeFileSync(
+      join(this.env.XDG_STATE_HOME!, "corgi", "accounts.json"),
+      JSON.stringify({ accounts: [{ provider: "claude", dir: link, name: "lazy-account", managed: false }] }),
+    );
+    const preview = async () =>
+      (await this.rpc({ op: "agent.preview", workspace: this.ws, cwd: this.launchDir })).preview;
+    await this.until(async () => {
+      const found = await preview();
+      return !found.pending && found.accounts.some((a: any) => a.account === account && !a.option.pending);
+    }, 12);
+    const found = await preview();
+    this.assertFalse(found.installed.claude);
+    this.assertTrue(found.on_demand.claude);
+    this.assertFalse(found.accounts.find((a: any) => a.account === account).option.signed_in);
+    const view = await Viewer.create(this, 120, 30);
+    await this.openLauncher(view);
+    this.assertFalse(existsSync(this.ran));
+    await this.clickText(view, "lazy-account");
+    await this.until(() => existsSync(this.ran + ".account"));
+    this.assertEqual(readFileSync(this.ran + ".account", "utf8").trim(), account);
+    this.assertEqual(
+      readFileSync(this.ran, "utf8")
+        .split("\n")
+        .filter(Boolean)
+        .map(line => line.split(" ")[0]),
+      ["claude"],
+    );
+  }
+}
+registerCase("lazy agent shims", LazyShims, { inherited: false, timeout: 120_000 });

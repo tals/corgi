@@ -30,6 +30,8 @@ import * as noWorkspace from "./no_workspace";
 import * as rowGlide from "./row_glide";
 import type { Cell } from "./fork_hero";
 import * as pasteCard from "./paste_card";
+import * as startupCard from "./startup_card";
+import type { Wait as StartupWait } from "./startup";
 import * as resourceTooltip from "./resource_tooltip";
 import * as gitTooltip from "./git_tooltip";
 import * as linkTooltip from "./link_tooltip";
@@ -220,6 +222,8 @@ export interface Ui {
   resources: any;
   resource_hover: number | null;
   resource_card: resourceTooltip.State | null;
+  startup_waits: StartupWait[];
+  startup_card: startupCard.State | null;
   git_hover: number | null;
   /** The push card, shown or held open, with the row whose review shows dimmed. */
   git_card: gitTooltip.State | null;
@@ -315,6 +319,8 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     resources: { workspaces: [] },
     resource_hover: null,
     resource_card: null,
+    startup_waits: [],
+    startup_card: null,
     git_hover: null,
     git_card: null,
     worktree_card: null,
@@ -551,6 +557,7 @@ function noOverlay(u: Ui): boolean {
 /** Nothing open over the screen, though the sidebar may have the keyboard. */
 function noPopup(u: Ui): boolean {
   return (
+    u.startup_card === null &&
     u.scope_menu === null &&
     u.agent_launcher === null &&
     u.corgi_setup === null &&
@@ -1102,8 +1109,19 @@ export function frame(
             ? i18n.t`SIDEBAR  ↑↓/j/k move  ↵ open  ${search}Esc back`
             : "");
     // Beside the sidebar while it has focus, clear of its box's bottom edge.
-    if (text || !u.prompt_cue) cover(writeChip(w, text, width, height, u.pointer, u.sidebar_focus ? side.width : 0));
-    else cover(writeChip(w, u.prompt_cue.text, width, height, u.pointer, 0, cue_mark[u.prompt_cue.tone]));
+    const waiting =
+      noOverlay(u) && !pinned && !u.git_card?.pinned
+        ? startupCard.banner(u.startup_waits, width, height, Date.now())
+        : null;
+    const chip_width = waiting?.rect.x ?? width;
+    if (text || !u.prompt_cue)
+      cover(writeChip(w, text, chip_width, height, u.pointer, u.sidebar_focus ? side.width : 0));
+    else cover(writeChip(w, u.prompt_cue.text, chip_width, height, u.pointer, 0, cue_mark[u.prompt_cue.tone]));
+    if (waiting) {
+      startupCard.drawBanner(w, waiting);
+      cover(waiting.rect);
+      if (u.pointer && waiting.rect.contains(u.pointer.x, u.pointer.y)) link_pointer = true;
+    }
   }
   // The prefix bar covers the area's last row.
   const cursor_rows = area.y + area.h - (u.prefix && area.h > 0 ? 1 : 0);
@@ -1145,6 +1163,12 @@ export function frame(
   } else if (git_ws && git_rect) {
     const card = u.git_card!;
     cover(sidebar.drawGitTooltip(w, git_ws, width, height, card.anchor.x, card.anchor.y, card.selected));
+  } else if (u.startup_card) {
+    const rect = startupCard.geometry(width, height, u.startup_waits.length);
+    if (rect) {
+      u.startup_card.draw(w, rect, u.startup_waits, Date.now());
+      cover(rect);
+    } else cover(writeChip(w, i18n.t`Startup waits: enlarge terminal · Esc to close`, width, height, u.pointer));
   } else if (pinned && card_rect) {
     const name = u.workspaces.find(ws => ws.id === u.resource_card!.workspace)?.name ?? "workspace";
     resourceTooltip.draw(w, card_rect, name, u.resources, u.resource_card!, u.pointer);

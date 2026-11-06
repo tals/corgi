@@ -1,5 +1,6 @@
+import { processPath } from "../src/os";
 import { join } from "node:path";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, rmSync, copyFileSync } from "node:fs";
 import { Runtime, EXE, screen_text } from "./runtime";
 import { Viewer } from "./viewer_client";
 import { quote, registerCase, writeExecutable } from "./support";
@@ -153,6 +154,7 @@ class OpenCode extends Runtime {
       join(state, "service.json"),
       JSON.stringify({ url: `http://127.0.0.1:${this.service.server.port}`, password: "fixture" }),
     );
+    writeFileSync(join(state, "model.json"), JSON.stringify({ recent: [{ providerID: "test", modelID: "model" }] }));
     // The CLI: its terminal UI waits on a session; `api` finds the service running.
     this.env.CORGI_OPENCODE2_BIN = writeExecutable(
       join(this.temp.name, "opencode"),
@@ -178,7 +180,93 @@ else console.log('{}');
     const result = await this.rpc({ op: "headless.list" });
     return result.sessions[0];
   }
-  async test_manager_keeps_opencode_visible_without_account_creation() {
+  slowStartup() {
+    const file = join(this.env.XDG_STATE_HOME!, "opencode/service.json"),
+      release = join(this.temp.name, "release-startup"),
+      helper = join(this.temp.name, "startup-helper.pid"),
+      ready = join(this.temp.name, "startup-ready"),
+      endpoint = { url: `http://127.0.0.1:${this.service.server.port}`, password: "fixture" };
+    rmSync(file);
+    writeExecutable(
+      this.env.CORGI_OPENCODE2_BIN!,
+      `
+import { existsSync, watch } from 'node:fs';
+const args = process.argv.slice(2);
+if (args.includes('--version')) console.log('opencode v2.1.2');
+else if (args[0] === 'api') {
+  await Bun.write(${JSON.stringify(helper)}, String(process.pid));
+  await new Promise(resolve => {
+    const ready = () => {
+      if (!existsSync(${JSON.stringify(release)})) return;
+      watcher.close();
+      resolve();
+    };
+    const watcher = watch(${JSON.stringify(this.temp.name)}, ready);
+    console.error('mise opencode@2.1.2 downloading');
+    ready();
+  });
+  await Bun.write(${JSON.stringify(file)}, JSON.stringify(${JSON.stringify(endpoint)}));
+} else if (args.includes('--session')) {
+  await Bun.write(${JSON.stringify(ready)}, 'ready');
+  setInterval(() => {}, 60000);
+}
+`,
+    );
+    writeFileSync(this.path + ".viewer.json", JSON.stringify({ onboarding_complete: true }));
+    return { release, helper, ready };
+  }
+  async test_startup_wait_is_shared_and_can_finish_after_installation() {
+    const files = this.slowStartup();
+    await this.command("agent.create", { workspace: 1, provider: "opencode2", account: "" });
+    await this.until(async () => (await this.session()).startup_waits?.[0]?.phase === "installing");
+    const first = await Viewer.create(this, 120, 30),
+      second = await Viewer.create(this, 120, 30);
+    for (const view of [first, second]) {
+      await view.action("startup-waits");
+      const text = screen_text((await view.poll()).data, 120, 30).join("\n");
+      this.assertIn("Installing OpenCode", text);
+      this.assertIn("mise opencode@2.1.2 downloading", text);
+    }
+    writeFileSync(files.release, "go");
+    await this.until(() => existsSync(files.ready));
+    await this.until(async () => (await this.session()).startup_waits.length === 0);
+    this.assertIn("Nothing is waiting", screen_text((await second.poll()).data, 120, 30).join("\n"));
+  }
+  async test_startup_kill_from_another_viewer_stops_the_helper() {
+    const files = this.slowStartup();
+    await this.command("agent.create", { workspace: 1, provider: "opencode2", account: "" });
+    await this.until(async () => (await this.session()).startup_waits?.[0]?.phase === "installing");
+    const helper = Number(await Bun.file(files.helper).text()),
+      view = await Viewer.create(this, 120, 30);
+    await view.action("startup-waits");
+    await view.input("x");
+    await this.until(async () => (await this.session()).startup_waits.length === 0);
+    await this.until(() => processPath(helper) === null);
+    this.assertFalse(existsSync(files.ready));
+  }
+  async test_closing_a_pane_stops_its_startup_helper() {
+    const files = this.slowStartup();
+    const { pane } = await this.command("agent.create", { workspace: 1, provider: "opencode2", account: "" });
+    await this.until(() => existsSync(files.helper));
+    const helper = Number(await Bun.file(files.helper).text());
+    await this.command("pane.close", { target: pane });
+    await this.until(() => processPath(helper) === null);
+    await this.until(async () => (await this.session()).startup_waits.length === 0);
+  }
+  async test_mise_after_exec_is_reported_and_can_be_killed() {
+    // A real executable named mise remains in the pane, as an installing shim does.
+    const mise = join(this.temp.name, "mise");
+    copyFileSync("/bin/sleep", mise);
+    const command = `/bin/bash -c ${quote(`exec -a pi ${quote(mise)} 60`)}`;
+    const { pane } = await this.command("pane.create", { workspace: 1, command });
+    await this.until(async () => (await this.session()).startup_waits?.some((w: any) => w.pane === pane));
+    const wait = (await this.session()).startup_waits.find((w: any) => w.pane === pane);
+    this.assertEqual(wait.phase, "agent");
+    this.assertEqual(wait.provider, "pi");
+    await this.rpc({ op: "startup.kill", id: wait.id });
+    await this.until(async () => !(await this.session()).startup_waits.some((w: any) => w.id === wait.id));
+  }
+  async test_manager_keeps_configured_opencode_visible_without_account_creation() {
     writeFileSync(this.path + ".viewer.json", JSON.stringify({ onboarding_complete: true }));
     const workspace = (await this.session()).workspaces[0].id,
       view = await Viewer.create(this, 180, 40);

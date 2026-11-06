@@ -972,6 +972,22 @@ test("put away, the prompt's cue takes the status line unless something else nee
   const cue = { text: "Corgi needs you · Ctrl+B Space", tone: "warm" as const };
   expect(shown({ prompt_cue: cue })).toContain(" ● Corgi needs you · Ctrl+B Space ");
   expect(shown({ prompt_cue: cue, message: " Copied" })).not.toContain("Corgi needs you");
+  const waiting = shown({
+    prompt_cue: cue,
+    startup_waits: [
+      {
+        id: "install",
+        pane: 1,
+        provider: "opencode2",
+        phase: "installing",
+        detail: "Downloading",
+        started_at: Date.now() - 12000,
+        cancelled: false,
+      },
+    ],
+  });
+  expect(waiting).toContain("Corgi needs you");
+  expect(waiting).toContain("1 waiting");
 });
 
 test("setup's model picker places the same brand marks, only where the host shows images", () => {

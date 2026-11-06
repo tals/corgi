@@ -196,10 +196,12 @@ export class Pool {
   }
   async open(request: Request, stopping?: Stopping, deadline = Date.now() + this.config.timeout_ms) {
     if (cancelled(stopping)) throw Error("Cancelled");
-    if (harnesses >= max_harnesses) throw Error("TooManyHarnesses");
     const generation = this.generation,
       provider = adapter(this.config.provider),
-      executable = this.config.executable ?? discovery.override(this.config.provider) ?? provider.command;
+      // Nobody asked for the agent here, so a shim that would install it doesn't start.
+      executable = this.config.executable ?? (await discovery.resolve(this.config.provider));
+    if (generation !== this.generation || cancelled(stopping)) throw Error("Cancelled");
+    if (harnesses >= max_harnesses) throw Error("TooManyHarnesses");
     const slot = new Slot(
       provider.inference.start(inference(request, this.config.model), {
         cwd: "/tmp",

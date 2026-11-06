@@ -143,6 +143,7 @@ export const operations = [
   "agent.preview",
   "agent.preview.cached",
   "agent.track_usage",
+  "agent.discover",
   "agent.history",
   "viewer.list",
   "action",
@@ -159,6 +160,8 @@ export const operations = [
   "viewer.terminal",
   "bugreport",
   "hook",
+  "startup",
+  "startup.kill",
   "ping",
   "shutdown",
   "test.settle",
@@ -176,6 +179,7 @@ const local = new Set([
   "viewer.terminal",
   "bugreport",
   "hook",
+  "startup",
   "ping",
   "shutdown",
   "test.settle",
@@ -635,6 +639,7 @@ const requests = {
   "agent.preview": launch,
   "agent.preview.cached": launch,
   "agent.track_usage": launch,
+  "agent.discover": { provider: ["?provider", null], cwd: ["string", ""] },
   /** `pid` is the viewer's process, whose terminal window a desktop can raise. */
   "viewer.open": { cwd: ["string", ""], onboarding: ["bool", false], theme: ["theme", null], pid: ["u32", 0] },
   "viewer.sync": {
@@ -745,6 +750,15 @@ const requests = {
   },
   theme: { theme: ["theme", null] },
   "viewer.terminal": { terminal: "json" },
+  startup: {
+    id: "string",
+    pane: "u32",
+    provider: "provider",
+    phase: "discovering|service|session|installing|agent",
+    detail: ["string", ""],
+    started_at: "i64",
+  },
+  "startup.kill": { id: "string" },
   hook: {
     provider: "provider",
     event: "json",
@@ -784,6 +798,8 @@ export interface ReplyPayloads {
     update_abi: string;
   };
   ping: Ok & { pid: number };
+  startup: Ok & { cancelled: boolean };
+  "startup.kill": Ok;
   "session.command": Ok & { result: Result };
   "session.locate": Ok & { result: Result };
   "workspace.archive.preview": Ok & { preview: import("./workspace_archive").Preview };
@@ -833,6 +849,7 @@ export interface ReplyPayloads {
   "agent.preview": Ok & { preview: import("./launch/preview").Preview };
   "agent.preview.cached": Ok & { preview: import("./launch/preview").Preview };
   "agent.track_usage": Ok & { preview: import("./launch/preview").Preview };
+  "agent.discover": Ok;
   "agent.subscribe": { type: "agent.preview"; cwd: string; preview: import("./launch/preview").Preview };
   /** Without history when following; updates arrive as `agent.history` events. */
   "agent.history": Ok & { history?: import("./launch/history").History };

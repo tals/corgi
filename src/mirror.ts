@@ -1,6 +1,7 @@
 //! A viewer's private projection of shared session organization and pane
 //! surfaces. These terminals are framebuffers: no child process or PTY is
 //! created here. Mirrors mirror.zig.
+import * as startup from "./startup";
 import { Terminal as NativeTerminal } from "./pane/terminal";
 import * as viewerNative from "./viewer_native";
 import { Model, max_workspaces } from "./layout";
@@ -594,6 +595,7 @@ export class Workspaces {
 }
 
 export class Runtime {
+  startup_waits: startup.Wait[] = [];
   snapshot: any = null;
   snapshot_hash: bigint | null = null;
   workspaces = new Workspaces();
@@ -698,6 +700,7 @@ export class Runtime {
     this.shell = shellStatus(snapshot.shell);
     this.system_usage = usageView(snapshot.system_usage);
     this.system_working = snapshot.system_working === true;
+    this.startup_waits = startup.decode(snapshot.startup_waits);
     this.smart_links = snapshot.smart_links !== false;
     this.auto_retry = snapshot.auto_retry !== false;
     this.ports = snapshot.ports ?? { workspaces: [] };

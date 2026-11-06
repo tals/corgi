@@ -16,6 +16,34 @@ import { Provider, adapter, byProvider } from "./providers";
 /** The providers these tests install; the rest are listed as not installed. */
 const installed: Provider[] = ["codex", "claude", "pi"];
 const others = Provider.all.filter(p => !installed.includes(p));
+
+test.each(["configured", "added"])(
+  "%s install-on-use agents stay launchable without entering the installed fallback",
+  kind => {
+    const m = new Menu();
+    m.preview = preview({
+      pending: false,
+      installed: byProvider(p => p === "codex"),
+      configured: byProvider(() => false),
+      on_demand: byProvider(p => p === "pi"),
+      options: byProvider(() => ({ pending: false, signed_in: null })),
+    });
+    expect(m.shown("codex")).toBe(true);
+    expect(m.shown("pi")).toBe(false);
+    if (kind === "configured") m.preview = preview({ ...m.preview, configured: byProvider(p => p === "pi") });
+    else m.added = ["pi"];
+    expect(m.shown("pi")).toBe(true);
+    expect(m.shown("codex")).toBe(false);
+    expect(m.cells("pi")).toContain("Installs on use");
+    expect(m.manageModel().agents.find(a => a.provider === "pi" && !a.account)).toMatchObject({
+      available: true,
+      shown: true,
+    });
+    m.hidden.pi = true;
+    expect(m.shown("pi")).toBe(false);
+  },
+);
+
 const menu = (fields: Partial<Menu> = {}) => {
   const value = new Menu({ workspace: 1, selected: "codex", last: "codex", pinned: true, ...fields });
   value.preview.installed = byProvider(p => installed.includes(p));
@@ -762,6 +790,52 @@ test("a signed-out account's row stays listed and offers to sign in", () => {
   m.account_hidden = ["/accounts/work"];
   expect(m.shown(work)).toBe(false);
 });
+
+test("a signed-out account behind an install-on-use shim launches before signing in", () => {
+  const m = menu({ selected: work });
+  m.preview = preview({
+    pending: false,
+    installed: byProvider(() => false),
+    on_demand: byProvider(p => p === "claude"),
+    accounts: [workAccount({ pending: false, signed_in: false })],
+  });
+  expect(m.shown(work)).toBe(true);
+  expect(m.signsIn(work)).toBeNull();
+  expect(m.cells(work).slice(3)).toEqual(["Installs on use", "—"]);
+  expect(m.usageCell(work).fallback).toBe("—");
+  m.preview.installed.claude = true;
+  m.preview.on_demand.claude = false;
+  expect(m.signsIn(work)?.name).toBe("work");
+  m.preview.accounts[0].option.signed_in = null;
+  expect(m.signsIn(work)).toBeNull();
+});
+
+test.each(["claude", "codex", "pi"] as const)(
+  "%s offers new accounts only after installation while saved shim accounts stay launchable",
+  provider => {
+    const m = menu(),
+      account = "/accounts/work",
+      row = Row.of(provider, account);
+    m.preview = preview({
+      pending: false,
+      installed: byProvider(() => false),
+      on_demand: byProvider(p => p === provider),
+      accounts: [{ provider, account, name: "work", option: { pending: false, signed_in: false } }],
+    });
+    m.manager.open(`tile:${provider}`);
+    let model = m.manageModel();
+    expect(m.manager.items(model).add.some(item => item.kind === "add")).toBe(false);
+    expect(model.agents.find(a => a.account === account)).toMatchObject({ available: true, shown: true });
+    expect(m.shown(row)).toBe(true);
+    expect(m.signsIn(row)).toBeNull();
+    m.preview.installed[provider] = true;
+    m.preview.on_demand[provider] = false;
+    model = m.manageModel();
+    expect(m.manager.items(model).add).toContainEqual({ kind: "add", provider });
+    m.manager.open(`add:${provider}`);
+    expect(m.manager.key(13, model)).toEqual({ kind: "add", provider });
+  },
+);
 
 test("signed-out named accounts stay in Manage agents with their workspace visibility", () => {
   const m = menu();

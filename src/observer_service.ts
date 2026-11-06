@@ -1,3 +1,4 @@
+import * as startup from "./startup_service";
 import * as telemetry from "./telemetry";
 import { Worker as TranscriptWorker } from "./transcript";
 import { Worker as UsageWorker } from "./usage/worker";
@@ -275,6 +276,7 @@ function detect(server: Server, pane: Pane, observedJob?: detection.Job | null) 
   if (!claim) pane.resume_hint.observe(pane.agent());
   if (job) {
     running(server, pane);
+    found(server, job.provider, job.pid);
     if ((previous && previous !== job.pid) || (pane.attachment.actor && pane.agent().provider !== job.provider))
       pane.releaseDetection();
     // An agent someone typed into the pane's shell comes back as they typed it.
@@ -283,11 +285,13 @@ function detect(server: Server, pane: Pane, observedJob?: detection.Job | null) 
     // A saved command's own variables may be spelled past reading; its agent's say.
     if (job.pid !== previous && pane.launch?.command)
       pane.running_account = Launch.observed(job.provider, job.pid).account() || null;
-    // An agent in an account Corgi hadn't seen gets its hooks from the next start on.
-    const account = job.pid !== previous ? pane.account() : "";
-    if (account && !accounts.forgotten(account)) {
-      accounts.remember(job.provider, account);
-      void integration.prepare(job.provider, account, false, os.processCwd(job.pid) ?? process.cwd());
+    // An agent in an account Corgi hadn't seen, or that wasn't there when
+    // Corgi started, gets its hooks and setup from the next start on.
+    if (job.pid !== previous) {
+      const account = pane.account();
+      if (account && !accounts.forgotten(account)) accounts.remember(job.provider, account);
+      if (!account || !accounts.forgotten(account))
+        void integration.prepare(job.provider, account, false, os.processCwd(job.pid) ?? process.cwd());
     }
     const shown = adapter(job.provider);
     if (shown.titleSession) {
@@ -351,7 +355,12 @@ function showing(runtime: Runtime, provider: Provider, session: string) {
   const actor = runtime.conversations.find(provider, session);
   return (actor && runtime.panes.find(pane => !pane.terminal.exited && pane.attachment.actor === actor)?.id) ?? null;
 }
+/** Recheck installs even when mise hands off without changing the PID. */
+function found(server: Server, provider: Provider, pid: number) {
+  void import("./launch_service").then(l => l.agentRan(server, provider, pid)).catch(() => {});
+}
 export function hook(server: Server, query: Request<"hook">) {
+  found(server, query.provider, query.pid);
   const workers = start(server),
     runtime = server.runtime;
   const event = adapter(query.provider).hook(query.event);
@@ -489,6 +498,7 @@ export async function tick(server: Server) {
     for (const pane of panes) {
       const front = fronts.get(pane.terminal.fd);
       detectPane(server, pane, front && front.job);
+      startup.observe(runtime, pane, front);
       if (front?.program?.name) running(server, pane);
       if (front !== undefined && pane.observeFront(front)) {
         server.dirty = true;

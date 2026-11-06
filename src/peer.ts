@@ -1,3 +1,4 @@
+import type { Wait as StartupWait } from "./startup";
 import * as telemetry from "./telemetry";
 import { n, ptr, ReadyLoop, READ, WRITE } from "./native_bridge";
 import * as json from "./json";
@@ -33,6 +34,7 @@ export class Client {
   view_focus: number | null = null;
   interests: Interest[] = [];
   protocol_version: number | null = null;
+  startup_wait: StartupWait | null = null;
   subscribed = false;
   /** Whether terminal output alone pushes this subscriber a snapshot. */
   subscribed_output = true;

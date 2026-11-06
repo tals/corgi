@@ -647,3 +647,79 @@ for (const request_id of [undefined, 41])
       }
     });
   }
+
+test("startup waits are shared, cancellable, and removed when their reporter disconnects", async () => {
+  const { server, dispose } = fixture(),
+    messages: any[] = [],
+    client = { dead: false, protocol_version: null, queue: (v: unknown) => messages.push(v) } as any,
+    pane = new Pane(1, new Terminal(80, 24), "/tmp"),
+    request = {
+      id: "launch-1",
+      pane: 1,
+      provider: "opencode2" as const,
+      phase: "service" as const,
+      detail: "",
+      started_at: Date.now(),
+    };
+  server.runtime.panes.push(pane);
+  server.clients.push(client);
+  const workspace = new Workspace(1, "/tmp");
+  workspace.model.newTab("test");
+  server.runtime.workspaces.items.push(workspace);
+  try {
+    await server.request(client, protocol.envelope("startup", request));
+    expect(messages.at(-1)).toEqual({ ok: true, cancelled: false });
+    expect(session.snapshot(server.runtime).startup_waits).toHaveLength(1);
+    expect(session.viewerSnapshot(server.runtime).startup_waits).toHaveLength(1);
+    await server.request(
+      client,
+      protocol.envelope("startup", { ...request, phase: "installing", detail: "mise downloading" }),
+    );
+    expect(server.runtime.startup_waits[0].phase).toBe("installing");
+    await server.request(client, protocol.envelope("startup.kill", { id: "launch-1" }));
+    await server.request(client, protocol.envelope("startup", request));
+    expect(messages.at(-1)).toEqual({ ok: true, cancelled: true });
+    expect(server.runtime.startup_waits[0].started_at).toBe(request.started_at);
+    client.dead = true;
+    Reflect.get(server, "collectStartups").call(server);
+    expect(server.runtime.startup_waits).toEqual([]);
+    await expect(server.request(client, protocol.envelope("startup.kill", { id: "launch-1" }))).rejects.toThrow(
+      "NoProcess",
+    );
+  } finally {
+    dispose();
+  }
+});
+
+test("startup cancellation survives the reporter connection's live handoff", async () => {
+  const source = fixture(),
+    target = fixture();
+  try {
+    const original = source.server.addClient(-1, false);
+    original.startup_wait = {
+      id: "startup",
+      pane: 1,
+      provider: "opencode2",
+      phase: "installing",
+      detail: "mise downloading",
+      started_at: Date.now(),
+      cancelled: true,
+    };
+    const manifest = json.parse(json.stringify(handoff.captureManifest(source.server, original))),
+      restored = handoff.restoreClient(target.server, manifest.clients[0]);
+    target.server.runtime.panes.push(new Pane(1, new Terminal(80, 24), "/tmp"));
+    Reflect.get(target.server, "collectStartups").call(target.server);
+    expect(target.server.runtime.startup_waits).toEqual([original.startup_wait]);
+    const messages: unknown[] = [];
+    restored.queue = value => {
+      messages.push(value);
+    };
+    await target.server.request(restored, protocol.envelope("startup", original.startup_wait));
+    expect(messages).toEqual([{ ok: true, cancelled: true }]);
+  } finally {
+    for (const f of [source, target]) {
+      for (const client of f.server.clients) client.close();
+      f.dispose();
+    }
+  }
+});

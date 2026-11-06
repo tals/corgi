@@ -1,3 +1,4 @@
+import * as startup from "../startup";
 import { closeSync, fstatSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { Server } from "../server";
@@ -32,6 +33,7 @@ const savedFields = [
   "protocol_version",
   "subscribed",
   "subscribed_output",
+  "startup_wait",
   "watching",
   "watch_viewer",
   "launch_preview",
@@ -55,6 +57,7 @@ export function restoreClient(server: Server, value: unknown): Client {
   const { fd, input, output, ...fields } = json.object(value),
     client = server.addClient(fd, false);
   checkpoint.hydrate(client, fields);
+  client.startup_wait = startup.decode([fields.startup_wait])[0] ?? null;
   if (client.snapshot_revision !== null) client.snapshot_revision = BigInt(client.snapshot_revision);
   for (const control of client.controls) control.seq = BigInt(control.seq);
   for (const interest of client.interests) {

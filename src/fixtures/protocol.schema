@@ -352,6 +352,9 @@ $.requests|agent.preview.cached.workspace: u32
 $.requests|agent.preview.cached.cwd: string
 $.requests|agent.track_usage.workspace: u32
 $.requests|agent.track_usage.cwd: string
+$.requests|agent.discover.provider: optional
+$.requests|agent.discover.provider?: provider
+$.requests|agent.discover.cwd: string
 $.requests|agent.history.follow: bool
 $.requests|viewer.list: {}
 $.requests|action.name: string
@@ -408,6 +411,13 @@ $.requests|theme.theme?.palette[16]: optional
 $.requests|theme.theme?.palette[16]?.r: u8
 $.requests|theme.theme?.palette[16]?.g: u8
 $.requests|theme.theme?.palette[16]?.b: u8
+$.requests|startup.id: string
+$.requests|startup.pane: u32
+$.requests|startup.provider: provider
+$.requests|startup.phase: enum discovering service session installing agent
+$.requests|startup.detail: string
+$.requests|startup.started_at: i64
+$.requests|startup.kill.id: string
 $.requests|hook.provider: provider
 $.requests|hook.event: any
 $.requests|hook.pane: u32
@@ -1084,6 +1094,7 @@ $.launch_preview.options{provider}.spend_daily[].used_minor: f64
 $.launch_preview.installed{provider}: bool
 $.launch_preview.configured{provider}: bool
 $.launch_preview.outdated{provider}: string
+$.launch_preview.on_demand{provider}: bool
 $.launch_history.epoch: u64
 $.launch_history.revision: u64
 $.launch_history.full: bool
@@ -1100,3 +1111,11 @@ $.launch_history.removed[].provider: provider
 $.launch_history.removed[].session: string
 $.replies.viewer.image.data: optional
 $.replies.viewer.image.data?: string
+$.snapshot.startup_waits: array
+$.snapshot.startup_waits[].id: string
+$.snapshot.startup_waits[].pane: u32
+$.snapshot.startup_waits[].provider: enum claude codex pi omp opencode2
+$.snapshot.startup_waits[].phase: enum discovering service session installing agent
+$.snapshot.startup_waits[].detail: string
+$.snapshot.startup_waits[].started_at: i64
+$.snapshot.startup_waits[].cancelled: bool

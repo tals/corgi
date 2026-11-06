@@ -1,7 +1,11 @@
-import { isAbsolute } from "node:path";
+import * as os from "./os";
+import { basename, isAbsolute } from "node:path";
 import { Worker as CommandWorker } from "./launch/command";
 import { Worker as PreviewWorker, Option, active_every, idle_every, Preview } from "./launch/preview";
-import { byProvider } from "./providers";
+import { byProvider, type Provider } from "./providers";
+import * as discovery from "./discovery";
+import * as accounts from "./accounts";
+import * as integration from "./integration";
 import { Worker as HistoryWorker } from "./launch/history";
 import type { Launch, Removed } from "./launch/row";
 import { stringify } from "./json";
@@ -121,6 +125,33 @@ export async function request(server: Server, client: Client, request: Request, 
     } satisfies Subscription;
     reply.send({ type: "agent.preview", cwd, preview });
   } else reply.send({ ok: true, preview });
+}
+/** Finds `providers` afresh, as Find agents asks or as an agent Corgi took
+ * for a shim that would install it runs, and sets up those it finds:
+ * Codex's title, for one, needs Codex to be there. */
+export async function discover(server: Server, providers: readonly Provider[], cwd = process.cwd()) {
+  await service(server).launch_previews.rediscover(providers, cwd);
+  for (const p of providers)
+    if (discovery.installed(p, cwd))
+      for (const account of ["", ...accounts.known().flatMap(a => (a.provider === p ? [a.dir] : []))])
+        void integration.prepare(p, account, false, cwd);
+}
+/** Keep waiting across preview reads that discover the installation first. */
+const rescanned = new WeakMap<Server, Map<string, "waiting" | "rescanned">>();
+/** Finds and sets up an install-on-use agent once its installer hands off. */
+export function agentRan(server: Server, provider: Provider, pid: number): void {
+  let seen = rescanned.get(server);
+  const key = `${provider}:${pid}`,
+    state = seen?.get(key);
+  if (state === "rescanned") return;
+  const cwd = os.processCwd(pid) ?? process.cwd();
+  if (!state && !discovery.onDemand(provider, cwd)) return;
+  if (!seen) rescanned.set(server, (seen = new Map()));
+  seen.set(key, "waiting");
+  const executable = os.processPath(pid);
+  if (!executable || basename(executable) === "mise") return;
+  seen.set(key, "rescanned");
+  discover(server, [provider], cwd).catch(() => {});
 }
 /** Input this recent in any viewer reads accounts every `active_every`. */
 const active_ms = 5 * 60 * 1000;

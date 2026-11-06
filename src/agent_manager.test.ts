@@ -920,7 +920,7 @@ test("narrow translated action rows keep the remove instruction before reorder b
     for (const language of i18n.locales) {
       i18n.setLanguage(language);
       for (const width of [64, 80]) {
-        const m = model(),
+        const m = { ...model(), finding: false },
           v = new agentManager.View();
         v.open(agentManager.agentKey("claude", "/a/2"));
         const b = new Rect(0, 0, width, v.height(m)),
@@ -932,6 +932,7 @@ test("narrow translated action rows keep the remove instruction before reorder b
           const line = terminal.text().split("\n")[b.h - 3];
           expect(line).toContain(i18n.t` hold ⌫ ` + i18n.t` remove`);
           expect(line).toContain(i18n.t` e Edit `);
+          expect(line).toContain(i18n.t`Find agents`);
           expect(line.endsWith("│")).toBe(true);
         } finally {
           terminal.destroy();
@@ -941,4 +942,31 @@ test("narrow translated action rows keep the remove instruction before reorder b
   } finally {
     i18n.setLanguage(previous);
   }
+});
+test.each([64, 82, 120, 160])("Find agents stays at the action row's right edge at width %i", width => {
+  const m = { ...model(), finding: false as boolean | null },
+    v = new agentManager.View();
+  v.open(agentManager.agentKey("claude", ""));
+  const idle = screen(v, m, 0, width),
+    y = idle.b.h - 3,
+    row = idle.lines[y],
+    x = row.indexOf("Find agents");
+  expect(row).toContain(" f  ↻ Find agents ");
+  expect(row).toContain(" e Edit ");
+  expect(row.slice(x + "Find agents".length, idle.b.w)).toBe("   │");
+  expect(idle.lines[0]).not.toContain("Find agents");
+  // `f` and a click both ask.
+  expect(v.key(102, m)).toEqual({ kind: "find" });
+  expect(v.click(idle.b, x, y, m)).toEqual({ kind: "find" });
+  expect(v.pointerShape(idle.b, m, x, y)).toBe("pointer");
+  // While it looks, neither does, and the button keeps its place.
+  const looking = { ...m, finding: true },
+    spinning = screen(v, looking, 0, width).lines[y];
+  expect(spinning.indexOf("Find agents")).toBe(x);
+  expect(spinning).not.toContain("↻");
+  expect(v.key(102, looking)).toBeNull();
+  expect(v.click(idle.b, x, y, looking)).toBeNull();
+  expect(v.pointerShape(idle.b, looking, x, y)).toBe("default");
+  // A daemon that can't look leaves no button.
+  expect(screen(v, { ...m, finding: null }, 0, width).lines[y]).not.toContain("Find agents");
 });
