@@ -67,6 +67,16 @@ fi
 exec ${quote(agent)} "$@"`,
     );
   }
+  async selectNewAccount(view: Viewer) {
+    await view.input("/add claude\t");
+    await this.until(async () => !(await view.poll()).data.includes("Discovering"), 12);
+    await this.until(async () => {
+      const rows = screen_text((await view.poll()).data, 160, 40);
+      if (rows.some(row => /›\s+\+ New Claude Code account/.test(row))) return true;
+      await view.input("\x1b[B");
+      return false;
+    });
+  }
   async workspace() {
     return (await this.session()).workspaces[0].id as number;
   }
@@ -213,7 +223,8 @@ exec ${quote(agent)} "$@"`,
     await view.input("\x02A");
     await view.input("\x1b[C");
     await view.advance(0.3);
-    await view.input("/add claude\t\r");
+    await this.selectNewAccount(view);
+    await view.input("\r");
     await this.until(async () => (await view.poll()).data.includes("Select login method"));
     await view.input("\r");
     await this.until(async () => (await view.poll()).data.includes("paste it here"));
@@ -268,7 +279,7 @@ exec ${quote(agent)} "$@"`,
     await view.input("\x02A\x1b[C");
     await view.advance(0.3);
     await this.until(async () => (await view.poll()).data.includes("Manage agents"));
-    await view.input("/add claude\t");
+    await this.selectNewAccount(view);
     const before = screen_text((await view.poll()).data, 160, 40),
       row = before.findIndex(row => /›\s+\+ New Claude Code account/.test(row)),
       col = before[row].indexOf("Claude Code");
@@ -307,7 +318,7 @@ exec ${quote(agent)} "$@"`,
     await view.input("\x1b[C");
     await view.advance(0.3);
     await this.until(async () => (await view.poll()).data.includes("Manage agents"));
-    await view.input("/add claude\t");
+    await this.selectNewAccount(view);
     // Add agent shows its accounts' readings; compare once they've arrived.
     const before = await this.until(async () => {
       const rows = screen_text((await view.poll()).data, 160, 40);

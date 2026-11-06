@@ -509,7 +509,7 @@ async function agent(provider: Provider): Promise<Agent | null> {
     if (errors.is(error, "ProviderTooOld"))
       return { name, version: discovery.outdated(provider) ?? "", path: "", old: true, unanswered: false, hooks: null };
     // Installs that never said which they were: slow, or failing.
-    const silent = discovery.considered(provider).find(c => c.ok === null);
+    const silent = discovery.considered(provider).find(c => c.version === null);
     return silent ? { name, version: "", path: silent.path, old: false, unanswered: true, hooks: null } : null;
   }
   if (!path.includes("/")) {
@@ -517,7 +517,8 @@ async function agent(provider: Provider): Promise<Agent | null> {
     if (found === null) return null;
     path = found;
   }
-  const [version, hooks] = await Promise.all([versionLine(path), hooksOf(provider)]);
+  const known = discovery.considered(provider).find(c => c.path === path)?.version,
+    [version, hooks] = await Promise.all([known ? Promise.resolve(known) : versionLine(path), hooksOf(provider)]);
   return { name, version, path, old: false, unanswered: false, hooks };
 }
 /** Whether the default account reports to Corgi, as `corgi integration status` says. */

@@ -1,8 +1,33 @@
 import { expect, spyOn, test } from "bun:test";
-import { link, Signin } from "./signin";
+import { adding, link, Signin } from "./signin";
 import * as discovery from "./discovery";
 import { signin as claude } from "./providers/claude/signin";
 import { signin as codex } from "./providers/codex/signin";
+
+test("account creation resolves installed agents before selecting the only provider", async () => {
+  const pending = Promise.withResolvers<void>(),
+    check = spyOn(discovery, "check").mockReturnValue(pending.promise),
+    installed = spyOn(discovery, "installed").mockReturnValue(false),
+    begin = spyOn(Signin.prototype, "begin").mockResolvedValue(),
+    signin = adding(null, null, { changed() {}, done() {} });
+  try {
+    signin.cwd = "/workspace";
+    const opened = signin.open(80, 24);
+    expect(check).toHaveBeenCalledWith("/workspace");
+    expect(begin).not.toHaveBeenCalled();
+    installed.mockImplementation(p => p === "codex");
+    pending.resolve();
+    await opened;
+    expect(signin.provider).toBe("codex");
+    expect(begin).toHaveBeenCalledTimes(1);
+  } finally {
+    pending.resolve();
+    signin.abandon();
+    begin.mockRestore();
+    installed.mockRestore();
+    check.mockRestore();
+  }
+});
 
 // Screens the agents showed on their first run, as their text reads.
 const claude_method = `Claude Code can be used with your Claude subscription or billed based on API usage through your Console
@@ -90,11 +115,13 @@ test("an agent too old to sign in to says so and makes no account", async () => 
     },
   });
   s.provider = "pi";
+  s.cwd = "/workspace";
   const resolve = spyOn(discovery, "resolve").mockRejectedValue(Error("ProviderTooOld")),
     outdated = spyOn(discovery, "outdated").mockReturnValue("0.84.2"),
     start = spyOn(s, "start").mockResolvedValue();
   try {
     await s.begin();
+    expect(resolve).toHaveBeenCalledWith("pi", "/workspace");
     expect(s.stage.kind === "dialog" && s.stage.dialog.heading).toBe(
       "Pi 0.84.2 is too old: Corgi needs Pi 1.0.0 or newer. Update it, then try again.",
     );

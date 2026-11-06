@@ -7,6 +7,7 @@ import { info } from "./info";
 import { API, configDir, validSession } from "./api";
 import * as message from "./message";
 import { prepare } from "./launch";
+import { configured } from "./launcher";
 import { OpenCode2 } from "./headless";
 import { Worker } from "./observer";
 const hooks = new Hooks();
@@ -20,6 +21,7 @@ export const adapter: Adapter = {
     transcript_tools: false,
   },
   version: s => /^opencode v2\./m.test(s.trim()),
+  distribution: { packages: ["@opencode/cli", "opencode-ai"], version: v => `opencode v${v}` },
   requires: "v2",
   installs: ({ home, root }) => [
     ...(home ? [join(home, ".opencode/bin/opencode2"), join(home, ".opencode/bin/opencode")] : []),
@@ -30,6 +32,7 @@ export const adapter: Adapter = {
     home: env => dirname(configDir(env)),
     prefix: "",
     identity: () => null,
+    configured,
     shared: { dirs: [], files: [] },
     signin: null,
   },
@@ -48,7 +51,7 @@ export const adapter: Adapter = {
   watch: () => new ScreenWatcher(() => null),
   hook: v => hooks.decode(v),
   launch: {
-    models: (_account, quit) => import("./models").then(m => m.catalog(quit)),
+    models: (_account, quit, cwd) => import("./models").then(m => m.catalog(quit, cwd)),
     options: (args, model) => (model ? commandLine.withoutModel(args) : args),
     prepare,
     start: s => [

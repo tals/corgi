@@ -3,6 +3,7 @@ import type { Runtime } from "./runtime";
 import { Provider, adapter } from "./providers";
 import { Row, hidden } from "./launch/row";
 import * as accounts from "./accounts";
+import * as visibility from "./launch/visibility";
 import * as profiles from "./agent_profiles";
 import * as options from "./agent_options";
 import * as effort from "./providers/effort";
@@ -20,7 +21,9 @@ export type Agent = {
   options: options.Options;
   yolo: boolean;
 };
-export function catalog(r: Runtime): Agent[] {
+export function catalog(r: Runtime, preview?: visibility.Preview): Agent[] {
+  const savedProfiles = profiles.list(),
+    defaults = preview && visibility.defaults(preview, r.launcher_added, savedProfiles);
   const native = Provider.all
     .flatMap(provider => [
       { provider, account: "", name: accounts.defaultName(provider) },
@@ -34,7 +37,11 @@ export function catalog(r: Runtime): Agent[] {
       names: [name, ...(!account ? [`${provider}/default`] : [])].filter(Boolean),
       row: Row.of(provider, account),
       label: name || adapter(provider).label,
-      launcher: !hidden(r, { provider, account }),
+      launcher:
+        !hidden(r, { provider, account }) &&
+        (!preview ||
+          (visibility.available(preview, provider) &&
+            (account ? visibility.account(preview, { provider, account }, r.launcher_added) : defaults![provider]))),
       name,
       provider,
       account,
@@ -43,12 +50,12 @@ export function catalog(r: Runtime): Agent[] {
     }));
   return [
     ...native,
-    ...profiles.list().map((p): Agent => ({
+    ...savedProfiles.map((p): Agent => ({
       agent: `profile/${p.id}`,
       names: [p.name],
       row: Row.ofProfile(p.id),
       label: p.name,
-      launcher: true,
+      launcher: !preview || visibility.saved(preview, p),
       name: p.name,
       provider: p.provider,
       account: p.account,

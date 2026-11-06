@@ -160,7 +160,7 @@ test("accounts survive a change of folder until the new folder's read lists its 
   deliver(stream, message("/a", false, [account]));
   // As poll moves the stream to another folder.
   Object.assign(stream, { preview: stream.current("/b"), cwd: "/b", received: false });
-  expect(stream.preview.accounts.map(a => [a.name, a.option.model, a.option.signed_in])).toEqual([["work", "", true]]);
+  expect(stream.preview.accounts.map(a => [a.name, a.option.model, a.option.signed_in])).toEqual([["work", "", null]]);
   // The daemon's first answer there lists none yet.
   deliver(stream, message("/b", true, []));
   expect(stream.preview.accounts.map(a => a.name)).toEqual(["work"]);
@@ -189,7 +189,7 @@ test("the first frame has snapshot accounts and partial previews update while an
   expect(stream.preview.pending).toBe(true);
   expect(stream.preview.accounts[0].option.account).toBe("work@example.com");
   const other = stream.current("/b");
-  expect(other.accounts[0].option.account).toBe("work@example.com");
+  expect(other.accounts[0].option.account).toBe("");
   expect(other.accounts[0].option.pending).toBe(true);
   sent.accounts = [];
   expect(receive()).toBe(true);

@@ -3167,7 +3167,7 @@ export class Controller {
         }
         return;
       case "models": {
-        const entry = this.model_cache.get(action.agent.provider, action.agent.account);
+        const entry = this.model_cache.get(action.agent.provider, action.agent.account, launch.cwd);
         action.picker.received(entry.values, entry.failed, entry.pending);
         return;
       }
@@ -3237,6 +3237,8 @@ export class Controller {
             action.before,
           );
           launch.workspace_hidden = toggled(launch.workspace_hidden, action.row, !action.shown);
+          if (action.shown && Row.launch(action.row) && !launch.added.includes(action.row))
+            launch.added = [...launch.added, action.row];
         } catch (error) {
           launch.manager.fail(signin.problem(error));
         }
@@ -3302,8 +3304,14 @@ export class Controller {
   private async showEverywhere(a: agentLauncher.Launch): Promise<void> {
     const row = Row.of(a.provider, a.account);
     if (this.runtime.account_hidden.includes(a.account)) await this.setLauncherShown(a, true);
-    for (const ws of this.runtime.workspaces.items.filter(ws => ws.launcher_hidden.includes(row)))
-      await this.execute({ "agent.workspace_visibility": { workspace: ws.id, row, shown: true } });
+    const workspaces = new Set([
+      this.launcherModel()?.workspace ?? this.current().id,
+      ...this.runtime.workspaces.items.filter(ws => ws.launcher_hidden.includes(row)).map(ws => ws.id),
+    ]);
+    for (const workspace of workspaces)
+      await this.execute({ "agent.workspace_visibility": { workspace, row, shown: true } });
+    const launch = this.launcherModel();
+    if (launch && !launch.added.includes(row)) launch.added = [...launch.added, row];
   }
   /** The slow logout and folder deletion must not hold up input or drawing. */
   private removeAccount(a: agentManager.Agent, launch: LauncherMenu): void {
@@ -3826,6 +3834,7 @@ export class Controller {
       return launch.manager.fail(signin.problem(error));
     }
     launch.workspace_hidden = toggled(launch.workspace_hidden, row, !shown);
+    if (shown && Row.launch(row) && !launch.added.includes(row)) launch.added = [...launch.added, row];
     this.dirty = true;
   }
   private rememberLauncherSelection(): void {
@@ -3898,6 +3907,7 @@ export class Controller {
       last: this.lastAgent(),
       yolo: { ...this.runtime.agent_yolo },
       hidden: { ...this.runtime.agent_hidden },
+      added: [...this.runtime.launcher_added],
       account_yolo: this.runtime.account_yolo,
       account_hidden: this.runtime.account_hidden,
       workspace_hidden: this.current().launcher_hidden,
@@ -3929,8 +3939,7 @@ export class Controller {
   private selectLauncher(row: LauncherRow): void {
     const launch = this.agent_launcher;
     if (launch) {
-      launch.selected = row;
-      launch.normalize();
+      launch.select(row);
       launch.pinned = true;
     }
     this.dirty = true;
@@ -3966,6 +3975,7 @@ export class Controller {
     if (launch) {
       launch.yolo = { ...this.runtime.agent_yolo };
       launch.hidden = { ...this.runtime.agent_hidden };
+      launch.added = [...this.runtime.launcher_added];
       launch.account_yolo = this.runtime.account_yolo;
       launch.account_hidden = this.runtime.account_hidden;
       const i = this.runtime.workspaces.index(launch.workspace);
@@ -3979,10 +3989,10 @@ export class Controller {
       if (launch.managing && (!this.corgi_setup || this.corgi_setup.managing())) {
         for (const agent of launch.manageModel().agents)
           if (agent.shown && launch.preview.installed[agent.provider])
-            this.model_cache.get(agent.provider, agent.account);
+            this.model_cache.get(agent.provider, agent.account, launch.cwd);
         const picker = launch.manager.picker;
         if (picker) {
-          const entry = this.model_cache.get(picker.agent.provider, picker.agent.account),
+          const entry = this.model_cache.get(picker.agent.provider, picker.agent.account, launch.cwd),
             view = picker.view;
           if (view.values !== entry.values || view.pending !== entry.pending || view.failed !== entry.failed) {
             view.received(entry.values, entry.failed, entry.pending);
@@ -4098,7 +4108,7 @@ export class Controller {
     const launch = this.agent_launcher!;
     if (launch.resume_view.move(launch.resumeContext(), rows, delta) || launch.resume_view.searching) return;
     launch.resume_view.focused = false;
-    launch.selected = launch.lastRow();
+    launch.select(launch.lastRow());
   }
   private async resumeKey(byte: number): Promise<void> {
     const launch = this.agent_launcher!;
@@ -4546,7 +4556,7 @@ export class Controller {
     else if (!this.prompt.open && now - this.prompt_warmed_at >= 5000) {
       this.prompt_warmed_at = now;
       for (const { provider, account } of this.promptPlaces())
-        this.model_cache.get(provider, account, agentModels.Cache.fresh_ms);
+        this.model_cache.get(provider, account, this.launcherCwd(), agentModels.Cache.fresh_ms);
     }
     const changed = this.prompt.poll(now),
       attention = this.prompt.open ? "none" : this.prompt.attention();
@@ -4583,7 +4593,7 @@ export class Controller {
   }
   private promptModels(): { entries: modelPicker.Entry[]; briefs: modelPicker.Brief[]; pending: boolean } {
     if (!this.launch_previews.received) return { entries: [], briefs: [], pending: true };
-    return promptModels.catalog(this.model_cache, this.promptPlaces(), nowSeconds());
+    return promptModels.catalog(this.model_cache, this.promptPlaces(), nowSeconds(), this.launcherCwd());
   }
   private promptUsage(): modelSuggest.Usage {
     return promptModels.usage(
@@ -6945,7 +6955,7 @@ export class Controller {
         } else if (!launch.managing) {
           const row = launch.hit(this.width, this.height, side, x, y);
           if (row !== null) {
-            launch.selected = row;
+            launch.select(row);
             launch.resume_view.focused = false;
           } else {
             const target = launch.resumeHit(this.width, this.height, side, x, y);

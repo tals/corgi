@@ -7,7 +7,6 @@ import * as corgiAnimation from "./corgi_animation";
 import * as corgiFrames from "./corgi_frames";
 import { Terminal } from "./pane/terminal";
 import { View as ContextView } from "./usage/context_window";
-import * as sim from "./providers/sim";
 import * as agentSections from "./agent_sections";
 import * as sidebarRows from "./sidebar_rows";
 import { section } from "./agent_order";
@@ -350,14 +349,20 @@ test("subagent badge shares the second row without reserving empty space", () =>
   expect(has(out, e.activity)).toBe(true);
 });
 
-test("an empty agent list names every provider's command", () => {
-  const remove = sim.register();
-  try {
-    const out = draw(View.init(100, 30, true, 0, 1), [], []);
-    expect(has(out, "codex  or  claude\x1b")).toBe(true);
-    expect(has(out, "or  sim\x1b")).toBe(true);
-  } finally {
-    remove();
+test("an empty agent list points to New beside the shortcut keycap", () => {
+  for (const width of [20, 28, 40]) {
+    const view = View.init(100, 30, true, 0, 0).withWidth(width);
+    view.new_shortcut = "Ctrl+A c";
+    const out = draw(view, [], []),
+      rows = hostText(out).split("\n"),
+      hint = rows[view.middle() + 3];
+    expect(out).toContain(palette.keycap + " Ctrl+A c ");
+    expect(hint).toContain("Ctrl+A c");
+    expect(view.hit(hint.indexOf("↑"), view.middle())).toEqual(H("agent_new"));
+    expect(rows[view.middle() + 1].slice(0, width - 1).trim()).toBe("");
+    expect(rows[view.middle() + 2].slice(0, width - 1).trim()).toBe("");
+    expect(out).not.toContain("No agents yet");
+    expect(out).not.toContain("Launch inside a pane:");
   }
 });
 
@@ -1375,8 +1380,8 @@ test("the focused list sits in a box in the focused pane's outline, sharing the 
   lines = box(view);
   expect(lines[12]).toBe(" ".repeat(27) + "│");
   expect(lines[13]).toBe(rule("┌─", "─", "┤"));
-  // The row its search opens in shows its key.
-  expect(lines[15]).toBe("│ / search" + " ".repeat(17) + "│");
+  expect(lines[15]).toBe("│" + " ".repeat(26) + "│");
+  expect(lines[17]).toBe("│" + " ".repeat(19) + "↑" + " ".repeat(6) + "│");
   expect(lines[22]).toBe("│" + " ".repeat(26) + "│");
   expect(lines[29]).toBe(edge("└", "┘"));
   expect([0, 12, 13, 29].map(y => view.outlines(y))).toEqual([false, false, true, true]);
@@ -1386,6 +1391,7 @@ test("the focused list sits in a box in the focused pane's outline, sharing the 
   expect(lines[13]).toBe(rule("└─", "─", "┤"));
   expect(lines[29]).toBe(" ".repeat(27) + "│");
   expect(lines[15].trim()).toBe("│");
+  expect(lines[17]).toBe(" ".repeat(20) + "↑" + " ".repeat(6) + "│");
   expect([0, 12, 13, 29].map(y => view.outlines(y))).toEqual([false, true, true, false]);
   view.drawer = "workspaces";
   lines = box(view);

@@ -1,27 +1,16 @@
-import { join } from "node:path";
 import type { Launcher } from "../adapter";
-import { cached } from "../command_line";
 import { field, str } from "../common";
 import { Stdio } from "../stdio";
 import * as discovery from "../../discovery";
 import { directory } from "./integration";
 import { Client } from "./account";
-export function settingsModel(cwd: string, account = "") {
-  const user = cached(directory(account), "settings.json"),
-    project = cached(join(cwd, ".pi"), "settings.json");
-  const model = typeof project?.defaultModel === "string" ? project.defaultModel : user?.defaultModel;
-  const provider = typeof project?.defaultProvider === "string" ? project.defaultProvider : user?.defaultProvider;
-  return {
-    model: typeof model === "string" ? (provider ? provider + "/" : "") + model : "",
-    source: project?.defaultModel ? "Project settings (if trusted)" : "Pi user settings",
-  };
-}
+import { settingsModel } from "./config";
 export function open(account = ""): Launcher {
   const active = new Set<Stdio>(),
     client = new Client(account);
   let closed = false;
   return {
-    account: (quit, max_age) => client.preview(quit, max_age),
+    account: (quit, max_age, cwd) => client.preview(quit, max_age, cwd),
     async model(cwd, quit) {
       const fallback = settingsModel(cwd, account);
       let io: Stdio | null = null;

@@ -13,6 +13,7 @@ $.link_labels.generation: u64
 $.last_agent: provider
 $.agent_yolo{provider}: bool
 $.agent_hidden{provider}: bool
+$.launcher_added[]: string
 $.account_yolo[]: string
 $.account_hidden[]: string
 $.agent_commands[6].command: custom bounded_text.BoundedText(2048)

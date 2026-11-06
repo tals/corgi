@@ -5,11 +5,12 @@ import { getLogger } from "../../log";
 import { Quit, run } from "../../subprocess";
 import { Info, Text, Window, used, windows } from "../../usage/account";
 import { Cache, cooldown } from "../../usage/account_cache";
-import { cached } from "../command_line";
 import { field, str } from "../common";
 import * as codexPlan from "../codex/plan";
 import { credential, identity } from "./accounts";
+import { settingsProvider } from "./config";
 import { directory } from "./integration";
+import * as models from "./models";
 
 const log = getLogger("pi.account");
 function window(value: unknown) {
@@ -42,32 +43,44 @@ export class Client {
   close() {
     this.quit.signal();
   }
-  async preview(quit: Quit, max_age = 0) {
+  async preview(quit: Quit, max_age = 0, cwd = "/tmp") {
     const root = directory(this.account),
       c = credential(root),
       who = identity(root),
-      provider = str(cached(root, "settings.json"), "defaultProvider") || c?.provider || "",
+      provider = settingsProvider(cwd, this.account) || c?.provider || "",
       info = new Info();
     info.account = new Text(who && c?.provider === provider ? who.email : provider);
-    if (!c || c.provider !== provider) return info;
-    info.plan = new Text(c.type === "oauth" ? "OAuth" : "API key");
-    // Other providers do not share ChatGPT's subscription endpoint.
-    if (provider !== "openai-codex" || c.type !== "oauth" || this.quit.aborted || quit.aborted) return info;
+    info.signed_in = !!c && c.provider === provider;
+    if (this.quit.aborted || quit.aborted) return info;
     const stopping = new Quit(),
       abort = () => stopping.signal();
     quit.abortSignal.addEventListener("abort", abort, { once: true });
     this.quit.abortSignal.addEventListener("abort", abort, { once: true });
     try {
+      if (!c || c.provider !== provider) {
+        // Native availability also covers environment keys and custom endpoints.
+        const available = await models.availability(this.account, stopping, cwd).catch(() => null),
+          selected = available?.models.find(m => !provider || m.id.startsWith(provider + "/")),
+          unverified =
+            available === null || (provider ? available.unverified.has(provider) : available.unverified.size > 0);
+        info.signed_in = selected ? true : unverified ? null : false;
+        if (selected) info.account = new Text(selected.user || selected.id.split("/")[0]);
+        return info;
+      }
+      info.plan = new Text(c.type === "oauth" ? "OAuth" : "API key");
+      // Other providers do not share ChatGPT's subscription endpoint.
+      if (provider !== "openai-codex" || c.type !== "oauth") return info;
       // Folders signed in to one account share its reading.
       const cache = await Cache.open("pi", JSON.stringify([who?.id ?? root, provider]), stopping);
       try {
         const now = Math.floor(Date.now() / 1000);
+        cache.state.info.signed_in = info.signed_in;
         cache.state.info.account = info.account;
         if (!cache.state.info.plan.len) cache.state.info.plan = info.plan;
         if (max_age > 0 && (now < this.retry_at || now - cache.state.info.usage_fetched_at < max_age))
           return cache.state.display(now);
         try {
-          const executable = await discovery.resolve("pi", "/tmp"),
+          const executable = await discovery.resolve("pi", cwd),
             output = await run([executable, "auth", "print-bearer-token", "--provider", provider], {
               cwd: "/tmp",
               env: { ...process.env, PI_CODING_AGENT_DIR: root },

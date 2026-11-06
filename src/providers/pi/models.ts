@@ -74,8 +74,10 @@ export function parse(value: unknown, auth: unknown, ready?: ReadonlySet<string>
     ];
   });
 }
-export async function read(account: string, quit: Quit): Promise<InferenceModel[]> {
-  const executable = await discovery.resolve("pi", "/tmp");
+export type Availability = { models: InferenceModel[]; unverified: ReadonlySet<string> };
+/** Verified models and providers whose sign-in check could not finish. */
+export async function availability(account: string, quit: Quit, cwd = "/tmp"): Promise<Availability> {
+  const executable = await discovery.resolve("pi", cwd);
   if (quit.aborted) throw Error("Cancelled");
   const root = directory(account),
     env: NodeJS.ProcessEnv = { ...process.env, PI_CODING_AGENT_DIR: root };
@@ -108,7 +110,8 @@ export async function read(account: string, quit: Quit): Promise<InferenceModel[
         if (field(v, "success") !== true) throw Error("ModelsUnavailable");
         const data = field(v, "data"),
           candidates = parse(data, cached(root, "auth.json"));
-        const ready = new Set<string>();
+        const ready = new Set<string>(),
+          unverified = new Set<string>();
         await Promise.all(
           [...new Set(candidates.map(m => m.id.split("/")[0]))].map(async provider => {
             try {
@@ -120,14 +123,25 @@ export async function read(account: string, quit: Quit): Promise<InferenceModel[
                 quit,
               });
               const result: unknown = JSON.parse(checked.stdout.toString());
-              if (checked.ok() && str(result, "status") === "ready" && str(result, "provider") === provider)
-                ready.add(provider);
+              if (!("exited" in checked.term) || str(result, "provider") !== provider) throw Error("InvalidAuthCheck");
+              switch (str(result, "status")) {
+                case "ready":
+                  if (!checked.ok()) throw Error("InvalidAuthCheck");
+                  ready.add(provider);
+                  break;
+                case "not_ready":
+                case "invalid":
+                  break;
+                default:
+                  throw Error("InvalidAuthCheck");
+              }
             } catch {
-              /* Unverified credentials never make the picker. */
+              unverified.add(provider);
             }
           }),
         );
-        return parse(data, cached(root, "auth.json"), ready);
+        if (quit.aborted) throw Error("Cancelled");
+        return { models: parse(data, cached(root, "auth.json"), ready), unverified };
       }
       if (io.exited || io.closed) break;
       await io.wait(deadline);
@@ -137,4 +151,7 @@ export async function read(account: string, quit: Quit): Promise<InferenceModel[
     quit.abortSignal.removeEventListener("abort", abort);
     io.close();
   }
+}
+export async function read(account: string, quit: Quit, cwd = "/tmp"): Promise<InferenceModel[]> {
+  return (await availability(account, quit, cwd)).models;
 }

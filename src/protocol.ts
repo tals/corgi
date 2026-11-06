@@ -627,7 +627,8 @@ const launch = { workspace: "u32", cwd: ["string", ""] } as const satisfies Fiel
 const requests = {
   /** `output: false` leaves out pushes for terminal output alone, as a status display wants. */
   "session.subscribe": { output: ["bool", true] },
-  "launcher.models": { row: "string" },
+  "launcher.catalog": { workspace: ["u32", 0], cwd: ["string", ""] },
+  "launcher.models": { row: "string", workspace: ["u32", 0], cwd: ["string", ""] },
   "session.locate": { pane: "u32" },
   "viewer.watch": { viewer: "u32" },
   "agent.subscribe": launch,

@@ -19,6 +19,7 @@ import type { Request } from "./protocol";
 import { Model } from "./providers/model";
 import * as accounts from "./accounts";
 import * as integration from "./integration";
+import * as os from "./os";
 import * as agentRetry from "./agent_retry";
 import type { Title } from "./pane/terminal";
 import type { Actor } from "./conversations";
@@ -286,7 +287,7 @@ function detect(server: Server, pane: Pane, observedJob?: detection.Job | null) 
     const account = job.pid !== previous ? pane.account() : "";
     if (account && !accounts.forgotten(account)) {
       accounts.remember(job.provider, account);
-      void integration.prepare(job.provider, account);
+      void integration.prepare(job.provider, account, false, os.processCwd(job.pid) ?? process.cwd());
     }
     const shown = adapter(job.provider);
     if (shown.titleSession) {

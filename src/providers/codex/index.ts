@@ -18,7 +18,7 @@ import * as retrying from "./retry";
 import * as message from "./message";
 export { screen };
 export { label as plan } from "./plan";
-import { caps, identity, info, keeping, vocabulary } from "./info";
+import { caps, configured, identity, info, keeping, vocabulary } from "./info";
 import { signin } from "./signin";
 import * as commandLine from "../command_line";
 import { existsSync, realpathSync } from "node:fs";
@@ -78,6 +78,7 @@ export const adapter: Adapter = {
     ...appBundles(["Codex.app", "ChatGPT.app"], "codex", at),
   ],
   // Other tools are called codex too.
+  distribution: { packages: ["@openai/codex"], version: v => `codex-cli ${v}` },
   version(stdout) {
     const line = stdout.trim();
     return line.startsWith("codex-cli ") && /^\d/.test(line.slice("codex-cli ".length));
@@ -88,6 +89,7 @@ export const adapter: Adapter = {
     home: configDir,
     prefix: ".codex-",
     identity,
+    configured,
     // Its setup; the login and the conversations stay the account's own.
     shared: {
       dirs: ["prompts", "skills", "rules", "plugins"],
@@ -155,7 +157,7 @@ export const adapter: Adapter = {
     model: "gpt-6-luna",
     catalog: "native",
     source: "OpenAI",
-    models: (account, quit) => import("./models").then(m => m.read(account, quit)),
+    models: (account, quit, cwd) => import("./models").then(m => m.read(account, quit, cwd)),
     start: (r, at) => Codex.start(at, r, toolless),
     restore: Codex.restore,
     renew: (c, r) => c instanceof Codex && c.renew(r),

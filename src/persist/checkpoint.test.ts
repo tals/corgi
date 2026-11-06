@@ -309,6 +309,23 @@ test("an account's YOLO and Show survive checkpoints and default for old ones", 
     expect(() => validateCheckpoint({ ...state, account_yolo: [3] })).toThrow();
   }
 });
+
+test("explicit launcher additions survive reload and cold recovery and default to discovery for old state", async () => {
+  for (const live of [true, false]) {
+    using original = fresh();
+    original.launcher_added = ["pi", "omp", "claude:/accounts/work"];
+    const state = roundtrip(cp.capture(original, live));
+    validateCheckpoint(state);
+    using restored = new Runtime();
+    await restore(restored, state, live);
+    expect(restored.launcher_added).toEqual(original.launcher_added);
+    delete state.launcher_added;
+    using old = new Runtime();
+    await restore(old, state, live);
+    expect(old.launcher_added).toEqual([]);
+    expect(() => validateCheckpoint({ ...state, launcher_added: [3] })).toThrow();
+  }
+});
 test("a conversation's headless count and tracking start survive handoffs, not cold restores", async () => {
   for (const live of [true, false]) {
     using original = fresh();

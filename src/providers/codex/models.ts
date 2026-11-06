@@ -4,10 +4,13 @@ import type { Quit } from "../../subprocess";
 import { AppServer, account as readAccount } from "./app_server";
 import { field, str } from "../common";
 import * as nativeModels from "../../inference/native_models";
+import * as discovery from "../../discovery";
 
-export async function read(account: string, quit: Quit): Promise<InferenceModel[]> {
+export async function read(account: string, quit: Quit, cwd = process.cwd()): Promise<InferenceModel[]> {
   if (quit.aborted) throw Error("Cancelled");
-  const server = new AppServer(5000, null, account);
+  const executable = await discovery.resolve("codex", cwd);
+  if (quit.aborted) throw Error("Cancelled");
+  const server = new AppServer(5000, executable, account);
   const abort = () => server.close();
   quit.abortSignal.addEventListener("abort", abort, { once: true });
   try {
@@ -17,7 +20,7 @@ export async function read(account: string, quit: Quit): Promise<InferenceModel[
       config_read = false;
     try {
       const config = field(
-        field(await server.request("config/read", { includeLayers: false }, quit.abortSignal), "result"),
+        field(await server.request("config/read", { includeLayers: false, cwd }, quit.abortSignal), "result"),
         "config",
       );
       configured = effort.parse(field(config, "model_reasoning_effort"));

@@ -3,7 +3,7 @@ import { milliTimestamp } from "./clock";
 import type { History, Entry } from "./launch/history";
 import type { Account } from "./launcher_resume";
 import { type Preview, option as optionValue, preview as previewValue } from "./agent_launcher";
-import { Provider } from "./providers";
+import { Provider, byProvider } from "./providers";
 import { call, type Transport } from "./mirror";
 export class Stream {
   private connection: Transport | null = null;
@@ -15,7 +15,7 @@ export class Stream {
   changedEvent: () => void = () => {};
   cwd = "";
   workspace = 0;
-  preview: Preview = previewValue();
+  preview: Preview = previewValue({ configured: byProvider(() => false) });
   received = false;
   retry_at = 0;
   history: History = { pending: true, entries: [] };
@@ -45,14 +45,14 @@ export class Stream {
         accounts: known.map(a => ({ ...a, managed: a.managed ?? false, option: optionValue({ pending: true }) })),
       };
     if (cwd === this.cwd) return this.preview;
-    // Provider and account visibility survives a directory change; model
-    // settings don't.
+    // Installations and environment credentials can differ between workspaces.
     const result = previewValue();
     result.installed = { ...this.preview.installed };
+    result.configured = { ...this.preview.configured };
     result.outdated = { ...this.preview.outdated };
     result.names = { ...this.preview.names };
     const inFolder = (option: Preview["options"][Provider]) =>
-      optionValue({ ...option, pending: true, model: "", model_name: "", source: "" });
+      optionValue({ ...option, pending: true, signed_in: null, account: "", model: "", model_name: "", source: "" });
     for (const provider of Provider.all) result.options[provider] = inFolder(this.preview.options[provider]);
     result.accounts = this.preview.accounts.map(a => ({
       ...a,
@@ -134,6 +134,7 @@ export class Stream {
         preview = previewValue(parse(stringify(this.preview)));
         preview.pending = true;
         preview.installed = sent.installed;
+        preview.configured = sent.configured;
         preview.outdated = sent.outdated;
       } else if (preview.accounts.length === 0) {
         // A folder's first read lists no accounts yet; keep the ones carried over.

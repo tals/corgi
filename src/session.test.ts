@@ -38,10 +38,12 @@ test("moving launcher rows atomically persists order and visibility only in the 
     await execute(r, ctx, protocol.decodeCommand({ "agent.launcher.move": command }));
     expect(home.launcher_order).toEqual(["codex", "claude", "profile:copy"]);
     expect(home.launcher_hidden).toEqual(["codex"]);
+    expect(r.launcher_added).toEqual([]);
     expect(away.launcher_order).toEqual([]);
     await execute(r, ctx, protocol.decodeCommand({ "agent.launcher.move": { ...command, before: null, shown: true } }));
     expect(home.launcher_order).toEqual(["claude", "profile:copy", "codex"]);
     expect(home.launcher_hidden).toEqual([]);
+    expect(r.launcher_added).toEqual(["codex"]);
     await expect(
       execute(r, ctx, protocol.decodeCommand({ "agent.launcher.move": { ...command, row: "bogus" } })),
     ).rejects.toThrow("InvalidRow");
@@ -365,6 +367,23 @@ test("a workspace hides launcher rows for itself, and a deleted command's slot c
     await run({ "agent.command": { index: 0, command: "claude --model opus", resolve: false } });
     await run({ "agent.command": { index: 0, command: "", resolve: false } });
     expect([home.launcher_hidden, away.launcher_hidden]).toEqual([["claude:/accounts/work"], []]);
+  } finally {
+    r.destroy();
+  }
+});
+
+test("explicit additions are independent of automatic visibility and removal clears them", async () => {
+  const { r, home } = setup();
+  try {
+    const run = (cmd: protocol.CommandInput) => execute(r, ctx, protocol.decodeCommand(cmd));
+    expect(r.launcher_added).toEqual([]);
+    for (const row of ["pi", "omp", "pi", "claude:/accounts/work", "custom0"])
+      await run({ "agent.workspace_visibility": { workspace: home.id, row, shown: true } });
+    expect(snapshot(r).launcher_added).toEqual(["pi", "omp", "claude:/accounts/work"]);
+    await run({ "agent.workspace_visibility": { workspace: home.id, row: "pi", shown: false } });
+    expect(r.launcher_added).toContain("pi");
+    await run({ "agent.visibility": { hidden: { pi: true }, hidden_accounts: ["/accounts/work"] } });
+    expect(r.launcher_added).toEqual(["omp"]);
   } finally {
     r.destroy();
   }

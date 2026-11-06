@@ -93,6 +93,7 @@ export class Client {
     this.config = env[vocabulary.config_env] ?? "";
   }
   private config: string;
+  private executable: string | null = null;
   private resolve_failure = new Failure();
   private auth_failure = new Failure();
   private usage_failure = new Failure();
@@ -107,11 +108,16 @@ export class Client {
   next_auth = 0;
   /** The model Claude Code runs when none is configured, as its picker
    * resolves "default"; empty until read. */
-  default_model = new Text();
+  private default_model = new Text();
+  private defaults = new Map<string, string>();
   default_checked = false;
+  /** The default observed by this workspace's last successful account read. */
+  defaultFor(cwd: string): string {
+    return this.defaults.get(cwd) ?? "";
+  }
   /** The read-only initialization catalog, without starting a model turn. */
-  async models(quit: Quit): Promise<{ info: Info; models: unknown }> {
-    const executable = await this.resolve(),
+  async models(quit: Quit, cwd = process.cwd()): Promise<{ info: Info; models: unknown }> {
+    const executable = await this.resolve(cwd),
       { account: info } = await this.auth(executable, quit);
     if (info.signed_in !== true) return { info, models: [] };
     this.session = new Control(executable, this.env);
@@ -122,9 +128,11 @@ export class Client {
     this.session?.close();
     this.session = null;
   }
-  async preview(stopping?: any, quit?: Quit, max_age = 0) {
+  async preview(stopping?: any, quit?: Quit, max_age = 0, cwd = process.cwd()) {
     try {
-      return await this.read(stopping, quit, max_age);
+      const info = await this.read(stopping, quit, max_age, cwd);
+      this.defaults.set(cwd, this.default_model.text());
+      return info;
     } catch (e) {
       this.account.usage_error = new Text(
         ["TimedOut", "Timeout"].includes((e as Error).message) ? "request timed out" : "Claude account unavailable",
@@ -132,10 +140,18 @@ export class Client {
       return this.account;
     }
   }
-  async read(stopping?: any, quit?: Quit, max_age = 0) {
+  async read(stopping?: any, quit?: Quit, max_age = 0, cwd = process.cwd()) {
     const now = Math.floor(Date.now() / 1000);
     if (cancelled(stopping) || quit?.aborted) throw Error("Cancelled");
-    const executable = await this.resolve();
+    const executable = await this.resolve(cwd);
+    if (this.executable !== null && this.executable !== executable) {
+      this.close();
+      this.next_auth = 0;
+      this.retry_at = 0;
+      this.default_checked = false;
+      this.default_model = new Text();
+    }
+    this.executable = executable;
     if (now >= this.next_auth) {
       this.next_auth = now + 60;
       this.account = new Info();
@@ -198,10 +214,10 @@ export class Client {
       cache.close();
     }
   }
-  private async resolve() {
+  private async resolve(cwd = process.cwd()) {
     const started = Date.now();
     try {
-      const executable = await discovery.resolve("claude", null);
+      const executable = await discovery.resolve("claude", cwd);
       if (!executable) throw Error("FileNotFound");
       if (this.resolve_failure.clear())
         log.info("Executable resolution recovered", { account: this.config, ms: Date.now() - started });

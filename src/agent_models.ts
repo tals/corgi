@@ -14,9 +14,9 @@ import * as keys from "./keys";
 import { matches } from "./search";
 
 export type Choice = { id: string; name: string; efforts?: effort.Effort[]; default_effort?: effort.Effort };
-export async function read(provider: Provider, account: string, quit: Quit): Promise<Choice[]> {
+export async function read(provider: Provider, account: string, quit: Quit, cwd = ""): Promise<Choice[]> {
   const launch = adapter(provider).launch,
-    values = (await (launch.models ?? adapter(provider).inference.models)?.(account, quit)) ?? [];
+    values = (await (launch.models ?? adapter(provider).inference.models)?.(account, quit, cwd || undefined)) ?? [];
   return values.map(m => ({
     id: m.id,
     name: m.name,
@@ -50,7 +50,7 @@ export class Cache {
   static fresh_ms = 5 * 60_000;
   static retry_ms = 30_000;
   private entries = new Map<string, Entry>();
-  private queue: { provider: Provider; account: string; entry: Entry }[] = [];
+  private queue: { provider: Provider; account: string; cwd: string; entry: Entry }[] = [];
   private running = 0;
   private active = new Set<Quit>();
   private closed = false;
@@ -61,8 +61,8 @@ export class Cache {
   ) {}
   /** A catalog, read again once it's stale; a failed one is retried sooner
    * when someone is looking (`retry_ms`) than in the background. */
-  get(provider: Provider, account: string, retry_ms = Cache.retry_ms): Entry {
-    const key = `${provider}\0${account}`;
+  get(provider: Provider, account: string, cwd = "", retry_ms = Cache.retry_ms): Entry {
+    const key = JSON.stringify([provider, account, cwd]);
     let entry = this.entries.get(key);
     if (!entry) {
       entry = { values: [], pending: false, failed: false, checked: -Infinity };
@@ -70,7 +70,7 @@ export class Cache {
     }
     if (!this.closed && !entry.pending && this.now() - entry.checked >= (entry.failed ? retry_ms : Cache.fresh_ms)) {
       entry.pending = true;
-      this.queue.push({ provider, account, entry });
+      this.queue.push({ provider, account, cwd, entry });
       this.drain();
     }
     return entry;
@@ -82,11 +82,11 @@ export class Cache {
   }
   private drain(): void {
     while (!this.closed && this.running < 2 && this.queue.length) {
-      const { provider, account, entry } = this.queue.shift()!,
+      const { provider, account, cwd, entry } = this.queue.shift()!,
         quit = new Quit();
       this.running++;
       this.active.add(quit);
-      void this.reader(provider, account, quit)
+      void this.reader(provider, account, quit, cwd)
         .then(
           values => {
             entry.values = values;

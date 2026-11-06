@@ -5,6 +5,7 @@ import type { Accounts, Login, Signin } from "../adapter";
 import { cached } from "../command_line";
 import { field, service, str } from "../common";
 import { configDir } from "./integration";
+import { settingsModel } from "./config";
 import * as codexPlan from "../codex/plan";
 
 /** Pi keeps credentials for several model providers in each account folder. */
@@ -101,6 +102,7 @@ export const accounts: Accounts = {
   home: configDir,
   prefix: ".pi-",
   identity,
+  configured: (root, cwd) => !!settingsModel(cwd, root).model,
   shared: {
     dirs: ["skills", "prompts", "themes"],
     files: ["models.json", "keybindings.json"],

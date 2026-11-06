@@ -4,12 +4,14 @@ import { read } from "./models";
 import { Quit } from "../../subprocess";
 import { Stdio } from "../stdio";
 import { Codex } from "./headless";
+import * as discovery from "../../discovery";
 
 test.each([null, "high"] as const)(
   "Codex catalogs preserve effort defaults and paginate without a model turn (%s)",
   async configured => {
     const quit = new Quit(),
       folders: string[] = [],
+      resolve = spyOn(discovery, "resolve").mockResolvedValue("/test/codex"),
       request = spyOn(AppServer.prototype, "request").mockImplementation(async function (
         this: AppServer,
         method,
@@ -17,9 +19,13 @@ test.each([null, "high"] as const)(
         stopping,
       ) {
         expect(stopping).toBe(quit.abortSignal);
+        expect(this.executable).toBe("/test/codex");
         folders.push(this.account);
         if (method === "account/read") return { result: { account: { type: "apiKey" } } };
-        if (method === "config/read") return { result: { config: { model_reasoning_effort: configured } } };
+        if (method === "config/read") {
+          expect(params).toMatchObject({ cwd: "/project" });
+          return { result: { config: { model_reasoning_effort: configured } } };
+        }
         expect(method).toBe("model/list");
         const cursor = (params as { cursor: string | null }).cursor;
         return {
@@ -40,7 +46,8 @@ test.each([null, "high"] as const)(
       }),
       close = spyOn(AppServer.prototype, "close");
     try {
-      const models = await read("/codex/nvidia", quit);
+      const models = await read("/codex/nvidia", quit, "/project");
+      expect(resolve).toHaveBeenCalledWith("codex", "/project");
       expect(models.map(m => m.id)).toEqual(["gpt-6-astra", "gpt-6-luna"]);
       expect(models.every(m => !m.subscription)).toBe(true);
       expect(folders).toEqual(Array(4).fill("/codex/nvidia"));
@@ -48,6 +55,7 @@ test.each([null, "high"] as const)(
       expect(models[0].default_effort).toBe(configured ?? "low");
       expect(close).toHaveBeenCalled();
     } finally {
+      resolve.mockRestore();
       request.mockRestore();
       close.mockRestore();
     }
@@ -55,12 +63,14 @@ test.each([null, "high"] as const)(
 );
 
 test("Codex catalog failure closes its private app server", async () => {
-  const request = spyOn(AppServer.prototype, "request").mockRejectedValue(Error("Timeout")),
+  const resolve = spyOn(discovery, "resolve").mockResolvedValue("/test/codex"),
+    request = spyOn(AppServer.prototype, "request").mockRejectedValue(Error("Timeout")),
     close = spyOn(AppServer.prototype, "close");
   try {
     await expect(read("", new Quit())).rejects.toThrow("Timeout");
     expect(close).toHaveBeenCalled();
   } finally {
+    resolve.mockRestore();
     request.mockRestore();
     close.mockRestore();
   }

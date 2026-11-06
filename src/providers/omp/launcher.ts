@@ -1,12 +1,11 @@
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { YAML } from "bun";
 import type { Launcher } from "../adapter";
 import { field, str } from "../common";
 import { Stdio } from "../stdio";
 import * as discovery from "../../discovery";
 import { directory } from "./integration";
 import { Client } from "./account";
+import { settingsModel } from "./config";
 /** Flags that start omp's RPC mode with as little of its own setup as it allows. */
 export const bare = [
   "--mode",
@@ -20,25 +19,12 @@ export const bare = [
   "--no-pty",
   "--no-title",
 ];
-function defaultModel(root: string) {
-  try {
-    return str(field(YAML.parse(readFileSync(join(root, "config.yml"), "utf8")), "modelRoles"), "default");
-  } catch {
-    return "";
-  }
-}
-export function settingsModel(cwd: string, account = "") {
-  const project = defaultModel(join(cwd, ".omp"));
-  return project
-    ? { model: project, source: "omp project config" }
-    : { model: defaultModel(directory(account)), source: "omp user config" };
-}
 export function open(account = ""): Launcher {
   const active = new Set<Stdio>(),
     client = new Client(account);
   let closed = false;
   return {
-    account: (quit, max_age) => client.preview(quit, max_age),
+    account: (quit, max_age, cwd) => client.preview(quit, max_age, cwd),
     watches: () => [join(directory(account), "config.yml")],
     async model(cwd, quit) {
       const fallback = settingsModel(cwd, account);

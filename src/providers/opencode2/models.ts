@@ -95,10 +95,10 @@ export async function read(
 }
 
 /** Launcher choices only; listing models must never probe them with a prompt. */
-export async function catalog(quit: Quit): Promise<InferenceModel[]> {
+export async function catalog(quit: Quit, cwd = "/tmp"): Promise<InferenceModel[]> {
   if (quit.aborted) throw Error("Cancelled");
   return (
-    (await API.peek("/tmp", async api => {
+    (await API.peek(cwd, async api => {
       const location = "?location%5Bdirectory%5D=" + encodeURIComponent(api.cwd);
       const [models, providers, credentials] = await Promise.all(
         ["/api/model" + location, "/api/provider" + location, "/api/credential"].map(path =>

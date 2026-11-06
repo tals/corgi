@@ -8,7 +8,7 @@ import type { Launcher } from "../adapter";
 import { field, str } from "../common";
 import { Info, Text } from "../../usage/account";
 import type { Quit } from "../../subprocess";
-import { API, items, model, object, stateDir } from "./api";
+import { API, items, login, model, object, stateDir } from "./api";
 import * as account from "./account";
 
 type Selected = {
@@ -36,6 +36,8 @@ function preference() {
   } catch {}
   return null;
 }
+/** A saved login or a model the user selected, including credential-free models. */
+export const configured = () => login() || preference() !== null;
 
 /** OpenCode calls a model free when its catalog has costs and all are zero. */
 function free(value: unknown) {
@@ -90,8 +92,14 @@ function planName(providerID: string, type: string, method: string) {
 }
 
 /** The account behind the chosen model's provider. */
-async function identify(connection: API, quit: Quit, max_age: number, subscription?: account.Subscription) {
-  const selected = await chosen(connection, process.cwd(), quit),
+async function identify(
+  connection: API,
+  cwd: string,
+  quit: Quit,
+  max_age: number,
+  subscription?: account.Subscription,
+) {
+  const selected = await chosen(connection, cwd, quit),
     info = new Info();
   if (!selected) return info;
   info.signed_in = true;
@@ -127,8 +135,8 @@ async function identify(connection: API, quit: Quit, max_age: number, subscripti
 
 export function open(_account = "", subscription?: account.Subscription): Launcher {
   return {
-    async account(quit, max_age) {
-      return (await API.peek(process.cwd(), api => identify(api, quit, max_age, subscription))) ?? new Info();
+    async account(quit, max_age, cwd = process.cwd()) {
+      return (await API.peek(cwd, api => identify(api, cwd, quit, max_age, subscription))) ?? new Info();
     },
     async model(cwd, quit) {
       const selected = await API.peek(cwd, api => chosen(api, cwd, quit)).catch(() => null);

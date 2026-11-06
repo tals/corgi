@@ -47,6 +47,8 @@ export type Agent = {
   /** Who signed in, or why that's unknown. */
   who: string;
   signed_out: boolean;
+  /** Whether the installed executable is available to add, regardless of sign-in. */
+  available?: boolean;
   shown: boolean;
   /** It shows in the current workspace's launcher, once it's in the launcher. */
   here: boolean;
@@ -66,6 +68,7 @@ export type Removed = { provider: Provider; account: string; name: string };
 /** What the host has to list. */
 export type Model = {
   agents: Agent[];
+  discovering?: string;
   /** The saved commands' slots; an empty one lists nothing. */
   commands: CommandEntry[];
   /** The current workspace's name, which the Show column's toggles apply to. */
@@ -132,7 +135,7 @@ const addable = (item: Item) =>
   item.kind === "removed" ||
   item.kind === "add" ||
   item.kind === "custom" ||
-  (item.kind === "found" && !item.agent.shown);
+  (item.kind === "found" && !item.agent.shown && item.agent.available !== false);
 function itemKey(item: Item): string {
   switch (item.kind) {
     case "agent":
@@ -430,7 +433,7 @@ export class View {
     const q = this.query.name();
     const found: Item[] = [
       ...model.agents
-        .filter(a => a.shown && matches(q, `${a.label} ${a.who}`))
+        .filter(a => a.shown && a.available !== false && matches(q, `${a.label} ${a.who}`))
         .map(agent => ({ kind: "agent" as const, agent })),
       ...model.commands.flatMap((c, index): Item[] =>
         c.command.length > 0 && matches(q, `${c.label()} ${c.text()}`) ? [{ kind: "command", index }] : [],
@@ -687,6 +690,7 @@ export class View {
         return null;
       }
       case "found": {
+        if (item.agent.available === false) return null;
         if (!item.agent.shown) return { kind: "show", agent: item.agent };
         // A listed one's row is up the list, where the search may hide it.
         const row: Item = { kind: "agent", agent: item.agent };
@@ -1547,7 +1551,18 @@ export class View {
         case "found": {
           const a = item.agent;
           writeEllipsis(w, title(a), columns.who - columns.name - 2);
-          View.writeFound(w, b, usage, y, a.who, model.folder(a.provider, a.account), a.shown, on, a.signed_out);
+          View.writeFound(
+            w,
+            b,
+            usage,
+            y,
+            a.who,
+            model.folder(a.provider, a.account),
+            a.shown,
+            on,
+            a.signed_out,
+            a.available,
+          );
           break;
         }
         case "removed": {
@@ -1621,6 +1636,9 @@ export class View {
       writeEllipsis(w, `${r.phase === "held" ? i18n.t`Hold ⌫ to remove` : i18n.t`Removing`} ${r.label}`, sat(b.w, 6));
       w.write(at(b.x + 3, b.y + b.h - 2) + new Style({ fg: "muted", bg: "surface" }).sgr());
       writeEllipsis(w, `${r.note}${r.phase === "held" ? i18n.t` · release to cancel` : ""}`, sat(b.w, 6));
+    } else if (model.discovering) {
+      w.write(at(b.x + 3, b.y + b.h - 2) + faint);
+      writeEllipsis(w, model.discovering, sat(b.w, 6));
     } else if (focused && this.buttons(b, model).length === 0) View.footer(w, b, this.hints(chosen, model));
     return caret;
   }
@@ -1636,6 +1654,7 @@ export class View {
     listed: boolean,
     on: boolean,
     warm = false,
+    available = true,
   ): void {
     const at = (x: number) => `\x1b[${y + 1};${x + 1}H`,
       columns = View.columns(b),
@@ -1651,7 +1670,11 @@ export class View {
       w.write(shortPath(cleanControls(folder), columns.key - usage - 2));
     }
     w.write(at(columns.model) + dim);
-    writeEllipsis(w, listed ? i18n.t`In the list` : i18n.t`Removed`, b.x + b.w - columns.model - 3);
+    writeEllipsis(
+      w,
+      !available ? "—" : listed ? i18n.t`In the list` : i18n.t`Add to the list`,
+      b.x + b.w - columns.model - 3,
+    );
   }
   /** Add agent's strip: each agent's mark and name, the focused one lit
    * while the strip is selected and strong while its list is. */
@@ -1759,9 +1782,10 @@ export class View {
           ["←→", i18n.t`agents`],
         ];
       case "found":
+        if (item.agent.available === false) return [["←→", i18n.t`agents`]];
       case "removed":
         return [
-          ["↵", item.kind === "found" && item.agent.shown ? i18n.t`go to its row` : i18n.t`add back to the list`],
+          ["↵", item.kind === "found" && item.agent.shown ? i18n.t`go to its row` : i18n.t`add to the list`],
           ["←→", i18n.t`agents`],
         ];
       case "command":

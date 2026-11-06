@@ -8,8 +8,8 @@ import { bare } from "./launcher";
 import * as discovery from "../../discovery";
 import type { Quit } from "../../subprocess";
 /** omp lists only models whose provider it has a sign-in or key for. */
-export async function read(account: string, quit: Quit): Promise<InferenceModel[]> {
-  const executable = await discovery.resolve("omp", "/tmp");
+export async function read(account: string, quit: Quit, cwd = "/tmp"): Promise<InferenceModel[]> {
+  const executable = await discovery.resolve("omp", cwd);
   if (quit.aborted) throw Error("Cancelled");
   const root = directory(account),
     env: NodeJS.ProcessEnv = { ...process.env, PI_CODING_AGENT_DIR: root };

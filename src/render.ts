@@ -772,6 +772,15 @@ export function frame(
   side.supports_kitty_graphics = u.supports_kitty_graphics;
   side.cell = u.cell_pixels;
   side.scope_label = u.scope_label;
+  const new_binding = u.prefs
+    .bindings()
+    .filter(b => b.action.name === "new" || b.action.name === "new-agent")
+    .sort(
+      (a, b) => Number(a.prefixed) - Number(b.prefixed) || bindings.format(a).length - bindings.format(b).length,
+    )[0];
+  side.new_shortcut = new_binding
+    ? `${new_binding.prefixed ? keymap.prefixName(u.prefs.prefix) + " " : ""}${bindings.format(new_binding)}`
+    : null;
   side.resource_hover = u.resource_hover;
   side.corgi_intensity = u.corgi_setup?.previewIntensity(u.prefs) ?? u.prefs.corgi_intensity;
   side.dragged = u.dragged_agent ? u.dragged_agent.destination : null;

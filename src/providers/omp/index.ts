@@ -73,6 +73,7 @@ export const adapter: Adapter = {
     ...["/opt/homebrew/bin/omp", "/usr/local/bin/omp"].map(p => root + p),
   ],
   version: v => /^omp\/\d+\.\d+\.\d+/.test(v.trim()),
+  distribution: { packages: ["@oh-my-pi/pi-coding-agent"], version: v => `omp/${v}` },
   inspect(c) {
     const result = commandLine.inspect(c, {
       config_env: "PI_CODING_AGENT_DIR",
@@ -173,7 +174,7 @@ export const adapter: Adapter = {
   headless: { start: at => Omp.start(at), restore: (saved, live) => Omp.restore(saved, live) },
   inference: {
     model: "openai-codex/gpt-6-luna",
-    models: (account, quit) => import("./models").then(m => m.read(account, quit)),
+    models: (account, quit, cwd) => import("./models").then(m => m.read(account, quit, cwd)),
     start: (r, at) => Omp.start({ ...at, cwd: "/tmp" }, summaryArgs(r)),
     restore: (saved, live) => Omp.restore(saved, live),
   },
@@ -184,11 +185,12 @@ export const adapter: Adapter = {
   conversation,
   integration: {
     directory,
+    prepare_on_launch: true,
     install: async account => [extension("install", account)],
     status: async account => [extension("status", account)],
     uninstall: async account => [extension("uninstall", account)],
-    startup: async account => {
-      if (!(await import("../../discovery")).installed("omp")) return;
+    startup: async (account, _handoff, cwd) => {
+      if (!(await import("../../discovery")).installed("omp", cwd)) return;
       const r = extension("install", account);
       if (r.outcome === "failed") console.error("hook setup:", r.error);
     },

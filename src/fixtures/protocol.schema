@@ -198,8 +198,11 @@ $.requests|workspace.archive.preview.target: u32
 $.requests|workspace.archive.preview.remote: bool
 $.requests|session.locate.pane: u32
 $.requests|session.list: {}
-$.requests|launcher.catalog: {}
+$.requests|launcher.catalog.workspace: u32
+$.requests|launcher.catalog.cwd: string
 $.requests|launcher.models.row: string
+$.requests|launcher.models.workspace: u32
+$.requests|launcher.models.cwd: string
 $.requests|session.snapshot: {}
 $.requests|session.subscribe: {}
 $.requests|viewer.watch.viewer: u32
@@ -469,6 +472,7 @@ $.snapshot.system_usage.recent_tokens: u64
 $.snapshot.last_agent: provider
 $.snapshot.agent_yolo{provider}: bool
 $.snapshot.agent_hidden{provider}: bool
+$.snapshot.launcher_added[]: string
 $.snapshot.account_yolo[]: string
 $.snapshot.account_hidden[]: string
 $.snapshot.agent_commands[6].command: custom bounded_text.BoundedText(2048)
@@ -1078,6 +1082,7 @@ $.launch_preview.options{provider}.spend_daily[].day: i64
 $.launch_preview.options{provider}.spend_daily[].period_start: i64
 $.launch_preview.options{provider}.spend_daily[].used_minor: f64
 $.launch_preview.installed{provider}: bool
+$.launch_preview.configured{provider}: bool
 $.launch_preview.outdated{provider}: string
 $.launch_history.epoch: u64
 $.launch_history.revision: u64
