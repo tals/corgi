@@ -1239,7 +1239,7 @@ test("prefixed arrows walk the panes into the sidebar, which opens the agent und
     // Inside the repeat window, the next arrow needs no prefix.
     await s.input(bytes("\x1b[D"));
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 1 } });
-    expect(s.frame()).toContain("SIDEBAR");
+    expect(s.frame()).toContain("↑↓ move");
     // Plain arrows stay in the agent list and wrap, past its section's
     // header, inside the repeat window too.
     await s.input(bytes("\x1b[B"));
@@ -1324,7 +1324,7 @@ test("/ searches the focused agent list and Esc comes back to it; letters and th
     s.focusPane(1);
     await s.input(bytes("\x02\x1b[D"));
     expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 1 } });
-    expect(s.frame()).toContain("↵ open  / search  Esc back");
+    expect(s.frame()).toContain("Space select");
     await s.input(bytes("x"));
     expect(s.agent_picker).toBeNull();
     await s.input(bytes("\x1b[B"));
@@ -1467,6 +1467,12 @@ test("the sidebar's cursor ghosts an agent no pane shows, where entering it puts
     const ghost = s.sidebarGhost();
     expect(ghost.pane.id).toBe(3);
     expect(ghost.area).toEqual(s.area());
+    // Selecting and then deselecting the row must keep the current pane visible.
+    await s.input(bytes(" "));
+    expect(s.sidebarGhost()).toBeNull();
+    await s.input(bytes(" "));
+    expect(s.agent_selection.targets).toEqual([]);
+    expect(s.sidebarGhost()).toBeNull();
     await s.key(13);
     expect(s.focused().id).toBe(3);
     expect(s.layoutView().placements(s.area())).toEqual([{ id: 3, rect: ghost.rect }]);
@@ -3081,7 +3087,7 @@ test("the prompt's conversation is a Corgi agent while a Corgi pane holds it, an
     expect(s.firstUnreadAgent(0)).toEqual({ headless: 7 });
     const focus = spyOn(s, "focusPane");
     s.selectAgent({ headless: 7 });
-    expect(focus).toHaveBeenCalledWith(1);
+    expect(focus).toHaveBeenCalledWith(1, true);
     expect(s.prompt.open).toBe(false);
     // Its row's menu stays open while the row does.
     const menu = new TabMenu({ tab: 7, headless: true, anchor_x: 0 });
@@ -4194,5 +4200,377 @@ test("startup waits open from the shared banner and cancel the selected task thr
     await view.input(bytes("\x1b"));
   } finally {
     view.runtime.destroy();
+  }
+});
+
+test.each(["corgi", "tmux", "herdr", "cmux"] as const)(
+  "agent multiselection stays in the list with the %s keymap",
+  async preset => {
+    const { s, sent } = steering();
+    try {
+      s.prefs.preset = preset;
+      s.prefs.agent_sort = "manual";
+      s.focusPane(1);
+      await s.input(bytes(" v"));
+      expect(sent.map(([, data]) => data).join("")).toBe(" v");
+      sent.length = 0;
+      await s.perform({ name: "choose-agent" });
+      await s.input(bytes(" "));
+      expect(s.agent_selection.targets).toEqual([{ pane: 1 }]);
+      expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 1 } });
+      await s.input(bytes(" "));
+      expect(s.agent_selection.targets).toEqual([]);
+      await s.input(bytes("v\x1b[B"));
+      expect(s.agent_selection.targets).toEqual([{ pane: 1 }, { pane: 2 }]);
+      // A snapshot during a range must retain unmarked potential members.
+      s.receiveSnapshot(pair());
+      await s.input(bytes("\x1b[A"));
+      expect(s.agent_selection.targets).toEqual([{ pane: 1 }]);
+      await s.input(bytes("\r"));
+      expect(s.agent_selection.visual).toBe(false);
+      expect(s.sidebar_focus).not.toBeNull();
+      expect(s.focused().id).toBe(1);
+      await s.key(27);
+      expect(s.agent_selection.targets).toEqual([]);
+      await s.key(27);
+      expect(s.sidebar_focus).toBeNull();
+      expect(sent).toEqual([]);
+    } finally {
+      viewer.close(s);
+    }
+  },
+);
+
+test("Shift ranges work in legacy and Kitty encodings and preserve separate marks", async () => {
+  const { s } = steering();
+  try {
+    s.prefs.agent_sort = "manual";
+    s.prefs.agents = "all";
+    s.focusPane(1);
+    await s.perform({ name: "choose-agent" });
+    await s.input(bytes("\x1b[1;2B"));
+    expect(s.agent_selection.targets).toEqual([{ pane: 1 }, { pane: 2 }]);
+    await s.input(bytes("\x1b[57353;2u"));
+    expect(s.agent_selection.targets).toEqual([{ pane: 1 }, { pane: 2 }, { pane: 3 }]);
+    await s.input(bytes("\x1b[57352;2u"));
+    expect(s.agent_selection.targets).toEqual([{ pane: 1 }, { pane: 2 }]);
+    s.receiveSnapshot(pair());
+    await s.input(bytes("\x1b[1;2B"));
+    expect(s.agent_selection.targets).toEqual([{ pane: 1 }, { pane: 2 }, { pane: 3 }]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test.each(["ctrl_a", "ctrl_b"] as const)("custom agent shortcuts retain the %s prefix", async prefix => {
+  const { s } = steering();
+  try {
+    s.prefs.prefix = prefix;
+    s.prefs.keys = {
+      "agent-select-toggle": "prefix+z",
+      "agent-select-range": "ctrl+v",
+      "agent-select-menu": "alt+m",
+      "agent-select-all": "cmd+a",
+    };
+    s.focusPane(1);
+    await s.perform({ name: "choose-agent" });
+    expect(s.agentSelectionView(s.sidebarEntries())).toMatchObject({
+      toggle: keymap.prefixName(prefix) + " z",
+      range: "Ctrl+V",
+      menu: "Opt+M",
+      all: "Cmd+A",
+    });
+    const lead = String.fromCharCode(keymap.prefixByte(prefix));
+    await s.input(bytes(lead + "z"));
+    expect(s.agent_selection.targets).toEqual([{ pane: 1 }]);
+    expect(s.sidebar_focus).not.toBeNull();
+    await s.input(bytes("\x1b[118;5u"));
+    expect(s.agent_selection.visual).toBe(true);
+    expect(s.frame()).toContain("↑↓ select more");
+    await s.input(bytes(lead));
+    expect(s.prefix).toBe(true);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test.each([
+  ["alt+z", "\x1bz"],
+  ["alt+z", "\x1b[122;3u"],
+  ["é", "é"],
+  ["é", "\x1b[233u"],
+  ["alt+é", "\x1bé"],
+  ["prefix+alt+z", "\x02\x1bz"],
+  ["prefix+é", "\x02é"],
+  ["prefix+alt+é", "\x02\x1bé"],
+])("agent shortcut %s handles complete and fragmented input %j", async (chord, input) => {
+  const { s, sent } = steering();
+  try {
+    s.prefs.keys = { "agent-select-toggle": chord };
+    s.focusPane(1);
+    await s.perform({ name: "choose-agent" });
+    await s.input(bytes(input));
+    expect(s.agent_selection.targets).toEqual([{ pane: 1 }]);
+    for (const byte of bytes(input)) await s.input(Uint8Array.of(byte));
+    expect(s.agent_selection.targets).toEqual([]);
+    expect(s.sidebar_focus?.section()).toBe("agents");
+    expect(s.prefix).toBe(false);
+    expect(sent).toEqual([]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("agent shortcuts do not interpret UTF-8 bytes or bracketed paste as keys", async () => {
+  const { s, sent } = steering();
+  try {
+    s.prefs.keys = { "agent-select-toggle": ["Ã", "©", "alt+z"] };
+    s.focusPane(1);
+    await s.perform({ name: "choose-agent" });
+    await s.input(bytes("é\x1b[200~Ã©\x1bz\x1b[201~"));
+    expect(s.agent_selection.targets).toEqual([]);
+    expect(s.sidebar_focus?.section()).toBe("agents");
+    expect(sent).toEqual([]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("changing agent scope refreshes rows and ranges while keeping hidden marks", async () => {
+  const { s } = steering(),
+    update = spyOn(preferences, "update").mockImplementation(() => {});
+  const targets = () =>
+    (s.sidebarEntries() as sidebar.Entry[]).filter(e => sidebar.isAgent(e.target)).map(e => e.target);
+  try {
+    s.prefs.agent_sort = "manual";
+    s.focusPane(1);
+    await s.perform({ name: "choose-agent" });
+    await s.input(bytes("v"));
+    expect(targets()).toEqual([{ pane: 1 }, { pane: 2 }]);
+    s.setAgentScope("all");
+    expect(targets()).toEqual([{ pane: 1 }, { pane: 2 }, { pane: 3 }]);
+    expect(s.agent_selection.targets).toEqual([{ pane: 1 }]);
+    expect(s.agent_selection.visual).toBe(false);
+    await s.perform({ name: "choose-agent" });
+    await s.input(bytes("\x1b[1;2B\x1b[1;2B"));
+    expect(s.agent_selection.targets).toEqual([{ pane: 1 }, { pane: 2 }, { pane: 3 }]);
+    s.receiveSnapshot(pair());
+    s.setAgentScope("workspace");
+    expect(targets()).toEqual([{ pane: 1 }, { pane: 2 }]);
+    expect(s.agentSelectionView(s.sidebarEntries())).toMatchObject({ count: 3, hidden: 1 });
+    s.setAgentScope("all");
+    expect(targets()).toEqual([{ pane: 1 }, { pane: 2 }, { pane: 3 }]);
+    expect(s.agentSelectionView(s.sidebarEntries())).toMatchObject({ count: 3, hidden: 0 });
+  } finally {
+    update.mockRestore();
+    viewer.close(s);
+  }
+});
+
+test("changing agent sort refreshes held ordering and grouping without clearing marks", async () => {
+  const { s } = steering(),
+    update = spyOn(preferences, "update").mockImplementation(() => {}),
+    snapshot = pair();
+  const rows = () => (s.sidebarEntries() as sidebar.Entry[]).map(e => ({ target: e.target, section: e.section }));
+  try {
+    snapshot.panes[1].agent.state = "working";
+    s.receiveSnapshot(snapshot);
+    s.prefs.agent_sort = "manual";
+    s.focusPane(1);
+    await s.perform({ name: "choose-agent" });
+    await s.input(bytes(" "));
+    const manual = rows();
+    s.setAgentScope("activity");
+    expect(
+      rows()
+        .filter(e => sidebar.isAgent(e.target))
+        .map(e => e.target),
+    ).toEqual([{ pane: 2 }, { pane: 1 }]);
+    expect(rows()).not.toEqual(manual);
+    s.setAgentScope("manual");
+    expect(rows()).toEqual(manual);
+    expect(s.agent_selection.targets).toEqual([{ pane: 1 }]);
+  } finally {
+    update.mockRestore();
+    viewer.close(s);
+  }
+});
+
+test("Ctrl-click toggles agents without opening them while Shift-click extends their selection", async () => {
+  const { s } = steering();
+  try {
+    s.prefs.agent_sort = "manual";
+    s.focusPane(1);
+    const click = async (button: number, x: number, y: number) => {
+      await s.input(bytes(`\x1b[<${button};${x + 1};${y + 1}M\x1b[<${button};${x + 1};${y + 1}m`));
+    };
+    await click(0, 3, s.sidebarView([]).middle() + 1);
+    expect(s.sidebar_focus).not.toBeNull();
+    const view = s.sidebarView(s.sidebarEntries());
+    const row = (pane: number) => {
+      for (let y = view.middle() + 2; y < s.height - 3; y++) {
+        const hit = view.hit(2, y);
+        if (hit.tag === "entry" && s.sidebarEntries()[hit.entry].target.pane === pane) return y;
+      }
+      throw Error("MissingAgentRow");
+    };
+    await click(16, 2, row(1));
+    expect(s.agent_selection.targets).toEqual([{ pane: 1 }]);
+    await click(16, 12, row(2));
+    expect(s.agent_selection.targets).toEqual([{ pane: 1 }, { pane: 2 }]);
+    expect(s.focused().id).toBe(1);
+    expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 2 } });
+    await click(16, 12, row(2));
+    expect(s.agent_selection.targets).toEqual([{ pane: 1 }]);
+    expect(s.focused().id).toBe(1);
+    await s.input(bytes(" "));
+    expect(s.agent_selection.targets).toEqual([{ pane: 1 }, { pane: 2 }]);
+    await s.input(bytes(" "));
+    await click(4, 12, row(1));
+    expect(s.agent_selection.targets).toEqual([{ pane: 1 }, { pane: 2 }]);
+    expect(s.agent_drag).toBeNull();
+    await s.input(bytes("v"));
+    await click(16, 12, row(2));
+    expect(s.agent_selection.visual).toBe(false);
+    expect(s.focused().id).toBe(1);
+    // An ordinary click opens the row; its release refreshes from the daemon.
+    s.refresh = async () => s.receiveSnapshot(pair());
+    await click(0, 2, row(2));
+    expect(s.focused().id).toBe(2);
+    expect(s.agent_selection.targets).toEqual([]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test.each([1, 2])("first Ctrl-click on pane %s starts from the previously focused row", async clicked => {
+  const { s } = steering();
+  try {
+    s.prefs.agent_sort = "manual";
+    s.focusPane(1);
+    expect(s.sidebar_focus).toBeNull();
+    const click = async () => {
+      const entries = s.sidebarEntries(),
+        view = s.sidebarView(entries);
+      for (let y = view.middle() + 2; y < s.height - 3; y++) {
+        const hit = view.hit(6, y);
+        if (hit.tag !== "entry" || entries[hit.entry].target.pane !== clicked) continue;
+        await s.input(bytes(`\x1b[<16;7;${y + 1}M\x1b[<16;7;${y + 1}m`));
+        return;
+      }
+      throw Error("MissingAgentRow");
+    };
+    await click();
+    expect(s.focused().id).toBe(1);
+    expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: clicked } });
+    expect(s.agent_selection.targets).toEqual(clicked === 1 ? [] : [{ pane: 1 }, { pane: 2 }]);
+    // Once the list owns focus, an empty set is deliberate and must stay empty until toggled.
+    await s.perform({ name: "agent-select-clear" });
+    await click();
+    expect(s.agent_selection.targets).toEqual([{ pane: clicked }]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("Ctrl-click in All selects across workspaces without switching the presented agent", async () => {
+  const { s, sent } = steering();
+  try {
+    s.prefs.agent_sort = "manual";
+    s.prefs.agents = "all";
+    s.focusPane(1);
+    const click = async (pane: number) => {
+      const entries = s.sidebarEntries(),
+        view = s.sidebarView(entries);
+      for (let y = view.middle() + 2; y < s.height - 3; y++) {
+        const hit = view.hit(6, y);
+        if (hit.tag !== "entry" || entries[hit.entry].target.pane !== pane) continue;
+        await s.input(bytes(`\x1b[<16;7;${y + 1}M\x1b[<16;7;${y + 1}m`));
+        return;
+      }
+      throw Error("MissingAgentRow");
+    };
+    await click(3);
+    expect(s.current().id).toBe(1);
+    expect(s.focused().id).toBe(1);
+    expect(s.agent_selection.targets).toEqual([{ pane: 1 }, { pane: 3 }]);
+    expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 3 } });
+    expect(s.sidebarGhost()).toBeNull();
+    s.receiveSnapshot(pair());
+    expect(s.agent_selection.targets).toEqual([{ pane: 1 }, { pane: 3 }]);
+    await click(1);
+    expect(s.current().id).toBe(1);
+    expect(s.focused().id).toBe(1);
+    expect(s.agent_selection.targets).toEqual([{ pane: 3 }]);
+    expect(s.sidebar_focus.cursor).toEqual({ entry: { pane: 1 } });
+    await click(3);
+    expect(s.agent_selection.targets).toEqual([]);
+    expect(s.focused().id).toBe(1);
+    expect(s.sidebarGhost()).toBeNull();
+    s.switchWorkspace(2);
+    expect(s.agent_selection.targets).toEqual([]);
+    expect(sent).toEqual([]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("bulk actions use the captured selection, revalidate identities and confirm closing panes", async () => {
+  const { s } = steering();
+  try {
+    s.prefs.agent_sort = "manual";
+    s.focusPane(1);
+    await s.perform({ name: "choose-agent" });
+    await s.input(bytes("am"));
+    const edits: unknown[] = [];
+    s.edit = async (command: unknown) => {
+      edits.push(command);
+    };
+    s.pane(2).binding++;
+    await s.input(bytes("s"));
+    expect(edits).toEqual([{ "agent.pin": { workspace: 1, target: { pane: 1 }, pinned: true } }]);
+    expect(s.message).toContain("1 skipped");
+    expect(s.sidebar_focus).not.toBeNull();
+    s.receiveSnapshot(pair());
+    const closed: number[] = [];
+    s.close = async (pane: number) => {
+      closed.push(pane);
+    };
+    await s.input(bytes("mx"));
+    expect(closed).toEqual([]);
+    expect(s.tab_menu.selection.confirm).toBe(true);
+    await s.input(bytes("\r")); // Cancel is the default.
+    expect(closed).toEqual([]);
+    await s.input(bytes("mxy"));
+    expect(closed).toEqual([1, 2]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("folding keeps selected agents hidden, while a new conversation drops its inherited mark", async () => {
+  const { s } = steering();
+  try {
+    s.prefs.agent_sort = "activity";
+    s.focusPane(1);
+    await s.perform({ name: "choose-agent" });
+    await s.input(bytes("a"));
+    s.folded_sections.add("idle");
+    expect(s.agentSelectionView(s.sidebarEntries()).hidden).toBe(2);
+    s.pane(2).binding++;
+    s.receiveSnapshot(pair());
+    expect(s.agent_selection.targets).toEqual([{ pane: 1 }, { pane: 2 }]);
+    const snapshot: any = pair();
+    snapshot.panes[1].agent.session = "replacement";
+    s.receiveSnapshot(snapshot);
+    expect(s.agent_selection.targets).toEqual([{ pane: 1 }]);
+    s.folded_sections.delete("idle");
+    s.sidebar_rows.discard();
+    s.sidebar_focus.cursor = { entry: { pane: 2 } };
+    await s.perform({ name: "agent-select-toggle" });
+    s.receiveSnapshot(snapshot);
+    expect(s.agent_selection.targets).toEqual([{ pane: 1 }, { pane: 2 }]);
+  } finally {
+    viewer.close(s);
   }
 });

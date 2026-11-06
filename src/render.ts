@@ -248,6 +248,7 @@ export interface Ui {
   prefix: boolean;
   /** The sidebar list with the keyboard instead of the focused pane. */
   sidebar_focus: Section | null;
+  agent_selection: SidebarView["selection"];
   ghost: Ghost | null;
   workspace_ghost: WorkspaceGhost | null;
   menu: ResizeView | null;
@@ -335,6 +336,7 @@ export function ui(fields: Partial<Ui> & { message: string; copy_mode: boolean }
     signin_exit: null,
     prefix: false,
     sidebar_focus: null,
+    agent_selection: null,
     ghost: null,
     workspace_ghost: null,
     menu: null,
@@ -773,6 +775,7 @@ export function frame(
   side.gpus = resourceTooltip.gpuCount(u.resources) > 0;
   side.drawer = u.sidebar_drawer;
   side.focus = u.sidebar_focus;
+  side.selection = u.agent_selection;
   side = side.withArchives(u.archived_workspaces.length, u.archived_expanded, u.archived_offset, u.archived_focused);
   side = side.withWorkspaces(u.workspaces.length, u.workspace_offset).withEntries(entries);
   side.corgi_badge = u.corgi_badge;
@@ -1098,6 +1101,15 @@ export function frame(
     // A card that doesn't fit its pane says why in the status line instead.
     const unplaced = u.paste_card !== null && paste_at === null ? u.paste_card.body.text() : null;
     const search = u.sidebar_focus === "agents" && u.sidebar_drawer === null ? i18n.t`/ search  ` : "";
+    const toggle = u.agent_selection?.toggle ?? "",
+      range = u.agent_selection?.range ?? "";
+    const escape = u.agent_selection?.count ? i18n.t`Esc clear` : i18n.t`Esc back`;
+    const sidebar_hint =
+      u.sidebar_focus === "agents" && u.agent_selection
+        ? u.agent_selection.visual
+          ? i18n.t`↑↓ select more  ${range}/Enter done  Esc cancel`
+          : i18n.t`↑↓ move  ${toggle} select  ↵ open  ${escape}`
+        : i18n.t`SIDEBAR  ↑↓/j/k move  ↵ open  ${search}Esc back`;
     const text =
       hovered_uri ??
       unplaced ??
@@ -1106,7 +1118,7 @@ export function frame(
         : u.copy_mode
           ? i18n.t`SCROLL  j/k move  y copy viewport  q exit`
           : u.sidebar_focus
-            ? i18n.t`SIDEBAR  ↑↓/j/k move  ↵ open  ${search}Esc back`
+            ? sidebar_hint
             : "");
     // Beside the sidebar while it has focus, clear of its box's bottom edge.
     const waiting =

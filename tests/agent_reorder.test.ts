@@ -34,6 +34,93 @@ class AgentReorder extends Viewers {
     return (await this.session()).workspaces[0].agent_order;
   }
 
+  async test_multiselection_is_viewer_local_and_bulk_actions_use_its_members() {
+    const [a, b, c] = await this.agents();
+    const first = await this.newViewer(),
+      second = await this.newViewer();
+    await first.focus(a);
+    await second.focus(c);
+    await first.input("\x02av\x1b[Bv");
+    this.assertIn("2 selected", screen_text(first.state.data, 100, 30).join("\n"));
+    await second.poll();
+    this.assertNotIn("selected", screen_text(second.state.data, 100, 30).join("\n"));
+    this.assertEqual(second.state.pane, c);
+    await first.input("ms");
+    this.assertEqual((await this.session()).workspaces[0].pinned_agents, [{ pane: a }, { pane: b }]);
+    await first.input("m");
+    const starred = screen_text(first.state.data, 100, 30).join("\n");
+    this.assertIn("Unstar 2 agents", starred);
+    this.assertNotIn("Star 2 agents", starred);
+    await first.input("s");
+    this.assertEqual((await this.session()).workspaces[0].pinned_agents, []);
+    const workspace = (await this.session()).workspaces[0].id;
+    await this.command("agent.pin", { workspace, target: { pane: a }, pinned: true });
+    await first.poll();
+    await first.input("m");
+    const mixed = screen_text(first.state.data, 100, 30).join("\n");
+    this.assertIn("Star 2 agents", mixed);
+    this.assertNotIn("Unstar 2 agents", mixed);
+    await first.input("s");
+    this.assertEqual((await this.session()).workspaces[0].pinned_agents, [{ pane: a }, { pane: b }]);
+    await first.input("mx");
+    this.assertIn("Close 2 agent panes", screen_text(first.state.data, 100, 30).join("\n"));
+    this.assertEqual(
+      (await this.session()).panes.map((p: any) => p.id),
+      [a, b, c],
+    );
+    await first.input("\r"); // Cancel is initially highlighted.
+    this.assertEqual(
+      (await this.session()).panes.map((p: any) => p.id),
+      [a, b, c],
+    );
+    await first.input("mxy");
+    this.assertEqual(
+      (await this.session()).panes.map((p: any) => p.id),
+      [c],
+    );
+  }
+
+  async test_ctrl_click_selects_without_changing_the_presented_agent() {
+    const [a, b] = await this.agents();
+    const viewer = await this.newViewer();
+    await viewer.focus(a);
+    await viewer.input(mouse(16, 6, 18) + mouse(16, 6, 18, true));
+    this.assertEqual(viewer.state.pane, a);
+    this.assertIn("2 selected", screen_text(viewer.state.data, 100, 30).join("\n"));
+    this.assertNotIn("↓ Agent-1 ↓", screen_text(viewer.state.data, 100, 30).join("\n"));
+    await viewer.input(mouse(16, 6, 16) + mouse(16, 6, 16, true));
+    this.assertEqual(viewer.state.pane, a);
+    this.assertIn("1 selected", screen_text(viewer.state.data, 100, 30).join("\n"));
+    await viewer.input("ms");
+    this.assertEqual((await this.session()).workspaces[0].pinned_agents, [{ pane: b }]);
+    await viewer.input("\x1b[B\r");
+    this.assertEqual(viewer.state.pane, b);
+    this.assertNotIn("1 selected", screen_text(viewer.state.data, 100, 30).join("\n"));
+  }
+
+  async test_selection_menu_restores_the_agents_drawer_after_cancel_and_action() {
+    const [a] = await this.agents(),
+      viewer = await this.newViewer();
+    const sidebar = () =>
+      screen_text(viewer.state.data, 100, 30)
+        .slice(1)
+        .map(row => row.slice(0, 27))
+        .join("\n");
+    await viewer.focus(a);
+    await viewer.input("\x02b\x02a ");
+    this.assertIn("1 selected", sidebar());
+    await viewer.input("m");
+    await viewer.input("\x1b[27u");
+    this.assertIn("1 selected", sidebar());
+    await viewer.input("ms");
+    this.assertEqual((await this.session()).workspaces[0].pinned_agents, [{ pane: a }]);
+    this.assertIn("1 selected", sidebar());
+    await viewer.input("\x1b[27u");
+    this.assertIn("0 selected", sidebar());
+    await viewer.input("\x1b[27u");
+    this.assertNotIn("agents:", sidebar());
+  }
+
   async test_iterm2_drag_uses_open_hand_and_resets_after_release() {
     await this.agents();
     this.env.TERM_PROGRAM = "iTerm.app";

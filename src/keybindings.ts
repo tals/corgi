@@ -193,7 +193,12 @@ export function entries(preset: Preset, config: Config): Entry[] {
   for (const e of list.filter(e => e.custom))
     for (const s of e.shortcuts)
       for (const other of list) {
-        if (e === other || !other.shortcuts.some(k => overlaps(s, k))) continue;
+        if (
+          e === other ||
+          action.scope(e.action) !== action.scope(other.action) ||
+          !other.shortcuts.some(k => overlaps(s, k))
+        )
+          continue;
         if (other.custom) fail(`${e.title} and ${other.title} use the same shortcut`);
         if (other.indexed) fail(`This key belongs to ${other.title}; change its whole key set first`);
         other.shortcuts = other.shortcuts.filter(k => !overlaps(s, k));
@@ -234,7 +239,10 @@ export function serialize(s: Shortcut, indexed: boolean): Value {
   return { keys: names };
 }
 export function conflicts(list: Entry[], name: string, shortcut: Shortcut): Entry[] {
-  return list.filter(e => e.id !== name && e.shortcuts.some(s => overlaps(s, shortcut)));
+  const scope = action.scope(target(name));
+  return list.filter(
+    e => e.id !== name && action.scope(e.action) === scope && e.shortcuts.some(s => overlaps(s, shortcut)),
+  );
 }
 /** Produces a whole replacement config, including explicitly moved conflicts. */
 export function change(
@@ -261,7 +269,12 @@ export function replace(preset: Preset, config: Config, name: string, shortcuts:
   if (!entry) return fail(`Unknown action: ${name}`);
   const next = { ...config };
   for (const other of list) {
-    if (other.id === name || !other.shortcuts.some(s => shortcuts.some(k => overlaps(s, k)))) continue;
+    if (
+      other.id === name ||
+      action.scope(other.action) !== action.scope(entry.action) ||
+      !other.shortcuts.some(s => shortcuts.some(k => overlaps(s, k)))
+    )
+      continue;
     if (!move) return fail(`Used by ${other.title}`);
     if (other.indexed && !entry.indexed) return fail(`Edit ${other.title}'s whole key set first`);
     next[other.id] = other.shortcuts

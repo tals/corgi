@@ -1,4 +1,4 @@
-import { specs as actionSpecs, title as actionTitle } from "./action";
+import { specs as actionSpecs, title as actionTitle, scope as actionScope } from "./action";
 import type { Action } from "./action";
 import type { Preset } from "./keymap";
 import type { Mods, Key } from "./keyboard";
@@ -671,21 +671,37 @@ const tables: Record<Preset, Binding[]> = {
     ...corgiPrefix,
   ],
 };
-for (const table of Object.values(tables))
+for (const table of Object.values(tables)) {
   table.push(
     { key: 122, mods: { ctrl: true }, prefixed: true, action: { name: "undo-layout" } },
     { key: 121, mods: { ctrl: true }, prefixed: true, action: { name: "redo-layout" } },
+    { key: 32, mods: {}, prefixed: false, action: { name: "agent-select-toggle" } },
+    { key: 118, mods: {}, prefixed: false, action: { name: "agent-select-range" } },
+    { key: 97, mods: {}, prefixed: false, action: { name: "agent-select-all" } },
+    { key: 109, mods: {}, prefixed: false, action: { name: "agent-select-menu" } },
+    { key: 57352, mods: { shift: true }, prefixed: false, action: { name: "agent-select-up" } },
+    { key: 57353, mods: { shift: true }, prefixed: false, action: { name: "agent-select-down" } },
   );
+}
 export function table(preset: Source): readonly Binding[] {
   return typeof preset === "string" ? tables[preset] : preset;
 }
 function sameMods(a: Mods, b: Mods): boolean {
   return ["shift", "alt", "ctrl", "super"].every(k => !!a[k as keyof Mods] === !!b[k as keyof Mods]);
 }
-export function lookup(preset: Source, prefixed: boolean, key: number, mods: Mods = {}): Action | null {
+export function lookup(
+  preset: Source,
+  prefixed: boolean,
+  key: number,
+  mods: Mods = {},
+  scope: "agents" | null = null,
+): Action | null {
   return (
     table(preset).find(
-      b => b.prefixed === prefixed && keys.same({ codepoint: b.key, mods: b.mods }, { codepoint: key, mods }),
+      b =>
+        actionScope(b.action) === scope &&
+        b.prefixed === prefixed &&
+        keys.same({ codepoint: b.key, mods: b.mods }, { codepoint: key, mods }),
     )?.action ?? null
   );
 }

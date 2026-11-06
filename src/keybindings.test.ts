@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import * as custom from "./keybindings";
 import * as bindings from "./bindings";
+import * as action from "./action";
 import * as keys from "./keys";
 import type { Preset } from "./keymap";
 
@@ -8,7 +9,7 @@ test("every preset keeps its actions and repeat flags without overrides", () => 
   for (const preset of ["corgi", "tmux", "herdr", "cmux"] as Preset[]) {
     const compiled = custom.resolve(preset, {});
     for (const b of bindings.table(preset)) {
-      expect(bindings.lookup(compiled, b.prefixed, b.key, b.mods)).toEqual(b.action);
+      expect(bindings.lookup(compiled, b.prefixed, b.key, b.mods, action.scope(b.action))).toEqual(b.action);
       if (b.repeat) expect(bindings.repeat(compiled, { codepoint: b.key, mods: b.mods })).toEqual(b.action);
     }
   }
@@ -110,4 +111,14 @@ test("sparse key sets share modifiers without implying keys in between", () => {
   expect(sparse.keys).toHaveLength(2);
   expect(custom.display(custom.parseShortcut({ keys: ["prefix+é", "prefix+&"] }, true))).toBe("◇ (é, &)");
   expect(custom.display(custom.parseShortcut({ keys: ["ctrl+1", "alt+9"] }, true))).toBe("Ctrl+1 Opt+9");
+});
+
+test("agent-list bindings coexist with pane bindings and can be reassigned in their own scope", () => {
+  const config = custom.replace("corgi", {}, "agent-select-toggle", [
+    { prefixed: false, keys: [keys.parseChord("ctrl+t")!] },
+  ]);
+  const table = custom.resolve("corgi", config);
+  expect(bindings.lookup(table, false, 20)).toEqual({ name: "new" });
+  expect(bindings.lookup(table, false, 20, {}, "agents")).toEqual({ name: "agent-select-toggle" });
+  expect(bindings.lookup(table, false, 32, {}, "agents")).toBeNull();
 });

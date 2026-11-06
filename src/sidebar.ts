@@ -217,6 +217,8 @@ export interface Entry {
   state: State;
   attention: Attention;
   focused: boolean;
+  /** A viewer's multiselection, independent of keyboard or pane focus. */
+  marked?: boolean;
   cwd: string;
   tool_active: boolean;
   compacting: boolean;
@@ -584,6 +586,11 @@ export type Hit =
   | { tag: "agent_new" }
   | { tag: "agent_options" }
   | { tag: "entry"; entry: number }
+  | { tag: "agent_select" }
+  | {
+      tag: "agent_selection";
+      action: "agent-select-menu" | "agent-select-clear";
+    }
   /** A badge counting agents scrolled out of sight, and the scroll that shows the nearest. */
   | { tag: "active"; offset: number }
   | { tag: "workspace_new" }
@@ -611,6 +618,15 @@ export class Preview {
 }
 
 export class View {
+  selection: {
+    count: number;
+    hidden: number;
+    visual: boolean;
+    toggle: string;
+    menu: string;
+    range: string;
+    all: string;
+  } | null = null;
   search: Search | null = null;
   /** Header scope: "all" or the workspace whose agents are listed. */
   scope_label = "";
@@ -792,6 +808,7 @@ export class View {
    * edge takes it; a drawer is always boxed. */
   listEnd(): number {
     const boxed = this.drawer !== null || this.box()?.bottom === this.rows - 1;
+    if (this.selection && !this.search && this.drawer !== "workspaces") return sat(this.rows, 3);
     return this.search !== null || boxed ? sat(this.rows, 1) : this.rows;
   }
   listRows(): number {
@@ -799,7 +816,7 @@ export class View {
   }
   /** Rows end here for drawing: above the bottom badge while it shows. */
   drawEnd(below: Badge | null): number {
-    return below !== null ? sat(this.rows, 1) : this.listEnd();
+    return below !== null ? Math.min(sat(this.rows, 1), this.listEnd()) : this.listEnd();
   }
   /** The row below entry `index` from the current scroll at `offset`. */
   private entryEnd(offset: number, index: number): number {
@@ -819,8 +836,8 @@ export class View {
     if (this.width === 0 || this.entries.length === 0 || this.search !== null || this.drawer === "workspaces")
       return null;
     const { counts, prev, next } = this.index;
-    // Rows end above a bottom badge.
-    const y = sat(this.rows, 1);
+    // Rows end above the selection footer or bottom badge.
+    const y = Math.min(this.listEnd(), sat(this.rows, 1));
     let found: BadgeCounts;
     let offset: number;
     if (side === "above") {
@@ -1047,11 +1064,44 @@ export class View {
   tabX(): number {
     return this.width > 0 && this.drawer === null ? this.width : this.cols >= 64 ? 3 : 0;
   }
+  private selectionButtons() {
+    const menu = this.selection!.menu;
+    const clear = i18n.t`[Clear]`;
+    const x = Math.max(2, this.width - 1 - displayWidth(clear));
+    const width = Math.max(0, x - 2);
+    const actions = i18n.t`[${menu} Actions]`;
+    return [
+      {
+        x: 1,
+        width,
+        text: menu !== "·" && displayWidth(actions) <= width ? actions : i18n.t`Actions`,
+        action: "agent-select-menu" as const,
+      },
+      { x, width: this.width - 1 - x, text: clear, action: "agent-select-clear" as const },
+    ];
+  }
   hit(x: number, y: number): Hit {
     if (this.framed()) return this.lists().hit(x - lists_x, y);
     const v = this;
     if (v.width === 0) return v.cols >= 64 && x < 3 && y === 0 ? hit("toggle") : hit("none");
     if (x >= v.width - 1 || y >= v.rows) return hit("none");
+    if (v.selection && !v.search && v.drawer !== "workspaces" && y >= v.rows - 3 && y < v.rows - 1) {
+      if (y === v.rows - 2 && v.selection.count > 0)
+        for (const b of v.selectionButtons())
+          if (x >= b.x && x < b.x + Math.min(b.width, displayWidth(b.text)))
+            return { tag: "agent_selection", action: b.action };
+      return hit("none");
+    }
+    if (
+      v.count > 0 &&
+      !v.search &&
+      !v.selection &&
+      v.focus !== "agents" &&
+      v.drawer === null &&
+      y === v.middle() + 1 &&
+      x < 10
+    )
+      return hit("agent_select");
     if (y === 0 && v.drawer !== "agents") {
       if (x >= v.width - 5) return hit("toggle");
       if (x >= v.width - 11 && x < v.width - 6) return hit("workspace_new");
@@ -1267,7 +1317,21 @@ export class View {
       if (grip) w.write(boxed ? grip : fg("faint") + grip + fg("line"));
       w.write(stroke.repeat(run - left - grip.length) + (boxed ? "┤" : "┥"));
     }
+    if (v.count > 0 && !v.search && !v.selection && v.focus !== "agents" && v.drawer === null)
+      v.line(w, v.middle() + 1, i18n.t`[Select]`, new Style({ fg: "muted", bg: "bg" }).sgr());
     v.drawAgents(w, entries, now_ms);
+    if (v.selection && !v.search) {
+      const { count, hidden } = v.selection;
+      const summary = hidden ? i18n.t`${count} · ${hidden} hidden` : i18n.t`${count} selected`;
+      v.line(w, v.rows - 3, " ".repeat(v.width - 3), new Style({ fg: "strong", bg: "surface" }).sgr());
+      w.write(w.cup(v.rows - 2, 2));
+      writeClipped(w, summary, v.width - 3);
+      v.line(w, v.rows - 2, " ".repeat(v.width - 3), new Style({ fg: "muted", bg: "surface" }).sgr());
+      for (const b of v.selectionButtons()) {
+        w.write(w.cup(v.rows - 1, b.x + 1) + fg(count > 0 ? "strong" : "faint"));
+        writeEllipsis(w, b.text, b.width);
+      }
+    }
   }
   /** The focused list's box: the lists' view draws its right edge and the
    * rule; this closes it on the left and, off the rule, on top and bottom. */
@@ -1644,9 +1708,8 @@ export class View {
     dream: corgiAnimation.Dream | null,
   ): void {
     const v = this;
-    // Focused and dragged rows take the selected tint, and a hovered one
-    // goes halfway to it; in a group the rail stays unbroken.
-    const selected = ghost || e.focused;
+    // In selection mode, color denotes marks; the bar or rail still shows focus.
+    const selected = ghost || e.marked === true || (e.focused && v.selection === null);
     const background = selected ? colors.selected : hovered ? hover_rgb : colors.bg;
     const row_bg = selected ? selected_bg : hovered ? hover_bg : bg("bg");
     for (let row = 0; row < 2; row++) {

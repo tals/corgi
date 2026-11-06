@@ -15,7 +15,7 @@ import { join, dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import * as keymap from "./keymap";
 import * as bindings from "./bindings";
-import type { Action } from "./action";
+import { scope, type Action } from "./action";
 export type State = "unavailable" | "disabled" | "enabled" | "failed";
 export type Keys = { preset: keymap.Preset; prefix: keymap.Prefix; bindings?: readonly bindings.Binding[] };
 const begin = "# BEGIN CORGI GHOSTTY INTEGRATION\n",
@@ -92,7 +92,7 @@ export function commandKeys(
   if (preset === "cmux")
     return bindings
       .table(source)
-      .filter(b => !b.prefixed)
+      .filter(b => !b.prefixed && scope(b.action) === null)
       .flatMap(b => {
         const host = trigger(b);
         return host === null ? [] : [{ host, action: b.action }];
@@ -163,7 +163,7 @@ function trigger(binding: bindings.Binding) {
 export function validate(source: bindings.Source): void {
   const seen = new Map<string, bindings.Binding>();
   for (const binding of bindings.table(source)) {
-    if (binding.prefixed) continue;
+    if (binding.prefixed || scope(binding.action) !== null) continue;
     const host = trigger(binding);
     if (host === null) continue;
     const previous = seen.get(host);
@@ -185,7 +185,7 @@ export function transform(bytes: string, keys: Keys | null): string {
     validate(source);
     out += "# cmux preset; applies throughout Ghostty. Reload with Cmd+Shift+comma.\n";
     for (const b of bindings.table(source))
-      if (!b.prefixed) {
+      if (!b.prefixed && scope(b.action) === null) {
         const host = trigger(b);
         if (host === null) continue;
         const m = b.mods,
