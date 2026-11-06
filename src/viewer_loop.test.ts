@@ -1,6 +1,7 @@
 import { expect, setSystemTime, spyOn, test } from "bun:test";
 import { toBuffer, type Pointer } from "bun:ffi";
-import { answerClipboard, waitTime, close } from "./viewer";
+import { answerClipboard, waitTime, close, presentation, presented } from "./viewer";
+import * as terminalOutput from "./terminal_output";
 import { State, type Result } from "./host_clipboard";
 import { n } from "./native_ffi";
 import { Controller } from "./controller";
@@ -137,12 +138,12 @@ test("a clipboard read timeout enters asynchronous result delivery", async () =>
   }
 });
 
-function waitingViewer() {
-  const view = new Controller(
-      transport(async () => {
-        throw Error("UnexpectedRequest");
-      }),
-    ),
+function waitingViewer(
+  connection = transport(async () => {
+    throw Error("UnexpectedRequest");
+  }),
+) {
+  const view = new Controller(connection),
     source = new Terminal(72, 29),
     summaries = spyOn(view.review_summaries, "want").mockImplementation(() => {});
   setSystemTime(new Date(10000));
@@ -218,6 +219,55 @@ test("active maintenance keeps the shorter animation interval", () => {
     expect(f.wait(Date.now() + 500, Infinity, false)).toBe(500);
   } finally {
     frame.mockRestore();
+    f.close();
+  }
+});
+
+test("queued frames acknowledge only their captured activity after output drains", async () => {
+  const requests: unknown[] = [],
+    f = waitingViewer(
+      transport(async (op, fields) => {
+        if (op === "pane.acknowledge") requests.push(fields);
+        return { ok: true };
+      }),
+    ),
+    ready = spyOn(terminalOutput, "ready").mockReturnValue(false);
+  try {
+    const pane = f.view.runtime.panes[0];
+    pane.agent.observation.completed = 1n;
+    pane.agent.changed_at = 10;
+    const receipts = presentation(f.view);
+    expect(await presented(f.view, receipts)).toBe(false);
+    expect(requests).toEqual([]);
+    expect(pane.agent.observation.read).toBe(0n);
+    pane.agent.observation.completed = 2n;
+    pane.agent.changed_at = 20;
+    pane.agent.attention = "needs_input";
+    ready.mockReturnValue(true);
+    expect(await presented(f.view, receipts)).toBe(true);
+    expect(requests).toEqual([expect.objectContaining({ pane: 1, through: 1n, attention_at: 10n })]);
+    expect(pane.agent.observation.read).toBe(1n);
+    expect(pane.agent.attention).toBe("needs_input");
+  } finally {
+    ready.mockRestore();
+    f.close();
+  }
+});
+
+test("a queued receipt preserves later manual unread marks and replacement agents", async () => {
+  const f = waitingViewer();
+  try {
+    const pane = f.view.runtime.panes[0];
+    pane.agent.observation.completed = 1n;
+    const receipts = presentation(f.view);
+    f.view.marked_unread.set(pane.id, true);
+    expect(await presented(f.view, receipts)).toBe(true);
+    expect(pane.agent.observation.read).toBe(0n);
+    f.view.marked_unread.clear();
+    pane.binding++;
+    expect(await presented(f.view, receipts)).toBe(true);
+    expect(pane.agent.observation.read).toBe(0n);
+  } finally {
     f.close();
   }
 });

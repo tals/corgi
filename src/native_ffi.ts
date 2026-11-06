@@ -73,6 +73,7 @@ const system = dlopen(`${nativeRoot}/lib/libcorgi_system.${suffix}`, {
   probe_pair: { args: ["ptr"], returns: "i32" },
   probe_pty: { args: ["ptr"], returns: "i32" },
   probe_nonblock: { args: ["i32"], returns: "i32" },
+  probe_flags: { args: ["i32", "i32"], returns: "i32" },
   probe_close: { args: ["i32"], returns: "i32" },
   probe_read: { args: ["i32", "ptr", "i32"], returns: "i32" },
   probe_write: { args: ["i32", "ptr", "i32"], returns: "i32" },

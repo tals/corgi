@@ -4,6 +4,7 @@ import { dirname, join, isAbsolute } from "node:path";
 import { version } from "./viewer_version";
 import { parse as parseAction } from "./action";
 import * as surface from "./pane/surface";
+import { Transfer } from "./surface_transfer";
 import * as session from "./session";
 import * as workspace from "./workspace";
 import { microTimestamp } from "./clock";
@@ -190,17 +191,18 @@ export async function sync(s: Server, cl: Client, q: Sync, reply = new Reply(cl)
   }
 }
 function frames(s: Server, cl: Client): surface.View[] {
-  const frames: surface.View[] = [];
-  for (const interest of cl.interests) {
+  return [...frameViews(s, cl.interests)];
+}
+function* frameViews(s: Server, interests: readonly Interest[]): Generator<surface.View> {
+  for (const interest of interests) {
     const pane = s.runtime.pane(interest.pane);
     if (!pane) continue;
     const shown = pane.displayed();
     if (interest.known && equal(interest.known, surface.stamp(shown, interest.offset ?? null))) continue;
     const view = surface.captureView(interest.pane, shown, interest.offset ?? null);
     if (shown !== pane.terminal) view.modes = surface.modes(pane.terminal);
-    frames.push(view);
+    yield view;
   }
-  return frames;
 }
 /** The control connection owns viewer state; its data connection watches it. */
 function owner(s: Server, cl: Client): Client {
@@ -208,8 +210,28 @@ function owner(s: Server, cl: Client): Client {
   if (!cl.watching) throw Error("NotAttached");
   return targetViewer(s, cl.watch_viewer);
 }
-export function surfaces(s: Server, cl: Client, reply = new Reply(cl)) {
-  reply.ok({ surfaces: frames(s, owner(s, cl)) });
+const transfers = new WeakMap<Client, Transfer>();
+/** The daemon's collection tick releases captures even if no next chunk is requested. */
+export function expireSurfaces(s: Server, now: number): void {
+  for (const client of s.clients) if (transfers.get(client)?.expired(now)) transfers.delete(client);
+}
+export function surfaces(s: Server, cl: Client, reply = new Reply(cl), q?: Request<"viewer.surfaces">) {
+  const viewer = owner(s, cl);
+  if (!q?.chunked) {
+    reply.ok({ surfaces: frames(s, viewer) });
+    return;
+  }
+  if (q.cursor === null) transfers.set(cl, new Transfer(frameViews(s, [...viewer.interests])));
+  const transfer = transfers.get(cl);
+  if (!transfer) throw Error("SurfaceExpired");
+  try {
+    const chunk = transfer.read(q.cursor);
+    if (!chunk) transfers.delete(cl);
+    reply.ok({ surfaces: [], ...(chunk ? { chunk } : {}) });
+  } catch (error) {
+    transfers.delete(cl);
+    throw error;
+  }
 }
 export async function search(s: Server, cl: Client, q: Request<"viewer.search">, reply = new Reply(cl)) {
   const p = s.runtime.pane(q.pane);

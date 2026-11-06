@@ -23,9 +23,10 @@ import { sshViewer } from "./trackers/ports";
 import * as palette from "./palette";
 import * as hostBackground from "./host_background";
 import * as corgiAnimation from "./corgi_animation";
-import type { Reply, RequestInput } from "./protocol";
+import type { Reply, Request, RequestInput } from "./protocol";
 import type { State as ClipboardState } from "./host_clipboard";
-import { n, ptr } from "./native_ffi";
+import { n } from "./native_ffi";
+import * as terminalOutput from "./terminal_output";
 export { Controller as View };
 
 /** How often a viewer syncs while the daemon reports nothing new. Under a
@@ -249,40 +250,59 @@ export async function sync(view: Controller, bell: { seq: bigint }, play_sound: 
     telemetry.end("viewer.sync", telemetry_started);
   }
 }
-// Called only after the frame has been written. Receipts refer to the
-// snapshot displayed, never whatever completion happens to be latest remotely.
-export async function presented(view: Controller): Promise<void> {
+type Receipt = Request<"pane.acknowledge">;
+/** Freeze receipts with their frame, before another sync can replace its snapshot. */
+export function presentation(view: Controller): Receipt[] {
+  const receipts: Receipt[] = [];
+  if (!view.input_state.watched || view.coversPanes()) return receipts;
+  const shown = new Set<number>();
+  for (const place of view.layoutView().placements(view.area())) {
+    const p = view.runtime.pane(place.id);
+    if (!p) continue;
+    shown.add(p.id);
+    const focused = view.focused()?.id === p.id;
+    const had_focus = view.marked_unread.get(p.id);
+    if (had_focus !== undefined) {
+      if (had_focus || !focused) {
+        view.marked_unread.set(p.id, focused);
+        continue;
+      }
+      view.marked_unread.delete(p.id);
+    }
+    if (!unread(p.agent.observation) && (p.agent.attention === "none" || !focused)) continue;
+    receipts.push({
+      pane: p.id,
+      binding: p.binding,
+      conversation: p.agent.conversation,
+      session: p.agent.session,
+      through: p.agent.observation.completed,
+      attention_at: focused ? BigInt(p.agent.changed_at) : -1n,
+    });
+  }
+  for (const id of view.marked_unread.keys()) if (!shown.has(id)) view.marked_unread.delete(id);
+  return receipts;
+}
+/** A queued frame counts as seen only after its bytes reach the host. */
+export async function presented(view: Controller, receipts?: Receipt[]): Promise<boolean> {
+  if (!terminalOutput.ready()) return false;
   const started = telemetry.begin();
   try {
-    if (!view.input_state.watched || view.coversPanes()) return;
-    const shown = new Set<number>();
-    for (const place of view.layoutView().placements(view.area())) {
-      const p = view.runtime.pane(place.id);
-      if (!p) continue;
-      shown.add(p.id);
-      const focused = view.focused()?.id === p.id;
-      const had_focus = view.marked_unread.get(p.id);
-      if (had_focus !== undefined) {
-        if (had_focus || !focused) {
-          view.marked_unread.set(p.id, focused);
-          continue;
-        }
-        view.marked_unread.delete(p.id);
-      }
-      if (!unread(p.agent.observation) && (p.agent.attention === "none" || !focused)) continue;
-      await call(view.connection, "pane.acknowledge", {
-        pane: p.id,
-        binding: p.binding,
-        conversation: p.agent.conversation,
-        session: p.agent.session,
-        through: p.agent.observation.completed,
-        attention_at: focused ? p.agent.changed_at : -1,
-      });
-      acknowledge(p.agent.observation, p.agent.observation.completed);
-      if (focused || p.agent.attention !== "needs_input") p.agent.attention = "none";
+    for (const receipt of receipts ?? presentation(view)) {
+      const p = view.runtime.pane(receipt.pane);
+      if (
+        !p ||
+        p.binding !== receipt.binding ||
+        p.agent.conversation !== receipt.conversation ||
+        p.agent.session !== receipt.session ||
+        view.marked_unread.has(p.id)
+      )
+        continue;
+      await call(view.connection, "pane.acknowledge", receipt);
+      acknowledge(p.agent.observation, receipt.through);
+      if (BigInt(p.agent.changed_at) === receipt.attention_at) p.agent.attention = "none";
       view.dirty = true;
     }
-    for (const id of view.marked_unread.keys()) if (!shown.has(id)) view.marked_unread.delete(id);
+    return true;
   } finally {
     telemetry.end("viewer.acknowledge", started);
   }
@@ -353,6 +373,7 @@ export async function run(
     // The host has not taken the last output yet (a slow SSH link): later
     // frames wait, and the next one written carries all their changes.
     let held = false;
+    let pending_receipts: Receipt[] | null = null;
     let settling = false;
     probe.badge = new corgiBadge.State(() => view.wake?.());
     probe.size = new terminal_info.Size();
@@ -413,6 +434,8 @@ export async function run(
     });
     try {
       while (view.input_state.attached) {
+        terminalOutput.ready();
+        if (pending_receipts !== null && (await presented(view, pending_receipts))) pending_receipts = null;
         const prepare_started = telemetry.begin();
         for (const reply of probe.graphics.splice(0)) view.graphicsReply(reply);
         openers.reap();
@@ -500,13 +523,14 @@ export async function run(
           if (changed || view.overlayOpen()) active_at = now;
           next_sync = Date.now() + (now - active_at < idle_after_ms ? view.frameDelay() : quiet_sync_ms);
           view.dirty = false;
-          held = changed && !ready(probe);
+          held = pending_receipts !== null || !terminalOutput.ready() || (changed && !ready(probe));
           if (!held) {
             const backdrop = hostBackground.follow(palette.painted());
             if (backdrop) writeAll(backdrop);
             if (changed) host = present(host, frame, view.width, view.height, probe.pacer);
             previous = frame;
-            await presented(view);
+            pending_receipts = presentation(view);
+            if (await presented(view, pending_receipts)) pending_receipts = null;
           }
         }
         for (const effect of view.effects) {
@@ -557,23 +581,27 @@ export async function run(
         settling = true;
         process.off("SIGWINCH", onResize);
         view.saveAgentScroll();
-        // The last frame's answer would otherwise reach the shell as typing.
-        const until = Date.now() + framePacing.settle_ms;
-        while (probe.pacer.unanswered() && !stdin.ended && Date.now() < until) {
-          poll.stdin = poll.woken = false;
-          await poll.wait(until - Date.now(), false);
-        }
-        stdin.close();
-        unwatch?.();
-        host?.destroy();
-        if (probe.badge.uploaded) writeAll(corgiBadge.remove);
-        if (view.thumbnails.sent !== null) writeAll(linkThumbnail.remove);
-        writeAll(view.images.clear());
-        writeAll(view.tab_icons.clear());
-        if (view.supports_kitty_graphics) writeAll(dockingGrip.clear);
-        if (view.moonlander) {
-          writeAll(view.moonlander.close());
-          view.moonlander = null;
+        try {
+          await terminalOutput.drain();
+          // The last frame's answer would otherwise reach the shell as typing.
+          const until = Date.now() + framePacing.settle_ms;
+          while (probe.pacer.unanswered() && !stdin.ended && Date.now() < until) {
+            poll.stdin = poll.woken = false;
+            await poll.wait(until - Date.now(), false);
+          }
+        } finally {
+          stdin.close();
+          unwatch?.();
+          host?.destroy();
+          if (probe.badge.uploaded) writeAll(corgiBadge.remove);
+          if (view.thumbnails.sent !== null) writeAll(linkThumbnail.remove);
+          writeAll(view.images.clear());
+          writeAll(view.tab_icons.clear());
+          if (view.supports_kitty_graphics) writeAll(dockingGrip.clear);
+          if (view.moonlander) {
+            writeAll(view.moonlander.close());
+            view.moonlander = null;
+          }
         }
       }
     }
@@ -621,25 +649,15 @@ function present(
 /** Whether the host takes a frame now: its terminal has room, and over a
  * slow link it has drawn the frames before. */
 function ready(probe: terminal_info.Probe): boolean {
-  return !probe.pacer.waiting(Date.now()) && writable();
+  return terminalOutput.ready() && !probe.pacer.waiting(Date.now()) && writable();
 }
 /** Whether the terminal takes output now. Linux reports no output queue for
  * a pty, so a host falling behind shows only as stdout filling up. */
 export function writable(): boolean {
   return n.probe_writable(1, 0) === 1;
 }
-/** Writes all of `data` to stdout, waiting while the host is behind. */
-export function writeAll(data: string | Uint8Array): void {
-  const bytes = typeof data === "string" ? Buffer.from(data) : data;
-  let offset = 0;
-  while (offset < bytes.length) {
-    const chunk = bytes.subarray(offset);
-    const written = n.probe_write(1, ptr(chunk), Math.min(chunk.length, 1 << 30));
-    if (written > 0) offset += written;
-    else if (written === -11 || written === -35 || written === -4) n.probe_writable(1, 100);
-    else throw Error("WriteFailed");
-  }
-}
+/** Queues ordered output; a full terminal never blocks the viewer's input loop. */
+export const writeAll = terminalOutput.write;
 /** Hands the host clipboard's paste and what a read brought to the view,
  * and writes the requests both make. */
 export function answerClipboard(view: ClipboardView, clipboard: ClipboardState): Promise<void> | void {

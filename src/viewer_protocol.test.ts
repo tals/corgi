@@ -17,6 +17,7 @@ import {
   open,
   sync,
   surfaces,
+  expireSurfaces,
   image,
 } from "./viewer_protocol";
 import { Pane, Ghost } from "./runtime";
@@ -356,4 +357,31 @@ test("a new viewer opens on the pane last used in the preferred workspace", asyn
     reply = spyOn(next, "queue").mockImplementation(() => {});
   await open(s, next, protocol.decode("viewer.open", {}));
   expect(reply.mock.calls[0][0]).toMatchObject({ workspace: 1, focus: second });
+});
+
+test("collection discards idle surface transfers without another chunk request", () => {
+  const server = fixture(),
+    client = peer(server),
+    pane = new Pane(1, new Terminal(80, 24), "/tmp");
+  server.runtime.panes.push(pane);
+  const replies = spyOn(client, "queue").mockImplementation(() => {});
+  try {
+    surfaces(server, client, undefined, protocol.decode("viewer.surfaces", { chunked: true }));
+    const first = replies.mock.calls[0][0] as { chunk: { next: string } };
+    expect(first.chunk).toBeDefined();
+    // Keep the real clock unchanged: read() would still accept this cursor.
+    expireSurfaces(server, Date.now() + 30_000);
+    expect(() =>
+      surfaces(
+        server,
+        client,
+        undefined,
+        protocol.decode("viewer.surfaces", { chunked: true, cursor: first.chunk.next }),
+      ),
+    ).toThrow("SurfaceExpired");
+    surfaces(server, client, undefined, protocol.decode("viewer.surfaces", { chunked: true }));
+    expect(replies.mock.calls).toHaveLength(2);
+  } finally {
+    replies.mockRestore();
+  }
 });

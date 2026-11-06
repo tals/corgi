@@ -2,9 +2,11 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { Connection } from "../src/rpc";
+import { Connection as ViewerConnection } from "../src/viewer_connection";
+import * as json from "../src/json";
 import type * as protocol from "../src/protocol";
 import { Runtime } from "./runtime";
-import { EXE, JsonSocket, deadline, registerCase, run, versioned, writeExecutable } from "./support";
+import { EXE, JsonSocket, deadline, registerCase, run, quote, versioned, writeExecutable } from "./support";
 
 class Rpc extends Runtime {
   private gate!: string;
@@ -53,6 +55,55 @@ process.exit(await Bun.spawn([${JSON.stringify(git)}, ...args], {
   private release(fail = false) {
     rmSync(join(this.gate, "armed"), { force: true });
     writeFileSync(join(this.gate, "release"), fail ? "fail" : "ok");
+  }
+  async test_large_surfaces_stream_and_an_interrupted_transfer_restarts_after_reload() {
+    const picture = join(this.temp.name, "picture.ansi"),
+      row = Array.from(
+        { length: 500 },
+        (_, i) => `\x1b[38;2;${123 + (i % 2)};123;234m\x1b[48;2;${123 + (i % 2)};234;123mX`,
+      ).join("");
+    writeFileSync(
+      picture,
+      Array.from({ length: 200 }, (_, i) => `\x1b[${i + 1};1H${row}`).join("") + "\x1b[0m\x1b[HREADY",
+    );
+    const workspace = (await this.session()).workspaces[0].id;
+    const { pane } = await this.command("pane.create", {
+      workspace,
+      command: `stty -echo; read line; cat ${quote(picture)}; sleep 60`,
+    });
+    const control = new Connection(this.path),
+      viewer = new ViewerConnection(this.path);
+    const interests = [{ pane, cols: 500, rows: 200 }];
+    try {
+      await control.call("viewer.open", { cwd: this.temp.name });
+      await control.call("viewer.sync", { interests, surfaces: false });
+      await control.call("session.command", { command: { "pane.input": { target: pane, data: "go\n" } } });
+      await this.until(async () =>
+        (await this.command("pane.read", { target: pane, view: "screen" })).text.includes("READY"),
+      );
+      const first = await control.call("viewer.surfaces", { chunked: true });
+      this.assertTrue(!!first.chunk && !first.chunk.end);
+      const cursor = first.chunk!.next;
+      await control.call("server.reload", { executable: EXE });
+      this.assertEqual(await control.request("viewer.surfaces", { chunked: true, cursor }), { err: "SurfaceExpired" });
+      await viewer.request("viewer.open", { cwd: this.temp.name });
+      const response = await viewer.request("viewer.sync", { interests });
+      if ("err" in response) throw Error(response.err);
+      const captured = response.surfaces[0];
+      this.assertTrue(Buffer.byteLength(json.stringify(captured)) > 4 * 1024 * 1024);
+      this.assertEqual(captured.surface.lines.length, 200);
+      this.assertIn("READY", captured.surface.lines[0]);
+      this.assertTrue(captured.surface.lines[199].includes("X"));
+      const unchanged = await viewer.request("viewer.sync", {
+        interests: [{ ...interests[0], known: captured.stamp }],
+      });
+      if ("err" in unchanged) throw Error(unchanged.err);
+      this.assertEqual(unchanged.surfaces, []);
+      this.assertTrue((await control.call("ping")).ok);
+    } finally {
+      control.close();
+      viewer.close();
+    }
   }
   async test_bugreport_keeps_diagnostics_from_an_older_daemon() {
     const path = join(this.temp.name, "legacy.sock");

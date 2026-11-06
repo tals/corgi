@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { Connection } from "./viewer_connection";
 import * as json from "./json";
 import * as protocol from "./protocol";
+import { Transfer } from "./surface_transfer";
+import { Terminal } from "./pane/terminal";
 
 /** Syncs until the daemon has accepted the watch and a sync has caught up. */
 async function watched(connection: Connection, sent = () => true) {
@@ -100,10 +102,12 @@ test("a viewer shares two connections across requests, subscriptions, and pane c
       "ping",
     ])
       expect(received.filter(r => r.op === op).every(r => r.socket === control)).toBe(true);
-    for (const op of ["viewer.watch", "viewer.surfaces", "viewer.image", "viewer.pick"])
+    for (const op of ["viewer.watch", "viewer.image", "viewer.pick"])
       expect(received.filter(r => r.op === op).every(r => r.socket === data)).toBe(true);
     const syncs = received.filter(r => r.op === "viewer.sync");
-    expect(syncs[0].surfaces).toBe(true);
+    expect(syncs[0].surfaces).toBe(false);
+    expect(received.find(r => r.op === "viewer.surfaces")!.socket).toBe(control);
+    expect(received.filter(r => r.op === "viewer.surfaces").at(-1)!.socket).toBe(data);
     expect(syncs.at(-1)!.surfaces).toBe(false);
     expect(events.map(e => e.type).sort()).toEqual(["agent.history", "agent.preview", "agent.preview", "viewer.wake"]);
   } finally {
@@ -180,7 +184,7 @@ test("a refused watch uses control for surfaces and images until a later sync at
       ok: true,
       data: "pixels",
     });
-    expect(surfaces).toEqual([]);
+    expect(surfaces).toEqual([control]);
     expect(images).toEqual([control]);
     await watched(connection, () => watches === 2);
     expect(watches).toBe(2);
@@ -191,7 +195,8 @@ test("a refused watch uses control for surfaces and images until a later sync at
     expect(await connection.request("viewer.sync", { interests: [] })).toMatchObject({ viewer: 1, surfaces: frames });
     expect(watches).toBe(2);
     expect(surfaces.length).toBeGreaterThan(0);
-    expect(surfaces.every(s => s === data)).toBe(true);
+    expect(surfaces.slice(1).includes(data)).toBe(true);
+    expect(surfaces.at(-1)).toBe(data);
     expect(images).toEqual([control, data]);
     expect(control).not.toBe(data);
   } finally {
@@ -309,6 +314,74 @@ test.each(["watch", "idle", "surfaces", "image"] as const)(
       connection.close();
       for (const socket of sockets) socket.destroy();
       await new Promise<void>(resolve => server.close(() => resolve()));
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+test.each(["expired", "disconnect"] as const)(
+  "a partial surface restarts after %s without publishing old rows or receipts",
+  async failure => {
+    const dir = mkdtempSync(join(tmpdir(), "corgi-surface-rpc-")),
+      path = join(dir, "rpc.sock"),
+      sockets: Socket[] = [],
+      transfers = new WeakMap<Socket, Transfer>(),
+      terminal = Terminal.create(80, 24);
+    const before = terminal.surface(1),
+      after = terminal.surface(1);
+    before.surface.lines = ["old".repeat(40_000)];
+    after.surface.lines = ["new".repeat(40_000)];
+    after.stamp = { ...after.stamp, revision: before.stamp.revision + 1n };
+    let fail = false,
+      updated = false;
+    const server = createServer(socket => {
+      sockets.push(socket);
+      let buffer = "";
+      socket.setEncoding("utf8");
+      socket.on("data", data => {
+        buffer += data;
+        for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
+          const q = json.parse(buffer.slice(0, end));
+          buffer = buffer.slice(end + 1);
+          const reply = (value: object) => socket.write(json.stringify({ ...value, request_id: q.request_id }) + "\n");
+          switch (q.op) {
+            case "viewer.sync":
+              reply({ type: "view", viewer: 1, viewer_protocol: protocol.viewer_version, surfaces: [] });
+              break;
+            case "viewer.surfaces": {
+              if (!q.cursor) transfers.set(socket, new Transfer([updated ? after : before][Symbol.iterator]()));
+              if (q.cursor && fail) {
+                fail = false;
+                updated = true;
+                transfers.delete(socket);
+                if (failure === "disconnect") socket.destroy();
+                else reply({ err: "SurfaceExpired" });
+                break;
+              }
+              const chunk = transfers.get(socket)!.read(q.cursor ?? null);
+              reply({ ok: true, surfaces: [], ...(chunk ? { chunk } : {}) });
+              break;
+            }
+            default:
+              reply({ ok: true });
+          }
+        }
+      });
+    });
+    await new Promise<void>(resolve => server.listen(path, resolve));
+    const connection = new Connection(path);
+    try {
+      await watched(connection);
+      fail = true;
+      const reply = await connection.request("viewer.surfaces");
+      if ("err" in reply) throw Error(reply.err);
+      expect(reply.surfaces).toEqual([after]);
+      expect(updated).toBe(true);
+    } finally {
+      connection.close();
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+      terminal.destroy();
       rmSync(dir, { recursive: true, force: true });
     }
   },
