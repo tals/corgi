@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare recovery in isolated labs, rotating disjoint CPU sets each round."""
+"""Compare recovery or throughput in isolated labs, rotating CPU sets each round."""
 import argparse
 import concurrent.futures
 import fcntl
@@ -22,6 +22,12 @@ def main():
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--cpu-sets", default="32-39;48-55;64-71")
     parser.add_argument("--cases", default="blackhole3,blackhole15,blackhole35,blackhole60")
+    parser.add_argument("--suite", choices=["faults", "stream", "sleep"], default="faults")
+    parser.add_argument("--stream-cases", default="dense:unlimited,dense:1mbit,dense:256kbit,dense:64kbit,sparse:64kbit")
+    parser.add_argument("--stream-rtt", type=int, default=120)
+    parser.add_argument("--stream-seconds", type=int, default=30)
+    parser.add_argument("--fault-kind", choices=["sparse", "dense"], default="sparse")
+    parser.add_argument("--sleep-seconds", type=int, default=180)
     args = parser.parse_args()
     cpu_sets = args.cpu_sets.split(";")
     if len(cpu_sets) != 3 or args.repeats < 1:
@@ -40,10 +46,18 @@ def main():
     root = Path(args.output).resolve()
     root.mkdir(parents=True, exist_ok=False)
     lock = open(f"/tmp/corgi-cpu-benchmark-{os.getuid()}.lock", "a")
-    print("Waiting for the shared benchmark slot", flush=True)
-    fcntl.flock(lock, fcntl.LOCK_EX)
-    started = Path(f"/proc/{os.getpid()}/stat").read_text().rsplit(")", 1)[1].split()[19]
-    env = dict(os.environ, CORGI_CPU_BENCHMARK_LOCK=f"{os.getpid()}:{started}")
+    owner = os.environ.get("CORGI_CPU_BENCHMARK_LOCK")
+    if owner:
+        pid, started = owner.split(":")
+        stat = Path(f"/proc/{int(pid)}/stat").read_text().rsplit(")", 1)[1].split()
+        if stat[19] != started:
+            raise RuntimeError("Stale benchmark lock owner")
+    else:
+        print("Waiting for the shared benchmark slot", flush=True)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        started = Path(f"/proc/{os.getpid()}/stat").read_text().rsplit(")", 1)[1].split()[19]
+        owner = f"{os.getpid()}:{started}"
+    env = dict(os.environ, CORGI_CPU_BENCHMARK_LOCK=owner)
     (root / "plan.json").write_text(json.dumps(vars(args), indent=2) + "\n")
     writing = threading.Lock()
     children = set()
@@ -63,8 +77,11 @@ def main():
         name = f"{label}-{repeat + 1}"
         command = [sys.executable, str(Path(__file__).with_name("run.py")),
                    "herdr" if label == "herdr" else "corgi", str(Path(binary).resolve()),
-                   str(root / name), "--suite", "faults", "--repeats", "1",
-                   "--fault-cases", args.cases, "--cpus", cpus]
+                   str(root / name), "--suite", args.suite, "--repeats", "1",
+                   "--fault-cases", args.cases, "--cpus", cpus,
+                   "--stream-cases", args.stream_cases, "--stream-rtt", str(args.stream_rtt),
+                   "--stream-seconds", str(args.stream_seconds), "--fault-kind", args.fault_kind,
+                   "--sleep-seconds", str(args.sleep_seconds)]
         record("start", name=name, command=command)
         with (root / f"{name}.log").open("w") as output:
             with writing:

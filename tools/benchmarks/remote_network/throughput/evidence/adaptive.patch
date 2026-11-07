@@ -1,0 +1,183 @@
+diff --git a/HACKING.md b/HACKING.md
+index 90149107..05dfb242 100644
+--- a/HACKING.md
++++ b/HACKING.md
+@@ -375,7 +375,12 @@ capability and the defaulted `viewer.stream.incremental` flag. A stream sends
+ full surfaces initially, then changed rows against the preceding sent surface.
+ The receiver checks the base stamp and reconstructs every delta before it
+ coalesces frames for display. Cumulative receipts bound outstanding render data
+-to three frames and 16 KiB of encoded JSON; an oversized snapshot travels alone.
++to three frames and initially 16 KiB of encoded JSON. The byte budget grows to
++32 KiB while receipt round trips stay within 50 ms of the fastest receipt on
++that stream, and returns to 16 KiB when they slow down. The frame limit stays
++at three; an oversized snapshot travels alone. `remote.stream.window` telemetry
++records budget changes and receipt timings. This is a bounded delay heuristic,
++not a bandwidth estimate; a new stream starts learning again.
+ While blocked, the daemon captures the latest screen after a receipt, without
+ queuing intermediate screens. These receipts confirm transport decoding, not
+ display or agent activity; `pane.acknowledge` still follows presentation.
+diff --git a/src/telemetry.ts b/src/telemetry.ts
+index 145c9086..c6cd37b8 100644
+--- a/src/telemetry.ts
++++ b/src/telemetry.ts
+@@ -8,6 +8,7 @@ export const names = [
+   "remote.race",
+   "remote.transport",
+   "remote.rpc",
++  "remote.stream.window",
+   "daemon.collect",
+   "daemon.import",
+   "daemon.observers",
+diff --git a/src/viewer_stream.test.ts b/src/viewer_stream.test.ts
+index 8d5faebf..980e3221 100644
+--- a/src/viewer_stream.test.ts
++++ b/src/viewer_stream.test.ts
+@@ -54,7 +54,7 @@ test("an oversized snapshot travels alone and a byte-full window resumes on rece
+     terminal = Terminal.create(132, 47);
+   try {
+     const large = view(terminal);
+-    large.session = { large: "界".repeat(10_000) } as unknown as View["session"];
++    large.session = { large: "界".repeat(20_000) } as unknown as View["session"];
+     const first = output.offer(large)!;
+     expect(first).not.toBeNull();
+     expect(output.available).toBe(false);
+@@ -65,6 +65,76 @@ test("an oversized snapshot travels alone and a byte-full window resumes on rece
+     terminal.destroy();
+   }
+ });
++test("dense screens use all three frame slots without queuing a fourth", () => {
++  const output = new Frames(),
++    terminal = Terminal.create(132, 47);
++  try {
++    const first = output.offer(view(terminal))!;
++    output.acknowledge(first.frame);
++    let base = first.view.surfaces[0];
++    for (const character of ["a", "b", "c"]) {
++      for (let row = 0; row < 24; row++) terminal.feed(`\x1b[${row + 1};1H${character.repeat(108)}`);
++      const sent = output.offer(view(terminal))!;
++      expect(sent).not.toBeNull();
++      base = sent.view.surfaces[0] ?? surface.apply(base, sent.view.patches![0]);
++      expect(base).toEqual(view(terminal).surfaces[0]);
++    }
++    expect(output.offer(view(terminal))).toBeNull();
++    output.acknowledge(4n);
++    expect(output.offer(view(terminal))).not.toBeNull();
++  } finally {
++    terminal.destroy();
++  }
++});
++test("large updates exhaust the byte budget before the frame slots", () => {
++  const output = new Frames(),
++    terminal = Terminal.create(80, 24);
++  try {
++    output.acknowledge(output.offer(view(terminal))!.frame);
++    const large = view(terminal);
++    large.session = { large: "界".repeat(4_000) } as unknown as View["session"];
++    expect(output.offer(large)).not.toBeNull();
++    const second = output.offer(large)!;
++    expect(second).not.toBeNull();
++    expect(output.offer(large)).toBeNull();
++    output.acknowledge(second.frame);
++    expect(output.offer(large)).not.toBeNull();
++  } finally {
++    terminal.destroy();
++  }
++});
++test("slow receipts restore the small window, then fresh receipts can reopen it", () => {
++  let now = 0;
++  const output = new Frames(() => now),
++    terminal = Terminal.create(80, 24);
++  try {
++    const first = output.offer(view(terminal))!;
++    now = 120;
++    output.acknowledge(first.frame);
++    const large = view(terminal);
++    large.session = { large: "界".repeat(4_000) } as unknown as View["session"];
++    const second = output.offer(large)!;
++    const third = output.offer(large)!;
++    expect(third).not.toBeNull();
++    now += 400;
++    output.acknowledge(second.frame);
++    expect(output.offer(large)).toBeNull();
++    // An already acknowledged frame must not change the learned delay or budget.
++    output.acknowledge(first.frame);
++    expect(output.offer(large)).toBeNull();
++    output.acknowledge(third.frame);
++    const fourth = output.offer(large)!;
++    expect(fourth).not.toBeNull();
++    expect(output.offer(large)).toBeNull();
++    now += 120;
++    output.acknowledge(fourth.frame);
++    expect(output.offer(large)).not.toBeNull();
++    expect(output.offer(large)).not.toBeNull();
++    expect(output.offer(large)).toBeNull();
++  } finally {
++    terminal.destroy();
++  }
++});
+ test("row patches preserve Unicode, hyperlinks, cursor, scrollback and modes", () => {
+   const terminal = Terminal.create(40, 5);
+   try {
+diff --git a/src/viewer_stream.ts b/src/viewer_stream.ts
+index 94fb6d52..26a803d4 100644
+--- a/src/viewer_stream.ts
++++ b/src/viewer_stream.ts
+@@ -1,16 +1,20 @@
+ import * as surface from "./pane/surface";
+ import * as json from "./json";
+ import * as text from "./text";
++import * as telemetry from "./telemetry";
+ import type { View } from "./viewer_protocol";
+ 
+ /** Bound bytes already accepted by the socket, SSH and the network, too. */
+ export class Frames {
+   private retained = new Map<number, surface.View>();
+-  private pending = new Map<bigint, number>();
++  private pending = new Map<bigint, { bytes: number; at: number }>();
+   private sent = 0n;
+   private bytes = 0;
++  private limit = 16384;
++  private fastest = Infinity;
++  constructor(private readonly now = () => performance.now()) {}
+   get available(): boolean {
+-    return this.pending.size < 3 && this.bytes < 16384;
++    return this.pending.size < 3 && this.bytes < this.limit;
+   }
+   offer(view: View): { frame: bigint; view: View } | null {
+     if (!this.available) return null;
+@@ -26,19 +30,31 @@ export class Frames {
+     // Include room for the stream envelope and RPC id. One oversized frame
+     // may travel alone, so a full snapshot can always make progress.
+     const bytes = text.byteLength(json.stringify(encoded)) + 128;
+-    if (this.pending.size && this.bytes + bytes > 16384) return null;
++    if (this.pending.size && this.bytes + bytes > this.limit) return null;
+     for (const frame of view.surfaces) this.retained.set(frame.surface.pane, frame);
+     const frame = ++this.sent;
+-    this.pending.set(frame, bytes);
++    this.pending.set(frame, { bytes, at: this.now() });
+     this.bytes += bytes;
+     return { frame, view: encoded };
+   }
+   acknowledge(frame: bigint): void {
+     if (frame > this.sent) throw Error("InvalidAcknowledgement");
+-    for (const [sent, bytes] of this.pending) {
++    const received = this.pending.get(frame);
++    if (received) {
++      const elapsed = this.now() - received.at;
++      this.fastest = Math.min(this.fastest, elapsed);
++      // Allow dense frames to fill the three slots on an uncongested link.
++      // Added receipt delay means bytes are queuing; restore the small budget.
++      const limit = elapsed <= this.fastest + 50 ? 32768 : 16384;
++      if (limit !== this.limit) {
++        this.limit = limit;
++        telemetry.event("remote.stream.window", { bytes: limit, receipt_ms: elapsed, fastest_ms: this.fastest });
++      }
++    }
++    for (const [sent, pending] of this.pending) {
+       if (sent > frame) break;
+       this.pending.delete(sent);
+-      this.bytes -= bytes;
++      this.bytes -= pending.bytes;
+     }
+   }
+ }

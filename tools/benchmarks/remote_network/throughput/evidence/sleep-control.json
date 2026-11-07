@@ -1,0 +1,1634 @@
+{
+  "trials": [
+    {
+      "path": "dist/remote-throughput-sleep/before-1",
+      "product": "corgi",
+      "manifest": {
+        "product": "corgi",
+        "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-outage-after",
+        "sha256": "6169e74c340af3b833ed0918097c50ef593d42e8be80a0706c14ad35967acb4e",
+        "corgi_commit": "acc4ee33f61a4600f8d0e4299b5c4701643e8b5c",
+        "build": {
+          "builtAt": "2026-11-06T23:46:34.639Z",
+          "target": "linux-x64",
+          "bunVersion": "1.4.4",
+          "testBuild": false,
+          "releaseVersion": "0.1.0-dev",
+          "releaseCommit": "35cef14dfd0e59aa6dcdd411de88d72f7a52a0e5",
+          "sha256": "6169e74c340af3b833ed0918097c50ef593d42e8be80a0706c14ad35967acb4e",
+          "sourceSHA256": "69905a134c6e344b8c91716f748f90c285e5f423cd6bff6cb605f161204683f9",
+          "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+          "inputsSHA256": "10f80e8dadcd78f698e7744c52f638e606cbd675389fdf14908fcad46107399d"
+        },
+        "args": {
+          "product": "corgi",
+          "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-outage-after",
+          "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-sleep/before-1",
+          "suite": "sleep",
+          "repeats": 1,
+          "panes": 4,
+          "cpus": "0-7",
+          "sleep_seconds": 180,
+          "ansi": false,
+          "trace": false,
+          "capture": false,
+          "fault_cases": "blackhole3,blackhole15,blackhole35,blackhole60",
+          "fault_kind": "sparse",
+          "calibrate": false,
+          "rtts": "0,20,120,300",
+          "ssh_compression": "default",
+          "stream_cases": "dense:unlimited,dense:1mbit,dense:256kbit,dense:64kbit,sparse:64kbit",
+          "stream_rtt": 120,
+          "stream_seconds": 30
+        },
+        "kernel": "6.8.0-146-generic",
+        "clock": "CLOCK_MONOTONIC",
+        "uid": 1000,
+        "topology": "intermediate-bridge-tbf-netem-v2",
+        "started_utc": "2026-11-07T03:03:08Z"
+      },
+      "receipts": {
+        "READYV1MatlasI19P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345550.464093177,
+            "token": "READYV1MatlasI19P0",
+            "pid": 1139853
+          }
+        ],
+        "READYV1MatlasI19P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345550.564210625,
+            "token": "READYV1MatlasI19P1",
+            "pid": 1139853
+          }
+        ],
+        "BEFORESLEEPV1I23": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345550.796279105,
+            "token": "BEFORESLEEPV1I23",
+            "pid": 1139853
+          }
+        ],
+        "SLEEP_PENDING": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345551.049762869,
+            "token": "SLEEP_PENDING",
+            "pid": 1139853
+          }
+        ],
+        "READYV1MatlasI25P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345734.263550913,
+            "token": "READYV1MatlasI25P0",
+            "pid": 1139853
+          }
+        ],
+        "READYV1MatlasI25P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345734.381575773,
+            "token": "READYV1MatlasI25P1",
+            "pid": 1139853
+          }
+        ],
+        "AFTERSLEEPV1I27": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345734.503063506,
+            "token": "AFTERSLEEPV1I27",
+            "pid": 1139853
+          }
+        ]
+      },
+      "duplicate_tokens": {},
+      "results": [
+        {
+          "case": "sleep",
+          "sleep_seconds": 180,
+          "recovery_seconds": 2.4243970243260264,
+          "before": {
+            "token": "BEFORESLEEPV1I23",
+            "sent": 2345550.716588062,
+            "seconds": 0.18051973218098283,
+            "ok": true
+          },
+          "usable_seconds": 2.5965167530812323,
+          "ready": {
+            "ack_at": 2345734.346631954,
+            "ack": "READYV1MatlasI25P0",
+            "probes": [
+              {
+                "token": "READYV1MatlasI25P0",
+                "sent": 2345734.182165402
+              },
+              {
+                "token": "READYV1MatlasI25P1",
+                "sent": 2345734.302158081
+              }
+            ]
+          },
+          "pending_input_at": 2345550.970209601,
+          "echo": {
+            "token": "AFTERSLEEPV1I27",
+            "sent": 2345734.422397087,
+            "seconds": 0.1748672411777079,
+            "ok": true
+          },
+          "pending_input_count": 1,
+          "continuity": {
+            "samples": 153,
+            "remote_producer_count": 8,
+            "same_remote_pids_throughout": true,
+            "all_remote_cpu_ticks_advanced": true,
+            "observed_source_sequence_advance": 3663,
+            "observed_source_seconds": 183.1500238161534
+          },
+          "first_probe_received": true,
+          "ready_probe_receipts": [
+            1,
+            1
+          ],
+          "evidence": "dist/remote-throughput-sleep/before-1/results.json"
+        }
+      ],
+      "label": "before"
+    },
+    {
+      "path": "dist/remote-throughput-sleep-more/before-1",
+      "product": "corgi",
+      "manifest": {
+        "product": "corgi",
+        "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-outage-after",
+        "sha256": "6169e74c340af3b833ed0918097c50ef593d42e8be80a0706c14ad35967acb4e",
+        "corgi_commit": "9eff77f42da1f8b9669a044f8d4d06c10df740d3",
+        "build": {
+          "builtAt": "2026-11-06T23:46:34.639Z",
+          "target": "linux-x64",
+          "bunVersion": "1.4.4",
+          "testBuild": false,
+          "releaseVersion": "0.1.0-dev",
+          "releaseCommit": "35cef14dfd0e59aa6dcdd411de88d72f7a52a0e5",
+          "sha256": "6169e74c340af3b833ed0918097c50ef593d42e8be80a0706c14ad35967acb4e",
+          "sourceSHA256": "69905a134c6e344b8c91716f748f90c285e5f423cd6bff6cb605f161204683f9",
+          "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+          "inputsSHA256": "10f80e8dadcd78f698e7744c52f638e606cbd675389fdf14908fcad46107399d"
+        },
+        "args": {
+          "product": "corgi",
+          "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-outage-after",
+          "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-sleep-more/before-1",
+          "suite": "sleep",
+          "repeats": 1,
+          "panes": 4,
+          "cpus": "8-15",
+          "sleep_seconds": 180,
+          "ansi": false,
+          "trace": false,
+          "capture": false,
+          "fault_cases": "blackhole3,blackhole15,blackhole35,blackhole60",
+          "fault_kind": "sparse",
+          "calibrate": false,
+          "rtts": "0,20,120,300",
+          "ssh_compression": "default",
+          "stream_cases": "dense:unlimited,dense:1mbit,dense:256kbit,dense:64kbit,sparse:64kbit",
+          "stream_rtt": 120,
+          "stream_seconds": 30
+        },
+        "kernel": "6.8.0-146-generic",
+        "clock": "CLOCK_MONOTONIC",
+        "uid": 1000,
+        "topology": "intermediate-bridge-tbf-netem-v2",
+        "started_utc": "2026-11-07T03:09:13Z"
+      },
+      "receipts": {
+        "READYV1MatlasI19P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345915.06823031,
+            "token": "READYV1MatlasI19P0",
+            "pid": 1183887
+          }
+        ],
+        "READYV1MatlasI19P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345915.173183998,
+            "token": "READYV1MatlasI19P1",
+            "pid": 1183887
+          }
+        ],
+        "BEFORESLEEPV1I23": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345915.424585492,
+            "token": "BEFORESLEEPV1I23",
+            "pid": 1183887
+          }
+        ],
+        "SLEEP_PENDING": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345915.692928821,
+            "token": "SLEEP_PENDING",
+            "pid": 1183887
+          }
+        ],
+        "READYV1MatlasI25P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346099.081827519,
+            "token": "READYV1MatlasI25P0",
+            "pid": 1183887
+          }
+        ],
+        "READYV1MatlasI25P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346099.19274812,
+            "token": "READYV1MatlasI25P1",
+            "pid": 1183887
+          }
+        ],
+        "AFTERSLEEPV1I27": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346099.32034209,
+            "token": "AFTERSLEEPV1I27",
+            "pid": 1183887
+          }
+        ]
+      },
+      "duplicate_tokens": {},
+      "results": [
+        {
+          "case": "sleep",
+          "sleep_seconds": 180,
+          "recovery_seconds": 2.417492507956922,
+          "before": {
+            "token": "BEFORESLEEPV1I23",
+            "sent": 2345915.345460094,
+            "seconds": 0.18544869683682919,
+            "ok": true
+          },
+          "usable_seconds": 2.613444388844073,
+          "ready": {
+            "ack_at": 2346099.181196256,
+            "ack": "READYV1MatlasI25P0",
+            "probes": [
+              {
+                "token": "READYV1MatlasI25P0",
+                "sent": 2346099.000424558
+              },
+              {
+                "token": "READYV1MatlasI25P1",
+                "sent": 2346099.120242576
+              }
+            ]
+          },
+          "pending_input_at": 2345915.613651188,
+          "echo": {
+            "token": "AFTERSLEEPV1I27",
+            "sent": 2346099.240581409,
+            "seconds": 0.19117802800610662,
+            "ok": true
+          },
+          "pending_input_count": 1,
+          "continuity": {
+            "samples": 152,
+            "remote_producer_count": 8,
+            "same_remote_pids_throughout": true,
+            "all_remote_cpu_ticks_advanced": true,
+            "observed_source_sequence_advance": 3666,
+            "observed_source_seconds": 183.29992426512763
+          },
+          "first_probe_received": true,
+          "ready_probe_receipts": [
+            1,
+            1
+          ],
+          "evidence": "dist/remote-throughput-sleep-more/before-1/results.json"
+        }
+      ],
+      "label": "before"
+    },
+    {
+      "path": "dist/remote-throughput-sleep-more/before-2",
+      "product": "corgi",
+      "manifest": {
+        "product": "corgi",
+        "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-outage-after",
+        "sha256": "6169e74c340af3b833ed0918097c50ef593d42e8be80a0706c14ad35967acb4e",
+        "corgi_commit": "9eff77f42da1f8b9669a044f8d4d06c10df740d3",
+        "build": {
+          "builtAt": "2026-11-06T23:46:34.639Z",
+          "target": "linux-x64",
+          "bunVersion": "1.4.4",
+          "testBuild": false,
+          "releaseVersion": "0.1.0-dev",
+          "releaseCommit": "35cef14dfd0e59aa6dcdd411de88d72f7a52a0e5",
+          "sha256": "6169e74c340af3b833ed0918097c50ef593d42e8be80a0706c14ad35967acb4e",
+          "sourceSHA256": "69905a134c6e344b8c91716f748f90c285e5f423cd6bff6cb605f161204683f9",
+          "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+          "inputsSHA256": "10f80e8dadcd78f698e7744c52f638e606cbd675389fdf14908fcad46107399d"
+        },
+        "args": {
+          "product": "corgi",
+          "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-outage-after",
+          "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-sleep-more/before-2",
+          "suite": "sleep",
+          "repeats": 1,
+          "panes": 4,
+          "cpus": "120-127",
+          "sleep_seconds": 180,
+          "ansi": false,
+          "trace": false,
+          "capture": false,
+          "fault_cases": "blackhole3,blackhole15,blackhole35,blackhole60",
+          "fault_kind": "sparse",
+          "calibrate": false,
+          "rtts": "0,20,120,300",
+          "ssh_compression": "default",
+          "stream_cases": "dense:unlimited,dense:1mbit,dense:256kbit,dense:64kbit,sparse:64kbit",
+          "stream_rtt": 120,
+          "stream_seconds": 30
+        },
+        "kernel": "6.8.0-146-generic",
+        "clock": "CLOCK_MONOTONIC",
+        "uid": 1000,
+        "topology": "intermediate-bridge-tbf-netem-v2",
+        "started_utc": "2026-11-07T03:13:14Z"
+      },
+      "receipts": {
+        "READYV1MatlasI19P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346156.356655255,
+            "token": "READYV1MatlasI19P0",
+            "pid": 1211507
+          }
+        ],
+        "READYV1MatlasI19P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346156.452403635,
+            "token": "READYV1MatlasI19P1",
+            "pid": 1211507
+          }
+        ],
+        "BEFORESLEEPV1I23": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346156.668473249,
+            "token": "BEFORESLEEPV1I23",
+            "pid": 1211507
+          }
+        ],
+        "SLEEP_PENDING": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346156.937560426,
+            "token": "SLEEP_PENDING",
+            "pid": 1211507
+          }
+        ],
+        "READYV1MatlasI25P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346340.148418362,
+            "token": "READYV1MatlasI25P0",
+            "pid": 1211507
+          }
+        ],
+        "READYV1MatlasI25P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346340.268421952,
+            "token": "READYV1MatlasI25P1",
+            "pid": 1211507
+          }
+        ],
+        "AFTERSLEEPV1I27": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346340.386642682,
+            "token": "AFTERSLEEPV1I27",
+            "pid": 1211507
+          }
+        ]
+      },
+      "duplicate_tokens": {},
+      "results": [
+        {
+          "case": "sleep",
+          "sleep_seconds": 180,
+          "recovery_seconds": 2.4151410409249365,
+          "before": {
+            "token": "BEFORESLEEPV1I23",
+            "sent": 2346156.588345426,
+            "seconds": 0.1872021509334445,
+            "ok": true
+          },
+          "usable_seconds": 2.587190247140825,
+          "ready": {
+            "ack_at": 2346340.226223805,
+            "ack": "READYV1MatlasI25P0",
+            "probes": [
+              {
+                "token": "READYV1MatlasI25P0",
+                "sent": 2346340.068781308
+              },
+              {
+                "token": "READYV1MatlasI25P1",
+                "sent": 2346340.188960871
+              }
+            ]
+          },
+          "pending_input_at": 2346156.865154404,
+          "echo": {
+            "token": "AFTERSLEEPV1I27",
+            "sent": 2346340.309373518,
+            "seconds": 0.16669128416106105,
+            "ok": true
+          },
+          "pending_input_count": 1,
+          "continuity": {
+            "samples": 152,
+            "remote_producer_count": 8,
+            "same_remote_pids_throughout": true,
+            "all_remote_cpu_ticks_advanced": true,
+            "observed_source_sequence_advance": 3663,
+            "observed_source_seconds": 183.15003576409072
+          },
+          "first_probe_received": true,
+          "ready_probe_receipts": [
+            1,
+            1
+          ],
+          "evidence": "dist/remote-throughput-sleep-more/before-2/results.json"
+        }
+      ],
+      "label": "before"
+    },
+    {
+      "path": "dist/remote-throughput-sleep/after-1",
+      "product": "corgi",
+      "manifest": {
+        "product": "corgi",
+        "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-throughput-after",
+        "sha256": "59bf1ccecaf400f812ac3f7d81d3cc13fcfedc8ca25328c1cd76a4cb345583fe",
+        "corgi_commit": "acc4ee33f61a4600f8d0e4299b5c4701643e8b5c",
+        "build": {
+          "builtAt": "2026-11-07T02:54:26.464Z",
+          "target": "linux-x64",
+          "bunVersion": "1.4.4",
+          "testBuild": false,
+          "releaseVersion": "0.1.0-dev",
+          "releaseCommit": "acc4ee33f61a4600f8d0e4299b5c4701643e8b5c-dirty",
+          "sha256": "59bf1ccecaf400f812ac3f7d81d3cc13fcfedc8ca25328c1cd76a4cb345583fe",
+          "sourceSHA256": "a313b23d71dfee6d307715b162a2c443e3bf39c6f08f80d5992f99ed3602ecb1",
+          "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+          "inputsSHA256": "ad6a2112fc5834ac29d077b2b67cde39472fc84e8846ab2b88f8268586f3d3a4"
+        },
+        "args": {
+          "product": "corgi",
+          "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-throughput-after",
+          "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-sleep/after-1",
+          "suite": "sleep",
+          "repeats": 1,
+          "panes": 4,
+          "cpus": "8-15",
+          "sleep_seconds": 180,
+          "ansi": false,
+          "trace": false,
+          "capture": false,
+          "fault_cases": "blackhole3,blackhole15,blackhole35,blackhole60",
+          "fault_kind": "sparse",
+          "calibrate": false,
+          "rtts": "0,20,120,300",
+          "ssh_compression": "default",
+          "stream_cases": "dense:unlimited,dense:1mbit,dense:256kbit,dense:64kbit,sparse:64kbit",
+          "stream_rtt": 120,
+          "stream_seconds": 30
+        },
+        "kernel": "6.8.0-146-generic",
+        "clock": "CLOCK_MONOTONIC",
+        "uid": 1000,
+        "topology": "intermediate-bridge-tbf-netem-v2",
+        "started_utc": "2026-11-07T03:03:08Z"
+      },
+      "receipts": {
+        "READYV1MatlasI20P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345550.269425897,
+            "token": "READYV1MatlasI20P0",
+            "pid": 1139784
+          }
+        ],
+        "READYV1MatlasI20P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345550.372115011,
+            "token": "READYV1MatlasI20P1",
+            "pid": 1139784
+          }
+        ],
+        "BEFORESLEEPV1I24": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345550.586245469,
+            "token": "BEFORESLEEPV1I24",
+            "pid": 1139784
+          }
+        ],
+        "SLEEP_PENDING": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345550.874649988,
+            "token": "SLEEP_PENDING",
+            "pid": 1139784
+          }
+        ],
+        "READYV1MatlasI26P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345734.093218187,
+            "token": "READYV1MatlasI26P0",
+            "pid": 1139784
+          }
+        ],
+        "READYV1MatlasI26P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345734.210852926,
+            "token": "READYV1MatlasI26P1",
+            "pid": 1139784
+          }
+        ],
+        "AFTERSLEEPV1I28": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345734.318858928,
+            "token": "AFTERSLEEPV1I28",
+            "pid": 1139784
+          }
+        ]
+      },
+      "duplicate_tokens": {},
+      "results": [
+        {
+          "case": "sleep",
+          "sleep_seconds": 180,
+          "recovery_seconds": 2.42729019979015,
+          "before": {
+            "token": "BEFORESLEEPV1I24",
+            "sent": 2345550.504730092,
+            "seconds": 0.1895405389368534,
+            "ok": true
+          },
+          "usable_seconds": 2.613884599879384,
+          "ready": {
+            "ack_at": 2345734.194218731,
+            "ack": "READYV1MatlasI26P0",
+            "probes": [
+              {
+                "token": "READYV1MatlasI26P0",
+                "sent": 2345734.012080704
+              },
+              {
+                "token": "READYV1MatlasI26P1",
+                "sent": 2345734.132065562
+              }
+            ]
+          },
+          "pending_input_at": 2345550.795244354,
+          "echo": {
+            "token": "AFTERSLEEPV1I28",
+            "sent": 2345734.252178485,
+            "seconds": 0.14237354416400194,
+            "ok": true
+          },
+          "pending_input_count": 1,
+          "continuity": {
+            "samples": 154,
+            "remote_producer_count": 8,
+            "same_remote_pids_throughout": true,
+            "all_remote_cpu_ticks_advanced": true,
+            "observed_source_sequence_advance": 3663,
+            "observed_source_seconds": 183.15004645194858
+          },
+          "first_probe_received": true,
+          "ready_probe_receipts": [
+            1,
+            1
+          ],
+          "evidence": "dist/remote-throughput-sleep/after-1/results.json"
+        }
+      ],
+      "label": "after"
+    },
+    {
+      "path": "dist/remote-throughput-sleep-more/after-1",
+      "product": "corgi",
+      "manifest": {
+        "product": "corgi",
+        "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-throughput-after",
+        "sha256": "59bf1ccecaf400f812ac3f7d81d3cc13fcfedc8ca25328c1cd76a4cb345583fe",
+        "corgi_commit": "9eff77f42da1f8b9669a044f8d4d06c10df740d3",
+        "build": {
+          "builtAt": "2026-11-07T02:54:26.464Z",
+          "target": "linux-x64",
+          "bunVersion": "1.4.4",
+          "testBuild": false,
+          "releaseVersion": "0.1.0-dev",
+          "releaseCommit": "acc4ee33f61a4600f8d0e4299b5c4701643e8b5c-dirty",
+          "sha256": "59bf1ccecaf400f812ac3f7d81d3cc13fcfedc8ca25328c1cd76a4cb345583fe",
+          "sourceSHA256": "a313b23d71dfee6d307715b162a2c443e3bf39c6f08f80d5992f99ed3602ecb1",
+          "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+          "inputsSHA256": "ad6a2112fc5834ac29d077b2b67cde39472fc84e8846ab2b88f8268586f3d3a4"
+        },
+        "args": {
+          "product": "corgi",
+          "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-throughput-after",
+          "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-sleep-more/after-1",
+          "suite": "sleep",
+          "repeats": 1,
+          "panes": 4,
+          "cpus": "120-127",
+          "sleep_seconds": 180,
+          "ansi": false,
+          "trace": false,
+          "capture": false,
+          "fault_cases": "blackhole3,blackhole15,blackhole35,blackhole60",
+          "fault_kind": "sparse",
+          "calibrate": false,
+          "rtts": "0,20,120,300",
+          "ssh_compression": "default",
+          "stream_cases": "dense:unlimited,dense:1mbit,dense:256kbit,dense:64kbit,sparse:64kbit",
+          "stream_rtt": 120,
+          "stream_seconds": 30
+        },
+        "kernel": "6.8.0-146-generic",
+        "clock": "CLOCK_MONOTONIC",
+        "uid": 1000,
+        "topology": "intermediate-bridge-tbf-netem-v2",
+        "started_utc": "2026-11-07T03:09:13Z"
+      },
+      "receipts": {
+        "READYV1MatlasI19P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345915.029350421,
+            "token": "READYV1MatlasI19P0",
+            "pid": 1183870
+          }
+        ],
+        "READYV1MatlasI19P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345915.148625336,
+            "token": "READYV1MatlasI19P1",
+            "pid": 1183870
+          }
+        ],
+        "BEFORESLEEPV1I23": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345915.34633186,
+            "token": "BEFORESLEEPV1I23",
+            "pid": 1183870
+          }
+        ],
+        "SLEEP_PENDING": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345915.614957877,
+            "token": "SLEEP_PENDING",
+            "pid": 1183870
+          }
+        ],
+        "READYV1MatlasI25P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346099.081431797,
+            "token": "READYV1MatlasI25P0",
+            "pid": 1183870
+          }
+        ],
+        "READYV1MatlasI25P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346099.199558034,
+            "token": "READYV1MatlasI25P1",
+            "pid": 1183870
+          }
+        ],
+        "AFTERSLEEPV1I27": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346099.313768234,
+            "token": "AFTERSLEEPV1I27",
+            "pid": 1183870
+          }
+        ]
+      },
+      "duplicate_tokens": {},
+      "results": [
+        {
+          "case": "sleep",
+          "sleep_seconds": 180,
+          "recovery_seconds": 2.4203010918572545,
+          "before": {
+            "token": "BEFORESLEEPV1I23",
+            "sent": 2345915.267015015,
+            "seconds": 0.18688994133844972,
+            "ok": true
+          },
+          "usable_seconds": 2.5846808198839426,
+          "ready": {
+            "ack_at": 2346099.15288047,
+            "ack": "READYV1MatlasI25P0",
+            "probes": [
+              {
+                "token": "READYV1MatlasI25P0",
+                "sent": 2346099.000030837
+              },
+              {
+                "token": "READYV1MatlasI25P1",
+                "sent": 2346099.119801662
+              }
+            ]
+          },
+          "pending_input_at": 2345915.538171848,
+          "echo": {
+            "token": "AFTERSLEEPV1I27",
+            "sent": 2346099.23997573,
+            "seconds": 0.16292585525661707,
+            "ok": true
+          },
+          "pending_input_count": 1,
+          "continuity": {
+            "samples": 152,
+            "remote_producer_count": 8,
+            "same_remote_pids_throughout": true,
+            "all_remote_cpu_ticks_advanced": true,
+            "observed_source_sequence_advance": 3668,
+            "observed_source_seconds": 183.40001230873168
+          },
+          "first_probe_received": true,
+          "ready_probe_receipts": [
+            1,
+            1
+          ],
+          "evidence": "dist/remote-throughput-sleep-more/after-1/results.json"
+        }
+      ],
+      "label": "after"
+    },
+    {
+      "path": "dist/remote-throughput-sleep-more/after-2",
+      "product": "corgi",
+      "manifest": {
+        "product": "corgi",
+        "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-throughput-after",
+        "sha256": "59bf1ccecaf400f812ac3f7d81d3cc13fcfedc8ca25328c1cd76a4cb345583fe",
+        "corgi_commit": "9eff77f42da1f8b9669a044f8d4d06c10df740d3",
+        "build": {
+          "builtAt": "2026-11-07T02:54:26.464Z",
+          "target": "linux-x64",
+          "bunVersion": "1.4.4",
+          "testBuild": false,
+          "releaseVersion": "0.1.0-dev",
+          "releaseCommit": "acc4ee33f61a4600f8d0e4299b5c4701643e8b5c-dirty",
+          "sha256": "59bf1ccecaf400f812ac3f7d81d3cc13fcfedc8ca25328c1cd76a4cb345583fe",
+          "sourceSHA256": "a313b23d71dfee6d307715b162a2c443e3bf39c6f08f80d5992f99ed3602ecb1",
+          "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+          "inputsSHA256": "ad6a2112fc5834ac29d077b2b67cde39472fc84e8846ab2b88f8268586f3d3a4"
+        },
+        "args": {
+          "product": "corgi",
+          "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-throughput-after",
+          "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-sleep-more/after-2",
+          "suite": "sleep",
+          "repeats": 1,
+          "panes": 4,
+          "cpus": "0-7",
+          "sleep_seconds": 180,
+          "ansi": false,
+          "trace": false,
+          "capture": false,
+          "fault_cases": "blackhole3,blackhole15,blackhole35,blackhole60",
+          "fault_kind": "sparse",
+          "calibrate": false,
+          "rtts": "0,20,120,300",
+          "ssh_compression": "default",
+          "stream_cases": "dense:unlimited,dense:1mbit,dense:256kbit,dense:64kbit,sparse:64kbit",
+          "stream_rtt": 120,
+          "stream_seconds": 30
+        },
+        "kernel": "6.8.0-146-generic",
+        "clock": "CLOCK_MONOTONIC",
+        "uid": 1000,
+        "topology": "intermediate-bridge-tbf-netem-v2",
+        "started_utc": "2026-11-07T03:13:14Z"
+      },
+      "receipts": {
+        "READYV1MatlasI19P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346156.339776561,
+            "token": "READYV1MatlasI19P0",
+            "pid": 1211505
+          }
+        ],
+        "READYV1MatlasI19P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346156.437700876,
+            "token": "READYV1MatlasI19P1",
+            "pid": 1211505
+          }
+        ],
+        "BEFORESLEEPV1I23": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346156.652665757,
+            "token": "BEFORESLEEPV1I23",
+            "pid": 1211505
+          }
+        ],
+        "SLEEP_PENDING": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346156.885831571,
+            "token": "SLEEP_PENDING",
+            "pid": 1211505
+          }
+        ],
+        "READYV1MatlasI25P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346340.120410416,
+            "token": "READYV1MatlasI25P0",
+            "pid": 1211505
+          }
+        ],
+        "READYV1MatlasI25P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346340.231552275,
+            "token": "READYV1MatlasI25P1",
+            "pid": 1211505
+          }
+        ],
+        "AFTERSLEEPV1I27": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346340.358124487,
+            "token": "AFTERSLEEPV1I27",
+            "pid": 1211505
+          }
+        ]
+      },
+      "duplicate_tokens": {},
+      "results": [
+        {
+          "case": "sleep",
+          "sleep_seconds": 180,
+          "recovery_seconds": 2.41222951002419,
+          "before": {
+            "token": "BEFORESLEEPV1I23",
+            "sent": 2346156.571464142,
+            "seconds": 0.14850616501644254,
+            "ok": true
+          },
+          "usable_seconds": 2.6143571767024696,
+          "ready": {
+            "ack_at": 2346340.220408986,
+            "ack": "READYV1MatlasI25P0",
+            "probes": [
+              {
+                "token": "READYV1MatlasI25P0",
+                "sent": 2346340.03654596
+              },
+              {
+                "token": "READYV1MatlasI25P1",
+                "sent": 2346340.156436018
+              }
+            ]
+          },
+          "pending_input_at": 2346156.812865822,
+          "echo": {
+            "token": "AFTERSLEEPV1I27",
+            "sent": 2346340.276626781,
+            "seconds": 0.1928421389311552,
+            "ok": true
+          },
+          "pending_input_count": 1,
+          "continuity": {
+            "samples": 152,
+            "remote_producer_count": 8,
+            "same_remote_pids_throughout": true,
+            "all_remote_cpu_ticks_advanced": true,
+            "observed_source_sequence_advance": 3662,
+            "observed_source_seconds": 183.09984750580043
+          },
+          "first_probe_received": true,
+          "ready_probe_receipts": [
+            1,
+            1
+          ],
+          "evidence": "dist/remote-throughput-sleep-more/after-2/results.json"
+        }
+      ],
+      "label": "after"
+    },
+    {
+      "path": "dist/remote-throughput-sleep/herdr-1",
+      "product": "herdr",
+      "manifest": {
+        "product": "herdr",
+        "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+        "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "corgi_commit": "acc4ee33f61a4600f8d0e4299b5c4701643e8b5c",
+        "build": null,
+        "args": {
+          "product": "herdr",
+          "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+          "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-sleep/herdr-1",
+          "suite": "sleep",
+          "repeats": 1,
+          "panes": 4,
+          "cpus": "120-127",
+          "sleep_seconds": 180,
+          "ansi": false,
+          "trace": false,
+          "capture": false,
+          "fault_cases": "blackhole3,blackhole15,blackhole35,blackhole60",
+          "fault_kind": "sparse",
+          "calibrate": false,
+          "rtts": "0,20,120,300",
+          "ssh_compression": "default",
+          "stream_cases": "dense:unlimited,dense:1mbit,dense:256kbit,dense:64kbit,sparse:64kbit",
+          "stream_rtt": 120,
+          "stream_seconds": 30
+        },
+        "kernel": "6.8.0-146-generic",
+        "clock": "CLOCK_MONOTONIC",
+        "uid": 1000,
+        "topology": "intermediate-bridge-tbf-netem-v2",
+        "started_utc": "2026-11-07T03:03:08Z"
+      },
+      "receipts": {
+        "READYV1MatlasI30P3": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345548.229880909,
+            "token": "READYV1MatlasI30P3",
+            "pid": 1139324
+          }
+        ],
+        "READYV1MatlasI30P4": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345548.230173837,
+            "token": "READYV1MatlasI30P4",
+            "pid": 1139324
+          }
+        ],
+        "READYV1MatlasI30P5": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345548.350444102,
+            "token": "READYV1MatlasI30P5",
+            "pid": 1139324
+          }
+        ],
+        "BEFORESLEEPV1I38": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345548.551691238,
+            "token": "BEFORESLEEPV1I38",
+            "pid": 1139324
+          }
+        ],
+        "SLEEP_PENDING": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345548.785671214,
+            "token": "SLEEP_PENDING",
+            "pid": 1139324
+          }
+        ],
+        "READYV1MatlasI40P2": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345775.693474544,
+            "token": "READYV1MatlasI40P2",
+            "pid": 1139324
+          }
+        ],
+        "READYV1MatlasI40P3": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345775.812697262,
+            "token": "READYV1MatlasI40P3",
+            "pid": 1139324
+          }
+        ],
+        "AFTERSLEEPV1I44": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345775.93325744,
+            "token": "AFTERSLEEPV1I44",
+            "pid": 1139324
+          }
+        ]
+      },
+      "duplicate_tokens": {},
+      "results": [
+        {
+          "case": "sleep",
+          "sleep_seconds": 180,
+          "recovery_seconds": 45.705471203196794,
+          "before": {
+            "token": "BEFORESLEEPV1I38",
+            "sent": 2345548.491063711,
+            "seconds": 0.1459319763816893,
+            "ok": true
+          },
+          "usable_seconds": 46.10537235438824,
+          "ready": {
+            "ack_at": 2345775.787317117,
+            "ack": "READYV1MatlasI40P2",
+            "probes": [
+              {
+                "token": "READYV1MatlasI40P0",
+                "sent": 2345775.390377144
+              },
+              {
+                "token": "READYV1MatlasI40P1",
+                "sent": 2345775.510950722
+              },
+              {
+                "token": "READYV1MatlasI40P2",
+                "sent": 2345775.631342325
+              },
+              {
+                "token": "READYV1MatlasI40P3",
+                "sent": 2345775.75179771
+              }
+            ]
+          },
+          "pending_input_at": 2345548.724905632,
+          "echo": {
+            "token": "AFTERSLEEPV1I44",
+            "sent": 2345775.872417259,
+            "seconds": 0.16508274292573333,
+            "ok": true
+          },
+          "pending_input_count": 1,
+          "continuity": {
+            "samples": 153,
+            "remote_producer_count": 8,
+            "same_remote_pids_throughout": true,
+            "all_remote_cpu_ticks_advanced": true,
+            "observed_source_sequence_advance": 4530,
+            "observed_source_seconds": 226.49997603101656
+          },
+          "first_probe_received": false,
+          "ready_probe_receipts": [
+            0,
+            0,
+            1,
+            1
+          ],
+          "evidence": "dist/remote-throughput-sleep/herdr-1/results.json"
+        }
+      ],
+      "label": "herdr"
+    },
+    {
+      "path": "dist/remote-throughput-sleep-more/herdr-1",
+      "product": "herdr",
+      "manifest": {
+        "product": "herdr",
+        "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+        "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "corgi_commit": "9eff77f42da1f8b9669a044f8d4d06c10df740d3",
+        "build": null,
+        "args": {
+          "product": "herdr",
+          "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+          "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-sleep-more/herdr-1",
+          "suite": "sleep",
+          "repeats": 1,
+          "panes": 4,
+          "cpus": "0-7",
+          "sleep_seconds": 180,
+          "ansi": false,
+          "trace": false,
+          "capture": false,
+          "fault_cases": "blackhole3,blackhole15,blackhole35,blackhole60",
+          "fault_kind": "sparse",
+          "calibrate": false,
+          "rtts": "0,20,120,300",
+          "ssh_compression": "default",
+          "stream_cases": "dense:unlimited,dense:1mbit,dense:256kbit,dense:64kbit,sparse:64kbit",
+          "stream_rtt": 120,
+          "stream_seconds": 30
+        },
+        "kernel": "6.8.0-146-generic",
+        "clock": "CLOCK_MONOTONIC",
+        "uid": 1000,
+        "topology": "intermediate-bridge-tbf-netem-v2",
+        "started_utc": "2026-11-07T03:09:13Z"
+      },
+      "receipts": {
+        "READYV1MatlasI30P2": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345912.597943954,
+            "token": "READYV1MatlasI30P2",
+            "pid": 1183405
+          }
+        ],
+        "READYV1MatlasI30P3": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345912.718699273,
+            "token": "READYV1MatlasI30P3",
+            "pid": 1183405
+          }
+        ],
+        "BEFORESLEEPV1I36": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345912.940748802,
+            "token": "BEFORESLEEPV1I36",
+            "pid": 1183405
+          }
+        ],
+        "SLEEP_PENDING": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2345913.189057934,
+            "token": "SLEEP_PENDING",
+            "pid": 1183405
+          }
+        ],
+        "READYV1MatlasI38P3": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346140.405619463,
+            "token": "READYV1MatlasI38P3",
+            "pid": 1183405
+          }
+        ],
+        "READYV1MatlasI38P4": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346140.526125952,
+            "token": "READYV1MatlasI38P4",
+            "pid": 1183405
+          }
+        ],
+        "AFTERSLEEPV1I43": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346140.646238439,
+            "token": "AFTERSLEEPV1I43",
+            "pid": 1183405
+          }
+        ]
+      },
+      "duplicate_tokens": {},
+      "results": [
+        {
+          "case": "sleep",
+          "sleep_seconds": 180,
+          "recovery_seconds": 46.02094954112545,
+          "before": {
+            "token": "BEFORESLEEPV1I36",
+            "sent": 2345912.879813226,
+            "seconds": 0.13941044500097632,
+            "ok": true
+          },
+          "usable_seconds": 46.51253821281716,
+          "ready": {
+            "ack_at": 2346140.469690947,
+            "ack": "READYV1MatlasI38P3",
+            "probes": [
+              {
+                "token": "READYV1MatlasI38P0",
+                "sent": 2346139.983350382
+              },
+              {
+                "token": "READYV1MatlasI38P1",
+                "sent": 2346140.103649625
+              },
+              {
+                "token": "READYV1MatlasI38P2",
+                "sent": 2346140.223963918
+              },
+              {
+                "token": "READYV1MatlasI38P3",
+                "sent": 2346140.344260981
+              },
+              {
+                "token": "READYV1MatlasI38P4",
+                "sent": 2346140.464619305
+              }
+            ]
+          },
+          "pending_input_at": 2345913.128230071,
+          "echo": {
+            "token": "AFTERSLEEPV1I43",
+            "sent": 2346140.58498467,
+            "seconds": 0.13478952599689364,
+            "ok": true
+          },
+          "pending_input_count": 1,
+          "continuity": {
+            "samples": 153,
+            "remote_producer_count": 8,
+            "same_remote_pids_throughout": true,
+            "all_remote_cpu_ticks_advanced": true,
+            "observed_source_sequence_advance": 4533,
+            "observed_source_seconds": 226.65004123514518
+          },
+          "first_probe_received": false,
+          "ready_probe_receipts": [
+            0,
+            0,
+            0,
+            1,
+            1
+          ],
+          "evidence": "dist/remote-throughput-sleep-more/herdr-1/results.json"
+        }
+      ],
+      "label": "herdr"
+    },
+    {
+      "path": "dist/remote-throughput-sleep-more/herdr-2",
+      "product": "herdr",
+      "manifest": {
+        "product": "herdr",
+        "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+        "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+        "corgi_commit": "9eff77f42da1f8b9669a044f8d4d06c10df740d3",
+        "build": null,
+        "args": {
+          "product": "herdr",
+          "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+          "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-sleep-more/herdr-2",
+          "suite": "sleep",
+          "repeats": 1,
+          "panes": 4,
+          "cpus": "8-15",
+          "sleep_seconds": 180,
+          "ansi": false,
+          "trace": false,
+          "capture": false,
+          "fault_cases": "blackhole3,blackhole15,blackhole35,blackhole60",
+          "fault_kind": "sparse",
+          "calibrate": false,
+          "rtts": "0,20,120,300",
+          "ssh_compression": "default",
+          "stream_cases": "dense:unlimited,dense:1mbit,dense:256kbit,dense:64kbit,sparse:64kbit",
+          "stream_rtt": 120,
+          "stream_seconds": 30
+        },
+        "kernel": "6.8.0-146-generic",
+        "clock": "CLOCK_MONOTONIC",
+        "uid": 1000,
+        "topology": "intermediate-bridge-tbf-netem-v2",
+        "started_utc": "2026-11-07T03:13:14Z"
+      },
+      "receipts": {
+        "READYV1MatlasI30P3": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346154.392478348,
+            "token": "READYV1MatlasI30P3",
+            "pid": 1211059
+          }
+        ],
+        "READYV1MatlasI30P4": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346154.392780477,
+            "token": "READYV1MatlasI30P4",
+            "pid": 1211059
+          }
+        ],
+        "READYV1MatlasI30P5": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346154.513316488,
+            "token": "READYV1MatlasI30P5",
+            "pid": 1211059
+          }
+        ],
+        "BEFORESLEEPV1I38": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346154.734613607,
+            "token": "BEFORESLEEPV1I38",
+            "pid": 1211059
+          }
+        ],
+        "SLEEP_PENDING": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346154.950042632,
+            "token": "SLEEP_PENDING",
+            "pid": 1211059
+          }
+        ],
+        "READYV1MatlasI40P2": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346381.887397723,
+            "token": "READYV1MatlasI40P2",
+            "pid": 1211059
+          }
+        ],
+        "READYV1MatlasI40P3": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346382.007481532,
+            "token": "READYV1MatlasI40P3",
+            "pid": 1211059
+          }
+        ],
+        "AFTERSLEEPV1I44": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2346382.127682604,
+            "token": "AFTERSLEEPV1I44",
+            "pid": 1211059
+          }
+        ]
+      },
+      "duplicate_tokens": {},
+      "results": [
+        {
+          "case": "sleep",
+          "sleep_seconds": 180,
+          "recovery_seconds": 45.89974115835503,
+          "before": {
+            "token": "BEFORESLEEPV1I38",
+            "sent": 2346154.673965766,
+            "seconds": 0.13763994071632624,
+            "ok": true
+          },
+          "usable_seconds": 46.29343249509111,
+          "ready": {
+            "ack_at": 2346381.961857216,
+            "ack": "READYV1MatlasI40P2",
+            "probes": [
+              {
+                "token": "READYV1MatlasI40P0",
+                "sent": 2346381.585561971
+              },
+              {
+                "token": "READYV1MatlasI40P1",
+                "sent": 2346381.705421766
+              },
+              {
+                "token": "READYV1MatlasI40P2",
+                "sent": 2346381.826421092
+              },
+              {
+                "token": "READYV1MatlasI40P3",
+                "sent": 2346381.946481711
+              }
+            ]
+          },
+          "pending_input_at": 2346154.889140483,
+          "echo": {
+            "token": "AFTERSLEEPV1I44",
+            "sent": 2346382.066894656,
+            "seconds": 0.1455764351412654,
+            "ok": true
+          },
+          "pending_input_count": 1,
+          "continuity": {
+            "samples": 153,
+            "remote_producer_count": 8,
+            "same_remote_pids_throughout": true,
+            "all_remote_cpu_ticks_advanced": true,
+            "observed_source_sequence_advance": 4530,
+            "observed_source_seconds": 226.50004344806075
+          },
+          "first_probe_received": false,
+          "ready_probe_receipts": [
+            0,
+            0,
+            1,
+            1
+          ],
+          "evidence": "dist/remote-throughput-sleep-more/herdr-2/results.json"
+        }
+      ],
+      "label": "herdr"
+    }
+  ],
+  "groups": [
+    {
+      "label": "before",
+      "usable_seconds": {
+        "n": 3,
+        "median": 2.5965167530812323,
+        "min": 2.587190247140825,
+        "max": 2.613444388844073,
+        "p95": 2.6117516252677886
+      },
+      "recovery_seconds": {
+        "n": 3,
+        "median": 2.417492507956922,
+        "min": 2.4151410409249365,
+        "max": 2.4243970243260264,
+        "p95": 2.423706572689116
+      }
+    },
+    {
+      "label": "after",
+      "usable_seconds": {
+        "n": 3,
+        "median": 2.613884599879384,
+        "min": 2.5846808198839426,
+        "max": 2.6143571767024696,
+        "p95": 2.614309919020161
+      },
+      "recovery_seconds": {
+        "n": 3,
+        "median": 2.4203010918572545,
+        "min": 2.41222951002419,
+        "max": 2.42729019979015,
+        "p95": 2.4265912889968604
+      }
+    },
+    {
+      "label": "herdr",
+      "usable_seconds": {
+        "n": 3,
+        "median": 46.29343249509111,
+        "min": 46.10537235438824,
+        "max": 46.51253821281716,
+        "p95": 46.490627641044554
+      },
+      "recovery_seconds": {
+        "n": 3,
+        "median": 45.89974115835503,
+        "min": 45.705471203196794,
+        "max": 46.02094954112545,
+        "p95": 46.008828702848405
+      }
+    }
+  ],
+  "checks": [
+    "dist/remote-throughput-sleep/before-1: run.py hash matches",
+    "dist/remote-throughput-sleep/before-1: observe.ts hash matches",
+    "dist/remote-throughput-sleep/before-1: workload.py hash matches",
+    "dist/remote-throughput-sleep/before-1: CPU rotation",
+    "dist/remote-throughput-sleep/before-1: no duplicate input",
+    "dist/remote-throughput-sleep/before-1: pending input executed once",
+    "dist/remote-throughput-sleep/before-1: input before and after",
+    "dist/remote-throughput-sleep/before-1: fresh and usable after wake",
+    "dist/remote-throughput-sleep/before-1: eight remote producers",
+    "dist/remote-throughput-sleep/before-1: producer PIDs survived",
+    "dist/remote-throughput-sleep/before-1: all remote CPU counters advanced",
+    "dist/remote-throughput-sleep/before-1: cleanup completed",
+    "dist/remote-throughput-sleep/before-1: no harness failure",
+    "dist/remote-throughput-sleep/before-1: tracing off",
+    "dist/remote-throughput-sleep-more/before-1: run.py hash matches",
+    "dist/remote-throughput-sleep-more/before-1: observe.ts hash matches",
+    "dist/remote-throughput-sleep-more/before-1: workload.py hash matches",
+    "dist/remote-throughput-sleep-more/before-1: CPU rotation",
+    "dist/remote-throughput-sleep-more/before-1: no duplicate input",
+    "dist/remote-throughput-sleep-more/before-1: pending input executed once",
+    "dist/remote-throughput-sleep-more/before-1: input before and after",
+    "dist/remote-throughput-sleep-more/before-1: fresh and usable after wake",
+    "dist/remote-throughput-sleep-more/before-1: eight remote producers",
+    "dist/remote-throughput-sleep-more/before-1: producer PIDs survived",
+    "dist/remote-throughput-sleep-more/before-1: all remote CPU counters advanced",
+    "dist/remote-throughput-sleep-more/before-1: cleanup completed",
+    "dist/remote-throughput-sleep-more/before-1: no harness failure",
+    "dist/remote-throughput-sleep-more/before-1: tracing off",
+    "dist/remote-throughput-sleep-more/before-2: run.py hash matches",
+    "dist/remote-throughput-sleep-more/before-2: observe.ts hash matches",
+    "dist/remote-throughput-sleep-more/before-2: workload.py hash matches",
+    "dist/remote-throughput-sleep-more/before-2: CPU rotation",
+    "dist/remote-throughput-sleep-more/before-2: no duplicate input",
+    "dist/remote-throughput-sleep-more/before-2: pending input executed once",
+    "dist/remote-throughput-sleep-more/before-2: input before and after",
+    "dist/remote-throughput-sleep-more/before-2: fresh and usable after wake",
+    "dist/remote-throughput-sleep-more/before-2: eight remote producers",
+    "dist/remote-throughput-sleep-more/before-2: producer PIDs survived",
+    "dist/remote-throughput-sleep-more/before-2: all remote CPU counters advanced",
+    "dist/remote-throughput-sleep-more/before-2: cleanup completed",
+    "dist/remote-throughput-sleep-more/before-2: no harness failure",
+    "dist/remote-throughput-sleep-more/before-2: tracing off",
+    "dist/remote-throughput-sleep/after-1: run.py hash matches",
+    "dist/remote-throughput-sleep/after-1: observe.ts hash matches",
+    "dist/remote-throughput-sleep/after-1: workload.py hash matches",
+    "dist/remote-throughput-sleep/after-1: CPU rotation",
+    "dist/remote-throughput-sleep/after-1: no duplicate input",
+    "dist/remote-throughput-sleep/after-1: pending input executed once",
+    "dist/remote-throughput-sleep/after-1: input before and after",
+    "dist/remote-throughput-sleep/after-1: fresh and usable after wake",
+    "dist/remote-throughput-sleep/after-1: eight remote producers",
+    "dist/remote-throughput-sleep/after-1: producer PIDs survived",
+    "dist/remote-throughput-sleep/after-1: all remote CPU counters advanced",
+    "dist/remote-throughput-sleep/after-1: cleanup completed",
+    "dist/remote-throughput-sleep/after-1: no harness failure",
+    "dist/remote-throughput-sleep/after-1: tracing off",
+    "dist/remote-throughput-sleep-more/after-1: run.py hash matches",
+    "dist/remote-throughput-sleep-more/after-1: observe.ts hash matches",
+    "dist/remote-throughput-sleep-more/after-1: workload.py hash matches",
+    "dist/remote-throughput-sleep-more/after-1: CPU rotation",
+    "dist/remote-throughput-sleep-more/after-1: no duplicate input",
+    "dist/remote-throughput-sleep-more/after-1: pending input executed once",
+    "dist/remote-throughput-sleep-more/after-1: input before and after",
+    "dist/remote-throughput-sleep-more/after-1: fresh and usable after wake",
+    "dist/remote-throughput-sleep-more/after-1: eight remote producers",
+    "dist/remote-throughput-sleep-more/after-1: producer PIDs survived",
+    "dist/remote-throughput-sleep-more/after-1: all remote CPU counters advanced",
+    "dist/remote-throughput-sleep-more/after-1: cleanup completed",
+    "dist/remote-throughput-sleep-more/after-1: no harness failure",
+    "dist/remote-throughput-sleep-more/after-1: tracing off",
+    "dist/remote-throughput-sleep-more/after-2: run.py hash matches",
+    "dist/remote-throughput-sleep-more/after-2: observe.ts hash matches",
+    "dist/remote-throughput-sleep-more/after-2: workload.py hash matches",
+    "dist/remote-throughput-sleep-more/after-2: CPU rotation",
+    "dist/remote-throughput-sleep-more/after-2: no duplicate input",
+    "dist/remote-throughput-sleep-more/after-2: pending input executed once",
+    "dist/remote-throughput-sleep-more/after-2: input before and after",
+    "dist/remote-throughput-sleep-more/after-2: fresh and usable after wake",
+    "dist/remote-throughput-sleep-more/after-2: eight remote producers",
+    "dist/remote-throughput-sleep-more/after-2: producer PIDs survived",
+    "dist/remote-throughput-sleep-more/after-2: all remote CPU counters advanced",
+    "dist/remote-throughput-sleep-more/after-2: cleanup completed",
+    "dist/remote-throughput-sleep-more/after-2: no harness failure",
+    "dist/remote-throughput-sleep-more/after-2: tracing off",
+    "dist/remote-throughput-sleep/herdr-1: run.py hash matches",
+    "dist/remote-throughput-sleep/herdr-1: observe.ts hash matches",
+    "dist/remote-throughput-sleep/herdr-1: workload.py hash matches",
+    "dist/remote-throughput-sleep/herdr-1: CPU rotation",
+    "dist/remote-throughput-sleep/herdr-1: no duplicate input",
+    "dist/remote-throughput-sleep/herdr-1: pending input executed once",
+    "dist/remote-throughput-sleep/herdr-1: input before and after",
+    "dist/remote-throughput-sleep/herdr-1: fresh and usable after wake",
+    "dist/remote-throughput-sleep/herdr-1: eight remote producers",
+    "dist/remote-throughput-sleep/herdr-1: producer PIDs survived",
+    "dist/remote-throughput-sleep/herdr-1: all remote CPU counters advanced",
+    "dist/remote-throughput-sleep/herdr-1: cleanup completed",
+    "dist/remote-throughput-sleep/herdr-1: no harness failure",
+    "dist/remote-throughput-sleep/herdr-1: tracing off",
+    "dist/remote-throughput-sleep-more/herdr-1: run.py hash matches",
+    "dist/remote-throughput-sleep-more/herdr-1: observe.ts hash matches",
+    "dist/remote-throughput-sleep-more/herdr-1: workload.py hash matches",
+    "dist/remote-throughput-sleep-more/herdr-1: CPU rotation",
+    "dist/remote-throughput-sleep-more/herdr-1: no duplicate input",
+    "dist/remote-throughput-sleep-more/herdr-1: pending input executed once",
+    "dist/remote-throughput-sleep-more/herdr-1: input before and after",
+    "dist/remote-throughput-sleep-more/herdr-1: fresh and usable after wake",
+    "dist/remote-throughput-sleep-more/herdr-1: eight remote producers",
+    "dist/remote-throughput-sleep-more/herdr-1: producer PIDs survived",
+    "dist/remote-throughput-sleep-more/herdr-1: all remote CPU counters advanced",
+    "dist/remote-throughput-sleep-more/herdr-1: cleanup completed",
+    "dist/remote-throughput-sleep-more/herdr-1: no harness failure",
+    "dist/remote-throughput-sleep-more/herdr-1: tracing off",
+    "dist/remote-throughput-sleep-more/herdr-2: run.py hash matches",
+    "dist/remote-throughput-sleep-more/herdr-2: observe.ts hash matches",
+    "dist/remote-throughput-sleep-more/herdr-2: workload.py hash matches",
+    "dist/remote-throughput-sleep-more/herdr-2: CPU rotation",
+    "dist/remote-throughput-sleep-more/herdr-2: no duplicate input",
+    "dist/remote-throughput-sleep-more/herdr-2: pending input executed once",
+    "dist/remote-throughput-sleep-more/herdr-2: input before and after",
+    "dist/remote-throughput-sleep-more/herdr-2: fresh and usable after wake",
+    "dist/remote-throughput-sleep-more/herdr-2: eight remote producers",
+    "dist/remote-throughput-sleep-more/herdr-2: producer PIDs survived",
+    "dist/remote-throughput-sleep-more/herdr-2: all remote CPU counters advanced",
+    "dist/remote-throughput-sleep-more/herdr-2: cleanup completed",
+    "dist/remote-throughput-sleep-more/herdr-2: no harness failure",
+    "dist/remote-throughput-sleep-more/herdr-2: tracing off",
+    "Identical run.py across relevant trials",
+    "Identical observe.ts across relevant trials",
+    "Identical workload.py across relevant trials",
+    "Identical before across relevant trials",
+    "Identical after across relevant trials",
+    "Identical herdr across relevant trials"
+  ],
+  "checks_passed": 132,
+  "problems": [],
+  "repeats": 3
+}

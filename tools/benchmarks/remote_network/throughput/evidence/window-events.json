@@ -1,0 +1,302 @@
+[
+  {
+    "epoch": 1794020352.1834562,
+    "source": "dist/remote-throughput-trace/telemetry/atlas/1089672-0.json",
+    "profile": {
+      "at": 2345301.561868689,
+      "epoch": 1794020349.0698082,
+      "event": "network",
+      "machine": "atlas",
+      "rtt": 120,
+      "rate": null,
+      "loss": null,
+      "direction": "both",
+      "jitter": null
+    },
+    "details": {
+      "bytes": 32768,
+      "receipt_ms": 126.9352770000005,
+      "fastest_ms": 126.9352770000005
+    }
+  },
+  {
+    "epoch": 1794020358.4800875,
+    "source": "dist/remote-throughput-trace/telemetry/atlas/1089672-0.json",
+    "profile": {
+      "at": 2345305.344915862,
+      "epoch": 1794020352.8528554,
+      "event": "network",
+      "machine": "atlas",
+      "rtt": 120,
+      "rate": null,
+      "loss": null,
+      "direction": "both",
+      "jitter": null
+    },
+    "details": {
+      "bytes": 32768,
+      "receipt_ms": 126.24825799999962,
+      "fastest_ms": 126.24825799999962
+    }
+  },
+  {
+    "epoch": 1794020399.9669716,
+    "source": "dist/remote-throughput-trace/telemetry/atlas/1089672-0.json",
+    "profile": {
+      "at": 2345346.840196727,
+      "epoch": 1794020394.348136,
+      "event": "network",
+      "machine": "atlas",
+      "rtt": 120,
+      "rate": null,
+      "loss": null,
+      "direction": "both",
+      "jitter": null
+    },
+    "details": {
+      "bytes": 32768,
+      "receipt_ms": 127.49763999999413,
+      "fastest_ms": 127.49763999999413
+    }
+  },
+  {
+    "epoch": 1794020407.9952343,
+    "source": "dist/remote-throughput-trace/telemetry/atlas/1089672-0.json",
+    "profile": {
+      "at": 2345352.50430358,
+      "epoch": 1794020400.0122428,
+      "event": "network",
+      "machine": "atlas",
+      "rtt": 120,
+      "rate": "1mbit",
+      "loss": null,
+      "direction": "both",
+      "jitter": null
+    },
+    "details": {
+      "bytes": 16384,
+      "receipt_ms": 218.68531999999686,
+      "fastest_ms": 122.10419100000581
+    }
+  },
+  {
+    "epoch": 1794020407.9969938,
+    "source": "dist/remote-throughput-trace/telemetry/atlas/1089672-0.json",
+    "profile": {
+      "at": 2345352.50430358,
+      "epoch": 1794020400.0122428,
+      "event": "network",
+      "machine": "atlas",
+      "rtt": 120,
+      "rate": "1mbit",
+      "loss": null,
+      "direction": "both",
+      "jitter": null
+    },
+    "details": {
+      "bytes": 32768,
+      "receipt_ms": 171.1249669999961,
+      "fastest_ms": 122.10419100000581
+    }
+  },
+  {
+    "epoch": 1794020408.4258583,
+    "source": "dist/remote-throughput-trace/telemetry/atlas/1089672-0.json",
+    "profile": {
+      "at": 2345352.50430358,
+      "epoch": 1794020400.0122428,
+      "event": "network",
+      "machine": "atlas",
+      "rtt": 120,
+      "rate": "1mbit",
+      "loss": null,
+      "direction": "both",
+      "jitter": null
+    },
+    "details": {
+      "bytes": 16384,
+      "receipt_ms": 254.06121399999392,
+      "fastest_ms": 122.10419100000581
+    }
+  },
+  {
+    "epoch": 1794020408.4267442,
+    "source": "dist/remote-throughput-trace/telemetry/atlas/1089672-0.json",
+    "profile": {
+      "at": 2345352.50430358,
+      "epoch": 1794020400.0122428,
+      "event": "network",
+      "machine": "atlas",
+      "rtt": 120,
+      "rate": "1mbit",
+      "loss": null,
+      "direction": "both",
+      "jitter": null
+    },
+    "details": {
+      "bytes": 32768,
+      "receipt_ms": 146.32583599999634,
+      "fastest_ms": 122.10419100000581
+    }
+  },
+  {
+    "epoch": 1794020410.239873,
+    "source": "dist/remote-throughput-trace/telemetry/atlas/1089672-0.json",
+    "profile": {
+      "at": 2345352.50430358,
+      "epoch": 1794020400.0122428,
+      "event": "network",
+      "machine": "atlas",
+      "rtt": 120,
+      "rate": "1mbit",
+      "loss": null,
+      "direction": "both",
+      "jitter": null
+    },
+    "details": {
+      "bytes": 16384,
+      "receipt_ms": 414.65135200000077,
+      "fastest_ms": 122.10419100000581
+    }
+  },
+  {
+    "epoch": 1794020410.386617,
+    "source": "dist/remote-throughput-trace/telemetry/atlas/1089672-0.json",
+    "profile": {
+      "at": 2345352.50430358,
+      "epoch": 1794020400.0122428,
+      "event": "network",
+      "machine": "atlas",
+      "rtt": 120,
+      "rate": "1mbit",
+      "loss": null,
+      "direction": "both",
+      "jitter": null
+    },
+    "details": {
+      "bytes": 32768,
+      "receipt_ms": 145.9640359999903,
+      "fastest_ms": 122.10419100000581
+    }
+  },
+  {
+    "epoch": 1794020441.5413654,
+    "source": "dist/remote-throughput-trace/telemetry/atlas/1089672-0.json",
+    "profile": {
+      "at": 2345388.413899402,
+      "epoch": 1794020435.9218383,
+      "event": "network",
+      "machine": "atlas",
+      "rtt": 120,
+      "rate": null,
+      "loss": null,
+      "direction": "both",
+      "jitter": null
+    },
+    "details": {
+      "bytes": 32768,
+      "receipt_ms": 125.81991500000004,
+      "fastest_ms": 125.81991500000004
+    }
+  },
+  {
+    "epoch": 1794020441.7546268,
+    "source": "dist/remote-throughput-trace/telemetry/atlas/1089672-0.json",
+    "profile": {
+      "at": 2345394.064973203,
+      "epoch": 1794020441.5729125,
+      "event": "network",
+      "machine": "atlas",
+      "rtt": 120,
+      "rate": "256kbit",
+      "loss": null,
+      "direction": "both",
+      "jitter": null
+    },
+    "details": {
+      "bytes": 16384,
+      "receipt_ms": 213.02180000000226,
+      "fastest_ms": 125.81991500000004
+    }
+  },
+  {
+    "epoch": 1794020477.018537,
+    "source": "dist/remote-throughput-trace/telemetry/atlas/1089672-0.json",
+    "profile": {
+      "at": 2345429.45941804,
+      "epoch": 1794020476.9673579,
+      "event": "network",
+      "machine": "atlas",
+      "rtt": 120,
+      "rate": null,
+      "loss": null,
+      "direction": "both",
+      "jitter": null
+    },
+    "details": {
+      "bytes": 32768,
+      "receipt_ms": 171.20857099999557,
+      "fastest_ms": 125.81991500000004
+    }
+  },
+  {
+    "epoch": 1794020483.1883779,
+    "source": "dist/remote-throughput-trace/telemetry/atlas/1089672-0.json",
+    "profile": {
+      "at": 2345430.077623863,
+      "epoch": 1794020477.585564,
+      "event": "network",
+      "machine": "atlas",
+      "rtt": 120,
+      "rate": null,
+      "loss": null,
+      "direction": "both",
+      "jitter": null
+    },
+    "details": {
+      "bytes": 32768,
+      "receipt_ms": 126.54533100000117,
+      "fastest_ms": 126.54533100000117
+    }
+  },
+  {
+    "epoch": 1794020483.6202645,
+    "source": "dist/remote-throughput-trace/telemetry/atlas/1089672-0.json",
+    "profile": {
+      "at": 2345435.727144083,
+      "epoch": 1794020483.235085,
+      "event": "network",
+      "machine": "atlas",
+      "rtt": 120,
+      "rate": "64kbit",
+      "loss": null,
+      "direction": "both",
+      "jitter": null
+    },
+    "details": {
+      "bytes": 16384,
+      "receipt_ms": 431.66119099999196,
+      "fastest_ms": 126.54533100000117
+    }
+  },
+  {
+    "epoch": 1794020518.789568,
+    "source": "dist/remote-throughput-trace/telemetry/atlas/1089672-0.json",
+    "profile": {
+      "at": 2345471.110711027,
+      "epoch": 1794020518.618651,
+      "event": "network",
+      "machine": "atlas",
+      "rtt": 120,
+      "rate": null,
+      "loss": null,
+      "direction": "both",
+      "jitter": null
+    },
+    "details": {
+      "bytes": 32768,
+      "receipt_ms": 122.85933599999407,
+      "fastest_ms": 122.85933599999407
+    }
+  }
+]

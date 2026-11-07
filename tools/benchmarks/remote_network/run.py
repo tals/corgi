@@ -486,6 +486,7 @@ class Lab:
 
     def recover(self, case, action, duration, repeat=0, isolation=False):
         view = self.fresh_viewer()
+        self.mode(self.args.fault_kind)
         self.shape(rtt=120)
         time.sleep(2)
         before = view.echo(f"BEFORE{case}{repeat}")
@@ -536,7 +537,7 @@ class Lab:
         sampling.join()
         if snapshot_errors:
             raise snapshot_errors[0]
-        self.record({"case": case, "repeat": repeat, "fault_seconds": duration, "actual_fault_seconds": restored - started, "recovery_seconds": elapsed,
+        self.record({"case": case, "kind": self.args.fault_kind, "repeat": repeat, "fault_seconds": duration, "actual_fault_seconds": restored - started, "recovery_seconds": elapsed,
                      "usable_seconds": ready["ack_at"] - restored if ready["ack_at"] else None, "ready": ready,
                      "before": before, "echo": echo, "during_input_at": during, "late_input_at": late, "isolation": other,
                      "producers_before": producers_before, "producers_after": self.producers()})
@@ -574,7 +575,7 @@ class Lab:
     def streaming(self, kind, rate, seconds, repeat=0, loss=None, jitter=None):
         view = self.fresh_viewer()
         self.mode(kind)
-        self.shape(rate=rate, loss=loss, jitter=jitter)
+        self.shape(rtt=self.args.stream_rtt, rate=rate, loss=loss, jitter=jitter)
         time.sleep(4)
         start = self.event("sample_start", kind=kind, rate=rate, loss=loss, repeat=repeat)
         initial_frame = view.latest.get("atlas")
@@ -594,14 +595,14 @@ class Lab:
         self.network_snapshot(f"{snapshot_prefix}-end")
         producers = self.producers()
         frames = [e for e in view.events[first:] if e["event"] == "frame" and e["machine"] == "atlas" and start <= e["at"] <= end]
-        self.shape()
+        self.shape(rtt=self.args.stream_rtt)
         restored = time.monotonic()
         try:
             caught = view.fresh("atlas", restored, 120)
             catchup = caught["at"] - restored
         except TimeoutError:
             catchup = None
-        self.record({"case": "stream", "kind": kind, "rate": rate, "loss_percent": loss, "jitter_ms": jitter, "repeat": repeat,
+        self.record({"case": "stream", "kind": kind, "rate": rate, "rtt_ms": self.args.stream_rtt, "loss_percent": loss, "jitter_ms": jitter, "repeat": repeat,
                      "snapshot_prefix": snapshot_prefix,
                      "start": start, "end": end, "frames": len(frames), "frame_ages": [e["at"] - e["source"] for e in frames],
                      "frame_times": [e["at"] for e in frames], "frame_sources": [e["source"] for e in frames],
@@ -706,10 +707,13 @@ def main():
     parser.add_argument("--trace", action="store_true", help="retain remote telemetry and periodic TCP state")
     parser.add_argument("--capture", action="store_true", help="capture TCP headers in the client and Atlas namespaces (requires tcpdump)")
     parser.add_argument("--fault-cases", default="tcp_reset,blackhole3,blackhole15,downstream15,isolated30")
+    parser.add_argument("--fault-kind", choices=["sparse", "dense"], default="sparse")
     parser.add_argument("--calibrate", action="store_true")
     parser.add_argument("--rtts", default="0,20,120,300")
     parser.add_argument("--ssh-compression", choices=["default", "yes", "no"], default="default")
     parser.add_argument("--stream-cases", default="sparse:unlimited,sparse:1mbit,sparse:256kbit,sparse:64kbit,dense:1mbit,dense:256kbit,dense:64kbit,loss")
+    parser.add_argument("--stream-rtt", type=int, default=120)
+    parser.add_argument("--stream-seconds", type=int, default=30)
     args = parser.parse_args()
     lock = open(f"/tmp/corgi-cpu-benchmark-{UID}.lock", "a")
     owner = os.environ.get("CORGI_CPU_BENCHMARK_LOCK")
@@ -751,10 +755,10 @@ def main():
             for repeat in range(args.repeats):
                 for selected in args.stream_cases.split(","):
                     if selected == "loss":
-                        lab.streaming("sparse", None, 30, repeat, loss=1, jitter=10)
+                        lab.streaming("sparse", None, args.stream_seconds, repeat, loss=1, jitter=10)
                     else:
                         kind, rate = selected.split(":")
-                        lab.streaming(kind, None if rate == "unlimited" else rate, 30, repeat)
+                        lab.streaming(kind, None if rate == "unlimited" else rate, args.stream_seconds, repeat)
         if args.suite in ["sleep", "all"]:
             lab.sleep(args.sleep_seconds)
         if args.suite == "smoke":

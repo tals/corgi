@@ -63,6 +63,7 @@ def main():
                 row = dict(original)
                 tag = f"{name}/{row['case']}"
                 row.update(label=label, trial=repeat, evidence=str(path / "results.json"))
+                check(row.get("kind", "sparse") == plan.get("fault_kind", "sparse"), f"{tag}: planned output density")
                 check(row["before"]["ok"] and row["echo"]["ok"], f"{tag}: input worked before and after")
                 check(row["usable_seconds"] is not None and row["recovery_seconds"] is not None, f"{tag}: recovery observed")
                 check(not row.get("failure"), f"{tag}: no recorded failure")
@@ -102,7 +103,7 @@ def main():
         for trial in trials:
             for row in trial["results"]:
                 writer.writerow([row["label"], row["trial"], row["case"], row["actual_fault_seconds"], row["recovery_seconds"], row["usable_seconds"], len(row["during_receipts"]), len(row["late_receipts"]), row["evidence"]])
-    lines = ["# Outage recovery measurements", "", "Seconds from link restoration to remotely echoed usable input; median [min–max].", "", "| Outage | Rebased Corgi before | Corgi after | Herdr v0.9.5 |", "| --- | ---: | ---: | ---: |"]
+    lines = ["# Outage recovery measurements", "", f"{plan.get('fault_kind', 'sparse').capitalize()} output. Seconds from link restoration to remotely echoed usable input; median [min–max].", "", "| Outage | Corgi before | Corgi after | Herdr v0.9.5 |", "| --- | ---: | ---: | ---: |"]
     for case in cases:
         cells = []
         for label in labels:

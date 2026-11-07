@@ -1,0 +1,47 @@
+{
+  "archives": [
+    {
+      "role": "completed performance comparisons",
+      "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-comparison.tar.gz",
+      "sha256": "5a424d889208296867f7497681bab674a0837e0277bf16434d5dac6feeaa71e5",
+      "bytes": 76510836,
+      "entries": 8186,
+      "roots": [
+        "remote-throughput-final",
+        "remote-throughput-bandwidth-final",
+        "remote-throughput-sleep",
+        "remote-throughput-sleep-more"
+      ]
+    },
+    {
+      "role": "pilots, separate diagnostics, excluded interrupted bandwidth run, build manifests and validation logs",
+      "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-throughput-diagnostics.tar.gz",
+      "sha256": "527a4cf2ea8a253e6a14c27427ef87d0ca15cdc9d3365b74826a6d307ed41c79",
+      "bytes": 26188045,
+      "entries": 2136,
+      "roots": [
+        "remote-throughput-pilot",
+        "remote-throughput-adaptive-pilot",
+        "remote-throughput-trace",
+        "remote-throughput-sparse-trace",
+        "remote-throughput-fault-trace-before",
+        "remote-throughput-fault-trace-after",
+        "remote-throughput-bandwidth",
+        "throughput-fixed-window.patch",
+        "throughput-unit.log",
+        "throughput-typecheck.log",
+        "throughput-integration.log",
+        "corgi-throughput-after.build.json",
+        "corgi-throughput-after-test.build.json",
+        "corgi-outage-after.build.json"
+      ]
+    }
+  ],
+  "excluded_from_performance": [
+    "remote-throughput-pilot (fixed-window pilot)",
+    "remote-throughput-adaptive-pilot (adaptive pilot)",
+    "remote-throughput-bandwidth (parent lock owner exited before third round; complete comparison restarted as remote-throughput-bandwidth-final)"
+  ],
+  "diagnostics_pooled_with_performance": false,
+  "application_commit": "9eff77f42da1f8b9669a044f8d4d06c10df740d3"
+}

@@ -103,7 +103,7 @@ def summarize(roots, exclusions):
                         continue
                     key += (row["rtt_ms"], row["warm"])
                 elif row["case"] == "stream":
-                    key += (row["kind"], row["rate"], row.get("loss_percent"))
+                    key += (row["kind"], row["rate"], row.get("loss_percent"), row.get("rtt_ms", 120))
                     ages = held_age(row)
                     row["held_age"] = distribution(ages)
                     row["fresh_fraction_under_500ms"] = sum(x < .5 for x in ages) / len(ages) if ages else 0
