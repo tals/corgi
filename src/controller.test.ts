@@ -3300,6 +3300,23 @@ test("a double-click on an agent row renames it in place, with the dialog's outc
   }
 });
 
+test("a character bound to an action types into the rename field", async () => {
+  const { s, sent, twice } = renaming();
+  const bound = spyOn(s.prefs, "bindings").mockReturnValue([
+    { key: 0xe9, mods: {}, prefixed: false, action: { name: "new-workspace" } },
+  ]);
+  try {
+    setSystemTime(new Date(1000));
+    await twice({ agent: 2 });
+    await s.input(bytes("é"));
+    expect([s.inline_rename?.field.raw(), s.name_dialog, sent]).toEqual(["agent 2é", null, [probe(2)]]);
+  } finally {
+    bound.mockRestore();
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
 test("moving the free pointer off the cell or turning the wheel between presses opens no field", async () => {
   const { s, sent, rect, press } = renaming();
   const at = rect({ agent: 2 });

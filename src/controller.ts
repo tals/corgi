@@ -6020,7 +6020,7 @@ export class Controller {
           if (
             decoded.key &&
             !this.onboarding &&
-            !this.name_dialog &&
+            !this.editingName() &&
             !this.copy_mode &&
             (this.prefix || !this.hasMenu())
           ) {
