@@ -674,3 +674,19 @@ test("outside Corgi the report's samples go on the cursor's line, and any row's 
   expect(answers(p.info).cell).toEqual({ width: 9, height: 18 });
   expect(answers(p.info).keyboard).toBe(0);
 });
+test("a custom build's report names its repository as a link; a vanilla one is unchanged", () => {
+  const id = { repository: "github.com/someone/corgi" },
+    vanillaId = { repository: "github.com/tals/corgi" };
+  const r = report({ corgi: "1.2.3 (abc1234), linux-x64" }),
+    lines =
+      "- Corgi: 1.2.3 (abc1234), linux-x64\n" + //
+      "  - https://github.com/someone/corgi\n" +
+      "- Daemon:";
+  expect(withHome("/home/me", () => bugReport.text(r, settings, false, id))).toStartWith(lines);
+  // The issue carries it too: the repo says where the build's commit lives.
+  expect(withHome("/home/me", () => bugReport.text(r, settings, true, id))).toStartWith(lines);
+  const vanilla = report(),
+    vanillaText = withHome("/home/me", () => bugReport.text(vanilla, settings, false, vanillaId));
+  expect(vanillaText).toBe(withHome("/home/me", () => bugReport.text(vanilla, settings)));
+  expect(vanillaText).toMatch(/^- Corgi: [^\n]*\n- Daemon:/);
+});
