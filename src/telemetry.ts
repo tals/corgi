@@ -8,6 +8,7 @@ export const names = [
   "remote.race",
   "remote.transport",
   "remote.rpc",
+  "remote.stream.window",
   "daemon.collect",
   "daemon.import",
   "daemon.observers",

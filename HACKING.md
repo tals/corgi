@@ -375,7 +375,12 @@ capability and the defaulted `viewer.stream.incremental` flag. A stream sends
 full surfaces initially, then changed rows against the preceding sent surface.
 The receiver checks the base stamp and reconstructs every delta before it
 coalesces frames for display. Cumulative receipts bound outstanding render data
-to three frames and 16 KiB of encoded JSON; an oversized snapshot travels alone.
+to three frames and initially 16 KiB of encoded JSON. The byte budget grows to
+32 KiB while receipt round trips stay within 50 ms of the fastest receipt on
+that stream, and returns to 16 KiB when they slow down. The frame limit stays
+at three; an oversized snapshot travels alone. `remote.stream.window` telemetry
+records budget changes and receipt timings. This is a bounded delay heuristic,
+not a bandwidth estimate; a new stream starts learning again.
 While blocked, the daemon captures the latest screen after a receipt, without
 queuing intermediate screens. These receipts confirm transport decoding, not
 display or agent activity; `pane.acknowledge` still follows presentation.

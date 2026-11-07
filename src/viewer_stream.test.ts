@@ -54,13 +54,83 @@ test("an oversized snapshot travels alone and a byte-full window resumes on rece
     terminal = Terminal.create(132, 47);
   try {
     const large = view(terminal);
-    large.session = { large: "界".repeat(10_000) } as unknown as View["session"];
+    large.session = { large: "界".repeat(20_000) } as unknown as View["session"];
     const first = output.offer(large)!;
     expect(first).not.toBeNull();
     expect(output.available).toBe(false);
     expect(output.offer(view(terminal))).toBeNull();
     output.acknowledge(first.frame);
     expect(output.offer(view(terminal))).not.toBeNull();
+  } finally {
+    terminal.destroy();
+  }
+});
+test("dense screens use all three frame slots without queuing a fourth", () => {
+  const output = new Frames(),
+    terminal = Terminal.create(132, 47);
+  try {
+    const first = output.offer(view(terminal))!;
+    output.acknowledge(first.frame);
+    let base = first.view.surfaces[0];
+    for (const character of ["a", "b", "c"]) {
+      for (let row = 0; row < 24; row++) terminal.feed(`\x1b[${row + 1};1H${character.repeat(108)}`);
+      const sent = output.offer(view(terminal))!;
+      expect(sent).not.toBeNull();
+      base = sent.view.surfaces[0] ?? surface.apply(base, sent.view.patches![0]);
+      expect(base).toEqual(view(terminal).surfaces[0]);
+    }
+    expect(output.offer(view(terminal))).toBeNull();
+    output.acknowledge(4n);
+    expect(output.offer(view(terminal))).not.toBeNull();
+  } finally {
+    terminal.destroy();
+  }
+});
+test("large updates exhaust the byte budget before the frame slots", () => {
+  const output = new Frames(),
+    terminal = Terminal.create(80, 24);
+  try {
+    output.acknowledge(output.offer(view(terminal))!.frame);
+    const large = view(terminal);
+    large.session = { large: "界".repeat(4_000) } as unknown as View["session"];
+    expect(output.offer(large)).not.toBeNull();
+    const second = output.offer(large)!;
+    expect(second).not.toBeNull();
+    expect(output.offer(large)).toBeNull();
+    output.acknowledge(second.frame);
+    expect(output.offer(large)).not.toBeNull();
+  } finally {
+    terminal.destroy();
+  }
+});
+test("slow receipts restore the small window, then fresh receipts can reopen it", () => {
+  let now = 0;
+  const output = new Frames(() => now),
+    terminal = Terminal.create(80, 24);
+  try {
+    const first = output.offer(view(terminal))!;
+    now = 120;
+    output.acknowledge(first.frame);
+    const large = view(terminal);
+    large.session = { large: "界".repeat(4_000) } as unknown as View["session"];
+    const second = output.offer(large)!;
+    const third = output.offer(large)!;
+    expect(third).not.toBeNull();
+    now += 400;
+    output.acknowledge(second.frame);
+    expect(output.offer(large)).toBeNull();
+    // An already acknowledged frame must not change the learned delay or budget.
+    output.acknowledge(first.frame);
+    expect(output.offer(large)).toBeNull();
+    output.acknowledge(third.frame);
+    const fourth = output.offer(large)!;
+    expect(fourth).not.toBeNull();
+    expect(output.offer(large)).toBeNull();
+    now += 120;
+    output.acknowledge(fourth.frame);
+    expect(output.offer(large)).not.toBeNull();
+    expect(output.offer(large)).not.toBeNull();
+    expect(output.offer(large)).toBeNull();
   } finally {
     terminal.destroy();
   }
