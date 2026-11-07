@@ -37,7 +37,7 @@ export type Outcome = { code: Code; lines: string[] };
 const work = (ctx: Context) => join(ctx.dir, "work");
 const binary = (ctx: Context) => join(ctx.repo, "dist", "corgi-custom");
 const short = (sha: string | null) => (sha ? sha.slice(0, 7) : "none");
-/** build.ts stamps these subjects into `corgi --version --verbose`, so they say what each patch is. */
+/** A readable merge commit per patch, so the custom branch's log and the run's report say what each patch is. */
 const mergeMessage = (p: Planned) => `Merge ${p.display}${p.description ? `: ${p.description}` : ""}`;
 /** The config directory relative to the checkout, when it lies inside it. */
 function insideRepo(ctx: Context): string | null {

@@ -7,15 +7,12 @@ branches on other people's forks. One `rebuild` fetches everything, resets a
 repository's checks and writes `dist/corgi-custom`. The regular `dist/corgi`
 and an installed release are left alone.
 
-The binary says what it carries. `dist/corgi-custom --version --verbose` and
-bug reports add the repository of your fork and one line per patch: its merge
-commit and the subject `Merge <source>: <description>`, in merge order.
+The binary says where it comes from. `dist/corgi-custom --version --verbose`
+and bug reports name the repository of your fork, as an https link.
 
 ```
 corgi 0.1.0-dev (6170222f76c06e8813d60a029e24f96676290dd9)
-  github.com/you/corgi
-  2b8e0f1 Merge tals/corgi#109: Keep blocked agents as jump-to-attention targets
-  9c41d7a Merge my-branch: Section tint
+  https://github.com/you/corgi
 ```
 
 The plain `--version` line is the same as for any development build, and
@@ -110,8 +107,8 @@ Progress goes to stderr, prefixed `custom-build:`; the summary goes to stdout.
    before replay through rerere.
 5. Runs `bun install --frozen-lockfile` when nothing is installed yet or
    `bun.lock` or `package.json` changed, then `bun typecheck.ts`, `bun test src` and
-   `bun build.ts --outfile dist/corgi-custom`, which stamps the merges since
-   upstream `main` into the binary.
+   `bun build.ts --outfile dist/corgi-custom`, which stamps the fork's
+   repository into the binary.
 6. When a step fails, runs it once more. If it passes then, the run goes on
    and the report warns that the step may be flaky. If it fails again, runs it
    on plain upstream in a throwaway worktree first. If upstream fails too, the

@@ -674,24 +674,16 @@ test("outside Corgi the report's samples go on the cursor's line, and any row's 
   expect(answers(p.info).cell).toEqual({ width: 9, height: 18 });
   expect(answers(p.info).keyboard).toBe(0);
 });
-test("a custom build's report names its repository and merges; a vanilla one is unchanged", () => {
-  const id = {
-      repository: "github.com/someone/corgi",
-      merges: [
-        { commit: "6bf60e85aaaaaaaa", subject: "Merge tals/corgi#109: Jump to blocked" },
-        { commit: "8d318ec1cccccccc", subject: "Merge branch 'voice'" },
-      ],
-    },
-    vanillaId = { repository: "github.com/tals/corgi", merges: [] };
+test("a custom build's report names its repository as a link; a vanilla one is unchanged", () => {
+  const id = { repository: "github.com/someone/corgi" },
+    vanillaId = { repository: "github.com/tals/corgi" };
   const r = report({ corgi: "1.2.3 (abc1234), linux-x64" }),
     lines =
-      "- Corgi: 1.2.3 (abc1234), linux-x64\n" +
-      "  - github.com/someone/corgi\n" +
-      "  - 6bf60e8 Merge tals/corgi#109: Jump to blocked\n" +
-      "  - 8d318ec Merge branch 'voice'\n" +
+      "- Corgi: 1.2.3 (abc1234), linux-x64\n" + //
+      "  - https://github.com/someone/corgi\n" +
       "- Daemon:";
   expect(withHome("/home/me", () => bugReport.text(r, settings, false, id))).toStartWith(lines);
-  // The issue carries them too: they say what the build adds without a look at the fork.
+  // The issue carries it too: the repo says where the build's commit lives.
   expect(withHome("/home/me", () => bugReport.text(r, settings, true, id))).toStartWith(lines);
   const vanilla = report(),
     vanillaText = withHome("/home/me", () => bugReport.text(vanilla, settings, false, vanillaId));

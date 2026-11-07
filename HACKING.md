@@ -153,9 +153,8 @@ named integration suite, then run the full unit suite and relevant integrations.
 If a parallel integration suite fails, rerun it with `--jobs 1` first.
 `bun integration.ts --check` only parses and bundles suites; it does not run them.
 
-A development build stamps the repository of the branch's remote and the
-merges since `main` on the remote that points at tals/corgi into
-`corgi --version --verbose`.
+A development build stamps the repository of the branch's remote, as an https
+link, into `corgi --version --verbose` and the bug report.
 
 `scripts/custom-build rebuild` builds `dist/corgi-custom` from upstream `main`
 plus a list of branches and PRs; see [custom builds](docs/custom-builds.md).
