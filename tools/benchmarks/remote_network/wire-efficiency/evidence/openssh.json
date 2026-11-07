@@ -1,0 +1,9 @@
+{
+  "installed": "openssh-client 1:9.6p1-3ubuntu13.20\nopenssh-server 1:9.6p1-3ubuntu13.20\n",
+  "upstream_patch": "https://github.com/openssh/openssh-portable/commit/1d5340fce24526719e32aebc4c721fc228182ace",
+  "ubuntu_advisory": "https://ubuntu.com/security/CVE-2026-106582",
+  "binary_sha256": {
+    "/usr/bin/ssh": "fc47ea24323fdd5687c5aefae6fd0060faabfa8f2944c6a68f6a442fbe0dd131",
+    "/usr/sbin/sshd": "95b291d957f87dd200796c4986c97b6f4d970e26ad620ec9174e69c13ec5c137"
+  }
+}

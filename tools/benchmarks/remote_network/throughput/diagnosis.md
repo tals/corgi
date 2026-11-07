@@ -70,17 +70,21 @@ The throughput change allows more data in flight; it does not introduce a smalle
 encoding for sparse updates.
 
 Corgi's [row difference](../../../../src/pane/surface.ts) replaces each changed
-row as a string and sends JSON metadata. Herdr's `changed_rows` emits contiguous
-changed-cell spans and serializes them with bincode before base64 wrapping:
-[source at the inspected commit](https://github.com/herdrdev/herdr/blob/2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01/src/protocol/surface_delta.rs#L62).
-That granularity can matter when a few progress digits change. Corgi also sends
+row as a string and sends JSON metadata. Herdr's
+[retained-surface producer](https://github.com/herdrdev/herdr/blob/2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01/src/server/headless/retained_surface.rs#L45)
+emits contiguous changed-cell spans. The follow-up capture confirms native
+bincode `PaneSurfacePatch` messages; the optional base64-wrapped surface-delta
+path cited in the initial analysis is not the path observed here.
+Corgi also sends
 a receipt RPC for each decoded frame, plus idle receipts. In a separate healthy
 sparse trace it sends 663 receipt RPCs and 10 command RPCs during 30 seconds with
 600 visible updates. The latter includes the harness's five input probes.
 [RPC counts](evidence/receipt-traffic.json).
 
-Those are verified protocol differences and plausible contributors, not a byte
-attribution proving how much each costs. The report measures complete link
-traffic, including transport overhead. It does not claim that either row spans
-or fewer receipt replies alone will close the entire sparse gap. Herdr was not
-patched, and no speculative encoding change is included in this commit.
+The follow-up [wire diagnosis](../wire-efficiency/report.md) supplies exact
+application-byte attribution and a lossless compact-encoding experiment. It
+also verifies the host's Huffman-only SSH compression, which does not remove
+repeated strings. The original performance report measures complete link
+traffic, including transport overhead; offline payload reductions must not be
+read as measured wire savings. Herdr and Corgi's production encoding remain
+unchanged by that investigation.

@@ -1,0 +1,18 @@
+   5e519:	48 8b 3b             	mov    (%rbx),%rdi
+   5e51c:	5e                   	pop    %rsi
+   5e51d:	41 58                	pop    %r8
+   5e51f:	83 bf 2c 01 00 00 01 	cmpl   $0x1,0x12c(%rdi)
+   5e526:	74 78                	je     5e5a0 <__read_chk@plt+0x4ef80>
+   5e528:	48 8d 05 01 54 04 00 	lea    0x45401(%rip),%rax        # a3930 <mkdtemp@@Base+0x24440>
+   5e52f:	6a 70                	push   $0x70
+   5e531:	b9 0f 00 00 00       	mov    $0xf,%ecx
+   5e536:	ba 08 00 00 00       	mov    $0x8,%edx
+   5e53b:	50                   	push   %rax
+   5e53c:	48 81 c7 b8 00 00 00 	add    $0xb8,%rdi
+   5e543:	be 01 00 00 00       	mov    $0x1,%esi
+   5e548:	41 b9 02 00 00 00    	mov    $0x2,%r9d
+   5e54e:	41 b8 08 00 00 00    	mov    $0x8,%r8d
+   5e554:	e8 b7 f6 fa ff       	call   dc10 <deflateInit2_@plt>
+   5e559:	5a                   	pop    %rdx
+   5e55a:	59                   	pop    %rcx
+   5e55b:	83 f8 fc             	cmp    $0xfffffffc,%eax

@@ -1,0 +1,69 @@
+{
+  "capture": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-wire-dense",
+  "seconds": 12.013005615212023,
+  "components_raw_bytes": {
+    "up:viewer.receipt": 30210,
+    "changed_row_strings": 1036800,
+    "row_indices_and_syntax": 107280,
+    "patch_metadata_and_syntax": 128160,
+    "frame_envelope_and_view_metadata": 76444,
+    "down:reply:viewer.receipt": 11395
+  },
+  "full_surfaces": 0,
+  "patches": 240,
+  "variants": [
+    {
+      "name": "original",
+      "frames_verified": 246,
+      "messages_verified": 776,
+      "all_decoded_messages_equal": true,
+      "decoded_semantic_sha256": "4adb647b8a3cae09132a56341ac96789e043b620dbe141c8da3db1316b663e87",
+      "up_raw_bytes": 30210,
+      "up_huffman_bytes": 26016,
+      "up_dictionary_bytes": 3044,
+      "down_raw_bytes": 1360079,
+      "down_huffman_bytes": 906700,
+      "down_dictionary_bytes": 434268
+    },
+    {
+      "name": "metadata_reuse",
+      "frames_verified": 246,
+      "messages_verified": 776,
+      "all_decoded_messages_equal": true,
+      "decoded_semantic_sha256": "4adb647b8a3cae09132a56341ac96789e043b620dbe141c8da3db1316b663e87",
+      "up_raw_bytes": 30210,
+      "up_huffman_bytes": 26016,
+      "up_dictionary_bytes": 3044,
+      "down_raw_bytes": 1197119,
+      "down_huffman_bytes": 788824,
+      "down_dictionary_bytes": 431744
+    },
+    {
+      "name": "row_splices",
+      "frames_verified": 246,
+      "messages_verified": 776,
+      "all_decoded_messages_equal": true,
+      "decoded_semantic_sha256": "4adb647b8a3cae09132a56341ac96789e043b620dbe141c8da3db1316b663e87",
+      "up_raw_bytes": 30210,
+      "up_huffman_bytes": 26016,
+      "up_dictionary_bytes": 3044,
+      "down_raw_bytes": 1031179,
+      "down_huffman_bytes": 695388,
+      "down_dictionary_bytes": 427053
+    },
+    {
+      "name": "both",
+      "frames_verified": 246,
+      "messages_verified": 776,
+      "all_decoded_messages_equal": true,
+      "decoded_semantic_sha256": "4adb647b8a3cae09132a56341ac96789e043b620dbe141c8da3db1316b663e87",
+      "up_raw_bytes": 30210,
+      "up_huffman_bytes": 26016,
+      "up_dictionary_bytes": 3044,
+      "down_raw_bytes": 868219,
+      "down_huffman_bytes": 588490,
+      "down_dictionary_bytes": 423431
+    }
+  ],
+  "method": "Offline lossless reconstruction; Huffman-only zlib at per-message flush boundaries. Excludes SSH framing, TCP and ACK overhead. Dictionary coding is a historical counterfactual only, not a configuration recommendation."
+}

@@ -1,0 +1,18 @@
+   49459:	48 8b 3b             	mov    (%rbx),%rdi
+   4945c:	5e                   	pop    %rsi
+   4945d:	41 58                	pop    %r8
+   4945f:	83 bf 2c 01 00 00 01 	cmpl   $0x1,0x12c(%rdi)
+   49466:	74 78                	je     494e0 <__read_chk@plt+0x3b5e0>
+   49468:	48 8d 05 73 5f 05 00 	lea    0x55f73(%rip),%rax        # 9f3e2 <mkdtemp@@Base+0x2a952>
+   4946f:	6a 70                	push   $0x70
+   49471:	b9 0f 00 00 00       	mov    $0xf,%ecx
+   49476:	ba 08 00 00 00       	mov    $0x8,%edx
+   4947b:	50                   	push   %rax
+   4947c:	48 81 c7 b8 00 00 00 	add    $0xb8,%rdi
+   49483:	be 01 00 00 00       	mov    $0x1,%esi
+   49488:	41 b9 02 00 00 00    	mov    $0x2,%r9d
+   4948e:	41 b8 08 00 00 00    	mov    $0x8,%r8d
+   49494:	e8 d7 33 fc ff       	call   c870 <deflateInit2_@plt>
+   49499:	5a                   	pop    %rdx
+   4949a:	59                   	pop    %rcx
+   4949b:	83 f8 fc             	cmp    $0xfffffffc,%eax

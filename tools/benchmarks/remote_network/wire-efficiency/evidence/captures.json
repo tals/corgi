@@ -1,0 +1,319 @@
+{
+  "corgi_sparse": {
+    "root": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-wire-original",
+    "product": "corgi",
+    "groups": {
+      "down:viewer.frame": {
+        "messages": 246,
+        "bytes": 395150
+      },
+      "up:viewer.receipt": {
+        "messages": 265,
+        "bytes": 30210
+      },
+      "down:reply:viewer.receipt": {
+        "messages": 265,
+        "bytes": 11395
+      }
+    },
+    "partial_lines": [],
+    "syscall_bytes": {
+      "down": 406545,
+      "up": 30210
+    },
+    "frame_fields_bytes": {
+      "controls": 492,
+      "detach": 1230,
+      "session": 984,
+      "viewer": 246,
+      "patches": 319018,
+      "viewer_protocol": 246,
+      "resources": 4880,
+      "session_hash": 4674,
+      "surfaces": 492,
+      "type": 1476,
+      "bell_seq": 246,
+      "bell_kind": 1476,
+      "resources_hash": 4832
+    },
+    "full_surfaces": 0,
+    "patches": 240,
+    "changed_row_counts": {
+      "4": 240,
+      "0": 6
+    },
+    "manifest": {
+      "product": "corgi",
+      "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-throughput-after",
+      "sha256": "59bf1ccecaf400f812ac3f7d81d3cc13fcfedc8ca25328c1cd76a4cb345583fe",
+      "corgi_commit": "580f83f9fa3cc3e47d7a8c729665d293d3230fa0",
+      "build": {
+        "builtAt": "2026-11-07T02:54:26.464Z",
+        "target": "linux-x64",
+        "bunVersion": "1.4.4",
+        "testBuild": false,
+        "releaseVersion": "0.1.0-dev",
+        "releaseCommit": "acc4ee33f61a4600f8d0e4299b5c4701643e8b5c-dirty",
+        "sha256": "59bf1ccecaf400f812ac3f7d81d3cc13fcfedc8ca25328c1cd76a4cb345583fe",
+        "sourceSHA256": "a313b23d71dfee6d307715b162a2c443e3bf39c6f08f80d5992f99ed3602ecb1",
+        "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+        "inputsSHA256": "ad6a2112fc5834ac29d077b2b67cde39472fc84e8846ab2b88f8268586f3d3a4"
+      },
+      "args": {
+        "product": "corgi",
+        "binary": "dist/corgi-throughput-after",
+        "output": "dist/remote-wire-original",
+        "suite": "stream",
+        "repeats": 1,
+        "panes": 4,
+        "cpus": "32-39",
+        "sleep_seconds": 180,
+        "ansi": false,
+        "trace": false,
+        "capture": false,
+        "fault_cases": "",
+        "fault_kind": "sparse",
+        "calibrate": false,
+        "rtts": "120",
+        "ssh_compression": "default",
+        "stream_cases": "sparse:1mbit",
+        "stream_rtt": 120,
+        "stream_seconds": 12
+      },
+      "kernel": "6.8.0-146-generic",
+      "clock": "CLOCK_MONOTONIC",
+      "uid": 1000,
+      "topology": "intermediate-bridge-tbf-netem-v2",
+      "started_utc": "2026-11-07T03:38:30Z"
+    },
+    "capture_seconds": 12.01690280623734,
+    "all_12_producers_alive": true,
+    "selected_pty": {
+      "cols": 132,
+      "rows": 47,
+      "hz": 20
+    },
+    "namespaces_remaining": [],
+    "message_bytes_match_syscalls": true,
+    "huffman_replay_bytes": {
+      "down": 261807,
+      "up": 26018
+    },
+    "compression_method": "Independent zlib streams per direction, level 1, Z_HUFFMAN_ONLY, Z_PARTIAL_FLUSH after each application message; no SSH/TCP headers or packetization.",
+    "raw_files_sha256": {
+      "wire.1334184": "a211d7beeea117fe18fab371424aa7416e0171848038ed923484b02fae550e96"
+    },
+    "messages_sha256": "870b61442759e77567ea8c9d2c81fa5288327e9247247c8014ec20a77c9106c8",
+    "capture_harness_sha256": "1268eee29e7a0869d85f6199cb70392fd4db6e9041f47301588eee9411e9d144",
+    "row_string_bytes": {
+      "nonpadding_text": 46560,
+      "trailing_spaces": 80160,
+      "ansi_sequences": 34560,
+      "json_escaping_and_quotes": 11520
+    },
+    "ascii_row_width_counts": {
+      "132": 960
+    },
+    "metadata_and_envelope_fraction_of_render": 0.5170289763380994,
+    "replay_downstream_huffman_reduction": {
+      "original": 0.0,
+      "metadata_reuse": 0.4385711611988984,
+      "row_splices": 0.2613031737119328,
+      "both": 0.6538900793332493
+    }
+  },
+  "herdr_sparse": {
+    "root": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-wire-herdr",
+    "product": "herdr",
+    "groups": {
+      "down:PaneSurfacePatch": {
+        "messages": 240,
+        "bytes": 229993
+      }
+    },
+    "partial_lines": [],
+    "syscall_bytes": {
+      "down": 229993
+    },
+    "full_surfaces": 0,
+    "patches": 240,
+    "changed_cells": 28965,
+    "manifest": {
+      "product": "herdr",
+      "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+      "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+      "corgi_commit": "580f83f9fa3cc3e47d7a8c729665d293d3230fa0",
+      "build": null,
+      "args": {
+        "product": "herdr",
+        "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+        "output": "dist/remote-wire-herdr",
+        "suite": "stream",
+        "repeats": 1,
+        "panes": 4,
+        "cpus": "32-39",
+        "sleep_seconds": 180,
+        "ansi": false,
+        "trace": false,
+        "capture": false,
+        "fault_cases": "",
+        "fault_kind": "sparse",
+        "calibrate": false,
+        "rtts": "120",
+        "ssh_compression": "default",
+        "stream_cases": "sparse:1mbit",
+        "stream_rtt": 120,
+        "stream_seconds": 12
+      },
+      "kernel": "6.8.0-146-generic",
+      "clock": "CLOCK_MONOTONIC",
+      "uid": 1000,
+      "topology": "intermediate-bridge-tbf-netem-v2",
+      "started_utc": "2026-11-07T03:44:35Z"
+    },
+    "capture_seconds": 12.016197773162276,
+    "all_12_producers_alive": true,
+    "selected_pty": {
+      "cols": 132,
+      "rows": 47,
+      "hz": 20
+    },
+    "namespaces_remaining": [],
+    "message_bytes_match_syscalls": true,
+    "huffman_replay_bytes": {
+      "down": 85758
+    },
+    "compression_method": "Independent zlib streams per direction, level 1, Z_HUFFMAN_ONLY, Z_PARTIAL_FLUSH after each application message; no SSH/TCP headers or packetization.",
+    "raw_files_sha256": {
+      "wire.1354061": "1983e9d669cdf25250d5420ca86fe6bffac4d8330b8119f00614b39a5643d0e5",
+      "wire.1354065": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wire.1354067": "2ee17868df813f793f991714158688d1ba453203778f258dd92cd8d5d5cda37e"
+    },
+    "messages_sha256": "83dab37f429cb90cfdbe78cf13bc035376ba701aa4429b1b27e1ac70f6cff5d8",
+    "capture_harness_sha256": "932d7652d3f8dca6f8df78579a1ddbd5c57921b4b35fbca05805c4f5e08fbc94",
+    "changed_cells_per_patch": 120.6875
+  },
+  "corgi_dense": {
+    "root": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-wire-dense",
+    "product": "corgi",
+    "groups": {
+      "up:viewer.receipt": {
+        "messages": 265,
+        "bytes": 30210
+      },
+      "down:viewer.frame": {
+        "messages": 246,
+        "bytes": 1348684
+      },
+      "down:reply:viewer.receipt": {
+        "messages": 265,
+        "bytes": 11395
+      }
+    },
+    "partial_lines": [],
+    "syscall_bytes": {
+      "up": 30210,
+      "down": 1360079
+    },
+    "frame_fields_bytes": {
+      "resources_hash": 4674,
+      "viewer_protocol": 246,
+      "surfaces": 492,
+      "type": 1476,
+      "controls": 492,
+      "session_hash": 4674,
+      "resources": 4858,
+      "bell_seq": 246,
+      "bell_kind": 1476,
+      "viewer": 246,
+      "patches": 1272732,
+      "session": 984,
+      "detach": 1230
+    },
+    "full_surfaces": 0,
+    "patches": 240,
+    "changed_row_counts": {
+      "24": 240,
+      "0": 6
+    },
+    "manifest": {
+      "product": "corgi",
+      "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-throughput-after",
+      "sha256": "59bf1ccecaf400f812ac3f7d81d3cc13fcfedc8ca25328c1cd76a4cb345583fe",
+      "corgi_commit": "580f83f9fa3cc3e47d7a8c729665d293d3230fa0",
+      "build": {
+        "builtAt": "2026-11-07T02:54:26.464Z",
+        "target": "linux-x64",
+        "bunVersion": "1.4.4",
+        "testBuild": false,
+        "releaseVersion": "0.1.0-dev",
+        "releaseCommit": "acc4ee33f61a4600f8d0e4299b5c4701643e8b5c-dirty",
+        "sha256": "59bf1ccecaf400f812ac3f7d81d3cc13fcfedc8ca25328c1cd76a4cb345583fe",
+        "sourceSHA256": "a313b23d71dfee6d307715b162a2c443e3bf39c6f08f80d5992f99ed3602ecb1",
+        "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+        "inputsSHA256": "ad6a2112fc5834ac29d077b2b67cde39472fc84e8846ab2b88f8268586f3d3a4"
+      },
+      "args": {
+        "product": "corgi",
+        "binary": "dist/corgi-throughput-after",
+        "output": "dist/remote-wire-dense",
+        "suite": "stream",
+        "repeats": 1,
+        "panes": 4,
+        "cpus": "32-39",
+        "sleep_seconds": 180,
+        "ansi": false,
+        "trace": false,
+        "capture": false,
+        "fault_cases": "",
+        "fault_kind": "sparse",
+        "calibrate": false,
+        "rtts": "120",
+        "ssh_compression": "default",
+        "stream_cases": "dense:1mbit",
+        "stream_rtt": 120,
+        "stream_seconds": 12
+      },
+      "kernel": "6.8.0-146-generic",
+      "clock": "CLOCK_MONOTONIC",
+      "uid": 1000,
+      "topology": "intermediate-bridge-tbf-netem-v2",
+      "started_utc": "2026-11-07T03:52:46Z"
+    },
+    "capture_seconds": 12.013005615212023,
+    "all_12_producers_alive": true,
+    "selected_pty": {
+      "cols": 132,
+      "rows": 47,
+      "hz": 20
+    },
+    "namespaces_remaining": [],
+    "message_bytes_match_syscalls": true,
+    "huffman_replay_bytes": {
+      "up": 26016,
+      "down": 906700
+    },
+    "compression_method": "Independent zlib streams per direction, level 1, Z_HUFFMAN_ONLY, Z_PARTIAL_FLUSH after each application message; no SSH/TCP headers or packetization.",
+    "raw_files_sha256": {
+      "wire.1381546": "3276a908ac9f476200c8fe392cb4b8cffddd8299db8be1203d6aa1719f7d6fd2"
+    },
+    "messages_sha256": "4a63494c83481e1f9587e9892792c2629f65701d2a04087121107c38102638c7",
+    "capture_harness_sha256": "932d7652d3f8dca6f8df78579a1ddbd5c57921b4b35fbca05805c4f5e08fbc94",
+    "row_string_bytes": {
+      "nonpadding_text": 586800,
+      "trailing_spaces": 173520,
+      "ansi_sequences": 207360,
+      "json_escaping_and_quotes": 69120
+    },
+    "ascii_row_width_counts": {
+      "132": 5760
+    },
+    "metadata_and_envelope_fraction_of_render": 0.15170640416880454,
+    "replay_downstream_huffman_reduction": {
+      "original": 0.0,
+      "metadata_reuse": 0.13000551450314324,
+      "row_splices": 0.2330561376419985,
+      "both": 0.35095400904378515
+    }
+  }
+}

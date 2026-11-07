@@ -1,0 +1,22 @@
+{
+  "unit_tests": {
+    "command": "taskset -c 16-23 bun test src",
+    "pass": 3375,
+    "skip": 1,
+    "fail": 0,
+    "log": "dist/wire-unit.log",
+    "sha256": "26a3918e55f0823d4919cafbd78a1a4590beb221a0b1719ba0009a4b605beb95"
+  },
+  "typecheck": {
+    "command": "bun typecheck.ts",
+    "exit_code": 0,
+    "log": "dist/wire-typecheck.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "python_compile": "passed: wire_capture.py wire_report.py wire_compact.py wire_evidence.py",
+  "capture_audit": "passed: 3 captures; byte accounting, no partial messages, 12 producers alive, cleanup complete",
+  "lossless_replay": "passed: all 776 messages / 246 frames reconstructed per workload in every variant",
+  "production_application_changes": false,
+  "herdr_patched": false,
+  "integrations": "Not rerun: application unchanged; preceding throughput change passed 70 integrations."
+}

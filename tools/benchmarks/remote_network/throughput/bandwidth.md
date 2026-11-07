@@ -17,7 +17,7 @@ The baseline’s lower dense traffic accompanies its lower frame rate. Use amort
 
 [Dense trial data and ranges](stream-120/evidence/summary.json) · [Sparse trial data and ranges](bandwidth/evidence/summary.json) · [Sparse CSV](bandwidth/evidence/trials.csv). Both unlimited and 1 Mbit/s sparse controls are retained; they show the same gap.
 
-Corgi replaces whole changed rows and acknowledges decoded frames with RPCs. Herdr sends binary-encoded changed-cell spans. The separate sparse trace records 663 receipt RPCs for 600 visible updates in 30 seconds. These are useful leads for the next optimization, but this investigation does not attribute an exact number of bytes to each mechanism. [Source analysis and trace evidence](diagnosis.md#bandwidth-efficiency-is-workload-dependent).
+The follow-up [byte-level diagnosis](../wire-efficiency/report.md) now captures both unchanged binaries: neither sends full surfaces during steady sparse output. Corgi repeats whole changed rows and substantial metadata, plus receipt RPCs; Herdr sends native binary changed-cell spans. It also verifies that the host's patched SSH compressor does not deduplicate repeated strings. An offline lossless experiment removes 65% of Corgi's compressed downstream payload; this is not yet a production wire-rate improvement. [Exact breakdown and implementation scope](../wire-efficiency/analysis.md).
 
 On constrained links, bandwidth alone is not a quality score. At dense 64 kbit/s, both saturate the downstream cap, but Corgi’s p95 displayed age is 1.54 seconds and Herdr’s is 30.86 seconds. Herdr’s sparse 64 kbit/s stream shows more updates while remaining about 7.15 seconds behind, versus Corgi’s 0.60 seconds. [All throughput, lag and catch-up measurements](measurements.md).
 
