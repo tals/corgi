@@ -353,6 +353,7 @@
   "Cached": "캐시됨",
   "Can't read this folder": "이 폴더를 읽을 수 없습니다",
   "Cancel": "취소",
+  "Change folder": "폴더 변경",
   "Change navigation": "탐색 방식 변경",
   "Check failed": "확인 실패",
   "Check flag quotes; shell operators and expansions aren't supported.": "옵션의 따옴표를 확인하세요. 셸 연산자와 확장은 지원하지 않습니다.",

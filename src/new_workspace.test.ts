@@ -212,6 +212,26 @@ test("the new-workspace card shows the folders and answers clicks on them", () =
   expect(d.view(100, 18)!.folders.rows).toBe(3);
 });
 
+test("too short for the list, moving a workspace keeps its folder field and the keys", () => {
+  const d = new Dialog(browse("/home/me/code"), { workspace: 2, name: "corgi" });
+  d.fit(100, 12);
+  const v = d.view(100, 12)!;
+  expect([v.compact, d.compact, d.browser.focused]).toEqual([true, true, true]);
+  const w = new Writer();
+  v.draw(d, w, 2);
+  for (const text of ["Change folder", "~/code/", "save"]) expect(w.s).toContain(text);
+  expect(w.s).not.toContain("Name");
+  expect(v.at(v.text_x + 2, v.field_y)).toEqual({ tag: "folder", field: 2 });
+  expect(v.buttons().map(b => v.at(b.x, v.buttons_y).tag)).toEqual(["save", "up", "cancel"]);
+  // Tab keeps the keys on the folder, the only field there is, and Up picks a folder into it.
+  d.key(9);
+  expect(d.browser.focused).toBe(true);
+  d.sequence("\x1b[A");
+  expect([d.browser.focused, d.browser.folder(), d.name()]).toEqual([true, "/home/me/code/other", "corgi"]);
+  // A new workspace still falls back to the plain dialog on its name.
+  expect(new Dialog(browse()).view(100, 12)).toBeNull();
+});
+
 test("subfolders lists folders and links to them, sorted", () => {
   const root = mkdtempSync(join(tmpdir(), "corgi-folders-"));
   mkdirSync(join(root, "b"));

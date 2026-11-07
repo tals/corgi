@@ -558,27 +558,35 @@ export class View {
       }
     }
   }
+  /** The dialog's title, from what it names. */
+  protected title(d: Dialog): string {
+    const kind = targetKind(d.target);
+    switch (kind) {
+      case "agent_command":
+        return i18n.t`Agent launch command`;
+      case "rename":
+        return i18n.t`Rename tab`;
+      case "pane":
+        return i18n.t`Rename pane`;
+      case "agent":
+      case "agent_name":
+        return i18n.t`Rename agent`;
+      case "fork":
+        return i18n.t`Fork this agent`;
+      case "shell":
+        return i18n.t`Shell for new panes`;
+      default:
+        return (d.target as { workspace_name: number | null }).workspace_name === null
+          ? i18n.t`New workspace`
+          : i18n.t`Rename workspace`;
+    }
+  }
   /** The title, a line about it, and the field. Returns where text starts,
    * lined up with the field's fill, and the columns it has. */
   protected heading(d: Dialog, w: Writer, number: number): { left: number; room: number } {
     const v = this;
     const kind = targetKind(d.target);
-    const title =
-      kind === "agent_command"
-        ? i18n.t`Agent launch command`
-        : kind === "rename"
-          ? i18n.t`Rename tab`
-          : kind === "pane"
-            ? i18n.t`Rename pane`
-            : kind === "agent" || kind === "agent_name"
-              ? i18n.t`Rename agent`
-              : kind === "fork"
-                ? i18n.t`Fork this agent`
-                : kind === "shell"
-                  ? i18n.t`Shell for new panes`
-                  : (d.target as { workspace_name: number | null }).workspace_name === null
-                    ? i18n.t`New workspace`
-                    : i18n.t`Rename workspace`;
+    const title = v.title(d);
     const left = v.text_x - (v.padded ? 1 : 0);
     const room = v.x + v.width - 1 - left - (v.padded ? 1 : 0);
     w.write(

@@ -1133,7 +1133,12 @@ test("edit workspace opens the current workspace's menu centered in its row, and
     await s.perform({ name: "edit-workspace" });
     expect(s.tab_menu?.workspace).toBe(true);
     expect(s.tab_menu?.tab).toBe(2);
-    expect(s.tab_menu?.entries().map((e: Row) => e.label)).toEqual(["Rename", "Archive workspace", "Close"]);
+    expect(s.tab_menu?.entries().map((e: Row) => e.label)).toEqual([
+      "Rename",
+      "Change folder",
+      "Archive workspace",
+      "Close",
+    ]);
     expect([s.tab_menu?.anchor_x, s.tab_menu?.anchor_y]).toEqual([0, 6]);
     await s.key(114);
     expect(s.tab_menu).toBeNull();
@@ -1142,6 +1147,93 @@ test("edit workspace opens the current workspace's menu centered in its row, and
     expect(s.inline_rename.drawer).toBe(false);
   } finally {
     viewer.close(s);
+  }
+});
+
+test("change folder works in a terminal too short for the folder list", async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "corgi-change-folder-")));
+  mkdirSync(join(root, "app/next"), { recursive: true });
+  const snapshot: any = folders(join(root, "app"));
+  snapshot.workspaces[0].name = "app";
+  const commands: any[] = [];
+  const s: any = new Controller({
+    socket: "",
+    request: transport(async (op, fields) => {
+      if (op !== "session.command") return snapshot;
+      commands.push(protocol.decode("session.command", fields).command);
+      return { result: {} };
+    }).request,
+  });
+  s.receiveSnapshot(snapshot);
+  s.input_state.attached = true;
+  s.height = 12;
+  try {
+    s.tab_menu = new TabMenu({ tab: 1, workspace: true, anchor_x: 0 });
+    await s.tabMenuAction("change-folder");
+    expect(s.frame()).toContain("Change folder");
+    await s.input(bytes("\tnext\r"));
+    expect(commands).toEqual([{ "workspace.edit": { target: 1, name: "next", cwd: join(root, "app/next") } }]);
+  } finally {
+    viewer.close(s);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a workspace menu shows its folder's control characters as ?", async () => {
+  const { s } = recording(folders("/src/a\nb"));
+  try {
+    await s.perform({ name: "edit-workspace" });
+    expect(s.tab_menu.details.get("change-folder").runs).toEqual([["/src/a?b", "faint"]]);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("change folder browses from the workspace's folder and moves it there", async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "corgi-change-folder-")));
+  for (const dir of ["app/next", "other"]) mkdirSync(join(root, dir), { recursive: true });
+  const snapshot: any = folders(join(root, "app"), join(root, "other"));
+  snapshot.workspaces[0].name = "app";
+  snapshot.workspaces[1].name = "custom";
+  const commands: any[] = [];
+  const s: any = new Controller({
+    socket: "",
+    request: transport(async (op, fields) => {
+      if (op !== "session.command") return snapshot;
+      commands.push(protocol.decode("session.command", fields).command);
+      return { result: {} };
+    }).request,
+  });
+  s.receiveSnapshot(snapshot);
+  s.input_state.attached = true;
+  try {
+    await s.perform({ name: "edit-workspace" });
+    expect(s.tab_menu.details.get("change-folder").runs).toEqual([[join(root, "app"), "faint"]]);
+    await s.key(102);
+    const d = s.name_dialog;
+    expect(d).toBeInstanceOf(newWorkspace.Dialog);
+    expect([d.moving, d.browser.focused, d.browser.folder(), d.browser.entries]).toEqual([
+      1,
+      true,
+      join(root, "app"),
+      ["next"],
+    ]);
+    // A name that is its folder's follows the folder.
+    await s.input(bytes("next"));
+    expect(d.name()).toBe("next");
+    await s.input(bytes("\r"));
+    expect(commands).toEqual([{ "workspace.edit": { target: 1, name: "next", cwd: join(root, "app/next") } }]);
+    expect(s.name_dialog).toBeNull();
+    // A name of its own stays.
+    s.tab_menu = new TabMenu({ tab: 2, workspace: true, anchor_x: 0 });
+    await s.tabMenuAction("change-folder");
+    await s.input(bytes("\x1b[D"));
+    expect(s.name_dialog.browser.folder()).toBe(join(root, "app"));
+    await s.input(bytes("\r"));
+    expect(commands.at(-1)).toEqual({ "workspace.edit": { target: 2, name: "custom", cwd: join(root, "app") } });
+  } finally {
+    viewer.close(s);
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
@@ -4702,6 +4794,24 @@ test("with the sidebar closed, prefix W then r renames the current workspace in 
     await s.input(bytes(`\x1b[<0;${at.x + 1};${at.y + 1}M\x1b[<0;${at.x + 1};${at.y + 1}m`));
     away();
     expect(s.current().id).toBe(2);
+  } finally {
+    viewer.close(s);
+  }
+});
+
+test("rename reveals its workspace's row past archived workspaces listed before it", () => {
+  const snapshot: any = folders(...Array.from({ length: 16 }, (_, i) => `/w${i + 1}`));
+  for (const i of [0, 1, 2, 3, 4, 5]) {
+    snapshot.workspaces[i].archived = true;
+    snapshot.panes[i].dormant = true;
+  }
+  const { s } = recording(snapshot);
+  try {
+    const view = () => s.sidebarView(s.sidebarEntries());
+    expect(view().workspaceCapacity()).toBeLessThan(10);
+    s.beginWorkspace(9);
+    expect([s.inline_rename?.target, s.name_dialog]).toEqual([{ workspace: 9 }, null]);
+    expect(view().fieldRect({ workspace: 9 }, s.workspaceEntries())).not.toBeNull();
   } finally {
     viewer.close(s);
   }

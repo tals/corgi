@@ -321,27 +321,48 @@ export class Browser {
   }
 }
 
+/** A workspace the dialog moves to another folder, and its name now. */
+export interface Moving {
+  workspace: number;
+  name: string;
+}
+
 /** The dialog: the name above, the browser below. Tab, and Up and Down past
  * either end, move the keys between them. */
 export class Dialog extends nameDialog.Dialog {
   browser: Browser;
   /** The name is the browser's folder's, following it until edited. */
   follows_folder = true;
+  /** The workspace this moves, or null when it creates one. */
+  readonly moving: number | null;
+  /** Moving, with no room for the list: only the folder field shows, and it keeps the keys. */
+  compact = false;
 
-  /** Opens on the name, which follows the browser's folder. */
-  constructor(browser: Browser) {
-    super({ workspace_name: null });
+  /** Opens on the name, which follows the browser's folder. Moving a
+   * workspace opens on the folder, and its name follows only while it is
+   * still its folder's. */
+  constructor(browser: Browser, moving: Moving | null = null) {
+    super({ workspace_name: moving?.workspace ?? null });
     this.browser = browser;
-    browser.focused = false;
+    this.moving = moving?.workspace ?? null;
+    browser.focused = moving !== null;
+    if (moving && moving.name !== workspace.folderName(browser.folder())) {
+      this.follows_folder = false;
+      this.fill(moving.name);
+    }
     this.follow();
   }
   /** The real path of the folder to create the workspace in; see `Browser.confirm`. */
   confirm(): string | null {
     return this.browser.confirm();
   }
-  /** Keys stay on the name while the screen is too small to draw the folder field. */
+  /** Keys stay on the name while the screen is too small to draw the folder
+   * field, and on the folder while it is the only field drawn. */
   fit(width: number, height: number): void {
-    if (!this.view(width, height)) this.browser.focused = false;
+    const v = this.view(width, height);
+    this.compact = v?.compact ?? false;
+    if (!v) this.browser.focused = false;
+    else if (this.compact) this.browser.focused = true;
   }
   view(width: number, height: number): View | null {
     return View.layout(width, height, this);
@@ -359,7 +380,7 @@ export class Dialog extends nameDialog.Dialog {
   key(byte: number): Result {
     const b = this.browser;
     if (byte === 9) {
-      b.focused = !b.focused;
+      if (!this.compact) b.focused = !b.focused;
       this.follow();
       return "none";
     }
@@ -387,7 +408,7 @@ export class Dialog extends nameDialog.Dialog {
     const b = this.browser;
     const key = keys.parse(seq);
     if (key === "shift_tab") {
-      b.focused = !b.focused;
+      if (!this.compact) b.focused = !b.focused;
       this.follow();
     } else if ((key === "up" || key === "down") && this.round(key === "down")) this.follow();
     else if (b.focused) {
@@ -403,6 +424,7 @@ export class Dialog extends nameDialog.Dialog {
    * name past either end of the list. False when they move within the folder. */
   private round(down: boolean): boolean {
     const b = this.browser;
+    if (this.compact) return false;
     if (!b.focused) {
       b.focused = true;
       if (!down && b.count() > 0) b.pick(b.count() - 1);
@@ -446,15 +468,15 @@ interface Folders {
   first: number;
   entries: number;
 }
-const browserKeys = () =>
+const browserKeys = (moving: boolean) =>
   [
-    { key: "↵", label: i18n.t`create`, hit: { tag: "save" } },
+    { key: "↵", label: moving ? i18n.t`save` : i18n.t`create`, hit: { tag: "save" } },
     { key: "←→", label: i18n.t`out / in`, hit: { tag: "key", index: 1 }, split: true },
     { key: "esc", label: i18n.t`cancel`, hit: { tag: "cancel" } },
   ] satisfies KeySpec[];
 /** Wide enough for the labelled keys two columns apart, and a column either side. */
-const browserWidth = () =>
-  browserKeys().reduce((n, k) => n + nameDialog.labelled(k), 0) + 2 * (browserKeys().length - 1) + 4;
+const browserWidth = (moving: boolean) =>
+  browserKeys(moving).reduce((n, k) => n + nameDialog.labelled(k), 0) + 2 * (browserKeys(moving).length - 1) + 4;
 /** Out and in before the folder has the keys: caps barely raised off the
  * panel, and the arrows and label in the border's color. */
 let quiet_cap: string, quiet_label: string;
@@ -504,12 +526,15 @@ export function size(bytes: number): string {
 export class View extends nameDialog.View {
   folders!: Folders;
   dialog!: Dialog;
+  /** The folder field alone, in the plain dialog's place. */
+  compact = false;
 
-  /** Without room for three folders, the plain dialog is used instead. */
+  /** Without room for three folders, the plain dialog is used instead; moving
+   * a workspace keeps its folder field, alone, in the plain dialog's place. */
   static layout(width: number, height: number, d: Dialog): View | null {
     const rows = Math.min(folder_rows, height - 15);
-    const w = Math.max(nameDialog.View.plainWidth(width), Math.min(width - 4, browserWidth()));
-    if (rows < 3 || w < 20) return null;
+    const w = Math.max(nameDialog.View.plainWidth(width), Math.min(width - 4, browserWidth(d.moving !== null)));
+    if (rows < 3 || w < 20) return d.moving !== null ? View.compactLayout(width, height, d) : null;
     const h = rows + 13;
     const x = Math.floor((width - w) / 2);
     const y = Math.floor((height - h) / 2);
@@ -543,8 +568,39 @@ export class View extends nameDialog.View {
     });
     return v;
   }
+  /** The folder field laid out as the plain dialog lays out its field, with no list. */
+  private static compactLayout(width: number, height: number, d: Dialog): View {
+    const w = Math.min(width, Math.max(nameDialog.View.plainWidth(width), Math.min(width - 4, browserWidth(true))));
+    const h = Math.min(height, 7);
+    const y = Math.floor((height - h) / 2);
+    const field_y = y + (h >= 7 ? 3 : h >= 5 ? 2 : 1);
+    const padded = w >= 20;
+    const inset = padded ? 3 : 1;
+    const offset = nameDialog.View.scroll(d.browser.field, w - 2 * inset);
+    const v = new View();
+    Object.assign(v, {
+      x: Math.floor((width - w) / 2),
+      y,
+      width: w,
+      height: h,
+      title_y: y + (h >= 5 ? 1 : 0),
+      field_y,
+      buttons_y: field_y + (h >= 7 ? 2 : 1),
+      offset,
+      text_x: Math.floor((width - w) / 2) + inset,
+      text_width: w - 2 * inset,
+      padded,
+      dialog: d,
+      compact: true,
+      folders: { name_label_y: -1, label_y: -1, field_y, offset, list_y: -1, rows: 0, first: 0, entries: 0 },
+    });
+    return v;
+  }
   protected keys(): KeySpec[] {
-    return browserKeys();
+    return browserKeys(this.dialog.moving !== null);
+  }
+  protected title(d: nameDialog.Dialog): string {
+    return this.dialog.moving !== null ? i18n.t`Change folder` : super.title(d);
   }
   /** What a press lands on, the folder field and list included. */
   at(x: number, y: number): Hit {
@@ -566,6 +622,16 @@ export class View extends nameDialog.View {
     const v = this;
     const b = v.dialog.browser;
     v.drawBox(w);
+    if (v.compact) {
+      const { left, room } = v.heading(b.field, w, number);
+      if (b.problem && v.height >= 7) {
+        w.write(`\x1b[${v.title_y + 2};${left + 1}H` + new Style({ fg: "hot", bg: "surface" }).sgr());
+        writeEllipsis(w, problemMessage(b.problem), room);
+      }
+      v.drawButtons(w);
+      v.placeCursor(b.field, w);
+      return;
+    }
     const { left, room } = v.heading(d, w, number);
     if (b.problem) {
       w.write(`\x1b[${v.title_y + 2};${left + 1}H` + new Style({ fg: "hot", bg: "surface" }).sgr());

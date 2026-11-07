@@ -424,6 +424,7 @@ profile/ID、克隆名称或 command/N，以 launcher list 中的名称为准。
     '["Cached"]': () => `已缓存`,
     '["Can\'t read this folder"]': () => `无法读取此文件夹`,
     '["Cancel"]': () => `取消`,
+    '["Change folder"]': () => `更改文件夹`,
     '["Change navigation"]': () => `跳转更改区块`,
     '["Check failed"]': () => `检查失败`,
     '["Check flag quotes; shell operators and expansions aren\'t supported."]': () =>
@@ -1823,6 +1824,7 @@ ${v1} 使用该账号。
     '["Cached"]': () => `キャッシュ`,
     '["Can\'t read this folder"]': () => `このフォルダーを読み込めません`,
     '["Cancel"]': () => `キャンセル`,
+    '["Change folder"]': () => `フォルダーを変更`,
     '["Change navigation"]': () => `操作方法を変更`,
     '["Check failed"]': () => `確認に失敗しました`,
     '["Check flag quotes; shell operators and expansions aren\'t supported."]': () =>
@@ -3244,6 +3246,7 @@ profile/ID, 복제본 이름 또는 command/N이며 launcher list에 표시된 �
     '["Cached"]': () => `캐시됨`,
     '["Can\'t read this folder"]': () => `이 폴더를 읽을 수 없습니다`,
     '["Cancel"]': () => `취소`,
+    '["Change folder"]': () => `폴더 변경`,
     '["Change navigation"]': () => `탐색 방식 변경`,
     '["Check failed"]': () => `확인 실패`,
     '["Check flag quotes; shell operators and expansions aren\'t supported."]': () =>
@@ -5043,6 +5046,7 @@ profile/ID, имя копии или command/N — как в выводе launch
     '["Cached"]': () => `Кэш`,
     '["Can\'t read this folder"]': () => `Не удалось прочитать эту папку`,
     '["Cancel"]': () => `Отмена`,
+    '["Change folder"]': () => `Сменить папку`,
     '["Change navigation"]': () => `Переход по изменениям`,
     '["Check failed"]': () => `Проверка не удалась`,
     '["Check flag quotes; shell operators and expansions aren\'t supported."]': () =>
