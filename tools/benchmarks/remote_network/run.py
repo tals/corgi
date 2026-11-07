@@ -166,6 +166,7 @@ class Lab:
         self.profiles = {}
         self.telemetry_stop = threading.Event()
         self.telemetry_thread = None
+        self.captures = []
 
     def event(self, event_type, **kwargs):
         value = {"at": time.monotonic(), "epoch": time.time(), "event": event_type, **kwargs}
@@ -298,6 +299,16 @@ class Lab:
             self.event("machine_add", machine=machine, seconds=time.monotonic() - start, answer=answer)
         dump(self.out / "machines.json", json.loads(self.app("local", "machine", "list", *(["--json"] if self.product == "herdr" else []))))
         self.event("setup_complete")
+        if self.args.capture:
+            for machine in ["local", "atlas"]:
+                with (self.out / f"packets-{machine}.pcap").open("wb") as packets, (self.out / f"packets-{machine}.log").open("w") as log:
+                    self.captures.append(sp.Popen([
+                        "sudo", "-n", "ip", "netns", "exec", self.ns[machine],
+                        "tcpdump", "-Z", USER, "-U", "-i", "any", "-s", "128", "-w", "-",
+                        "tcp port 2222 or arp"], stdout=packets, stderr=log))
+            time.sleep(.2)
+            if any(capture.poll() is not None for capture in self.captures):
+                raise RuntimeError("Packet capture failed to start")
         self.start_telemetry()
 
     def flush_trace(self):
@@ -410,7 +421,7 @@ class Lab:
             try:
                 if Path(f"/proc/{pid}/comm").read_text().strip() == "ssh":
                     os.kill(pid, signal.SIGTERM)
-            except ProcessLookupError:
+            except (FileNotFoundError, ProcessLookupError):
                 pass
 
     def start_viewer(self):
@@ -481,7 +492,19 @@ class Lab:
         producers_before = self.producers()
         started = self.event("fault_start", case=case, repeat=repeat)
         action()
-        time.sleep(min(duration, 2))
+        snapshot_errors = []
+        def snapshot():
+            time.sleep(max(0, started + duration - 2 - time.monotonic()))
+            began = time.monotonic()
+            try:
+                self.network_snapshot(f"{case}-{repeat}-fault")
+            except Exception as error:
+                snapshot_errors.append(error)
+            self.event("fault_snapshot", case=case, repeat=repeat, started=began,
+                       seconds=time.monotonic() - began)
+        sampling = threading.Thread(target=snapshot, daemon=True)
+        sampling.start()
+        time.sleep(max(0, started + min(2, duration / 2 if duration <= 2 else duration) - time.monotonic()))
         during = view.input(f"DURING{case}{repeat}\r")
         (self.out / f"fault-screen-{case}-{repeat}.txt").write_text(view.screen())
         other = []
@@ -498,10 +521,6 @@ class Lab:
             time.sleep(max(0, started + 8 - time.monotonic()))
             late = view.input(f"LATE{case}{repeat}\r")
             (self.out / f"late-fault-screen-{case}-{repeat}.txt").write_text(view.screen())
-        remaining = started + duration - .85 - time.monotonic()
-        if remaining > 0:
-            time.sleep(remaining)
-        self.network_snapshot(f"{case}-{repeat}-fault")
         time.sleep(max(0, started + duration - time.monotonic()))
         self.shape(rtt=120)
         restored = self.event("fault_end", case=case, repeat=repeat)
@@ -514,6 +533,9 @@ class Lab:
             elapsed = None
         ready = view.ready_probe()
         echo = view.echo(f"AFTER{case}{repeat}", timeout=20)
+        sampling.join()
+        if snapshot_errors:
+            raise snapshot_errors[0]
         self.record({"case": case, "repeat": repeat, "fault_seconds": duration, "actual_fault_seconds": restored - started, "recovery_seconds": elapsed,
                      "usable_seconds": ready["ack_at"] - restored if ready["ack_at"] else None, "ready": ready,
                      "before": before, "echo": echo, "during_input_at": during, "late_input_at": late, "isolation": other,
@@ -633,6 +655,16 @@ class Lab:
         self.telemetry_stop.set()
         if self.telemetry_thread:
             self.telemetry_thread.join(5)
+        if self.captures:
+            for machine in ["local", "atlas"]:
+                for pid in self.pids(machine):
+                    try:
+                        if Path(f"/proc/{pid}/comm").read_text().strip() == "tcpdump":
+                            os.kill(pid, signal.SIGINT)
+                    except (FileNotFoundError, ProcessLookupError):
+                        pass
+            for capture in self.captures:
+                capture.wait(timeout=5)
         if self.viewer:
             self.viewer.close()
         for machine in self.created:
@@ -672,6 +704,7 @@ def main():
     parser.add_argument("--sleep-seconds", type=int, default=180)
     parser.add_argument("--ansi", action="store_true")
     parser.add_argument("--trace", action="store_true", help="retain remote telemetry and periodic TCP state")
+    parser.add_argument("--capture", action="store_true", help="capture TCP headers in the client and Atlas namespaces (requires tcpdump)")
     parser.add_argument("--fault-cases", default="tcp_reset,blackhole3,blackhole15,downstream15,isolated30")
     parser.add_argument("--calibrate", action="store_true")
     parser.add_argument("--rtts", default="0,20,120,300")

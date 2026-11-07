@@ -1,0 +1,46 @@
+diff --git a/src/machine_stream.ts b/src/machine_stream.ts
+index 5ea6b6aa..730f1ba7 100644
+--- a/src/machine_stream.ts
++++ b/src/machine_stream.ts
+@@ -66,10 +66,7 @@ export class Stream {
+       this.received = serial;
+       // Decode every delta before coalescing. The next frame may use it as
+       // its base even when the UI never displays this intermediate frame.
+-      void this.receipt(sequence).catch(error => {
+-        this.failure = error;
+-        this.changed();
+-      });
++
+     } else if (this.incremental) throw Error("InvalidStreamFrame");
+     // A heartbeat's answer that changes nothing leaves an idle viewer asleep.
+     const seen = `${frame.bell_seq} ${frame.session_hash} ${frame.resources_hash}`;
+@@ -184,6 +181,7 @@ export class Stream {
+         resources_hash: null,
+         interests: request.interests.map(interest => ({ ...interest, known: null })),
+       };
++    if (this.incremental && !changed) { this.next = performance.now() + 500; return; }
+     this.configured = key;
+     this.pending = true;
+     const sequence = this.sequence;
+diff --git a/src/viewer_stream.ts b/src/viewer_stream.ts
+index 94fb6d52..85ac0979 100644
+--- a/src/viewer_stream.ts
++++ b/src/viewer_stream.ts
+@@ -10,7 +10,7 @@ export class Frames {
+   private sent = 0n;
+   private bytes = 0;
+   get available(): boolean {
+-    return this.pending.size < 3 && this.bytes < 16384;
++    return true;
+   }
+   offer(view: View): { frame: bigint; view: View } | null {
+     if (!this.available) return null;
+@@ -26,7 +26,7 @@ export class Frames {
+     // Include room for the stream envelope and RPC id. One oversized frame
+     // may travel alone, so a full snapshot can always make progress.
+     const bytes = text.byteLength(json.stringify(encoded)) + 128;
+-    if (this.pending.size && this.bytes + bytes > 16384) return null;
++
+     for (const frame of view.surfaces) this.retained.set(frame.surface.pane, frame);
+     const frame = ++this.sent;
+     this.pending.set(frame, bytes);

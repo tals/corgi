@@ -1,0 +1,47 @@
+{
+  "archives": [
+    {
+      "role": "corrected final performance comparison",
+      "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-short-timed.tar.gz",
+      "sha256": "334aef8b41293de5c27a83bffa6303e0bedb7644d42e1612e51030f2adbb1cd6",
+      "bytes": 1358623,
+      "entries": 1263,
+      "roots": [
+        "remote-short-timed"
+      ]
+    },
+    {
+      "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-short-final.tar.gz",
+      "sha256": "5a7d5853a0cac16910a3f36ceafbb2c550eaad643af594e3c0f883a8a95f5fe4",
+      "bytes": 1375076,
+      "entries": 1263,
+      "roots": [
+        "remote-short-final"
+      ],
+      "role": "superseded comparison with blocking snapshots"
+    },
+    {
+      "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-short-diagnostics.tar.gz",
+      "sha256": "c849e8c6fb8d5326cb5cb0b056d5f81a7f7be82404cc17976511661f0e8de3ae",
+      "bytes": 3206178,
+      "entries": 2905,
+      "roots": [
+        "remote-short-before-trace",
+        "remote-short-herdr-trace",
+        "remote-short-pilot-trace",
+        "remote-short-phase-baseline",
+        "remote-short-pilot",
+        "remote-short-window-ablation",
+        "remote-short-no-receipts-pilot",
+        "remote-short-comparison",
+        "remote-short-warm-pilot"
+      ],
+      "role": "pilot variants, separate traces and interrupted comparison"
+    }
+  ],
+  "comparison": "remote-short-timed",
+  "interrupted_comparison": "remote-short-comparison (harness process-exit race; excluded and restarted)",
+  "application_source_changes_retained": false,
+  "traces_and_pilots_pooled_with_comparison": false,
+  "superseded_comparison": "remote-short-final (blocking snapshots delayed restoration; nominal two-second windows were about 3.3 s)"
+}

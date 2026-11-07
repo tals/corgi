@@ -38,6 +38,7 @@ def main():
             binaries[label].add(manifest["sha256"])
             cpu_sets[label].append(manifest["args"]["cpus"])
             check(not manifest["args"]["trace"], f"{name}: telemetry disabled")
+            check(not manifest["args"].get("capture", False), f"{name}: packet capture disabled")
             check(manifest["args"]["ssh_compression"] == "default", f"{name}: default SSH compression")
             check(manifest["topology"] == "intermediate-bridge-tbf-netem-v2", f"{name}: shared network topology")
             check(collections.Counter(row["case"] for row in raw) == collections.Counter(["startup", *cases]), f"{name}: all scheduled cases retained")
@@ -65,7 +66,7 @@ def main():
                 check(row["before"]["ok"] and row["echo"]["ok"], f"{tag}: input worked before and after")
                 check(row["usable_seconds"] is not None and row["recovery_seconds"] is not None, f"{tag}: recovery observed")
                 check(not row.get("failure"), f"{tag}: no recorded failure")
-                check(row["fault_seconds"] <= row["actual_fault_seconds"] < row["fault_seconds"] + 2, f"{tag}: outage duration retained")
+                check(row["fault_seconds"] <= row["actual_fault_seconds"] < row["fault_seconds"] + .75, f"{tag}: outage duration retained")
                 for field in ["before", "echo"]:
                     check(len(receipt.get(row[field]["token"], [])) == 1, f"{tag}: {field} echo has one independent receipt")
                 row["ready_receipts"] = receipt.get(row["ready"]["ack"], [])
@@ -96,7 +97,7 @@ def main():
     (output / "summary.json").write_text(json.dumps({"plan": plan, "trials": trials, "groups": grouped}, indent=2) + "\n")
     (output / "audit.json").write_text(json.dumps(audit, indent=2) + "\n")
     with (output / "trials.csv").open("w") as file:
-        writer = csv.writer(file)
+        writer = csv.writer(file, lineterminator="\n")
         writer.writerow(["label", "trial", "case", "outage_s", "fresh_screen_s", "usable_input_s", "during_receipts", "late_receipts", "evidence"])
         for trial in trials:
             for row in trial["results"]:

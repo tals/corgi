@@ -1,5 +1,7 @@
 # Updated remote branch: outage recovery
 
+Follow-up: [short-outage cause, packet captures and rejected fixes](../short-outages/report.md).
+
 **Rebased onto `455a941b`; fixed the long recovery gaps.** After a 35-second
 outage, median recovery fell **10.14 → 3.51 s**. The worst of three recoveries
 after a 60-second outage fell **17.56 → 3.45 s**.

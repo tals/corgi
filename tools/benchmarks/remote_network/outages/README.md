@@ -166,3 +166,8 @@ python3 tools/benchmarks/remote_network/run.py corgi /path/to/corgi \
 They passed all six startup attempts and all 15 input probes. The stream checks
 are one trial per profile: p95 held-screen ages were 0.59 s at 64 kbit/s, 0.12 s
 at 256 kbit/s, and 0.26 s with loss/jitter. [Control data](evidence/controls.json).
+
+The [short-outage follow-up](../short-outages/README.md) corrects snapshot
+scheduling so it cannot delay restoration. For the original matrix's exact
+timing, restore its archived `run.py`, `observe.ts` and `workload.py` into this
+directory in a detached checkout; the archives retain their hashes and copies.

@@ -1,0 +1,18 @@
+{
+  "checks_passed": 799,
+  "problems": [
+    "before-1/blackhole2: outage duration retained",
+    "after-1/blackhole2: outage duration retained",
+    "herdr-1/blackhole2: outage duration retained",
+    "before-2/blackhole2: outage duration retained",
+    "after-2/blackhole2: outage duration retained",
+    "herdr-2/blackhole2: outage duration retained",
+    "before-3/blackhole2: outage duration retained",
+    "after-3/blackhole2: input worked before and after",
+    "after-3/blackhole2: outage duration retained",
+    "after-3/blackhole2: before echo has one independent receipt",
+    "herdr-3/blackhole2: outage duration retained"
+  ],
+  "root": "dist/remote-short-final",
+  "note": "Applying the new duration tolerance to the older blocking-snapshot run rejects every nominal two-second window. That matrix is excluded from the corrected final comparison."
+}
