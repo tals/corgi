@@ -45,7 +45,7 @@ export class Actor {
   activity_timeline = new Timeline();
   background_tasks = new background_tasks.Inventory();
   checklist = new checklist.List();
-  /** The background shells its last Stop listed, each of which can wake it. */
+  /** The background shells its last Stop listed that hold it paused, each of which can wake it. */
   shells = new background_tasks.Shells();
   live_usage = new View();
   context = new Reading();
