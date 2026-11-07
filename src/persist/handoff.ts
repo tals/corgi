@@ -174,6 +174,8 @@ export async function replace(
     await Bun.sleep(5);
   }
   await observers.pause(server);
+  await server.summaries?.pause();
+  server.closeVoice();
   server.pause();
   breadcrumbs.record("reloading");
   const fds = new Int32Array(2);
