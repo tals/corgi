@@ -7461,15 +7461,12 @@ export class Controller {
               else await this.perform({ name: "worktree-agent", value: index });
               break;
             }
-            // A second left press on the same pane agent's row renames it; the
+            // A second left press on the same pane agent's name renames it; the
             // first already selected it, so this one neither selects nor drags.
             // An agent that takes no rename gets a plain press instead.
-            if (button === 0 && "pane" in target) {
-              if (
-                this.clicks.press({ agent: target.pane }, milliTimestamp(), x, y) &&
-                (await this.doubleClickAgent(target.pane))
-              )
-                break;
+            const name = "pane" in target ? { agent: target.pane } : null;
+            if (button === 0 && name && side.onName(name, this.workspaceEntries(), x, y)) {
+              if (this.clicks.press(name, milliTimestamp(), x, y) && (await this.doubleClickAgent(name.agent))) break;
             } else this.clicks.reset();
             this.selectAgent(target);
             if (button === 2 && "pane" in target) await this.openAgentMenu(target.pane, x, y);
@@ -7521,11 +7518,13 @@ export class Controller {
               this.openWorkspaceMenu(ws.id, x, y);
             } else {
               const id = ws.id;
-              if (this.clicks.press({ workspace: id }, milliTimestamp(), x, y)) {
+              const ws_entries = this.workspaceEntries();
+              // Only presses on the name itself make the double-click that renames.
+              if (!side.onName({ workspace: id }, ws_entries, x, y)) this.clicks.reset();
+              else if (this.clicks.press({ workspace: id }, milliTimestamp(), x, y)) {
                 this.beginInlineRename({ workspace: id });
                 break;
               }
-              const ws_entries = this.workspaceEntries();
               const jump = !resource_workspace_press && side.unreadHit(ws_entries[index], x, y);
               const target = jump ? this.firstUnreadAgent(this.runtime.workspaces.index(id)!) : null;
               this.switchWorkspace(id);

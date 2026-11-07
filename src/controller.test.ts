@@ -20,7 +20,7 @@ import * as accounts from "./accounts";
 import * as signin from "./signin";
 import * as signinExit from "./signin_exit";
 import { Terminal as NativeTerminal } from "./pane/terminal";
-import { Writer } from "./text";
+import { Writer, displayWidth } from "./text";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -3987,23 +3987,33 @@ test("a drag keeps one pick out and copies the answer for where it ended", async
   }
 });
 
-test("a double-click on a workspace's unread badge renames the workspace", async () => {
+test("only a double-click on the name renames, not one elsewhere on the row", async () => {
   const snapshot = pair();
   snapshot.panes[2].agent.observation = { completed: 2, read: 0 };
-  const { s, sent } = recording(snapshot);
+  const { s, sent, rect, press } = renaming(undefined, snapshot);
+  const twice = async (x: number, y: number) => {
+    await press(x, y);
+    await press(x, y);
+  };
   try {
     setSystemTime(new Date(1000));
     const ws = s.workspaceEntries()[1];
-    expect(ws.unread).toBe(1);
     const view = s.sidebarView(s.sidebarEntries());
-    const range = view.unreadRange(ws),
-      y = 2 + 1 * view.workspaceRows() + 1;
-    expect(view.unreadHit(ws, range.start, y)).toBe(true);
-    for (let i = 0; i < 2; i++)
-      await s.input(bytes(`\x1b[<0;${range.start + 1};${y + 1}M\x1b[<0;${range.start + 1};${y + 1}m`));
-    expect(s.current().id).toBe(2);
+    const badge = view.unreadRange(ws).start,
+      name = rect({ workspace: 2 });
+    expect(view.unreadHit(ws, badge, name.y + 1)).toBe(true);
+    await twice(badge, name.y + 1);
+    await twice(name.x + displayWidth(ws.name), name.y);
+    expect([s.current().id, s.inline_rename]).toEqual([2, null]);
+    await twice(name.x + displayWidth(ws.name) - 1, name.y);
     expect(s.inline_rename?.target).toEqual({ workspace: 2 });
-    expect(sent).toEqual([]);
+    await s.input(bytes("\x1b[27u"));
+    const agent = rect({ agent: 3 });
+    await twice(agent.x, agent.y + 1);
+    await twice(agent.x + displayWidth("agent 3"), agent.y);
+    expect([s.focused().id, s.inline_rename, sent]).toEqual([3, null, []]);
+    await twice(agent.x + displayWidth("agent 3") - 1, agent.y);
+    expect(s.inline_rename?.target).toEqual({ agent: 3 });
   } finally {
     setSystemTime();
     viewer.close(s);

@@ -1096,6 +1096,21 @@ export class View {
     if (y >= end) return null;
     return { x: 4, y, width: v.nameRoom(v.entries[index]), message_y: y + 1 < end ? y + 1 : y - 1 };
   }
+  /** Whether `x`, `y` lands on `target`'s name as its row draws it, rather
+   * than elsewhere on the row. */
+  onName(target: RenameTarget, workspaces: WorkspaceEntry[], x: number, y: number): boolean {
+    const rect = this.fieldRect(target, workspaces);
+    if (rect === null || y !== rect.y || x < rect.x) return false;
+    let width = 0;
+    if ("workspace" in target) {
+      const ws = workspaces.find(ws => ws.id === target.workspace);
+      if (ws) width = displayWidth(workspaceName(ws)) + (ws.archived ? displayWidth(archivedSuffix()) : 0);
+    } else {
+      const e = this.entries.find(e => "pane" in e.target && e.target.pane === target.agent);
+      if (e) width = displayWidth(agentName(e));
+    }
+    return x < rect.x + Math.min(width, rect.width);
+  }
   /** The columns an agent row's name has, before its context figure and notes. */
   nameRoom(e: Entry): number {
     return sat(this.width - 6, nameRight(e, contextFigure(e, false, colors.bg)));
@@ -1433,9 +1448,9 @@ export class View {
         v.drawField(w, rename, 1, y, name_room);
         w.write(style);
       } else {
-        const name = directoryLabel(ws.name, null, 4097);
+        const name = workspaceName(ws);
         if (ws.archived) {
-          const suffix = i18n.t` (archived)`;
+          const suffix = archivedSuffix();
           writeEllipsis(w, name, sat(name_room, displayWidth(suffix)));
           writeClipped(w, suffix, name_room);
         } else writeClipped(w, name, name_room);
@@ -1786,7 +1801,6 @@ export class View {
       : napping && e.attention !== "finished"
         ? "\x1b[22m" + nap_fg
         : "\x1b[22m" + fg("faint");
-    const name = rowTitle(e);
     const figure = contextFigure(e, compacting, background);
     const figure_width = figure ? displayWidth(figure.text) : 0;
     const notes = noteLabel(e);
@@ -1804,7 +1818,7 @@ export class View {
     if (rename !== null) {
       v.drawField(w, rename, x + 4, y, sat(room, right));
       w.write(row_bg);
-    } else writeEllipsis(w, (e.starred && e.section !== "starred" ? "★ " : "") + name, sat(room, right));
+    } else writeEllipsis(w, agentName(e), sat(room, right));
     w.write("\x1b[22m");
     // Unsent review notes wait for the user, so they take warm.
     if (notes.length > 0 && room > right + 4)
@@ -2049,6 +2063,15 @@ function contextFigure(
   const percent = BigInt(e.context.percent());
   const text = `${percent < 999n ? percent : 999n}%`;
   return { text, color: contextColor(band, compacting, background) };
+}
+/** A workspace row's name, safe to print. */
+function workspaceName(ws: WorkspaceEntry): string {
+  return directoryLabel(ws.name, null, 4097);
+}
+const archivedSuffix = () => i18n.t` (archived)`;
+/** An agent row's name line: its title, starred outside the starred section. */
+function agentName(e: Entry): string {
+  return (e.starred && e.section !== "starred" ? "★ " : "") + rowTitle(e);
 }
 /** Unsent review notes on the name line, as "2 notes". */
 function noteLabel(e: Entry): string {
