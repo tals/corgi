@@ -353,6 +353,7 @@
   "Cached": "キャッシュ",
   "Can't read this folder": "このフォルダーを読み込めません",
   "Cancel": "キャンセル",
+  "Change folder": "フォルダーを変更",
   "Change navigation": "操作方法を変更",
   "Check failed": "確認に失敗しました",
   "Check flag quotes; shell operators and expansions aren't supported.": "オプションの引用符を確認してください。シェルの演算子や展開は使えません。",

@@ -3,7 +3,7 @@ import * as archiveSummary from "./archive_summary";
 //! Viewer-owned navigation, dialogs, input and rendering. Shared mutations
 //! are RPC operations. Mirrors controller.zig; methods that call the daemon
 //! are async and run one at a time from the viewer loop.
-import { hostname } from "node:os";
+import { homedir, hostname } from "node:os";
 import { existsSync } from "node:fs";
 import { basename, isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -114,7 +114,17 @@ import * as signin from "./signin";
 import * as signinExit from "./signin_exit";
 import { Terminal as NativeTerminal } from "./pane/terminal";
 import { Provider, adapter } from "./providers";
-import { sat, byteLength, byteSlice, clamp, displayWidth, ellipsis, shortPath, type Writer } from "./text";
+import {
+  sat,
+  byteLength,
+  byteSlice,
+  clamp,
+  directoryLabel,
+  displayWidth,
+  ellipsis,
+  shortPath,
+  type Writer,
+} from "./text";
 import * as errors from "./errors";
 import * as moonlanderTerminal from "./moonlander/terminal";
 import {
@@ -1677,13 +1687,15 @@ export class Controller {
     this.search_mode = false;
     this.cancelDividers();
     this.selection = null;
+    const ws = this.runtime.workspaces.items.find(w => w.id === id);
     this.tab_menu = new TabMenu({
       tab: id,
       workspace: true,
-      archived: this.runtime.workspaces.items.find(w => w.id === id)?.archived ?? false,
+      archived: ws?.archived ?? false,
       anchor_x: x,
       anchor_y: y,
     });
+    if (ws) this.tab_menu.setDetail("change-folder", [[directoryLabel(ws.cwd, homedir()), "faint"]]);
     this.dirty = true;
     return this.tab_menu;
   }
@@ -1869,6 +1881,9 @@ export class Controller {
         case "rename":
           this.beginWorkspace(context.tab);
           break;
+        case "change-folder":
+          this.beginChangeFolder(context.tab);
+          break;
         case "close":
           try {
             await this.closeWorkspace(context.tab, true);
@@ -2033,6 +2048,15 @@ export class Controller {
         : Dialog.init({ workspace_name: id }, initial);
     this.prepareName();
   }
+  /** Opens the folder browser on workspace `id`'s folder, to move it. */
+  private beginChangeFolder(id: number): void {
+    const ws = this.runtime.workspaces.items.find(w => w.id === id);
+    if (!ws) return;
+    this.dismissName();
+    this.name_dialog = new newWorkspace.Dialog(newWorkspace.Browser.init(ws.cwd), { workspace: id, name: ws.name });
+    this.prepareName();
+    this.fitNameDialog();
+  }
   private async newWorkspace(name: string, cwd: string): Promise<number> {
     const id = (await this.execute({ "workspace.create": { name, cwd } })).workspace;
     this.switchWorkspace(id);
@@ -2121,7 +2145,16 @@ export class Controller {
           }
           return;
         }
-        if ((await this.applyName({ workspace: target.workspace_name }, name)) !== null) {
+        if (fresh) {
+          const cwd = fresh.confirm();
+          if (cwd === null) return;
+          try {
+            await this.edit({ "workspace.edit": { target: target.workspace_name, name, cwd } });
+          } catch {
+            dialog.failed = true;
+            return;
+          }
+        } else if ((await this.applyName({ workspace: target.workspace_name }, name)) !== null) {
           dialog.failed = true;
           return;
         }

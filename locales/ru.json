@@ -585,6 +585,7 @@
   "Cached": "Кэш",
   "Can't read this folder": "Не удалось прочитать эту папку",
   "Cancel": "Отмена",
+  "Change folder": "Сменить папку",
   "Change navigation": "Переход по изменениям",
   "Check failed": "Проверка не удалась",
   "Check flag quotes; shell operators and expansions aren't supported.": "Проверьте кавычки во флагах; операторы и подстановки оболочки не поддерживаются.",

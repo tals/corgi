@@ -353,6 +353,7 @@
   "Cached": "已缓存",
   "Can't read this folder": "无法读取此文件夹",
   "Cancel": "取消",
+  "Change folder": "更改文件夹",
   "Change navigation": "跳转更改区块",
   "Check failed": "检查失败",
   "Check flag quotes; shell operators and expansions aren't supported.": "请检查参数中的引号；不支持 Shell 运算符和展开。",

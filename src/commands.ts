@@ -38,6 +38,7 @@ export type Item =
   | "star"
   | "review"
   | "open-folder"
+  | "change-folder"
   | "close"
   | "fold"
   | "close-all"
@@ -104,6 +105,10 @@ function inBar(col: number): boolean {
 function detailWidth(d: Detail): number {
   return d.runs ? d.runs.reduce((s, [part]) => s + displayWidth(part), 0) : bars_width;
 }
+/** Rows whose detail is a path, shortened to fit the menu. */
+const pathItem = (item: Item) => item === "copy-path" || item === "change-folder";
+/** The widest a workspace's folder widens its menu. */
+const folder_width = 40;
 
 // Herdr's tab context menu: these actions apply to the clicked tab, not the
 // currently focused tab. Keep its identity even while tabs move or disappear.
@@ -162,6 +167,7 @@ export class TabMenu {
     return this.workspace
       ? [
           actions()[1],
+          row("change-folder", "f", i18n.t`Change folder`),
           this.archived
             ? row("unarchive", "a", i18n.t`Unarchive workspace`)
             : row("archive", "a", i18n.t`Archive workspace`),
@@ -202,7 +208,11 @@ export class TabMenu {
     for (const entry of this.entries()) {
       widest = Math.max(widest, displayWidth(entry.label));
       const detail = this.details.get(entry.item);
-      if (detail) widest = Math.max(widest, detailWidth(detail));
+      if (detail)
+        widest = Math.max(
+          widest,
+          entry.item === "change-folder" ? Math.min(detailWidth(detail), folder_width) : detailWidth(detail),
+        );
     }
     return widest;
   }
@@ -292,7 +302,7 @@ export class TabMenu {
         w.write(`\x1b[${line};${b.x + b.width}H${border}│\x1b[${line};${b.x + 2 + used}H${row_style}`);
         const room = sat(inner, used + 1);
         const shown: Detail =
-          entry.item === "copy-path" && detail.runs
+          pathItem(entry.item) && detail.runs
             ? { ...detail, runs: [[shortPath(detail.runs.map(([part]) => part).join(""), room), "faint"]] }
             : detail;
         drawDetail(w, shown, room, highlighted ? "selected" : "surface", off, now);
