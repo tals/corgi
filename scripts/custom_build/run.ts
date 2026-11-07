@@ -351,6 +351,16 @@ function replayedFiles(repo: string, commit: string): string[] {
 function stepVars(ctx: Context): steps.Vars {
   return { outfile: binary(ctx) };
 }
+async function restoreDependencies(ctx: Context, log: string) {
+  ctx.progress("restoring dependencies after rollback");
+  const ok = await steps.runStep(steps.commands("install", ctx.config, stepVars(ctx)), {
+    cwd: ctx.repo,
+    log,
+    env: ctx.env,
+    echo: ctx.echo,
+  });
+  if (!ok) throw Error(`dependency restore failed after rollback; see ${log}`);
+}
 async function verifyLoop(ctx: Context, run: RunState): Promise<Outcome | null> {
   const { repo } = ctx;
   for (let i = configFile.stepNames.indexOf(run.step ?? "install"); i < configFile.stepNames.length; i++) {
@@ -853,6 +863,7 @@ export async function rollback(ctx: Context): Promise<Outcome> {
       replaceFile(run.startBinary, binary(ctx));
       rmSync(run.startBinary, { force: true });
     } else if (!run.startBinary) rmSync(binary(ctx), { force: true });
+    await restoreDependencies(ctx, join(run.reportDir, "steps", "rollback-install.log"));
     configFile.clearRun(ctx.dir);
     return {
       code: 0,
@@ -872,6 +883,8 @@ export async function rollback(ctx: Context): Promise<Outcome> {
     mkdirSync(join(repo, "dist"), { recursive: true });
     replaceFile(prevBinary, binary(ctx));
   }
+  if (prev)
+    await restoreDependencies(ctx, join(ctx.dir, "reports", `rollback-${stamp(ctx.now())}`, "steps", "install.log"));
   return {
     code: 0,
     lines: [`custom-build: rolled back to ${config.branch}-prev (${short(prev)}) and dist/corgi-custom.prev`],

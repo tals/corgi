@@ -95,10 +95,6 @@ export async function invoke(
   };
   const signals: NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGHUP"];
   for (const signal of signals) process.on(signal, onSignal);
-  try {
-    child.stdin.write(text);
-    await child.stdin.end();
-  } catch {}
   const pump = async (stream: ReadableStream<Uint8Array>) => {
     for await (const chunk of stream) {
       appendFileSync(log, chunk);
@@ -114,6 +110,10 @@ export async function invoke(
     },
     (h.timeoutSeconds ?? 900) * 1000,
   );
+  try {
+    child.stdin.write(text);
+    await child.stdin.end();
+  } catch {}
   const code = await child.exited;
   clearTimeout(timer);
   killGroup();
