@@ -4921,16 +4921,39 @@ test("startup waits open from the shared banner and cancel the selected task thr
   }
 });
 
-test("a failed workspace rename keeps the field with its explanation", async () => {
-  const { s, twice } = renaming(c => ("workspace.edit" in c ? "Boom" : undefined));
+test.each([
+  ["Boom", "Could not rename this workspace"],
+  ["NoWorkspace", "No such workspace"],
+])("a failed workspace rename keeps the field with its explanation (%s)", async (err, message) => {
+  const { s, twice } = renaming(c => ("workspace.edit" in c ? err : undefined));
   try {
     setSystemTime(new Date(1000));
     await twice({ workspace: 1 });
     await s.input(bytes("\x03Nope\r"));
     expect(s.inline_rename?.field.raw()).toBe("Nope");
-    expect(s.inline_rename.message).toBe("Could not rename this workspace");
+    expect(s.inline_rename.message).toBe(message);
     expect(s.remembered_names.size).toBe(0);
   } finally {
+    setSystemTime();
+    viewer.close(s);
+  }
+});
+
+test("a rename that can't reach the daemon says so, for a workspace or an agent", async () => {
+  const { s, twice } = renaming();
+  const edit = spyOn(s, "edit").mockRejectedValue(Object.assign(Error("write EPIPE"), { code: "EPIPE" }));
+  try {
+    setSystemTime(new Date(1000));
+    await twice({ workspace: 1 });
+    await s.input(bytes("\x03Nope\r"));
+    expect(s.inline_rename.message).toBe("No daemon connection");
+    await s.input(bytes("\x1b[27u"));
+    edit.mockRejectedValue(Error("ConnectionClosed"));
+    await twice({ agent: 2 });
+    await s.input(bytes("\x03Fix API\r"));
+    expect([s.inline_rename.target, s.inline_rename.message]).toEqual([{ agent: 2 }, "No daemon connection"]);
+  } finally {
+    edit.mockRestore();
     setSystemTime();
     viewer.close(s);
   }

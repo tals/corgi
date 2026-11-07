@@ -158,10 +158,6 @@ export function build(value: Preview, order: readonly Row[], now: number): Accou
     ];
   });
 }
-/** No daemon is there to answer, or it went away. */
-function unreachable(error: unknown): boolean {
-  return errors.is(error, "ConnectionClosed") || (error instanceof Error && "code" in error);
-}
 /** Asks only for readings the daemon already holds. */
 export async function run(path: string): Promise<Report> {
   const connection = new rpc.Connection(path);
@@ -182,7 +178,7 @@ export async function run(path: string): Promise<Report> {
     });
     return { running: true, accounts: build(value, order, Math.floor(Date.now() / 1000)) };
   } catch (error) {
-    if (unreachable(error)) return { running: false, accounts: [] };
+    if (errors.unreachable(error)) return { running: false, accounts: [] };
     throw error;
   } finally {
     connection.close();

@@ -2176,14 +2176,16 @@ export class Controller {
       try {
         await this.edit({ "workspace.edit": { target: target.workspace, name } });
         return null;
-      } catch {
-        return i18n.t`Could not rename this workspace`;
+      } catch (error) {
+        if (errors.unreachable(error)) return i18n.t`No daemon connection`;
+        return errors.is(error, "NoWorkspace") ? i18n.t`No such workspace` : i18n.t`Could not rename this workspace`;
       }
     }
     try {
       await this.edit({ "agent.rename": { target: target.agent, name } });
       return null;
     } catch (error) {
+      if (errors.unreachable(error)) return i18n.t`No daemon connection`;
       return agentMessage(
         (error as Error).message,
         i18n.t` Could not rename this agent`,
