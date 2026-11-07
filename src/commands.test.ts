@@ -188,6 +188,7 @@ test("a workspace's menu shows its folder under Change folder, shortened rather 
   const menu = new TabMenu({ tab: 1, anchor_x: 0, workspace: true });
   expect(menu.entries().map(entry => entry.label)).toEqual(["Rename", "Change folder", "Archive workspace", "Close"]);
   expect(menu.itemFor(c("f"))).toBe("change-folder");
+  expect(menu.entries().map(entry => entry.rule)).toEqual([false, false, false, true]);
   menu.setDetail("change-folder", [["/private/var/folders/07/mt7yltxj1gz0pdpmw4nnz9pc0000gn/T/project", "faint"]]);
   expect(menu.bounds(120, 24).width).toBe(50);
   const w = new Writer(),

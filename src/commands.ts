@@ -171,7 +171,7 @@ export class TabMenu {
           this.archived
             ? row("unarchive", "a", i18n.t`Unarchive workspace`)
             : row("archive", "a", i18n.t`Archive workspace`),
-          actions()[2],
+          { ...actions()[2], rule: true },
         ]
       : actions();
   }
