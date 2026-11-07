@@ -4707,6 +4707,24 @@ test("with the sidebar closed, prefix W then r renames the current workspace in 
   }
 });
 
+test("rename reveals its workspace's row past archived workspaces listed before it", () => {
+  const snapshot: any = folders(...Array.from({ length: 16 }, (_, i) => `/w${i + 1}`));
+  for (const i of [0, 1, 2, 3, 4, 5]) {
+    snapshot.workspaces[i].archived = true;
+    snapshot.panes[i].dormant = true;
+  }
+  const { s } = recording(snapshot);
+  try {
+    const view = () => s.sidebarView(s.sidebarEntries());
+    expect(view().workspaceCapacity()).toBeLessThan(10);
+    s.beginWorkspace(9);
+    expect([s.inline_rename?.target, s.name_dialog]).toEqual([{ workspace: 9 }, null]);
+    expect(view().fieldRect({ workspace: 9 }, s.workspaceEntries())).not.toBeNull();
+  } finally {
+    viewer.close(s);
+  }
+});
+
 test("a failed workspace rename in the drawer keeps the field and the drawer, with the message", async () => {
   const { s } = renaming(c => ("workspace.edit" in c ? "Boom" : undefined));
   try {

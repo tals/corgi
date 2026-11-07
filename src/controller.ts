@@ -2210,7 +2210,7 @@ export class Controller {
         drawer = this.sidebar_focus?.drawer === "workspaces";
         if (drawer) this.sidebar_focus!.cursor = { workspace: target.workspace };
       }
-      this.revealWorkspace(index);
+      this.revealWorkspace(this.workspaceIds().indexOf(target.workspace));
       const ws = this.runtime.workspaces.items[index];
       text = ws.name;
       fallback = basename(ws.cwd) || "/";
