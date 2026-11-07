@@ -845,8 +845,6 @@ export async function rollback(ctx: Context): Promise<Outcome> {
   const { repo, config } = ctx,
     run = configFile.loadRun(ctx.dir);
   if (run) {
-    run.phase = "rollback";
-    save(ctx, run);
     // The forced checkout below discards the run's half-done work, which lives
     // only on the custom branch; edits anywhere else are someone else's.
     const current = git.currentBranch(repo);
@@ -854,6 +852,8 @@ export async function rollback(ctx: Context): Promise<Outcome> {
       throw Error(
         `${current ?? "the detached HEAD"} has uncommitted changes, and rollback would discard them; commit or stash them first`,
       );
+    run.phase = "rollback";
+    save(ctx, run);
     if (git.mergeInProgress(repo)) git.git(repo, ["merge", "--abort"]);
     if (run.startTip) git.must(repo, ["checkout", "--quiet", "-f", "-B", config.branch, run.startTip]);
     else {
