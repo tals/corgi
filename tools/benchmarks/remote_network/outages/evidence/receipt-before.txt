@@ -1,0 +1,29 @@
+bun test v1.4.4 (38afee6c8)
+
+src/viewer_protocol.test.ts:
+163 |     offer.mockRestore();
+164 |     f.advance(160);
+165 |     publish(f.server, f.client, 2n);
+166 |     expect(f.output).toHaveLength(2);
+167 |     const view = f.output[1].view;
+168 |     expect([...view.surfaces, ...view.patches][0]?.input_ack).toEqual(ack);
+                                                                    ^
+error: expect(received).toEqual(expected)
+
+- {
+-   "epoch": "3f3c835b-9cb6-4dc3-965c-9b1ee66f9f90",
+-   "sequence": 1n,
+- }
++ undefined
+
+- Expected  - 4
++ Received  + 1
+
+      at <anonymous> (/home/t/dev/personal/corgi-remote-network-eval/src/viewer_protocol.test.ts:168:63)
+(fail) a rejected stream frame keeps an input receipt pending until it is sent [10.80ms]
+
+ 0 pass
+ 19 filtered out
+ 1 fail
+ 3 expect() calls
+Ran 1 test across 1 file. [154.00ms]

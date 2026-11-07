@@ -1,0 +1,121 @@
+{
+  "included_in_comparison": false,
+  "pilots": [
+    {
+      "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-rebased-pilot",
+      "build": {
+        "builtAt": "2026-11-06T23:33:50.522Z",
+        "target": "linux-x64",
+        "bunVersion": "1.4.4",
+        "testBuild": false,
+        "releaseVersion": "0.1.0-dev",
+        "releaseCommit": "e86768f354453495f07a2520dbea7f22560293ab-dirty",
+        "sha256": "45e8b5e798068c70820742d803ba0c6fb1b44589cff36b9ad7e51a4cf0009f4e",
+        "sourceSHA256": "3ca1f0062ad89b770a164664d32dad37e937c475397435454948595346d31d75",
+        "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+        "inputsSHA256": "8d8229fc84461b28ab8cb04b1309d460c4dc48457732972d1ba65983c566e51e"
+      },
+      "note": "Initial telemetry-only diagnostic before recovery changes; before the ghost-receipt refinement.",
+      "results": [
+        {
+          "case": "startup",
+          "usable_seconds": 3.160462886095047
+        },
+        {
+          "case": "blackhole3",
+          "usable_seconds": 2.509599721059203,
+          "recovery_seconds": 2.311516756657511
+        },
+        {
+          "case": "blackhole15",
+          "usable_seconds": 3.2715502372011542,
+          "recovery_seconds": 3.104047020431608
+        },
+        {
+          "case": "blackhole30",
+          "usable_seconds": 4.135946019086987,
+          "recovery_seconds": 3.9701769920066
+        },
+        {
+          "case": "blackhole60",
+          "usable_seconds": 3.1828471766784787,
+          "recovery_seconds": 2.9980937466025352
+        }
+      ]
+    },
+    {
+      "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-recovery-pilot",
+      "build": {
+        "builtAt": "2026-11-06T23:38:20.602Z",
+        "target": "linux-x64",
+        "bunVersion": "1.4.4",
+        "testBuild": false,
+        "releaseVersion": "0.1.0-dev",
+        "releaseCommit": "1b41f5adcc59474c5372209766733195763fa6cf-dirty",
+        "sha256": "6d48a4cfdee45bdb67adfe6ae86da757fd9a0d671114612f225a1b3356bdafe5",
+        "sourceSHA256": "3a68528a7340174aa1aa212a96fa588574d1e89e66c05847277c28dc83ab972f",
+        "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+        "inputsSHA256": "eb8939dfdbb04a156e2d2ef306efc8c3cc2c6db0dfae2283c7c43f57d9664a76"
+      },
+      "note": "Intermediate recovery policy; excluded.",
+      "results": [
+        {
+          "case": "startup",
+          "usable_seconds": 3.0718354121781886
+        },
+        {
+          "case": "blackhole15",
+          "usable_seconds": 2.3938393061980605,
+          "recovery_seconds": 2.1989172529429197
+        },
+        {
+          "case": "blackhole30",
+          "usable_seconds": 3.4563979040831327,
+          "recovery_seconds": 3.2650384469889104
+        },
+        {
+          "case": "blackhole35",
+          "usable_seconds": 3.4085285076871514,
+          "recovery_seconds": 3.2039578119292855
+        },
+        {
+          "case": "blackhole60",
+          "usable_seconds": 5.565742128994316,
+          "recovery_seconds": 5.374146879184991
+        }
+      ]
+    },
+    {
+      "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-recovery-pilot2",
+      "build": {
+        "builtAt": "2026-11-06T23:42:54.407Z",
+        "target": "linux-x64",
+        "bunVersion": "1.4.4",
+        "testBuild": false,
+        "releaseVersion": "0.1.0-dev",
+        "releaseCommit": "1b41f5adcc59474c5372209766733195763fa6cf-dirty",
+        "sha256": "d5f5539374b56f9df2e160c840feaeb601cf8a9a1ffdf7f9b43cd8455f69235d",
+        "sourceSHA256": "d4a48876c304a79fc07a9a67a3b3f3f7c61c79436db6e972d6a84d2284caec90",
+        "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+        "inputsSHA256": "7aa4a59470e75ed9d61e38008dbe2e1244b8bfbbefe6894cada307ae17039100"
+      },
+      "note": "Intermediate policy before the shorter reconnect probe cadence; excluded.",
+      "results": [
+        {
+          "case": "startup",
+          "usable_seconds": 3.1470951470546424
+        },
+        {
+          "case": "blackhole35",
+          "usable_seconds": 2.706564242951572,
+          "recovery_seconds": 2.533293546177447
+        },
+        {
+          "case": "blackhole60",
+          "usable_seconds": 4.787541771773249,
+          "recovery_seconds": 4.580126349814236
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+Counting tests · 0 finished · 0 running
+Testing · 0% · 0/43 finished · 0 running
+bun test v1.4.4 (38afee6c8) 1x PARALLEL
+
+tests/remote.test.ts:
+Testing · 0% · 0/43 finished · 1 running
+(pass) SSH machines > test_local_starts_and_remains_usable_during_the_initial_remote_handshake [10100.90ms]
+Testing · 2% · 1/43 finished · 1 running
+(pass) SSH machines > test_one_second_one_way_latency_stays_online_and_delivers_typing [40389.77ms]
+(pass) SSH machines > test_reopening_retains_ghost_workspace_cards_while_local_input_starts [6318.52ms]
+Testing · 6% · 3/43 finished · 1 running
+shell prediction: 4.8ms at 2000ms RTT; exact input delivery verified
+(pass) SSH machines > test_shell_prediction_at_one_second_one_way_latency [24857.23ms]
+
+ 4 pass
+ 39 filtered out
+ 0 fail
+Ran 4 tests across 1 file. [81.76s]
+Cleanup · 9% · 4/43 finished · 0 running

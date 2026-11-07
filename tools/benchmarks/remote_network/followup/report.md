@@ -1,5 +1,7 @@
 # Remote networking: gaps closed and remaining
 
+[Latest: rebased branch and long-outage recovery fixes](../outages/report.md).
+
 **The cached-workspace crash is fixed, and constrained links now stay usable.**
 Corgi displayed **120/120** bandwidth/loss input probes; independent remote
 logs confirm **120/120** executions, with no duplicate tokens.

@@ -1,0 +1,36 @@
+{
+  "archives": [
+    {
+      "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-comparison.tar.gz",
+      "bytes": 1291682,
+      "sha256": "3b732a8b378189dffb7db2dba9ec229e427f6fdfca3b385edd6067a2f8e1b4e9",
+      "entries": 1206,
+      "roots": [
+        "remote-outage-comparison"
+      ]
+    },
+    {
+      "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-controls.tar.gz",
+      "bytes": 481105,
+      "sha256": "62d199cade91969e5396b099b64a8cd9a00f32db164c8a583243346f9d654ef7",
+      "entries": 366,
+      "roots": [
+        "remote-outage-final-trace",
+        "remote-outage-final-stream",
+        "remote-outage-final-startup"
+      ]
+    },
+    {
+      "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/remote-outage-pilots.tar.gz",
+      "bytes": 594059,
+      "sha256": "8bbdb365f1b7a6e20fde583d7504bdb6ce43f7f6f701f32d1aec0bf0e33da34d",
+      "entries": 437,
+      "roots": [
+        "remote-outage-rebased-pilot",
+        "remote-outage-recovery-pilot",
+        "remote-outage-recovery-pilot2"
+      ]
+    }
+  ],
+  "note": "Raw archives are local ignored artifacts. Curated evidence is committed."
+}

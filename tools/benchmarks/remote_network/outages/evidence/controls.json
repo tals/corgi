@@ -1,0 +1,1672 @@
+{
+  "trials": [
+    {
+      "path": "dist/remote-outage-final-stream",
+      "product": "corgi",
+      "manifest": {
+        "product": "corgi",
+        "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-outage-after",
+        "sha256": "6169e74c340af3b833ed0918097c50ef593d42e8be80a0706c14ad35967acb4e",
+        "corgi_commit": "35cef14dfd0e59aa6dcdd411de88d72f7a52a0e5",
+        "build": {
+          "builtAt": "2026-11-06T23:46:34.639Z",
+          "target": "linux-x64",
+          "bunVersion": "1.4.4",
+          "testBuild": false,
+          "releaseVersion": "0.1.0-dev",
+          "releaseCommit": "35cef14dfd0e59aa6dcdd411de88d72f7a52a0e5",
+          "sha256": "6169e74c340af3b833ed0918097c50ef593d42e8be80a0706c14ad35967acb4e",
+          "sourceSHA256": "69905a134c6e344b8c91716f748f90c285e5f423cd6bff6cb605f161204683f9",
+          "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+          "inputsSHA256": "10f80e8dadcd78f698e7744c52f638e606cbd675389fdf14908fcad46107399d"
+        },
+        "args": {
+          "product": "corgi",
+          "binary": "dist/corgi-outage-after",
+          "output": "dist/remote-outage-final-stream",
+          "suite": "stream",
+          "repeats": 1,
+          "panes": 4,
+          "cpus": "48-55",
+          "sleep_seconds": 180,
+          "ansi": false,
+          "trace": false,
+          "fault_cases": "tcp_reset,blackhole3,blackhole15,downstream15,isolated30",
+          "calibrate": false,
+          "rtts": "0,20,120,300",
+          "ssh_compression": "default",
+          "stream_cases": "sparse:64kbit,sparse:256kbit,loss"
+        },
+        "kernel": "6.8.0-146-generic",
+        "clock": "CLOCK_MONOTONIC",
+        "uid": 1000,
+        "topology": "intermediate-bridge-tbf-netem-v2",
+        "started_utc": "2026-11-06T23:56:45Z"
+      },
+      "receipts": {
+        "READYV1MatlasI19P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334367.258965511,
+            "token": "READYV1MatlasI19P0",
+            "pid": 651123
+          }
+        ],
+        "READYV1MatlasI19P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334367.357712036,
+            "token": "READYV1MatlasI19P1",
+            "pid": 651123
+          }
+        ],
+        "FLOW2P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334378.458985115,
+            "token": "FLOW2P0",
+            "pid": 651123
+          }
+        ],
+        "FLOW2P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334383.277068602,
+            "token": "FLOW2P1",
+            "pid": 651123
+          }
+        ],
+        "FLOW2P2": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334389.277505466,
+            "token": "FLOW2P2",
+            "pid": 651123
+          }
+        ],
+        "FLOW2P3": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334395.277359776,
+            "token": "FLOW2P3",
+            "pid": 651123
+          }
+        ],
+        "FLOW2P4": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334401.274601091,
+            "token": "FLOW2P4",
+            "pid": 651123
+          }
+        ],
+        "FLOW3P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334419.436276344,
+            "token": "FLOW3P0",
+            "pid": 651123
+          }
+        ],
+        "FLOW3P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334424.357367534,
+            "token": "FLOW3P1",
+            "pid": 651123
+          }
+        ],
+        "FLOW3P2": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334430.357163006,
+            "token": "FLOW3P2",
+            "pid": 651123
+          }
+        ],
+        "FLOW3P3": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334436.357084942,
+            "token": "FLOW3P3",
+            "pid": 651123
+          }
+        ],
+        "FLOW3P4": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334442.357371368,
+            "token": "FLOW3P4",
+            "pid": 651123
+          }
+        ],
+        "FLOW4P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334460.462583596,
+            "token": "FLOW4P0",
+            "pid": 651123
+          }
+        ],
+        "FLOW4P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334465.343952901,
+            "token": "FLOW4P1",
+            "pid": 651123
+          }
+        ],
+        "FLOW4P2": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334471.365728489,
+            "token": "FLOW4P2",
+            "pid": 651123
+          }
+        ],
+        "FLOW4P3": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334477.338620895,
+            "token": "FLOW4P3",
+            "pid": 651123
+          }
+        ],
+        "FLOW4P4": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334483.347346804,
+            "token": "FLOW4P4",
+            "pid": 651123
+          }
+        ]
+      },
+      "duplicate_tokens": {},
+      "results": [
+        {
+          "case": "stream",
+          "kind": "sparse",
+          "rate": "64kbit",
+          "loss_percent": null,
+          "jitter_ms": null,
+          "repeat": 0,
+          "snapshot_prefix": "stream-2",
+          "start": 2334377.196109411,
+          "end": 2334407.19620014,
+          "frames": 193,
+          "initial_frame": {
+            "at": 2334377.0838669,
+            "event": "frame",
+            "machine": "atlas",
+            "seq": 330,
+            "source": 2334376.605802996,
+            "ack": "READYV1MatlasI19P1",
+            "bytes": 68318
+          },
+          "probes": [
+            {
+              "token": "FLOW2P0",
+              "sent": 2334378.358804766,
+              "ok": true,
+              "seconds": 0.8094021170400083,
+              "observation_seconds": 28.83739537373185
+            },
+            {
+              "token": "FLOW2P1",
+              "sent": 2334383.196644743,
+              "ok": true,
+              "seconds": 0.621262377128005,
+              "observation_seconds": 23.999555396847427
+            },
+            {
+              "token": "FLOW2P2",
+              "sent": 2334389.196631553,
+              "ok": true,
+              "seconds": 0.6869154190644622,
+              "observation_seconds": 17.99956858670339
+            },
+            {
+              "token": "FLOW2P3",
+              "sent": 2334395.196554305,
+              "ok": true,
+              "seconds": 0.6293690889142454,
+              "observation_seconds": 11.99964583478868
+            },
+            {
+              "token": "FLOW2P4",
+              "sent": 2334401.196726967,
+              "ok": true,
+              "seconds": 0.6907137217931449,
+              "observation_seconds": 5.9994731727056205
+            }
+          ],
+          "catchup_seconds": 0.11877080099657178,
+          "producers": [
+            {
+              "machine": "local",
+              "source": "local-source.json",
+              "alive": true,
+              "seq": 960,
+              "at": 2334407.45837289,
+              "pid": 650967,
+              "rows": 47,
+              "cols": 132,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "local",
+              "source": "local1-source.json",
+              "alive": true,
+              "seq": 960,
+              "at": 2334407.461199135,
+              "pid": 650969,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "local",
+              "source": "local2-source.json",
+              "alive": true,
+              "seq": 960,
+              "at": 2334407.46372068,
+              "pid": 650970,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "local",
+              "source": "local3-source.json",
+              "alive": true,
+              "seq": 960,
+              "at": 2334407.46605307,
+              "pid": 650971,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "atlas",
+              "source": "atlas-source.json",
+              "alive": true,
+              "seq": 960,
+              "at": 2334408.105765838,
+              "pid": 651123,
+              "rows": 47,
+              "cols": 132,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "atlas",
+              "source": "atlas1-source.json",
+              "alive": true,
+              "seq": 960,
+              "at": 2334408.109106778,
+              "pid": 651127,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "atlas",
+              "source": "atlas2-source.json",
+              "alive": true,
+              "seq": 960,
+              "at": 2334408.111129559,
+              "pid": 651128,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "atlas",
+              "source": "atlas3-source.json",
+              "alive": true,
+              "seq": 960,
+              "at": 2334408.113229632,
+              "pid": 651129,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "borealis",
+              "source": "borealis-source.json",
+              "alive": true,
+              "seq": 940,
+              "at": 2334407.752761145,
+              "pid": 651280,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "borealis",
+              "source": "borealis1-source.json",
+              "alive": true,
+              "seq": 940,
+              "at": 2334407.755892549,
+              "pid": 651282,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "borealis",
+              "source": "borealis2-source.json",
+              "alive": true,
+              "seq": 940,
+              "at": 2334407.757562919,
+              "pid": 651283,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "borealis",
+              "source": "borealis3-source.json",
+              "alive": true,
+              "seq": 940,
+              "at": 2334407.759500397,
+              "pid": 651284,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            }
+          ],
+          "failure": null,
+          "held_age": {
+            "n": 601,
+            "median": 0.49034543661400676,
+            "min": 0.3903000853024423,
+            "max": 0.6903147762641311,
+            "p95": 0.5903347199782729
+          },
+          "fresh_fraction_under_500ms": 0.5341098169717138,
+          "frames_per_second": 6.433313877066559,
+          "network": {
+            "tx_kbit_s": 64.21016092821517,
+            "rx_kbit_s": 13.56120516416285
+          },
+          "input_latency": {
+            "n": 5,
+            "median": 0.6869154190644622,
+            "min": 0.621262377128005,
+            "max": 0.8094021170400083,
+            "p95": 0.7856644379906356
+          },
+          "input_visible": 5,
+          "input_received": 5,
+          "evidence": "dist/remote-outage-final-stream/results.json"
+        },
+        {
+          "case": "stream",
+          "kind": "sparse",
+          "rate": "256kbit",
+          "loss_percent": null,
+          "jitter_ms": null,
+          "repeat": 0,
+          "snapshot_prefix": "stream-3",
+          "start": 2334418.27580869,
+          "end": 2334448.27592692,
+          "frames": 600,
+          "initial_frame": {
+            "at": 2334418.268652925,
+            "event": "frame",
+            "machine": "atlas",
+            "seq": 1162,
+            "source": 2334418.20579476,
+            "ack": "FLOW2P4",
+            "bytes": 80829
+          },
+          "probes": [
+            {
+              "token": "FLOW3P0",
+              "sent": 2334419.35479647,
+              "ok": true,
+              "seconds": 0.16402510972693563,
+              "observation_seconds": 28.921130449976772
+            },
+            {
+              "token": "FLOW3P1",
+              "sent": 2334424.276305482,
+              "ok": true,
+              "seconds": 0.21588368620723486,
+              "observation_seconds": 23.999621438328177
+            },
+            {
+              "token": "FLOW3P2",
+              "sent": 2334430.276400052,
+              "ok": true,
+              "seconds": 0.21453228686004877,
+              "observation_seconds": 17.99952686810866
+            },
+            {
+              "token": "FLOW3P3",
+              "sent": 2334436.276275987,
+              "ok": true,
+              "seconds": 0.2144738961942494,
+              "observation_seconds": 11.999650933314115
+            },
+            {
+              "token": "FLOW3P4",
+              "sent": 2334442.276302705,
+              "ok": true,
+              "seconds": 0.19219332886859775,
+              "observation_seconds": 5.999624215066433
+            }
+          ],
+          "catchup_seconds": 0.0713165421038866,
+          "producers": [
+            {
+              "machine": "local",
+              "source": "local-source.json",
+              "alive": true,
+              "seq": 1780,
+              "at": 2334448.458397368,
+              "pid": 650967,
+              "rows": 47,
+              "cols": 132,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "local",
+              "source": "local1-source.json",
+              "alive": true,
+              "seq": 1780,
+              "at": 2334448.461211823,
+              "pid": 650969,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "local",
+              "source": "local2-source.json",
+              "alive": true,
+              "seq": 1780,
+              "at": 2334448.463726478,
+              "pid": 650970,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "local",
+              "source": "local3-source.json",
+              "alive": true,
+              "seq": 1780,
+              "at": 2334448.466052708,
+              "pid": 650971,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "atlas",
+              "source": "atlas-source.json",
+              "alive": true,
+              "seq": 1780,
+              "at": 2334449.105804807,
+              "pid": 651123,
+              "rows": 47,
+              "cols": 132,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "atlas",
+              "source": "atlas1-source.json",
+              "alive": true,
+              "seq": 1780,
+              "at": 2334449.109154617,
+              "pid": 651127,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "atlas",
+              "source": "atlas2-source.json",
+              "alive": true,
+              "seq": 1780,
+              "at": 2334449.111195128,
+              "pid": 651128,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "atlas",
+              "source": "atlas3-source.json",
+              "alive": true,
+              "seq": 1780,
+              "at": 2334449.113222889,
+              "pid": 651129,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "borealis",
+              "source": "borealis-source.json",
+              "alive": true,
+              "seq": 1760,
+              "at": 2334448.752822278,
+              "pid": 651280,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "borealis",
+              "source": "borealis1-source.json",
+              "alive": true,
+              "seq": 1760,
+              "at": 2334448.755943162,
+              "pid": 651282,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "borealis",
+              "source": "borealis2-source.json",
+              "alive": true,
+              "seq": 1760,
+              "at": 2334448.757615242,
+              "pid": 651283,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "borealis",
+              "source": "borealis3-source.json",
+              "alive": true,
+              "seq": 1760,
+              "at": 2334448.75952749,
+              "pid": 651284,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            }
+          ],
+          "failure": null,
+          "held_age": {
+            "n": 601,
+            "median": 0.07001308677718043,
+            "min": 0.06913458183407784,
+            "max": 0.12009995896369219,
+            "p95": 0.12000582041218877
+          },
+          "fresh_fraction_under_500ms": 1.0,
+          "frames_per_second": 19.999921180308053,
+          "network": {
+            "tx_kbit_s": 211.46586655190333,
+            "rx_kbit_s": 45.05825649166378
+          },
+          "input_latency": {
+            "n": 5,
+            "median": 0.2144738961942494,
+            "min": 0.16402510972693563,
+            "max": 0.21588368620723486,
+            "p95": 0.21561340633779763
+          },
+          "input_visible": 5,
+          "input_received": 5,
+          "evidence": "dist/remote-outage-final-stream/results.json"
+        },
+        {
+          "case": "stream",
+          "kind": "sparse",
+          "rate": null,
+          "loss_percent": 1,
+          "jitter_ms": 10,
+          "repeat": 0,
+          "snapshot_prefix": "stream-4",
+          "start": 2334459.270754427,
+          "end": 2334489.270833157,
+          "frames": 508,
+          "initial_frame": {
+            "at": 2334459.205157567,
+            "event": "frame",
+            "machine": "atlas",
+            "seq": 1981,
+            "source": 2334459.155769333,
+            "ack": "FLOW3P4",
+            "bytes": 79378
+          },
+          "probes": [
+            {
+              "token": "FLOW4P0",
+              "sent": 2334460.376191111,
+              "ok": true,
+              "seconds": 0.23745934199541807,
+              "observation_seconds": 28.894642046187073
+            },
+            {
+              "token": "FLOW4P1",
+              "sent": 2334465.271398652,
+              "ok": true,
+              "seconds": 0.13526514312252402,
+              "observation_seconds": 23.999434505123645
+            },
+            {
+              "token": "FLOW4P2",
+              "sent": 2334471.271561639,
+              "ok": true,
+              "seconds": 0.2781234672293067,
+              "observation_seconds": 17.999271518085152
+            },
+            {
+              "token": "FLOW4P3",
+              "sent": 2334477.271297801,
+              "ok": true,
+              "seconds": 0.15468033915385604,
+              "observation_seconds": 11.999535356182605
+            },
+            {
+              "token": "FLOW4P4",
+              "sent": 2334483.272108242,
+              "ok": true,
+              "seconds": 0.15394292818382382,
+              "observation_seconds": 5.998724915087223
+            }
+          ],
+          "catchup_seconds": 0.07303711585700512,
+          "producers": [
+            {
+              "machine": "local",
+              "source": "local-source.json",
+              "alive": true,
+              "seq": 2600,
+              "at": 2334489.458376595,
+              "pid": 650967,
+              "rows": 47,
+              "cols": 132,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "local",
+              "source": "local1-source.json",
+              "alive": true,
+              "seq": 2600,
+              "at": 2334489.4611824,
+              "pid": 650969,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "local",
+              "source": "local2-source.json",
+              "alive": true,
+              "seq": 2600,
+              "at": 2334489.463722826,
+              "pid": 650970,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "local",
+              "source": "local3-source.json",
+              "alive": true,
+              "seq": 2600,
+              "at": 2334489.466052526,
+              "pid": 650971,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "atlas",
+              "source": "atlas-source.json",
+              "alive": true,
+              "seq": 2600,
+              "at": 2334490.10576065,
+              "pid": 651123,
+              "rows": 47,
+              "cols": 132,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "atlas",
+              "source": "atlas1-source.json",
+              "alive": true,
+              "seq": 2600,
+              "at": 2334490.109133812,
+              "pid": 651127,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "atlas",
+              "source": "atlas2-source.json",
+              "alive": true,
+              "seq": 2600,
+              "at": 2334490.111154172,
+              "pid": 651128,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "atlas",
+              "source": "atlas3-source.json",
+              "alive": true,
+              "seq": 2600,
+              "at": 2334490.113226105,
+              "pid": 651129,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "borealis",
+              "source": "borealis-source.json",
+              "alive": true,
+              "seq": 2580,
+              "at": 2334489.752819018,
+              "pid": 651280,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "borealis",
+              "source": "borealis1-source.json",
+              "alive": true,
+              "seq": 2580,
+              "at": 2334489.755943352,
+              "pid": 651282,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "borealis",
+              "source": "borealis2-source.json",
+              "alive": true,
+              "seq": 2580,
+              "at": 2334489.757608922,
+              "pid": 651283,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            },
+            {
+              "machine": "borealis",
+              "source": "borealis3-source.json",
+              "alive": true,
+              "seq": 2580,
+              "at": 2334489.759600022,
+              "pid": 651284,
+              "rows": 24,
+              "cols": 80,
+              "mode": {
+                "kind": "sparse",
+                "hz": 20
+              }
+            }
+          ],
+          "failure": null,
+          "held_age": {
+            "n": 601,
+            "median": 0.11495566694065928,
+            "min": 0.06460729148238897,
+            "max": 0.7149650608189404,
+            "p95": 0.26494590379297733
+          },
+          "fresh_fraction_under_500ms": 0.9883527454242929,
+          "frames_per_second": 16.93328889484072,
+          "network": {
+            "tx_kbit_s": 187.5174615807339,
+            "rx_kbit_s": 40.64593930975785
+          },
+          "input_latency": {
+            "n": 5,
+            "median": 0.15468033915385604,
+            "min": 0.13526514312252402,
+            "max": 0.2781234672293067,
+            "p95": 0.269990642182529
+          },
+          "input_visible": 5,
+          "input_received": 5,
+          "evidence": "dist/remote-outage-final-stream/results.json"
+        }
+      ]
+    },
+    {
+      "path": "dist/remote-outage-final-startup",
+      "product": "corgi",
+      "manifest": {
+        "product": "corgi",
+        "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-outage-after",
+        "sha256": "6169e74c340af3b833ed0918097c50ef593d42e8be80a0706c14ad35967acb4e",
+        "corgi_commit": "35cef14dfd0e59aa6dcdd411de88d72f7a52a0e5",
+        "build": {
+          "builtAt": "2026-11-06T23:46:34.639Z",
+          "target": "linux-x64",
+          "bunVersion": "1.4.4",
+          "testBuild": false,
+          "releaseVersion": "0.1.0-dev",
+          "releaseCommit": "35cef14dfd0e59aa6dcdd411de88d72f7a52a0e5",
+          "sha256": "6169e74c340af3b833ed0918097c50ef593d42e8be80a0706c14ad35967acb4e",
+          "sourceSHA256": "69905a134c6e344b8c91716f748f90c285e5f423cd6bff6cb605f161204683f9",
+          "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+          "inputsSHA256": "10f80e8dadcd78f698e7744c52f638e606cbd675389fdf14908fcad46107399d"
+        },
+        "args": {
+          "product": "corgi",
+          "binary": "dist/corgi-outage-after",
+          "output": "dist/remote-outage-final-startup",
+          "suite": "startup",
+          "repeats": 3,
+          "panes": 4,
+          "cpus": "64-71",
+          "sleep_seconds": 180,
+          "ansi": false,
+          "trace": false,
+          "fault_cases": "tcp_reset,blackhole3,blackhole15,downstream15,isolated30",
+          "calibrate": false,
+          "rtts": "300",
+          "ssh_compression": "default",
+          "stream_cases": "sparse:unlimited,sparse:1mbit,sparse:256kbit,sparse:64kbit,dense:1mbit,dense:256kbit,dense:64kbit,loss"
+        },
+        "kernel": "6.8.0-146-generic",
+        "clock": "CLOCK_MONOTONIC",
+        "uid": 1000,
+        "topology": "intermediate-bridge-tbf-netem-v2",
+        "started_utc": "2026-11-06T23:56:45Z"
+      },
+      "receipts": {
+        "READYV1MatlasI42P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334370.327297982,
+            "token": "READYV1MatlasI42P0",
+            "pid": 651077
+          }
+        ],
+        "READYV1MatlasI42P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334370.437448359,
+            "token": "READYV1MatlasI42P1",
+            "pid": 651077
+          }
+        ],
+        "READYV1MatlasI42P2": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334370.557823452,
+            "token": "READYV1MatlasI42P2",
+            "pid": 651077
+          }
+        ],
+        "READYV1MatlasI42P3": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334370.678470344,
+            "token": "READYV1MatlasI42P3",
+            "pid": 651077
+          }
+        ],
+        "READYV2MatlasI4P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334374.209777138,
+            "token": "READYV2MatlasI4P0",
+            "pid": 651077
+          }
+        ],
+        "READYV2MatlasI4P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334374.321171953,
+            "token": "READYV2MatlasI4P1",
+            "pid": 651077
+          }
+        ],
+        "READYV2MatlasI4P2": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334374.444274909,
+            "token": "READYV2MatlasI4P2",
+            "pid": 651077
+          }
+        ],
+        "READYV3MatlasI6P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334381.255678964,
+            "token": "READYV3MatlasI6P0",
+            "pid": 651077
+          }
+        ],
+        "READYV3MatlasI6P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334381.368488773,
+            "token": "READYV3MatlasI6P1",
+            "pid": 651077
+          }
+        ],
+        "READYV3MatlasI6P2": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334381.487451475,
+            "token": "READYV3MatlasI6P2",
+            "pid": 651077
+          }
+        ],
+        "READYV4MatlasI4P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334385.007727777,
+            "token": "READYV4MatlasI4P0",
+            "pid": 651077
+          }
+        ],
+        "READYV4MatlasI4P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334385.114710181,
+            "token": "READYV4MatlasI4P1",
+            "pid": 651077
+          }
+        ],
+        "READYV4MatlasI4P2": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334385.237343554,
+            "token": "READYV4MatlasI4P2",
+            "pid": 651077
+          }
+        ],
+        "READYV5MatlasI6P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334392.038883134,
+            "token": "READYV5MatlasI6P0",
+            "pid": 651077
+          }
+        ],
+        "READYV5MatlasI6P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334392.14856708,
+            "token": "READYV5MatlasI6P1",
+            "pid": 651077
+          }
+        ],
+        "READYV5MatlasI6P2": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334392.26805523,
+            "token": "READYV5MatlasI6P2",
+            "pid": 651077
+          }
+        ],
+        "READYV5MatlasI6P3": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334392.378481788,
+            "token": "READYV5MatlasI6P3",
+            "pid": 651077
+          }
+        ],
+        "READYV6MatlasI4P0": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334395.911929691,
+            "token": "READYV6MatlasI4P0",
+            "pid": 651077
+          }
+        ],
+        "READYV6MatlasI4P1": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334396.02437785,
+            "token": "READYV6MatlasI4P1",
+            "pid": 651077
+          }
+        ],
+        "READYV6MatlasI4P2": [
+          {
+            "machine": "atlas-input.jsonl",
+            "at": 2334396.143098738,
+            "token": "READYV6MatlasI4P2",
+            "pid": 651077
+          }
+        ]
+      },
+      "duplicate_tokens": {},
+      "results": [
+        {
+          "case": "startup",
+          "rtt_ms": 300,
+          "warm": false,
+          "repeat": 0,
+          "local_seconds": 0.4109346168115735,
+          "remote_seconds": 6.360063553787768,
+          "usable_seconds": 6.752416487783194,
+          "ready": {
+            "ack_at": 2334370.526897906,
+            "ack": "READYV1MatlasI42P0",
+            "probes": [
+              {
+                "token": "READYV1MatlasI42P0",
+                "sent": 2334370.145824129
+              },
+              {
+                "token": "READYV1MatlasI42P1",
+                "sent": 2334370.266089699
+              },
+              {
+                "token": "READYV1MatlasI42P2",
+                "sent": 2334370.386409421
+              },
+              {
+                "token": "READYV1MatlasI42P3",
+                "sent": 2334370.506665821
+              }
+            ]
+          },
+          "first_probe_received": true,
+          "ready_probe_receipts": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "evidence": "dist/remote-outage-final-startup/results.json"
+        },
+        {
+          "case": "startup",
+          "rtt_ms": 300,
+          "warm": true,
+          "repeat": 0,
+          "local_seconds": 0.4129813532344997,
+          "remote_seconds": 3.1263295710086823,
+          "usable_seconds": 3.493771072011441,
+          "ready": {
+            "ack_at": 2334374.376702306,
+            "ack": "READYV2MatlasI4P0",
+            "probes": [
+              {
+                "token": "READYV2MatlasI4P0",
+                "sent": 2334374.028552253
+              },
+              {
+                "token": "READYV2MatlasI4P1",
+                "sent": 2334374.148564736
+              },
+              {
+                "token": "READYV2MatlasI4P2",
+                "sent": 2334374.268759964
+              }
+            ]
+          },
+          "first_probe_received": true,
+          "ready_probe_receipts": [
+            1,
+            1,
+            1
+          ],
+          "evidence": "dist/remote-outage-final-startup/results.json"
+        },
+        {
+          "case": "startup",
+          "rtt_ms": 300,
+          "warm": false,
+          "repeat": 1,
+          "local_seconds": 0.43491461081430316,
+          "remote_seconds": 6.358697129879147,
+          "usable_seconds": 6.717493504751474,
+          "ready": {
+            "ack_at": 2334381.426608693,
+            "ack": "READYV3MatlasI6P0",
+            "probes": [
+              {
+                "token": "READYV3MatlasI6P0",
+                "sent": 2334381.07521995
+              },
+              {
+                "token": "READYV3MatlasI6P1",
+                "sent": 2334381.195391159
+              },
+              {
+                "token": "READYV3MatlasI6P2",
+                "sent": 2334381.31565302
+              }
+            ]
+          },
+          "first_probe_received": true,
+          "ready_probe_receipts": [
+            1,
+            1,
+            1
+          ],
+          "evidence": "dist/remote-outage-final-startup/results.json"
+        },
+        {
+          "case": "startup",
+          "rtt_ms": 300,
+          "warm": true,
+          "repeat": 1,
+          "local_seconds": 0.42985187331214547,
+          "remote_seconds": 3.149307270999998,
+          "usable_seconds": 3.502668285276741,
+          "ready": {
+            "ack_at": 2334385.176975856,
+            "ack": "READYV4MatlasI4P0",
+            "probes": [
+              {
+                "token": "READYV4MatlasI4P0",
+                "sent": 2334384.824390496
+              },
+              {
+                "token": "READYV4MatlasI4P1",
+                "sent": 2334384.944614787
+              },
+              {
+                "token": "READYV4MatlasI4P2",
+                "sent": 2334385.064870908
+              }
+            ]
+          },
+          "first_probe_received": true,
+          "ready_probe_receipts": [
+            1,
+            1,
+            1
+          ],
+          "evidence": "dist/remote-outage-final-startup/results.json"
+        },
+        {
+          "case": "startup",
+          "rtt_ms": 300,
+          "warm": false,
+          "repeat": 2,
+          "local_seconds": 0.42608989169821143,
+          "remote_seconds": 6.361917229834944,
+          "usable_seconds": 6.734206594061106,
+          "ready": {
+            "ack_at": 2334392.226867616,
+            "ack": "READYV5MatlasI6P0",
+            "probes": [
+              {
+                "token": "READYV5MatlasI6P0",
+                "sent": 2334391.856387626
+              },
+              {
+                "token": "READYV5MatlasI6P1",
+                "sent": 2334391.976149044
+              },
+              {
+                "token": "READYV5MatlasI6P2",
+                "sent": 2334392.096189851
+              },
+              {
+                "token": "READYV5MatlasI6P3",
+                "sent": 2334392.216464294
+              }
+            ]
+          },
+          "first_probe_received": true,
+          "ready_probe_receipts": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "evidence": "dist/remote-outage-final-startup/results.json"
+        },
+        {
+          "case": "startup",
+          "rtt_ms": 300,
+          "warm": true,
+          "repeat": 2,
+          "local_seconds": 0.4180651060305536,
+          "remote_seconds": 3.1363913360983133,
+          "usable_seconds": 3.4962245183996856,
+          "ready": {
+            "ack_at": 2334396.076633076,
+            "ack": "READYV6MatlasI4P0",
+            "probes": [
+              {
+                "token": "READYV6MatlasI4P0",
+                "sent": 2334395.731086972
+              },
+              {
+                "token": "READYV6MatlasI4P1",
+                "sent": 2334395.851185091
+              },
+              {
+                "token": "READYV6MatlasI4P2",
+                "sent": 2334395.971383202
+              }
+            ]
+          },
+          "first_probe_received": true,
+          "ready_probe_receipts": [
+            1,
+            1,
+            1
+          ],
+          "evidence": "dist/remote-outage-final-startup/results.json"
+        }
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "key": [
+        "corgi",
+        "default",
+        "stream",
+        "sparse",
+        "64kbit",
+        null
+      ],
+      "trials": 1,
+      "evidence": [
+        "dist/remote-outage-final-stream/results.json"
+      ],
+      "catchup_seconds": {
+        "n": 1,
+        "median": 0.11877080099657178,
+        "min": 0.11877080099657178,
+        "max": 0.11877080099657178,
+        "p95": 0.11877080099657178
+      },
+      "frames_per_second": {
+        "n": 1,
+        "median": 6.433313877066559,
+        "min": 6.433313877066559,
+        "max": 6.433313877066559,
+        "p95": 6.433313877066559
+      },
+      "fresh_fraction_under_500ms": {
+        "n": 1,
+        "median": 0.5341098169717138,
+        "min": 0.5341098169717138,
+        "max": 0.5341098169717138,
+        "p95": 0.5341098169717138
+      },
+      "held_age_median": {
+        "n": 1,
+        "median": 0.49034543661400676,
+        "min": 0.49034543661400676,
+        "max": 0.49034543661400676,
+        "p95": 0.49034543661400676
+      },
+      "held_age_p95": {
+        "n": 1,
+        "median": 0.5903347199782729,
+        "min": 0.5903347199782729,
+        "max": 0.5903347199782729,
+        "p95": 0.5903347199782729
+      },
+      "held_age_max": {
+        "n": 1,
+        "median": 0.6903147762641311,
+        "min": 0.6903147762641311,
+        "max": 0.6903147762641311,
+        "p95": 0.6903147762641311
+      },
+      "input_visible": 5,
+      "input_sent": 5,
+      "input_received": 5,
+      "input_latency": {
+        "n": 5,
+        "median": 0.6869154190644622,
+        "min": 0.621262377128005,
+        "max": 0.8094021170400083,
+        "p95": 0.7856644379906356
+      },
+      "tx_kbit_s": {
+        "n": 1,
+        "median": 64.21016092821517,
+        "min": 64.21016092821517,
+        "max": 64.21016092821517,
+        "p95": 64.21016092821517
+      },
+      "failures": []
+    },
+    {
+      "key": [
+        "corgi",
+        "default",
+        "stream",
+        "sparse",
+        "256kbit",
+        null
+      ],
+      "trials": 1,
+      "evidence": [
+        "dist/remote-outage-final-stream/results.json"
+      ],
+      "catchup_seconds": {
+        "n": 1,
+        "median": 0.0713165421038866,
+        "min": 0.0713165421038866,
+        "max": 0.0713165421038866,
+        "p95": 0.0713165421038866
+      },
+      "frames_per_second": {
+        "n": 1,
+        "median": 19.999921180308053,
+        "min": 19.999921180308053,
+        "max": 19.999921180308053,
+        "p95": 19.999921180308053
+      },
+      "fresh_fraction_under_500ms": {
+        "n": 1,
+        "median": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "p95": 1.0
+      },
+      "held_age_median": {
+        "n": 1,
+        "median": 0.07001308677718043,
+        "min": 0.07001308677718043,
+        "max": 0.07001308677718043,
+        "p95": 0.07001308677718043
+      },
+      "held_age_p95": {
+        "n": 1,
+        "median": 0.12000582041218877,
+        "min": 0.12000582041218877,
+        "max": 0.12000582041218877,
+        "p95": 0.12000582041218877
+      },
+      "held_age_max": {
+        "n": 1,
+        "median": 0.12009995896369219,
+        "min": 0.12009995896369219,
+        "max": 0.12009995896369219,
+        "p95": 0.12009995896369219
+      },
+      "input_visible": 5,
+      "input_sent": 5,
+      "input_received": 5,
+      "input_latency": {
+        "n": 5,
+        "median": 0.2144738961942494,
+        "min": 0.16402510972693563,
+        "max": 0.21588368620723486,
+        "p95": 0.21561340633779763
+      },
+      "tx_kbit_s": {
+        "n": 1,
+        "median": 211.46586655190333,
+        "min": 211.46586655190333,
+        "max": 211.46586655190333,
+        "p95": 211.46586655190333
+      },
+      "failures": []
+    },
+    {
+      "key": [
+        "corgi",
+        "default",
+        "stream",
+        "sparse",
+        null,
+        1
+      ],
+      "trials": 1,
+      "evidence": [
+        "dist/remote-outage-final-stream/results.json"
+      ],
+      "catchup_seconds": {
+        "n": 1,
+        "median": 0.07303711585700512,
+        "min": 0.07303711585700512,
+        "max": 0.07303711585700512,
+        "p95": 0.07303711585700512
+      },
+      "frames_per_second": {
+        "n": 1,
+        "median": 16.93328889484072,
+        "min": 16.93328889484072,
+        "max": 16.93328889484072,
+        "p95": 16.93328889484072
+      },
+      "fresh_fraction_under_500ms": {
+        "n": 1,
+        "median": 0.9883527454242929,
+        "min": 0.9883527454242929,
+        "max": 0.9883527454242929,
+        "p95": 0.9883527454242929
+      },
+      "held_age_median": {
+        "n": 1,
+        "median": 0.11495566694065928,
+        "min": 0.11495566694065928,
+        "max": 0.11495566694065928,
+        "p95": 0.11495566694065928
+      },
+      "held_age_p95": {
+        "n": 1,
+        "median": 0.26494590379297733,
+        "min": 0.26494590379297733,
+        "max": 0.26494590379297733,
+        "p95": 0.26494590379297733
+      },
+      "held_age_max": {
+        "n": 1,
+        "median": 0.7149650608189404,
+        "min": 0.7149650608189404,
+        "max": 0.7149650608189404,
+        "p95": 0.7149650608189404
+      },
+      "input_visible": 5,
+      "input_sent": 5,
+      "input_received": 5,
+      "input_latency": {
+        "n": 5,
+        "median": 0.15468033915385604,
+        "min": 0.13526514312252402,
+        "max": 0.2781234672293067,
+        "p95": 0.269990642182529
+      },
+      "tx_kbit_s": {
+        "n": 1,
+        "median": 187.5174615807339,
+        "min": 187.5174615807339,
+        "max": 187.5174615807339,
+        "p95": 187.5174615807339
+      },
+      "failures": []
+    },
+    {
+      "key": [
+        "corgi",
+        "default",
+        "startup",
+        300,
+        false
+      ],
+      "trials": 3,
+      "evidence": [
+        "dist/remote-outage-final-startup/results.json",
+        "dist/remote-outage-final-startup/results.json",
+        "dist/remote-outage-final-startup/results.json"
+      ],
+      "remote_seconds": {
+        "n": 3,
+        "median": 6.360063553787768,
+        "min": 6.358697129879147,
+        "max": 6.361917229834944,
+        "p95": 6.361731862230227
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 6.734206594061106,
+        "min": 6.717493504751474,
+        "max": 6.752416487783194,
+        "p95": 6.750595498410985
+      },
+      "local_seconds": {
+        "n": 3,
+        "median": 0.42608989169821143,
+        "min": 0.4109346168115735,
+        "max": 0.43491461081430316,
+        "p95": 0.434032138902694
+      },
+      "first_probe_received": 3,
+      "failures": []
+    },
+    {
+      "key": [
+        "corgi",
+        "default",
+        "startup",
+        300,
+        true
+      ],
+      "trials": 3,
+      "evidence": [
+        "dist/remote-outage-final-startup/results.json",
+        "dist/remote-outage-final-startup/results.json",
+        "dist/remote-outage-final-startup/results.json"
+      ],
+      "remote_seconds": {
+        "n": 3,
+        "median": 3.1363913360983133,
+        "min": 3.1263295710086823,
+        "max": 3.149307270999998,
+        "p95": 3.1480156775098296
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 3.4962245183996856,
+        "min": 3.493771072011441,
+        "max": 3.502668285276741,
+        "p95": 3.5020239085890355
+      },
+      "local_seconds": {
+        "n": 3,
+        "median": 0.4180651060305536,
+        "min": 0.4129813532344997,
+        "max": 0.42985187331214547,
+        "p95": 0.4286731965839863
+      },
+      "first_probe_received": 3,
+      "failures": []
+    }
+  ],
+  "excluded": []
+}

@@ -1,5 +1,7 @@
 # Corgi remote networking vs Herdr
 
+[Latest: updated remote branch and outage recovery](outages/report.md).
+
 [Follow-up: fixes, repeated measurements and remaining gaps](followup/report.md).
 
 **Corgi connects faster and recovers faster from long outages in this fixture.

@@ -1,0 +1,30 @@
+Counting tests · 0 finished · 0 running
+Testing · 0% · 0/40 finished · 0 running
+bun test v1.4.4 (38afee6c8) 1x PARALLEL
+
+tests/remote.test.ts:
+281 |       contains(collection, item),
+282 |       (message as string) ?? `${JSON.stringify(item)} not in ${JSON.stringify(collection)}`,
+283 |     );
+284 |   }
+285 |   assertNotIn(item: any, collection: any, message?: unknown) {
+286 |     assert.ok(
+                 ^
+AssertionError: "all ▾" unexpectedly in "      worksp… all ▾ [ + ] <│ ▰▰▰▰▰▰▰▰   ▰▰▰▰▰▰   ▰▰▰▰▰▰▰▰                                           "
+ generatedMessage: false,
+     actual: false,
+   expected: true,
+   operator: "==",
+       diff: "simple",
+       code: "ERR_ASSERTION"
+
+      at assertNotIn (/tmp/corgi-remote-upstream-20261106/tests/support.ts:286:12)
+      at test_local_starts_and_remains_usable_during_the_initial_remote_handshake (/tmp/corgi-remote-upstream-20261106/tests/remote.test.ts:899:10)
+      at /tmp/corgi-remote-upstream-20261106/tests/support.ts:370:26
+(fail) SSH machines > test_local_starts_and_remains_usable_during_the_initial_remote_handshake [4992.29ms]
+
+ 0 pass
+ 39 filtered out
+ 1 fail
+Ran 1 test across 1 file. [5.10s]
+Cleanup · 2% · 1/40 finished · 0 running

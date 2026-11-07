@@ -123,6 +123,7 @@ class Viewer:
             return {"token": token, "sent": sent, "seconds": None, "ok": False, "timeout": timeout}
 
     def close(self):
+        self.lab.flush_trace()
         if self.proc.poll() is None:
             self.request("exit")
             try:
@@ -167,7 +168,7 @@ class Lab:
         self.telemetry_thread = None
 
     def event(self, event_type, **kwargs):
-        value = {"at": time.monotonic(), "event": event_type, **kwargs}
+        value = {"at": time.monotonic(), "epoch": time.time(), "event": event_type, **kwargs}
         self.journal.write(json.dumps(value) + "\n")
         compact = {k: v for k, v in value.items() if k not in ["frame_ages", "frame_times", "frame_sources", "initial_frame"]}
         print(json.dumps(compact), flush=True)
@@ -208,6 +209,7 @@ class Lab:
         dump(self.out / "manifest.json", {"product": self.product, "binary": self.binary,
              "sha256": hashlib.sha256(Path(self.binary).read_bytes()).hexdigest(),
              "corgi_commit": run(["git", "rev-parse", "HEAD"], cwd=REPO).strip(),
+             "build": json.loads(Path(self.binary + ".build.json").read_text()) if Path(self.binary + ".build.json").exists() else None,
              "args": vars(self.args), "kernel": os.uname().release, "clock": "CLOCK_MONOTONIC", "uid": UID,
              "topology": "intermediate-bridge-tbf-netem-v2",
              "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
@@ -231,6 +233,9 @@ class Lab:
                    "CORGI_SOCKET": str(base / "run/corgi.sock"), "HERDR_SOCKET_PATH": str(base / "run/herdr.sock"),
                    "HERDR_CONFIG_PATH": str(base / "config/config.toml"),
                    "CODEX_HOME": str(base / "home/.codex"), "CLAUDE_CONFIG_DIR": str(base / "home/.claude")}
+            if self.product == "corgi" and getattr(self.args, "trace", False):
+                env.update(CORGI_TELEMETRY_DIR=str(self.out / "telemetry" / machine),
+                           CORGI_TELEMETRY_TRACE="1", CORGI_TELEMETRY_FILTER="remote.")
             self.envs[machine] = env
             (base / "bin" / self.product).symlink_to(self.binary)
             (base / "home/.local/bin").mkdir(parents=True)
@@ -295,6 +300,20 @@ class Lab:
         self.event("setup_complete")
         self.start_telemetry()
 
+    def flush_trace(self):
+        if self.product != "corgi" or not getattr(self.args, "trace", False):
+            return
+        for machine in self.ns:
+            if machine not in self.created:
+                continue
+            for pid in self.pids(machine):
+                try:
+                    if Path(f"/proc/{pid}/exe").resolve() == Path(self.binary):
+                        os.kill(pid, signal.SIGUSR2)
+                except (FileNotFoundError, ProcessLookupError, PermissionError):
+                    pass
+        time.sleep(.1)
+
     def start_telemetry(self):
         def sample():
             with (self.out / "resources.jsonl").open("w", buffering=1) as output:
@@ -310,6 +329,10 @@ class Lab:
                             except (FileNotFoundError, ProcessLookupError, PermissionError):
                                 pass
                     output.write(json.dumps({"at": time.monotonic(), "processes": processes}) + "\n")
+                    if getattr(self.args, "trace", False):
+                        with (self.out / "tcp.jsonl").open("a") as sockets:
+                            sockets.write(json.dumps({"at": time.monotonic(), "epoch": time.time(),
+                                "sockets": {machine: self.admin(machine, "ss", "-tinp") for machine in self.ns}}) + "\n")
                     self.telemetry_stop.wait(1)
         self.telemetry_thread = threading.Thread(target=sample, daemon=True)
         self.telemetry_thread.start()
@@ -455,6 +478,7 @@ class Lab:
         self.shape(rtt=120)
         time.sleep(2)
         before = view.echo(f"BEFORE{case}{repeat}")
+        producers_before = self.producers()
         started = self.event("fault_start", case=case, repeat=repeat)
         action()
         time.sleep(min(duration, 2))
@@ -492,7 +516,8 @@ class Lab:
         echo = view.echo(f"AFTER{case}{repeat}", timeout=20)
         self.record({"case": case, "repeat": repeat, "fault_seconds": duration, "actual_fault_seconds": restored - started, "recovery_seconds": elapsed,
                      "usable_seconds": ready["ack_at"] - restored if ready["ack_at"] else None, "ready": ready,
-                     "before": before, "echo": echo, "during_input_at": during, "late_input_at": late, "isolation": other})
+                     "before": before, "echo": echo, "during_input_at": during, "late_input_at": late, "isolation": other,
+                     "producers_before": producers_before, "producers_after": self.producers()})
         (self.out / f"screen-{case}-{repeat}.txt").write_text(view.screen())
 
     def reset_connection(self, repeat=0):
@@ -510,6 +535,19 @@ class Lab:
         self.record({"case": "tcp_reset", "repeat": repeat, "recovery_seconds": recovery, "before": before,
                      "usable_seconds": ready["ack_at"] - start if ready["ack_at"] else None, "ready": ready,
                      "echo": view.echo(f"AFTERRESET{repeat}")})
+
+    def producers(self):
+        producers = []
+        for machine in self.ns:
+            for source in sorted((self.root / machine / "work").glob("*-source.json")):
+                state = json.loads(source.read_text())
+                command = Path(f"/proc/{state['pid']}/cmdline")
+                try:
+                    alive = b"workload.py" in command.read_bytes()
+                except FileNotFoundError:
+                    alive = False
+                producers.append({"machine": machine, "source": source.name, "alive": alive, **state})
+        return producers
 
     def streaming(self, kind, rate, seconds, repeat=0, loss=None, jitter=None):
         view = self.fresh_viewer()
@@ -532,16 +570,7 @@ class Lab:
             ack = next((e for e in view.events[first:] if e["event"] == "frame" and e["machine"] == "atlas" and e["ack"] == probe["token"] and probe["sent"] <= e["at"] <= end), None)
             probe.update({"ok": ack is not None, "seconds": ack["at"] - probe["sent"] if ack else None, "observation_seconds": end - probe["sent"]})
         self.network_snapshot(f"{snapshot_prefix}-end")
-        producers = []
-        for machine in self.ns:
-            for source in sorted((self.root / machine / "work").glob("*-source.json")):
-                state = json.loads(source.read_text())
-                command = Path(f"/proc/{state['pid']}/cmdline")
-                try:
-                    alive = b"workload.py" in command.read_bytes()
-                except FileNotFoundError:
-                    alive = False
-                producers.append({"machine": machine, "source": source.name, "alive": alive, **state})
+        producers = self.producers()
         frames = [e for e in view.events[first:] if e["event"] == "frame" and e["machine"] == "atlas" and start <= e["at"] <= end]
         self.shape()
         restored = time.monotonic()
@@ -642,6 +671,8 @@ def main():
     parser.add_argument("--cpus", default="32-39")
     parser.add_argument("--sleep-seconds", type=int, default=180)
     parser.add_argument("--ansi", action="store_true")
+    parser.add_argument("--trace", action="store_true", help="retain remote telemetry and periodic TCP state")
+    parser.add_argument("--fault-cases", default="tcp_reset,blackhole3,blackhole15,downstream15,isolated30")
     parser.add_argument("--calibrate", action="store_true")
     parser.add_argument("--rtts", default="0,20,120,300")
     parser.add_argument("--ssh-compression", choices=["default", "yes", "no"], default="default")
@@ -671,11 +702,18 @@ def main():
             lab.startup(120, 0)
         if args.suite in ["faults", "all"]:
             for repeat in range(args.repeats):
-                lab.reset_connection(repeat)
-                lab.recover("blackhole3", lambda: lab.shape(loss=100), 3, repeat)
-                lab.recover("blackhole15", lambda: lab.shape(loss=100), 15, repeat)
-                lab.recover("downstream15", lambda: lab.shape(loss=100, direction="down"), 15, repeat)
-                lab.recover("isolated30", lambda: lab.shape(loss=100), 30, repeat, isolation=True)
+                for case in args.fault_cases.split(","):
+                    if case == "tcp_reset":
+                        lab.reset_connection(repeat)
+                    elif case.startswith("blackhole"):
+                        duration = int(case.removeprefix("blackhole"))
+                        lab.recover(case, lambda: lab.shape(loss=100), duration, repeat)
+                    elif case == "downstream15":
+                        lab.recover(case, lambda: lab.shape(loss=100, direction="down"), 15, repeat)
+                    elif case == "isolated30":
+                        lab.recover(case, lambda: lab.shape(loss=100), 30, repeat, isolation=True)
+                    else:
+                        raise ValueError(f"Unknown fault case: {case}")
         if args.suite in ["stream", "all"]:
             for repeat in range(args.repeats):
                 for selected in args.stream_cases.split(","):

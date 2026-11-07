@@ -1,0 +1,547 @@
+{
+  "source": "dist/remote-outage-comparison/before-2/resources.jsonl",
+  "fault_end": {
+    "at": 2334116.412197916,
+    "epoch": 1794009163.9201367,
+    "event": "fault_end",
+    "case": "blackhole60",
+    "repeat": 0
+  },
+  "result": {
+    "at": 2334134.238390675,
+    "epoch": 1794009181.7463312,
+    "event": "result",
+    "case": "blackhole60",
+    "repeat": 0,
+    "fault_seconds": 60,
+    "actual_fault_seconds": 60.39068159973249,
+    "recovery_seconds": 17.383902706205845,
+    "usable_seconds": 17.555176948197186,
+    "ready": {
+      "ack_at": 2334133.967374864,
+      "ack": "READYV5MatlasI7P0",
+      "probes": [
+        {
+          "token": "READYV5MatlasI7P0",
+          "sent": 2334133.811042093
+        },
+        {
+          "token": "READYV5MatlasI7P1",
+          "sent": 2334133.931398091
+        }
+      ]
+    },
+    "before": {
+      "token": "BEFOREblackhole600V5I2",
+      "sent": 2334055.817882661,
+      "seconds": 0.2006041961722076,
+      "ok": true
+    },
+    "echo": {
+      "token": "AFTERblackhole600V5I9",
+      "sent": 2334134.051850501,
+      "seconds": 0.16633778624236584,
+      "ok": true
+    },
+    "during_input_at": 2334058.100635517,
+    "late_input_at": 2334064.021930393,
+    "isolation": [],
+    "producers_before": [
+      {
+        "machine": "local",
+        "source": "local-source.json",
+        "alive": true,
+        "seq": 2040,
+        "at": 2334055.38501599,
+        "pid": 614882,
+        "rows": 47,
+        "cols": 132,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      },
+      {
+        "machine": "local",
+        "source": "local1-source.json",
+        "alive": true,
+        "seq": 2040,
+        "at": 2334055.388631746,
+        "pid": 614893,
+        "rows": 24,
+        "cols": 80,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      },
+      {
+        "machine": "local",
+        "source": "local2-source.json",
+        "alive": true,
+        "seq": 2040,
+        "at": 2334055.390252584,
+        "pid": 614895,
+        "rows": 24,
+        "cols": 80,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      },
+      {
+        "machine": "local",
+        "source": "local3-source.json",
+        "alive": true,
+        "seq": 2040,
+        "at": 2334055.393100877,
+        "pid": 614896,
+        "rows": 24,
+        "cols": 80,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      },
+      {
+        "machine": "atlas",
+        "source": "atlas-source.json",
+        "alive": true,
+        "seq": 2040,
+        "at": 2334055.955775844,
+        "pid": 615232,
+        "rows": 47,
+        "cols": 132,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      },
+      {
+        "machine": "atlas",
+        "source": "atlas1-source.json",
+        "alive": true,
+        "seq": 2040,
+        "at": 2334055.958149864,
+        "pid": 615239,
+        "rows": 24,
+        "cols": 80,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      },
+      {
+        "machine": "atlas",
+        "source": "atlas2-source.json",
+        "alive": true,
+        "seq": 2040,
+        "at": 2334055.961394829,
+        "pid": 615245,
+        "rows": 24,
+        "cols": 80,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      },
+      {
+        "machine": "atlas",
+        "source": "atlas3-source.json",
+        "alive": true,
+        "seq": 2040,
+        "at": 2334055.96379094,
+        "pid": 615246,
+        "rows": 24,
+        "cols": 80,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      },
+      {
+        "machine": "borealis",
+        "source": "borealis-source.json",
+        "alive": true,
+        "seq": 2020,
+        "at": 2334055.528692972,
+        "pid": 615470,
+        "rows": 24,
+        "cols": 80,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      },
+      {
+        "machine": "borealis",
+        "source": "borealis1-source.json",
+        "alive": true,
+        "seq": 2020,
+        "at": 2334055.531366961,
+        "pid": 615478,
+        "rows": 24,
+        "cols": 80,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      },
+      {
+        "machine": "borealis",
+        "source": "borealis2-source.json",
+        "alive": true,
+        "seq": 2020,
+        "at": 2334055.533686749,
+        "pid": 615479,
+        "rows": 24,
+        "cols": 80,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      },
+      {
+        "machine": "borealis",
+        "source": "borealis3-source.json",
+        "alive": true,
+        "seq": 2020,
+        "at": 2334055.536208903,
+        "pid": 615480,
+        "rows": 24,
+        "cols": 80,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      }
+    ],
+    "producers_after": [
+      {
+        "machine": "local",
+        "source": "local-source.json",
+        "alive": true,
+        "seq": 3600,
+        "at": 2334133.384959889,
+        "pid": 614882,
+        "rows": 47,
+        "cols": 132,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      },
+      {
+        "machine": "local",
+        "source": "local1-source.json",
+        "alive": true,
+        "seq": 3600,
+        "at": 2334133.388631088,
+        "pid": 614893,
+        "rows": 24,
+        "cols": 80,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      },
+      {
+        "machine": "local",
+        "source": "local2-source.json",
+        "alive": true,
+        "seq": 3600,
+        "at": 2334133.390229445,
+        "pid": 614895,
+        "rows": 24,
+        "cols": 80,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      },
+      {
+        "machine": "local",
+        "source": "local3-source.json",
+        "alive": true,
+        "seq": 3600,
+        "at": 2334133.393133821,
+        "pid": 614896,
+        "rows": 24,
+        "cols": 80,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      },
+      {
+        "machine": "atlas",
+        "source": "atlas-source.json",
+        "alive": true,
+        "seq": 3600,
+        "at": 2334133.955710429,
+        "pid": 615232,
+        "rows": 47,
+        "cols": 132,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      },
+      {
+        "machine": "atlas",
+        "source": "atlas1-source.json",
+        "alive": true,
+        "seq": 3600,
+        "at": 2334133.958121701,
+        "pid": 615239,
+        "rows": 24,
+        "cols": 80,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      },
+      {
+        "machine": "atlas",
+        "source": "atlas2-source.json",
+        "alive": true,
+        "seq": 3600,
+        "at": 2334133.961364276,
+        "pid": 615245,
+        "rows": 24,
+        "cols": 80,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      },
+      {
+        "machine": "atlas",
+        "source": "atlas3-source.json",
+        "alive": true,
+        "seq": 3600,
+        "at": 2334133.963750307,
+        "pid": 615246,
+        "rows": 24,
+        "cols": 80,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      },
+      {
+        "machine": "borealis",
+        "source": "borealis-source.json",
+        "alive": true,
+        "seq": 3580,
+        "at": 2334133.528690998,
+        "pid": 615470,
+        "rows": 24,
+        "cols": 80,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      },
+      {
+        "machine": "borealis",
+        "source": "borealis1-source.json",
+        "alive": true,
+        "seq": 3580,
+        "at": 2334133.531357466,
+        "pid": 615478,
+        "rows": 24,
+        "cols": 80,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      },
+      {
+        "machine": "borealis",
+        "source": "borealis2-source.json",
+        "alive": true,
+        "seq": 3580,
+        "at": 2334133.533671185,
+        "pid": 615479,
+        "rows": 24,
+        "cols": 80,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      },
+      {
+        "machine": "borealis",
+        "source": "borealis3-source.json",
+        "alive": true,
+        "seq": 3580,
+        "at": 2334133.53621978,
+        "pid": 615480,
+        "rows": 24,
+        "cols": 80,
+        "mode": {
+          "kind": "sparse",
+          "hz": 20
+        }
+      }
+    ]
+  },
+  "samples": [
+    {
+      "seconds_from_restoration": -7.9406679989770055,
+      "at": 2334108.471529917,
+      "atlas_ssh_processes": []
+    },
+    {
+      "seconds_from_restoration": -6.753587071783841,
+      "at": 2334109.658610844,
+      "atlas_ssh_processes": []
+    },
+    {
+      "seconds_from_restoration": -5.594382784795016,
+      "at": 2334110.817815131,
+      "atlas_ssh_processes": []
+    },
+    {
+      "seconds_from_restoration": -4.409670331981033,
+      "at": 2334112.002527584,
+      "atlas_ssh_processes": []
+    },
+    {
+      "seconds_from_restoration": -3.2528128577396274,
+      "at": 2334113.159385058,
+      "atlas_ssh_processes": []
+    },
+    {
+      "seconds_from_restoration": -2.0817268919199705,
+      "at": 2334114.330471024,
+      "atlas_ssh_processes": [
+        {
+          "machine": "local",
+          "pid": 631495,
+          "command": "/usr/bin/ssh -F /tmp/cne-614202/local/home/.ssh/config -S none -o ControlMaster=no -T -C -o ForwardAgent=no -o ForwardX11=no -o PermitLocalCommand=no -o RemoteCommand=none -o ForkAfterAuthentication=no -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=2 -o BatchMode=yes -o StrictHostKeyChecking=yes -- atlas sh -c \"exec env -u CORGI_MACHINE -u CORGI_PANE -u CORGI_VIEWER '/tmp/cne-614202/atlas/tmp/corgi-native-1000/97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7/bin/corgi-remote-bridge' '/tmp/cne-614202/atlas/run/corgi.sock'\" ",
+          "cpu_ticks": 0,
+          "rss_bytes": 6316032
+        }
+      ]
+    },
+    {
+      "seconds_from_restoration": -0.9005719856359065,
+      "at": 2334115.51162593,
+      "atlas_ssh_processes": [
+        {
+          "machine": "local",
+          "pid": 631495,
+          "command": "/usr/bin/ssh -F /tmp/cne-614202/local/home/.ssh/config -S none -o ControlMaster=no -T -C -o ForwardAgent=no -o ForwardX11=no -o PermitLocalCommand=no -o RemoteCommand=none -o ForkAfterAuthentication=no -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=2 -o BatchMode=yes -o StrictHostKeyChecking=yes -- atlas sh -c \"exec env -u CORGI_MACHINE -u CORGI_PANE -u CORGI_VIEWER '/tmp/cne-614202/atlas/tmp/corgi-native-1000/97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7/bin/corgi-remote-bridge' '/tmp/cne-614202/atlas/run/corgi.sock'\" ",
+          "cpu_ticks": 0,
+          "rss_bytes": 6316032
+        }
+      ]
+    },
+    {
+      "seconds_from_restoration": 0.28914259606972337,
+      "at": 2334116.701340512,
+      "atlas_ssh_processes": []
+    },
+    {
+      "seconds_from_restoration": 1.445552898105234,
+      "at": 2334117.857750814,
+      "atlas_ssh_processes": []
+    },
+    {
+      "seconds_from_restoration": 2.6204540682956576,
+      "at": 2334119.032651984,
+      "atlas_ssh_processes": []
+    },
+    {
+      "seconds_from_restoration": 3.7866067732684314,
+      "at": 2334120.198804689,
+      "atlas_ssh_processes": []
+    },
+    {
+      "seconds_from_restoration": 4.92712611425668,
+      "at": 2334121.33932403,
+      "atlas_ssh_processes": []
+    },
+    {
+      "seconds_from_restoration": 6.094263343140483,
+      "at": 2334122.506461259,
+      "atlas_ssh_processes": []
+    },
+    {
+      "seconds_from_restoration": 7.259611031971872,
+      "at": 2334123.671808948,
+      "atlas_ssh_processes": []
+    },
+    {
+      "seconds_from_restoration": 8.394867926370353,
+      "at": 2334124.807065842,
+      "atlas_ssh_processes": []
+    },
+    {
+      "seconds_from_restoration": 9.567509056068957,
+      "at": 2334125.979706972,
+      "atlas_ssh_processes": []
+    },
+    {
+      "seconds_from_restoration": 10.72444035531953,
+      "at": 2334127.136638271,
+      "atlas_ssh_processes": []
+    },
+    {
+      "seconds_from_restoration": 11.885441867168993,
+      "at": 2334128.297639783,
+      "atlas_ssh_processes": []
+    },
+    {
+      "seconds_from_restoration": 13.032231461256742,
+      "at": 2334129.444429377,
+      "atlas_ssh_processes": []
+    },
+    {
+      "seconds_from_restoration": 14.193526267074049,
+      "at": 2334130.605724183,
+      "atlas_ssh_processes": []
+    },
+    {
+      "seconds_from_restoration": 15.373238530009985,
+      "at": 2334131.785436446,
+      "atlas_ssh_processes": [
+        {
+          "machine": "local",
+          "pid": 632291,
+          "command": "/usr/bin/ssh -F /tmp/cne-614202/local/home/.ssh/config -S none -o ControlMaster=no -T -C -o ForwardAgent=no -o ForwardX11=no -o PermitLocalCommand=no -o RemoteCommand=none -o ForkAfterAuthentication=no -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=2 -o BatchMode=yes -o StrictHostKeyChecking=yes -- atlas sh -c \"exec env -u CORGI_MACHINE -u CORGI_PANE -u CORGI_VIEWER '/tmp/cne-614202/atlas/tmp/corgi-native-1000/97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7/bin/corgi-remote-bridge' '/tmp/cne-614202/atlas/run/corgi.sock'\" ",
+          "cpu_ticks": 0,
+          "rss_bytes": 6311936
+        }
+      ]
+    },
+    {
+      "seconds_from_restoration": 16.523959279060364,
+      "at": 2334132.936157195,
+      "atlas_ssh_processes": [
+        {
+          "machine": "local",
+          "pid": 632291,
+          "command": "/usr/bin/ssh -F /tmp/cne-614202/local/home/.ssh/config -S none -o ControlMaster=no -T -C -o ForwardAgent=no -o ForwardX11=no -o PermitLocalCommand=no -o RemoteCommand=none -o ForkAfterAuthentication=no -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=2 -o BatchMode=yes -o StrictHostKeyChecking=yes -- atlas sh -c \"exec env -u CORGI_MACHINE -u CORGI_PANE -u CORGI_VIEWER '/tmp/cne-614202/atlas/tmp/corgi-native-1000/97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7/bin/corgi-remote-bridge' '/tmp/cne-614202/atlas/run/corgi.sock'\" ",
+          "cpu_ticks": 10,
+          "rss_bytes": 6311936
+        }
+      ]
+    },
+    {
+      "seconds_from_restoration": 17.70299664698541,
+      "at": 2334134.115194563,
+      "atlas_ssh_processes": [
+        {
+          "machine": "local",
+          "pid": 632291,
+          "command": "/usr/bin/ssh -F /tmp/cne-614202/local/home/.ssh/config -S none -o ControlMaster=no -T -C -o ForwardAgent=no -o ForwardX11=no -o PermitLocalCommand=no -o RemoteCommand=none -o ForkAfterAuthentication=no -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=2 -o BatchMode=yes -o StrictHostKeyChecking=yes -- atlas sh -c \"exec env -u CORGI_MACHINE -u CORGI_PANE -u CORGI_VIEWER '/tmp/cne-614202/atlas/tmp/corgi-native-1000/97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7/bin/corgi-remote-bridge' '/tmp/cne-614202/atlas/run/corgi.sock'\" ",
+          "cpu_ticks": 11,
+          "rss_bytes": 6311936
+        }
+      ]
+    }
+  ]
+}
