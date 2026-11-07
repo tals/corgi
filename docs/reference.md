@@ -527,6 +527,8 @@ Update commands apply to installed releases. An installation keeps the
 current release, the one it replaced and a downloaded update waiting to apply;
 a release another runtime still runs stays as well. Development or unmanaged
 builds use the workflow in [HACKING](../HACKING.md).
+[Custom builds](custom-builds.md) describes `scripts/custom-build`, which keeps
+a build of upstream plus extra branches and PRs up to date.
 
 For remote work, run `ssh -t host corgi`; detaching or losing the connection
 leaves the runtime on that host. Image paste and sound behavior depend on the
