@@ -208,7 +208,7 @@ export type RunState = {
   startBranch: string | null;
   upstream: string;
   reportDir: string;
-  phase: "merge" | "verify" | "report";
+  phase: "merge" | "verify" | "report" | "rollback";
   cursor: number;
   step: StepName | null;
   attempts: number;

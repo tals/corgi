@@ -739,6 +739,7 @@ export async function resume(ctx: Context): Promise<Outcome> {
   const { repo } = ctx,
     run = configFile.loadRun(ctx.dir);
   if (!run) throw Error("there is no stopped run to continue");
+  if (run.phase === "rollback") return rollback(ctx);
   // Merging or committing onto any other branch would change a branch the run doesn't own.
   if (git.currentBranch(repo) !== ctx.config.branch || !git.isAncestor(repo, run.upstream, "HEAD"))
     throw Error(
@@ -844,6 +845,8 @@ export async function rollback(ctx: Context): Promise<Outcome> {
   const { repo, config } = ctx,
     run = configFile.loadRun(ctx.dir);
   if (run) {
+    run.phase = "rollback";
+    save(ctx, run);
     // The forced checkout below discards the run's half-done work, which lives
     // only on the custom branch; edits anywhere else are someone else's.
     const current = git.currentBranch(repo);
@@ -920,18 +923,21 @@ export async function status(ctx: Context): Promise<Outcome> {
     run = configFile.loadRun(ctx.dir);
   if (run) {
     const where =
-      run.phase === "merge"
-        ? `merging ${run.plan[run.cursor]?.display ?? "patches"} (${run.cursor + 1} of ${run.plan.length})`
-        : run.phase === "verify"
-          ? `verifying (${run.step ?? "install"})`
-          : "writing the report";
+        run.phase === "merge"
+          ? `merging ${run.plan[run.cursor]?.display ?? "patches"} (${run.cursor + 1} of ${run.plan.length})`
+          : run.phase === "verify"
+            ? `verifying (${run.step ?? "install"})`
+            : run.phase === "rollback"
+              ? "rolling back and restoring dependencies"
+              : "writing the report",
+      next =
+        run.phase === "rollback"
+          ? "  next: scripts/custom-build continue (finishes rollback)"
+          : run.stopped?.code === 4
+            ? "  next: scripts/custom-build rollback, then rebuild once upstream is fixed"
+            : "  next: scripts/custom-build continue, or scripts/custom-build rollback";
     lines.push(`custom-build: a run started ${run.startedAt} is stopped while ${where}`);
-    lines.push(
-      `  report: ${run.reportDir}`,
-      run.stopped?.code === 4
-        ? "  next: scripts/custom-build rollback, then rebuild once upstream is fixed"
-        : "  next: scripts/custom-build continue, or scripts/custom-build rollback",
-    );
+    lines.push(`  report: ${run.reportDir}`, next);
   } else lines.push("custom-build: no run in progress");
   const remote = git.resolveUpstreamRemote(ctx.repo, ctx.config),
     upstream = git.revParse(ctx.repo, `refs/remotes/${remote}/${ctx.config.upstream.branch}`);
