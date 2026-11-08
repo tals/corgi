@@ -1,0 +1,33 @@
+{
+  "product": "corgi",
+  "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-control-before",
+  "sha256": "8e1dca8935eadb01db41d4f060b48885e83fd0835b053e6e2e98d60609e1f135",
+  "corgi_commit": "772b3ab5ae5c4b998f9458ed3931eb4d1aba3015",
+  "build": null,
+  "args": {
+    "product": "corgi",
+    "binary": "dist/corgi-control-before",
+    "output": "dist/control-priority-pressure-before",
+    "suite": "stream",
+    "repeats": 2,
+    "panes": 4,
+    "cpus": "32-39",
+    "sleep_seconds": 180,
+    "ansi": false,
+    "trace": true,
+    "capture": false,
+    "fault_cases": "tcp_reset,blackhole3,blackhole15,downstream15,isolated30",
+    "fault_kind": "sparse",
+    "calibrate": false,
+    "rtts": "0,20,120,300",
+    "ssh_compression": "default",
+    "stream_cases": "dense:64kbit",
+    "stream_rtt": 300,
+    "stream_seconds": 20
+  },
+  "kernel": "6.8.0-146-generic",
+  "clock": "CLOCK_MONOTONIC",
+  "uid": 1000,
+  "topology": "intermediate-bridge-tbf-netem-v2",
+  "started_utc": "2026-11-08T19:02:55Z"
+}

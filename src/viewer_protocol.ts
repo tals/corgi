@@ -48,7 +48,7 @@ export function validateInterests(interests: Interest[]) {
   }
 }
 export async function open(s: Server, cl: Client, q: Open, reply = new Reply(cl)) {
-  if (cl.subscribed || cl.launch_preview != null || cl.viewer) throw new Error("AlreadyAttached");
+  if (cl.subscribed || cl.launch_preview != null || cl.viewer || cl.watching) throw new Error("AlreadyAttached");
   const initial = s.initialWorkspace();
   if (initial && s.runtime.panes.length === 0 && initial.model.count === 0) {
     const starter = s.default_folder_pending;
@@ -203,12 +203,36 @@ function capture(
   };
   return view;
 }
+/** Pane data has its own socket and codec, bound to the control connection's link. */
+export function data(s: Server, control: Client): Client | undefined {
+  return s.clients.find(client => client.stream_data && client.watch_viewer === control.viewer_id && !client.dead);
+}
+export function bindData(s: Server, cl: Client, id: string): number {
+  if (cl.viewer || cl.subscribed || cl.launch_preview || cl.link || cl.watching) throw Error("AlreadyAttached");
+  const control = s.clients.find(client => client.viewer && client.link?.id === id && !client.dead);
+  if (!control) throw Error("NoViewer");
+  control.cancelFrame();
+  control.stream = null;
+  data(s, control)?.close();
+  cl.watching = cl.stream_data = true;
+  cl.watch_viewer = control.viewer_id;
+  if (control.controls.length) control.queue({ type: "viewer.controls", controls: control.controls });
+  return control.viewer_id;
+}
+export async function configure(s: Server, cl: Client, q: Request<"viewer.stream.configure">): Promise<void> {
+  const output = data(s, cl);
+  if (!cl.viewer || !output) throw Error("NoViewerData");
+  const initial = await start(s, cl, q, true);
+  output.queue({ ...initial, type: "viewer.frame" }, cl.stream?.delivery);
+}
 /** Stream messages have their own envelope; they never consume an RPC reply. */
-export async function start(s: Server, cl: Client, q: Request<"viewer.stream">) {
+export async function start(s: Server, cl: Client, q: Request<"viewer.stream">, separate = false) {
   cl.cancelFrame();
   cl.stream = null;
   const view = await synchronize(s, cl, { ...q, surfaces: true });
+  if (separate) view.controls = [];
   cl.stream = {
+    separate,
     sequence: q.sequence,
     session_hash: null,
     resources_hash: null,
@@ -229,6 +253,10 @@ export async function start(s: Server, cl: Client, q: Request<"viewer.stream">) 
 export function receipt(s: Server, cl: Client, q: Request<"viewer.receipt">): boolean {
   if (!cl.viewer) throw Error("NotAttached");
   if (cl.stream?.sequence !== q.sequence || !cl.stream.delivery) return false;
+  if (cl.stream.separate && !data(s, cl)) {
+    cl.stream = null;
+    return false;
+  }
   if (q.active) {
     cl.active_seq = ++s.next_active;
     cl.input_at = Date.now();
@@ -237,28 +265,34 @@ export function receipt(s: Server, cl: Client, q: Request<"viewer.receipt">): bo
   publish(s, cl, s.wakeSeq(cl.viewer_id));
   return true;
 }
-export function publish(s: Server, cl: Client, wake: bigint, now = Date.now()): void {
+export function publish(s: Server, cl: Client, wake: bigint, now = Date.now(), scheduled = false): void {
   const stream = cl.stream;
   if (!stream || cl.dead || !cl.viewer) return;
+  const output = stream.separate ? data(s, cl) : cl;
+  if (!output) return;
   if (stream.delivery && !stream.delivery.available) return;
   if (stream.wake === wake && now - stream.sent < 250) return;
-  if (cl.queued || now - stream.sent < 16) {
-    cl.deferFrame(stream.sent + 16, () => {
-      if (cl.stream === stream) publish(s, cl, wake);
+  if (output.queued || now - stream.sent < 16 || (stream.separate && !scheduled)) {
+    output.deferFrame(stream.sent + 16, () => {
+      if (cl.stream === stream) publish(s, cl, wake, Date.now(), true);
     });
     return;
   }
   const view = capture(s, cl, stream.session_hash, stream.resources_hash);
+  if (stream.separate) view.controls = [];
   const encoded = stream.delivery?.offer(view);
   if (stream.delivery && !encoded) return;
   if (encoded?.probe) stream.sent = now;
   else remember(cl, view, wake, now);
-  cl.queue({
-    type: "viewer.frame",
-    sequence: stream.sequence,
-    view: encoded?.view ?? view,
-    ...(encoded ? { frame: encoded.frame } : {}),
-  });
+  output.queue(
+    {
+      type: "viewer.frame",
+      sequence: stream.sequence,
+      view: encoded?.view ?? view,
+      ...(encoded ? { frame: encoded.frame } : {}),
+    },
+    stream.delivery,
+  );
 }
 export function remember(cl: Client, view: View, wake: bigint, now = Date.now()): void {
   cl.cancelFrame();
@@ -417,6 +451,7 @@ export function viewerShowing(s: Server, pane: number) {
 export function queue(s: Server, target: Client, value: Omit<Control, "seq">) {
   if (target.controls.length >= 64) throw new Error("ViewerBusy");
   target.controls.push({ ...value, seq: target.next_control++ });
+  if (data(s, target)) target.queue({ type: "viewer.controls", controls: target.controls });
   s.dirty = true;
 }
 function send(s: Server, reply: Reply, target: Client, value: Omit<Control, "seq">) {

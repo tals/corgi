@@ -18,8 +18,13 @@
     "target": 1
   },
   "session.list": {},
-  "launcher.catalog": { "workspace": 0, "cwd": "" },
-  "launcher.models": { "row": "codex" },
+  "launcher.catalog": {
+    "workspace": 0,
+    "cwd": ""
+  },
+  "launcher.models": {
+    "row": "codex"
+  },
   "session.snapshot": {},
   "session.subscribe": {},
   "viewer.watch": {
@@ -212,7 +217,12 @@
     "instructions": "Be brief.",
     "persist": false,
     "corgi": true,
-    "images": [{ "path": "/tmp/a.png", "mime": "image/png" }]
+    "images": [
+      {
+        "path": "/tmp/a.png",
+        "mime": "image/png"
+      }
+    ]
   },
   "headless.list": {},
   "headless.stop": {
@@ -227,7 +237,10 @@
     },
     "provider": "codex"
   },
-  "headless.search": { "id": 1, "search": {} },
+  "headless.search": {
+    "id": 1,
+    "search": {}
+  },
   "headless.memory": {
     "id": 1,
     "file": "/memory/MEMORY.md",
@@ -283,8 +296,26 @@
   "startup.kill": {
     "id": "test"
   },
-  "viewer.receipt": { "sequence": 1, "frame": 2 },
+  "viewer.receipt": {
+    "sequence": 1,
+    "frame": 2
+  },
   "viewer.stream": {
+    "viewer_protocol": 3,
+    "interests": [
+      {
+        "pane": 1,
+        "cols": 80,
+        "rows": 24
+      }
+    ],
+    "ack": 2,
+    "sequence": 1
+  },
+  "viewer.data": {
+    "link": "example"
+  },
+  "viewer.stream.configure": {
     "viewer_protocol": 3,
     "interests": [
       {

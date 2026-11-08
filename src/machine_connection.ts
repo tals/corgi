@@ -15,6 +15,7 @@ import type { Host } from "./host";
 import type { WorkspaceEntry } from "./sidebar";
 import { Cache, metadata } from "./machine_cache";
 import { Stream } from "./machine_stream";
+import * as viewer_data from "./viewer_data";
 import * as protocol from "./protocol";
 import * as i18n from "./i18n";
 import { sshViewer } from "./trackers/ports";
@@ -46,7 +47,8 @@ export class Endpoint {
     return Math.max(race_ms, this.stallMs * 2);
   }
   private healthAge(now: number): number {
-    return this.stream?.age(now) ?? now - Math.max(this.task_started, this.stats.lastReceived ?? this.task_started);
+    const control = now - Math.max(this.task_started, this.stats.lastReceived ?? this.task_started);
+    return this.stream?.age(now) ?? Math.max(control, this.data?.age(now) ?? 0);
   }
   status: Status = "connecting";
   error = "";
@@ -75,6 +77,10 @@ export class Endpoint {
   /** The installation the local daemon ran from is gone, which ends the viewer. */
   uninstalled = false;
   private connection: Connection | null = null;
+  private data: viewer_data.Connection | null = null;
+  private separate = false;
+  private fresh_data = false;
+  private controls: protocol.Wire<protocol.Control[]> = [];
   /** The connection once its hello checked out; the view's requests use it. */
   private checked: Connection | null = null;
   private incremental = false;
@@ -411,7 +417,7 @@ export class Endpoint {
     const recovering =
       this.connected &&
       (this.status === "connecting" || this.status === "offline") &&
-      now - (this.stats.lastReceived ?? this.task_started) >= this.raceMs;
+      Math.max(now - (this.stats.lastReceived ?? this.task_started), this.data?.age(now) ?? 0) >= this.raceMs;
     const due = !this.racing && now - this.raced_at >= (recovering ? this.stallMs : this.raceMs);
     if (
       this.profile &&
@@ -562,7 +568,12 @@ export class Endpoint {
     }
     let conn: Connection, hello: protocol.Reply<"hello">;
     const dialed = this.dialed;
+    this.fresh_data = !!dialed || this.fresh_connection;
     this.dialed = null;
+    // SSH setup can take many round trips. Open both lanes together; bind
+    // only after the primary confirms support and the daemon's identity.
+    if ((this.profile && this.shown) || (this.separate && this.machine.viewer_id !== 0))
+      this.data = new viewer_data.Connection(this.profile, this.local, this.stats, this.fresh_data);
     if (dialed) {
       this.tunnel = dialed.tunnel;
       conn = this.connection = dialed.conn;
@@ -598,11 +609,25 @@ export class Endpoint {
         this.uninstalled = true;
         this.onChange();
       }
+      if (event.type === "viewer.controls") {
+        this.controls = event.controls;
+        this.wake();
+      }
       for (const listener of this.listeners) listener(event);
     });
     this.instance = compatible(hello);
     if (!hello.capabilities.includes("viewer.stream")) throw Error("IncompatibleRemoteCorgi");
     this.incremental = hello.capabilities.includes("viewer.receipt");
+    this.separate =
+      this.incremental &&
+      hello.capabilities.includes("viewer.data") &&
+      hello.capabilities.includes("viewer.stream.configure") &&
+      hello.capabilities.includes("link.resume");
+    if (!this.separate) {
+      this.data?.close();
+      this.data = null;
+    } else if (this.shown)
+      this.data ??= new viewer_data.Connection(this.profile, this.local, this.stats, this.fresh_data);
     this.checked = conn;
     // A view outlives its connections to one daemon. Another daemon's ids
     // mean nothing to it.
@@ -745,8 +770,9 @@ export class Endpoint {
           if (!this.checked || !this.machine.runtime.workspaces.loaded) throw Error("StaleConnection");
           if (this.link) return this.sendOnce(op, args[0]);
         }
-        const generation = this.generation,
-          conn = this.checked;
+        const generation = this.generation;
+        const bulk = ["viewer.surfaces", "viewer.image", "viewer.search", "viewer.pick", "pane.surface"].includes(op);
+        const conn = bulk && this.opened ? (this.data?.channel ?? this.checked) : this.checked;
         if (!conn) throw Error("StaleConnection");
         const reply = await conn.request(op, ...args);
         this.current(generation);
@@ -783,6 +809,13 @@ export class Endpoint {
         this.onboarding = false;
       }
       machine.remote_links = this.profile !== null || sshViewer();
+      let data = this.connection!;
+      if (this.separate && this.link) {
+        this.data ??= new viewer_data.Connection(this.profile, this.local, this.stats, this.fresh_data);
+        data = await this.data.bind(this.link, this.instance);
+        this.current(generation);
+        machine.viewer_id = this.data.viewer;
+      }
       this.opened = true;
       this.stream = new Stream(
         this.connection!,
@@ -790,6 +823,7 @@ export class Endpoint {
           if (generation === this.generation && !this.stopped) this.wake();
         },
         this.incremental,
+        data,
       );
       visible &&= this.shown && selection === this.selection;
       if (visible && this.folder !== null) {
@@ -803,8 +837,27 @@ export class Endpoint {
     if (this.opened) {
       const stream = this.stream!;
       stream.check();
-      const taken = stream.take(),
-        reply = taken?.frame ?? null;
+      const taken = stream.take();
+      let reply = taken?.frame ?? null;
+      if (visible && this.controls.length) {
+        reply ??= {
+          type: "view",
+          viewer_protocol: protocol.viewer_version,
+          session: null,
+          session_hash: machine.runtime.snapshot_hash ?? 0n,
+          resources: null,
+          resources_hash: machine.runtime.resources_hash ?? 0n,
+          surfaces: [],
+          controls: [],
+          viewer: machine.viewer_id,
+          bell_seq: this.bell.seq,
+          bell_kind: "none",
+          detach: false,
+        };
+        reply = { ...reply, controls: this.controls };
+        this.controls = [];
+        changed = true;
+      }
       if (taken?.news) changed = true;
       if (reply) {
         const snapshot_epoch = machine.runtime.snapshot_epoch;
@@ -921,6 +974,9 @@ export class Endpoint {
       this.probe_tunnel?.close();
       this.probe_tunnel = null;
     }
+    this.data?.close();
+    this.data = null;
+    this.controls = [];
     this.connection?.close();
     this.connection = null;
     this.checked = null;

@@ -27,9 +27,11 @@ export class Stream {
     private readonly connection: Connection,
     private readonly changed: () => void = () => {},
     private readonly incremental = false,
+    private readonly data = connection,
   ) {
     connection.onClose(changed);
-    connection.onEvent(value => {
+    if (data !== connection) data.onClose(changed);
+    data.onEvent(value => {
       try {
         if (
           !value ||
@@ -125,6 +127,7 @@ export class Stream {
   check(): void {
     if (this.failure) throw this.failure;
     if (this.connection.failure) throw this.connection.failure;
+    if (this.data.failure) throw this.data.failure;
     if (this.age() >= (this.connection.timeout_ms || 10_000)) throw Error("RequestTimedOut");
   }
   send(start: () => Promise<void>, bytes = 0): void {
@@ -152,7 +155,7 @@ export class Stream {
     if (this.connection.draining) return;
     const reply = await this.connection.call("viewer.receipt", { sequence, frame: this.received, active });
     if (sequence !== this.sequence) return;
-    this.last = performance.now();
+    if (this.data === this.connection) this.last = performance.now();
     // Handoff restores the viewer but deliberately discards stream caches.
     if (!reply.stream) {
       this.reset();
@@ -193,9 +196,15 @@ export class Stream {
     const task =
       this.incremental && !changed
         ? this.receipt(sequence, request.active)
-        : this.connection.call("viewer.stream", { ...request, sequence, incremental: this.incremental }).then(reply => {
-            viewerVersion.require(reply);
-          });
+        : this.connection
+            .call(this.data === this.connection ? "viewer.stream" : "viewer.stream.configure", {
+              ...request,
+              sequence,
+              incremental: this.incremental,
+            })
+            .then(reply => {
+              viewerVersion.require(reply);
+            });
     void task
       // A daemon on another viewer protocol says so in its reply.
       .catch(error => {

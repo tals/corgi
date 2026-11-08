@@ -15,6 +15,9 @@ import * as protocol from "../src/protocol";
 import { byProvider } from "../src/providers";
 import { Runtime } from "./runtime";
 import { Connection } from "../src/rpc";
+import { Endpoint } from "../src/machine_connection";
+import { Probe } from "../src/terminal_info";
+import { Host } from "../src/host";
 import * as rpc_http from "../src/rpc_http";
 import { Viewer } from "./viewer_client";
 import { CodexObserver, write_codex_terminal } from "./provider_sim";
@@ -120,6 +123,36 @@ class Reloads extends Runtime {
   }
   reload(exe = EXE) {
     return this.rpc({ op: "server.reload", executable: exe });
+  }
+  async test_active_viewer_retains_both_ws_connections_across_local_handoff() {
+    const pane = await this.new("cat"),
+      endpoint = new Endpoint(null, this.path, new Probe(), new Host());
+    const step = () => Reflect.get(endpoint, "step").call(endpoint, true, 0);
+    try {
+      await step();
+      await this.until(async () => {
+        await step();
+        return endpoint.fresh;
+      });
+      const control = Reflect.get(endpoint, "connection") as Connection,
+        data = Reflect.get(endpoint, "data").channel as Connection,
+        before = await control.call("hello");
+      this.assertTrue(control !== data);
+      this.assertTrue((await this.reload()).ok);
+      this.assertNotEqual((await control.call("hello")).server_pid, before.server_pid);
+      this.assertTrue((await data.call("ping")).ok);
+      await this.command("pane.input", { target: pane, data: "AFTER_SPLIT_HANDOFF\r" });
+      await this.until(async () => {
+        await step();
+        const terminal = endpoint.machine.runtime.pane(pane)?.terminal;
+        terminal?.updateRender();
+        return terminal?.inner.text().includes("AFTER_SPLIT_HANDOFF") ?? false;
+      });
+      this.assertTrue(Reflect.get(endpoint, "connection") === control);
+      this.assertTrue(Reflect.get(endpoint, "data").channel === data);
+    } finally {
+      await endpoint.close();
+    }
   }
   async test_http_discovery_and_reload_reply_survive_handoff() {
     const before = await rpc_http.discover(this.path);

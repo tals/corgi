@@ -442,15 +442,31 @@ optional history codec; `rpc.ts` retains correlation and subscription handling.
 is the socket exposed by `daemon_transport.ts`; SSH still only relays bytes.
 Server render-byte allowances include WS framing overhead.
 
-The active machine viewer uses one primary connection per machine for commands,
-metadata and streamed pane content. This also applies to its local machine.
-`viewer_connection.ts`, the older pull-viewer wrapper, still composes two
-connections: control owns commands, input and metadata; data carries surfaces,
-images, searches and wake notifications. Both now use WS. Its tests retain
-independent control progress and data-connection fallback. The transport modules
-do not impose either topology. A remote split would additionally need the stream
-and link ownership rules to bind the two connections safely; sharing an SSH
-master still means sharing its underlying TCP connection.
+The active machine viewer uses separate control and pane-data WS connections,
+locally and remotely. `viewer_data.ts` opens the bulk connection and binds it to
+the control connection's live viewer link with `viewer.data`. Commands, input,
+receipts, configuration acknowledgements and unsolicited `viewer.controls` stay
+on control. `viewer.stream.configure` sends frames, including streamed metadata,
+on data; surface, image, search and pick replies use data too. Each connection
+has its own codec and bounded socket queue. Local traffic remains uncompressed;
+remote traffic uses zstd on both connections. Older peers without these advertised
+operations keep the single-connection stream.
+
+The data SSH lane has a separate ControlMaster namespace, so it cannot block
+control in a shared SSH/TCP queue. Both handshakes start together, including a
+previously attached machine reconnecting in the background. The data lane checks
+the daemon identity before binding to its viewer link. Its pending handshake has
+its own progress clock, so healthy control traffic cannot hide a stuck data dial.
+The physical link and daemon event loop remain
+shared: this is queue isolation, not a network QoS guarantee. Adaptive frame
+admission still bounds outstanding pane work. Publishing yields to the event
+loop before capturing a new frame, and a descriptor flush writes at most 64 KiB.
+
+Uncompressed handoff retains the data binding; receipts recreate transient
+stream caches. Compressed handoff reconnects both lanes and resumes the viewer
+link. Closing or replacing the control connection also closes its data lane;
+control heartbeats cannot hide a stalled pane reader. The older pull-viewer
+wrapper in `viewer_connection.ts` retains its existing two-connection behavior.
 
 CLI subscriptions use their own persistent uncompressed WS. HTTP POST hooks,
 management/bootstrap requests, diagnostic probes, and unversioned legacy

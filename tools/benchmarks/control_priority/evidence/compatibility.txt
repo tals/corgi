@@ -1,0 +1,21 @@
+Counting tests · 0 finished · 0 running
+Testing · 0% · 0/8 finished · 0 running · <1m left
+bun test v1.4.4 (38afee6c8) 1x PARALLEL
+
+tests/reload_compatibility.test.ts:
+(pass) ReloadCompatibility > test_dev_upgrades_old_protocol_and_attaches [2539.12ms]
+(pass) ReloadCompatibility > test_explicit_reload_upgrades_old_protocol [2262.57ms]
+
+tests/rollback.test.ts:
+(pass) Rollback > test_HTTP_requester_gets_the_rollback_reply_and_can_upgrade_again [2353.08ms]
+(pass) Rollback > test_WS_requester_gets_the_commit_reply_without_replaying_later_input [1912.11ms]
+Testing · 50% · 4/8 finished · 1 running · past estimate
+(pass) Rollback > test_compressed_WS_requester_gets_the_commit_reply_without_replaying_later_input [1851.63ms]
+(pass) Rollback > test_live_rollback_preserves_shells_and_explains_viewer_and_subscription_disconnects [3467.01ms]
+(pass) Rollback > test_older_formats_are_not_retried_beyond_format_6 [1444.96ms]
+(pass) Rollback > test_rejected_format_6_keeps_the_daemon_and_WS_clients_alive [1437.79ms]
+
+ 8 pass
+ 0 fail
+Ran 8 tests across 2 files. [17.43s]
+Cleanup · 100% · 8/8 finished · 0 running

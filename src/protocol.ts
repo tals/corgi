@@ -123,6 +123,8 @@ export const operations = [
   "viewer.sync",
   "viewer.surfaces",
   "viewer.stream",
+  "viewer.stream.configure",
+  "viewer.data",
   "viewer.receipt",
   "viewer.search",
   "viewer.pick",
@@ -200,7 +202,14 @@ const local = new Set([
 ]);
 export function check(op: string): "none" | "management" | "runtime" | "viewer" {
   if (op === "hello" || op === "server.reload") return "management";
-  if (op === "viewer.open" || op === "viewer.sync" || op === "viewer.stream" || op === "viewer.receipt")
+  if (
+    op === "viewer.open" ||
+    op === "viewer.sync" ||
+    op === "viewer.stream" ||
+    op === "viewer.stream.configure" ||
+    op === "viewer.data" ||
+    op === "viewer.receipt"
+  )
     return "viewer";
   return local.has(op) ? "none" : "runtime";
 }
@@ -666,6 +675,21 @@ const structures = {
   },
 } as const satisfies Record<string, Fields>;
 const launch = { workspace: "u32", cwd: ["string", ""] } as const satisfies Fields;
+const stream = {
+  sequence: "u32",
+  incremental: ["bool", false],
+  interests: "[]interest",
+  session_hash: ["?u64", null],
+  focus: ["?u32", null],
+  watched: ["bool", true],
+  workspace: ["u32", 0],
+  ack: ["u64", 0],
+  active: ["bool", false],
+  resource_detail: ["?u32", null],
+  worktree_detail: ["?u32", null],
+  resources: ["bool", true],
+  resources_hash: ["?u64", null],
+} as const satisfies Fields;
 const requests = {
   hello: { accept_encoding: ["[]string", []] },
   /** `output: false` leaves out pushes for terminal output alone, as a status display wants. */
@@ -698,21 +722,9 @@ const requests = {
     resources_hash: ["?u64", null],
   },
   "viewer.surfaces": {},
-  "viewer.stream": {
-    sequence: "u32",
-    incremental: ["bool", false],
-    interests: "[]interest",
-    session_hash: ["?u64", null],
-    focus: ["?u32", null],
-    watched: ["bool", true],
-    workspace: ["u32", 0],
-    ack: ["u64", 0],
-    active: ["bool", false],
-    resource_detail: ["?u32", null],
-    worktree_detail: ["?u32", null],
-    resources: ["bool", true],
-    resources_hash: ["?u64", null],
-  },
+  "viewer.stream": stream,
+  "viewer.stream.configure": stream,
+  "viewer.data": { link: "string" },
   "viewer.receipt": { sequence: "u32", frame: "u64", active: ["bool", false] },
   "viewer.search": { pane: "u32", needle: "string", skip: ["u64", 0] },
   "viewer.pick": {
@@ -876,6 +888,8 @@ export interface ReplyPayloads {
   "viewer.sync": View<ViewerSnapshot, import("./trackers/resources").Snapshot>;
   "viewer.surfaces": Ok & { surfaces: SurfaceView[] };
   "viewer.receipt": Ok & { stream: boolean };
+  "viewer.data": Ok & { viewer: number };
+  "viewer.stream.configure": Ok & { viewer_protocol: number };
   "viewer.stream": {
     type: "viewer.stream";
     viewer_protocol: number;
@@ -957,6 +971,7 @@ export type PickResult = Omit<Reply<"viewer.pick">, "ok">;
 export type Event =
   | Reply<"viewer.stream">
   | { type: "viewer.frame"; sequence: number; frame?: Wire<bigint>; view: Reply<"viewer.sync"> }
+  | { type: "viewer.controls"; controls: Wire<Control[]> }
   | { type: "viewer.wake" }
   | { type: "viewer.reconnect" }
   /** The installation the daemon runs from was deleted, as `omarchy plugin remove` does; it's stopping. */
@@ -968,6 +983,7 @@ export type Event =
 export const event_types = [
   "viewer.stream",
   "viewer.frame",
+  "viewer.controls",
   "viewer.wake",
   "viewer.reconnect",
   "uninstalled",

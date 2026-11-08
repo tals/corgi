@@ -350,3 +350,5 @@ $.clients[].startup_wait?.phase: enum discovering service session installing age
 $.clients[].startup_wait?.detail: string
 $.clients[].startup_wait?.started_at: i64
 $.clients[].startup_wait?.cancelled: bool
+$.clients[].stream_data: optional
+$.clients[].stream_data?: bool

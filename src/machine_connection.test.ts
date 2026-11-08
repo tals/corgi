@@ -450,6 +450,14 @@ test("a hung reconnect gets a spare dial without racing a first connection", asy
     clock.mockReturnValue(14000);
     endpoint.pump(false);
     expect(race).toHaveBeenCalledTimes(2);
+    // Control replies cannot hide a hung data-lane handshake.
+    Reflect.set(endpoint, "raced_at", 14000);
+    clock.mockReturnValue(18000);
+    endpoint.stats.traffic("received", 1, 18000);
+    Reflect.set(endpoint, "data", { age: () => 9000, close() {} });
+    endpoint.pump(false);
+    expect(race).toHaveBeenCalledTimes(3);
+    Reflect.set(endpoint, "data", null);
   } finally {
     finish(false);
     await Reflect.get(endpoint, "task");

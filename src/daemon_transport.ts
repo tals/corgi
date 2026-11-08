@@ -55,6 +55,7 @@ export class Remote {
     readonly profile: Profile,
     private readonly fresh = false,
     private readonly timeoutMs = startup_ms,
+    private readonly lane: "control" | "data" = "control",
   ) {}
   async open(): Promise<void> {
     if (this.stopped || this.started) throw Error("TransportClosed");
@@ -89,7 +90,7 @@ export class Remote {
     let child: ChildProcess;
     try {
       child = this.spawn([
-        ...ssh.args(this.profile.target, false, this.fresh, false),
+        ...ssh.args(this.profile.target, false, this.fresh, false, this.lane),
         ssh.command(this.profile.bridge!, [this.profile.socket]),
       ]);
     } catch (error) {
@@ -105,6 +106,7 @@ export class Remote {
         phase: "bridge",
         pid: child.pid ?? 0,
         fresh: Number(this.fresh),
+        lane: this.lane,
       });
     });
     const close = () => {
@@ -131,6 +133,7 @@ export class Remote {
     telemetry.event("remote.transport", {
       machine: this.profile.name,
       phase: "spawn",
+      lane: this.lane,
       pid: child.pid ?? 0,
       fresh: Number(this.fresh),
     });

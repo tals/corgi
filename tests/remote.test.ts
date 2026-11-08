@@ -1011,7 +1011,7 @@ process.stdin.on('data', data => {
     this.assertNotEqual(check.code, 0);
     this.assertTrue(check.stderr.includes("HOST IDENTIFICATION HAS CHANGED"), check.stderr);
   }
-  async test_native_stdio_and_cli_share_ssh_without_socket_forwarding() {
+  async test_native_stdio_separates_pane_ssh_and_shares_control_with_cli_without_socket_forwarding() {
     await this.remote!.command("pane.create", { workspace: 1, command: "cat" });
     const catalog = await this.cli(["machine", "list"]);
     const profile = catalog.machines.find((machine: { name: string }) => machine.name === "work");
@@ -1030,13 +1030,16 @@ process.stdin.on('data', data => {
     await this.online();
     this.assertIn("corgi-remote-bridge", readFileSync(log, "utf8"));
     this.assertNotIn("__remote-info", readFileSync(log, "utf8"));
+    // The control lane reuses the master warmed by machine setup. Pane data
+    // gets its own TCP transport, which subsequent CLI calls must not use.
+    this.assertEqual(this.network!.accepted, connections + 1);
     await this.cli(["--machine", "work", "ping"]);
-    this.assertEqual(this.network!.accepted, connections);
+    this.assertEqual(this.network!.accepted, connections + 1);
     this.terminal!.write("\x02q");
     await deadline(this.ui!.exited, 1500);
     // Detaching a channel must leave the shared master usable by other callers.
     await this.cli(["--machine", "work", "ping"]);
-    this.assertEqual(this.network!.accepted, connections);
+    this.assertEqual(this.network!.accepted, connections + 1);
   }
   async imageClipboard() {
     let output = "";
@@ -1551,7 +1554,8 @@ process.stdin.on("data", chunk => {
     this.network!.cut();
     await this.until(() => this.network!.accepted > connections, 5);
     const started = performance.now();
-    await this.until(() => this.network!.accepted > connections + 1, 12);
+    // Both reconnect lanes open immediately; the next connection is the spare.
+    await this.until(() => this.network!.accepted > connections + 2, 12);
     await this.online(undefined, 5);
     this.assertLess(performance.now() - started, 14000);
     await this.sendRemote("AFTER_HUNG_RECONNECT");

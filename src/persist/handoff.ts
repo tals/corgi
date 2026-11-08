@@ -37,6 +37,7 @@ const savedFields = [
   "subscribed_output",
   "startup_wait",
   "watching",
+  "stream_data",
   "watch_viewer",
   "launch_preview",
   "headless_start",

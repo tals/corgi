@@ -5,7 +5,7 @@ import * as preferences from "./preferences";
 import * as os from "./os";
 
 /** A private namespace keeps Corgi independent of a user-owned SSH master. */
-function sharing(host: string, fresh: boolean, compression: boolean): string[] {
+function sharing(host: string, fresh: boolean, compression: boolean, lane: "control" | "data"): string[] {
   if (!host || host.startsWith("-") || /[\s\x00-\x1f\x7f]/.test(host)) throw Error("InvalidSshTarget");
   if (fresh) return ["-S", "none", "-o", "ControlMaster=no"];
   const directory = `/tmp/corgi-mux-${process.getuid?.() ?? "user"}`;
@@ -16,15 +16,22 @@ function sharing(host: string, fresh: boolean, compression: boolean): string[] {
     .update("\0")
     .update(host)
     .update(compression ? "zlib" : "plain")
+    .update(lane === "data" ? "-data" : "")
     .digest("hex")
     .slice(0, 20);
   return ["-S", `${directory}/${key}-%C`, "-o", "ControlMaster=auto", "-o", "ControlPersist=600"];
 }
 
 /** OpenSSH owns authentication and encryption. A background connection cannot prompt or trust a new host. */
-export function args(host: string, interactive: boolean, fresh = false, compression = true): string[] {
+export function args(
+  host: string,
+  interactive: boolean,
+  fresh = false,
+  compression = true,
+  lane: "control" | "data" = "control",
+): string[] {
   return [
-    ...sharing(host, fresh, compression),
+    ...sharing(host, fresh, compression, lane),
     "-T",
     "-o",
     `Compression=${compression ? "yes" : "no"}`,

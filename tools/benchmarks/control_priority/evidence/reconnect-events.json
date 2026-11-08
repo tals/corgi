@@ -1,0 +1,516 @@
+[
+  {
+    "name": "remote.transport",
+    "ph": "X",
+    "pid": 1433005,
+    "tid": 0,
+    "ts": 1794163949005537.5,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "phase": "spawn",
+      "lane": "control",
+      "pid": 1433840,
+      "fresh": 0
+    }
+  },
+  {
+    "name": "remote.transport",
+    "ph": "X",
+    "pid": 1433005,
+    "tid": 0,
+    "ts": 1794163949238550.8,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "phase": "bridge",
+      "pid": 1433840,
+      "fresh": 0,
+      "lane": "control"
+    }
+  },
+  {
+    "name": "remote.transport",
+    "ph": "X",
+    "pid": 1433005,
+    "tid": 0,
+    "ts": 1794163949248878.2,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "phase": "exit",
+      "pid": 1433840,
+      "code": 255,
+      "signal": ""
+    }
+  },
+  {
+    "name": "remote.connection",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163949630301.5,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "generation": 1,
+      "phase": "start",
+      "status": "connecting",
+      "age_ms": 0.036211000000037075,
+      "stall_ms": 4000,
+      "race_ms": 8000
+    }
+  },
+  {
+    "name": "remote.transport",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163949652049,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "phase": "spawn",
+      "lane": "data",
+      "pid": 1434379,
+      "fresh": 0
+    }
+  },
+  {
+    "name": "remote.transport",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163949653980.2,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "phase": "spawn",
+      "lane": "control",
+      "pid": 1434380,
+      "fresh": 0
+    }
+  },
+  {
+    "name": "remote.transport",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163949678530,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "phase": "bridge",
+      "pid": 1434380,
+      "fresh": 0,
+      "lane": "control"
+    }
+  },
+  {
+    "name": "remote.connection",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163949680807.2,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "generation": 1,
+      "phase": "hello",
+      "status": "connecting",
+      "age_ms": 0.8475040000000149,
+      "stall_ms": 4000,
+      "race_ms": 8000
+    }
+  },
+  {
+    "name": "remote.connection",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163949688402,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "generation": 1,
+      "phase": "linked",
+      "status": "connecting",
+      "age_ms": 0.3982209999999782,
+      "stall_ms": 4000,
+      "race_ms": 8000,
+      "resumed": 0
+    }
+  },
+  {
+    "name": "remote.connection",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163949688425,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "generation": 1,
+      "phase": "snapshot",
+      "status": "connecting",
+      "age_ms": 0.42021199999999226,
+      "stall_ms": 4000,
+      "race_ms": 8000
+    }
+  },
+  {
+    "name": "remote.transport",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163949883607.2,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "phase": "bridge",
+      "pid": 1434379,
+      "fresh": 0,
+      "lane": "data"
+    }
+  },
+  {
+    "name": "remote.connection",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163949890191,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "generation": 1,
+      "phase": "online",
+      "status": "connecting",
+      "age_ms": 1.1568919999999707,
+      "stall_ms": 4000,
+      "race_ms": 8000
+    }
+  },
+  {
+    "name": "remote.connection",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163949906779.8,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "generation": 1,
+      "phase": "presented",
+      "status": "online",
+      "age_ms": 5.38603999999998,
+      "stall_ms": 4000,
+      "race_ms": 8000
+    }
+  },
+  {
+    "name": "remote.transport",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163960113525.5,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "phase": "exit",
+      "pid": 1434380,
+      "code": 255,
+      "signal": ""
+    }
+  },
+  {
+    "name": "remote.transport",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163960121154.2,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "phase": "exit",
+      "pid": 1434379,
+      "code": 255,
+      "signal": ""
+    }
+  },
+  {
+    "name": "remote.connection",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163960123332,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "generation": 1,
+      "phase": "failed",
+      "status": "online",
+      "age_ms": 99.61499200000071,
+      "stall_ms": 7406.769587544336,
+      "race_ms": 14813.539175088672,
+      "error": "ConnectionClosed"
+    }
+  },
+  {
+    "name": "remote.connection",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163960125229.5,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "generation": 3,
+      "phase": "start",
+      "status": "connecting",
+      "age_ms": 0.039080999998986954,
+      "stall_ms": 7406.769587544336,
+      "race_ms": 14813.539175088672
+    }
+  },
+  {
+    "name": "remote.transport",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163960131028.2,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "phase": "spawn",
+      "lane": "data",
+      "pid": 1435472,
+      "fresh": 1
+    }
+  },
+  {
+    "name": "remote.transport",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163960133117.5,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "phase": "spawn",
+      "lane": "control",
+      "pid": 1435473,
+      "fresh": 1
+    }
+  },
+  {
+    "name": "remote.race",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163974843631,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "generation": 3,
+      "phase": "start",
+      "status": "connecting",
+      "age_ms": 14718.438228,
+      "stall_ms": 7406.769587544336,
+      "race_ms": 14813.539175088672
+    }
+  },
+  {
+    "name": "remote.transport",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163974847372.8,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "phase": "spawn",
+      "lane": "control",
+      "pid": 1436003,
+      "fresh": 1
+    }
+  },
+  {
+    "name": "remote.transport",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163976285227.5,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "phase": "bridge",
+      "pid": 1435472,
+      "fresh": 1,
+      "lane": "data"
+    }
+  },
+  {
+    "name": "remote.transport",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163976290040,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "phase": "bridge",
+      "pid": 1435473,
+      "fresh": 1,
+      "lane": "control"
+    }
+  },
+  {
+    "name": "remote.connection",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163980267086.8,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "generation": 3,
+      "phase": "hello",
+      "status": "connecting",
+      "age_ms": 0.8054819999997562,
+      "stall_ms": 7406.769587544336,
+      "race_ms": 14813.539175088672
+    }
+  },
+  {
+    "name": "remote.connection",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163982272395.8,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "generation": 3,
+      "phase": "linked",
+      "status": "connecting",
+      "age_ms": 0.775391999995918,
+      "stall_ms": 7317.648875548386,
+      "race_ms": 14635.297751096772,
+      "resumed": 1
+    }
+  },
+  {
+    "name": "remote.connection",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163982272401,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "generation": 3,
+      "phase": "snapshot",
+      "status": "connecting",
+      "age_ms": 0.7846619999982067,
+      "stall_ms": 7317.648875548386,
+      "race_ms": 14635.297751096772
+    }
+  },
+  {
+    "name": "remote.connection",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163984276829,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "generation": 3,
+      "phase": "online",
+      "status": "connecting",
+      "age_ms": 0.9370659999985946,
+      "stall_ms": 7249.149657268315,
+      "race_ms": 14498.29931453663
+    }
+  },
+  {
+    "name": "remote.connection",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163988288032.5,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "generation": 3,
+      "phase": "presented",
+      "status": "online",
+      "age_ms": 2.508880000001227,
+      "stall_ms": 7167.417953093369,
+      "race_ms": 14334.835906186738
+    }
+  },
+  {
+    "name": "remote.transport",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163989420865.2,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "phase": "exit",
+      "pid": 1436003,
+      "code": 255,
+      "signal": ""
+    }
+  },
+  {
+    "name": "remote.transport",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163989420926.8,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "phase": "exit",
+      "pid": 1435472,
+      "code": 255,
+      "signal": ""
+    }
+  },
+  {
+    "name": "remote.transport",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163989420991.2,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "phase": "exit",
+      "pid": 1435473,
+      "code": 255,
+      "signal": ""
+    }
+  },
+  {
+    "name": "remote.race",
+    "ph": "X",
+    "pid": 1434302,
+    "tid": 0,
+    "ts": 1794163989421578,
+    "dur": 0,
+    "args": {
+      "machine": "work",
+      "generation": 4,
+      "phase": "failed",
+      "status": "online",
+      "age_ms": 19.644735999994737,
+      "stall_ms": 7167.417953093369,
+      "race_ms": 14334.835906186738,
+      "error": "WebSocket connection to 'ws+unix:///tmp/corgi-ssh-1000-SZTxX4/s:/rpc' failed: Connection ended"
+    }
+  }
+]

@@ -47,6 +47,7 @@ export class Client {
   subscribed_output = true;
   stream: {
     delivery?: Frames;
+    separate?: boolean;
     sequence: number;
     session_hash: bigint | null;
     resources_hash: bigint | null;
@@ -54,6 +55,7 @@ export class Client {
     wake: bigint;
   } | null = null;
   watching = false;
+  stream_data = false;
   watch_viewer = 0;
   woken = 0n;
   launch_preview: Subscription | null = null;
@@ -156,7 +158,7 @@ export class Client {
     while (!this.dead && performance.now() < until) await Bun.sleep(1);
     this.close();
   }
-  queue(value: unknown): void {
+  queue(value: unknown, delivery = this.stream?.delivery): void {
     if (this.dead) return;
     if (this.http === "replied") return;
     if (this.http === "request") {
@@ -174,7 +176,6 @@ export class Client {
     const encode_started = telemetry.begin();
     const bytes = Buffer.from(json.stringify(value) + "\n");
     telemetry.end("wire.encode", encode_started, bytes.length);
-    const delivery = this.stream?.delivery;
     const frame =
       value && typeof value === "object" && "frame" in value && typeof value.frame === "bigint" ? value.frame : null;
     if (this.codec)
@@ -232,8 +233,9 @@ export class Client {
   }
   flush(): void {
     if (this.paused) return;
-    while (this.sent < this.output.length && !this.dead) {
-      const b = this.output.subarray(this.sent),
+    const until = this.sent + 65536;
+    while (this.sent < this.output.length && this.sent < until && !this.dead) {
+      const b = this.output.subarray(this.sent, until),
         count = n.probe_write(this.fd, ptr(b), b.length);
       if (count > 0) this.sent += count;
       else if (count === -4) continue;

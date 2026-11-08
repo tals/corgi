@@ -208,7 +208,7 @@ export class Server {
     return BigInt.asUintN(64, seq);
   }
   private wakeViewer(c: Client): void {
-    if (!c.watching || c.dead || c.output.length > 0) return;
+    if (!c.watching || c.stream_data || c.dead || c.output.length > 0) return;
     const next = this.wakeSeq(c.watch_viewer);
     if (c.woken !== next) {
       c.woken = next;
@@ -400,6 +400,7 @@ export class Server {
         });
       },
       () => {
+        if (client.viewer) viewer.data(this, client)?.close();
         this.modelReads.get(client)?.();
         if (client.headless_start) {
           const session = this.runtime.sessions.find(s => s.id === client.headless_start!.id);
@@ -782,6 +783,13 @@ export class Server {
         reply.send(await viewer.start(this, cl, request.payload));
         return;
       }
+      case "viewer.data":
+        reply.ok({ viewer: viewer.bindData(this, cl, request.payload.link) });
+        return;
+      case "viewer.stream.configure":
+        await viewer.configure(this, cl, request.payload);
+        reply.ok({ viewer_protocol: protocol.viewer_version });
+        return;
       case "viewer.receipt":
         reply.ok({ stream: viewer.receipt(this, cl, request.payload) });
         return;
