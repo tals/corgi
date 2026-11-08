@@ -1,0 +1,14 @@
+// What Pi's subagent plugins call their children, spliced into Corgi's extension. Each rule takes a child's
+// { name, task }: its session name and its first prompt. It returns [type, name] or [type], or nothing when it
+// doesn't recognize the child. The first match wins, so keep specific rules first. Children no rule matches still
+// show, named for their session or their task.
+[
+  // @mjakl/pi-subagent: "subagent: reviewer · auth-pass"
+  c => /^subagent: (\S+) · (.+)$/su.exec(c.name)?.slice(1),
+  // pi-subagents (nicobailon), in a background run: "subagent-scout-<run id>-1"
+  c => /^subagent-(.+?)-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}-\d+$/.exec(c.name)?.slice(1, 2),
+  // pi-subagents (nicobailon), in the foreground: "scout: find stale TODOs"
+  c => /^([\w.-]+): (.+)$/su.exec(c.name)?.slice(1),
+  // @tintinweb/pi-subagents: "Explore#ab12cd34"
+  c => /^([\w.-]+)#[0-9a-f]{8}$/.exec(c.name)?.slice(1),
+]
