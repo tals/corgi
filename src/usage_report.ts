@@ -1,6 +1,6 @@
 //! `corgi usage --json`: cached usage readings and history for scripts and
 //! status bars. Consumers choose the display range, scale and formatting.
-import * as rpc from "./rpc";
+import type * as rpc_http from "./rpc_http";
 import * as errors from "./errors";
 import * as json from "./json";
 import * as launcherOrder from "./launch/order";
@@ -159,10 +159,9 @@ export function build(value: Preview, order: readonly Row[], now: number): Accou
   });
 }
 /** Asks only for readings the daemon already holds. */
-export async function run(path: string): Promise<Report> {
-  const connection = new rpc.Connection(path);
+export async function run(daemon: rpc_http.Client): Promise<Report> {
   try {
-    const list = await connection.call("session.list"),
+    const list = await daemon.call("session.list"),
       // Use the last-used viewer's workspace for its launcher order.
       last = list.viewers.reduce<(typeof list.viewers)[number] | null>(
         (best, v) => (best === null || v.active > best.active ? v : best),
@@ -171,7 +170,7 @@ export async function run(path: string): Promise<Report> {
       id = last?.workspace ?? list.result.workspaces[0]?.id,
       workspace = list.result.workspaces.find(w => w.id === id);
     if (workspace === undefined) return { running: true, accounts: [] };
-    const value = normalize((await connection.call("agent.preview.cached", { workspace: workspace.id })).preview);
+    const value = normalize((await daemon.call("agent.preview.cached", { workspace: workspace.id })).preview);
     const order = (workspace.launcher_order ?? []).flatMap((row: unknown) => {
       const parsed = typeof row === "string" ? Row.parse(row) : null;
       return parsed === null ? [] : [parsed];
@@ -180,12 +179,10 @@ export async function run(path: string): Promise<Report> {
   } catch (error) {
     if (errors.unreachable(error)) return { running: false, accounts: [] };
     throw error;
-  } finally {
-    connection.close();
   }
 }
 /** The command: one report on stdout. */
-export async function command(path: string): Promise<void> {
+export async function command(daemon: rpc_http.Client): Promise<void> {
   process.stdout.on("error", () => process.exit(0));
-  process.stdout.write(json.stringify(await run(path)) + "\n");
+  process.stdout.write(json.stringify(await run(daemon)) + "\n");
 }

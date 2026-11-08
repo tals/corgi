@@ -16,6 +16,7 @@ import { Tokens } from "./usage/live";
 import { Call } from "./activity/tools";
 import { parseLabel } from "./activity/summary";
 import { captureManifest } from "./persist/handoff";
+import * as link from "./link";
 import { checkpoint_version, handoff_version } from "./persist/migrations";
 import { validateCheckpoint } from "./persist/schema";
 import { Preview } from "./launch/preview";
@@ -115,10 +116,8 @@ function fixture() {
   actor.workspace = 1;
   actor.model.price = { label: "catalog", input: 1250n, output: 5000n };
   pane.attachment.select(actor);
-  const loop = (server as any).loop;
   const client = new Client(
-    -1,
-    loop,
+    null,
     () => {},
     () => {},
     false,
@@ -161,17 +160,17 @@ function fixture() {
     client,
     dispose() {
       server.runtime.destroy();
-      loop.close();
+      (server as any).loop.close();
     },
   };
 }
 
 test("the runtime wire matches protocol.version", () => {
-  expect(protocol.version).toBe(4);
+  expect(protocol.version).toBe(5);
   // `hello` and `server.reload` stay on 1 so new clients find old daemons; see HACKING.md.
   expect(protocol.management_version).toBe(1);
   expect(createHash("sha256").update(schemas.protocol).digest("hex")).toBe(
-    "662003cf92db2fab76829a6be42dfb20363eb747f21d5cb9a10386dce30f21a2",
+    "d60835ecd2c4a44066fb9ec971b6bf94227de49f90506c3203d83e34e57cfb6d",
   );
   const { server, client, dispose } = fixture();
   try {
@@ -274,10 +273,10 @@ test("the viewer wire matches viewer_version.version", async () => {
 });
 
 test("saved handoff format matches its version", async () => {
-  expect(handoff_version).toBe(6);
+  expect(handoff_version).toBe(7);
   expect(checkpoint_version).toBe(6);
   expect(createHash("sha256").update(schemas.handoff).digest("hex")).toBe(
-    "97b10f94cc3b20aea90080c39241ea10071afbc17c20efb6949bcea4cb188c35",
+    "74744ef8d5c36923fb220e6737b152ab7efa90b96c0eeecf3b5deaa9e9ceb79f",
   );
   const { server, client, dispose } = fixture();
   const summaries = new Worker();
@@ -300,24 +299,29 @@ test("saved handoff format matches its version", async () => {
   usage.watchers.set(1, tail);
   server.usage = usage;
   await usage.pause();
+  // One link a connection carries, one waiting with the viewer it had.
+  const carried = new link.Link(),
+    waiting = new link.Link();
+  carried.record(1n, { ok: true, result: { pane: 1 } });
+  waiting.viewer = { viewer_id: 2, active_seq: 3, view_workspace: 1, controls: [], next_control: 1n, last_control: 0n };
+  waiting.detached_at = 1_700_000_000_000;
+  for (const l of [carried, waiting]) server.links.set(l.id, l);
+  client.link = carried;
+  Object.assign(client, { viewer: true, viewer_id: 4 });
   try {
-    const captured = json.parse(json.stringify(captureManifest(server, client)));
+    const captured = json.parse(json.stringify(captureManifest(server, 9, null, 5)));
     validate(schemas.handoff, captured);
+    expect(captured.links).toHaveLength(2);
+    expect(captured.links[0].viewer.viewer_id).toBe(4);
+    expect(captured.requester).toBe(9);
+    expect(captured.start_lock).toBe(5);
     validateCheckpoint(captured.runtime);
     expect(captured.runtime.panes[0].binding.actor).toBe(1);
-    expect(captured.clients).toHaveLength(1);
-    expect(captured.clients[0].launch_preview.preview.options.claude.spend.used_minor).toBe(59);
-    expect(captured.clients[0].launch_preview.preview.options.claude.login).toEqual(
-      client.launch_preview!.preview.options.claude.login,
-    );
-    expect(captured.clients[0].launch_preview.preview.options.claude.spend_daily).toEqual(
-      client.launch_preview!.preview.options.claude.spend_daily,
-    );
     expect(captured.summaries.pool.slots).toHaveLength(4);
     expect(captured.usage[0].position.offset).toBe(42);
     expect(captured.usage[0].file.offset).toBe(42);
     expect(captured.usage[0].progress.pending[0].value).toBe("Bash: ls");
-    expect(() => validate(schemas.handoff, { ...captured, listener: "bad" })).toThrow();
+    expect(() => validate(schemas.handoff, { ...captured, requester: "bad" })).toThrow();
   } finally {
     await summaries.stop();
     dispose();

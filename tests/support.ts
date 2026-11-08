@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import { isDeepStrictEqual } from "node:util";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { createConnection, type Socket } from "node:net";
 import { describe, test } from "bun:test";
 import * as protocol from "../src/protocol";
+import * as rpc from "../src/rpc";
+import type * as stream from "node:stream";
 
 export const ROOT = resolve(import.meta.dir, "..");
 export const EXE = process.env.CORGI_TEST_BIN || `${ROOT}/dist/corgi-test`;
@@ -125,52 +126,46 @@ export class Lines {
 export function versioned<T extends { op: string }>(value: T) {
   return { ...protocol.versions(value.op), ...value };
 }
-export class JsonSocket {
-  socket!: Socket;
-  lines = new Lines();
-  closed = false;
-  static async connect(path: string, timeout = 3000) {
-    const client = new JsonSocket();
-    client.socket = createConnection(path);
-    client.socket.setEncoding("utf8");
-    client.socket.on("data", chunk => client.lines.feed(String(chunk)));
-    client.socket.on("end", () => {
-      client.closed = true;
-      client.lines.end();
+/** `socket`'s bytes as lines, for tests of the daemon's wire itself. */
+export function lines(socket: stream.Duplex): Lines {
+  const lines = new Lines();
+  socket.on("data", (chunk: Buffer) => lines.feed(chunk.toString()));
+  // Close follows an error, which it carries.
+  socket.on("error", () => {});
+  socket.on("close", () => lines.end(socket.errored ?? undefined));
+  return lines;
+}
+/** What a daemon connection pushes, read in order. */
+export class Events {
+  private queued: any[] = [];
+  private waiting: { resolve: (event: any) => void; reject: (error: Error) => void }[] = [];
+  private ended: Error | null = null;
+  constructor(connection: rpc.Connection) {
+    connection.onEvent(event => {
+      const waiter = this.waiting.shift();
+      if (waiter) waiter.resolve(event);
+      else this.queued.push(event);
     });
-    client.socket.on("error", error => {
-      client.closed = true;
-      client.lines.end(error);
+    connection.onClose(() => {
+      this.ended = connection.failure ?? Error("ConnectionClosed");
+      for (const waiter of this.waiting.splice(0)) waiter.reject(this.ended);
     });
-    try {
-      await deadline(
-        new Promise<void>((resolve, reject) => {
-          client.socket.once("connect", resolve);
-          client.socket.once("error", reject);
-        }),
-        timeout,
-        `Socket connect timed out: ${path}`,
-      );
-    } catch (error) {
-      client.close();
-      throw error;
-    }
-    return client;
   }
-  send(value: unknown) {
-    this.socket.write(JSON.stringify(value) + "\n");
-  }
-  async read(timeout = 3000) {
-    return JSON.parse(await this.lines.next(timeout));
-  }
-  async request(value: unknown) {
-    this.send(value);
-    return this.read();
-  }
-  close() {
-    this.closed = true;
-    this.socket.destroy();
-    this.lines.end();
+  next(timeout = 5000): Promise<any> {
+    if (this.queued.length) return Promise.resolve(this.queued.shift());
+    if (this.ended) return Promise.reject(this.ended);
+    let waiter: (typeof this.waiting)[number];
+    return deadline(
+      new Promise<any>((resolve, reject) => {
+        waiter = { resolve, reject };
+        this.waiting.push(waiter);
+      }),
+      timeout,
+      "Timed out waiting for a pushed event",
+    ).finally(() => {
+      const index = this.waiting.indexOf(waiter);
+      if (index >= 0) this.waiting.splice(index, 1);
+    });
   }
 }
 export class Pty {

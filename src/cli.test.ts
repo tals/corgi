@@ -1,9 +1,10 @@
 import { test, expect, spyOn } from "bun:test";
 import { mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
-import { createServer } from "node:net";
+import * as websocket_server from "./fixtures/websocket_server";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Memory } from "./prompt_memory";
+import * as rpc_http from "./rpc_http";
 import {
   asksHelp,
   handles,
@@ -91,13 +92,13 @@ test("bare command groups localize human help and preserve English agent help", 
   try {
     for (const args of [["pane"], ["pane", "--help"], ["workspace"], ["launcher"]]) {
       output.mockClear();
-      await run("/missing-corgi-help-test.sock", args);
+      await run(new rpc_http.Client("/missing-corgi-help-test.sock"), args);
       const human = String(output.mock.calls[0]?.[0]);
       expect(human).toContain(`corgi ${args[0]}`);
       expect(human).toMatch(/[\u3040-\u30ff]/);
       expect(human).not.toContain("shells at their prompt");
       output.mockClear();
-      await run("/missing-corgi-help-test.sock", args, true);
+      await run(new rpc_http.Client("/missing-corgi-help-test.sock"), args, true);
       const machine = String(output.mock.calls[0]?.[0]);
       expect(machine).toStartWith("Usage:\n");
       expect(machine).toContain(`corgi ${args[0]}`);
@@ -432,41 +433,47 @@ test("a chat whose commands run where its environment can't reach names itself w
     heard: any[] = [],
     saved = ["CORGI_SOCKET", "CORGI_HEADLESS_ID", "CORGI_MEMORY"].map(k => [k, process.env[k]] as const);
   for (const [k] of saved) delete process.env[k];
-  const server = createServer(connection => {
-    let buffer = "";
-    connection.setEncoding("utf8");
-    connection.on("data", chunk => {
-      buffer += chunk;
-      for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
-        const request = JSON.parse(buffer.slice(0, end));
-        buffer = buffer.slice(end + 1);
-        heard.push(request);
-        const reply =
-          request.op === "headless.list"
-            ? {
-                ok: true,
-                sessions: [
-                  { id: 7, persist: true },
-                  { id: 8, persist: false },
-                ],
-              }
-            : { ok: true, request_id: request.request_id };
-        connection.write(JSON.stringify(reply) + "\n");
-      }
-    });
-  });
+  const answer = (request: any) => {
+    heard.push(request);
+    return request.op === "headless.list"
+      ? {
+          ok: true,
+          sessions: [
+            { id: 7, persist: true },
+            { id: 8, persist: false },
+          ],
+        }
+      : { ok: true, request_id: request.request_id };
+  };
+  const server = websocket_server.createServer(
+    connection => {
+      let buffer = "";
+      connection.on("data", (chunk: Buffer) => {
+        buffer += chunk;
+        for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
+          const request = JSON.parse(buffer.slice(0, end));
+          buffer = buffer.slice(end + 1);
+          connection.write(Buffer.from(JSON.stringify(answer(request)) + "\n"));
+        }
+      });
+    },
+    // The chat hears from `corgi memory` over HTTP.
+    async request => Response.json(answer(await request.json())),
+  );
   await new Promise<void>(resolve => server.listen(socket, resolve));
   const root = spyOn(Memory, "root").mockReturnValue(join(dir, "memory")),
     out = spyOn(process.stdout, "write").mockImplementation(() => true);
   try {
-    await run(socket, ["memory", "add", "--chat", "7", "Ships on Fridays"]);
+    await run(new rpc_http.Client(socket), ["memory", "add", "--chat", "7", "Ships on Fridays"]);
     const log = readdirSync(join(dir, "memory")).find(f => f.endsWith(".md"))!;
     expect(readFileSync(join(dir, "memory", log), "utf8")).toBe("- Ships on Fridays\n");
     expect(heard.find(r => r.op === "headless.memory")).toMatchObject({ id: 7, line: "- Ships on Fridays" });
     // An incognito chat's only reads; after `--` it's the line's own text.
-    await expect(run(socket, ["memory", "add", "--chat", "8", "a secret"])).rejects.toThrow("MemoryReadOnly");
-    await expect(run(socket, ["memory", "add", "--chat", "x", "y"])).rejects.toThrow("Usage");
-    await run(socket, ["memory", "add", "--", "--chat", "8"]);
+    await expect(run(new rpc_http.Client(socket), ["memory", "add", "--chat", "8", "a secret"])).rejects.toThrow(
+      "MemoryReadOnly",
+    );
+    await expect(run(new rpc_http.Client(socket), ["memory", "add", "--chat", "x", "y"])).rejects.toThrow("Usage");
+    await run(new rpc_http.Client(socket), ["memory", "add", "--", "--chat", "8"]);
     expect(readFileSync(join(dir, "memory", log), "utf8")).toBe("- Ships on Fridays\n- --chat 8\n");
   } finally {
     out.mockRestore();
@@ -484,7 +491,7 @@ test("an incognito prompt session's memory commands only read", async () => {
       ["memory", "add", "a secret"],
       ["memory", "forget", "MEMORY.md:1"],
     ])
-      await expect(run("/missing-corgi-memory-test.sock", args)).rejects.toThrow("MemoryReadOnly");
+      await expect(run(new rpc_http.Client("/missing-corgi-memory-test.sock"), args)).rejects.toThrow("MemoryReadOnly");
   } finally {
     if (before === undefined) delete process.env.CORGI_MEMORY;
     else process.env.CORGI_MEMORY = before;

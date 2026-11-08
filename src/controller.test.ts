@@ -40,7 +40,6 @@ import * as subprocess from "./subprocess";
 /** A controller with no daemon: these tests send no requests. */
 function controller(): any {
   const s: any = new Controller({
-    socket: "",
     request: transport(async () => {
       throw Error("UnexpectedRequest");
     }).request,
@@ -571,7 +570,6 @@ for (const archived of [false, true])
     }
     const sent: any[] = [];
     const s: any = new Controller({
-      socket: "",
       request: transport(async (op, fields: any) => {
         if (op !== "session.command") return snapshot;
         sent.push(fields.command);
@@ -985,7 +983,6 @@ test.each([false, true])("empty viewers ignore the legacy detach flag (%s)", asy
 test("the launcher reopens on the row from before a terminal", async () => {
   const snapshot = folders("/src/app");
   const s: any = new Controller({
-    socket: "",
     request: transport(async op => (op === "session.command" ? { result: { pane: 1 } } : snapshot)).request,
   });
   s.receiveSnapshot(snapshot);
@@ -1068,7 +1065,6 @@ test("Copy details stays available before the session is identified", async () =
 test("an agent marked unread stays unread in view until focus moves onto it", async () => {
   const sent: [string, any][] = [];
   const s: any = new Controller({
-    socket: "",
     request: transport(async (op, fields) => {
       sent.push([op, fields]);
       return { ok: true };
@@ -1157,7 +1153,6 @@ test("change folder works in a terminal too short for the folder list", async ()
   snapshot.workspaces[0].name = "app";
   const commands: any[] = [];
   const s: any = new Controller({
-    socket: "",
     request: transport(async (op, fields) => {
       if (op !== "session.command") return snapshot;
       commands.push(protocol.decode("session.command", fields).command);
@@ -1197,7 +1192,6 @@ test("change folder browses from the workspace's folder and moves it there", asy
   snapshot.workspaces[1].name = "custom";
   const commands: any[] = [];
   const s: any = new Controller({
-    socket: "",
     request: transport(async (op, fields) => {
       if (op !== "session.command") return snapshot;
       commands.push(protocol.decode("session.command", fields).command);
@@ -1282,7 +1276,6 @@ test("open adds a workspace for a folder no workspace is on", async () => {
   const commands: any[] = [];
   let snapshot = folders("/a");
   const s = new Controller({
-    socket: "",
     request: transport(async (op, fields) => {
       if (op !== "session.command") return snapshot;
       commands.push(protocol.decode("session.command", fields).command);
@@ -1810,7 +1803,6 @@ test("the launcher names a new worktree, then adds it before starting the agent 
   const sent: [string, any][] = [];
   let refuse: string | null = "BranchExists";
   const s: any = new Controller({
-    socket: "",
     request: transport(async (op, fields) => {
       sent.push([op, fields]);
       if (op === "worktree.add" && refuse) return { err: refuse };
@@ -1908,7 +1900,6 @@ test("the launcher names a new worktree, then adds it before starting the agent 
 function recording(snapshot: any, fail?: (command: any) => string | undefined) {
   const sent: any[] = [];
   const s: any = new Controller({
-    socket: "",
     request: transport(async (op, fields: any) => {
       if (op !== "session.command") return snapshot;
       sent.push(fields.command);
@@ -2425,7 +2416,7 @@ test("the launcher lights the checkout it starts agents in, as the overview ligh
       stale: false,
     },
   });
-  const s: any = new Controller({ socket: "", request: transport(async () => snapshot).request });
+  const s: any = new Controller({ request: transport(async () => snapshot).request });
   s.receiveSnapshot(snapshot);
   s.openLauncher(true, "/src/app-topic");
   expect(s.spotlight()).toEqual({ workspace: 1, path: "/src/app-topic" });
@@ -2501,7 +2492,7 @@ test("an agent's review and the launcher's Where read the checkout the list puts
         stale: false,
       },
     });
-  const s: any = new Controller({ socket: "", request: transport(async () => snapshot).request });
+  const s: any = new Controller({ request: transport(async () => snapshot).request });
   const placed = () => s.running.map((o: launcherResume.Open) => [o.session, o.folder]);
   s.receiveSnapshot(snapshot);
   expect(s.reviewTarget().cwd).toBe("/src/app");
@@ -2563,7 +2554,6 @@ test("a worktree's menu shows its diff line and opens its folder in a waiting sh
   const sent: [string, any][] = [];
   let waiting: number[] = [];
   const s: any = new Controller({
-    socket: "",
     request: transport(async (op, fields) => {
       sent.push([op, fields]);
       if (op === "pane.idle")
@@ -2699,7 +2689,6 @@ test("the agent menu's diff line is read ahead for the focused agent, its neighb
 test("setup requests models as soon as Clever Corgi is visible without waiting for discovery", async () => {
   const requests: protocol.Op[] = [],
     s = new Controller({
-      socket: "",
       request: transport(async op => {
         requests.push(op);
         if (op === "inference.configure") return new Promise(() => {});
@@ -3194,7 +3183,6 @@ test("presses on one pane cell within the double-click window count up to three"
 test("the card takes its conversation back only when the daemon refuses the pane", async () => {
   const snapshot = folders("/a");
   const s: any = new Controller({
-    socket: "",
     request: transport(async op => (op === "session.command" ? { err: "NoWorkspace" } : snapshot)).request,
   });
   s.receiveSnapshot(snapshot);
@@ -3550,7 +3538,6 @@ function picking() {
   const reply = { shown: "hello" };
   const asks: any[] = [];
   const s: any = new Controller({
-    socket: "",
     request: transport(async (op, fields) => {
       // A sync sees nothing new, and focus changes are accepted.
       if (op === "viewer.sync" || op === "session.command") return { ok: true, viewer_protocol: 4 };
@@ -3743,7 +3730,6 @@ test("a drag past its pane's edges asks for the pane's edge cells", async () => 
 test("a pick answered after its pane closed changes nothing", async () => {
   const answers: (() => void)[] = [];
   const s: any = new Controller({
-    socket: "",
     request: transport(async op => {
       if (op !== "viewer.pick") throw Error("UnexpectedRequest");
       return new Promise(resolve =>
@@ -4053,7 +4039,6 @@ test("a double-click opens no field on a headless row or an agent that refuses t
 test("a drag keeps one pick out and copies the answer for where it ended", async () => {
   const asks: { to_x: number | null; answer: (copy: string) => void }[] = [];
   const s: any = new Controller({
-    socket: "",
     request: transport(async (op, fields: any) => {
       if (op !== "viewer.pick") throw Error("UnexpectedRequest");
       return new Promise(resolve =>
@@ -4136,7 +4121,6 @@ test("only a double-click on the name renames, not one elsewhere on the row", as
 function linking() {
   const url = "https://example.com/hello";
   const s: any = new Controller({
-    socket: "",
     request: transport(async op => {
       throw Error(op === "viewer.pick" ? "UnknownOperation" : "UnexpectedRequest");
     }).request,
@@ -4337,7 +4321,6 @@ test("Esc calls off a retry still waiting, and goes to the agent once the retry 
     snapshot: any = pair();
   snapshot.panes[0].agent = { ...snapshot.panes[0].agent, provider: "codex", state: "working", retry_at: 60_000 };
   const s: any = new Controller({
-    socket: "",
     request: transport(async (op, fields) => {
       calls.push([op, fields]);
       return {};
@@ -4505,7 +4488,6 @@ test("the prompt offers the other workspaces with what they hold, and an attache
 test("the prompt offers the workspace's panes, the selection and the diff, and reads what they hold", async () => {
   const commands: unknown[] = [];
   const s: any = new Controller({
-    socket: "",
     request: transport(async (op, fields: any) => {
       if (op !== "session.command") throw Error("UnexpectedRequest");
       commands.push(fields.command);
@@ -4598,7 +4580,6 @@ test("a reloaded viewer goes on with its own prompt session; another viewer's st
   ];
   const viewers = (count: number) => {
     const s: any = new Controller({
-      socket: "",
       request: transport(async op => {
         if (op === "viewer.list") return { viewers: Array.from({ length: count }, (_, i) => ({ id: i + 1 })) };
         throw Error("UnexpectedRequest");
@@ -4881,15 +4862,13 @@ test.each([
 test("a viewer finds agents the first time it opens Manage agents, and again from Find agents", async () => {
   const asked: unknown[] = [],
     snapshot = folders("/src/app");
-  let refuse = false;
   let finish!: () => void;
   const s: any = new Controller({
-    socket: "",
     request: transport(async (op, fields) => {
       if (op === "agent.discover") {
         asked.push(fields);
         if (asked.length === 2) await new Promise<void>(resolve => (finish = resolve));
-        return refuse ? { err: "UnknownOperation" } : { ok: true };
+        return { ok: true };
       }
       if (op === "session.command") return { result: { pane: 1 } };
       return snapshot;
@@ -4933,24 +4912,6 @@ test("a viewer finds agents the first time it opens Manage agents, and again fro
     await settle();
     expect(launch.finding).toBe(false);
     expect(asked).toHaveLength(2);
-    // An older daemon can't, so the button goes, until Manage agents opens
-    // again: the daemon may have reloaded since.
-    refuse = true;
-    setSystemTime(new Date(2000));
-    await s.manageAction({ kind: "find" });
-    await settle();
-    expect(launch.finding).toBeNull();
-    expect(asked).toHaveLength(3);
-    refuse = false;
-    setSystemTime(new Date(2500));
-    s.closeLauncher();
-    await s.expireInput();
-    launch = await openManagement(s, "launcher");
-    await settle();
-    expect(asked).toHaveLength(4);
-    setSystemTime(new Date(2700));
-    await s.expireInput();
-    expect(launch.finding).toBe(false);
   } finally {
     setSystemTime();
     viewer.close(s);
@@ -4996,7 +4957,6 @@ test.each([
 test("startup waits open from the shared banner and cancel the selected task through the daemon", async () => {
   const requests: unknown[] = [],
     view = new Controller({
-      socket: "",
       request: transport(async (op, fields) => {
         requests.push({ op, fields });
         return { ok: true };
@@ -5133,7 +5093,6 @@ test("Escape while a save is in flight closes the field; the late failure neithe
   let release!: () => void;
   const gate = new Promise<void>(resolve => (release = resolve));
   const s: any = new Controller({
-    socket: "",
     request: transport(async (op, fields: any) => {
       if (op !== "session.command") return pair();
       if (fields.command["agent.rename"]?.name !== undefined) {

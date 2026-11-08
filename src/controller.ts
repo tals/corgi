@@ -420,7 +420,7 @@ export class Controller {
   /** The launcher row last left selected in any workspace. */
   launcher_selection: LauncherRow | null = null;
   /** Whether this viewer has asked the daemon to find agents yet, or can't. */
-  private find_agents: "not_yet" | "asked" | "unsupported" = "not_yet";
+  private find_agents: "not_yet" | "asked" = "not_yet";
   private finding_agents: Promise<void> | null = null;
   private finding_agents_until = 0;
   private was_managing = false;
@@ -3331,8 +3331,7 @@ export class Controller {
     return this.agent_launcher ?? this.corgi_setup?.agents ?? null;
   }
   /** Asks the daemon to find agents afresh, as Find agents does, and the
-   * first time this viewer opens Manage agents. An older daemon can't, and
-   * the button goes. */
+   * first time this viewer opens Manage agents. */
   private findAgents(): void {
     const now = milliTimestamp();
     if (this.finding_agents || now < this.finding_agents_until) return;
@@ -3342,10 +3341,7 @@ export class Controller {
       cwd: this.launcherModel()?.cwd ?? "",
     })
       .then(() => undefined)
-      .catch(error => {
-        // XXX: Remove for next protocol bump. An older daemon refuses agent.discover.
-        if (errors.is(error, "UnknownOperation")) this.find_agents = "unsupported";
-      })
+      .catch(() => {})
       .finally(() => {
         this.finding_agents = null;
         this.dirty = true;
@@ -4701,9 +4697,9 @@ export class Controller {
     return {
       call: (op, payload) => call(this.connection, op as Op, payload as never),
       start: async payload => {
-        const socket = this.connection.socket,
-          reply = socket
-            ? await rpc.request(socket, "headless.start", payload as never)
+        const daemon = this.connection.daemon,
+          reply = daemon
+            ? await daemon.call("headless.start", payload as never)
             : await call(this.connection, "headless.start", payload as never),
           provider = Provider.parse(reply.provider);
         if (!provider || typeof reply.session !== "string") throw Error("InvalidReply");
@@ -7949,8 +7945,7 @@ export class Controller {
     const launch = this.agent_launcher;
     if (launch?.transition.tick(milliTimestamp())) this.dirty = true;
     const model = this.launcherModel();
-    // Opening Manage agents looks for agents once per viewer, and again while
-    // the daemon couldn't, as one reloaded since may.
+    // Opening Manage agents looks for agents once per viewer.
     const opened = !!model?.managing && !this.was_managing;
     this.was_managing = !!model?.managing;
     if (model?.managing) {
@@ -7958,10 +7953,7 @@ export class Controller {
         this.find_agents = "asked";
         this.findAgents();
       }
-      const finding =
-        this.find_agents === "unsupported"
-          ? null
-          : this.finding_agents !== null || milliTimestamp() < this.finding_agents_until;
+      const finding = this.finding_agents !== null || milliTimestamp() < this.finding_agents_until;
       if (finding || model.finding !== finding) this.dirty = true;
       model.finding = finding;
     }

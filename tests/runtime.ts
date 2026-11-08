@@ -3,7 +3,9 @@ import { colors } from "../src/palette";
 import { adapter, type Provider } from "../src/providers";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { EXE, ROOT, TestCase, JsonSocket, run, sleep, tempDir, quote, versioned, writeExecutable } from "./support";
+import { EXE, ROOT, TestCase, run, sleep, tempDir, quote, versioned, writeExecutable } from "./support";
+import * as rpc from "../src/rpc";
+import * as rpc_http from "../src/rpc_http";
 import { Viewer, pump } from "./viewer_client";
 import { NATIVE_PROVIDER, write_ordinary_agent } from "./provider_sim";
 import { Scope } from "../scripts/process_scope";
@@ -124,6 +126,8 @@ export function running(pid: number) {
 export class Runtime extends TestCase {
   temp!: ReturnType<typeof tempDir>;
   path!: string;
+  /** The daemon at `path`, one HTTP request at a time. */
+  http!: rpc_http.Client;
   env!: Record<string, string | undefined>;
   extraEnv: Record<string, string | undefined> = {};
   client: Viewer | null = null;
@@ -133,14 +137,16 @@ export class Runtime extends TestCase {
   private started = false;
   private scope: Scope | null = null;
   // Private names: subclasses define their own `calls()` and `call()`.
-  #calls: JsonSocket | null = null;
-  #callsSent = 0;
   #callQueue: Promise<unknown> = Promise.resolve();
-  #changes: JsonSocket | null = null;
+  #changes: rpc.Connection | null = null;
+  /** Session pushes since the last wait for one. */
+  #pushes = 0;
+  #pushed: (() => void) | null = null;
   async setUp() {
     this.scope = await Scope.start();
     this.temp = tempDir();
     this.path = join(this.temp.name, "control.sock");
+    this.http = new rpc_http.Client(this.path);
     const fake = writeExecutable(join(this.temp.name, "provider"), FAKE);
     this.env = {
       ...this.scope.env,
@@ -244,8 +250,6 @@ export class Runtime extends TestCase {
     return (await run([EXE, ...args], { env: this.env, cwd: this.temp.name })).stdout;
   }
   #disconnect() {
-    this.#calls?.close();
-    this.#calls = null;
     this.#changes?.close();
     this.#changes = null;
   }
@@ -253,48 +257,47 @@ export class Runtime extends TestCase {
   async #changed(ms: number) {
     const end = performance.now() + ms;
     try {
-      if (!this.#changes || this.#changes.closed) {
-        const socket = await JsonSocket.connect(this.path);
+      if (!this.#changes || this.#changes.disconnected) {
+        const changes = new rpc.Connection(this.path, { timeout_ms: ms });
+        changes.onEvent(event => {
+          if (event.type !== "session") return;
+          this.#pushes++;
+          this.#pushed?.();
+        });
         // Another wait may have subscribed meanwhile.
-        if (this.#changes && !this.#changes.closed) socket.close();
+        if (this.#changes && !this.#changes.disconnected) changes.close();
         else {
-          socket.send(versioned({ op: "session.subscribe" }));
-          this.#changes = socket;
+          this.#changes = changes;
+          this.#pushes = 0;
+          await changes.rawRequest(versioned({ op: "session.subscribe" }));
+          return;
         }
       }
-      // A push is only a wakeup: skip parsing it, and pushes since the last
-      // wait mean the state has already changed.
-      const lines = this.#changes.lines;
-      if (!lines.discard()) await lines.next(ms);
-      return;
+      // A push is only a wakeup, and pushes since the last wait mean the
+      // state has already changed.
+      if (this.#pushes) {
+        this.#pushes = 0;
+        return;
+      }
+      const pushed = Promise.withResolvers<void>(),
+        unwatch = this.#changes.onClose(pushed.resolve);
+      this.#pushed = pushed.resolve;
+      // A push ends the wait; without one, it times out.
+      const timer = setTimeout(pushed.resolve, ms);
+      await pushed.promise;
+      clearTimeout(timer);
+      this.#pushed = null;
+      unwatch();
+      this.#pushes = 0;
+      if (!this.#changes.disconnected) return;
     } catch {}
     // No daemon to subscribe to (stopped or restarting): wait out the rest.
     await sleep(Math.max(0, end - performance.now()) / 1000);
   }
-  async #connection() {
-    // The daemon drops a connection 5 s after its last request; replace it
-    // before then so a request never races the close.
-    if (!this.#calls || this.#calls.closed || performance.now() - this.#callsSent > 4000) {
-      this.#disconnect();
-      this.#calls = await JsonSocket.connect(this.path);
-    }
-    this.#callsSent = performance.now();
-    return this.#calls;
-  }
-  /** Like `corgi rpc`, with the versions its op carries: a reply with `err` throws. Calls share one kept connection, in order. */
+  /** Like `corgi rpc`, with the versions its op carries: a reply with `err` throws. Calls go one at a time, in order, each its own HTTP request, which a daemon of any build answers. */
   #call(value: any): Promise<any> {
     const result = this.#callQueue.then(async () => {
-      // The replacement daemon answers a reload, so it gets a connection of its own.
-      const kept = value.op !== "server.reload";
-      const socket = kept ? await this.#connection() : await JsonSocket.connect(this.path);
-      let reply: any;
-      try {
-        socket.send(versioned(value));
-        reply = await socket.read(8000);
-      } finally {
-        // A late reply must not answer the next request.
-        if (!kept || reply === undefined) socket.close();
-      }
+      const reply: any = await this.http.post(versioned(value), value.op === "server.reload" ? 30_000 : 8000);
       if (reply.err) throw new Error(`rpc ${JSON.stringify(value)}: ${reply.err}`);
       return reply;
     });
@@ -340,13 +343,8 @@ export class Runtime extends TestCase {
       })
     ).result;
   }
-  async raw_rpc(value: any) {
-    const socket = await JsonSocket.connect(this.path);
-    try {
-      return await socket.request(versioned(value));
-    } finally {
-      socket.close();
-    }
+  raw_rpc(value: any): Promise<any> {
+    return this.http.post(versioned(value), 8000);
   }
   session() {
     return this.rpc({ op: "session.snapshot" });

@@ -28,17 +28,17 @@ const snapshot = () => ({
   headless_sessions: [],
 });
 import { run } from "./main";
-import * as rpc from "./rpc";
+import * as rpc_http from "./rpc_http";
 import * as preferences from "./preferences";
 
 test("onboard inside a pane routes the viewer action without requiring a terminal", async () => {
   const previous = process.env.CORGI_PANE;
   process.env.CORGI_PANE = "7";
-  const request = spyOn(rpc, "request").mockResolvedValue({ ok: true });
+  const request = spyOn(rpc_http.Client.prototype, "call").mockResolvedValue({ ok: true });
   const output = spyOn(process.stdout, "write").mockReturnValue(true);
   try {
     await run(["onboard"]);
-    expect(request.mock.calls[0]?.slice(1)).toEqual(["action", { name: "onboard", pane: 7 }]);
+    expect(request.mock.calls[0]).toEqual(["action", { name: "onboard", pane: 7 }]);
   } finally {
     request.mockRestore();
     output.mockRestore();
@@ -53,7 +53,6 @@ test("explicit onboarding opens again after preferences say it was completed", a
   const load = spyOn(preferences, "load").mockReturnValue(prefs);
   const calls: any[] = [];
   const view = new Controller({
-    socket: "",
     request: transport(async (op, fields) => {
       calls.push({ op, fields });
       return { viewer_protocol: protocol.viewer_version, workspace: 1, bell_seq: 0 };
@@ -74,7 +73,6 @@ test("explicit onboarding opens again after preferences say it was completed", a
 
 test("a relaunch control exits sync with its executable before acknowledgement", async () => {
   const view = new Controller({
-    socket: "",
     request: transport(async () => ({
       viewer_protocol: protocol.viewer_version,
       session: null,

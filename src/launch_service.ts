@@ -176,7 +176,7 @@ export function publish(server: Server, client: Client) {
   const subscription = client.launch_preview;
   if (!subscription) return;
   const s = service(server);
-  if (!subscription || !s || client.dead || client.output.length || Date.now() - subscription.checked < 100) return;
+  if (!subscription || !s || client.dead || client.queued > 0 || Date.now() - subscription.checked < 100) return;
   subscription.checked = Date.now();
   if (subscription.history_asked) {
     s.startHistory(removed(server.runtime));

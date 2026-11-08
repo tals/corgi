@@ -6,10 +6,10 @@ import { Provider, adapter } from "./providers";
 import type { IntegrationStepResult } from "./providers/adapter";
 import { atomicWrite } from "./os";
 import * as discovery from "./discovery";
-import * as rpc from "./rpc";
+import type * as rpc_http from "./rpc_http";
 import * as accounts from "./accounts";
 import * as i18n from "./i18n";
-export async function hook(provider: Provider, path: string): Promise<void> {
+export async function hook(provider: Provider, daemon: rpc_http.Client): Promise<void> {
   const id = Number(process.env.CORGI_PANE);
   if (!Number.isInteger(id) || id < 0 || id > 0xffffffff) return;
   const parts: Buffer[] = [];
@@ -30,7 +30,7 @@ export async function hook(provider: Provider, path: string): Promise<void> {
     origin = a.origin ? a.origin(event) : { pid: 0, background: false };
   if (!origin) return;
   try {
-    await rpc.request(path, "hook", {
+    await daemon.call("hook", {
       provider,
       event,
       pane: id,
@@ -40,9 +40,9 @@ export async function hook(provider: Provider, path: string): Promise<void> {
     });
   } catch {}
 }
-export async function launch(provider: Provider, args: string[], _executable: string): Promise<never> {
+export async function launch(provider: Provider, args: string[], daemon: rpc_http.Client): Promise<never> {
   if (process.env.CORGI_PANE === undefined) throw Error("LaunchInsideCorgi");
-  const progress = new Reporter(provider, Number(process.env.CORGI_PANE), process.env.CORGI_SOCKET!);
+  const progress = new Reporter(provider, Number(process.env.CORGI_PANE), daemon.socket);
   let binary: string, path: string | null;
   try {
     // Like execvp: a bare name (Claude, or an override) is looked up on PATH.
@@ -58,7 +58,7 @@ export async function launch(provider: Provider, args: string[], _executable: st
       args = prepared.args;
       for (const [key, value] of prepared.env ?? []) process.env[key] = value;
       if (prepared.event)
-        await rpc.request(process.env.CORGI_SOCKET!, "hook", {
+        await daemon.call("hook", {
           provider,
           event: prepared.event,
           pane: Number(process.env.CORGI_PANE),

@@ -146,37 +146,39 @@ test("migration steps import only std", () => {
   const source = readFileSync(new URL("./steps.ts", import.meta.url), "utf8");
   expect(source).not.toMatch(/(?:from|import\s*\()\s*["']\./);
 });
+/** A handoff migrated to format 6, the last that hands over clients. */
+function clientsOf(value: any) {
+  for (let i = value.version - 1; i < 5; i++) steps.handoff[i](value);
+  return value.clients;
+}
 test("handoff keeps only the metered fact from launcher usage text", () => {
-  const result = decode(
-    "handoff",
-    JSON.stringify({
-      version: 2,
-      runtime: { version: 4 },
-      clients: [
-        {
-          launch_preview: {
-            preview: {
-              options: [
-                {
-                  usage: { bytes: "Metered", len: 7 },
-                  usage_metered: true,
-                  resets: {},
-                },
-                {
-                  usage: { bytes: "5h 12%", len: 6 },
-                  usage_metered: false,
-                  resets: { at: [100, null] },
-                  usage_fetched_at: 9,
-                },
-              ],
-            },
+  const clients = clientsOf({
+    version: 2,
+    runtime: { version: 4 },
+    clients: [
+      {
+        launch_preview: {
+          preview: {
+            options: [
+              {
+                usage: { bytes: "Metered", len: 7 },
+                usage_metered: true,
+                resets: {},
+              },
+              {
+                usage: { bytes: "5h 12%", len: 6 },
+                usage_metered: false,
+                resets: { at: [100, null] },
+                usage_fetched_at: 9,
+              },
+            ],
           },
         },
-        { launch_preview: null },
-      ],
-    }),
-  );
-  const options = result.value.clients[0].launch_preview.preview.options;
+      },
+      { launch_preview: null },
+    ],
+  });
+  const options = clients[0].launch_preview.preview.options;
   expect(options.codex.limits).toEqual({ metered: {} });
   expect(options.claude.limits).toBeUndefined();
   expect(options.claude.usage_fetched_at).toBe(9);
@@ -188,19 +190,20 @@ test("handoff spend cells from before running totals are cleared", () => {
     { minor: 1918, earlier: false },
     { minor: null, earlier: true },
   ];
-  const handoff = (spend_history: unknown) =>
-    JSON.stringify({
-      version: 5,
-      runtime: { version: checkpoint_version },
-      clients: [{ launch_preview: { preview: { options: { codex: { spend_history } } } } }],
-    });
-  const result = decode("handoff", handoff(cells));
-  expect(result.value.version).toBe(handoff_version);
-  expect(result.value.clients[0].launch_preview.preview.options.codex.spend_history).toEqual([
+  const handoff = (spend_history: unknown) => ({
+    version: 5,
+    runtime: { version: checkpoint_version },
+    clients: [{ launch_preview: { preview: { options: { codex: { spend_history } } } } }],
+  });
+  expect(clientsOf(handoff(cells))[0].launch_preview.preview.options.codex.spend_history).toEqual([
     { minor: null, earlier: false },
     { minor: null, earlier: true },
   ]);
-  expect(() => decode("handoff", handoff({ minor: 1918 }))).toThrow("InvalidCheckpoint");
+  expect(() => clientsOf(handoff({ minor: 1918 }))).toThrow("InvalidCheckpoint");
+  // Format 7 hands over no clients; a format-6 sender's are retired.
+  const current = decode("handoff", JSON.stringify(handoff(cells))).value;
+  expect(current.version).toBe(handoff_version);
+  expect(current).not.toHaveProperty("clients");
 });
 test("each released step still produces its golden output", () => {
   for (const kind of ["checkpoint", "handoff", "workspaces"] as const)

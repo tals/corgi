@@ -12,6 +12,7 @@ import { version as wire_version, type View as WireView, type Control, type Requ
 import type { Server } from "./server";
 import { Reply, type Client } from "./peer";
 import type { Snapshot as Resources } from "./trackers/resources";
+import * as viewer_stream from "./viewer_stream";
 export type { Control } from "./protocol";
 export type View = WireView<ReturnType<typeof session.viewerSnapshot>, Resources>;
 export interface Interest {
@@ -47,7 +48,7 @@ export function validateInterests(interests: Interest[]) {
   }
 }
 export async function open(s: Server, cl: Client, q: Open, reply = new Reply(cl)) {
-  if (cl.subscribed || cl.launch_preview != null || cl.viewer) throw new Error("AlreadyAttached");
+  if (cl.subscribed || cl.launch_preview != null || cl.viewer || cl.watching) throw new Error("AlreadyAttached");
   const initial = s.initialWorkspace();
   if (initial && s.runtime.panes.length === 0 && initial.model.count === 0) {
     const starter = s.default_folder_pending;
@@ -115,78 +116,199 @@ function viewport(value: bigint | null): number | null {
 export async function sync(s: Server, cl: Client, q: Sync, reply = new Reply(cl)) {
   const telemetry_started = telemetry.begin();
   try {
-    if (!cl.viewer) throw new Error("NotAttached");
-    const interests: Interest[] = q.interests.map(i => ({
-      ...i,
-      offset: viewport(i.offset),
-      known: i.known ? { ...i.known, offset: viewport(i.known.offset) } : null,
-    }));
-    validateInterests(interests);
-    if (q.ack >= cl.next_control || q.ack < cl.last_control) throw new Error("InvalidAcknowledgement");
-    cl.controls = cl.controls.filter(c => c.seq > q.ack);
-    cl.last_control = q.ack;
-    cl.interests = interests.filter(i => s.runtime.pane(i.pane) !== null);
-    const before = cl.view_focus;
-    cl.view_focus = cl.interests.some(i => i.pane === q.focus) ? q.focus : null;
-    cl.watched = q.watched;
-    cl.resources = q.resources;
-    cl.resource_detail =
-      q.resource_detail !== null && s.runtime.workspaces.get(q.resource_detail) ? q.resource_detail : null;
-    cl.worktree_detail =
-      q.worktree_detail !== null && s.runtime.workspaces.get(q.worktree_detail) ? q.worktree_detail : null;
-    if (q.active) {
-      cl.active_seq = ++s.next_active;
-      cl.input_at = Date.now();
-    }
-    if (s.runtime.workspaces.index(q.workspace) !== null) cl.view_workspace = q.workspace;
-    if (cl.watched) {
-      s.visitWorkspace(cl.view_workspace);
-      if (s.preferred_workspace !== cl.view_workspace) {
-        s.preferred_workspace = cl.view_workspace;
-        await s.saveWorkspaces();
-      }
-      // Only a move counts, so two watched viewers don't trade it every sync.
-      const ws = s.runtime.workspaces.get(cl.view_workspace);
-      if (
-        ws &&
-        cl.view_focus !== null &&
-        cl.view_focus !== before &&
-        ws.focus !== cl.view_focus &&
-        ws.model.tabForPane(cl.view_focus) !== null
-      ) {
-        ws.focus = cl.view_focus;
-        s.runtime.wrote();
-      }
-    }
-    await resize(s);
-    const bucket = Math.floor(microTimestamp() / 5e6),
-      rebuild =
-        cl.session_shown !== s.runtime.shown || cl.session_bucket !== bucket || q.session_hash !== cl.session_hash;
-    let snapshot: View["session"] = null;
-    if (rebuild) {
-      snapshot = session.viewerSnapshot(s.runtime);
-      cl.session_hash = hash(stringify(snapshot));
-      cl.session_shown = s.runtime.shown;
-      cl.session_bucket = bucket;
-    }
-    const { readings, hash: resourcesHash } = resourceView(s.runtime.resources.current, cl.resource_detail);
-    const view: View = {
-      type: "view",
-      viewer_protocol: version,
-      session: q.session_hash === cl.session_hash ? null : (snapshot ?? session.viewerSnapshot(s.runtime)),
-      session_hash: cl.session_hash,
-      resources: q.resources_hash === resourcesHash ? null : readings,
-      resources_hash: resourcesHash,
-      surfaces: q.surfaces ? frames(s, cl) : [],
-      bell_seq: s.bell_seq,
-      bell_kind: s.last_bell_kind,
-      controls: cl.controls,
-      viewer: cl.viewer_id,
-      detach: false,
-    };
+    const view = await synchronize(s, cl, q);
     reply.send(view);
   } finally {
     telemetry.end("daemon.viewer_sync", telemetry_started);
+  }
+}
+export async function synchronize(s: Server, cl: Client, q: Sync) {
+  if (!cl.viewer) throw new Error("NotAttached");
+  const interests: Interest[] = q.interests.map(i => ({
+    ...i,
+    offset: viewport(i.offset),
+    known: i.known ? { ...i.known, offset: viewport(i.known.offset) } : null,
+  }));
+  validateInterests(interests);
+  if (q.ack >= cl.next_control || q.ack < cl.last_control) throw new Error("InvalidAcknowledgement");
+  cl.controls = cl.controls.filter(c => c.seq > q.ack);
+  cl.last_control = q.ack;
+  cl.interests = interests.filter(i => s.runtime.pane(i.pane) !== null);
+  prune(s, cl);
+  const before = cl.view_focus;
+  cl.view_focus = cl.interests.some(i => i.pane === q.focus) ? q.focus : null;
+  cl.watched = q.watched;
+  cl.resources = q.resources;
+  cl.resource_detail =
+    q.resource_detail !== null && s.runtime.workspaces.get(q.resource_detail) ? q.resource_detail : null;
+  cl.worktree_detail =
+    q.worktree_detail !== null && s.runtime.workspaces.get(q.worktree_detail) ? q.worktree_detail : null;
+  if (q.active) {
+    cl.active_seq = ++s.next_active;
+    cl.input_at = Date.now();
+  }
+  if (s.runtime.workspaces.index(q.workspace) !== null) cl.view_workspace = q.workspace;
+  if (cl.watched) {
+    s.visitWorkspace(cl.view_workspace);
+    if (s.preferred_workspace !== cl.view_workspace) {
+      s.preferred_workspace = cl.view_workspace;
+      await s.saveWorkspaces();
+    }
+    // Only a move counts, so two watched viewers don't trade it every sync.
+    const ws = s.runtime.workspaces.get(cl.view_workspace);
+    if (
+      ws &&
+      cl.view_focus !== null &&
+      cl.view_focus !== before &&
+      ws.focus !== cl.view_focus &&
+      ws.model.tabForPane(cl.view_focus) !== null
+    ) {
+      ws.focus = cl.view_focus;
+      s.runtime.wrote();
+    }
+  }
+  await resize(s);
+  return capture(s, cl, q.session_hash, q.resources_hash, q.surfaces);
+}
+function capture(
+  s: Server,
+  cl: Client,
+  session_hash: bigint | null,
+  resources_hash: bigint | null,
+  surfaces = true,
+): View {
+  const bucket = Math.floor(microTimestamp() / 5e6),
+    rebuild = cl.session_shown !== s.runtime.shown || cl.session_bucket !== bucket || session_hash !== cl.session_hash;
+  let snapshot: View["session"] = null;
+  if (rebuild) {
+    snapshot = session.viewerSnapshot(s.runtime);
+    cl.session_hash = hash(stringify(snapshot));
+    cl.session_shown = s.runtime.shown;
+    cl.session_bucket = bucket;
+  }
+  const { readings, hash: resourcesHash } = resourceView(s.runtime.resources.current, cl.resource_detail);
+  const view: View = {
+    type: "view",
+    viewer_protocol: version,
+    session: session_hash === cl.session_hash ? null : (snapshot ?? session.viewerSnapshot(s.runtime)),
+    session_hash: cl.session_hash,
+    resources: resources_hash === resourcesHash ? null : readings,
+    resources_hash: resourcesHash,
+    surfaces: surfaces ? frames(s, cl) : [],
+    bell_seq: s.bell_seq,
+    bell_kind: s.last_bell_kind,
+    controls: cl.controls,
+    viewer: cl.viewer_id,
+    detach: false,
+  };
+  return view;
+}
+/** Pane data has its own socket and codec, bound to the control connection's link. */
+export function data(s: Server, control: Client): Client | undefined {
+  return s.clients.find(client => client.stream_data && client.watch_viewer === control.viewer_id && !client.dead);
+}
+export function bindData(s: Server, cl: Client, id: string): number {
+  if (cl.viewer || cl.subscribed || cl.launch_preview || cl.link || cl.watching) throw Error("AlreadyAttached");
+  const control = s.clients.find(client => client.viewer && client.link?.id === id && !client.dead);
+  if (!control) throw Error("NoViewer");
+  control.cancelFrame();
+  control.stream = null;
+  data(s, control)?.close();
+  cl.watching = cl.stream_data = true;
+  cl.watch_viewer = control.viewer_id;
+  if (control.controls.length) control.queue({ type: "viewer.controls", controls: control.controls });
+  return control.viewer_id;
+}
+export async function configure(s: Server, cl: Client, q: Request<"viewer.stream.configure">): Promise<void> {
+  const output = data(s, cl);
+  if (!cl.viewer || !output) throw Error("NoViewerData");
+  const initial = await start(s, cl, q, true);
+  output.queue({ ...initial, type: "viewer.frame" }, cl.stream?.delivery);
+}
+/** Stream messages have their own envelope; they never consume an RPC reply. */
+export async function start(s: Server, cl: Client, q: Request<"viewer.stream">, separate = false) {
+  cl.cancelFrame();
+  cl.stream = null;
+  const view = await synchronize(s, cl, { ...q, surfaces: true });
+  if (separate) view.controls = [];
+  cl.stream = {
+    separate,
+    sequence: q.sequence,
+    session_hash: null,
+    resources_hash: null,
+    sent: 0,
+    wake: 0n,
+    delivery: q.incremental ? new viewer_stream.Frames() : undefined,
+  };
+  const encoded = cl.stream.delivery?.offer(view);
+  remember(cl, view, s.wakeSeq(cl.viewer_id));
+  return {
+    type: "viewer.stream" as const,
+    viewer_protocol: version,
+    sequence: q.sequence,
+    view: encoded?.view ?? view,
+    ...(encoded ? { frame: encoded.frame } : {}),
+  };
+}
+export function receipt(s: Server, cl: Client, q: Request<"viewer.receipt">): boolean {
+  if (!cl.viewer) throw Error("NotAttached");
+  if (cl.stream?.sequence !== q.sequence || !cl.stream.delivery) return false;
+  if (cl.stream.separate && !data(s, cl)) {
+    cl.stream = null;
+    return false;
+  }
+  if (q.active) {
+    cl.active_seq = ++s.next_active;
+    cl.input_at = Date.now();
+  }
+  cl.stream.delivery.acknowledge(q.frame);
+  publish(s, cl, s.wakeSeq(cl.viewer_id));
+  return true;
+}
+export function publish(s: Server, cl: Client, wake: bigint, now = Date.now(), scheduled = false): void {
+  const stream = cl.stream;
+  if (!stream || cl.dead || !cl.viewer) return;
+  const output = stream.separate ? data(s, cl) : cl;
+  if (!output) return;
+  if (stream.delivery && !stream.delivery.available) return;
+  if (stream.wake === wake && now - stream.sent < 250) return;
+  if (output.queued || now - stream.sent < 16 || (stream.separate && !scheduled)) {
+    output.deferFrame(stream.sent + 16, () => {
+      if (cl.stream === stream) publish(s, cl, wake, Date.now(), true);
+    });
+    return;
+  }
+  const view = capture(s, cl, stream.session_hash, stream.resources_hash);
+  if (stream.separate) view.controls = [];
+  prune(s, cl);
+  const encoded = stream.delivery?.offer(view);
+  if (stream.delivery && !encoded) return;
+  if (encoded?.probe) stream.sent = now;
+  else remember(cl, view, wake, now);
+  output.queue(
+    {
+      type: "viewer.frame",
+      sequence: stream.sequence,
+      view: encoded?.view ?? view,
+      ...(encoded ? { frame: encoded.frame } : {}),
+    },
+    stream.delivery,
+  );
+}
+/** Lets a stream forget the screens of panes the viewer stopped watching, or that closed. */
+function prune(s: Server, cl: Client): void {
+  cl.stream?.delivery?.keep(new Set(cl.interests.filter(i => s.runtime.pane(i.pane)).map(i => i.pane)));
+}
+export function remember(cl: Client, view: View, wake: bigint, now = Date.now()): void {
+  cl.cancelFrame();
+  if (!cl.stream) return;
+  cl.stream.sent = now;
+  cl.stream.wake = wake;
+  cl.stream.session_hash = view.session_hash;
+  cl.stream.resources_hash = view.resources_hash;
+  for (const frame of view.surfaces) {
+    const interest = cl.interests.find(i => i.pane === frame.surface.pane);
+    if (interest) interest.known = frame.stamp;
   }
 }
 function frames(s: Server, cl: Client): surface.View[] {
@@ -316,6 +438,7 @@ export function viewerShowing(s: Server, pane: number) {
 export function queue(s: Server, target: Client, value: Omit<Control, "seq">) {
   if (target.controls.length >= 64) throw new Error("ViewerBusy");
   target.controls.push({ ...value, seq: target.next_control++ });
+  if (data(s, target)) target.queue({ type: "viewer.controls", controls: target.controls });
   s.dirty = true;
 }
 function send(s: Server, reply: Reply, target: Client, value: Omit<Control, "seq">) {

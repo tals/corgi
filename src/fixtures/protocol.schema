@@ -1,7 +1,8 @@
 $.envelope.request_id: optional
 $.envelope.request_id?: u64
 $.requests: one of
-$.requests|hello: {}
+$.requests|hello.accept_encoding: optional
+$.requests|hello.accept_encoding?[]: string
 $.requests|session.command.command: one of
 $.requests|session.command.command|layout.dock.workspace: u32
 $.requests|session.command.command|layout.dock.viewer: u32
@@ -923,6 +924,8 @@ $.replies.hello.build_id: string
 $.replies.hello.executable: string
 $.replies.hello.release_version: string
 $.replies.hello.update_abi: string
+$.replies.hello.content_encoding: optional
+$.replies.hello.content_encoding?: enum zstd
 $.replies.session.command.result.pane: u32
 $.replies.session.command.result.tab: u32
 $.replies.session.command.result.workspace: u32
@@ -1119,3 +1122,5 @@ $.snapshot.startup_waits[].phase: enum discovering service session installing ag
 $.snapshot.startup_waits[].detail: string
 $.snapshot.startup_waits[].started_at: i64
 $.snapshot.startup_waits[].cancelled: bool
+$.requests|viewer.stream: versioned protocol.Request.Sync
+$.requests|viewer.stream.sequence: u32

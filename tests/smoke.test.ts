@@ -2,7 +2,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, realpathSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { Runtime, EXE, PALETTE, screen_text, scrollbar, layout_tree, tab_row } from "./runtime";
-import { registerCase, run, sleep, quote, shellJoin, writeExecutable, JsonSocket, versioned } from "./support";
+import { registerCase, run, sleep, quote, shellJoin, writeExecutable, Events, lines, versioned } from "./support";
+import * as rpc from "../src/rpc";
+import * as websocket_socket from "../src/websocket_socket";
 import * as protocol from "../src/protocol";
 
 class Smoke extends Runtime {
@@ -49,19 +51,22 @@ class Smoke extends Runtime {
       );
     this.assertEqual((await this.raw_rpc({ op: "session.snapshot", protocol: undefined })).err, "ProtocolRequired");
     this.assertEqual((await this.session()).panes, []);
-    const socket = await JsonSocket.connect(this.path);
+    const socket = new websocket_socket.Socket(this.path),
+      replies = lines(socket);
+    // One untagged request at a time, written as is.
+    const request = async (value: unknown) => {
+      socket.write(JSON.stringify(value) + "\n");
+      return JSON.parse(await replies.next());
+    };
     try {
-      this.assertEqual((await socket.request(versioned({ op: "hello" }))).protocol, protocol.version);
-      this.assertEqual((await socket.request({ op: "session.snapshot" })).type, "session");
+      this.assertEqual((await request(versioned({ op: "hello" }))).protocol, protocol.version);
+      this.assertEqual((await request({ op: "session.snapshot" })).type, "session");
       for (const runtime_protocol of [1, 999, undefined]) {
-        this.assertEqual(
-          (await socket.request(versioned({ op: "hello", runtime_protocol }))).protocol,
-          protocol.version,
-        );
-        this.assertEqual((await socket.request({ op: "session.snapshot" })).err, "ProtocolRequired");
+        this.assertEqual((await request(versioned({ op: "hello", runtime_protocol }))).protocol, protocol.version);
+        this.assertEqual((await request({ op: "session.snapshot" })).err, "ProtocolRequired");
         this.assertEqual(
           (
-            await socket.request({
+            await request({
               op: "session.command",
               command: { "pane.create": { workspace: ws } },
             })
@@ -71,7 +76,7 @@ class Smoke extends Runtime {
       }
       this.assertEqual((await this.session()).panes, []);
     } finally {
-      socket.close();
+      socket.destroy();
     }
   }
   async test_runtime_operations_target_ids_without_changing_selection() {
@@ -184,15 +189,16 @@ class Smoke extends Runtime {
   }
   async test_runtime_subscription_survives_idle_and_receives_changes() {
     await this.open_pane({ command: "sleep 30" });
-    const socket = await JsonSocket.connect(this.path);
+    const socket = new rpc.Connection(this.path),
+      events = new Events(socket);
     try {
-      const initial = await socket.request(versioned({ op: "session.subscribe" }));
+      const initial: any = await socket.rawRequest(versioned({ op: "session.subscribe" }));
       this.assertEqual(initial.type, "session");
       await sleep(5.2);
       const pane = (await this.open_pane({ command: "sleep 30" })).pane;
       let update: any;
       for (let i = 0; i < 20; i++) {
-        update = await socket.read();
+        update = await events.next();
         if (update.panes.some((p: any) => p.id === pane)) break;
       }
       this.assertTrue(

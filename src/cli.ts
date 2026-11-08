@@ -1,5 +1,5 @@
 import { realpathSync, statSync } from "node:fs";
-import { Connection } from "./rpc";
+import * as rpc_http from "./rpc_http";
 import { stringify } from "./json";
 import { logicalKey } from "./keys";
 import { Provider, adapter } from "./providers";
@@ -519,7 +519,7 @@ export async function parse(words: string[], caller = 0, input?: () => Promise<s
 }
 /** `resume`'s target: a conversation, and where to show it. */
 export type Open = { provider: Provider; session: string; workspace: number | null; viewer: number | null };
-type Call = Pick<Connection, "call">;
+type Call = Pick<rpc_http.Client, "call">;
 /** Past conversations, newest first, once the daemon has read them. */
 export async function conversations(conn: Call, wait_ms = 5000): Promise<History["entries"]> {
   const until = Date.now() + wait_ms;
@@ -781,7 +781,7 @@ export function launcherText(workspaces: LauncherWorkspace[]): string {
 }
 /** Runs `launcher list`, or `hide` or `show`, which change one workspace and
  * then read back what it shows of the agents they name. */
-async function launcherCommand(conn: Connection, inv: any, caller: number): Promise<LauncherWorkspace[]> {
+async function launcherCommand(conn: Call, inv: any, caller: number): Promise<LauncherWorkspace[]> {
   const q = inv.launcher,
     before = (await conn.call("session.list")).result;
   const read = async (workspace: number) =>
@@ -947,25 +947,22 @@ export function read(text: string, lines: number, agent = false): string {
     header = more ? `[corgi: last ${lines} lines shown; --lines N reads more]\n` : "";
   return header + shown + (shown ? "\n" : "");
 }
-/** Runs a control command and prints its reply in words, or with `--json` as
- * the daemon sent it. */
 /** Whether prompt chat `chat` keeps memory. One that ended, or a Corgi
  * that doesn't answer, can't say it doesn't. */
-async function keepsMemory(path: string, chat: number): Promise<boolean> {
-  const conn = new Connection(path, { requestIds: false });
+async function keepsMemory(daemon: rpc_http.Client, chat: number): Promise<boolean> {
   try {
-    const reply: any = await conn.call("headless.list");
+    const reply: any = await daemon.call("headless.list");
     return (reply.sessions ?? []).find((s: any) => s?.id === chat)?.persist !== false;
   } catch {
     return true;
-  } finally {
-    conn.close();
   }
 }
-export async function run(path: string, args: string[], agent = false): Promise<void> {
+/** Runs a control command and prints its reply in words, or with `--json` as
+ * the daemon sent it. */
+export async function run(daemon: rpc_http.Client, args: string[], agent = false): Promise<void> {
   const group = args[0];
   if (group === "grep") {
-    await (await import("./grep_command")).run(args.slice(1), path);
+    await (await import("./grep_command")).run(args.slice(1), daemon);
     return;
   }
   if ((nested.has(group) && args.length === 1) || asksHelp(args)) {
@@ -989,14 +986,14 @@ export async function run(path: string, args: string[], agent = false): Promise<
     if (flag > 0 && (!Number.isSafeInteger(chat) || chat <= 0)) throw Error("Usage");
     if (
       ["add", "forget"].includes(words[0]) &&
-      (process.env.CORGI_MEMORY === "read" || (chat && !(await keepsMemory(path, chat))))
+      (process.env.CORGI_MEMORY === "read" || (chat && !(await keepsMemory(daemon, chat))))
     )
       throw Error("MemoryReadOnly");
     const changes: Change[] = [];
     process.stdout.write(memoryCommand.run(new Memory(Memory.root()), words, new Date(), c => changes.push(c)));
     if (changes.length && (chat || process.env.CORGI_HEADLESS_ID)) {
       const { Reporter } = await import("./prompt_search_report"),
-        reporter = chat ? new Reporter(process.env.CORGI_SOCKET || path, chat) : Reporter.here();
+        reporter = chat ? new Reporter(process.env.CORGI_SOCKET || daemon.socket, chat) : Reporter.here();
       for (const change of changes) await reporter?.memory(change);
       reporter?.close();
     }
@@ -1004,70 +1001,64 @@ export async function run(path: string, args: string[], agent = false): Promise<
   }
   const caller = Number(process.env.CORGI_PANE) || 0,
     inv = await parse(args, caller);
-  // CLI calls are serial, including unversioned controls for older daemons.
-  const conn = new Connection(path, { requestIds: false });
   const reading = inv.json ? null : inv.command?.["pane.read"],
     lines = reading?.lines;
   if (reading) reading.lines = Math.min(lines + 1, 10000);
-  try {
-    if (inv.claim) {
-      const reply = await conn.call("pane.agent", inv.claim);
-      process.stdout.write(inv.json ? stringify(reply) + "\n" : words(reply));
-      return;
-    }
-    if (inv.history) {
-      const shown = (await conversations(conn)).slice(0, inv.history.limit);
-      process.stdout.write(
-        inv.json ? stringify({ ok: true, conversations: shown }) + "\n" : historyText(shown, Date.now()),
-      );
-      return;
-    }
-    if (inv.open) {
-      const reply = await openConversation(conn, inv.open, Number(process.env.CORGI_VIEWER) || null);
-      process.stdout.write(inv.json ? stringify({ ok: true, ...reply }) + "\n" : openedText(reply));
-      return;
-    }
-    if (inv.launcher) {
-      const workspaces = await launcherCommand(conn, inv, caller);
-      if (inv.action === "launcher.models") return;
-      process.stdout.write(inv.json ? stringify({ ok: true, workspaces }) + "\n" : launcherText(workspaces));
-      return;
-    }
-    if ((inv.current && group === "tab") || (inv.action === "tab.new" && caller)) {
-      const { result } = await conn.call("session.locate", { pane: caller });
-      const [op, q] = Object.entries(inv.command)[0] as [string, any];
-      if (op === "pane.create") {
-        q.workspace ||= result.workspace;
-        if (q.workspace === result.workspace) q.from = caller;
-      } else q.target = result.tab;
-    }
-    const reply = inv.command
-      ? await conn.call("session.command", { command: inv.command })
-      : inv.action === "list"
-        ? await conn.call("session.list")
-        : inv.action === "current"
-          ? await conn.call("session.locate", { pane: caller })
-          : inv.action === "pane.idle"
-            ? await conn.call("pane.idle", inv.idle)
-            : inv.action === "workspace.switch"
-              ? await conn.call("workspace.switch", { workspace: inv.target, viewer: inv.viewer })
-              : await conn.call("focus", { pane: inv.target, viewer: inv.viewer });
-    if (inv.json) process.stdout.write(stringify(reply) + "\n");
-    else if (reading && "result" in reply && "text" in reply.result && typeof reply.result.text === "string")
-      process.stdout.write(read(reply.result.text, lines, agent));
-    else
-      process.stdout.write(
-        inv.action === "list"
-          ? list(reply)
-          : inv.action === "pane.idle"
-            ? idle(reply)
-            : inv.action === "message"
-              ? messaged(reply, inv.command["agent.message"].target)
-              : words(reply),
-      );
-  } finally {
-    conn.close();
+  if (inv.claim) {
+    const reply = await daemon.call("pane.agent", inv.claim);
+    process.stdout.write(inv.json ? stringify(reply) + "\n" : words(reply));
+    return;
   }
+  if (inv.history) {
+    const shown = (await conversations(daemon)).slice(0, inv.history.limit);
+    process.stdout.write(
+      inv.json ? stringify({ ok: true, conversations: shown }) + "\n" : historyText(shown, Date.now()),
+    );
+    return;
+  }
+  if (inv.open) {
+    const reply = await openConversation(daemon, inv.open, Number(process.env.CORGI_VIEWER) || null);
+    process.stdout.write(inv.json ? stringify({ ok: true, ...reply }) + "\n" : openedText(reply));
+    return;
+  }
+  if (inv.launcher) {
+    const workspaces = await launcherCommand(daemon, inv, caller);
+    if (inv.action === "launcher.models") return;
+    process.stdout.write(inv.json ? stringify({ ok: true, workspaces }) + "\n" : launcherText(workspaces));
+    return;
+  }
+  if ((inv.current && group === "tab") || (inv.action === "tab.new" && caller)) {
+    const { result } = await daemon.call("session.locate", { pane: caller });
+    const [op, q] = Object.entries(inv.command)[0] as [string, any];
+    if (op === "pane.create") {
+      q.workspace ||= result.workspace;
+      if (q.workspace === result.workspace) q.from = caller;
+    } else q.target = result.tab;
+  }
+  const reply = inv.command
+    ? await daemon.call("session.command", { command: inv.command })
+    : inv.action === "list"
+      ? await daemon.call("session.list")
+      : inv.action === "current"
+        ? await daemon.call("session.locate", { pane: caller })
+        : inv.action === "pane.idle"
+          ? await daemon.call("pane.idle", inv.idle)
+          : inv.action === "workspace.switch"
+            ? await daemon.call("workspace.switch", { workspace: inv.target, viewer: inv.viewer })
+            : await daemon.call("focus", { pane: inv.target, viewer: inv.viewer });
+  if (inv.json) process.stdout.write(stringify(reply) + "\n");
+  else if (reading && "result" in reply && "text" in reply.result && typeof reply.result.text === "string")
+    process.stdout.write(read(reply.result.text, lines, agent));
+  else
+    process.stdout.write(
+      inv.action === "list"
+        ? list(reply)
+        : inv.action === "pane.idle"
+          ? idle(reply)
+          : inv.action === "message"
+            ? messaged(reply, inv.command["agent.message"].target)
+            : words(reply),
+    );
 }
 /** Writes a failed command line's error, as JSON when it asked for `--json`;
  * a usage error lists the command's help lines. */

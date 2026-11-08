@@ -1,18 +1,8 @@
 /** Real viewer launch controls and read-only agent previews. */
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  registerCase,
-  writeExecutable,
-  shellJoin,
-  quote,
-  sleep,
-  run,
-  EXE,
-  ROOT,
-  JsonSocket,
-  versioned,
-} from "./support";
+import { registerCase, writeExecutable, shellJoin, quote, sleep, run, EXE, ROOT, Events, versioned } from "./support";
+import * as rpc from "../src/rpc";
 import { Runtime, screen_text } from "./runtime";
 import { Viewer } from "./viewer_client";
 import { byProvider } from "../src/providers";
@@ -866,13 +856,17 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
     this.assertNotIn("New agent", (await view.poll()).data);
     this.assertFalse(existsSync(this.launches));
   }
-  async test_subscription_pushes_updates_and_survives_idle_reload() {
-    const client = await JsonSocket.connect(this.path);
+  async test_subscription_pushes_updates_and_resubscribes_after_reload() {
+    let connection = new rpc.Connection(this.path, { timeout_ms: 12000 }),
+      events = new Events(connection);
+    const subscribe = async (cwd: string) => {
+      let preview: any = await connection.rawRequest(versioned({ op: "agent.subscribe", workspace: this.ws, cwd }));
+      this.assertEqual(preview.type, "agent.preview");
+      while (preview.preview.pending) preview = await events.next(12000);
+      return preview;
+    };
     try {
-      client.send(versioned({ op: "agent.subscribe", workspace: this.ws, cwd: this.launchDir }));
-      let initial = await client.read(12000);
-      this.assertEqual(initial.type, "agent.preview");
-      while (initial.preview.pending) initial = await client.read(12000);
+      const initial = await subscribe(this.launchDir);
       this.assertEqual(initial.cwd, this.launchDir);
       this.assertEqual(initial.preview.options.claude.model, "opus");
       await sleep(5.2);
@@ -880,24 +874,19 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       mkdirSync(join(this.launchDir, ".claude"));
       writeFileSync(settings, JSON.stringify({ model: "sonnet" }));
       await this.rpc({ op: "server.reload", executable: EXE });
-      let update = await client.read(12000);
-      while (update.preview.pending) {
-        this.assertEqual(
-          update.preview.options.claude.model,
-          update.preview.options.claude.pending ? "opus" : "sonnet",
-        );
-        update = await client.read(12000);
-      }
-      this.assertEqual(update.preview.options.claude.model, "sonnet");
+      // A reload closes the subscription; the client subscribes again to the new daemon.
+      await this.until(() => connection.disconnected);
+      this.assertEqual(connection.failure?.message, "ServerReloading");
+      connection = new rpc.Connection(this.path, { timeout_ms: 12000 });
+      events = new Events(connection);
+      this.assertEqual((await subscribe(this.launchDir)).preview.options.claude.model, "sonnet");
       const other = join(this.temp.name, "other");
       mkdirSync(other);
-      client.send(versioned({ op: "agent.subscribe", workspace: this.ws, cwd: other }));
-      update = await client.read(12000);
-      while (update.preview.pending) update = await client.read(12000);
-      this.assertEqual(update.cwd, other);
-      this.assertEqual(update.preview.options.claude.model, "opus");
+      const moved = await subscribe(other);
+      this.assertEqual(moved.cwd, other);
+      this.assertEqual(moved.preview.options.claude.model, "opus");
     } finally {
-      client.close();
+      connection.close();
     }
   }
   async test_pending_accounts_show_discovery_and_publish_independently() {
@@ -915,17 +904,19 @@ console.log('LAUNCH FIXTURE READY'); await Bun.sleep(120000);
       return { provider: "claude", dir, name, managed: false };
     });
     writeFileSync(join(this.env.XDG_STATE_HOME!, "corgi", "accounts.json"), JSON.stringify({ accounts: saved }));
-    const client = await JsonSocket.connect(this.path);
+    const client = new rpc.Connection(this.path, { timeout_ms: 12000 }),
+      events = new Events(client);
     try {
-      client.send(versioned({ op: "agent.subscribe", workspace: this.ws, cwd: this.launchDir }));
-      let message = await client.read(12000);
+      let message: any = await client.rawRequest(
+        versioned({ op: "agent.subscribe", workspace: this.ws, cwd: this.launchDir }),
+      );
       this.assertEqual(
         message.preview.accounts.map((a: any) => a.name),
         ["slow", "fast"],
       );
       this.assertTrue(message.preview.accounts.every((a: any) => a.option.pending));
       while (message.preview.accounts.find((a: any) => a.name === "fast").option.pending)
-        message = await client.read(12000);
+        message = await events.next(12000);
       this.assertTrue(message.preview.pending);
       this.assertTrue(message.preview.accounts.find((a: any) => a.name === "slow").option.pending);
       this.assertEqual(message.preview.accounts.find((a: any) => a.name === "fast").option.account, "fast@example.com");

@@ -2,7 +2,15 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Runtime } from "./runtime";
 import { Viewer } from "./viewer_client";
-import { EXE, JsonSocket, registerCase, shellJoin, sleep, versioned, writeExecutable } from "./support";
+import { EXE, Lines, lines, registerCase, shellJoin, sleep, versioned, writeExecutable } from "./support";
+import * as websocket_socket from "../src/websocket_socket";
+
+/** A daemon connection's bytes, for checking the wire itself. */
+type Wire = { socket: websocket_socket.Socket; lines: Lines };
+function wire(path: string): Wire {
+  const socket = new websocket_socket.Socket(path);
+  return { socket, lines: lines(socket) };
+}
 
 // Viewer stamps and session hashes contain u64 values. The default JSON.parse
 // rounds them and makes an unchanged receipt look stale.
@@ -42,7 +50,7 @@ function wireRequest(value: Record<string, any>) {
 }
 
 class WireViewer {
-  client!: JsonSocket;
+  client!: Wire;
   pane: number;
   cols: number;
   rows: number;
@@ -54,6 +62,8 @@ class WireViewer {
   frame: any = null;
   session: any = null;
   response_bytes = 0;
+  /** What brings the viewer back after a reload closes its connection. */
+  link = "";
   constructor(pane: number, cols = 80, rows = 24) {
     this.pane = pane;
     this.cols = cols;
@@ -61,13 +71,20 @@ class WireViewer {
   }
   static async create(test: Runtime, pane: number, cols = 80, rows = 24) {
     const viewer = new WireViewer(pane, cols, rows);
-    viewer.client = await JsonSocket.connect(test.path);
+    viewer.client = wire(test.path);
+    viewer.link = (await viewer.call({ op: "link.open" })).link;
     await viewer.call({ op: "viewer.open", cwd: test.temp.name });
     test.addCleanup(() => viewer.close());
     return viewer;
   }
   close() {
-    this.client.close();
+    this.client.socket.destroy();
+  }
+  /** Connects again after a reload, as a viewer does, and resumes the link. */
+  async resume(path: string) {
+    this.client.socket.destroy();
+    this.client = wire(path);
+    await this.call({ op: "link.resume", link: this.link });
   }
   async call(request: { op: string; [field: string]: any }) {
     this.client.socket.write(wireRequest(versioned(request)) + "\n");
@@ -148,11 +165,11 @@ process.stdout.write("READY\\r\\n");
   }
 
   /** A reply on the watch stream follows every notification already queued there. */
-  async watchWakes(watch: JsonSocket) {
-    watch.send({ op: "ping" });
+  async watchWakes(watch: Wire) {
+    watch.socket.write('{"op":"ping"}\n');
     let wakes = 0;
     for (;;) {
-      const reply = await watch.read();
+      const reply = JSON.parse(await watch.lines.next());
       if (reply.type === "viewer.wake") {
         wakes++;
         continue;
@@ -256,6 +273,7 @@ process.stdin.resume();
       executable: EXE,
     });
     this.assertNotEqual(result.server_pid, before.server_pid);
+    await viewer.resume(this.path);
     this.assertTrue((await viewer.sync()).surfaces.length);
     this.assertNotEqual(viewer.known.identity, identity);
     this.assertIn("LATEST_OUTPUT", viewer.text());
@@ -293,8 +311,8 @@ await Bun.sleep(60000);
     viewer.resources = false;
     await this.ready(viewer, "READY");
     const id = (await viewer.sync()).viewer;
-    const watch = await JsonSocket.connect(this.path);
-    this.addCleanup(() => watch.close());
+    const watch = wire(this.path);
+    this.addCleanup(() => watch.socket.destroy());
     watch.socket.write(JSON.stringify(versioned({ op: "viewer.watch", viewer: id })) + "\n");
     this.assertEqual(JSON.parse(await watch.lines.next()), { ok: true });
     // No input means no output from the established foreground process.
@@ -322,8 +340,8 @@ await Bun.sleep(60000);
     await this.ready(viewer, "READY");
     const id = (await viewer.sync()).viewer;
     const hidden = await this.echoPane("watch-hidden");
-    const watch = await JsonSocket.connect(this.path);
-    this.addCleanup(() => watch.close());
+    const watch = wire(this.path);
+    this.addCleanup(() => watch.socket.destroy());
     watch.socket.write(JSON.stringify(versioned({ op: "viewer.watch", viewer: id })) + "\n");
     this.assertEqual(JSON.parse(await watch.lines.next()), { ok: true });
     await this.settle();
@@ -344,23 +362,35 @@ await Bun.sleep(60000);
     await this.ready(viewer, "VISIBLE_OUTPUT");
   }
 
-  async test_watch_survives_a_reload() {
+  async test_watch_resumes_after_a_reload() {
     const pane = await this.echoPane("watch-visible"),
       viewer = await WireViewer.create(this, pane);
     await this.ready(viewer, "READY");
     const id = (await viewer.sync()).viewer;
-    const watch = await JsonSocket.connect(this.path);
-    this.addCleanup(() => watch.close());
-    watch.socket.write(JSON.stringify(versioned({ op: "viewer.watch", viewer: id })) + "\n");
-    this.assertEqual(JSON.parse(await watch.lines.next()), { ok: true });
+    const watch = async () => {
+      const connection = wire(this.path);
+      this.addCleanup(() => connection.socket.destroy());
+      connection.socket.write(JSON.stringify(versioned({ op: "viewer.watch", viewer: id })) + "\n");
+      this.assertEqual(JSON.parse(await connection.lines.next()), { ok: true });
+      return connection;
+    };
+    const before = await watch();
     const reload = await this.rpc({ op: "server.reload", executable: EXE });
     this.assertTrue(reload.ok, JSON.stringify(reload));
-    // The new daemon wakes the watcher it inherited, then keeps waking it.
-    this.assertEqual(JSON.parse(await watch.lines.next()).type, "viewer.wake");
+    // The reload closes both connections; the link brings the viewer back
+    // under its id, and its watch starts again.
+    const closed = await before.lines.next().then(
+      () => null,
+      (error: Error) => error,
+    );
+    this.assertRegex(String(closed), /ServerReloading/);
+    await viewer.resume(this.path);
+    this.assertEqual((await viewer.sync()).viewer, id);
+    const after = await watch();
     await this.settle();
-    await this.watchWakes(watch);
+    await this.watchWakes(after);
     await this.command("pane.rename", { target: pane, name: "After reload" });
-    this.assertEqual(JSON.parse(await watch.lines.next()).type, "viewer.wake");
+    this.assertEqual(JSON.parse(await after.lines.next()).type, "viewer.wake");
   }
 
   async test_search_updates_selection_on_an_unchanged_viewport() {

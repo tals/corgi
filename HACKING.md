@@ -318,27 +318,50 @@ none, and the daemon ignores one in a per-provider record.
 
 `hello` and `server.reload` use management protocol 1, checked independently of
 the runtime version. Keep their request and reply shapes compatible so a new
-client can discover and replace an older daemon. No protocol fallback is needed.
+client can discover and replace an older daemon without speaking its runtime protocol.
 `hello` advertises the client's runtime version in `runtime_protocol`; its reply's
 `protocol` advertises the server's runtime version. Only a matching runtime
 version negotiates ordinary requests on that connection. Management requests
 always carry their own version, even on a negotiated connection.
 
-Runtime protocol 4 lets a request carry a positive safe-integer `request_id`,
-which the daemon echoes on its success or error reply. Tagged replies can
-arrive out of order: a branch listing or worktree addition answers after
-requests sent later. `rpc.Connection` tags by default and fails the
-connection on an untagged reply; subscription events remain untagged. With
-`requestIds: false` it sends one untagged request at a time, as `hello`,
-`server.reload` and the CLI do. Unversioned CLI controls such as `focus` and
-`workspace.switch` still accept replies from older daemons.
+A request may carry a positive safe-integer `request_id`, which the daemon
+echoes on its success or error reply. Tagged replies can arrive out of order: a
+branch listing or worktree addition answers after requests sent later.
+`rpc.Connection` tags by default and fails the connection on an untagged reply;
+subscription events remain untagged. With `requestIds: false` it sends one
+untagged request at a time, and those are answered in order: a slow one holds
+the connection's later ones until it replies.
 
-Each viewer keeps two daemon connections in `viewer_connection.ts`. The control
+The daemon serves its Unix socket with `Bun.serve` (`socket_server.ts`); there is
+no other endpoint or TCP listener. A one-shot request is an HTTP `POST /rpc`
+whose body is a request envelope. A client that stays connected opens a
+WebSocket with subprotocol `corgi-stream-v1`, whose binary messages carry a
+stream of JSON lines; native WS deflate is off. One-shot callers go through
+`rpc_http.ts`: `rpc.request`, CLI commands, `corgi rpc`, bug reports, update
+checks and hooks. The viewer, `corgi watch`, the prompt pane and startup
+reporters keep an `rpc.Connection` over `websocket_socket.ts`. A sender that
+hangs up mid-request counts as a closed connection, so an interrupted
+`headless.start` is cancelled. The daemon binds `<socket>.<pid>` and renames it
+over the socket path, so a reload never leaves the path without a listener.
+From a shell:
+
+```sh
+curl --unix-socket "$CORGI_SOCKET" http://localhost/rpc \
+  -H 'Content-Type: application/json' -d '{"op":"hello","protocol":1}'
+```
+
+`rpc_http.discover` sends the management `hello`, which every daemon since the
+Bun port answers whatever its runtime protocol. The reply's optional
+`transports` advertises HTTP management 1 and the WebSocket subprotocol. Only a
+missing or refused socket lets startup start a daemon; an inconclusive probe
+must not unlink a live daemon's socket. A mutation is never retried after a lost
+reply.
+
+Each viewer keeps two daemon WebSockets in `viewer_connection.ts`. The control
 connection owns the viewer, commands, pane input, metadata and launcher/history
 subscriptions. The data connection carries surfaces, images, searches and wake
-notifications. Both use `rpc.Connection`, which delivers untagged subscription
-events separately from correlated replies. Changing folders replaces the launcher
-subscription on the control connection and keeps the history subscription.
+notifications. Changing folders replaces the launcher subscription on the
+control connection and keeps the history subscription.
 
 The control connection sends `viewer.sync` with `surfaces: false`; after it updates
 the viewer's interests, `viewer.surfaces` reads the corresponding frames on the
@@ -346,24 +369,64 @@ data connection. `viewer.watch` associates that connection with the existing vie
 so pane sizing, focus and activity still belong to one viewer. If a watch is refused
 or the data connection closes, content reads use the control connection until a
 later sync attaches the data connection again. Interrupted content reads retry on
-control; commands are never replayed. Surface receipts and frame diffs keep their
-existing behavior.
-The new operation and defaulted `surfaces` flag are additive: runtime protocol 4
-and viewer protocol 3 are unchanged, and older callers still receive surfaces from
-`viewer.sync`. Handoff already saves
-both connections and their association; no saved-format change or migration is needed.
+control.
 
-The id is optional, so a script can speak plain JSON lines or HTTP `POST`.
-Requests without one are answered in the order they were sent; a slow request
-holds that connection's later ones until it replies. Older runtime protocols
-are rejected, without a serial fallback.
+A client may offer `accept_encoding: ["zstd"]` in its first, uncompressed
+`hello`. The daemon selects `content_encoding: "zstd"` in its plaintext reply;
+omitting it keeps the connection plain. Unknown offers are ignored, and clients
+reject an unsupported or unoffered selection. Only the first request may
+negotiate, and it must finish before another is sent. After that reply's newline,
+both directions use live-history zstd level 3 with a 1 MiB window, flushed per
+message. Queues are bounded and a codec failure closes the connection. Local
+connections stay uncompressed; remote machines opt in. `wire.compress` records
+raw and emitted bytes.
 
-Discovery and replacement use one untagged management request per connection,
-so `hello` and `server.reload` can still upgrade an older daemon. Startup probes
-with `hello` before deciding whether a daemon needs to be started. One-shot
-unversioned requests, including `ping` and `shutdown`, and bug-report queries
-also omit ids so older daemons can answer. Management protocol 1 and viewer
-protocol 3 are unchanged.
+`link.open` gives a connection a link (`link.ts`) that outlives it. Requests that
+must run once (`protocol.once`) carry a `seq`; the daemon records their replies,
+so one sent again after a reconnect is answered from the reply it had. `answered`
+confirms replies the client has. `link.resume` moves a link to a new connection,
+with the viewer it carried. Detached links last 10 minutes, at most 32 of them.
+
+`viewer.stream` pushes `viewer.frame`s every 16 ms at most instead of answering
+`viewer.sync` polls. With `incremental`, a stream sends full surfaces first, then
+rows changed against the last surface sent, which the receiver checks against the
+base stamp. Cumulative `viewer.receipt`s bound outstanding frames and wire bytes
+with adaptive allowances (`viewer_stream.ts`); while blocked, the daemon captures
+the latest screen after a receipt instead of queuing every screen in between.
+`remote.stream.window` records the window. `viewer.data` binds a second
+connection to the control connection's link, and `viewer.stream.configure` sends
+frames there, so pane data has its own socket and queue; commands, input and
+`viewer.controls` stay on control. These operations are additive and
+`viewer.sync` keeps working.
+
+A reload hands over no connections. Handoff format 7 carries the runtime and the
+links, so a viewer's link keeps its id, controls and counters. Once the
+candidate commits, it binds the socket and answers the reload. The old daemon
+relays that answer to its requester and forwards HTTP requests that arrived
+meanwhile to the new daemon. It then closes every WebSocket with code 1012, which
+clients see as `ServerReloading`, and from then on ignores disconnects: what its
+clients started belongs to the new daemon. A request it held but never ran isn't
+run there. The viewer reconnects, resumes its link, sends again the numbered
+requests it hadn't heard back about and repeats an unnumbered one the close cut
+off, which is safe to run twice. `corgi watch` and the launcher preview
+subscribe again.
+
+Importing format 6 from an older daemon closes its clients' JSON-line connections
+and its listener. Viewers among them hear `UnsupportedViewerProtocol` and
+reattach; the reload's requester gets its reply, as an HTTP response when it
+asked over HTTP.
+
+Older candidates reject format 7. On exactly `UnsupportedStateVersion`,
+`persist/handoff_rollback.ts` retries once in format 6: the older build adopts a
+listener that the old daemon renames over the socket after the commit, and its
+reload reply reaches the requester through a client it restores. Running
+processes survive. WebSocket clients get close code 4000 (`ServerRolledBack`),
+and the viewer and `corgi watch` ask the user to reattach with the selected
+Corgi version. This applies while the handoff/checkpoint versions are 7/6.
+
+Runtime protocol 5 dropped JSON lines on a bare connection; a client of an older
+protocol is rejected, without a serial fallback. Management protocol 1 is
+unchanged.
 
 Reload returns `ReloadBusy` while a worktree addition is still running, with
 `busy` naming it (`{"op": "worktree.add", "path": …}`). Retry

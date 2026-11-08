@@ -400,5 +400,6 @@ export function listen(path: string): number {
   unixAddress(path);
   const fd = n.probe_listen(Buffer.from(path + "\0"));
   if (fd < 0) throw Error(fd === -98 || fd === -48 ? "AddressInUse" : fd === -13 ? "AccessDenied" : "BindFailed");
+  chmodSync(path, 0o600);
   return fd;
 }

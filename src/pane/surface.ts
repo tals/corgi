@@ -52,6 +52,40 @@ export interface View {
   modes: Modes;
   stamp: Stamp;
 }
+/** Changed rows relative to the preceding frame on an ordered stream. */
+export interface Patch extends Omit<View, "surface"> {
+  base: Stamp;
+  surface: Omit<Surface, "lines"> & { lines: { row: number; line: string }[] };
+}
+export function difference(before: View, after: View): Patch | null {
+  const a = before.surface,
+    b = after.surface;
+  if (before.stamp.identity !== after.stamp.identity || a.cols !== b.cols || a.rows !== b.rows) return null;
+  const lines = b.lines.flatMap((line, row) => (line === a.lines[row] ? [] : [{ row, line }]));
+  return { ...after, base: before.stamp, surface: { ...b, lines } };
+}
+export function apply(before: View | undefined, patch: Wire<Patch>): View {
+  if (
+    !before ||
+    before.surface.pane !== patch.surface.pane ||
+    before.surface.cols !== patch.surface.cols ||
+    before.surface.rows !== patch.surface.rows ||
+    before.stamp.identity !== BigInt(patch.base.identity) ||
+    before.stamp.revision !== BigInt(patch.base.revision) ||
+    before.stamp.offset !== patch.base.offset
+  )
+    throw Error("InvalidSurfaceBase");
+  const lines = [...before.surface.lines];
+  const changed = new Set<number>();
+  for (const { row, line } of patch.surface.lines) {
+    if (!Number.isInteger(row) || row < 0 || row >= lines.length || changed.has(row) || typeof line !== "string")
+      throw Error("InvalidSurfaceRow");
+    changed.add(row);
+    lines[row] = line;
+  }
+  const { base: _, ...next } = patch;
+  return view({ ...next, surface: { ...patch.surface, lines } });
+}
 export function captureView(id: number, t: Terminal, offset: number | null = null): View {
   return t.surface(id, offset);
 }

@@ -379,7 +379,20 @@ function handoff5To6(value: any) {
 function workspaces1To2(value: any) {
   for (const workspace of items(value, "workspaces")) delete object(workspace).pinned;
 }
+function handoff6To7(value: any) {
+  // Format 7 hands over no connections: clients reconnect and resume their
+  // links. A format-6 sender's listener and clients are older peers, which
+  // the candidate answers and closes.
+  const fields = object(value);
+  fields.retired = {
+    listener: fields.listener ?? -1,
+    clients: items(value, "clients").map(client => ({ fd: object(client).fd, viewer: object(client).viewer === true })),
+  };
+  delete fields.listener;
+  delete fields.clients;
+  fields.links ??= [];
+}
 export const checkpoint: Step[] = [table, checkpoint2To3, checkpoint3To4, checkpoint4To5, checkpoint5To6];
-export const handoff: Step[] = [handoff1To2, handoff2To3, handoff3To4, handoff4To5, handoff5To6];
+export const handoff: Step[] = [handoff1To2, handoff2To3, handoff3To4, handoff4To5, handoff5To6, handoff6To7];
 /** workspaces.json, the workspaces kept apart from checkpoints. */
 export const workspaces: Step[] = [workspaces1To2];

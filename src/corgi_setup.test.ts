@@ -1744,6 +1744,7 @@ test("Report a bug opens an issue at once, filled in once its details are in, an
     overrides: [],
     logs: { server: "/tmp/server.log", crashes: 0 },
     warnings: ["warn: only local"],
+    hook_trouble: null,
     inference: null,
   };
   const shown = draw(menu, 100, 30, 0, s, prefs),
