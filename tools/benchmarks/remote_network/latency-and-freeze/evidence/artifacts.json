@@ -1,0 +1,25 @@
+{
+  "archive": "dist/herdr-freeze-audit-20261108.tar.gz",
+  "bytes": 5556602,
+  "sha256": "a65c2dce5ae4bafd283bf96d1d28c3bf0338495a60fee2b676a6b83a85e1a3d4",
+  "archive_note": "Includes all 12 final diagnostic trials, the excluded pilot, harness, reports, traced Herdr source and validation logs. This hash manifest is external to avoid self-reference. Prior compression-comparison archive remains unchanged.",
+  "sha256_by_path": {
+    "dist/herdr-freeze-audit-v2-20261108/fresh-ssh-at-wake-1/results.json": "ab030ac62ede495fba8daec07e52b858850459570ebee25983905341ebe48d4d",
+    "dist/herdr-freeze-audit-v2-20261108/fresh-ssh-at-wake-2/results.json": "b849af9cbe5766c69b006bd0c8272a048e9b4e55707e710941f43e5e5cd792a3",
+    "dist/herdr-freeze-audit-v2-20261108/fresh-ssh-at-wake-3/results.json": "18ad04984b9698a0cd2c942fa71139fcd3f9a32cf51526389e19ffdf2be2ba92",
+    "dist/herdr-freeze-audit-v2-20261108/no-pending-input-1/results.json": "4d5963236fae41f0e5d2a822a43d32b82f6f8aaa6f8d17891f46216bc903a0ee",
+    "dist/herdr-freeze-audit-v2-20261108/no-pending-input-2/results.json": "bc5c1d154aefb57da017f23b68697803cc7de50282e9c322974ad7c2066f45af",
+    "dist/herdr-freeze-audit-v2-20261108/no-pending-input-3/results.json": "3261faba9fbf4db7197fcf662432e5e1d46f2cca36e546c50032b2693340cf12",
+    "dist/herdr-freeze-audit-v2-20261108/original-1/results.json": "24467ef71ace9aae4052c28973566b95fa53d22751884b05f50801b71cfa4128",
+    "dist/herdr-freeze-audit-v2-20261108/original-2/results.json": "8273d4b86268d423ef6853b7d648b079a029e9b47330b3a506d5781dac1095f6",
+    "dist/herdr-freeze-audit-v2-20261108/original-3/results.json": "f95013683046ee090d20885f71bd0d814d3fa9f4f81a9c6229bbaa6c62a4e332",
+    "dist/herdr-freeze-audit-v2-20261108/transport-survives-1/results.json": "b54be411b2f69e19942f8afad259182267f9bfe3bcfd644e45c2e706155ec84b",
+    "dist/herdr-freeze-audit-v2-20261108/transport-survives-2/results.json": "deb69bd68a7e81f989393e2a73c91fdf6c7f2b3fcec2bd20d8613921b8843664",
+    "dist/herdr-freeze-audit-v2-20261108/transport-survives-3/results.json": "1a2dd4099a7eb4375242d65b6f7f871264b7b1ae9b583e7093e9af9f10001e7f",
+    "tools/benchmarks/remote_network/freeze_audit.py": "66247a46ba16d0b3792ca6b888dd427d799f338a411bd6a890ab2ce33fcd8b39",
+    "tools/benchmarks/remote_network/freeze_report.py": "ed3b840437d709d1308cdf7c01c8b4dd534155555c4cf3420da04913ea3575c7",
+    "tools/benchmarks/remote_network/run.py": "67b0c55eb1b02677dfd3fafaf35a40b6e0c930c07f368d03e4bc7565ee3ad18a",
+    "tools/benchmarks/remote_network/observe.ts": "f58a5402c50ac57d67b7dc8868aa078bbef4ec5de892e27677c04a9af5ccfd8a",
+    "tools/benchmarks/remote_network/workload.py": "6e608cebcf36585988fcc21b248ac434e226d8309f2cb1bc5cf5b4e6fadec3b4"
+  }
+}

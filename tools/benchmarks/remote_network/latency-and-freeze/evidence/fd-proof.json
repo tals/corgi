@@ -1,0 +1,158 @@
+{
+  "raw": "dist/herdr-freeze-audit-v2-20261108/original-1/fd-watch.jsonl",
+  "wake": {
+    "at": 2431290.09571388,
+    "epoch": 1794106337.603653,
+    "event": "sleep_end",
+    "actual_seconds": 180.24897303478792
+  },
+  "bootstrap_pid": 127092,
+  "master_pid": 91356,
+  "client_pid": 90694,
+  "snapshots": [
+    {
+      "seconds_after_wake": 12.093159867916256,
+      "bootstrap_alive": true,
+      "master_alive": true,
+      "pipes": [
+        "pipe:[238830748]",
+        "pipe:[238830749]"
+      ],
+      "master_pipe_fds": {
+        "8": "pipe:[238830748]",
+        "10": "pipe:[238830749]"
+      },
+      "client_pipe_fds": {
+        "19": "pipe:[238830748]",
+        "26": "pipe:[238830749]"
+      },
+      "client_thread_waits": {
+        "ep_poll": 1,
+        "futex_wait_queue": 5,
+        "wait_woken": 1,
+        "hrtimer_nanosleep": 4,
+        "do_poll.constprop.0": 3,
+        "pipe_read": 5
+      }
+    },
+    {
+      "seconds_after_wake": 24.241628647316247,
+      "bootstrap_alive": true,
+      "master_alive": true,
+      "pipes": [
+        "pipe:[238830748]",
+        "pipe:[238830749]"
+      ],
+      "master_pipe_fds": {
+        "8": "pipe:[238830748]",
+        "10": "pipe:[238830749]"
+      },
+      "client_pipe_fds": {
+        "19": "pipe:[238830748]",
+        "26": "pipe:[238830749]"
+      },
+      "client_thread_waits": {
+        "ep_poll": 1,
+        "futex_wait_queue": 5,
+        "wait_woken": 1,
+        "hrtimer_nanosleep": 4,
+        "do_poll.constprop.0": 3,
+        "pipe_read": 5
+      }
+    },
+    {
+      "seconds_after_wake": 27.135690901894122,
+      "bootstrap_alive": false,
+      "master_alive": true,
+      "pipes": [
+        "pipe:[238830748]",
+        "pipe:[238830749]"
+      ],
+      "master_pipe_fds": {
+        "8": "pipe:[238830748]",
+        "10": "pipe:[238830749]"
+      },
+      "client_pipe_fds": {
+        "19": "pipe:[238830748]",
+        "26": "pipe:[238830749]"
+      },
+      "client_thread_waits": {
+        "ep_poll": 1,
+        "futex_wait_queue": 6,
+        "wait_woken": 1,
+        "hrtimer_nanosleep": 3,
+        "do_poll.constprop.0": 3,
+        "pipe_read": 5
+      }
+    },
+    {
+      "seconds_after_wake": 35.07669213227928,
+      "bootstrap_alive": false,
+      "master_alive": true,
+      "pipes": [
+        "pipe:[238830748]",
+        "pipe:[238830749]"
+      ],
+      "master_pipe_fds": {
+        "8": "pipe:[238830748]",
+        "10": "pipe:[238830749]"
+      },
+      "client_pipe_fds": {
+        "19": "pipe:[238830748]",
+        "26": "pipe:[238830749]"
+      },
+      "client_thread_waits": {
+        "ep_poll": 1,
+        "futex_wait_queue": 6,
+        "wait_woken": 1,
+        "hrtimer_nanosleep": 3,
+        "do_poll.constprop.0": 3,
+        "pipe_read": 5
+      }
+    },
+    {
+      "seconds_after_wake": 40.738743234891444,
+      "bootstrap_alive": false,
+      "master_alive": true,
+      "pipes": [
+        "pipe:[238830748]",
+        "pipe:[238830749]"
+      ],
+      "master_pipe_fds": {
+        "8": "pipe:[238830748]",
+        "10": "pipe:[238830749]"
+      },
+      "client_pipe_fds": {
+        "19": "pipe:[238830748]",
+        "26": "pipe:[238830749]"
+      },
+      "client_thread_waits": {
+        "ep_poll": 1,
+        "futex_wait_queue": 6,
+        "wait_woken": 1,
+        "hrtimer_nanosleep": 3,
+        "do_poll.constprop.0": 3,
+        "pipe_read": 5
+      }
+    },
+    {
+      "seconds_after_wake": 43.01241879398003,
+      "bootstrap_alive": false,
+      "master_alive": false,
+      "pipes": [
+        "pipe:[238830748]",
+        "pipe:[238830749]"
+      ],
+      "master_pipe_fds": {},
+      "client_pipe_fds": {},
+      "client_thread_waits": {
+        "ep_poll": 1,
+        "futex_wait_queue": 3,
+        "wait_woken": 1,
+        "hrtimer_nanosleep": 4,
+        "do_poll.constprop.0": 3,
+        "pipe_read": 4
+      }
+    }
+  ]
+}

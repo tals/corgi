@@ -1,0 +1,1055 @@
+{
+  "plan": {
+    "corgi": "dist/corgi-throughput-after",
+    "herdr": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+    "output": "dist/zstd-e2e-fast-20261108",
+    "repeats": 3,
+    "suites": "stream-20",
+    "cpu_start": 0,
+    "stream_seconds": 30,
+    "suite_arguments": {
+      "stream-20": [
+        "--suite",
+        "stream",
+        "--stream-rtt",
+        "20",
+        "--stream-cases",
+        "sparse:unlimited,dense:unlimited,dense:1mbit"
+      ]
+    }
+  },
+  "groups": [
+    {
+      "key": [
+        "stream-20",
+        "corgi-stock",
+        "stream",
+        "sparse",
+        null,
+        null,
+        20
+      ],
+      "n": 3,
+      "evidence": [
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/corgi-stock-1/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/corgi-stock-2/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/corgi-stock-3/results.json"
+      ],
+      "fps": {
+        "n": 3,
+        "median": 19.999881986604116,
+        "min": 19.833267360472504,
+        "max": 19.999921219733732,
+        "p95": 19.99991729642077
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 212.4799622952246,
+        "min": 212.42226156979441,
+        "max": 212.69120496567706,
+        "p95": 212.6700806986318
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 45.92025098902348,
+        "min": 45.71823263580534,
+        "max": 45.94354720376611,
+        "p95": 45.94121758229185
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 258.4235094989907,
+        "min": 258.14049420559974,
+        "max": 258.61145595470055,
+        "p95": 258.59266130912954
+      },
+      "bytes_per_update": {
+        "n": 3,
+        "median": 1616.3311371531968,
+        "min": 1615.15329647903,
+        "max": 1626.941299647323,
+        "p95": 1625.8802833979103
+      },
+      "fresh_fraction": {
+        "n": 3,
+        "median": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "p95": 1.0
+      },
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.0532578369602561,
+        "min": 0.025672566145658493,
+        "max": 0.057934022042900324,
+        "p95": 0.057466403534635904
+      },
+      "input_visible": 15,
+      "input_received": 15,
+      "input_duplicates": 0,
+      "p95_age": {
+        "n": 3,
+        "median": 0.038841165136545897,
+        "min": 0.028895533178001642,
+        "max": 0.04719982575625181,
+        "p95": 0.04636395969428122
+      },
+      "input_latency": {
+        "n": 15,
+        "median": 0.07367745693773031,
+        "min": 0.06408525398001075,
+        "max": 0.0984186278656125,
+        "p95": 0.08771891389042137
+      },
+      "failures": [],
+      "missing_recovery": 0,
+      "missing_usable": 0
+    },
+    {
+      "key": [
+        "stream-20",
+        "corgi-stock",
+        "stream",
+        "dense",
+        null,
+        null,
+        20
+      ],
+      "n": 3,
+      "evidence": [
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/corgi-stock-1/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/corgi-stock-2/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/corgi-stock-3/results.json"
+      ],
+      "fps": {
+        "n": 3,
+        "median": 19.999925315658984,
+        "min": 19.966600029626775,
+        "max": 20.03325020147526,
+        "p95": 20.02991771289363
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 664.9288003182799,
+        "min": 663.743852677943,
+        "max": 668.3561321225369,
+        "p95": 668.0133989421112
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 48.28314716566926,
+        "min": 48.009280995735196,
+        "max": 48.288262739666266,
+        "p95": 48.28775118226657
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 712.9380813140151,
+        "min": 712.0269998436122,
+        "max": 716.6443948622032,
+        "p95": 716.2737635073844
+      },
+      "bytes_per_update": {
+        "n": 3,
+        "median": 4450.185366980652,
+        "min": 4448.467386369948,
+        "max": 4486.519949558477,
+        "p95": 4482.886491300695
+      },
+      "fresh_fraction": {
+        "n": 3,
+        "median": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "p95": 1.0
+      },
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.032400685362517834,
+        "min": 0.020012371242046356,
+        "max": 0.04495882010087371,
+        "p95": 0.04370300662703812
+      },
+      "input_visible": 15,
+      "input_received": 15,
+      "input_duplicates": 0,
+      "p95_age": {
+        "n": 3,
+        "median": 0.020751660224050283,
+        "min": 0.014255217276513577,
+        "max": 0.03081777598708868,
+        "p95": 0.029811164410784838
+      },
+      "input_latency": {
+        "n": 15,
+        "median": 0.06531935697421432,
+        "min": 0.040854633785784245,
+        "max": 0.09106493601575494,
+        "p95": 0.09104644642211497
+      },
+      "failures": [],
+      "missing_recovery": 0,
+      "missing_usable": 0
+    },
+    {
+      "key": [
+        "stream-20",
+        "corgi-stock",
+        "stream",
+        "dense",
+        "1mbit",
+        null,
+        20
+      ],
+      "n": 3,
+      "evidence": [
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/corgi-stock-1/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/corgi-stock-2/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/corgi-stock-3/results.json"
+      ],
+      "fps": {
+        "n": 3,
+        "median": 19.999935156875974,
+        "min": 19.99993476168733,
+        "max": 19.99994185894245,
+        "p95": 19.9999411887358
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 664.9486633498558,
+        "min": 664.4947914044935,
+        "max": 669.8422022940102,
+        "p95": 669.3528483995948
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 57.74880045013244,
+        "min": 57.60337151774158,
+        "max": 57.834235940032656,
+        "p95": 57.82569239104264
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 722.6974637999882,
+        "min": 722.0981629222351,
+        "max": 727.6764382340428,
+        "p95": 727.1785407906374
+      },
+      "bytes_per_update": {
+        "n": 3,
+        "median": 4516.872279536485,
+        "min": 4513.12823970753,
+        "max": 4547.992484264804,
+        "p95": 4544.880463791972
+      },
+      "fresh_fraction": {
+        "n": 3,
+        "median": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "p95": 1.0
+      },
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.030261556152254343,
+        "min": 0.022307652980089188,
+        "max": 0.05755252996459603,
+        "p95": 0.054823432583361864
+      },
+      "input_visible": 15,
+      "input_received": 15,
+      "input_duplicates": 0,
+      "p95_age": {
+        "n": 3,
+        "median": 0.04479979211464524,
+        "min": 0.03583100065588951,
+        "max": 0.07079934189096093,
+        "p95": 0.06819938691332936
+      },
+      "input_latency": {
+        "n": 15,
+        "median": 0.0857550180517137,
+        "min": 0.05967358686029911,
+        "max": 0.09576756320893764,
+        "p95": 0.09564548814669252
+      },
+      "failures": [],
+      "missing_recovery": 0,
+      "missing_usable": 0
+    },
+    {
+      "key": [
+        "stream-20",
+        "corgi-zstd",
+        "stream",
+        "sparse",
+        null,
+        null,
+        20
+      ],
+      "n": 3,
+      "evidence": [
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/corgi-zstd-1/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/corgi-zstd-2/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/corgi-zstd-3/results.json"
+      ],
+      "fps": {
+        "n": 3,
+        "median": 19.966614901835502,
+        "min": 19.96660042601624,
+        "max": 19.999938790873756,
+        "p95": 19.99660640196993
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 48.73656487329202,
+        "min": 48.678536325773194,
+        "max": 48.74778740624862,
+        "p95": 48.74666515295296
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 31.297985147332696,
+        "min": 31.273656626208968,
+        "max": 31.38002870705635,
+        "p95": 31.371824351083983
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 80.03455002062472,
+        "min": 79.95219295198217,
+        "max": 80.12781611330497,
+        "p95": 80.11848950403694
+      },
+      "bytes_per_update": {
+        "n": 3,
+        "median": 500.53709223206965,
+        "min": 500.21746852261356,
+        "max": 501.63620941286183,
+        "p95": 501.5262976947826
+      },
+      "fresh_fraction": {
+        "n": 3,
+        "median": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "p95": 1.0
+      },
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.031545480247586966,
+        "min": 0.018916217144578695,
+        "max": 0.05318479472771287,
+        "p95": 0.051020863279700276
+      },
+      "input_visible": 15,
+      "input_received": 15,
+      "input_duplicates": 0,
+      "p95_age": {
+        "n": 3,
+        "median": 0.034840093459933996,
+        "min": 0.01705063134431839,
+        "max": 0.03657494857907295,
+        "p95": 0.03640146306715906
+      },
+      "input_latency": {
+        "n": 15,
+        "median": 0.07554358802735806,
+        "min": 0.044050064869225025,
+        "max": 0.08923595491796732,
+        "p95": 0.08058582460507749
+      },
+      "failures": [],
+      "missing_recovery": 0,
+      "missing_usable": 0
+    },
+    {
+      "key": [
+        "stream-20",
+        "corgi-zstd",
+        "stream",
+        "dense",
+        null,
+        null,
+        20
+      ],
+      "n": 3,
+      "evidence": [
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/corgi-zstd-1/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/corgi-zstd-2/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/corgi-zstd-3/results.json"
+      ],
+      "fps": {
+        "n": 3,
+        "median": 19.999933240226728,
+        "min": 19.99993059342599,
+        "max": 19.999937896809598,
+        "p95": 19.99993743115131
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 324.73250488709135,
+        "min": 324.1180340915558,
+        "max": 325.1615393796768,
+        "p95": 325.11863593041824
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 33.2773233542533,
+        "min": 33.166477018024224,
+        "max": 33.34946790559097,
+        "p95": 33.3422534504572
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 357.8989819051156,
+        "min": 357.46750199714677,
+        "max": 358.43886273393014,
+        "p95": 358.3848746510487
+      },
+      "bytes_per_update": {
+        "n": 3,
+        "median": 2236.8755827624836,
+        "min": 2234.179640819897,
+        "max": 2240.250370017402,
+        "p95": 2239.91289129191
+      },
+      "fresh_fraction": {
+        "n": 3,
+        "median": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "p95": 1.0
+      },
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.052458405029028654,
+        "min": 0.047381138894706964,
+        "max": 0.05311896884813905,
+        "p95": 0.05305291246622801
+      },
+      "input_visible": 15,
+      "input_received": 15,
+      "input_duplicates": 0,
+      "p95_age": {
+        "n": 3,
+        "median": 0.05195214180275798,
+        "min": 0.05094395764172077,
+        "max": 0.05748549150303006,
+        "p95": 0.056932156533002855
+      },
+      "input_latency": {
+        "n": 15,
+        "median": 0.061138753313571215,
+        "min": 0.05431658215820789,
+        "max": 0.09882904356345534,
+        "p95": 0.09269031267613172
+      },
+      "failures": [],
+      "missing_recovery": 0,
+      "missing_usable": 0
+    },
+    {
+      "key": [
+        "stream-20",
+        "corgi-zstd",
+        "stream",
+        "dense",
+        "1mbit",
+        null,
+        20
+      ],
+      "n": 3,
+      "evidence": [
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/corgi-zstd-1/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/corgi-zstd-2/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/corgi-zstd-3/results.json"
+      ],
+      "fps": {
+        "n": 3,
+        "median": 19.9999440537468,
+        "min": 19.99994329006659,
+        "max": 19.999947378239902,
+        "p95": 19.99994704579059
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 324.7353933219899,
+        "min": 324.67844836057935,
+        "max": 326.59180174650606,
+        "p95": 326.40616090405445
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 33.72153640805774,
+        "min": 33.62644845129754,
+        "max": 33.82275247397545,
+        "p95": 33.812630867383675
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 358.39998476863707,
+        "min": 358.36184177328744,
+        "max": 360.41455422048153,
+        "p95": 360.21309727529706
+      },
+      "bytes_per_update": {
+        "n": 3,
+        "median": 2240.0057984563687,
+        "min": 2239.767861937362,
+        "max": 2252.5972650968574,
+        "p95": 2251.3381184328086
+      },
+      "fresh_fraction": {
+        "n": 3,
+        "median": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "p95": 1.0
+      },
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.021836949046701193,
+        "min": 0.021506411023437977,
+        "max": 0.023977781180292368,
+        "p95": 0.02376369796693325
+      },
+      "input_visible": 15,
+      "input_received": 15,
+      "input_duplicates": 0,
+      "p95_age": {
+        "n": 3,
+        "median": 0.026845476124435663,
+        "min": 0.026243625208735466,
+        "max": 0.03940772730857134,
+        "p95": 0.03815150219015777
+      },
+      "input_latency": {
+        "n": 15,
+        "median": 0.08755917195230722,
+        "min": 0.06771205086261034,
+        "max": 0.09565818309783936,
+        "p95": 0.09194740676321089
+      },
+      "failures": [],
+      "missing_recovery": 0,
+      "missing_usable": 0
+    },
+    {
+      "key": [
+        "stream-20",
+        "herdr-stock",
+        "stream",
+        "sparse",
+        null,
+        null,
+        20
+      ],
+      "n": 3,
+      "evidence": [
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/herdr-stock-1/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/herdr-stock-2/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/herdr-stock-3/results.json"
+      ],
+      "fps": {
+        "n": 3,
+        "median": 19.99993120871552,
+        "min": 19.99992692373075,
+        "max": 19.99993150425319,
+        "p95": 19.999931474699423
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 73.47282867939352,
+        "min": 73.43254481575235,
+        "max": 73.60900727073823,
+        "p95": 73.59538941160376
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 5.746159921319942,
+        "min": 5.7355646649150875,
+        "max": 11.088562935443887,
+        "p95": 10.554322634031493
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 79.34457193565332,
+        "min": 79.1787047370723,
+        "max": 84.5613916148374,
+        "p95": 84.039709646919
+      },
+      "bytes_per_update": {
+        "n": 3,
+        "median": 495.9052802958939,
+        "min": 494.8685994264164,
+        "max": 528.5106286719838,
+        "p95": 525.2500938343748
+      },
+      "fresh_fraction": {
+        "n": 3,
+        "median": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "p95": 1.0
+      },
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.039548242930322886,
+        "min": 0.0345445959828794,
+        "max": 0.04740149574354291,
+        "p95": 0.046616170462220906
+      },
+      "input_visible": 15,
+      "input_received": 15,
+      "input_duplicates": 0,
+      "p95_age": {
+        "n": 3,
+        "median": 0.03184390300884843,
+        "min": 0.018922878429293633,
+        "max": 0.057397214230149984,
+        "p95": 0.05484188310801982
+      },
+      "input_latency": {
+        "n": 15,
+        "median": 0.04276292910799384,
+        "min": 0.02887691231444478,
+        "max": 0.07003429625183344,
+        "p95": 0.05850982996635137
+      },
+      "failures": [],
+      "missing_recovery": 0,
+      "missing_usable": 0
+    },
+    {
+      "key": [
+        "stream-20",
+        "herdr-stock",
+        "stream",
+        "dense",
+        null,
+        null,
+        20
+      ],
+      "n": 3,
+      "evidence": [
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/herdr-stock-1/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/herdr-stock-2/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/herdr-stock-3/results.json"
+      ],
+      "fps": {
+        "n": 3,
+        "median": 19.999924695092364,
+        "min": 19.999895858499777,
+        "max": 19.999926646198656,
+        "p95": 19.999926451088026
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 842.2620986458863,
+        "min": 839.7017122495017,
+        "max": 843.6844788390866,
+        "p95": 843.5422408197666
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 33.28446047502262,
+        "min": 33.18125340931463,
+        "max": 34.29948323222898,
+        "p95": 34.197980956508346
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 875.5465591209089,
+        "min": 874.0011954817307,
+        "max": 876.8657322484013,
+        "p95": 876.733814935652
+      },
+      "bytes_per_update": {
+        "n": 3,
+        "median": 5472.186064788157,
+        "min": 5462.535915595081,
+        "max": 5480.43146172176,
+        "p95": 5479.606922028399
+      },
+      "fresh_fraction": {
+        "n": 3,
+        "median": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "p95": 1.0
+      },
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.04950091987848282,
+        "min": 0.018592727836221457,
+        "max": 0.051894523203372955,
+        "p95": 0.05165516287088394
+      },
+      "input_visible": 15,
+      "input_received": 15,
+      "input_duplicates": 0,
+      "p95_age": {
+        "n": 3,
+        "median": 0.05474486341699958,
+        "min": 0.043500413186848164,
+        "max": 0.05846414156258106,
+        "p95": 0.05809221374802291
+      },
+      "input_latency": {
+        "n": 15,
+        "median": 0.05757143907248974,
+        "min": 0.02591307321563363,
+        "max": 0.07260010577738285,
+        "p95": 0.07060053003951906
+      },
+      "failures": [],
+      "missing_recovery": 0,
+      "missing_usable": 0
+    },
+    {
+      "key": [
+        "stream-20",
+        "herdr-stock",
+        "stream",
+        "dense",
+        "1mbit",
+        null,
+        20
+      ],
+      "n": 3,
+      "evidence": [
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/herdr-stock-1/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/herdr-stock-2/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/herdr-stock-3/results.json"
+      ],
+      "fps": {
+        "n": 3,
+        "median": 19.999935657924283,
+        "min": 19.999935262425183,
+        "max": 19.999942668257095,
+        "p95": 19.999941967223812
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 843.097665697714,
+        "min": 842.8009374132822,
+        "max": 844.4568642839068,
+        "p95": 844.3209444252875
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 29.615449170902387,
+        "min": 29.520144319418883,
+        "max": 29.631507179081538,
+        "p95": 29.62990137826362
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 872.6178100171329,
+        "min": 872.4163865841846,
+        "max": 874.0883714629883,
+        "p95": 873.9413153184028
+      },
+      "bytes_per_update": {
+        "n": 3,
+        "median": 5453.878966151961,
+        "min": 5452.618046555954,
+        "max": 5463.069896906525,
+        "p95": 5462.1508038310685
+      },
+      "fresh_fraction": {
+        "n": 3,
+        "median": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "p95": 1.0
+      },
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.018307171761989594,
+        "min": 0.015795541927218437,
+        "max": 0.05245869280770421,
+        "p95": 0.04904354070313274
+      },
+      "input_visible": 15,
+      "input_received": 15,
+      "input_duplicates": 0,
+      "p95_age": {
+        "n": 3,
+        "median": 0.054202061612159014,
+        "min": 0.04740251088514924,
+        "max": 0.07187629397958517,
+        "p95": 0.07010887074284256
+      },
+      "input_latency": {
+        "n": 15,
+        "median": 0.08750587468966842,
+        "min": 0.0675423564389348,
+        "max": 0.102729600854218,
+        "p95": 0.09715011995285748
+      },
+      "failures": [],
+      "missing_recovery": 0,
+      "missing_usable": 0
+    },
+    {
+      "key": [
+        "stream-20",
+        "herdr-zstd",
+        "stream",
+        "sparse",
+        null,
+        null,
+        20
+      ],
+      "n": 3,
+      "evidence": [
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/herdr-zstd-1/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/herdr-zstd-2/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/herdr-zstd-3/results.json"
+      ],
+      "fps": {
+        "n": 3,
+        "median": 19.999938170927177,
+        "min": 19.999936649776494,
+        "max": 19.99993852575889,
+        "p95": 19.999938490275717
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 27.377324858021108,
+        "min": 27.188130369642792,
+        "max": 27.5116938477105,
+        "p95": 27.49825694874156
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 11.060164260691437,
+        "min": 11.016752182957774,
+        "max": 11.169336490590107,
+        "p95": 11.15841926760024
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 38.52844603066828,
+        "min": 38.24829463033423,
+        "max": 38.54666134861122,
+        "p95": 38.544839816816925
+      },
+      "bytes_per_update": {
+        "n": 3,
+        "median": 240.8035504396138,
+        "min": 239.05257621837438,
+        "max": 240.9173782137262,
+        "p95": 240.90599543631495
+      },
+      "fresh_fraction": {
+        "n": 3,
+        "median": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "p95": 1.0
+      },
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.045297044795006514,
+        "min": 0.0410498003475368,
+        "max": 0.0530993128195405,
+        "p95": 0.0523190860170871
+      },
+      "input_visible": 15,
+      "input_received": 15,
+      "input_duplicates": 0,
+      "p95_age": {
+        "n": 3,
+        "median": 0.014065622352063656,
+        "min": 0.013053171802312136,
+        "max": 0.041076719760894775,
+        "p95": 0.03837561002001166
+      },
+      "input_latency": {
+        "n": 15,
+        "median": 0.04808386182412505,
+        "min": 0.03189692506566644,
+        "max": 0.07044014288112521,
+        "p95": 0.07024532887153327
+      },
+      "failures": [],
+      "missing_recovery": 0,
+      "missing_usable": 0
+    },
+    {
+      "key": [
+        "stream-20",
+        "herdr-zstd",
+        "stream",
+        "dense",
+        null,
+        null,
+        20
+      ],
+      "n": 3,
+      "evidence": [
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/herdr-zstd-1/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/herdr-zstd-2/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/herdr-zstd-3/results.json"
+      ],
+      "fps": {
+        "n": 3,
+        "median": 19.999967852659044,
+        "min": 19.99993326071569,
+        "max": 19.99997918527256,
+        "p95": 19.99997805201121
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 431.5041307258491,
+        "min": 428.3853257077411,
+        "max": 435.6111787173099,
+        "p95": 435.2004739181638
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 12.762168150327726,
+        "min": 12.247166089760205,
+        "max": 13.800272622313333,
+        "p95": 13.696462175114773
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 444.26629887617685,
+        "min": 440.6324917975013,
+        "max": 449.4114513396232,
+        "p95": 448.8969360932786
+      },
+      "bytes_per_update": {
+        "n": 3,
+        "median": 2776.668831102087,
+        "min": 2753.9622636079075,
+        "max": 2808.824494118459,
+        "p95": 2805.6089278168215
+      },
+      "fresh_fraction": {
+        "n": 3,
+        "median": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "p95": 1.0
+      },
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.04729059897363186,
+        "min": 0.026848153211176395,
+        "max": 0.06164375925436616,
+        "p95": 0.06020844322629273
+      },
+      "input_visible": 15,
+      "input_received": 15,
+      "input_duplicates": 0,
+      "p95_age": {
+        "n": 3,
+        "median": 0.05421776324510574,
+        "min": 0.045066268648952246,
+        "max": 0.062403150368481874,
+        "p95": 0.06158461165614426
+      },
+      "input_latency": {
+        "n": 15,
+        "median": 0.05923436442390084,
+        "min": 0.03352856729179621,
+        "max": 0.06988288834691048,
+        "p95": 0.06840969771146774
+      },
+      "failures": [],
+      "missing_recovery": 0,
+      "missing_usable": 0
+    },
+    {
+      "key": [
+        "stream-20",
+        "herdr-zstd",
+        "stream",
+        "dense",
+        "1mbit",
+        null,
+        20
+      ],
+      "n": 3,
+      "evidence": [
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/herdr-zstd-1/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/herdr-zstd-2/results.json",
+        "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-e2e-fast-20261108/stream-20/herdr-zstd-3/results.json"
+      ],
+      "fps": {
+        "n": 3,
+        "median": 19.999934532893914,
+        "min": 19.999922194199957,
+        "max": 19.99994901798002,
+        "p95": 19.99994756947141
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 430.32881032768177,
+        "min": 429.26801838388934,
+        "max": 436.1896490993305,
+        "p95": 435.6035652221656
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 12.948676169981512,
+        "min": 12.30988168247671,
+        "max": 14.32765274919249,
+        "p95": 14.189755091271392
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 443.2774864976633,
+        "min": 441.57790006636606,
+        "max": 450.517301848523,
+        "p95": 449.79332031343705
+      },
+      "bytes_per_update": {
+        "n": 3,
+        "median": 2770.4933594195295,
+        "min": 2759.8689105993853,
+        "max": 2815.7440906143534,
+        "p95": 2811.219017494871
+      },
+      "fresh_fraction": {
+        "n": 3,
+        "median": 1.0,
+        "min": 1.0,
+        "max": 1.0,
+        "p95": 1.0
+      },
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.04000108502805233,
+        "min": 0.01960423495620489,
+        "max": 0.06073201820254326,
+        "p95": 0.058658924885094166
+      },
+      "input_visible": 15,
+      "input_received": 15,
+      "input_duplicates": 0,
+      "p95_age": {
+        "n": 3,
+        "median": 0.050461971666663885,
+        "min": 0.0431612329557538,
+        "max": 0.05801379447802901,
+        "p95": 0.0572586121968925
+      },
+      "input_latency": {
+        "n": 15,
+        "median": 0.07140169804915786,
+        "min": 0.06292429100722075,
+        "max": 0.08171339007094502,
+        "p95": 0.08066878914833069
+      },
+      "failures": [],
+      "missing_recovery": 0,
+      "missing_usable": 0
+    }
+  ]
+}

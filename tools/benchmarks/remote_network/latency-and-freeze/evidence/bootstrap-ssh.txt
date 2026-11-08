@@ -1,0 +1,12 @@
+OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024
+debug1: Reading configuration data /tmp/cne-82362/local/tmp/herdr-ssh-90694-2/config
+debug1: Reading configuration data /tmp/cne-82362/local/home/.ssh/config
+debug1: /tmp/cne-82362/local/home/.ssh/config line 1: Applying options for atlas
+debug1: Reading configuration data /etc/ssh/ssh_config
+debug1: /etc/ssh/ssh_config line 19: include /etc/ssh/ssh_config.d/*.conf matched no files
+debug1: /etc/ssh/ssh_config line 21: Applying options for *
+debug1: /tmp/cne-82362/local/tmp/herdr-ssh-90694-2/config line 3: Applying options for *
+debug2: resolve_canonicalize: hostname 10.203.1.2 is address
+debug1: auto-mux: Trying existing master at '/tmp/hssh-1000/40ca9828ca018dc2dbd94633-d82c5cffc70b890089bbf4ba172b93b9d23b2a8e'
+debug2: fd 4 setting O_NONBLOCK
+debug2: mux_client_hello_exchange: master version 4

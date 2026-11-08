@@ -8,7 +8,7 @@ const root = resolve(import.meta.dir, "../../..");
 const name = process.argv[2];
 if (!["codex", "claude", "micro", "shell", "cat", "cat-dense", "moonlander", "moonlander-kitty"].includes(name))
   throw Error(
-    "usage: bun tools/benchmarks/frame_sequences/record.ts codex|claude|micro|shell|cat|cat-dense|moonlander|moonlander-kitty [OUTPUT_DIRECTORY]",
+    "usage: bun tools/benchmarks/frame_sequences/record.ts codex|claude|micro|shell|cat|cat-dense|moonlander|moonlander-kitty [OUTPUT_DIRECTORY] [SCENARIO_JSON]",
   );
 const output = resolve(
   process.argv[3] ??
@@ -20,12 +20,21 @@ const cols = 120,
 const screen = Terminal.create(cols, rows);
 const frames: { at: number; frame: string }[] = [];
 const actions: { at: number; input: string }[] = [];
+const scenario: { prompt: string; answer: string; expected: string } | null = process.argv[4]
+  ? await Bun.file(process.argv[4]).json()
+  : null;
+if (
+  scenario &&
+  [scenario.prompt, scenario.answer, scenario.expected].some(value => typeof value !== "string" || !value)
+)
+  throw Error("InvalidScenario");
 const answer =
+  scenario?.answer ??
   "Here is a small example.\n\n```typescript\nexport function total(values: number[]): number {\n  return values.reduce((sum, value) => sum + value, 0);\n}\n```\n\n" +
-  Array.from(
-    { length: 18 },
-    (_, i) => `${i + 1}. Check item ${i + 1}: keep the result readable and verify the boundary cases.\n`,
-  ).join("");
+    Array.from(
+      { length: 18 },
+      (_, i) => `${i + 1}. Check item ${i + 1}: keep the result readable and verify the boundary cases.\n`,
+    ).join("");
 let requests = 0;
 const server = Bun.serve({
   hostname: "127.0.0.1",
@@ -241,7 +250,7 @@ try {
       await send("\x1b[A\r", 1000);
     }
     console.log("START", screen.liveText());
-    await send("Write a short TypeScript example and a numbered checklist. Do not use tools.", 300);
+    await send(scenario?.prompt ?? "Write a short TypeScript example and a numbered checklist. Do not use tools.", 300);
     await send("\r", 7000);
     console.log("ANSWER", screen.liveText());
     await send("Follow up: ", 200);
@@ -280,7 +289,7 @@ try {
   }
   capture();
   const text = screen.liveText();
-  if ((name === "codex" || name === "claude") && (requests === 0 || !text.includes("Check item")))
+  if ((name === "codex" || name === "claude") && (requests === 0 || !text.includes(scenario?.expected ?? "Check item")))
     throw Error(`No streamed answer captured (${requests} requests): ${text}`);
   if (frames.length < 5) throw Error(`Too few frames: ${frames.length}`);
   const fixture = {
@@ -299,6 +308,7 @@ try {
     samplingMs: 33,
     durationMs: Math.round(performance.now() - start),
     requests,
+    ...(scenario ? { scenario } : {}),
     uploads: [...uploads],
     actions,
     frames,

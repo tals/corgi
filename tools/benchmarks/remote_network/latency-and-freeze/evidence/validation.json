@@ -1,0 +1,143 @@
+{
+  "at": "2026-11-08T03:03:03.890867+00:00",
+  "scope": "External benchmark diagnostics and documentation; no Corgi or Herdr application changes",
+  "tests": {
+    "bun test src": {
+      "exit_code": 0,
+      "pass": 3375,
+      "skip": 1,
+      "fail": 0
+    },
+    "bun typecheck.ts": {
+      "exit_code": 0
+    }
+  },
+  "logs": {
+    "dist/latency-freeze-unit-tests.log": {
+      "sha256": "e6618d8b92b2b1676c222287fa9477b952015dd4df337c61ddbacad6cbd61de6",
+      "tail": "ss) Pi tools start a summary slot on every turn despite newer hook activity [1.61ms]\n\n1 tests skipped:\n(skip) opt-in live inference preserves a conversation\n\n 3375 pass\n 1 skip\n 0 fail\n 561826 expect() calls\nRan 3376 tests across 346 files. [66.85s]\n"
+    },
+    "dist/latency-freeze-typecheck.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tail": ""
+    }
+  },
+  "commands": [
+    {
+      "command": [
+        "git",
+        "diff",
+        "--exit-code",
+        "--",
+        "src",
+        "native"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "-C",
+        "/home/t/dev/personal/herdr-cpu-benchmark/source",
+        "status",
+        "--porcelain"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "sudo",
+        "-n",
+        "ip",
+        "netns",
+        "list"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "uvx",
+        "--offline",
+        "black",
+        "--check",
+        "tools/benchmarks/remote_network/freeze_audit.py",
+        "tools/benchmarks/remote_network/freeze_report.py"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "All done! \u2728 \ud83c\udf70 \u2728\n2 files would be left unchanged.\n"
+    },
+    {
+      "command": [
+        "python3",
+        "-m",
+        "py_compile",
+        "tools/benchmarks/remote_network/freeze_audit.py",
+        "tools/benchmarks/remote_network/freeze_report.py"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "audit_checks_passed": 564,
+  "pilot_excluded": {
+    "reason": "Diagnostic-only pilot: instrumentation introduced root-owned ss processes into the freeze list; two trials failed on SIGSTOP permission, and remaining trials were cancelled. No pilot result is used. Fixed by freezing only application-owned processes, excluding tracing tools.",
+    "manually_cleaned_namespaces": [
+      "cne-48087-f",
+      "cne-48087-b",
+      "cne-48087-a",
+      "cne-48087-l",
+      "cne-48088-f",
+      "cne-48088-b",
+      "cne-48088-a",
+      "cne-48088-l",
+      "cne-48091-f",
+      "cne-48091-b",
+      "cne-48091-a",
+      "cne-48091-l",
+      "cne-48097-f",
+      "cne-48097-b",
+      "cne-48097-a",
+      "cne-48097-l",
+      "cne-48093-f",
+      "cne-48093-b",
+      "cne-48093-a",
+      "cne-48093-l",
+      "cne-48095-f",
+      "cne-48095-b",
+      "cne-48095-a",
+      "cne-48095-l",
+      "cne-48101-f",
+      "cne-48101-b",
+      "cne-48101-a",
+      "cne-48101-l",
+      "cne-48102-f",
+      "cne-48102-b",
+      "cne-48102-a",
+      "cne-48102-l",
+      "cne-48098-f",
+      "cne-48098-b",
+      "cne-48098-a",
+      "cne-48098-l",
+      "cne-48103-f",
+      "cne-48103-b",
+      "cne-48103-a",
+      "cne-48103-l",
+      "cne-48106-f",
+      "cne-48106-b",
+      "cne-48106-a",
+      "cne-48106-l",
+      "cne-48105-f",
+      "cne-48105-b",
+      "cne-48105-a",
+      "cne-48105-l"
+    ]
+  }
+}

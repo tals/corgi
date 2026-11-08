@@ -1,0 +1,1114 @@
+[
+  {
+    "name": "original-1",
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/original-1",
+    "result": {
+      "case": "sleep",
+      "control": "original",
+      "sleep_seconds": 180,
+      "recovery_seconds": 46.621246120892465,
+      "before": {
+        "token": "BEFORESLEEPV2I4",
+        "sent": 2431108.835977764,
+        "seconds": 0.23940051114186645,
+        "ok": true
+      },
+      "usable_seconds": 47.13023557513952,
+      "ready": {
+        "ack_at": 2431337.225949455,
+        "ack": "READYV2MatlasI6P3",
+        "probes": [
+          {
+            "token": "READYV2MatlasI6P0",
+            "sent": 2431336.718191231
+          },
+          {
+            "token": "READYV2MatlasI6P1",
+            "sent": 2431336.838296576
+          },
+          {
+            "token": "READYV2MatlasI6P2",
+            "sent": 2431336.958611065
+          },
+          {
+            "token": "READYV2MatlasI6P3",
+            "sent": 2431337.07913477
+          },
+          {
+            "token": "READYV2MatlasI6P4",
+            "sent": 2431337.199397799
+          }
+        ]
+      },
+      "pending_input_at": 2431109.195240644,
+      "echo": {
+        "token": "AFTERSLEEPV2I11",
+        "sent": 2431337.319603816,
+        "seconds": 0.15674535697326064,
+        "ok": true
+      }
+    },
+    "continuity": {
+      "samples": 85,
+      "remote_producer_count": 8,
+      "same_remote_pids_throughout": true,
+      "all_remote_cpu_ticks_advanced": true,
+      "sequence_advance": 4547,
+      "actual_sleep_seconds": 180.24897421477363
+    },
+    "pending_input_count": 1,
+    "manifest": {
+      "product": "herdr",
+      "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+      "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+      "corgi_commit": "467a5c7cc386626e4519a144e4cad982f1e3dba0",
+      "build": null,
+      "args": {
+        "product": "herdr",
+        "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+        "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/original-1",
+        "codec": "stock",
+        "trace_ssh": true,
+        "suite": "sleep",
+        "cpus": "32-35",
+        "repeats": 1,
+        "stream_cases": "sparse:1mbit,dense:1mbit,sparse:64kbit,dense:64kbit",
+        "stream_seconds": 30,
+        "stream_rtt": 120,
+        "fault_cases": "tcp_reset,blackhole3,blackhole35,downstream15",
+        "fault_kind": "sparse",
+        "sleep_seconds": 180,
+        "rtts": "20,120,300",
+        "panes": 4,
+        "ansi": false,
+        "trace": true,
+        "capture": true,
+        "calibrate": false,
+        "ssh_compression": "default"
+      },
+      "kernel": "6.8.0-146-generic",
+      "clock": "CLOCK_MONOTONIC",
+      "uid": 1000,
+      "topology": "intermediate-bridge-tbf-netem-v2",
+      "started_utc": "2026-11-08T02:49:01Z"
+    }
+  },
+  {
+    "name": "fresh-ssh-at-wake-1",
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/fresh-ssh-at-wake-1",
+    "result": {
+      "case": "sleep",
+      "control": "fresh-ssh-at-wake",
+      "sleep_seconds": 180,
+      "recovery_seconds": 4.329801362007856,
+      "before": {
+        "token": "BEFORESLEEPV2I4",
+        "sent": 2431108.773972933,
+        "seconds": 0.14188249269500375,
+        "ok": true
+      },
+      "usable_seconds": 4.716829381417483,
+      "ready": {
+        "ack_at": 2431294.41870472,
+        "ack": "READYV2MatlasI6P2",
+        "probes": [
+          {
+            "token": "READYV2MatlasI6P0",
+            "sent": 2431294.037224145
+          },
+          {
+            "token": "READYV2MatlasI6P1",
+            "sent": 2431294.157461866
+          },
+          {
+            "token": "READYV2MatlasI6P2",
+            "sent": 2431294.277645877
+          },
+          {
+            "token": "READYV2MatlasI6P3",
+            "sent": 2431294.397971311
+          }
+        ]
+      },
+      "pending_input_at": 2431109.002973031,
+      "echo": {
+        "token": "AFTERSLEEPV2I10",
+        "sent": 2431294.518413898,
+        "seconds": 0.15143141290172935,
+        "ok": true
+      }
+    },
+    "continuity": {
+      "samples": 85,
+      "remote_producer_count": 8,
+      "same_remote_pids_throughout": true,
+      "all_remote_cpu_ticks_advanced": true,
+      "sequence_advance": 3697,
+      "actual_sleep_seconds": 180.15308081172407
+    },
+    "pending_input_count": 1,
+    "manifest": {
+      "product": "herdr",
+      "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+      "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+      "corgi_commit": "467a5c7cc386626e4519a144e4cad982f1e3dba0",
+      "build": null,
+      "args": {
+        "product": "herdr",
+        "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+        "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/fresh-ssh-at-wake-1",
+        "codec": "stock",
+        "trace_ssh": true,
+        "suite": "sleep",
+        "cpus": "36-39",
+        "repeats": 1,
+        "stream_cases": "sparse:1mbit,dense:1mbit,sparse:64kbit,dense:64kbit",
+        "stream_seconds": 30,
+        "stream_rtt": 120,
+        "fault_cases": "tcp_reset,blackhole3,blackhole35,downstream15",
+        "fault_kind": "sparse",
+        "sleep_seconds": 180,
+        "rtts": "20,120,300",
+        "panes": 4,
+        "ansi": false,
+        "trace": true,
+        "capture": true,
+        "calibrate": false,
+        "ssh_compression": "default"
+      },
+      "kernel": "6.8.0-146-generic",
+      "clock": "CLOCK_MONOTONIC",
+      "uid": 1000,
+      "topology": "intermediate-bridge-tbf-netem-v2",
+      "started_utc": "2026-11-08T02:49:01Z"
+    }
+  },
+  {
+    "name": "no-pending-input-1",
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/no-pending-input-1",
+    "result": {
+      "case": "sleep",
+      "control": "no-pending-input",
+      "sleep_seconds": 180,
+      "recovery_seconds": 4.27564686210826,
+      "before": {
+        "token": "BEFORESLEEPV2I4",
+        "sent": 2431108.932995931,
+        "seconds": 0.13654885301366448,
+        "ok": true
+      },
+      "usable_seconds": 4.770945157390088,
+      "ready": {
+        "ack_at": 2431294.873015099,
+        "ack": "READYV2MatlasI5P3",
+        "probes": [
+          {
+            "token": "READYV2MatlasI5P0",
+            "sent": 2431294.379968028
+          },
+          {
+            "token": "READYV2MatlasI5P1",
+            "sent": 2431294.499998115
+          },
+          {
+            "token": "READYV2MatlasI5P2",
+            "sent": 2431294.620164416
+          },
+          {
+            "token": "READYV2MatlasI5P3",
+            "sent": 2431294.740357148
+          },
+          {
+            "token": "READYV2MatlasI5P4",
+            "sent": 2431294.860697743
+          }
+        ]
+      },
+      "pending_input_at": null,
+      "echo": {
+        "token": "AFTERSLEEPV2I10",
+        "sent": 2431294.980902835,
+        "seconds": 0.1423065341077745,
+        "ok": true
+      }
+    },
+    "continuity": {
+      "samples": 86,
+      "remote_producer_count": 8,
+      "same_remote_pids_throughout": true,
+      "all_remote_cpu_ticks_advanced": true,
+      "sequence_advance": 3700,
+      "actual_sleep_seconds": 180.2592635746114
+    },
+    "pending_input_count": 0,
+    "manifest": {
+      "product": "herdr",
+      "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+      "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+      "corgi_commit": "467a5c7cc386626e4519a144e4cad982f1e3dba0",
+      "build": null,
+      "args": {
+        "product": "herdr",
+        "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+        "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/no-pending-input-1",
+        "codec": "stock",
+        "trace_ssh": true,
+        "suite": "sleep",
+        "cpus": "40-43",
+        "repeats": 1,
+        "stream_cases": "sparse:1mbit,dense:1mbit,sparse:64kbit,dense:64kbit",
+        "stream_seconds": 30,
+        "stream_rtt": 120,
+        "fault_cases": "tcp_reset,blackhole3,blackhole35,downstream15",
+        "fault_kind": "sparse",
+        "sleep_seconds": 180,
+        "rtts": "20,120,300",
+        "panes": 4,
+        "ansi": false,
+        "trace": true,
+        "capture": true,
+        "calibrate": false,
+        "ssh_compression": "default"
+      },
+      "kernel": "6.8.0-146-generic",
+      "clock": "CLOCK_MONOTONIC",
+      "uid": 1000,
+      "topology": "intermediate-bridge-tbf-netem-v2",
+      "started_utc": "2026-11-08T02:49:01Z"
+    }
+  },
+  {
+    "name": "transport-survives-1",
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/transport-survives-1",
+    "result": {
+      "case": "sleep",
+      "control": "transport-survives",
+      "sleep_seconds": 180,
+      "recovery_seconds": 16.522434066981077,
+      "before": {
+        "token": "BEFORESLEEPV2I4",
+        "sent": 2431108.893679569,
+        "seconds": 0.13430683314800262,
+        "ok": true
+      },
+      "usable_seconds": 17.042020421940833,
+      "ready": {
+        "ack_at": 2431307.031621033,
+        "ack": "READYV2MatlasI6P3",
+        "probes": [
+          {
+            "token": "READYV2MatlasI6P0",
+            "sent": 2431306.523651818
+          },
+          {
+            "token": "READYV2MatlasI6P1",
+            "sent": 2431306.64380665
+          },
+          {
+            "token": "READYV2MatlasI6P2",
+            "sent": 2431306.764171696
+          },
+          {
+            "token": "READYV2MatlasI6P3",
+            "sent": 2431306.884587743
+          },
+          {
+            "token": "READYV2MatlasI6P4",
+            "sent": 2431307.005103483
+          }
+        ]
+      },
+      "pending_input_at": 2431109.159971533,
+      "echo": {
+        "token": "AFTERSLEEPV2I11",
+        "sent": 2431307.12551332,
+        "seconds": 0.15634253527969122,
+        "ok": true
+      }
+    },
+    "continuity": {
+      "samples": 85,
+      "remote_producer_count": 8,
+      "same_remote_pids_throughout": true,
+      "all_remote_cpu_ticks_advanced": true,
+      "sequence_advance": 3946,
+      "actual_sleep_seconds": 180.2202736637555
+    },
+    "pending_input_count": 1,
+    "manifest": {
+      "product": "herdr",
+      "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+      "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+      "corgi_commit": "467a5c7cc386626e4519a144e4cad982f1e3dba0",
+      "build": null,
+      "args": {
+        "product": "herdr",
+        "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+        "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/transport-survives-1",
+        "codec": "stock",
+        "trace_ssh": true,
+        "suite": "sleep",
+        "cpus": "44-47",
+        "repeats": 1,
+        "stream_cases": "sparse:1mbit,dense:1mbit,sparse:64kbit,dense:64kbit",
+        "stream_seconds": 30,
+        "stream_rtt": 120,
+        "fault_cases": "tcp_reset,blackhole3,blackhole35,downstream15",
+        "fault_kind": "sparse",
+        "sleep_seconds": 180,
+        "rtts": "20,120,300",
+        "panes": 4,
+        "ansi": false,
+        "trace": true,
+        "capture": true,
+        "calibrate": false,
+        "ssh_compression": "default"
+      },
+      "kernel": "6.8.0-146-generic",
+      "clock": "CLOCK_MONOTONIC",
+      "uid": 1000,
+      "topology": "intermediate-bridge-tbf-netem-v2",
+      "started_utc": "2026-11-08T02:49:01Z"
+    }
+  },
+  {
+    "name": "original-2",
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/original-2",
+    "result": {
+      "case": "sleep",
+      "control": "original",
+      "sleep_seconds": 180,
+      "recovery_seconds": 12.97251022187993,
+      "before": {
+        "token": "BEFORESLEEPV2I4",
+        "sent": 2431108.894798804,
+        "seconds": 0.12918431777507067,
+        "ok": true
+      },
+      "usable_seconds": 13.348917768802494,
+      "ready": {
+        "ack_at": 2431303.327366682,
+        "ack": "READYV2MatlasI6P2",
+        "probes": [
+          {
+            "token": "READYV2MatlasI6P0",
+            "sent": 2431302.952050921
+          },
+          {
+            "token": "READYV2MatlasI6P1",
+            "sent": 2431303.072195528
+          },
+          {
+            "token": "READYV2MatlasI6P2",
+            "sent": 2431303.19252424
+          },
+          {
+            "token": "READYV2MatlasI6P3",
+            "sent": 2431303.312898053
+          }
+        ]
+      },
+      "pending_input_at": 2431109.130183985,
+      "echo": {
+        "token": "AFTERSLEEPV2I10",
+        "sent": 2431303.433333548,
+        "seconds": 0.14412376610562205,
+        "ok": true
+      }
+    },
+    "continuity": {
+      "samples": 85,
+      "remote_producer_count": 8,
+      "same_remote_pids_throughout": true,
+      "all_remote_cpu_ticks_advanced": true,
+      "sequence_advance": 3872,
+      "actual_sleep_seconds": 180.2165371621959
+    },
+    "pending_input_count": 1,
+    "manifest": {
+      "product": "herdr",
+      "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+      "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+      "corgi_commit": "467a5c7cc386626e4519a144e4cad982f1e3dba0",
+      "build": null,
+      "args": {
+        "product": "herdr",
+        "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+        "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/original-2",
+        "codec": "stock",
+        "trace_ssh": true,
+        "suite": "sleep",
+        "cpus": "52-55",
+        "repeats": 1,
+        "stream_cases": "sparse:1mbit,dense:1mbit,sparse:64kbit,dense:64kbit",
+        "stream_seconds": 30,
+        "stream_rtt": 120,
+        "fault_cases": "tcp_reset,blackhole3,blackhole35,downstream15",
+        "fault_kind": "sparse",
+        "sleep_seconds": 180,
+        "rtts": "20,120,300",
+        "panes": 4,
+        "ansi": false,
+        "trace": true,
+        "capture": true,
+        "calibrate": false,
+        "ssh_compression": "default"
+      },
+      "kernel": "6.8.0-146-generic",
+      "clock": "CLOCK_MONOTONIC",
+      "uid": 1000,
+      "topology": "intermediate-bridge-tbf-netem-v2",
+      "started_utc": "2026-11-08T02:49:01Z"
+    }
+  },
+  {
+    "name": "fresh-ssh-at-wake-2",
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/fresh-ssh-at-wake-2",
+    "result": {
+      "case": "sleep",
+      "control": "fresh-ssh-at-wake",
+      "sleep_seconds": 180,
+      "recovery_seconds": 4.1757930582389235,
+      "before": {
+        "token": "BEFORESLEEPV2I4",
+        "sent": 2431108.896134124,
+        "seconds": 0.12524300999939442,
+        "ok": true
+      },
+      "usable_seconds": 4.6698851538822055,
+      "ready": {
+        "ack_at": 2431294.724769653,
+        "ack": "READYV2MatlasI6P3",
+        "probes": [
+          {
+            "token": "READYV2MatlasI6P0",
+            "sent": 2431294.232063361
+          },
+          {
+            "token": "READYV2MatlasI6P1",
+            "sent": 2431294.352080607
+          },
+          {
+            "token": "READYV2MatlasI6P2",
+            "sent": 2431294.472255708
+          },
+          {
+            "token": "READYV2MatlasI6P3",
+            "sent": 2431294.5924729
+          },
+          {
+            "token": "READYV2MatlasI6P4",
+            "sent": 2431294.712773254
+          }
+        ]
+      },
+      "pending_input_at": 2431109.161435416,
+      "echo": {
+        "token": "AFTERSLEEPV2I11",
+        "sent": 2431294.833098859,
+        "seconds": 0.1407644171267748,
+        "ok": true
+      }
+    },
+    "continuity": {
+      "samples": 85,
+      "remote_producer_count": 8,
+      "same_remote_pids_throughout": true,
+      "all_remote_cpu_ticks_advanced": true,
+      "sequence_advance": 3698,
+      "actual_sleep_seconds": 180.245760708116
+    },
+    "pending_input_count": 1,
+    "manifest": {
+      "product": "herdr",
+      "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+      "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+      "corgi_commit": "467a5c7cc386626e4519a144e4cad982f1e3dba0",
+      "build": null,
+      "args": {
+        "product": "herdr",
+        "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+        "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/fresh-ssh-at-wake-2",
+        "codec": "stock",
+        "trace_ssh": true,
+        "suite": "sleep",
+        "cpus": "56-59",
+        "repeats": 1,
+        "stream_cases": "sparse:1mbit,dense:1mbit,sparse:64kbit,dense:64kbit",
+        "stream_seconds": 30,
+        "stream_rtt": 120,
+        "fault_cases": "tcp_reset,blackhole3,blackhole35,downstream15",
+        "fault_kind": "sparse",
+        "sleep_seconds": 180,
+        "rtts": "20,120,300",
+        "panes": 4,
+        "ansi": false,
+        "trace": true,
+        "capture": true,
+        "calibrate": false,
+        "ssh_compression": "default"
+      },
+      "kernel": "6.8.0-146-generic",
+      "clock": "CLOCK_MONOTONIC",
+      "uid": 1000,
+      "topology": "intermediate-bridge-tbf-netem-v2",
+      "started_utc": "2026-11-08T02:49:01Z"
+    }
+  },
+  {
+    "name": "no-pending-input-2",
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/no-pending-input-2",
+    "result": {
+      "case": "sleep",
+      "control": "no-pending-input",
+      "sleep_seconds": 180,
+      "recovery_seconds": 4.328672576230019,
+      "before": {
+        "token": "BEFORESLEEPV2I4",
+        "sent": 2431108.89242026,
+        "seconds": 0.1340613584034145,
+        "ok": true
+      },
+      "usable_seconds": 4.749445838853717,
+      "ready": {
+        "ack_at": 2431294.830334333,
+        "ack": "READYV2MatlasI5P2",
+        "probes": [
+          {
+            "token": "READYV2MatlasI5P0",
+            "sent": 2431294.416537928
+          },
+          {
+            "token": "READYV2MatlasI5P1",
+            "sent": 2431294.536626566
+          },
+          {
+            "token": "READYV2MatlasI5P2",
+            "sent": 2431294.656855069
+          },
+          {
+            "token": "READYV2MatlasI5P3",
+            "sent": 2431294.777157613
+          }
+        ]
+      },
+      "pending_input_at": null,
+      "echo": {
+        "token": "AFTERSLEEPV2I9",
+        "sent": 2431294.897406686,
+        "seconds": 0.13255702005699277,
+        "ok": true
+      }
+    },
+    "continuity": {
+      "samples": 86,
+      "remote_producer_count": 8,
+      "same_remote_pids_throughout": true,
+      "all_remote_cpu_ticks_advanced": true,
+      "sequence_advance": 3701,
+      "actual_sleep_seconds": 180.26215136796236
+    },
+    "pending_input_count": 0,
+    "manifest": {
+      "product": "herdr",
+      "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+      "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+      "corgi_commit": "467a5c7cc386626e4519a144e4cad982f1e3dba0",
+      "build": null,
+      "args": {
+        "product": "herdr",
+        "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+        "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/no-pending-input-2",
+        "codec": "stock",
+        "trace_ssh": true,
+        "suite": "sleep",
+        "cpus": "60-63",
+        "repeats": 1,
+        "stream_cases": "sparse:1mbit,dense:1mbit,sparse:64kbit,dense:64kbit",
+        "stream_seconds": 30,
+        "stream_rtt": 120,
+        "fault_cases": "tcp_reset,blackhole3,blackhole35,downstream15",
+        "fault_kind": "sparse",
+        "sleep_seconds": 180,
+        "rtts": "20,120,300",
+        "panes": 4,
+        "ansi": false,
+        "trace": true,
+        "capture": true,
+        "calibrate": false,
+        "ssh_compression": "default"
+      },
+      "kernel": "6.8.0-146-generic",
+      "clock": "CLOCK_MONOTONIC",
+      "uid": 1000,
+      "topology": "intermediate-bridge-tbf-netem-v2",
+      "started_utc": "2026-11-08T02:49:01Z"
+    }
+  },
+  {
+    "name": "transport-survives-2",
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/transport-survives-2",
+    "result": {
+      "case": "sleep",
+      "control": "transport-survives",
+      "sleep_seconds": 180,
+      "recovery_seconds": 14.31078324187547,
+      "before": {
+        "token": "BEFORESLEEPV2I4",
+        "sent": 2431108.841403566,
+        "seconds": 0.18655493529513478,
+        "ok": true
+      },
+      "usable_seconds": 14.701904438901693,
+      "ready": {
+        "ack_at": 2431304.781972153,
+        "ack": "READYV2MatlasI6P2",
+        "probes": [
+          {
+            "token": "READYV2MatlasI6P0",
+            "sent": 2431304.395350444
+          },
+          {
+            "token": "READYV2MatlasI6P1",
+            "sent": 2431304.515732649
+          },
+          {
+            "token": "READYV2MatlasI6P2",
+            "sent": 2431304.636086503
+          },
+          {
+            "token": "READYV2MatlasI6P3",
+            "sent": 2431304.756419247
+          }
+        ]
+      },
+      "pending_input_at": 2431109.157722193,
+      "echo": {
+        "token": "AFTERSLEEPV2I10",
+        "sent": 2431304.877155,
+        "seconds": 0.15681499429047108,
+        "ok": true
+      }
+    },
+    "continuity": {
+      "samples": 85,
+      "remote_producer_count": 8,
+      "same_remote_pids_throughout": true,
+      "all_remote_cpu_ticks_advanced": true,
+      "sequence_advance": 3901,
+      "actual_sleep_seconds": 180.26301760505885
+    },
+    "pending_input_count": 1,
+    "manifest": {
+      "product": "herdr",
+      "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+      "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+      "corgi_commit": "467a5c7cc386626e4519a144e4cad982f1e3dba0",
+      "build": null,
+      "args": {
+        "product": "herdr",
+        "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+        "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/transport-survives-2",
+        "codec": "stock",
+        "trace_ssh": true,
+        "suite": "sleep",
+        "cpus": "48-51",
+        "repeats": 1,
+        "stream_cases": "sparse:1mbit,dense:1mbit,sparse:64kbit,dense:64kbit",
+        "stream_seconds": 30,
+        "stream_rtt": 120,
+        "fault_cases": "tcp_reset,blackhole3,blackhole35,downstream15",
+        "fault_kind": "sparse",
+        "sleep_seconds": 180,
+        "rtts": "20,120,300",
+        "panes": 4,
+        "ansi": false,
+        "trace": true,
+        "capture": true,
+        "calibrate": false,
+        "ssh_compression": "default"
+      },
+      "kernel": "6.8.0-146-generic",
+      "clock": "CLOCK_MONOTONIC",
+      "uid": 1000,
+      "topology": "intermediate-bridge-tbf-netem-v2",
+      "started_utc": "2026-11-08T02:49:01Z"
+    }
+  },
+  {
+    "name": "original-3",
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/original-3",
+    "result": {
+      "case": "sleep",
+      "control": "original",
+      "sleep_seconds": 180,
+      "recovery_seconds": 46.62801146320999,
+      "before": {
+        "token": "BEFORESLEEPV2I4",
+        "sent": 2431108.990589053,
+        "seconds": 0.13397161616012454,
+        "ok": true
+      },
+      "usable_seconds": 47.13862558687106,
+      "ready": {
+        "ack_at": 2431337.22490221,
+        "ack": "READYV2MatlasI6P3",
+        "probes": [
+          {
+            "token": "READYV2MatlasI6P0",
+            "sent": 2431336.715808383
+          },
+          {
+            "token": "READYV2MatlasI6P1",
+            "sent": 2431336.835708343
+          },
+          {
+            "token": "READYV2MatlasI6P2",
+            "sent": 2431336.955961391
+          },
+          {
+            "token": "READYV2MatlasI6P3",
+            "sent": 2431337.076294051
+          },
+          {
+            "token": "READYV2MatlasI6P4",
+            "sent": 2431337.196665342
+          }
+        ]
+      },
+      "pending_input_at": 2431109.235990569,
+      "echo": {
+        "token": "AFTERSLEEPV2I11",
+        "sent": 2431337.316960832,
+        "seconds": 0.1578027717769146,
+        "ok": true
+      }
+    },
+    "continuity": {
+      "samples": 85,
+      "remote_producer_count": 8,
+      "same_remote_pids_throughout": true,
+      "all_remote_cpu_ticks_advanced": true,
+      "sequence_advance": 4546,
+      "actual_sleep_seconds": 180.21923603210598
+    },
+    "pending_input_count": 1,
+    "manifest": {
+      "product": "herdr",
+      "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+      "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+      "corgi_commit": "467a5c7cc386626e4519a144e4cad982f1e3dba0",
+      "build": null,
+      "args": {
+        "product": "herdr",
+        "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+        "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/original-3",
+        "codec": "stock",
+        "trace_ssh": true,
+        "suite": "sleep",
+        "cpus": "72-75",
+        "repeats": 1,
+        "stream_cases": "sparse:1mbit,dense:1mbit,sparse:64kbit,dense:64kbit",
+        "stream_seconds": 30,
+        "stream_rtt": 120,
+        "fault_cases": "tcp_reset,blackhole3,blackhole35,downstream15",
+        "fault_kind": "sparse",
+        "sleep_seconds": 180,
+        "rtts": "20,120,300",
+        "panes": 4,
+        "ansi": false,
+        "trace": true,
+        "capture": true,
+        "calibrate": false,
+        "ssh_compression": "default"
+      },
+      "kernel": "6.8.0-146-generic",
+      "clock": "CLOCK_MONOTONIC",
+      "uid": 1000,
+      "topology": "intermediate-bridge-tbf-netem-v2",
+      "started_utc": "2026-11-08T02:49:01Z"
+    }
+  },
+  {
+    "name": "fresh-ssh-at-wake-3",
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/fresh-ssh-at-wake-3",
+    "result": {
+      "case": "sleep",
+      "control": "fresh-ssh-at-wake",
+      "sleep_seconds": 180,
+      "recovery_seconds": 4.314483828376979,
+      "before": {
+        "token": "BEFORESLEEPV2I4",
+        "sent": 2431108.581618817,
+        "seconds": 0.13637177972123027,
+        "ok": true
+      },
+      "usable_seconds": 4.828977703116834,
+      "ready": {
+        "ack_at": 2431294.321072552,
+        "ack": "READYV2MatlasI6P3",
+        "probes": [
+          {
+            "token": "READYV2MatlasI6P0",
+            "sent": 2431293.807368906
+          },
+          {
+            "token": "READYV2MatlasI6P1",
+            "sent": 2431293.927334782
+          },
+          {
+            "token": "READYV2MatlasI6P2",
+            "sent": 2431294.047509252
+          },
+          {
+            "token": "READYV2MatlasI6P3",
+            "sent": 2431294.167792395
+          },
+          {
+            "token": "READYV2MatlasI6P4",
+            "sent": 2431294.288065018
+          }
+        ]
+      },
+      "pending_input_at": 2431108.796267103,
+      "echo": {
+        "token": "AFTERSLEEPV2I11",
+        "sent": 2431294.408369591,
+        "seconds": 0.16237980592995882,
+        "ok": true
+      }
+    },
+    "continuity": {
+      "samples": 85,
+      "remote_producer_count": 8,
+      "same_remote_pids_throughout": true,
+      "all_remote_cpu_ticks_advanced": true,
+      "sequence_advance": 3697,
+      "actual_sleep_seconds": 180.15054113185033
+    },
+    "pending_input_count": 1,
+    "manifest": {
+      "product": "herdr",
+      "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+      "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+      "corgi_commit": "467a5c7cc386626e4519a144e4cad982f1e3dba0",
+      "build": null,
+      "args": {
+        "product": "herdr",
+        "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+        "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/fresh-ssh-at-wake-3",
+        "codec": "stock",
+        "trace_ssh": true,
+        "suite": "sleep",
+        "cpus": "76-79",
+        "repeats": 1,
+        "stream_cases": "sparse:1mbit,dense:1mbit,sparse:64kbit,dense:64kbit",
+        "stream_seconds": 30,
+        "stream_rtt": 120,
+        "fault_cases": "tcp_reset,blackhole3,blackhole35,downstream15",
+        "fault_kind": "sparse",
+        "sleep_seconds": 180,
+        "rtts": "20,120,300",
+        "panes": 4,
+        "ansi": false,
+        "trace": true,
+        "capture": true,
+        "calibrate": false,
+        "ssh_compression": "default"
+      },
+      "kernel": "6.8.0-146-generic",
+      "clock": "CLOCK_MONOTONIC",
+      "uid": 1000,
+      "topology": "intermediate-bridge-tbf-netem-v2",
+      "started_utc": "2026-11-08T02:49:01Z"
+    }
+  },
+  {
+    "name": "no-pending-input-3",
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/no-pending-input-3",
+    "result": {
+      "case": "sleep",
+      "control": "no-pending-input",
+      "sleep_seconds": 180,
+      "recovery_seconds": 4.274311774875969,
+      "before": {
+        "token": "BEFORESLEEPV2I4",
+        "sent": 2431108.754039076,
+        "seconds": 0.1271351920440793,
+        "ok": true
+      },
+      "usable_seconds": 4.803533194120973,
+      "ready": {
+        "ack_at": 2431294.434967771,
+        "ack": "READYV2MatlasI5P3",
+        "probes": [
+          {
+            "token": "READYV2MatlasI5P0",
+            "sent": 2431293.906605163
+          },
+          {
+            "token": "READYV2MatlasI5P1",
+            "sent": 2431294.026815234
+          },
+          {
+            "token": "READYV2MatlasI5P2",
+            "sent": 2431294.147084667
+          },
+          {
+            "token": "READYV2MatlasI5P3",
+            "sent": 2431294.267340919
+          },
+          {
+            "token": "READYV2MatlasI5P4",
+            "sent": 2431294.387650913
+          }
+        ]
+      },
+      "pending_input_at": null,
+      "echo": {
+        "token": "AFTERSLEEPV2I10",
+        "sent": 2431294.507898725,
+        "seconds": 0.12694610375910997,
+        "ok": true
+      }
+    },
+    "continuity": {
+      "samples": 84,
+      "remote_producer_count": 8,
+      "same_remote_pids_throughout": true,
+      "all_remote_cpu_ticks_advanced": true,
+      "sequence_advance": 3694,
+      "actual_sleep_seconds": 180.1517847920768
+    },
+    "pending_input_count": 0,
+    "manifest": {
+      "product": "herdr",
+      "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+      "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+      "corgi_commit": "467a5c7cc386626e4519a144e4cad982f1e3dba0",
+      "build": null,
+      "args": {
+        "product": "herdr",
+        "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+        "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/no-pending-input-3",
+        "codec": "stock",
+        "trace_ssh": true,
+        "suite": "sleep",
+        "cpus": "64-67",
+        "repeats": 1,
+        "stream_cases": "sparse:1mbit,dense:1mbit,sparse:64kbit,dense:64kbit",
+        "stream_seconds": 30,
+        "stream_rtt": 120,
+        "fault_cases": "tcp_reset,blackhole3,blackhole35,downstream15",
+        "fault_kind": "sparse",
+        "sleep_seconds": 180,
+        "rtts": "20,120,300",
+        "panes": 4,
+        "ansi": false,
+        "trace": true,
+        "capture": true,
+        "calibrate": false,
+        "ssh_compression": "default"
+      },
+      "kernel": "6.8.0-146-generic",
+      "clock": "CLOCK_MONOTONIC",
+      "uid": 1000,
+      "topology": "intermediate-bridge-tbf-netem-v2",
+      "started_utc": "2026-11-08T02:49:01Z"
+    }
+  },
+  {
+    "name": "transport-survives-3",
+    "path": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/transport-survives-3",
+    "result": {
+      "case": "sleep",
+      "control": "transport-survives",
+      "sleep_seconds": 180,
+      "recovery_seconds": 6.614468760322779,
+      "before": {
+        "token": "BEFORESLEEPV2I4",
+        "sent": 2431108.911333805,
+        "seconds": 0.14631448313593864,
+        "ok": true
+      },
+      "usable_seconds": 7.1283926223404706,
+      "ready": {
+        "ack_at": 2431297.211255003,
+        "ack": "READYV2MatlasI6P3",
+        "probes": [
+          {
+            "token": "READYV2MatlasI6P0",
+            "sent": 2431296.710896977
+          },
+          {
+            "token": "READYV2MatlasI6P1",
+            "sent": 2431296.831381168
+          },
+          {
+            "token": "READYV2MatlasI6P2",
+            "sent": 2431296.951816267
+          },
+          {
+            "token": "READYV2MatlasI6P3",
+            "sent": 2431297.072434481
+          },
+          {
+            "token": "READYV2MatlasI6P4",
+            "sent": 2431297.19286363
+          }
+        ]
+      },
+      "pending_input_at": 2431109.195132932,
+      "echo": {
+        "token": "AFTERSLEEPV2I11",
+        "sent": 2431297.313467533,
+        "seconds": 0.14927250426262617,
+        "ok": true
+      }
+    },
+    "continuity": {
+      "samples": 83,
+      "remote_producer_count": 8,
+      "same_remote_pids_throughout": true,
+      "all_remote_cpu_ticks_advanced": true,
+      "sequence_advance": 3747,
+      "actual_sleep_seconds": 180.2409170740284
+    },
+    "pending_input_count": 1,
+    "manifest": {
+      "product": "herdr",
+      "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+      "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+      "corgi_commit": "467a5c7cc386626e4519a144e4cad982f1e3dba0",
+      "build": null,
+      "args": {
+        "product": "herdr",
+        "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+        "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/herdr-freeze-audit-v2-20261108/transport-survives-3",
+        "codec": "stock",
+        "trace_ssh": true,
+        "suite": "sleep",
+        "cpus": "68-71",
+        "repeats": 1,
+        "stream_cases": "sparse:1mbit,dense:1mbit,sparse:64kbit,dense:64kbit",
+        "stream_seconds": 30,
+        "stream_rtt": 120,
+        "fault_cases": "tcp_reset,blackhole3,blackhole35,downstream15",
+        "fault_kind": "sparse",
+        "sleep_seconds": 180,
+        "rtts": "20,120,300",
+        "panes": 4,
+        "ansi": false,
+        "trace": true,
+        "capture": true,
+        "calibrate": false,
+        "ssh_compression": "default"
+      },
+      "kernel": "6.8.0-146-generic",
+      "clock": "CLOCK_MONOTONIC",
+      "uid": 1000,
+      "topology": "intermediate-bridge-tbf-netem-v2",
+      "started_utc": "2026-11-08T02:49:01Z"
+    }
+  }
+]

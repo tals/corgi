@@ -1,0 +1,11 @@
+{
+  "cpu": 48,
+  "repeats": 3,
+  "target_cpu_ms": 150,
+  "source_sha256": "e237e7c574d3cd7d66919c3609f66d0ce54bd2bba1da31d85da8cc3c997dcfad",
+  "runner_sha256": "a7c02b9a8f734efb98b0682cfb6837c29ab857ebe2a9dd23aa8a503989baac71",
+  "corpus_directory": "/home/t/dev/personal/corgi-remote-network-eval/dist/zstd-final",
+  "all_byte_exact": true,
+  "trial_count": 120,
+  "matrix_cells": 40
+}

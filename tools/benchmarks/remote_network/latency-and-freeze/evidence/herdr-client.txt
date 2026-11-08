@@ -1,0 +1,18 @@
+2026-11-08T02:49:06.243102Z  INFO herdr::logging: herdr starting event="app.startup" subsystem="client" outcome="started" pid=88004
+2026-11-08T02:49:06.243138Z  INFO herdr::client: connecting to server path=/tmp/cne-82362/local/run/herdr-client.sock
+2026-11-08T02:49:06.493230Z  INFO herdr::client::handshake: endpoint handshake succeeded generation=1 server_version=0.9.5
+2026-11-08T02:49:09.787846Z  INFO herdr::client::handshake: endpoint handshake succeeded generation=1 server_version=0.9.5
+2026-11-08T02:49:09.791489Z  INFO herdr::client::handshake: endpoint handshake succeeded generation=1 server_version=0.9.5
+2026-11-08T02:49:10.684051Z  INFO herdr::logging: herdr exiting event="app.shutdown" subsystem="client" outcome="completed" pid=88004
+2026-11-08T02:49:11.164029Z  INFO herdr::logging: herdr starting event="app.startup" subsystem="client" outcome="started" pid=90694
+2026-11-08T02:49:11.164062Z  INFO herdr::client: connecting to server path=/tmp/cne-82362/local/run/herdr-client.sock
+2026-11-08T02:49:11.414230Z  INFO herdr::client::handshake: endpoint handshake succeeded generation=1 server_version=0.9.5
+2026-11-08T02:49:14.713486Z  INFO herdr::client::handshake: endpoint handshake succeeded generation=1 server_version=0.9.5
+2026-11-08T02:49:14.715151Z  INFO herdr::client::handshake: endpoint handshake succeeded generation=1 server_version=0.9.5
+2026-11-08T02:52:17.805631Z  WARN herdr::client: endpoint transport failed endpoint=ssh:b45bc56f24683b29f49d7657d32b4cd6 error=connection was lost
+2026-11-08T02:52:21.611143Z  INFO herdr::client::handshake: endpoint handshake succeeded generation=1 server_version=0.9.5
+2026-11-08T02:52:27.610191Z  WARN herdr::client: endpoint transport failed endpoint=ssh:403ba3125a18cfe41ae1aeeb85438bc0 error=endpoint health check timed out
+2026-11-08T02:53:03.966190Z  INFO herdr::client::handshake: endpoint handshake succeeded generation=1 server_version=0.9.5
+2026-11-08T02:53:10.283600Z  WARN herdr::client: failed to present retained pane surface patch error=I/O error (os error 5)
+2026-11-08T02:53:10.337224Z  WARN herdr::remote::attach: saved SSH endpoint bridge failed error=ssh bridge exited with exit status: 255
+2026-11-08T02:53:10.341202Z  INFO herdr::logging: herdr exiting event="app.shutdown" subsystem="client" outcome="completed" pid=90694

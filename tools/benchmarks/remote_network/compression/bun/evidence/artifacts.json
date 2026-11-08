@@ -1,0 +1,107 @@
+{
+  "archive": "dist/remote-zstd-bun-20261108.tar.gz",
+  "sha256": "e944248915f5bb2b98283d5777b9e036018179497e394f7796a9e5027f1b078c",
+  "bytes": 626670,
+  "files": {
+    "dist/zstd-bun-flush/compression_bun.ts": {
+      "sha256": "e237e7c574d3cd7d66919c3609f66d0ce54bd2bba1da31d85da8cc3c997dcfad",
+      "bytes": 11687
+    },
+    "dist/zstd-bun-flush/compression_bun_run.py": {
+      "sha256": "a7c02b9a8f734efb98b0682cfb6837c29ab857ebe2a9dd23aa8a503989baac71",
+      "bytes": 4761
+    },
+    "dist/zstd-bun-flush/manifest.json": {
+      "sha256": "39c784e1606f8ae4226204fa0542f6468c72a00fa4d70f049f7b06edf22146c2",
+      "bytes": 388
+    },
+    "dist/zstd-bun-flush/summary.json": {
+      "sha256": "c6eb42a6e456033d5acae1397e6f56b40c638fff56afbfdb80496533ed2eb251",
+      "bytes": 66074
+    },
+    "dist/zstd-bun-flush/trials.jsonl": {
+      "sha256": "e4d861332e21f7222ccb54ce26b5d16a66bb47ffc0ed8bf7798a0593f39276ca",
+      "bytes": 124594
+    },
+    "dist/zstd-bun-flush.log": {
+      "sha256": "912e1826137a47d102512c24d2a65fc5b4c9262cd4f43ddfd3912c9e17e9f432",
+      "bytes": 245
+    },
+    "dist/zstd-bun-format.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "dist/zstd-bun-tool-typecheck.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "dist/zstd-bun-typecheck.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "dist/zstd-bun-unit-tests.log": {
+      "sha256": "5dec03112d81f4fdf6d8fe7f0fad394e0fd5d9fd79567e1349a2418e07581122",
+      "bytes": 298795
+    },
+    "dist/zstd-final/agent-training-8192.dict": {
+      "sha256": "53d4f129b3e777d62fe42de5c81bfc202947feec315f3e96fc1f1fa60e0550b4",
+      "bytes": 8192
+    },
+    "dist/zstd-final/claude.corpus": {
+      "sha256": "ab4bbef117c9bafd45f7413092dd7607f341142f61e9135f103cf5d7937419bd",
+      "bytes": 92865
+    },
+    "dist/zstd-final/codex.corpus": {
+      "sha256": "94289eb54657f0b076bc65e9e2d1e9f039adc58a6913bfe6a1f724471f38c3b8",
+      "bytes": 218591
+    },
+    "dist/zstd-final/dense.corpus": {
+      "sha256": "5c196595b3081a382b59890994bad552b4456155b2551ba5ad4b0cea7e84547e",
+      "bytes": 1349832
+    },
+    "dist/zstd-final/manifest.json": {
+      "sha256": "26f064df89579357ebe4d5ff3007bf543d9ad6035626a642e29e9a2124fc2374",
+      "bytes": 66094
+    },
+    "dist/zstd-final/sparse.corpus": {
+      "sha256": "b44ea6b367489a1e0660c5391a41d6085007b540ad46e3244a9f204dc41a6096",
+      "bytes": 396001
+    },
+    "tools/benchmarks/remote_network/compression/bun/README.md": {
+      "sha256": "b543ff7415f696f38339a98a576c6dd0cd461ce14ea4a1762df816b5a9fa27de",
+      "bytes": 5603
+    },
+    "tools/benchmarks/remote_network/compression/bun/evidence/manifest.json": {
+      "sha256": "39c784e1606f8ae4226204fa0542f6468c72a00fa4d70f049f7b06edf22146c2",
+      "bytes": 388
+    },
+    "tools/benchmarks/remote_network/compression/bun/evidence/summary.json": {
+      "sha256": "c6eb42a6e456033d5acae1397e6f56b40c638fff56afbfdb80496533ed2eb251",
+      "bytes": 66074
+    },
+    "tools/benchmarks/remote_network/compression/bun/evidence/trials.jsonl.gz": {
+      "sha256": "d4ff8e15cde457bccf33b3d1dc8b25146909b53a55db57cfbe6d7a5adaaec985",
+      "bytes": 13389
+    },
+    "tools/benchmarks/remote_network/compression/bun/evidence/validation.json": {
+      "sha256": "bf9e7ef3148573dbf250989e122720f5b3be58c039d712e29ef275c3f5bdc9f8",
+      "bytes": 516
+    },
+    "tools/benchmarks/remote_network/compression/bun/measurements.md": {
+      "sha256": "ec89c8fb38ffa9e5d4c06e0c07b2fc1d566a4bc270bc87b515a0079110b774f2",
+      "bytes": 3843
+    },
+    "tools/benchmarks/remote_network/compression/bun/report.md": {
+      "sha256": "713c9d6ca8841bc2e2adf4d32975f7e48773f70a4e52b70e18fbd87c9fe66c1a",
+      "bytes": 3909
+    },
+    "tools/benchmarks/remote_network/compression_bun.ts": {
+      "sha256": "e237e7c574d3cd7d66919c3609f66d0ce54bd2bba1da31d85da8cc3c997dcfad",
+      "bytes": 11687
+    },
+    "tools/benchmarks/remote_network/compression_bun_run.py": {
+      "sha256": "a7c02b9a8f734efb98b0682cfb6837c29ab857ebe2a9dd23aa8a503989baac71",
+      "bytes": 4761
+    }
+  }
+}

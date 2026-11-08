@@ -1,0 +1,13 @@
+{
+  "herdr_commit": "2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01",
+  "herdr_status": "",
+  "sha256": {
+    "src/client/endpoint/health.rs": "6188a6f6d648f776e15a7f0ad1e8d4cace1b3969b159d9f08b5d3855bc15ec73",
+    "src/client/endpoint/registry.rs": "22e3348486a39e50b4971898db0e4156abb2a8196428b7d2b79d4954c628058a",
+    "src/client/endpoint/supervisor.rs": "0f7995048f91c08df328d35721675686f867cf296d8945c5216c5652037e010f",
+    "src/remote/saved.rs": "1bbbe39ef492e72b8a4743ec69f8280aaee1fd53f0d7bb2c3677504ce5ffce47",
+    "src/remote/attach.rs": "b08065b8b5761aa0c028aee344a0e2c6c64cff9ac8e198e20058844b3b866e49",
+    "src/remote/process.rs": "3a582ab8a617cf6c1e9c36b6e0c99d26f43fcae7ab8946f58d4b620fb3592e04",
+    "src/platform/remote_bridge.rs": "30109a63a6c069e859d37ab859401f0b5ce9d82c08273caecd82f9a98bb0255e"
+  }
+}
