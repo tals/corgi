@@ -1610,7 +1610,7 @@ test("the agent list stops scrolling once its last entry shows", () => {
   expect(hostText(draw(end, grouped, []), 80, 29).split("\n")[28]).toContain("~");
 });
 
-test("activity sections draw centered headers, worktree labels over their rows", () => {
+test("activity sections draw centered headers with the chevron over their rows' glyphs, worktree labels over their rows", () => {
   const now = 100_000_000;
   const item = (
     pane: number,
@@ -1652,12 +1652,12 @@ test("activity sections draw centered headers, worktree labels over their rows",
   const start = lines.findIndex(line => line.includes("starred"));
   // Second lines with a corgi on them vary with its animation.
   expect(lines.slice(start, start + 20)).toEqual([
-    "  ━━━━━ ★ starred 1 ━━━━━ ▾",
+    "  ▾ ━━━━━ ★ starred 1 ━━━━━",
     "  ○  Zig bump",
     expect.any(String),
     // A blank row parts each section from the one above.
     "",
-    "  ━━━━━ ▶ working 4 ━━━━━ ▾",
+    "  ▾ ━━━━━ ▶ working 4 ━━━━━",
     "  ▶  Sidebar",
     expect.any(String),
     // Waiting on the user, or paused, an agent stays at work, with its own glyph.
@@ -1672,13 +1672,39 @@ test("activity sections draw centered headers, worktree labels over their rows",
     "  ‖  Docs",
     expect.any(String),
     "",
-    "  ━━━━━━ ○ idle 1 ━━━━━━━ ▾",
+    "  ▾ ━━━━━━ ○ idle 1 ━━━━━━━",
     "  ○  Old idea",
     expect.any(String),
     "",
   ]);
   // Its name takes the needs-input color.
   expect(draw(view, entries, [], now)).toContain("\x1b[1m" + fg("warm") + "Fix ssh test");
+  // The starred heading is gold.
+  expect(draw(view, entries, [], now)).toContain("\x1b[1m" + fg("gold") + "★ " + fg("gold") + "starred");
+});
+test("starred agents take a gold edge, divider and star; focus keeps its bar", () => {
+  const entries = [
+    entry({ target: { pane: 1 }, name: "Ship notes", provider: "claude", state: "idle", starred: true }),
+    entry({ target: { pane: 2 }, name: "Fix login", provider: "claude", state: "idle", starred: true, focused: true }),
+    entry({ target: { pane: 3 }, name: "Plain", provider: "claude", state: "idle" }),
+  ];
+  const view = View.init(80, 20, true, 0, entries.length).withEntries(entries);
+  const out = draw(view, entries, []);
+  const row = (name: string) =>
+    hostText(out, 80, 20)
+      .split("\n")
+      .find(line => line.includes(name))!;
+  expect(row("Ship notes")).toStartWith(" ▏○  ★ Ship notes");
+  expect(out).toContain("\x1b[1m" + fg("gold") + "★ ");
+  expect(out).toContain("\x1b[4m" + palette.underlineRgb(mix(colors.gold, colors.bg, 55)));
+  expect(row("Fix login")).toStartWith(" ▌○  ★ Fix login");
+  expect(row("Plain")).toStartWith("  ○  Plain");
+  // Under a workspace's rail, the rail stays; only the star is gold.
+  const group = entry({ target: { group: 1 }, name: "app" });
+  const grouped = [group, entry({ ...entries[0], focused: false })];
+  const all = View.init(80, 20, true, 0, grouped.length).withEntries(grouped);
+  const drawn = hostText(draw(all, grouped, []), 80, 20).split("\n");
+  expect(drawn.find(line => line.includes("Ship notes"))).toStartWith(" ╰○  ★ Ship notes");
 });
 test("an opening section scrolls to show all of it, or when too long, just its first agent", () => {
   const rows = (n: number, from: number) =>

@@ -128,6 +128,7 @@ literals in UI code. Computed tints blend existing tokens.
 | `accent` | Live work, focus, graphs, usage below 80%, added lines |
 | `warm` | Needs attention: input wait, unpushed commits, limits at 80%+, context warning |
 | `hot` | Failure, limits at 100%, urgent context warning, removed lines |
+| `gold` | Starred agents: the starred heading, the edge and dividers of starred rows, the ★ before a starred name. A mark, never a status |
 
 Text tokens on `bg` and `surface` must reach 4.5:1 contrast. On `selected`,
 use `muted` or brighter, not `faint`. Hovered agent rows blend `bg` toward

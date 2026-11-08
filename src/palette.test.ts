@@ -22,7 +22,7 @@ import {
   type Token,
 } from "./palette";
 test("text tokens stay readable on the backgrounds the guide allows", () => {
-  for (const ink of ["faint", "muted", "text", "strong", "accent", "warm", "hot"] as Token[]) {
+  for (const ink of ["faint", "muted", "text", "strong", "accent", "warm", "hot", "gold"] as Token[]) {
     for (const ground of ["bg", "surface"] as Token[]) expect(contrast(ink, ground)).toBeGreaterThanOrEqual(4.5);
     if (ink !== "faint") expect(contrast(ink, "selected")).toBeGreaterThanOrEqual(4.5);
   }

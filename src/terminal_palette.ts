@@ -1,10 +1,12 @@
 //! Tokens from the terminal's own colors. Animal Style takes them all: grays
 //! are steps from the background toward the foreground, so they carry the
 //! theme's tint, and accent, warm and hot take the hues of its ANSI green,
-//! yellow and red. Corgi keeps its own colors and takes only a dark enough
-//! background. Every step is placed by contrast, so the readability rules
-//! hold for any theme, light or dark. A background too mid-toned for that is
-//! deepened and painted instead of left to the terminal.
+//! yellow and red. Gold, which marks starred agents, takes its bright
+//! yellow; a theme with one yellow gives gold and warm the same. Corgi keeps
+//! its own colors and takes only a dark enough background. Every step is
+//! placed by contrast, so the readability rules hold for any theme, light or
+//! dark. A background too mid-toned for that is deepened and painted instead
+//! of left to the terminal.
 //! The Omarchy panel runs this in Qt's QML engine (corgi-omarchy/tools/motion-build.ts):
 //! no BigInt literals or `Intl`, and builtins Qt lacks only through
 //! the Omarchy plugin's qml_shims.js.
@@ -46,10 +48,15 @@ const apart = 0.06;
 const families: Partial<Record<Status, [number, number]>> = { warm: [45, 125], hot: [330, 50] };
 function inFamily(name: Status, hue: number): boolean {
   const range = families[name];
-  if (!range) return true;
+  return !range || within(range, hue);
+}
+function within(range: [number, number], hue: number): boolean {
   const h = (hue + 360) % 360;
   return range[0] <= range[1] ? h >= range[0] && h <= range[1] : h >= range[0] || h <= range[1];
 }
+/** OKLCH hues that read as gold, and the ANSI slots it tries: bright yellow, then yellow. */
+const gold_hues: [number, number] = [70, 115],
+  gold_slots = [11, 3];
 
 /** `clear` is false when `bg` had to be deepened and must be painted. */
 export function tokens(c: Colors): { colors: Record<Token, Rgb>; clear: boolean } {
@@ -89,6 +96,7 @@ export function tokens(c: Colors): { colors: Record<Token, Rgb>; clear: boolean 
       accent: status.accent,
       warm: status.warm,
       hot: status.hot,
+      gold: gold(c.ansi, [bg, surface, selected], extreme) ?? status.warm,
     },
     clear,
   };
@@ -127,6 +135,7 @@ export function onBackground(own: Record<Token, Rgb>, background: Rgb): Record<T
     accent: keep(own.accent, grounds),
     warm: keep(own.warm, grounds),
     hot: keep(own.hot, grounds),
+    gold: keep(own.gold, grounds),
   };
 }
 /** Which status colors the theme's own ANSI slots supply; the rest take
@@ -185,6 +194,19 @@ function statuses(ansi: (Rgb | null)[], grounds: Rgb[], extreme: Rgb): Record<St
     chosen.push(pick);
   }
   return out;
+}
+/** The theme's bright yellow, or else its yellow, readable on every ground;
+ * null when neither reads as gold. Unlike a status, it isn't kept apart from
+ * warm: it marks, and warm's own color is what a one-yellow theme has. */
+function gold(ansi: (Rgb | null)[], grounds: Rgb[], extreme: Rgb): Rgb | null {
+  const fits = (ink: Rgb) => grounds.every(ground => contrast(ink, ground) >= readable);
+  for (const slot of gold_slots) {
+    const color = ansi[slot];
+    if (!color) continue;
+    const [, chroma, h] = lch(oklab(color));
+    if (chroma >= min_chroma && within(gold_hues, h)) return lift(color, extreme, fits).rgb;
+  }
+  return null;
 }
 /** `color` turned toward `hue` by the least that makes it `distinct`, readable by `fits`. */
 function turn(
