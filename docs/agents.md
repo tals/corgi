@@ -220,9 +220,10 @@ the same `SubagentStart` and `SubagentStop` hooks as OMP's: every copy of the
 extension reports the session it is loaded into, and wrappers on each copy of
 Pi's SDK find in-process sessions that load no extensions. A session counts when
 its header names a known session, when it starts while the pane's turn runs, or
-when the pane's Pi started its process; the pane's own sessions never do.
-Children need no plugin-specific code. A plugin that encodes a child's agent type
-in its session name gets one rule in
+when the pane's Pi started its process; the pane's own sessions never do. A Pi
+process started while one subagent runs alone, with the pane's turn over, nests
+under that subagent. Children need no plugin-specific code. A plugin that
+encodes a child's agent type in its session name gets one rule in
 [subagents.txt](../src/providers/pi/subagents.txt) to label it.
 `./go.ts --sandbox pi_subagents` runs Pi with a stand-in model and plugin.
 

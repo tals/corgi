@@ -64,7 +64,8 @@ await hooks.get("session_shutdown")({},ctx);
 });
 
 /** Runs `script` against copies of Corgi's extension, one per session as Pi loads
- * them, beside a stand-in for Pi's SDK; the subagent hooks they sent. */
+ * them, beside a stand-in for Pi's SDK; the subagent hooks they sent, and what
+ * the script printed. */
 async function drive(script: string, env: Record<string, string> = {}) {
   const root = await mkdtemp(join(tmpdir(), "pi-subagents-"));
   const sdk = join(root, "node_modules", "@earendil-works", "pi-coding-agent"),
@@ -131,6 +132,8 @@ const work = (stopReason = "stop") => async session => {
 };
 const sent = () => { try { return readFileSync(${JSON.stringify(log)}, "utf8").trim().split("\\n").map(l => JSON.parse(l)); } catch { return []; } };
 const until = async predicate => { for (let i = 0; i < 500 && !predicate(sent()); i++) await new Promise(r => setTimeout(r, 10)); };
+// The session a Pi process started now would report under.
+const parent = () => console.log(JSON.parse(process.env.CORGI_PI_PARENT).session);
 ${script}
 `,
   );
@@ -154,6 +157,7 @@ ${script}
     const text = await readFile(log, "utf8").catch(() => "");
     return {
       root,
+      printed: (await new Response(proc.stdout).text()).trim().split("\n").filter(Boolean),
       subagents: text
         .trim()
         .split("\n")
@@ -169,12 +173,17 @@ ${script}
 }
 
 test("subagents the pane's turn starts report under the pane's session, labeled by their plugin", async () => {
-  const { root, subagents } = await drive(`
+  const { root, subagents, printed } = await drive(`
 const pane = await load();
 await pane.emit("session_start", ctx("pane"));
 await pane.emit("agent_start", ctx("pane"));
 // A child that loads no extensions, made from the SDK extensions import.
-const scout = new AgentSession({ id: "scout", file: root + "/scout.jsonl", name: "scout: find stale TODOs", run: work() });
+const scout = new AgentSession({ id: "scout", file: root + "/scout.jsonl", name: "scout: find stale TODOs", run: async session => {
+  session.emit({ type: "agent_start" });
+  // Pi processes started during the pane's turn are the pane's, even with a subagent running.
+  parent();
+  session.emit({ type: "agent_settled" });
+} });
 await scout.prompt("Task: Find stale TODOs\\nin src/");
 // A child that loads extensions reports through its own copy, which the wrapper leaves alone.
 const copy = await load(), explore = ctx("explore", { mode: "print" });
@@ -209,10 +218,11 @@ await pane.emit("session_shutdown", ctx("pane"));
     model: "fake/m",
   });
   expect(of("explore")[0].child_transcript).toBe(join(root, "explore.jsonl"));
+  expect(printed).toEqual(["pane"]);
 });
 
 test("sessions outside the pane's turns aren't subagents unless their header names a known session", async () => {
-  const { root, subagents } = await drive(`
+  const { root, subagents, printed } = await drive(`
 const pane = await load();
 await pane.emit("session_start", ctx("first"));
 // An extension's helper, started from a command while no turn runs.
@@ -227,7 +237,10 @@ await next.emit("agent_settled", ctx("second"));
 // A background child that names its parent, disposed mid-turn.
 const linked = new AgentSession({ id: "linked", parent: root + "/second.jsonl", run: async s => { s.emit({ type: "agent_start" }); } });
 await linked.prompt("Audit the auth flow");
+// Pi processes started while it runs alone, with the pane idle, are its.
+parent();
 linked.dispose();
+parent();
 await until(hooks => hooks.some(h => h.event === "SubagentStop"));
 await next.emit("session_shutdown", ctx("second"));
 `);
@@ -236,18 +249,23 @@ await next.emit("session_shutdown", ctx("second"));
     ["SubagentStop", "second", "linked", "interrupted"],
   ]);
   expect(subagents[0].transcript).toBe(join(root, "second.jsonl"));
+  expect(printed).toEqual(["linked", "second"]);
 });
 
-test("a process the pane's Pi started reports its session as a subagent of the pane's", async () => {
-  const { subagents } = await drive(
+test("a process the pane's Pi started reports its sessions as subagents, nesting their own under them", async () => {
+  const { subagents, printed } = await drive(
     `
 const copy = await load(), main = ctx("main", { mode: "rpc", file: "/tmp/main.jsonl" });
 copy.name("subagent-scout-adcd9149-2554-463b-a95b-b6e0bf1cd7eb-1");
 await copy.emit("session_start", main);
 await copy.emit("before_agent_start", main, { prompt: "Map the build scripts" });
 await copy.emit("agent_start", main);
+// Its own subagents, in its process with no extensions or in Pi processes it starts, report under it.
+await new AgentSession({ id: "nested", parent: "/tmp/main.jsonl", run: work() }).prompt("Check the tests");
+parent();
 await copy.emit("message_end", main, { message: { role: "assistant", stopReason: "aborted" } });
 await copy.emit("agent_settled", main, { aborted: true });
+parent();
 await copy.emit("session_shutdown", main);
 `,
     {
@@ -260,13 +278,27 @@ await copy.emit("session_shutdown", main);
       }),
     },
   );
-  expect(subagents.map(h => [h.event, h.session, h.subagent, h.subagent_type, h.subagent_name, h.outcome])).toEqual([
-    ["SubagentStart", "pane", "main", "scout", "Map the build scripts", "completed"],
-    ["SubagentStop", "pane", "main", "scout", "Map the build scripts", "interrupted"],
+  const of = (id: string) =>
+    subagents
+      .filter(h => h.subagent === id)
+      .map(h => [h.event, h.session, h.subagent_type, h.subagent_name, h.outcome]);
+  expect(of("main")).toEqual([
+    ["SubagentStart", "pane", "scout", "Map the build scripts", "completed"],
+    ["SubagentStop", "pane", "scout", "Map the build scripts", "interrupted"],
   ]);
-  expect(subagents[0]).toMatchObject({
+  expect(of("nested")).toEqual([
+    ["SubagentStart", "main", "", "Check the tests", "completed"],
+    ["SubagentStop", "main", "", "Check the tests", "completed"],
+  ]);
+  expect(subagents).toHaveLength(4);
+  expect(subagents.find(h => h.subagent === "main")).toMatchObject({
     transcript: "/tmp/pane.jsonl",
     account: "/tmp/pi",
     child_transcript: "/tmp/main.jsonl",
   });
+  expect(subagents.find(h => h.subagent === "nested")).toMatchObject({
+    transcript: "/tmp/main.jsonl",
+    account: "/tmp/pi",
+  });
+  expect(printed).toEqual(["main", "pane"]);
 });

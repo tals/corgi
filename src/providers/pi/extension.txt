@@ -31,16 +31,23 @@ function subagents() {
   const key = Symbol.for("corgi.pi.subagents");
   if (globalThis[key]) return globalThis[key];
   const sending = new Set(), wrapped = new WeakMap();
-  const w = (globalThis[key] = { root: null, spawned: false, running: false, owned: new Set(), adopted: new Set(), known: new Map(), installing: null });
+  const w = (globalThis[key] = { root: null, spawned: false, running: false, owned: new Set(), adopted: new Set(), known: new Map(), busy: new Set(), installing: null });
   // A subagent's header names a session we know, or it starts while the pane's turn runs, or the pane's Pi started its
   // process. The pane's own sessions never are, even after it moves on.
   w.adopt = (id, parentFile, transcript, read) => {
     if (typeof id !== "string" || !id || w.owned.has(id) || w.adopted.has(id) || !connected()) return null;
     const parent = w.known.get(parentFile) ?? (w.spawned || w.running ? w.root : null);
     if (!parent) return null;
+    const self = { ...parent, session: id, transcript: transcript || "" };
     w.adopted.add(id);
-    if (transcript) w.known.set(transcript, { ...parent, session: id, transcript });
-    return { id, parent, transcript: transcript || "", read, task: "", status: "", outcome: "completed", sent: "", queue: Promise.resolve() };
+    if (transcript) w.known.set(transcript, self);
+    return { id, parent, self, transcript: self.transcript, read, task: "", status: "", outcome: "completed", sent: "", queue: Promise.resolve() };
+  };
+  // Pi processes started from here report under the session that started them: the one subagent running while the
+  // pane's turn isn't, or else this process's parent.
+  w.publish = () => {
+    const [only, other] = w.busy, parent = only && !other && !w.running ? only.self : w.root;
+    if (parent) process.env.CORGI_PI_PARENT = JSON.stringify(parent);
   };
   const flush = child => {
     const { name, model } = child.read();
@@ -58,10 +65,11 @@ function subagents() {
     queued.then(() => sending.delete(queued));
   };
   w.follow = (child, e) => {
-    if (e.type === "agent_start") { child.status = "started"; child.outcome = "completed"; }
+    if (e.type === "agent_start") { child.status = "started"; child.outcome = "completed"; w.busy.add(child); }
     else if (e.type === "message_end") return void (e.message?.role === "assistant" && (child.outcome = ending(e.message)));
-    else if (e.type === "agent_settled" && child.status === "started") { child.status = "stopped"; if (e.aborted) child.outcome = "interrupted"; }
+    else if (e.type === "agent_settled" && child.status === "started") { child.status = "stopped"; if (e.aborted) child.outcome = "interrupted"; w.busy.delete(child); }
     else if (e.type !== "session_info_changed" || !child.status) return;
+    w.publish();
     flush(child);
   };
   const wrap = proto => {
@@ -129,10 +137,12 @@ export default function (pi) {
   let child = null;
   const subagent = async (ctx, e) => {
     if (!connected()) return;
-    if (e.type === "session_start")
+    if (e.type === "session_start") {
       child = w.adopt(ctx.sessionManager.getSessionId(), ctx.sessionManager.getHeader?.()?.parentSession, ctx.sessionManager.getSessionFile(),
         () => ({ name: pi.getSessionName?.() || "", model: modelName(ctx.model) }));
-    else if (child && e.type === "before_agent_start") child.task ||= clip(e.prompt, 4096);
+      // A spawned process's sessions can start subagents of their own that load no extensions.
+      if (w.spawned) await w.install();
+    } else if (child && e.type === "before_agent_start") child.task ||= clip(e.prompt, 4096);
     else if (child && e.type === "session_shutdown") {
       if (child.status === "started") w.follow(child, { type: "agent_settled", aborted: true });
       await w.drain();
@@ -188,7 +198,7 @@ export default function (pi) {
     w.owned.add(session);
     w.root = me;
     if (me.transcript) w.known.set(me.transcript, me);
-    process.env.CORGI_PI_PARENT = JSON.stringify(me);
+    w.publish();
     await w.install();
     await report(ctx, "SessionStart");
   });
@@ -201,6 +211,7 @@ export default function (pi) {
     compacting = false;
     if (!active(ctx)) return subagent(ctx, { type: "agent_start" });
     w.running = true;
+    w.publish();
     if (turn) return;
     turn = randomUUID(); result = "completed"; escaped = false;
     const opening = pi.getSessionName() ? undefined : ctx.sessionManager.getBranch().find(e => e.type === "message" && e.message.role === "user");
@@ -225,6 +236,7 @@ export default function (pi) {
   pi.on("agent_settled", async (e, ctx) => {
     if (!active(ctx)) return subagent(ctx, { type: "agent_settled", aborted: e.aborted === true });
     w.running = false;
+    w.publish();
     if (!turn) return;
     const outcome = e.aborted === true || (e.aborted === undefined && escaped) ? "interrupted" : result;
     // The receipt follows the hook so its timestamp passes Corgi's freshness check.
