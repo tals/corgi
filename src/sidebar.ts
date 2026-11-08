@@ -86,7 +86,11 @@ export let panel: string,
   nap_fg: string,
   /** The agent row under the pointer, halfway from the panel to `selected`. */
   hover_rgb: palette.Rgb,
-  hover_bg: string;
+  hover_bg: string,
+  /** Gold a quarter of the way into the panel: the starred heading's rules,
+   * count and chevron, and the edge beside starred rows. */
+  star_trim: string,
+  star_underline: string;
 let selected_bg: string,
   button: string,
   button_glyph: string,
@@ -118,6 +122,8 @@ palette.derived(() => {
   nap_fg = fgRgb(mix(colors.faint, colors.bg, 50));
   hover_rgb = mix(colors.bg, colors.selected, 50);
   hover_bg = bgRgb(hover_rgb);
+  star_trim = fgRgb(mix(colors.gold, colors.bg, 25));
+  star_underline = "\x1b[4m" + palette.underlineRgb(mix(colors.gold, colors.bg, 55));
 });
 
 export type State = "initializing" | "idle" | "working" | "blocked" | "done" | string;
@@ -390,7 +396,7 @@ export function indicator(
 export const sections: Record<SectionKind, { glyph: string; token: palette.Token; label: string }> = {
   starred: {
     glyph: "★",
-    token: "strong",
+    token: "gold",
     get label() {
       return i18n.t`starred`;
     },
@@ -1789,7 +1795,17 @@ export class View {
     // Kitty-graphics hosts get it; elsewhere the style could degrade to a
     // solid underline, so those terminals get no separator at all.
     const dotted = grouped && !last_in_group && v.supports_kitty_graphics;
-    const line = ghost ? ghost_underline : dotted ? dotted_underline : divider ? rule_underline : "";
+    // A starred row outside a group's rail takes a gold edge and divider.
+    const gilded = e.starred && !grouped;
+    const line = ghost
+      ? ghost_underline
+      : dotted
+        ? dotted_underline
+        : divider
+          ? gilded
+            ? star_underline
+            : rule_underline
+          : "";
     // Dotted lines start under the name, leaving the guide and activity clear.
     const underline_x = dotted ? 5 : 2;
     const compacting = e.state === "working" && e.compacting;
@@ -1806,19 +1822,19 @@ export class View {
     const notes = noteLabel(e);
     const right = nameRight(e, figure);
     const rename = "pane" in e.target ? v.renaming({ agent: e.target.pane }) : null;
-    w.write(
-      `${w.cup(y + 1, x + 5)}${
-        waits
-          ? "\x1b[1m" + fg("warm")
-          : dot.unread || (grouped && e.focused)
-            ? "\x1b[1m" + fg("strong")
-            : "\x1b[22m" + fg("text")
-      }`,
-    );
+    const name_style = waits
+      ? "\x1b[1m" + fg("warm")
+      : dot.unread || (grouped && e.focused)
+        ? "\x1b[1m" + fg("strong")
+        : "\x1b[22m" + fg("text");
+    // Outside the starred section, a star before the name marks it, in gold.
+    const star = rename === null && e.starred && e.section !== "starred" && sat(room, right) > 3;
+    w.write(`${w.cup(y + 1, x + 5)}${star ? "\x1b[1m" + fg("gold") + "★ " : ""}${name_style}`);
     if (rename !== null) {
       v.drawField(w, rename, x + 4, y, sat(room, right));
       w.write(row_bg);
-    } else writeEllipsis(w, agentName(e), sat(room, right));
+    } else if (star) writeEllipsis(w, rowTitle(e), sat(room, right + 2));
+    else writeEllipsis(w, agentName(e), sat(room, right));
     w.write("\x1b[22m");
     // Unsent review notes wait for the user, so they take warm.
     if (notes.length > 0 && room > right + 4)
@@ -1896,7 +1912,7 @@ export class View {
     }
     w.write("\x1b[24;59m");
     // Without the group rail, the focused agent takes the active workspace's bar.
-    const bar = ghost ? ghost_bar : e.focused && !grouped ? active_bar : "";
+    const bar = ghost ? ghost_bar : e.focused && !grouped ? active_bar : gilded ? row_bg + star_trim + "▏" : "";
     if (bar.length > 0) for (let row = 0; row < 2; row++) w.write(`${w.cup(y + row + 1, x + 1)}${bar}\x1b[0m`);
     if (rename !== null && rename.message !== null) {
       const below = y + 1 < v.drawEnd(v.badge("below"));
@@ -1944,28 +1960,30 @@ export class View {
     }
     w.write("\x1b[22;24;59m");
   }
-  /** An activity section's header, its glyph, name and count centered
-   * between two rules: " ━━━━━ ▶ working 3 ━━━━━ ▾". */
+  /** An activity section's header: its chevron over the status glyphs of
+   * its rows, then its glyph, name and count centered between two rules:
+   * " ▾ ━━━━━ ▶ working 3 ━━━━━". Starred's is gold. */
   drawSection(w: Writer, e: Entry, kind: SectionKind, y: number, stuck: boolean): void {
     const v = this;
     const look = sections[kind];
+    const gold = kind === "starred";
     const row_bg = e.focused ? selected_bg : bg("bg");
     w.write(`${w.cup(y + 1, 1)}\x1b[0m${row_bg}${stuck ? rule_underline : ""}`);
     w.splat(" ", v.width - 1);
-    // The rules run from column 1 to just before the caret, a space apart from the middle.
-    const caret_x = sat(v.width, 2),
-      room = sat(caret_x, 2),
+    w.write(`${w.cup(y + 1, 2)}${gold ? star_trim : fg("faint")}${e.group.folded ? "▸" : "▾"}`);
+    // The rules run from past the chevron to the last column, a space apart from the middle.
+    const room = sat(v.width, 4),
       count = compactCount(e.group.agents),
       label_room = sat(room, displayWidth(count) + 8),
       label = Math.min(displayWidth(look.label), label_room),
       middle = 2 + label + 1 + displayWidth(count),
       left = Math.floor(sat(room, middle + 2) / 2),
-      right = sat(room, middle + 2) - left;
-    w.write(`${w.cup(y + 1, 2)}\x1b[22m${fg("line")}${"━".repeat(left)} `);
-    w.write(`\x1b[1m${fg(look.token)}${look.glyph} ${e.focused ? fg("strong") : fg("text")}`);
+      right = sat(room, middle + 2) - left,
+      rule = gold ? star_trim : fg("line");
+    w.write(`${w.cup(y + 1, 4)}\x1b[22m${rule}${"━".repeat(left)} `);
+    w.write(`\x1b[1m${fg(look.token)}${look.glyph} ${gold ? fg("gold") : e.focused ? fg("strong") : fg("text")}`);
     writeEllipsis(w, look.label, label_room);
-    w.write(`\x1b[22m ${fg("muted")}${count} ${fg("line")}${"━".repeat(right)}`);
-    w.write(`${w.cup(y + 1, caret_x + 1)}${fg("faint")}${e.group.folded ? "▸" : "▾"}`);
+    w.write(`\x1b[22m ${gold ? star_trim : fg("muted")}${count} ${rule}${"━".repeat(right)}`);
     w.write("\x1b[22;24;59m");
   }
   /** A worktree's rows in a section, or a workspace's in "all": " ⌥  release ┄┄┄┄". */
@@ -1974,6 +1992,8 @@ export class View {
     const row_bg = e.focused ? selected_bg : bg("bg");
     w.write(`${w.cup(y + 1, 1)}\x1b[0m${row_bg}${stuck ? rule_underline : ""}`);
     w.splat(" ", v.width - 1);
+    // Among starred rows it keeps their gold edge.
+    if (isSubhead(e.target) && e.target.section === "starred") w.write(`${w.cup(y + 1, 1)}${star_trim}▏`);
     if (e.group.branch) w.write(`${w.cup(y + 1, 2)}${fg("faint")}⌥`);
     w.write(`${w.cup(y + 1, 5)}${e.focused ? fg("muted") : fg("faint")}`);
     const room = sat(v.width, 8);

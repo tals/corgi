@@ -84,7 +84,7 @@ const themes: Record<string, Colors> = {
 /** palette.test's rules, for any set of tokens. */
 function readable(t: Record<Token, Rgb>): string[] {
   const fails: string[] = [];
-  for (const ink of ["faint", "muted", "text", "strong", "accent", "warm", "hot"] as Token[]) {
+  for (const ink of ["faint", "muted", "text", "strong", "accent", "warm", "hot", "gold"] as Token[]) {
     for (const ground of ["bg", "surface"] as Token[])
       if (contrast(t[ink], t[ground]) < 4.5) fails.push(`${ink}/${ground}`);
     if (ink !== "faint" && contrast(t[ink], t.selected) < 4.5) fails.push(`${ink}/selected`);
@@ -116,6 +116,13 @@ test("a theme keeps its own background, foreground and status hues", () => {
   expect(colors.warm).toEqual([224, 175, 104]);
   // Red lifts a little to read on the selected row.
   expect(distance(colors.hot, [247, 118, 142])).toBeLessThan(12);
+});
+test("gold takes a theme's bright yellow, and warm's color when it has one yellow", () => {
+  const amber = tokens(themes.amber_crt).colors;
+  expect(amber.gold).toEqual(themes.amber_crt.ansi[11]!);
+  expect(amber.gold).not.toEqual(amber.warm);
+  const tokyo = tokens(themes.tokyo_night).colors;
+  expect(tokyo.gold).toEqual(tokyo.warm);
 });
 test("a light theme gets dark text and darker grounds", () => {
   const { colors } = tokens(themes.gruvbox_light);
@@ -149,11 +156,12 @@ const corgi: Record<Token, Rgb> = {
   accent: [123, 241, 168],
   warm: [229, 195, 139],
   hot: [237, 163, 152],
+  gold: [242, 196, 72],
 };
 test("Corgi keeps a dark terminal background and its own colors on it", () => {
   const kept = onBackground(corgi, themes.tokyo_night.background)!;
   expect(kept.bg).toEqual([26, 27, 38]);
-  for (const token of ["muted", "text", "strong", "accent", "warm", "hot"] as Token[])
+  for (const token of ["muted", "text", "strong", "accent", "warm", "hot", "gold"] as Token[])
     expect([token, kept[token]]).toEqual([token, corgi[token]]);
   // Panels step from the background, so they take its tint.
   expect(kept.surface[2]).toBeGreaterThan(kept.surface[0]);

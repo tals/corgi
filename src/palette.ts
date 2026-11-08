@@ -16,6 +16,7 @@ const corgi = {
   accent: [123, 241, 168],
   warm: [229, 195, 139],
   hot: [237, 163, 152],
+  gold: [242, 196, 72],
 } satisfies Record<string, Rgb>;
 export type Token = keyof typeof corgi;
 /** Corgi keeps its own colors, on the terminal's background when that is
@@ -197,7 +198,10 @@ derived(() => {
 });
 
 export function underline(token: Token) {
-  return `\x1b[58:2::${colors[token].join(":")}m`;
+  return underlineRgb(colors[token]);
+}
+export function underlineRgb(c: Rgb) {
+  return `\x1b[58:2::${c.join(":")}m`;
 }
 export function writeFg(writer: { write(value: string): unknown }, rgb: Rgb) {
   writer.write(fgRgb(rgb));
