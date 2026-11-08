@@ -38,7 +38,7 @@ trust the hooks once, in `/hooks`.
 | ------------------------------------ | :---------: | :---: | :-: | :------: | :------: |
 | Status: ▶ working ● needs you ● done |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |
 | Activity summaries                   |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |
-| Subagents                            |      ✓      |   ✓   |     |    ✓     |    ✓     |
+| Subagents                            |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |
 | Context, tokens and rate limits      |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |
 | Rename and fork                      |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |
 | Resume after a crash or reboot       |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |

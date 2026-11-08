@@ -3,10 +3,11 @@ import { join } from "node:path";
 import { configHome } from "../common";
 import type { IntegrationStepResult } from "../adapter";
 import { atomicWrite } from "../../os";
-import source from "./extension.txt" with { type: "text" };
+import extensionSource from "./extension.txt" with { type: "text" };
+import labels from "./subagents.txt" with { type: "text" };
 export const configDir = (env = process.env) => configHome(env, "PI_CODING_AGENT_DIR", ".pi/agent");
 export const directory = (account = "") => account || configDir();
-export { source };
+export const source = extensionSource.replace("/* subagent labels */ []", () => labels.trim());
 export function extension(op: "install" | "status" | "uninstall", account = ""): IntegrationStepResult {
   const root = directory(account),
     path = join(root, "extensions", "corgi.js");

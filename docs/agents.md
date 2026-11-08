@@ -214,6 +214,18 @@ leave the active list.
 The OMP hook's optional display-name field does not change runtime or saved-state
 versions. Reload Corgi and restart OMP to load the updated managed extension.
 
+Pi has no subagents of its own; plugins add them as Pi sessions, in Pi's process
+or in processes it starts. Corgi's Pi extension reports each such session with
+the same `SubagentStart` and `SubagentStop` hooks as OMP's: every copy of the
+extension reports the session it is loaded into, and wrappers on each copy of
+Pi's SDK find in-process sessions that load no extensions. A session counts when
+its header names a known session, when it starts while the pane's turn runs, or
+when the pane's Pi started its process; the pane's own sessions never do.
+Children need no plugin-specific code. A plugin that encodes a child's agent type
+in its session name gets one rule in
+[subagents.txt](../src/providers/pi/subagents.txt) to label it.
+`./go.ts --sandbox pi_subagents` runs Pi with a stand-in model and plugin.
+
 Three measurements have different lifetimes:
 
 | Measurement | Meaning |

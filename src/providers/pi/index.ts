@@ -1,7 +1,7 @@
 import * as effort from "../effort";
 import path from "node:path";
 import type { Adapter } from "../adapter";
-import { Hooks, field, str, type Hook } from "../common";
+import { Hooks, field, str, type Hook, type Outcome } from "../common";
 import { ScreenWatcher } from "../watcher";
 import * as commandLine from "../command_line";
 import { Pi, summaryArgs } from "./headless";
@@ -11,10 +11,30 @@ import * as socket from "./socket";
 import { info } from "./info";
 import { accounts } from "./accounts";
 import * as locations from "./locations";
+import * as conversation from "./conversation";
 import { clip } from "../../activity/tools";
 const hooks = new Hooks();
 /** A hook Corgi's extension sent, as Pi and omp send them. */
 export function decode(v: unknown): Hook {
+  const event = str(v, "event");
+  if (event === "SubagentStart" || event === "SubagentStop") {
+    const hook = hooks.decode({
+      hook_event_name: event,
+      session_id: str(v, "session"),
+      agent_id: str(v, "subagent"),
+      agent_type: str(v, "subagent_type"),
+    });
+    if (!hook) return null;
+    hook.independent_child = true;
+    hook.subagent_name = str(v, "subagent_name");
+    hook.description = str(v, "description");
+    hook.child_transcript = str(v, "child_transcript");
+    hook.model = str(v, "model");
+    const outcome = str(v, "outcome");
+    if (event === "SubagentStop" && ["completed", "interrupted", "failed"].includes(outcome))
+      hook.outcome = outcome as Outcome;
+    return hook;
+  }
   const input = field(v, "input"),
     tool = str(v, "tool");
   const hook = hooks.decode({
@@ -35,7 +55,7 @@ export function decode(v: unknown): Hook {
   if (hook && hook.kind === "prompt") hook.initial_request = clip(str(v, "initial_request"), 2048);
   const outcome = str(v, "outcome");
   if (hook && hook.kind === "stop" && ["completed", "interrupted", "failed"].includes(outcome))
-    hook.outcome = outcome as "completed" | "interrupted" | "failed";
+    hook.outcome = outcome as Outcome;
   if (hook && hook.kind === "tool_finish" && ["write", "edit"].includes(tool) && str(input, "path"))
     hook.writes = [path.resolve(hook.cwd, str(input, "path"))];
   return hook;
@@ -44,7 +64,7 @@ export const adapter: Adapter = {
   ...info,
   caps: {
     prompt_turns: true,
-    children_from_hooks: false,
+    children_from_hooks: true,
     follows_cd: false,
     titles_once_loaded: false,
     transcript_tools: true,
@@ -93,6 +113,7 @@ export const adapter: Adapter = {
   },
   unnest: env => {
     delete env.CORGI_PI_OWNER;
+    delete env.CORGI_PI_PARENT;
   },
   launch: {
     options: (args, model, value) =>
@@ -159,6 +180,7 @@ export const adapter: Adapter = {
   launcher: account => import("./launcher").then(m => m.open(account)),
   history: account => import("./history").then(m => m.open(account)),
   search: () => import("./search").then(m => m.conversations),
+  conversation,
   transcript,
   integration: {
     directory,

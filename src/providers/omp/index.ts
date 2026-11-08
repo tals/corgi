@@ -1,7 +1,7 @@
 import * as effort from "../effort";
 import path from "node:path";
 import type { Adapter } from "../adapter";
-import { field, Hooks, str, type Hook, type Outcome } from "../common";
+import { field, Hooks, str, type Hook } from "../common";
 import { ScreenWatcher } from "../watcher";
 import * as commandLine from "../command_line";
 import { decode as decodePi } from "../pi";
@@ -24,24 +24,6 @@ export function decode(v: unknown): Hook {
     const hook = hooks.decode({ hook_event_name: "Checklist", session_id: str(v, "session") });
     // The extension times a list it read back from the session by the entry that holds it.
     if (hook) hook.checklist = todos.parse(value, Number.isSafeInteger(ms) && ms > 0 ? ms * 1000 : 0);
-    return hook;
-  }
-  if (event === "SubagentStart" || event === "SubagentStop") {
-    const hook = hooks.decode({
-      hook_event_name: event,
-      session_id: str(v, "session"),
-      agent_id: str(v, "subagent"),
-      agent_type: str(v, "subagent_type"),
-    });
-    if (!hook) return null;
-    hook.independent_child = true;
-    hook.subagent_name = str(v, "subagent_name");
-    hook.description = str(v, "description");
-    hook.child_transcript = str(v, "child_transcript");
-    hook.model = str(v, "model");
-    const outcome = str(v, "outcome");
-    if (event === "SubagentStop" && ["completed", "interrupted", "failed"].includes(outcome))
-      hook.outcome = outcome as Outcome;
     return hook;
   }
   const hook = decodePi(v);
