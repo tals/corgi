@@ -1,0 +1,1742 @@
+{
+  "schema": "local-scale-v1",
+  "plan": {
+    "created_utc": "2026-11-08T14:43:59.621923+00:00",
+    "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi",
+    "binary_sha256": "59303250325a0df3d8fe791e2cbc814d475c9f820775b8c143a809eb1c8c396e",
+    "build": {
+      "builtAt": "2026-11-08T14:33:20.811Z",
+      "target": "linux-x64",
+      "bunVersion": "1.4.4",
+      "testBuild": false,
+      "releaseVersion": "0.1.0-dev",
+      "releaseCommit": "a49dd498a3274acd728f3b39228facd4810aa4c9",
+      "sha256": "59303250325a0df3d8fe791e2cbc814d475c9f820775b8c143a809eb1c8c396e",
+      "sourceSHA256": "df0eca15c27bb2ed7fec71fa96b3c65fe286f9997ba8f1deecf7af9dc3d9f8b2",
+      "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+      "inputsSHA256": "1ede83513509020eb117626fa51a0e12055c4efe4376ecbe52a5c2132f56a005"
+    },
+    "head": "a49dd498a3274acd728f3b39228facd4810aa4c9",
+    "sources": {
+      "tools/benchmarks/local_scale/run.ts": "b7a41cc6b2ce6a1b1d761be1b6e2c7259a2a72d3fc015c311345216bdae63367",
+      "tools/benchmarks/local_scale/producer.ts.fixture": "ea7f5790663be5e2e06cedcede57ae3af023d2813dc8148f2ad08a96bf3e7d57",
+      "tools/benchmarks/local_scale/calibrate.py": "383d6c94222fde0f2fcb164368551c2127ff7ef15fb78786c113f305eaf67b66",
+      "tools/benchmarks/local_scale/matrix.py": "ffaaa36e39f2934aaa95b0ee1e255e033fd7d0bbda3de3118e207f4a4847c856",
+      "tools/benchmarks/local_scale/socket_bytes.bt": "add26c9662a0cd3cce45910ca981526d588ba5d3dae7687eb4a8539e8d25e3bc"
+    },
+    "arguments": {
+      "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/local-scale-20261108",
+      "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi",
+      "placement": "/tmp/corgi-local-scale-placement-final.json",
+      "seconds": 20,
+      "warmup": 5,
+      "repeats": 3,
+      "counts": "4,8,32",
+      "scenarios": "idle,mixed,spammy",
+      "attachments": "attached,detached",
+      "trace": "on"
+    },
+    "cpu_unit": "percent of one logical core, user+system, all process threads",
+    "noise_policy": "Keep all planned trials; flag windows whose maximum SMT-sibling busy fraction exceeds 2%.",
+    "placement": {
+      "selection": {
+        "node": 1,
+        "cpus": "104,105,106,107,108,109,110,111",
+        "siblings": [
+          232,
+          233,
+          234,
+          235,
+          236,
+          237,
+          238,
+          239
+        ],
+        "l3_id": "13",
+        "worst_mean": 0.018018018018018018
+      },
+      "criteria": {
+        "window_mean_limit": 0.02,
+        "windows": [
+          "whole pilot",
+          "final30 seconds"
+        ],
+        "includes": "each selected logical CPU and every SMT sibling",
+        "rank": "fixed placement selected before the pilot",
+        "selection_before_application_runs": true
+      },
+      "started_at": "2026-11-08T14:43:24.431277+00:00",
+      "requested_seconds": 30.0
+    },
+    "complete_plan": {
+      "archive": "raw.tar.gz",
+      "path": "matrix/plan.json",
+      "sha256": "c19cdd7122e0761a12c5ca730dc60ca0b9e2345b0bc4003c432cd392fe53e1eb"
+    }
+  },
+  "rows": [
+    {
+      "agents": 4,
+      "name": "attached-idle",
+      "trials": 3,
+      "environment_flags": 1,
+      "sources": [
+        "r0-4/results.json",
+        "r1-4/results.json",
+        "r2-4/results.json"
+      ],
+      "daemon_cpu": {
+        "median": 2.6001079774140914,
+        "minimum": 2.4499871913444644,
+        "maximum": 3.6999053440266167
+      },
+      "viewer_cpu": {
+        "median": 4.400182731008463,
+        "minimum": 4.099978565107063,
+        "maximum": 6.14984266642262
+      },
+      "daemon_waited_child_cpu": {
+        "median": 2.099989021152398,
+        "minimum": 0,
+        "maximum": 2.150089289015499
+      },
+      "protocol_Bps": {
+        "median": 2861.75,
+        "minimum": 2443.15,
+        "maximum": 2926.25
+      },
+      "daemon_to_viewer_Bps": {
+        "median": 2195.75,
+        "minimum": 1753.15,
+        "maximum": 2230.5
+      },
+      "viewer_to_daemon_Bps": {
+        "median": 690,
+        "minimum": 666,
+        "maximum": 695.75
+      },
+      "daemon_other_unix_Bps": {
+        "median": 45.6,
+        "minimum": 44.8,
+        "maximum": 46.8
+      },
+      "terminal_Bps": {
+        "median": 339.31409105253897,
+        "minimum": 302.79841695473624,
+        "maximum": 376.3403719525452
+      },
+      "producer_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "provider_cpu_percent": {
+        "median": 0.10000415297746507,
+        "minimum": 0.09999947719773324,
+        "maximum": 0.2999923251913473
+      },
+      "max_sibling_busy": {
+        "median": 0.013520280420630946,
+        "minimum": 0.0065032516258129065,
+        "maximum": 0.0285
+      },
+      "presented_hz": null
+    },
+    {
+      "agents": 4,
+      "name": "attached-mixed",
+      "trials": 3,
+      "environment_flags": 0,
+      "sources": [
+        "r0-4/results.json",
+        "r1-4/results.json",
+        "r2-4/results.json"
+      ],
+      "daemon_cpu": {
+        "median": 7.65000474223794,
+        "minimum": 7.549851847747221,
+        "maximum": 8.39994760868677
+      },
+      "viewer_cpu": {
+        "median": 12.399756677094773,
+        "minimum": 11.800007314824533,
+        "maximum": 14.249911121879341
+      },
+      "daemon_waited_child_cpu": {
+        "median": 0.049999688146945054,
+        "minimum": 0,
+        "maximum": 1.9999607543701248
+      },
+      "protocol_Bps": {
+        "median": 224111.4,
+        "minimum": 224042.25,
+        "maximum": 224540.25
+      },
+      "daemon_to_viewer_Bps": {
+        "median": 221372.5,
+        "minimum": 221325.8,
+        "maximum": 221823.8
+      },
+      "viewer_to_daemon_Bps": {
+        "median": 2716.45,
+        "minimum": 2716.45,
+        "maximum": 2738.9
+      },
+      "daemon_other_unix_Bps": {
+        "median": 356,
+        "minimum": 355.6,
+        "maximum": 356
+      },
+      "terminal_Bps": {
+        "median": 30009.71282642013,
+        "minimum": 29645.818254179234,
+        "maximum": 30179.068708004692
+      },
+      "producer_Bps": {
+        "median": 43148,
+        "minimum": 43148,
+        "maximum": 43148
+      },
+      "provider_cpu_percent": {
+        "median": 0.5500003409452114,
+        "minimum": 0.5499892074517843,
+        "maximum": 0.9999937629389011
+      },
+      "max_sibling_busy": {
+        "median": 0.01503006012024048,
+        "minimum": 0.0045045045045045045,
+        "maximum": 0.01602403605408112
+      },
+      "presented_hz": {
+        "median": 20.002280166595014,
+        "minimum": 20.001743211926158,
+        "maximum": 20.332932733892605
+      }
+    },
+    {
+      "agents": 4,
+      "name": "attached-mixed-quiet-focus",
+      "trials": 3,
+      "environment_flags": 1,
+      "sources": [
+        "r0-4/results.json",
+        "r1-4/results.json",
+        "r2-4/results.json"
+      ],
+      "daemon_cpu": {
+        "median": 4.599838812678318,
+        "minimum": 4.000181600244288,
+        "maximum": 4.650051480952448
+      },
+      "viewer_cpu": {
+        "median": 7.4500824802356425,
+        "minimum": 6.650301910406128,
+        "maximum": 7.5497354425481085
+      },
+      "daemon_waited_child_cpu": {
+        "median": 2.049928166519685,
+        "minimum": 0,
+        "maximum": 2.0500226959037673
+      },
+      "protocol_Bps": {
+        "median": 2986.75,
+        "minimum": 2539.2,
+        "maximum": 3030.95
+      },
+      "daemon_to_viewer_Bps": {
+        "median": 2272.65,
+        "minimum": 1814.05,
+        "maximum": 2304.7
+      },
+      "viewer_to_daemon_Bps": {
+        "median": 725.15,
+        "minimum": 714.1,
+        "maximum": 726.25
+      },
+      "daemon_other_unix_Bps": {
+        "median": 224,
+        "minimum": 224,
+        "maximum": 224.4
+      },
+      "terminal_Bps": {
+        "median": 2797.0019875962007,
+        "minimum": 2419.2098272877392,
+        "maximum": 2834.931385667117
+      },
+      "producer_Bps": {
+        "median": 43148,
+        "minimum": 43148,
+        "maximum": 43148
+      },
+      "provider_cpu_percent": {
+        "median": 0.5499807276028423,
+        "minimum": 0.5000055355862847,
+        "maximum": 0.6000272400366431
+      },
+      "max_sibling_busy": {
+        "median": 0.015523284927391086,
+        "minimum": 0.0065032516258129065,
+        "maximum": 0.02801400700350175
+      },
+      "presented_hz": null
+    },
+    {
+      "agents": 4,
+      "name": "attached-spammy",
+      "trials": 3,
+      "environment_flags": 0,
+      "sources": [
+        "r0-4/results.json",
+        "r1-4/results.json",
+        "r2-4/results.json"
+      ],
+      "daemon_cpu": {
+        "median": 9.200331807206528,
+        "minimum": 9.149883301015898,
+        "maximum": 10.549927698707998
+      },
+      "viewer_cpu": {
+        "median": 12.400447218408798,
+        "minimum": 12.249843763655162,
+        "maximum": 14.249902341856775
+      },
+      "daemon_waited_child_cpu": {
+        "median": 0.05000180330003548,
+        "minimum": 0,
+        "maximum": 2.1499725789272324
+      },
+      "protocol_Bps": {
+        "median": 224118.5,
+        "minimum": 223978.75,
+        "maximum": 224547.69999999998
+      },
+      "daemon_to_viewer_Bps": {
+        "median": 221379.6,
+        "minimum": 221256.25,
+        "maximum": 221814.9
+      },
+      "viewer_to_daemon_Bps": {
+        "median": 2732.8,
+        "minimum": 2722.5,
+        "maximum": 2738.9
+      },
+      "daemon_other_unix_Bps": {
+        "median": 820.4,
+        "minimum": 820,
+        "maximum": 820.8
+      },
+      "terminal_Bps": {
+        "median": 31121.872400991582,
+        "minimum": 30676.15875166986,
+        "maximum": 31134.936624495578
+      },
+      "producer_Bps": {
+        "median": 171520,
+        "minimum": 171520,
+        "maximum": 171520
+      },
+      "provider_cpu_percent": {
+        "median": 2.000072132001419,
+        "minimum": 1.9499751297246994,
+        "maximum": 2.2499845802931753
+      },
+      "max_sibling_busy": {
+        "median": 0.016016016016016016,
+        "minimum": 0.008016032064128256,
+        "maximum": 0.016016016016016016
+      },
+      "presented_hz": {
+        "median": 20.000869177771854,
+        "minimum": 20.000644174080612,
+        "maximum": 20.00245382769328
+      }
+    },
+    {
+      "agents": 4,
+      "name": "detached-idle",
+      "trials": 3,
+      "environment_flags": 1,
+      "sources": [
+        "r0-4/results.json",
+        "r1-4/results.json",
+        "r2-4/results.json"
+      ],
+      "daemon_cpu": {
+        "median": 1.898898692971634,
+        "minimum": 1.7989815354773433,
+        "maximum": 1.9996396446396938
+      },
+      "viewer_cpu": null,
+      "daemon_waited_child_cpu": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "protocol_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "daemon_to_viewer_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "viewer_to_daemon_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "daemon_other_unix_Bps": {
+        "median": 0.4,
+        "minimum": 0.4,
+        "maximum": 0.4
+      },
+      "terminal_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "producer_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "provider_cpu_percent": {
+        "median": 0.04999099111599234,
+        "minimum": 0.04997170931881509,
+        "maximum": 0.09994203647219127
+      },
+      "max_sibling_busy": {
+        "median": 0.015037593984962405,
+        "minimum": 0.0065,
+        "maximum": 0.174
+      },
+      "presented_hz": null
+    },
+    {
+      "agents": 4,
+      "name": "detached-mixed",
+      "trials": 3,
+      "environment_flags": 0,
+      "sources": [
+        "r0-4/results.json",
+        "r1-4/results.json",
+        "r2-4/results.json"
+      ],
+      "daemon_cpu": {
+        "median": 4.197862851860346,
+        "minimum": 3.647421205548014,
+        "maximum": 4.398550703934358
+      },
+      "viewer_cpu": null,
+      "daemon_waited_child_cpu": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0.04997455776024221
+      },
+      "protocol_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "daemon_to_viewer_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "viewer_to_daemon_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "daemon_other_unix_Bps": {
+        "median": 176.4,
+        "minimum": 176.4,
+        "maximum": 176.8
+      },
+      "terminal_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "producer_Bps": {
+        "median": 43148,
+        "minimum": 43148,
+        "maximum": 43148
+      },
+      "provider_cpu_percent": {
+        "median": 0.5496114145346322,
+        "minimum": 0.49974557760242216,
+        "maximum": 0.6497858994448483
+      },
+      "max_sibling_busy": {
+        "median": 0.009,
+        "minimum": 0.0030015007503751876,
+        "maximum": 0.015022533800701052
+      },
+      "presented_hz": null
+    },
+    {
+      "agents": 4,
+      "name": "detached-spammy",
+      "trials": 3,
+      "environment_flags": 0,
+      "sources": [
+        "r0-4/results.json",
+        "r1-4/results.json",
+        "r2-4/results.json"
+      ],
+      "daemon_cpu": {
+        "median": 6.0461095295508755,
+        "minimum": 5.849962002741803,
+        "maximum": 6.147998273242216
+      },
+      "viewer_cpu": null,
+      "daemon_waited_child_cpu": {
+        "median": 0.049983725798717196,
+        "minimum": 0,
+        "maximum": 0.04999967523710943
+      },
+      "protocol_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "daemon_to_viewer_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "viewer_to_daemon_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "daemon_other_unix_Bps": {
+        "median": 640,
+        "minimum": 634.8,
+        "maximum": 640.8
+      },
+      "terminal_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "producer_Bps": {
+        "median": 171520,
+        "minimum": 171520,
+        "maximum": 171520
+      },
+      "provider_cpu_percent": {
+        "median": 1.8488103520114247,
+        "minimum": 1.7999883085359394,
+        "maximum": 1.8493978545525365
+      },
+      "max_sibling_busy": {
+        "median": 0.014035087719298246,
+        "minimum": 0.0075075075075075074,
+        "maximum": 0.01503006012024048
+      },
+      "presented_hz": null
+    },
+    {
+      "agents": 8,
+      "name": "attached-idle",
+      "trials": 3,
+      "environment_flags": 0,
+      "sources": [
+        "r0-8/results.json",
+        "r1-8/results.json",
+        "r2-8/results.json"
+      ],
+      "daemon_cpu": {
+        "median": 3.1500402416065847,
+        "minimum": 3.149912487713806,
+        "maximum": 3.9498824613726558
+      },
+      "viewer_cpu": {
+        "median": 4.799866647944847,
+        "minimum": 4.050051739208466,
+        "maximum": 7.349781288883296
+      },
+      "daemon_waited_child_cpu": {
+        "median": 1.9499458257275941,
+        "minimum": 0.049998512169274124,
+        "maximum": 2.0500261889820632
+      },
+      "protocol_Bps": {
+        "median": 2814.75,
+        "minimum": 2213.35,
+        "maximum": 2893.3
+      },
+      "daemon_to_viewer_Bps": {
+        "median": 2160.75,
+        "minimum": 1589.35,
+        "maximum": 2203.6
+      },
+      "viewer_to_daemon_Bps": {
+        "median": 654,
+        "minimum": 624,
+        "maximum": 689.7
+      },
+      "daemon_other_unix_Bps": {
+        "median": 43.2,
+        "minimum": 42,
+        "maximum": 46.4
+      },
+      "terminal_Bps": {
+        "median": 295.99119204210285,
+        "minimum": 282.4921516759207,
+        "maximum": 297.2037967636435
+      },
+      "producer_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "provider_cpu_percent": {
+        "median": 0.1499958327482765,
+        "minimum": 0.10000127751132015,
+        "maximum": 0.6499806582005637
+      },
+      "max_sibling_busy": {
+        "median": 0.011517275913870806,
+        "minimum": 0.006006006006006006,
+        "maximum": 0.014035087719298246
+      },
+      "presented_hz": null
+    },
+    {
+      "agents": 8,
+      "name": "attached-mixed",
+      "trials": 3,
+      "environment_flags": 0,
+      "sources": [
+        "r0-8/results.json",
+        "r1-8/results.json",
+        "r2-8/results.json"
+      ],
+      "daemon_cpu": {
+        "median": 9.200255998503197,
+        "minimum": 9.200023126098133,
+        "maximum": 10.149745133302368
+      },
+      "viewer_cpu": {
+        "median": 14.300035946000357,
+        "minimum": 12.100336693683552,
+        "maximum": 14.749629627212801
+      },
+      "daemon_waited_child_cpu": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 2.0500051530979535
+      },
+      "protocol_Bps": {
+        "median": 224085.0,
+        "minimum": 224050.25,
+        "maximum": 224537.80000000002
+      },
+      "daemon_to_viewer_Bps": {
+        "median": 221346.1,
+        "minimum": 221333.8,
+        "maximum": 221821.35
+      },
+      "viewer_to_daemon_Bps": {
+        "median": 2716.45,
+        "minimum": 2716.45,
+        "maximum": 2738.9
+      },
+      "daemon_other_unix_Bps": {
+        "median": 532.4,
+        "minimum": 532,
+        "maximum": 532.4
+      },
+      "terminal_Bps": {
+        "median": 31426.260866162578,
+        "minimum": 31220.018701703375,
+        "maximum": 31465.079093769316
+      },
+      "producer_Bps": {
+        "median": 86296,
+        "minimum": 86296,
+        "maximum": 86296
+      },
+      "provider_cpu_percent": {
+        "median": 1.2000333911091126,
+        "minimum": 1.1000027650769506,
+        "maximum": 1.6499585684678724
+      },
+      "max_sibling_busy": {
+        "median": 0.012518778167250876,
+        "minimum": 0.00400200100050025,
+        "maximum": 0.014021031547320982
+      },
+      "presented_hz": {
+        "median": 20.000141827672408,
+        "minimum": 19.999255841023,
+        "maximum": 20.002744970024658
+      }
+    },
+    {
+      "agents": 8,
+      "name": "attached-mixed-quiet-focus",
+      "trials": 3,
+      "environment_flags": 0,
+      "sources": [
+        "r0-8/results.json",
+        "r1-8/results.json",
+        "r2-8/results.json"
+      ],
+      "daemon_cpu": {
+        "median": 6.000095186410052,
+        "minimum": 5.700226909217586,
+        "maximum": 6.649880232664564
+      },
+      "viewer_cpu": {
+        "median": 8.25013088131382,
+        "minimum": 7.950316478645581,
+        "maximum": 8.549846013425867
+      },
+      "daemon_waited_child_cpu": {
+        "median": 1.9500309355832668,
+        "minimum": 0,
+        "maximum": 2.299958576711052
+      },
+      "protocol_Bps": {
+        "median": 3028.3999999999996,
+        "minimum": 2518.5,
+        "maximum": 3045.95
+      },
+      "daemon_to_viewer_Bps": {
+        "median": 2308.2,
+        "minimum": 1799.1,
+        "maximum": 2319.7
+      },
+      "viewer_to_daemon_Bps": {
+        "median": 720.2,
+        "minimum": 719.4,
+        "maximum": 726.25
+      },
+      "daemon_other_unix_Bps": {
+        "median": 400.4,
+        "minimum": 400.4,
+        "maximum": 400.4
+      },
+      "terminal_Bps": {
+        "median": 3403.3539913182217,
+        "minimum": 3392.6388970467765,
+        "maximum": 3810.651690802388
+      },
+      "producer_Bps": {
+        "median": 86296,
+        "minimum": 86296,
+        "maximum": 86296
+      },
+      "provider_cpu_percent": {
+        "median": 1.0000398086346642,
+        "minimum": 0.9000142779615078,
+        "maximum": 1.249977487342963
+      },
+      "max_sibling_busy": {
+        "median": 0.011517275913870806,
+        "minimum": 0.01,
+        "maximum": 0.012525050100200401
+      },
+      "presented_hz": null
+    },
+    {
+      "agents": 8,
+      "name": "attached-spammy",
+      "trials": 3,
+      "environment_flags": 0,
+      "sources": [
+        "r0-8/results.json",
+        "r1-8/results.json",
+        "r2-8/results.json"
+      ],
+      "daemon_cpu": {
+        "median": 13.39996682369214,
+        "minimum": 12.50036099792526,
+        "maximum": 13.449958383138771
+      },
+      "viewer_cpu": {
+        "median": 13.199967318860914,
+        "minimum": 13.100378325825673,
+        "maximum": 15.199952968305524
+      },
+      "daemon_waited_child_cpu": {
+        "median": 0.0499998452904787,
+        "minimum": 0,
+        "maximum": 2.149994676935679
+      },
+      "protocol_Bps": {
+        "median": 224090.9,
+        "minimum": 223969.55000000002,
+        "maximum": 224582.15
+      },
+      "daemon_to_viewer_Bps": {
+        "median": 221352,
+        "minimum": 221253.1,
+        "maximum": 221843.25
+      },
+      "viewer_to_daemon_Bps": {
+        "median": 2738.9,
+        "minimum": 2716.45,
+        "maximum": 2738.9
+      },
+      "daemon_other_unix_Bps": {
+        "median": 1460.4,
+        "minimum": 1460,
+        "maximum": 1460.4
+      },
+      "terminal_Bps": {
+        "median": 33590.24606506062,
+        "minimum": 33268.81763139787,
+        "maximum": 34097.084689708754
+      },
+      "producer_Bps": {
+        "median": 343040,
+        "minimum": 343040,
+        "maximum": 343040
+      },
+      "provider_cpu_percent": {
+        "median": 3.9499902204167125,
+        "minimum": 3.9001126313526813,
+        "maximum": 4.649985612014519
+      },
+      "max_sibling_busy": {
+        "median": 0.015515515515515516,
+        "minimum": 0.0075,
+        "maximum": 0.01602403605408112
+      },
+      "presented_hz": {
+        "median": 20.006165113178735,
+        "minimum": 19.998344183764377,
+        "maximum": 20.33418377667948
+      }
+    },
+    {
+      "agents": 8,
+      "name": "detached-idle",
+      "trials": 3,
+      "environment_flags": 1,
+      "sources": [
+        "r0-8/results.json",
+        "r1-8/results.json",
+        "r2-8/results.json"
+      ],
+      "daemon_cpu": {
+        "median": 2.2499019406113057,
+        "minimum": 2.198662787254301,
+        "maximum": 2.348602885661965
+      },
+      "viewer_cpu": null,
+      "daemon_waited_child_cpu": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "protocol_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "daemon_to_viewer_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "viewer_to_daemon_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "daemon_other_unix_Bps": {
+        "median": 0.4,
+        "minimum": 0,
+        "maximum": 0.4
+      },
+      "terminal_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "producer_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "provider_cpu_percent": {
+        "median": 0.09999564180494692,
+        "minimum": 0,
+        "maximum": 0.19988109665208215
+      },
+      "max_sibling_busy": {
+        "median": 0.013520280420630946,
+        "minimum": 0.006496751624187906,
+        "maximum": 0.14292878635907724
+      },
+      "presented_hz": null
+    },
+    {
+      "agents": 8,
+      "name": "detached-mixed",
+      "trials": 3,
+      "environment_flags": 1,
+      "sources": [
+        "r0-8/results.json",
+        "r1-8/results.json",
+        "r2-8/results.json"
+      ],
+      "daemon_cpu": {
+        "median": 5.600571318200569,
+        "minimum": 5.547588276977032,
+        "maximum": 5.946256274808108
+      },
+      "viewer_cpu": null,
+      "daemon_waited_child_cpu": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0.05000510105536223
+      },
+      "protocol_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "daemon_to_viewer_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "viewer_to_daemon_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "daemon_other_unix_Bps": {
+        "median": 352.8,
+        "minimum": 352,
+        "maximum": 352.8
+      },
+      "terminal_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "producer_Bps": {
+        "median": 86296,
+        "minimum": 86296,
+        "maximum": 86296
+      },
+      "provider_cpu_percent": {
+        "median": 1.0495437280767357,
+        "minimum": 1.0493393426131954,
+        "maximum": 1.1501173242733311
+      },
+      "max_sibling_busy": {
+        "median": 0.016508254127063533,
+        "minimum": 0.0065,
+        "maximum": 0.08608608608608609
+      },
+      "presented_hz": null
+    },
+    {
+      "agents": 8,
+      "name": "detached-spammy",
+      "trials": 3,
+      "environment_flags": 1,
+      "sources": [
+        "r0-8/results.json",
+        "r1-8/results.json",
+        "r2-8/results.json"
+      ],
+      "daemon_cpu": {
+        "median": 9.34519661893467,
+        "minimum": 7.9435368449092945,
+        "maximum": 9.498673545859345
+      },
+      "viewer_cpu": null,
+      "daemon_waited_child_cpu": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "protocol_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "daemon_to_viewer_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "viewer_to_daemon_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "daemon_other_unix_Bps": {
+        "median": 1280.4,
+        "minimum": 1280,
+        "maximum": 1280.8
+      },
+      "terminal_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "producer_Bps": {
+        "median": 343040,
+        "minimum": 343040,
+        "maximum": 343040
+      },
+      "provider_cpu_percent": {
+        "median": 3.648124883327438,
+        "minimum": 3.1973984784540557,
+        "maximum": 3.8994554556685737
+      },
+      "max_sibling_busy": {
+        "median": 0.015007503751875938,
+        "minimum": 0.013013013013013013,
+        "maximum": 0.10510510510510511
+      },
+      "presented_hz": null
+    },
+    {
+      "agents": 32,
+      "name": "attached-idle",
+      "trials": 3,
+      "environment_flags": 1,
+      "sources": [
+        "r0-32/results.json",
+        "r1-32/results.json",
+        "r2-32/results.json"
+      ],
+      "daemon_cpu": {
+        "median": 5.048856496356953,
+        "minimum": 4.849949189022326,
+        "maximum": 5.900055923680073
+      },
+      "viewer_cpu": {
+        "median": 6.049936617234036,
+        "minimum": 5.898664025446737,
+        "maximum": 7.0500668240583915
+      },
+      "daemon_waited_child_cpu": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "protocol_Bps": {
+        "median": 2295.05,
+        "minimum": 2270.7,
+        "maximum": 2298.75
+      },
+      "daemon_to_viewer_Bps": {
+        "median": 1641.65,
+        "minimum": 1634.7,
+        "maximum": 1645.35
+      },
+      "viewer_to_daemon_Bps": {
+        "median": 653.4,
+        "minimum": 636,
+        "maximum": 653.4
+      },
+      "daemon_other_unix_Bps": {
+        "median": 41.2,
+        "minimum": 41.2,
+        "maximum": 42.4
+      },
+      "terminal_Bps": {
+        "median": 365.4034634767286,
+        "minimum": 324.97639685956983,
+        "maximum": 372.39609855503386
+      },
+      "producer_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "provider_cpu_percent": {
+        "median": 0.24994339090876005,
+        "minimum": 0,
+        "maximum": 0.9000085307308585
+      },
+      "max_sibling_busy": {
+        "median": 0.016524787180771158,
+        "minimum": 0.015531062124248497,
+        "maximum": 0.09113670505758638
+      },
+      "presented_hz": null
+    },
+    {
+      "agents": 32,
+      "name": "attached-mixed",
+      "trials": 3,
+      "environment_flags": 1,
+      "sources": [
+        "r0-32/results.json",
+        "r1-32/results.json",
+        "r2-32/results.json"
+      ],
+      "daemon_cpu": {
+        "median": 17.79997240915277,
+        "minimum": 17.050005358816687,
+        "maximum": 18.0528978132459
+      },
+      "viewer_cpu": {
+        "median": 14.300004494491414,
+        "minimum": 14.252287747299393,
+        "maximum": 15.849975431745582
+      },
+      "daemon_waited_child_cpu": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "protocol_Bps": {
+        "median": 224094.6,
+        "minimum": 223978.0,
+        "maximum": 225147.05000000002
+      },
+      "daemon_to_viewer_Bps": {
+        "median": 221355.7,
+        "minimum": 221266.2,
+        "maximum": 222412.45
+      },
+      "viewer_to_daemon_Bps": {
+        "median": 2734.6,
+        "minimum": 2711.8,
+        "maximum": 2738.9
+      },
+      "daemon_other_unix_Bps": {
+        "median": 1586.8,
+        "minimum": 1586,
+        "maximum": 1594.4
+      },
+      "terminal_Bps": {
+        "median": 27249.324004265585,
+        "minimum": 27205.858550801346,
+        "maximum": 28395.205986010962
+      },
+      "producer_Bps": {
+        "median": 345184,
+        "minimum": 345184,
+        "maximum": 345184
+      },
+      "provider_cpu_percent": {
+        "median": 4.7999925597715345,
+        "minimum": 4.150001304345411,
+        "maximum": 4.850778636800147
+      },
+      "max_sibling_busy": {
+        "median": 0.015037593984962405,
+        "minimum": 0.013013013013013013,
+        "maximum": 0.023547094188376753
+      },
+      "presented_hz": {
+        "median": 20.001852851637068,
+        "minimum": 20.001626638953606,
+        "maximum": 20.002445205581612
+      }
+    },
+    {
+      "agents": 32,
+      "name": "attached-mixed-quiet-focus",
+      "trials": 3,
+      "environment_flags": 1,
+      "sources": [
+        "r0-32/results.json",
+        "r1-32/results.json",
+        "r2-32/results.json"
+      ],
+      "daemon_cpu": {
+        "median": 15.099756838045808,
+        "minimum": 14.29975783646099,
+        "maximum": 15.300005732147147
+      },
+      "viewer_cpu": {
+        "median": 7.499879224194937,
+        "minimum": 6.699886538761444,
+        "maximum": 7.950002978468615
+      },
+      "daemon_waited_child_cpu": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 2.0500007680327874
+      },
+      "protocol_Bps": {
+        "median": 2527.85,
+        "minimum": 2500.35,
+        "maximum": 3004.1
+      },
+      "daemon_to_viewer_Bps": {
+        "median": 1819.8,
+        "minimum": 1804.35,
+        "maximum": 2304.1
+      },
+      "viewer_to_daemon_Bps": {
+        "median": 700,
+        "minimum": 696,
+        "maximum": 708.05
+      },
+      "daemon_other_unix_Bps": {
+        "median": 1454.4,
+        "minimum": 1448.8,
+        "maximum": 1454.8
+      },
+      "terminal_Bps": {
+        "median": 410.74304414869596,
+        "minimum": 407.9934297962046,
+        "maximum": 416.850156172911
+      },
+      "producer_Bps": {
+        "median": 345184,
+        "minimum": 345076.8,
+        "maximum": 345184
+      },
+      "provider_cpu_percent": {
+        "median": 3.8999339553984522,
+        "minimum": 3.8000014236705324,
+        "maximum": 4.049934781065266
+      },
+      "max_sibling_busy": {
+        "median": 0.015022533800701052,
+        "minimum": 0.012537612838515547,
+        "maximum": 0.02961847389558233
+      },
+      "presented_hz": null
+    },
+    {
+      "agents": 32,
+      "name": "attached-spammy",
+      "trials": 3,
+      "environment_flags": 0,
+      "sources": [
+        "r0-32/results.json",
+        "r1-32/results.json",
+        "r2-32/results.json"
+      ],
+      "daemon_cpu": {
+        "median": 26.199204420549002,
+        "minimum": 24.45020389025024,
+        "maximum": 29.099253592505654
+      },
+      "viewer_cpu": {
+        "median": 16.899486820888477,
+        "minimum": 16.55013801160088,
+        "maximum": 17.849542152103982
+      },
+      "daemon_waited_child_cpu": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 2.2499316773372233
+      },
+      "protocol_Bps": {
+        "median": 226352.75,
+        "minimum": 226267.40000000002,
+        "maximum": 239042.75
+      },
+      "daemon_to_viewer_Bps": {
+        "median": 223589.45,
+        "minimum": 223510.2,
+        "maximum": 236162.95
+      },
+      "viewer_to_daemon_Bps": {
+        "median": 2763.3,
+        "minimum": 2757.2,
+        "maximum": 2879.8
+      },
+      "daemon_other_unix_Bps": {
+        "median": 5288.8,
+        "minimum": 5287.2,
+        "maximum": 5302
+      },
+      "terminal_Bps": {
+        "median": 37549.50975093467,
+        "minimum": 36750.50646247339,
+        "maximum": 49644.876589057545
+      },
+      "producer_Bps": {
+        "median": 1372160,
+        "minimum": 1372160,
+        "maximum": 1372160
+      },
+      "provider_cpu_percent": {
+        "median": 12.249628021058221,
+        "minimum": 11.900099234927517,
+        "maximum": 13.949642186098078
+      },
+      "max_sibling_busy": {
+        "median": 0.014529058116232466,
+        "minimum": 0.014021031547320982,
+        "maximum": 0.01659959758551308
+      },
+      "presented_hz": {
+        "median": 20.00173987134444,
+        "minimum": 19.666907376501797,
+        "maximum": 20.00234967601644
+      }
+    },
+    {
+      "agents": 32,
+      "name": "attached-spammy-untraced",
+      "trials": 3,
+      "environment_flags": 1,
+      "sources": [
+        "r0-32/results.json",
+        "r1-32/results.json",
+        "r2-32/results.json"
+      ],
+      "daemon_cpu": {
+        "median": 25.699017625497394,
+        "minimum": 25.550189674388065,
+        "maximum": 26.401100525915258
+      },
+      "viewer_cpu": {
+        "median": 15.449409428557772,
+        "minimum": 14.600108385364608,
+        "maximum": 16.000666985403186
+      },
+      "daemon_waited_child_cpu": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 2.0999197281534836
+      },
+      "protocol_Bps": null,
+      "daemon_to_viewer_Bps": null,
+      "viewer_to_daemon_Bps": null,
+      "daemon_other_unix_Bps": null,
+      "terminal_Bps": {
+        "median": 39589.30027404353,
+        "minimum": 38406.435114011714,
+        "maximum": 44648.19327146677
+      },
+      "producer_Bps": {
+        "median": 1372160,
+        "minimum": 1372052.8,
+        "maximum": 1372267.2
+      },
+      "provider_cpu_percent": {
+        "median": 12.55052316667562,
+        "minimum": 11.54955850484416,
+        "maximum": 12.750094651602653
+      },
+      "max_sibling_busy": {
+        "median": 0.014529058116232466,
+        "minimum": 0.014021031547320982,
+        "maximum": 0.02004008016032064
+      },
+      "presented_hz": {
+        "median": 20.000635646868382,
+        "minimum": 19.66738301175806,
+        "maximum": 20.334105683669456
+      }
+    },
+    {
+      "agents": 32,
+      "name": "detached-idle",
+      "trials": 3,
+      "environment_flags": 1,
+      "sources": [
+        "r0-32/results.json",
+        "r1-32/results.json",
+        "r2-32/results.json"
+      ],
+      "daemon_cpu": {
+        "median": 4.448267007663365,
+        "minimum": 4.1484508972890195,
+        "maximum": 4.648343604126928
+      },
+      "viewer_cpu": null,
+      "daemon_waited_child_cpu": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0.04998052817599286
+      },
+      "protocol_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "daemon_to_viewer_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "viewer_to_daemon_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "daemon_other_unix_Bps": {
+        "median": 0.4,
+        "minimum": 0,
+        "maximum": 0.4
+      },
+      "terminal_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "producer_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "provider_cpu_percent": {
+        "median": 0.24991094645843698,
+        "minimum": 0.1999253444476636,
+        "maximum": 0.2998831690559572
+      },
+      "max_sibling_busy": {
+        "median": 0.016516516516516516,
+        "minimum": 0.014507253626813406,
+        "maximum": 0.03751875937968985
+      },
+      "presented_hz": null
+    },
+    {
+      "agents": 32,
+      "name": "detached-mixed",
+      "trials": 3,
+      "environment_flags": 0,
+      "sources": [
+        "r0-32/results.json",
+        "r1-32/results.json",
+        "r2-32/results.json"
+      ],
+      "daemon_cpu": {
+        "median": 14.742489583895008,
+        "minimum": 14.55100080037385,
+        "maximum": 15.043859315515558
+      },
+      "viewer_cpu": null,
+      "daemon_waited_child_cpu": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "protocol_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "daemon_to_viewer_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "viewer_to_daemon_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "daemon_other_unix_Bps": {
+        "median": 1405.6,
+        "minimum": 1399.2,
+        "maximum": 1406.4
+      },
+      "terminal_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "producer_Bps": {
+        "median": 345184,
+        "minimum": 345184,
+        "maximum": 345184
+      },
+      "provider_cpu_percent": {
+        "median": 3.997963276988478,
+        "minimum": 3.798449528170041,
+        "maximum": 4.10028201247648
+      },
+      "max_sibling_busy": {
+        "median": 0.009514271407110666,
+        "minimum": 0.009022556390977444,
+        "maximum": 0.015523284927391086
+      },
+      "presented_hz": null
+    },
+    {
+      "agents": 32,
+      "name": "detached-spammy",
+      "trials": 3,
+      "environment_flags": 0,
+      "sources": [
+        "r0-32/results.json",
+        "r1-32/results.json",
+        "r2-32/results.json"
+      ],
+      "daemon_cpu": {
+        "median": 22.05101317349208,
+        "minimum": 21.3009418988945,
+        "maximum": 22.440525628032265
+      },
+      "viewer_cpu": null,
+      "daemon_waited_child_cpu": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "protocol_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "daemon_to_viewer_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "viewer_to_daemon_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "daemon_other_unix_Bps": {
+        "median": 5106.4,
+        "minimum": 5106,
+        "maximum": 5108
+      },
+      "terminal_Bps": {
+        "median": 0,
+        "minimum": 0,
+        "maximum": 0
+      },
+      "producer_Bps": {
+        "median": 1372160,
+        "minimum": 1372052.8,
+        "maximum": 1372160
+      },
+      "provider_cpu_percent": {
+        "median": 11.150493059749936,
+        "minimum": 10.60048705845877,
+        "maximum": 11.695062354030181
+      },
+      "max_sibling_busy": {
+        "median": 0.013506753376688344,
+        "minimum": 0.012518778167250876,
+        "maximum": 0.014014014014014014
+      },
+      "presented_hz": null
+    }
+  ],
+  "tracing_controls": [
+    {
+      "repeat": 0,
+      "traced_first": true,
+      "traced_daemon": 24.45020389025024,
+      "untraced_daemon": 25.550189674388065,
+      "traced_viewer": 16.55013801160088,
+      "untraced_viewer": 14.600108385364608,
+      "daemon_difference_points": -1.099985784137825,
+      "viewer_difference_points": 1.9500296262362706
+    },
+    {
+      "repeat": 1,
+      "traced_first": false,
+      "traced_daemon": 26.199204420549002,
+      "untraced_daemon": 26.401100525915258,
+      "traced_viewer": 16.899486820888477,
+      "untraced_viewer": 16.000666985403186,
+      "daemon_difference_points": -0.2018961053662558,
+      "viewer_difference_points": 0.8988198354852912
+    },
+    {
+      "repeat": 2,
+      "traced_first": true,
+      "traced_daemon": 29.099253592505654,
+      "untraced_daemon": 25.699017625497394,
+      "traced_viewer": 17.849542152103982,
+      "untraced_viewer": 15.449409428557772,
+      "daemon_difference_points": 3.4002359670082605,
+      "viewer_difference_points": 2.4001327235462107
+    }
+  ],
+  "failed_trial": {
+    "created_utc": "2026-11-08T15:08:32.433783+00:00",
+    "failed_trial": "failures/r1-32-attempt1",
+    "reason": "Daemon PID disappeared during attached-mixed-quiet-focus. Initial cleanup removed server.log; cause unproven. No OOM/kernel crash indication and binary unchanged.",
+    "replacement": "r1-32",
+    "selection": "Repeat the entire failed case; no CPU/bandwidth-based exclusion. Exclude all partial results from failed trial.",
+    "environment_change": "UI_DRIVER_KEEP=1 for diagnostic replacement and all remaining runs; only changes harness cleanup retention, not application environment behavior.",
+    "remaining": [
+      {
+        "trial": "r1-4",
+        "command": [
+          "taskset",
+          "-c",
+          "0",
+          "bun",
+          "/home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/local_scale/run.ts",
+          "--binary",
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi",
+          "--out",
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/local-scale-20261108/r1-4",
+          "--agents",
+          "4",
+          "--repeat",
+          "1",
+          "--seconds",
+          "20",
+          "--warmup",
+          "5",
+          "--cpus",
+          "104,105,106,107,108,109,110,111",
+          "--scenarios",
+          "idle,mixed,spammy",
+          "--attachments",
+          "attached,detached",
+          "--trace",
+          "on"
+        ]
+      },
+      {
+        "trial": "r2-32",
+        "command": [
+          "taskset",
+          "-c",
+          "0",
+          "bun",
+          "/home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/local_scale/run.ts",
+          "--binary",
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi",
+          "--out",
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/local-scale-20261108/r2-32",
+          "--agents",
+          "32",
+          "--repeat",
+          "2",
+          "--seconds",
+          "20",
+          "--warmup",
+          "5",
+          "--cpus",
+          "104,105,106,107,108,109,110,111",
+          "--scenarios",
+          "idle,mixed,spammy",
+          "--attachments",
+          "attached,detached",
+          "--trace",
+          "on"
+        ]
+      },
+      {
+        "trial": "r2-4",
+        "command": [
+          "taskset",
+          "-c",
+          "0",
+          "bun",
+          "/home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/local_scale/run.ts",
+          "--binary",
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi",
+          "--out",
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/local-scale-20261108/r2-4",
+          "--agents",
+          "4",
+          "--repeat",
+          "2",
+          "--seconds",
+          "20",
+          "--warmup",
+          "5",
+          "--cpus",
+          "104,105,106,107,108,109,110,111",
+          "--scenarios",
+          "idle,mixed,spammy",
+          "--attachments",
+          "attached,detached",
+          "--trace",
+          "on"
+        ]
+      },
+      {
+        "trial": "r2-8",
+        "command": [
+          "taskset",
+          "-c",
+          "0",
+          "bun",
+          "/home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/local_scale/run.ts",
+          "--binary",
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi",
+          "--out",
+          "/home/t/dev/personal/corgi-remote-network-eval/dist/local-scale-20261108/r2-8",
+          "--agents",
+          "8",
+          "--repeat",
+          "2",
+          "--seconds",
+          "20",
+          "--warmup",
+          "5",
+          "--cpus",
+          "104,105,106,107,108,109,110,111",
+          "--scenarios",
+          "idle,mixed,spammy",
+          "--attachments",
+          "attached,detached",
+          "--trace",
+          "on"
+        ]
+      }
+    ]
+  },
+  "calibration": {
+    "command": [
+      "sudo",
+      "-n",
+      "bpftrace",
+      "-f",
+      "json",
+      "/home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/local_scale/socket_bytes.bt",
+      "399092",
+      "0",
+      "2473674127162273",
+      "2473677127162273"
+    ],
+    "expected": {
+      "399092,266144727": 8260182,
+      "399092,266144728": 8260182
+    },
+    "measured": {
+      "399092,266144727": 8260182,
+      "399092,266144728": 8260182
+    },
+    "received": [
+      8260182,
+      8260182
+    ],
+    "ready_ns": 2473670547895631,
+    "start_ns": 2473674127162273,
+    "end_ns": 2473677127162273,
+    "finished_ns": 2473674136440592,
+    "passed": true
+  },
+  "measured_windows": 66,
+  "environment": {
+    "cpu": "AMD EPYC 7C13 64-Core Processor",
+    "kernel": "6.8.0-146-generic",
+    "cpus": [
+      "104",
+      "105",
+      "106",
+      "107",
+      "108",
+      "109",
+      "110",
+      "111"
+    ],
+    "bun": "1.4.4"
+  },
+  "flagged_windows": 11,
+  "cpu_unit": "percent of one logical core; all process threads; user+system",
+  "bandwidth_unit": "bytes/second; sum of both directions of the actual viewer-daemon Unix socket, including uncompressed WS framing",
+  "notes": "Every successful planned trial retained; any aborted attempt is archived separately and excluded. Repeated windows are characterization, not confidence intervals. No Herdr or pre-WS comparison is claimed."
+}

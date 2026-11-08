@@ -1,0 +1,7 @@
+{
+  "passed": true,
+  "windows": 66,
+  "checks_passed": 4654,
+  "failed_checks": [],
+  "details": "audit-checks.json.gz"
+}

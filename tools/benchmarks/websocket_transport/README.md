@@ -4,6 +4,9 @@ Local persistent RPC now uses **uncompressed WS over the existing Unix socket**.
 Remote viewer RPC composes the same transport with the existing negotiated zstd
 codec. HTTP POST hooks and raw management/legacy controls remain on that socket.
 
+For complete local daemon/viewer CPU and actual socket bandwidth with 4, 8, and
+32 simulated agents, see the [agent-scale measurements](../local_scale/README.md).
+
 Five-trial medians, replaying captured pane updates through the production
 `rpc.Connection` and `peer.Client` in two processes. No compression or SSH.
 These measure transport/RPC costs, **not complete viewer rendering**.
