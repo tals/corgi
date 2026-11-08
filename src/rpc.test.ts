@@ -259,7 +259,10 @@ test("one-shot unversioned requests accept an older daemon's replies and errors"
     socket.on("data", chunk => {
       buffer += chunk;
       if (!buffer.includes("\n")) return;
-      received.push(json.parse(buffer.trim()));
+      if (buffer.startsWith("POST ")) return void socket.end('{"err":"UnexpectedToken"}\n');
+      const message = json.parse(buffer.trim());
+      if (message.op === "hello") return void send(socket, { type: "hello", protocol: 3 });
+      received.push(message);
       send(socket, replies[received.length - 1]);
     });
   });
@@ -419,7 +422,11 @@ test.each([false, true])("reload waits out a busy daemon until its deadline (exp
     socket = join(dir, "corgi.sock");
   let asked = 0;
   const server = createServer(peer =>
-    peer.on("data", () => send(peer, asked++ < 2 ? { err: "ReloadBusy" } : { ok: true, server_pid: 9, panes: 0 })),
+    peer.on("data", chunk => {
+      if (chunk.toString().startsWith("POST ")) return void peer.end('{"err":"UnexpectedToken"}\n');
+      if (json.parse(chunk.toString()).op === "hello") return void send(peer, { type: "hello", protocol: 3 });
+      send(peer, asked++ < 2 ? { err: "ReloadBusy" } : { ok: true, server_pid: 9, panes: 0 });
+    }),
   );
   await new Promise<void>(resolve => server.listen(socket, resolve));
   try {

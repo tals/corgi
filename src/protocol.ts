@@ -70,6 +70,8 @@ export interface View<Session = unknown, Resources = unknown> {
 export const version = 4;
 export const management_version = 1;
 export const viewer_version = 4;
+/** HTTP management v1 includes a committed reload reply across handoff. */
+export const transports = { http: 1, websocket: "corgi-stream-v1" } as const;
 export const encodings = ["zstd"] as const;
 export type Encoding = (typeof encodings)[number];
 export function encoding(value: unknown): Encoding | null {
@@ -851,6 +853,7 @@ export interface ReplyPayloads {
     executable: string;
     release_version: string;
     update_abi: string;
+    transports?: { http: number; websocket: string };
     viewer_protocol?: number;
     instance?: string;
     content_encoding?: Encoding;

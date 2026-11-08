@@ -666,6 +666,7 @@ export class Server {
           type: "hello",
           protocol: protocol.version,
           capabilities: protocol.capabilities,
+          transports: protocol.transports,
           server_pid: process.pid,
           build_id: this.build_id,
           executable: this.executable,

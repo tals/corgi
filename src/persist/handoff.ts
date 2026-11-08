@@ -225,7 +225,7 @@ export async function replace(
     retry = false,
     timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    if (requester.compressed || (legacy && requester.savedWebSocket())) {
+    if (requester.http !== "no" || requester.compressed || (legacy && requester.savedWebSocket())) {
       if (n.probe_pair(ptr(fds))) throw Error("SocketPairFailed");
       relay = server.addClient(fds[0], false);
       relayFD = fds[1];
@@ -295,7 +295,7 @@ export async function replace(
     await control.write(Buffer.from("commit\n"));
     if (relay) {
       // The candidate sends its ordinary reply only after commit. The old
-      // process retains the codec just long enough to relay that reply.
+      // process retains HTTP framing or the codec long enough to relay it.
       try {
         const response = await Promise.race([
           line(new AsyncFD(loop, relayFD)),

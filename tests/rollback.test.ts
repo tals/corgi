@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { Runtime, EXE } from "./runtime";
 import { Pty, deadline, registerCase, writeExecutable } from "./support";
 import { Connection } from "../src/rpc";
+import * as rpc_http from "../src/rpc_http";
 
 class Rollback extends Runtime {
   async rejectedRollback(reason: string) {
@@ -93,6 +94,20 @@ process.exit(1);
   async test_compressed_WS_requester_gets_the_commit_reply_without_replaying_later_input() {
     await this.requestRollback(true);
   }
+  async test_HTTP_requester_gets_the_rollback_reply_and_can_upgrade_again() {
+    const workspace = (await this.session()).workspaces[0].id;
+    await this.command("pane.create", { workspace, command: "exec /bin/sh" });
+    const before = await this.session();
+    const reply = await rpc_http.call(this.path, "server.reload", { executable: process.env.CORGI_OLD_EXE! });
+    const old = await rpc_http.call(this.path, "hello");
+    this.assertEqual(reply.server_pid, old.server_pid);
+    this.assertNotEqual(old.server_pid, before.server_pid);
+    this.assertEqual(old.transports, undefined);
+    this.assertEqual((await this.session()).panes[0].pid, before.panes[0].pid);
+    const restored = await rpc_http.call(this.path, "server.reload", { executable: EXE });
+    this.assertEqual((await rpc_http.call(this.path, "hello")).server_pid, restored.server_pid);
+    this.assertEqual((await this.session()).panes[0].pid, before.panes[0].pid);
+  }
   async test_live_rollback_preserves_shells_and_explains_viewer_and_subscription_disconnects() {
     const workspace = (await this.session()).workspaces[0].id;
     await this.command("pane.create", { workspace, command: "exec /bin/sh" });
@@ -143,6 +158,7 @@ registerCase("Rollback", Rollback, {
         [
           "test_WS_requester_gets_the_commit_reply_without_replaying_later_input",
           "test_compressed_WS_requester_gets_the_commit_reply_without_replaying_later_input",
+          "test_HTTP_requester_gets_the_rollback_reply_and_can_upgrade_again",
           "test_live_rollback_preserves_shells_and_explains_viewer_and_subscription_disconnects",
         ].map(name => [name, "requires a pre-WS format-6 CORGI_OLD_EXE"]),
       ),

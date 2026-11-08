@@ -20,6 +20,7 @@ import { homedir } from "node:os";
 import { atomicWrite } from "./os";
 import { flock } from "./native_bridge";
 import * as rpc from "./rpc";
+import * as rpc_http from "./rpc_http";
 import { path as recoveryPath } from "./persist/recovery";
 import { testBuild } from "./build_assets";
 import * as config from "./build_config";
@@ -330,14 +331,11 @@ async function feed(rel: Release, root: string, download: boolean, explicit: boo
   }
 }
 async function hello(socket: string): Promise<any | null> {
-  const connection = new rpc.Connection(socket, { transport: "stream", requestIds: false, timeout_ms: 10_000 });
   try {
-    return await connection.call("hello");
+    return await rpc_http.call(socket, "hello");
   } catch (error) {
     if (["ENOENT", "ECONNREFUSED"].includes((error as NodeJS.ErrnoException).code ?? "")) return null;
     throw error;
-  } finally {
-    connection.close();
   }
 }
 /** Pane commands follow their runtime even when another socket changes the install's current release. */
@@ -457,14 +455,8 @@ const recheck_ms = 3600000;
 /** Has the runtime that said `h` save its session, in the runtime protocol
  * it advertised: one from another release may speak another. */
 export async function save(socket: string, h: { protocol?: number }) {
-  // Untagged: a runtime before protocol 4 answers without the request id.
-  const conn = new rpc.Connection(socket, { transport: "stream", requestIds: false, timeout_ms: 30_000 });
-  try {
-    const reply: any = await conn.rawRequest({ op: "recovery.save", protocol: h.protocol });
-    if (reply && "err" in reply) throw Error(reply.err);
-  } finally {
-    conn.close();
-  }
+  const reply = json.object(await rpc_http.rawRequest(socket, { op: "recovery.save", protocol: h.protocol }, 30_000));
+  if (typeof reply.err === "string") throw errors.fromReply({ ...reply, err: reply.err });
 }
 const check_ms = 30000;
 /** Has `target` load the state it would be handed, saved fresh when a

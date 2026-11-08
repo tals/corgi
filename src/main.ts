@@ -4,6 +4,7 @@ import { mkdirSync, openSync, closeSync, readFileSync, unlinkSync } from "node:f
 import { spawn } from "node:child_process";
 import * as os from "./os";
 import * as rpc from "./rpc";
+import * as rpc_http from "./rpc_http";
 import * as cli from "./cli";
 import * as cli_help from "./cli_help";
 import * as agent_mode from "./agent_mode";
@@ -57,14 +58,12 @@ export function paneId(value: string): number {
 }
 /** Any reply, even an error, means a daemon owns the socket. */
 async function reachable(path: string): Promise<boolean> {
-  const connection = new rpc.Connection(path, { transport: "stream", requestIds: false });
   try {
-    await connection.request("hello");
+    await rpc_http.discover(path);
     return true;
-  } catch {
-    return false;
-  } finally {
-    connection.close();
+  } catch (error) {
+    if (["ENOENT", "ECONNREFUSED"].includes((error as NodeJS.ErrnoException).code ?? "")) return false;
+    throw error;
   }
 }
 export async function ensureServer(path: string, exe = executable): Promise<void> {
@@ -474,12 +473,7 @@ export async function run(args = process.argv.slice(2)): Promise<void> {
     case "rpc": {
       if (args.length !== 2) throw Error("Usage");
       // Sent as typed, so it reaches any daemon version.
-      const connection = new rpc.Connection(path, { transport: "stream", requestIds: false });
-      try {
-        process.stdout.write(json.stringify(await connection.rawRequest(json.parse(args[1]))) + "\n");
-      } finally {
-        connection.close();
-      }
+      process.stdout.write(json.stringify(await rpc_http.rawRequest(path, json.parse(args[1]))) + "\n");
       return;
     }
     case "action": {

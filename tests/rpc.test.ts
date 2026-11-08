@@ -86,6 +86,7 @@ process.exit(await Bun.spawn([${JSON.stringify(git)}, ...args], {
       socket.on("data", chunk => {
         buffer += chunk;
         if (!buffer.includes("\n")) return;
+        if (buffer.startsWith("POST ")) return void socket.end('{"err":"UnexpectedToken"}\n');
         const query = JSON.parse(buffer.trim());
         // Protocol 3 ignores request ids and replies without them.
         switch (query.op) {
@@ -128,7 +129,10 @@ process.exit(await Bun.spawn([${JSON.stringify(git)}, ...args], {
       socket.on("data", chunk => {
         buffer += chunk;
         if (!buffer.includes("\n")) return;
-        requests.push(JSON.parse(buffer.trim()));
+        if (buffer.startsWith("POST ")) return void socket.end('{"err":"UnexpectedToken"}\n');
+        const query = JSON.parse(buffer.trim());
+        if (query.op === "hello") return void socket.end('{"type":"hello","protocol":3}\n');
+        requests.push(query);
         // Older daemons ignore request ids and reply without them.
         socket.end('{"ok":true}\n');
       });

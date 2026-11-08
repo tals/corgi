@@ -355,7 +355,7 @@ none, and the daemon ignores one in a per-provider record.
 
 `hello` and `server.reload` use management protocol 1, checked independently of
 the runtime version. Keep their request and reply shapes compatible so a new
-client can discover and replace an older daemon. No protocol fallback is needed.
+client can discover and replace an older daemon without speaking its runtime protocol.
 `hello` advertises the client's runtime version in `runtime_protocol`; its reply's
 `protocol` advertises the server's runtime version. Only a matching runtime
 version negotiates ordinary requests on that connection. Management requests
@@ -453,8 +453,8 @@ and link ownership rules to bind the two connections safely; sharing an SSH
 master still means sharing its underlying TCP connection.
 
 CLI subscriptions use their own persistent uncompressed WS. HTTP POST hooks,
-raw management/bootstrap requests, diagnostic probes, and unversioned legacy
-controls still work at the same Unix socket path. Each accepted connection has
+management/bootstrap requests, diagnostic probes, and unversioned legacy
+controls use the same Unix socket path. Each accepted connection has
 its own queue. There is no extra public endpoint or TCP listener. The local
 transport comparison and reproduction commands are in
 [the WS report](tools/benchmarks/websocket_transport/README.md).
@@ -464,12 +464,36 @@ Requests without one are answered in the order they were sent; a slow request
 holds that connection's later ones until it replies. Older runtime protocols
 are rejected, without a serial fallback.
 
-Discovery and replacement use one untagged management request per connection,
-so `hello` and `server.reload` can still upgrade an older daemon. Startup probes
-with `hello` before deciding whether a daemon needs to be started. One-shot
-unversioned requests, including `ping` and `shutdown`, and bug-report queries
-also omit ids so older daemons can answer. Management protocol 1 and viewer
-protocol 3 are unchanged.
+`rpc_http.ts` discovers a daemon with HTTP `POST /rpc`, sending the existing
+management `hello` envelope. This works with older daemons that already accept
+HTTP hooks; no new endpoint is required. The reply's optional `transports` field
+advertises HTTP management version 1 (including a committed reload reply) and
+the WS subprotocol. Missing advertisement does not mean HTTP is unavailable.
+Runtime/viewer versions and operation capabilities remain in `hello`.
+
+`rpc_legacy.ts` contains the removable compatibility client. A rejected or
+unanswered HTTP probe may be followed by a read-only raw `hello`. Older HTTP
+daemons lose an HTTP reload requester's response during handoff, so only their
+reload command uses raw JSON lines. New daemons relay the committed reply to
+the original HTTP requester, including when rolling back to an older build.
+Other management and compatibility commands use HTTP when the probe succeeds.
+Discovery is fresh for each operation, and a mutation is never retried over
+another transport after a lost reply. Explicit `ReloadBusy` replies may be retried.
+Management protocol 1 and saved-format versions are unchanged.
+
+Startup probes with `hello` before deciding whether a daemon needs to be
+started. Only a missing or refused socket permits startup; an inconclusive
+probe must not unlink a live daemon's socket. One-shot unversioned requests,
+including `ping` and `shutdown`, and bug-report queries omit ids so older
+daemons can answer. The persistent WS viewer still negotiates its runtime and
+compression on that connection; HTTP discovery adds no RTT to its frame stream.
+
+For example, discovery from a shell is:
+
+```sh
+curl --unix-socket "$CORGI_SOCKET" http://localhost/rpc \
+  -H 'Content-Type: application/json' -d '{"op":"hello","protocol":1}'
+```
 
 Reload returns `ReloadBusy` while a worktree addition is still running, with
 `busy` naming it (`{"op": "worktree.add", "path": …}`). Retry

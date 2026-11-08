@@ -1,9 +1,9 @@
-import { createConnection as createSocket } from "node:net";
 import type { Duplex } from "node:stream";
 import * as errors from "./errors";
 import * as json from "./json";
 import * as telemetry from "./telemetry";
 import * as protocol from "./protocol";
+import * as rpc_http from "./rpc_http";
 import * as wire_compression from "./wire_compression";
 import * as websocket_socket from "./websocket_socket";
 import type { Stats } from "./connection_stats";
@@ -13,8 +13,6 @@ interface Pending {
   encoding?: string[];
 }
 export interface ConnectionInit {
-  /** Management probes can still reach installations predating WebSocket support. */
-  transport?: "websocket" | "stream";
   /** Off: untagged requests, one at a time, as before runtime protocol 4. */
   requestIds?: boolean;
   compression?: boolean;
@@ -59,12 +57,7 @@ export class Connection {
     if (this.stats) this.stats.connections++;
     this.timeout = init.timeout_ms ?? 0;
     this.requestIds = init.requestIds ?? true;
-    this.socket =
-      typeof target !== "string"
-        ? target
-        : init.transport === "stream"
-          ? createSocket(target)
-          : new websocket_socket.Socket(target);
+    this.socket = typeof target === "string" ? new websocket_socket.Socket(target) : target;
     this.socket.on("data", (chunk: Buffer) => {
       this.stats?.traffic("received", chunk.length);
       this.read(chunk);
@@ -272,7 +265,8 @@ export async function request<K extends protocol.Op>(
   // Management and unversioned requests also reach daemons without correlation.
   const check = protocol.check(op);
   const runtime = check === "runtime" || check === "viewer";
-  const conn = new Connection(path, { requestIds: runtime, transport: runtime ? "websocket" : "stream" });
+  if (!runtime) return rpc_http.call(path, op, ...args);
+  const conn = new Connection(path);
   try {
     return await conn.call(op, ...args);
   } finally {

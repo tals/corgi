@@ -2,6 +2,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import * as net from "node:net";
 import { Session } from "../../ui_driver";
 import * as lock from "../cpu_lock";
 import * as fixture from "../streaming_fixture";
@@ -135,7 +136,7 @@ async function mode(name: string) {
             : "idle",
   );
   // Both revisions support raw setup RPC; the measured viewer uses its own native transport.
-  const setup = new Connection(session.env.CORGI_SOCKET!, { transport: "stream" });
+  const setup = new Connection(net.createConnection(session.env.CORGI_SOCKET!));
   const send = (pane: number, data: string) =>
     setup.call("session.command", { command: { "pane.input": { target: pane, data: data + "\r" } } });
   const epoch = fixture.now() + 6000000000n;

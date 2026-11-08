@@ -13,18 +13,15 @@ import {
 import { dirname, join, basename } from "node:path";
 import * as updates from "./updates";
 import * as build from "./machine_build";
-import * as rpc from "./rpc";
+import * as rpc_http from "./rpc_http";
 import * as os from "./os";
 
 async function hello(socket: string) {
-  const connection = new rpc.Connection(socket, { transport: "stream", requestIds: false, timeout_ms: 10_000 });
   try {
-    return await connection.call("hello");
+    return await rpc_http.call(socket, "hello");
   } catch (error) {
     if (["ENOENT", "ECONNREFUSED"].includes((error as NodeJS.ErrnoException).code ?? "")) return null;
     throw error;
-  } finally {
-    connection.close();
   }
 }
 /** Runs from the transferred candidate. The selected command remains the same. */
@@ -62,13 +59,10 @@ export async function install(
       if (live && live.update_abi !== incoming.update_abi) throw Error("UpdateRequiresSessionRestart");
       if (await updates.check(socket, target, live)) throw Error("UpdateCheckFailed");
       if (live) {
-        const connection = new rpc.Connection(socket, { transport: "stream", requestIds: false, timeout_ms: 45_000 });
         try {
-          await connection.call("server.reload", { executable: target });
+          await rpc_http.call(socket, "server.reload", { executable: target });
         } catch (error) {
           if ((await hello(socket))?.build_id !== incoming.build_id) throw error;
-        } finally {
-          connection.close();
         }
         if ((await hello(socket))?.build_id !== incoming.build_id) throw Error("UpdateRuntimeChanged");
       }
@@ -106,14 +100,11 @@ export async function install(
     renameSync(stage, canonical);
     replaced = true;
     if (live) {
-      const connection = new rpc.Connection(socket, { transport: "stream", requestIds: false, timeout_ms: 45_000 });
       try {
-        await connection.call("server.reload", { executable: canonical });
+        await rpc_http.call(socket, "server.reload", { executable: canonical });
       } catch (error) {
         const current = await hello(socket);
         if (current?.build_id !== incoming.build_id) throw error;
-      } finally {
-        connection.close();
       }
       if ((await hello(socket))?.build_id !== incoming.build_id) throw Error("UpdateRuntimeChanged");
     }

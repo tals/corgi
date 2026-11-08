@@ -302,9 +302,10 @@ test("pane commands use their socket's release through the stable launcher", asy
     asked: unknown[] = [],
     daemon = createServer(peer => {
       peer.on("data", chunk => {
+        if (chunk.toString().startsWith("POST ")) return void peer.end('{"err":"UnexpectedToken"}\n');
         asked.push(JSON.parse(chunk.toString()));
         // A retained runtime can speak an older protocol and reply without request ids.
-        peer.write(JSON.stringify({ ok: true, protocol: 3, executable: target }) + "\n");
+        peer.write(JSON.stringify({ type: "hello", protocol: 3, executable: target }) + "\n");
       });
     });
   await mkdir(dirname(socket), { recursive: true });

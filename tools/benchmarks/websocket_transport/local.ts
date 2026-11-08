@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as zlib from "node:zlib";
 import * as os from "node:os";
+import * as net from "node:net";
 import * as rpc from "../../../src/rpc";
 import * as peer from "../../../src/peer";
 import * as json from "../../../src/json";
@@ -131,7 +132,7 @@ if (role === "server") {
     opens: number[] = [];
   for (let i = 0; i < 31; i++) {
     const start = performance.now(),
-      conn = new rpc.Connection(socket, { transport, timeout_ms: 3000 });
+      conn = new rpc.Connection(transport === "stream" ? net.createConnection(socket) : socket, { timeout_ms: 3000 });
     try {
       await conn.call("ping");
       if (i) opens.push(performance.now() - start);
@@ -139,7 +140,7 @@ if (role === "server") {
       conn.close();
     }
   }
-  const conn = new rpc.Connection(socket, { transport, timeout_ms: 3000 });
+  const conn = new rpc.Connection(transport === "stream" ? net.createConnection(socket) : socket, { timeout_ms: 3000 });
   try {
     for (let i = 0; i < 100; i++) await conn.rawRequest({ op: "bench.next", index: i % source.length });
     await conn.rawRequest({ op: "bench.start" });

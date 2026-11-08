@@ -1,8 +1,9 @@
 import * as crypto from "node:crypto";
 import * as buffer from "node:buffer";
 import * as json from "./json";
+import * as wire from "./protocol";
 
-export const protocol = "corgi-stream-v1";
+export const protocol = wire.transports.websocket;
 /** The daemon committed a rollback to a version without this transport. */
 export const rolled_back = 4000;
 export const capacity = 4 * 1024 * 1024;

@@ -23,7 +23,8 @@ import * as errors from "./errors";
 import * as km from "./keymap";
 import * as palette from "./palette";
 import * as preferences from "./preferences";
-import * as rpc from "./rpc";
+import * as rpc_http from "./rpc_http";
+import * as protocol from "./protocol";
 import * as settingsFile from "./settings";
 import * as shellPicker from "./shell_picker";
 import * as subprocess from "./subprocess";
@@ -153,18 +154,13 @@ export async function collect(
   // the CLI from exiting once the report is printed.
   const slow = { daemon: false, sessions: false, report: false },
     ask = async (op: "hello" | "session.list" | "bugreport"): Promise<any> => {
-      let connection: rpc.Connection | null = null;
       try {
-        // Each query has its own connection; older daemons answer without ids.
-        connection = new rpc.Connection(socket, { transport: "stream", requestIds: false });
-        const reply = await within(connection.call(op), timeout_ms);
-        if (reply === null)
+        const reply = await rpc_http.rawRequest(socket, protocol.envelope(op), timeout_ms);
+        return typeof reply === "object" && reply && "err" in reply ? null : reply;
+      } catch (error) {
+        if (errors.is(error, "RequestTimedOut"))
           slow[({ hello: "daemon", "session.list": "sessions", bugreport: "report" } as const)[op]] = true;
-        return reply;
-      } catch {
         return null;
-      } finally {
-        connection?.close();
       }
     },
     exe = build_id.self();

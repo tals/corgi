@@ -2,13 +2,17 @@
 import { Runtime, EXE } from "./runtime";
 import { Pty, registerCase, run } from "./support";
 import * as protocol from "../src/protocol";
+import * as rpc_http from "../src/rpc_http";
 
 class ReloadCompatibility extends Runtime {
   async configure() {
     await run([process.env.CORGI_OLD_EXE!, "start"], { env: this.env });
   }
   async upgrade(command: "dev" | "reload") {
-    const oldProtocol = (await this.rpc({ op: "hello", protocol: 1 })).protocol;
+    const discovered = await rpc_http.discover(this.path);
+    this.assertEqual(discovered.transport, "http");
+    if ("err" in discovered.hello) throw Error(discovered.hello.err);
+    const oldProtocol = discovered.hello.protocol;
     this.assertGreaterEqual(oldProtocol, 1);
     this.assertLessEqual(oldProtocol, protocol.version);
     const old = await this.rpc({ op: "session.snapshot", protocol: oldProtocol });
@@ -26,6 +30,7 @@ class ReloadCompatibility extends Runtime {
       await this.until(async () => (await this.rpc({ op: "viewer.list" })).viewers.length > 0);
     } else await this.run_cli("reload");
     this.assertEqual((await this.rpc({ op: "hello", protocol: 1 })).protocol, protocol.version);
+    this.assertEqual((await rpc_http.call(this.path, "hello")).transports, protocol.transports);
     const after = await this.session();
     this.assertNotEqual(after.server_pid, before.server_pid);
     this.assertEqual(after.panes.find((p: any) => p.id === pane).pid, before.panes.find((p: any) => p.id === pane).pid);

@@ -1,5 +1,6 @@
 import { realpathSync, statSync } from "node:fs";
 import { Connection } from "./rpc";
+import * as rpc_http from "./rpc_http";
 import { stringify } from "./json";
 import { logicalKey } from "./keys";
 import { Provider, adapter } from "./providers";
@@ -1004,9 +1005,15 @@ export async function run(path: string, args: string[], agent = false, connectio
   }
   const caller = Number(process.env.CORGI_PANE) || 0,
     inv = await parse(args, caller);
-  // These unversioned controls also target daemons from before WebSockets.
-  const transport = inv.action === "focus" || inv.action === "workspace.switch" ? "stream" : "websocket";
-  const conn = connection ?? new Connection(path, { requestIds: false, transport });
+  if (!connection && (inv.action === "focus" || inv.action === "workspace.switch")) {
+    const reply =
+      inv.action === "workspace.switch"
+        ? await rpc_http.call(path, "workspace.switch", { workspace: inv.target, viewer: inv.viewer })
+        : await rpc_http.call(path, "focus", { pane: inv.target, viewer: inv.viewer });
+    process.stdout.write(inv.json ? stringify(reply) + "\n" : words(reply));
+    return;
+  }
+  const conn = connection ?? new Connection(path, { requestIds: false });
   const reading = inv.json ? null : inv.command?.["pane.read"],
     lines = reading?.lines;
   if (reading) reading.lines = Math.min(lines + 1, 10000);

@@ -15,6 +15,7 @@ import * as protocol from "../src/protocol";
 import { byProvider } from "../src/providers";
 import { Runtime } from "./runtime";
 import { Connection } from "../src/rpc";
+import * as rpc_http from "../src/rpc_http";
 import { Viewer } from "./viewer_client";
 import { CodexObserver, write_codex_terminal } from "./provider_sim";
 
@@ -119,6 +120,28 @@ class Reloads extends Runtime {
   }
   reload(exe = EXE) {
     return this.rpc({ op: "server.reload", executable: exe });
+  }
+  async test_http_discovery_and_reload_reply_survive_handoff() {
+    const before = await rpc_http.discover(this.path);
+    this.assertEqual(before.transport, "http");
+    this.assertEqual("err" in before.hello ? null : before.hello.transports, protocol.transports);
+    const pane = await this.new(),
+      pid = (await this.session()).panes.find((p: any) => p.id === pane).pid;
+    const reply = await rpc_http.call(this.path, "server.reload", { executable: EXE });
+    this.assertTrue(reply.ok);
+    const after = await rpc_http.call(this.path, "hello");
+    this.assertEqual(reply.server_pid, after.server_pid);
+    this.assertNotEqual(after.server_pid, "err" in before.hello ? null : before.hello.server_pid);
+    this.assertEqual((await this.session()).panes.find((p: any) => p.id === pane).pid, pid);
+  }
+  async test_http_failed_reload_keeps_the_daemon_and_reports_rejection() {
+    const before = await rpc_http.call(this.path, "hello");
+    const response = await rpc_http.post(
+      this.path,
+      protocol.envelope("server.reload", { executable: "/nonexistent-corgi" }),
+    );
+    this.assertEqual(response, { err: "ReloadCandidateFailed" });
+    this.assertEqual((await rpc_http.call(this.path, "hello")).server_pid, before.server_pid);
   }
   async test_management_version_is_strict_and_independent_of_runtime() {
     const pane = await this.new(),

@@ -87,6 +87,17 @@ test("help names every action on lines of at most 80 columns", () => {
       .filter(Boolean),
   ).toEqual(Object.keys(specs).filter(name => name !== "relaunch"));
 });
+test("an inconclusive discovery never unlinks an existing daemon socket", async () => {
+  const path = join(mkdtempSync(join(tmpdir(), "corgi-main-")), "s");
+  const server = createServer(socket => socket.once("data", () => socket.end('{"ok":true}\n')));
+  await new Promise<void>(resolve => server.listen(path, resolve));
+  try {
+    await expect(ensureServer(path, "/nonexistent/corgi")).rejects.toThrow("UnexpectedReply");
+    expect(existsSync(path)).toBe(true);
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});
 test("open inside a pane quietly sends its viewer the folder's real path", async () => {
   const previous = process.env.CORGI_PANE;
   process.env.CORGI_PANE = "7";
@@ -468,7 +479,12 @@ test("headless CLI passes provider IDs intact and includes the first prompt", as
   // Starting a session first makes sure a daemon runs; this one answers its hello.
   const socket = join(mkdtempSync(join(tmpdir(), "corgi-main-")), "s"),
     previous = process.env.CORGI_SOCKET;
-  const server = createServer(s => s.on("data", () => s.write('{"ok":true}\n')));
+  const server = createServer(s =>
+    s.once("data", () => {
+      const reply = '{"type":"hello","protocol":4}';
+      s.end(`HTTP/1.1 200 OK\r\nContent-Length: ${reply.length}\r\nConnection: close\r\n\r\n${reply}`);
+    }),
+  );
   await new Promise<void>(resolve => server.listen(socket, resolve));
   process.env.CORGI_SOCKET = socket;
   const request = spyOn(rpc, "request").mockResolvedValue({ ok: true, provider: "codex", session: "thread-abc" });
