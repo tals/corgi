@@ -1,0 +1,61 @@
+{
+  "before": {
+    "description": "WS uncompressed",
+    "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-builds/corgi-identity",
+    "sha256": "cded501ca5e79528b5bcc6e688fcff5e8f67fe5cbf4174c6eec526111ea42274",
+    "build": {
+      "builtAt": "2026-11-08T06:18:22.389Z",
+      "target": "linux-x64",
+      "bunVersion": "1.4.4",
+      "testBuild": false,
+      "releaseVersion": "0.1.0-dev",
+      "releaseCommit": "0ab9600ea262309b6532286730cc9d426b544f57-dirty",
+      "sha256": "cded501ca5e79528b5bcc6e688fcff5e8f67fe5cbf4174c6eec526111ea42274",
+      "sourceSHA256": "a8fe48b39613b2c533a65e83a119b5f96d05e26ed883a76b9ec88d61e5c53349",
+      "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+      "inputsSHA256": "3994fc613f48a9582afb905fdecebf96e1a212ed588b8952723ba2bc5c4bb9e9"
+    },
+    "patch_sha256": "60f399d8c69dfc56a0d7011019eee9fb45237f20bba13b658d7608f2d2eaf779"
+  },
+  "after": {
+    "description": "WS zstd",
+    "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-builds/corgi-zstd",
+    "sha256": "3743dfba5635eaaa3ff9ac982d1e29c3e4ddd3f8a4a9c474c90e728f2dc4adae",
+    "build": {
+      "builtAt": "2026-11-08T06:18:23.278Z",
+      "target": "linux-x64",
+      "bunVersion": "1.4.4",
+      "testBuild": false,
+      "releaseVersion": "0.1.0-dev",
+      "releaseCommit": "0ab9600ea262309b6532286730cc9d426b544f57-dirty",
+      "sha256": "3743dfba5635eaaa3ff9ac982d1e29c3e4ddd3f8a4a9c474c90e728f2dc4adae",
+      "sourceSHA256": "d16878d226dc77ea4b789e84aa044ffee1f2c17c4e89766b5c4daf184dd59edd",
+      "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+      "inputsSHA256": "b46c7134b709e0e28587596251e52f56047673239544898e7bf2cdaed018f128"
+    },
+    "patch_sha256": "2571f9993d63ccc95510ca8e526ded71243d515056d99aa670c06e0f44eaebd3"
+  },
+  "control": {
+    "description": "WS native deflate",
+    "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/websocket-codecs-builds/corgi-deflate",
+    "sha256": "c68734b98b05982dfb90823cb4609149a96e4ef454dc2081f9f819eb011a1d7d",
+    "build": {
+      "builtAt": "2026-11-08T06:18:24.142Z",
+      "target": "linux-x64",
+      "bunVersion": "1.4.4",
+      "testBuild": false,
+      "releaseVersion": "0.1.0-dev",
+      "releaseCommit": "0ab9600ea262309b6532286730cc9d426b544f57-dirty",
+      "sha256": "c68734b98b05982dfb90823cb4609149a96e4ef454dc2081f9f819eb011a1d7d",
+      "sourceSHA256": "a0c78b149a3cba294d66c7cb93e5186e67c84207c05d720d6f3e50b61ef20f48",
+      "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+      "inputsSHA256": "89451a106189490b3a97210d5760b25415a8e2719f668a42a38b4062b77aec4a"
+    },
+    "patch_sha256": "749b224b1d14bd4925afc4384b901e03b09dc9e247a77ef5765de98b880527b8"
+  },
+  "herdr": {
+    "description": "Stock Herdr + SSH-C",
+    "binary": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d"
+  }
+}
