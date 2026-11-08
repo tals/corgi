@@ -1,0 +1,71 @@
+{
+  "application_commit": "b0e3482848dad6c1cd107d3b4c36ac4371c5c684",
+  "sandbox_fix_commit": "397e3316",
+  "unit": {
+    "command": "bun test src",
+    "pass": 3415,
+    "skip": 1,
+    "fail": 0,
+    "log": "review-full-unit-final.log"
+  },
+  "integration": {
+    "command": "bun integration.ts remote remote_sandbox reloads reload_snapshots reload_compatibility worktree_reload inference_reload --jobs 1",
+    "initial": {
+      "pass": 71,
+      "skip": 2,
+      "fail": 1,
+      "log": "review-integration.log"
+    },
+    "failure": "remote_sandbox reseed raced with child checkpoint writers; fixed in tools supervisor",
+    "after_fix": {
+      "sandbox_repetitions": 3,
+      "pass": 3,
+      "fail": 0,
+      "logs": [
+        "review-sandbox-fixed-1.log",
+        "review-sandbox-fixed-2.log",
+        "review-sandbox-fixed-3.log"
+      ]
+    },
+    "unique_cases_passed_in_combined_validation": 72,
+    "skips": "Two old local-protocol compatibility cases require CORGI_OLD_EXE."
+  },
+  "sandbox_regression": {
+    "pass": 2,
+    "fail": 0,
+    "log": "review-sandbox-lifecycle-test.log"
+  },
+  "adapter": {
+    "pass": 8,
+    "fail": 0,
+    "log": "review-ws-adapter-tests.log"
+  },
+  "typecheck_and_format": {
+    "exit_code": 0,
+    "log": "review-ready-typecheck.log"
+  },
+  "review_network": {
+    "labs": 45,
+    "checks": 964,
+    "problems": 0
+  },
+  "websocket_network": {
+    "labs": 120,
+    "checks": 4209,
+    "problems": 0
+  },
+  "log_sha256": {
+    "review-full-unit-final.log": "4eeeb202918dba8da2d0030f2b6797c04987071dad7c26f01bf6f654926b1b03",
+    "review-integration.log": "bfa71cb0ee18f6a6050bd3fd37606eee7fe296d2e2ff160549025698bd0b58b8",
+    "review-sandbox-rerun.log": "36229aeb748e877ad4d066224954d7eb8600a69d1f252446221e55b9f525df5b",
+    "review-sandbox-fixed-1.log": "b3a38da9a44a8d9198c4804b2f494abe5ffa2ea7ae02c3f3d5cbe2aca3a5fc07",
+    "review-sandbox-fixed-2.log": "892e82267a0b4c377d24f69e482cef6f449d6de69496cde8bd4dce695bddf550",
+    "review-sandbox-fixed-3.log": "fb8b506c5f35bcbd70828826b4e0bf5ac9cd55a90ea73dd4322e04b6f3f133fc",
+    "review-sandbox-lifecycle-test.log": "e4224281cabe082339ec1a153f43e69d5f316d895896e006d847969062bbb55e",
+    "review-supervisor-lifetime-before.log": "61703e0b9a653f1b04419806aa5dcba3f5f4ee6ed3fd3bbb67466605e0fb7fa8",
+    "review-supervisor-lifetime-after.log": "ba53444f78f05a317f3c9d9f71c8960af6b46eded4bcb689be37abefddde2a19",
+    "review-final-format-typecheck.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "review-ws-adapter-tests.log": "6a1941847af54c1789b8f92537809d609f991c38c6420b463d79f2f9dff60a32",
+    "review-ready-typecheck.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

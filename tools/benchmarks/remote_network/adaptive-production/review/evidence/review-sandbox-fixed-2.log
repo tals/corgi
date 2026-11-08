@@ -1,0 +1,13 @@
+Counting tests · 0 finished · 0 running
+Testing · 0% · 0/1 finished · 0 running · <1m left
+bun test v1.4.4 (38afee6c8) 1x PARALLEL
+
+tests/remote_sandbox.test.ts:
+Testing · 0% · 0/1 finished · 1 running · <1m left
+(pass) remote sandbox runs isolated daemons and controls faults through its private CLI API [27307.91ms]
+
+ 1 pass
+ 0 fail
+ 72 expect() calls
+Ran 1 test across 1 file. [27.40s]
+Cleanup · 100% · 1/1 finished · 0 running

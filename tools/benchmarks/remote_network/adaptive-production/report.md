@@ -1,5 +1,7 @@
 # Corgi zstd + adaptive windows versus stock Herdr
 
+Follow-up: [production review, committed fixes, and new measurements](review/report.md).
+
 Implemented in Corgi: **live-history zstd, adaptive frame/byte budgets, pipelined
 connection setup, and reconnect-safe live upgrades**. No trained dictionary;
 Herdr v0.9.5 is unmodified and uses installed SSH compression.

@@ -1,0 +1,3071 @@
+[
+  {
+    "key": [
+      "cadence",
+      "after",
+      "startup",
+      120,
+      false
+    ],
+    "n": 3,
+    "metrics": {
+      "local_seconds": {
+        "n": 3,
+        "median": 0.41208845004439354,
+        "min": 0.408559946808964,
+        "max": 0.42991941794753075,
+        "p95": 0.428136321157217
+      },
+      "remote_seconds": {
+        "n": 3,
+        "median": 2.812850789166987,
+        "min": 2.8093366259709,
+        "max": 2.8409528080374002,
+        "p95": 2.8381426061503587
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 2.9905480798333883,
+        "min": 2.9571428787894547,
+        "max": 2.9906562049873173,
+        "p95": 2.9906453924719245
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/cadence/after-1/results.json",
+      "dist/review-network-20261108/cadence/after-2/results.json",
+      "dist/review-network-20261108/cadence/after-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "cadence",
+      "after",
+      "stream",
+      "dense",
+      "1mbit",
+      300,
+      null,
+      null
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.16583759104833007,
+        "min": 0.16473848884925246,
+        "max": 0.1769701149314642,
+        "p95": 0.17585686254315078
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 966.6434105863096,
+        "min": 965.7430767381102,
+        "max": 968.7402052900336,
+        "p95": 968.5305258196612
+      },
+      "echo_seconds": {
+        "n": 3,
+        "median": 0.3248784854076803,
+        "min": 0.32365616597235203,
+        "max": 0.32843611016869545,
+        "p95": 0.3280803476925939
+      },
+      "fps": {
+        "n": 3,
+        "median": 59.89979045838466,
+        "min": 59.86638969945439,
+        "max": 59.93316784954998,
+        "p95": 59.92983011043345
+      },
+      "inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 0.20110241835936904,
+        "min": 0.1832945542410016,
+        "max": 0.21187806082889438,
+        "p95": 0.21080049658194183
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 0.17853933293372393,
+        "min": 0.1679124510847032,
+        "max": 0.18308291491121054,
+        "p95": 0.18262855671346187
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.387187869483269,
+        "min": 0.3537257935275499,
+        "max": 0.4440592858496774,
+        "p95": 0.43837214421303655
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 460.23828125,
+        "min": 459.83203125,
+        "max": 464.05859375,
+        "p95": 463.6765625
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 1061.6896768149297,
+        "min": 1060.8515355687773,
+        "max": 1063.6571554834265,
+        "p95": 1063.460407616577
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 95.04626622862008,
+        "min": 94.91695019339296,
+        "max": 95.1084588306672,
+        "p95": 95.10223957046249
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/cadence/after-1/results.json",
+      "dist/review-network-20261108/cadence/after-2/results.json",
+      "dist/review-network-20261108/cadence/after-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "cadence",
+      "after",
+      "stream",
+      "sparse",
+      "1mbit",
+      300,
+      null,
+      null
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.17789425514638424,
+        "min": 0.1575263189151883,
+        "max": 0.17890333756804466,
+        "p95": 0.17880242932587861
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 138.64479258979637,
+        "min": 138.55064191659477,
+        "max": 138.74614339037709,
+        "p95": 138.73600831031902
+      },
+      "echo_seconds": {
+        "n": 3,
+        "median": 0.3316915910691023,
+        "min": 0.3180087227374315,
+        "max": 0.3338799481280148,
+        "p95": 0.33366111242212354
+      },
+      "fps": {
+        "n": 3,
+        "median": 59.9998002906458,
+        "min": 59.96648976394215,
+        "max": 59.99984286301013,
+        "p95": 59.9998386057737
+      },
+      "inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 0.1696981443092227,
+        "min": 0.16767001058906317,
+        "max": 0.18289087433367968,
+        "p95": 0.18157160133123398
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 0.16765301022678614,
+        "min": 0.1662249336950481,
+        "max": 0.169678985606879,
+        "p95": 0.16947638806886972
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.37367997878281545,
+        "min": 0.2938722794514858,
+        "max": 0.39449833086209707,
+        "p95": 0.3924164956541689
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 437.359375,
+        "min": 436.578125,
+        "max": 446.5390625,
+        "p95": 445.62109375
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 226.86136998480825,
+        "min": 226.5941497057224,
+        "max": 227.4214703954426,
+        "p95": 227.36546035437917
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 88.31072806821348,
+        "min": 87.84800631534532,
+        "max": 88.77667780564624,
+        "p95": 88.73008283190296
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/cadence/after-1/results.json",
+      "dist/review-network-20261108/cadence/after-2/results.json",
+      "dist/review-network-20261108/cadence/after-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "cadence",
+      "before",
+      "startup",
+      120,
+      false
+    ],
+    "n": 3,
+    "metrics": {
+      "local_seconds": {
+        "n": 3,
+        "median": 0.4120781756937504,
+        "min": 0.4114421922713518,
+        "max": 0.41437765676528215,
+        "p95": 0.414147708658129
+      },
+      "remote_seconds": {
+        "n": 3,
+        "median": 2.796202989295125,
+        "min": 2.792592825833708,
+        "max": 2.816438491921872,
+        "p95": 2.814414941659197
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 2.977282742038369,
+        "min": 2.961795585695654,
+        "max": 3.001975209917873,
+        "p95": 2.9995059631299226
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/cadence/before-1/results.json",
+      "dist/review-network-20261108/cadence/before-2/results.json",
+      "dist/review-network-20261108/cadence/before-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "cadence",
+      "before",
+      "stream",
+      "dense",
+      "1mbit",
+      300,
+      null,
+      null
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.168381969910115,
+        "min": 0.16610599914565682,
+        "max": 0.1714002569206059,
+        "p95": 0.17109842821955681
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 967.3210169397937,
+        "min": 965.5353049689978,
+        "max": 967.8952856676832,
+        "p95": 967.8378587948943
+      },
+      "echo_seconds": {
+        "n": 3,
+        "median": 0.3210110440850258,
+        "min": 0.32085181307047606,
+        "max": 0.33269547997042537,
+        "p95": 0.3315270363818854
+      },
+      "fps": {
+        "n": 3,
+        "median": 59.89982294435173,
+        "min": 59.833156890813065,
+        "max": 59.89984765658251,
+        "p95": 59.89984518535943
+      },
+      "inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 0.20297006564214826,
+        "min": 0.18642850872129202,
+        "max": 0.20770840859040618,
+        "p95": 0.2072345742955804
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 0.16983832232654095,
+        "min": 0.16974663827568293,
+        "max": 0.17462584329769015,
+        "p95": 0.17414709120057523
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.39729803181840145,
+        "min": 0.37339739469330896,
+        "max": 0.4297439729731098,
+        "p95": 0.42649937885763894
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 457.00390625,
+        "min": 447.40625,
+        "max": 467.94921875,
+        "p95": 466.8546875
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 1063.0487126014125,
+        "min": 1060.5463225087558,
+        "max": 1063.1015363087376,
+        "p95": 1063.096253938005
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 95.15342693372925,
+        "min": 95.01101753975799,
+        "max": 95.78051936894394,
+        "p95": 95.71781012542247
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/cadence/before-1/results.json",
+      "dist/review-network-20261108/cadence/before-2/results.json",
+      "dist/review-network-20261108/cadence/before-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "cadence",
+      "before",
+      "stream",
+      "sparse",
+      "1mbit",
+      300,
+      null,
+      null
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.15695474622771144,
+        "min": 0.15627725888043642,
+        "max": 0.16526975389569998,
+        "p95": 0.16443825312890112
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 138.9240524211554,
+        "min": 138.88278508157097,
+        "max": 139.02086153348927,
+        "p95": 139.0111806222559
+      },
+      "echo_seconds": {
+        "n": 3,
+        "median": 0.33069264702498913,
+        "min": 0.3306239931844175,
+        "max": 0.33113938197493553,
+        "p95": 0.3310947084799409
+      },
+      "fps": {
+        "n": 3,
+        "median": 59.999819218725776,
+        "min": 59.999815762608726,
+        "max": 59.99982240476127,
+        "p95": 59.99982208615772
+      },
+      "inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 0.1701525440439582,
+        "min": 0.1698940978385508,
+        "max": 0.17063184548169374,
+        "p95": 0.1705839153379202
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 0.17014141473919153,
+        "min": 0.16987934615463018,
+        "max": 0.1706059374846518,
+        "p95": 0.17055948521010578
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.34334360129251523,
+        "min": 0.30224080092041583,
+        "max": 0.3966124069983984,
+        "p95": 0.39128552642781006
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 430.33203125,
+        "min": 424.9296875,
+        "max": 441.15234375,
+        "p95": 440.0703125
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 227.3243471920896,
+        "min": 226.47644688792565,
+        "max": 228.01870293857334,
+        "p95": 227.94926736392497
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 88.30348565860031,
+        "min": 87.59366180635466,
+        "max": 89.09465051741793,
+        "p95": 89.01553403153616
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/cadence/before-1/results.json",
+      "dist/review-network-20261108/cadence/before-2/results.json",
+      "dist/review-network-20261108/cadence/before-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "cadence",
+      "herdr",
+      "startup",
+      120,
+      false
+    ],
+    "n": 3,
+    "metrics": {
+      "local_seconds": {
+        "n": 3,
+        "median": 0.28230446903035045,
+        "min": 0.28220102470368147,
+        "max": 0.2922446010634303,
+        "p95": 0.2912505878601223
+      },
+      "remote_seconds": {
+        "n": 3,
+        "median": 3.933740695938468,
+        "min": 3.9333002981729805,
+        "max": 3.934868643991649,
+        "p95": 3.934755849186331
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 4.319448423106223,
+        "min": 4.310834378935397,
+        "max": 4.444505851715803,
+        "p95": 4.4320001088548455
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/cadence/herdr-1/results.json",
+      "dist/review-network-20261108/cadence/herdr-2/results.json",
+      "dist/review-network-20261108/cadence/herdr-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "cadence",
+      "herdr",
+      "stream",
+      "dense",
+      "1mbit",
+      300,
+      null,
+      null
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 13.190660105086863,
+        "min": 10.794287933968008,
+        "max": 16.801735820714384,
+        "p95": 16.440628249151633
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 1000.4680217631413,
+        "min": 998.0486651385473,
+        "max": 1000.5902194469819,
+        "p95": 1000.5779996785978
+      },
+      "echo_seconds": {
+        "n": 3,
+        "median": 4.881771308835596,
+        "min": 4.864711497910321,
+        "max": 5.537079385947436,
+        "p95": 5.471548578236252
+      },
+      "fps": {
+        "n": 3,
+        "median": 23.566600492392322,
+        "min": 22.866585450893428,
+        "max": 23.63325854932029,
+        "p95": 23.62659274362749
+      },
+      "inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 6.932790636550635,
+        "min": 6.254508627578616,
+        "max": 7.09206963237375,
+        "p95": 7.076141732791439
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 6.042069636285305,
+        "min": 5.954489365685731,
+        "max": 6.099526350386441,
+        "p95": 6.093780678976327
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.16859492528471606,
+        "min": 0.15438665788650358,
+        "max": 0.16961690814621266,
+        "p95": 0.169514709860063
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 69.9765625,
+        "min": 65.79296875,
+        "max": 70.109375,
+        "p95": 70.09609375
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 1035.8279999376402,
+        "min": 1032.817404963055,
+        "max": 1036.1056486270427,
+        "p95": 1036.0778837581024
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 35.63762686390132,
+        "min": 32.22718551607305,
+        "max": 37.77933479909287,
+        "p95": 37.56516400557371
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 4,
+        "max": 5,
+        "p95": 5.0
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/cadence/herdr-1/results.json",
+      "dist/review-network-20261108/cadence/herdr-2/results.json",
+      "dist/review-network-20261108/cadence/herdr-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "cadence",
+      "herdr",
+      "stream",
+      "sparse",
+      "1mbit",
+      300,
+      null,
+      null
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.16528521804139018,
+        "min": 0.1561763440258801,
+        "max": 0.1788071859627962,
+        "p95": 0.1774549891706556
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 221.76478443010558,
+        "min": 221.75386107532654,
+        "max": 222.04962541242384,
+        "p95": 222.02114131419202
+      },
+      "echo_seconds": {
+        "n": 3,
+        "median": 0.3081308430992067,
+        "min": 0.3042725189588964,
+        "max": 0.30990206077694893,
+        "p95": 0.3097249390091747
+      },
+      "fps": {
+        "n": 3,
+        "median": 59.999831490691896,
+        "min": 59.999830740981444,
+        "max": 59.99988209851902,
+        "p95": 59.99987703773631
+      },
+      "inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 0.15938482666388154,
+        "min": 0.15756004583090544,
+        "max": 0.16333183832466602,
+        "p95": 0.16293713715858757
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 0.15937981056049466,
+        "min": 0.1575507763773203,
+        "max": 0.16332307225093246,
+        "p95": 0.16292874608188868
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.11431880370141352,
+        "min": 0.10851934424738598,
+        "max": 0.11911541493818054,
+        "p95": 0.11863575381450384
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 62.125,
+        "min": 60.12109375,
+        "max": 62.125,
+        "p95": 62.125
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 238.29517895122132,
+        "min": 238.29376718200916,
+        "max": 238.56539598729168,
+        "p95": 238.53837428368465
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 16.52898275190358,
+        "min": 16.515770574867833,
+        "max": 16.541317875894766,
+        "p95": 16.540084363495648
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/cadence/herdr-1/results.json",
+      "dist/review-network-20261108/cadence/herdr-2/results.json",
+      "dist/review-network-20261108/cadence/herdr-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "faults-sparse",
+      "after",
+      "blackhole3"
+    ],
+    "n": 3,
+    "metrics": {
+      "fresh_seconds": {
+        "n": 3,
+        "median": 2.9306562170386314,
+        "min": 2.8695478825829923,
+        "max": 2.96993904421106,
+        "p95": 2.966010761493817
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 3.119718349073082,
+        "min": 3.0610078340396285,
+        "max": 3.1689863451756537,
+        "p95": 3.1640595455653964
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/faults-sparse/after-1/results.json",
+      "dist/review-network-20261108/faults-sparse/after-2/results.json",
+      "dist/review-network-20261108/faults-sparse/after-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "faults-sparse",
+      "after",
+      "blackhole35"
+    ],
+    "n": 3,
+    "metrics": {
+      "fresh_seconds": {
+        "n": 3,
+        "median": 2.4203857467509806,
+        "min": 2.2864198428578675,
+        "max": 3.3879770380444825,
+        "p95": 3.291217908915132
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 2.6055786898359656,
+        "min": 2.477958784904331,
+        "max": 3.563050638884306,
+        "p95": 3.467303443979472
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/faults-sparse/after-1/results.json",
+      "dist/review-network-20261108/faults-sparse/after-2/results.json",
+      "dist/review-network-20261108/faults-sparse/after-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "faults-sparse",
+      "after",
+      "downstream15"
+    ],
+    "n": 3,
+    "metrics": {
+      "fresh_seconds": {
+        "n": 3,
+        "median": 2.2242842642590404,
+        "min": 2.188240119256079,
+        "max": 2.5370316449552774,
+        "p95": 2.5057569068856536
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 2.41270810412243,
+        "min": 2.3635450289584696,
+        "max": 2.702928083948791,
+        "p95": 2.6739060859661548
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/faults-sparse/after-1/results.json",
+      "dist/review-network-20261108/faults-sparse/after-2/results.json",
+      "dist/review-network-20261108/faults-sparse/after-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "faults-sparse",
+      "after",
+      "isolated30"
+    ],
+    "n": 3,
+    "metrics": {
+      "fresh_seconds": {
+        "n": 3,
+        "median": 3.649957220070064,
+        "min": 3.622989245224744,
+        "max": 3.7286811717785895,
+        "p95": 3.720808776607737
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 3.9233159949071705,
+        "min": 3.8168746777810156,
+        "max": 4.002046919893473,
+        "p95": 3.9941738273948433
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/faults-sparse/after-1/results.json",
+      "dist/review-network-20261108/faults-sparse/after-2/results.json",
+      "dist/review-network-20261108/faults-sparse/after-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "faults-sparse",
+      "after",
+      "startup",
+      120,
+      false
+    ],
+    "n": 3,
+    "metrics": {
+      "local_seconds": {
+        "n": 3,
+        "median": 0.4067277587018907,
+        "min": 0.4031149009242654,
+        "max": 0.40947003988549113,
+        "p95": 0.4091958117671311
+      },
+      "remote_seconds": {
+        "n": 3,
+        "median": 2.8122713658958673,
+        "min": 2.808531740680337,
+        "max": 2.9298108629882336,
+        "p95": 2.918056913278997
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 2.97721493197605,
+        "min": 2.9701557559892535,
+        "max": 3.1078219707123935,
+        "p95": 3.094761266838759
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/faults-sparse/after-1/results.json",
+      "dist/review-network-20261108/faults-sparse/after-2/results.json",
+      "dist/review-network-20261108/faults-sparse/after-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "faults-sparse",
+      "after",
+      "tcp_reset"
+    ],
+    "n": 3,
+    "metrics": {
+      "fresh_seconds": {
+        "n": 3,
+        "median": 2.0863610287196934,
+        "min": 2.0793858910910785,
+        "max": 2.099905411247164,
+        "p95": 2.098550972994417
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 2.241859547793865,
+        "min": 2.235239579807967,
+        "max": 2.2485099560581148,
+        "p95": 2.2478449152316897
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/faults-sparse/after-1/results.json",
+      "dist/review-network-20261108/faults-sparse/after-2/results.json",
+      "dist/review-network-20261108/faults-sparse/after-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "faults-sparse",
+      "before",
+      "blackhole3"
+    ],
+    "n": 3,
+    "metrics": {
+      "fresh_seconds": {
+        "n": 3,
+        "median": 2.92138983681798,
+        "min": 2.748368710745126,
+        "max": 2.956891485955566,
+        "p95": 2.9533413210418074
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 3.086659082211554,
+        "min": 2.9135402869433165,
+        "max": 3.12423491012305,
+        "p95": 3.1204773273319004
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/faults-sparse/before-1/results.json",
+      "dist/review-network-20261108/faults-sparse/before-2/results.json",
+      "dist/review-network-20261108/faults-sparse/before-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "faults-sparse",
+      "before",
+      "blackhole35"
+    ],
+    "n": 3,
+    "metrics": {
+      "fresh_seconds": {
+        "n": 3,
+        "median": 2.8105178349651396,
+        "min": 2.3650423823855817,
+        "max": 2.8882665671408176,
+        "p95": 2.8804916939232497
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 3.0028919489122927,
+        "min": 2.5559939071536064,
+        "max": 3.063904593233019,
+        "p95": 3.0578033288009463
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/faults-sparse/before-1/results.json",
+      "dist/review-network-20261108/faults-sparse/before-2/results.json",
+      "dist/review-network-20261108/faults-sparse/before-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "faults-sparse",
+      "before",
+      "downstream15"
+    ],
+    "n": 3,
+    "metrics": {
+      "fresh_seconds": {
+        "n": 3,
+        "median": 2.5007570600137115,
+        "min": 2.486451413948089,
+        "max": 2.5500210439786315,
+        "p95": 2.5450946455821395
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 2.6739358357153833,
+        "min": 2.663265634328127,
+        "max": 2.692765009123832,
+        "p95": 2.690882091782987
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/faults-sparse/before-1/results.json",
+      "dist/review-network-20261108/faults-sparse/before-2/results.json",
+      "dist/review-network-20261108/faults-sparse/before-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "faults-sparse",
+      "before",
+      "isolated30"
+    ],
+    "n": 3,
+    "metrics": {
+      "fresh_seconds": {
+        "n": 3,
+        "median": 3.91246344614774,
+        "min": 3.778371856082231,
+        "max": 4.116293859202415,
+        "p95": 4.095910817896947
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 4.356197386048734,
+        "min": 4.24718723911792,
+        "max": 4.417064391076565,
+        "p95": 4.410977690573782
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/faults-sparse/before-1/results.json",
+      "dist/review-network-20261108/faults-sparse/before-2/results.json",
+      "dist/review-network-20261108/faults-sparse/before-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "faults-sparse",
+      "before",
+      "startup",
+      120,
+      false
+    ],
+    "n": 3,
+    "metrics": {
+      "local_seconds": {
+        "n": 3,
+        "median": 0.4080401840619743,
+        "min": 0.40688991779461503,
+        "max": 0.43311826698482037,
+        "p95": 0.4306104586925358
+      },
+      "remote_seconds": {
+        "n": 3,
+        "median": 2.8085333141498268,
+        "min": 2.8004183671437204,
+        "max": 2.818407765123993,
+        "p95": 2.8174203200265766
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 2.9816222190856934,
+        "min": 2.9486174141056836,
+        "max": 2.983296186197549,
+        "p95": 2.9831287894863636
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/faults-sparse/before-1/results.json",
+      "dist/review-network-20261108/faults-sparse/before-2/results.json",
+      "dist/review-network-20261108/faults-sparse/before-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "faults-sparse",
+      "before",
+      "tcp_reset"
+    ],
+    "n": 3,
+    "metrics": {
+      "fresh_seconds": {
+        "n": 3,
+        "median": 2.0835261391475797,
+        "min": 2.079444846138358,
+        "max": 2.1004149219952524,
+        "p95": 2.098726043710485
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 2.244411456864327,
+        "min": 2.24155190307647,
+        "max": 2.2949546072632074,
+        "p95": 2.2899002922233196
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/faults-sparse/before-1/results.json",
+      "dist/review-network-20261108/faults-sparse/before-2/results.json",
+      "dist/review-network-20261108/faults-sparse/before-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "faults-sparse",
+      "herdr",
+      "blackhole3"
+    ],
+    "n": 3,
+    "metrics": {
+      "fresh_seconds": {
+        "n": 3,
+        "median": 1.1402142937295139,
+        "min": 0.8156525162048638,
+        "max": 1.264714976772666,
+        "p95": 1.2522649084683508
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 1.3170700059272349,
+        "min": 1.1163243213668466,
+        "max": 1.40464867092669,
+        "p95": 1.3958908044267446
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/faults-sparse/herdr-1/results.json",
+      "dist/review-network-20261108/faults-sparse/herdr-2/results.json",
+      "dist/review-network-20261108/faults-sparse/herdr-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "faults-sparse",
+      "herdr",
+      "blackhole35"
+    ],
+    "n": 3,
+    "metrics": {
+      "fresh_seconds": {
+        "n": 3,
+        "median": 18.236420331988484,
+        "min": 13.158501759171486,
+        "max": 18.610482271760702,
+        "p95": 18.57307607778348
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 18.771522504277527,
+        "min": 13.55142236314714,
+        "max": 19.10558880865574,
+        "p95": 19.07218217821792
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/faults-sparse/herdr-1/results.json",
+      "dist/review-network-20261108/faults-sparse/herdr-2/results.json",
+      "dist/review-network-20261108/faults-sparse/herdr-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "faults-sparse",
+      "herdr",
+      "downstream15"
+    ],
+    "n": 3,
+    "metrics": {
+      "fresh_seconds": {
+        "n": 3,
+        "median": 13.551977504976094,
+        "min": 13.368817207869142,
+        "max": 13.682265388779342,
+        "p95": 13.669236600399017
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 14.20255077118054,
+        "min": 13.865863312967122,
+        "max": 14.2175911529921,
+        "p95": 14.216087114810943
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/faults-sparse/herdr-1/results.json",
+      "dist/review-network-20261108/faults-sparse/herdr-2/results.json",
+      "dist/review-network-20261108/faults-sparse/herdr-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "faults-sparse",
+      "herdr",
+      "isolated30"
+    ],
+    "n": 3,
+    "metrics": {
+      "fresh_seconds": {
+        "n": 3,
+        "median": 19.754540416877717,
+        "min": 19.622757336124778,
+        "max": 24.039467588067055,
+        "p95": 23.61097487094812
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 20.28608229989186,
+        "min": 20.11835759691894,
+        "max": 24.416476319078356,
+        "p95": 24.003436917159707
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/faults-sparse/herdr-1/results.json",
+      "dist/review-network-20261108/faults-sparse/herdr-2/results.json",
+      "dist/review-network-20261108/faults-sparse/herdr-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "faults-sparse",
+      "herdr",
+      "startup",
+      120,
+      false
+    ],
+    "n": 3,
+    "metrics": {
+      "local_seconds": {
+        "n": 3,
+        "median": 0.2827518442645669,
+        "min": 0.2791399182751775,
+        "max": 0.28560719918459654,
+        "p95": 0.2853216636925936
+      },
+      "remote_seconds": {
+        "n": 3,
+        "median": 3.934523245319724,
+        "min": 3.9310118262656033,
+        "max": 3.940390903968364,
+        "p95": 3.9398041381035
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 4.334630938246846,
+        "min": 4.32831763708964,
+        "max": 4.435375727247447,
+        "p95": 4.425301248347386
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/faults-sparse/herdr-1/results.json",
+      "dist/review-network-20261108/faults-sparse/herdr-2/results.json",
+      "dist/review-network-20261108/faults-sparse/herdr-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "faults-sparse",
+      "herdr",
+      "tcp_reset"
+    ],
+    "n": 3,
+    "metrics": {
+      "fresh_seconds": {
+        "n": 3,
+        "median": 4.118245390243828,
+        "min": 4.105639602988958,
+        "max": 4.133838212117553,
+        "p95": 4.13227892993018
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 4.552745767869055,
+        "min": 4.499455549288541,
+        "max": 4.625772770959884,
+        "p95": 4.618470070650801
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/faults-sparse/herdr-1/results.json",
+      "dist/review-network-20261108/faults-sparse/herdr-2/results.json",
+      "dist/review-network-20261108/faults-sparse/herdr-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "sleep-clean",
+      "after",
+      "sleep"
+    ],
+    "n": 3,
+    "metrics": {
+      "fresh_seconds": {
+        "n": 3,
+        "median": 2.181646376848221,
+        "min": 2.1780764684081078,
+        "max": 2.203542872797698,
+        "p95": 2.20135322320275
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 2.3516023168340325,
+        "min": 2.3391484189778566,
+        "max": 2.3657982158474624,
+        "p95": 2.3643786259461193
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/sleep-clean/after-1/results.json",
+      "dist/review-network-20261108/sleep-clean/after-2/results.json",
+      "dist/review-network-20261108/sleep-clean/after-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "sleep-clean",
+      "after",
+      "startup",
+      120,
+      false
+    ],
+    "n": 3,
+    "metrics": {
+      "local_seconds": {
+        "n": 3,
+        "median": 0.4088156661018729,
+        "min": 0.40576832508668303,
+        "max": 0.4096362739801407,
+        "p95": 0.4095542131923139
+      },
+      "remote_seconds": {
+        "n": 3,
+        "median": 2.8152245972305536,
+        "min": 2.8121033050119877,
+        "max": 2.8166819219477475,
+        "p95": 2.816536189476028
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 2.9891067040152848,
+        "min": 2.96507356595248,
+        "max": 2.991859483998269,
+        "p95": 2.9915842059999704
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/sleep-clean/after-1/results.json",
+      "dist/review-network-20261108/sleep-clean/after-2/results.json",
+      "dist/review-network-20261108/sleep-clean/after-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "sleep-clean",
+      "before",
+      "sleep"
+    ],
+    "n": 3,
+    "metrics": {
+      "fresh_seconds": {
+        "n": 3,
+        "median": 2.1718179848976433,
+        "min": 2.1670991079881787,
+        "max": 2.177469126880169,
+        "p95": 2.1769040126819164
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 2.3404700411483645,
+        "min": 2.313168860040605,
+        "max": 2.3490795860998333,
+        "p95": 2.3482186316046865
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/sleep-clean/before-1/results.json",
+      "dist/review-network-20261108/sleep-clean/before-2/results.json",
+      "dist/review-network-20261108/sleep-clean/before-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "sleep-clean",
+      "before",
+      "startup",
+      120,
+      false
+    ],
+    "n": 3,
+    "metrics": {
+      "local_seconds": {
+        "n": 3,
+        "median": 0.4083362747915089,
+        "min": 0.403868290130049,
+        "max": 0.4522038218565285,
+        "p95": 0.44781706715002656
+      },
+      "remote_seconds": {
+        "n": 3,
+        "median": 2.8137141978368163,
+        "min": 2.801238540094346,
+        "max": 2.8345545628108084,
+        "p95": 2.832470526313409
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 2.9834917266853154,
+        "min": 2.9736197157762945,
+        "max": 2.996979739982635,
+        "p95": 2.9956309386529028
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/sleep-clean/before-1/results.json",
+      "dist/review-network-20261108/sleep-clean/before-2/results.json",
+      "dist/review-network-20261108/sleep-clean/before-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "sleep-clean",
+      "herdr",
+      "sleep"
+    ],
+    "n": 3,
+    "metrics": {
+      "fresh_seconds": {
+        "n": 3,
+        "median": 4.25850800704211,
+        "min": 4.254739533178508,
+        "max": 4.311135184019804,
+        "p95": 4.305872466322034
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 4.728623955976218,
+        "min": 4.652602149173617,
+        "max": 4.788356245029718,
+        "p95": 4.782383016124368
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/sleep-clean/herdr-1/results.json",
+      "dist/review-network-20261108/sleep-clean/herdr-2/results.json",
+      "dist/review-network-20261108/sleep-clean/herdr-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "sleep-clean",
+      "herdr",
+      "startup",
+      120,
+      false
+    ],
+    "n": 3,
+    "metrics": {
+      "local_seconds": {
+        "n": 3,
+        "median": 0.2921493658795953,
+        "min": 0.2912379647605121,
+        "max": 0.2947983262129128,
+        "p95": 0.29453343017958106
+      },
+      "remote_seconds": {
+        "n": 3,
+        "median": 3.935352184344083,
+        "min": 3.9332019849680364,
+        "max": 3.935690884012729,
+        "p95": 3.9356570140458644
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 4.323043618816882,
+        "min": 4.322053337004036,
+        "max": 4.357954537030309,
+        "p95": 4.3544634452089666
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/sleep-clean/herdr-1/results.json",
+      "dist/review-network-20261108/sleep-clean/herdr-2/results.json",
+      "dist/review-network-20261108/sleep-clean/herdr-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "stream-600-low",
+      "after",
+      "startup",
+      120,
+      false
+    ],
+    "n": 3,
+    "metrics": {
+      "local_seconds": {
+        "n": 3,
+        "median": 0.4140151268802583,
+        "min": 0.4115058886818588,
+        "max": 0.42246592696756124,
+        "p95": 0.42162084695883095
+      },
+      "remote_seconds": {
+        "n": 3,
+        "median": 2.8118967576883733,
+        "min": 2.7960763201117516,
+        "max": 2.831170598976314,
+        "p95": 2.82924321484752
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 2.9830697788856924,
+        "min": 2.964696621056646,
+        "max": 3.0171031057834625,
+        "p95": 3.0136997730936854
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/stream-600-low/after-1/results.json",
+      "dist/review-network-20261108/stream-600-low/after-2/results.json",
+      "dist/review-network-20261108/stream-600-low/after-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "stream-600-low",
+      "after",
+      "stream",
+      "dense",
+      "64kbit",
+      600,
+      null,
+      null
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.5088092642836273,
+        "min": 0.48651096876710653,
+        "max": 0.6010699830949306,
+        "p95": 0.5918439112138003
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 51.76157424314812,
+        "min": 50.30219942992035,
+        "max": 52.34600790346196,
+        "p95": 52.287564537430576
+      },
+      "echo_seconds": {
+        "n": 3,
+        "median": 1.0496579152531922,
+        "min": 0.8844196130521595,
+        "max": 1.2517796489410102,
+        "p95": 1.2315674755722283
+      },
+      "fps": {
+        "n": 3,
+        "median": 3.1333221374272675,
+        "min": 3.06665452885796,
+        "max": 3.1333254207570413,
+        "p95": 3.133325092424064
+      },
+      "inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 1.15383653761819,
+        "min": 1.11222330853343,
+        "max": 2.153170483186841,
+        "p95": 2.0532370886299756
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 1.0037077297456563,
+        "min": 0.9622170133516192,
+        "max": 1.0534025127999485,
+        "p95": 1.0484330344945192
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.21377381389788672,
+        "min": 0.18843290460014278,
+        "max": 0.21518648171255456,
+        "p95": 0.21504521493108777
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 413.60546875,
+        "min": 413.2734375,
+        "max": 425.72265625,
+        "p95": 424.5109375
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 60.16724275723736,
+        "min": 58.7545887127806,
+        "max": 60.86737369376023,
+        "p95": 60.79736060010794
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 8.452389282860253,
+        "min": 8.405668514089246,
+        "max": 8.52136579029827,
+        "p95": 8.514468139554468
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/stream-600-low/after-1/results.json",
+      "dist/review-network-20261108/stream-600-low/after-2/results.json",
+      "dist/review-network-20261108/stream-600-low/after-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "stream-600-low",
+      "before",
+      "startup",
+      120,
+      false
+    ],
+    "n": 3,
+    "metrics": {
+      "local_seconds": {
+        "n": 3,
+        "median": 0.4127646554261446,
+        "min": 0.4110026671551168,
+        "max": 0.4278003480285406,
+        "p95": 0.426296778768301
+      },
+      "remote_seconds": {
+        "n": 3,
+        "median": 2.800151903182268,
+        "min": 2.7965259170159698,
+        "max": 2.814151317346841,
+        "p95": 2.8127513759303837
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 3.0048254993744195,
+        "min": 2.983657362870872,
+        "max": 3.0193054620176554,
+        "p95": 3.0178574657533317
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/stream-600-low/before-1/results.json",
+      "dist/review-network-20261108/stream-600-low/before-2/results.json",
+      "dist/review-network-20261108/stream-600-low/before-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "stream-600-low",
+      "before",
+      "stream",
+      "dense",
+      "64kbit",
+      600,
+      null,
+      null
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.4352576592937112,
+        "min": 0.3630503942258656,
+        "max": 0.7772485837340355,
+        "p95": 0.743049491290003
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 47.023390309004085,
+        "min": 46.660132736399746,
+        "max": 47.39137191409677,
+        "p95": 47.3545737535875
+      },
+      "echo_seconds": {
+        "n": 3,
+        "median": 1.283857136964798,
+        "min": 1.2798128169961274,
+        "max": 1.4284138083457947,
+        "p95": 1.413958141207695
+      },
+      "fps": {
+        "n": 3,
+        "median": 2.866656746512666,
+        "min": 2.8333234666517666,
+        "max": 2.8666586791180775,
+        "p95": 2.866658485857536
+      },
+      "inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 1.9819822255522013,
+        "min": 1.9636738202534616,
+        "max": 1.9993188460357487,
+        "p95": 1.997585183987394
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 1.7636738209985197,
+        "min": 1.7319822264835238,
+        "max": 1.7992535750381649,
+        "p95": 1.7956955996342003
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.19696498561355907,
+        "min": 0.19013705596745956,
+        "max": 0.21563792630967843,
+        "p95": 0.21377063224006648
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 407.92578125,
+        "min": 407.578125,
+        "max": 410.37109375,
+        "p95": 410.1265625
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 55.23994563863495,
+        "min": 54.82812467645289,
+        "max": 55.779716062676705,
+        "p95": 55.72573902027253
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 8.216555329630868,
+        "min": 8.167991940053138,
+        "max": 8.38834414857993,
+        "p95": 8.371165266685024
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/stream-600-low/before-1/results.json",
+      "dist/review-network-20261108/stream-600-low/before-2/results.json",
+      "dist/review-network-20261108/stream-600-low/before-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "stream-600-low",
+      "herdr",
+      "startup",
+      120,
+      false
+    ],
+    "n": 3,
+    "metrics": {
+      "local_seconds": {
+        "n": 3,
+        "median": 0.2864488190971315,
+        "min": 0.2786062676459551,
+        "max": 0.2896813079714775,
+        "p95": 0.2893580590840429
+      },
+      "remote_seconds": {
+        "n": 3,
+        "median": 3.9345612339675426,
+        "min": 3.934051995165646,
+        "max": 3.9408766459673643,
+        "p95": 3.9402451047673823
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 4.321655300911516,
+        "min": 4.309057535137981,
+        "max": 4.340995570644736,
+        "p95": 4.339061543671415
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/stream-600-low/herdr-1/results.json",
+      "dist/review-network-20261108/stream-600-low/herdr-2/results.json",
+      "dist/review-network-20261108/stream-600-low/herdr-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "stream-600-low",
+      "herdr",
+      "stream",
+      "dense",
+      "64kbit",
+      600,
+      null,
+      null
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 11.78526586573571,
+        "min": 9.042980345897377,
+        "max": 14.478556649759412,
+        "p95": 14.209227571357042
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 64.06231568072201,
+        "min": 63.659111123595665,
+        "max": 64.09806713347973,
+        "p95": 64.09449198820396
+      },
+      "fps": {
+        "n": 3,
+        "median": 1.1666634068294555,
+        "min": 1.0333299730485923,
+        "max": 1.1999965254131728,
+        "p95": 1.196663213554801
+      },
+      "inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 32.112959960475564,
+        "min": 32.05912745324895,
+        "max": 32.307194971479475,
+        "p95": 32.287771470379084
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 30.80719497706741,
+        "min": 30.6129599660635,
+        "max": 30.85913867969066,
+        "p95": 30.853944309428336
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.0461185875590302,
+        "min": 0.04479847256153671,
+        "max": 0.0490783145687076,
+        "p95": 0.04878234186773986
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 64.125,
+        "min": 60.125,
+        "max": 70.125,
+        "p95": 69.525
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 5,
+        "min": 5,
+        "max": 5,
+        "p95": 5.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 67.9502852797143,
+        "min": 67.9347715765973,
+        "max": 68.00373772440906,
+        "p95": 67.99839247993958
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 3.905670590929327,
+        "min": 3.88796959899228,
+        "max": 4.275660453001641,
+        "p95": 4.23866146679441
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 0,
+        "min": 0,
+        "max": 0,
+        "p95": 0.0
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/stream-600-low/herdr-1/results.json",
+      "dist/review-network-20261108/stream-600-low/herdr-2/results.json",
+      "dist/review-network-20261108/stream-600-low/herdr-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "transition",
+      "after",
+      "startup",
+      120,
+      false
+    ],
+    "n": 3,
+    "metrics": {
+      "local_seconds": {
+        "n": 3,
+        "median": 0.4084897367283702,
+        "min": 0.4065918722189963,
+        "max": 0.41221286822110415,
+        "p95": 0.41184055507183076
+      },
+      "remote_seconds": {
+        "n": 3,
+        "median": 2.8068924848921597,
+        "min": 2.796663850080222,
+        "max": 2.809360192157328,
+        "p95": 2.809113421430811
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 2.9742994369007647,
+        "min": 2.945533338934183,
+        "max": 3.0073146210052073,
+        "p95": 3.004013102594763
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/transition/after-1/results.json",
+      "dist/review-network-20261108/transition/after-2/results.json",
+      "dist/review-network-20261108/transition/after-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "transition",
+      "after",
+      "transition",
+      "dense",
+      "1mbit",
+      120,
+      null,
+      "after-cap"
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.13054563896730542,
+        "min": 0.10612072981894016,
+        "max": 0.16179316397756338,
+        "p95": 0.1586684114765376
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 326.97052245597087,
+        "min": 323.5074669437286,
+        "max": 331.37018995574783,
+        "p95": 330.9302232057701
+      },
+      "echo_seconds": {
+        "n": 3,
+        "median": 0.16246882919222116,
+        "min": 0.14916292391717434,
+        "max": 0.1918645421974361,
+        "p95": 0.1889249708969146
+      },
+      "fps": {
+        "n": 3,
+        "median": 19.699825248606018,
+        "min": 19.699824464283378,
+        "max": 19.799799006768314,
+        "p95": 19.789801630952084
+      },
+      "inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 0.48952256981283426,
+        "min": 0.4016804648563266,
+        "max": 0.5498003466054797,
+        "p95": 0.5437725689262152
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 0.09991574753075838,
+        "min": 0.08958081854507327,
+        "max": 0.10183237120509148,
+        "p95": 0.10164070883765816
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.22878658283200135,
+        "min": 0.22835371246926353,
+        "max": 0.23039609508801517,
+        "p95": 0.23023514386241378
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 424.03515625,
+        "min": 419.33984375,
+        "max": 437.58203125,
+        "p95": 436.22734375
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 361.0984390606635,
+        "min": 357.51457529322204,
+        "max": 365.558103554821,
+        "p95": 365.1121371054053
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 34.127916604692665,
+        "min": 34.00710834949343,
+        "max": 34.18791359907317,
+        "p95": 34.18191389963512
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/transition/after-1/results.json",
+      "dist/review-network-20261108/transition/after-2/results.json",
+      "dist/review-network-20261108/transition/after-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "transition",
+      "after",
+      "transition",
+      "dense",
+      "1mbit",
+      120,
+      null,
+      "before-cap"
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.0776055590249598,
+        "min": 0.0652970070950687,
+        "max": 0.11234089406207204,
+        "p95": 0.10886736055836081
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 324.84235101037274,
+        "min": 323.00758982910213,
+        "max": 325.0427186966494,
+        "p95": 325.0226819280217
+      },
+      "echo_seconds": {
+        "n": 3,
+        "median": 0.16504359198734164,
+        "min": 0.16250686207786202,
+        "max": 0.1910545090213418,
+        "p95": 0.1884534173179418
+      },
+      "fps": {
+        "n": 3,
+        "median": 19.99981206180182,
+        "min": 19.999642742660228,
+        "max": 19.9998293347319,
+        "p95": 19.999827607438892
+      },
+      "inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 0.09965878073126078,
+        "min": 0.08761348249390721,
+        "max": 0.1024684077128768,
+        "p95": 0.10218744501471519
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 0.09963245270773768,
+        "min": 0.0875541539862752,
+        "max": 0.10244642291218042,
+        "p95": 0.10216502589173615
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.30452691967556744,
+        "min": 0.3006878287094316,
+        "max": 0.32176551410924614,
+        "p95": 0.32004165466587825
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 403.375,
+        "min": 399.8515625,
+        "max": 411.23046875,
+        "p95": 410.444921875
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 359.22365571920966,
+        "min": 357.0817206496798,
+        "max": 359.38921268950395,
+        "p95": 359.3726569924745
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 34.34649399285458,
+        "min": 34.07413082057767,
+        "max": 34.38130470883691,
+        "p95": 34.37782363723868
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/transition/after-1/results.json",
+      "dist/review-network-20261108/transition/after-2/results.json",
+      "dist/review-network-20261108/transition/after-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "transition",
+      "after",
+      "transition",
+      "dense",
+      "64kbit",
+      120,
+      null,
+      "capped"
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.30695132026448846,
+        "min": 0.301946802996099,
+        "max": 2.4042424373328686,
+        "p95": 2.1945133256260303
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 63.782137891285785,
+        "min": 63.698192512866456,
+        "max": 64.0358401820245,
+        "p95": 64.01046995295063
+      },
+      "echo_seconds": {
+        "n": 3,
+        "median": 0.5725528337061405,
+        "min": 0.5089210947044194,
+        "max": 0.659797943662852,
+        "p95": 0.6510734326671809
+      },
+      "fps": {
+        "n": 3,
+        "median": 3.8499819901939114,
+        "min": 3.799986383470139,
+        "max": 3.849982159342635,
+        "p95": 3.8499821424277627
+      },
+      "inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 2.0851386659778655,
+        "min": 2.046372311655432,
+        "max": 2.091254172846675,
+        "p95": 2.090642622159794
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 1.2350840796716511,
+        "min": 1.1963472315110266,
+        "max": 1.2412200723774731,
+        "p95": 1.2406064731068909
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.19726432453580503,
+        "min": 0.19350531202643337,
+        "max": 0.21103150484603642,
+        "p95": 0.2096547868150133
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 419.61328125,
+        "min": 415.96484375,
+        "max": 423.15625,
+        "p95": 422.801953125
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 74.5900350304428,
+        "min": 74.4745969384715,
+        "max": 74.98199893276143,
+        "p95": 74.94280254252956
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 10.807897139157017,
+        "min": 10.776404425605048,
+        "max": 10.946158750736933,
+        "p95": 10.932332589578941
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/transition/after-1/results.json",
+      "dist/review-network-20261108/transition/after-2/results.json",
+      "dist/review-network-20261108/transition/after-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "transition",
+      "before",
+      "startup",
+      120,
+      false
+    ],
+    "n": 3,
+    "metrics": {
+      "local_seconds": {
+        "n": 3,
+        "median": 0.4134209589101374,
+        "min": 0.4107102216221392,
+        "max": 0.42360756592825055,
+        "p95": 0.4225889052264392
+      },
+      "remote_seconds": {
+        "n": 3,
+        "median": 2.8207045076414943,
+        "min": 2.795198214240372,
+        "max": 2.833394018933177,
+        "p95": 2.8321250678040086
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 2.9701145025901496,
+        "min": 2.945122070144862,
+        "max": 3.0238073859363794,
+        "p95": 3.0184380976017566
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/transition/before-1/results.json",
+      "dist/review-network-20261108/transition/before-2/results.json",
+      "dist/review-network-20261108/transition/before-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "transition",
+      "before",
+      "transition",
+      "dense",
+      "1mbit",
+      120,
+      null,
+      "after-cap"
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.1312270201742649,
+        "min": 0.118995803873986,
+        "max": 0.14951952500268817,
+        "p95": 0.14769027451984584
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 325.2996025702404,
+        "min": 323.8412702532534,
+        "max": 330.04445096926247,
+        "p95": 329.56996612936024
+      },
+      "echo_seconds": {
+        "n": 3,
+        "median": 0.1640372211113572,
+        "min": 0.16085691517218947,
+        "max": 0.1817866200581193,
+        "p95": 0.1800116801634431
+      },
+      "fps": {
+        "n": 3,
+        "median": 19.999845180927622,
+        "min": 19.999787039528464,
+        "max": 19.999894918494693,
+        "p95": 19.999889944737987
+      },
+      "inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 0.4800833286717534,
+        "min": 0.1669946857728064,
+        "max": 0.5132930995896459,
+        "p95": 0.5099721224978566
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 0.08012594701722264,
+        "min": 0.06704835826531053,
+        "max": 0.1133690276183188,
+        "p95": 0.11004471955820919
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.23407403046481381,
+        "min": 0.22089252376907878,
+        "max": 0.24040604310318353,
+        "p95": 0.23977284183934655
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 420.5234375,
+        "min": 416.08984375,
+        "max": 432.796875,
+        "p95": 431.56953125
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 359.27760709905334,
+        "min": 358.3943391108641,
+        "max": 364.3385609723199,
+        "p95": 363.83246558499326
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 34.29411000305741,
+        "min": 33.97800452881294,
+        "max": 34.55306885761072,
+        "p95": 34.527172972155384
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/transition/before-1/results.json",
+      "dist/review-network-20261108/transition/before-2/results.json",
+      "dist/review-network-20261108/transition/before-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "transition",
+      "before",
+      "transition",
+      "dense",
+      "1mbit",
+      120,
+      null,
+      "before-cap"
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.07795239798724651,
+        "min": 0.06848553707823157,
+        "max": 0.08200253313407302,
+        "p95": 0.08159751961939037
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 324.594399948114,
+        "min": 323.07462383701125,
+        "max": 326.02119877542464,
+        "p95": 325.8785188926936
+      },
+      "echo_seconds": {
+        "n": 3,
+        "median": 0.17233289266005158,
+        "min": 0.16066774493083358,
+        "max": 0.18485753098502755,
+        "p95": 0.18360506715252994
+      },
+      "fps": {
+        "n": 3,
+        "median": 19.999838805194017,
+        "min": 19.999819680811513,
+        "max": 19.999878069197923,
+        "p95": 19.99987414279753
+      },
+      "inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 0.08733589528128505,
+        "min": 0.08278904063627124,
+        "max": 0.09649906354025006,
+        "p95": 0.09558274671435356
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 0.08732975507155061,
+        "min": 0.08277065213769674,
+        "max": 0.0964293391443789,
+        "p95": 0.09551938073709607
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.3041975917520769,
+        "min": 0.2853858782532359,
+        "max": 0.3049399132164451,
+        "p95": 0.3048656810700083
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 403.3046875,
+        "min": 402.75390625,
+        "max": 404.05078125,
+        "p95": 403.976171875
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 358.98101653982275,
+        "min": 357.4323619607866,
+        "max": 360.1803968599866,
+        "p95": 360.06045882797025
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 34.357738123775306,
+        "min": 34.15919808456197,
+        "max": 34.386616591708716,
+        "p95": 34.38372874491537
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/transition/before-1/results.json",
+      "dist/review-network-20261108/transition/before-2/results.json",
+      "dist/review-network-20261108/transition/before-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "transition",
+      "before",
+      "transition",
+      "dense",
+      "64kbit",
+      120,
+      null,
+      "capped"
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.5249713771045208,
+        "min": 0.3090765867382288,
+        "max": 2.460855574347079,
+        "p95": 2.267267154622823
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 63.60195379816916,
+        "min": 63.56540668569239,
+        "max": 64.3941409746571,
+        "p95": 64.3149222570083
+      },
+      "echo_seconds": {
+        "n": 3,
+        "median": 0.6129074841737747,
+        "min": 0.5309248920530081,
+        "max": 0.7258368288166821,
+        "p95": 0.7145438943523914
+      },
+      "fps": {
+        "n": 3,
+        "median": 3.849982035820142,
+        "min": 3.7999702687000614,
+        "max": 3.8499837193302104,
+        "p95": 3.8499835509792035
+      },
+      "inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 2.174348904751241,
+        "min": 2.130707344505936,
+        "max": 2.2878242610022426,
+        "p95": 2.2764767253771425
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 1.380513313692063,
+        "min": 1.3744881860911846,
+        "max": 1.387815275695175,
+        "p95": 1.3870850794948637
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.19508588989367878,
+        "min": 0.18680074831917357,
+        "max": 0.1995264127662686,
+        "p95": 0.19908236047900962
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 415.42578125,
+        "min": 407.20703125,
+        "max": 421.02734375,
+        "p95": 420.4671875
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 74.19339701929417,
+        "min": 74.18362044177125,
+        "max": 74.91137281650687,
+        "p95": 74.83957523678559
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 10.581666643602091,
+        "min": 10.517231841849759,
+        "max": 10.627990333601783,
+        "p95": 10.623357964601814
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/transition/before-1/results.json",
+      "dist/review-network-20261108/transition/before-2/results.json",
+      "dist/review-network-20261108/transition/before-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "transition",
+      "herdr",
+      "startup",
+      120,
+      false
+    ],
+    "n": 3,
+    "metrics": {
+      "local_seconds": {
+        "n": 3,
+        "median": 0.29126613680273294,
+        "min": 0.28196673607453704,
+        "max": 0.29363997699692845,
+        "p95": 0.2934025929775089
+      },
+      "remote_seconds": {
+        "n": 3,
+        "median": 3.9351259670220315,
+        "min": 3.9349408275447786,
+        "max": 3.9386674971319735,
+        "p95": 3.938313344120979
+      },
+      "usable_seconds": {
+        "n": 3,
+        "median": 4.314384031109512,
+        "min": 4.3096723249182105,
+        "max": 4.454127707052976,
+        "p95": 4.44015333945863
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/transition/herdr-1/results.json",
+      "dist/review-network-20261108/transition/herdr-2/results.json",
+      "dist/review-network-20261108/transition/herdr-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "transition",
+      "herdr",
+      "transition",
+      "dense",
+      "1mbit",
+      120,
+      null,
+      "after-cap"
+    ],
+    "n": 3,
+    "metrics": {
+      "down_kbit_s": {
+        "n": 3,
+        "median": 997.1887580515978,
+        "min": 996.0831866920182,
+        "max": 1001.683846207596,
+        "p95": 1001.2343373919962
+      },
+      "echo_seconds": {
+        "n": 3,
+        "median": 4.297569137765095,
+        "min": 4.288791211089119,
+        "max": 4.428220419446006,
+        "p95": 4.415155291277915
+      },
+      "fps": {
+        "n": 3,
+        "median": 24.09974935733151,
+        "min": 23.899756704745197,
+        "max": 24.99973399847654,
+        "p95": 24.909735534362035
+      },
+      "inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 20.734778293408453,
+        "min": 20.704434788320214,
+        "max": 20.786132701206952,
+        "p95": 20.780997260427103
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 20.484905174467713,
+        "min": 20.454434789251536,
+        "max": 20.586090443190187,
+        "p95": 20.57597191631794
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.12480553559626452,
+        "min": 0.11490647305090516,
+        "max": 0.12514003331992257,
+        "p95": 0.12510658354755677
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 70.09375,
+        "min": 66.109375,
+        "max": 70.10546875,
+        "p95": 70.104296875
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 1034.9663176678878,
+        "min": 1031.5192329155284,
+        "max": 1039.8802036429106,
+        "p95": 1039.3888150454084
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 38.196357435314624,
+        "min": 34.33047486393069,
+        "max": 38.883130975869605,
+        "p95": 38.81445362181411
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 2,
+        "min": 2,
+        "max": 2,
+        "p95": 2.0
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/transition/herdr-1/results.json",
+      "dist/review-network-20261108/transition/herdr-2/results.json",
+      "dist/review-network-20261108/transition/herdr-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "transition",
+      "herdr",
+      "transition",
+      "dense",
+      "1mbit",
+      120,
+      null,
+      "before-cap"
+    ],
+    "n": 3,
+    "metrics": {
+      "catchup_seconds": {
+        "n": 3,
+        "median": 0.13346273312345147,
+        "min": 0.1308096908032894,
+        "max": 0.13374461978673935,
+        "p95": 0.13371643112041057
+      },
+      "down_kbit_s": {
+        "n": 3,
+        "median": 841.7676380337911,
+        "min": 837.5694483044285,
+        "max": 848.2218164857168,
+        "p95": 847.5763986405242
+      },
+      "echo_seconds": {
+        "n": 3,
+        "median": 0.17619715770706534,
+        "min": 0.16842291178181767,
+        "max": 0.19685872783884406,
+        "p95": 0.1947925708256662
+      },
+      "fps": {
+        "n": 3,
+        "median": 19.99980540390408,
+        "min": 19.999776394743797,
+        "max": 19.999814973993203,
+        "p95": 19.999814016984292
+      },
+      "inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 0.10871625365689397,
+        "min": 0.10845707822591066,
+        "max": 0.11189708998426795,
+        "p95": 0.11157900635153055
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 0.10869610868394375,
+        "min": 0.10841445624828339,
+        "max": 0.1118656862527132,
+        "p95": 0.11154872849583626
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.10641633041870831,
+        "min": 0.10355217744859659,
+        "max": 0.10997889170633281,
+        "p95": 0.10962263557757036
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 70.12109375,
+        "min": 70.109375,
+        "max": 70.125,
+        "p95": 70.124609375
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 872.3316167133698,
+        "min": 867.8886178417863,
+        "max": 878.6232179542895,
+        "p95": 877.9940578301976
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 30.40140146857275,
+        "min": 30.319169537357745,
+        "max": 30.56397867957879,
+        "p95": 30.547720958478184
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/transition/herdr-1/results.json",
+      "dist/review-network-20261108/transition/herdr-2/results.json",
+      "dist/review-network-20261108/transition/herdr-3/results.json"
+    ]
+  },
+  {
+    "key": [
+      "transition",
+      "herdr",
+      "transition",
+      "dense",
+      "64kbit",
+      120,
+      null,
+      "capped"
+    ],
+    "n": 3,
+    "metrics": {
+      "down_kbit_s": {
+        "n": 3,
+        "median": 64.72934887534174,
+        "min": 63.55096114718354,
+        "max": 64.9501931951955,
+        "p95": 64.92810876321012
+      },
+      "echo_seconds": {
+        "n": 2,
+        "median": 18.30142099992372,
+        "min": 17.926774309948087,
+        "max": 18.676067689899355,
+        "p95": 18.63860302090179
+      },
+      "fps": {
+        "n": 3,
+        "median": 1.5499923188002986,
+        "min": 1.0999953393649338,
+        "max": 1.5499936705282915,
+        "p95": 1.5499935353554921
+      },
+      "inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      },
+      "max_age": {
+        "n": 3,
+        "median": 18.595676937606186,
+        "min": 18.58939142152667,
+        "max": 19.026802419684827,
+        "p95": 18.98368987147696
+      },
+      "p95_age": {
+        "n": 3,
+        "median": 17.695677740499377,
+        "min": 17.689503281377256,
+        "max": 18.026802423410118,
+        "p95": 17.993689955119045
+      },
+      "product_cpu_cores": {
+        "n": 3,
+        "median": 0.056714420910965256,
+        "min": 0.05379421877124138,
+        "max": 0.0576665920456207,
+        "p95": 0.05757137493215515
+      },
+      "product_sum_rss_mib": {
+        "n": 3,
+        "median": 68.09375,
+        "min": 66.109375,
+        "max": 70.1171875,
+        "p95": 69.91484375
+      },
+      "received_inputs": {
+        "n": 3,
+        "median": 3,
+        "min": 3,
+        "max": 3,
+        "p95": 3.0
+      },
+      "total_kbit_s": {
+        "n": 3,
+        "median": 69.04591532297982,
+        "min": 67.81959843932259,
+        "max": 69.16552922679182,
+        "p95": 69.15356783641062
+      },
+      "up_kbit_s": {
+        "n": 3,
+        "median": 4.268637292139049,
+        "min": 4.095722127784327,
+        "max": 4.43618035145008,
+        "p95": 4.419426045518977
+      },
+      "visible_inputs": {
+        "n": 3,
+        "median": 1,
+        "min": 0,
+        "max": 1,
+        "p95": 1.0
+      }
+    },
+    "evidence": [
+      "dist/review-network-20261108/transition/herdr-1/results.json",
+      "dist/review-network-20261108/transition/herdr-2/results.json",
+      "dist/review-network-20261108/transition/herdr-3/results.json"
+    ]
+  }
+]

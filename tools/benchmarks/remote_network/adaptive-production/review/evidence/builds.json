@@ -1,0 +1,38 @@
+{
+  "before": {
+    "path": "dist/corgi-adaptive-accepted",
+    "sha256": "db8d523276bf6bd657a71fb9a01784f216e7b52e99bf3760824bf84bbc6f14b8",
+    "metadata": {
+      "builtAt": "2026-11-08T03:50:06.163Z",
+      "target": "linux-x64",
+      "bunVersion": "1.4.4",
+      "testBuild": false,
+      "releaseVersion": "0.1.0-dev",
+      "releaseCommit": "467a5c7cc386626e4519a144e4cad982f1e3dba0-dirty",
+      "sha256": "db8d523276bf6bd657a71fb9a01784f216e7b52e99bf3760824bf84bbc6f14b8",
+      "sourceSHA256": "af258dedd09030a455f2388e40e7e6168c19ad5f0bcc7b7acbbf6d36a1548193",
+      "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+      "inputsSHA256": "36e25127d2dcec71dcf317ff08b3a62c8ce7ced835cf0e6e5415a81ea2389ee2"
+    }
+  },
+  "after": {
+    "path": "dist/corgi-reviewed",
+    "sha256": "75eb4a914c4a3c31a9b29ce31e0779132523d2dd6d72eaebfb6d55b2327aad49",
+    "metadata": {
+      "builtAt": "2026-11-08T05:07:40.145Z",
+      "target": "linux-x64",
+      "bunVersion": "1.4.4",
+      "testBuild": false,
+      "releaseVersion": "0.1.0-dev",
+      "releaseCommit": "47bb46fe8d1b241ebe619c99b533ca0cc73ace87-dirty",
+      "sha256": "75eb4a914c4a3c31a9b29ce31e0779132523d2dd6d72eaebfb6d55b2327aad49",
+      "sourceSHA256": "58d2ddb32269ada05aaf094b5bf23eea331699383ba0dcf21ad66641c8371e32",
+      "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+      "inputsSHA256": "9adb515d380f0fbffaa1ec655bf676a85f90824d18a387f39eee27671b2e8d23"
+    }
+  },
+  "herdr": {
+    "path": "/home/t/dev/personal/herdr-cpu-benchmark/herdr-v0.9.5",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d"
+  }
+}
