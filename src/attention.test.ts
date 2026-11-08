@@ -62,3 +62,12 @@ test("the focused pane yields to another waiting pane", () => {
   expect(attention.pick({ panes, sessions: [] }, 1)).toEqual({ pane: 2 });
   expect(attention.pick({ panes: [panes[0]!], sessions: [] }, 1)).toEqual({ pane: 1 });
 });
+
+test("repeated jumps cycle through every blocked pane", () => {
+  const panes = [pane(1, "none", 1, "blocked"), pane(2, "none", 2, "blocked"), pane(3, "none", 3, "blocked")];
+  const jump = (focused: number | null) => attention.pick({ panes, sessions: [] }, focused);
+  expect(jump(null)).toEqual({ pane: 1 });
+  expect(jump(1)).toEqual({ pane: 2 });
+  expect(jump(2)).toEqual({ pane: 3 });
+  expect(jump(3)).toEqual({ pane: 1 });
+});
