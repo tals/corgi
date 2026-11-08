@@ -19,6 +19,7 @@ const binary = path.resolve(arg("binary", "dist/corgi")),
   warmup = Number(arg("warmup", "8")),
   repeat = Number(arg("repeat", "0")),
   traced = arg("trace", "on") === "on",
+  bandwidthSeconds = Number(arg("bandwidth-seconds", "0")),
   scenarios = arg("scenarios", "idle,mixed,spammy").split(","),
   cpus = arg("cpus", "104,105,106,107,108,109,110,111").split(","),
   observer = arg("observer", "0"),
@@ -133,7 +134,8 @@ async function mode(name: string) {
             ? "light"
             : "idle",
   );
-  const setup = new Connection(session.env.CORGI_SOCKET!);
+  // Both revisions support raw setup RPC; the measured viewer uses its own native transport.
+  const setup = new Connection(session.env.CORGI_SOCKET!, { transport: "stream" });
   const send = (pane: number, data: string) =>
     setup.call("session.command", { command: { "pane.input": { target: pane, data: data + "\r" } } });
   const epoch = fixture.now() + 6000000000n;
@@ -181,7 +183,9 @@ async function measure(
   attached: boolean,
   focus: number,
   traced = arg("trace", "on") === "on",
+  duration = seconds,
 ) {
+  const seconds = duration;
   if (attached) await cli("focus", String(panes[focus]), "--viewer", "1");
   const label = `${attached ? "attached" : "detached"}-${name}`;
   console.log(JSON.stringify({ phase: label, agents: count, repeat, warmup, seconds, traced }));
@@ -216,6 +220,9 @@ async function measure(
     .filter(line => line.includes(`pid=${daemon},`) || line.includes(`pid=${session.proc.pid},`));
   const viewerPeers = new Set(
     peerLines.filter(line => line.includes(`pid=${session.proc.pid},`)).map(line => line.trim().split(/\s+/)[7]),
+  );
+  const daemonPeers = new Set(
+    peerLines.filter(line => line.includes(`pid=${daemon},`)).map(line => line.trim().split(/\s+/)[7]),
   );
   await sleepUntil(start);
   if (trace && trace.exitCode !== null) throw Error("BpfFailed: " + (await traceError));
@@ -288,6 +295,14 @@ async function measure(
       return Number(pid) === daemon && viewerPeers.has(inode);
     })
     .reduce((n, [, v]) => n + v, 0);
+  const upstreamBytes = attached
+    ? Object.entries(bytes)
+        .filter(([key]) => {
+          const [pid, inode] = key.split(",");
+          return Number(pid) === session.proc.pid && daemonPeers.has(inode);
+        })
+        .reduce((n, [, v]) => n + v, 0)
+    : 0;
   if (traced && attached && (!viewerPeers.size || !viewerBytes)) throw Error("MissingViewerSocketTraffic");
   const busy = Object.fromEntries(
     Object.keys(h0).map(c => [c, (h1[c].busy - h0[c].busy) / (h1[c].total - h0[c].total)]),
@@ -312,13 +327,15 @@ async function measure(
     end_ns: String(end),
     start_jitter_ms: Number(at - start) / 1e6,
     end_jitter_ms: Number(done - end) / 1e6,
+    cpu_counters: { ticks, daemon: [d0, d1], viewer: v0 && v1 ? [v0, v1] : null },
     daemon_cpu: cpu(d0, d1, elapsed),
     viewer_cpu: v0 && v1 ? cpu(v0, v1, elapsed) : null,
     provider_cpu_percent: producers.reduce((n, p) => n + p.cpu.percent, 0),
     daemon_to_clients_Bps: traced ? sumBytes(daemon) / seconds : null,
     daemon_to_viewer_Bps: traced ? viewerBytes / seconds : null,
     daemon_other_unix_Bps: traced ? (sumBytes(daemon) - viewerBytes) / seconds : null,
-    viewer_to_daemon_Bps: traced ? sumBytes(attached ? session.proc.pid : 0) / seconds : null,
+    viewer_to_daemon_Bps: traced ? upstreamBytes / seconds : null,
+    viewer_other_unix_Bps: traced ? (sumBytes(attached ? session.proc.pid : 0) - upstreamBytes) / seconds : null,
     terminal_Bps: attached ? (terminal1 - terminal0) / elapsed : 0,
     producer_Bps: producers.reduce((n, p) => n + p.bytes, 0) / seconds,
     visible_before: visible0,
@@ -481,14 +498,33 @@ try {
       const overhead = traced && count === 32 && attached && name === "spammy";
       if (overhead && repeat % 2) await measure("spammy-untraced", modes, true, 0, false);
       await measure(name, modes, attached, 0);
+      if (bandwidthSeconds && attached) await measure(name + "-bandwidth", modes, true, 0, true, bandwidthSeconds);
       if (overhead && !(repeat % 2)) await measure("spammy-untraced", modes, true, 0, false);
-      if (attached && name === "mixed") await measure("mixed-quiet-focus", modes, true, count - 1);
+      if (attached && name === "mixed") {
+        await measure("mixed-quiet-focus", modes, true, count - 1);
+        if (bandwidthSeconds)
+          await measure("mixed-quiet-focus-bandwidth", modes, true, count - 1, true, bandwidthSeconds);
+      }
     }
   }
 } catch (error) {
   fs.writeFileSync(path.join(output, "failure.txt"), String(error) + "\n" + session.output);
   throw error;
 } finally {
+  try {
+    for (const entry of fs.readdirSync(session.home, { recursive: true })) {
+      const name = String(entry);
+      if (name.endsWith(".log") || name.includes("crash")) {
+        const source = path.join(session.home, name);
+        if (!fs.statSync(source).isFile()) continue;
+        const target = path.join(output, "diagnostics", name);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.copyFileSync(source, target);
+      }
+    }
+  } catch (error) {
+    fs.writeFileSync(path.join(output, "diagnostics-error.txt"), String(error));
+  }
   await session.close();
   fs.writeFileSync(path.join(output, "cleanup.json"), JSON.stringify({ clean: true }) + "\n");
   await release();

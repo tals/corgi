@@ -1,33 +1,33 @@
-# Local daemon: bandwidth and CPU at 4, 8, and 32 agents
+# Local transport: before and after WebSockets
 
-Production Corgi at `a49dd498`, uncompressed WS over Unix sockets. One viewer, one visible pane; other agents remain running in background tabs.
+Before: `6c9cafb3` (raw streams). After: `a49dd498` (uncompressed WebSockets over Unix sockets). Production builds use identical Bun and native code.
 
-**Reliability finding:** the daemon exited unexpectedly during one original 32-agent trial. The cause is unresolved; its initial cleanup removed the daemon log. A full rerun passed with log retention enabled. The aborted attempt is archived under `matrix/failures/` and excluded from the table; [the summary](evidence/summary.json) records the replacement and continuation.
+2 samples per build and agent count, reversing build order. Entries are **before → after** means, using the first valid window per scenario. CPU is percent of one core; traffic is actual socket **kB/s, both directions**, including framing. One visible pane.
 
-Three-trial medians. CPU is **percent of one core** (100% = one fully occupied logical core), including every thread. Traffic is **kB/s, both directions combined**, including WS framing. Provider/inference CPU is excluded.
+| Agents | Workload | Daemon CPU % | Viewer CPU % | Traffic kB/s |
+| ---: | --- | ---: | ---: | ---: |
+| 4 | Idle | 2.73 → 3.00 | 4.67 → 5.73 | 2.34 → 2.45 |
+| 4 | Mixed | 7.37 → 7.57 | 12.43 → 12.57 | 223.81 → 221.86 |
+| 4 | Spammy | 7.30 → 7.63 | 11.17 → 11.33 | 223.87 → 224.01 |
+| 8 | Idle | 3.27 → 3.50 | 6.23 → 5.90 | 2.30 → 2.29 |
+| 8 | Mixed | 9.37 → 9.43 | 13.97 → 13.90 | 223.83 → 224.07 |
+| 8 | Spammy | 12.13 → 12.37 | 12.57 → 12.90 | 224.35 → 224.12 |
+| 32 | Idle | 4.93 → 4.93 | 6.27 → 6.07 | 2.18 → 2.08 |
+| 32 | Mixed | 16.53 → 16.87 | 14.63 → 14.80 | 224.95 → 224.02 |
+| 32 | Spammy | 24.10 → 24.27 | 15.00 → 15.87 | 223.88 → 249.85 |
 
-| Agents | Mix | Daemon CPU | Viewer CPU | Viewer↔daemon | Daemon CPU, detached |
-| ---: | --- | ---: | ---: | ---: | ---: |
-| 4 | Idle† | 2.60% | 4.40% | 2.86 | 1.90%† |
-| 4 | Mixed | 7.65% | 12.40% | 224.11 | 4.20% |
-| 4 | Spammy | 9.20% | 12.40% | 224.12 | 6.05% |
-| 8 | Idle | 3.15% | 4.80% | 2.81 | 2.25%† |
-| 8 | Mixed | 9.20% | 14.30% | 224.09 | 5.60%† |
-| 8 | Spammy | 13.40% | 13.20% | 224.09 | 9.35%† |
-| 32 | Idle† | 5.05% | 6.05% | 2.30 | 4.45%† |
-| 32 | Mixed† | 17.80% | 14.30% | 224.09 | 14.74% |
-| 32 | Spammy | 26.20% | 16.90% | 226.35 | 22.05% |
+**32-agent spammy traffic is variable:** the two primary WebSocket samples were 223.99 and 275.70 kB/s. The higher sample remains in the mean; the longer follow-up below checks whether it persists.
 
-**Mixed = half idle, one quarter light, one quarter spammy.** Light is one row at 2 Hz. Spammy is 16 colored lines per burst at 20 Hz (320 lines/s, 42.88 kB/s per agent). The mixed rows above focus a spammy tab. All-idle agents emit zero terminal output; Corgi's normal animation/resource work stays enabled.
+Mixed = 50% idle, 25% light (one row at 2 Hz), 25% spammy (16 colored lines at 20 Hz); a spammy tab is visible. Spammy = every agent produces 42.88 kB/s. Idle retains normal Corgi animation/resource work.
 
-**Hidden output is much cheaper on the wire.** With the same mixed agents running but an idle foreground tab, traffic is **2.99 kB/s at 4 agents**, **3.03 kB/s at 8 agents**, **2.53 kB/s at 32 agents**. Detached viewers send/receive zero bytes; internal worker notifications are counted separately.
+[Paired differences, ranges and direction splits](comparison-evidence/summary.json) · [Raw receipts and exact harness](comparison-evidence/raw.tar.gz) · [Independent audit](comparison-evidence/audit.json) · [Reproduction](comparison-playbook.md)
 
-[Trial medians, ranges, direction splits and CPU controls](evidence/summary.json) · [All measured windows](evidence/trials.json.gz) · [Raw kernel/producer/presentation evidence](evidence/raw.tar.gz) · [Reproduction playbook](playbook.md)
+CPU was measured without tracing; bandwidth used separate kernel-counter windows. 68/132 windows crossed the host-noise flag; all valid windows are retained, with extra retries reported separately. Small differences remain uncertain on this shared host.
 
-† 11/66 windows crossed the host-noise flag; all completed windows remain included. [Ranges, tracing controls and accounting limits](details.md).
+2 attempts failed validity checks and required repeats. Earlier valid windows remain in the table; the failure records are retained. [Diagnostics](comparison-details.md).
 
-Without tracing, the 32-spammy-agent CPU medians were **25.70% daemon + 15.45% viewer**. The table consistently uses traced windows.
+A detached attempt recorded overlapping PTY-write stalls across 32 producers: 0.59–0.63 s. The cause remains unresolved.
 
-These are synthetic terminal workloads with minimal provider transcripts. Growing conversation histories, real model/provider integration work, multiple visible panes and terminal-emulator CPU are outside this measurement. [Exact workload and playbook](playbook.md).
+**Long 32-agent spammy check (60 s): 238.65 → 234.04 kB/s.** This follow-up is separate from the short-window means above; the original observations are retained.
 
-[Independent receipt audit](evidence/audit.json) checks the kernel totals, producer output and visible progress.
+[Detached/quiet-tab controls and limitations](comparison-details.md) · [Earlier current-only results and unresolved daemon exit](CURRENT_ONLY.md)

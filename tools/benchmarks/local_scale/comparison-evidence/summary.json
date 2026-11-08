@@ -1,0 +1,5659 @@
+{
+  "outlier": [
+    {
+      "side": "before",
+      "source": "n32-p0-before/results.json",
+      "seconds": 5.0,
+      "downstream_writes": 216,
+      "upstream_writes": 113,
+      "mean_upstream_bytes_per_write": 116.0,
+      "protocol_Bps": 223998.8,
+      "producer_Bps": 1372160,
+      "terminal_Bps": 34853.037869229374
+    },
+    {
+      "side": "after",
+      "source": "failures/n32-p0-after-attempt1/results.json",
+      "seconds": 5.0,
+      "downstream_writes": 262,
+      "upstream_writes": 136,
+      "mean_upstream_bytes_per_write": 122.0,
+      "protocol_Bps": 275701.8,
+      "producer_Bps": 1372160,
+      "terminal_Bps": 86537.88551304604
+    }
+  ],
+  "long_spammy": {
+    "plan": {
+      "created_utc": "2026-11-08T16:56:31.944756+00:00",
+      "parent_plan_sha256": "c4d300df494cf92690b06300e0e929f45e96b959d1c43d5c7bbb1d4c993f7dec",
+      "script_sha256": "ab251c0a7626f927caddfcb9ac538370c3ac941977c684850ae3177fe743fde4",
+      "order": [
+        "before",
+        "after"
+      ],
+      "agents": 32,
+      "cpu_seconds": 20,
+      "bandwidth_seconds": 60,
+      "warmup_seconds": 5,
+      "purpose": "Check persistence of the short-window traffic outlier; retain the original observation regardless of outcome."
+    },
+    "results": {
+      "before": {
+        "daemon_cpu": 26.499330911768975,
+        "viewer_cpu": 16.049594759769512,
+        "protocol_Bps": 238652.9,
+        "producer_Bps": 1372160,
+        "presentation": {
+          "hz": 20.33434374687411,
+          "max_gap_ms": 77.06064199999673
+        },
+        "source": "long-spammy/before/results.json"
+      },
+      "after": {
+        "daemon_cpu": 26.350733543815174,
+        "viewer_cpu": 16.800467686379314,
+        "protocol_Bps": 234039.28333333333,
+        "producer_Bps": 1372160,
+        "presentation": {
+          "hz": 20.02568393425467,
+          "max_gap_ms": 59.08632800000487
+        },
+        "source": "long-spammy/after/results.json"
+      }
+    }
+  },
+  "analysis_policy": {
+    "utc": "2026-11-08T16:46:52.680659+00:00",
+    "policy": "For each planned agent count, pair, side, and scenario, use the earliest window that passed the original workload/cadence/presentation checks. Retain valid windows from subsequently aborted attempts. Use later whole-run retries only to fill missing/invalid scenarios; retain all other valid windows as supplementary evidence.",
+    "amends": "Original whole-attempt exclusion rule",
+    "reason": "A later detached source-rate failure must not remove an earlier valid 275.7 kB/s attached result. Applying the same first-valid rule to every scenario and both sides prevents performance-based selection.",
+    "known_attempts": 2
+  },
+  "additional_valid_windows": 15,
+  "continuations": [
+    {
+      "name": "n32-p0-before",
+      "archive": "failures/n32-p0-before-attempt1",
+      "failure": "Error: ProducerCadence: lane 2: 0",
+      "reason": "One baseline producer recorded zero writes in an active five-second sample; daemon stayed alive. Exclude the invalid workload attempt in full and retry unchanged, retaining full producer receipts for diagnosis.",
+      "utc": "2026-11-08T16:31:24.569203+00:00",
+      "resume_script_sha256": "75c7de9e89291bf26aa68bbc454cfb2e3eb6cc7c0d87be53333d84660dcd8247",
+      "plan_sha256": "c4d300df494cf92690b06300e0e929f45e96b959d1c43d5c7bbb1d4c993f7dec",
+      "policy": "Exclude entire failed attempt; rerun identical inputs. Retain stopped homes/producer receipts for diagnosis."
+    },
+    {
+      "name": "n32-p0-after",
+      "archive": "failures/n32-p0-after-attempt1",
+      "failure": "Error: ProducerCadence: lane 0: 289",
+      "reason": "All 32 producers stalled for roughly 0.6 seconds inside synchronous PTY writes during detached spammy, falling below the required source rate. Preserve the entire failed attempt, including its earlier 275.7 kB/s attached sample, and retry the full trial unchanged.",
+      "utc": "2026-11-08T16:42:51.488557+00:00",
+      "resume_script_sha256": "75c7de9e89291bf26aa68bbc454cfb2e3eb6cc7c0d87be53333d84660dcd8247",
+      "plan_sha256": "c4d300df494cf92690b06300e0e929f45e96b959d1c43d5c7bbb1d4c993f7dec",
+      "policy": "Exclude entire failed attempt; rerun identical inputs. Retain stopped homes/producer receipts for diagnosis."
+    }
+  ],
+  "cpu_unit": "percent of one logical core, all process threads, user+system; differences in percentage points",
+  "bandwidth_unit": "bytes/second accepted on actual viewer-daemon Unix sockets, both directions, including framing",
+  "environment": {
+    "before": {
+      "cpu_windows": 42,
+      "flagged_cpu_windows": 29,
+      "cpu_window_sibling_busy": {
+        "mean": 0.058319255895353354,
+        "minimum": 0.0033422459893048127,
+        "maximum": 0.2653333333333333,
+        "values": [
+          0.01801200800533689,
+          0.02406417112299465,
+          0.030080213903743314,
+          0.12758851035404142,
+          0.06466666666666666,
+          0.07543391188251002,
+          0.04222520107238606,
+          0.011348464619492658,
+          0.025350233488992662,
+          0.022044088176352707,
+          0.08277703604806408,
+          0.06866666666666667,
+          0.1375166889185581,
+          0.051333333333333335,
+          0.06804536357571714,
+          0.086,
+          0.09157754010695188,
+          0.062082777036048066,
+          0.2653333333333333,
+          0.2601734489659773,
+          0.09260493004663557,
+          0.026052104208416832,
+          0.01467645096731154,
+          0.00600400266844563,
+          0.009327115256495669,
+          0.058666666666666666,
+          0.028724114896459586,
+          0.01067378252168112,
+          0.05744822979291917,
+          0.06216577540106952,
+          0.25752508361204013,
+          0.016150740242261104,
+          0.025384101536406144,
+          0.0033422459893048127,
+          0.009352037408149633,
+          0.08411843876177658,
+          0.024,
+          0.007412398921832884,
+          0.004672897196261682,
+          0.004669779853235491,
+          0.009421265141318977,
+          0.022696929238985315
+        ]
+      }
+    },
+    "after": {
+      "cpu_windows": 42,
+      "flagged_cpu_windows": 16,
+      "cpu_window_sibling_busy": {
+        "mean": 0.025442368573457656,
+        "minimum": 0.0013333333333333333,
+        "maximum": 0.12208138759172782,
+        "values": [
+          0.010666666666666666,
+          0.024699599465954607,
+          0.11666666666666667,
+          0.12208138759172782,
+          0.01801200800533689,
+          0.025418060200668897,
+          0.10193204530313124,
+          0.032021347565043365,
+          0.08149632598530394,
+          0.07009345794392523,
+          0.020708082832331328,
+          0.01734489659773182,
+          0.018,
+          0.009327115256495669,
+          0.0266844563042028,
+          0.0013333333333333333,
+          0.004,
+          0.004679144385026738,
+          0.011325782811459028,
+          0.0020013342228152103,
+          0.0020026702269692926,
+          0.00600400266844563,
+          0.011333333333333334,
+          0.004666666666666667,
+          0.0066711140760507,
+          0.014705882352941176,
+          0.009358288770053475,
+          0.014686248331108143,
+          0.006,
+          0.0053404539385847796,
+          0.019346230820547032,
+          0.04752342704149933,
+          0.03938584779706275,
+          0.03473613894455578,
+          0.04269513008672448,
+          0.00600400266844563,
+          0.004010695187165776,
+          0.011447811447811448,
+          0.004669779853235491,
+          0.025418060200668897,
+          0.027406417112299464,
+          0.006675567423230975
+        ]
+      }
+    }
+  },
+  "cadence": {
+    "before": {
+      "hz": {
+        "mean": 20.030511623091567,
+        "minimum": 19.668957300321313,
+        "maximum": 20.335580848843005,
+        "values": [
+          20.00323198220106,
+          20.000884765805445,
+          20.001817465144082,
+          20.001757607779,
+          20.002408096578243,
+          19.999776342501164,
+          20.002614568420448,
+          20.00116894831801,
+          20.00341387596134,
+          20.002289175319518,
+          20.02385834712506,
+          19.999388712017435,
+          20.00179630132044,
+          20.00093755728196,
+          20.001782552193824,
+          20.002094492655306,
+          20.33426183639729,
+          20.001567036103765,
+          20.335580848843005,
+          19.668957300321313,
+          20.003022570060793,
+          20.00198529705068,
+          20.335179388031833,
+          20.002503886766583
+        ]
+      },
+      "max_gap_ms": 127.61817400000291
+    },
+    "after": {
+      "hz": {
+        "mean": 20.029463081188453,
+        "minimum": 19.334570674963125,
+        "maximum": 20.33734585099503,
+        "values": [
+          19.999458048019257,
+          20.00142496818617,
+          20.001637367370936,
+          20.00145005179153,
+          19.334570674963125,
+          20.33734585099503,
+          20.001215773900796,
+          20.000613438814792,
+          20.002195887736292,
+          20.00140323177934,
+          20.00190234092782,
+          20.001522375872554,
+          20.00177522422371,
+          20.002939918759278,
+          20.000487551885037,
+          19.998917378606613,
+          20.334859783139574,
+          20.00226100891247,
+          20.335051753660107,
+          20.33667871698235,
+          20.002103794607656,
+          20.001377661557715,
+          20.001258839228782,
+          20.004662306601965
+        ]
+      },
+      "max_gap_ms": 126.97504800000024
+    }
+  },
+  "schema": "local-transport-comparison-v1",
+  "builds": {
+    "before": {
+      "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi-before-ws",
+      "sha256": "03a2d4c1ea2b05ef74c75a76c4cf7dc92b80e45f61d9fbf61d74e7a175845f4f",
+      "build": {
+        "builtAt": "2026-11-08T15:44:25.101Z",
+        "target": "linux-x64",
+        "bunVersion": "1.4.4",
+        "testBuild": false,
+        "releaseVersion": "0.1.0-dev",
+        "releaseCommit": "6c9cafb3939d076fd25854dfbb9be2a61d229839",
+        "sha256": "03a2d4c1ea2b05ef74c75a76c4cf7dc92b80e45f61d9fbf61d74e7a175845f4f",
+        "sourceSHA256": "1c4a7fa393bbb4428c4d7dcd71fe04f2d390a390f12bb52344d3a29191da27eb",
+        "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+        "inputsSHA256": "cef0420953b30a612a780288b036af30c85758f1feb0296f7870d61c89a60358"
+      }
+    },
+    "after": {
+      "binary": "/home/t/dev/personal/corgi-remote-network-eval/dist/corgi",
+      "sha256": "59303250325a0df3d8fe791e2cbc814d475c9f820775b8c143a809eb1c8c396e",
+      "build": {
+        "builtAt": "2026-11-08T14:33:20.811Z",
+        "target": "linux-x64",
+        "bunVersion": "1.4.4",
+        "testBuild": false,
+        "releaseVersion": "0.1.0-dev",
+        "releaseCommit": "a49dd498a3274acd728f3b39228facd4810aa4c9",
+        "sha256": "59303250325a0df3d8fe791e2cbc814d475c9f820775b8c143a809eb1c8c396e",
+        "sourceSHA256": "df0eca15c27bb2ed7fec71fa96b3c65fe286f9997ba8f1deecf7af9dc3d9f8b2",
+        "nativeSHA256": "97781b80b6f5d271e0e1e3b8cf39c36871c647670b758c5d745f333e83b624a7",
+        "inputsSHA256": "1ede83513509020eb117626fa51a0e12055c4efe4376ecbe52a5c2132f56a005"
+      }
+    }
+  },
+  "arguments": {
+    "output": "/home/t/dev/personal/corgi-remote-network-eval/dist/local-compare-20261108",
+    "before": "dist/corgi-before-ws",
+    "after": "dist/corgi",
+    "placement": "/tmp/local-compare-placement3-20261108.json",
+    "seconds": 15,
+    "bandwidth_seconds": 5,
+    "warmup": 5,
+    "pairs": 2,
+    "counts": "4,8,32",
+    "allow_noisy_placement": true
+  },
+  "order": [
+    {
+      "name": "n4-p0-before",
+      "agents": 4,
+      "pair": 0,
+      "side": "before"
+    },
+    {
+      "name": "n4-p0-after",
+      "agents": 4,
+      "pair": 0,
+      "side": "after"
+    },
+    {
+      "name": "n4-p1-after",
+      "agents": 4,
+      "pair": 1,
+      "side": "after"
+    },
+    {
+      "name": "n4-p1-before",
+      "agents": 4,
+      "pair": 1,
+      "side": "before"
+    },
+    {
+      "name": "n8-p0-before",
+      "agents": 8,
+      "pair": 0,
+      "side": "before"
+    },
+    {
+      "name": "n8-p0-after",
+      "agents": 8,
+      "pair": 0,
+      "side": "after"
+    },
+    {
+      "name": "n8-p1-after",
+      "agents": 8,
+      "pair": 1,
+      "side": "after"
+    },
+    {
+      "name": "n8-p1-before",
+      "agents": 8,
+      "pair": 1,
+      "side": "before"
+    },
+    {
+      "name": "n32-p0-before",
+      "agents": 32,
+      "pair": 0,
+      "side": "before"
+    },
+    {
+      "name": "n32-p0-after",
+      "agents": 32,
+      "pair": 0,
+      "side": "after"
+    },
+    {
+      "name": "n32-p1-after",
+      "agents": 32,
+      "pair": 1,
+      "side": "after"
+    },
+    {
+      "name": "n32-p1-before",
+      "agents": 32,
+      "pair": 1,
+      "side": "before"
+    }
+  ],
+  "placement": {
+    "node": 0,
+    "cpus": "8,9,10,11,12,13,14,15",
+    "siblings": [
+      136,
+      137,
+      138,
+      139,
+      140,
+      141,
+      142,
+      143
+    ],
+    "l3_id": "1",
+    "worst_mean": 0.023053792181757436,
+    "noisy_host": true,
+    "reason": "No candidate passed 2%; least busy selected before paired measurements"
+  },
+  "rows": [
+    {
+      "agents": 4,
+      "name": "attached-idle",
+      "metrics": {
+        "daemon_cpu": {
+          "before": {
+            "mean": 2.733004082822433,
+            "minimum": 1.9328001125671317,
+            "maximum": 3.533208053077735,
+            "values": [
+              3.533208053077735,
+              1.9328001125671317
+            ]
+          },
+          "after": {
+            "mean": 2.9998371943036686,
+            "minimum": 2.3999282429455118,
+            "maximum": 3.599746145661825,
+            "values": [
+              3.599746145661825,
+              2.3999282429455118
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.2668331114812351,
+            "minimum": 0.06653809258409016,
+            "maximum": 0.4671281303783801,
+            "values": [
+              0.06653809258409016,
+              0.4671281303783801
+            ]
+          },
+          "relative_change_percent": 9.763363075757692
+        },
+        "viewer_cpu": {
+          "before": {
+            "mean": 4.666156704569994,
+            "minimum": 2.8658760289788505,
+            "maximum": 6.466437380161137,
+            "values": [
+              6.466437380161137,
+              2.8658760289788505
+            ]
+          },
+          "after": {
+            "mean": 5.733012987191975,
+            "minimum": 4.133209751739493,
+            "maximum": 7.332816222644458,
+            "values": [
+              7.332816222644458,
+              4.133209751739493
+            ]
+          },
+          "paired_difference": {
+            "mean": 1.0668562826219814,
+            "minimum": 0.8663788424833205,
+            "maximum": 1.2673337227606423,
+            "values": [
+              0.8663788424833205,
+              1.2673337227606423
+            ]
+          },
+          "relative_change_percent": 22.86370454676565
+        },
+        "combined_cpu": {
+          "before": {
+            "mean": 7.399160787392427,
+            "minimum": 4.798676141545982,
+            "maximum": 9.999645433238872,
+            "values": [
+              9.999645433238872,
+              4.798676141545982
+            ]
+          },
+          "after": {
+            "mean": 8.732850181495643,
+            "minimum": 6.533137994685005,
+            "maximum": 10.932562368306282,
+            "values": [
+              10.932562368306282,
+              6.533137994685005
+            ]
+          },
+          "paired_difference": {
+            "mean": 1.3336893941032164,
+            "minimum": 0.9329169350674107,
+            "maximum": 1.7344618531390221,
+            "values": [
+              0.9329169350674107,
+              1.7344618531390221
+            ]
+          },
+          "relative_change_percent": 18.024873798873454
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 265.9956999411638,
+            "minimum": 234.60194469780356,
+            "maximum": 297.389455184524,
+            "values": [
+              297.389455184524,
+              234.60194469780356
+            ]
+          },
+          "after": {
+            "mean": 372.21376664970967,
+            "minimum": 328.9901633037806,
+            "maximum": 415.43736999563873,
+            "values": [
+              415.43736999563873,
+              328.9901633037806
+            ]
+          },
+          "paired_difference": {
+            "mean": 106.21806670854588,
+            "minimum": 94.38821860597704,
+            "maximum": 118.04791481111471,
+            "values": [
+              118.04791481111471,
+              94.38821860597704
+            ]
+          },
+          "relative_change_percent": 39.93224955592909
+        },
+        "provider_cpu_percent": {
+          "before": {
+            "mean": 0.16666075722064785,
+            "minimum": 0,
+            "maximum": 0.3333215144412957,
+            "values": [
+              0.3333215144412957,
+              0
+            ]
+          },
+          "after": {
+            "mean": 0.26664921651899115,
+            "minimum": 0.06666467341515311,
+            "maximum": 0.46663375962282916,
+            "values": [
+              0.46663375962282916,
+              0.06666467341515311
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.09998845929834328,
+            "minimum": 0.06666467341515311,
+            "maximum": 0.13331224518153345,
+            "values": [
+              0.13331224518153345,
+              0.06666467341515311
+            ]
+          },
+          "relative_change_percent": 59.99520280948032
+        }
+      },
+      "sources": {
+        "before": [
+          "n4-p0-before/results.json",
+          "n4-p1-before/results.json"
+        ],
+        "after": [
+          "n4-p0-after/results.json",
+          "n4-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 4,
+      "name": "attached-idle-bandwidth",
+      "metrics": {
+        "protocol_Bps": {
+          "before": {
+            "mean": 2344.5,
+            "minimum": 2248.6,
+            "maximum": 2440.4,
+            "values": [
+              2248.6,
+              2440.4
+            ]
+          },
+          "after": {
+            "mean": 2451.4,
+            "minimum": 2408.8,
+            "maximum": 2494.0,
+            "values": [
+              2494.0,
+              2408.8
+            ]
+          },
+          "paired_difference": {
+            "mean": 106.90000000000009,
+            "minimum": -31.59999999999991,
+            "maximum": 245.4000000000001,
+            "values": [
+              245.4000000000001,
+              -31.59999999999991
+            ]
+          },
+          "relative_change_percent": 4.559607592237147
+        },
+        "daemon_to_viewer_Bps": {
+          "before": {
+            "mean": 1726.0,
+            "minimum": 1678.6,
+            "maximum": 1773.4,
+            "values": [
+              1678.6,
+              1773.4
+            ]
+          },
+          "after": {
+            "mean": 1764.6,
+            "minimum": 1731.2,
+            "maximum": 1798,
+            "values": [
+              1798,
+              1731.2
+            ]
+          },
+          "paired_difference": {
+            "mean": 38.60000000000002,
+            "minimum": -42.200000000000045,
+            "maximum": 119.40000000000009,
+            "values": [
+              119.40000000000009,
+              -42.200000000000045
+            ]
+          },
+          "relative_change_percent": 2.236384704519123
+        },
+        "viewer_to_daemon_Bps": {
+          "before": {
+            "mean": 618.5,
+            "minimum": 570,
+            "maximum": 667,
+            "values": [
+              570,
+              667
+            ]
+          },
+          "after": {
+            "mean": 686.8,
+            "minimum": 677.6,
+            "maximum": 696,
+            "values": [
+              696,
+              677.6
+            ]
+          },
+          "paired_difference": {
+            "mean": 68.30000000000001,
+            "minimum": 10.600000000000023,
+            "maximum": 126,
+            "values": [
+              126,
+              10.600000000000023
+            ]
+          },
+          "relative_change_percent": 11.04284559417945
+        },
+        "producer_Bps": {
+          "before": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "after": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "paired_difference": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "relative_change_percent": null
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 64.25284775211401,
+            "minimum": 0,
+            "maximum": 128.50569550422802,
+            "values": [
+              0,
+              128.50569550422802
+            ]
+          },
+          "after": {
+            "mean": 521.8337556024612,
+            "minimum": 339.49935190514,
+            "maximum": 704.1681592997825,
+            "values": [
+              339.49935190514,
+              704.1681592997825
+            ]
+          },
+          "paired_difference": {
+            "mean": 457.5809078503472,
+            "minimum": 339.49935190514,
+            "maximum": 575.6624637955545,
+            "values": [
+              339.49935190514,
+              575.6624637955545
+            ]
+          },
+          "relative_change_percent": 712.156618513912
+        }
+      },
+      "sources": {
+        "before": [
+          "n4-p0-before/results.json",
+          "n4-p1-before/results.json"
+        ],
+        "after": [
+          "n4-p0-after/results.json",
+          "n4-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 4,
+      "name": "attached-mixed",
+      "metrics": {
+        "daemon_cpu": {
+          "before": {
+            "mean": 7.366790261580041,
+            "minimum": 6.933468561392998,
+            "maximum": 7.800111961767084,
+            "values": [
+              6.933468561392998,
+              7.800111961767084
+            ]
+          },
+          "after": {
+            "mean": 7.567092662413912,
+            "minimum": 7.133716872865191,
+            "maximum": 8.000468451962632,
+            "values": [
+              7.133716872865191,
+              8.000468451962632
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.20030240083387074,
+            "minimum": 0.20024831147219313,
+            "maximum": 0.20035649019554835,
+            "values": [
+              0.20024831147219313,
+              0.20035649019554835
+            ]
+          },
+          "relative_change_percent": 2.7189914972672202
+        },
+        "viewer_cpu": {
+          "before": {
+            "mean": 12.43354132882363,
+            "minimum": 11.466890313073035,
+            "maximum": 13.400192344574222,
+            "values": [
+              11.466890313073035,
+              13.400192344574222
+            ]
+          },
+          "after": {
+            "mean": 12.56737363135484,
+            "minimum": 12.067315457837381,
+            "maximum": 13.0674318048723,
+            "values": [
+              12.067315457837381,
+              13.0674318048723
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.1338323025312116,
+            "minimum": -0.33276053970192265,
+            "maximum": 0.6004251447643458,
+            "values": [
+              0.6004251447643458,
+              -0.33276053970192265
+            ]
+          },
+          "relative_change_percent": 1.0763812094383596
+        },
+        "combined_cpu": {
+          "before": {
+            "mean": 19.80033159040367,
+            "minimum": 18.400358874466033,
+            "maximum": 21.200304306341305,
+            "values": [
+              18.400358874466033,
+              21.200304306341305
+            ]
+          },
+          "after": {
+            "mean": 20.134466293768753,
+            "minimum": 19.201032330702574,
+            "maximum": 21.067900256834932,
+            "values": [
+              19.201032330702574,
+              21.067900256834932
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.3341347033650841,
+            "minimum": -0.1324040495063734,
+            "maximum": 0.8006734562365416,
+            "values": [
+              0.8006734562365416,
+              -0.1324040495063734
+            ]
+          },
+          "relative_change_percent": 1.6875207460011588
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 29861.705782288413,
+            "minimum": 29760.560512450855,
+            "maximum": 29962.85105212597,
+            "values": [
+              29962.85105212597,
+              29760.560512450855
+            ]
+          },
+          "after": {
+            "mean": 29849.043187913805,
+            "minimum": 29749.732807884593,
+            "maximum": 29948.35356794302,
+            "values": [
+              29749.732807884593,
+              29948.35356794302
+            ]
+          },
+          "paired_difference": {
+            "mean": -12.66259437460576,
+            "minimum": -213.1182442413774,
+            "maximum": 187.79305549216588,
+            "values": [
+              -213.1182442413774,
+              187.79305549216588
+            ]
+          },
+          "relative_change_percent": -0.04240412274812977
+        },
+        "provider_cpu_percent": {
+          "before": {
+            "mean": 0.8666808235211307,
+            "minimum": 0.6666796693647113,
+            "maximum": 1.06668197767755,
+            "values": [
+              0.6666796693647113,
+              1.06668197767755
+            ]
+          },
+          "after": {
+            "mean": 0.7333749976242449,
+            "minimum": 0.5333620091861826,
+            "maximum": 0.9333879860623071,
+            "values": [
+              0.5333620091861826,
+              0.9333879860623071
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.13330582589688583,
+            "minimum": -0.13331766017852875,
+            "maximum": -0.1332939916152429,
+            "values": [
+              -0.13331766017852875,
+              -0.1332939916152429
+            ]
+          },
+          "relative_change_percent": -15.381190200481655
+        }
+      },
+      "sources": {
+        "before": [
+          "n4-p0-before/results.json",
+          "n4-p1-before/results.json"
+        ],
+        "after": [
+          "n4-p0-after/results.json",
+          "n4-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 4,
+      "name": "attached-mixed-bandwidth",
+      "metrics": {
+        "protocol_Bps": {
+          "before": {
+            "mean": 223812.3,
+            "minimum": 223714.2,
+            "maximum": 223910.4,
+            "values": [
+              223714.2,
+              223910.4
+            ]
+          },
+          "after": {
+            "mean": 221858.4,
+            "minimum": 219737.8,
+            "maximum": 223979.0,
+            "values": [
+              223979.0,
+              219737.8
+            ]
+          },
+          "paired_difference": {
+            "mean": -1953.9000000000087,
+            "minimum": -4172.600000000006,
+            "maximum": 264.79999999998836,
+            "values": [
+              264.79999999998836,
+              -4172.600000000006
+            ]
+          },
+          "relative_change_percent": -0.8730083199180672
+        },
+        "daemon_to_viewer_Bps": {
+          "before": {
+            "mean": 221219.8,
+            "minimum": 221128.2,
+            "maximum": 221311.4,
+            "values": [
+              221128.2,
+              221311.4
+            ]
+          },
+          "after": {
+            "mean": 219154.1,
+            "minimum": 217051.6,
+            "maximum": 221256.6,
+            "values": [
+              221256.6,
+              217051.6
+            ]
+          },
+          "paired_difference": {
+            "mean": -2065.699999999997,
+            "minimum": -4259.799999999988,
+            "maximum": 128.39999999999418,
+            "values": [
+              128.39999999999418,
+              -4259.799999999988
+            ]
+          },
+          "relative_change_percent": -0.9337771754607815
+        },
+        "viewer_to_daemon_Bps": {
+          "before": {
+            "mean": 2592.5,
+            "minimum": 2586,
+            "maximum": 2599,
+            "values": [
+              2586,
+              2599
+            ]
+          },
+          "after": {
+            "mean": 2704.3,
+            "minimum": 2686.2,
+            "maximum": 2722.4,
+            "values": [
+              2722.4,
+              2686.2
+            ]
+          },
+          "paired_difference": {
+            "mean": 111.79999999999995,
+            "minimum": 87.19999999999982,
+            "maximum": 136.4000000000001,
+            "values": [
+              136.4000000000001,
+              87.19999999999982
+            ]
+          },
+          "relative_change_percent": 4.312439729990358
+        },
+        "producer_Bps": {
+          "before": {
+            "mean": 43148,
+            "minimum": 43148,
+            "maximum": 43148,
+            "values": [
+              43148,
+              43148
+            ]
+          },
+          "after": {
+            "mean": 43148,
+            "minimum": 43148,
+            "maximum": 43148,
+            "values": [
+              43148,
+              43148
+            ]
+          },
+          "paired_difference": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "relative_change_percent": 0.0
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 29763.455339571985,
+            "minimum": 29710.906724378106,
+            "maximum": 29816.003954765863,
+            "values": [
+              29816.003954765863,
+              29710.906724378106
+            ]
+          },
+          "after": {
+            "mean": 29495.19743735627,
+            "minimum": 29430.01019362898,
+            "maximum": 29560.384681083564,
+            "values": [
+              29560.384681083564,
+              29430.01019362898
+            ]
+          },
+          "paired_difference": {
+            "mean": -268.25790221571333,
+            "minimum": -280.8965307491271,
+            "maximum": -255.61927368229954,
+            "values": [
+              -255.61927368229954,
+              -280.8965307491271
+            ]
+          },
+          "relative_change_percent": -0.9012995942680568
+        }
+      },
+      "sources": {
+        "before": [
+          "n4-p0-before/results.json",
+          "n4-p1-before/results.json"
+        ],
+        "after": [
+          "n4-p0-after/results.json",
+          "n4-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 4,
+      "name": "attached-mixed-quiet-focus",
+      "metrics": {
+        "daemon_cpu": {
+          "before": {
+            "mean": 4.033413013704872,
+            "minimum": 3.999920128528228,
+            "maximum": 4.066905898881517,
+            "values": [
+              3.999920128528228,
+              4.066905898881517
+            ]
+          },
+          "after": {
+            "mean": 3.9331070144643094,
+            "minimum": 3.7995804315841477,
+            "maximum": 4.066633597344471,
+            "values": [
+              3.7995804315841477,
+              4.066633597344471
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.10030599924056305,
+            "minimum": -0.20033969694408027,
+            "maximum": -0.00027230153704582705,
+            "values": [
+              -0.20033969694408027,
+              -0.00027230153704582705
+            ]
+          },
+          "relative_change_percent": -2.4868764716070357
+        },
+        "viewer_cpu": {
+          "before": {
+            "mean": 8.033485480125833,
+            "minimum": 7.93380003224427,
+            "maximum": 8.133170928007397,
+            "values": [
+              8.133170928007397,
+              7.93380003224427
+            ]
+          },
+          "after": {
+            "mean": 7.599546121377414,
+            "minimum": 7.533272073769266,
+            "maximum": 7.665820168985562,
+            "values": [
+              7.665820168985562,
+              7.533272073769266
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.4339393587484195,
+            "minimum": -0.4673507590218353,
+            "maximum": -0.40052795847500366,
+            "values": [
+              -0.4673507590218353,
+              -0.40052795847500366
+            ]
+          },
+          "relative_change_percent": -5.401632452339012
+        },
+        "combined_cpu": {
+          "before": {
+            "mean": 12.066898493830706,
+            "minimum": 12.000705931125786,
+            "maximum": 12.133091056535624,
+            "values": [
+              12.133091056535624,
+              12.000705931125786
+            ]
+          },
+          "after": {
+            "mean": 11.532653135841723,
+            "minimum": 11.465400600569708,
+            "maximum": 11.599905671113738,
+            "values": [
+              11.465400600569708,
+              11.599905671113738
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.5342453579889819,
+            "minimum": -0.667690455965916,
+            "maximum": -0.4008002600120477,
+            "values": [
+              -0.667690455965916,
+              -0.4008002600120477
+            ]
+          },
+          "relative_change_percent": -4.427362658781952
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 2445.3517864976384,
+            "minimum": 2336.753339086191,
+            "maximum": 2553.9502339090864,
+            "values": [
+              2336.753339086191,
+              2553.9502339090864
+            ]
+          },
+          "after": {
+            "mean": 2658.9024981295374,
+            "minimum": 2530.7794200391936,
+            "maximum": 2787.0255762198813,
+            "values": [
+              2787.0255762198813,
+              2530.7794200391936
+            ]
+          },
+          "paired_difference": {
+            "mean": 213.55071163189882,
+            "minimum": -23.170813869892754,
+            "maximum": 450.2722371336904,
+            "values": [
+              450.2722371336904,
+              -23.170813869892754
+            ]
+          },
+          "relative_change_percent": 8.732923942111315
+        },
+        "provider_cpu_percent": {
+          "before": {
+            "mean": 0.5333410694115074,
+            "minimum": 0.4666941195437806,
+            "maximum": 0.5999880192792342,
+            "values": [
+              0.5999880192792342,
+              0.4666941195437806
+            ]
+          },
+          "after": {
+            "mean": 0.49997206854695286,
+            "minimum": 0.46661514072086024,
+            "maximum": 0.5333289963730454,
+            "values": [
+              0.46661514072086024,
+              0.5333289963730454
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.03336900086455455,
+            "minimum": -0.13337287855837393,
+            "maximum": 0.06663487682926483,
+            "values": [
+              -0.13337287855837393,
+              0.06663487682926483
+            ]
+          },
+          "relative_change_percent": -6.256596909248735
+        }
+      },
+      "sources": {
+        "before": [
+          "n4-p0-before/results.json",
+          "n4-p1-before/results.json"
+        ],
+        "after": [
+          "n4-p0-after/results.json",
+          "n4-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 4,
+      "name": "attached-mixed-quiet-focus-bandwidth",
+      "metrics": {
+        "protocol_Bps": {
+          "before": {
+            "mean": 2475.3,
+            "minimum": 2412.6,
+            "maximum": 2538.0,
+            "values": [
+              2538.0,
+              2412.6
+            ]
+          },
+          "after": {
+            "mean": 2604.0,
+            "minimum": 2603.0,
+            "maximum": 2605.0,
+            "values": [
+              2605.0,
+              2603.0
+            ]
+          },
+          "paired_difference": {
+            "mean": 128.70000000000005,
+            "minimum": 67.0,
+            "maximum": 190.4000000000001,
+            "values": [
+              67.0,
+              190.4000000000001
+            ]
+          },
+          "relative_change_percent": 5.199369773360796
+        },
+        "daemon_to_viewer_Bps": {
+          "before": {
+            "mean": 1785.3,
+            "minimum": 1722.6,
+            "maximum": 1848,
+            "values": [
+              1848,
+              1722.6
+            ]
+          },
+          "after": {
+            "mean": 1878,
+            "minimum": 1877,
+            "maximum": 1879,
+            "values": [
+              1879,
+              1877
+            ]
+          },
+          "paired_difference": {
+            "mean": 92.70000000000005,
+            "minimum": 31,
+            "maximum": 154.4000000000001,
+            "values": [
+              31,
+              154.4000000000001
+            ]
+          },
+          "relative_change_percent": 5.19240463787598
+        },
+        "viewer_to_daemon_Bps": {
+          "before": {
+            "mean": 690,
+            "minimum": 690,
+            "maximum": 690,
+            "values": [
+              690,
+              690
+            ]
+          },
+          "after": {
+            "mean": 726,
+            "minimum": 726,
+            "maximum": 726,
+            "values": [
+              726,
+              726
+            ]
+          },
+          "paired_difference": {
+            "mean": 36,
+            "minimum": 36,
+            "maximum": 36,
+            "values": [
+              36,
+              36
+            ]
+          },
+          "relative_change_percent": 5.217391304347818
+        },
+        "producer_Bps": {
+          "before": {
+            "mean": 43148,
+            "minimum": 43148,
+            "maximum": 43148,
+            "values": [
+              43148,
+              43148
+            ]
+          },
+          "after": {
+            "mean": 43148,
+            "minimum": 43148,
+            "maximum": 43148,
+            "values": [
+              43148,
+              43148
+            ]
+          },
+          "paired_difference": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "relative_change_percent": 0.0
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 2406.112097857347,
+            "minimum": 2119.322532023105,
+            "maximum": 2692.90166369159,
+            "values": [
+              2119.322532023105,
+              2692.90166369159
+            ]
+          },
+          "after": {
+            "mean": 2497.8649872749565,
+            "minimum": 2284.941823509385,
+            "maximum": 2710.7881510405277,
+            "values": [
+              2710.7881510405277,
+              2284.941823509385
+            ]
+          },
+          "paired_difference": {
+            "mean": 91.75288941760891,
+            "minimum": -407.95984018220497,
+            "maximum": 591.4656190174228,
+            "values": [
+              591.4656190174228,
+              -407.95984018220497
+            ]
+          },
+          "relative_change_percent": 3.8133256343009014
+        }
+      },
+      "sources": {
+        "before": [
+          "n4-p0-before/results.json",
+          "n4-p1-before/results.json"
+        ],
+        "after": [
+          "n4-p0-after/results.json",
+          "n4-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 4,
+      "name": "attached-spammy",
+      "metrics": {
+        "daemon_cpu": {
+          "before": {
+            "mean": 7.299814538813802,
+            "minimum": 7.2665414990360375,
+            "maximum": 7.333087578591567,
+            "values": [
+              7.333087578591567,
+              7.2665414990360375
+            ]
+          },
+          "after": {
+            "mean": 7.63338548326308,
+            "minimum": 7.600262216140035,
+            "maximum": 7.666508750386125,
+            "values": [
+              7.666508750386125,
+              7.600262216140035
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.3335709444492778,
+            "minimum": 0.33342117179455855,
+            "maximum": 0.3337207171039971,
+            "values": [
+              0.33342117179455855,
+              0.3337207171039971
+            ]
+          },
+          "relative_change_percent": 4.569581085596752
+        },
+        "viewer_cpu": {
+          "before": {
+            "mean": 11.16638365701786,
+            "minimum": 11.132960232952652,
+            "maximum": 11.199807081083067,
+            "values": [
+              11.132960232952652,
+              11.199807081083067
+            ]
+          },
+          "after": {
+            "mean": 11.333402941321905,
+            "minimum": 11.000379523360577,
+            "maximum": 11.666426359283234,
+            "values": [
+              11.666426359283234,
+              11.000379523360577
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.1670192843040459,
+            "minimum": -0.19942755772249043,
+            "maximum": 0.5334661263305822,
+            "values": [
+              0.5334661263305822,
+              -0.19942755772249043
+            ]
+          },
+          "relative_change_percent": 1.4957329913975803
+        },
+        "combined_cpu": {
+          "before": {
+            "mean": 18.46619819583166,
+            "minimum": 18.466047811544218,
+            "maximum": 18.466348580119103,
+            "values": [
+              18.466047811544218,
+              18.466348580119103
+            ]
+          },
+          "after": {
+            "mean": 18.966788424584983,
+            "minimum": 18.60064173950061,
+            "maximum": 19.332935109669357,
+            "values": [
+              19.332935109669357,
+              18.60064173950061
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.5005902287533228,
+            "minimum": 0.13429315938150665,
+            "maximum": 0.866887298125139,
+            "values": [
+              0.866887298125139,
+              0.13429315938150665
+            ]
+          },
+          "relative_change_percent": 2.7108461820057883
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 31791.253809341288,
+            "minimum": 31012.79913166573,
+            "maximum": 32569.708487016847,
+            "values": [
+              32569.708487016847,
+              31012.79913166573
+            ]
+          },
+          "after": {
+            "mean": 31296.413578211374,
+            "minimum": 31152.141444621837,
+            "maximum": 31440.685711800907,
+            "values": [
+              31440.685711800907,
+              31152.141444621837
+            ]
+          },
+          "paired_difference": {
+            "mean": -494.8402311299178,
+            "minimum": -1129.0227752159408,
+            "maximum": 139.34231295610516,
+            "values": [
+              -1129.0227752159408,
+              139.34231295610516
+            ]
+          },
+          "relative_change_percent": -1.5565294596355805
+        },
+        "provider_cpu_percent": {
+          "before": {
+            "mean": 1.633292712542624,
+            "minimum": 1.533281948250964,
+            "maximum": 1.733303476834284,
+            "values": [
+              1.533281948250964,
+              1.733303476834284
+            ]
+          },
+          "after": {
+            "mean": 1.8000125139131693,
+            "minimum": 1.7999629240036987,
+            "maximum": 1.8000621038226399,
+            "values": [
+              1.7999629240036987,
+              1.8000621038226399
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.1667198013705452,
+            "minimum": 0.06675862698835577,
+            "maximum": 0.26668097575273464,
+            "values": [
+              0.26668097575273464,
+              0.06675862698835577
+            ]
+          },
+          "relative_change_percent": 10.207588639209986
+        }
+      },
+      "sources": {
+        "before": [
+          "n4-p0-before/results.json",
+          "n4-p1-before/results.json"
+        ],
+        "after": [
+          "n4-p0-after/results.json",
+          "n4-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 4,
+      "name": "attached-spammy-bandwidth",
+      "metrics": {
+        "protocol_Bps": {
+          "before": {
+            "mean": 223871.0,
+            "minimum": 223770.6,
+            "maximum": 223971.4,
+            "values": [
+              223770.6,
+              223971.4
+            ]
+          },
+          "after": {
+            "mean": 224010.40000000002,
+            "minimum": 224005.6,
+            "maximum": 224015.2,
+            "values": [
+              224015.2,
+              224005.6
+            ]
+          },
+          "paired_difference": {
+            "mean": 139.40000000000873,
+            "minimum": 34.20000000001164,
+            "maximum": 244.60000000000582,
+            "values": [
+              244.60000000000582,
+              34.20000000001164
+            ]
+          },
+          "relative_change_percent": 0.06226800255504372
+        },
+        "daemon_to_viewer_Bps": {
+          "before": {
+            "mean": 221261.0,
+            "minimum": 221172.2,
+            "maximum": 221349.8,
+            "values": [
+              221172.2,
+              221349.8
+            ]
+          },
+          "after": {
+            "mean": 221277.59999999998,
+            "minimum": 221272.8,
+            "maximum": 221282.4,
+            "values": [
+              221282.4,
+              221272.8
+            ]
+          },
+          "paired_difference": {
+            "mean": 16.59999999999127,
+            "minimum": -77.0,
+            "maximum": 110.19999999998254,
+            "values": [
+              110.19999999998254,
+              -77.0
+            ]
+          },
+          "relative_change_percent": 0.0075024518555011355
+        },
+        "viewer_to_daemon_Bps": {
+          "before": {
+            "mean": 2610.0,
+            "minimum": 2598.4,
+            "maximum": 2621.6,
+            "values": [
+              2598.4,
+              2621.6
+            ]
+          },
+          "after": {
+            "mean": 2732.8,
+            "minimum": 2732.8,
+            "maximum": 2732.8,
+            "values": [
+              2732.8,
+              2732.8
+            ]
+          },
+          "paired_difference": {
+            "mean": 122.80000000000018,
+            "minimum": 111.20000000000027,
+            "maximum": 134.4000000000001,
+            "values": [
+              134.4000000000001,
+              111.20000000000027
+            ]
+          },
+          "relative_change_percent": 4.704980842911888
+        },
+        "producer_Bps": {
+          "before": {
+            "mean": 171734.4,
+            "minimum": 171520,
+            "maximum": 171948.8,
+            "values": [
+              171948.8,
+              171520
+            ]
+          },
+          "after": {
+            "mean": 171520,
+            "minimum": 171520,
+            "maximum": 171520,
+            "values": [
+              171520,
+              171520
+            ]
+          },
+          "paired_difference": {
+            "mean": -214.39999999999418,
+            "minimum": -428.79999999998836,
+            "maximum": 0,
+            "values": [
+              -428.79999999998836,
+              0
+            ]
+          },
+          "relative_change_percent": -0.12484394506866447
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 30975.59733303532,
+            "minimum": 30881.722696871744,
+            "maximum": 31069.471969198894,
+            "values": [
+              30881.722696871744,
+              31069.471969198894
+            ]
+          },
+          "after": {
+            "mean": 31228.952746158095,
+            "minimum": 31059.11942838779,
+            "maximum": 31398.786063928404,
+            "values": [
+              31398.786063928404,
+              31059.11942838779
+            ]
+          },
+          "paired_difference": {
+            "mean": 253.35541312277746,
+            "minimum": -10.352540811105428,
+            "maximum": 517.0633670566604,
+            "values": [
+              517.0633670566604,
+              -10.352540811105428
+            ]
+          },
+          "relative_change_percent": 0.8179193782732019
+        }
+      },
+      "sources": {
+        "before": [
+          "n4-p0-before/results.json",
+          "n4-p1-before/results.json"
+        ],
+        "after": [
+          "n4-p0-after/results.json",
+          "n4-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 4,
+      "name": "detached-idle",
+      "metrics": {
+        "daemon_cpu": {
+          "before": {
+            "mean": 1.9325092813871865,
+            "minimum": 1.931956523486494,
+            "maximum": 1.9330620392878792,
+            "values": [
+              1.9330620392878792,
+              1.931956523486494
+            ]
+          },
+          "after": {
+            "mean": 1.7325910017026769,
+            "minimum": 1.6654202995339293,
+            "maximum": 1.7997617038714242,
+            "values": [
+              1.7997617038714242,
+              1.6654202995339293
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.19991827968450981,
+            "minimum": -0.2665362239525646,
+            "maximum": -0.13330033541645503,
+            "values": [
+              -0.13330033541645503,
+              -0.2665362239525646
+            ]
+          },
+          "relative_change_percent": -10.345010065928639
+        },
+        "combined_cpu": {
+          "before": {
+            "mean": 1.9325092813871865,
+            "minimum": 1.931956523486494,
+            "maximum": 1.9330620392878792,
+            "values": [
+              1.9330620392878792,
+              1.931956523486494
+            ]
+          },
+          "after": {
+            "mean": 1.7325910017026769,
+            "minimum": 1.6654202995339293,
+            "maximum": 1.7997617038714242,
+            "values": [
+              1.7997617038714242,
+              1.6654202995339293
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.19991827968450981,
+            "minimum": -0.2665362239525646,
+            "maximum": -0.13330033541645503,
+            "values": [
+              -0.13330033541645503,
+              -0.2665362239525646
+            ]
+          },
+          "relative_change_percent": -10.345010065928639
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "after": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "paired_difference": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "relative_change_percent": null
+        },
+        "provider_cpu_percent": {
+          "before": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "after": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "paired_difference": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "relative_change_percent": null
+        }
+      },
+      "sources": {
+        "before": [
+          "n4-p0-before/results.json",
+          "n4-p1-before/results.json"
+        ],
+        "after": [
+          "n4-p0-after/results.json",
+          "n4-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 4,
+      "name": "detached-mixed",
+      "metrics": {
+        "daemon_cpu": {
+          "before": {
+            "mean": 3.8333395373295076,
+            "minimum": 3.7326406378467287,
+            "maximum": 3.9340384368122865,
+            "values": [
+              3.9340384368122865,
+              3.7326406378467287
+            ]
+          },
+          "after": {
+            "mean": 3.7335051725826123,
+            "minimum": 3.6668955110150976,
+            "maximum": 3.8001148341501274,
+            "values": [
+              3.8001148341501274,
+              3.6668955110150976
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.09983436474689511,
+            "minimum": -0.13392360266215908,
+            "maximum": -0.06574512683163114,
+            "values": [
+              -0.13392360266215908,
+              -0.06574512683163114
+            ]
+          },
+          "relative_change_percent": -2.6043705175264664
+        },
+        "combined_cpu": {
+          "before": {
+            "mean": 3.8333395373295076,
+            "minimum": 3.7326406378467287,
+            "maximum": 3.9340384368122865,
+            "values": [
+              3.9340384368122865,
+              3.7326406378467287
+            ]
+          },
+          "after": {
+            "mean": 3.7335051725826123,
+            "minimum": 3.6668955110150976,
+            "maximum": 3.8001148341501274,
+            "values": [
+              3.8001148341501274,
+              3.6668955110150976
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.09983436474689511,
+            "minimum": -0.13392360266215908,
+            "maximum": -0.06574512683163114,
+            "values": [
+              -0.13392360266215908,
+              -0.06574512683163114
+            ]
+          },
+          "relative_change_percent": -2.6043705175264664
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "after": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "paired_difference": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "relative_change_percent": null
+        },
+        "provider_cpu_percent": {
+          "before": {
+            "mean": 0.4666530411368923,
+            "minimum": 0.40007170543853765,
+            "maximum": 0.533234376835247,
+            "values": [
+              0.40007170543853765,
+              0.533234376835247
+            ]
+          },
+          "after": {
+            "mean": 0.5000236944450851,
+            "minimum": 0.466680769106156,
+            "maximum": 0.5333666197840141,
+            "values": [
+              0.466680769106156,
+              0.5333666197840141
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.03337065330819275,
+            "minimum": 0.00013224294876712506,
+            "maximum": 0.06660906366761837,
+            "values": [
+              0.06660906366761837,
+              0.00013224294876712506
+            ]
+          },
+          "relative_change_percent": 7.151063073947372
+        }
+      },
+      "sources": {
+        "before": [
+          "n4-p0-before/results.json",
+          "n4-p1-before/results.json"
+        ],
+        "after": [
+          "n4-p0-after/results.json",
+          "n4-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 4,
+      "name": "detached-spammy",
+      "metrics": {
+        "daemon_cpu": {
+          "before": {
+            "mean": 5.298445747491775,
+            "minimum": 5.06747213055121,
+            "maximum": 5.52941936443234,
+            "values": [
+              5.52941936443234,
+              5.06747213055121
+            ]
+          },
+          "after": {
+            "mean": 5.365121978804428,
+            "minimum": 5.26764019681024,
+            "maximum": 5.462603760798615,
+            "values": [
+              5.462603760798615,
+              5.26764019681024
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.06667623131265232,
+            "minimum": -0.0668156036337253,
+            "maximum": 0.20016806625902994,
+            "values": [
+              -0.0668156036337253,
+              0.20016806625902994
+            ]
+          },
+          "relative_change_percent": 1.2584111358357575
+        },
+        "combined_cpu": {
+          "before": {
+            "mean": 5.298445747491775,
+            "minimum": 5.06747213055121,
+            "maximum": 5.52941936443234,
+            "values": [
+              5.52941936443234,
+              5.06747213055121
+            ]
+          },
+          "after": {
+            "mean": 5.365121978804428,
+            "minimum": 5.26764019681024,
+            "maximum": 5.462603760798615,
+            "values": [
+              5.462603760798615,
+              5.26764019681024
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.06667623131265232,
+            "minimum": -0.0668156036337253,
+            "maximum": 0.20016806625902994,
+            "values": [
+              -0.0668156036337253,
+              0.20016806625902994
+            ]
+          },
+          "relative_change_percent": 1.2584111358357575
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "after": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "paired_difference": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "relative_change_percent": null
+        },
+        "provider_cpu_percent": {
+          "before": {
+            "mean": 1.5661937938180055,
+            "minimum": 1.4668998272648242,
+            "maximum": 1.6654877603711868,
+            "values": [
+              1.6654877603711868,
+              1.4668998272648242
+            ]
+          },
+          "after": {
+            "mean": 1.5328743165730043,
+            "minimum": 1.4669377763269023,
+            "maximum": 1.5988108568191066,
+            "values": [
+              1.5988108568191066,
+              1.4669377763269023
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.03331947724500106,
+            "minimum": -0.06667690355208022,
+            "maximum": 3.7949062078102e-05,
+            "values": [
+              -0.06667690355208022,
+              3.7949062078102e-05
+            ]
+          },
+          "relative_change_percent": -2.127417269594478
+        }
+      },
+      "sources": {
+        "before": [
+          "n4-p0-before/results.json",
+          "n4-p1-before/results.json"
+        ],
+        "after": [
+          "n4-p0-after/results.json",
+          "n4-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 8,
+      "name": "attached-idle",
+      "metrics": {
+        "daemon_cpu": {
+          "before": {
+            "mean": 3.2664561996059813,
+            "minimum": 2.732879507900604,
+            "maximum": 3.800032891311359,
+            "values": [
+              3.800032891311359,
+              2.732879507900604
+            ]
+          },
+          "after": {
+            "mean": 3.5004734349110698,
+            "minimum": 3.0009370529980472,
+            "maximum": 4.000009816824092,
+            "values": [
+              4.000009816824092,
+              3.0009370529980472
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.23401723530508844,
+            "minimum": 0.1999769255127335,
+            "maximum": 0.2680575450974434,
+            "values": [
+              0.1999769255127335,
+              0.2680575450974434
+            ]
+          },
+          "relative_change_percent": 7.164254501049694
+        },
+        "viewer_cpu": {
+          "before": {
+            "mean": 6.233037908018465,
+            "minimum": 3.999335865220396,
+            "maximum": 8.466739950816535,
+            "values": [
+              8.466739950816535,
+              3.999335865220396
+            ]
+          },
+          "after": {
+            "mean": 5.90077889190574,
+            "minimum": 4.934874264930122,
+            "maximum": 6.866683518881358,
+            "values": [
+              6.866683518881358,
+              4.934874264930122
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.33225901611272546,
+            "minimum": -1.6000564319351769,
+            "maximum": 0.935538399709726,
+            "values": [
+              -1.6000564319351769,
+              0.935538399709726
+            ]
+          },
+          "relative_change_percent": -5.330611188571332
+        },
+        "combined_cpu": {
+          "before": {
+            "mean": 9.499494107624447,
+            "minimum": 6.732215373121,
+            "maximum": 12.266772842127894,
+            "values": [
+              12.266772842127894,
+              6.732215373121
+            ]
+          },
+          "after": {
+            "mean": 9.40125232681681,
+            "minimum": 7.935811317928169,
+            "maximum": 10.86669333570545,
+            "values": [
+              10.86669333570545,
+              7.935811317928169
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.09824178080763701,
+            "minimum": -1.4000795064224434,
+            "maximum": 1.2035959448071694,
+            "values": [
+              -1.4000795064224434,
+              1.2035959448071694
+            ]
+          },
+          "relative_change_percent": -1.0341790804289985
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 390.0456563042054,
+            "minimum": 279.15364339238363,
+            "maximum": 500.9376692160272,
+            "values": [
+              500.9376692160272,
+              279.15364339238363
+            ]
+          },
+          "after": {
+            "mean": 329.2638306024922,
+            "minimum": 251.6672843085158,
+            "maximum": 406.86037689646855,
+            "values": [
+              251.6672843085158,
+              406.86037689646855
+            ]
+          },
+          "paired_difference": {
+            "mean": -60.78182570171323,
+            "minimum": -249.27038490751139,
+            "maximum": 127.70673350408492,
+            "values": [
+              -249.27038490751139,
+              127.70673350408492
+            ]
+          },
+          "relative_change_percent": -15.583259220891843
+        },
+        "provider_cpu_percent": {
+          "before": {
+            "mean": 0.5666482796042558,
+            "minimum": 0.2666223910146931,
+            "maximum": 0.8666741681938185,
+            "values": [
+              0.8666741681938185,
+              0.2666223910146931
+            ]
+          },
+          "after": {
+            "mean": 0.4333447267157209,
+            "minimum": 0.06668749006662328,
+            "maximum": 0.8000019633648184,
+            "values": [
+              0.8000019633648184,
+              0.06668749006662328
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.13330355288853493,
+            "minimum": -0.19993490094806982,
+            "maximum": -0.06667220482900005,
+            "values": [
+              -0.06667220482900005,
+              -0.19993490094806982
+            ]
+          },
+          "relative_change_percent": -23.52491972297761
+        }
+      },
+      "sources": {
+        "before": [
+          "n8-p0-before/results.json",
+          "n8-p1-before/results.json"
+        ],
+        "after": [
+          "n8-p0-after/results.json",
+          "n8-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 8,
+      "name": "attached-idle-bandwidth",
+      "metrics": {
+        "protocol_Bps": {
+          "before": {
+            "mean": 2297.0,
+            "minimum": 2237.8,
+            "maximum": 2356.2,
+            "values": [
+              2237.8,
+              2356.2
+            ]
+          },
+          "after": {
+            "mean": 2292.2,
+            "minimum": 2286.0,
+            "maximum": 2298.4,
+            "values": [
+              2298.4,
+              2286.0
+            ]
+          },
+          "paired_difference": {
+            "mean": -4.7999999999999545,
+            "minimum": -70.19999999999982,
+            "maximum": 60.59999999999991,
+            "values": [
+              60.59999999999991,
+              -70.19999999999982
+            ]
+          },
+          "relative_change_percent": -0.20896821941663868
+        },
+        "daemon_to_viewer_Bps": {
+          "before": {
+            "mean": 1667.2,
+            "minimum": 1622.2,
+            "maximum": 1712.2,
+            "values": [
+              1622.2,
+              1712.2
+            ]
+          },
+          "after": {
+            "mean": 1653.6,
+            "minimum": 1650.4,
+            "maximum": 1656.8,
+            "values": [
+              1650.4,
+              1656.8
+            ]
+          },
+          "paired_difference": {
+            "mean": -13.600000000000023,
+            "minimum": -55.40000000000009,
+            "maximum": 28.200000000000045,
+            "values": [
+              28.200000000000045,
+              -55.40000000000009
+            ]
+          },
+          "relative_change_percent": -0.8157389635316759
+        },
+        "viewer_to_daemon_Bps": {
+          "before": {
+            "mean": 629.8,
+            "minimum": 615.6,
+            "maximum": 644,
+            "values": [
+              615.6,
+              644
+            ]
+          },
+          "after": {
+            "mean": 638.6,
+            "minimum": 629.2,
+            "maximum": 648,
+            "values": [
+              648,
+              629.2
+            ]
+          },
+          "paired_difference": {
+            "mean": 8.800000000000011,
+            "minimum": -14.799999999999955,
+            "maximum": 32.39999999999998,
+            "values": [
+              32.39999999999998,
+              -14.799999999999955
+            ]
+          },
+          "relative_change_percent": 1.3972689742775657
+        },
+        "producer_Bps": {
+          "before": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "after": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "paired_difference": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "relative_change_percent": null
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 463.619643241647,
+            "minimum": 377.2455228625796,
+            "maximum": 549.9937636207144,
+            "values": [
+              549.9937636207144,
+              377.2455228625796
+            ]
+          },
+          "after": {
+            "mean": 251.01095339186259,
+            "minimum": 152.72357797683242,
+            "maximum": 349.29832880689275,
+            "values": [
+              152.72357797683242,
+              349.29832880689275
+            ]
+          },
+          "paired_difference": {
+            "mean": -212.6086898497844,
+            "minimum": -397.270185643882,
+            "maximum": -27.94719405568685,
+            "values": [
+              -397.270185643882,
+              -27.94719405568685
+            ]
+          },
+          "relative_change_percent": -45.858430062025846
+        }
+      },
+      "sources": {
+        "before": [
+          "n8-p0-before/results.json",
+          "n8-p1-before/results.json"
+        ],
+        "after": [
+          "n8-p0-after/results.json",
+          "n8-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 8,
+      "name": "attached-mixed",
+      "metrics": {
+        "daemon_cpu": {
+          "before": {
+            "mean": 9.366631269347858,
+            "minimum": 8.666683196920417,
+            "maximum": 10.066579341775299,
+            "values": [
+              8.666683196920417,
+              10.066579341775299
+            ]
+          },
+          "after": {
+            "mean": 9.433489622204771,
+            "minimum": 8.933230993643521,
+            "maximum": 9.93374825076602,
+            "values": [
+              8.933230993643521,
+              9.93374825076602
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.06685835285691333,
+            "minimum": -0.1328310910092778,
+            "maximum": 0.26654779672310447,
+            "values": [
+              0.26654779672310447,
+              -0.1328310910092778
+            ]
+          },
+          "relative_change_percent": 0.7137929414997579
+        },
+        "viewer_cpu": {
+          "before": {
+            "mean": 13.966613235377121,
+            "minimum": 12.800024413913231,
+            "maximum": 15.13320205684101,
+            "values": [
+              12.800024413913231,
+              15.13320205684101
+            ]
+          },
+          "after": {
+            "mean": 13.900234635983676,
+            "minimum": 12.999851072839453,
+            "maximum": 14.800618199127896,
+            "values": [
+              12.999851072839453,
+              14.800618199127896
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.06637859939344626,
+            "minimum": -0.3325838577131144,
+            "maximum": 0.19982665892622187,
+            "values": [
+              0.19982665892622187,
+              -0.3325838577131144
+            ]
+          },
+          "relative_change_percent": -0.4752662529904472
+        },
+        "combined_cpu": {
+          "before": {
+            "mean": 23.33324450472498,
+            "minimum": 21.466707610833648,
+            "maximum": 25.19978139861631,
+            "values": [
+              21.466707610833648,
+              25.19978139861631
+            ]
+          },
+          "after": {
+            "mean": 23.333724258188447,
+            "minimum": 21.933082066482974,
+            "maximum": 24.73436644989392,
+            "values": [
+              21.933082066482974,
+              24.73436644989392
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.0004797534634679579,
+            "minimum": -0.4654149487223904,
+            "maximum": 0.46637445564932634,
+            "values": [
+              0.46637445564932634,
+              -0.4654149487223904
+            ]
+          },
+          "relative_change_percent": 0.002056094099422978
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 31147.09254848623,
+            "minimum": 30757.925332282917,
+            "maximum": 31536.259764689545,
+            "values": [
+              30757.925332282917,
+              31536.259764689545
+            ]
+          },
+          "after": {
+            "mean": 31693.78327433575,
+            "minimum": 31584.171502958983,
+            "maximum": 31803.39504571252,
+            "values": [
+              31584.171502958983,
+              31803.39504571252
+            ]
+          },
+          "paired_difference": {
+            "mean": 546.6907258495212,
+            "minimum": 267.1352810229764,
+            "maximum": 826.246170676066,
+            "values": [
+              826.246170676066,
+              267.1352810229764
+            ]
+          },
+          "relative_change_percent": 1.7551902316355728
+        },
+        "provider_cpu_percent": {
+          "before": {
+            "mean": 1.5666590728328678,
+            "minimum": 1.1333354949819008,
+            "maximum": 1.9999826506838345,
+            "values": [
+              1.1333354949819008,
+              1.9999826506838345
+            ]
+          },
+          "after": {
+            "mean": 1.666699025382834,
+            "minimum": 1.3999839616904024,
+            "maximum": 1.9334140890752654,
+            "values": [
+              1.3999839616904024,
+              1.9334140890752654
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.10003995254996623,
+            "minimum": -0.06656856160856917,
+            "maximum": 0.2666484667085016,
+            "values": [
+              0.2666484667085016,
+              -0.06656856160856917
+            ]
+          },
+          "relative_change_percent": 6.385559837793675
+        }
+      },
+      "sources": {
+        "before": [
+          "n8-p0-before/results.json",
+          "n8-p1-before/results.json"
+        ],
+        "after": [
+          "n8-p0-after/results.json",
+          "n8-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 8,
+      "name": "attached-mixed-bandwidth",
+      "metrics": {
+        "protocol_Bps": {
+          "before": {
+            "mean": 223830.5,
+            "minimum": 223747.6,
+            "maximum": 223913.4,
+            "values": [
+              223747.6,
+              223913.4
+            ]
+          },
+          "after": {
+            "mean": 224071.5,
+            "minimum": 223964.8,
+            "maximum": 224178.2,
+            "values": [
+              223964.8,
+              224178.2
+            ]
+          },
+          "paired_difference": {
+            "mean": 241.0,
+            "minimum": 217.19999999998254,
+            "maximum": 264.80000000001746,
+            "values": [
+              217.19999999998254,
+              264.80000000001746
+            ]
+          },
+          "relative_change_percent": 0.10767075979367657
+        },
+        "daemon_to_viewer_Bps": {
+          "before": {
+            "mean": 221234.7,
+            "minimum": 221155,
+            "maximum": 221314.4,
+            "values": [
+              221155,
+              221314.4
+            ]
+          },
+          "after": {
+            "mean": 221340.40000000002,
+            "minimum": 221237.2,
+            "maximum": 221443.6,
+            "values": [
+              221237.2,
+              221443.6
+            ]
+          },
+          "paired_difference": {
+            "mean": 105.70000000001164,
+            "minimum": 82.20000000001164,
+            "maximum": 129.20000000001164,
+            "values": [
+              82.20000000001164,
+              129.20000000001164
+            ]
+          },
+          "relative_change_percent": 0.0477773152222527
+        },
+        "viewer_to_daemon_Bps": {
+          "before": {
+            "mean": 2595.8,
+            "minimum": 2592.6,
+            "maximum": 2599,
+            "values": [
+              2592.6,
+              2599
+            ]
+          },
+          "after": {
+            "mean": 2731.1,
+            "minimum": 2727.6,
+            "maximum": 2734.6,
+            "values": [
+              2727.6,
+              2734.6
+            ]
+          },
+          "paired_difference": {
+            "mean": 135.29999999999995,
+            "minimum": 135.0,
+            "maximum": 135.5999999999999,
+            "values": [
+              135.0,
+              135.5999999999999
+            ]
+          },
+          "relative_change_percent": 5.212265968102314
+        },
+        "producer_Bps": {
+          "before": {
+            "mean": 86296,
+            "minimum": 86296,
+            "maximum": 86296,
+            "values": [
+              86296,
+              86296
+            ]
+          },
+          "after": {
+            "mean": 86296,
+            "minimum": 86296,
+            "maximum": 86296,
+            "values": [
+              86296,
+              86296
+            ]
+          },
+          "paired_difference": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "relative_change_percent": 0.0
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 31015.33909689408,
+            "minimum": 30697.92722096032,
+            "maximum": 31332.750972827846,
+            "values": [
+              30697.92722096032,
+              31332.750972827846
+            ]
+          },
+          "after": {
+            "mean": 31795.228503216465,
+            "minimum": 31684.706078294865,
+            "maximum": 31905.750928138066,
+            "values": [
+              31684.706078294865,
+              31905.750928138066
+            ]
+          },
+          "paired_difference": {
+            "mean": 779.8894063223834,
+            "minimum": 572.9999553102207,
+            "maximum": 986.778857334546,
+            "values": [
+              986.778857334546,
+              572.9999553102207
+            ]
+          },
+          "relative_change_percent": 2.514528065890098
+        }
+      },
+      "sources": {
+        "before": [
+          "n8-p0-before/results.json",
+          "n8-p1-before/results.json"
+        ],
+        "after": [
+          "n8-p0-after/results.json",
+          "n8-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 8,
+      "name": "attached-mixed-quiet-focus",
+      "metrics": {
+        "daemon_cpu": {
+          "before": {
+            "mean": 5.666637762095958,
+            "minimum": 5.400000553320057,
+            "maximum": 5.933274970871858,
+            "values": [
+              5.400000553320057,
+              5.933274970871858
+            ]
+          },
+          "after": {
+            "mean": 5.766771964087585,
+            "minimum": 5.533257674518962,
+            "maximum": 6.000286253656207,
+            "values": [
+              6.000286253656207,
+              5.533257674518962
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.10013420199162715,
+            "minimum": -0.40001729635289607,
+            "maximum": 0.6002857003361504,
+            "values": [
+              0.6002857003361504,
+              -0.40001729635289607
+            ]
+          },
+          "relative_change_percent": 1.7670831663429087
+        },
+        "viewer_cpu": {
+          "before": {
+            "mean": 8.333290125046767,
+            "minimum": 7.800000799240082,
+            "maximum": 8.866579450853452,
+            "values": [
+              7.800000799240082,
+              8.866579450853452
+            ]
+          },
+          "after": {
+            "mean": 8.433461504823363,
+            "minimum": 7.933711824278763,
+            "maximum": 8.933211185367963,
+            "values": [
+              7.933711824278763,
+              8.933211185367963
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.10017137977659596,
+            "minimum": 0.06663173451451065,
+            "maximum": 0.13371102503868126,
+            "values": [
+              0.13371102503868126,
+              0.06663173451451065
+            ]
+          },
+          "relative_change_percent": 1.2020627900079628
+        },
+        "combined_cpu": {
+          "before": {
+            "mean": 13.999927887142725,
+            "minimum": 13.20000135256014,
+            "maximum": 14.79985442172531,
+            "values": [
+              13.20000135256014,
+              14.79985442172531
+            ]
+          },
+          "after": {
+            "mean": 14.200233468910948,
+            "minimum": 13.93399807793497,
+            "maximum": 14.466468859886925,
+            "values": [
+              13.93399807793497,
+              14.466468859886925
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.20030558176822222,
+            "minimum": -0.3333855618383854,
+            "maximum": 0.7339967253748299,
+            "values": [
+              0.7339967253748299,
+              -0.3333855618383854
+            ]
+          },
+          "relative_change_percent": 1.4307615252231454
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 3631.847532851287,
+            "minimum": 3338.5336754217506,
+            "maximum": 3925.1613902808235,
+            "values": [
+              3338.5336754217506,
+              3925.1613902808235
+            ]
+          },
+          "after": {
+            "mean": 3350.421359324938,
+            "minimum": 3274.8228975510324,
+            "maximum": 3426.0198210988433,
+            "values": [
+              3274.8228975510324,
+              3426.0198210988433
+            ]
+          },
+          "paired_difference": {
+            "mean": -281.4261735263492,
+            "minimum": -499.14156918198023,
+            "maximum": -63.710777870718175,
+            "values": [
+              -63.710777870718175,
+              -499.14156918198023
+            ]
+          },
+          "relative_change_percent": -7.748843281023065
+        },
+        "provider_cpu_percent": {
+          "before": {
+            "mean": 0.9333291221397102,
+            "minimum": 0.8666581418127434,
+            "maximum": 1.0000001024666771,
+            "values": [
+              1.0000001024666771,
+              0.8666581418127434
+            ]
+          },
+          "after": {
+            "mean": 1.0000190639055782,
+            "minimum": 0.9333205716056081,
+            "maximum": 1.066717556205548,
+            "values": [
+              1.066717556205548,
+              0.9333205716056081
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.06668994176586779,
+            "minimum": 0.06666242979286474,
+            "maximum": 0.06671745373887084,
+            "values": [
+              0.06671745373887084,
+              0.06666242979286474
+            ]
+          },
+          "relative_change_percent": 7.145383143405781
+        }
+      },
+      "sources": {
+        "before": [
+          "n8-p0-before/results.json",
+          "n8-p1-before/results.json"
+        ],
+        "after": [
+          "n8-p0-after/results.json",
+          "n8-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 8,
+      "name": "attached-mixed-quiet-focus-bandwidth",
+      "metrics": {
+        "protocol_Bps": {
+          "before": {
+            "mean": 2477.4,
+            "minimum": 2415.4,
+            "maximum": 2539.4,
+            "values": [
+              2539.4,
+              2415.4
+            ]
+          },
+          "after": {
+            "mean": 2541.5,
+            "minimum": 2484.0,
+            "maximum": 2599.0,
+            "values": [
+              2599.0,
+              2484.0
+            ]
+          },
+          "paired_difference": {
+            "mean": 64.09999999999991,
+            "minimum": 59.59999999999991,
+            "maximum": 68.59999999999991,
+            "values": [
+              59.59999999999991,
+              68.59999999999991
+            ]
+          },
+          "relative_change_percent": 2.5873900056510912
+        },
+        "daemon_to_viewer_Bps": {
+          "before": {
+            "mean": 1787.4,
+            "minimum": 1725.4,
+            "maximum": 1849.4,
+            "values": [
+              1849.4,
+              1725.4
+            ]
+          },
+          "after": {
+            "mean": 1815.5,
+            "minimum": 1758,
+            "maximum": 1873,
+            "values": [
+              1873,
+              1758
+            ]
+          },
+          "paired_difference": {
+            "mean": 28.09999999999991,
+            "minimum": 23.59999999999991,
+            "maximum": 32.59999999999991,
+            "values": [
+              23.59999999999991,
+              32.59999999999991
+            ]
+          },
+          "relative_change_percent": 1.572115922569095
+        },
+        "viewer_to_daemon_Bps": {
+          "before": {
+            "mean": 690,
+            "minimum": 690,
+            "maximum": 690,
+            "values": [
+              690,
+              690
+            ]
+          },
+          "after": {
+            "mean": 726,
+            "minimum": 726,
+            "maximum": 726,
+            "values": [
+              726,
+              726
+            ]
+          },
+          "paired_difference": {
+            "mean": 36,
+            "minimum": 36,
+            "maximum": 36,
+            "values": [
+              36,
+              36
+            ]
+          },
+          "relative_change_percent": 5.217391304347818
+        },
+        "producer_Bps": {
+          "before": {
+            "mean": 86296,
+            "minimum": 86296,
+            "maximum": 86296,
+            "values": [
+              86296,
+              86296
+            ]
+          },
+          "after": {
+            "mean": 86296,
+            "minimum": 86296,
+            "maximum": 86296,
+            "values": [
+              86296,
+              86296
+            ]
+          },
+          "paired_difference": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "relative_change_percent": 0.0
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 3571.2556942583305,
+            "minimum": 3278.231011038532,
+            "maximum": 3864.2803774781287,
+            "values": [
+              3278.231011038532,
+              3864.2803774781287
+            ]
+          },
+          "after": {
+            "mean": 3393.166821293222,
+            "minimum": 3314.350753906912,
+            "maximum": 3471.9828886795317,
+            "values": [
+              3314.350753906912,
+              3471.9828886795317
+            ]
+          },
+          "paired_difference": {
+            "mean": -178.08887296510852,
+            "minimum": -392.297488798597,
+            "maximum": 36.119742868379944,
+            "values": [
+              36.119742868379944,
+              -392.297488798597
+            ]
+          },
+          "relative_change_percent": -4.986729828710679
+        }
+      },
+      "sources": {
+        "before": [
+          "n8-p0-before/results.json",
+          "n8-p1-before/results.json"
+        ],
+        "after": [
+          "n8-p0-after/results.json",
+          "n8-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 8,
+      "name": "attached-spammy",
+      "metrics": {
+        "daemon_cpu": {
+          "before": {
+            "mean": 12.13302985635999,
+            "minimum": 11.866372046799306,
+            "maximum": 12.399687665920675,
+            "values": [
+              12.399687665920675,
+              11.866372046799306
+            ]
+          },
+          "after": {
+            "mean": 12.36670105396001,
+            "minimum": 11.866187918986443,
+            "maximum": 12.867214188933577,
+            "values": [
+              11.866187918986443,
+              12.867214188933577
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.2336711976000192,
+            "minimum": -0.5334997469342326,
+            "maximum": 1.000842142134271,
+            "values": [
+              -0.5334997469342326,
+              1.000842142134271
+            ]
+          },
+          "relative_change_percent": 1.9259096892235261
+        },
+        "viewer_cpu": {
+          "before": {
+            "mean": 12.56635234693576,
+            "minimum": 12.26636211579254,
+            "maximum": 12.86634257807898,
+            "values": [
+              12.86634257807898,
+              12.26636211579254
+            ]
+          },
+          "after": {
+            "mean": 12.899999054302054,
+            "minimum": 12.533866671085557,
+            "maximum": 13.26613143751855,
+            "values": [
+              13.26613143751855,
+              12.533866671085557
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.3336467073662934,
+            "minimum": 0.26750455529301576,
+            "maximum": 0.3997888594395711,
+            "values": [
+              0.3997888594395711,
+              0.26750455529301576
+            ]
+          },
+          "relative_change_percent": 2.6550799958084292
+        },
+        "combined_cpu": {
+          "before": {
+            "mean": 24.699382203295748,
+            "minimum": 24.132734162591845,
+            "maximum": 25.266030243999655,
+            "values": [
+              25.266030243999655,
+              24.132734162591845
+            ]
+          },
+          "after": {
+            "mean": 25.266700108262064,
+            "minimum": 25.132319356504993,
+            "maximum": 25.401080860019135,
+            "values": [
+              25.132319356504993,
+              25.401080860019135
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.5673179049663144,
+            "minimum": -0.13371088749466153,
+            "maximum": 1.2683466974272903,
+            "values": [
+              -0.13371088749466153,
+              1.2683466974272903
+            ]
+          },
+          "relative_change_percent": 2.2968910732132253
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 33484.12925743628,
+            "minimum": 33365.57159513969,
+            "maximum": 33602.68691973287,
+            "values": [
+              33602.68691973287,
+              33365.57159513969
+            ]
+          },
+          "after": {
+            "mean": 33404.37990492519,
+            "minimum": 33169.795080260265,
+            "maximum": 33638.964729590116,
+            "values": [
+              33169.795080260265,
+              33638.964729590116
+            ]
+          },
+          "paired_difference": {
+            "mean": -79.74935251109127,
+            "minimum": -432.8918394726061,
+            "maximum": 273.39313445042353,
+            "values": [
+              -432.8918394726061,
+              273.39313445042353
+            ]
+          },
+          "relative_change_percent": -0.2381706028487529
+        },
+        "provider_cpu_percent": {
+          "before": {
+            "mean": 3.7665725003987722,
+            "minimum": 3.5999093223640672,
+            "maximum": 3.9332356784334777,
+            "values": [
+              3.5999093223640672,
+              3.9332356784334777
+            ]
+          },
+          "after": {
+            "mean": 3.6333414923822875,
+            "minimum": 3.5331907848667496,
+            "maximum": 3.7334921998978254,
+            "values": [
+              3.5331907848667496,
+              3.7334921998978254
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.1332310080164849,
+            "minimum": -0.19974347853565222,
+            "maximum": -0.0667185374973176,
+            "values": [
+              -0.0667185374973176,
+              -0.19974347853565222
+            ]
+          },
+          "relative_change_percent": -3.537194837013735
+        }
+      },
+      "sources": {
+        "before": [
+          "n8-p0-before/results.json",
+          "n8-p1-before/results.json"
+        ],
+        "after": [
+          "n8-p0-after/results.json",
+          "n8-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 8,
+      "name": "attached-spammy-bandwidth",
+      "metrics": {
+        "protocol_Bps": {
+          "before": {
+            "mean": 224346.4,
+            "minimum": 223748.4,
+            "maximum": 224944.4,
+            "values": [
+              223748.4,
+              224944.4
+            ]
+          },
+          "after": {
+            "mean": 224115.5,
+            "minimum": 224010.4,
+            "maximum": 224220.6,
+            "values": [
+              224010.4,
+              224220.6
+            ]
+          },
+          "paired_difference": {
+            "mean": -230.89999999999418,
+            "minimum": -723.7999999999884,
+            "maximum": 262.0,
+            "values": [
+              262.0,
+              -723.7999999999884
+            ]
+          },
+          "relative_change_percent": -0.10292119686341472
+        },
+        "daemon_to_viewer_Bps": {
+          "before": {
+            "mean": 221736.4,
+            "minimum": 221150,
+            "maximum": 222322.8,
+            "values": [
+              221150,
+              222322.8
+            ]
+          },
+          "after": {
+            "mean": 221370.5,
+            "minimum": 221277.6,
+            "maximum": 221463.4,
+            "values": [
+              221277.6,
+              221463.4
+            ]
+          },
+          "paired_difference": {
+            "mean": -365.8999999999942,
+            "minimum": -859.3999999999942,
+            "maximum": 127.60000000000582,
+            "values": [
+              127.60000000000582,
+              -859.3999999999942
+            ]
+          },
+          "relative_change_percent": -0.1650157574489275
+        },
+        "viewer_to_daemon_Bps": {
+          "before": {
+            "mean": 2610.0,
+            "minimum": 2598.4,
+            "maximum": 2621.6,
+            "values": [
+              2598.4,
+              2621.6
+            ]
+          },
+          "after": {
+            "mean": 2745.0,
+            "minimum": 2732.8,
+            "maximum": 2757.2,
+            "values": [
+              2732.8,
+              2757.2
+            ]
+          },
+          "paired_difference": {
+            "mean": 135.0,
+            "minimum": 134.4000000000001,
+            "maximum": 135.5999999999999,
+            "values": [
+              134.4000000000001,
+              135.5999999999999
+            ]
+          },
+          "relative_change_percent": 5.1724137931034475
+        },
+        "producer_Bps": {
+          "before": {
+            "mean": 343040,
+            "minimum": 343040,
+            "maximum": 343040,
+            "values": [
+              343040,
+              343040
+            ]
+          },
+          "after": {
+            "mean": 343040,
+            "minimum": 343040,
+            "maximum": 343040,
+            "values": [
+              343040,
+              343040
+            ]
+          },
+          "paired_difference": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "relative_change_percent": 0.0
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 33476.97981385009,
+            "minimum": 33335.37242594049,
+            "maximum": 33618.58720175969,
+            "values": [
+              33618.58720175969,
+              33335.37242594049
+            ]
+          },
+          "after": {
+            "mean": 33477.12471552544,
+            "minimum": 33385.87622615917,
+            "maximum": 33568.37320489171,
+            "values": [
+              33385.87622615917,
+              33568.37320489171
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.14490167534677312,
+            "minimum": -232.71097560052294,
+            "maximum": 233.0007789512165,
+            "values": [
+              -232.71097560052294,
+              233.0007789512165
+            ]
+          },
+          "relative_change_percent": 0.0004328397488428948
+        }
+      },
+      "sources": {
+        "before": [
+          "n8-p0-before/results.json",
+          "n8-p1-before/results.json"
+        ],
+        "after": [
+          "n8-p0-after/results.json",
+          "n8-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 8,
+      "name": "detached-idle",
+      "metrics": {
+        "daemon_cpu": {
+          "before": {
+            "mean": 2.3325735509221674,
+            "minimum": 2.199688861782735,
+            "maximum": 2.4654582400616,
+            "values": [
+              2.199688861782735,
+              2.4654582400616
+            ]
+          },
+          "after": {
+            "mean": 2.165815675606301,
+            "minimum": 1.9997097818527318,
+            "maximum": 2.3319215693598703,
+            "values": [
+              1.9997097818527318,
+              2.3319215693598703
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.1667578753158664,
+            "minimum": -0.1999790799300032,
+            "maximum": -0.1335366707017296,
+            "values": [
+              -0.1999790799300032,
+              -0.1335366707017296
+            ]
+          },
+          "relative_change_percent": -7.149093980335152
+        },
+        "combined_cpu": {
+          "before": {
+            "mean": 2.3325735509221674,
+            "minimum": 2.199688861782735,
+            "maximum": 2.4654582400616,
+            "values": [
+              2.199688861782735,
+              2.4654582400616
+            ]
+          },
+          "after": {
+            "mean": 2.165815675606301,
+            "minimum": 1.9997097818527318,
+            "maximum": 2.3319215693598703,
+            "values": [
+              1.9997097818527318,
+              2.3319215693598703
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.1667578753158664,
+            "minimum": -0.1999790799300032,
+            "maximum": -0.1335366707017296,
+            "values": [
+              -0.1999790799300032,
+              -0.1335366707017296
+            ]
+          },
+          "relative_change_percent": -7.149093980335152
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "after": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "paired_difference": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "relative_change_percent": null
+        },
+        "provider_cpu_percent": {
+          "before": {
+            "mean": 0.033317003244075674,
+            "minimum": 0,
+            "maximum": 0.06663400648815135,
+            "values": [
+              0,
+              0.06663400648815135
+            ]
+          },
+          "after": {
+            "mean": 0.13328332328156356,
+            "minimum": 0.13325266110627831,
+            "maximum": 0.13331398545684878,
+            "values": [
+              0.13331398545684878,
+              0.13325266110627831
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.09996632003748787,
+            "minimum": 0.06661865461812697,
+            "maximum": 0.13331398545684878,
+            "values": [
+              0.13331398545684878,
+              0.06661865461812697
+            ]
+          },
+          "relative_change_percent": 300.0459534284903
+        }
+      },
+      "sources": {
+        "before": [
+          "n8-p0-before/results.json",
+          "n8-p1-before/results.json"
+        ],
+        "after": [
+          "n8-p0-after/results.json",
+          "n8-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 8,
+      "name": "detached-mixed",
+      "metrics": {
+        "daemon_cpu": {
+          "before": {
+            "mean": 5.3996153481398625,
+            "minimum": 5.333582375361902,
+            "maximum": 5.465648320917822,
+            "values": [
+              5.333582375361902,
+              5.465648320917822
+            ]
+          },
+          "after": {
+            "mean": 5.5336669967364465,
+            "minimum": 5.200346382245001,
+            "maximum": 5.866987611227891,
+            "values": [
+              5.200346382245001,
+              5.866987611227891
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.13405164859658392,
+            "minimum": -0.1332359931169016,
+            "maximum": 0.40133929031006943,
+            "values": [
+              -0.1332359931169016,
+              0.40133929031006943
+            ]
+          },
+          "relative_change_percent": 2.482614778157566
+        },
+        "combined_cpu": {
+          "before": {
+            "mean": 5.3996153481398625,
+            "minimum": 5.333582375361902,
+            "maximum": 5.465648320917822,
+            "values": [
+              5.333582375361902,
+              5.465648320917822
+            ]
+          },
+          "after": {
+            "mean": 5.5336669967364465,
+            "minimum": 5.200346382245001,
+            "maximum": 5.866987611227891,
+            "values": [
+              5.200346382245001,
+              5.866987611227891
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.13405164859658392,
+            "minimum": -0.1332359931169016,
+            "maximum": 0.40133929031006943,
+            "values": [
+              -0.1332359931169016,
+              0.40133929031006943
+            ]
+          },
+          "relative_change_percent": 2.482614778157566
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "after": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "paired_difference": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "relative_change_percent": null
+        },
+        "provider_cpu_percent": {
+          "before": {
+            "mean": 0.9665875505267226,
+            "minimum": 0.8667071359963092,
+            "maximum": 1.066467965057136,
+            "values": [
+              0.8667071359963092,
+              1.066467965057136
+            ]
+          },
+          "after": {
+            "mean": 1.0667309729786991,
+            "minimum": 1.0000666119701924,
+            "maximum": 1.133395333987206,
+            "values": [
+              1.0000666119701924,
+              1.133395333987206
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.1001434224519766,
+            "minimum": 0.06692736893007001,
+            "maximum": 0.1333594759738832,
+            "values": [
+              0.1333594759738832,
+              0.06692736893007001
+            ]
+          },
+          "relative_change_percent": 10.360512340284679
+        }
+      },
+      "sources": {
+        "before": [
+          "n8-p0-before/results.json",
+          "n8-p1-before/results.json"
+        ],
+        "after": [
+          "n8-p0-after/results.json",
+          "n8-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 8,
+      "name": "detached-spammy",
+      "metrics": {
+        "daemon_cpu": {
+          "before": {
+            "mean": 8.730873846470228,
+            "minimum": 8.526869414912607,
+            "maximum": 8.93487827802785,
+            "values": [
+              8.526869414912607,
+              8.93487827802785
+            ]
+          },
+          "after": {
+            "mean": 8.563352735048555,
+            "minimum": 8.392952672084395,
+            "maximum": 8.733752798012716,
+            "values": [
+              8.392952672084395,
+              8.733752798012716
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.16752111142167347,
+            "minimum": -0.20112548001513453,
+            "maximum": -0.13391674282821242,
+            "values": [
+              -0.13391674282821242,
+              -0.20112548001513453
+            ]
+          },
+          "relative_change_percent": -1.9187210165612312
+        },
+        "combined_cpu": {
+          "before": {
+            "mean": 8.730873846470228,
+            "minimum": 8.526869414912607,
+            "maximum": 8.93487827802785,
+            "values": [
+              8.526869414912607,
+              8.93487827802785
+            ]
+          },
+          "after": {
+            "mean": 8.563352735048555,
+            "minimum": 8.392952672084395,
+            "maximum": 8.733752798012716,
+            "values": [
+              8.392952672084395,
+              8.733752798012716
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.16752111142167347,
+            "minimum": -0.20112548001513453,
+            "maximum": -0.13391674282821242,
+            "values": [
+              -0.13391674282821242,
+              -0.20112548001513453
+            ]
+          },
+          "relative_change_percent": -1.9187210165612312
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "after": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "paired_difference": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "relative_change_percent": null
+        },
+        "provider_cpu_percent": {
+          "before": {
+            "mean": 3.099109456452217,
+            "minimum": 3.064343695984218,
+            "maximum": 3.133875216920216,
+            "values": [
+              3.064343695984218,
+              3.133875216920216
+            ]
+          },
+          "after": {
+            "mean": 3.2654043690035985,
+            "minimum": 3.197315303651198,
+            "maximum": 3.3334934343559985,
+            "values": [
+              3.197315303651198,
+              3.3334934343559985
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.1662949125513813,
+            "minimum": 0.13297160766698024,
+            "maximum": 0.19961821743578234,
+            "values": [
+              0.13297160766698024,
+              0.19961821743578234
+            ]
+          },
+          "relative_change_percent": 5.365893489342977
+        }
+      },
+      "sources": {
+        "before": [
+          "n8-p0-before/results.json",
+          "n8-p1-before/results.json"
+        ],
+        "after": [
+          "n8-p0-after/results.json",
+          "n8-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 32,
+      "name": "attached-idle",
+      "metrics": {
+        "daemon_cpu": {
+          "before": {
+            "mean": 4.933444025482874,
+            "minimum": 4.466718032732918,
+            "maximum": 5.400170018232831,
+            "values": [
+              5.400170018232831,
+              4.466718032732918
+            ]
+          },
+          "after": {
+            "mean": 4.934172351395818,
+            "minimum": 4.534822028336653,
+            "maximum": 5.333522674454981,
+            "values": [
+              5.333522674454981,
+              4.534822028336653
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.0007283259129424735,
+            "minimum": -0.06664734377785031,
+            "maximum": 0.06810399560373526,
+            "values": [
+              -0.06664734377785031,
+              0.06810399560373526
+            ]
+          },
+          "relative_change_percent": 0.014763031853237685
+        },
+        "viewer_cpu": {
+          "before": {
+            "mean": 6.266812676962666,
+            "minimum": 5.133392365976637,
+            "maximum": 7.400232987948695,
+            "values": [
+              7.400232987948695,
+              5.133392365976637
+            ]
+          },
+          "after": {
+            "mean": 6.067731414908298,
+            "minimum": 5.801904653901307,
+            "maximum": 6.33355817591529,
+            "values": [
+              6.33355817591529,
+              5.801904653901307
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.1990812620543676,
+            "minimum": -1.0666748120334049,
+            "maximum": 0.6685122879246697,
+            "values": [
+              -1.0666748120334049,
+              0.6685122879246697
+            ]
+          },
+          "relative_change_percent": -3.17675463296051
+        },
+        "combined_cpu": {
+          "before": {
+            "mean": 11.20025670244554,
+            "minimum": 9.600110398709555,
+            "maximum": 12.800403006181526,
+            "values": [
+              12.800403006181526,
+              9.600110398709555
+            ]
+          },
+          "after": {
+            "mean": 11.001903766304116,
+            "minimum": 10.336726682237959,
+            "maximum": 11.667080850370272,
+            "values": [
+              11.667080850370272,
+              10.336726682237959
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.19835293614142468,
+            "minimum": -1.1333221558112534,
+            "maximum": 0.736616283528404,
+            "values": [
+              -1.1333221558112534,
+              0.736616283528404
+            ]
+          },
+          "relative_change_percent": -1.7709677680701197
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 381.9420642571665,
+            "minimum": 329.6704577890191,
+            "maximum": 434.213670725314,
+            "values": [
+              434.213670725314,
+              329.6704577890191
+            ]
+          },
+          "after": {
+            "mean": 362.0797079005572,
+            "minimum": 267.47616212391733,
+            "maximum": 456.6832536771971,
+            "values": [
+              267.47616212391733,
+              456.6832536771971
+            ]
+          },
+          "paired_difference": {
+            "mean": -19.862356356609325,
+            "minimum": -166.73750860139666,
+            "maximum": 127.012795888178,
+            "values": [
+              -166.73750860139666,
+              127.012795888178
+            ]
+          },
+          "relative_change_percent": -5.200358435313834
+        },
+        "provider_cpu_percent": {
+          "before": {
+            "mean": 0.5000117454304953,
+            "minimum": 0.4000045999462315,
+            "maximum": 0.6000188909147592,
+            "values": [
+              0.6000188909147592,
+              0.4000045999462315
+            ]
+          },
+          "after": {
+            "mean": 0.46672228563392615,
+            "minimum": 0.2667542369609796,
+            "maximum": 0.6666903343068726,
+            "values": [
+              0.6666903343068726,
+              0.2667542369609796
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.03328945979656925,
+            "minimum": -0.1332503629852519,
+            "maximum": 0.0666714433921134,
+            "values": [
+              0.0666714433921134,
+              -0.1332503629852519
+            ]
+          },
+          "relative_change_percent": -6.657735563373201
+        }
+      },
+      "sources": {
+        "before": [
+          "failures/n32-p0-before-attempt1/results.json",
+          "n32-p1-before/results.json"
+        ],
+        "after": [
+          "failures/n32-p0-after-attempt1/results.json",
+          "n32-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 32,
+      "name": "attached-idle-bandwidth",
+      "metrics": {
+        "protocol_Bps": {
+          "before": {
+            "mean": 2176.9,
+            "minimum": 2030.4,
+            "maximum": 2323.4,
+            "values": [
+              2030.4,
+              2323.4
+            ]
+          },
+          "after": {
+            "mean": 2075.8,
+            "minimum": 2063.4,
+            "maximum": 2088.2,
+            "values": [
+              2088.2,
+              2063.4
+            ]
+          },
+          "paired_difference": {
+            "mean": -101.10000000000014,
+            "minimum": -260.0,
+            "maximum": 57.79999999999973,
+            "values": [
+              57.79999999999973,
+              -260.0
+            ]
+          },
+          "relative_change_percent": -4.6442188433092895
+        },
+        "daemon_to_viewer_Bps": {
+          "before": {
+            "mean": 1570.0,
+            "minimum": 1437.6,
+            "maximum": 1702.4,
+            "values": [
+              1437.6,
+              1702.4
+            ]
+          },
+          "after": {
+            "mean": 1461.3000000000002,
+            "minimum": 1458.4,
+            "maximum": 1464.2,
+            "values": [
+              1464.2,
+              1458.4
+            ]
+          },
+          "paired_difference": {
+            "mean": -108.69999999999993,
+            "minimum": -244.0,
+            "maximum": 26.600000000000136,
+            "values": [
+              26.600000000000136,
+              -244.0
+            ]
+          },
+          "relative_change_percent": -6.92356687898088
+        },
+        "viewer_to_daemon_Bps": {
+          "before": {
+            "mean": 606.9,
+            "minimum": 592.8,
+            "maximum": 621,
+            "values": [
+              592.8,
+              621
+            ]
+          },
+          "after": {
+            "mean": 614.5,
+            "minimum": 605,
+            "maximum": 624,
+            "values": [
+              624,
+              605
+            ]
+          },
+          "paired_difference": {
+            "mean": 7.600000000000023,
+            "minimum": -16,
+            "maximum": 31.200000000000045,
+            "values": [
+              31.200000000000045,
+              -16
+            ]
+          },
+          "relative_change_percent": 1.2522656121272124
+        },
+        "producer_Bps": {
+          "before": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "after": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "paired_difference": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "relative_change_percent": null
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 375.7520172777216,
+            "minimum": 24.8010069506434,
+            "maximum": 726.7030276047998,
+            "values": [
+              726.7030276047998,
+              24.8010069506434
+            ]
+          },
+          "after": {
+            "mean": 274.0258545944981,
+            "minimum": 0,
+            "maximum": 548.0517091889963,
+            "values": [
+              0,
+              548.0517091889963
+            ]
+          },
+          "paired_difference": {
+            "mean": -101.72616268322349,
+            "minimum": -726.7030276047998,
+            "maximum": 523.2507022383528,
+            "values": [
+              -726.7030276047998,
+              523.2507022383528
+            ]
+          },
+          "relative_change_percent": -27.07268570910607
+        }
+      },
+      "sources": {
+        "before": [
+          "failures/n32-p0-before-attempt1/results.json",
+          "n32-p1-before/results.json"
+        ],
+        "after": [
+          "failures/n32-p0-after-attempt1/results.json",
+          "n32-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 32,
+      "name": "attached-mixed",
+      "metrics": {
+        "daemon_cpu": {
+          "before": {
+            "mean": 16.53361656723636,
+            "minimum": 16.399745728502378,
+            "maximum": 16.667487405970345,
+            "values": [
+              16.399745728502378,
+              16.667487405970345
+            ]
+          },
+          "after": {
+            "mean": 16.866487164749223,
+            "minimum": 16.466582509256778,
+            "maximum": 17.266391820241672,
+            "values": [
+              16.466582509256778,
+              17.266391820241672
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.33287059751286385,
+            "minimum": 0.06683678075440014,
+            "maximum": 0.5989044142713276,
+            "values": [
+              0.06683678075440014,
+              0.5989044142713276
+            ]
+          },
+          "relative_change_percent": 2.0132957369562554
+        },
+        "viewer_cpu": {
+          "before": {
+            "mean": 14.633587751673574,
+            "minimum": 14.3997767372216,
+            "maximum": 14.867398766125548,
+            "values": [
+              14.3997767372216,
+              14.867398766125548
+            ]
+          },
+          "after": {
+            "mean": 14.799837544532222,
+            "minimum": 13.533264167526827,
+            "maximum": 16.066410921537617,
+            "values": [
+              13.533264167526827,
+              16.066410921537617
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.16624979285864772,
+            "minimum": -0.8665125696947733,
+            "maximum": 1.1990121554120687,
+            "values": [
+              -0.8665125696947733,
+              1.1990121554120687
+            ]
+          },
+          "relative_change_percent": 1.1360836158558207
+        },
+        "combined_cpu": {
+          "before": {
+            "mean": 31.16720431890994,
+            "minimum": 30.799522465723978,
+            "maximum": 31.534886172095895,
+            "values": [
+              30.799522465723978,
+              31.534886172095895
+            ]
+          },
+          "after": {
+            "mean": 31.666324709281447,
+            "minimum": 29.999846676783605,
+            "maximum": 33.33280274177929,
+            "values": [
+              29.999846676783605,
+              33.33280274177929
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.4991203903715107,
+            "minimum": -0.7996757889403732,
+            "maximum": 1.7979165696833945,
+            "values": [
+              -0.7996757889403732,
+              1.7979165696833945
+            ]
+          },
+          "relative_change_percent": 1.6014281719476609
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 27420.43885343243,
+            "minimum": 27122.64614088731,
+            "maximum": 27718.231565977556,
+            "values": [
+              27122.64614088731,
+              27718.231565977556
+            ]
+          },
+          "after": {
+            "mean": 27322.246164816657,
+            "minimum": 27302.165404131098,
+            "maximum": 27342.326925502217,
+            "values": [
+              27342.326925502217,
+              27302.165404131098
+            ]
+          },
+          "paired_difference": {
+            "mean": -98.1926886157762,
+            "minimum": -416.0661618464583,
+            "maximum": 219.68078461490586,
+            "values": [
+              219.68078461490586,
+              -416.0661618464583
+            ]
+          },
+          "relative_change_percent": -0.35810035404842955
+        },
+        "provider_cpu_percent": {
+          "before": {
+            "mean": 4.266747278492743,
+            "minimum": 3.9999379825615553,
+            "maximum": 4.5335565744239315,
+            "values": [
+              3.9999379825615553,
+              4.5335565744239315
+            ]
+          },
+          "after": {
+            "mean": 4.666614718259433,
+            "minimum": 4.133312208801296,
+            "maximum": 5.199917227717569,
+            "values": [
+              4.133312208801296,
+              5.199917227717569
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.3998674397666895,
+            "minimum": 0.13337422623974104,
+            "maximum": 0.6663606532936379,
+            "values": [
+              0.13337422623974104,
+              0.6663606532936379
+            ]
+          },
+          "relative_change_percent": 9.37171605598226
+        }
+      },
+      "sources": {
+        "before": [
+          "failures/n32-p0-before-attempt1/results.json",
+          "n32-p1-before/results.json"
+        ],
+        "after": [
+          "failures/n32-p0-after-attempt1/results.json",
+          "n32-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 32,
+      "name": "attached-mixed-bandwidth",
+      "metrics": {
+        "protocol_Bps": {
+          "before": {
+            "mean": 224948.40000000002,
+            "minimum": 223953.2,
+            "maximum": 225943.6,
+            "values": [
+              223953.2,
+              225943.6
+            ]
+          },
+          "after": {
+            "mean": 224020.5,
+            "minimum": 223830.2,
+            "maximum": 224210.8,
+            "values": [
+              224210.8,
+              223830.2
+            ]
+          },
+          "paired_difference": {
+            "mean": -927.9000000000087,
+            "minimum": -2113.399999999994,
+            "maximum": 257.5999999999767,
+            "values": [
+              257.5999999999767,
+              -2113.399999999994
+            ]
+          },
+          "relative_change_percent": -0.412494598761326
+        },
+        "daemon_to_viewer_Bps": {
+          "before": {
+            "mean": 222336.1,
+            "minimum": 221331.6,
+            "maximum": 223340.6,
+            "values": [
+              221331.6,
+              223340.6
+            ]
+          },
+          "after": {
+            "mean": 221297.1,
+            "minimum": 221140.6,
+            "maximum": 221453.6,
+            "values": [
+              221453.6,
+              221140.6
+            ]
+          },
+          "paired_difference": {
+            "mean": -1039.0,
+            "minimum": -2200.0,
+            "maximum": 122.0,
+            "values": [
+              122.0,
+              -2200.0
+            ]
+          },
+          "relative_change_percent": -0.4673105267205768
+        },
+        "viewer_to_daemon_Bps": {
+          "before": {
+            "mean": 2612.3,
+            "minimum": 2603,
+            "maximum": 2621.6,
+            "values": [
+              2621.6,
+              2603
+            ]
+          },
+          "after": {
+            "mean": 2723.3999999999996,
+            "minimum": 2689.6,
+            "maximum": 2757.2,
+            "values": [
+              2757.2,
+              2689.6
+            ]
+          },
+          "paired_difference": {
+            "mean": 111.09999999999991,
+            "minimum": 86.59999999999991,
+            "maximum": 135.5999999999999,
+            "values": [
+              135.5999999999999,
+              86.59999999999991
+            ]
+          },
+          "relative_change_percent": 4.25295716418479
+        },
+        "producer_Bps": {
+          "before": {
+            "mean": 345184,
+            "minimum": 345184,
+            "maximum": 345184,
+            "values": [
+              345184,
+              345184
+            ]
+          },
+          "after": {
+            "mean": 345184,
+            "minimum": 345184,
+            "maximum": 345184,
+            "values": [
+              345184,
+              345184
+            ]
+          },
+          "paired_difference": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "relative_change_percent": 0.0
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 27519.30211944834,
+            "minimum": 27242.756575744763,
+            "maximum": 27795.84766315192,
+            "values": [
+              27242.756575744763,
+              27795.84766315192
+            ]
+          },
+          "after": {
+            "mean": 27312.641780947146,
+            "minimum": 27245.962324283297,
+            "maximum": 27379.321237611,
+            "values": [
+              27245.962324283297,
+              27379.321237611
+            ]
+          },
+          "paired_difference": {
+            "mean": -206.6603385011931,
+            "minimum": -416.5264255409202,
+            "maximum": 3.2057485385339533,
+            "values": [
+              3.2057485385339533,
+              -416.5264255409202
+            ]
+          },
+          "relative_change_percent": -0.7509650412070079
+        }
+      },
+      "sources": {
+        "before": [
+          "failures/n32-p0-before-attempt1/results.json",
+          "n32-p1-before/results.json"
+        ],
+        "after": [
+          "failures/n32-p0-after-attempt1/results.json",
+          "n32-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 32,
+      "name": "attached-mixed-quiet-focus",
+      "metrics": {
+        "daemon_cpu": {
+          "before": {
+            "mean": 12.466425369272727,
+            "minimum": 11.26594447005598,
+            "maximum": 13.666906268489477,
+            "values": [
+              11.26594447005598,
+              13.666906268489477
+            ]
+          },
+          "after": {
+            "mean": 13.599076827825222,
+            "minimum": 13.1323403778166,
+            "maximum": 14.065813277833845,
+            "values": [
+              13.1323403778166,
+              14.065813277833845
+            ]
+          },
+          "paired_difference": {
+            "mean": 1.1326514585524947,
+            "minimum": 0.3989070093443683,
+            "maximum": 1.8663959077606211,
+            "values": [
+              1.8663959077606211,
+              0.3989070093443683
+            ]
+          },
+          "relative_change_percent": 9.085615362879063
+        },
+        "viewer_cpu": {
+          "before": {
+            "mean": 6.866517665938538,
+            "minimum": 6.59957693808013,
+            "maximum": 7.133458393796946,
+            "values": [
+              6.59957693808013,
+              7.133458393796946
+            ]
+          },
+          "after": {
+            "mean": 6.2329083662136835,
+            "minimum": 6.199623861794064,
+            "maximum": 6.266192870633302,
+            "values": [
+              6.266192870633302,
+              6.199623861794064
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.633609299724855,
+            "minimum": -0.9338345320028818,
+            "maximum": -0.33338406744682825,
+            "values": [
+              -0.33338406744682825,
+              -0.9338345320028818
+            ]
+          },
+          "relative_change_percent": -9.227520128112143
+        },
+        "combined_cpu": {
+          "before": {
+            "mean": 19.332943035211265,
+            "minimum": 17.86552140813611,
+            "maximum": 20.800364662286423,
+            "values": [
+              17.86552140813611,
+              20.800364662286423
+            ]
+          },
+          "after": {
+            "mean": 19.831985194038907,
+            "minimum": 19.3985332484499,
+            "maximum": 20.26543713962791,
+            "values": [
+              19.3985332484499,
+              20.26543713962791
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.49904215882763836,
+            "minimum": -0.5349275226585135,
+            "maximum": 1.5330118403137902,
+            "values": [
+              1.5330118403137902,
+              -0.5349275226585135
+            ]
+          },
+          "relative_change_percent": 2.581304656609862
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 444.02072090638444,
+            "minimum": 388.34014153146927,
+            "maximum": 499.70130028129955,
+            "values": [
+              499.70130028129955,
+              388.34014153146927
+            ]
+          },
+          "after": {
+            "mean": 268.6483695960992,
+            "minimum": 267.446444648732,
+            "maximum": 269.85029454346636,
+            "values": [
+              267.446444648732,
+              269.85029454346636
+            ]
+          },
+          "paired_difference": {
+            "mean": -175.37235131028524,
+            "minimum": -232.25485563256757,
+            "maximum": -118.48984698800291,
+            "values": [
+              -232.25485563256757,
+              -118.48984698800291
+            ]
+          },
+          "relative_change_percent": -39.49643407458456
+        },
+        "provider_cpu_percent": {
+          "before": {
+            "mean": 3.366592358048749,
+            "minimum": 3.2664572723830942,
+            "maximum": 3.466727443714404,
+            "values": [
+              3.2664572723830942,
+              3.466727443714404
+            ]
+          },
+          "after": {
+            "mean": 3.699747645603612,
+            "minimum": 3.6664442193405753,
+            "maximum": 3.733051071866648,
+            "values": [
+              3.733051071866648,
+              3.6664442193405753
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.33315528755486246,
+            "minimum": 0.1997167756261713,
+            "maximum": 0.4665937994835536,
+            "values": [
+              0.4665937994835536,
+              0.1997167756261713
+            ]
+          },
+          "relative_change_percent": 9.895920031968375
+        }
+      },
+      "sources": {
+        "before": [
+          "failures/n32-p0-before-attempt1/results.json",
+          "n32-p1-before/results.json"
+        ],
+        "after": [
+          "failures/n32-p0-after-attempt1/results.json",
+          "n32-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 32,
+      "name": "attached-mixed-quiet-focus-bandwidth",
+      "metrics": {
+        "protocol_Bps": {
+          "before": {
+            "mean": 2435.1000000000004,
+            "minimum": 2353.4,
+            "maximum": 2516.8,
+            "values": [
+              2353.4,
+              2516.8
+            ]
+          },
+          "after": {
+            "mean": 2558.3,
+            "minimum": 2449.6,
+            "maximum": 2667.0,
+            "values": [
+              2449.6,
+              2667.0
+            ]
+          },
+          "paired_difference": {
+            "mean": 123.19999999999982,
+            "minimum": 96.19999999999982,
+            "maximum": 150.19999999999982,
+            "values": [
+              96.19999999999982,
+              150.19999999999982
+            ]
+          },
+          "relative_change_percent": 5.059340478830432
+        },
+        "daemon_to_viewer_Bps": {
+          "before": {
+            "mean": 1779.6,
+            "minimum": 1709.4,
+            "maximum": 1849.8,
+            "values": [
+              1709.4,
+              1849.8
+            ]
+          },
+          "after": {
+            "mean": 1844.4,
+            "minimum": 1747.8,
+            "maximum": 1941,
+            "values": [
+              1747.8,
+              1941
+            ]
+          },
+          "paired_difference": {
+            "mean": 64.79999999999995,
+            "minimum": 38.399999999999864,
+            "maximum": 91.20000000000005,
+            "values": [
+              38.399999999999864,
+              91.20000000000005
+            ]
+          },
+          "relative_change_percent": 3.641267700606887
+        },
+        "viewer_to_daemon_Bps": {
+          "before": {
+            "mean": 655.5,
+            "minimum": 644,
+            "maximum": 667,
+            "values": [
+              644,
+              667
+            ]
+          },
+          "after": {
+            "mean": 713.9,
+            "minimum": 701.8,
+            "maximum": 726,
+            "values": [
+              701.8,
+              726
+            ]
+          },
+          "paired_difference": {
+            "mean": 58.39999999999998,
+            "minimum": 57.799999999999955,
+            "maximum": 59,
+            "values": [
+              57.799999999999955,
+              59
+            ]
+          },
+          "relative_change_percent": 8.90922959572844
+        },
+        "producer_Bps": {
+          "before": {
+            "mean": 345184,
+            "minimum": 345184,
+            "maximum": 345184,
+            "values": [
+              345184,
+              345184
+            ]
+          },
+          "after": {
+            "mean": 345184,
+            "minimum": 345184,
+            "maximum": 345184,
+            "values": [
+              345184,
+              345184
+            ]
+          },
+          "paired_difference": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "relative_change_percent": 0.0
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 406.9025971174907,
+            "minimum": 284.4263022654167,
+            "maximum": 529.3788919695647,
+            "values": [
+              284.4263022654167,
+              529.3788919695647
+            ]
+          },
+          "after": {
+            "mean": 136.79133275313728,
+            "minimum": 68.1914566197191,
+            "maximum": 205.3912088865555,
+            "values": [
+              68.1914566197191,
+              205.3912088865555
+            ]
+          },
+          "paired_difference": {
+            "mean": -270.1112643643534,
+            "minimum": -323.98768308300924,
+            "maximum": -216.23484564569762,
+            "values": [
+              -216.23484564569762,
+              -323.98768308300924
+            ]
+          },
+          "relative_change_percent": -66.38229057219814
+        }
+      },
+      "sources": {
+        "before": [
+          "n32-p0-before/results.json",
+          "n32-p1-before/results.json"
+        ],
+        "after": [
+          "failures/n32-p0-after-attempt1/results.json",
+          "n32-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 32,
+      "name": "attached-spammy",
+      "metrics": {
+        "daemon_cpu": {
+          "before": {
+            "mean": 24.09931939243542,
+            "minimum": 23.732242926953365,
+            "maximum": 24.466395857917473,
+            "values": [
+              23.732242926953365,
+              24.466395857917473
+            ]
+          },
+          "after": {
+            "mean": 24.267526212458456,
+            "minimum": 23.800595741605065,
+            "maximum": 24.734456683311844,
+            "values": [
+              23.800595741605065,
+              24.734456683311844
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.16820682002303577,
+            "minimum": 0.06835281465169984,
+            "maximum": 0.2680608253943717,
+            "values": [
+              0.06835281465169984,
+              0.2680608253943717
+            ]
+          },
+          "relative_change_percent": 0.6979733215031647
+        },
+        "viewer_cpu": {
+          "before": {
+            "mean": 14.999588681036409,
+            "minimum": 14.066020386480785,
+            "maximum": 15.933156975592032,
+            "values": [
+              14.066020386480785,
+              15.933156975592032
+            ]
+          },
+          "after": {
+            "mean": 15.867233042350499,
+            "minimum": 15.133712138219467,
+            "maximum": 16.600753946481532,
+            "values": [
+              15.133712138219467,
+              16.600753946481532
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.867644361314091,
+            "minimum": 0.6675969708895,
+            "maximum": 1.067691751738682,
+            "values": [
+              1.067691751738682,
+              0.6675969708895
+            ]
+          },
+          "relative_change_percent": 5.784454359145386
+        },
+        "combined_cpu": {
+          "before": {
+            "mean": 39.098908073471826,
+            "minimum": 37.79826331343415,
+            "maximum": 40.3995528335095,
+            "values": [
+              37.79826331343415,
+              40.3995528335095
+            ]
+          },
+          "after": {
+            "mean": 40.134759254808955,
+            "minimum": 38.93430787982453,
+            "maximum": 41.33521062979338,
+            "values": [
+              38.93430787982453,
+              41.33521062979338
+            ]
+          },
+          "paired_difference": {
+            "mean": 1.0358511813371294,
+            "minimum": 0.935657796283877,
+            "maximum": 1.1360445663903818,
+            "values": [
+              1.1360445663903818,
+              0.935657796283877
+            ]
+          },
+          "relative_change_percent": 2.6493097438696545
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 40452.779806116894,
+            "minimum": 36611.32809718716,
+            "maximum": 44294.23151504663,
+            "values": [
+              44294.23151504663,
+              36611.32809718716
+            ]
+          },
+          "after": {
+            "mean": 52385.43517335132,
+            "minimum": 37017.5932367681,
+            "maximum": 67753.27710993453,
+            "values": [
+              37017.5932367681,
+              67753.27710993453
+            ]
+          },
+          "paired_difference": {
+            "mean": 11932.65536723442,
+            "minimum": -7276.6382782785295,
+            "maximum": 31141.94901274737,
+            "values": [
+              -7276.6382782785295,
+              31141.94901274737
+            ]
+          },
+          "relative_change_percent": 29.49773890552283
+        },
+        "provider_cpu_percent": {
+          "before": {
+            "mean": 11.299678460259292,
+            "minimum": 11.266149029930109,
+            "maximum": 11.333207890588476,
+            "values": [
+              11.266149029930109,
+              11.333207890588476
+            ]
+          },
+          "after": {
+            "mean": 12.267098757685396,
+            "minimum": 12.26697371556115,
+            "maximum": 12.267223799809644,
+            "values": [
+              12.26697371556115,
+              12.267223799809644
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.9674202974261048,
+            "minimum": 0.9340159092211682,
+            "maximum": 1.0008246856310414,
+            "values": [
+              1.0008246856310414,
+              0.9340159092211682
+            ]
+          },
+          "relative_change_percent": 8.561485185870543
+        }
+      },
+      "sources": {
+        "before": [
+          "n32-p0-before/results.json",
+          "n32-p1-before/results.json"
+        ],
+        "after": [
+          "failures/n32-p0-after-attempt1/results.json",
+          "n32-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 32,
+      "name": "attached-spammy-bandwidth",
+      "metrics": {
+        "protocol_Bps": {
+          "before": {
+            "mean": 223878.4,
+            "minimum": 223758.0,
+            "maximum": 223998.8,
+            "values": [
+              223998.8,
+              223758.0
+            ]
+          },
+          "after": {
+            "mean": 249846.9,
+            "minimum": 223992.0,
+            "maximum": 275701.8,
+            "values": [
+              275701.8,
+              223992.0
+            ]
+          },
+          "paired_difference": {
+            "mean": 25968.5,
+            "minimum": 234.0,
+            "maximum": 51703.0,
+            "values": [
+              51703.0,
+              234.0
+            ]
+          },
+          "relative_change_percent": 11.59937716188788
+        },
+        "daemon_to_viewer_Bps": {
+          "before": {
+            "mean": 221268.40000000002,
+            "minimum": 221159.6,
+            "maximum": 221377.2,
+            "values": [
+              221377.2,
+              221159.6
+            ]
+          },
+          "after": {
+            "mean": 246821.30000000002,
+            "minimum": 221259.2,
+            "maximum": 272383.4,
+            "values": [
+              272383.4,
+              221259.2
+            ]
+          },
+          "paired_difference": {
+            "mean": 25552.90000000001,
+            "minimum": 99.60000000000582,
+            "maximum": 51006.20000000001,
+            "values": [
+              51006.20000000001,
+              99.60000000000582
+            ]
+          },
+          "relative_change_percent": 11.548372926274153
+        },
+        "viewer_to_daemon_Bps": {
+          "before": {
+            "mean": 2610.0,
+            "minimum": 2598.4,
+            "maximum": 2621.6,
+            "values": [
+              2621.6,
+              2598.4
+            ]
+          },
+          "after": {
+            "mean": 3025.6000000000004,
+            "minimum": 2732.8,
+            "maximum": 3318.4,
+            "values": [
+              3318.4,
+              2732.8
+            ]
+          },
+          "paired_difference": {
+            "mean": 415.60000000000014,
+            "minimum": 134.4000000000001,
+            "maximum": 696.8000000000002,
+            "values": [
+              696.8000000000002,
+              134.4000000000001
+            ]
+          },
+          "relative_change_percent": 15.923371647509587
+        },
+        "producer_Bps": {
+          "before": {
+            "mean": 1372160,
+            "minimum": 1372160,
+            "maximum": 1372160,
+            "values": [
+              1372160,
+              1372160
+            ]
+          },
+          "after": {
+            "mean": 1372374.4,
+            "minimum": 1372160,
+            "maximum": 1372588.8,
+            "values": [
+              1372160,
+              1372588.8
+            ]
+          },
+          "paired_difference": {
+            "mean": 214.40000000002328,
+            "minimum": 0,
+            "maximum": 428.80000000004657,
+            "values": [
+              0,
+              428.80000000004657
+            ]
+          },
+          "relative_change_percent": 0.01562499999998579
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 34457.909792541235,
+            "minimum": 34062.78171585309,
+            "maximum": 34853.037869229374,
+            "values": [
+              34853.037869229374,
+              34062.78171585309
+            ]
+          },
+          "after": {
+            "mean": 61017.96547311809,
+            "minimum": 35498.045433190135,
+            "maximum": 86537.88551304604,
+            "values": [
+              86537.88551304604,
+              35498.045433190135
+            ]
+          },
+          "paired_difference": {
+            "mean": 26560.055680576857,
+            "minimum": 1435.2637173370458,
+            "maximum": 51684.84764381667,
+            "values": [
+              51684.84764381667,
+              1435.2637173370458
+            ]
+          },
+          "relative_change_percent": 77.07970634459681
+        }
+      },
+      "sources": {
+        "before": [
+          "n32-p0-before/results.json",
+          "n32-p1-before/results.json"
+        ],
+        "after": [
+          "failures/n32-p0-after-attempt1/results.json",
+          "n32-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 32,
+      "name": "detached-idle",
+      "metrics": {
+        "daemon_cpu": {
+          "before": {
+            "mean": 4.133342250925479,
+            "minimum": 4.066538880562192,
+            "maximum": 4.200145621288767,
+            "values": [
+              4.066538880562192,
+              4.200145621288767
+            ]
+          },
+          "after": {
+            "mean": 4.300667403897476,
+            "minimum": 4.200778901702708,
+            "maximum": 4.400555906092245,
+            "values": [
+              4.400555906092245,
+              4.200778901702708
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.1673251529719968,
+            "minimum": 0.0006332804139406178,
+            "maximum": 0.33401702553005297,
+            "values": [
+              0.33401702553005297,
+              0.0006332804139406178
+            ]
+          },
+          "relative_change_percent": 4.048180450930028
+        },
+        "combined_cpu": {
+          "before": {
+            "mean": 4.133342250925479,
+            "minimum": 4.066538880562192,
+            "maximum": 4.200145621288767,
+            "values": [
+              4.066538880562192,
+              4.200145621288767
+            ]
+          },
+          "after": {
+            "mean": 4.300667403897476,
+            "minimum": 4.200778901702708,
+            "maximum": 4.400555906092245,
+            "values": [
+              4.400555906092245,
+              4.200778901702708
+            ]
+          },
+          "paired_difference": {
+            "mean": 0.1673251529719968,
+            "minimum": 0.0006332804139406178,
+            "maximum": 0.33401702553005297,
+            "values": [
+              0.33401702553005297,
+              0.0006332804139406178
+            ]
+          },
+          "relative_change_percent": 4.048180450930028
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "after": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "paired_difference": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "relative_change_percent": null
+        },
+        "provider_cpu_percent": {
+          "before": {
+            "mean": 0.400000649784569,
+            "minimum": 0.3999874308749697,
+            "maximum": 0.40001386869416833,
+            "values": [
+              0.3999874308749697,
+              0.40001386869416833
+            ]
+          },
+          "after": {
+            "mean": 0.33338726952976405,
+            "minimum": 0.26670035794498453,
+            "maximum": 0.40007418111454357,
+            "values": [
+              0.26670035794498453,
+              0.40007418111454357
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.06661338025480495,
+            "minimum": -0.13328707292998515,
+            "maximum": 6.031242037524143e-05,
+            "values": [
+              -0.13328707292998515,
+              6.031242037524143e-05
+            ]
+          },
+          "relative_change_percent": -16.653318011028574
+        }
+      },
+      "sources": {
+        "before": [
+          "n32-p0-before/results.json",
+          "n32-p1-before/results.json"
+        ],
+        "after": [
+          "failures/n32-p0-after-attempt1/results.json",
+          "n32-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 32,
+      "name": "detached-mixed",
+      "metrics": {
+        "daemon_cpu": {
+          "before": {
+            "mean": 13.69848232763145,
+            "minimum": 13.600715413951633,
+            "maximum": 13.796249241311264,
+            "values": [
+              13.600715413951633,
+              13.796249241311264
+            ]
+          },
+          "after": {
+            "mean": 12.934797500580018,
+            "minimum": 12.067697935929177,
+            "maximum": 13.801897065230857,
+            "values": [
+              12.067697935929177,
+              13.801897065230857
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.7636848270514314,
+            "minimum": -1.5330174780224564,
+            "maximum": 0.00564782391959362,
+            "values": [
+              -1.5330174780224564,
+              0.00564782391959362
+            ]
+          },
+          "relative_change_percent": -5.574959391749479
+        },
+        "combined_cpu": {
+          "before": {
+            "mean": 13.69848232763145,
+            "minimum": 13.600715413951633,
+            "maximum": 13.796249241311264,
+            "values": [
+              13.600715413951633,
+              13.796249241311264
+            ]
+          },
+          "after": {
+            "mean": 12.934797500580018,
+            "minimum": 12.067697935929177,
+            "maximum": 13.801897065230857,
+            "values": [
+              12.067697935929177,
+              13.801897065230857
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.7636848270514314,
+            "minimum": -1.5330174780224564,
+            "maximum": 0.00564782391959362,
+            "values": [
+              -1.5330174780224564,
+              0.00564782391959362
+            ]
+          },
+          "relative_change_percent": -5.574959391749479
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "after": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "paired_difference": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "relative_change_percent": null
+        },
+        "provider_cpu_percent": {
+          "before": {
+            "mean": 3.766259265202653,
+            "minimum": 3.7323186353305844,
+            "maximum": 3.8001998950747216,
+            "values": [
+              3.8001998950747216,
+              3.7323186353305844
+            ]
+          },
+          "after": {
+            "mean": 3.6003978120912254,
+            "minimum": 3.467143224115964,
+            "maximum": 3.7336524000664864,
+            "values": [
+              3.7336524000664864,
+              3.467143224115964
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.16586145311142775,
+            "minimum": -0.2651754112146203,
+            "maximum": -0.0665474950082352,
+            "values": [
+              -0.0665474950082352,
+              -0.2651754112146203
+            ]
+          },
+          "relative_change_percent": -4.40387773204729
+        }
+      },
+      "sources": {
+        "before": [
+          "n32-p0-before/results.json",
+          "n32-p1-before/results.json"
+        ],
+        "after": [
+          "failures/n32-p0-after-attempt1/results.json",
+          "n32-p1-after/results.json"
+        ]
+      }
+    },
+    {
+      "agents": 32,
+      "name": "detached-spammy",
+      "metrics": {
+        "daemon_cpu": {
+          "before": {
+            "mean": 20.79898037161093,
+            "minimum": 19.735083437901263,
+            "maximum": 21.8628773053206,
+            "values": [
+              19.735083437901263,
+              21.8628773053206
+            ]
+          },
+          "after": {
+            "mean": 20.0377200424548,
+            "minimum": 18.740175425102876,
+            "maximum": 21.33526465980673,
+            "values": [
+              18.740175425102876,
+              21.33526465980673
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.7612603291561282,
+            "minimum": -0.9949080127983869,
+            "maximum": -0.5276126455138694,
+            "values": [
+              -0.9949080127983869,
+              -0.5276126455138694
+            ]
+          },
+          "relative_change_percent": -3.6600848481745496
+        },
+        "combined_cpu": {
+          "before": {
+            "mean": 20.79898037161093,
+            "minimum": 19.735083437901263,
+            "maximum": 21.8628773053206,
+            "values": [
+              19.735083437901263,
+              21.8628773053206
+            ]
+          },
+          "after": {
+            "mean": 20.0377200424548,
+            "minimum": 18.740175425102876,
+            "maximum": 21.33526465980673,
+            "values": [
+              18.740175425102876,
+              21.33526465980673
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.7612603291561282,
+            "minimum": -0.9949080127983869,
+            "maximum": -0.5276126455138694,
+            "values": [
+              -0.9949080127983869,
+              -0.5276126455138694
+            ]
+          },
+          "relative_change_percent": -3.6600848481745496
+        },
+        "terminal_Bps": {
+          "before": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "after": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "paired_difference": {
+            "mean": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "values": [
+              0,
+              0
+            ]
+          },
+          "relative_change_percent": null
+        },
+        "provider_cpu_percent": {
+          "before": {
+            "mean": 10.732853081715955,
+            "minimum": 10.534267510771613,
+            "maximum": 10.9314386526603,
+            "values": [
+              10.534267510771613,
+              10.9314386526603
+            ]
+          },
+          "after": {
+            "mean": 10.435724653865009,
+            "minimum": 10.334268819593886,
+            "maximum": 10.53718048813613,
+            "values": [
+              10.53718048813613,
+              10.334268819593886
+            ]
+          },
+          "paired_difference": {
+            "mean": -0.2971284278509483,
+            "minimum": -0.5971698330664132,
+            "maximum": 0.002912977364516678,
+            "values": [
+              0.002912977364516678,
+              -0.5971698330664132
+            ]
+          },
+          "relative_change_percent": -2.76840114728788
+        }
+      },
+      "sources": {
+        "before": [
+          "n32-p0-before/results.json",
+          "n32-p1-before/results.json"
+        ],
+        "after": [
+          "n32-p0-after/results.json",
+          "n32-p1-after/results.json"
+        ]
+      }
+    }
+  ],
+  "measured_windows": 132,
+  "flagged_windows": 68,
+  "calibration": {
+    "command": [
+      "sudo",
+      "-n",
+      "bpftrace",
+      "-f",
+      "json",
+      "/home/t/dev/personal/corgi-remote-network-eval/tools/benchmarks/local_scale/socket_bytes.bt",
+      "692792",
+      "0",
+      "2478083877029367",
+      "2478086877029367"
+    ],
+    "expected": {
+      "692792,266631439": 8260182,
+      "692792,266631440": 8260182
+    },
+    "measured": {
+      "692792,266631439": 8260182,
+      "692792,266631440": 8260182
+    },
+    "received": [
+      8260182,
+      8260182
+    ],
+    "ready_ns": 2478080301090696,
+    "start_ns": 2478083877029367,
+    "end_ns": 2478086877029367,
+    "finished_ns": 2478083885548080,
+    "passed": true
+  },
+  "notes": "Two trials per build by default, ABBA order at each count. Means and individual paired differences; not confidence intervals. CPU is untraced; bandwidth is a separate traced window. First valid window per planned scenario, including valid windows in later-aborted attempts; other valid retry windows retained separately."
+}

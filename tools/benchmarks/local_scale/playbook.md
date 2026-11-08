@@ -110,8 +110,9 @@ Each trial saves `results.json`, exact kernel counters, socket/FD mappings,
 producer write receipts, presentation receipts, terminal snapshots as text,
 and a cleanup receipt. `plan.json` identifies the executable and harness hashes.
 Failed pilots are retained locally and excluded from the reported matrix.
-Set `UI_DRIVER_KEEP=1` to retain the stopped fixture home and `server.log` after
-cleanup; without it the UI driver removes that home. If a measured trial fails,
+The runner now copies server logs and crash diagnostics into each trial before
+cleanup. Set `UI_DRIVER_KEEP=1` to retain the complete stopped fixture home too.
+The original current-only matrix predates automatic log retention. If a measured trial fails,
 preserve the entire attempt before rerunning. The published evidence includes
 any such replacement in `continuation.json`; failed partial windows are excluded
 as a whole trial, never selected by their CPU or bandwidth values.
