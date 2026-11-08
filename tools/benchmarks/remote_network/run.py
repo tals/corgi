@@ -56,7 +56,7 @@ class Viewer:
         spec = {"cols": 160 if lab.product == "corgi" else 159, "rows": 48,
                 "command": lab.command("local", [lab.binary] + (["--no-update"] if lab.product == "corgi" else [])),
                 "cwd": str(lab.root / "local/project"), "env": {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "TERM": "xterm-256color"},
-                "ansi": str(lab.out / f"viewer-{index}.ansi")}
+                "ansi": str(lab.out / f"viewer-{index}.ansi"), "ui": getattr(lab.args, "ui", False)}
         spec_path = lab.out / f"viewer-{index}.json"
         dump(spec_path, spec)
         env = dict(os.environ, CORGI_NATIVE_ROOT=str(REPO / "native/zig-out"))

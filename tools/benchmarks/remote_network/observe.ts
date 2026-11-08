@@ -11,6 +11,7 @@ interface Spec {
   cwd: string;
   env: Record<string, string>;
   ansi: string;
+  ui?: boolean;
 }
 type Request = { op: "input"; id: number; text: string } | { op: "screen"; id: number } | { op: "exit" };
 
@@ -25,6 +26,8 @@ const now = () => {
 const emit = (value: object) => console.log(JSON.stringify({ at: now(), ...value }));
 let last = "";
 let bytes = 0;
+let lastUi = "";
+const sidebar = new Set<string>();
 const tty = new Bun.Terminal({
   cols: spec.cols,
   rows: spec.rows,
@@ -32,6 +35,20 @@ const tty = new Bun.Terminal({
     bytes += data.length;
     screen.feed(data);
     const text = screen.text();
+    if (spec.ui) {
+      for (const machine of ["local", "atlas", "borealis"])
+        if (!sidebar.has(machine) && text.includes(`${machine.toUpperCase()}_WORK`)) {
+          sidebar.add(machine);
+          emit({ event: "sidebar", machine });
+        }
+      const row = text.split("\n")[0];
+      const tabs = [...row.matchAll(/UI_(local|atlas|borealis)_(\d+)/g)];
+      const identity = tabs.map(match => match[0]).join(",");
+      if (identity && identity !== lastUi) {
+        lastUi = identity;
+        emit({ event: "ui", machine: tabs[0][1], tabs: tabs.map(match => Number(match[2])), text });
+      }
+    }
     const header = /NETEVAL_(\w+) S(\d+) T(\d+)/.exec(text);
     const end = [...text.matchAll(/END_(\w+) S(\d+) ACK_(\w+)/g)].find(
       match => header && match[1] === header[1] && match[2] === header[2],

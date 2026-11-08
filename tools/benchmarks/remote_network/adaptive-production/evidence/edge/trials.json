@@ -1,0 +1,461 @@
+[
+  {
+    "path": "dist/adaptive-accepted-edge-20261108/stream-600-low/after-1",
+    "label": "after",
+    "sha256": "db8d523276bf6bd657a71fb9a01784f216e7b52e99bf3760824bf84bbc6f14b8",
+    "results": [
+      {
+        "local_seconds": 0.4266168759204447,
+        "remote_seconds": 2.8282668008469045,
+        "usable_seconds": 2.9960427368059754,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "after",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/adaptive-accepted-edge-20261108/stream-600-low/after-1/results.json"
+      },
+      {
+        "fps": 2.7999911519171254,
+        "p95_age": 2.203747105784714,
+        "max_age": 3.3535682358779013,
+        "down_kbit_s": 46.73688080807408,
+        "up_kbit_s": 8.35479229694633,
+        "total_kbit_s": 55.09167310502041,
+        "catchup_seconds": 0.608639108017087,
+        "echo_seconds": 1.106670812703669,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.2580343184010548,
+        "product_sum_rss_mib": 422.77734375,
+        "key": [
+          "stream-600-low",
+          "after",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "dist/adaptive-accepted-edge-20261108/stream-600-low/after-1/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/adaptive-accepted-edge-20261108/stream-600-low/after-2",
+    "label": "after",
+    "sha256": "db8d523276bf6bd657a71fb9a01784f216e7b52e99bf3760824bf84bbc6f14b8",
+    "results": [
+      {
+        "local_seconds": 0.4260980999097228,
+        "remote_seconds": 2.8150586718693376,
+        "usable_seconds": 2.9796767998486757,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "after",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/adaptive-accepted-edge-20261108/stream-600-low/after-2/results.json"
+      },
+      {
+        "fps": 2.8666569751342377,
+        "p95_age": 1.7970989868044853,
+        "max_age": 1.99759351182729,
+        "down_kbit_s": 46.99675245212806,
+        "up_kbit_s": 8.214751525886143,
+        "total_kbit_s": 55.2115039780142,
+        "catchup_seconds": 0.49083412531763315,
+        "echo_seconds": 1.2834580093622208,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.23414923253605066,
+        "product_sum_rss_mib": 412.41796875,
+        "key": [
+          "stream-600-low",
+          "after",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "dist/adaptive-accepted-edge-20261108/stream-600-low/after-2/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/adaptive-accepted-edge-20261108/stream-600-low/after-3",
+    "label": "after",
+    "sha256": "db8d523276bf6bd657a71fb9a01784f216e7b52e99bf3760824bf84bbc6f14b8",
+    "results": [
+      {
+        "local_seconds": 0.4122418127954006,
+        "remote_seconds": 2.8091973909176886,
+        "usable_seconds": 3.0029161451384425,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "after",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/adaptive-accepted-edge-20261108/stream-600-low/after-3/results.json"
+      },
+      {
+        "fps": 2.733322006241896,
+        "p95_age": 1.7437873468734324,
+        "max_age": 1.993867291137576,
+        "down_kbit_s": 45.83194579588612,
+        "up_kbit_s": 8.040028404001117,
+        "total_kbit_s": 53.871974199887234,
+        "catchup_seconds": 1.4691294939257205,
+        "echo_seconds": 1.516240278724581,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.23930613928805589,
+        "product_sum_rss_mib": 412.1953125,
+        "key": [
+          "stream-600-low",
+          "after",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "dist/adaptive-accepted-edge-20261108/stream-600-low/after-3/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/adaptive-accepted-edge-20261108/stream-600-low/before-1",
+    "label": "before",
+    "sha256": "59bf1ccecaf400f812ac3f7d81d3cc13fcfedc8ca25328c1cd76a4cb345583fe",
+    "results": [
+      {
+        "local_seconds": 0.42914618039503694,
+        "remote_seconds": 2.9481118763796985,
+        "usable_seconds": 3.128232697956264,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "before",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/adaptive-accepted-edge-20261108/stream-600-low/before-1/results.json"
+      },
+      {
+        "fps": 1.866657308796767,
+        "p95_age": 1.3266095449216664,
+        "max_age": 1.4266144852153957,
+        "down_kbit_s": 64.24636850447851,
+        "up_kbit_s": 8.37725265162718,
+        "total_kbit_s": 72.62362115610568,
+        "catchup_seconds": 0.5732691292650998,
+        "echo_seconds": 1.3930912199430168,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.2642223298999285,
+        "product_sum_rss_mib": 404.58984375,
+        "key": [
+          "stream-600-low",
+          "before",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "dist/adaptive-accepted-edge-20261108/stream-600-low/before-1/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/adaptive-accepted-edge-20261108/stream-600-low/before-2",
+    "label": "before",
+    "sha256": "59bf1ccecaf400f812ac3f7d81d3cc13fcfedc8ca25328c1cd76a4cb345583fe",
+    "results": [
+      {
+        "local_seconds": 0.4143193569034338,
+        "remote_seconds": 2.918767302762717,
+        "usable_seconds": 3.118136155884713,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "before",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/adaptive-accepted-edge-20261108/stream-600-low/before-2/results.json"
+      },
+      {
+        "fps": 1.8666599295738437,
+        "p95_age": 1.323166985064745,
+        "max_age": 1.423389668110758,
+        "down_kbit_s": 64.01999083653507,
+        "up_kbit_s": 8.24039028192467,
+        "total_kbit_s": 72.26038111845975,
+        "catchup_seconds": 0.5922280601225793,
+        "echo_seconds": 1.3720145979896188,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.2556991508509738,
+        "product_sum_rss_mib": 404.1484375,
+        "key": [
+          "stream-600-low",
+          "before",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "dist/adaptive-accepted-edge-20261108/stream-600-low/before-2/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/adaptive-accepted-edge-20261108/stream-600-low/before-3",
+    "label": "before",
+    "sha256": "59bf1ccecaf400f812ac3f7d81d3cc13fcfedc8ca25328c1cd76a4cb345583fe",
+    "results": [
+      {
+        "local_seconds": 0.40702591463923454,
+        "remote_seconds": 2.93953147996217,
+        "usable_seconds": 3.134003493003547,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "before",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/adaptive-accepted-edge-20261108/stream-600-low/before-3/results.json"
+      },
+      {
+        "fps": 1.8666597976829717,
+        "p95_age": 1.2947352398186922,
+        "max_age": 1.394760106690228,
+        "down_kbit_s": 64.21816137323452,
+        "up_kbit_s": 8.2299683763739,
+        "total_kbit_s": 72.44812974960843,
+        "catchup_seconds": 0.49649894423782825,
+        "echo_seconds": 1.2987653110176325,
+        "inputs": 5,
+        "visible_inputs": 5,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.261349395153322,
+        "product_sum_rss_mib": 412.234375,
+        "key": [
+          "stream-600-low",
+          "before",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "dist/adaptive-accepted-edge-20261108/stream-600-low/before-3/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/adaptive-accepted-edge-20261108/stream-600-low/herdr-1",
+    "label": "herdr",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "results": [
+      {
+        "local_seconds": 0.28311185585334897,
+        "remote_seconds": 3.938801772892475,
+        "usable_seconds": 4.3389365850016475,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "herdr",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/adaptive-accepted-edge-20261108/stream-600-low/herdr-1/results.json"
+      },
+      {
+        "fps": 1.533328688424699,
+        "p95_age": 30.212878777179867,
+        "max_age": 31.562584147788584,
+        "down_kbit_s": 63.28682870518952,
+        "up_kbit_s": 4.001993845970339,
+        "total_kbit_s": 67.28882255115985,
+        "catchup_seconds": 14.140709295403212,
+        "echo_seconds": null,
+        "inputs": 5,
+        "visible_inputs": 0,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.05108668802801492,
+        "product_sum_rss_mib": 68.125,
+        "key": [
+          "stream-600-low",
+          "herdr",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "dist/adaptive-accepted-edge-20261108/stream-600-low/herdr-1/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/adaptive-accepted-edge-20261108/stream-600-low/herdr-2",
+    "label": "herdr",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "results": [
+      {
+        "local_seconds": 0.29170323396101594,
+        "remote_seconds": 3.939644285943359,
+        "usable_seconds": 4.460045066662133,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "herdr",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/adaptive-accepted-edge-20261108/stream-600-low/herdr-2/results.json"
+      },
+      {
+        "fps": 0.9666619173908697,
+        "p95_age": 31.065099932719022,
+        "max_age": 32.415305477101356,
+        "down_kbit_s": 63.895693721829836,
+        "up_kbit_s": 4.084933075673618,
+        "total_kbit_s": 67.98062679750345,
+        "catchup_seconds": 12.027677500154823,
+        "echo_seconds": null,
+        "inputs": 5,
+        "visible_inputs": 0,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.05480910200514021,
+        "product_sum_rss_mib": 62.12109375,
+        "key": [
+          "stream-600-low",
+          "herdr",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "dist/adaptive-accepted-edge-20261108/stream-600-low/herdr-2/results.json"
+      }
+    ]
+  },
+  {
+    "path": "dist/adaptive-accepted-edge-20261108/stream-600-low/herdr-3",
+    "label": "herdr",
+    "sha256": "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d",
+    "results": [
+      {
+        "local_seconds": 0.29251644806936383,
+        "remote_seconds": 3.9412917783483863,
+        "usable_seconds": 4.457105514127761,
+        "sidebar_seconds": null,
+        "ui_seconds": null,
+        "first_content_seconds": null,
+        "click_to_ui_seconds": null,
+        "click_to_first_content_seconds": null,
+        "key": [
+          "stream-600-low",
+          "herdr",
+          "startup",
+          120,
+          false
+        ],
+        "evidence": "dist/adaptive-accepted-edge-20261108/stream-600-low/herdr-3/results.json"
+      },
+      {
+        "fps": 1.1333286257925301,
+        "p95_age": 30.65271345851943,
+        "max_age": 32.15271345293149,
+        "down_kbit_s": 63.884086575138085,
+        "up_kbit_s": 3.8589550140002506,
+        "total_kbit_s": 67.74304158913833,
+        "catchup_seconds": 12.368185059633106,
+        "echo_seconds": null,
+        "inputs": 5,
+        "visible_inputs": 0,
+        "received_inputs": 5,
+        "product_cpu_cores": 0.06058236584494985,
+        "product_sum_rss_mib": 66.125,
+        "key": [
+          "stream-600-low",
+          "herdr",
+          "stream",
+          "dense",
+          "64kbit",
+          600,
+          null,
+          null
+        ],
+        "evidence": "dist/adaptive-accepted-edge-20261108/stream-600-low/herdr-3/results.json"
+      }
+    ]
+  }
+]

@@ -1,5 +1,7 @@
 # Corgi remote networking vs Herdr
 
+Latest: [production zstd + adaptive-window comparison](adaptive-production/report.md).
+
 [Latest: updated remote branch and outage recovery](outages/report.md).
 
 [Follow-up: fixes, repeated measurements and remaining gaps](followup/report.md).
