@@ -42,7 +42,7 @@ trust the hooks once, in `/hooks`.
 | Context, tokens and rate limits      |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |
 | Rename and fork                      |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |
 | Resume after a crash or reboot       |      ✓      |   ✓   |  ✓  |    ✓     |    ✓     |
-| Multiple accounts                    |      ✓      |   ✓   |  ✓  |          |          |
+| Multiple accounts                    |      ✓      |   ✓   |  ✓  | Built-in | Built-in |
 
 ## Scripting
 
