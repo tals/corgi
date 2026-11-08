@@ -81,7 +81,7 @@ async function serve(dir: string, exe: string): Promise<void> {
   };
   const control = join(dir, "network.sock");
   rmSync(control, { force: true });
-  let stopping = false;
+  let stopping: Promise<void> | undefined;
   const server = createServer(client => {
     let input = "";
     client.setTimeout(2000, () => client.destroy());
@@ -121,16 +121,16 @@ async function serve(dir: string, exe: string): Promise<void> {
       }
     });
   });
-  const stop = async () => {
-    if (stopping) return;
-    stopping = true;
-    clearInterval(timer);
-    server.close();
-    for (const proxy of proxies.values()) await proxy.close();
-    for (const child of children) child.kill();
-    await Promise.all(children.map(child => child.exited));
-    rmSync(control, { force: true });
-  };
+  const stop = () =>
+    (stopping ??= (async () => {
+      clearInterval(timer);
+      for (const proxy of proxies.values()) await proxy.close();
+      for (const child of children) child.kill();
+      await Promise.all(children.map(child => child.exited));
+      // The socket's disappearance lets --restart remove the children's state.
+      await new Promise<void>(resolve => server.close(() => resolve()));
+      rmSync(control, { force: true });
+    })());
   for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"] as const)
     process.on(signal, () => void stop().then(() => process.exit()));
   try {
